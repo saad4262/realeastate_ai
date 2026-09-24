@@ -59,11 +59,30 @@ export type ModelChoice = {
    * guide that searched confidently for the wrong thing.
    *
    * Raise to `high` only against another measurement.
+   *
+   * NOTE: that measurement was taken against Opus. The model has since moved
+   * to Haiku for cost, and nothing has re-run those cases — a smaller model
+   * starved of effort is more likely to make those mistakes, not less. If the
+   * guide starts sending filters nobody asked for again, this is the first
+   * thing to look at, and the fix is a measurement rather than a guess.
    */
   effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 };
 
-const DEFAULT_CHAT_MODEL = 'claude-opus-5';
+/**
+ * Haiku, for cost. Opus was overkill for choosing filters out of a sentence
+ * and was draining the balance on a public, unauthenticated route.
+ *
+ * The id is the ALIAS, not a dated snapshot, and that is load-bearing: costUsd
+ * looks the price up by exact id and returns 0 for anything it does not know,
+ * so `claude-haiku-4-5-20251001` would have silently written $0 into every
+ * ai_run row while the chat carried on working. `modelIsPriced` below is the
+ * test that refuses that.
+ *
+ * Roughly a fifth of Opus per input token and a fifth per output token — see
+ * PRICES above.
+ */
+const DEFAULT_CHAT_MODEL = 'claude-haiku-4-5';
 
 /** Model router. One feature today; the shape is what M3 grows into. */
 export function getModel(feature: AiFeature, env: NodeJS.ProcessEnv = process.env): ModelChoice {
