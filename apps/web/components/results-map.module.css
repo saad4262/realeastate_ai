@@ -25,6 +25,6 @@
 .note {
   margin: 0;
   font-size: 0.75rem;
-  color: var(--color-muted, #64748b);
+  color: var(--color-muted, #5c5c5c);
   line-height: 1.4;
 }

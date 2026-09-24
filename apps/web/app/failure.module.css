@@ -16,7 +16,7 @@
 }
 
 .body {
-  color: var(--color-muted, #64748b);
+  color: var(--color-muted, #5c5c5c);
   font-size: 1.0625rem;
   margin: 0 0 1.75rem;
 }
@@ -57,6 +57,6 @@
   margin: 1.75rem 0 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.75rem;
-  color: var(--color-muted, #64748b);
+  color: var(--color-muted, #5c5c5c);
   word-break: break-all;
 }

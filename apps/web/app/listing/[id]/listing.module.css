@@ -1,6 +1,6 @@
 .wrap { max-width: 860px; margin: 0 auto; display: grid; gap: 1.25rem; }
 
-.back { font-size: 0.875rem; color: var(--color-muted, #64748b); text-decoration: none; }
+.back { font-size: 0.875rem; color: var(--color-muted, #5c5c5c); text-decoration: none; }
 .back:hover { text-decoration: underline; }
 
 .hero {
@@ -34,7 +34,7 @@
   letter-spacing: -0.02em;
 }
 
-.specs { margin: 0.25rem 0 0; color: var(--color-muted, #64748b); font-size: 0.9375rem; }
+.specs { margin: 0.25rem 0 0; color: var(--color-muted, #5c5c5c); font-size: 0.9375rem; }
 .price { font-size: 1.375rem; font-weight: 700; white-space: nowrap; }
 
 .headline { margin: 0; font-size: 1.125rem; font-weight: 600; }
@@ -43,7 +43,7 @@
 .description p { margin: 0; }
 
 .facts, .agents {
-  border-top: 1px solid var(--color-border, #e2e8f0);
+  border-top: 1px solid var(--color-border, #d9d2c5);
   padding-top: 1.25rem;
 }
 
@@ -52,7 +52,7 @@
   font-size: 0.6875rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--color-muted, #64748b);
+  color: var(--color-muted, #5c5c5c);
 }
 
 .factGrid {
@@ -62,8 +62,8 @@
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 
-.fact dt { font-size: 0.75rem; color: var(--color-muted, #64748b); }
+.fact dt { font-size: 0.75rem; color: var(--color-muted, #5c5c5c); }
 .fact dd { margin: 0.125rem 0 0; font-size: 0.9375rem; font-weight: 600; }
 
 .agency { margin: 0; font-size: 1rem; font-weight: 600; }
-.agentList { margin: 0.5rem 0 0; padding-left: 1.125rem; color: var(--color-muted, #64748b); font-size: 0.9375rem; }
+.agentList { margin: 0.5rem 0 0; padding-left: 1.125rem; color: var(--color-muted, #5c5c5c); font-size: 0.9375rem; }

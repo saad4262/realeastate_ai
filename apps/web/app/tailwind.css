@@ -1,0 +1,171 @@
+/*
+ * Tailwind, and the design tokens both styling systems read.
+ *
+ * WITHOUT PREFLIGHT, deliberately. Importing `tailwindcss` whole would pull in
+ * its reset, and every page on this site was built on browser defaults plus
+ * packages/ui/styles.css. A reset landing underneath them would silently move
+ * type, margins and borders on pages nobody was editing. The two things
+ * preflight is actually wanted for — border-box everywhere and a zeroed body
+ * margin — styles.css already does.
+ *
+ * So the layers are imported by hand: theme (the variables) and utilities (the
+ * classes), no base.
+ */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+/*
+ * The token set.
+ *
+ * Structure is taken from the Stitch mock — a three-level surface system,
+ * three weights of ink, three weights of rule, one accent and a small set of
+ * status colours. That structure is what gives the mock its density.
+ *
+ * The VALUES are this site's. The mock is built on cool slate (#F8FAFC canvas,
+ * #0F172A ink, #E2E8F0 rules) and this site is warm (#f7f4ef, #1a1a1a,
+ * #d9d2c5). Adopting the slate would have left /search and /listing looking
+ * like a different product from / and /chat, which share a token file with the
+ * console. Same skeleton, this site's skin.
+ *
+ * `@theme` emits each of these as a real CSS custom property, so a CSS Module
+ * can write `var(--color-ink-soft)` and get exactly what `text-ink-soft`
+ * resolves to. One source, two systems — which is the only reason having two
+ * is tolerable.
+ */
+/*
+ * `static`, not bare `@theme`.
+ *
+ * Tailwind only emits the variables its generated utilities actually use. That
+ * is the right default for a Tailwind-only codebase and the wrong one here: the
+ * CSS Modules that still style most of this app read these as plain custom
+ * properties, and a token nothing happened to use as a utility class would
+ * simply not exist for them. `static` emits the whole set, which is what makes
+ * "one source, two systems" true rather than aspirational.
+ */
+@theme static {
+  /* ---- surfaces ---- */
+  --color-canvas: #f7f4ef;
+  /* `card`, not `surface`: packages/ui/styles.css declares --color-surface
+     unlayered, which beats anything in @layer theme. Two declarations of one
+     name, where the loser is invisible, is a trap. */
+  --color-card: #ffffff;
+  --color-raised: #fffdfa;
+  --color-sunken: #f1ece3;
+
+  /* ---- ink ---- */
+  --color-ink: #1a1a1a;
+  --color-ink-soft: #5c5c5c;
+  --color-ink-faint: #8c8577;
+
+  /* ---- rules ---- */
+  --color-line-subtle: #ece7dd;
+  --color-line: #d9d2c5;
+  --color-line-strong: #c2b8a6;
+
+  /* ---- brand ---- */
+  --color-brand: #0b3d2e;
+  --color-brand-deep: #072a20;
+  --color-brand-soft: #eaf1ed;
+  --color-brand-ink: #f7f4ef;
+
+  /* ---- status, never identity ----
+     Used for a state a listing is in, not for branding. The mock leads with
+     crimson; here crimson only ever means "attention". */
+  --color-success: #0f7a52;
+  --color-success-soft: #e8f4ee;
+  --color-notice: #a8620a;
+  --color-notice-soft: #fbf1e3;
+  --color-alert: #b3261e;
+  --color-alert-soft: #fbeae9;
+  --color-info: #1d4e89;
+  --color-info-soft: #e9eff7;
+
+  /* ---- type ----
+     The mock's scale has the right number of steps and the right rhythm, but
+     it is a dense agency console: its body text is 13.5px. This is a consumer
+     property page read on a phone, so the body steps are sized up and the
+     label steps kept small.
+
+     Weights are 400 and 600 ONLY, because those are the two weights
+     layout.tsx actually loads. The mock asks for 700 and 500 in places; a
+     weight the browser has to synthesise looks worse than the one you have.
+     Adding Fraunces 700 is one line in layout.tsx if a heavier headline is
+     ever wanted — but it is a font file on the critical path, so it is a
+     decision, not a default. */
+  --text-headline-xl: 2rem;
+  --text-headline-xl--line-height: 1.25;
+  --text-headline-xl--letter-spacing: -0.025em;
+  --text-headline-xl--font-weight: 600;
+
+  --text-headline-lg: 1.5rem;
+  --text-headline-lg--line-height: 1.33;
+  --text-headline-lg--letter-spacing: -0.02em;
+  --text-headline-lg--font-weight: 600;
+
+  --text-headline-md: 1.125rem;
+  --text-headline-md--line-height: 1.44;
+  --text-headline-md--letter-spacing: -0.015em;
+  --text-headline-md--font-weight: 600;
+
+  --text-title-sm: 0.9375rem;
+  --text-title-sm--line-height: 1.47;
+  --text-title-sm--letter-spacing: -0.01em;
+  --text-title-sm--font-weight: 600;
+
+  --text-body-lg: 1rem;
+  --text-body-lg--line-height: 1.6;
+  --text-body-lg--font-weight: 400;
+
+  --text-body-md: 0.9375rem;
+  --text-body-md--line-height: 1.55;
+  --text-body-md--font-weight: 400;
+
+  --text-body-sm: 0.8125rem;
+  --text-body-sm--line-height: 1.5;
+  --text-body-sm--font-weight: 400;
+
+  --text-label-md: 0.75rem;
+  --text-label-md--line-height: 1.33;
+  --text-label-md--letter-spacing: 0.01em;
+  --text-label-md--font-weight: 600;
+
+  --text-label-sm: 0.6875rem;
+  --text-label-sm--line-height: 1.27;
+  --text-label-sm--letter-spacing: 0.04em;
+  --text-label-sm--font-weight: 600;
+
+  /* Prices, counts, distances. Tabular so a column of them does not jitter. */
+  --text-data: 0.875rem;
+  --text-data--line-height: 1.4;
+  --text-data--letter-spacing: -0.01em;
+  --text-data--font-weight: 600;
+
+  /* ---- families ----
+     The site's own. next/font supplies the family name through these variables
+     and generates the size-adjusted fallback. */
+  --font-sans: var(--font-source-sans), 'Source Sans 3', 'Segoe UI', sans-serif;
+  --font-display: var(--font-fraunces), 'Fraunces', Georgia, serif;
+
+  /* ---- spacing ---- */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 0.875rem;
+  --spacing-lg: 1.25rem;
+  --spacing-xl: 2rem;
+  --spacing-gutter: 1.25rem;
+  --spacing-margin: 1.5rem;
+
+  /* ---- radii ---- */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+
+  /* ---- elevation ----
+     Warm-tinted rather than neutral black, so a card does not read as grey
+     against cream. */
+  --shadow-card: 0 1px 2px rgba(60, 48, 30, 0.06), 0 1px 8px rgba(60, 48, 30, 0.05);
+  --shadow-raised: 0 4px 12px rgba(60, 48, 30, 0.08);
+  --shadow-float: 0 10px 28px rgba(60, 48, 30, 0.12);
+}

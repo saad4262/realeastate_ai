@@ -1,6 +1,9 @@
 import type { Metadata } from 'next';
 import { Fraunces, Source_Sans_3 } from 'next/font/google';
 import '@repo/ui/styles.css';
+// After the shared tokens, so `@theme` can build on them and a utility class
+// always wins over a base rule rather than depending on file order.
+import './tailwind.css';
 
 /**
  * Self-hosted, so the critical path holds no third-party round trip.
@@ -21,7 +24,7 @@ const fraunces = Fraunces({
 
 const sourceSans = Source_Sans_3({
   subsets: ['latin'],
-  weight: ['400', '600'],
+  weight: ['400', '600', '700'],
   display: 'swap',
   variable: '--font-source-sans',
 });

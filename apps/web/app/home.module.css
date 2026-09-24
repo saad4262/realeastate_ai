@@ -19,7 +19,7 @@
 }
 
 .sub {
-  color: var(--color-muted, #64748b);
+  color: var(--color-muted, #5c5c5c);
   margin: 0 0 1.6rem;
   font-size: 1.05rem;
   line-height: 1.55;
@@ -43,7 +43,7 @@
   letter-spacing: -0.01em;
 }
 
-.count { font-size: 0.8125rem; color: var(--color-muted, #64748b); }
+.count { font-size: 0.8125rem; color: var(--color-muted, #5c5c5c); }
 
 .grid {
   display: grid;
@@ -54,8 +54,8 @@
 .empty {
   padding: 2.5rem 1rem;
   text-align: center;
-  color: var(--color-muted, #64748b);
-  border: 1px dashed var(--color-border, #e2e8f0);
+  color: var(--color-muted, #5c5c5c);
+  border: 1px dashed var(--color-border, #d9d2c5);
   border-radius: 0.875rem;
   margin: 0;
 }
@@ -65,7 +65,7 @@
 .guideLine {
   margin: 0.875rem 0 0;
   font-size: 0.9375rem;
-  color: var(--color-muted, #64748b);
+  color: var(--color-muted, #5c5c5c);
 }
 
 .guideLink {
@@ -88,7 +88,7 @@
   gap: 1.25rem;
   margin: 2rem 0 0;
   padding-top: 1.5rem;
-  border-top: 1px solid var(--color-border, #e2e8f0);
+  border-top: 1px solid var(--color-border, #d9d2c5);
 }
 
 .pagerLink,
@@ -102,7 +102,7 @@
 .pagerLink {
   color: var(--color-accent, #0b3d2e);
   text-decoration: none;
-  border: 1px solid var(--color-border, #e2e8f0);
+  border: 1px solid var(--color-border, #d9d2c5);
 }
 
 .pagerLink:hover {
@@ -112,12 +112,12 @@
 /* Kept in the layout rather than removed, so the page indicator does not jump
    sideways between the first page and the middle of a set. */
 .pagerOff {
-  color: var(--color-muted, #64748b);
+  color: var(--color-muted, #5c5c5c);
   opacity: 0.5;
   border: 1px solid transparent;
 }
 
 .pagerAt {
   font-size: 0.875rem;
-  color: var(--color-muted, #64748b);
+  color: var(--color-muted, #5c5c5c);
 }

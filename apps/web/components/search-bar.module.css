@@ -4,7 +4,7 @@
   padding: 1rem;
   border-radius: 0.875rem;
   background: var(--color-surface, #fff);
-  border: 1px solid var(--color-border, #e2e8f0);
+  border: 1px solid var(--color-border, #d9d2c5);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
 
@@ -13,9 +13,9 @@
 .channel {
   padding: 0.4375rem 1rem;
   border-radius: 9999px;
-  border: 1px solid var(--color-border, #e2e8f0);
+  border: 1px solid var(--color-border, #d9d2c5);
   background: transparent;
-  color: var(--color-muted, #64748b);
+  color: var(--color-muted, #5c5c5c);
   font: inherit;
   font-size: 0.875rem;
   font-weight: 600;
@@ -38,7 +38,7 @@
   min-width: 0;
   padding: 0.625rem 0.75rem;
   border-radius: 0.5rem;
-  border: 1px solid var(--color-border, #e2e8f0);
+  border: 1px solid var(--color-border, #d9d2c5);
   background: var(--color-bg, #fff);
   color: inherit;
   font: inherit;
@@ -89,7 +89,7 @@
 }
 
 .radiusHint {
-  color: var(--color-muted, #64748b);
+  color: var(--color-muted, #5c5c5c);
 }
 
 .clearPin {
@@ -129,7 +129,7 @@
 .areaHint {
   margin: 0;
   font-size: 0.8125rem;
-  color: var(--color-muted, #64748b);
+  color: var(--color-muted, #5c5c5c);
 }
 
 
