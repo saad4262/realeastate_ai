@@ -5,8 +5,12 @@
   --color-accent: #0b3d2e;
   --color-accent-fg: #f7f4ef;
   --color-border: #d9d2c5;
-  --font-sans: "Source Sans 3", "Segoe UI", sans-serif;
-  --font-display: "Fraunces", Georgia, serif;
+  /* next/font supplies the family names through these variables in apps/web and
+     generates a size-adjusted fallback, so a slow swap no longer moves the
+     layout. The quoted names remain as the fallback for any surface that has
+     not wired the variables up. */
+  --font-sans: var(--font-source-sans), "Source Sans 3", "Segoe UI", sans-serif;
+  --font-display: var(--font-fraunces), "Fraunces", Georgia, serif;
   --radius: 6px;
 }
 
