@@ -19,6 +19,7 @@ import {
   reverseGeocode,
   suggestPlaces,
 } from '@repo/core/geo';
+import { createEnquiry } from '@repo/core/leads';
 import type { ChatTurnResult } from '@repo/ai/chat-events';
 import { assert, check, group, note, report, skip } from './runner';
 
@@ -368,6 +369,59 @@ async function main() {
 
     assert(leaked.length === 0, `an email reached the public card for ${leaked.join(', ')}`);
     return `${agents} agent card(s), no addresses`;
+  });
+
+  await check('an enquiry cannot be filed against a listing that is not live', async () => {
+    /**
+     * The public enquiry form has no actor to ask can() about, so its whole
+     * authorisation story is what the server decides rather than accepts: the
+     * agency comes from the listing, and the listing has to be live.
+     *
+     * The unit test cannot check the second half — its fake ignores the WHERE
+     * clause, and dropping the status filter leaves it green. This is the only
+     * place that filter is actually exercised.
+     *
+     * Accepting an enquiry on a draft would also confirm, to anyone guessing
+     * ids, that a draft with that id exists.
+     */
+    const enquiry = {
+      name: 'Smoke Check',
+      email: 'smoke@example.invalid',
+      message: 'This should never be written to the database.',
+    };
+
+    // An id that is not a listing at all.
+    let refusedUnknown = false;
+    try {
+      await createEnquiry(db, '00000000-0000-4000-8000-000000000000', enquiry);
+    } catch {
+      refusedUnknown = true;
+    }
+    assert(refusedUnknown, 'an enquiry was accepted for an id that is not a listing');
+
+    // And a real listing that is not live, when the database has one. Skips
+    // rather than passes when it does not, so this never reports a guard it
+    // did not exercise.
+    const [hidden] = await db.execute<{ id: string; status: string }>(
+      sql`select id, status from listing where status <> 'live' limit 1`,
+    );
+    if (!hidden) {
+      return 'unknown id refused (no non-live listing present to test the status filter)';
+    }
+
+    let refusedHidden = false;
+    try {
+      await createEnquiry(db, hidden.id, enquiry);
+    } catch {
+      refusedHidden = true;
+    }
+    assert(refusedHidden, `an enquiry was accepted against a ${hidden.status} listing`);
+
+    const [leaked] = await db.execute<{ n: number }>(
+      sql`select count(*)::int as n from lead where email = 'smoke@example.invalid'`,
+    );
+    assert((leaked?.n ?? 0) === 0, `${leaked?.n} smoke lead(s) were written`);
+    return `unknown id and a ${hidden.status} listing both refused`;
   });
 
   await check('no property is orphaned by a failed write', async () => {

@@ -11,6 +11,7 @@ import {
 } from '@repo/core/listings/format';
 import { WebShell } from '../../../components/web-shell';
 import { ListingMap } from '../../../components/listing-map';
+import { EnquiryForm } from '../../../components/enquiry-form';
 import {
   AgentPanel,
   Card,
@@ -243,6 +244,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
           {/* --------------------------------------------- sticky sidebar -- */}
           <aside className="grid gap-lg lg:col-span-4 lg:sticky lg:top-lg">
             <AgentPanel agents={agents} agencyName={listing.agencyName} />
+            <EnquiryForm listingId={listing.id} agencyName={listing.agencyName} />
           </aside>
         </div>
       </div>
