@@ -1051,6 +1051,55 @@ async function main() {
     return `chat ${search.listings.length} · /search ${onPage}`;
   });
 
+  await check('the turn-level link is real, and opens a working search', async () => {
+    if (!webUp) skip('web app is not running');
+    if (!haveAnthropic) skip('no ANTHROPIC_API_KEY');
+
+    const suburbs = await liveSuburbs(db);
+    const suburb = suburbs[0];
+    if (!suburb) skip('no live listings to search');
+
+    /**
+     * The `state` frame's deepLink, which is a different link from the one on
+     * the results frame: it is built from the accumulated brief rather than
+     * from the last tool call, so it survives a turn where the guide asked a
+     * question instead of searching.
+     *
+     * The server has always sent it. Until now the client dropped it on the
+     * floor, so nothing — here or in a unit test — ever established that it
+     * pointed anywhere. The chat renders it now, so it has to lead somewhere.
+     */
+    const turn = await chat({ message: `Houses for sale in ${suburb}` });
+    const link = turn.state?.deepLink ?? null;
+
+    assert(link !== null, 'the turn carried no state link at all');
+    assert(link.startsWith('/search?'), `state link was ${link}`);
+
+    /**
+     * Parsed, not string-matched.
+     *
+     * The first version of this check compared against
+     * `encodeURIComponent(suburb)` and went red on a correct link, because
+     * URLSearchParams writes a space as `+` and encodeURIComponent writes it
+     * as `%20`. "Nar Nar Goon North" is the suburb that caught it. Reading the
+     * param back is right either way, and is what /search itself does.
+     */
+    const params = new URLSearchParams(link.split('?')[1] ?? '');
+    assert(
+      params.get('suburb')?.toLowerCase() === suburb.toLowerCase(),
+      `state link carried suburb=${params.get('suburb')}, expected ${suburb}`,
+    );
+    // Same rule the results link follows: /search re-resolves a named suburb's
+    // centre, so shipping coordinates draws the radius around the wrong point.
+    assert(!link.includes('lat='), `state link carried coordinates: ${link}`);
+
+    // And it must actually render. A well-formed path to a 500 is still a dead
+    // link, and this one is now a button in the conversation.
+    const onPage = await resultCount(link.split('?')[1] ?? '');
+    assert(onPage > 0, `state link rendered ${onPage} results`);
+    return `${link} → ${onPage} results`;
+  });
+
   await check('it asks rather than dumping when told almost nothing', async () => {
     if (!webUp) skip('web app is not running');
     if (!haveAnthropic) skip('no ANTHROPIC_API_KEY');

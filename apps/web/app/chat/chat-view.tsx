@@ -8,6 +8,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react';
+import Link from 'next/link';
 import type { ChatEvent, ResultsEvent, StateEvent } from '@repo/ai/chat-events';
 import { readChatStream } from './chat-stream';
 import { ResultsPanel } from './results-panel';
@@ -32,6 +33,16 @@ type Turn = {
   searches?: { query: unknown; matched: number; shown: number }[];
   /** Kept client-side only, to redraw the chips under an answer. */
   results?: ResultsEvent;
+  /**
+   * The turn's own `/search` link, from the accumulated brief rather than from
+   * the last tool call.
+   *
+   * The server has always sent this on the `state` frame and the client has
+   * always thrown it away. It is the fallback for a turn where the guide asked
+   * a question instead of searching — there is no `results` to take a link
+   * from, but the brief so far is still a real search.
+   */
+  stateLink?: string | null;
 };
 
 type Slots = StateEvent['slots'];
@@ -146,6 +157,42 @@ function TypingSkeleton({ label }: { label: string }) {
   );
 }
 
+/**
+ * The one link a turn hands over, and what to call it.
+ *
+ * Every figure in the label comes from the server's own frame — `matched` and
+ * `capped` are the same values the chips above it use — so nothing here is a
+ * number the model produced (#4).
+ *
+ * Returns null rather than a dead end. A search that matched nothing gets no
+ * link of its own: `/search` would render the same nothing, so it is a button
+ * that goes somewhere empty. The accumulated brief is offered instead when it
+ * is a genuinely different search.
+ */
+function turnLink(turn: Turn): { href: string; label: string; aria: string } | null {
+  const results = turn.results;
+
+  if (results && results.matched > 0) {
+    const count = results.capped ? `${results.matched}+` : `${results.matched}`;
+    const shown = results.listings.length > 0;
+    return {
+      href: results.deepLink,
+      // Too broad: the panel is empty but the matches are real, so the link is
+      // the only way to see them.
+      label: shown ? `View all ${count} in search` : `Browse all ${count} anyway`,
+      aria: `View all ${count} matching properties in search — opens in a new tab`,
+    };
+  }
+
+  const fallback = turn.stateLink;
+  if (!fallback || fallback === results?.deepLink) return null;
+  return {
+    href: fallback,
+    label: 'Open your search so far',
+    aria: 'Open your search so far — opens in a new tab',
+  };
+}
+
 export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState('');
@@ -253,6 +300,14 @@ export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
 
             case 'state':
               setSlots(event.slots);
+              // event.deepLink used to stop here. It is the only link a turn
+              // that asked a question rather than searching will ever have.
+              setTurns((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last) next[next.length - 1] = { ...last, stateLink: event.deepLink };
+                return next;
+              });
               break;
 
             case 'error':
@@ -517,6 +572,31 @@ export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
                             ) : null}
                           </div>
                         ) : null}
+
+                        {/*
+                          Below the chips rather than beside them, and not a
+                          fourth chip: a chip states what was searched, this
+                          leaves the page. They should not look alike.
+                        */}
+                        {(() => {
+                          const link = turnLink(turn);
+                          if (!link) return null;
+                          return (
+                            <Link
+                              href={link.href}
+                              className={styles.turnLink}
+                              target="_blank"
+                              rel="noopener"
+                              // Prefetching would run this search once here and
+                              // again in the new tab. /search is dynamic.
+                              prefetch={false}
+                              aria-label={link.aria}
+                            >
+                              {link.label}
+                              <span aria-hidden> ↗</span>
+                            </Link>
+                          );
+                        })()}
                       </div>
                     </div>
                   );

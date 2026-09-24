@@ -196,6 +196,13 @@ describe('runPropertyChat', () => {
     const state = events.find((e) => e.type === 'state');
     expect(state?.type === 'state' && state.slots.suburb).toBe('Pakenham');
     expect(state?.type === 'state' && state.missing).toEqual([]);
+    // The turn-level link, from the accumulated brief rather than the last tool
+    // call. The chat falls back to it on a turn that asked a question instead of
+    // searching, so it has to be a real path and it has to carry the brief.
+    expect(state?.type === 'state' && state.deepLink).toMatch(/^\/search\?/);
+    expect(state?.type === 'state' && state.deepLink).toContain('suburb=Pakenham');
+    // Same rule as the results frame: a named suburb is re-resolved server-side.
+    expect(state?.type === 'state' && state.deepLink).not.toContain('lat=');
   });
 
   it('makes the model answer in words once it has used its tool rounds', async () => {

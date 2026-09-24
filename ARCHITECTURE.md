@@ -101,6 +101,28 @@ If a shared package needs to link, it takes a link component as a prop.
 `apps/web` routes every page through `WebShell` so `next/link` is supplied in
 exactly one place.
 
+### Links that open a new tab
+
+A `target="_blank"` link is not a client-side navigation. Next bypasses its
+router for any `target` other than `_self`, so `next/link` and a raw `<a>` emit
+identical DOM here and the rule above has nothing to say about it.
+
+Use `next/link` anyway. The reason is social rather than technical: this rule is
+the easiest one here to break by accident, and a raw `<a href="/search…">` in
+this repo should be a thing a reviewer stops on. An exception that looks exactly
+like the mistake is not worth the two characters it saves.
+
+Three things go with it, every time:
+
+- **`prefetch={false}`.** Prefetching a dynamic route would run the work once in
+  this tab and again in the tab it opens. The chat's handover to `/search` is
+  exactly that shape.
+- **`rel="noopener"`** — the security half. Not `noreferrer`, which additionally
+  strips the `Referer` and throws away same-site attribution for no benefit on a
+  first-party link.
+- **An `aria-label` that says where it goes and that it opens a new tab.** A
+  decorative `↗` is `aria-hidden` and announces nothing on its own.
+
 ### Prefetching is targeted, never blanket
 
 - **Do not** prefetch a list of routes in a `useEffect` on mount. The console

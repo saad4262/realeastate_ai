@@ -121,15 +121,32 @@ export function ResultsPanel({
         )}
       </div>
 
-      {results && listings.length > 0 ? (
+      {/*
+        Shown whenever a search ran, not only when it filled the panel.
+        `matched > 0` with an empty list is the too-broad case: the matches are
+        real and this link is the only way to reach them. A search that matched
+        nothing still gets none — /search would render the same nothing.
+      */}
+      {results && results.matched > 0 ? (
         <div className={styles.panelFoot}>
           {/*
             The link is built by the server from the query it ran, never by the
             model. prefetch={false} because this is a dynamic search page and
-            prefetching it would run the search twice.
+            prefetching it would run the search once here and again in the tab
+            it opens.
           */}
-          <Link href={results.deepLink} className={styles.openAll} prefetch={false}>
-            Open these in search →
+          <Link
+            href={results.deepLink}
+            className={styles.openAll}
+            target="_blank"
+            rel="noopener"
+            prefetch={false}
+            aria-label={`Open ${
+              results.capped ? `${results.matched}+` : results.matched
+            } matching properties in search — opens in a new tab`}
+          >
+            {listings.length > 0 ? 'Open these in search' : 'Browse all matches'}
+            <span aria-hidden> ↗</span>
           </Link>
         </div>
       ) : null}

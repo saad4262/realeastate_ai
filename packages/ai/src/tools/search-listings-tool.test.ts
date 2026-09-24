@@ -292,6 +292,42 @@ describe('search_listings — numbers and agency copy', () => {
     expect(out.resultsFrame?.deepLink).toContain('radius=30');
     expect(out.resultsFrame?.deepLink).not.toContain('lat=');
   });
+
+  /**
+   * The chat renders a link off these two frames, not just the normal one.
+   *
+   * Too broad is the case that matters most: the panel is empty on purpose, so
+   * the link is the ONLY way a visitor reaches matches the server has already
+   * counted. Nothing proved it was non-empty until now.
+   */
+  it('carries a usable deep link when the search was too broad to list', async () => {
+    const { context } = ctx(many);
+    const out = await dispatchTool(
+      'search_listings',
+      { channel: 'sale', suburb: 'Pakenham' },
+      context,
+    );
+
+    expect(out.resultsFrame?.listings).toEqual([]);
+    expect(out.resultsFrame?.matched).toBeGreaterThan(0);
+    expect(out.resultsFrame?.deepLink).toMatch(/^\/search\?/);
+    expect(out.resultsFrame?.deepLink).toContain('suburb=Pakenham');
+  });
+
+  it('carries a deep link even when nothing matched', async () => {
+    const { context } = ctx([]);
+    const out = await dispatchTool(
+      'search_listings',
+      { channel: 'sale', suburb: 'Pakenham', priceTo: 400_000 },
+      context,
+    );
+
+    // The chat deliberately does not render this one — /search would show the
+    // same nothing. It is asserted so that the frame stays well-formed and the
+    // decision stays the UI's to make rather than an accident of the server's.
+    expect(out.resultsFrame?.matched).toBe(0);
+    expect(out.resultsFrame?.deepLink).toMatch(/^\/search\?/);
+  });
 });
 
 describe('resolve_location', () => {

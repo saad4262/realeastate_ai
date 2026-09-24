@@ -321,6 +321,40 @@
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * The turn's handover to /search.
+ *
+ * Deliberately not a chip. A chip states what was searched and goes nowhere;
+ * this leaves the page, in a new tab. Making them look alike would train
+ * people to click the ones that do nothing.
+ *
+ * It carries its own top border for the case where a turn has a link but no
+ * chips — a question-only turn falling back to the accumulated brief.
+ */
+.turnLink {
+  /* inline-flex so it shrinks to its text; the block above it puts it on its
+     own line without needing a flex parent. .bubbleAi is not one. */
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.65rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 9999px;
+  background: var(--chat-forest);
+  color: #fff;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: opacity 0.15s ease;
+}
+
+.searched + .turnLink {
+  margin-top: 0.5rem;
+}
+
+.turnLink:hover {
+  opacity: 0.9;
+}
+
 /* ---------- typing ---------- */
 
 .typing {
