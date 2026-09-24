@@ -1,6 +1,15 @@
 'use client';
 
-import { MapView } from '@repo/ui/maps';
+import dynamic from 'next/dynamic';
+
+/**
+ * Loaded on demand, like every other map here. It cannot server-render — it
+ * needs `window` and a Google script — so nothing is lost by splitting it out
+ * of the page's first chunk.
+ */
+const MapView = dynamic(() => import('@repo/ui/maps').then((m) => m.MapView), {
+  ssr: false,
+});
 
 /**
  * Where a single listing is.

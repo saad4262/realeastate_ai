@@ -1,7 +1,15 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { MapView } from '@repo/ui/maps';
+import dynamic from 'next/dynamic';
+
+/**
+ * The pin map is behind a toggle and starts closed, so its code has no business
+ * in the listing form's first load. ssr: false because it needs `window`.
+ */
+const MapView = dynamic(() => import('@repo/ui/maps').then((m) => m.MapView), {
+  ssr: false,
+});
 import type { ResolvedPlace } from '@repo/core/geo/schema';
 import { reverseGeocodeAction } from '@/lib/listing-actions';
 import { AddressAutocomplete } from '@/components/address-autocomplete';
