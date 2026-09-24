@@ -4,6 +4,81 @@
 - Last tool: Claude Code
 - Last updated: 2026-09-24
 
+## The chat hands over a search, and both public pages become a portal (2026-09-24, phases 1–8)
+
+Eight commits. The ask was: after the AI answers a prompt, give a link built
+**from that prompt** that opens a listing page in a new tab, and from there a
+property page — both looking like a real estate portal. Full account in
+`docs/SESSION.md`; the standing rules are in **`ARCHITECTURE.md`**.
+
+**The link existed all along.** `searchQueryToPath` has built a per-prompt
+`/search?…` since the chat shipped, and the only way to it was a small text
+line in a sidebar that is behind a tab on mobile. Worse, the server sends
+**two** links and the client threw one away: `case 'state':` did `setSlots()`
+and dropped `event.deepLink` — the turn-level link built from the accumulated
+brief, and the only link a turn has when the guide asks a question instead of
+searching. Each assistant turn now hands over one link, in a new tab, with a
+precedence that covers the too-broad case (the panel is empty on purpose, so
+the link is the only route to matches the server already counted) and
+deliberately gives none on a zero-match turn, which would be a button to an
+empty page.
+
+**Tailwind v4 in `apps/web` only, without preflight**, with `@theme static` so
+the CSS Modules still styling most of the app read the same tokens as plain
+custom properties. Token *structure* from the Stitch mock, *values* from this
+site — its palette is cool slate and this site is warm, and taking it would
+have left `/search` looking like a different product from `/chat`.
+
+**Three queries that were always possible and never written**: inspection
+times, the property's transaction history (genuinely derivable — a property
+outlives its listings, and `sold_price`/`sold_date` are stored), and the agents
+to call. All three now feed the listing page.
+
+**Both public pages rebuilt.** `/listing/[id]` is a property page —
+breadcrumbs, media frame, price-first header, 8/4 split with a sticky agent
+panel — and it is *smaller* than the thin article it replaced. `/search` is a
+results page rather than a hero with a list. The card got a media slot shaped
+for a photo that does not exist yet, and a per-listing gradient hue so a page
+of 24 does not read as 24 failed images.
+
+**The enquiry form writes a real `lead`** — the first thing ever to insert into
+that table. It is public and unauthenticated, so its whole authorisation story
+is what the server decides rather than accepts: the browser picks a listing id
+and nothing else.
+
+### Four bugs found on the way, three of them the same bug
+
+- **`unstable_cache` serialises to JSON**, so every `Date` through it comes back
+  an ISO *string* while the type says `Date`. Nothing caught it for months
+  because nothing rendered a date. That is the third shape of one bug here —
+  bigint counts as strings, `numeric` as strings, now dates — and
+  `ARCHITECTURE.md` § 6 now names the class and says to assert the *type*, not
+  just the value.
+- **Every price on the site was faux-bold.** Six rules set `font-weight: 700`
+  and only 400 and 600 were loaded. Measured rather than assumed: these are
+  variable fonts, so the fix cost **zero bytes**.
+- **`--color-surface`** was referenced by three modules and defined nowhere.
+- **A fourth junk field**: `description` was `"asd"` on a live listing, under
+  the heading "About this property". Rule added, two rows repaired.
+
+### Current numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **312** (220 `@repo/core`, 92 `@repo/ai`)
+- `pnpm smoke` — **59 passed, 0 failed**
+- Web routes: `/` 446 B / 125 kB · `/search` 1.66 kB / 126 kB ·
+  `/listing/[id]` 2.64 kB / 109 kB · `/chat` 8.1 kB / 114 kB · shared 103 kB
+
+### Still missing, deliberately
+
+Detail and reasoning in `ARCHITECTURE.md` § 14. In short: **no photos anywhere**
+(the `media` table exists, nothing populates it, and both media slots are shaped
+for `next/image` so one drops in without either layout moving); the listing
+page's features / energy rating / market insights / school sections have no data
+source and render as one honest line each rather than invented figures; and
+`/listing/<unknown-id>` still answers HTTP 200 — in dev as well as production,
+which corrects an earlier note here.
+
 ## Performance & listing integrity (2026-09-24, Claude Code) — phases 1–13
 
 Fourteen commits on `perf/phases-1-9`. Full account in `docs/SESSION.md`; the

@@ -1,3 +1,160 @@
+## 2026-09-24 (later again) — The chat hands over a search, and the public pages become a portal
+
+Eight phases. The request was small and concrete — after the guide answers,
+give a link built from that prompt, open it in a new tab, make both pages look
+like a portal — and most of the work was finding out what was already there.
+
+### The link had been built all along
+
+`searchQueryToPath` has produced a per-prompt `/search?channel=sale&suburb=…`
+since the chat shipped. The only route to it was one small text line in the
+sidebar, which on mobile is behind a tab.
+
+And the server sends **two** links. The client kept one:
+
+    case 'state':
+      setSlots(event.slots);
+      break;
+
+`event.deepLink` stopped there. That is the turn-level link, built from the
+accumulated brief rather than from the last tool call — and it is the only link
+a turn has when the guide asked a question instead of searching, which is a lot
+of turns. Three lines to keep it; it had been streamed and discarded for months.
+
+A zero-match turn deliberately still gets no link. `/search` with that query
+renders the same nothing, so it would be a button to an empty page.
+
+### The same bug, for the third time
+
+`unstable_cache` serialises whatever it is given to JSON and parses it back, so
+every `Date` that goes through it comes out an ISO **string** while the type
+still says `Date`. Nothing caught it for months because nothing rendered a
+date. The first thing that did died on `publishedAt.getTime is not a function`.
+
+That is the third shape of one bug in this repo:
+
+    count(*)          bigint  -> string, and "3" + 1 is "31"
+    numeric columns           -> string, and Number(null) is 0
+    Date through a cache      -> string, and it has no .getTime
+
+Each is a value whose runtime type does not match its declared one, at a
+boundary TypeScript cannot see across. Fixed at the boundary each time — not by
+teaching consumers to accept `Date | string`, which spreads the boundary
+through the app. `ARCHITECTURE.md` § 6 now names the class and says the thing
+that actually catches it: assert the **type**, not just the value.
+`expect(typeof x).toBe('number')` is the line that fails; `expect(x).toBe(3)`
+sometimes does not.
+
+### Every price on the site was faux-bold
+
+Six rules set `font-weight: 700`. `layout.tsx` loaded 400 and 600. The browser
+had been synthesising bold on every price, card and heading that asked for it.
+
+Worth measuring rather than assuming, because § 11 says the largest win in this
+repo was a font. Clean builds either way: **10 files, 194,312 bytes**, identical.
+The CSS declares 21 Source Sans faces across three weights against only **10
+unique URLs** — each weight points at a file already being fetched, because
+these are variable fonts. The fix cost zero bytes.
+
+### Tailwind, without the reset
+
+Installed in `apps/web` only, and the layers imported by hand — theme and
+utilities, no base. Importing `tailwindcss` whole drops its preflight under
+every page built on browser defaults plus `packages/ui/styles.css`, which would
+have moved type and margins on pages nobody was editing. Verified: zero
+preflight markers in the built CSS.
+
+`@theme static` rather than bare `@theme`, which took one failed build to
+discover. Tailwind only emits the variables its utilities use — right for a
+Tailwind-only codebase, wrong here, where the CSS Modules still styling most of
+the app read the same tokens as plain custom properties.
+
+Token structure from the Stitch mock, values from this site. The mock is cool
+slate and this site is warm; taking its palette would have left `/search` and
+`/listing` looking like a different product from `/` and `/chat`.
+
+### What the mock asked for versus what the database holds
+
+The mock is a realestate.com.au remix with a 24-photo gallery, inspection
+RSVPs, an energy rating, a floorplan, CoreLogic medians, rental yields, days on
+market and school catchments. Checking each against `schema.ts` was the most
+useful hour of the session:
+
+- **Already possible, never queried**: inspection times, agent contact cards,
+  and a property's transaction history — genuinely derivable, because a
+  property outlives its listings (#1) and `sold_price`/`sold_date` are stored.
+- **Table exists, no pipeline**: photos and floorplans.
+- **No data source at all**: features, energy rating, market insights, schools.
+
+The last group renders as one muted line each under a heading that says so.
+Drawing a plausible median would have been the invented number #4 exists to
+forbid — and `STATUS.md` already records invented market figures being removed
+from the console's AI page once before.
+
+### Proving the guards, twice by mutating the database
+
+Two of the new guards are about not leaking an agency's unpublished work, and
+neither could be proven by a unit test — the fakes ignore the WHERE clause, so
+deleting the status filter leaves them green. I checked that, then wrote it
+into the test's own comment so it does not look like it is guarding something
+it is not.
+
+So both were proven against the real database, by flipping one listing to
+draft:
+
+- **Property history**: filter intact → 2 entries, 0 drafts. Filter sabotaged →
+  3 entries, and the smoke check went red naming the row.
+- **Enquiries**: filter intact → the draft refused. Filter removed → *"an
+  enquiry was accepted against a draft listing"*.
+
+Both restored, and the lead row the sabotaged run wrote was deleted.
+
+### Two decisions made by measuring, not by taste
+
+The enquiry form first imported the zod schema the server validates with — one
+contract, no round trip for a typo, which is exactly what the console's listing
+form does. It cost **13 kB of First Load JS** on every listing page view, to
+save a round trip on a four-field form most visitors never open. Dropped for
+the browser's own constraints; the console keeps zod, because it is behind a
+login, has twenty fields, and is the tool of someone's job. 122 kB → 109 kB.
+
+And `/listing/[id]` grew four times its content and got **smaller** — 2 kB →
+1.57 kB before the form, 2.64 kB after — because all of it is Server
+Components and the styling moved out of a per-route CSS module.
+
+### Things I got wrong
+
+- I ran `pnpm typecheck`, grepped the last line, and read "Tasks: 6 successful"
+  as a pass. Two AI fixtures were failing to typecheck the whole time, because
+  `pnpm test` does not typecheck.
+- A sabotage silently did not apply — my perl pattern had six spaces of
+  indentation where the file had four — and the test passed for the wrong
+  reason. Now I check the sabotage landed before trusting that it went red.
+- The first smoke check I wrote for the turn link compared against
+  `encodeURIComponent(suburb)` while `URLSearchParams` writes a space as `+`,
+  so it went red on a correct link. "Nar Nar Goon North" caught it.
+- I corrected a note rather than inheriting it: the comment above
+  `force-dynamic` claimed dev returned a proper 404 and only production served
+  the soft 200. Re-measured against the committed code *before* my rewrite —
+  dev answers 200 too. Streaming flushes the status line before the body runs
+  `notFound()`.
+
+### A fourth junk field
+
+`description` was `"asd"` on a live listing, under the heading "About this
+property". Phase 11's rules had covered headline, price display, room counts
+and property type but not this. Rule added, and the repair nulls it — there is
+no honest way to invent a description of a house we know nothing about.
+
+### Verified
+
+typecheck 10/10 · lint 10/10 · 312 tests (220 core, 92 ai) · both apps build ·
+smoke 59 passed, 0 failed. Every new guard broken once and watched go red.
+
+One flake worth knowing about: the radius-cache check budgets `warm < 150 ms`
+against a measured 29–55 ms hit, and a loaded machine produced 154 ms once. It
+passes on a re-run. Loosen it against a measurement, not against one red run.
+
 ## 2026-09-24 (later still) — Thirteen phases of making it fast, and finding out why the data was wrong
 
 A performance and architecture pass over the whole repo, phase by phase, one

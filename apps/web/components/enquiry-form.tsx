@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useTransition, type FormEvent } from 'react';
-import { enquiryInputSchema } from '@repo/core/leads/schema';
 import { sendEnquiryAction } from '../lib/enquiry-action';
 
 /**
@@ -11,9 +10,19 @@ import { sendEnquiryAction } from '../lib/enquiry-action';
  * sent state without navigating — and deliberately the only one, so the rest
  * of the page stays Server Components.
  *
- * The schema import is from `@repo/core/leads/schema`, the LEAF, not from
- * `@repo/core/leads`, which re-exports create-enquiry.ts → @repo/db →
- * postgres.js → `fs`. The same trap the listing card documents.
+ * It validates with the browser's own constraints — required, type="email",
+ * minLength — and NOT with the zod schema the server uses.
+ *
+ * Importing that schema here was the first version, on the same reasoning the
+ * console's listing form uses: one contract, no round trip for a typo. It cost
+ * 14 kB of First Load JS on every listing page (108 kB -> 122 kB) to save a
+ * round trip on a form most visitors never open. The console form is a
+ * different trade — it is behind a login, it is the tool of someone's job, and
+ * it has twenty fields. This has four, and the constraints below express all
+ * of them.
+ *
+ * The server re-validates regardless, so nothing is weakened: a browser with
+ * validation disabled gets the same answer, one round trip later.
  */
 export function EnquiryForm({
   listingId,
@@ -46,18 +55,10 @@ export function EnquiryForm({
       phone: String(data.get('phone') ?? '') || undefined,
       message: String(data.get('message') ?? ''),
     };
-
-    // The same contract the server enforces, so a typo never costs a round
-    // trip to come back as an error. The server never trusts this having run.
-    const parsed = enquiryInputSchema.safeParse(input);
-    if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? 'Check the highlighted fields');
-      return;
-    }
     setError(null);
 
     start(async () => {
-      const result = await sendEnquiryAction(listingId, parsed.data);
+      const result = await sendEnquiryAction(listingId, input);
       if (result.ok) setSent(true);
       else setError(result.error);
     });
@@ -81,17 +82,17 @@ export function EnquiryForm({
 
       <label className="grid gap-1">
         <span className="text-label-md uppercase text-ink-faint">Name</span>
-        <input name="name" required autoComplete="name" className={field} />
+        <input name="name" required minLength={2} maxLength={120} autoComplete="name" className={field} />
       </label>
 
       <label className="grid gap-1">
         <span className="text-label-md uppercase text-ink-faint">Email</span>
-        <input name="email" type="email" required autoComplete="email" className={field} />
+        <input name="email" type="email" required maxLength={200} autoComplete="email" className={field} />
       </label>
 
       <label className="grid gap-1">
         <span className="text-label-md uppercase text-ink-faint">Phone (optional)</span>
-        <input name="phone" type="tel" autoComplete="tel" className={field} />
+        <input name="phone" type="tel" maxLength={40} autoComplete="tel" className={field} />
       </label>
 
       <label className="grid gap-1">
@@ -100,6 +101,8 @@ export function EnquiryForm({
           name="message"
           rows={4}
           required
+          minLength={10}
+          maxLength={2000}
           defaultValue="I'd like to know more about this property."
           className={`${field} resize-y`}
         />

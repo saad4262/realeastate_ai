@@ -52,6 +52,55 @@ cannot live in the URL, or a third-party widget that needs the DOM.
 **What does not:** wanting to use `.map()`. Wanting a nicer import. "It was
 easier."
 
+### Two styling systems, and which is which
+
+`apps/web` has Tailwind. `apps/console` and `packages/ui` have CSS Modules.
+That is a real cost — two ways to do one thing — so the line is drawn once,
+here, rather than per file:
+
+| Where | Use |
+|---|---|
+| `apps/web` pages and components | Tailwind utilities |
+| `apps/console` | CSS Modules |
+| `packages/ui` | CSS Modules — it is shared, and has no build step of its own |
+| Anything needing a real stylesheet feature (`@media` inside a component, keyframes, `::after` overlays) | a CSS Module, in either app |
+
+Two things make it survivable:
+
+- **Tailwind runs WITHOUT preflight.** `apps/web/app/tailwind.css` imports the
+  theme and utilities layers by hand and skips base. Importing `tailwindcss`
+  whole would drop its reset under every page that was built on browser
+  defaults plus `packages/ui/styles.css`. The two things preflight is wanted
+  for — border-box and a zeroed body margin — `styles.css` already does.
+- **`@theme static`, not `@theme`.** Tailwind only emits the variables its
+  generated utilities use. The CSS Modules still styling most of this app read
+  the same tokens as plain custom properties, so a token nothing happened to
+  use as a class would simply not exist for them. `static` emits the set, and
+  that is the only reason "one source, two systems" is true rather than
+  aspirational. A CSS Module may write `var(--color-ink-soft)` and get exactly
+  what `text-ink-soft` resolves to.
+
+**Tokens are structure from the mock, values from this site.** The Stitch mock
+is cool slate; this site is warm. Taking its palette would have left `/search`
+and `/listing` looking like a different product from `/` and `/chat`, which
+share a token file with the console.
+
+**No CSS may name a font weight `layout.tsx` does not load.** Six rules set
+`font-weight: 700` while only 400 and 600 were loaded, so every price on the
+site was faux-bold. Check the generated `@font-face` before assuming a weight
+exists — and note that these are variable fonts, so an extra weight usually
+costs zero bytes. Measure it; do not assume either way.
+
+### Icons
+
+`apps/web` currently ships none, and that is worth keeping. When it needs
+them: inline SVG, not an icon font. The Stitch mock's `<link>` requests
+Material Symbols across its full variable axis space — the exact 4.0 MB →
+1.1 MB regression § 11 records — so copying that tag verbatim would undo the
+largest single win in this repo. If Material Symbols is wanted anyway the axes
+must be pinned (`@20..24,400,0..1,0`), and it is a whole font on the critical
+path of a site that today loads no icons at all.
+
 ### The island rule
 
 When a mostly-static component needs one interactive control, extract the
@@ -238,6 +287,21 @@ secret) → `revalidateTag`. Anything that writes listings outside the console �
 a script, a migration, a backfill — must bust the cache the same way, or the
 public site stays wrong until a timer says otherwise.
 
+**`unstable_cache` serialises to JSON.** Every `Date` that goes into it comes
+out an ISO **string**, while the type still says `Date`. Nothing caught this
+for months because nothing rendered a date; the first thing that did died on
+`publishedAt.getTime is not a function`. Revive at the cache boundary, where
+the lie is created — not by teaching consumers to accept `Date | string`,
+which spreads the boundary through the app.
+
+This is the third shape of one bug in this repo: a value whose runtime type
+does not match its declared one, at a boundary TypeScript cannot see across.
+`count()` returns bigint as a string. `numeric` columns come back as strings.
+Dates through a cache come back as strings. **Coerce at the edge, and write a
+test that asserts the type and not just the value** — `expect(typeof x).toBe('number')`
+is what catches these, because `"3" == 3` and `"3" + 1` both look fine until
+they do not.
+
 **ISR needs `generateStaticParams`, even returning `[]`.** Without it a dynamic
 route never enters `dynamicRoutes` in the prerender manifest and every request
 re-renders, whatever `revalidate` says. This is not a build-time hint; it is
@@ -322,6 +386,14 @@ Old rows were legal when they were written. Two things make that safe:
   is the second line of defence, and it has mattered: a forged
   `x-console-user-id` rendered a real owner's agency console, HTTP 200, through
   two paths that reached Server Components without the strip running.
+- **A public endpoint has no actor, so its authorisation is what the server
+  decides rather than accepts.** The enquiry form is the worked example: the
+  browser chooses the listing id and nothing else, the agency is looked up from
+  that listing, the listing must be live, and status/kind/assignment are set in
+  `packages/core`. Accepting an agency id would file leads into anyone's inbox;
+  accepting a draft id would confirm that the draft exists.
+- **Rate limit every public write**, and say honestly in the comment that an
+  in-process counter is a ceiling on accidental volume, not a security control.
 - Hiding a button is a courtesy. The server refuses regardless.
 
 ---
@@ -347,13 +419,21 @@ Current, from `next build`. Treat a regression as a bug with a cause.
 | Route | Page JS | First Load |
 |---|---|---|
 | web shared | — | 103 kB |
-| `/` | 207 B | 124 kB |
-| `/search` | 1.67 kB | 126 kB |
-| `/listing/[id]` | 2 kB | 108 kB |
-| `/chat` | 7.3 kB | 114 kB |
+| `/` | 446 B | 125 kB |
+| `/search` | 1.66 kB | 126 kB |
+| `/listing/[id]` | 2.64 kB | 109 kB |
+| `/chat` | 8.1 kB | 114 kB |
 | console shared | — | 103 kB |
 | `/team` | 4.4 kB | 111 kB |
 | listing form routes | 138 B | 126 kB |
+
+`/listing/[id]` grew four times its content and still costs 109 kB, because
+all of it is Server Components. The one client island on it — the enquiry form
+— deliberately does **not** import the zod schema the server validates with:
+that cost 13 kB of First Load JS to save a round trip on a four-field form most
+visitors never open. The console's listing form makes the opposite trade, and
+should: it is behind a login, it has twenty fields, and it is the tool of
+someone's job.
 
 **Look outside JavaScript first.** The single largest win in this repo was not
 a bundle. Material Symbols was requested across its full variable axis space
@@ -421,12 +501,15 @@ Order: `pnpm typecheck` → `pnpm lint` → `pnpm test` → `pnpm smoke` →
 
 Recorded so the next person does not have to rediscover them.
 
-- **`/listing/<unknown-id>` returns HTTP 200 in production** with the not-found
-  body. Pre-existing; reproduces on a clean build with `force-dynamic` and with
-  `not-found.tsx` deleted entirely. Dev returns a correct 404. It is a soft 404
-  on the one page search engines index, and it is the only thing blocking ISR
-  on that route — the caching itself was verified working end to end.
-  (`docs/TEST-PLAN.md` F26.)
+- **`/listing/<unknown-id>` returns HTTP 200** with the not-found body, in dev
+  and in production alike. Pre-existing; reproduces on a clean build with
+  `force-dynamic` and with `not-found.tsx` deleted entirely. An earlier note
+  here claimed dev returned a correct 404 — re-measured against the committed
+  code, it does not. The cause is streaming: the shell flushes the status line
+  before the component body runs `notFound()`, so it follows the `loading.tsx`
+  boundary rather than the environment. It is a soft 404 on the one page search
+  engines index, and the only thing blocking ISR on that route — the caching
+  itself was verified working end to end. (`docs/TEST-PLAN.md` F26.)
 - **`priceDisplay` is not checked against `priceFrom`/`priceTo`.** The shape
   rule stops a bare number, but "Offers over $1.45m" alongside a range of
   $300k–$400k still saves. Checking it means parsing the string, which #6
@@ -440,9 +523,24 @@ Recorded so the next person does not have to rediscover them.
   removing it could not be verified without an authenticated console session,
   and the failure mode if the reasoning is wrong is a visibly stale table. To
   settle it: publish a listing, remove the call, confirm the row still updates.
-- **`useActionState` / `useFormStatus` on the listing form.** Would give one
-  form convention across the console. Not a speed change; the form cannot work
-  without JavaScript anyway (autocomplete, pin map). High risk on the main
-  data-entry path with no automated coverage of an authenticated submit.
+- **`useActionState` / `useFormStatus` on the console's listing form.** Would
+  give one form convention across the console. Not a speed change; the form
+  cannot work without JavaScript anyway (autocomplete, pin map). High risk on
+  the main data-entry path with no automated coverage of an authenticated
+  submit.
+- **No photos anywhere.** The `media` table exists and nothing populates it:
+  no R2 credentials, no upload path. Both the card's media slot and the
+  listing page's hero frame are shaped for `next/image` with `fill`, so a photo
+  drops in without either layout moving — but `PublicListingSummary`
+  deliberately has **no** media field yet, because a field no query populates
+  is a type that lies.
+- **The listing page's Tier-3 sections are honest placeholders.** Features and
+  inclusions, energy rating, market insights and school catchments have no data
+  source at all; market figures in particular would need an external feed, and
+  inventing one is exactly what #4 forbids. They render as one muted line each
+  under a heading that says so.
+- **The radius-cache timing budget is tight enough to flake.** `warm < 150 ms`
+  against a measured 29–55 ms hit; a loaded machine has produced 154 ms. Loosen
+  it against a measurement, not against one red run.
 - **Console listing search/filtering.** Pagination landed; there is no way to
   search within the book yet, which starts to matter past a few pages.
