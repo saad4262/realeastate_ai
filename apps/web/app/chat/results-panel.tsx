@@ -113,7 +113,7 @@ export function ResultsPanel({
                 <ListingCard
                   listing={listing}
                   searchedSuburb={results.query.suburb}
-                  compact
+                  variant="compact"
                 />
               </div>
             ))}

@@ -22,15 +22,23 @@ export function SearchBarSkeleton() {
 /** A results grid, at the size the real one will be. */
 export function CardGridSkeleton({ count = 6 }: { count?: number }) {
   return (
-    <div className={styles.grid} aria-hidden>
+    <div
+      className="grid gap-md [grid-template-columns:repeat(auto-fill,minmax(17rem,1fr))]"
+      aria-hidden
+    >
       {Array.from({ length: count }, (_, i) => (
-        <div key={i} className={styles.card}>
-          <div className={`${styles.bar} ${styles.cardThumb}`} />
-          <div className={styles.cardBody}>
+        <div
+          key={i}
+          className="grid grid-rows-[auto_1fr] overflow-hidden rounded-lg border border-line-subtle bg-card shadow-card"
+        >
+          {/* 16/10 — the same frame ListingCard's media slot uses, or this is a
+              layout shift with extra steps. */}
+          <div className="aspect-[16/10] w-full animate-pulse bg-sunken" />
+          <div className="grid content-start gap-1 p-md">
             <Bar w="45%" h="1.125rem" />
             <Bar w="85%" />
             <Bar w="60%" h="0.8125rem" />
-            <Bar w="35%" h="0.75rem" />
+            <Bar w="35%" h="0.6875rem" />
           </div>
         </div>
       ))}
