@@ -1,13 +1,5 @@
-'use client';
-
-import { useState } from 'react';
+import { AiComposer } from './ai-composer';
 import styles from './ai.module.css';
-
-const CHIPS = [
-  { icon: 'insights', label: 'Show Top 3 Suburb Opportunities' },
-  { icon: 'summarize', label: 'Prepare Principal Monday Briefing' },
-  { icon: 'account_balance', label: 'Audit Trust Account Discrepancies' },
-];
 
 const AUTOMATIONS = [
   {
@@ -47,9 +39,11 @@ const AUTOMATIONS = [
  * The market panels below now say what they are: nothing is connected. The
  * rest of the screen is still a mock and is labelled as one at the top.
  */
+/**
+ * A Server Component. Everything on this screen is static mock markup except
+ * the composer, which is a small client island of its own — see ai-composer.
+ */
 export function AiConsole({ agencyName }: { agencyName: string | null }) {
-  const [prompt, setPrompt] = useState('');
-
   return (
     <div className={styles.page} data-full-bleed style={{ padding: '1.5rem 2rem' }}>
       <div className={styles.head}>
@@ -237,36 +231,7 @@ export function AiConsole({ agencyName }: { agencyName: string | null }) {
               </div>
             </div>
 
-            <div className={styles.composer}>
-              <div className={styles.chips}>
-                {CHIPS.map((c) => (
-                  <button
-                    key={c.label}
-                    type="button"
-                    className={styles.chipBtn}
-                    onClick={() => setPrompt(c.label)}
-                  >
-                    <span className={styles.glyphSm} aria-hidden>
-                      {c.icon}
-                    </span>
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-              <div className={styles.composeRow}>
-                <input
-                  className={styles.input}
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Draft high-converting vendor report for 92 Ocean Ave incorporating Double Bay +6.1%…"
-                  aria-label="AI command"
-                />
-                <button type="button" className={styles.btnRun}>
-                  Run
-                  <span aria-hidden>↑</span>
-                </button>
-              </div>
-            </div>
+            <AiComposer />
           </div>
 
           <div className={styles.hero}>
