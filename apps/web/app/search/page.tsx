@@ -63,6 +63,18 @@ export default async function SearchPage({
     return Array.isArray(v) ? v[0] : v;
   };
 
+  /**
+   * Started now, awaited later, and not by this page at all.
+   *
+   * The filter options depend on nothing above them, but they used to be
+   * fetched after the suburb centre had already been resolved — two
+   * independent reads run one after the other, with the cold one costing a
+   * round trip to the database region. Kicking it off here lets it overlap,
+   * and handing the promise to a component inside the existing Suspense
+   * boundary means the results never wait on it even when it is cold.
+   */
+  const filterOptions = cachedFilterOptions();
+
   const suburb = one('suburb')?.trim() || undefined;
   const state = one('state')?.trim() || undefined;
   const postcode = one('postcode')?.trim() || undefined;
@@ -149,22 +161,23 @@ export default async function SearchPage({
     limit: 48,
   };
 
-  // Only what the search box itself needs, and cached — one call rather than
-  // the two round trips this used to make on every page view.
-  const { propertyTypes } = await cachedFilterOptions();
-
   const place = [suburb, state, postcode].filter(Boolean).join(' ');
   const shared = { query, suburb, place, near };
 
   /**
-   * Changes whenever the search does, which is what makes the spinner appear.
+   * Changes whenever the SEARCH does, which is what makes the spinner appear.
    *
    * A Suspense boundary keeps showing its old children through an update unless
    * its key changes — good for a filter that refines the same list, wrong here,
    * where the visitor has asked a different question and is owed a sign that it
    * is being answered.
+   *
+   * Keyed on the query this page actually runs rather than on the raw search
+   * string, so a parameter that changes nothing — a utm_source on a shared
+   * link, a stray key — no longer throws the results away and re-fetches them
+   * to show the same answer.
    */
-  const searchKey = JSON.stringify(params);
+  const searchKey = JSON.stringify(query);
 
   return (
     <AppShell surface="web">
@@ -178,7 +191,7 @@ export default async function SearchPage({
         </Suspense>
 
         <Suspense fallback={<SearchBarSkeleton />}>
-          <SearchBar propertyTypes={propertyTypes} />
+          <SearchBarSlot options={filterOptions} />
         </Suspense>
       </section>
 
@@ -192,4 +205,20 @@ export default async function SearchPage({
       </section>
     </AppShell>
   );
+}
+
+/**
+ * The search box, once its option lists arrive.
+ *
+ * Awaiting inside the boundary rather than in the page is what keeps the
+ * results independent of it: a cold filter-options read delays the box it
+ * belongs to and nothing else.
+ */
+async function SearchBarSlot({
+  options,
+}: {
+  options: Promise<{ suburbs: string[]; propertyTypes: string[] }>;
+}) {
+  const { propertyTypes } = await options;
+  return <SearchBar propertyTypes={propertyTypes} />;
 }
