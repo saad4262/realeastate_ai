@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { AppShell } from '@repo/ui';
 import { ListingCard } from '../components/listing-card';
 import { SearchBar } from '../components/search-bar';
+import { SearchBarSkeleton } from '../components/skeletons';
+import { PrefetchOnIntent } from '../components/prefetch-on-intent';
 import { cachedFilterOptions, cachedSearch } from '../lib/cached';
 import styles from './home.module.css';
 
@@ -23,7 +25,10 @@ export default async function HomePage() {
         <p className={styles.sub}>
           Every listing here comes straight from the agency that holds it.
         </p>
-        <Suspense fallback={null}>
+        {/* Sized, not null. SearchBar reads useSearchParams, so it must sit
+            behind a boundary; a null fallback reserved no height and the hero
+            reflowed when the bar hydrated. */}
+        <Suspense fallback={<SearchBarSkeleton />}>
           <SearchBar propertyTypes={propertyTypes} />
         </Suspense>
 
@@ -45,11 +50,11 @@ export default async function HomePage() {
         </div>
 
         {latest.length ? (
-          <div className={styles.grid}>
+          <PrefetchOnIntent className={styles.grid}>
             {latest.map((listing) => (
               <ListingCard key={listing.id} listing={listing} />
             ))}
-          </div>
+          </PrefetchOnIntent>
         ) : (
           <p className={styles.empty}>
             {down

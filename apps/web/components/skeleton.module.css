@@ -1,0 +1,78 @@
+/*
+ * Shapes that stand in for content while the server answers.
+ *
+ * The rule these follow: a loading state should be the page with its text
+ * removed, not a different page. A spinner in the middle of an empty screen
+ * reads as a navigation; a block where the address is about to be reads as
+ * the address arriving. That difference is the whole reason these exist
+ * rather than a single <Spinner/>.
+ */
+.bar {
+  border-radius: 0.375rem;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-border, #e2e8f0) 55%, transparent) 25%,
+    color-mix(in srgb, var(--color-border, #e2e8f0) 90%, transparent) 37%,
+    color-mix(in srgb, var(--color-border, #e2e8f0) 55%, transparent) 63%
+  );
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+/* Motion here is decoration. Anyone who has asked for less of it gets a
+   still block, which still says "something is coming". */
+@media (prefers-reduced-motion: reduce) {
+  .bar { animation: none; }
+}
+
+.block {
+  border-radius: 0.875rem;
+  background: color-mix(in srgb, var(--color-border, #e2e8f0) 45%, transparent);
+}
+
+/* --- the search bar's own footprint ------------------------------------- */
+/* Reserves the height the real bar occupies so the hero does not jump when it
+   hydrates. This replaced `fallback={null}`, which reserved nothing. */
+.searchBar {
+  height: 132px;
+  border-radius: 0.875rem;
+  border: 1px solid var(--color-border, #e2e8f0);
+  background: var(--color-surface, #fff);
+}
+
+@media (max-width: 720px) {
+  .searchBar { height: 210px; }
+}
+
+/* --- a grid of cards ----------------------------------------------------- */
+.grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.card {
+  border-radius: 0.875rem;
+  overflow: hidden;
+  border: 1px solid var(--color-border, #e2e8f0);
+  background: var(--color-surface, #fff);
+}
+
+.cardThumb { aspect-ratio: 16 / 10; }
+.cardBody { padding: 0.875rem; display: grid; gap: 0.5rem; }
+
+/* --- the listing page ---------------------------------------------------- */
+.listing { max-width: 860px; margin: 0 auto; display: grid; gap: 1.25rem; }
+.listingHero { aspect-ratio: 16 / 7; }
+.listingHead { display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; }
+.factGrid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+.rule { border-top: 1px solid var(--color-border, #e2e8f0); padding-top: 1.25rem; }

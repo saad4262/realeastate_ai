@@ -153,11 +153,13 @@ Suburb and pin are two different things. These cases are about the pin.
 | F11 | Click **Clear location** | Back to a plain text search |
 | F11a | Search a suburb with **no** radius, then on the results page pick **+ within 10 km** and search again | The count changes. This silently did nothing once: the first search put no lat/lng in the URL, so the radius was dropped on the second |
 | F11b | Check the URL after picking a suburb from the dropdown | It carries `suburb`, `state`, `postcode` and — because the picker already resolved them — `lat`/`lng`. The **radius** is what has to be there; the centre is re-resolved server-side either way (`searchQueryToParams` omits the coordinates entirely for this reason) |
-| F11c | Run a search, publish a new listing in the console that matches it, then run the **same** search again | The new listing appears. It did not for two minutes once: the client router cache replayed the first answer for the same URL |
+| F11c | Run a search, publish a matching listing in the console, then re-run the **same** search in a tab that already ran it | It appears within 30 s at worst, and usually at once. The router cache window is derived from `cachedSearch`'s TTL, so it can never be the staler of the two. In a **fresh** tab it is immediate — `revalidateTag` cleared the data cache on publish |
 | F11d | Search a suburb with a **small** radius, where the suburb is wider than it | Cards in that suburb say **"In Pakenham"**, not a distance. Only results the radius brought in show "x.x km away" |
 | F11e | Read the heading on any suburb-plus-radius search | It names both halves — "2 in Pakenham, and 1 more within 10 km" — never just a total |
 | F11f | Click Search with results already on screen | The page does **not** blank. The old results stay, a progress line appears under the search card, the button reads "Searching…" |
-| F11g | Click a listing card from the results | A skeleton in the shape of the page, not the word "Loading" |
+| F11g | Click a listing card from the results | A skeleton in the shape of the page — hero block, address bar, price, fact grid — appearing **immediately**, not the word "Loading" and not a blank screen |
+| F11h | Hover a listing card for a moment, then open DevTools → Network (`_rsc`) | One prefetch fires ~100 ms after the pointer settles. Sweeping the pointer quickly across the whole grid fires **nothing** — that delay is the difference between intent and a mouse passing by |
+| F11i | Open a listing, then press Back | The results are there instantly, with no network request for the page. Before this the whole search re-rendered server-side on every Back |
 | F12 | With results on screen, click **Show N on a map** | A map with a marker per pinned result, framed to fit them all |
 | F13 | Click a marker | Info window with the address, linking to that listing |
 | F14 | Search where some results have no pin | The map says how many are missing rather than hiding them silently |

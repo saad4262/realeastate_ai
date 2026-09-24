@@ -53,6 +53,11 @@ function queryKey(query: PublicSearchQuery): string {
  * waiting for something to appear, and being wrong here is what makes a portal
  * look broken. The tag is what normally clears it — within a second of an
  * agent publishing — and the TTL only matters if that call never arrives.
+ *
+ * next.config.ts derives experimental.staleTimes.dynamic from this number. The
+ * client router cache must never outlive the data cache behind it, or a Back
+ * button can show something a fresh render would not. Change this and change
+ * that, in the same commit.
  */
 export async function cachedSearch(query: PublicSearchQuery): Promise<{
   rows: PublicListingSummary[];

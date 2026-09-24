@@ -3,6 +3,7 @@ import type { PublicListingSummary, PublicSearchQuery } from '@repo/core/listing
 import type { Near } from '@repo/core/geo/schema';
 import { ListingCard } from '../../components/listing-card';
 import { ResultsMap } from '../../components/results-map';
+import { PrefetchOnIntent } from '../../components/prefetch-on-intent';
 import { cachedSearch } from '../../lib/cached';
 import styles from '../home.module.css';
 
@@ -97,11 +98,11 @@ export async function ResultsList({ query, suburb, place, near }: Shared) {
       />
 
       {rows.length ? (
-        <div className={styles.grid}>
+        <PrefetchOnIntent className={styles.grid}>
           {rows.map((listing) => (
             <ListingCard key={listing.id} listing={listing} searchedSuburb={suburb} />
           ))}
-        </div>
+        </PrefetchOnIntent>
       ) : (
         <p className={styles.empty}>
           {down

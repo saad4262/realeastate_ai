@@ -16,22 +16,29 @@ const nextConfig: NextConfig = {
    */
   transpilePackages: ['@repo/ui', '@repo/core', '@repo/db', '@repo/config', '@repo/ai'],
   /**
-   * Search results are never served from the client router cache.
+   * How long a visited page stays usable in the client router cache.
    *
-   * This was 120s, on the reasoning that listings do not change by the second
-   * and going back to a result should not refetch. That reasoning was wrong for
-   * this page. The cache key is the URL, so searching the same suburb and radius
-   * twice replays the first answer — and the gap between those two searches is
-   * exactly when an agent publishes a listing and then goes to check that it
-   * appeared. It did not, for two minutes, with no way to tell why.
+   * 30 seconds, and the number is derived rather than chosen: it is the TTL of
+   * cachedSearch in lib/cached.ts. The invariant is
    *
-   * A property portal that shows a buyer a listing that has just sold, or hides
-   * one that has just come up, is wrong in the way that matters most. Static
-   * pages keep their cache; dynamic ones are re-fetched.
+   *     router cache window <= Data Cache TTL of the data on that page
+   *
+   * which makes a router-cache hit provably no staler than a fresh server
+   * render would have been. The client cache can no longer be the reason
+   * somebody sees something out of date; only the data cache can, and that is
+   * a window every visitor already lives with.
+   *
+   * This was 120s once and that was wrong: an agent published a listing, went
+   * to check the public site, and the same search URL replayed the old answer
+   * for two minutes. The fix at the time was 0, which closed the hole by
+   * refetching the entire page on every Back — and browse → open → back → open
+   * is the single most repeated act on a property portal, so every visitor paid
+   * for one agent's confusion. The hole itself belongs to the data cache, and
+   * revalidateTag closes it within a second of a publish for everyone.
    */
   experimental: {
     staleTimes: {
-      dynamic: 0,
+      dynamic: 30,
       static: 300,
     },
   },

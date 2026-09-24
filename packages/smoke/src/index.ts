@@ -45,16 +45,33 @@ async function http(url: string): Promise<Response> {
  * so this exercises the shipping pipeline rather than a second copy of it —
  * and the streaming parser never has to be reimplemented here.
  */
-async function chat(body: unknown): Promise<{ status: number; turn: ChatTurnResult }> {
+async function chat(body: unknown): Promise<ChatTurnResult> {
   const res = await fetch(`${WEB}/api/chat`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
     body: JSON.stringify(body),
     // A three-round turn is slower than any other check here.
-    signal: AbortSignal.timeout(90_000),
+    signal: AbortSignal.timeout(120_000),
   });
-  const turn = (await res.json().catch(() => null)) as ChatTurnResult;
-  return { status: res.status, turn };
+
+  // The limiter is 10 a minute and this group spends several. Hitting it means
+  // the limiter works, not that the guide is broken — and a run that goes red
+  // for that would teach everyone to ignore the output.
+  if (res.status === 429) skip('rate limited — rerun in a minute');
+
+  const body_ = (await res.json().catch(() => null)) as ChatTurnResult | { message?: string } | null;
+  assert(res.status === 200, `HTTP ${res.status}: ${JSON.stringify(body_)?.slice(0, 160)}`);
+  const turn = body_ as ChatTurnResult;
+  assert(Array.isArray(turn?.results), `not a chat turn: ${JSON.stringify(body_)?.slice(0, 160)}`);
+  assert(!turn.error, `the guide errored: ${turn.error?.message}`);
+  return turn;
+}
+
+/** The one search a turn should have run, or a readable failure. */
+function onlySearch(turn: ChatTurnResult) {
+  const search = turn.results[turn.results.length - 1];
+  assert(search !== undefined, `the guide never searched. It said: "${turn.text.slice(0, 120)}"`);
+  return search;
 }
 
 /** Every dollar figure in a string, so an answer can be checked against its source. */
@@ -591,15 +608,14 @@ async function main() {
   await check('a cached page is fast the second time', async () => {
     if (!webUp) skip('web app is not running');
     if (!sample) skip('no live listings');
-    const url = `${WEB}/search?suburb=${encodeURIComponent(sample)}`;
-
-    await http(url); // warm
-    const started = Date.now();
-    await http(url);
-    const ms = Date.now() - started;
+    const path = `/search?suburb=${encodeURIComponent(sample)}`;
+    await fullBodyMs(path); // warm
+    const ms = await fullBodyMs(path);
 
     // Generous: this is a dev server on a laptop. What it rules out is the
     // page going back to the database region on every view, which was ~850 ms.
+    // Reading the body matters — see fullBodyMs. Timing to the first byte
+    // passes this trivially on a streamed page whether it is cached or not.
     assert(ms < 400, `a warm page took ${ms} ms — the cache is not being hit`);
     return `${ms} ms warm`;
   });
@@ -607,12 +623,29 @@ async function main() {
   group('Speed');
 
   /** Median of a few runs, so one unlucky request does not decide the result. */
+  /**
+   * Milliseconds until the WHOLE page has arrived, not until its first byte.
+   *
+   * This used to stop at the response headers, and that quietly stopped
+   * measuring anything the day loading.tsx was added. A streamed page flushes
+   * its shell immediately whether the data underneath is cached or not, so
+   * every request looked equally fast — cold 33 ms, warm 33 ms — and a lost
+   * cache became undetectable by the checks written to catch it.
+   *
+   * The body is the part that waits on the database, so the body is what has
+   * to be read.
+   */
+  async function fullBodyMs(path: string): Promise<number> {
+    const started = Date.now();
+    const res = await http(`${WEB}${path}`);
+    await res.text();
+    return Date.now() - started;
+  }
+
   async function timeOf(path: string, runs = 5): Promise<number> {
     const times: number[] = [];
     for (let i = 0; i < runs; i += 1) {
-      const started = Date.now();
-      await http(`${WEB}${path}`);
-      times.push(Date.now() - started);
+      times.push(await fullBodyMs(path));
     }
     times.sort((a, b) => a - b);
     return times[Math.floor(times.length / 2)] ?? 0;
@@ -649,15 +682,29 @@ async function main() {
     if (!webUp) skip('web app is not running');
     if (!(await clearCache())) skip('REVALIDATE_SECRET is not set');
 
-    const started = Date.now();
-    await http(`${WEB}${path}`);
-    const cold = Date.now() - started;
-
+    const cold = await fullBodyMs(path);
     const warm = await timeOf(path);
 
+    /**
+     * The assertion is about the WARM request alone, not the ratio.
+     *
+     * The ratio was the original idea and it does not survive contact with the
+     * thing it guards. Ripping the cache out entirely was measured at cold
+     * 1465 ms / warm 433 ms — the warm request making a full round trip to the
+     * database every time, and still comfortably passing `warm * 2 < cold`,
+     * because "cold" carries one-off costs (connection setup, compilation)
+     * that have nothing to do with caching. The earlier `cold - warm > 100`
+     * escape hatch was wider still.
+     *
+     * What cannot be faked is how long a warm request takes. A cache hit is
+     * 29-55 ms here; a round trip to the database region is 420-480 ms. The
+     * gap is most of an order of magnitude, so the threshold sits between them
+     * with room on both sides and stops measuring the laptop.
+     */
     assert(
-      warm * 2 < cold || cold - warm > 100,
-      `${label}: cold ${cold} ms, warm ${warm} ms — too close together to be cached`,
+      warm < 150,
+      `${label}: warm ${warm} ms (cold ${cold} ms) — a warm request this slow is ` +
+        'still going to the database, so the cache is not being hit',
     );
     return `cold ${cold} ms → warm ${warm} ms`;
   }
@@ -725,14 +772,11 @@ async function main() {
     const suburb = suburbs[0];
     if (!suburb) skip('no live listings to search');
 
-    const { status, turn } = await chat({
+    const turn = await chat({
       message: `3 bedroom house in ${suburb} for sale under $900,000`,
     });
-    assert(status === 200, `HTTP ${status}`);
-    assert(!turn.error, `chat returned an error: ${turn.error?.message}`);
+    const search = onlySearch(turn);
 
-    const search = turn.results[0];
-    assert(search !== undefined, 'the guide never searched');
     assert(
       search.query.suburb?.toLowerCase() === suburb.toLowerCase(),
       `searched ${search.query.suburb} rather than ${suburb}`,
@@ -741,6 +785,30 @@ async function main() {
     assert(search.query.priceTo === 900_000, `priceTo was ${search.query.priceTo}`);
     assert(search.deepLink.startsWith('/search?'), `deep link was ${search.deepLink}`);
     return `${search.matched} matches in ${suburb}`;
+  });
+
+  await check('a distance in the message becomes a radius, unasked', async () => {
+    if (!webUp) skip('web app is not running');
+    if (!haveAnthropic) skip('no ANTHROPIC_API_KEY');
+
+    const suburbs = await liveSuburbs(db);
+    const suburb = suburbs[0];
+    if (!suburb) skip('no live listings to search');
+
+    // "under 30km" is a complete instruction. The guide asked whether 30 km was
+    // meant, once, which is the software not listening.
+    const turn = await chat({ message: `I need a house in ${suburb} under 30km` });
+    const search = onlySearch(turn);
+
+    assert(search.query.near !== undefined, 'searched without a radius');
+    assert(
+      search.query.near?.radiusKm === 30,
+      `radius was ${search.query.near?.radiusKm}, not 30`,
+    );
+    // And the link keeps the suburb-not-coordinates rule the search page needs.
+    assert(search.deepLink.includes('radius=30'), `deep link was ${search.deepLink}`);
+    assert(!search.deepLink.includes('lat='), `deep link carried coordinates: ${search.deepLink}`);
+    return `radius 30 km around ${suburb}`;
   });
 
   await check('every price it says came from the database', async () => {
@@ -754,22 +822,23 @@ async function main() {
     const suburb = suburbs[0];
     if (!suburb) skip('no live listings to search');
 
-    const { turn } = await chat({
-      message: `What 3 bedroom homes are for sale in ${suburb} under $2,000,000? Name two with their prices.`,
-    });
-    assert(!turn.error, `chat returned an error: ${turn.error?.message}`);
+    const message = `What homes are for sale in ${suburb}? Name two with their prices.`;
+    const turn = await chat({ message });
+    const search = onlySearch(turn);
 
-    const search = turn.results[0];
-    assert(search !== undefined, 'the guide never searched');
-
-    // Whatever was shown is the only place a figure may have come from.
-    const source = JSON.stringify(search.listings);
-    const invented = dollarFigures(turn.text).filter((fig) => !source.includes(fig));
-    assert(
-      invented.length === 0,
-      `said ${invented.join(', ')} — not in any tool result`,
+    /**
+     * What the guide was allowed to say a number from: the rows it was handed,
+     * the filters the server ran, and the visitor's own words. That last one
+     * matters — a guide repeating "under $900,000" back to the person who just
+     * said it is quoting them, not inventing a price, and an earlier version of
+     * this check failed on exactly that.
+     */
+    const source = JSON.stringify(search.listings) + JSON.stringify(search.query) + message;
+    const invented = dollarFigures(turn.text).filter(
+      (fig) => !source.includes(fig) && !source.includes(fig.replace(/,/g, '')),
     );
-    return `${dollarFigures(turn.text).length} figure(s), all from SQL`;
+    assert(invented.length === 0, `said ${invented.join(', ')} — not in any tool result`);
+    return `${dollarFigures(turn.text).length} figure(s), all accounted for`;
   });
 
   await check('its link agrees with the search page', async () => {
@@ -780,9 +849,8 @@ async function main() {
     const suburb = suburbs[0];
     if (!suburb) skip('no live listings to search');
 
-    const { turn } = await chat({ message: `Homes for sale in ${suburb} under $5,000,000` });
-    const search = turn.results[0];
-    assert(search !== undefined, 'the guide never searched');
+    const turn = await chat({ message: `Homes for sale in ${suburb}` });
+    const search = onlySearch(turn);
 
     // Closes the loop between the two ways into the same data.
     const onPage = await resultCount(search.deepLink.split('?')[1] ?? '');
@@ -797,8 +865,7 @@ async function main() {
     if (!webUp) skip('web app is not running');
     if (!haveAnthropic) skip('no ANTHROPIC_API_KEY');
 
-    const { turn } = await chat({ message: 'I want a house' });
-    assert(!turn.error, `chat returned an error: ${turn.error?.message}`);
+    const turn = await chat({ message: 'I want a house' });
     assert(turn.text.includes('?'), `did not ask anything: "${turn.text.slice(0, 120)}"`);
 
     const shown = turn.results.reduce((n, r) => n + r.listings.length, 0);

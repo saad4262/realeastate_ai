@@ -4,7 +4,7 @@ import type { ListingChannel, PublicSearchQuery, SearchSort } from '@repo/core/l
 import { nearSchema } from '@repo/core/geo/schema';
 import { AppShell } from '@repo/ui';
 import { SearchBar } from '../../components/search-bar';
-import { Spinner } from '../../components/spinner';
+import { SearchBarSkeleton, CardGridSkeleton } from '../../components/skeletons';
 import { ResultsList, ResultsSummary } from './results';
 import { cachedFilterOptions, cachedPlace } from '../../lib/cached';
 import styles from '../home.module.css';
@@ -177,13 +177,16 @@ export default async function SearchPage({
           <ResultsSummary {...shared} />
         </Suspense>
 
-        <Suspense fallback={null}>
+        <Suspense fallback={<SearchBarSkeleton />}>
           <SearchBar propertyTypes={propertyTypes} />
         </Suspense>
       </section>
 
       <section className={styles.section}>
-        <Suspense key={`r-${searchKey}`} fallback={<Spinner label="Searching…" />}>
+        {/* A grid of card shapes rather than a spinner: the results are about
+            to be a grid of cards, and a centred spinner makes the page jump
+            from nothing to full height. */}
+        <Suspense key={`r-${searchKey}`} fallback={<CardGridSkeleton count={6} />}>
           <ResultsList {...shared} />
         </Suspense>
       </section>
