@@ -467,6 +467,20 @@ This is not ceremony. In this repo, found by doing it:
   ratio passed with the cache ripped out.
 - A `#4` violation alarm was a bug in the check, not the model.
 
+**"It renders" is not "it renders correctly."** A page can return 200, contain
+every word it should, pass every assertion here, and still be unstyled blue
+links — Tailwind only emits a class it finds, so a PostCSS step that is not
+running produces exactly that. It happened: a dev server started before
+`postcss.config.mjs` existed served the whole redesign with no utilities, and a
+phase of "does the page render" checks that only grepped for text never noticed.
+`pnpm smoke` now compares the classes a page's markup uses against the CSS that
+page actually serves.
+
+**Restart the dev server when build configuration changes.** PostCSS and
+`next.config.ts` are read at startup; a running server will not pick them up,
+and it will keep serving a stale build that looks like a code bug. `.next-dev`
+is worth deleting at the same time.
+
 **A new invariant belongs in `pnpm smoke`.** A new endpoint needs a permission
 test. A projected win is not a win: measure before and after, and when the
 projection turns out wrong, say so and drop it. Phase 5d's planned 60% cut of

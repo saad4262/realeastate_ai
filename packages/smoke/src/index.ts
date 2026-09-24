@@ -115,6 +115,27 @@ async function resultCount(query: string): Promise<number> {
   return Number(m[1]);
 }
 
+/**
+ * Every stylesheet a page links, concatenated.
+ *
+ * Used to answer "is this page actually styled", which turns out to be a
+ * question nothing else here could ask.
+ */
+async function servedCss(path: string): Promise<{ html: string; css: string }> {
+  const res = await http(`${WEB}${path}`);
+  assert(res.ok, `${path} returned HTTP ${res.status}`);
+  const html = await res.text();
+
+  const hrefs = [...html.matchAll(/href="([^"]*\.css[^"]*)"/g)].map((m) => m[1] as string);
+  const sheets = await Promise.all(
+    [...new Set(hrefs)].map(async (href) => {
+      const sheet = await http(href.startsWith('http') ? href : `${WEB}${href}`);
+      return sheet.ok ? sheet.text() : '';
+    }),
+  );
+  return { html, css: sheets.join('\n') };
+}
+
 const suburbsOf = (rows: PublicListingSummary[]) => [...new Set(rows.map((r) => r.suburb))];
 
 async function main() {
@@ -671,6 +692,58 @@ async function main() {
     const res = await http(WEB);
     assert(res.ok, `HTTP ${res.status}`);
     return `${WEB} → 200`;
+  });
+
+  await check('the pages are actually styled', async () => {
+    /**
+     * The check that nothing else here could make.
+     *
+     * apps/web is styled with Tailwind, which only emits a class it FINDS in a
+     * source file — so a misconfigured PostCSS step, a content-detection miss,
+     * or simply a dev server started before the config existed all produce the
+     * same thing: a page that returns 200, contains every word it should, and
+     * renders as unstyled blue links. Every other check here would pass.
+     *
+     * That is exactly what happened: a dev server running since before
+     * postcss.config.mjs was added served the search results with no utilities
+     * at all, through a whole phase of "does the page render" checks that only
+     * ever grepped for text.
+     *
+     * So: take the classes the markup actually uses and assert the CSS the
+     * page links defines them. It compares the page against itself, so it
+     * cannot go stale as the design changes.
+     */
+    if (!webUp) skip('web app is not running');
+
+    const pages = ['/', `/search?suburb=${encodeURIComponent((await liveSuburbs(db))[0] ?? 'Pakenham')}`];
+    const report: string[] = [];
+
+    for (const path of pages) {
+      const { html, css } = await servedCss(path);
+      assert(css.length > 0, `${path} links no stylesheet at all`);
+
+      // A handful of utilities the redesigned pages are built out of. Read
+      // from the markup rather than hard-coded, so this does not become a list
+      // that has to be maintained alongside the design.
+      const used = [
+        ...new Set(
+          [...html.matchAll(/class="([^"]*)"/g)]
+            .flatMap((m) => (m[1] as string).split(/\s+/))
+            .filter((c) => /^(rounded|bg|text|border|shadow|grid|flex|p|gap)-[a-z0-9-]+$/.test(c)),
+        ),
+      ].slice(0, 12);
+
+      assert(used.length > 0, `${path} renders no utility classes — is it Tailwind at all?`);
+
+      const missing = used.filter((c) => !css.includes(`.${c}`));
+      assert(
+        missing.length === 0,
+        `${path} uses ${missing.slice(0, 5).join(', ')} and the CSS it serves defines none of them — the page is unstyled`,
+      );
+      report.push(`${path.split('?')[0]} ${used.length} utilities`);
+    }
+
+    return report.join(' · ');
   });
 
   await check('/api/places suggests a suburb', async () => {
