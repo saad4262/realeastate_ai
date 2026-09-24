@@ -2,7 +2,7 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import type { ListingChannel, PublicSearchQuery, SearchSort } from '@repo/core/listings';
 import { nearSchema } from '@repo/core/geo/schema';
-import { AppShell } from '@repo/ui';
+import { WebShell } from '../../components/web-shell';
 import { SearchBar } from '../../components/search-bar';
 import { SearchBarSkeleton, CardGridSkeleton } from '../../components/skeletons';
 import { ResultsList, ResultsSummary } from './results';
@@ -213,7 +213,7 @@ export default async function SearchPage({
   const searchKey = JSON.stringify(query);
 
   return (
-    <AppShell surface="web">
+    <WebShell>
       <section className={styles.hero}>
         <h1 className={styles.title}>Search</h1>
 
@@ -236,7 +236,7 @@ export default async function SearchPage({
           <ResultsList {...shared} />
         </Suspense>
       </section>
-    </AppShell>
+    </WebShell>
   );
 }
 

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { AppShell } from '@repo/ui';
+import { WebShell } from '../components/web-shell';
 import styles from './failure.module.css';
 
 /**
@@ -12,7 +12,7 @@ import styles from './failure.module.css';
  * database failures and carry on with `down: true` — this is for everything
  * nobody anticipated.
  *
- * Rendered inside AppShell on purpose. A bare error page reads as "the site is
+ * Rendered inside the site shell on purpose. A bare error page reads as "the site is
  * gone"; one with the site's own header around it reads as "this page failed",
  * which is both true and less alarming.
  *
@@ -27,7 +27,7 @@ export default function WebError({
   reset: () => void;
 }) {
   return (
-    <AppShell surface="web">
+    <WebShell>
       <div className={styles.wrap}>
         <h1 className={styles.title}>Something went wrong</h1>
         <p className={styles.body}>
@@ -54,6 +54,6 @@ export default function WebError({
           <p className={styles.digest}>Reference: {error.digest}</p>
         ) : null}
       </div>
-    </AppShell>
+    </WebShell>
   );
 }

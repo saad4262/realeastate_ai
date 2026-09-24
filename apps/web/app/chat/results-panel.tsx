@@ -1,6 +1,9 @@
+'use client';
+
 import Link from 'next/link';
 import type { ResultsEvent } from '@repo/ai/chat-events';
 import { ListingCard } from '../../components/listing-card';
+import { ResultsMap } from '../../components/results-map';
 import styles from './chat.module.css';
 
 /**
@@ -10,6 +13,9 @@ import styles from './chat.module.css';
  * server put in the `results` frame, through the same ListingCard the search
  * page uses — so every price on screen came from SQL, whatever the answer next
  * to it claims. That is non-negotiable #4 made visible rather than promised.
+ *
+ * Pins come from the same rows (`latitude` / `longitude`). The model never
+ * sees coordinates; the map does not need it to.
  */
 
 /** The filters, from the query the SERVER ran — not from what the model asked for. */
@@ -38,25 +44,41 @@ function filterChips(results: ResultsEvent): string[] {
 export function ResultsPanel({
   results,
   hidden,
+  embedded,
 }: {
   results: ResultsEvent | null;
-  hidden: boolean;
+  /** Legacy mobile hide — prefer the sidebar's own mobile class when embedded. */
+  hidden?: boolean;
+  /** Nested under the search brief in the redesigned sidebar. */
+  embedded?: boolean;
 }) {
   const chips = results ? filterChips(results) : [];
   const listings = results?.listings ?? [];
+  const pins = listings
+    .filter((r) => r.latitude !== null && r.longitude !== null)
+    .map((r) => ({
+      id: r.id,
+      lat: r.latitude as number,
+      lng: r.longitude as number,
+      label: r.address,
+      href: `/listing/${r.id}`,
+    }));
+  // Counted from the pins actually built: a row with a latitude but no
+  // longitude is just as unplaceable, and testing latitude alone missed it.
+  const unpinned = listings.length - pins.length;
 
   return (
     <section
-      className={`${styles.panel} ${hidden ? styles.hidden : ''}`}
+      className={`${embedded ? styles.resultsEmbed : styles.panel} ${hidden ? styles.hidden : ''}`}
       aria-label="Search results"
     >
       <div className={styles.panelHead}>
-        <h2 className={styles.panelTitle}>Results</h2>
+        <h2 className={styles.panelTitle}>Matches</h2>
         {results ? (
           <span className={styles.panelCount}>
-            {results.capped ? `${results.matched}+ matches` : `${results.matched} matches`}
+            {results.capped ? `${results.matched}+` : results.matched}
             {results.matched > listings.length && listings.length > 0
-              ? ` · showing ${listings.length}`
+              ? ` · show ${listings.length}`
               : ''}
           </span>
         ) : null}
@@ -75,7 +97,7 @@ export function ResultsPanel({
       <div className={styles.panelBody}>
         {!results ? (
           <p className={styles.panelEmpty}>
-            Tell the guide what you are after and matching homes will appear here.
+            Matching homes will land here once we run a search.
           </p>
         ) : listings.length === 0 ? (
           <p className={styles.panelEmpty}>
@@ -84,13 +106,18 @@ export function ResultsPanel({
               : 'Too many to be useful — the guide needs a little more to go on.'}
           </p>
         ) : (
-          listings.map((listing) => (
-            <ListingCard
-              key={listing.id}
-              listing={listing}
-              searchedSuburb={results.query.suburb}
-            />
-          ))
+          <>
+            <ResultsMap pins={pins} unpinned={unpinned} defaultOpen height={220} />
+            {listings.map((listing) => (
+              <div key={listing.id} className={styles.listingWrap}>
+                <ListingCard
+                  listing={listing}
+                  searchedSuburb={results.query.suburb}
+                  compact
+                />
+              </div>
+            ))}
+          </>
         )}
       </div>
 

@@ -1,6 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react';
 import type { ChatEvent, ResultsEvent, StateEvent } from '@repo/ai/chat-events';
 import { readChatStream } from './chat-stream';
 import { ResultsPanel } from './results-panel';
@@ -27,11 +34,117 @@ type Turn = {
   results?: ResultsEvent;
 };
 
+type Slots = StateEvent['slots'];
+
 const STARTERS = [
-  'I need a house in Pakenham under 30 km',
-  'Rentals under $650 a week with 2 bedrooms',
-  'What is for sale near Bondi Beach?',
+  'Berwick is home — where should I look next?',
+  'Buying around Pakenham, within about 30 km',
+  '2-bed rental under $650 a week near Bondi',
 ];
+
+/** Sidebar brief rows — empty until the guide fills a slot. */
+const BRIEF_FIELDS: { id: string; label: string; format: (slots: Slots) => string | null }[] = [
+  {
+    id: 'channel',
+    label: 'Buy or rent',
+    format: (s) =>
+      s.channel === 'sale' ? 'Buying' : s.channel === 'rent' ? 'Renting' : null,
+  },
+  {
+    id: 'suburb',
+    label: 'Suburb',
+    format: (s) => {
+      if (!s.suburb) return null;
+      return [s.suburb, s.state, s.postcode].filter(Boolean).join(', ');
+    },
+  },
+  {
+    id: 'radius',
+    label: 'Radius',
+    format: (s) => (s.radiusKm != null ? `${s.radiusKm} km` : null),
+  },
+  {
+    id: 'bedrooms',
+    label: 'Bedrooms',
+    format: (s) => (s.bedrooms != null ? `${s.bedrooms}+` : null),
+  },
+  {
+    id: 'bathrooms',
+    label: 'Bathrooms',
+    format: (s) => (s.bathrooms != null ? `${s.bathrooms}+` : null),
+  },
+  {
+    id: 'cars',
+    label: 'Car spaces',
+    format: (s) => (s.carSpaces != null ? `${s.carSpaces}+` : null),
+  },
+  {
+    id: 'type',
+    label: 'Property type',
+    format: (s) => s.propertyType ?? null,
+  },
+  {
+    id: 'budget',
+    label: 'Budget',
+    format: (s) => {
+      const rental = s.channel === 'rent';
+      const money = (n: number) =>
+        rental
+          ? `$${n.toLocaleString('en-AU')} pw`
+          : `$${n.toLocaleString('en-AU')}`;
+      if (s.priceFrom != null && s.priceTo != null) {
+        return `${money(s.priceFrom)} – ${money(s.priceTo)}`;
+      }
+      if (s.priceTo != null) return `under ${money(s.priceTo)}`;
+      if (s.priceFrom != null) return `from ${money(s.priceFrom)}`;
+      return null;
+    },
+  },
+  {
+    id: 'keywords',
+    label: 'Keywords',
+    format: (s) => s.keywords ?? null,
+  },
+];
+
+function SendIcon({ variant = 'arrow' }: { variant?: 'arrow' | 'plane' }) {
+  if (variant === 'plane') {
+    return (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+        <path
+          d="M4.4 11.2 19.2 4.7c.7-.3 1.4.4 1.1 1.1l-6.5 14.8c-.3.7-1.3.6-1.5-.1l-1.8-5.4a1 1 0 0 0-.6-.6l-5.4-1.8c-.7-.2-.8-1.2-.1-1.5Z"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M4.5 12h15m0 0-6.5-6.5M19.5 12 13 18.5"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function TypingSkeleton({ label }: { label: string }) {
+  return (
+    <div className={styles.typing} aria-busy="true" aria-label={label}>
+      <p className={styles.typingLabel}>{label}</p>
+      <div className={styles.skeleton} aria-hidden>
+        <span className={styles.skeletonBar} />
+        <span className={`${styles.skeletonBar} ${styles.skeletonBarMid}`} />
+        <span className={`${styles.skeletonBar} ${styles.skeletonBarShort}`} />
+      </div>
+    </div>
+  );
+}
 
 export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -39,12 +152,15 @@ export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
   const [streaming, setStreaming] = useState(false);
   const [working, setWorking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [slots, setSlots] = useState<StateEvent['slots'] | null>(null);
+  const [slots, setSlots] = useState<Slots | null>(null);
   const [results, setResults] = useState<ResultsEvent | null>(null);
   const [tab, setTab] = useState<'chat' | 'results'>('chat');
 
   const threadRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const empty = turns.length === 0;
 
   // Follow the answer as it arrives. Not aria-live per delta — see below.
   useEffect(() => {
@@ -64,6 +180,7 @@ export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
       setError(null);
       setStreaming(true);
       setWorking(null);
+      setTab('chat');
 
       const history = turns.slice(-MAX_TURNS);
       setTurns((prev) => [...prev, { role: 'user', text }, { role: 'assistant', text: '' }]);
@@ -163,6 +280,7 @@ export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
             ? prev.slice(0, -1)
             : prev;
         });
+        inputRef.current?.focus();
       }
     },
     [slots, streaming, turns],
@@ -173,165 +291,260 @@ export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
     void send(draft);
   }
 
-  const placeholder = exampleSuburb
-    ? `Try "3 bedroom house in ${exampleSuburb}"`
-    : 'Tell me what you are looking for';
+  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      void send(draft);
+    }
+  }
 
-  return (
-    <div className={styles.page}>
-      <div className={styles.head}>
-        <h1 className={styles.title}>Property guide</h1>
-        <p className={styles.sub}>
-          Describe what you are after and I will search the live listings with you.
+  const last = turns[turns.length - 1];
+  const awaitingReply =
+    streaming && last?.role === 'assistant' && !last.text && !last.results && !working;
+
+  const composer = (
+    <div className={empty ? styles.heroComposer : styles.composer}>
+      {empty ? (
+        <div className={styles.chips}>
+          {STARTERS.map((starter) => (
+            <button
+              key={starter}
+              type="button"
+              className={styles.chipBtn}
+              onClick={() => void send(starter)}
+              disabled={streaming}
+            >
+              {starter}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <form
+        className={empty ? styles.heroComposeBox : styles.composeBox}
+        onSubmit={onSubmit}
+      >
+        <textarea
+          ref={inputRef}
+          className={styles.input}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder={
+            empty
+              ? exampleSuburb
+                ? `e.g. a family home near ${exampleSuburb}, under $900k, 3 beds…`
+                : 'Suburb, budget, bedrooms — or ask where you should look…'
+              : 'Ask a follow-up, or change the brief…'
+          }
+          maxLength={1000}
+          rows={empty ? 3 : 1}
+          aria-label="Message the property guide"
+          disabled={streaming}
+        />
+        {empty ? (
+          <div className={styles.composeToolbar}>
+            <span className={styles.composeHint}>AI guide · prices from live listings</span>
+            {streaming ? (
+              <button
+                type="button"
+                className={styles.stop}
+                onClick={() => abortRef.current?.abort()}
+              >
+                Stop
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className={styles.sendPill}
+                disabled={!draft.trim()}
+                aria-label="Send"
+              >
+                Ask the guide
+                <SendIcon />
+              </button>
+            )}
+          </div>
+        ) : streaming ? (
+          <button
+            type="button"
+            className={styles.stop}
+            onClick={() => abortRef.current?.abort()}
+          >
+            Stop
+          </button>
+        ) : (
+          <button
+            type="submit"
+            className={styles.sendIcon}
+            disabled={!draft.trim()}
+            aria-label="Send"
+          >
+            <SendIcon variant="plane" />
+          </button>
+        )}
+      </form>
+    </div>
+  );
+
+  const sidebar = (
+    <aside
+      className={`${styles.sidebar} ${tab === 'chat' ? styles.hiddenMobile : ''}`}
+      aria-label="Your search"
+    >
+      <div className={styles.brief}>
+        <h2 className={styles.briefTitle}>Your search</h2>
+        <p className={styles.briefSub}>
+          We&apos;ll track what you&apos;re after here as we go.
+        </p>
+        <ul className={styles.briefList}>
+          {BRIEF_FIELDS.map((field) => {
+            const value = slots ? field.format(slots) : null;
+            return (
+              <li
+                key={field.id}
+                className={`${styles.briefItem} ${value ? styles.briefFilled : ''}`}
+              >
+                <span className={styles.briefDot} aria-hidden />
+                <span className={styles.briefLabel}>{field.label}</span>
+                {value ? <span className={styles.briefValue}>{value}</span> : null}
+              </li>
+            );
+          })}
+        </ul>
+        <p className={styles.briefFoot}>
+          Listing prices and match counts come from the live search — never from the model.
         </p>
       </div>
 
-      <div className={styles.tabs} role="tablist" aria-label="Chat or results">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'chat'}
-          className={`${styles.tab} ${tab === 'chat' ? styles.tabActive : ''}`}
-          onClick={() => setTab('chat')}
-        >
-          Chat
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'results'}
-          className={`${styles.tab} ${tab === 'results' ? styles.tabActive : ''}`}
-          onClick={() => setTab('results')}
-        >
-          Results{results ? ` (${results.listings.length})` : ''}
-        </button>
-      </div>
+      <ResultsPanel results={results} embedded />
+    </aside>
+  );
+
+  return (
+    <div className={`${styles.page} ${empty ? styles.pageEmpty : styles.pageActive}`}>
+      {!empty ? (
+        <div className={styles.tabs} role="tablist" aria-label="Chat or search">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'chat'}
+            className={`${styles.tab} ${tab === 'chat' ? styles.tabActive : ''}`}
+            onClick={() => setTab('chat')}
+          >
+            Chat
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'results'}
+            className={`${styles.tab} ${tab === 'results' ? styles.tabActive : ''}`}
+            onClick={() => setTab('results')}
+          >
+            Search{results ? ` (${results.listings.length})` : ''}
+          </button>
+        </div>
+      ) : null}
 
       <div className={styles.split}>
         <section
-          className={`${styles.card} ${tab === 'results' ? styles.hidden : ''}`}
+          className={`${styles.main} ${!empty && tab === 'results' ? styles.hiddenMobile : ''}`}
           aria-label="Conversation"
         >
-          <div className={styles.cardHead}>
-            <h2 className={styles.cardTitle}>Guide</h2>
-            <span className={styles.cardNote}>Prices come from the live listings</span>
-          </div>
+          {empty ? (
+            <div className={styles.hero}>
+              <span className={styles.badge}>
+                <span className={styles.badgeDot} aria-hidden />
+                AI property guide · live Australian listings
+              </span>
+              <h1 className={styles.heroTitle}>
+                <span className={styles.heroTitleAccent}>Tell me what you need.</span>
+                <span className={styles.heroTitleMuted}> I&apos;ll search what&apos;s live.</span>
+              </h1>
+              <p className={styles.heroSub}>
+                Talk the way you would to a local — buy or rent, suburb, budget, bedrooms, or
+                which area might suit you. I&apos;ll weigh it up and search the live stock.
+              </p>
+              {error ? <p className={styles.error}>{error}</p> : null}
+              {composer}
+            </div>
+          ) : (
+            <>
+              {/*
+                role="log" announces a completed message. The streaming text node is
+                deliberately NOT live per delta — a screen reader would read the
+                answer out one character at a time.
+              */}
+              <div className={styles.thread} ref={threadRef} role="log" aria-live="polite">
+                {turns.map((turn, i) => {
+                  const isUser = turn.role === 'user';
+                  const isStreamingTail =
+                    streaming && i === turns.length - 1 && !isUser && !turn.text && !turn.results;
 
-          {/*
-            role="log" announces a completed message. The streaming text node is
-            deliberately NOT live per delta — a screen reader would read the
-            answer out one character at a time.
-          */}
-          <div className={styles.thread} ref={threadRef} role="log" aria-live="polite">
-            {turns.length === 0 ? (
-              <div className={styles.msg}>
-                <span className={styles.avAi} aria-hidden>
-                  PG
-                </span>
-                <div className={styles.bubbleAi}>
-                  <p className={styles.msgText}>
-                    Hello. Are you looking to buy or to rent, and whereabouts?
-                  </p>
-                </div>
-              </div>
-            ) : null}
+                  // Empty assistant shell while waiting — typing row handles it.
+                  if (isStreamingTail) return null;
 
-            {turns.map((turn, i) => (
-              <div className={styles.msg} key={i}>
-                <span className={turn.role === 'user' ? styles.avUser : styles.avAi} aria-hidden>
-                  {turn.role === 'user' ? 'You' : 'PG'}
-                </span>
-                <div className={turn.role === 'user' ? styles.bubbleUser : styles.bubbleAi}>
-                  <div className={styles.msgName}>
-                    {turn.role === 'user' ? 'You' : 'Property guide'}
-                  </div>
-                  {turn.text ? <p className={styles.msgText}>{turn.text}</p> : null}
+                  return (
+                    <div
+                      className={`${styles.msg} ${isUser ? styles.msgUser : styles.msgAi}`}
+                      key={i}
+                    >
+                      <div className={styles.msgMeta}>
+                        {!isUser ? (
+                          <span className={styles.avAi} aria-hidden>
+                            P
+                          </span>
+                        ) : null}
+                        <span className={styles.msgName}>{isUser ? 'You' : 'Guide'}</span>
+                      </div>
+                      <div className={isUser ? styles.bubbleUser : styles.bubbleAi}>
+                        {turn.text ? <p className={styles.msgText}>{turn.text}</p> : null}
 
-                  {/* What was searched, written by the server from the query it ran. */}
-                  {turn.results ? (
-                    <div className={styles.searched}>
-                      <span className={styles.chip}>
-                        {turn.results.capped
-                          ? `${turn.results.matched}+ matches`
-                          : `${turn.results.matched} matches`}
-                      </span>
-                      {turn.results.query.suburb ? (
-                        <span className={styles.chip}>{turn.results.query.suburb}</span>
-                      ) : null}
-                      {turn.results.query.near ? (
-                        <span className={styles.chip}>
-                          within {turn.results.query.near.radiusKm} km
-                        </span>
-                      ) : null}
+                        {turn.results ? (
+                          <div className={styles.searched}>
+                            <span className={styles.chip}>
+                              {turn.results.capped
+                                ? `${turn.results.matched}+ matches`
+                                : `${turn.results.matched} matches`}
+                            </span>
+                            {turn.results.query.suburb ? (
+                              <span className={styles.chip}>{turn.results.query.suburb}</span>
+                            ) : null}
+                            {turn.results.query.near ? (
+                              <span className={styles.chip}>
+                                within {turn.results.query.near.radiusKm} km
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
-                  ) : null}
-                </div>
-              </div>
-            ))}
+                  );
+                })}
 
-            {working ? (
-              <div className={styles.msg}>
-                <span className={styles.avAi} aria-hidden>
-                  PG
-                </span>
-                <div className={styles.bubbleAi}>
-                  <div className={styles.working}>
-                    <span className={styles.dot} />
-                    <span className={styles.dot} />
-                    <span className={styles.dot} />
-                    <span>{working}</span>
+                {working || awaitingReply ? (
+                  <div className={`${styles.msg} ${styles.msgAi}`}>
+                    <div className={styles.msgMeta}>
+                      <span className={styles.avAi} aria-hidden>
+                        P
+                      </span>
+                      <span className={styles.msgName}>Guide</span>
+                    </div>
+                    <div className={styles.bubbleAi}>
+                      <TypingSkeleton label={working ?? 'Reading your answer…'} />
+                    </div>
                   </div>
-                </div>
+                ) : null}
+
+                {error ? <p className={styles.error}>{error}</p> : null}
               </div>
-            ) : null}
 
-            {error ? <p className={styles.error}>{error}</p> : null}
-          </div>
-
-          <div className={styles.composer}>
-            {turns.length === 0 ? (
-              <div className={styles.chips}>
-                {STARTERS.map((starter) => (
-                  <button
-                    key={starter}
-                    type="button"
-                    className={styles.chipBtn}
-                    onClick={() => void send(starter)}
-                  >
-                    {starter}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-
-            <form className={styles.composeRow} onSubmit={onSubmit}>
-              <input
-                className={styles.input}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder={placeholder}
-                maxLength={1000}
-                aria-label="Message the property guide"
-                disabled={streaming}
-              />
-              {streaming ? (
-                <button
-                  type="button"
-                  className={styles.stop}
-                  onClick={() => abortRef.current?.abort()}
-                >
-                  Stop
-                </button>
-              ) : (
-                <button type="submit" className={styles.send} disabled={!draft.trim()}>
-                  Send
-                </button>
-              )}
-            </form>
-          </div>
+              {composer}
+            </>
+          )}
         </section>
 
-        <ResultsPanel results={results} hidden={tab === 'chat'} />
+        {!empty ? sidebar : null}
       </div>
     </div>
   );

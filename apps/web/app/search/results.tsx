@@ -139,20 +139,24 @@ export async function ResultsList({
   const { rows, total, down } = await runSearch(query);
   const pages = Math.max(1, Math.ceil(total / pageSize));
 
+  // Built once, and `unpinned` counted from what is left over rather than by
+  // re-testing latitude. A row with a latitude but no longitude cannot be
+  // placed either, and counting only null latitudes left it out of both the
+  // map and the tally — the "12 results, nine markers" gap this note exists
+  // to close.
+  const pins = rows
+    .filter((r) => r.latitude !== null && r.longitude !== null)
+    .map((r) => ({
+      id: r.id,
+      lat: r.latitude as number,
+      lng: r.longitude as number,
+      label: r.address,
+      href: `/listing/${r.id}`,
+    }));
+
   return (
     <>
-      <ResultsMap
-        pins={rows
-          .filter((r) => r.latitude !== null && r.longitude !== null)
-          .map((r) => ({
-            id: r.id,
-            lat: r.latitude as number,
-            lng: r.longitude as number,
-            label: r.address,
-            href: `/listing/${r.id}`,
-          }))}
-        unpinned={rows.filter((r) => r.latitude === null).length}
-      />
+      <ResultsMap pins={pins} unpinned={rows.length - pins.length} />
 
       {rows.length ? (
         <PrefetchOnIntent className={styles.grid}>

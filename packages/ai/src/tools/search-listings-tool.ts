@@ -60,15 +60,37 @@ export const searchListingsInput = z
     bedrooms: z.number().int().min(0).max(10).optional().describe('Minimum bedrooms.'),
     bathrooms: z.number().int().min(0).max(10).optional().describe('Minimum bathrooms.'),
     carSpaces: z.number().int().min(0).max(10).optional().describe('Minimum car spaces.'),
-    propertyType: z.string().trim().max(40).optional().describe('e.g. House, Apartment, Townhouse.'),
+    propertyType: z
+      .string()
+      .trim()
+      .max(40)
+      .optional()
+      .describe(
+        'Only when the visitor contrasted types (Unit, Apartment, Townhouse, Land vs House). Never for the everyday word "house" or "home" alone — omit the field.',
+      ),
     landFrom: z.number().int().min(0).max(100_000).optional().describe('Minimum land size in square metres.'),
     priceFrom: z.number().int().min(0).max(50_000_000).optional().describe('For rent this is dollars per week.'),
-    priceTo: z.number().int().min(0).max(50_000_000).optional().describe('The budget ceiling. For rent, dollars per week.'),
+    /**
+     * min(1), not min(0). A ceiling of zero is never something a visitor asked
+     * for — it matches nothing, and it reads on screen as "under $0". The model
+     * filled it in once on a message that mentioned no budget at all, and the
+     * search came back empty for a reason nobody could see.
+     */
+    priceTo: z.number().int().min(1).max(50_000_000).optional().describe('The budget ceiling. For rent, dollars per week.'),
     sort: z.enum(SORT_OPTIONS).optional(),
+    /**
+     * A plain word or two, and nothing that looks like markup.
+     *
+     * This is the one free-text field that reaches a LIKE over four columns,
+     * and a model has already put a stray fragment of its own scaffolding in
+     * it once — which silently ANDed the search down to nothing. A keyword
+     * with a bracket in it is not a keyword.
+     */
     keywords: z
       .string()
       .trim()
       .max(60)
+      .refine((v) => !/[<>{}|]/.test(v), 'not a keyword')
       .optional()
       .describe('A feature the visitor mentioned, e.g. "pool". Never a suburb name.'),
   })

@@ -1,13 +1,14 @@
 import type { Metadata } from 'next';
-import { AppShell } from '@repo/ui';
+import { WebShell } from '../../components/web-shell';
 import { ChatView } from './chat-view';
 import { cachedFilterOptions } from '../../lib/cached';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Property guide — Property Platform',
-  description: 'Tell us what you are looking for and search the live listings in conversation.',
+  title: 'Ask the guide — Property Platform',
+  description:
+    'Tell the AI property guide what you need — suburb, budget, or where to look — and search live listings in conversation.',
 };
 
 /**
@@ -22,8 +23,8 @@ export default async function ChatPage() {
   const { suburbs } = await cachedFilterOptions();
 
   return (
-    <AppShell surface="web">
+    <WebShell wide>
       <ChatView exampleSuburb={suburbs[0] ?? null} />
-    </AppShell>
+    </WebShell>
   );
 }

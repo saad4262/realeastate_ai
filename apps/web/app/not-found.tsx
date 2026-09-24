@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { AppShell } from '@repo/ui';
+import { WebShell } from '../components/web-shell';
 import styles from './failure.module.css';
 
 /**
@@ -12,7 +12,7 @@ import styles from './failure.module.css';
  */
 export default function NotFound() {
   return (
-    <AppShell surface="web">
+    <WebShell>
       <div className={styles.wrap}>
         <h1 className={styles.title}>This page isn’t here</h1>
         <p className={styles.body}>
@@ -28,6 +28,6 @@ export default function NotFound() {
           </Link>
         </div>
       </div>
-    </AppShell>
+    </WebShell>
   );
 }

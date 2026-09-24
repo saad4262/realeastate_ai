@@ -1,4 +1,5 @@
 import type { PublicListingSummary, PublicSearchQuery } from '@repo/core/listings';
+import type { ChatSlots } from './chat-request';
 
 /**
  * What the chat route sends down the wire, one JSON object per line.
@@ -55,7 +56,11 @@ export type ResultsEvent = {
 /** The accumulated requirements after this turn. The client echoes `slots` back. */
 export type StateEvent = {
   type: 'state';
-  slots: PublicSearchQuery;
+  /**
+   * Client-safe shape only — radius as a number, never lat/lng. See
+   * `toClientSlots`. Echoing a PublicSearchQuery `near` here 400s the next turn.
+   */
+  slots: ChatSlots;
   /** What the guide still needs, for the client to hint at. */
   missing: string[];
   deepLink: string | null;

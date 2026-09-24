@@ -55,13 +55,31 @@ describe('tool definitions', () => {
     }
   });
 
-  it('is strict and closed, so arguments are schema-valid on arrival', () => {
+  it('is closed but NOT strict, so optional filters stay optional', () => {
+    // strict: true made the model fill every optional field with placeholder
+    // junk — keywords "-", priceTo 22 — each of which narrowed the search to
+    // nothing while the visitor saw only "no matches". It also makes the API
+    // refuse minimum/maximum outright. zod is the guard; this is the contract.
     for (const tool of PROPERTY_CHAT_TOOLS) {
-      expect(tool.strict).toBe(true);
+      expect(tool.strict).toBeUndefined();
       expect((tool.input_schema as { additionalProperties?: boolean }).additionalProperties).toBe(
         false,
       );
       expect(tool.description && tool.description.length).toBeGreaterThan(40);
+    }
+  });
+
+  it('carries no validation keyword the API would refuse', () => {
+    // With these present the whole request 400s. They live in the zod schema
+    // and in the descriptions instead.
+    const banned = ['minimum', 'maximum', 'minLength', 'maxLength', 'pattern'];
+    for (const tool of PROPERTY_CHAT_TOOLS) {
+      const props = Object.values(
+        (tool.input_schema as { properties?: Record<string, object> }).properties ?? {},
+      );
+      for (const prop of props) {
+        for (const key of banned) expect(prop).not.toHaveProperty(key);
+      }
     }
   });
 

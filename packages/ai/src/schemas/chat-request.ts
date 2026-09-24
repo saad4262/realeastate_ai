@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SORT_OPTIONS } from '@repo/core/listings';
+import { auStateSchema, SORT_OPTIONS } from '@repo/core/listings';
 
 /**
  * What the browser is allowed to send, and nothing else.
@@ -48,7 +48,15 @@ export const slotsSchema = z
   .object({
     channel: z.enum(['sale', 'rent']).optional(),
     suburb: z.string().trim().min(1).max(60).optional(),
-    state: z.string().trim().length(2).optional(),
+    /**
+     * The platform's own list, not a length rule. `length(2)` was here and it
+     * rejected every follow-up turn about a VIC, NSW, QLD, TAS or ACT suburb —
+     * the first message worked, the second came back 400, and the chat looked
+     * like it had simply stopped working. Australian abbreviations are two OR
+     * three letters. This is the second place that mistake was made; #8 exists
+     * precisely so there is one list, not three.
+     */
+    state: auStateSchema.optional(),
     postcode: z.string().trim().regex(/^\d{4}$/).optional(),
     radiusKm: z.number().min(0.5).max(50).optional(),
     bedrooms: z.number().int().min(0).max(10).optional(),
@@ -64,6 +72,59 @@ export const slotsSchema = z
   .strict();
 
 export type ChatSlots = z.infer<typeof slotsSchema>;
+
+/**
+ * What the browser may echo back after a turn.
+ *
+ * The live search builds a PublicSearchQuery that can carry `near` (lat/lng).
+ * That shape must never leave the server as something the client will re-post
+ * — slotsSchema is strict and will 400 the next message with "could not be
+ * understood", which is exactly what happened when a visitor asked "which one
+ * is cheapest" after a radius search. Flatten radius to a number; drop the
+ * centre. The server re-resolves the centre from the suburb every time.
+ */
+export function toClientSlots(query: {
+  channel?: string;
+  suburb?: string;
+  state?: string;
+  postcode?: string;
+  bedrooms?: number;
+  bathrooms?: number;
+  carSpaces?: number;
+  propertyType?: string;
+  landFrom?: number;
+  priceFrom?: number;
+  priceTo?: number;
+  sort?: string;
+  text?: string;
+  keywords?: string;
+  radiusKm?: number;
+  near?: { radiusKm: number } | null;
+}): ChatSlots {
+  const out: ChatSlots = {};
+  if (query.channel === 'sale' || query.channel === 'rent') out.channel = query.channel;
+  if (query.suburb) out.suburb = query.suburb;
+  if (query.state) {
+    const parsed = auStateSchema.safeParse(query.state);
+    if (parsed.success) out.state = parsed.data;
+  }
+  if (query.postcode && /^\d{4}$/.test(query.postcode)) out.postcode = query.postcode;
+  const radius = query.radiusKm ?? query.near?.radiusKm;
+  if (radius !== undefined && radius >= 0.5 && radius <= 50) out.radiusKm = radius;
+  if (query.bedrooms !== undefined) out.bedrooms = query.bedrooms;
+  if (query.bathrooms !== undefined) out.bathrooms = query.bathrooms;
+  if (query.carSpaces !== undefined) out.carSpaces = query.carSpaces;
+  if (query.propertyType) out.propertyType = query.propertyType;
+  if (query.landFrom !== undefined) out.landFrom = query.landFrom;
+  if (query.priceFrom !== undefined) out.priceFrom = query.priceFrom;
+  if (query.priceTo !== undefined) out.priceTo = query.priceTo;
+  if (query.sort && (SORT_OPTIONS as readonly string[]).includes(query.sort)) {
+    out.sort = query.sort as ChatSlots['sort'];
+  }
+  const keywords = query.keywords ?? query.text;
+  if (keywords) out.keywords = keywords.slice(0, 60);
+  return out;
+}
 
 /**
  * MAX_TURNS is six exchanges. The chat is a way into the search, not a

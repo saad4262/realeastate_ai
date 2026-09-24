@@ -54,6 +54,27 @@
   color: var(--color-muted, #64748b);
 }
 
+.compact .thumb {
+  aspect-ratio: 16 / 6;
+}
+
+.compact .body {
+  padding: 0.65rem 0.85rem 0.75rem;
+  gap: 0.15rem;
+}
+
+.compact .price {
+  font-size: 0.9375rem;
+}
+
+.compact .address {
+  font-size: 0.8125rem;
+}
+
+.compact .agency {
+  margin-top: 0.35rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .card { transition: none; }
   .card:hover { transform: none; }

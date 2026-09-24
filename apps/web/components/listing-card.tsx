@@ -22,6 +22,7 @@ export { priceLabel, specLine };
 export function ListingCard({
   listing,
   searchedSuburb,
+  compact,
 }: {
   listing: PublicListingSummary;
   /**
@@ -35,13 +36,19 @@ export function ListingCard({
    * union a result came from is what makes the behaviour legible.
    */
   searchedSuburb?: string;
+  /** Shorter thumb — chat sidebar, where vertical space is scarce. */
+  compact?: boolean;
 }) {
   const inSearchedSuburb =
     Boolean(searchedSuburb) &&
     listing.suburb.toLowerCase() === (searchedSuburb as string).toLowerCase();
 
   return (
-    <Link href={`/listing/${listing.id}`} className={styles.card} prefetch={false}>
+    <Link
+      href={`/listing/${listing.id}`}
+      className={`${styles.card} ${compact ? styles.compact : ''}`}
+      prefetch={false}
+    >
       {/* No media yet — media rows land with the Cloudflare R2 upload path. */}
       <div className={styles.thumb} aria-hidden>
         <span className={styles.thumbText}>{listing.suburb}</span>
@@ -58,7 +65,9 @@ export function ListingCard({
         ) : listing.distanceKm !== null ? (
           <div className={styles.distance}>{listing.distanceKm.toFixed(1)} km away</div>
         ) : null}
-        {listing.headline ? <p className={styles.headline}>{listing.headline}</p> : null}
+        {listing.headline && !compact ? (
+          <p className={styles.headline}>{listing.headline}</p>
+        ) : null}
         <div className={styles.agency}>{listing.agencyName}</div>
       </div>
     </Link>

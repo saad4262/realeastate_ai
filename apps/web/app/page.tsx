@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
-import { AppShell } from '@repo/ui';
+import { WebShell } from '../components/web-shell';
 import { ListingCard } from '../components/listing-card';
 import { SearchBar } from '../components/search-bar';
 import { SearchBarSkeleton } from '../components/skeletons';
@@ -36,7 +36,7 @@ export default async function HomePage() {
   ]);
 
   return (
-    <AppShell surface="web">
+    <WebShell>
       <section className={styles.hero}>
         <p className={styles.kicker}>AI-powered property search</p>
         <h1 className={styles.title}>Find your next home — talk or filter</h1>
@@ -82,6 +82,6 @@ export default async function HomePage() {
           </p>
         )}
       </section>
-    </AppShell>
+    </WebShell>
   );
 }

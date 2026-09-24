@@ -1,4 +1,4 @@
-import { AppShell } from '@repo/ui';
+import { WebShell } from '../../../components/web-shell';
 import { ListingSkeleton } from '../../../components/skeletons';
 
 /**
@@ -10,14 +10,14 @@ import { ListingSkeleton } from '../../../components/skeletons';
  * database a region away that is a couple of hundred milliseconds of the click
  * appearing to have done nothing.
  *
- * Deliberately NOT a root app/loading.tsx. That would replace AppShell on
+ * Deliberately NOT a root app/loading.tsx. That would replace the shell on
  * every top-level navigation, which is the full-page blank this codebase has
  * already fought once.
  */
 export default function ListingLoading() {
   return (
-    <AppShell surface="web">
+    <WebShell>
       <ListingSkeleton />
-    </AppShell>
+    </WebShell>
   );
 }

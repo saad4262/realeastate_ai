@@ -20,6 +20,27 @@ export { toPublicSearchQuery, type SearchListingsInput } from './search-listings
  * The cost is that the JSON Schema and the zod schema could drift, so
  * tools.test.ts asserts they agree on property names and required fields.
  *
+ * NO `strict: true`, AND NO VALIDATION KEYWORDS. Both were here and both had
+ * to go, for reasons only the live model showed:
+ *
+ * 1. `strict: true` made the guide fill in the optional filters. Watching the
+ *    frames: `keywords: "-"`, then `keywords: "1"`, `priceTo: 22`, `priceTo: 0`
+ *    — placeholder junk in fields the visitor had said nothing about, on every
+ *    single call. Each one silently narrowed the search to zero results, and
+ *    the visitor would only have seen "nothing matches". Optional has to mean
+ *    optional, and under strict mode this model treats it as "supply
+ *    something".
+ * 2. With `strict: true` the API also refuses `minimum`/`maximum`/`pattern`
+ *    outright — "tools.1.custom: For 'integer' type, properties maximum,
+ *    minimum are not supported" — and 400s the whole request.
+ *
+ * So the schema now carries `type`, `enum` and `description` only. Bounds are
+ * stated in prose, where the model reads them, and enforced in the zod schema
+ * beside each tool, where they are actually checked. Nothing is lost: a JSON
+ * Schema the model is shown was never the thing standing between an anonymous
+ * visitor and the database — `dispatchTool` re-parses every input regardless.
+ * tools.test.ts pins both of these down.
+ *
  * FROZEN AND MODULE-LEVEL. Rebuilding this per request changes nothing
  * visible and destroys the cache.
  */
@@ -28,17 +49,14 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
     name: 'resolve_location',
     description:
       'Turn a place the visitor named into a suburb the portal knows, with its state, postcode and a sensible default radius. Call this before searching whenever the visitor names a location. Returns no coordinates — you never need them.',
-    strict: true,
     input_schema: {
       type: 'object',
       additionalProperties: false,
       properties: {
         place: {
           type: 'string',
-          minLength: 2,
-          maxLength: 80,
           description:
-            'A suburb, postcode, region or address the visitor named, e.g. "Pakenham" or "Bondi Beach NSW".',
+            'A suburb, postcode, region or address the visitor named, e.g. "Pakenham" or "Bondi Beach NSW". Two to eighty characters.',
         },
       },
       required: ['place'],
@@ -48,7 +66,6 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
     name: 'search_listings',
     description:
       "Search the portal's live listings. Requires both the channel (buying or renting) and a suburb — ask the visitor if you do not know either. Returns a match count and a few listings; the visitor sees the full results beside the conversation. If it comes back tooBroad, no listings were returned and you must ask for what `missing` names before searching again.",
-    strict: true,
     input_schema: {
       type: 'object',
       additionalProperties: false,
@@ -60,8 +77,6 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
         },
         suburb: {
           type: 'string',
-          minLength: 2,
-          maxLength: 60,
           description: 'REQUIRED. The suburb, as resolve_location returned it.',
         },
         state: {
@@ -69,44 +84,38 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
           enum: [...AU_STATES],
           description: 'State abbreviation, e.g. VIC or NSW. Disambiguates a repeated suburb name.',
         },
-        postcode: { type: 'string', pattern: '^\\d{4}$' },
+        postcode: { type: 'string', description: 'Four digits, e.g. 3810.' },
         radiusKm: {
           type: 'number',
-          minimum: 0.5,
-          maximum: 50,
           description:
-            'Only when the visitor asked to include the surrounding area. Omit it to search the suburb itself. Use the defaultRadiusKm resolve_location gave you rather than inventing one.',
+            'Between 0.5 and 50. Only when the visitor asked to include the surrounding area. Omit it to search the suburb itself. Use the defaultRadiusKm resolve_location gave you rather than inventing one.',
         },
-        bedrooms: { type: 'integer', minimum: 0, maximum: 10, description: 'Minimum bedrooms.' },
-        bathrooms: { type: 'integer', minimum: 0, maximum: 10, description: 'Minimum bathrooms.' },
-        carSpaces: { type: 'integer', minimum: 0, maximum: 10, description: 'Minimum car spaces.' },
+        bedrooms: { type: 'integer', description: 'Minimum bedrooms, 0 to 10.' },
+        bathrooms: { type: 'integer', description: 'Minimum bathrooms, 0 to 10.' },
+        carSpaces: { type: 'integer', description: 'Minimum car spaces, 0 to 10.' },
         propertyType: {
           type: 'string',
-          maxLength: 40,
-          description: 'e.g. House, Apartment, Townhouse.',
+          description:
+            'Only when the visitor contrasted types (Unit, Apartment, Townhouse, Land vs House). Never for the everyday word "house" or "home" alone — omit the field.',
         },
-        landFrom: {
-          type: 'integer',
-          minimum: 0,
-          maximum: 100000,
-          description: 'Minimum land size in square metres.',
-        },
+        landFrom: { type: 'integer', description: 'Minimum land size in square metres.' },
         priceFrom: {
           type: 'integer',
-          minimum: 0,
-          maximum: 50000000,
-          description: 'Lower bound. For rent this is dollars per week.',
+          description: 'Lower bound in whole dollars. For rent this is dollars per week.',
         },
         priceTo: {
           type: 'integer',
-          minimum: 0,
-          maximum: 50000000,
-          description: "The visitor's budget ceiling. For rent this is dollars per week.",
+          description:
+            "The visitor's budget ceiling in whole dollars. For rent this is dollars per week.",
         },
-        sort: { type: 'string', enum: [...SORT_OPTIONS] },
+        sort: {
+          type: 'string',
+          enum: [...SORT_OPTIONS],
+          description:
+            'price_asc for cheapest, price_desc for most expensive, newest for latest, relevance (default) for nearest-first when a radius is set.',
+        },
         keywords: {
           type: 'string',
-          maxLength: 60,
           description: 'A feature the visitor mentioned, e.g. "pool". Never a suburb name.',
         },
       },
@@ -117,7 +126,6 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
     name: 'get_listing',
     description:
       'Fetch one live listing in full by its id, including the price and the agency\'s own description. Use this whenever the visitor asks about a specific property — you cannot recall figures from earlier in the conversation and must not try.',
-    strict: true,
     input_schema: {
       type: 'object',
       additionalProperties: false,

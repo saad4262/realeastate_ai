@@ -27,8 +27,9 @@ const sourceSans = Source_Sans_3({
 });
 
 export const metadata: Metadata = {
-  title: 'Property Platform — Sydney / NSW',
-  description: 'AI-driven property platform for Sydney and NSW.',
+  title: 'Property Platform — AI property search',
+  description:
+    'Search live Australian listings with filters, or ask the AI property guide in plain English.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

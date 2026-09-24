@@ -2,9 +2,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { PublicSearchQuery } from '@repo/core/listings';
 import { searchQueryToPath } from '@repo/core/listings';
 import { getModel } from '../models';
-import { catalogueBlock, PROMPT_VERSION, PROPERTY_CHAT_V1 } from '../prompts/v1';
+import { catalogueBlock, PROMPT_VERSION, PROPERTY_CHAT_V6 } from '../prompts/v6';
 import type { ChatEvent } from '../schemas/chat-events';
-import { MAX_HISTORY_CHARS, type ChatRequest, type ChatTurn } from '../schemas/chat-request';
+import { MAX_HISTORY_CHARS, toClientSlots, type ChatRequest, type ChatTurn } from '../schemas/chat-request';
 import { dispatchTool, PROPERTY_CHAT_TOOLS, type ToolContext } from '../tools';
 import { trackAiRunQuietly } from '../usage';
 
@@ -149,7 +149,7 @@ export async function* runPropertyChat(
 
   const messages = reconstructMessages(request);
   const system: Anthropic.TextBlockParam[] = [
-    { type: 'text', text: PROPERTY_CHAT_V1, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: PROPERTY_CHAT_V6, cache_control: { type: 'ephemeral' } },
     {
       type: 'text',
       text: catalogueBlock(catalogue.suburbs, catalogue.propertyTypes),
@@ -276,7 +276,7 @@ export async function* runPropertyChat(
   const hasQuery = Boolean(slots.channel && slots.suburb);
   yield {
     type: 'state',
-    slots,
+    slots: toClientSlots(slots),
     missing: missingSlots(slots),
     deepLink: hasQuery ? searchQueryToPath(slots) : null,
   };
@@ -291,6 +291,6 @@ export async function* runPropertyChat(
  * cannot quietly reach past the pipeline into a tool or a prompt.
  */
 export { FEATURE as PROPERTY_CHAT_FEATURE, PROMPT_VERSION, trackAiRunQuietly };
-export { chatRequestSchema, type ChatRequest } from '../schemas/chat-request';
+export { chatRequestSchema, toClientSlots, type ChatRequest } from '../schemas/chat-request';
 export type { ChatEvent, ChatTurnResult } from '../schemas/chat-events';
 export type { ToolContext } from '../tools';

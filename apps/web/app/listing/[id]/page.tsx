@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { AppShell } from '@repo/ui';
+import { WebShell } from '../../../components/web-shell';
 import { ListingMap } from '../../../components/listing-map';
 import { priceLabel, specLine } from '../../../components/listing-card';
 import { cachedListing } from '../../../lib/cached';
@@ -72,7 +72,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
   if (!listing) notFound();
 
   return (
-    <AppShell surface="web">
+    <WebShell>
       <article className={styles.wrap}>
         <Link href="/search" className={styles.back}>
           ← Back to search
@@ -142,6 +142,6 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
           ) : null}
         </section>
       </article>
-    </AppShell>
+    </WebShell>
   );
 }

@@ -40,15 +40,25 @@ export type AiFeature = 'property-chat';
 export type ModelChoice = {
   id: string;
   /**
-   * Conversational turns are short, and every figure in them comes from a tool
-   * result rather than from prose. 2048 is room to spare; it is also the cost
-   * ceiling for a single turn on an anonymous public page.
+   * Adaptive thinking spends this budget too, so it is headroom rather than a
+   * cost ceiling — an under-sized max_tokens truncates an answer mid-thought,
+   * it does not make a turn cheaper. What a turn actually costs is governed by
+   * `effort` and by the three-round tool cap.
    */
   maxTokens: number;
   /**
-   * Low, deliberately. This is a latency-sensitive consumer route where the
-   * work is choosing filters, not reasoning hard — and the numbers are SQL's
-   * either way. Raise it only against a measurement.
+   * Medium, and the number is a measurement rather than a preference.
+   *
+   * This started at `low`, reasoning that a consumer chat is latency-sensitive
+   * and the work is only choosing filters. Against the real model that was
+   * wrong in a way no unit test could show: at `low` the guide sent
+   * `priceTo: 0` on a message with no budget in it, put a stray `x` in the
+   * keyword field, missed "under 30km" entirely, and on one turn emitted
+   * "ację / comment / Let me run that properly" before recovering. Choosing
+   * filters from a sentence IS the reasoning here, and starving it produced a
+   * guide that searched confidently for the wrong thing.
+   *
+   * Raise to `high` only against another measurement.
    */
   effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 };
@@ -61,8 +71,8 @@ export function getModel(feature: AiFeature, env: NodeJS.ProcessEnv = process.en
     case 'property-chat':
       return {
         id: env.ANTHROPIC_CHAT_MODEL?.trim() || DEFAULT_CHAT_MODEL,
-        maxTokens: 2048,
-        effort: 'low',
+        maxTokens: 4096,
+        effort: 'medium',
       };
     default: {
       // Exhaustiveness: a new feature with no entry is a compile error, not a

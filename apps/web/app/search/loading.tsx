@@ -1,4 +1,4 @@
-import { AppShell } from '@repo/ui';
+import { WebShell } from '../../components/web-shell';
 import { CardGridSkeleton, SearchBarSkeleton, Bar } from '../../components/skeletons';
 import styles from '../home.module.css';
 
@@ -14,7 +14,7 @@ import styles from '../home.module.css';
  */
 export default function SearchLoading() {
   return (
-    <AppShell surface="web">
+    <WebShell>
       <section className={styles.hero}>
         <h1 className={styles.title}>Search</h1>
         <p className={styles.sub}>
@@ -25,6 +25,6 @@ export default function SearchLoading() {
       <section className={styles.section}>
         <CardGridSkeleton count={6} />
       </section>
-    </AppShell>
+    </WebShell>
   );
 }

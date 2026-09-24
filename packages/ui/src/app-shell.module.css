@@ -1,0 +1,122 @@
+.shell {
+  --shell-accent: #0b3d2e;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(ellipse 90% 55% at 50% -10%, color-mix(in srgb, var(--shell-accent) 9%, transparent), transparent 55%),
+    linear-gradient(180deg, #f9f6f1 0%, var(--color-bg, #f7f4ef) 42%, #f3efe8 100%);
+  color: var(--color-fg, #1a1a1a);
+}
+
+.web {
+  --shell-accent: #0b3d2e;
+}
+
+.agent {
+  --shell-accent: #1e3a5f;
+}
+
+.agency {
+  --shell-accent: #4a2c0b;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.95rem 1.5rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border, #d9d2c5) 85%, transparent);
+  background: color-mix(in srgb, #fff 72%, transparent);
+  backdrop-filter: blur(10px);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.brand {
+  font-family: var(--font-display, Georgia, serif);
+  font-size: 1.3rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--shell-accent);
+  text-decoration: none;
+}
+
+.brand:hover {
+  opacity: 0.88;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.navLink {
+  padding: 0.45rem 0.85rem;
+  border-radius: 9999px;
+  color: var(--color-muted, #5c5c5c);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.navLink:hover {
+  color: var(--shell-accent);
+  background: color-mix(in srgb, var(--shell-accent) 8%, transparent);
+}
+
+.navCta {
+  padding: 0.45rem 0.95rem;
+  border-radius: 9999px;
+  background: var(--shell-accent);
+  color: var(--color-accent-fg, #f7f4ef);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.navCta:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+.main {
+  flex: 1;
+  padding: 2rem 1.5rem;
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.wide .main {
+  padding: 0;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+@media (max-width: 640px) {
+  .header {
+    padding: 0.85rem 1rem;
+  }
+
+  .brand {
+    font-size: 1.15rem;
+  }
+
+  .navLink {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navCta:hover {
+    transform: none;
+  }
+}

@@ -198,6 +198,32 @@ describe('search_listings — what the model is never allowed to decide', () => 
     expect(second.searched[0]?.text).toBe('pool');
   });
 
+  it('refuses a budget of zero, which no visitor ever asked for', async () => {
+    // The model filled this in once on a message that mentioned no budget. It
+    // matches nothing, and "under $0" on screen explains nothing either.
+    const { context, searched } = ctx(many);
+    const out = await dispatchTool(
+      'search_listings',
+      { channel: 'sale', suburb: 'Pakenham', priceTo: 0 },
+      context,
+    );
+    expect(out.isError).toBe(true);
+    expect(searched).toHaveLength(0);
+  });
+
+  it('refuses a keyword that looks like markup', async () => {
+    // A stray fragment of the model's own scaffolding reached this field once
+    // and silently ANDed the search down to nothing.
+    const { context, searched } = ctx(many);
+    const out = await dispatchTool(
+      'search_listings',
+      { channel: 'sale', suburb: 'Pakenham', priceTo: 900_000, keywords: '</parameter>' },
+      context,
+    );
+    expect(out.isError).toBe(true);
+    expect(searched).toHaveLength(0);
+  });
+
   it('refuses a call with no channel or no suburb', async () => {
     const { context, searched } = ctx(many);
 
