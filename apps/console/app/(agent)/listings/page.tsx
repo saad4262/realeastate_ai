@@ -1,18 +1,34 @@
 import { can } from '@repo/core/permissions';
-import { listAgencyListings } from '@repo/core/listings';
+import {
+  CONSOLE_PAGE_SIZE,
+  consolePage,
+  listAgencyListingsPage,
+  type ListingPage,
+} from '@repo/core/listings';
 import { ListingTable } from '@/components/listing-table';
 import { getConsoleDb } from '../../../lib/db';
 import { requireConsoleAccess } from '../../../lib/require-console-access';
 
-/** The agent desk shows only the listings this agent is named on. */
-export default async function AgentListingsPage() {
+/** The agent desk shows only the listings this agent is named on. Paged, like
+ *  the agency book, and through the same query — the counts in the header are
+ *  Postgres's, over this agent's listings rather than the whole agency's. */
+export default async function AgentListingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await requireConsoleAccess('agent');
+  const page = consolePage((await searchParams).page);
 
-  let rows: Awaited<ReturnType<typeof listAgencyListings>> = [];
+  let result: ListingPage = { rows: [], counts: { total: 0, live: 0, draft: 0 } };
   let loadError: string | null = null;
 
   try {
-    rows = await listAgencyListings(getConsoleDb(), session.actor, { mine: true });
+    result = await listAgencyListingsPage(getConsoleDb(), session.actor, {
+      mine: true,
+      limit: CONSOLE_PAGE_SIZE,
+      offset: (page - 1) * CONSOLE_PAGE_SIZE,
+    });
   } catch (err) {
     loadError = err instanceof Error ? err.message : 'Failed to load listings';
   }
@@ -41,7 +57,11 @@ export default async function AgentListingsPage() {
       editHrefBase="/listings"
       canDelete={canDelete}
       emptyHint="Add a listing and you are recorded as its lead agent."
-      rows={rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }))}
+      counts={result.counts}
+      page={page}
+      pageSize={CONSOLE_PAGE_SIZE}
+      basePath="/listings"
+      rows={result.rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }))}
     />
   );
 }

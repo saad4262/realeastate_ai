@@ -68,6 +68,23 @@ const SELECTION = {
     select array_agg(la.snapshot_name order by la.display_order)
     from listing_agent la where la.listing_id = ${listing.id}
   ), '{}')`,
+  /**
+   * The console's three header figures, counted by Postgres over the whole
+   * result set rather than in the browser over the rows it was sent.
+   *
+   * They used to be `rows.filter(r => r.status === 'live').length` in the
+   * table component, which is why this query had no LIMIT: the counts were
+   * only right if every listing the agency had ever written was shipped to
+   * the browser on every page load. An agency with four thousand listings
+   * paid for four thousand rows, with their addresses and agent names, to
+   * render twenty-five of them and two numbers.
+   *
+   * Window functions are evaluated before LIMIT, so these stay agency-wide
+   * however small the page is.
+   */
+  totalCount: sql<number>`count(*) over()`,
+  liveCount: sql<number>`count(*) filter (where ${listing.status} = 'live') over()`,
+  draftCount: sql<number>`count(*) filter (where ${listing.status} = 'draft') over()`,
 } as const;
 
 type RawRow = {
@@ -75,11 +92,13 @@ type RawRow = {
     ? Date
     : K extends 'agentNames'
       ? string[]
-      : K extends 'bedrooms' | 'carSpaces'
-        ? number | null
-        : K extends 'suburb' | 'state' | 'postcode' | 'agencyName' | 'id' | 'channel' | 'status'
-          ? string
-          : string | null;
+      : K extends 'totalCount' | 'liveCount' | 'draftCount'
+        ? number
+        : K extends 'bedrooms' | 'carSpaces'
+          ? number | null
+          : K extends 'suburb' | 'state' | 'postcode' | 'agencyName' | 'id' | 'channel' | 'status'
+            ? string
+            : string | null;
 };
 
 function toRow(r: RawRow, agents: string[]): ListingRow {
@@ -106,17 +125,47 @@ function toRow(r: RawRow, agents: string[]): ListingRow {
   };
 }
 
+/** What the console header shows, counted over the whole book, not the page. */
+export type ListingCounts = {
+  total: number;
+  live: number;
+  draft: number;
+};
+
+export type ListingPage = {
+  rows: ListingRow[];
+  counts: ListingCounts;
+};
+
+export type ListAgencyListingsOptions = {
+  /** Narrow to listings the actor is named on in listing_agent — the agent desk. */
+  mine?: boolean;
+  /** Rows on this page. Omit for every row, which only a small book should do. */
+  limit?: number;
+  offset?: number;
+};
+
 /**
- * Every listing belonging to the actor's agency, drafts included.
+ * One page of the actor's agency book, plus the counts for the whole of it.
  *
  * `mine` narrows to the ones the actor is named on in listing_agent, which is
  * what the agent desk shows — the agency console shows the whole book.
+ *
+ * One statement, still: the agent names are sub-selected and the three counts
+ * are window functions over the same scan. query-count.test.ts holds that to
+ * one query, because the obvious way to add counts is a second SELECT and that
+ * is a round trip to the database region for three integers.
+ *
+ * The ordering carries a unique tiebreaker for the same reason the public
+ * search does: created_at is not unique, and a page boundary that falls inside
+ * a group of rows sharing a timestamp will repeat one row on this page and
+ * skip another on the next.
  */
-export async function listAgencyListings(
+export async function listAgencyListingsPage(
   db: Db,
   actor: Actor,
-  opts: { mine?: boolean } = {},
-): Promise<ListingRow[]> {
+  opts: ListAgencyListingsOptions = {},
+): Promise<ListingPage> {
   if (!actor.agencyId) throw FORBIDDEN;
   if (!can(actor, 'listing:read', { type: 'listing', agencyId: actor.agencyId })) {
     throw FORBIDDEN;
@@ -128,14 +177,44 @@ export async function listAgencyListings(
     .innerJoin(property, eq(property.id, listing.propertyId))
     .innerJoin(agency, eq(agency.id, listing.agencyId));
 
-  const rows = opts.mine
-    ? await base
+  const scoped = opts.mine
+    ? base
         .innerJoin(listingAgent, eq(listingAgent.listingId, listing.id))
         .where(and(eq(listing.agencyId, actor.agencyId), eq(listingAgent.userId, actor.userId)))
-        .orderBy(desc(listing.createdAt))
-    : await base.where(eq(listing.agencyId, actor.agencyId)).orderBy(desc(listing.createdAt));
+    : base.where(eq(listing.agencyId, actor.agencyId));
 
-  return rows.map((r) => toRow(r as RawRow, r.agentNames ?? []));
+  const ordered = scoped.orderBy(desc(listing.createdAt), desc(listing.id));
+  const paged =
+    opts.limit === undefined
+      ? ordered
+      : ordered.limit(opts.limit).offset(opts.offset ?? 0);
+
+  const rows = (await paged) as RawRow[];
+
+  return {
+    rows: rows.map((r) => toRow(r, r.agentNames ?? [])),
+    counts: {
+      // No rows means no window to read the counts out of, which is correct:
+      // an empty page of an empty book is three zeroes.
+      total: rows[0]?.totalCount ?? 0,
+      live: rows[0]?.liveCount ?? 0,
+      draft: rows[0]?.draftCount ?? 0,
+    },
+  };
+}
+
+/**
+ * Every listing, unpaged.
+ *
+ * Kept for callers that genuinely want the whole book — and for the tests that
+ * assert the query count. New console pages should use the paged form.
+ */
+export async function listAgencyListings(
+  db: Db,
+  actor: Actor,
+  opts: { mine?: boolean } = {},
+): Promise<ListingRow[]> {
+  return (await listAgencyListingsPage(db, actor, opts)).rows;
 }
 
 /** One listing, for the console detail view. Agency-scoped. */

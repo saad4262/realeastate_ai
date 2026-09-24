@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { Db } from '@repo/db';
-import { listAgencyListings, getListingForEdit } from './list-listings';
+import {
+  listAgencyListings,
+  listAgencyListingsPage,
+  getListingForEdit,
+} from './list-listings';
 import { searchPublicListings, liveSuburbs, livePropertyTypes } from './search-listings';
 import type { Actor } from '../permissions';
 
@@ -77,6 +81,21 @@ describe('reads cost a fixed number of queries', () => {
   it("the agent desk's own listings are also one query", async () => {
     const { db, count } = countingDb();
     await listAgencyListings(db, actor, { mine: true });
+    expect(count()).toBe(1);
+  });
+
+  it('a page of the agency book is one query, counts included', async () => {
+    const { db, count } = countingDb();
+    await listAgencyListingsPage(db, actor, { limit: 25, offset: 50 });
+    // The three header figures are window functions over the same scan. The
+    // obvious way to add them is a second SELECT, which is a round trip to the
+    // database region for three integers — this is what refuses that.
+    expect(count()).toBe(1);
+  });
+
+  it("a page of the agent desk's own listings is also one query", async () => {
+    const { db, count } = countingDb();
+    await listAgencyListingsPage(db, actor, { mine: true, limit: 25 });
     expect(count()).toBe(1);
   });
 

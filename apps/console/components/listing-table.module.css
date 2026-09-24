@@ -115,3 +115,37 @@ a.btn { text-decoration: none; }
   .table tr { display: grid; gap: 0.25rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-default); }
   .table td { border: 0; padding: 0; }
 }
+
+/* Pager. Shown only when the book is longer than one page. */
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.pageLink {
+  padding: 0.5rem 0.9rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--line, #e2e8f0);
+  background: var(--surface, #fff);
+  color: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.pageLink:hover {
+  border-color: var(--ink, #0f172a);
+}
+
+.pageLinkOff {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.pageOf {
+  font-size: 0.875rem;
+  color: var(--muted, #64748b);
+}

@@ -1,5 +1,10 @@
 import { can } from '@repo/core/permissions';
-import { listAgencyListings } from '@repo/core/listings';
+import {
+  CONSOLE_PAGE_SIZE,
+  consolePage,
+  listAgencyListingsPage,
+  type ListingPage,
+} from '@repo/core/listings';
 import { ListingTable } from '@/components/listing-table';
 import { getConsoleDb } from '../../../lib/db';
 import { requireConsoleAccess } from '../../../lib/require-console-access';
@@ -7,17 +12,27 @@ import { requireConsoleAccess } from '../../../lib/require-console-access';
 /**
  * The agency book: every listing the agency holds, drafts included.
  *
- * Replaces the Stitch mock that shipped here with hardcoded rows — the shape
- * is the same, the numbers are now the ones in the database.
+ * Paged. It used to select the whole book on every load, because the table's
+ * Live and Drafts figures were counted in the browser from the rows it had
+ * been sent — so the counts were only correct if it had been sent all of them.
+ * Postgres counts them now, over the same scan, and this asks for one page.
  */
-export default async function AgencyListingsPage() {
+export default async function AgencyListingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await requireConsoleAccess('agency');
+  const page = consolePage((await searchParams).page);
 
-  let rows: Awaited<ReturnType<typeof listAgencyListings>> = [];
+  let result: ListingPage = { rows: [], counts: { total: 0, live: 0, draft: 0 } };
   let loadError: string | null = null;
 
   try {
-    rows = await listAgencyListings(getConsoleDb(), session.actor);
+    result = await listAgencyListingsPage(getConsoleDb(), session.actor, {
+      limit: CONSOLE_PAGE_SIZE,
+      offset: (page - 1) * CONSOLE_PAGE_SIZE,
+    });
   } catch (err) {
     loadError = err instanceof Error ? err.message : 'Failed to load listings';
   }
@@ -46,8 +61,12 @@ export default async function AgencyListingsPage() {
       editHrefBase="/live-listings"
       canDelete={canDelete}
       emptyHint="Add your first listing — it saves as a draft, so nothing goes public by accident."
+      counts={result.counts}
+      page={page}
+      pageSize={CONSOLE_PAGE_SIZE}
+      basePath="/live-listings"
       // Dates do not cross the server/client boundary intact.
-      rows={rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }))}
+      rows={result.rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }))}
     />
   );
 }

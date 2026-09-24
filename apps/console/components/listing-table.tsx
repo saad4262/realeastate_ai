@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useOptimistic, useState, useTransition } from 'react';
-import type { ListingRow, ListingStatus } from '@repo/core/listings';
+import type { ListingCounts, ListingRow, ListingStatus } from '@repo/core/listings';
 import { deleteListingAction, setListingStatusAction } from '@/lib/listing-actions';
 import { useToast } from '@/components/toast';
 import styles from './listing-table.module.css';
@@ -85,6 +85,10 @@ export function ListingTable({
   emptyHint,
   editHrefBase,
   canDelete,
+  counts,
+  page,
+  pageSize,
+  basePath,
 }: {
   rows: Row[];
   title: string;
@@ -102,6 +106,19 @@ export function ListingTable({
    * only stops the console offering a button that always fails.
    */
   canDelete: boolean;
+  /**
+   * Total / live / draft for the WHOLE book, counted by Postgres.
+   *
+   * Not derived from `rows` any more. They were, which is why this table used
+   * to be handed every listing the agency had ever written: two numbers in the
+   * header were holding the entire query open.
+   */
+  counts: ListingCounts;
+  /** 1-based, from ?page= . */
+  page: number;
+  pageSize: number;
+  /** Where the pager's links point — the two surfaces mount listings differently. */
+  basePath: string;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -117,16 +134,46 @@ export function ListingTable({
    * its own when the transition ends, so a failed action needs no undo path —
    * the row simply goes back to what the server still says it is.
    */
-  const [optimisticRows, applyOptimistic] = useOptimistic(
-    rows,
-    (current: Row[], change: { id: string; status: ListingStatus } | { id: string; remove: true }) =>
-      'remove' in change
-        ? current.filter((r) => r.id !== change.id)
-        : current.map((r) => (r.id === change.id ? { ...r, status: change.status } : r)),
+  const [view, applyOptimistic] = useOptimistic(
+    { rows, ...counts },
+    (
+      current: { rows: Row[] } & ListingCounts,
+      change: { id: string; status: ListingStatus } | { id: string; remove: true },
+    ) => {
+      const row = current.rows.find((r) => r.id === change.id);
+      if (!row) return current;
+
+      // The counts move with the row. They come from the server now, so a
+      // publish that only changed the badge would leave the header saying
+      // "Live 3" above four live rows until the page came back.
+      const shift = (
+        state: { rows: Row[] } & ListingCounts,
+        status: ListingStatus,
+        by: number,
+      ) => ({
+        ...state,
+        live: status === 'live' ? state.live + by : state.live,
+        draft: status === 'draft' ? state.draft + by : state.draft,
+      });
+
+      if ('remove' in change) {
+        const next = shift({ ...current, total: current.total - 1 }, row.status, -1);
+        return { ...next, rows: current.rows.filter((r) => r.id !== change.id) };
+      }
+
+      const next = shift(shift(current, row.status, -1), change.status, 1);
+      return {
+        ...next,
+        rows: current.rows.map((r) =>
+          r.id === change.id ? { ...r, status: change.status } : r,
+        ),
+      };
+    },
   );
 
-  const live = optimisticRows.filter((r) => r.status === 'live').length;
-  const drafts = optimisticRows.filter((r) => r.status === 'draft').length;
+  const optimisticRows = view.rows;
+  const pages = Math.max(1, Math.ceil(view.total / pageSize));
+  const pageHref = (n: number) => (n <= 1 ? basePath : `${basePath}?page=${n}`);
 
   function move(row: Row, next: 'live' | 'draft' | 'withdrawn') {
     startTransition(async () => {
@@ -214,15 +261,15 @@ export function ListingTable({
       <div className={styles.stats}>
         <div className={styles.stat}>
           <div className={styles.statLabel}>Total</div>
-          <div className={styles.statVal}>{optimisticRows.length}</div>
+          <div className={styles.statVal}>{view.total}</div>
         </div>
         <div className={styles.stat}>
           <div className={styles.statLabel}>Live</div>
-          <div className={styles.statVal}>{live}</div>
+          <div className={styles.statVal}>{view.live}</div>
         </div>
         <div className={styles.stat}>
           <div className={styles.statLabel}>Drafts</div>
-          <div className={styles.statVal}>{drafts}</div>
+          <div className={styles.statVal}>{view.draft}</div>
         </div>
       </div>
 
@@ -347,6 +394,33 @@ export function ListingTable({
           </table>
         )}
       </div>
+
+      {/*
+        Only when there is somewhere to go. Plain links, so Back and Forward
+        work and a page of the book can be sent to someone — the same reason
+        the public search pages through the URL rather than through state.
+      */}
+      {pages > 1 ? (
+        <nav className={styles.pager} aria-label="Pages">
+          {page > 1 ? (
+            <Link href={pageHref(page - 1)} className={styles.pageLink} rel="prev">
+              Previous
+            </Link>
+          ) : (
+            <span className={`${styles.pageLink} ${styles.pageLinkOff}`}>Previous</span>
+          )}
+          <span className={styles.pageOf}>
+            Page {page} of {pages}
+          </span>
+          {page < pages ? (
+            <Link href={pageHref(page + 1)} className={styles.pageLink} rel="next">
+              Next
+            </Link>
+          ) : (
+            <span className={`${styles.pageLink} ${styles.pageLinkOff}`}>Next</span>
+          )}
+        </nav>
+      ) : null}
     </div>
   );
 }
