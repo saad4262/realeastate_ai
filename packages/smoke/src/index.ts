@@ -76,7 +76,27 @@ function onlySearch(turn: ChatTurnResult) {
 
 /** Every dollar figure in a string, so an answer can be checked against its source. */
 function dollarFigures(text: string): string[] {
-  return [...text.matchAll(/\$[\d,]+(?:\.\d+)?/g)].map((m) => m[0]);
+  return (
+    [...text.matchAll(/\$\d[\d,]*(?:\.\d+)?/g)]
+      .map((m) => m[0])
+      // The pattern has to allow a comma inside a figure, which means it also
+      // swallows the sentence's own comma in "...$332,432, with 23 bed".
+      // That trailing punctuation is not part of the number.
+      .map((f) => f.replace(/[.,]+$/, ''))
+  );
+}
+
+/**
+ * A figure reduced to its digits, so a price can be compared however it was
+ * written.
+ *
+ * The model is handed price_display verbatim and formats it for reading, so a
+ * row storing "9320334343324" comes back as "$9,320,334,343,324". Those are
+ * the same number and must compare equal, or quoting the database faithfully
+ * looks exactly like inventing a price.
+ */
+function figureDigits(figure: string): string {
+  return figure.replace(/[^\d.]/g, '');
 }
 
 /** The number in "3 results" on the search page, read from the rendered HTML. */
@@ -834,9 +854,22 @@ async function main() {
      * this check failed on exactly that.
      */
     const source = JSON.stringify(search.listings) + JSON.stringify(search.query) + message;
-    const invented = dollarFigures(turn.text).filter(
-      (fig) => !source.includes(fig) && !source.includes(fig.replace(/,/g, '')),
-    );
+
+    /**
+     * Compare on digits, not on the written form.
+     *
+     * This used to strip the commas out of the figure but leave the dollar
+     * sign on — `source.includes('$9320334343324')` — while the source JSON
+     * holds `"9320334343324"` with no sign at all. So the check fired on every
+     * price the guide quoted CORRECTLY from a row whose price_display has no
+     * separators, and reported it as a non-negotiable #4 violation. A guard
+     * that cries stop-ship at correct behaviour is worse than no guard: it
+     * gets ignored, and then it is not there for the real thing.
+     */
+    const invented = dollarFigures(turn.text).filter((fig) => {
+      const digits = figureDigits(fig);
+      return digits !== '' && !source.includes(fig) && !source.includes(digits);
+    });
     assert(invented.length === 0, `said ${invented.join(', ')} — not in any tool result`);
     return `${dollarFigures(turn.text).length} figure(s), all accounted for`;
   });
