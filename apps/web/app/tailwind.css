@@ -16,6 +16,26 @@
 @import 'tailwindcss/utilities.css' layer(utilities);
 
 /*
+ * The one piece of preflight this design actually needs.
+ *
+ * Skipping preflight was right — it would have moved type and margins on every
+ * page built before Tailwind existed — but it also skipped the anchor reset,
+ * and every card on /search is a single <a>. The result was a results page
+ * where the price, the address and the agency name were all underlined,
+ * because the browser's default came back and the CSS module that used to say
+ * `text-decoration: none` had been deleted with it.
+ *
+ * Scoped to that one property. It sits in `base`, so any `underline` or
+ * `hover:underline` utility still wins, and so does an unlayered CSS module
+ * rule — which is how the chat's own link keeps its hover underline.
+ */
+@layer base {
+  a {
+    text-decoration: none;
+  }
+}
+
+/*
  * The token set.
  *
  * Structure is taken from the Stitch mock — a three-level surface system,
@@ -33,6 +53,7 @@
  * resolves to. One source, two systems — which is the only reason having two
  * is tolerable.
  */
+
 /*
  * `static`, not bare `@theme`.
  *

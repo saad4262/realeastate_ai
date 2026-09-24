@@ -740,6 +740,20 @@ async function main() {
         missing.length === 0,
         `${path} uses ${missing.slice(0, 5).join(', ')} and the CSS it serves defines none of them — the page is unstyled`,
       );
+      /**
+       * Preflight is deliberately off, so the anchor reset has to be explicit.
+       *
+       * Without it every card on /search underlines its price, address and
+       * agency name, because the whole card is one <a> and the CSS module that
+       * used to say `text-decoration: none` was deleted with the redesign.
+       * "Are the utilities defined" does not catch that — the page is fully
+       * styled AND wrong.
+       */
+      assert(
+        /(^|[};])\s*a\s*\{[^}]*text-decoration:\s*none/m.test(css),
+        `${path} serves no anchor reset — preflight is off, so every link is underlined`,
+      );
+
       report.push(`${path.split('?')[0]} ${used.length} utilities`);
     }
 
