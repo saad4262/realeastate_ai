@@ -27,6 +27,7 @@ const PLACE: ResolvedPlace = {
 
 const LISTING: PublicListing = {
   id: '00000000-0000-4000-8000-000000000001',
+  propertyId: '00000000-0000-4000-8000-000000000901',
   address: '8 Henry St, Pakenham VIC 3810',
   suburb: 'Pakenham',
   state: 'VIC',

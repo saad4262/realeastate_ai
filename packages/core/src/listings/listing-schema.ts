@@ -212,7 +212,18 @@ export const listingDraftSchema = z
   .object({
     channel: listingChannelSchema,
     headline: headlineSchema,
-    description: trimmed(20_000).optional(),
+    /**
+     * Optional — plenty of listings have no body copy and that is fine. But
+     * "asd" is not body copy, and it was sitting on a live listing under the
+     * heading "About this property". Same shape of rule as the headline: if
+     * there IS a description it has to be writing, and the floor is low enough
+     * that one real sentence clears it.
+     */
+    description: trimmed(20_000)
+      .refine((v) => v === '' || v.trim().length >= 20, {
+        message: 'A description should be at least a sentence, or left empty',
+      })
+      .optional(),
     priceDisplay: priceDisplaySchema.optional(),
     priceFrom: z.coerce.number().min(0).max(1_000_000_000).optional(),
     priceTo: z.coerce.number().min(0).max(1_000_000_000).optional(),

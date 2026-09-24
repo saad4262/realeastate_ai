@@ -22,6 +22,7 @@ const PAKENHAM: ResolvedPlace = {
 function row(i: number, over: Partial<PublicListing> = {}): PublicListing {
   return {
     id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+    propertyId: `00000000-0000-4000-8000-${String(i + 900).padStart(12, '0')}`,
     address: `${i} Henry St, Pakenham VIC 3810`,
     suburb: 'Pakenham',
     state: 'VIC',

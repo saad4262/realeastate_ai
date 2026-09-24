@@ -35,6 +35,13 @@ config({ path: resolve(process.cwd(), '../../.env') });
  *                                 We do not know the right one, and "unknown"
  *                                 is the true statement. It renders as "—".
  *
+ *   description is not writing   -> set to NULL. There is no honest way to
+ *                                  repair body copy: we know "asd" is not a
+ *                                  description of a house, and we know nothing
+ *                                  whatever about the house. An empty
+ *                                  description is a true statement; an invented
+ *                                  one is not.
+ *
  *   property_type is not in the  -> set to NULL. It was a free text box, so
  *   vocabulary                     "sfd" and "2jkads" were sitting in the
  *                                  column that the PUBLIC SEARCH FILTER builds
@@ -51,6 +58,7 @@ config({ path: resolve(process.cwd(), '../../.env') });
 
 const MAX_ROOMS = 20;
 const MIN_HEADLINE = 10;
+const MIN_DESCRIPTION = 20;
 
 /** Mirrors PROPERTY_TYPES in packages/core. packages/db cannot import core — it
  *  is the layer underneath it — so this is the one deliberate copy, and the
@@ -101,6 +109,7 @@ const rows = await sql<
     status: string;
     channel: string;
     headline: string | null;
+    description: string | null;
     price_display: string | null;
     price_from: string | null;
     price_to: string | null;
@@ -111,8 +120,8 @@ const rows = await sql<
     suburb: string;
   }[]
 >`
-  select l.id, l.property_id, l.status, l.channel, l.headline, l.price_display,
-         l.price_from, l.price_to,
+  select l.id, l.property_id, l.status, l.channel, l.headline, l.description,
+         l.price_display, l.price_from, l.price_to,
          p.bedrooms, p.bathrooms, p.car_spaces, p.property_type, p.suburb
   from listing l join property p on p.id = l.property_id
   order by l.created_at desc
@@ -153,6 +162,11 @@ for (const r of rows) {
       suburb: r.suburb,
     });
     notes.push(`headline ${JSON.stringify(r.headline)} -> ${JSON.stringify(listingPatch.headline)}`);
+  }
+
+  if (r.description !== null && r.description.trim().length < MIN_DESCRIPTION) {
+    listingPatch.description = null;
+    notes.push(`description ${JSON.stringify(r.description)} -> NULL (not body copy)`);
   }
 
   if (!isPriceCopy(r.price_display)) {

@@ -1,11 +1,29 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import {
+  addressLines,
+  channelLabel,
+  landLabel,
+  listedLabel,
+  priceLabel,
+  specLine,
+} from '@repo/core/listings/format';
 import { WebShell } from '../../../components/web-shell';
 import { ListingMap } from '../../../components/listing-map';
-import { priceLabel, specLine } from '../../../components/listing-card';
-import { cachedListing } from '../../../lib/cached';
-import styles from './listing.module.css';
+import {
+  AgentPanel,
+  Card,
+  Inspections,
+  NotConnected,
+  Timeline,
+} from '../../../components/listing-sections';
+import {
+  cachedAgentCards,
+  cachedInspections,
+  cachedListing,
+  cachedTimeline,
+} from '../../../lib/cached';
 
 /**
  * Rendered per request, deliberately, and not for the reason it first looked.
@@ -30,8 +48,14 @@ import styles from './listing.module.css';
  *     /nope                   HTTP/1.1 404 Not Found
  *
  * That is PRE-EXISTING, not caused by caching. It reproduces on a clean build
- * with force-dynamic, and with this app's own not-found.tsx removed entirely;
- * dev returns a correct 404 and production does not. It is a soft 404 on the
+ * with force-dynamic, and with this app's own not-found.tsx removed entirely.
+ *
+ * An earlier version of this note said dev returned a correct 404 and only
+ * production did not. Re-measured against the committed code before this page
+ * was rewritten: dev answers 200 as well. The cause is streaming — the shell
+ * flushes, and with it the status line, before the component body runs
+ * notFound() — so it follows the loading.tsx boundary rather than the
+ * environment. It is a soft 404 on the
  * one page search engines index, and a withdrawn listing is a link people have
  * already shared.
  *
@@ -71,77 +95,157 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
   // is a 404 here rather than a partially rendered page.
   if (!listing) notFound();
 
-  return (
-    <WebShell>
-      <article className={styles.wrap}>
-        <Link href="/search" className={styles.back}>
-          ← Back to search
-        </Link>
+  /**
+   * Four reads, started together.
+   *
+   * Sequential awaits would make this page four round trips to a database a
+   * region away instead of one. The listing itself has to resolve first —
+   * nothing else can be asked for without its id and property id — but the
+   * other three have no dependency on each other.
+   */
+  const [inspections, timeline, agents] = await Promise.all([
+    cachedInspections(listing.id),
+    cachedTimeline(listing.propertyId),
+    cachedAgentCards(listing.id),
+  ]);
 
-        <div className={styles.hero} aria-hidden>
-          <span className={styles.heroText}>{listing.suburb}</span>
+  const { street, locality } = addressLines(listing);
+  const specs = [
+    listing.bedrooms !== null ? { label: 'Bed', value: String(listing.bedrooms) } : null,
+    listing.bathrooms !== null ? { label: 'Bath', value: String(listing.bathrooms) } : null,
+    listing.carSpaces !== null ? { label: 'Car', value: String(listing.carSpaces) } : null,
+    landLabel(listing.landAreaSqm)
+      ? { label: 'Land', value: landLabel(listing.landAreaSqm) as string }
+      : null,
+    listing.propertyType
+      ? { label: 'Type', value: listing.propertyType.replace(/^./, (c) => c.toUpperCase()) }
+      : null,
+  ].filter((s): s is { label: string; value: string } => s !== null);
+
+  const listed = listedLabel(listing.publishedAt);
+
+  return (
+    <WebShell wide>
+      <div className="mx-auto w-full max-w-[1200px] px-gutter pb-xl">
+        {/*
+          Breadcrumbs, replacing a bare "back to search".
+          Every link here is a real search this site can run, built from the
+          row — which is also what makes them useful internal links rather
+          than decoration. The old back link always landed on an unfiltered
+          /search, losing whatever search the visitor arrived from.
+        */}
+        <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-x-2 gap-y-1 py-md text-body-sm text-ink-soft">
+          <Link href="/" className="hover:text-brand">
+            Home
+          </Link>
+          <span aria-hidden className="text-ink-faint">/</span>
+          <Link href={`/search?state=${encodeURIComponent(listing.state)}`} className="hover:text-brand">
+            {listing.state}
+          </Link>
+          <span aria-hidden className="text-ink-faint">/</span>
+          <Link
+            href={`/search?suburb=${encodeURIComponent(listing.suburb)}&state=${encodeURIComponent(listing.state)}`}
+            className="hover:text-brand"
+          >
+            {listing.suburb} {listing.postcode}
+          </Link>
+          <span aria-hidden className="text-ink-faint">/</span>
+          <span className="truncate text-ink">{street}</span>
+        </nav>
+
+        {/*
+          The media slot.
+
+          Structured as a frame with the gradient as an absolutely positioned
+          child rather than as a background on the frame itself, so a real
+          photo drops in as a sibling without the page's grid moving. The
+          `media` table exists; there is no upload path or R2 credential yet.
+        */}
+        <div className="relative overflow-hidden rounded-lg border border-line-subtle">
+          <div className="aspect-[16/7] w-full bg-gradient-to-br from-brand to-[#14624a]" />
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-center">
+            <span className="text-headline-lg font-display text-white/90">{listing.suburb}</span>
+            <span className="text-label-sm uppercase text-white/60">No photos yet</span>
+          </div>
+          <span className="absolute left-md top-md rounded-sm bg-canvas/90 px-2 py-1 text-label-sm uppercase text-brand backdrop-blur">
+            {channelLabel(listing.channel)}
+          </span>
         </div>
 
-        <header className={styles.head}>
-          <div>
-            <h1 className={styles.address}>{listing.address}</h1>
-            {specLine(listing) ? <p className={styles.specs}>{specLine(listing)}</p> : null}
+        <div className="mt-lg grid items-start gap-lg lg:grid-cols-12">
+          {/* ------------------------------------------------ main column -- */}
+          <div className="grid gap-lg lg:col-span-8">
+            <div className="rounded-lg border border-line-subtle bg-card p-lg shadow-card sm:p-margin">
+              <div className="text-headline-xl font-display text-ink">{priceLabel(listing)}</div>
+              <h1 className="mt-sm text-headline-md text-ink">{street}</h1>
+              <p className="text-body-md text-ink-soft">{locality}</p>
+              {listed ? <p className="mt-1 text-body-sm text-ink-faint">{listed}</p> : null}
+
+              {specs.length > 0 ? (
+                <dl className="mt-md grid grid-cols-2 gap-sm rounded-md bg-canvas p-md sm:grid-cols-5">
+                  {specs.map((s) => (
+                    <div key={s.label}>
+                      <dd className="text-headline-md font-display text-ink">{s.value}</dd>
+                      <dt className="text-label-sm uppercase text-ink-faint">{s.label}</dt>
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
+            </div>
+
+            {listing.headline || listing.description ? (
+              <Card title="About this property">
+                {listing.headline ? (
+                  <h3 className="mb-sm text-title-sm text-ink">{listing.headline}</h3>
+                ) : null}
+                {listing.description ? (
+                  <div className="grid gap-sm text-body-lg leading-relaxed text-ink-soft">
+                    {listing.description.split(/\n{2,}/).map((para, i) => (
+                      <p key={i}>{para}</p>
+                    ))}
+                  </div>
+                ) : null}
+              </Card>
+            ) : null}
+
+            <Inspections inspections={inspections} />
+
+            {listing.latitude !== null && listing.longitude !== null ? (
+              <Card id="map" title="Where it is">
+                <ListingMap
+                  latitude={listing.latitude}
+                  longitude={listing.longitude}
+                  label={listing.address}
+                />
+              </Card>
+            ) : null}
+
+            <Timeline entries={timeline} currentListingId={listing.id} />
+
+            {/*
+              Sections this platform has no data source for. Said in one line
+              each rather than drawn as convincing empty panels — see
+              NotConnected. Six full-height "coming soon" blocks would make a
+              working page read as broken, and a plausible-looking median would
+              be the invented number #4 exists to forbid.
+            */}
+            <Card title="Not connected yet" note="Shown so it is clear what is missing, rather than left out.">
+              <div className="grid gap-sm">
+                <NotConnected title="Photos & floorplan" what="no media pipeline is configured" />
+                <NotConnected title="Features & inclusions" what="not captured when a listing is created" />
+                <NotConnected title="Energy rating" what="not captured" />
+                <NotConnected title="Market insights" what="no market data source is connected" />
+                <NotConnected title="Schools & catchment" what="no schools data source is connected" />
+              </div>
+            </Card>
           </div>
-          <div className={styles.price}>{priceLabel(listing)}</div>
-        </header>
 
-        {listing.headline ? <h2 className={styles.headline}>{listing.headline}</h2> : null}
-
-        {/* Only when the property has actually been pinned. A map centred on a
-            suburb because the pin is missing says the house is somewhere it is
-            not, which is worse than no map. */}
-        <ListingMap
-          latitude={listing.latitude}
-          longitude={listing.longitude}
-          label={listing.address}
-        />
-
-        {listing.description ? (
-          <div className={styles.description}>
-            {listing.description.split(/\n{2,}/).map((para, i) => (
-              <p key={i}>{para}</p>
-            ))}
-          </div>
-        ) : null}
-
-        <section className={styles.facts}>
-          <h3 className={styles.factsTitle}>Property</h3>
-          <dl className={styles.factGrid}>
-            {[
-              ['Type', listing.propertyType],
-              ['Bedrooms', listing.bedrooms],
-              ['Bathrooms', listing.bathrooms],
-              ['Car spaces', listing.carSpaces],
-              ['Suburb', listing.suburb],
-              ['Postcode', listing.postcode],
-            ]
-              .filter(([, v]) => v !== null && v !== undefined && v !== '')
-              .map(([label, value]) => (
-                <div key={String(label)} className={styles.fact}>
-                  <dt>{label}</dt>
-                  <dd>{String(value)}</dd>
-                </div>
-              ))}
-          </dl>
-        </section>
-
-        <section className={styles.agents}>
-          <h3 className={styles.factsTitle}>Marketed by</h3>
-          <p className={styles.agency}>{listing.agencyName}</p>
-          {listing.agents.length ? (
-            <ul className={styles.agentList}>
-              {listing.agents.map((name) => (
-                <li key={name}>{name}</li>
-              ))}
-            </ul>
-          ) : null}
-        </section>
-      </article>
+          {/* --------------------------------------------- sticky sidebar -- */}
+          <aside className="grid gap-lg lg:col-span-4 lg:sticky lg:top-lg">
+            <AgentPanel agents={agents} agencyName={listing.agencyName} />
+          </aside>
+        </div>
+      </div>
     </WebShell>
   );
 }

@@ -61,7 +61,16 @@ export {
   type SearchSort,
 } from './search-listings';
 export { setListingStatus, type PublishListingResult } from './publish-listing';
-export { distanceLabel, priceBoundLabel, priceLabel, specLine } from './format';
+export {
+  addressLines,
+  channelLabel,
+  distanceLabel,
+  landLabel,
+  listedLabel,
+  priceBoundLabel,
+  priceLabel,
+  specLine,
+} from './format';
 export {
   discountPlaceWords,
   searchQueryToParams,

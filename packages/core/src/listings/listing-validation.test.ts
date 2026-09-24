@@ -155,3 +155,20 @@ describe('property type is a vocabulary, not a text box', () => {
     expect(propertyDraftSchema.safeParse(validProperty).success).toBe(true);
   });
 });
+
+describe('description', () => {
+  // On a live listing, under the heading "About this property".
+  it.each(['asd', 'dfg', 'test copy'])('rejects %j', (description) => {
+    expect(draft({ description }).success).toBe(false);
+  });
+
+  it('accepts a real sentence', () => {
+    expect(
+      draft({ description: 'Two-bed apartment with a north aspect and a courtyard.' }).success,
+    ).toBe(true);
+  });
+
+  it('stays optional — plenty of listings have no body copy', () => {
+    expect(draft({ description: undefined }).success).toBe(true);
+  });
+});

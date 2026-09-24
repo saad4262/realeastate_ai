@@ -41,38 +41,54 @@ export function CardGridSkeleton({ count = 6 }: { count?: number }) {
 /**
  * The listing page with its words removed.
  *
- * Built to the same measurements as listing.module.css — 860px, the 16/7 hero,
+ * Built to the same measurements as the page itself — 1200px, the 16/7 media
+ * frame, the 8/4 split and the spec row,
  * the head that splits address from price — so the real page lands on top of
  * this rather than replacing it.
  */
 export function ListingSkeleton() {
   return (
-    <div className={styles.listing} aria-hidden>
-      <Bar w="8rem" h="0.875rem" />
-      <div className={`${styles.bar} ${styles.listingHero}`} />
-      <div className={styles.listingHead}>
-        <div style={{ display: 'grid', gap: '0.5rem', flex: 1, minWidth: '15rem' }}>
-          <Bar w="70%" h="1.75rem" />
-          <Bar w="40%" h="0.9375rem" />
-        </div>
-        <Bar w="8rem" h="1.375rem" />
+    <div className="mx-auto w-full max-w-[1200px] px-gutter pb-xl" aria-hidden>
+      <div className="py-md">
+        <Bar w="18rem" h="0.8125rem" />
       </div>
-      <Bar w="55%" h="1.125rem" />
-      <div className={`${styles.bar} ${styles.block}`} style={{ height: 300 }} />
-      <div style={{ display: 'grid', gap: '0.75rem' }}>
-        <Bar />
-        <Bar />
-        <Bar w="80%" />
-      </div>
-      <div className={styles.rule}>
-        <Bar w="5rem" h="0.6875rem" />
-        <div className={styles.factGrid} style={{ marginTop: '0.75rem' }}>
-          {Array.from({ length: 6 }, (_, i) => (
-            <div key={i} style={{ display: 'grid', gap: '0.25rem' }}>
-              <Bar w="60%" h="0.75rem" />
-              <Bar w="80%" h="0.9375rem" />
+      {/* 16/7, the same frame the real media slot uses. */}
+      <div className="aspect-[16/7] w-full animate-pulse rounded-lg bg-sunken" />
+
+      <div className="mt-lg grid items-start gap-lg lg:grid-cols-12">
+        <div className="grid gap-lg lg:col-span-8">
+          <div className="grid gap-sm rounded-lg border border-line-subtle bg-card p-lg shadow-card">
+            <Bar w="12rem" h="2rem" />
+            <Bar w="60%" h="1.125rem" />
+            <Bar w="40%" h="0.9375rem" />
+            <div className="mt-md grid grid-cols-2 gap-sm rounded-md bg-canvas p-md sm:grid-cols-5">
+              {Array.from({ length: 5 }, (_, i) => (
+                <div key={i} className="grid gap-1">
+                  <Bar w="2.5rem" h="1.125rem" />
+                  <Bar w="3rem" h="0.6875rem" />
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
+
+          <div className="grid gap-sm rounded-lg border border-line-subtle bg-card p-lg shadow-card">
+            <Bar w="10rem" h="1.125rem" />
+            <Bar />
+            <Bar />
+            <Bar w="80%" />
+          </div>
+        </div>
+
+        <div className="grid gap-md rounded-lg border border-line-subtle bg-card p-lg shadow-card lg:col-span-4">
+          <Bar w="8rem" h="0.6875rem" />
+          <Bar w="70%" h="1.125rem" />
+          <div className="flex items-start gap-sm pt-sm">
+            <div className="size-12 shrink-0 animate-pulse rounded-full bg-sunken" />
+            <div className="grid flex-1 gap-1">
+              <Bar w="60%" h="0.9375rem" />
+              <Bar w="45%" h="0.8125rem" />
+            </div>
+          </div>
         </div>
       </div>
     </div>

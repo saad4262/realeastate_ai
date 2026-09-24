@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { PublicListing } from './search-listings';
-import { distanceLabel, priceBoundLabel, priceLabel, specLine } from './format';
+import { addressLines, channelLabel, distanceLabel, landLabel, listedLabel, priceBoundLabel, priceLabel, specLine } from './format';
 
 function listing(over: Partial<PublicListing>): PublicListing {
   return {
     id: 'l-1',
+    propertyId: 'p-1',
     address: '8 Henry St, Pakenham VIC 3810',
     suburb: 'Pakenham',
     state: 'VIC',
@@ -93,5 +94,56 @@ describe('priceBoundLabel', () => {
   it('says per week for a rental bound', () => {
     expect(priceBoundLabel(900, true)).toBe('$900 per week');
     expect(priceBoundLabel(800_000, false)).toBe('$800,000');
+  });
+});
+
+describe('the labels a property page needs', () => {
+  it('names the channel', () => {
+    expect(channelLabel('sale')).toBe('For sale');
+    expect(channelLabel('rent')).toBe('For rent');
+    expect(channelLabel('sold')).toBe('Sold');
+    expect(channelLabel('leased')).toBe('Leased');
+  });
+
+  it('formats land size, and says nothing when there is none', () => {
+    expect(landLabel(185)).toBe('185 m²');
+    expect(landLabel(1250.4)).toBe('1,250 m²');
+    expect(landLabel(null)).toBeNull();
+    // 0 m² is not a fact about a property, it is an empty field.
+    expect(landLabel(0)).toBeNull();
+  });
+
+  it('gives the listed date absolutely, never relatively', () => {
+    const label = listedLabel(new Date('2026-09-12T03:00:00Z'));
+    // The exact wording matters less than this: no "ago", no "days", nothing
+    // that is computed from now() and therefore wrong once cached.
+    expect(label).toMatch(/^Listed \d{1,2} \w+ \d{4}$/);
+    expect(label).not.toMatch(/ago|today|yesterday/i);
+    expect(listedLabel(null)).toBeNull();
+    expect(listedLabel(new Date('nonsense'))).toBeNull();
+  });
+
+  it('splits the address without saying the suburb twice', () => {
+    const lines = addressLines({
+      address: '12/1A Rogers Street, Pakenham, VIC 3810',
+      suburb: 'Pakenham',
+      state: 'VIC',
+      postcode: '3810',
+    });
+    expect(lines.street).toBe('12/1A Rogers Street');
+    expect(lines.locality).toBe('Pakenham, VIC 3810');
+  });
+
+  it('falls back to the locality when there is no street', () => {
+    // formatAddress drops empty street parts, so a property with only a suburb
+    // has an address that IS the locality. An empty street line above it would
+    // render as a missing heading.
+    const lines = addressLines({
+      address: 'Pakenham, VIC 3810',
+      suburb: 'Pakenham',
+      state: 'VIC',
+      postcode: '3810',
+    });
+    expect(lines.street).toBe('Pakenham, VIC 3810');
   });
 });

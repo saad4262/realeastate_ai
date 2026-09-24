@@ -48,6 +48,8 @@ export type PublicListingSummary = {
  */
 export type PublicListing = PublicListingSummary & {
   description: string | null;
+  /** The physical place this ad is written against — the key to its history. */
+  propertyId: string;
 };
 
 export const SORT_OPTIONS = ['relevance', 'newest', 'price_asc', 'price_desc'] as const;
@@ -185,7 +187,15 @@ function selection(near: Near | undefined) {
 
 /** The same columns plus the body copy, for the single-listing read. */
 function detailSelection() {
-  return { ...selection(undefined), description: listing.description } as const;
+  return {
+    ...selection(undefined),
+    description: listing.description,
+    // Detail only. The property's history is keyed by the property — a
+    // property outlives its listings (#1) — and there is no way to ask for it
+    // without this. Deliberately NOT on the summary: a search returns 48 rows
+    // and none of them needs it.
+    propertyId: listing.propertyId,
+  } as const;
 }
 
 function toSummary(r: Record<string, unknown>, agents: string[]): PublicListingSummary {
@@ -226,8 +236,8 @@ function toSummary(r: Record<string, unknown>, agents: string[]): PublicListingS
 }
 
 function toDetail(r: Record<string, unknown>, agents: string[]): PublicListing {
-  const row = r as { description: string | null };
-  return { ...toSummary(r, agents), description: row.description };
+  const row = r as { description: string | null; propertyId: string };
+  return { ...toSummary(r, agents), description: row.description, propertyId: row.propertyId };
 }
 
 /**

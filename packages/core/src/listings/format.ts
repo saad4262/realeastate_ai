@@ -67,3 +67,69 @@ export function distanceLabel(distanceKm: number | null): string | null {
 export function priceBoundLabel(amount: number, rental: boolean): string {
   return rental ? `${AUD.format(amount)} per week` : AUD.format(amount);
 }
+
+/** For sale / For rent, as a badge says it. */
+export function channelLabel(channel: PublicListingSummary['channel']): string {
+  switch (channel) {
+    case 'rent':
+      return 'For rent';
+    case 'sold':
+      return 'Sold';
+    case 'leased':
+      return 'Leased';
+    default:
+      return 'For sale';
+  }
+}
+
+/** Land size, or null when the agency never entered one. */
+export function landLabel(landAreaSqm: number | null): string | null {
+  if (landAreaSqm === null || !Number.isFinite(landAreaSqm) || landAreaSqm <= 0) return null;
+  return `${Math.round(landAreaSqm).toLocaleString('en-AU')} m²`;
+}
+
+const LISTED_ON = new Intl.DateTimeFormat('en-AU', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+});
+
+/**
+ * When the listing went up — as a date, never as "3 days ago".
+ *
+ * A relative date is computed at render time and is wrong the moment that
+ * render is cached. `/listing/[id]` is force-dynamic today only because
+ * notFound() answers 200 in production; the comment on that route says ISR is
+ * re-enabled as soon as that is fixed, at which point "Listed 3 days ago"
+ * would be served from a cache for up to an hour and then for a day. An
+ * absolute date is true whenever it is read.
+ */
+export function listedLabel(publishedAt: Date | null): string | null {
+  if (!publishedAt || Number.isNaN(publishedAt.getTime())) return null;
+  return `Listed ${LISTED_ON.format(publishedAt)}`;
+}
+
+/**
+ * The address split the way a property page shows it: street line, then the
+ * locality line.
+ *
+ * `address` is built by formatAddress and already ends with the suburb, state
+ * and postcode, so printing both would say Pakenham twice. The street half is
+ * taken by removing that tail rather than by re-deriving it, so the two can
+ * never disagree about what the street line is.
+ */
+export function addressLines(listing: {
+  address: string;
+  suburb: string;
+  state: string;
+  postcode: string;
+}): { street: string; locality: string } {
+  const locality = `${listing.suburb}, ${listing.state} ${listing.postcode}`;
+  const tail = `, ${locality}`;
+  const street = listing.address.endsWith(tail)
+    ? listing.address.slice(0, -tail.length)
+    : listing.address;
+  // A property with no street parts is just its suburb; showing an empty line
+  // above the locality reads as a missing heading.
+  return { street: street.trim() || locality, locality };
+}
