@@ -1,3 +1,256 @@
+## 2026-09-24 (later still) — Thirteen phases of making it fast, and finding out why the data was wrong
+
+A performance and architecture pass over the whole repo, phase by phase, one
+commit each. The audit and the plan came first and neither touched a file. What
+follows is mostly what the plan got wrong.
+
+### The biggest win was a font
+
+Nine phases of bundle work moved less weight than one URL. The console asked
+for Material Symbols across its full variable axis space —
+`opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200` — while every CSS rule in
+the repo uses `wght 400, GRAD 0`. Pinning the axes:
+
+    4,001,724 bytes  ->  1,107,100 bytes     (-2.9 MB, render-blocking)
+
+Nothing in a route-size table would ever have shown this. It is the reason
+`ARCHITECTURE.md` § 11 says to look outside JavaScript first.
+
+### Five checks that had quietly stopped working
+
+Found by following CLAUDE.md's own rule — break the thing a check guards and
+confirm it goes red.
+
+Two radius checks could not detect the bug they were written for: `wide >=
+suburbOnly` is satisfied by equality, and the wrong-coordinates check only ever
+went red on a database with listings near Sydney. Both now compare against the
+same search with the centre spelled out, which is dataset-independent.
+
+Three speed checks broke the moment `loading.tsx` was added, and looked fine
+doing it. They timed to first byte, and a streamed page flushes its shell
+immediately whether or not anything is cached — so with the cache ripped out
+entirely they read *"cold 33 ms, warm 33 ms"* and passed. They read the full
+body now. Even then the ratio assertion was useless: cold 1465 ms / warm 433 ms
+still satisfies `warm * 2 < cold` with no cache at all. It is an absolute budget
+now (cache hit 29–55 ms against a 420–480 ms round trip).
+
+A `#4` violation alarm turned out to be a bug in the check, not the model — it
+stripped commas from the figure but left the `$` on, so it searched for
+`$9320334343324` while the JSON held `9320334343324`.
+
+### A forged header rendered a real owner's console
+
+The middleware sets `x-console-user-id` and Server Actions trust it. Two paths
+reached Server Components without `updateSession` having run: `UI_PREVIEW` mode,
+and the throw path when a Supabase env var is missing. Proved rather than
+argued — a second console on port 3002 with a forged header carrying a real
+owner's id returned **HTTP 200** rendering "Every listing in the agency book".
+Middleware now deletes those three headers unconditionally, at the top, before
+any branching. Restoring only that strip turned the same request into a 307.
+
+My first smoke check for it passed under sabotage and told me nothing, because
+middleware redirects on `!userId` before any page reads a header. The check's
+comment is now honest about what it can and cannot see.
+
+### Three projections that were wrong
+
+- **Phase 5d planned a 60% cut of `listing-form.tsx`** by moving "inert" fields
+  to Server Components. They are not inert: every field calls `invalid(name)`
+  for its className and renders `<Err name>`, both of which read client `errors`
+  state. The form's own page chunk is 138 bytes anyway. Dropped.
+- **The plan said to omit `generateStaticParams`.** Empirically required:
+  without it `prerender-manifest.json` had `dynamicRoutes: []` and every request
+  re-rendered. With `return []` it became `['/listing/[id]']` and `● ISR`.
+- **I reported drizzle and zod in a client chunk.** They were not. A broken
+  probe loop — `grep -c "$probe" "$f" || echo 0` made `$c` equal `"0\n0"`, so
+  every check read as truthy.
+
+### ISR on the listing page works, and is still off
+
+Measured end to end: MISS → HIT → MISS after `revalidateTag`. It is not enabled,
+because `/listing/<unknown-id>` answers **HTTP 200** with the not-found body in
+production. That is pre-existing — it reproduces on a clean build with
+`force-dynamic` and with `not-found.tsx` deleted entirely — but a wrong status
+served fresh is a bug and a wrong status served from a cache sticks. I first
+recorded it as caused by caching, which was wrong, and corrected the comment.
+
+### Then: reviewing the concurrent frontend work
+
+The new site header was raw `<a>` tags. On the public site that is the
+most-clicked control there is, and a raw anchor is a full document load — nine
+commits of work on instant navigation, handed back on every page. It was
+written that way for a real reason: `packages/ui` has no `next` dependency and
+cannot import `next/link`. So rather than give the shared package a framework,
+`AppShell` takes a `linkAs` prop and `apps/web` supplies `next/link` in exactly
+one place (`WebShell`). Route sizes unchanged to the byte, and it buys back
+viewport prefetch of the `/search` and `/chat` loading shells.
+
+Also: the map's "not on the map" tally counted rows with a null latitude, while
+the pins needed latitude *and* longitude — so a row with one but not the other
+was dropped from both. It is counted from the pins actually built now.
+
+### Every listing in the database was junk, and all three were live
+
+    headline       "dfs", "dfsdsf", "jdsfjdfjl"
+    price_display  "23443342", "332432322", "9320334343324"
+    property_type  "sfd", "2jkads", "House"
+    one property   23 bedrooms, 32 bathrooms, 32 car spaces
+
+Nothing was broken. `headline` needed one character, `price_display` was any
+string up to 120, `property_type` was free text, and a dwelling could have fifty
+bathrooms. The rows were legal.
+
+The price one is the one that matters. #6 keeps the display string and the
+searchable numbers apart and never parses one into the other — correct, and it
+only holds while the string is actually copy. One listing displayed a figure
+reading as twenty-three million while the range search filters on started at
+`$34,443`, so a buyer filtering under $50,000 was being shown it.
+
+`property_type` was worse than it looked. The public search *filters* on that
+column and builds its dropdown by selecting distinct values out of the live
+listings — so the live site was offering buyers `"2jkads"` and `"sfd"` as
+property types, with `"House"` and `"house"` counted as different kinds of
+building. Confirmed by reading the actual `<option>` list off `/search`. A
+filterable dimension cannot be free text; it is a vocabulary now, same shape as
+`AU_STATES`, same reasoning as #8.
+
+Two things guard it: a smoke check that asks the **real schema** of every live
+row rather than a second copy of the rules, and `db:repair-listings`. The
+repair follows one rule — every fix is derived from something true or is an
+honest NULL, and nothing invents a price. Its first draft wrote *"3-bedroom sfd
+in Nar Nar Goon North"* and *"2jkads in Pakenham"*, because it trusted
+`property_type` while it was in the middle of repairing `property_type`. A dry
+run caught it. A repair is only as good as the field it reads.
+
+### Two header numbers were holding a whole query open
+
+`listAgencyListings` had no LIMIT. It selected every listing the agency had ever
+written, with addresses and agent-name arrays, on every console page load —
+because the table computed its Live and Drafts figures in the browser:
+
+    const live = optimisticRows.filter(r => r.status === 'live').length;
+
+Those are only correct if the browser has every row. Postgres counts them now,
+as window functions over the same scan, evaluated before `LIMIT` so they stay
+agency-wide. Verified against the real database rather than assumed: `limit 2`
+returned two rows carrying `total=3`. Still one statement — `query-count.test.ts`
+refuses a second, confirmed red with a deliberate extra await.
+
+### What I did not do
+
+`router.refresh()` follows a Server Action that already called `revalidatePath`
+in three places. It is very likely a duplicate round trip, and it holds
+`isPending` — and every action button — disabled while it runs. I built a probe
+route to settle it empirically, could not drive a client component without a
+headless browser, and stopped rather than remove it on reasoning alone: the
+failure mode is a visibly stale table on the console's main write path. The
+experiment that settles it is written down in `ARCHITECTURE.md` § 14.
+
+### ARCHITECTURE.md
+
+The rules above existed only in commit messages and code comments, which means
+they were only available to someone who already knew to look. They are now one
+file, fourteen sections, with the measurements attached and a section of gaps
+left open on purpose. `CLAUDE.md` points at it.
+
+### Verified
+
+typecheck 10/10 · lint 10/10 · 277 tests (187 core, 90 ai) · both apps build ·
+smoke 55 passed, 0 failed. Every new guard confirmed red under sabotage and
+green restored.
+
+## 2026-09-24 (later) — The guide meets the real model
+
+The key arrived, so the chat ran against Claude for the first time. Five things were
+wrong, none of them visible to a unit test, and each one is now guarded.
+
+### `strict: true` was making the guide invent filters
+
+The worst of them. With `strict: true` on the tool definitions, the model filled in the
+**optional** fields on every call — `keywords: "-"`, then `keywords: "1"`, `priceTo: 22`,
+`priceTo: 0` — on messages where the visitor had mentioned neither a keyword nor a budget.
+Each one silently ANDed the search down to nothing, and the visitor would have seen only
+"no matches" with no way to tell why. Watching the NDJSON frames is what showed it:
+
+    {"query":{"text":"-","channel":"sale","suburb":"Pakenham","priceTo":22},"matched":0}
+    {"query":{"text":"1","channel":"sale","suburb":"Pakenham"},"matched":1}
+
+`strict` is gone. It was belt-and-braces over a zod layer that re-parses every input
+anyway, and optional has to mean optional. `additionalProperties: false` stays.
+
+### `strict: true` also 400s the whole request over `minimum`
+
+    tools.1.custom: For 'integer' type, properties maximum, minimum are not supported
+
+Not `number` only — `integer` too, and by extension `minLength`, `maxLength`, `pattern`.
+The schema now carries `type`, `enum` and `description` and nothing else. The bounds are
+stated in prose, where the model reads them, and enforced in zod, where they are checked.
+A test asserts none of the banned keywords come back.
+
+### `length(2)` on an Australian state, twice
+
+`auStateSchema` was adopted in the tool schema earlier today. The **same mistake was still
+sitting in `slotsSchema`**, so the first message worked and the second came back `400` for
+every conversation about a VIC, NSW, QLD, TAS or ACT suburb — the chat looked like it had
+simply stopped. Non-negotiable #8 exists for exactly this: one list, not three. There is
+now a test that posts the whole turn-two body the browser actually sends.
+
+### `effort: "low"` was the wrong measurement
+
+The plan set it low and reasoned that a consumer chat is latency-sensitive and the work is
+only choosing filters. Against the real model that produced `priceTo: 0`, a stray `x` in
+the keyword field, a missed "under 30km", and one turn that read
+*"ację / comment / Let me run that properly"* before recovering. **Choosing filters from a
+sentence is the reasoning here.** Raised to `medium`; `max_tokens` 2048 → 4096, because
+adaptive thinking spends that budget too and it is headroom, not a cost ceiling. Cost is
+governed by effort and the three-round cap, which is what the original comment got wrong.
+
+### The prompt was too polite to follow its own rule
+
+v1 asked "buy or rent?" before searching anything, and v2's first draft still read
+*"a house in Pakenham under 30km"* as a suburb search and then **asked whether 30 km was
+meant** — the software not listening. v2 now enumerates the phrasings ("in X under 30km",
+"within 30 km of X", "X + 30km") and states that a radius is never a reason to ask a
+question. Channel is assumed and disclosed in one clause rather than demanded up front:
+*"Assuming you're buying — say the word if it's rentals you want."* v1 is kept beside it.
+
+### What it actually does now
+
+    "I need a house in Pakenham under 30km"
+      → near={lat:-38.0776708, lng:145.4818724, radiusKm:30}, channel=sale
+      → "Within 30 km of Pakenham there's just 1 house… 3.5 km away."
+      → link: /search?channel=sale&suburb=Pakenham&state=VIC&radius=30   (no lat=)
+      → then asks for budget and bedrooms, with results already on screen
+
+    "Actually I want to rent, under $700 a week, 2 bedrooms"
+      → channel=rent, priceTo=700 read as weekly, bedrooms=2, radius carried over
+      → "Nothing is coming up… want me to lift the price ceiling, or drop the
+         bedroom filter instead — just say which."
+
+It also met a listing whose price is `9320334343324` — junk typed into the console during
+testing — and said *"which looks like an error on the agency's part, so worth checking
+with them directly"* rather than reading it out as a price. That is the behaviour the
+formatting rule was for, arriving without being asked.
+
+### Smoke
+
+The four model-dependent checks now run, plus a fifth for the radius. The `#4` check had
+to be corrected first: it flagged `$2,000,000` as hallucinated when the guide was
+repeating the visitor's own budget back to them. A figure is now accounted for if it
+appears in the rows, the query, **or the message the visitor sent**. The helper skips on a
+429 rather than going red — hitting the limiter means the limiter works.
+
+typecheck 10/10 · lint 10/10 · **tests 195/195** (134 core + 61 ai) · **smoke 45 passed,
+0 failed, 8 skipped** — including all seven AI checks against the live model · both apps
+build · `/chat` 4.07 kB / 110 kB.
+
+### Still true, and still the thing to do before launch
+
+`/chat` is an anonymous, unauthenticated page in front of a metered API. The per-IP
+limiter (10/min) and `AI_CHAT_DAILY_TURN_CAP` are ceilings on accidental cost, not
+security controls. **Set a hard spend cap in the Anthropic console.** A Turnstile or
+signed page token before it is public.
+
 ## 2026-09-24 — A property guide on the consumer site
 
 `/chat` on apps/web: a conversational way into the same search, for a buyer who knows

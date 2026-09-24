@@ -4,6 +4,117 @@
 - Last tool: Claude Code
 - Last updated: 2026-09-24
 
+## Performance & listing integrity (2026-09-24, Claude Code) — phases 1–13
+
+Fourteen commits on `perf/phases-1-9`. Full account in `docs/SESSION.md`; the
+standing rules all of this produced are now in **`ARCHITECTURE.md`**, which
+`CLAUDE.md` points at and which should be read before adding a page, a query or
+an endpoint.
+
+**Speed.** Header/sidebar prefetch storm removed (12 full route prefetches per
+console page load → 0). Server Actions read middleware's verified session
+instead of re-running `getUser()` — **~520 ms off every publish, edit and
+delete** (ADR 0008). Search-page waterfall unblocked. `staleTimes.dynamic`
+0 → 30, tied to `cachedSearch`'s TTL. `loading.tsx` on the routes that query
+the database, hover-intent prefetch on the results grid, maps lazy-loaded.
+`/` is a cached route (`x-nextjs-cache: HIT`, `s-maxage=30`).
+
+**The largest single win was not JavaScript.** Material Symbols was requested
+across its whole variable axis space while every rule in the repo uses one
+weight: **4,001,724 → 1,107,100 bytes (−2.9 MB, render-blocking)**. Fonts are
+self-hosted via `next/font`; zero third-party font requests on the public site.
+
+**Client JS.** Console shells → Server Components (layout chunk −50%), `/ai`
+−64%, `/team` −38% (tab + selection moved into the URL), `/search` −29%,
+`/listing/[id]` −26%. Search bar rewritten as a real GET form — eleven mirrored
+`useState` gone, desync structurally impossible, and it works with JavaScript
+off.
+
+**A live impersonation hole, found and closed.** A forged `x-console-user-id`
+rendered a real owner's agency console — HTTP 200, "Every listing in the agency
+book" — through two paths that reached Server Components without
+`updateSession` running. Middleware now strips those headers unconditionally,
+before any branching. Proved with a live request, then proved fixed.
+
+**Listing data integrity.** All three listings in this database were junk and
+all three were live: headlines `"dfs"` / `"jdsfjdfjl"`, display prices of bare
+digits, property types `"sfd"` / `"2jkads"`, one property claiming 23 bedrooms
+and 32 bathrooms. Nothing was broken — every rule permitted it. Fixed at the
+contract: headlines must be a phrase, a display price must read as price copy
+rather than a naked number, room counts cap at 20, a sale listing must carry a
+price, and **`property_type` is now a controlled vocabulary** — it was free
+text, and the public search filter builds its dropdown from the distinct values
+in that column, so buyers were being offered `"2jkads"` as a property type.
+`pnpm smoke` now validates every live row against the real schema;
+`pnpm db:repair-listings` fixes old rows, deriving from true data or writing an
+honest NULL, never inventing a price.
+
+**Console listings structure.** `listAgencyListings` had no LIMIT, because the
+table's Live/Drafts figures were counted in the browser — so two header numbers
+were forcing the whole agency book to be shipped on every page load. Counts are
+window functions now (`count(*) filter (...) over()`, verified against the real
+database), pagination is 25 a page through the URL, and it is still one query.
+
+**Frontend review.** The concurrent Cursor redesign was reviewed and committed.
+Two fixes: the new site header used raw `<a>` for every link — a full document
+load on the most-clicked control on the site — and the map's "not pinned" tally
+under-counted rows that had a latitude but no longitude.
+
+### Current numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **277** (187 `@repo/core`, 90 `@repo/ai`)
+- `pnpm smoke` — **55 passed, 0 failed**, 1 skipped, 3 notes
+- Web routes: `/` 207 B / 124 kB (ISR 30s) · `/search` 1.67 kB / 126 kB ·
+  `/listing/[id]` 2 kB / 108 kB · `/chat` 7.3 kB / 114 kB · shared 103 kB
+
+### Deliberately left undone
+
+Each with its reasoning in `ARCHITECTURE.md` § 14:
+
+- `/listing/<unknown-id>` returns **HTTP 200** in production. Pre-existing, not
+  caused by caching, and the only thing blocking ISR on that route — the
+  caching itself was verified working end to end.
+- `priceDisplay` is not cross-checked against `priceFrom`/`priceTo`; doing it
+  means parsing the string, which #6 forbids in spirit.
+- `router.refresh()` after a Server Action that already revalidated is probably
+  a duplicate round trip, but removing it could not be verified without an
+  authenticated console session.
+- `useActionState` on the listing form — a convention change, not a speed one.
+
+## Verified against the real model (2026-09-24)
+
+`ANTHROPIC_API_KEY` is set and `/chat` has now run against Claude. Five things were wrong
+that no unit test could see — full account in `docs/SESSION.md`:
+
+- **`strict: true` made the guide invent filters.** It filled the *optional* fields on
+  every call (`keywords: "-"`, `priceTo: 22`, `priceTo: 0`) on messages that mentioned
+  neither, silently narrowing the search to nothing. Removed; zod re-parses every input
+  anyway. It also 400s the request over `minimum`/`maximum`/`pattern`, so the JSON Schema
+  now carries `type`, `enum` and `description` only
+- **`length(2)` on an Australian state, a second time** — still in `slotsSchema`, so turn
+  one worked and turn two 400'd for every VIC/NSW/QLD/TAS/ACT conversation. Now
+  `auStateSchema` in both places (#8)
+- **`effort: 'low'` was wrong** — choosing filters from a sentence IS the reasoning here.
+  At low it sent `priceTo: 0`, missed "under 30km", and garbled one turn outright. Now
+  `medium`, `max_tokens` 4096
+- **The prompt asked instead of searching.** v2 enumerates the radius phrasings and
+  assumes the channel with one disclosing clause. v1 kept beside it
+- Working end to end: *"I need a house in Pakenham under 30km"* → `radiusKm: 30` applied
+  unasked, link `…&suburb=Pakenham&radius=30` with no `lat=`, then asks for budget and
+  bedrooms with results already on screen. A follow-up switches sale → rent and reads
+  `$700` as weekly
+
+**Demo data note:** one live listing (`3/10 Havana Parade, Pakenham`) has a junk price,
+`9320334343324`, typed in during console testing. The guide flags it as a likely data
+error rather than reading it out, which is correct — but it should be fixed or deleted
+before anyone demos this.
+
+> **Resolved 2026-09-24 (phases 11–12).** That row and the other two were all junk
+> and all live. `pnpm db:repair-listings` cleaned them, the schema now refuses the
+> same input, and `pnpm smoke` fails if a live listing ever drifts again. See
+> "Performance & listing integrity" above.
+
 ## Done this session (2026-09-24) — the property guide
 
 **`/chat` on apps/web.** A conversational way into the same search. Anthropic tool
@@ -153,11 +264,11 @@ problem rather than a relevance one.
   wreckage and a cold-vs-warm cache ratio
 
 ## How to verify
-- `pnpm test` — 190 unit tests: 134 in `@repo/core` (permissions, contracts, query shape,
-  search-URL vocabulary, formatters) and 56 in `@repo/ai` (the two search gates, the
+- `pnpm test` — 195 unit tests: 134 in `@repo/core` (permissions, contracts, query shape,
+  search-URL vocabulary, formatters) and 61 in `@repo/ai` (the two search gates, the
   pipeline's frame order and metering, request validation, prompt immutability). No
   services needed
-- `pnpm smoke` — 46 live checks in 9 groups: migrations + PostGIS, Google
+- `pnpm smoke` — 53 live checks in 9 groups: migrations + PostGIS, Google
   Places/Geocoding, the suburb-vs-radius invariants, consumer HTTP, speed ratios, every
   console route failing closed, and the AI chat. Needs the dev servers and the database;
   skips cleanly when they are down. **The chat group costs about US$0.02 per run and skips
@@ -200,10 +311,8 @@ decision for the user.
 - **`NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY`** — a **second, different** key for the visual map:
   Maps JavaScript API, restricted by **HTTP referrer**. The server key cannot be used here.
   Without it the maps show a "not configured" panel; pins are still stored and searched
-- **`ANTHROPIC_API_KEY` is still empty**, so `/chat` answers 503 with a readable reason and
-  the four model-dependent smoke checks skip. **The chat has never run against a real
-  model.** Everything else about it is verified by unit tests, the build, and live HTTP
-  against its guards
+- ~~`ANTHROPIC_API_KEY` is empty~~ **Set, and the chat runs.** All seven AI smoke checks
+  pass against the live model
 - **Before `/chat` sees real traffic it needs a hard spend cap in the Anthropic console**,
   and a Turnstile or signed page token. The in-process per-IP limiter (10/min) and
   `AI_CHAT_DAILY_TURN_CAP` are ceilings on *accidental* cost, not security controls —
