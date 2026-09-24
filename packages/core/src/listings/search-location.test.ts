@@ -7,6 +7,12 @@ import { searchPublicListings } from './search-listings';
 /** Renders a where-clause to the SQL Postgres would actually receive. */
 const dialect = new PgDialect();
 
+/** Renders any SQL fragment to the text Postgres would receive. */
+function render(clause: unknown): string {
+  const q = dialect.sqlToQuery(clause as SQL);
+  return `${q.sql} ${JSON.stringify(q.params)}`.toLowerCase();
+}
+
 /**
  * These assert the SQL that is built, not the rows that come back.
  *
@@ -17,24 +23,49 @@ const dialect = new PgDialect();
  */
 function capturingDb() {
   let where: SQL | null = null;
+  let order: unknown[] = [];
+  let limit: number | null = null;
+  let offset: number | null = null;
+
+  let selection: Record<string, unknown> = {};
+
   const chain: Record<string, unknown> = {};
-  for (const m of ['select', 'from', 'innerJoin', 'orderBy']) {
+  for (const m of ['from', 'innerJoin']) {
     chain[m] = () => chain;
   }
+  chain.select = (cols: Record<string, unknown>) => {
+    selection = cols;
+    return chain;
+  };
   chain.where = (clause: SQL) => {
     where = clause;
     return chain;
   };
-  chain.limit = () => Promise.resolve([]);
+  chain.orderBy = (...clauses: unknown[]) => {
+    order = clauses;
+    return chain;
+  };
+  chain.limit = (n: number) => {
+    limit = n;
+    return chain;
+  };
+  chain.offset = (n: number) => {
+    offset = n;
+    return Promise.resolve([]);
+  };
 
   return {
     db: chain as unknown as Db,
     /** The rendered statement plus its parameters, lowercased for matching. */
     sql: () => {
       if (!where) return '';
-      const q = dialect.sqlToQuery(where);
-      return `${q.sql} ${JSON.stringify(q.params)}`.toLowerCase();
+      return render(where);
     },
+    /** Every ORDER BY term, rendered, in order. */
+    orderBy: () => order.map(render),
+    limit: () => limit,
+    offset: () => offset,
+    selection: () => selection,
   };
 }
 
@@ -116,5 +147,69 @@ describe('suburb and radius combine rather than replace', () => {
     const sale = capturingDb();
     await searchPublicListings(sale.db, { channel: 'sale', priceTo: 900_000 });
     expect(sale.sql()).toContain('price_from');
+  });
+});
+
+/**
+ * Paging is only meaningful if the order is total.
+ *
+ * Without a unique tiebreaker Postgres may return tied rows in a different
+ * order for the same query, so a listing sitting on a page boundary can appear
+ * on both pages or on neither. Ties are not rare here: two listings published
+ * in the same second, two priced the same, and every listing with no price at
+ * all sharing the NULLS LAST bucket.
+ */
+describe('the result order is deterministic', () => {
+  const sorts = [
+    ['newest', undefined],
+    ['price_asc', undefined],
+    ['price_desc', undefined],
+    [undefined, undefined],
+    [undefined, CENTRE],
+  ] as const;
+
+  for (const [sort, near] of sorts) {
+    it(`ends on the listing id for sort=${sort ?? 'default'}${near ? ' with a centre' : ''}`, async () => {
+      const { db, orderBy } = capturingDb();
+      await searchPublicListings(db, { ...PAKENHAM, sort, near });
+
+      const terms = orderBy();
+      expect(terms.length).toBeGreaterThan(1);
+      expect(terms[terms.length - 1]).toContain('"id"');
+    });
+  }
+});
+
+describe('paging', () => {
+  it('asks for the rows of the page it was given', async () => {
+    const { db, limit, offset } = capturingDb();
+    await searchPublicListings(db, { ...PAKENHAM, limit: 24, offset: 48 });
+
+    expect(limit()).toBe(24);
+    expect(offset()).toBe(48);
+  });
+
+  it('starts at the beginning when no offset is asked for', async () => {
+    const { db, offset } = capturingDb();
+    await searchPublicListings(db, PAKENHAM);
+    expect(offset()).toBe(0);
+  });
+
+  it('never lets a caller ask for a negative offset', async () => {
+    const { db, offset } = capturingDb();
+    await searchPublicListings(db, { ...PAKENHAM, offset: -10 });
+    expect(offset()).toBe(0);
+  });
+
+  it('counts the whole match in the same statement, not a second one', async () => {
+    const { db, selection } = capturingDb();
+    await searchPublicListings(db, PAKENHAM);
+
+    // The total rides on the row selection as a window function. If it ever
+    // becomes its own SELECT, a paged search costs two round trips to the
+    // database region and query-count.test.ts is the one that says so.
+    const total = selection().totalCount;
+    expect(total).toBeDefined();
+    expect(render(total)).toContain('count(*) over()');
   });
 });

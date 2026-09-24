@@ -40,12 +40,17 @@ function countingDb(rows: unknown[] = THREE_ROWS) {
   }
 
   // A Drizzle builder reaches the database when it is awaited, or when a
-  // terminal like limit/returning is. These are the only places to count.
+  // terminal like returning is. These are the only places to count.
+  //
+  // limit() is NOT one of them any more: a paged search continues .limit().
+  // offset(), so limit has to hand the builder back. Awaiting is what counts,
+  // and every read ends in an await either way.
   const terminal = () => {
     queries += 1;
     return Promise.resolve(rows);
   };
-  chain.limit = terminal;
+  chain.limit = () => chain;
+  chain.offset = () => chain;
   chain.returning = terminal;
   chain.then = (res: (v: unknown) => unknown) => terminal().then(res);
   chain.transaction = async (fn: (tx: unknown) => unknown) => fn(chain);

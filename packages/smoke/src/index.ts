@@ -6,6 +6,7 @@ import {
   getPublicListing,
   liveSuburbs,
   searchPublicListings,
+  searchPublicListingsPage,
   type PublicListingSummary,
 } from '@repo/core/listings';
 import {
@@ -427,6 +428,42 @@ async function main() {
     const wrong = rows.filter((r) => r.rentPw !== null && r.rentPw > 1);
     assert(wrong.length === 0, `${wrong.length} rental(s) above $1/wk matched a $1 cap`);
     return `${rows.length} rentals at or under $1/wk`;
+  });
+
+  await check('paging walks the result set without repeating or skipping', async () => {
+    const all = await searchPublicListings(db, { limit: 100 });
+    if (all.length < 2) skip('needs at least two live listings');
+
+    // One per page, so the invariant is exercised whatever the database holds.
+    const seen: string[] = [];
+    let total = -1;
+
+    for (let page = 0; page < all.length; page += 1) {
+      const { rows, total: t } = await searchPublicListingsPage(db, {
+        limit: 1,
+        offset: page,
+      });
+      assert(rows.length === 1, `page ${page + 1} of ${all.length} came back empty`);
+
+      // The total is the whole match, not the page, and does not drift as the
+      // offset moves — it is count(*) over() on the same statement.
+      if (total === -1) total = t;
+      assert(t === total, `total changed from ${total} to ${t} at offset ${page}`);
+
+      const id = rows[0]?.id as string;
+      assert(!seen.includes(id), `listing ${id} appeared on two pages`);
+      seen.push(id);
+    }
+
+    assert(
+      total === all.length,
+      `count(*) over() said ${total} but an unpaged search returned ${all.length}`,
+    );
+    assert(
+      seen.length === all.length,
+      `walked ${seen.length} rows one page at a time but the set holds ${all.length}`,
+    );
+    return `${all.length} listings, ${all.length} pages, none repeated`;
   });
 
   await check('every geocoded listing has a real point', async () => {

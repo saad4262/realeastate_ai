@@ -1,4 +1,5 @@
 import { cache } from 'react';
+import Link from 'next/link';
 import type { PublicListingSummary, PublicSearchQuery } from '@repo/core/listings';
 import type { Near } from '@repo/core/geo/schema';
 import { ListingCard } from '../../components/listing-card';
@@ -16,7 +17,9 @@ import styles from '../home.module.css';
  * search — the shape of the page deciding how many queries it runs.
  */
 const runSearch = cache(
-  (query: PublicSearchQuery): Promise<{ rows: PublicListingSummary[]; down: boolean }> =>
+  (
+    query: PublicSearchQuery,
+  ): Promise<{ rows: PublicListingSummary[]; total: number; down: boolean }> =>
     cachedSearch(query),
 );
 
@@ -25,6 +28,10 @@ type Shared = {
   suburb?: string;
   place: string;
   near?: Near;
+  /** 1-based. */
+  page: number;
+  pageSize: number;
+  pageHref: (n: number) => string;
 };
 
 /**
@@ -35,8 +42,15 @@ type Shared = {
  * broken filter. Naming both halves is the difference between a number the
  * visitor has to trust and one they can check.
  */
-export async function ResultsSummary({ query, suburb, place, near }: Shared) {
-  const { rows, down } = await runSearch(query);
+export async function ResultsSummary({
+  query,
+  suburb,
+  place,
+  near,
+  page,
+  pageSize,
+}: Shared) {
+  const { rows, total, down } = await runSearch(query);
   if (down) return <p className={styles.sub}>Listings are temporarily unavailable.</p>;
 
   const inSuburb = suburb
@@ -50,13 +64,47 @@ export async function ResultsSummary({ query, suburb, place, near }: Shared) {
     query.propertyType,
   ].filter(Boolean);
 
-  const count = `${rows.length} ${rows.length === 1 ? 'result' : 'results'}`;
+  /**
+   * The total, and which slice of it is on screen.
+   *
+   * This used to read rows.length, which was the same number as the total only
+   * because the search was capped at 48 and had no second page. Saying "24
+   * results" under a search that found 300 would be worse than saying nothing.
+   */
+  const from = (page - 1) * pageSize + 1;
+  const to = from + rows.length - 1;
+  const count =
+    total > rows.length
+      ? `${total} results — showing ${from}–${to}`
+      : `${total} ${total === 1 ? 'result' : 'results'}`;
+
+  /**
+   * The suburb/radius split only makes sense for the whole result set.
+   *
+   * It exists to answer "is the distance filter working" — a search for
+   * Pakenham + 2 km returns everything IN Pakenham as well as everything
+   * within 2 km of its centre, and naming both halves is what stops a card
+   * marked 3.5 km reading as a broken filter.
+   *
+   * Counted over one page it says something false. With one listing per page,
+   * page 1 read "1 in Pakenham, and nothing else within 50 km of it" while
+   * page 3 held exactly that nothing-else. So once there is more than one
+   * page, the sentence states the search instead of dissecting a page of it.
+   */
+  const paged = total > rows.length;
 
   if (near && place) {
+    const detail = extras.length ? ` · ${extras.join(' · ')}` : '';
+    if (paged) {
+      return (
+        <p className={styles.sub}>
+          {`${count} — ${kind} in ${place} and within ${near.radiusKm} km of it.${detail}`}
+        </p>
+      );
+    }
     const tail = nearby
       ? `and ${nearby} more within ${near.radiusKm} km of it`
       : `and nothing else within ${near.radiusKm} km of it`;
-    const detail = extras.length ? ` · ${extras.join(' · ')}` : '';
     return (
       <p className={styles.sub}>
         {`${count} — ${inSuburb} ${kind} in ${place}, ${tail}.${detail}`}
@@ -79,8 +127,17 @@ export async function ResultsSummary({ query, suburb, place, near }: Shared) {
   );
 }
 
-export async function ResultsList({ query, suburb, place, near }: Shared) {
-  const { rows, down } = await runSearch(query);
+export async function ResultsList({
+  query,
+  suburb,
+  place,
+  near,
+  page,
+  pageSize,
+  pageHref,
+}: Shared) {
+  const { rows, total, down } = await runSearch(query);
+  const pages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
     <>
@@ -114,6 +171,36 @@ export async function ResultsList({ query, suburb, place, near }: Shared) {
                 : 'Nothing matched that search. Try a wider price range or a different suburb.'}
         </p>
       )}
+
+      {/*
+        Links, not a "load more" button.
+        
+        Appending to a client-held list would make server data into client
+        state, which is the one thing this app deliberately never does — and it
+        breaks the Back button. Each page is its own URL instead: shareable,
+        cacheable, in the history, indexable, and it works with no JavaScript.
+      */}
+      {pages > 1 ? (
+        <nav className={styles.pager} aria-label="Search result pages">
+          {page > 1 ? (
+            <Link href={pageHref(page - 1)} className={styles.pagerLink} rel="prev">
+              ← Previous
+            </Link>
+          ) : (
+            <span className={styles.pagerOff}>← Previous</span>
+          )}
+          <span className={styles.pagerAt}>
+            Page {page} of {pages}
+          </span>
+          {page < pages ? (
+            <Link href={pageHref(page + 1)} className={styles.pagerLink} rel="next">
+              Next →
+            </Link>
+          ) : (
+            <span className={styles.pagerOff}>Next →</span>
+          )}
+        </nav>
+      ) : null}
     </>
   );
 }

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lte, or, sql, type SQL } from 'drizzle-orm';
 import { agency, listing, property, type Db } from '@repo/db';
 import type { Near } from '../geo/place-schema';
 import { formatAddress, type ListingChannel } from './listing-schema';
@@ -86,6 +86,8 @@ export type PublicSearchQuery = {
   near?: Near;
   sort?: SearchSort;
   limit?: number;
+  /** Rows to skip. Page N of a paged search is (N - 1) * limit. */
+  offset?: number;
 };
 
 const num = (v: string | number | null): number | null => {
@@ -168,6 +170,16 @@ function selection(near: Near | undefined) {
       select array_agg(la.snapshot_name order by la.display_order)
       from listing_agent la where la.listing_id = ${listing.id}
     ), '{}')`,
+    /**
+     * How many rows matched before LIMIT, counted by the same statement.
+     *
+     * A window function rather than a second SELECT, so a paged search still
+     * costs exactly one round trip to the database region and query-count.test
+     * stays true. A separate COUNT(*) would also have to re-run every filter,
+     * including the PostGIS distance predicate, to answer a question this
+     * statement has already done the work for.
+     */
+    totalCount: sql<number>`count(*) over()`,
   } as const;
 }
 
@@ -325,31 +337,66 @@ function locationFilter(query: PublicSearchQuery): SQL | null {
   return byName ? or(byName, within)! : within;
 }
 
+/**
+ * Every ordering ends with the listing id, and that is not decoration.
+ *
+ * None of these was deterministic before it. Two listings published in the same
+ * second tie on published_at and created_at; two priced the same tie outright;
+ * every listing with no price at all ties in the NULLS LAST bucket. Postgres is
+ * free to return tied rows in any order it likes, and it does not have to
+ * choose the same one twice.
+ *
+ * That is invisible on a single page of results and breaks the moment there is
+ * a second one: a row that ties across the page boundary can appear on both
+ * pages, or on neither. A unique tiebreaker is what makes paging through a
+ * result set mean anything.
+ */
 function orderFor(sort: SearchSort | undefined, near: Near | undefined) {
   switch (sort) {
     case 'price_asc':
       // NULLS LAST, or every "contact agent" listing crowds the top of a list
       // the user sorted precisely because they care about price.
-      return [sql`coalesce(${listing.priceFrom}, ${listing.rentPw}) asc nulls last`];
+      return [
+        sql`coalesce(${listing.priceFrom}, ${listing.rentPw}) asc nulls last`,
+        asc(listing.id),
+      ];
     case 'price_desc':
-      return [sql`coalesce(${listing.priceFrom}, ${listing.rentPw}) desc nulls last`];
+      return [
+        sql`coalesce(${listing.priceFrom}, ${listing.rentPw}) desc nulls last`,
+        desc(listing.id),
+      ];
     case 'newest':
-      return [desc(listing.publishedAt), desc(listing.createdAt)];
+      return [desc(listing.publishedAt), desc(listing.createdAt), desc(listing.id)];
     default:
       // Nearest first when a point was given — that is what "relevance" means
       // to somebody who just searched a location. Otherwise, newest.
       return near
-        ? [sql`${distanceExpr(near)} asc nulls last`, desc(listing.publishedAt)]
-        : [desc(listing.publishedAt), desc(listing.createdAt)];
+        ? [sql`${distanceExpr(near)} asc nulls last`, desc(listing.publishedAt), asc(listing.id)]
+        : [desc(listing.publishedAt), desc(listing.createdAt), desc(listing.id)];
   }
 }
 
-/** Public listing search. Live only, and never widened by a caller. */
-export async function searchPublicListings(
+/**
+ * One page of a public search, plus how many rows there were in total.
+ *
+ * Offset rather than a keyset cursor, and that is a deliberate reversal of what
+ * was planned. A keyset scheme is the right answer for an unbounded feed; this
+ * is a bounded result set that people read as "page 2 of 5" and whose summary
+ * line already quotes a total. Offset keeps the total and the page numbers,
+ * both of which a cursor gives up — and the keyset predicate for these
+ * orderings would need three branches each to handle ASC/DESC with NULLS LAST,
+ * which is a lot of surface to get subtly wrong for a result set measured in
+ * hundreds.
+ *
+ * The duplicate-and-skip problem offset is usually accused of comes from ties,
+ * not from offset: see orderFor, where every ordering now ends with the id.
+ */
+export async function searchPublicListingsPage(
   db: Db,
   query: PublicSearchQuery = {},
-): Promise<PublicListingSummary[]> {
+): Promise<{ rows: PublicListingSummary[]; total: number }> {
   const limit = Math.min(Math.max(query.limit ?? 24, 1), 100);
+  const offset = Math.max(query.offset ?? 0, 0);
   const filters = baseFilters(query);
 
   const location = locationFilter(query);
@@ -362,9 +409,27 @@ export async function searchPublicListings(
     .innerJoin(agency, eq(agency.id, listing.agencyId))
     .where(and(...filters))
     .orderBy(...orderFor(query.sort, query.near))
-    .limit(limit);
+    .limit(limit)
+    .offset(offset);
 
-  return rows.map((r) => toSummary(r, (r.agentNames as string[]) ?? []));
+  return {
+    rows: rows.map((r) => toSummary(r, (r.agentNames as string[]) ?? [])),
+    // count(*) over() is on every row and identical; no rows means no matches.
+    total: Number((rows[0] as { totalCount?: number } | undefined)?.totalCount ?? 0),
+  };
+}
+
+/**
+ * Public listing search. Live only, and never widened by a caller.
+ *
+ * Reads through the paged version rather than building its own statement, so
+ * the two can never drift apart on a filter or an ordering.
+ */
+export async function searchPublicListings(
+  db: Db,
+  query: PublicSearchQuery = {},
+): Promise<PublicListingSummary[]> {
+  return (await searchPublicListingsPage(db, query)).rows;
 }
 
 /** One live listing for the public detail page. Drafts stay invisible. */

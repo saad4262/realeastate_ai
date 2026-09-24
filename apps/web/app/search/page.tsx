@@ -15,6 +15,16 @@ export const metadata: Metadata = {
   title: 'Search — Property Platform',
 };
 
+/**
+ * Results per page.
+ *
+ * Was a hard limit of 48 with nothing after it — result 49 of a search was
+ * unreachable, on a portal whose whole job is showing what is for sale. 24 is
+ * a page people scroll rather than abandon, and the count beside it says how
+ * many there are in total.
+ */
+const PAGE_SIZE = 24;
+
 /** Query params are user input: anything unrecognised is dropped, not trusted. */
 function num(value: string | undefined): number | undefined {
   if (!value) return undefined;
@@ -118,6 +128,15 @@ export default async function SearchPage({
     }
   }
 
+  /**
+   * Which page, 1-based.
+   *
+   * Anything that is not a whole number above zero is page one — a hand-edited
+   * ?page=-3 should show the first page, not an error.
+   */
+  const pageParam = Number(one('page'));
+  const page = Number.isInteger(pageParam) && pageParam > 0 ? pageParam : 1;
+
   const typed = one('q')?.trim() || undefined;
 
   /**
@@ -158,11 +177,25 @@ export default async function SearchPage({
     suburb,
     state,
     postcode,
-    limit: 48,
+    limit: PAGE_SIZE,
+    offset: (page - 1) * PAGE_SIZE,
   };
 
   const place = [suburb, state, postcode].filter(Boolean).join(' ');
-  const shared = { query, suburb, place, near };
+
+  /** A link to another page of this same search, keeping every other filter. */
+  const pageHref = (n: number) => {
+    const next = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      const val = Array.isArray(v) ? v[0] : v;
+      if (val && k !== 'page') next.set(k, val);
+    }
+    if (n > 1) next.set('page', String(n));
+    const qs = next.toString();
+    return qs ? `/search?${qs}` : '/search';
+  };
+
+  const shared = { query, suburb, place, near, page, pageSize: PAGE_SIZE, pageHref };
 
   /**
    * Changes whenever the SEARCH does, which is what makes the spinner appear.

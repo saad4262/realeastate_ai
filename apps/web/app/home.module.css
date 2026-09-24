@@ -1,14 +1,30 @@
-.hero { max-width: 760px; margin: 0 auto 2.5rem; }
+.hero { max-width: 760px; margin: 0 auto 2.75rem; }
+
+.kicker {
+  margin: 0 0 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-accent, #0b3d2e);
+}
 
 .title {
   font-family: var(--font-display, inherit);
-  font-size: clamp(2rem, 5vw, 2.75rem);
-  line-height: 1.15;
-  margin: 0 0 0.5rem;
-  letter-spacing: -0.02em;
+  font-size: clamp(2rem, 5vw, 2.85rem);
+  line-height: 1.12;
+  margin: 0 0 0.65rem;
+  letter-spacing: -0.025em;
+  color: var(--color-accent, #0b3d2e);
 }
 
-.sub { color: var(--color-muted, #64748b); margin: 0 0 1.5rem; font-size: 1.0625rem; }
+.sub {
+  color: var(--color-muted, #64748b);
+  margin: 0 0 1.6rem;
+  font-size: 1.05rem;
+  line-height: 1.55;
+  max-width: 38rem;
+}
 
 .section { max-width: 1100px; margin: 0 auto; }
 
@@ -60,4 +76,48 @@
 
 .guideLink:hover {
   text-decoration: underline;
+}
+
+/* Result paging. Links rather than a "load more" button, so each page is its
+   own URL: shareable, in the Back history, indexable, and working without
+   JavaScript. */
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+  margin: 2rem 0 0;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--color-border, #e2e8f0);
+}
+
+.pagerLink,
+.pagerOff {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  padding: 0.5rem 0.875rem;
+  border-radius: var(--radius, 6px);
+}
+
+.pagerLink {
+  color: var(--color-accent, #0b3d2e);
+  text-decoration: none;
+  border: 1px solid var(--color-border, #e2e8f0);
+}
+
+.pagerLink:hover {
+  border-color: var(--color-accent, #0b3d2e);
+}
+
+/* Kept in the layout rather than removed, so the page indicator does not jump
+   sideways between the first page and the middle of a set. */
+.pagerOff {
+  color: var(--color-muted, #64748b);
+  opacity: 0.5;
+  border: 1px solid transparent;
+}
+
+.pagerAt {
+  font-size: 0.875rem;
+  color: var(--color-muted, #64748b);
 }

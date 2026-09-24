@@ -3,7 +3,7 @@ import {
   getPublicListing,
   livePropertyTypes,
   liveSuburbs,
-  searchPublicListings,
+  searchPublicListingsPage,
   type PublicListing,
   type PublicListingSummary,
   type PublicSearchQuery,
@@ -61,16 +61,19 @@ function queryKey(query: PublicSearchQuery): string {
  */
 export async function cachedSearch(query: PublicSearchQuery): Promise<{
   rows: PublicListingSummary[];
+  /** How many matched in total, not how many are on this page. */
+  total: number;
   down: boolean;
 }> {
   const run = unstable_cache(
     async () => {
       try {
-        return { rows: await searchPublicListings(getWebDb(), query), down: false };
+        const { rows, total } = await searchPublicListingsPage(getWebDb(), query);
+        return { rows, total, down: false };
       } catch {
         // The public site stays up without the database; it just has nothing to
         // show. A search that 500s is worse than one with no results under it.
-        return { rows: [] as PublicListingSummary[], down: true };
+        return { rows: [] as PublicListingSummary[], total: 0, down: true };
       }
     },
     ['search', queryKey(query)],

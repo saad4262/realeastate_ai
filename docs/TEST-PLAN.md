@@ -174,6 +174,10 @@ Suburb and pin are two different things. These cases are about the pin.
 | F23 | Pick a suburb, choose "+ within 10 km", read the sentence beside the dropdown | It says "Pakenham, VIC 3810 plus anything within 10 km of it" and updates as the dropdown changes — the select is uncontrolled, but the sentence echoes it |
 | F24 | **Production only.** `pnpm --filter @repo/web build && pnpm --filter @repo/web start`, then `curl -sI localhost:3000/` twice | `x-nextjs-cache: MISS` then `HIT`, with `Cache-Control: s-maxage=30`. The home page is a cached route now, not a per-request render |
 | F25 | Publish a listing in the console, then re-request `/` | `x-nextjs-cache: MISS` on the next hit. `revalidateTag('listings')` clears the cached **page**, not only the row behind it |
+| F27 | Search a suburb with more than 24 matches, scroll to the bottom | **Page 1 of N** with Previous greyed out and Next a link. The summary reads "N results — showing 1–24" |
+| F28 | Click Next, then press **Back** | Page 2 is its own URL (`&page=2`), so Back returns to page 1 instantly from the router cache. Previous/Next work with JavaScript disabled — they are links, not a "load more" button |
+| F29 | On a paged suburb+radius search, read the summary | It states the search ("properties for sale in Pakenham and within 50 km of it") rather than splitting the count. The "2 in Pakenham, and 1 more within 50 km" wording only appears when everything fits on one page, because counted over a single page it says something false |
+| F30 | Hand-edit the URL to `&page=0`, `&page=-3` or `&page=abc` | Page one. Nothing errors |
 | F26 | **Known bug, not a regression.** `curl -sI localhost:3000/listing/<made-up-uuid>` on a production build | Currently **HTTP 200** with the not-found body — a soft 404 on the page search engines index. `curl -sI localhost:3000/nope` correctly returns 404. Reproduces with `force-dynamic`, with ISR, and with `app/not-found.tsx` deleted; dev returns a correct 404. This is why `/listing/[id]` is not a cached route — see the note at the top of that page |
 
 ### G. Navigation and feel

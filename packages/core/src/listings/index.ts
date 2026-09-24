@@ -36,6 +36,7 @@ export {
   livePropertyTypes,
   liveSuburbs,
   searchPublicListings,
+  searchPublicListingsPage,
   SORT_OPTIONS,
   type PublicListing,
   type PublicListingSummary,
