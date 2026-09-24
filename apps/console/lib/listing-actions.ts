@@ -19,7 +19,7 @@ import {
 } from '@repo/core/geo';
 import { getConsoleDb } from './db';
 import { loadListingActor } from './load-actor';
-import { requireAuthAccount } from './auth-account';
+import { requireActionUserId } from './auth-account';
 import { revalidateWeb } from './revalidate-web';
 
 export type CreateListingActionResult =
@@ -36,10 +36,10 @@ export async function createListingAction(
 ): Promise<CreateListingActionResult> {
   // Outside the try: a missing session throws, and catching that would turn
   // "not signed in" into a confusing "could not save the listing".
-  const account = await requireAuthAccount();
+  const userId = await requireActionUserId();
 
   try {
-    const actor = await loadListingActor(account.userId);
+    const actor = await loadListingActor(userId);
     if (!actor) {
       return {
         ok: false,
@@ -74,12 +74,12 @@ export async function setListingStatusAction(
   listingId: string,
   next: 'draft' | 'live' | 'under_offer' | 'withdrawn',
 ): Promise<SetStatusActionResult> {
-  const account = await requireAuthAccount();
+  const userId = await requireActionUserId();
 
   try {
     // loadListingActor, not loadActor: listing:publish consults listing_agent
     // for anyone who is not an agency admin.
-    const actor = await loadListingActor(account.userId);
+    const actor = await loadListingActor(userId);
     if (!actor) {
       return { ok: false, error: 'Database is not configured.', code: 'unknown' };
     }
@@ -114,12 +114,12 @@ export async function updateListingAction(
   listingId: string,
   input: unknown,
 ): Promise<UpdateListingActionResult> {
-  const account = await requireAuthAccount();
+  const userId = await requireActionUserId();
 
   try {
     // loadListingActor, not loadActor: listing:edit consults listing_agent for
     // anyone who is not an agency admin.
-    const actor = await loadListingActor(account.userId);
+    const actor = await loadListingActor(userId);
     if (!actor) {
       return { ok: false, error: 'Database is not configured.', code: 'unknown' };
     }
@@ -153,10 +153,10 @@ export type DeleteListingActionResult =
 export async function deleteListingAction(
   listingId: string,
 ): Promise<DeleteListingActionResult> {
-  const account = await requireAuthAccount();
+  const userId = await requireActionUserId();
 
   try {
-    const actor = await loadListingActor(account.userId);
+    const actor = await loadListingActor(userId);
     if (!actor) {
       return { ok: false, error: 'Database is not configured.', code: 'unknown' };
     }
@@ -188,7 +188,7 @@ export async function suggestPlacesAction(
 ): Promise<PlaceSuggestion[]> {
   // Signed-in only. Without this the action is an open, billable proxy to a
   // paid geocoder that anyone who reads the page source can call.
-  await requireAuthAccount();
+  await requireActionUserId();
 
   try {
     return await suggestPlaces(getConsoleDb(), query, { kinds });
@@ -205,7 +205,7 @@ export async function suggestPlacesAction(
  * address the provider pinned thirty seconds ago.
  */
 export async function resolvePlaceAction(id: string) {
-  await requireAuthAccount();
+  await requireActionUserId();
 
   try {
     return await resolvePlace(getConsoleDb(), id);
@@ -223,7 +223,7 @@ export async function resolvePlaceAction(id: string) {
  * a valid pin, and the agent may well know better than it does.
  */
 export async function reverseGeocodeAction(lat: number, lng: number) {
-  await requireAuthAccount();
+  await requireActionUserId();
 
   try {
     return await reverseGeocode(getConsoleDb(), lat, lng);

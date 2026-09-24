@@ -37,6 +37,30 @@ export async function middleware(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-console-surface', surface);
 
+  /**
+   * These three are middleware's to set and nobody else's.
+   *
+   * Everything downstream — requireConsoleSession, requireConsoleAccess and
+   * now the listing actions — treats x-console-user-id as a statement that
+   * this request's session was verified here. That is only true if a value
+   * the caller sent under the same name cannot survive, so it is deleted
+   * before anything else happens, on every path.
+   *
+   * updateSession deletes them too. This is not redundant, because there are
+   * two ways to reach a Server Component without updateSession ever running:
+   *
+   *   - NEXT_PUBLIC_UI_PREVIEW=1 returns above without calling it at all, and
+   *   - updateSession throws in publicEnv() BEFORE its own delete when a
+   *     Supabase env var is missing, which the catch below swallows.
+   *
+   * In both cases the request used to be forwarded with the caller's own
+   * headers intact. A typo in NEXT_PUBLIC_SUPABASE_URL should cost the
+   * console its sessions, not hand out impersonation.
+   */
+  requestHeaders.delete('x-console-user-id');
+  requestHeaders.delete('x-console-user-email');
+  requestHeaders.delete('x-console-user-label');
+
   const isAuthEntry =
     pathname.startsWith('/login') || pathname.startsWith('/signup');
 

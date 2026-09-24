@@ -1,7 +1,7 @@
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
 import { and, eq, sql } from 'drizzle-orm';
-import { getDb, listing, property, type Db } from '@repo/db';
+import { getDb, listing, membership, property, type Db } from '@repo/db';
 import {
   getPublicListing,
   liveSuburbs,
@@ -759,6 +759,51 @@ async function main() {
     [`${AGENT}/listings`, 'agent listings'],
     [`${AGENT}/listings/00000000-0000-0000-0000-000000000000/edit`, 'agent edit-listing'],
   ];
+
+  /**
+   * A real member's id, offered as a header, with no session cookie.
+   *
+   * What this proves is the end-to-end property: an unauthenticated caller
+   * cannot talk their way into the console by naming a user. It is worth
+   * having and it is cheap.
+   *
+   * What it does NOT prove is that the header strip works, and that distinction
+   * was only found by breaking it. With both strips removed this check still
+   * passed, because middleware redirects on `!userId` from its own getUser()
+   * before any page reads a header — the strip is the second line, not the
+   * first. The path where the strip is the ONLY line is NEXT_PUBLIC_UI_PREVIEW=1,
+   * where middleware returns before authenticating at all; there a forged
+   * header rendered a real owner's agency console, HTTP 200. Reproducing that
+   * needs a second server with different env, so it lives in docs/TEST-PLAN.md
+   * § G rather than here.
+   */
+  await check('a forged identity header cannot stand in for a session', async () => {
+    if (!consoleUp) skip(`${AGENCY} is not answering`);
+
+    const [member] = await db
+      .select({ userId: membership.userId })
+      .from(membership)
+      .where(eq(membership.status, 'active'))
+      .limit(1);
+    if (!member) skip('no active membership to impersonate');
+
+    const res = await fetch(`${AGENCY}/live-listings`, {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(20_000),
+      headers: { 'x-console-user-id': member.userId },
+    });
+
+    assert(
+      res.status === 307 || res.status === 302,
+      `a forged header got HTTP ${res.status} instead of being turned away`,
+    );
+    const location = res.headers.get('location') ?? '';
+    assert(
+      /login/.test(location),
+      `a forged x-console-user-id was believed — landed on ${location || 'the page itself'}`,
+    );
+    return 'refused, sent to login';
+  });
 
   for (const [target, name] of guarded) {
     await check(`${name} fails closed`, async () => {

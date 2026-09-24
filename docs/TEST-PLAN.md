@@ -183,6 +183,7 @@ Suburb and pin are two different things. These cases are about the pin.
 | G8 | Throw inside a console page body, then load it | The **sidebar and header stay**; only the content area shows "This page didn't load". A full-page error would lose your place |
 | G9 | Sign out, then open `/live-listings` directly | Still `307 → /login`. Adding `error.tsx` must never swallow the redirect `requireConsoleAccess` throws — `pnpm smoke` asserts this too |
 | G10 | Open `/listing/<id-that-does-not-exist>` on the consumer site | A 404 **inside the site's own header**, offering the search — not Next's unstyled default page |
+| G11 | **The header strip.** Start a throwaway console: `cd apps/console && NEXT_PUBLIC_UI_PREVIEW=1 NEXT_DIST_DIR=.next-preview npx next dev --port 3002`. Take a real active `membership.user_id` from the database, then `curl -i -H "x-console-user-id: <that id>" http://agency.lvh.me:3002/live-listings` | **307 to /login.** Anything else is impersonation: server actions now trust this header, so a 200 here means a forged header can publish, edit and delete that agency's listings. Preview mode is the one path where middleware returns before authenticating, so the strip is the only thing standing there. Verified failing (HTTP 200, rendering the owner's console) with the strip removed, and passing with it |
 
 > G4 and G5 are client-side redirects since the shell now flushes before the permission
 > gate resolves. They work, but they are the two paths most likely to regress.
