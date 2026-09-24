@@ -1,0 +1,32 @@
+.wrap { display: grid; gap: 1rem; padding: 0.25rem; }
+
+.bar {
+  border-radius: 0.5rem;
+  background: linear-gradient(
+    90deg,
+    var(--surface-canvas) 25%,
+    color-mix(in srgb, var(--border-default) 45%, transparent) 37%,
+    var(--surface-canvas) 63%
+  );
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+
+.title { height: 28px; width: min(320px, 60%); }
+.sub { height: 14px; width: min(460px, 80%); }
+
+.stats { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+.stat { height: 74px; flex: 1 1 130px; border-radius: 0.625rem; }
+
+.card { height: 320px; border-radius: 0.75rem; }
+
+@keyframes shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+/* A shimmer that never stops is worse than no shimmer for anyone who is
+   sensitive to motion; the shape still communicates "loading". */
+@media (prefers-reduced-motion: reduce) {
+  .bar { animation: none; }
+}

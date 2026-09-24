@@ -1,0 +1,16 @@
+node_modules
+.turbo
+.next
+dist
+.DS_Store
+*.log
+.env
+.env.local
+.env*.local
+.cursor/mcp.json
+.vercel
+coverage
+*.tsbuildinfo
+
+# Throwaway dev servers (NEXT_DIST_DIR)
+.next-*

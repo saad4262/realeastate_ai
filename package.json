@@ -1,0 +1,23 @@
+{
+  "name": "realestate-ai",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json,css}\"",
+    "db:generate": "pnpm --filter @repo/db db:generate",
+    "db:migrate": "pnpm --filter @repo/db db:migrate",
+    "db:seed": "pnpm --filter @repo/db db:seed",
+    "test": "pnpm --filter @repo/core test && pnpm --filter @repo/ai test",
+    "smoke": "pnpm --filter @repo/smoke smoke",
+    "db:reset": "pnpm --filter @repo/db db:reset"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  }
+}

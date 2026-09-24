@@ -1,0 +1,38 @@
+{
+  "name": "@repo/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./permissions": "./src/permissions.ts",
+    "./search": "./src/search.ts",
+    "./team": "./src/team/index.ts",
+    "./agency": "./src/agency/index.ts",
+    "./identity": "./src/identity/index.ts",
+    "./team/schema": "./src/team/invite-schema.ts",
+    "./listings": "./src/listings/index.ts",
+    "./listings/schema": "./src/listings/listing-schema.ts",
+    "./listings/format": "./src/listings/format.ts",
+    "./listings/url": "./src/listings/search-url.ts",
+    "./geo": "./src/geo/index.ts",
+    "./geo/schema": "./src/geo/place-schema.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"no lint yet\"",
+    "test": "vitest run",
+    "geo:backfill": "tsx src/geo/backfill.ts"
+  },
+  "dependencies": {
+    "@repo/db": "workspace:*",
+    "drizzle-orm": "^0.38.3",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "dotenv": "^16.4.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

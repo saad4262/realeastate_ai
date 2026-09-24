@@ -1,0 +1,30 @@
+{
+  "name": "@repo/ai",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./models": "./src/models.ts",
+    "./usage": "./src/usage.ts",
+    "./chat": "./src/pipelines/property-chat.ts",
+    "./chat-events": "./src/schemas/chat-events.ts",
+    "./chat-request": "./src/schemas/chat-request.ts",
+    "./tools": "./src/tools/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "echo \"no lint yet\""
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "@repo/core": "workspace:*",
+    "@repo/db": "workspace:*",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

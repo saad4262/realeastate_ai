@@ -1,0 +1,24 @@
+:root {
+  --color-bg: #f7f4ef;
+  --color-fg: #1a1a1a;
+  --color-muted: #5c5c5c;
+  --color-accent: #0b3d2e;
+  --color-accent-fg: #f7f4ef;
+  --color-border: #d9d2c5;
+  --font-sans: "Source Sans 3", "Segoe UI", sans-serif;
+  --font-display: "Fraunces", Georgia, serif;
+  --radius: 6px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--color-fg);
+  background: var(--color-bg);
+}

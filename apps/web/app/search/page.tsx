@@ -1,0 +1,192 @@
+import { Suspense } from 'react';
+import type { Metadata } from 'next';
+import type { ListingChannel, PublicSearchQuery, SearchSort } from '@repo/core/listings';
+import { nearSchema } from '@repo/core/geo/schema';
+import { AppShell } from '@repo/ui';
+import { SearchBar } from '../../components/search-bar';
+import { Spinner } from '../../components/spinner';
+import { ResultsList, ResultsSummary } from './results';
+import { cachedFilterOptions, cachedPlace } from '../../lib/cached';
+import styles from '../home.module.css';
+
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = {
+  title: 'Search — Property Platform',
+};
+
+/** Query params are user input: anything unrecognised is dropped, not trusted. */
+function num(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
+function channelOf(value: string | undefined): ListingChannel | undefined {
+  return value === 'sale' || value === 'rent' ? value : undefined;
+}
+
+function sortOf(value: string | undefined): SearchSort | undefined {
+  return value === 'price_asc' || value === 'price_desc' || value === 'newest'
+    ? value
+    : undefined;
+}
+
+/**
+ * The searched circle, if the URL asks for one.
+ *
+ * All three parts are required. A radius with no centre is meaningless, and a
+ * centre with no radius means the visitor asked for the suburb itself — so an
+ * absent radius widens nothing rather than quietly defaulting to 5 km.
+ *
+ * Parsed through the same zod schema the rest of the system uses, so a
+ * hand-edited ?lat=999 is dropped rather than handed to PostGIS.
+ */
+function nearOf(
+  lat: string | undefined,
+  lng: string | undefined,
+  radius: string | undefined,
+) {
+  if (!lat || !lng || !radius) return undefined;
+  const parsed = nearSchema.safeParse({ lat, lng, radiusKm: radius });
+  return parsed.success ? parsed.data : undefined;
+}
+
+export default async function SearchPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  const one = (k: string) => {
+    const v = params[k];
+    return Array.isArray(v) ? v[0] : v;
+  };
+
+  const suburb = one('suburb')?.trim() || undefined;
+  const state = one('state')?.trim() || undefined;
+  const postcode = one('postcode')?.trim() || undefined;
+  const radiusParam = one('radius');
+
+  let near = nearOf(one('lat'), one('lng'), radiusParam);
+
+  /**
+   * When a suburb is named, the server works out the centre itself.
+   *
+   * The coordinates in the URL come from the browser, and a browser that sends
+   * the wrong ones produces a search that is confidently wrong: a radius drawn
+   * around Melbourne while the page says "within 50 km of Pakenham", with
+   * nothing on screen to show the centre is not where it claims. It was
+   * reported exactly that way, twice, and neither of us could see it.
+   *
+   * A named suburb has one correct centre and the server can look it up — from
+   * place_cache, so it costs nothing for anywhere already searched. The URL's
+   * coordinates are only trusted when there is no suburb to check them against,
+   * which is the case where the visitor picked a street address.
+   */
+  if (radiusParam && suburb) {
+    const km = Number(radiusParam);
+    if (Number.isFinite(km) && km > 0) {
+      try {
+        const centre = await cachedPlace(
+          [suburb, state, postcode, 'Australia'].filter(Boolean).join(', '),
+        );
+        if (centre) {
+          const parsed = nearSchema.safeParse({
+            lat: centre.latitude,
+            lng: centre.longitude,
+            radiusKm: km,
+          });
+          if (parsed.success) near = parsed.data;
+        }
+      } catch {
+        // Fall back to whatever the URL carried. A geocoder outage should cost
+        // the radius, not the search.
+      }
+    }
+  }
+
+  const typed = one('q')?.trim() || undefined;
+
+  /**
+   * The keyword, once the place's own name has been discounted.
+   *
+   * A picked suburb leaves its name in the search box, and that name used to
+   * travel as `q` as well. The text filter is ANDed over everything else, so
+   *   (in Pakenham OR within 50 km) AND ("pakenham" appears somewhere)
+   * deleted every neighbouring suburb the radius had just added — a distance
+   * filter that looked broken and was not.
+   *
+   * The form no longer sends it, but links already shared carry it, so the
+   * redundancy is discounted here too. A real keyword next to a suburb —
+   * "Pakenham" plus "pool" — still filters, because only the place's own name
+   * is treated as a label rather than a term.
+   */
+  const placeWords = [suburb, state, postcode]
+    .filter(Boolean)
+    .map((v) => (v as string).trim().toLowerCase());
+  const text =
+    typed && placeWords.length && placeWords.includes(typed.toLowerCase())
+      ? undefined
+      : typed;
+
+  const query: PublicSearchQuery = {
+    text,
+    channel: channelOf(one('channel')),
+    bedrooms: num(one('beds')),
+    bathrooms: num(one('baths')),
+    carSpaces: num(one('cars')),
+    propertyType: one('type')?.trim() || undefined,
+    priceFrom: num(one('priceFrom')),
+    priceTo: num(one('priceTo')),
+    sort: sortOf(one('sort')),
+    near,
+    // Always passed. With no radius it is an exact suburb search; with one it
+    // is the suburb PLUS its surrounds — searchPublicListings unions them.
+    suburb,
+    state,
+    postcode,
+    limit: 48,
+  };
+
+  // Only what the search box itself needs, and cached — one call rather than
+  // the two round trips this used to make on every page view.
+  const { propertyTypes } = await cachedFilterOptions();
+
+  const place = [suburb, state, postcode].filter(Boolean).join(' ');
+  const shared = { query, suburb, place, near };
+
+  /**
+   * Changes whenever the search does, which is what makes the spinner appear.
+   *
+   * A Suspense boundary keeps showing its old children through an update unless
+   * its key changes — good for a filter that refines the same list, wrong here,
+   * where the visitor has asked a different question and is owed a sign that it
+   * is being answered.
+   */
+  const searchKey = JSON.stringify(params);
+
+  return (
+    <AppShell surface="web">
+      <section className={styles.hero}>
+        <h1 className={styles.title}>Search</h1>
+
+        {/* The one line that depends on the answer. It streams in beside a
+            search box that never leaves the screen. */}
+        <Suspense key={`s-${searchKey}`} fallback={<p className={styles.sub}>Searching…</p>}>
+          <ResultsSummary {...shared} />
+        </Suspense>
+
+        <Suspense fallback={null}>
+          <SearchBar propertyTypes={propertyTypes} />
+        </Suspense>
+      </section>
+
+      <section className={styles.section}>
+        <Suspense key={`r-${searchKey}`} fallback={<Spinner label="Searching…" />}>
+          <ResultsList {...shared} />
+        </Suspense>
+      </section>
+    </AppShell>
+  );
+}

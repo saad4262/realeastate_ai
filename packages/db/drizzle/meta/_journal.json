@@ -1,0 +1,62 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1789887619071,
+      "tag": "0000_tiny_rage",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789889000000,
+      "tag": "0001_rls_extensions",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789900000000,
+      "tag": "0002_agent_onboarding",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789983027753,
+      "tag": "0003_membership_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790071627023,
+      "tag": "0004_ancient_texas_twister",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790145389474,
+      "tag": "0005_property_geography",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790145396772,
+      "tag": "0006_drop_geom_wkt",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790152450885,
+      "tag": "0007_address_pin_and_cache_street",
+      "breakpoints": true
+    }
+  ]
+}

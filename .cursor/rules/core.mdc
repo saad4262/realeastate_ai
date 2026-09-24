@@ -1,0 +1,10 @@
+---
+alwaysApply: true
+---
+- Monorepo: apps/{web,console}, packages/{db,core,auth,ai,ui,config}
+- Read AGENTS.md for non-negotiables.
+- Session start: read docs/STATUS.md then docs/SESSION.md.
+- Check .cursor/skills/ before starting any task.
+- Never bypass can(). Never call LLMs outside packages/ai/.
+- agents.* and agency.* are one app (apps/console), host-routed.
+- Auth: Supabase Auth in packages/auth; membership/roles via can(). No Supabase Storage.

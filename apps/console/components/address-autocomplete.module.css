@@ -1,0 +1,128 @@
+.wrap {
+  position: relative;
+  display: grid;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.inputRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input {
+  width: 100%;
+  padding: 0.5625rem 0.75rem 0.5625rem 2.125rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-default);
+  background: var(--surface-canvas);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.input:focus {
+  outline: 2px solid color-mix(in srgb, var(--sapphire) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.glyph {
+  position: absolute;
+  left: 0.625rem;
+  font-family: 'Material Symbols Outlined', sans-serif;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.spinner {
+  position: absolute;
+  right: 0.625rem;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--sapphire) 30%, transparent);
+  border-top-color: var(--sapphire);
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+    /* Still a visible "working" marker, just not a moving one. */
+    border-top-color: color-mix(in srgb, var(--sapphire) 30%, transparent);
+    opacity: 0.6;
+  }
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.list {
+  position: absolute;
+  z-index: 40;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 0.25rem 0 0;
+  padding: 0.25rem;
+  list-style: none;
+  max-height: 16rem;
+  overflow-y: auto;
+  border-radius: 0.625rem;
+  border: 1px solid var(--border-default);
+  background: var(--surface-raised, var(--surface-canvas));
+  box-shadow: 0 12px 32px color-mix(in srgb, #000 18%, transparent);
+}
+
+.option {
+  display: grid;
+  gap: 0.125rem;
+  width: 100%;
+  padding: 0.5rem 0.625rem;
+  border: 0;
+  border-radius: 0.4375rem;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.optionOn {
+  background: color-mix(in srgb, var(--sapphire) 12%, transparent);
+}
+
+.optionMain {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.optionSub {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.failure {
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--amber, #b45309);
+}
