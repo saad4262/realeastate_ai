@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState, useTransition, type FormEvent } from 'react';
+import { useRef, useState, useTransition, type FormEvent } from 'react';
 import { DEFAULT_RADIUS_KM, type ResolvedPlace } from '@repo/core/geo/schema';
 import { LocationInput } from './location-input';
 import styles from './search-bar.module.css';
@@ -24,41 +24,77 @@ const RENT_PRICES = [400, 500, 650, 750, 1000, 1500, 2000];
  * coordinates: a link to "within 5 km of Bondi Beach" has to survive being
  * pasted into a message.
  *
- * It does NOT take the list of live suburbs any more. That list was rendered
- * into a <datalist id="suburb-options"> that no input ever referenced with a
- * `list` attribute — so every live suburb was serialised into this page's
- * payload, and into the DOM, to do nothing. LocationInput is the real
- * typeahead, and the path for a browser without JavaScript is a plain text
- * box the server still matches by suburb name.
+ * It does NOT take the list of live suburbs. That list was rendered into a
+ * <datalist id="suburb-options"> that no input ever referenced with a `list`
+ * attribute, so every live suburb was serialised into this page's payload, and
+ * into the DOM, to do nothing.
+ *
+ * ## The URL is the only copy of the search
+ *
+ * This used to mirror eleven search parameters into useState, initialised once
+ * from useSearchParams and never re-read. The component is not remounted when
+ * the URL changes, so the initialisers never ran again and the two drifted:
+ *
+ *   1. search "Pakenham, 3 beds"      — box and results agree
+ *   2. search "Bondi, 2 beds"         — box and results agree
+ *   3. press Back                     — URL and results revert to Pakenham,
+ *                                       the box still reads Bondi/2 beds
+ *
+ * and the next submit sent the stale box. The fix is not to sync the mirror,
+ * it is to not keep one: every field below is an uncontrolled input whose
+ * defaultValue is read from the URL, and the whole form is keyed on the URL,
+ * so Back and Forward re-mount it with the right values by construction. There
+ * is nothing left that can disagree.
+ *
+ * ## It is a real GET form
+ *
+ * action="/search" method="get" with named inputs produces exactly the URL
+ * search/page.tsx already parses, so the search works with no JavaScript at
+ * all. onSubmit intercepts to keep the soft navigation and the in-button
+ * spinner; the native path is what happens when that never runs.
  */
 export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) {
   const router = useRouter();
   const params = useSearchParams();
+  const formRef = useRef<HTMLFormElement>(null);
+
   /**
    * The navigation runs as a transition, which is what stops the page blanking.
    *
-   * Without it Next swaps in app/loading.tsx — the whole page, hero and search
-   * box included, replaced by the word "Loading…" and then rebuilt. It reads as
-   * a full reload because visually it is one. Inside a transition React keeps
-   * the current page on screen until the next one is ready, and `searching`
-   * carries the only thing that should change in the meantime: the fact that
-   * something is happening.
+   * Without it Next swaps in search/loading.tsx — the whole page, hero and
+   * search box included, replaced by a skeleton and then rebuilt. It reads as a
+   * full reload because visually it is one. Inside a transition React keeps the
+   * current page on screen until the next one is ready, and `searching` carries
+   * the only thing that should change meanwhile: that something is happening.
    */
   const [searching, startSearching] = useTransition();
 
-  const [text, setText] = useState(params.get('q') ?? '');
-  const [channel, setChannel] = useState(params.get('channel') ?? 'sale');
-  const [beds, setBeds] = useState(params.get('beds') ?? '');
-  const [baths, setBaths] = useState(params.get('baths') ?? '');
-  const [cars, setCars] = useState(params.get('cars') ?? '');
-  const [type, setType] = useState(params.get('type') ?? '');
-  const [priceTo, setPriceTo] = useState(params.get('priceTo') ?? '');
-  const [priceFrom, setPriceFrom] = useState(params.get('priceFrom') ?? '');
-  const [sort, setSort] = useState(params.get('sort') ?? '');
-  const [radius, setRadius] = useState(params.get('radius') ?? '');
+  const initial = (key: string) => params.get(key) ?? '';
+
+  /**
+   * The three things that genuinely cannot be uncontrolled.
+   *
+   * `channel` decides which set of price options exists at all — sale prices
+   * and weekly rents are different orders of magnitude. `place` decides whether
+   * the radius control exists and carries the hidden fields. `text` has to be
+   * controlled because LocationInput debounces on it.
+   *
+   * None of them can drift from the URL, because the form they live in is keyed
+   * on it and re-mounts when it changes.
+   */
+  const [channel, setChannel] = useState(initial('channel') || 'sale');
+  const [text, setText] = useState(initial('q'));
+  /**
+   * A display-only echo of the radius select, for the sentence beside it.
+   *
+   * The select itself stays uncontrolled — this is not a second source of
+   * truth, it is what the hint reads. It cannot drift from the URL for the
+   * same reason nothing else here can: the form is keyed on it.
+   */
+  const [radiusEcho, setRadiusEcho] = useState(initial('radius'));
   const [more, setMore] = useState(
-    // Opened by default when the visitor arrived on a link that uses them, so
-    // the filters shaping their results are never invisible.
+    // Opened when the visitor arrived on a link that uses them, so the filters
+    // shaping their results are never invisible.
     Boolean(params.get('baths') || params.get('cars') || params.get('type') || params.get('priceFrom')),
   );
 
@@ -78,14 +114,26 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
   } | null>(
     params.get('suburb') || (params.get('lat') && params.get('lng'))
       ? {
-          lat: params.get('lat') ?? '',
-          lng: params.get('lng') ?? '',
+          lat: initial('lat'),
+          lng: initial('lng'),
           suburb: params.get('suburb'),
           state: params.get('state'),
           postcode: params.get('postcode'),
         }
       : null,
   );
+
+  /** Write straight to the DOM node — these inputs have no React state. */
+  function setField(name: string, value: string) {
+    const el = formRef.current?.elements.namedItem(name);
+    if (el instanceof HTMLInputElement || el instanceof HTMLSelectElement) el.value = value;
+  }
+
+  /** The select and the sentence beside it, together. */
+  function setRadius(value: string) {
+    setField('radius', value);
+    setRadiusEcho(value);
+  }
 
   function onPlace(resolved: ResolvedPlace | null) {
     if (!resolved) {
@@ -103,9 +151,14 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
     // A street address has no suburb of its own to search, so it needs a radius
     // to mean anything. A suburb does: picking Pakenham means Pakenham until
     // the visitor asks for its surrounds too.
-    if (resolved.kind === 'address' && !radius) {
+    if (resolved.kind === 'address' && !currentRadius()) {
       setRadius(String(DEFAULT_RADIUS_KM.address));
     }
+  }
+
+  function currentRadius(): string {
+    const el = formRef.current?.elements.namedItem('radius');
+    return el instanceof HTMLSelectElement ? el.value : '';
   }
 
   /** "Pakenham, VIC 3810" — the same shape the dropdown shows. */
@@ -123,9 +176,9 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
   /**
    * Coordinates for a place the URL did not carry any.
    *
-   * Only reached for a street address now. A named suburb never needs this:
-   * search/page.tsx resolves that centre itself and overwrites whatever the
-   * URL carried, so asking for it here was a round trip whose answer the next
+   * Only reached for a street address. A named suburb never needs this:
+   * search/page.tsx resolves that centre itself and overwrites whatever the URL
+   * carried, so asking for it here was a round trip whose answer the next
    * render discarded. See the call site.
    */
   async function coordsFor(p: NonNullable<typeof place>) {
@@ -148,18 +201,26 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
     }
   }
 
-  function onSubmit(event: FormEvent) {
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    // The whole thing, not just the push: resolving a suburb's coordinates is a
-    // network call too, and leaving it outside the transition means the button
-    // sits idle through the one part of this that can actually take a moment.
+    const data = new FormData(event.currentTarget);
+    // The whole thing, not just the push: resolving an address's coordinates is
+    // a network call too, and leaving it outside the transition means the
+    // button sits idle through the one part of this that can take a moment.
     startSearching(async () => {
-      await buildAndGo();
+      await buildAndGo(data);
     });
   }
 
-  async function buildAndGo() {
+  /**
+   * The URL, built from the form rather than from a copy of it.
+   *
+   * FormData is read off the submitted form, so what travels is exactly what
+   * the visitor can see. That is the whole point of dropping the mirror.
+   */
+  async function buildAndGo(data: FormData) {
     const next = new URLSearchParams();
+    const str = (key: string) => String(data.get(key) ?? '').trim();
     const set = (key: string, value: string) => {
       if (value) next.set(key, value);
     };
@@ -176,15 +237,15 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
      * its address, so a 50 km search returned only Pakenham itself and looked
      * for all the world like a broken distance filter.
      */
-    if (!place) set('q', text.trim());
-    set('channel', channel);
-    set('beds', beds);
-    set('baths', baths);
-    set('cars', cars);
-    set('type', type);
-    set('priceFrom', priceFrom);
-    set('priceTo', priceTo);
-    set('sort', sort);
+    if (!place) set('q', str('q'));
+    set('channel', str('channel'));
+    set('beds', str('beds'));
+    set('baths', str('baths'));
+    set('cars', str('cars'));
+    set('type', str('type'));
+    set('priceFrom', str('priceFrom'));
+    set('priceTo', str('priceTo'));
+    set('sort', str('sort'));
 
     if (place) {
       // Suburb, state and postcode are the exact match. They go every time,
@@ -194,25 +255,17 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
       if (place.postcode) next.set('postcode', place.postcode);
 
       /**
-       * Coordinates already in hand travel with the link. Ones that are not
-       * are only worth fetching when nothing else can supply the centre.
+       * Coordinates already in hand travel with the link. Ones that are not are
+       * only worth fetching when nothing else can supply the centre.
        *
        * A named suburb is resolved on the server on every search — the page
        * looks the centre up in place_cache and *overwrites* whatever the URL
        * carried, because a browser sending the wrong centre produced a search
-       * that was confidently wrong and was reported twice. So fetching them
-       * here was a client → server → database round trip sitting in the
-       * critical path of the submit, for a value the next render throws away.
+       * that was confidently wrong and was reported twice.
        *
-       * A street address has no suburb for the server to resolve against, so
-       * there the URL's coordinates are the only centre there is.
-       *
-       * This is the same rule searchQueryToParams already applies in
-       * packages/core/src/listings/search-url.ts — "emit the suburb and the
-       * radius, and NOT the coordinates" — which the chat's deep links have
-       * used all along and which search-url.test.ts covers. This file was the
-       * writer that was out of step. SEARCH_PARAM_KEYS names the drift; the
-       * two builders collapse into one when this form becomes a GET form.
+       * This is the same rule searchQueryToParams applies in
+       * packages/core/src/listings/search-url.ts, which search-url.test.ts
+       * covers and the chat's deep links have used all along.
        */
       const coords =
         place.lat && place.lng
@@ -233,12 +286,10 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
        * choosing a radius on a page rebuilt from a link do nothing at all: no
        * lat/lng meant no radius either, so the dropdown said "+ within 10 km"
        * and the results did not move. A named suburb is a centre the server can
-       * find on its own, so the radius travels with it. With neither a suburb
-       * nor coordinates there is nothing to draw a circle around, and a bare
-       * ?radius= that widens nothing is still never written.
+       * find on its own, so the radius travels with it.
        */
       if (place.suburb || (coords?.lat && coords.lng)) {
-        set('radius', radius);
+        set('radius', str('radius'));
       }
     }
 
@@ -246,37 +297,63 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
   }
 
   return (
-    <form className={styles.bar} onSubmit={onSubmit} role="search">
+    <form
+      /**
+       * Re-mount whenever the URL changes.
+       *
+       * This one line is what makes the defaultValues below trustworthy. Back
+       * and Forward change the URL without unmounting this component, so
+       * without a key the inputs would keep whatever the visitor last typed
+       * while the results behind them said something else.
+       */
+      key={params.toString()}
+      ref={formRef}
+      className={styles.bar}
+      // The no-JavaScript path. Named inputs under a GET submit produce the
+      // same URL search/page.tsx parses, so the search still works.
+      action="/search"
+      method="get"
+      onSubmit={onSubmit}
+      role="search"
+    >
       <div className={styles.channels}>
         {[
           { id: 'sale', label: 'Buy' },
           { id: 'rent', label: 'Rent' },
         ].map((c) => (
-          <button
+          /* A real radio group, so the channel travels with a native submit.
+             The label carries the styling the button used to. */
+          <label
             key={c.id}
-            type="button"
             className={channel === c.id ? `${styles.channel} ${styles.channelOn}` : styles.channel}
-            aria-pressed={channel === c.id}
-            onClick={() => {
-              setChannel(c.id);
-              // Sale and rent prices are different orders of magnitude, so a
-              // bound carried across reads as "no results anywhere".
-              setPriceFrom('');
-              setPriceTo('');
-            }}
           >
+            <input
+              type="radio"
+              name="channel"
+              value={c.id}
+              checked={channel === c.id}
+              className={styles.srOnly}
+              onChange={() => {
+                setChannel(c.id);
+                // Sale and rent prices are different orders of magnitude, so a
+                // bound carried across reads as "no results anywhere". These
+                // are uncontrolled, so they are cleared on the node itself.
+                setField('priceFrom', '');
+                setField('priceTo', '');
+              }}
+            />
             {c.label}
-          </button>
+          </label>
         ))}
       </div>
 
       <div className={styles.row}>
-        <LocationInput value={text} onChange={setText} onPlace={onPlace} />
+        <LocationInput value={text} onChange={setText} onPlace={onPlace} name="q" />
 
         <select
           className={styles.select}
-          value={beds}
-          onChange={(e) => setBeds(e.target.value)}
+          name="beds"
+          defaultValue={initial('beds')}
           aria-label="Minimum bedrooms"
         >
           <option value="">Any beds</option>
@@ -289,8 +366,8 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
 
         <select
           className={styles.select}
-          value={priceTo}
-          onChange={(e) => setPriceTo(e.target.value)}
+          name="priceTo"
+          defaultValue={initial('priceTo')}
           aria-label="Maximum price"
         >
           <option value="">Any price</option>
@@ -310,6 +387,18 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
         </button>
       </div>
 
+      {/* The chosen place, for the server. Hidden rather than absent so a
+          native submit carries them too. */}
+      {place ? (
+        <>
+          <input type="hidden" name="suburb" value={place.suburb ?? ''} />
+          <input type="hidden" name="state" value={place.state ?? ''} />
+          <input type="hidden" name="postcode" value={place.postcode ?? ''} />
+          <input type="hidden" name="lat" value={place.lat} />
+          <input type="hidden" name="lng" value={place.lng} />
+        </>
+      ) : null}
+
       {/*
         The area control cannot exist before a place does — a radius with no
         centre is meaningless. But an invisible option is an option nobody finds,
@@ -322,60 +411,60 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
         </p>
       ) : null}
 
-      {place ? (
-        <div className={styles.radiusRow}>
-          <label htmlFor="radius" className={styles.radiusLabel}>
-            Area
-          </label>
-          <select
-            id="radius"
-            className={styles.select}
-            value={radius}
-            onChange={(e) => setRadius(e.target.value)}
-          >
-            {/* The default is the suburb itself. Widening is a deliberate act,
-                and the wording says what each choice actually does rather than
-                leaving "within 5 km" to imply it replaced the suburb. */}
-            <option value="">{placeLabel || 'This location'} only</option>
-            {RADII.map((km) => (
-              <option key={km} value={km}>
-                + within {km} km
-              </option>
-            ))}
-          </select>
-          <span className={styles.radiusHint}>
-            {radius
-              ? `${placeLabel} plus anything within ${radius} km of it`
-              : `Only listings in ${placeLabel || 'this location'}`}
-          </span>
-          <button
-            type="button"
-            className={styles.clearPin}
-            onClick={() => {
-              setPlace(null);
-              setRadius('');
-            }}
-          >
-            Clear location
-          </button>
-        </div>
-      ) : null}
+      <div className={styles.radiusRow} hidden={!place}>
+        <label htmlFor="radius" className={styles.radiusLabel}>
+          Area
+        </label>
+        {/* Rendered even with no place, just hidden, so the node exists for
+            onPlace to write a default radius into the moment one is picked. */}
+        <select
+          id="radius"
+          name="radius"
+          className={styles.select}
+          defaultValue={initial('radius')}
+          onChange={(e) => setRadiusEcho(e.target.value)}
+        >
+          {/* The default is the suburb itself. Widening is a deliberate act,
+              and the wording says what each choice actually does rather than
+              leaving "within 5 km" to imply it replaced the suburb. */}
+          <option value="">{placeLabel || 'This location'} only</option>
+          {RADII.map((km) => (
+            <option key={km} value={km}>
+              + within {km} km
+            </option>
+          ))}
+        </select>
+        <span className={styles.radiusHint}>
+          {radiusEcho
+            ? `${placeLabel} plus anything within ${radiusEcho} km of it`
+            : `Only listings in ${placeLabel || 'this location'}`}
+        </span>
+        <button
+          type="button"
+          className={styles.clearPin}
+          onClick={() => {
+            setPlace(null);
+            setRadius('');
+          }}
+        >
+          Clear location
+        </button>
+      </div>
 
-      <button
-        type="button"
-        className={styles.moreToggle}
-        aria-expanded={more}
-        onClick={() => setMore((v) => !v)}
+      {/* <details> rather than a button, so More filters opens without
+          JavaScript. The state only drives the label. */}
+      <details
+        className={styles.more}
+        open={more}
+        onToggle={(e) => setMore(e.currentTarget.open)}
       >
-        {more ? 'Fewer filters' : 'More filters'}
-      </button>
+        <summary className={styles.moreToggle}>{more ? 'Fewer filters' : 'More filters'}</summary>
 
-      {more ? (
         <div className={styles.moreRow}>
           <select
             className={styles.select}
-            value={priceFrom}
-            onChange={(e) => setPriceFrom(e.target.value)}
+            name="priceFrom"
+            defaultValue={initial('priceFrom')}
             aria-label="Minimum price"
           >
             <option value="">No minimum</option>
@@ -388,8 +477,8 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
 
           <select
             className={styles.select}
-            value={baths}
-            onChange={(e) => setBaths(e.target.value)}
+            name="baths"
+            defaultValue={initial('baths')}
             aria-label="Minimum bathrooms"
           >
             <option value="">Any baths</option>
@@ -402,8 +491,8 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
 
           <select
             className={styles.select}
-            value={cars}
-            onChange={(e) => setCars(e.target.value)}
+            name="cars"
+            defaultValue={initial('cars')}
             aria-label="Minimum car spaces"
           >
             <option value="">Any parking</option>
@@ -416,8 +505,8 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
 
           <select
             className={styles.select}
-            value={type}
-            onChange={(e) => setType(e.target.value)}
+            name="type"
+            defaultValue={initial('type')}
             aria-label="Property type"
           >
             <option value="">Any type</option>
@@ -432,8 +521,8 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
 
           <select
             className={styles.select}
-            value={sort}
-            onChange={(e) => setSort(e.target.value)}
+            name="sort"
+            defaultValue={initial('sort')}
             aria-label="Sort results"
           >
             <option value="">{place ? 'Nearest first' : 'Newest first'}</option>
@@ -442,8 +531,7 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
             <option value="newest">Newest first</option>
           </select>
         </div>
-      ) : null}
-
+      </details>
     </form>
   );
 }

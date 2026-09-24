@@ -166,3 +166,34 @@
 @media (prefers-reduced-motion: reduce) {
   .spin { animation: none; opacity: 0.6; }
 }
+
+/* Visually hidden but still focusable and still submitted. The Buy/Rent
+   control is a real radio group underneath — that is what makes the channel
+   travel with a native GET submit when JavaScript never runs — and this keeps
+   the input itself out of the way of the label that is styled to look like the
+   button it replaced. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Keyboard focus has to remain visible even though the input is not. */
+.channel:focus-within {
+  outline: 2px solid var(--color-accent, #0b3d2e);
+  outline-offset: 2px;
+}
+
+.more > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.more > summary::-webkit-details-marker {
+  display: none;
+}

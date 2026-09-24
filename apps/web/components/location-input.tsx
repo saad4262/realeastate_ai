@@ -14,6 +14,13 @@ type Props = {
   /** Fires with coordinates when a suggestion is picked, null when cleared. */
   onPlace: (place: ResolvedPlace | null) => void;
   placeholder?: string;
+  /**
+   * Submits under this name when the form is posted without JavaScript.
+   *
+   * The search bar is a real GET form, so this field has to carry the keyword
+   * itself rather than being read out of React state on submit.
+   */
+  name?: string;
 };
 
 /**
@@ -24,7 +31,7 @@ type Props = {
  * so the two behaviours share one field and the user is never asked which
  * kind of search they meant.
  */
-export function LocationInput({ value, onChange, onPlace, placeholder }: Props) {
+export function LocationInput({ value, onChange, onPlace, placeholder, name }: Props) {
   const id = useId();
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [open, setOpen] = useState(false);
@@ -114,6 +121,7 @@ export function LocationInput({ value, onChange, onPlace, placeholder }: Props) 
     <div className={styles.wrap} ref={boxRef}>
       <input
         id={id}
+        name={name}
         className={styles.input}
         value={value}
         placeholder={placeholder ?? 'Suburb, postcode, street or keyword'}
