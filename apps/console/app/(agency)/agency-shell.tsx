@@ -1,58 +1,42 @@
-'use client';
-
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Suspense, use, type ReactNode } from 'react';
+import { Suspense, type ReactNode } from 'react';
 import type { ConsoleChrome } from '../../lib/require-console-access';
+import { NavList } from './nav-list';
 import styles from './agency-shell.module.css';
 
-/** Stitch Agency OS sidebar order — exact labels + icons */
-const NAV = [
-  { href: '/overview', label: 'Overview', icon: 'dashboard' },
-  { href: '/live-listings', label: 'Listings', icon: 'real_estate_agent' },
-  { href: '/leads', label: 'Leads', icon: 'filter_alt' },
-  { href: '/team', label: 'Agents & Team', icon: 'groups' },
-  { href: '/customers', label: 'Customers', icon: 'contacts' },
-  { href: '/calendar', label: 'Calendar', icon: 'calendar_today' },
-  { href: '/marketing', label: 'Marketing & Reviews', icon: 'campaign' },
-  { href: '/insights', label: 'Insights', icon: 'analytics' },
-  { href: '/ai', label: 'LocalAgent AI', icon: 'smart_toy', badge: '2030', badgeTone: 'blue' as const },
-  { href: '/finance', label: 'Finance & Trust', icon: 'account_balance' },
-  { href: '/settings', label: 'Settings', icon: 'settings' },
-];
-
+/**
+ * Agency OS chrome — a Server Component.
+ *
+ * This whole file used to be a client component, and all 292 lines of it went
+ * to the browser so that one string comparison could pick a CSS class. Only
+ * that comparison needs usePathname, and it now lives in NavList; the sidebar,
+ * the brand block, the search boxes, the profile footer and the entire topbar
+ * are markup and render on the server.
+ *
+ * The three readers below were client-only for a subtler reason that turned out
+ * not to be a reason at all. They called `use(chrome)` to unwrap the promise the
+ * layout deliberately does not await — but `use` is not what makes that work.
+ * A Server Component can simply `await` the same promise inside its own
+ * Suspense boundary and stream exactly the same way, for no JavaScript. The
+ * shell still paints before the database answers; that was always Suspense
+ * doing the work, not the hook.
+ */
 type AgencyShellProps = {
   children: ReactNode;
-  preview?: boolean;
   /** From middleware's headers — costs nothing, so the shell paints at once. */
   userLabel: string;
   /**
    * Agency name, role and counts, still in flight.
    *
-   * Awaiting these in the layout held the whole console — sidebar, nav and
-   * the page's own skeleton — behind one round trip to the database region.
-   * They arrive as a promise instead, and the three places that read them sit
-   * behind their own Suspense boundaries.
+   * Awaiting these in the layout held the whole console — sidebar, nav and the
+   * page's own skeleton — behind one round trip to the database region. They
+   * arrive as a promise instead, and the three places that read them sit behind
+   * their own Suspense boundaries.
    */
   chrome: Promise<ConsoleChrome>;
 };
 
-function isNavActive(pathname: string, href: string) {
-  if (pathname === href) return true;
-  if (href === '/team') {
-    return pathname === '/team' || pathname.startsWith('/team/');
-  }
-  return pathname.startsWith(`${href}/`);
-}
-
-export function AgencyShell({
-  children,
-  preview = false,
-  userLabel,
-  chrome,
-}: AgencyShellProps) {
-  const pathname = usePathname();
-
+export function AgencyShell({ children, userLabel, chrome }: AgencyShellProps) {
   const initials = userLabel
     .split(/\s+/)
     .map((p) => p[0])
@@ -85,51 +69,7 @@ export function AgencyShell({
             <kbd className={styles.cmdK}>⌘K</kbd>
           </div>
 
-          {/*
-            No explicit `prefetch`, and no router.prefetch loop either.
-
-            Both used to be here at once: a useEffect calling router.prefetch()
-            for all twelve destinations on mount, AND `prefetch` on every Link.
-            Both ask for a FULL prefetch — the complete render of a page that is
-            dynamic and costs a query — so opening the console fired twelve of
-            them before the agent had clicked anything.
-
-            The default is the right one here because this route group has a
-            loading.tsx: Next prefetches only as far as that boundary, so a
-            click paints the skeleton immediately and the page arrives behind
-            it. Link also skips prefetching entirely on a slow connection or
-            with Save-Data set, which router.prefetch() does not.
-          */}
-          <nav className={styles.nav} aria-label="Agency">
-            {NAV.map((item) => {
-              const active = isNavActive(pathname, item.href);
-              const className = active
-                ? `${styles.navLink} ${styles.navLinkActive}`
-                : styles.navLink;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={className}
-                  aria-current={active ? 'page' : undefined}
-                >
-                  <span className={`${styles.glyph} ${active ? styles.glyphFill : ''}`} aria-hidden>
-                    {item.icon}
-                  </span>
-                  <span>{item.label}</span>
-                  {item.badge ? (
-                    <span
-                      className={`${styles.navBadge} ${
-                        item.badgeTone === 'blue' ? styles.navBadgeBlue : ''
-                      }`}
-                    >
-                      {item.badge}
-                    </span>
-                  ) : null}
-                </Link>
-              );
-            })}
-          </nav>
+          <NavList />
         </div>
 
         <div className={styles.sidebarFoot}>
@@ -210,14 +150,7 @@ export function AgencyShell({
           </div>
         </header>
 
-        <div className={styles.content}>
-          {preview ? (
-            <div className={styles.previewBanner}>
-              UI preview mode — mock agency data. Auth + live SQL wire up after Stitch screens land.
-            </div>
-          ) : null}
-          {children}
-        </div>
+        <div className={styles.content}>{children}</div>
       </div>
     </div>
   );
@@ -226,12 +159,12 @@ export function AgencyShell({
 /**
  * The three places the chrome's data surfaces.
  *
- * All of them read the same promise, which React resolves once, so the sidebar
+ * All of them await the same promise, which React resolves once, so the sidebar
  * brand, the profile role and the header counts fill in together — and the
  * shell around them never waits on any of it.
  */
-function Brand({ chrome }: { chrome: Promise<ConsoleChrome> }) {
-  const { agencyName } = use(chrome);
+async function Brand({ chrome }: { chrome: Promise<ConsoleChrome> }) {
+  const { agencyName } = await chrome;
   // Initials stand in for a logo until agency branding is uploadable.
   const initials =
     (agencyName ?? '')
@@ -264,13 +197,13 @@ function BrandFallback() {
   );
 }
 
-function ProfileRole({ chrome }: { chrome: Promise<ConsoleChrome> }) {
-  const { userRole } = use(chrome);
+async function ProfileRole({ chrome }: { chrome: Promise<ConsoleChrome> }) {
+  const { userRole } = await chrome;
   return <div className={styles.profileRole}>{userRole}</div>;
 }
 
-function Ticker({ chrome }: { chrome: Promise<ConsoleChrome> }) {
-  const { summary } = use(chrome);
+async function Ticker({ chrome }: { chrome: Promise<ConsoleChrome> }) {
+  const { summary } = await chrome;
 
   return (
     <>

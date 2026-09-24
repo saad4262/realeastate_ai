@@ -1,21 +1,11 @@
-'use client';
-
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Suspense, use } from 'react';
+import { Suspense } from 'react';
 import type { ConsoleChrome } from '../../lib/require-console-access';
+import { AgentNav } from './agent-nav';
 import styles from './agent-shell.module.css';
-
-const NAV = [
-  { href: '/listings', label: 'My Listings', icon: 'home_work' },
-  { href: '#', label: 'Leads', icon: 'person_search' },
-  { href: '#', label: 'Inspections', icon: 'event' },
-  { href: '#', label: 'Offers', icon: 'handshake' },
-];
 
 type AgentShellProps = {
   children: React.ReactNode;
-  preview?: boolean;
   /** From middleware's headers — costs nothing, so the shell paints at once. */
   userLabel: string;
   /**
@@ -25,15 +15,11 @@ type AgentShellProps = {
   chrome: Promise<ConsoleChrome>;
 };
 
-/** Agent console chrome — intentionally different from Agency OS shell. */
-export function AgentShell({
-  children,
-  preview = false,
-  userLabel,
-  chrome,
-}: AgentShellProps) {
-  const pathname = usePathname();
-
+/**
+ * Agent console chrome — intentionally different from Agency OS shell, and a
+ * Server Component for the same reason it is: only the nav needs a pathname.
+ */
+export function AgentShell({ children, userLabel, chrome }: AgentShellProps) {
   return (
     <div className={styles.shell}>
       <aside className={styles.sidebar}>
@@ -46,26 +32,7 @@ export function AgentShell({
             </Suspense>
           </div>
         </div>
-        {/* See agency-shell.tsx: the default prefetch stops at this route
-            group's loading.tsx, which is what a dynamic page wants. A Link
-            with a bare `href="#"` is never prefetched either way. */}
-        <nav className={styles.nav} aria-label="Agent">
-          {NAV.map((item) => {
-            const active = item.href !== '#' && pathname.startsWith(item.href);
-            return (
-              <Link
-                key={item.label}
-                href={item.href}
-                className={active ? `${styles.navLink} ${styles.navLinkActive}` : styles.navLink}
-              >
-                <span className={styles.glyph} aria-hidden>
-                  {item.icon}
-                </span>
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
+        <AgentNav />
         <div className={styles.foot}>
           <span className={styles.user}>{userLabel}</span>
           <Link href="/sign-out" className={styles.signOut}>
@@ -73,21 +40,17 @@ export function AgentShell({
           </Link>
         </div>
       </aside>
-      <div className={styles.main}>
-        {preview ? (
-          <div className={styles.preview}>UI preview — agent surface (Stitch later).</div>
-        ) : null}
-        {children}
-      </div>
+      <div className={styles.main}>{children}</div>
     </div>
   );
 }
 
 /**
  * The agency name, once the database answers. Behind Suspense so the desk's
- * sidebar and nav are on screen before this round trip finishes.
+ * sidebar and nav are on screen before this round trip finishes — which is
+ * Suspense's doing, not a hook's, so this can await on the server.
  */
-function BrandSub({ chrome }: { chrome: Promise<ConsoleChrome> }) {
-  const { agencyName } = use(chrome);
+async function BrandSub({ chrome }: { chrome: Promise<ConsoleChrome> }) {
+  const { agencyName } = await chrome;
   return <div className={styles.brandSub}>{agencyName ?? 'Agent desk'}</div>;
 }
