@@ -1,9 +1,22 @@
-'use client';
-
 import Link from 'next/link';
-import { useMemo, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type { AgencyAgentRow } from '@repo/core/team';
 import styles from './team.module.css';
+
+/**
+ * The agency's roster — a Server Component.
+ *
+ * This was 535 lines of client component holding exactly two pieces of state:
+ * which tab is showing, and which agent's dossier is open. Everything else —
+ * the row mapper, the avatars, the table, the dossier — was markup that went
+ * to the browser so those two could exist.
+ *
+ * Both are navigational. "Show me the pending invites" and "show me Sophie's
+ * dossier" are things you would want to link someone to, come back to with the
+ * Back button, and reload onto. So they live in the URL, the filtering happens
+ * in SQL's neighbourhood rather than in an array on the client, and the whole
+ * screen renders on the server — the same shape /search has used all along.
+ */
 
 const TABS = [
   { id: 'all', label: 'All Agents' },
@@ -269,22 +282,33 @@ function Dossier({ row }: { row: AgencyAgentRow }) {
   );
 }
 
+export type TeamTab = (typeof TABS)[number]['id'];
+
+/** Anything unrecognised in the URL is 'all', never a crash. */
+export function teamTabOf(value: string | undefined): TeamTab {
+  return value === 'active' || value === 'invited' ? value : 'all';
+}
+
 export function TeamDirectory({
   agents: rows,
   loadError,
   invites,
+  tab,
+  selectedId,
 }: {
   agents: AgencyAgentRow[];
   loadError?: string | null;
   /** Pending-invite panel, rendered by the server page. */
   invites?: ReactNode;
+  /** From ?tab= — which slice of the roster to show. */
+  tab: TeamTab;
+  /** From ?agent= — whose dossier is open. Empty means "the first one". */
+  selectedId: string;
 }) {
-  const everyone = useMemo(() => rows.map(mapRow), [rows]);
+  const everyone = rows.map(mapRow);
   // Owner/admin run the agency — they are not part of the sales roster.
-  const admins = useMemo(() => everyone.filter((a) => a.isAgencyAdmin), [everyone]);
-  const agents = useMemo(() => everyone.filter((a) => !a.isAgencyAdmin), [everyone]);
-  const [tab, setTab] = useState<(typeof TABS)[number]['id']>('all');
-  const [selectedId, setSelectedId] = useState(agents[0]?.id ?? '');
+  const admins = everyone.filter((a) => a.isAgencyAdmin);
+  const agents = everyone.filter((a) => !a.isAgencyAdmin);
 
   const filtered = agents.filter((a) => {
     if (tab === 'active') return a.status === 'active';
@@ -298,6 +322,17 @@ export function TeamDirectory({
     agents[0] ??
     admins[0] ??
     null;
+
+  /** Keeps the open dossier when only the tab changes, and vice versa. */
+  const href = (next: { tab?: TeamTab; agent?: string }) => {
+    const p = new URLSearchParams();
+    const t = next.tab ?? tab;
+    const a = next.agent ?? selectedId;
+    if (t !== 'all') p.set('tab', t);
+    if (a) p.set('agent', a);
+    const qs = p.toString();
+    return qs ? `/team?${qs}` : '/team';
+  };
 
   const tabs = TABS.map((t) => ({
     ...t,
@@ -389,16 +424,19 @@ export function TeamDirectory({
         ) : null}
 
         <div className={styles.tabs}>
+          {/* Links, not buttons: the tab is in the URL, so it is shareable,
+              reloadable and part of the Back history. No JavaScript needed. */}
           {tabs.map((t) => (
-            <button
+            <Link
               key={t.id}
-              type="button"
+              href={href({ tab: t.id })}
+              scroll={false}
+              aria-current={tab === t.id ? 'page' : undefined}
               className={`${styles.tab} ${tab === t.id ? styles.tabActive : ''}`}
-              onClick={() => setTab(t.id)}
             >
               <span>{t.label}</span>
               <span className={styles.tabCount}>{t.count}</span>
-            </button>
+            </Link>
           ))}
         </div>
 
@@ -461,7 +499,6 @@ export function TeamDirectory({
                     <tr
                       key={a.id}
                       className={`${styles.row} ${selected?.id === a.id ? styles.rowSelected : ''}`}
-                      onClick={() => setSelectedId(a.id)}
                     >
                       <td>
                         <div className={styles.person}>
@@ -469,7 +506,16 @@ export function TeamDirectory({
                             <Avatar src={a.avatar} name={a.name} size={40} className={styles.avatar} />
                           </div>
                           <div>
-                            <div className={styles.name}>{a.name}</div>
+                            {/* The link is on the name but covers the row via
+                                ::after, so the whole row stays clickable and a
+                                keyboard reaches it without a tabindex hack. */}
+                            <Link
+                              href={href({ agent: a.id })}
+                              scroll={false}
+                              className={`${styles.name} ${styles.rowLink}`}
+                            >
+                              {a.name}
+                            </Link>
                             <div className={styles.role}>{a.role}</div>
                           </div>
                         </div>

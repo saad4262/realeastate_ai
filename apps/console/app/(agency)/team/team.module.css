@@ -835,3 +835,33 @@
   line-height: 1;
   display: inline-flex;
 }
+
+/* The roster row is a link now, not an onClick handler.
+   The anchor sits on the agent's name and stretches over the whole row, which
+   keeps one accessible name for the link, reaches the keyboard without a
+   tabindex, and needs no JavaScript at all. */
+.row {
+  position: relative;
+}
+
+.rowLink {
+  text-decoration: none;
+  color: inherit;
+}
+
+.rowLink::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.rowLink:focus-visible::after {
+  outline: 2px solid var(--sapphire);
+  outline-offset: -2px;
+}
+
+/* The tabs are links now; they were buttons. */
+a.tab {
+  text-decoration: none;
+  cursor: pointer;
+}

@@ -182,6 +182,9 @@ Suburb and pin are two different things. These cases are about the pin.
 | G3 | Publish a listing, then navigate away and back | Your own change is visible at once — mutations clear the cache |
 | G4 | Sign in as a user with no agency | Sent to `/get-started` |
 | G5 | Sign in as a plain agent and open the **agency** host | Bounced to the agent desk |
+| G5a | On **Agents & Team**, click the "Pending invite" tab, then click an agent row | The URL becomes `/team?tab=invited&agent=<id>`. Both are navigations now, not client state — the skeleton appears between them |
+| G5b | Copy that URL into a new tab | The same tab and the same dossier open. Press **Back** and it returns to the previous tab/agent, and again to the roster |
+| G5c | Switch tabs with JavaScript disabled | Still works. The tabs are links and the rows are links; the directory holds no state and renders entirely on the server |
 | G6 | DevTools → Network, filter `_rsc`, then load any console page | A handful of prefetches as links enter the viewport — **not** twelve full page renders the moment the shell mounts. Both mechanisms used to run at once |
 | G7 | Click a sidebar item | The skeleton appears at once, then the page. Prefetch now stops at `loading.tsx`, which is what makes the skeleton instant |
 | G8 | Throw inside a console page body, then load it | The **sidebar and header stay**; only the content area shows "This page didn't load". A full-page error would lose your place |
