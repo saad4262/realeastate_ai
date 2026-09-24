@@ -10,6 +10,9 @@ export {
   listingStatusSchema,
   isListingError,
   propertyDraftSchema,
+  PROPERTY_TYPES,
+  propertyTypeLabel,
+  propertyTypeSchema,
   toListingError,
   updateListingInputSchema,
   type CreateListingInput,
@@ -20,6 +23,7 @@ export {
   type ListingForEdit,
   type ListingStatus,
   type PropertyDraft,
+  type PropertyType,
   type UpdateListingInput,
 } from './listing-schema';
 export { createListing, type CreateListingResult } from './create-listing';

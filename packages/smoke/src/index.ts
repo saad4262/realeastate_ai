@@ -4,7 +4,9 @@ import { and, eq, sql } from 'drizzle-orm';
 import { getDb, listing, membership, property, type Db } from '@repo/db';
 import {
   getPublicListing,
+  listingDraftSchema,
   liveSuburbs,
+  propertyDraftSchema,
   searchPublicListings,
   searchPublicListingsPage,
   type PublicListingSummary,
@@ -236,6 +238,79 @@ async function main() {
     );
     assert((rows[0]?.n ?? 0) === 0, `${rows[0]?.n} listing(s) have no agent — a partial write`);
     return 'every listing has one';
+  });
+
+  await check('every live listing still satisfies the listing contract', async () => {
+    /**
+     * The schema the console form enforces, asked of what is actually in the
+     * database — not a second copy of the rules that can drift from it.
+     *
+     * A row only has to pass on the way in. Rules get tightened afterwards,
+     * and rows written before a rule existed stay exactly as they were: this
+     * database held three live listings with headlines "dfs", "dfsdsf" and
+     * "jdsfjdfjl", display prices of bare digits, and one property claiming 23
+     * bedrooms and 32 bathrooms. Nothing was broken, so nothing complained.
+     * This is what complains.
+     *
+     * Live only, deliberately. A draft is work in progress and may legitimately
+     * be half-filled; live means a buyer can see it.
+     */
+    const rows = await db.execute<{
+      id: string;
+      channel: string;
+      headline: string | null;
+      price_display: string | null;
+      price_from: string | null;
+      price_to: string | null;
+      rent_pw: string | null;
+      bedrooms: number | null;
+      bathrooms: string | null;
+      car_spaces: number | null;
+      suburb: string;
+      state: string;
+      postcode: string;
+    }>(
+      sql`select l.id, l.channel, l.headline, l.price_display, l.price_from, l.price_to,
+                 l.rent_pw, p.bedrooms, p.bathrooms, p.car_spaces, p.suburb, p.state, p.postcode
+          from listing l join property p on p.id = l.property_id
+          where l.status = 'live'`,
+    );
+
+    const n = (v: string | null) => (v === null ? undefined : Number(v));
+    const bad: string[] = [];
+
+    for (const r of rows) {
+      const listingResult = listingDraftSchema.safeParse({
+        channel: r.channel,
+        headline: r.headline ?? '',
+        priceDisplay: r.price_display ?? undefined,
+        priceFrom: n(r.price_from),
+        priceTo: n(r.price_to),
+        rentPw: n(r.rent_pw),
+      });
+      const propertyResult = propertyDraftSchema.safeParse({
+        suburb: r.suburb,
+        state: r.state,
+        postcode: r.postcode,
+        bedrooms: r.bedrooms ?? undefined,
+        bathrooms: n(r.bathrooms),
+        carSpaces: r.car_spaces ?? undefined,
+      });
+
+      const issues = [
+        ...(listingResult.success ? [] : listingResult.error.issues),
+        ...(propertyResult.success ? [] : propertyResult.error.issues),
+      ];
+      if (issues.length) {
+        bad.push(`${r.id.slice(0, 8)} (${r.suburb}): ${issues.map((i) => i.message).join('; ')}`);
+      }
+    }
+
+    assert(
+      bad.length === 0,
+      `${bad.length} of ${rows.length} live listing(s) would be refused today:\n    ${bad.join('\n    ')}`,
+    );
+    return `${rows.length} live listing(s), all valid`;
   });
 
   await check('no property is orphaned by a failed write', async () => {

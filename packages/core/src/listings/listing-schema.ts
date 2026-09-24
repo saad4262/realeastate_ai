@@ -18,7 +18,76 @@ export type ListingStatus = z.infer<typeof listingStatusSchema>;
 export const AU_STATES = ['NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT'] as const;
 export const auStateSchema = z.enum(AU_STATES);
 
+/**
+ * What kind of dwelling this is. One list, and this is it.
+ *
+ * It was free text, and free text is the wrong shape for it: the public
+ * search FILTERS on this column, and the filter dropdown is built by selecting
+ * distinct values out of the live listings. So every typo became a permanent
+ * new "type" that a buyer could pick and that matched exactly one listing.
+ * The dropdown on the live site was offering "2jkads", "sfd" and "House" —
+ * two of those are keyboard noise and the third is the same thing as "house"
+ * with different capitalisation, which the filter treated as a separate kind
+ * of building.
+ *
+ * A filterable dimension has to come from a fixed vocabulary or the filter
+ * cannot work. Same reasoning as AU_STATES above, and the same rule as #8: one
+ * list, in one place, that everything else derives from.
+ *
+ * Stored lower case so the column has one spelling; `propertyTypeLabel` is
+ * what puts a capital on it for display.
+ */
+export const PROPERTY_TYPES = [
+  'house',
+  'apartment',
+  'unit',
+  'townhouse',
+  'villa',
+  'duplex',
+  'studio',
+  'acreage',
+  'land',
+  'rural',
+  'other',
+] as const;
+
+export type PropertyType = (typeof PROPERTY_TYPES)[number];
+
+/** Accepts "House" and "  house " alike; stores `house`. */
+export const propertyTypeSchema = z
+  .string()
+  .trim()
+  .transform((v) => v.toLowerCase())
+  .pipe(
+    z.enum(PROPERTY_TYPES, {
+      errorMap: () => ({ message: `Choose a property type from the list` }),
+    }),
+  );
+
+/** Display form. The column holds `townhouse`; a buyer should read "Townhouse". */
+export function propertyTypeLabel(type: string): string {
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
 const trimmed = (max: number) => z.string().trim().max(max);
+
+/**
+ * How many of a thing a dwelling can plausibly have.
+ *
+ * Was 50, which is not a validation so much as a very large number. A live
+ * listing in this database claimed 23 bedrooms, 32 bathrooms and 32 car
+ * spaces, and every layer accepted it: the form, the schema, the database and
+ * the public search. 20 is still generous — it clears any share house or
+ * boarding house — while refusing what is obviously a keyboard rather than a
+ * building. Raise it when a real property needs it, not in case one might.
+ */
+const MAX_ROOMS = 20;
+const roomCount = (label: string) =>
+  z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(MAX_ROOMS, `${label} looks wrong — more than ${MAX_ROOMS} needs checking`);
 
 /**
  * The physical place. Permanent, and shared by every listing ever written
@@ -35,10 +104,14 @@ export const propertyDraftSchema = z.object({
     .string()
     .trim()
     .regex(/^\d{4}$/, 'Postcode must be 4 digits'),
-  propertyType: trimmed(64).optional(),
-  bedrooms: z.coerce.number().int().min(0).max(50).optional(),
-  bathrooms: z.coerce.number().min(0).max(50).optional(),
-  carSpaces: z.coerce.number().int().min(0).max(50).optional(),
+  propertyType: propertyTypeSchema.optional(),
+  bedrooms: roomCount('Bedrooms').optional(),
+  bathrooms: z.coerce
+    .number()
+    .min(0)
+    .max(MAX_ROOMS, `Bathrooms looks wrong — more than ${MAX_ROOMS} needs checking`)
+    .optional(),
+  carSpaces: roomCount('Car spaces').optional(),
   landAreaSqm: z.coerce.number().min(0).max(10_000_000).optional(),
   buildingAreaSqm: z.coerce.number().min(0).max(1_000_000).optional(),
   yearBuilt: z.coerce
@@ -86,6 +159,48 @@ export const propertyDraftSchema = z.object({
 export type PropertyDraft = z.infer<typeof propertyDraftSchema>;
 
 /**
+ * A headline has to be a line, not a keystroke.
+ *
+ * `min(1)` let "dfs", "dfsdsf" and "jdsfjdfjl" through onto the live public
+ * site, where a headline is the largest text on the card and the first thing
+ * a buyer reads. Two rules, both about shape rather than taste: long enough
+ * to be a phrase, and made of more than one word. Neither judges the writing
+ * — they refuse the things that are plainly not writing at all.
+ */
+const MIN_HEADLINE = 10;
+const headlineSchema = trimmed(200)
+  .min(MIN_HEADLINE, `Headline needs at least ${MIN_HEADLINE} characters`)
+  .refine((v) => /\S\s+\S/.test(v), {
+    message: 'Headline should be a phrase, not a single word',
+  });
+
+/**
+ * Price copy, not a number.
+ *
+ * priceDisplay and priceFrom/priceTo are two different things and #6 keeps
+ * them that way: the string is what a buyer reads, the numbers are what
+ * search filters on, and the string is never parsed back into a number. That
+ * only holds while the string is actually copy. Three live listings here had
+ * priceDisplay "23443342", "332432322" and "9320334343324" — bare digits,
+ * shown to the public verbatim, agreeing with nothing. One of them displayed
+ * a figure of twenty-three million while its searchable range said $34,443,
+ * so a buyer filtering under $50,000 was shown a listing that reads as $23M.
+ *
+ * So: a display price must contain a letter or a dollar sign. "$720,000",
+ * "Offers over $700,000", "Contact agent" and "Auction 12 April" all pass; a
+ * naked run of digits does not, and the message says where the number goes.
+ *
+ * This is a shape check. It does not parse the string and it does not compare
+ * it to priceFrom/priceTo — doing that reliably across "$1.45m", "1,450,000"
+ * and "high $1m's" is its own project, and getting it wrong would refuse to
+ * save a legitimate listing. See ARCHITECTURE.md, "Known gaps".
+ */
+const priceDisplaySchema = trimmed(120).refine((v) => v === '' || /[A-Za-z$]/.test(v), {
+  message:
+    'Write the price as a buyer should read it — "$720,000", "Offers over $700,000" or "Contact agent". The searchable figures go in the price range fields below.',
+});
+
+/**
  * The ad over that property.
  *
  * priceDisplay and priceFrom/priceTo are both carried, and both are stored —
@@ -96,9 +211,9 @@ export type PropertyDraft = z.infer<typeof propertyDraftSchema>;
 export const listingDraftSchema = z
   .object({
     channel: listingChannelSchema,
-    headline: trimmed(200).min(1, 'Headline is required'),
+    headline: headlineSchema,
     description: trimmed(20_000).optional(),
-    priceDisplay: trimmed(120).optional(),
+    priceDisplay: priceDisplaySchema.optional(),
     priceFrom: z.coerce.number().min(0).max(1_000_000_000).optional(),
     priceTo: z.coerce.number().min(0).max(1_000_000_000).optional(),
     rentPw: z.coerce.number().min(0).max(1_000_000).optional(),
@@ -112,7 +227,27 @@ export const listingDraftSchema = z
   .refine((v) => v.channel !== 'rent' || v.rentPw !== undefined, {
     message: 'Weekly rent is required for a rental listing',
     path: ['rentPw'],
-  });
+  })
+  /**
+   * A sale listing has to say something about price.
+   *
+   * All three were optional, so "for sale, no price of any kind" saved
+   * cleanly — and then showed as "Contact agent" on the public card whether
+   * that was the intent or whether the agent simply never filled it in. Any
+   * one of the three satisfies this: "Contact agent" typed on purpose is a
+   * price statement, an empty form is not.
+   */
+  .refine(
+    (v) =>
+      v.channel !== 'sale' ||
+      Boolean(v.priceDisplay) ||
+      v.priceFrom !== undefined ||
+      v.priceTo !== undefined,
+    {
+      message: 'A sale listing needs a price — a display price, a range, or both',
+      path: ['priceDisplay'],
+    },
+  );
 
 export type ListingDraft = z.infer<typeof listingDraftSchema>;
 

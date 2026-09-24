@@ -193,7 +193,7 @@ describe('listing contract', () => {
   it('keeps the display string and the numbers side by side', () => {
     const parsed = listingDraftSchema.parse({
       channel: 'sale',
-      headline: 'Test',
+      headline: 'Renovated family home',
       priceDisplay: 'Offers over $1.2M',
       priceFrom: 1_200_000,
     });
@@ -204,14 +204,14 @@ describe('listing contract', () => {
 
   it('refuses an upper price below the lower one', () => {
     const r = listingDraftSchema.safeParse({
-      channel: 'sale', headline: 'Test', priceFrom: 900_000, priceTo: 800_000,
+      channel: 'sale', headline: 'Renovated family home', priceFrom: 900_000, priceTo: 800_000,
     });
     expect(r.success).toBe(false);
     expect(toListingError(r.success ? null : r.error).field).toBe('priceTo');
   });
 
   it('requires a weekly rent on a rental', () => {
-    const r = listingDraftSchema.safeParse({ channel: 'rent', headline: 'Test' });
+    const r = listingDraftSchema.safeParse({ channel: 'rent', headline: 'Renovated family home' });
     expect(r.success).toBe(false);
     expect(toListingError(r.success ? null : r.error).field).toBe('rentPw');
   });

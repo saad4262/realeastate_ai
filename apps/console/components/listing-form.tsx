@@ -7,6 +7,8 @@ import { useState, useTransition, type FormEvent } from 'react';
 import {
   AU_STATES,
   createListingInputSchema,
+  PROPERTY_TYPES,
+  propertyTypeLabel,
   listingFieldErrors,
   updateListingInputSchema,
   type ListingChannel,
@@ -498,13 +500,27 @@ export function ListingForm({
           </div>
           <div className={styles.field}>
             <label htmlFor="propertyType">Type</label>
-            <input
+            {/*
+              A list, not a text box. This was free text, and the public search
+              filters on this column and builds its dropdown from the distinct
+              values in it — so "sfd" typed once became a property type a buyer
+              could filter by forever, and "House" and "house" were two
+              different kinds of building. PROPERTY_TYPES is the one list.
+            */}
+            <select
               id="propertyType"
               name="propertyType"
               className={invalid('propertyType')}
-              placeholder="House"
-              defaultValue={initial?.property.propertyType ?? ''}
-            />
+              defaultValue={initial?.property.propertyType?.toLowerCase() ?? ''}
+            >
+              <option value="">Not specified</option>
+              {PROPERTY_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {propertyTypeLabel(t)}
+                </option>
+              ))}
+            </select>
+            <Err name="propertyType" />
           </div>
           <div className={styles.field}>
             <label htmlFor="bedrooms">Bedrooms</label>

@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useRef, useState, useTransition, type FormEvent } from 'react';
 import { DEFAULT_RADIUS_KM, type ResolvedPlace } from '@repo/core/geo/schema';
+import { propertyTypeLabel } from '@repo/core/listings/schema';
 import { LocationInput } from './location-input';
 import styles from './search-bar.module.css';
 
@@ -514,7 +515,7 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
                 produce an empty page by itself. */}
             {propertyTypes.map((t) => (
               <option key={t} value={t}>
-                {t}
+                {propertyTypeLabel(t)}
               </option>
             ))}
           </select>
