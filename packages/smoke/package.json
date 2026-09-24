@@ -6,7 +6,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "echo \"no lint yet\"",
-    "smoke": "tsx src/index.ts"
+    "smoke": "tsx src/index.ts",
+    "smoke:ai": "SMOKE_LIVE_AI=1 tsx src/index.ts"
   },
   "dependencies": {
     "@repo/ai": "workspace:*",

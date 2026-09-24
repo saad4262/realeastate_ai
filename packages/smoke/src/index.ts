@@ -136,6 +136,19 @@ async function servedCss(path: string): Promise<{ html: string; css: string }> {
   return { html, css: sheets.join('\n') };
 }
 
+/**
+ * Why the live AI group is being skipped — the flag, or the key.
+ *
+ * Two different situations that must not read the same: "you chose not to
+ * spend money" is the normal state, and "you asked to and cannot" is a
+ * misconfiguration.
+ */
+function aiSkipReason(liveAi: boolean): string {
+  return liveAi
+    ? 'SMOKE_LIVE_AI=1 but no ANTHROPIC_API_KEY'
+    : 'live AI is opt-in — run `pnpm smoke:ai` to include it (costs ~US$0.02)';
+}
+
 const suburbsOf = (rows: PublicListingSummary[]) => [...new Set(rows.map((r) => r.suburb))];
 
 async function main() {
@@ -1132,7 +1145,21 @@ async function main() {
   // ------------------------------------------------------------ chat (AI) --
   group('AI property chat');
 
-  const haveAnthropic = Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+  /**
+   * Live AI checks are OPT-IN, and a key being present is not the opt-in.
+   *
+   * This used to read `Boolean(process.env.ANTHROPIC_API_KEY)` — so anyone
+   * with a working .env.local spent real money every time they ran the suite.
+   * Each run costs roughly US$0.02, `pnpm smoke` is the command you are told to
+   * run after every change, and over one session that drained the account's
+   * balance to zero. Six checks then went red for a billing reason rather than
+   * a code one, which is the worst kind of red: it teaches you to ignore the
+   * output.
+   *
+   * `pnpm smoke` is offline and free. `pnpm smoke:ai` is the one that spends.
+   */
+  const liveAi = process.env.SMOKE_LIVE_AI === '1';
+  const haveAnthropic = liveAi && Boolean(process.env.ANTHROPIC_API_KEY?.trim());
   note(
     'cost',
     'this group calls a metered model — roughly US$0.02 per run',
@@ -1140,7 +1167,7 @@ async function main() {
 
   await check('a specific brief searches the right suburb', async () => {
     if (!webUp) skip('web app is not running');
-    if (!haveAnthropic) skip('no ANTHROPIC_API_KEY');
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
 
     // Taken from the live data so the check works against any database.
     const suburbs = await liveSuburbs(db);
@@ -1164,7 +1191,7 @@ async function main() {
 
   await check('a distance in the message becomes a radius, unasked', async () => {
     if (!webUp) skip('web app is not running');
-    if (!haveAnthropic) skip('no ANTHROPIC_API_KEY');
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
 
     const suburbs = await liveSuburbs(db);
     const suburb = suburbs[0];
@@ -1188,7 +1215,7 @@ async function main() {
 
   await check('every price it says came from the database', async () => {
     if (!webUp) skip('web app is not running');
-    if (!haveAnthropic) skip('no ANTHROPIC_API_KEY');
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
 
     // Non-negotiable #4, end to end. This is the only check in the suite that
     // can catch a hallucinated price, which is the worst thing this feature
@@ -1231,7 +1258,7 @@ async function main() {
 
   await check('its link agrees with the search page', async () => {
     if (!webUp) skip('web app is not running');
-    if (!haveAnthropic) skip('no ANTHROPIC_API_KEY');
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
 
     const suburbs = await liveSuburbs(db);
     const suburb = suburbs[0];
@@ -1251,7 +1278,7 @@ async function main() {
 
   await check('the turn-level link is real, and opens a working search', async () => {
     if (!webUp) skip('web app is not running');
-    if (!haveAnthropic) skip('no ANTHROPIC_API_KEY');
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
 
     const suburbs = await liveSuburbs(db);
     const suburb = suburbs[0];
@@ -1300,7 +1327,7 @@ async function main() {
 
   await check('it asks rather than dumping when told almost nothing', async () => {
     if (!webUp) skip('web app is not running');
-    if (!haveAnthropic) skip('no ANTHROPIC_API_KEY');
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
 
     const turn = await chat({ message: 'I want a house' });
     assert(turn.text.includes('?'), `did not ask anything: "${turn.text.slice(0, 120)}"`);

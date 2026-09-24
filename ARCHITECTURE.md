@@ -481,6 +481,18 @@ page actually serves.
 and it will keep serving a stale build that looks like a code bug. `.next-dev`
 is worth deleting at the same time.
 
+**Routine verification is free and offline.** `pnpm test` runs with `fetch`
+blocked, and a test that tries to reach an http(s) URL fails naming it. The
+smoke suite's AI group is gated on `SMOKE_LIVE_AI=1`, not on whether a key
+exists — a key in `.env.local` is not consent to spend it. `pnpm smoke:ai` is
+the command that costs money, and it is run on purpose.
+
+That gate used to be `Boolean(process.env.ANTHROPIC_API_KEY)`, so every run of
+the command you are told to run after every change spent about US$0.02. Over
+one session it drained the balance to zero, and six checks then went red for a
+billing reason rather than a code one — which is the worst kind of red, because
+it teaches you to ignore the output.
+
 **A new invariant belongs in `pnpm smoke`.** A new endpoint needs a permission
 test. A projected win is not a win: measure before and after, and when the
 projection turns out wrong, say so and drop it. Phase 5d's planned 60% cut of

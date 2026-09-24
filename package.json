@@ -14,7 +14,8 @@
     "test": "pnpm --filter @repo/core test && pnpm --filter @repo/ai test",
     "smoke": "pnpm --filter @repo/smoke smoke",
     "db:reset": "pnpm --filter @repo/db db:reset",
-    "db:repair-listings": "pnpm --filter @repo/db db:repair-listings"
+    "db:repair-listings": "pnpm --filter @repo/db db:repair-listings",
+    "smoke:ai": "pnpm --filter @repo/smoke smoke:ai"
   },
   "devDependencies": {
     "prettier": "^3.4.2",

@@ -13,6 +13,12 @@ NOT used: Supabase Storage.
 TypeScript strict. Tailwind + shadcn/ui.
 
 ## Verifying
+**`pnpm test` and `pnpm smoke` cost nothing and never call a real LLM.** Unit
+tests run with the network blocked (`@repo/config/test-offline`); the smoke
+suite's AI group is opt-in and skips unless `SMOKE_LIVE_AI=1`. A key being in
+.env.local is NOT consent to spend it. Live AI is `pnpm smoke:ai`, run
+deliberately. New AI code gets a fake client, never a live one.
+
 `pnpm test` (unit) → `pnpm smoke` (live: DB, indexes, caching, speed, HTTP, fail-closed) →
 docs/TEST-PLAN.md (manual, needs a browser). A new invariant belongs in `pnpm smoke`; a new
 endpoint needs a permission test. **Break the thing a new check guards and confirm it goes red
