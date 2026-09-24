@@ -6,6 +6,11 @@ import {
   getListingForEdit,
 } from './list-listings';
 import { searchPublicListings, liveSuburbs, livePropertyTypes } from './search-listings';
+import {
+  listingAgentCards,
+  listingInspections,
+  propertyTimeline,
+} from './listing-detail';
 import type { Actor } from '../permissions';
 
 /**
@@ -96,6 +101,33 @@ describe('reads cost a fixed number of queries', () => {
   it("a page of the agent desk's own listings is also one query", async () => {
     const { db, count } = countingDb();
     await listAgencyListingsPage(db, actor, { mine: true, limit: 25 });
+    expect(count()).toBe(1);
+  });
+
+  /**
+   * The listing page's three extra reads.
+   *
+   * One query each, and the page starts all three together with the listing
+   * itself — so the page costs one round trip's latency, not four. If any of
+   * these ever becomes two, it is because someone fetched something per row.
+   */
+  it('the inspection times are one query', async () => {
+    const { db, count } = countingDb();
+    await listingInspections(db, 'l-1');
+    expect(count()).toBe(1);
+  });
+
+  it("the property's history is one query", async () => {
+    const { db, count } = countingDb();
+    await propertyTimeline(db, 'p-1');
+    expect(count()).toBe(1);
+  });
+
+  it('the agent cards are one query, profile join included', async () => {
+    const { db, count } = countingDb();
+    await listingAgentCards(db, 'l-1');
+    // The profile is a join, not a lookup per agent. Fetching agent_profile
+    // per listing_agent row is the N+1 this number exists to refuse.
     expect(count()).toBe(1);
   });
 

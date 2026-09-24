@@ -27,6 +27,14 @@ export {
   type UpdateListingInput,
 } from './listing-schema';
 export { CONSOLE_PAGE_SIZE, consolePage } from './console-page';
+export {
+  listingAgentCards,
+  listingInspections,
+  propertyTimeline,
+  type PublicAgentCard,
+  type PublicInspection,
+  type PublicTimelineEntry,
+} from './listing-detail';
 export { createListing, type CreateListingResult } from './create-listing';
 export { updateListing, type UpdateListingResult } from './update-listing';
 export { deleteListing, type DeleteListingResult } from './delete-listing';

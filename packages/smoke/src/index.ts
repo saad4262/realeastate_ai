@@ -4,7 +4,9 @@ import { and, eq, sql } from 'drizzle-orm';
 import { getDb, listing, membership, property, type Db } from '@repo/db';
 import {
   getPublicListing,
+  listingAgentCards,
   listingDraftSchema,
+  propertyTimeline,
   liveSuburbs,
   propertyDraftSchema,
   searchPublicListings,
@@ -311,6 +313,61 @@ async function main() {
       `${bad.length} of ${rows.length} live listing(s) would be refused today:\n    ${bad.join('\n    ')}`,
     );
     return `${rows.length} live listing(s), all valid`;
+  });
+
+  await check("a property's public history never leaks an unpublished listing", async () => {
+    /**
+     * The listing page shows what has happened at an address, built by
+     * selecting every listing that shares its property_id — because a property
+     * outlives its listings (#1). That is also how an agency's unpublished
+     * pipeline would reach the public: their drafts sit on the same property.
+     *
+     * The unit test can only assert the status list is right. Only this can
+     * assert the QUERY honours it, against a database that actually holds
+     * drafts.
+     */
+    const props = await db.execute<{ id: string }>(
+      sql`select distinct property_id as id from listing`,
+    );
+    if (props.length === 0) skip('no listings to check');
+
+    const forbidden = new Set(['draft', 'pending', 'withdrawn']);
+    const leaked: string[] = [];
+    let entries = 0;
+
+    for (const p of props) {
+      for (const entry of await propertyTimeline(db, p.id)) {
+        entries++;
+        if (forbidden.has(entry.status)) {
+          leaked.push(`${entry.listingId.slice(0, 8)} is ${entry.status}`);
+        }
+      }
+    }
+
+    assert(leaked.length === 0, `timeline exposed: ${leaked.join(', ')}`);
+    return `${props.length} propert(ies), ${entries} public entries, no drafts`;
+  });
+
+  await check('a public listing never exposes an agent email', async () => {
+    // listing_agent carries snapshot_email and the public read deliberately
+    // does not select it. A phone on a property ad is the convention; an email
+    // rendered into a public page is harvested within days.
+    const rows = await db.execute<{ id: string }>(
+      sql`select id from listing where status = 'live'`,
+    );
+    if (rows.length === 0) skip('nothing live');
+
+    const leaked: string[] = [];
+    let agents = 0;
+    for (const r of rows) {
+      for (const card of await listingAgentCards(db, r.id)) {
+        agents++;
+        if (JSON.stringify(card).includes('@')) leaked.push(card.name);
+      }
+    }
+
+    assert(leaked.length === 0, `an email reached the public card for ${leaked.join(', ')}`);
+    return `${agents} agent card(s), no addresses`;
   });
 
   await check('no property is orphaned by a failed write', async () => {
