@@ -58,6 +58,12 @@ Either may touch shared packages. Handoff files are the source of truth.
 13. Auth cookie domain comes from env (COOKIE_DOMAIN). Never hardcode a domain.
 14. App user.id matches Supabase auth.users.id. Membership/roles live in our DB + can(), not only JWT claims.
 
+## Engineering rules
+ARCHITECTURE.md is the standing SOP: rendering, navigation, state, data
+fetching, caching, validation, performance budgets and the verification
+discipline. Read it before adding a page, a query, a component or an endpoint.
+This file is the domain law; that file is how the app is built. Both apply.
+
 ## Before writing code
 - Write types + zod schemas (the contract) first.
 - Check .cursor/skills/ before starting any task.

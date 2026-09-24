@@ -1,0 +1,420 @@
+# ARCHITECTURE.md
+
+The standing rules for this repo: how it renders, fetches, caches, navigates
+and validates, and what it refuses to do.
+
+`CLAUDE.md` holds the non-negotiables — domain rules that make this a property
+platform rather than a CRUD app. This file holds the engineering rules that
+keep it fast and keep it honest. Both apply. Where a rule below has a number in
+it, that number was measured in this repo, not copied from a blog post.
+
+**How to use this file.** Before adding a page, a component, a query or an
+endpoint, find the matching section. If what you are about to do contradicts
+it, you have two options: do it the way the rule says, or change the rule here
+in the same commit and say why. Silently doing it differently is how the thing
+the rule prevents comes back.
+
+---
+
+## 1. The shape of it
+
+```
+apps/web       public consumer    site.com.au
+apps/console   agent + agency     agents.* -> (agent), agency.* -> (agency)
+packages/db    Drizzle schema, the one source of types
+packages/core  business logic and data access
+packages/auth  Supabase Auth SSR
+packages/ai    every LLM call, without exception
+packages/ui    plain React, shared by both apps
+packages/smoke live invariant checks
+```
+
+Two apps, three domains, one database, one packages layer. `agents.*` and
+`agency.*` are the same app; never fork them.
+
+**`packages/ui` has no framework dependency, and that is deliberate.** It
+imports React and nothing else. When it needs something framework-shaped — a
+client-side link, a router — the app hands it in. `AppShell` takes `linkAs`
+rather than importing `next/link`. Keep it that way; a shared package that
+imports Next is a shared package that can only ever be used by Next.
+
+---
+
+## 2. Rendering: Server Components are the default
+
+A component is a Server Component unless it cannot be. `'use client'` is a
+budget, not a convenience.
+
+**What earns `'use client'`:** browser APIs (`window`, `IntersectionObserver`),
+event handlers that cannot be a form or a link, `useState` that genuinely
+cannot live in the URL, or a third-party widget that needs the DOM.
+
+**What does not:** wanting to use `.map()`. Wanting a nicer import. "It was
+easier."
+
+### The island rule
+
+When a mostly-static component needs one interactive control, extract the
+control, not the component. Keep the page a Server Component and give it a
+small client island.
+
+Measured in this repo:
+
+| Change | Before | After |
+|---|---|---|
+| Console shells → Server Components, nav extracted | 9,574 B | 4,783 B (−50%) |
+| `/ai` page → Server Component + composer island | 4.72 kB | 1.71 kB (−64%) |
+| `/team` directory → URL state, tabs become links | 7.14 kB | 4.4 kB (−38%) |
+
+### `usePathname` cannot move to the server
+
+Layouts are preserved across client navigation and do not re-render. A
+server-computed "active" class goes stale the moment someone navigates. Active
+nav state is one of the few things that genuinely must be a client island.
+
+### Lazy-load anything that cannot server-render
+
+```tsx
+const MapView = dynamic(() => import('@repo/ui/maps').then((m) => m.MapView), {
+  ssr: false,
+});
+```
+
+Rendering a component conditionally is **not** code splitting — the module
+ships either way. Maps went from a static import to this and took 29% off
+`/search` and 26% off `/listing/[id]`.
+
+---
+
+## 3. Navigation: never hand back a full page load
+
+**Every internal link is `next/link`.** A raw `<a href="/...">` is a new HTML
+request, the whole client bundle parsed again, every layout torn down, scroll
+position gone.
+
+This is the easiest rule in the file to break by accident and the hardest to
+notice in review — the markup is identical, the page still works, it is just
+three hundred milliseconds slower. It has been broken here once already, in the
+site header, which is the most-clicked control on the public site.
+
+If a shared package needs to link, it takes a link component as a prop.
+`apps/web` routes every page through `WebShell` so `next/link` is supplied in
+exactly one place.
+
+### Prefetching is targeted, never blanket
+
+- **Do not** prefetch a list of routes in a `useEffect` on mount. The console
+  sidebar did; it fired twelve full route prefetches on every page load.
+- **Do** let `next/link` viewport-prefetch the primary nav. Those routes have
+  `loading.tsx`, so what is prefetched is the skeleton — cheap, and it makes
+  the transition instant.
+- **Do** prefetch on intent for large grids: one delegated client island
+  around the grid (`PrefetchOnIntent`), so the cards stay Server Components.
+  There is deliberately no mouse-out handler — a prefetch already in flight is
+  cheaper to finish than to cancel and repeat.
+
+---
+
+## 4. State: the URL is the state store
+
+There is no Zustand, no Redux, no global store, and none is needed. Before
+reaching for one, work through this in order:
+
+1. **Does it belong in the URL?** Filters, sorting, pagination, tabs, the
+   selected row — all of it. It survives refresh, Back, Forward and being sent
+   to someone. `/team` moved `tab` and `selectedId` into `?tab=`/`?agent=` and
+   lost 38% of its JavaScript doing it.
+2. **Is it server data?** Then it is not client state. Fetch it on the server;
+   do not mirror it into `useState`.
+3. **Is it one component's ephemeral UI?** `useState`, locally. Fine.
+4. **Is it genuinely shared, client-only, and not URL-shaped?** Only now
+   consider a store — and write an ADR first.
+
+### Do not mirror the URL into state
+
+The search bar held eleven `useState` values mirroring the query string, and
+they drifted out of sync with it. It is now a real GET form: uncontrolled
+inputs with `defaultValue` from the URL, keyed on `params.toString()` so a
+navigation remounts it. Desync is structurally impossible rather than
+carefully avoided — and the search works with JavaScript disabled.
+
+---
+
+## 5. Data fetching
+
+**Fetch on the server. Pass data down. Do not fetch in an effect.**
+
+- **Start independent work together.** `const a = slowThing(); const b =
+  otherThing(); await a; await b;` — not two sequential awaits. The search page
+  had a waterfall where the filter options blocked the results.
+- **`await` inside the Suspense boundary that should show the fallback.**
+  Awaiting above the boundary blocks the whole page and the boundary never
+  shows.
+- **Key Suspense boundaries on the query, not the raw params.** `key={JSON
+  .stringify(query)}` — two different URLs that mean the same search should not
+  remount.
+- **Select only what the page renders.** The search list carried every
+  listing's `description` — up to 20,000 characters each, 48 per page, for a
+  card that never shows it. `PublicListingSummary` and `PublicListing` are
+  separate types for this reason.
+- **One statement per read.** Sub-select related rows; use window functions for
+  totals and counts. `query-count.test.ts` holds the numbers and will tell you
+  when you have added a round trip.
+
+### Counts and totals come from SQL, never from `rows.length`
+
+A count computed in the browser forces the query to return every row. This is
+what kept the console's listing query unpaginated: two header figures were
+being counted client-side, so the whole agency book had to be shipped to
+render twenty-five of them.
+
+```sql
+count(*) over()                                as total
+count(*) filter (where status = 'live') over() as live
+```
+
+Window functions are evaluated before `LIMIT`, so these stay set-wide.
+
+### Pagination
+
+Offset-based, through the URL, `?page=` and 1-based. Validate it: a page number
+is the only user input that widens a query, and `Number('2.5')` reaching
+`.offset()` is how you get `offset NaN`.
+
+**Every ordering needs a unique tiebreaker.** `created_at` is not unique. A
+page boundary landing inside a group of rows sharing a timestamp repeats one
+row on this page and skips another on the next. Append the id to every
+`ORDER BY`.
+
+---
+
+## 6. Caching and revalidation
+
+Four layers, and you should know which one you are touching:
+
+| Layer | What | Controlled by |
+|---|---|---|
+| Data Cache | `unstable_cache`, tag-invalidated | `lib/cached.ts` |
+| Full Route Cache | ISR | `export const revalidate` |
+| Router Cache | client-side, per navigation | `experimental.staleTimes` |
+| Request dedupe | per-request memo | React `cache()` |
+
+**The invariant:** the router cache window must be ≤ the Data Cache TTL of the
+data on that page. `staleTimes.dynamic` is 30 because `cachedSearch` is 30. If
+you change one, change the other, and say so in both places.
+
+**Cross-app invalidation is explicit.** The console and the public site are
+separate processes; the console's `revalidatePath` cannot reach the web app's
+cache. Publishing calls `revalidateWeb()` → `POST /api/revalidate` (shared
+secret) → `revalidateTag`. Anything that writes listings outside the console —
+a script, a migration, a backfill — must bust the cache the same way, or the
+public site stays wrong until a timer says otherwise.
+
+**ISR needs `generateStaticParams`, even returning `[]`.** Without it a dynamic
+route never enters `dynamicRoutes` in the prerender manifest and every request
+re-renders, whatever `revalidate` says. This is not a build-time hint; it is
+required.
+
+**Do not cache a route that can return the wrong HTTP status.** `/listing/[id]`
+is deliberately `force-dynamic` even though caching it was measured working end
+to end, because `notFound()` answers with HTTP 200 in production. A wrong
+status served fresh is a bug; a wrong status served from a cache sticks.
+
+---
+
+## 7. Forms and validation
+
+**One schema, enforced on the server, reused on the client.** The listing form
+imports the same zod schema the server action enforces, so a bad draft never
+costs a round trip to come back as an error. The server never trusts the client
+having done it.
+
+### Validation rules are about shape, not taste
+
+Every rule must be something you can state precisely and defend. "The headline
+is badly written" is not a rule. "The headline is one word" is.
+
+The rules that exist, and what they caught:
+
+| Rule | Caught |
+|---|---|
+| Headline ≥ 10 chars and more than one word | `"dfs"`, `"jdsfjdfjl"` |
+| Display price contains a letter or `$` | `"9320334343324"` |
+| Room counts ≤ 20 | 23 bedrooms, 32 bathrooms |
+| A sale listing carries a price | silent "Contact agent" |
+| Property type from a fixed vocabulary | `"sfd"`, `"2jkads"` |
+
+### A filterable dimension is never free text
+
+If the UI filters on a column, or builds a dropdown from its distinct values,
+that column needs a controlled vocabulary. `property_type` was free text and
+the public search was offering buyers `"2jkads"` as a property type, with
+`"House"` and `"house"` counted as different kinds of building.
+
+One list, in `packages/core`, exported — the same rule as `AU_STATES`, and the
+same reasoning as non-negotiable #8.
+
+### Tighten the rule and repair the rows in the same change
+
+Old rows were legal when they were written. Two things make that safe:
+
+- **A smoke check that asks the real schema** of what is in the database, not a
+  second copy of the rules that can drift from it.
+- **A repair script** under one rule: every repair is **derived from something
+  true** or is an **honest NULL**. Never invent a value. `db:repair-listings`
+  builds `"3-bedroom house in Pakenham"` out of the property row, and nulls a
+  bedroom count it knows is wrong rather than guessing a right one.
+
+  Its first draft produced `"3-bedroom sfd in Nar Nar Goon North"`, because it
+  trusted `property_type` while it was in the middle of repairing
+  `property_type`. A repair is only as good as the field it reads.
+
+---
+
+## 8. Writing to the database
+
+- Multi-step writes go in `db.transaction`. Helpers that write take `DbOrTx`,
+  never `Db`.
+- Network calls (geocoding) happen **before** the transaction opens. Never
+  inside one.
+- Reads have a known query count. One extra query per row is an N+1 and
+  `query-count.test.ts` will say so.
+
+---
+
+## 9. Auth and permissions
+
+- Every permission decision is `can(actor, action, resource)`. Never
+  `if (user.role === ...)`. Every new endpoint gets a permission test.
+- **Middleware headers are the session** inside Server Actions
+  (`docs/adr/0008`). `requireActionUserId()` reads the verified header rather
+  than re-running `getUser()` — that re-check was ~520 ms on every publish,
+  edit and delete.
+- **Middleware strips those headers unconditionally, before any branching.** It
+  is the second line of defence, and it has mattered: a forged
+  `x-console-user-id` rendered a real owner's agency console, HTTP 200, through
+  two paths that reached Server Components without the strip running.
+- Hiding a button is a courtesy. The server refuses regardless.
+
+---
+
+## 10. Loading and error boundaries
+
+- **Every route that queries the database gets a `loading.tsx`.** It renders
+  that page's own chrome — header, shell, skeleton in the shape of the real
+  content — so the transition is a fill, not a flash.
+- **No root `app/loading.tsx`.** It replaces the whole shell, header included,
+  and reads as a full reload because visually it is one.
+- Skeletons are built to the same measurements as the real component. A
+  skeleton of the wrong height is a layout shift with extra steps.
+- Console errors render **inside** the shell so the sidebar survives. A bare
+  error page reads as "the site is down".
+
+---
+
+## 11. Performance budgets
+
+Current, from `next build`. Treat a regression as a bug with a cause.
+
+| Route | Page JS | First Load |
+|---|---|---|
+| web shared | — | 103 kB |
+| `/` | 207 B | 124 kB |
+| `/search` | 1.67 kB | 126 kB |
+| `/listing/[id]` | 2 kB | 108 kB |
+| `/chat` | 7.3 kB | 114 kB |
+| console shared | — | 103 kB |
+| `/team` | 4.4 kB | 111 kB |
+| listing form routes | 138 B | 126 kB |
+
+**Look outside JavaScript first.** The single largest win in this repo was not
+a bundle. Material Symbols was requested across its full variable axis space
+while every rule in the codebase uses one weight:
+
+```
+@20..48,100..700,0..1,-50..200   4,001,724 bytes
+@20..24,400,0..1,0               1,107,100 bytes   (−2.9 MB, render-blocking)
+```
+
+Fonts are self-hosted through `next/font`. There are zero third-party font
+requests on the public site.
+
+---
+
+## 12. Verification
+
+From `CLAUDE.md`, and it is the most important rule in either file:
+
+> **Break the thing a new check guards and confirm it goes red before trusting
+> it.**
+
+This is not ceremony. In this repo, found by doing it:
+
+- Two radius checks could not detect the bug they guarded — `wide >= suburbOnly`
+  is satisfied by equality.
+- Three speed checks silently stopped working when `loading.tsx` was added:
+  they timed to first byte, and a streamed shell flushes at the same speed
+  cached or not. "Cold 33 ms, warm 33 ms" looked fine while the cache was gone.
+  They now read the full body and assert an absolute budget, because even the
+  ratio passed with the cache ripped out.
+- A `#4` violation alarm was a bug in the check, not the model.
+
+**A new invariant belongs in `pnpm smoke`.** A new endpoint needs a permission
+test. A projected win is not a win: measure before and after, and when the
+projection turns out wrong, say so and drop it. Phase 5d's planned 60% cut of
+the listing form did not exist — the fields it called inert all read client
+state.
+
+Order: `pnpm typecheck` → `pnpm lint` → `pnpm test` → `pnpm smoke` →
+`docs/TEST-PLAN.md` for anything needing a browser.
+
+---
+
+## 13. Adding something new — the checklist
+
+1. Read `docs/STATUS.md` and the top of `docs/SESSION.md`.
+2. Write the types and zod schema first. Derive types from
+   `packages/db/schema.ts`; never hand-write a duplicate.
+3. Business logic goes in `packages/core`. If two route groups need it, it
+   belongs there — not in `apps/`.
+4. Server Component by default. Justify every `'use client'`.
+5. State goes in the URL unless you can say why it cannot.
+6. `next/link` for every internal link.
+7. One query per read. Counts from SQL. A unique tiebreaker on every ordering.
+8. `loading.tsx` if it touches the database.
+9. Decide the caching layer deliberately and write down the TTL relationship.
+10. `can()` for every permission. A permission test for every endpoint.
+11. Add the invariant to `pnpm smoke`, then break it and watch it go red.
+12. Big decision? `docs/adr/NNNN-title.md` first, ten lines.
+
+---
+
+## 14. Known gaps
+
+Recorded so the next person does not have to rediscover them.
+
+- **`/listing/<unknown-id>` returns HTTP 200 in production** with the not-found
+  body. Pre-existing; reproduces on a clean build with `force-dynamic` and with
+  `not-found.tsx` deleted entirely. Dev returns a correct 404. It is a soft 404
+  on the one page search engines index, and it is the only thing blocking ISR
+  on that route — the caching itself was verified working end to end.
+  (`docs/TEST-PLAN.md` F26.)
+- **`priceDisplay` is not checked against `priceFrom`/`priceTo`.** The shape
+  rule stops a bare number, but "Offers over $1.45m" alongside a range of
+  $300k–$400k still saves. Checking it means parsing the string, which #6
+  forbids in spirit and which is genuinely hard across `"$1.45m"`,
+  `"1,450,000"` and `"high $1m's"`. A wrong parse refuses a legitimate listing,
+  which is worse. Left open deliberately.
+- **`router.refresh()` after a Server Action that already called
+  `revalidatePath`** appears in `listing-table.tsx` and `listing-form.tsx`. It
+  is very likely a duplicate round trip, and it holds `isPending` — and so
+  every action button — disabled for its duration. It was left in place because
+  removing it could not be verified without an authenticated console session,
+  and the failure mode if the reasoning is wrong is a visibly stale table. To
+  settle it: publish a listing, remove the call, confirm the row still updates.
+- **`useActionState` / `useFormStatus` on the listing form.** Would give one
+  form convention across the console. Not a speed change; the form cannot work
+  without JavaScript anyway (autocomplete, pin map). High risk on the main
+  data-entry path with no automated coverage of an authenticated submit.
+- **Console listing search/filtering.** Pagination landed; there is no way to
+  search within the book yet, which starts to matter past a few pages.
