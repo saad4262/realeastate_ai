@@ -7,7 +7,6 @@ import { SearchBar } from '../../components/search-bar';
 import { SearchBarSkeleton, CardGridSkeleton } from '../../components/skeletons';
 import { ResultsList, ResultsSummary } from './results';
 import { cachedFilterOptions, cachedPlace } from '../../lib/cached';
-import styles from '../home.module.css';
 
 export const dynamic = 'force-dynamic';
 
@@ -213,29 +212,52 @@ export default async function SearchPage({
   const searchKey = JSON.stringify(query);
 
   return (
-    <WebShell>
-      <section className={styles.hero}>
-        <h1 className={styles.title}>Search</h1>
+    <WebShell wide>
+      <div className="mx-auto w-full max-w-[1200px] px-gutter pb-xl">
+        {/*
+          The search box first, the count under it — a portal's order, and the
+          reverse of what this page did. The box is what a visitor came to use;
+          the sentence is the answer to it.
 
-        {/* The one line that depends on the answer. It streams in beside a
-            search box that never leaves the screen. */}
-        <Suspense key={`s-${searchKey}`} fallback={<p className={styles.sub}>Searching…</p>}>
-          <ResultsSummary {...shared} />
-        </Suspense>
+          NOT sticky. AppShell's header already is (top: 0, z-index: 20), and a
+          second sticky bar under it has to know that header's height to sit
+          below it — a number that lives in another package and changes with
+          its padding. One sticky element, and it is the one with the nav in it.
+        */}
+        <div className="py-md">
+          <h1 className="sr-only">Search properties</h1>
+          <Suspense fallback={<SearchBarSkeleton />}>
+            <SearchBarSlot options={filterOptions} />
+          </Suspense>
+        </div>
 
-        <Suspense fallback={<SearchBarSkeleton />}>
-          <SearchBarSlot options={filterOptions} />
-        </Suspense>
-      </section>
+        {/*
+          The one line that depends on the answer, streaming in beside a search
+          box that never leaves the screen.
 
-      <section className={styles.section}>
-        {/* A grid of card shapes rather than a spinner: the results are about
-            to be a grid of cards, and a centred spinner makes the page jump
-            from nothing to full height. */}
-        <Suspense key={`r-${searchKey}`} fallback={<CardGridSkeleton count={6} />}>
-          <ResultsList {...shared} />
-        </Suspense>
-      </section>
+          Its wording is load-bearing beyond this page: packages/smoke reads the
+          result count straight out of this rendered HTML with
+          /([0-9]+) results?\s+—/, and five checks depend on it. The layout
+          around it changed; the sentence deliberately did not.
+        */}
+        <div className="flex flex-wrap items-baseline justify-between gap-sm border-b border-line-subtle pb-md">
+          <Suspense
+            key={`s-${searchKey}`}
+            fallback={<p className="text-body-md text-ink-soft">Searching…</p>}
+          >
+            <ResultsSummary {...shared} />
+          </Suspense>
+        </div>
+
+        <section className="pt-lg">
+          {/* A grid of card shapes rather than a spinner: the results are about
+              to be a grid of cards, and a centred spinner makes the page jump
+              from nothing to full height. */}
+          <Suspense key={`r-${searchKey}`} fallback={<CardGridSkeleton count={6} />}>
+            <ResultsList {...shared} />
+          </Suspense>
+        </section>
+      </div>
     </WebShell>
   );
 }

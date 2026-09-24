@@ -6,7 +6,6 @@ import { ListingCard } from '../../components/listing-card';
 import { ResultsMap } from '../../components/results-map';
 import { PrefetchOnIntent } from '../../components/prefetch-on-intent';
 import { cachedSearch } from '../../lib/cached';
-import styles from '../home.module.css';
 
 /**
  * The search, run once per request however many components ask for it.
@@ -51,7 +50,7 @@ export async function ResultsSummary({
   pageSize,
 }: Shared) {
   const { rows, total, down } = await runSearch(query);
-  if (down) return <p className={styles.sub}>Listings are temporarily unavailable.</p>;
+  if (down) return <p className="text-body-md text-ink-soft">Listings are temporarily unavailable.</p>;
 
   const inSuburb = suburb
     ? rows.filter((r) => r.suburb.toLowerCase() === suburb.toLowerCase()).length
@@ -97,7 +96,7 @@ export async function ResultsSummary({
     const detail = extras.length ? ` · ${extras.join(' · ')}` : '';
     if (paged) {
       return (
-        <p className={styles.sub}>
+        <p className="text-body-md text-ink-soft">
           {`${count} — ${kind} in ${place} and within ${near.radiusKm} km of it.${detail}`}
         </p>
       );
@@ -106,7 +105,7 @@ export async function ResultsSummary({
       ? `and ${nearby} more within ${near.radiusKm} km of it`
       : `and nothing else within ${near.radiusKm} km of it`;
     return (
-      <p className={styles.sub}>
+      <p className="text-body-md text-ink-soft">
         {`${count} — ${inSuburb} ${kind} in ${place}, ${tail}.${detail}`}
       </p>
     );
@@ -121,7 +120,7 @@ export async function ResultsSummary({
         : null;
 
   return (
-    <p className={styles.sub}>
+    <p className="text-body-md text-ink-soft">
       {`${count} — ${[kind, where, ...extras].filter(Boolean).join(' ')}.`}
     </p>
   );
@@ -159,13 +158,13 @@ export async function ResultsList({
       <ResultsMap pins={pins} unpinned={rows.length - pins.length} />
 
       {rows.length ? (
-        <PrefetchOnIntent className={styles.grid}>
+        <PrefetchOnIntent className="grid gap-md [grid-template-columns:repeat(auto-fill,minmax(17rem,1fr))]">
           {rows.map((listing) => (
             <ListingCard key={listing.id} listing={listing} searchedSuburb={suburb} />
           ))}
         </PrefetchOnIntent>
       ) : (
-        <p className={styles.empty}>
+        <p className="rounded-lg border border-dashed border-line px-lg py-xl text-center text-body-md text-ink-soft">
           {down
             ? 'Please try again shortly.'
             : near
@@ -185,23 +184,23 @@ export async function ResultsList({
         cacheable, in the history, indexable, and it works with no JavaScript.
       */}
       {pages > 1 ? (
-        <nav className={styles.pager} aria-label="Search result pages">
+        <nav className="mt-lg flex items-center justify-center gap-md" aria-label="Search result pages">
           {page > 1 ? (
-            <Link href={pageHref(page - 1)} className={styles.pagerLink} rel="prev">
+            <Link href={pageHref(page - 1)} className="rounded-md border border-line bg-card px-md py-sm text-body-sm text-ink hover:border-line-strong" rel="prev">
               ← Previous
             </Link>
           ) : (
-            <span className={styles.pagerOff}>← Previous</span>
+            <span className="rounded-md border border-line-subtle px-md py-sm text-body-sm text-ink-faint opacity-50">← Previous</span>
           )}
-          <span className={styles.pagerAt}>
+          <span className="text-body-sm text-ink-soft">
             Page {page} of {pages}
           </span>
           {page < pages ? (
-            <Link href={pageHref(page + 1)} className={styles.pagerLink} rel="next">
+            <Link href={pageHref(page + 1)} className="rounded-md border border-line bg-card px-md py-sm text-body-sm text-ink hover:border-line-strong" rel="next">
               Next →
             </Link>
           ) : (
-            <span className={styles.pagerOff}>Next →</span>
+            <span className="rounded-md border border-line-subtle px-md py-sm text-body-sm text-ink-faint opacity-50">Next →</span>
           )}
         </nav>
       ) : null}
