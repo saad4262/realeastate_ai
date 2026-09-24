@@ -175,6 +175,12 @@ count(*) filter (where status = 'live') over() as live
 
 Window functions are evaluated before `LIMIT`, so these stay set-wide.
 
+**Coerce them.** `count()` is `bigint` and the driver returns `bigint` as a
+**string**, so a count typed `number` arrives as `"3"`. TypeScript cannot catch
+it — the type is a lie the query wrote. Left alone it reaches the console's
+optimistic counter as `"3" + 1` and publishing a listing makes the header read
+`Live 31`. `Number()` at the boundary, every time.
+
 ### Pagination
 
 Offset-based, through the URL, `?page=` and 1-based. Validate it: a page number

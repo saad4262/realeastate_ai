@@ -194,11 +194,17 @@ export async function listAgencyListingsPage(
   return {
     rows: rows.map((r) => toRow(r, r.agentNames ?? [])),
     counts: {
+      // Number(), and it is not defensive padding. count() returns bigint, and
+      // the driver hands bigint back as a STRING — so these arrive as "3" while
+      // the type above says number, which is a lie TypeScript cannot catch.
+      // Left alone it reaches the console's optimistic counter as "3" + 1 and
+      // publishing a listing makes the header read "Live 31".
+      //
       // No rows means no window to read the counts out of, which is correct:
       // an empty page of an empty book is three zeroes.
-      total: rows[0]?.totalCount ?? 0,
-      live: rows[0]?.liveCount ?? 0,
-      draft: rows[0]?.draftCount ?? 0,
+      total: Number(rows[0]?.totalCount ?? 0),
+      live: Number(rows[0]?.liveCount ?? 0),
+      draft: Number(rows[0]?.draftCount ?? 0),
     },
   };
 }
