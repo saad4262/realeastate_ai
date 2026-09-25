@@ -466,6 +466,14 @@ This is not ceremony. In this repo, found by doing it:
   They now read the full body and assert an absolute budget, because even the
   ratio passed with the cache ripped out.
 - A `#4` violation alarm was a bug in the check, not the model.
+- **A model swap broke `/chat` completely while 99 unit tests stayed green.**
+  `output_config: { effort }` and `thinking: { type: 'adaptive' }` are rejected
+  with HTTP 400 by a model that does not implement them, and Haiku 4.5
+  implements neither. Every test either called `getModel` — happy to report an
+  `effort` nobody can send — or used a fake client, which accepts any params at
+  all. Nothing built a request and looked at it. The guard added is an assertion
+  on the recorded request body, not on the config.
+
 
 **"It renders" is not "it renders correctly."** A page can return 200, contain
 every word it should, pass every assertion here, and still be unstyled blue
@@ -504,6 +512,25 @@ Order: `pnpm typecheck` → `pnpm lint` → `pnpm test` → `pnpm smoke` →
 
 ---
 
+### A model parameter is a capability of the id, not a preference of the route
+
+`packages/ai/src/models.ts` holds a `CAPABILITIES` table beside `PRICES`, and
+`getModel` omits any parameter the chosen model does not accept. The pipeline
+spreads those keys conditionally and **must never supply a fallback** — a
+`?? 'medium'` there is exactly the 400 the table exists to prevent. An
+unrecognised id is treated as accepting nothing, because omitting a parameter
+costs some answer quality while sending a rejected one costs the whole turn.
+
+Both `PRICES` and `CAPABILITIES` are keyed by **exact id**, so a model is
+configured by its alias (`claude-haiku-4-5`), never a dated snapshot
+(`claude-haiku-4-5-20251001`) — the snapshot is unpriced, and `costUsd` returns
+0 for an unknown id rather than throwing, so it would write $0 into every
+`ai_run` row while the chat carried on working. The API resolves the alias to a
+snapshot in its *response*; `ai_run` records the id we **sent**, deliberately.
+
+Adding a model means adding a row to both tables and re-running the capability
+check against the live API. It is four 1-token requests and costs under a cent.
+
 ## 13. Adding something new — the checklist
 
 1. Read `docs/STATUS.md` and the top of `docs/SESSION.md`.
@@ -522,6 +549,26 @@ Order: `pnpm typecheck` → `pnpm lint` → `pnpm test` → `pnpm smoke` →
 12. Big decision? `docs/adr/NNNN-title.md` first, ten lines.
 
 ---
+
+
+### Prompt caching may not be reaching Haiku
+
+Two `ai_run` rows from one live turn on 2026-09-25 bill as if nothing was
+cached: `in 4128 out 112 → $0.004688`, which is exactly
+`4128/1e6 × $1 + 112/1e6 × $5`. Both `cache_creation` and `cache_read` were
+therefore zero, on two requests three seconds apart, with two
+`cache_control: ephemeral` breakpoints set on the system blocks.
+
+The likely cause is that a cache breakpoint applies to the cumulative prefix and
+must clear the model's minimum cacheable length, which is higher for Haiku than
+for Opus. `PROPERTY_CHAT_V6` may sit under it.
+
+**Not yet proven**, and deliberately not claimed as a regression: the older
+Opus rows in `ai_run` are 91 and 246 input tokens, from a much smaller prompt,
+so there is no comparable baseline. Establishing one means one turn per model
+with the cache fields read from the API response rather than inferred from the
+cost. Worth doing — this is most of the input cost on the route, and the whole
+point of the two breakpoints.
 
 ## 14. Known gaps
 

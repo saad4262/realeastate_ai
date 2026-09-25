@@ -170,8 +170,16 @@ export async function* runPropertyChat(
         {
           model: model.id,
           max_tokens: model.maxTokens,
-          thinking: { type: 'adaptive' },
-          output_config: { effort: model.effort },
+          /*
+           * Both of these are conditional because a model that does not
+           * implement one rejects the entire request with HTTP 400 — there is no
+           * "ignored if unsupported". Haiku 4.5 implements neither, so on the
+           * current default both keys are absent. getModel owns which; this
+           * file must not supply a fallback, because a fallback here is exactly
+           * the 400 the capability table exists to prevent.
+           */
+          ...(model.adaptiveThinking ? { thinking: { type: 'adaptive' as const } } : {}),
+          ...(model.effort ? { output_config: { effort: model.effort } } : {}),
           system,
           tools: [...PROPERTY_CHAT_TOOLS],
           // On the last permitted round the model is made to answer in words.

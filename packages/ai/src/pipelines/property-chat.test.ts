@@ -428,3 +428,68 @@ describe('reconstructMessages', () => {
     expect(messages).toEqual([{ role: 'user', content: 'hello' }]);
   });
 });
+
+/**
+ * What actually goes on the wire.
+ *
+ * This is the layer the Haiku switch broke and the layer nothing was testing.
+ * `output_config: { effort }` and `thinking: { type: 'adaptive' }` are rejected
+ * with HTTP 400 by a model that does not implement them — Haiku 4.5 rejects
+ * both — so sending them is not a wasted parameter, it is a chat that answers
+ * nothing. getModel decides; this asserts the request obeys it.
+ *
+ * A fake client accepts any params at all, which is precisely why the assertion
+ * has to read the recorded params rather than trust the call to have succeeded.
+ */
+describe('the request body only carries parameters the model accepts', () => {
+  const answer = () => ({
+    events: [textDelta('Sure.')],
+    final: message({ content: [{ type: 'text', text: 'Sure.', citations: [] }] }),
+  });
+
+  async function paramsFor(env: NodeJS.ProcessEnv) {
+    const { client, calls } = fakeClient([answer()]);
+    await collect(
+      runPropertyChat({
+        apiKey: 'test-key',
+        client,
+        request: { message: 'a house in Pakenham', turns: [] },
+        catalogue: { suburbs: ['Pakenham'], propertyTypes: ['House'] },
+        tools: tools(),
+        track: trackSpy(),
+        env,
+      }),
+    );
+    return calls[0]!;
+  }
+
+  it('omits both keys entirely on Haiku', async () => {
+    const params = await paramsFor({ ANTHROPIC_CHAT_MODEL: 'claude-haiku-4-5' } as NodeJS.ProcessEnv);
+    expect(params.model).toBe('claude-haiku-4-5');
+    // `in`, not a truthiness check: a key present with an undefined value is
+    // still a key, and the SDK has been known to serialise one.
+    expect('output_config' in params).toBe(false);
+    expect('thinking' in params).toBe(false);
+  });
+
+  it('sends both on a model that accepts them', async () => {
+    const params = await paramsFor({ ANTHROPIC_CHAT_MODEL: 'claude-opus-5' } as NodeJS.ProcessEnv);
+    expect(params.output_config).toEqual({ effort: 'medium' });
+    expect(params.thinking).toEqual({ type: 'adaptive' });
+  });
+
+  it('omits both on an unrecognised model', async () => {
+    const params = await paramsFor({
+      ANTHROPIC_CHAT_MODEL: 'claude-something-7',
+    } as NodeJS.ProcessEnv);
+    expect('output_config' in params).toBe(false);
+    expect('thinking' in params).toBe(false);
+  });
+
+  it('keeps max_tokens whatever the model is', async () => {
+    for (const id of ['claude-haiku-4-5', 'claude-opus-5']) {
+      const params = await paramsFor({ ANTHROPIC_CHAT_MODEL: id } as NodeJS.ProcessEnv);
+      expect(params.max_tokens).toBe(4096);
+    }
+  });
+});

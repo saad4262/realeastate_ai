@@ -35,6 +35,39 @@ const PRICES: Readonly<Record<string, Price>> = Object.freeze({
   },
 });
 
+/**
+ * Which request parameters a model will actually accept.
+ *
+ * This is not a nicety. `output_config: { effort }` and
+ * `thinking: { type: 'adaptive' }` are both rejected with HTTP 400
+ * invalid_request_error by a model that does not implement them — "This model
+ * does not support the effort parameter" and "adaptive thinking is not
+ * supported on this model". There is no degraded mode: the turn simply fails,
+ * and on this route that is a visitor watching "Something went wrong reaching
+ * the assistant".
+ *
+ * Verified against the live API on 2026-09-25, one 1-token request per model
+ * per parameter. Opus 5 and Sonnet 5 accept both. Haiku 4.5 accepts neither.
+ *
+ * An id that is not listed is treated as accepting nothing, which is the safe
+ * direction: omitting a parameter a model would have honoured costs some
+ * answer quality, while sending one it rejects costs the whole turn.
+ */
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+type Capabilities = {
+  effort: boolean;
+  adaptiveThinking: boolean;
+};
+
+const CAPABILITIES: Readonly<Record<string, Capabilities>> = Object.freeze({
+  'claude-opus-5': { effort: true, adaptiveThinking: true },
+  'claude-sonnet-5': { effort: true, adaptiveThinking: true },
+  'claude-haiku-4-5': { effort: false, adaptiveThinking: false },
+});
+
+const NO_CAPABILITIES: Capabilities = { effort: false, adaptiveThinking: false };
+
 export type AiFeature = 'property-chat';
 
 export type ModelChoice = {
@@ -60,13 +93,26 @@ export type ModelChoice = {
    *
    * Raise to `high` only against another measurement.
    *
-   * NOTE: that measurement was taken against Opus. The model has since moved
-   * to Haiku for cost, and nothing has re-run those cases — a smaller model
-   * starved of effort is more likely to make those mistakes, not less. If the
-   * guide starts sending filters nobody asked for again, this is the first
-   * thing to look at, and the fix is a measurement rather than a guess.
+   * NOTE: that measurement was taken against Opus, and the model has since
+   * moved to Haiku for cost — which does not accept this parameter at all, so
+   * on the current default it is absent rather than lowered. Nothing has re-run
+   * those cases against Haiku. A smaller model with no reasoning budget is more
+   * likely to make those mistakes, not less. If the guide starts sending
+   * filters nobody asked for again, this is the first thing to look at, and the
+   * fix is a measurement rather than a guess.
+   *
+   * Undefined when the chosen model rejects the parameter — see CAPABILITIES.
+   * The pipeline omits `output_config` entirely in that case; it must never
+   * send a default in its place.
    */
-  effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  effort?: Effort;
+  /**
+   * Whether to ask for `thinking: { type: 'adaptive' }`.
+   *
+   * Same story as `effort`: a model without it rejects the whole request, so
+   * this is a capability of the id rather than a preference of the route.
+   */
+  adaptiveThinking: boolean;
 };
 
 /**
@@ -84,15 +130,26 @@ export type ModelChoice = {
  */
 const DEFAULT_CHAT_MODEL = 'claude-haiku-4-5';
 
+/** Used only by models that accept it. See ModelChoice.effort for the measurement. */
+const CHAT_EFFORT: Effort = 'medium';
+
 /** Model router. One feature today; the shape is what M3 grows into. */
 export function getModel(feature: AiFeature, env: NodeJS.ProcessEnv = process.env): ModelChoice {
   switch (feature) {
-    case 'property-chat':
+    case 'property-chat': {
+      const id = env.ANTHROPIC_CHAT_MODEL?.trim() || DEFAULT_CHAT_MODEL;
+      const can = CAPABILITIES[id] ?? NO_CAPABILITIES;
       return {
-        id: env.ANTHROPIC_CHAT_MODEL?.trim() || DEFAULT_CHAT_MODEL,
+        id,
         maxTokens: 4096,
-        effort: 'medium',
+        // Spread rather than `effort: can.effort ? CHAT_EFFORT : undefined`, so
+        // the key is genuinely absent. `exactOptionalPropertyTypes` aside, an
+        // explicit `undefined` is what a JSON body serialises away anyway — but
+        // absent is the thing being asserted, so make it absent.
+        ...(can.effort ? { effort: CHAT_EFFORT } : {}),
+        adaptiveThinking: can.adaptiveThinking,
       };
+    }
     default: {
       // Exhaustiveness: a new feature with no entry is a compile error, not a
       // silent fall through to whatever model happened to be first.

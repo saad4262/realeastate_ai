@@ -48,11 +48,61 @@ describe('every configured model is priced', () => {
 });
 
 describe('the model choice itself', () => {
-  it('keeps the headroom and the effort the route was tuned for', () => {
+  it('keeps the headroom the route was tuned for', () => {
     const choice = getModel('property-chat', {} as NodeJS.ProcessEnv);
-    // maxTokens is headroom, not a cost ceiling — adaptive thinking spends it
-    // too, and an undersized value truncates an answer rather than saving money.
+    // maxTokens is headroom, not a cost ceiling — thinking spends it too, and
+    // an undersized value truncates an answer rather than saving money.
     expect(choice.maxTokens).toBe(4096);
+  });
+});
+
+/**
+ * The second way a model swap breaks silently — except this one is not silent
+ * at all, it is a hard HTTP 400 on every turn, which is worse in production and
+ * invisible in a test suite that never builds a request.
+ *
+ * `output_config: { effort }` and `thinking: { type: 'adaptive' }` are rejected
+ * outright by a model that does not implement them. Haiku 4.5 rejects both. The
+ * move to Haiku therefore broke /chat completely, and nothing here noticed,
+ * because every test either called getModel (which is happy to report an effort
+ * nobody can send) or used a fake client (which accepts any params at all).
+ *
+ * So: assert the capability table agrees with the live API, and — in
+ * property-chat.test.ts — assert the request body actually omits them.
+ */
+describe('parameters are only claimed where the model accepts them', () => {
+  it('asks for neither knob on Haiku, which rejects both', () => {
+    const choice = getModel('property-chat', {
+      ANTHROPIC_CHAT_MODEL: 'claude-haiku-4-5',
+    } as NodeJS.ProcessEnv);
+    expect(choice.effort).toBeUndefined();
+    expect(choice.adaptiveThinking).toBe(false);
+  });
+
+  it.each(['claude-opus-5', 'claude-sonnet-5'])('asks for both on %s, which accepts both', (id) => {
+    const choice = getModel('property-chat', {
+      ANTHROPIC_CHAT_MODEL: id,
+    } as NodeJS.ProcessEnv);
     expect(choice.effort).toBe('medium');
+    expect(choice.adaptiveThinking).toBe(true);
+  });
+
+  it('claims nothing for a model it has never heard of', () => {
+    // The safe direction. Omitting a parameter the model would have honoured
+    // costs some answer quality; sending one it rejects costs the whole turn,
+    // and an unrecognised id is exactly the case where we cannot know.
+    const choice = getModel('property-chat', {
+      ANTHROPIC_CHAT_MODEL: 'claude-something-7',
+    } as NodeJS.ProcessEnv);
+    expect(choice.effort).toBeUndefined();
+    expect(choice.adaptiveThinking).toBe(false);
+  });
+
+  it('leaves the key absent rather than present-and-undefined', () => {
+    // A JSON body drops an undefined value anyway, so this is belt and braces —
+    // but `effort` in choice is the thing the pipeline branches on, and a key
+    // that exists with an undefined value is a different shape from no key.
+    const choice = getModel('property-chat', {} as NodeJS.ProcessEnv);
+    expect('effort' in choice).toBe(false);
   });
 });
