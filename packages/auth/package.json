@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@repo/config": "workspace:*",
-    "@supabase/ssr": "^0.5.2",
+    "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.47.10"
   },
   "peerDependencies": {

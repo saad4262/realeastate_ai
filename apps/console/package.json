@@ -14,7 +14,7 @@
     "@repo/core": "workspace:*",
     "@repo/db": "workspace:*",
     "@repo/ui": "workspace:*",
-    "@supabase/ssr": "^0.5.2",
+    "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.47.10",
     "drizzle-orm": "^0.38.3",
     "next": "^15.1.3",
