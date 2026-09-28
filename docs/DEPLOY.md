@@ -114,7 +114,6 @@ Generate the two secrets with `openssl rand -hex 32`.
                                          one above. Unset: maps show a "not
                                          configured" panel; pins are still stored
                                          and searched.
-    SUPABASE_SERVICE_ROLE_KEY            Server-only. Never expose to a browser.
     NEXT_PUBLIC_SUPABASE_MEDIA_BUCKET    Defaults to `media`.
     REVALIDATE_SECRET                    Unset: /api/revalidate refuses
                                          everything and the site falls back to
@@ -132,10 +131,37 @@ Generate the two secrets with `openssl rand -hex 32`.
                       only once the real domain exists.
 
     NEXT_PUBLIC_AGENT_URL / NEXT_PUBLIC_AGENCY_URL
-                      These default to `lvh.me` addresses that do not resolve for
-                      anyone but you. Any link the web shell draws to the console
-                      will be dead until the console is deployed. Known gap, not
-                      a mystery to debug.
+                      Not read by apps/web anywhere — checked, not assumed:
+                      the only `process.env` reads of either are in
+                      packages/smoke, and `web-shell.tsx` draws no console links
+                      at all. They matter to the console (invite claim links are
+                      built from NEXT_PUBLIC_AGENT_URL so an agent never lands on
+                      the agency host), so they belong on THAT project when it
+                      is deployed, not this one.
+
+    SUPABASE_SERVICE_ROLE_KEY
+                      Also not needed by apps/web. The only reader is
+                      `packages/core/src/media/storage-client.ts`, which the
+                      media barrel deliberately does NOT re-export, and apps/web
+                      imports only `@repo/core/media/url` and the DB-reading
+                      helpers. Uploads are a console concern. Leaving it off the
+                      web project means the key that bypasses RLS is not sitting
+                      in an environment that has no use for it.
+
+    DIRECT_URL        Tooling only. The three readers are drizzle.config.ts,
+                      geo/backfill.ts and clear-listings.ts — all CLI, none of
+                      them runtime. It is what you migrate WITH, not something
+                      the deployment needs.
+
+    R2_*, NEXT_PUBLIC_R2_PUBLIC_URL
+                      Declared in the env schema and read by NO code anywhere —
+                      grep finds zero `process.env.R2_` outside the schema.
+                      Media went to Supabase Storage (ADR 0009). They stay
+                      declared so a move back is a resolver change rather than a
+                      schema change; they are not a deployment prerequisite.
+
+    NEXT_PUBLIC_UI_PREVIEW, AGENT_INVITE_TTL_MINUTES
+                      Console-only. No effect on apps/web.
 
 ## Migrations
 
