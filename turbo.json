@@ -1,5 +1,18 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalEnv": [
+    "DATABASE_URL",
+    "CRON_SECRET",
+    "RESEND_API_KEY",
+    "ALERT_EMAIL_FROM",
+    "ALERT_SENDER_NAME",
+    "ALERT_SENDER_ADDRESS",
+    "ANTHROPIC_API_KEY",
+    "GOOGLE_MAPS_API_KEY",
+    "REVALIDATE_SECRET",
+    "ALERTS_DRY_RUN",
+    "ALERT_UNSUBSCRIBE_SECRET"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
