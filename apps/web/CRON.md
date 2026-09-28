@@ -18,18 +18,43 @@ with a metered model and a mail provider behind it. Only an unauthorised
 call (401), an unconfigured secret (503) or a scheduler that could not start
 at all (503) is an error status.
 
-## On Vercel
+## In production
 
-`vercel.json` declares a 5-minute cron. Two things to know:
+The tick runs from **GitHub Actions**, not from Vercel Cron, and the reason is
+a hard platform limit rather than a preference.
 
-- **Vercel Hobby only runs crons once a day.** The 5-minute schedule needs
-  Pro. Nothing about the endpoint depends on Vercel, though — it authorises
-  a shared secret and ignores who is calling, so GitHub Actions `schedule`,
-  cron-job.org or any other pinger works identically.
-- Vercel Cron issues a **GET** with `Authorization: Bearer $CRON_SECRET` and
-  cannot be told to send a custom header. The guard accepts that form as
-  well as `x-cron-secret`; both are headers, because a secret in a query
-  string lands in access logs and in a Referer.
+**Vercel Hobby refuses any cron expression that would run more than once a
+day, and it fails the DEPLOYMENT** — `0 * * * *` does not get quietly
+downgraded to daily, it breaks the build with *"Hobby accounts are limited to
+daily cron jobs."* Hobby scheduling precision is also per-hour (a `0 3 * * *`
+job fires somewhere between 3:00 and 3:59), which on its own would miss every
+promise the section below makes.
+
+So there are two callers, doing two different jobs:
+
+- `.github/workflows/alerts-cron.yml` runs `*/5 * * * *` and is the real
+  cadence. Five minutes is GitHub's minimum and its `schedule` is best-effort,
+  so a tick can arrive late. Late costs latency, never correctness —
+  `next_run_at <= now()` does not expire, so the next tick claims the backlog.
+- `apps/web/vercel.json` declares a daily `0 3 * * *` as a floor. It exists
+  because GitHub **disables scheduled workflows on a repository with no
+  activity for 60 days**. On a quiet repo the 5-minute tick stops silently;
+  the daily one does not.
+
+Nothing about the endpoint depends on either. It authorises a shared secret
+and ignores who is calling, so cron-job.org or any other pinger works
+identically — and moving to Pro is deleting the workflow and putting `*/5`
+back in `vercel.json`, with no code change.
+
+Two secrets, set in **Settings → Secrets and variables → Actions**:
+
+    ALERTS_CRON_URL   https://<deployment>/api/cron/alerts
+    CRON_SECRET       the same value set on the Vercel deployment
+
+Vercel Cron issues a **GET** with `Authorization: Bearer $CRON_SECRET` and
+cannot be told to send a custom header. The workflow POSTs with
+`x-cron-secret`. The guard accepts both; both are headers, because a secret in
+a query string lands in access logs and in a Referer.
 
 ## Why 5 minutes
 
@@ -37,7 +62,8 @@ Two separate reasons, and both have to hold.
 
 **Precision.** Schedules fire on a local wall clock, so the tick has to be
 finer than the precision people expect. Every 5 minutes means an alert set
-for 8:00 PM arrives by 8:05 at the latest.
+for 8:00 PM arrives by 8:05 — plus whatever delay the pinger itself adds,
+which on GitHub's best-effort scheduler is not nothing.
 
 **Catch-up.** `nextRunFor` advances an interval schedule exactly one slot
 from the slot it just ran, never to `now` — that is what keeps an 8 PM

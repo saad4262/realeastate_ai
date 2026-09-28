@@ -1,0 +1,68 @@
+# The scheduler tick, driven from here rather than from Vercel.
+#
+# Vercel Hobby refuses any cron expression that would run more than once a
+# day — `0 * * * *` fails the DEPLOYMENT, it is not quietly downgraded. So
+# apps/web/vercel.json declares a daily tick as a floor, and this workflow
+# supplies the cadence the scheduler actually needs.
+#
+# /api/cron/alerts authorises a shared secret and ignores who is calling, so
+# nothing about the endpoint depends on the caller being Vercel.
+#
+# Two honest caveats about GitHub's scheduler, both of which matter here:
+#
+#   - `schedule` is best-effort. Five minutes is the minimum GitHub accepts,
+#     and runs are routinely delayed under load. Delay costs latency, never
+#     correctness: `next_run_at <= now()` does not expire, so a late tick
+#     claims the backlog rather than dropping it.
+#   - GitHub DISABLES scheduled workflows on a repository with no activity
+#     for 60 days, and emails the owner when it does. On a quiet repo the
+#     alerts stop silently until somebody re-enables it. The Vercel daily
+#     cron is the floor that survives that.
+#
+# Secrets required (Settings → Secrets and variables → Actions):
+#   ALERTS_CRON_URL  https://<deployment>/api/cron/alerts
+#   CRON_SECRET      the same value set on the Vercel deployment
+name: alerts cron
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+# A slow tick must not have a queue of its own ticks stacked behind it.
+concurrency:
+  group: alerts-cron
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Run every schedule that is due
+        env:
+          ALERTS_CRON_URL: ${{ secrets.ALERTS_CRON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${ALERTS_CRON_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::ALERTS_CRON_URL or CRON_SECRET is not set. Nothing was run."
+            exit 1
+          fi
+
+          # The secret goes in a header, never in the URL: a secret in a query
+          # string lands in access logs and in a Referer. --fail-with-body so a
+          # 401/503 turns this job red WITH the reason still readable.
+          http_status=$(curl -sS --fail-with-body \
+            --retry 2 --retry-delay 5 --max-time 90 \
+            -o response.json -w '%{http_code}' \
+            -X POST "$ALERTS_CRON_URL" \
+            -H "x-cron-secret: $CRON_SECRET") || {
+              echo "::error::Tick failed with HTTP ${http_status:-000}"
+              cat response.json || true
+              exit 1
+            }
+
+          echo "HTTP $http_status"
+          cat response.json
