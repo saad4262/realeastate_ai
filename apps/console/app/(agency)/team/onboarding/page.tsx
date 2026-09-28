@@ -4,6 +4,7 @@ import { WizardChrome } from './wizard-chrome';
 import { useOnboarding } from './onboarding-state';
 import { useStepValidation } from './use-step-validation';
 import { FieldError } from './field-error';
+import { PhotoField } from './photo-field';
 import styles from './wizard.module.css';
 
 export default function OnboardingIdentityPage() {
@@ -30,33 +31,15 @@ export default function OnboardingIdentityPage() {
         </div>
 
         <div className={styles.grid2}>
-          <div className={styles.photoCard}>
-            <div style={{ position: 'relative' }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                className={styles.photo}
-                src={draft.photoUrl || '/stitch/avatars/daniel.jpg'}
-                alt=""
-              />
-            </div>
-            <div style={{ marginTop: 8, fontWeight: 600, fontSize: 13 }}>
-              Executive Roster Headshot
-            </div>
-            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-muted)', maxWidth: 200 }}>
-              Photo URL optional for now (R2 upload lands with media milestone).
-            </p>
-            <input
-              className={`${styles.input} ${invalid('photoUrl')}`}
-              style={{ marginTop: 12 }}
-              placeholder="https://… photo URL"
-              data-field="photoUrl"
-              value={draft.photoUrl ?? ''}
-              onChange={(e) => patch({ photoUrl: e.target.value || null })}
-              onBlur={() => markTouched('photoUrl')}
-              aria-invalid={Boolean(errorFor('photoUrl'))}
-            />
-            <FieldError message={errorFor('photoUrl')} />
-          </div>
+          <PhotoField
+            photoUrl={draft.photoUrl ?? null}
+            photoKey={draft.photoKey ?? null}
+            onChange={patch}
+            inputClassName={`${styles.input} ${invalid('photoUrl')}`}
+            onBlurUrl={() => markTouched('photoUrl')}
+            urlInvalid={Boolean(errorFor('photoUrl'))}
+          />
+          <FieldError message={errorFor('photoUrl')} />
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className={styles.fieldRow}>

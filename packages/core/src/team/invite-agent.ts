@@ -199,6 +199,7 @@ async function materialiseAgent(
       displayName: draft.displayName || fullName,
       bio: draft.bio ?? null,
       photoUrl: draft.photoUrl ?? null,
+      photoKey: draft.photoKey ?? null,
       languages: draft.languages,
       specialties: draft.specialties,
       licenceNumber: draft.licenceNumber,

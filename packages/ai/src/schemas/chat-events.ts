@@ -83,6 +83,40 @@ export type DoneEvent = {
   rounds: number;
 };
 
+/**
+ * The conversation was saved, and this is its id.
+ *
+ * Emitted by the ROUTE, not by the pipeline — the model knows nothing about
+ * storage and `runPropertyChat` never yields this. It is in this union
+ * because the browser has one NDJSON parser and giving storage a second one
+ * would mean two things that must agree about a wire format.
+ *
+ * Only ever sent to a signed-in visitor. An anonymous conversation is not
+ * stored, so there is no id and no frame.
+ */
+export type SavedEvent = { type: 'saved'; threadId: string };
+
+/**
+ * A schedule the guide has proposed and nobody has agreed to yet.
+ *
+ * `token` is an HMAC-signed copy of the whole draft. The browser may read
+ * it and may hand it back on Accept; it cannot change the search or the
+ * frequency inside it without the signature failing. Nothing is stored
+ * until that Accept arrives.
+ *
+ * `search` and `cadence` are the SERVER's description of what will be
+ * saved, not the model's — the card is what somebody is agreeing to, so it
+ * has to say what the row will contain.
+ */
+export type ScheduleDraftEvent = {
+  type: 'schedule_draft';
+  toolUseId: string;
+  token: string;
+  search: string;
+  cadence: string;
+  searchPath: string;
+};
+
 export type ChatEvent =
   | TurnEvent
   | TextEvent
@@ -90,7 +124,9 @@ export type ChatEvent =
   | ResultsEvent
   | StateEvent
   | ErrorEvent
-  | DoneEvent;
+  | DoneEvent
+  | SavedEvent
+  | ScheduleDraftEvent;
 
 /**
  * The whole turn at once, for callers that cannot stream.

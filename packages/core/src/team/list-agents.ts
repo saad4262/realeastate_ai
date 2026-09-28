@@ -16,6 +16,14 @@ export type AgencyAgentRow = {
   lastName: string | null;
   displayName: string | null;
   photoUrl: string | null;
+  /**
+   * An uploaded portrait's key in the media bucket, never a URL.
+   *
+   * Preferred over photoUrl wherever both exist — an upload is a deliberate
+   * act, photo_url is a link somebody pasted once. `mediaUrl()` in
+   * packages/core/src/media is the only thing that turns one into the other.
+   */
+  photoKey: string | null;
   bio: string | null;
   licenceNumber: string | null;
   licenceClass: string | null;
@@ -65,6 +73,7 @@ export async function listAgencyAgents(
       lastName: agentProfile.lastName,
       displayName: agentProfile.displayName,
       photoUrl: agentProfile.photoUrl,
+      photoKey: agentProfile.photoKey,
       bio: agentProfile.bio,
       licenceNumber: agentProfile.licenceNumber,
       licenceClass: agentProfile.licenceClass,
@@ -134,6 +143,11 @@ export async function listAgencyAgents(
       lastName: d.lastName,
       displayName: d.displayName,
       photoUrl: d.photoUrl ?? null,
+      // The wizard uploads the headshot before the agent exists, keyed on the
+      // agency, and carries the key on the draft — so a pending invite with no
+      // profile row still has a photo to show. This was `null` for one commit,
+      // written when the wizard could only take a URL.
+      photoKey: d.photoKey ?? null,
       bio: d.bio ?? null,
       licenceNumber: d.licenceNumber,
       licenceClass: d.licenceClass,

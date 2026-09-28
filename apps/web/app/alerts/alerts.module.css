@@ -1,0 +1,147 @@
+/*
+ * Alerts page chrome.
+ *
+ * The intro line used to live inside a flex row with the CTA. Flex then
+ * sized that column to the title's width and the sentence wrapped one
+ * word per line. Title + button share a row; the sentence sits below,
+ * full width — structurally it cannot squeeze.
+ */
+
+/*
+ * No top padding of its own any more.
+ *
+ * This page now renders inside the shared shell, whose <main> already pads.
+ * Keeping both put the title 6 rem below a header it is supposed to sit
+ * under. Matches /account, which is the page a visitor arrives from.
+ */
+.page {
+  width: 100%;
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 1rem 0 2rem;
+  box-sizing: border-box;
+}
+
+.head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: 1.25rem;
+  row-gap: 0.5rem;
+  align-items: start;
+}
+
+.title {
+  margin: 0;
+  grid-column: 1;
+  grid-row: 1;
+  font-family: var(--font-display, Georgia, serif);
+  font-size: clamp(1.75rem, 3vw, 1.875rem);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  color: var(--color-ink, #1a1a1a);
+}
+
+.cta {
+  grid-column: 2;
+  grid-row: 1;
+  display: inline-flex;
+  align-items: center;
+  align-self: start;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--color-line, #d9d2c5);
+  border-radius: 999px;
+  background: var(--color-card, #fff);
+  color: var(--color-ink, #1a1a1a);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.cta:hover {
+  border-color: var(--color-line-strong, #c2b8a6);
+}
+
+.sub {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin: 0;
+  max-width: 32rem;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: var(--color-ink-soft, #5c5c5c);
+}
+
+.section {
+  margin-top: 2rem;
+}
+
+.sectionLabel {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint, #8c8577);
+}
+
+.list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.empty {
+  margin: 0.75rem 0 0;
+  padding: 1.25rem 1.15rem;
+  border: 1px solid var(--color-line, #d9d2c5);
+  border-radius: 1rem;
+  background: var(--color-card, #fff);
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--color-ink-soft, #5c5c5c);
+}
+
+.emptyDashed {
+  margin: 0.75rem 0 0;
+  padding: 2rem 1.5rem;
+  border: 1px dashed var(--color-line, #d9d2c5);
+  border-radius: 1rem;
+  background: var(--color-card, #fff);
+  text-align: center;
+}
+
+.emptyTitle {
+  margin: 0;
+  font-weight: 600;
+  color: var(--color-ink, #1a1a1a);
+}
+
+.emptyBody {
+  margin: 0.35rem auto 0;
+  max-width: 24rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--color-ink-soft, #5c5c5c);
+}
+
+.emptyCta {
+  display: inline-flex;
+  margin-top: 1rem;
+  padding: 0.55rem 1rem;
+  border-radius: 999px;
+  background: var(--color-brand, #0b3d2e);
+  color: var(--color-brand-ink, #f7f4ef);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.emptyCta:hover {
+  background: var(--color-brand-deep, #072a20);
+}

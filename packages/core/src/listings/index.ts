@@ -27,6 +27,20 @@ export {
   type UpdateListingInput,
 } from './listing-schema';
 export { CONSOLE_PAGE_SIZE, consolePage } from './console-page';
+export { PAGE_GAP, pageWindow } from './pagination';
+export {
+  nearbyMarket,
+  type NearbyListing,
+  type NearbyMarket,
+  type NearbyMarketQuery,
+  type NearbySuburb,
+} from './nearby-market';
+export {
+  priceLadder,
+  searchFacets,
+  type ChannelFacets,
+  type SearchFacets,
+} from './search-facets';
 export {
   listingAgentCards,
   listingInspections,
@@ -60,6 +74,12 @@ export {
   type PublicSearchQuery,
   type SearchSort,
 } from './search-listings';
+export {
+  nearbySuburbs,
+  topSuburbAgents,
+  type PublicNearbySuburb,
+  type PublicSuburbAgent,
+} from './search-sidebar';
 export { setListingStatus, type PublishListingResult } from './publish-listing';
 export {
   addressLines,

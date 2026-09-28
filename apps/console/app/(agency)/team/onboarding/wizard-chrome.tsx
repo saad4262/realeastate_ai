@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useEffect, useTransition } from 'react';
 import styles from './wizard.module.css';
 import { useOnboarding } from './onboarding-state';
 
@@ -56,7 +57,28 @@ export function WizardChrome({
   hideFooterActions = false,
 }: WizardChromeProps) {
   const router = useRouter();
+  const [moving, startMoving] = useTransition();
   const { draft } = useOnboarding();
+
+  /**
+   * The two steps this one can reach, and only those two.
+   *
+   * Each step is its own route, so Continue is a navigation and costs a round
+   * trip even though every step page is a client component with no data of its
+   * own. Warming the next one means the payload is already in the router cache
+   * when the button is pressed and the move is instant — the wizard's loading
+   * skeleton becomes the fallback for a slow connection rather than the thing
+   * you see five times on the way through.
+   *
+   * Two, not five: ARCHITECTURE.md § 3 — prefetching is targeted, never
+   * blanket. The step rail's own Links keep the default, which with this
+   * folder's loading.tsx fetches the wizard shell and nothing heavier.
+   */
+  useEffect(() => {
+    for (const href of [nextHref, backHref]) {
+      if (href) router.prefetch(href);
+    }
+  }, [router, nextHref, backHref]);
   const candidateName =
     draft.displayName || `${draft.firstName} ${draft.lastName}`.trim() || 'New agent';
   const initials = candidateName
@@ -68,12 +90,15 @@ export function WizardChrome({
     .toUpperCase() || 'NA';
 
   async function handleNext() {
-    if (nextDisabled) return;
+    if (nextDisabled || moving) return;
     if (onNext) {
       const ok = await onNext();
       if (ok === false) return;
     }
-    if (nextHref) router.push(nextHref);
+    // Inside a transition so the button can say it is working. Validation runs
+    // first and outside it: a step that fails its own check never navigates, so
+    // it should never show a pending state either.
+    if (nextHref) startMoving(() => router.push(nextHref));
   }
 
   return (
@@ -167,12 +192,15 @@ export function WizardChrome({
                 <button
                   type="button"
                   className={styles.btnPrimary}
-                  disabled={nextDisabled}
+                  disabled={nextDisabled || moving}
                   onClick={() => void handleNext()}
                 >
                   {nextLabel}
-                  <span className={styles.glyphSm} aria-hidden>
-                    arrow_forward
+                  <span
+                    className={moving ? `${styles.glyphSm} ${styles.spin}` : styles.glyphSm}
+                    aria-hidden
+                  >
+                    {moving ? 'progress_activity' : 'arrow_forward'}
                   </span>
                 </button>
               ) : null}

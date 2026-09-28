@@ -5,7 +5,7 @@ import { ListingCard } from '../components/listing-card';
 import { SearchBar } from '../components/search-bar';
 import { SearchBarSkeleton } from '../components/skeletons';
 import { PrefetchOnIntent } from '../components/prefetch-on-intent';
-import { cachedFilterOptions, cachedSearch } from '../lib/cached';
+import { cachedFacets, cachedSearch } from '../lib/cached';
 import styles from './home.module.css';
 
 /**
@@ -29,13 +29,28 @@ import styles from './home.module.css';
 export const revalidate = 300;
 
 export default async function HomePage() {
-  // Both cached, and the filter options are one call rather than two.
-  const [{ rows: latest, down }, { propertyTypes }] = await Promise.all([
+  // Both cached, and every filter option is one call and one query rather
+  // than six — see cachedFacets.
+  const [{ rows: latest, down }, facets] = await Promise.all([
     cachedSearch({ limit: 6 }),
-    cachedFilterOptions(),
+    cachedFacets(),
   ]);
 
   return (
+    /*
+      No `account` prop, and that is the one deliberate hole in the account
+      control.
+
+      This is the site's only statically rendered route (`revalidate = 300`,
+      measured at 33 ms). Working out whether somebody is signed in means
+      reading a cookie, and a `cookies()` call anywhere in this tree opts the
+      whole route out of static rendering — so the chip would cost this page
+      its cache to draw a link that is one click away on every other page.
+
+      The header therefore reads exactly as it did before: Search · My
+      alerts · Ask the guide, where "My alerts" works for both states because
+      middleware routes a signed-out visitor through /login and back.
+    */
     <WebShell>
       <section className={styles.hero}>
         <p className={styles.kicker}>AI-powered property search</p>
@@ -48,7 +63,7 @@ export default async function HomePage() {
             behind a boundary; a null fallback reserved no height and the hero
             reflowed when the bar hydrated. */}
         <Suspense fallback={<SearchBarSkeleton />}>
-          <SearchBar propertyTypes={propertyTypes} />
+          <SearchBar facets={facets} />
         </Suspense>
 
         {/* The other way in, for a visitor who knows what they want but not

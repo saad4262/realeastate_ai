@@ -127,6 +127,75 @@ export function toClientSlots(query: {
 }
 
 /**
+ * The reverse: the brief the client carries, back as a search query.
+ *
+ * The conversation is not stored, so the client round-trips the slots and
+ * sends them with every turn. That is what lets `draft_schedule` work on
+ * the turn AFTER a search: the tool context is built per HTTP request, so
+ * `lastSearch` is empty on a fresh request, and without this the model has
+ * to re-run the search before it can schedule it — which it did, and ran
+ * out of tool rounds mid-sentence.
+ *
+ * ## What is and is not trusted here
+ *
+ * These slots come from a browser, and this does not pretend otherwise:
+ * every field has already been through `slotsSchema`, and the result is
+ * used only to PROPOSE a schedule on a card the person then confirms. The
+ * card is written by the server from the path this produces, and
+ * `createSchedule` parses that path again with the same vocabulary
+ * `/search` applies to any shared link. So the trust level is exactly that
+ * of a URL somebody pasted — which is the level `/search` already works at.
+ *
+ * It is never used to answer a question about listings. Only a real
+ * `search_listings` call does that, and only its result carries prices.
+ */
+export function slotsToQuery(slots: ChatSlots): {
+  channel?: 'sale' | 'rent';
+  suburb?: string;
+  state?: string;
+  postcode?: string;
+  bedrooms?: number;
+  bathrooms?: number;
+  carSpaces?: number;
+  propertyType?: string;
+  landFrom?: number;
+  priceFrom?: number;
+  priceTo?: number;
+  text?: string;
+  sort?: string;
+  near?: { lat: number; lng: number; radiusKm: number };
+} | null {
+  // Without both of these there is no search to schedule — the same pair
+  // `search_listings` requires before it will run at all.
+  if (!slots.channel || !slots.suburb) return null;
+
+  return {
+    channel: slots.channel,
+    suburb: slots.suburb,
+    ...(slots.state ? { state: slots.state } : {}),
+    ...(slots.postcode ? { postcode: slots.postcode } : {}),
+    ...(slots.bedrooms !== undefined ? { bedrooms: slots.bedrooms } : {}),
+    ...(slots.bathrooms !== undefined ? { bathrooms: slots.bathrooms } : {}),
+    ...(slots.carSpaces !== undefined ? { carSpaces: slots.carSpaces } : {}),
+    ...(slots.propertyType ? { propertyType: slots.propertyType } : {}),
+    ...(slots.landFrom !== undefined ? { landFrom: slots.landFrom } : {}),
+    ...(slots.priceFrom !== undefined ? { priceFrom: slots.priceFrom } : {}),
+    ...(slots.priceTo !== undefined ? { priceTo: slots.priceTo } : {}),
+    ...(slots.keywords ? { text: slots.keywords } : {}),
+    ...(slots.sort ? { sort: slots.sort } : {}),
+    /**
+     * A radius with no centre. `searchQueryToPath` emits `radius` and
+     * suppresses lat/lng whenever a suburb is named, because /search
+     * re-resolves the centre itself — so a placeholder point here never
+     * reaches a stored schedule, and the run resolves the real centre.
+     */
+    ...(slots.radiusKm !== undefined
+      ? { near: { lat: 0, lng: 0, radiusKm: slots.radiusKm } }
+      : {}),
+  };
+}
+
+/**
  * MAX_TURNS is six exchanges. The chat is a way into the search, not a
  * correspondence; past this the client trims and the server refuses, so a
  * hand-built request cannot grow the prompt without limit.

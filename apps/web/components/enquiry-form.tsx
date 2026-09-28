@@ -37,7 +37,7 @@ export function EnquiryForm({
 
   if (sent) {
     return (
-      <div className="rounded-lg border border-line-subtle bg-card p-lg shadow-card">
+      <div id="enquire" className="rounded-lg border border-line-subtle bg-card p-lg shadow-card">
         <h2 className="text-headline-md font-display text-ink">Enquiry sent</h2>
         <p className="mt-1 text-body-md text-ink-soft">
           {agencyName} has your message and will be in touch.
@@ -70,8 +70,13 @@ export function EnquiryForm({
 
   return (
     <form
+      /* The anchor /search links to. A result row's "Enquire now" opens this
+         page at the form rather than at the top of it, which on a phone is
+         several screens above. The id is on both branches, so following the
+         link after a message has been sent still lands on the confirmation. */
+      id="enquire"
       onSubmit={onSubmit}
-      className="grid gap-sm rounded-lg border border-line-subtle bg-card p-lg shadow-card"
+      className="grid gap-sm scroll-mt-xl rounded-lg border border-line-subtle bg-card p-lg shadow-card"
     >
       <div>
         <h2 className="text-headline-md font-display text-ink">Enquire</h2>

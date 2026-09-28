@@ -69,6 +69,18 @@ export function propertyTypeLabel(type: string): string {
   return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
+/**
+ * How a result set is ordered. Another closed vocabulary, so it lives here.
+ *
+ * It was declared in ./search-listings.ts, which imports `@repo/db`. Six call
+ * sites wanted these four strings and were pulling postgres.js in to get them
+ * — including two zod schemas and the chat's tool definition. This module
+ * imports nothing but zod, which is what a vocabulary should cost.
+ */
+export const SORT_OPTIONS = ['relevance', 'newest', 'price_asc', 'price_desc'] as const;
+export type SearchSort = (typeof SORT_OPTIONS)[number];
+export const sortSchema = z.enum(SORT_OPTIONS);
+
 const trimmed = (max: number) => z.string().trim().max(max);
 
 /**

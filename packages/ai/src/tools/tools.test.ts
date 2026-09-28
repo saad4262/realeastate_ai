@@ -86,11 +86,25 @@ describe('tool definitions', () => {
   it('is frozen and stably ordered, because it is the head of the cache prefix', () => {
     // tools render before system, which renders before messages. A rebuilt or
     // reordered array costs every cache read on the route and says nothing.
+    //
+    // Adding a tool moves this list and resets the cache once, deliberately —
+    // which is why the list is written out rather than counted. `cheapest_near`
+    // went in beside search_listings because it is the other way of finding a
+    // home; appending it after get_listing would have read as an afterthought
+    // in the one place the model reads first.
     expect(Object.isFrozen(PROPERTY_CHAT_TOOLS)).toBe(true);
     expect(PROPERTY_CHAT_TOOLS.map((t) => t.name)).toEqual([
       'resolve_location',
       'search_listings',
+      'cheapest_near',
       'get_listing',
+      // The scheduling pair goes at the END, after the four tools that find
+      // a home. They are a different kind of thing — one acts on a search
+      // that has already happened, the other on a saved search — and
+      // slotting them among the finders would read as though the model
+      // should reach for them while still looking.
+      'draft_schedule',
+      'cancel_schedule',
     ]);
   });
 });

@@ -8,8 +8,8 @@
   min-width: 0;
   padding: 0.625rem 0.75rem;
   border-radius: 0.5rem;
-  border: 1px solid var(--color-border, #d9d2c5);
-  background: var(--color-bg, #fff);
+  border: 1px solid var(--color-line, #d9d2c5);
+  background: var(--color-canvas, #fff);
   color: inherit;
   font: inherit;
   font-size: 0.9375rem;
@@ -32,8 +32,8 @@
   max-height: 15rem;
   overflow-y: auto;
   border-radius: 0.625rem;
-  border: 1px solid var(--color-border, #d9d2c5);
-  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-line, #d9d2c5);
+  background: var(--color-card, #fff);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
 }
 
@@ -61,5 +61,5 @@
 
 .optionSub {
   font-size: 0.75rem;
-  color: var(--color-muted, #5c5c5c);
+  color: var(--color-ink-soft, #5c5c5c);
 }

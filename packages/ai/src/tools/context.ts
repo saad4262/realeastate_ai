@@ -1,6 +1,8 @@
 import type { Db } from '@repo/db';
 import type { ResolvedPlace } from '@repo/core/geo/schema';
 import type {
+  NearbyMarket,
+  NearbyMarketQuery,
   PublicListing,
   PublicListingSummary,
   PublicSearchQuery,
@@ -22,6 +24,16 @@ export type ToolContext = {
   search: (query: PublicSearchQuery) => Promise<PublicListingSummary[]>;
   getListing: (id: string) => Promise<PublicListing | null>;
   /**
+   * "Cheapest near here", ranked by Postgres.
+   *
+   * Injected like the other two rather than run off `db` directly, for the
+   * reason at the top of this file: apps/web wraps every read in
+   * unstable_cache, and which reads are cached is the app's decision, not this
+   * package's. It was a direct `ctx.db` call for one commit and that was the
+   * only read on this route that went to the database region every time.
+   */
+  nearbyMarket: (query: NearbyMarketQuery) => Promise<NearbyMarket>;
+  /**
    * Places resolved during this turn, keyed by lowercased suburb.
    *
    * The model calls resolve_location and then search_listings with a suburb
@@ -30,7 +42,46 @@ export type ToolContext = {
    * for a forged one to arrive in.
    */
   places: Map<string, ResolvedPlace>;
+  /**
+   * The query the last `search_listings` actually ran, this turn.
+   *
+   * Written by the search tool and read by `draft_schedule`, so a schedule
+   * freezes the search that returned rows rather than a search the model
+   * described afterwards. The model never supplies it and has no field to
+   * supply it in — same reasoning as `places` above, where coordinates are
+   * kept out of the model's reach.
+   */
+  lastSearch?: PublicSearchQuery;
+  /**
+   * Everything the scheduling tools need — or WHY they cannot run.
+   *
+   * This was an optional object, and absent meant two entirely different
+   * things: the visitor is not signed in, or the server has no signing
+   * secret. The tools could not tell them apart, so an anonymous visitor
+   * asking to be emailed daily was told "scheduling isn't available at the
+   * moment" — which is false, unactionable, and reads as a broken product
+   * when the fix was a ten-second sign-in.
+   *
+   * Same distinction packages/smoke already draws between "you chose not to
+   * spend money" and "you asked to and cannot". Two situations that must
+   * not read the same.
+   */
+  scheduling: SchedulingContext;
 };
+
+export type SchedulingContext =
+  | {
+      state: 'ready';
+      draftSecret: string;
+      listSchedules: () => Promise<
+        { id: string; name: string; description: string; status: string }[]
+      >;
+      pauseSchedule: (id: string) => Promise<boolean>;
+    }
+  /** No session. The visitor can fix this, and should be told how. */
+  | { state: 'signed_out' }
+  /** No ALERT_UNSUBSCRIBE_SECRET. Nobody in the conversation can fix it. */
+  | { state: 'unconfigured' };
 
 /** What one tool call produces: a block for the model, and maybe a frame for the UI. */
 export type ToolOutcome = {
@@ -43,6 +94,18 @@ export type ToolOutcome = {
   slots?: PublicSearchQuery;
   /** Something short for the "running" indicator. */
   label?: string;
+  /**
+   * A schedule awaiting confirmation. Becomes a card in the chat.
+   *
+   * Carried on the outcome rather than written anywhere: nothing exists
+   * until the visitor presses Accept and the signed token comes back.
+   */
+  scheduleDraft?: {
+    token: string;
+    search: string;
+    cadence: string;
+    searchPath: string;
+  };
 };
 
 export function placeKey(suburb: string, state?: string): string {

@@ -1,7 +1,17 @@
 import { config } from 'dotenv';
-import { resolve } from 'node:path';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { and, eq, sql } from 'drizzle-orm';
-import { getDb, listing, membership, property, type Db } from '@repo/db';
+import {
+  getDb,
+  listing,
+  membership,
+  property,
+  scheduleRun,
+  searchSchedule,
+  user as userTable,
+  type Db,
+} from '@repo/db';
 import {
   getPublicListing,
   listingAgentCards,
@@ -10,8 +20,14 @@ import {
   liveSuburbs,
   propertyDraftSchema,
   searchPublicListings,
+  nearbyMarket,
+  priceLadder,
+  searchFacets,
   searchPublicListingsPage,
+  topSuburbAgents,
+  nearbySuburbs,
   type PublicListingSummary,
+  type PublicSearchQuery,
 } from '@repo/core/listings';
 import {
   isGeoProviderConfigured,
@@ -20,6 +36,22 @@ import {
   suggestPlaces,
 } from '@repo/core/geo';
 import { createEnquiry } from '@repo/core/leads';
+import { fakeTransport } from '@repo/core/email';
+import {
+  claimDueSchedules,
+  createSchedule,
+  ABANDONED_RUN_MINUTES,
+  deleteSchedule,
+  describeCadence,
+  listSchedules,
+  MIN_INTERVAL_MINUTES,
+  minutesFrom12Hour,
+  runScheduleTick,
+  signScheduleDraft,
+  sweepAbandonedRuns,
+  verifyScheduleDraft,
+} from '@repo/core/schedules';
+import { mediaUrl } from '@repo/core/media/url';
 import type { ChatTurnResult } from '@repo/ai/chat-events';
 import { assert, check, group, note, report, skip } from './runner';
 
@@ -773,6 +805,456 @@ async function main() {
     return report.join(' · ');
   });
 
+  await check('the portal skin reaches /search', async () => {
+    /**
+     * The skin is ONE attribute and ONE CSS block.
+     *
+     * `/search` re-skins itself by redefining the colour tokens on a
+     * `[data-skin="portal"]` wrapper, which every Tailwind utility and every
+     * CSS Module below it reads through `var()`. That is what makes a palette
+     * swap a twenty-line change instead of a rename of every class — and it is
+     * also a single point of silent failure. Drop the attribute, or let the
+     * block fall out of the built CSS, and the page renders perfectly: fully
+     * styled, correct, and the wrong colour. Nothing else here would notice,
+     * because "are the utilities defined" is true either way.
+     *
+     * So both halves are asserted: the markup carries the hook, and the CSS
+     * the page actually serves redefines the brand behind it.
+     */
+    if (!webUp) skip('web app is not running');
+    const suburb = (await liveSuburbs(db))[0] ?? 'Pakenham';
+    const path = `/search?suburb=${encodeURIComponent(suburb)}`;
+    const { html, css } = await servedCss(path);
+
+    /**
+     * On the page's OWN wrapper, not merely somewhere in the document.
+     *
+     * loading.tsx carries the skin as well — it must, or the page changes
+     * colour the moment it arrives — and its shell is streamed into the same
+     * response. The first version of this check asked "is data-skin anywhere
+     * in the HTML", which the skeleton answers yes to on its own: deleting the
+     * attribute from the real page left this check green. So it matches the
+     * one element that carries both attributes.
+     */
+    const wrapper = /<div[^>]*data-page="search-results"[^>]*>/.exec(html);
+    assert(
+      wrapper !== null,
+      '/search renders no results wrapper at all — did the page fail to stream?',
+    );
+    assert(
+      /data-skin="portal"/.test(wrapper[0]),
+      '/search renders its results outside the portal skin — the page is on the default palette',
+    );
+
+    // Whitespace and quote style survive minification differently, so the
+    // selector is matched loosely rather than as a literal string.
+    const skinBlock = /\[data-skin=['"]?portal['"]?\]\s*\{([^}]*)\}/.exec(css);
+    assert(
+      skinBlock !== null,
+      'the CSS /search serves defines no [data-skin="portal"] block — the wrapper points at nothing',
+    );
+    assert(
+      /--color-brand:/.test(skinBlock[1] as string),
+      'the portal block does not redefine --color-brand — the skin is a no-op',
+    );
+
+    return `skin applied, ${(skinBlock[1] as string).match(/--[a-z-]+:/g)?.length ?? 0} tokens overridden`;
+  });
+
+  await check('the results sidebar counts what the database holds', async () => {
+    /**
+     * The panels beside the results are the only numbers on this page that are
+     * not a price or a result count, and they are the kind of number a portal
+     * normally invents — "54 listings", "top agent". Here they are aggregates
+     * over live rows, so the page and the database have to agree exactly.
+     *
+     * Checked against a second, independent count rather than against the same
+     * query: the panel query groups and counts, and a wrong GROUP BY returns a
+     * confident, plausible, wrong number. Counting the same agent's rows the
+     * long way is what catches that.
+     */
+    if (!webUp) skip('web app is not running');
+    const suburb = (await liveSuburbs(db))[0];
+    if (!suburb) skip('no live listings');
+
+    const agents = await topSuburbAgents(db, { suburb });
+    if (!agents.length) skip(`no agents listing in ${suburb}`);
+
+    const top = agents[0] as NonNullable<(typeof agents)[number]>;
+    assert(
+      typeof top.listingCount === 'number' && Number.isInteger(top.listingCount),
+      `the agent count came back as ${typeof top.listingCount} — a bigint arrives as text`,
+    );
+
+    // The same figure, counted without grouping.
+    const [row] = await db
+      .select({ n: sql<string>`count(distinct ${listing.id})` })
+      .from(listing)
+      .innerJoin(property, eq(property.id, listing.propertyId))
+      .innerJoin(
+        sql`listing_agent`,
+        sql`listing_agent.listing_id = ${listing.id} and listing_agent.user_id = ${top.userId}`,
+      )
+      .where(
+        and(
+          eq(listing.status, 'live'),
+          sql`lower(${property.suburb}) = lower(${suburb})`,
+        ),
+      );
+    const independent = Number(row?.n ?? 0);
+    assert(
+      independent === top.listingCount,
+      `the panel says ${top.listingCount} for ${top.name}, counting the rows says ${independent}`,
+    );
+
+    const res = await http(`${WEB}/search?suburb=${encodeURIComponent(suburb)}`);
+    assert(res.ok, `search returned HTTP ${res.status}`);
+    const html = await res.text();
+    assert(
+      html.includes(`Agents listing in ${suburb}`),
+      `the agents panel did not render for ${suburb}`,
+    );
+
+    return `${top.name}: ${top.listingCount} in ${suburb}`;
+  });
+
+  await check('every nearby suburb the sidebar offers is a search that returns something', async () => {
+    /**
+     * A suggestion that lands on an empty page is worse than no suggestion.
+     *
+     * The panel builds each link from suburb + state + postcode — there is a
+     * Richmond in four states — and claims a listing count beside it. Both of
+     * those are claims about a search this site can run, so they are checked by
+     * running it.
+     */
+    if (!webUp) skip('web app is not running');
+    const suburb = (await liveSuburbs(db))[0];
+    if (!suburb) skip('no live listings');
+
+    const suggestions = await nearbySuburbs(db, { suburb });
+    if (!suggestions.length) skip(`nothing listed outside ${suburb}`);
+
+    for (const s of suggestions) {
+      assert(
+        s.listingCount > 0,
+        `${s.suburb} is offered with ${s.listingCount} listings — the panel is suggesting an empty page`,
+      );
+      assert(
+        s.suburb.toLowerCase() !== suburb.toLowerCase(),
+        `${suburb} is being suggested as a suburb near itself`,
+      );
+      const found = await resultCount(
+        `suburb=${encodeURIComponent(s.suburb)}&state=${encodeURIComponent(s.state)}&postcode=${encodeURIComponent(s.postcode)}`,
+      );
+      assert(
+        found === s.listingCount,
+        `the panel says ${s.suburb} has ${s.listingCount}, the search it links to returns ${found}`,
+      );
+    }
+
+    return `${suggestions.length} suggestions, all non-empty`;
+  });
+
+  await check('the property page is skinned and every in-page tab lands somewhere', async () => {
+    /**
+     * Two invariants on one fetch, because they fail together.
+     *
+     * The skin: `/listing/[id]` re-skins itself with the same wrapper `/search`
+     * uses, and loading.tsx carries it too — so the attribute is matched on the
+     * one element that also carries `data-page`, or the skeleton answers for
+     * the page. That is not hypothetical; it is how the first version of the
+     * /search check passed while the skin was removed.
+     *
+     * The tabs: the in-page bar is built from whichever sections rendered,
+     * because a listing may have no inspections, no history and no
+     * coordinates. That decision was being made TWICE — once for the tab, once
+     * inside the section — and the two disagreed: a property whose only
+     * history is its own live listing showed a "History" tab that scrolled
+     * nowhere. Nothing would have caught it, because an anchor to a missing id
+     * is not an error, it is a click that does nothing.
+     *
+     * So: pull the hrefs out of the rendered nav and require an element with
+     * each id. It compares the page against itself, so it cannot go stale as
+     * sections are added.
+     */
+    if (!webUp) skip('web app is not running');
+    if (!sample) skip('no live listings');
+    const [row] = await searchPublicListings(db, { suburb: sample });
+    if (!row) skip(`nothing live in ${sample}`);
+
+    const res = await http(`${WEB}/listing/${row.id}`);
+    assert(res.ok, `the listing page returned HTTP ${res.status}`);
+    const html = await res.text();
+
+    const wrapper = /<div[^>]*data-page="listing-detail"[^>]*>/.exec(html);
+    assert(wrapper !== null, 'the property page renders no wrapper — did it fail to stream?');
+    assert(
+      /data-skin="portal"/.test(wrapper[0]),
+      'the property page renders outside the portal skin — it is on the default palette',
+    );
+
+    const nav = /<nav[^>]*aria-label="On this page"[^>]*>([\s\S]*?)<\/nav>/.exec(html);
+    assert(nav !== null, 'the property page renders no in-page navigation');
+
+    const targets = [...(nav[1] as string).matchAll(/href="#([a-z-]+)"/g)].map(
+      (m) => m[1] as string,
+    );
+    assert(targets.length > 0, 'the in-page navigation has no links in it');
+
+    const dangling = targets.filter((id) => !new RegExp(`id="${id}"`).test(html));
+    assert(
+      dangling.length === 0,
+      `${dangling.join(', ')} ${dangling.length === 1 ? 'is a tab that scrolls' : 'are tabs that scroll'} to nothing`,
+    );
+
+    return `skinned, ${targets.length} tabs: ${targets.join(', ')}`;
+  });
+
+  await check('no filter option the search box offers can return zero results', async () => {
+    /**
+     * The rule the filters were rebuilt around, enforced against live data.
+     *
+     * Every control on /search except property type used to offer a hard-coded
+     * ladder. Sale prices started at $750,000 against a database whose dearest
+     * listing is under $50,000; beds went to 5 where the most any property has
+     * is 3; baths to 4; parking to 3; and the Rent tab searched a channel with
+     * nothing in it. Four of six controls could only empty the page — which
+     * reads as "this portal has nothing", not as "that option was fiction".
+     *
+     * So: take the options the box will actually render, and run each one.
+     * This is the check that makes "dynamic filters" a property of the system
+     * rather than a claim about it, and it re-tightens automatically as the
+     * data changes — there is no ladder here to keep in step.
+     */
+    const facets = await searchFacets(db);
+    const tried: string[] = [];
+
+    for (const channel of ['sale', 'rent'] as const) {
+      const live = facets[channel];
+      if (live.total === 0) {
+        // An empty channel offers no options at all, which is the correct
+        // behaviour rather than something to skip past.
+        assert(
+          live.bedrooms.length === 0 &&
+            live.bathrooms.length === 0 &&
+            live.carSpaces.length === 0 &&
+            live.propertyTypes.length === 0 &&
+            priceLadder(live.priceMin, live.priceMax).length === 0,
+          `${channel} has no listings but the box would still offer filters for it`,
+        );
+        continue;
+      }
+
+      const options: { label: string; query: PublicSearchQuery }[] = [
+        ...live.bedrooms.map((n) => ({ label: `${n}+ beds`, query: { channel, bedrooms: n } })),
+        ...live.bathrooms.map((n) => ({ label: `${n}+ baths`, query: { channel, bathrooms: n } })),
+        ...live.carSpaces.map((n) => ({ label: `${n}+ car`, query: { channel, carSpaces: n } })),
+        ...live.propertyTypes.map((t) => ({ label: t, query: { channel, propertyType: t } })),
+        // Both directions of the price ladder: every rung is offered as a
+        // ceiling in the main bar and as a floor under "More filters", and a
+        // rung that works one way round can still be empty the other.
+        ...priceLadder(live.priceMin, live.priceMax).flatMap((n) => [
+          { label: `up to ${n}`, query: { channel, priceTo: n } as PublicSearchQuery },
+          { label: `from ${n}`, query: { channel, priceFrom: n } as PublicSearchQuery },
+        ]),
+      ];
+
+      assert(options.length > 0, `${channel} has ${live.total} listing(s) but offers no filters`);
+
+      for (const option of options) {
+        const { total } = await searchPublicListingsPage(db, option.query);
+        assert(
+          total > 0,
+          `${channel}: "${option.label}" is offered in the search box and returns nothing`,
+        );
+      }
+      tried.push(`${channel} ${options.length}`);
+    }
+
+    return `${tried.join(', ')} option(s), none empty`;
+  });
+
+  await check('every stored image is a key, never a URL', async () => {
+    /**
+     * The one rule the whole media design rests on.
+     *
+     * `media.storage_key` and `agent_profile.photo_key` hold a path inside one
+     * bucket. The moment a row holds
+     * `https://….supabase.co/storage/v1/object/public/media/…` instead, moving
+     * to R2 — which CLAUDE.md still names as where media belongs — stops being
+     * a change to one resolver and becomes a migration across two tables plus
+     * every component that happened to read one.
+     *
+     * It is the kind of rule that is obeyed for months and then broken by one
+     * well-meaning line in an import script, silently, because a URL renders
+     * perfectly well.
+     */
+    const bad = await db.execute(sql`
+      select 'media' as source, storage_key as value from media
+      where storage_key like '%://%' or storage_key like '/%'
+      union all
+      select 'agent_profile', photo_key from agent_profile
+      where photo_key like '%://%' or photo_key like '/%'
+      limit 5
+    `);
+    const rows = bad as unknown as { source: string; value: string }[];
+    assert(
+      rows.length === 0,
+      `${rows.length} row(s) hold a URL instead of a key — e.g. ${rows[0]?.source}: ${rows[0]?.value?.slice(0, 60)}`,
+    );
+
+    const [{ n } = { n: 0 }] = (await db.execute(
+      sql`select count(*)::int as n from media where kind = 'photo'`,
+    )) as unknown as { n: number }[];
+    return `${n} photo row(s), all keys`;
+  });
+
+  await check('a listing with photos in the database has a cover in its search result', async () => {
+    /**
+     * The source of truth is `media`, NOT the search result.
+     *
+     * The first version of this check asked the search for rows with a cover
+     * and then verified those. Deleting the cover sub-select from the search
+     * statement made it **skip** — "no listing has a photo yet" — because the
+     * thing it filtered on was the thing that had broken. It reported green
+     * over exactly the bug it was written for, which is the second time that
+     * pattern has appeared in this repo and the reason ARCHITECTURE.md says to
+     * break a new check before trusting it.
+     *
+     * So the expected set comes from the media table, and the search has to
+     * account for every row in it.
+     */
+    const expected = (await db.execute(sql`
+      select l.id as listing_id, m.storage_key as key
+      from listing l
+      join lateral (
+        select storage_key from media
+        where listing_id = l.id and kind = 'photo'
+        order by is_main desc, sort_order asc, created_at asc
+        limit 1
+      ) m on true
+      where l.status = 'live'
+    `)) as unknown as { listing_id: string; key: string }[];
+
+    if (!expected.length) skip('no live listing has a photo yet');
+
+    const rows = await searchPublicListings(db, {});
+    const byId = new Map(rows.map((r) => [r.id, r]));
+
+    for (const want of expected) {
+      const row = byId.get(want.listing_id);
+      assert(row !== undefined, `listing ${want.listing_id.slice(0, 8)} has a photo but no search row`);
+      assert(
+        row.mainPhotoKey === want.key,
+        `${row.address}: media says ${want.key.slice(-12)}, the search says ${row.mainPhotoKey ?? 'nothing'}`,
+      );
+
+      const url = mediaUrl(row.mainPhotoKey);
+      assert(url !== null, 'media is not configured, but a row has a key');
+
+      /**
+       * The file is fetched, not assumed.
+       *
+       * Uploads write the object first and the row second; deletes remove the
+       * row first and the object second. Both orders were chosen so a row
+       * never points at a missing file — get either backwards and this is the
+       * only thing that notices, because a 404 image is invisible to every
+       * other check on this page.
+       */
+      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+      assert(res.ok, `${row.address}: its cover photo returned HTTP ${res.status}`);
+      const type = res.headers.get('content-type') ?? '';
+      assert(type.startsWith('image/'), `${row.address}: served as ${type || 'nothing'}`);
+    }
+
+    return `${expected.length} cover photo(s), all present in search and reachable`;
+  });
+
+  await check('the results page renders the photos the database has', async () => {
+    /**
+     * The page and the data, compared — the same shape as "the page agrees
+     * with the database" above, for images. Expected set from `media` again,
+     * for the reason the check above it gives at length.
+     *
+     * Two plausible causes of failure: the cover dropping out of the search
+     * statement, or next.config's remotePatterns not covering the host, which
+     * makes next/image throw for that image alone and leaves the rest of the
+     * page perfectly fine.
+     */
+    if (!webUp) skip('web app is not running');
+    const suburb = (await liveSuburbs(db))[0];
+    if (!suburb) skip('no live listings');
+
+    const expected = (await db.execute(sql`
+      select m.storage_key as key
+      from listing l
+      join property p on p.id = l.property_id
+      join lateral (
+        select storage_key from media
+        where listing_id = l.id and kind = 'photo'
+        order by is_main desc, sort_order asc, created_at asc
+        limit 1
+      ) m on true
+      where l.status = 'live' and lower(p.suburb) = lower(${suburb})
+    `)) as unknown as { key: string }[];
+
+    if (!expected.length) skip(`no listing in ${suburb} has a photo`);
+
+    const res = await http(`${WEB}/search?suburb=${encodeURIComponent(suburb)}`);
+    assert(res.ok, `search returned HTTP ${res.status}`);
+    const html = await res.text();
+
+    const missing = expected.filter((e) => !html.includes(encodeURIComponent(e.key)));
+    assert(
+      missing.length === 0,
+      `${missing.length} of ${expected.length} cover photo(s) never reached the results page — e.g. ${missing[0]?.key.slice(-16)}`,
+    );
+
+    return `${expected.length} cover photo(s) on the page`;
+  });
+
+  await check('the media bucket refuses an anonymous write', async () => {
+    /**
+     * The entire authorisation story for uploads.
+     *
+     * The bucket has no row-level security INSERT policy, so the anon key —
+     * which ships to every browser — cannot put a byte in it. Every upload
+     * goes through a URL the server signs only after can() has agreed.
+     *
+     * Adding an insert policy "so uploads work" would make that whole chain
+     * decorative while leaving it in place and passing every other test. This
+     * is the check that would go red.
+     */
+    const base = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+    const anon = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
+    const bucket = process.env.NEXT_PUBLIC_SUPABASE_MEDIA_BUCKET?.trim() || 'media';
+    if (!base || !anon) skip('Supabase is not configured');
+
+    // A real PNG header, so the refusal is about permission rather than about
+    // the bucket's MIME allowlist — which fires first and would hide this.
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const res = await fetch(
+      `${base.replace(/\/+$/, '')}/storage/v1/object/${bucket}/smoke-probe.png`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${anon}`, apikey: anon, 'Content-Type': 'image/png' },
+        body: png,
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+
+    assert(!res.ok, `the anon key uploaded to the bucket (HTTP ${res.status}) — writes are open`);
+    const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+    assert(
+      /row-level security|Unauthorized|AccessDenied/i.test(
+        `${body.error ?? ''} ${body.message ?? ''}`,
+      ),
+      `refused, but for the wrong reason: ${body.message ?? body.error ?? res.status}`,
+    );
+
+    return 'anon write refused by RLS';
+  });
+
   await check('/api/places suggests a suburb', async () => {
     if (!webUp) skip('web app is not running');
     const res = await http(`${WEB}/api/places?q=pakenham`);
@@ -1069,6 +1551,316 @@ async function main() {
     );
   });
 
+  // ------------------------------------------------------- consumer accounts --
+  group('Consumer accounts (HTTP, signed out)');
+
+  await check('an account route sends a signed-out visitor to sign in', async () => {
+    if (!webUp) skip('web app is not running');
+
+    const res = await http(`${WEB}/alerts`);
+    const location = res.headers.get('location') ?? '';
+
+    assert(
+      res.status === 307 || res.status === 302,
+      `/alerts answered ${res.status}, expected a redirect`,
+    );
+    assert(location.includes('/login'), `redirected to ${location}, expected /login`);
+    // Without `next` the visitor signs in and lands somewhere they did not ask
+    // for, which reads as the link having been lost.
+    assert(location.includes('next=%2Falerts'), `redirect lost the next param: ${location}`);
+
+    return `${res.status} → ${location.replace(WEB, '')}`;
+  });
+
+  await check('the account page is an account route too', async () => {
+    if (!webUp) skip('web app is not running');
+
+    /**
+     * § 9 — every new endpoint gets a permission test, and this one holds a
+     * person's name, address and the only control that ends their session.
+     * It is listed in the middleware matcher; this asserts the listing
+     * actually does something, because a matcher line is one edit from gone.
+     */
+    const res = await http(`${WEB}/account`);
+    const location = res.headers.get('location') ?? '';
+
+    assert(
+      res.status === 307 || res.status === 302,
+      `/account answered ${res.status}, expected a redirect`,
+    );
+    assert(location.includes('/login'), `redirected to ${location}, expected /login`);
+    assert(location.includes('next=%2Faccount'), `redirect lost the next param: ${location}`);
+
+    return `${res.status} → ${location.replace(WEB, '')}`;
+  });
+
+  await check('the header\'s account control did not make the home page dynamic', async () => {
+    /**
+     * A source check, because the thing it guards is invisible at runtime.
+     *
+     * `/` is the site's only statically rendered route. Drawing an account
+     * chip means knowing whether somebody is signed in, which means reading
+     * a cookie, and such a call anywhere in this tree silently opts the
+     * whole route out of static rendering — no error, no warning, just the
+     * 33 ms it was measured at turning into a render per visit.
+     *
+     * So the chip is a prop the page passes in, `/` passes nothing, and
+     * these three files are where somebody "tidying up the inconsistency"
+     * would put the read.
+     *
+     * Asserted on the IMPORTS, not on the text. The first version searched
+     * the source for `cookies(` and went red on this very file's own
+     * comment explaining the rule — prose about a ban is not the ban being
+     * broken. A session cannot be read in these files without importing
+     * something, and an import is unambiguous.
+     */
+    const banned = ['next/headers', 'looksSignedIn', 'currentWebUser', 'requireWebUser'];
+    const files = [
+      'apps/web/app/page.tsx',
+      'apps/web/components/web-shell.tsx',
+      'packages/ui/src/app-shell.tsx',
+    ];
+
+    for (const file of files) {
+      const source = readFileSync(resolve(process.cwd(), '../..', file), 'utf8');
+      const imports = source.match(/^import[\s\S]*?from\s+'[^']+';/gm) ?? [];
+
+      for (const statement of imports) {
+        for (const needle of banned) {
+          assert(
+            !statement.includes(needle),
+            `${file} imports ${needle} — reading a session there makes the statically rendered / dynamic`,
+          );
+        }
+      }
+    }
+
+    return `${files.length} files import no session`;
+  });
+
+  /**
+   * The failure this repo has actually had, on the other app.
+   *
+   * A forged `x-console-user-id` rendered a real owner's agency console —
+   * HTTP 200 — through two paths that reached a Server Component without the
+   * header strip running. apps/web is a second app with the same shape and
+   * the same header names, so it gets the same check. Both prefixes, because
+   * @repo/auth strips the whole family and a caller does not know which name
+   * this app reads.
+   */
+  await check('a forged identity header is not a session on the consumer site', async () => {
+    if (!webUp) skip('web app is not running');
+
+    const forged = '00000000-0000-0000-0000-000000000001';
+    const results: string[] = [];
+
+    for (const header of ['x-web-user-id', 'x-console-user-id']) {
+      const res = await fetch(`${WEB}/alerts`, {
+        redirect: 'manual',
+        headers: { [header]: forged },
+        signal: AbortSignal.timeout(20_000),
+      });
+      assert(
+        res.status === 307 || res.status === 302,
+        `${header} got ${res.status} on /alerts — a forged header was accepted`,
+      );
+      assert(
+        (res.headers.get('location') ?? '').includes('/login'),
+        `${header} did not land on /login`,
+      );
+      results.push(`${header} ${res.status}`);
+    }
+
+    return results.join(', ');
+  });
+
+  /**
+   * `next` decides where an authenticated session lands, and it arrives in a
+   * URL that can be emailed. `//evil.example` is a protocol-relative absolute
+   * URL that reads as a path to a careless check.
+   */
+  await check('the sign-in redirect cannot be aimed off-site', async () => {
+    if (!webUp) skip('web app is not running');
+
+    const res = await http(`${WEB}/login?next=%2F%2Fevil.example`);
+    assert(res.status === 200, `/login answered ${res.status}`);
+
+    const html = await res.text();
+
+    /**
+     * Assert on the rendered attribute, not on the whole document.
+     *
+     * The first version of this check was `!html.includes('//evil.example')`
+     * and it failed while the page was correct: the rejected value still
+     * appears inside Next's RSC flight payload, because that payload echoes
+     * the request URL and the parsed searchParams. Neither is a redirect
+     * target and neither is rendered. What matters is the value the form will
+     * actually submit.
+     */
+    assert(
+      html.includes('name="next" value="/alerts"'),
+      'the rejected next did not fall back to /alerts in the form',
+    );
+    assert(
+      !/(?:value|href|action)="\/\/evil\.example/.test(html),
+      'an off-site next was rendered into an attribute',
+    );
+
+    return 'off-site next replaced with /alerts in the submitted field';
+  });
+
+  await check('the account screens all render, with the fields they claim', async () => {
+    if (!webUp) skip('web app is not running');
+
+    const checked: string[] = [];
+
+    for (const [path, needles] of [
+      ['/login', ['name="email"', 'name="password"', 'Forgot password?']],
+      ['/signup', ['name="name"', 'name="email"', 'name="password"']],
+      ['/forgot', ['name="email"']],
+      ['/reset', ['name="password"']],
+    ] as [string, string[]][]) {
+      const res = await http(`${WEB}${path}`);
+      assert(res.status === 200, `${path} answered ${res.status}`);
+
+      const html = await res.text();
+      for (const needle of needles) {
+        assert(html.includes(needle), `${path} is missing ${needle}`);
+      }
+      checked.push(path);
+    }
+
+    /**
+     * Every one of these is a plain form posting to a server action. The
+     * moment somebody reaches for `createBrowserSupabaseClient` instead,
+     * these routes gain supabase-js — measured at 69 kB of First Load the
+     * first time it happened here.
+     */
+    return `${checked.join(', ')} — all server-rendered forms`;
+  });
+
+  await check('signing out is POST-only', async () => {
+    if (!webUp) skip('web app is not running');
+
+    // A GET sign-out is a link, and Next prefetches links in the viewport —
+    // so a GET version signs people out for scrolling past the button.
+    const get = await http(`${WEB}/sign-out`);
+    assert(get.status === 405, `GET /sign-out answered ${get.status}, expected 405`);
+
+    const post = await fetch(`${WEB}/sign-out`, {
+      method: 'POST',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(20_000),
+    });
+    assert(post.status === 303, `POST /sign-out answered ${post.status}, expected 303`);
+
+    /**
+     * `new URL('/', request.url)` sends the browser to the address the server
+     * is listening on rather than the host it asked for. Caught live: a POST
+     * to web.lvh.me redirected to localhost, which drops the .lvh.me cookie
+     * scope and can leave the visitor looking signed in.
+     */
+    const location = post.headers.get('location') ?? '';
+    const expectedHost = new URL(WEB).host;
+    assert(
+      location.includes(expectedHost),
+      `sign-out redirected to ${location}, losing the host ${expectedHost}`,
+    );
+
+    return `GET 405, POST 303 → ${location}`;
+  });
+
+  /**
+   * The matcher, asserted as behaviour rather than as a line of config.
+   *
+   * `updateSession` is a network round trip to Supabase. The three fastest
+   * pages in the repo are on this app and were measured with none — `/` is a
+   * cached route, and a cached route that authenticates before serving is not
+   * a cached route. Widening the matcher is the natural next edit to
+   * apps/web/middleware.ts and this is what should stop it.
+   */
+  /**
+   * The bug this guards was reported as "i signed in already???".
+   *
+   * `/chat` was in the middleware matcher and `/api/chat` was not, so the
+   * PAGE knew you were signed in while the ROUTE did not — the guide told a
+   * signed-in visitor to sign in before it could schedule anything, and
+   * every conversation silently failed to save, because the transcript
+   * writer reads the same header.
+   *
+   * Asserting the marker rather than the config: a matcher entry can be
+   * deleted and nothing else would notice.
+   */
+  await check('the chat API is inside the session layer, and the cron is not', async () => {
+    if (!webUp) skip('web app is not running');
+
+    const chat = await fetch(`${WEB}/api/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ not: 'a valid request' }),
+      redirect: 'manual',
+      signal: AbortSignal.timeout(20_000),
+    });
+
+    assert(
+      chat.headers.get('x-web-session') !== null,
+      '/api/chat has no x-web-session — middleware does not cover it, so a signed-in visitor reads as anonymous',
+    );
+
+    // A machine caller has no session and refreshing one for it is pure cost.
+    const cron = await fetch(`${WEB}/api/cron/alerts`, {
+      method: 'POST',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(20_000),
+    });
+
+    assert(
+      cron.headers.get('x-web-session') === null,
+      '/api/cron/alerts went through the session layer — a cron tick has no session to refresh',
+    );
+
+    return 'chat API marked, cron API not';
+  });
+
+  await check('the public pages still have no session layer', async () => {
+    if (!webUp) skip('web app is not running');
+
+    /**
+     * Asserted with the `x-web-session` marker, not with "did it redirect".
+     *
+     * The first version of this check tested only for a redirect and passed
+     * while the matcher was widened to `/((?!_next/static|...).*)` — every
+     * route on the site. A widened matcher does not redirect the public
+     * pages, it just authenticates before serving them, which is precisely
+     * the cost this check is supposed to prevent. Breaking it is what showed
+     * that; see ARCHITECTURE § 12.
+     */
+    const checked: string[] = [];
+    for (const path of ['/', '/search', '/listing/00000000-0000-0000-0000-000000000000']) {
+      const res = await http(`${WEB}${path}`);
+      const marker = res.headers.get('x-web-session');
+      assert(
+        marker === null,
+        `${path} went through the session layer (x-web-session: ${marker}) — it is inside the middleware matcher`,
+      );
+      assert(
+        res.status !== 307 && res.status !== 302,
+        `${path} redirected (${res.status})`,
+      );
+      checked.push(`${path} ${res.status}`);
+    }
+
+    // The other half of the invariant: the marker is real, and absence above
+    // means "middleware did not run" rather than "middleware sets no header".
+    const login = await http(`${WEB}/login`);
+    assert(
+      login.headers.get('x-web-session') !== null,
+      '/login has no x-web-session — the marker is broken, so the assertions above prove nothing',
+    );
+
+    return `${checked.join(', ')}; /login marked ${login.headers.get('x-web-session')}`;
+  });
+
   // --------------------------------------------------------------- console --
   group('Console (HTTP, signed out)');
 
@@ -1142,7 +1934,949 @@ async function main() {
     });
   }
 
+  // -------------------------------------------------- console loaders --
+  group('Console loaders');
+
+  /**
+   * Every console route that opens the database has a loading.tsx of its own.
+   *
+   * This is ARCHITECTURE.md § 10 as a check rather than as a paragraph, and it
+   * exists because the paragraph was not enough on its own. For months the only
+   * loaders in the console were the two route-group roots, both rendering the
+   * same generic PageSkeleton — a title, three stat tiles and a card. Nothing
+   * was broken and nothing was slow enough to call a bug: every click simply
+   * replaced the page with the shape of a different page and then replaced that
+   * with the real one. Pressing Edit on a listing painted the listings table's
+   * shape for two round trips; walking the five-step onboarding wizard painted
+   * a dashboard's shape between every step, which reads as the browser having
+   * reloaded, because visually it is indistinguishable from one.
+   *
+   * A route group's loading.tsx satisfies Next and does not satisfy this: it is
+   * the same fallback for eleven different pages, so it cannot be the shape of
+   * any of them. The check is deliberately mechanical — `getConsoleDb` in a
+   * page.tsx means that page waits on the database region, and a page that waits
+   * owns the thing shown while it does.
+   *
+   * It is static, not HTTP: proving a loader is the right SHAPE needs a signed-in
+   * browser and lives in docs/TEST-PLAN.md. Proving one EXISTS is free, and the
+   * failure this guards against is a new route shipping without one.
+   */
+  await check('every console route that reads the database has its own loading.tsx', () => {
+    /**
+     * The two consoles only.
+     *
+     * (shared) holds login, signup and reset — full-screen auth pages with no
+     * console shell above them and therefore no group-level skeleton behind
+     * them. A loader there would be a flash where there is currently none, so
+     * the rule that applies inside the shell does not apply to them.
+     */
+    const appDir = resolve(process.cwd(), '../../apps/console/app');
+    const consoles = ['(agency)', '(agent)'].map((g) => join(appDir, g));
+
+    const pages: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) {
+          walk(full);
+        } else if (entry === 'page.tsx') {
+          pages.push(full);
+        }
+      }
+    };
+    for (const dir of consoles) walk(dir);
+
+    const reads = pages.filter((f) => readFileSync(f, 'utf8').includes('getConsoleDb'));
+    assert(reads.length > 0, 'found no console page that opens the database — did the app move?');
+
+    const missing = reads
+      .filter((f) => {
+        try {
+          return !statSync(join(dirname(f), 'loading.tsx')).isFile();
+        } catch {
+          return true;
+        }
+      })
+      .map((f) => dirname(f).slice(appDir.length + 1));
+
+    assert(
+      missing.length === 0,
+      `no loading.tsx beside: ${missing.join(', ')} — these fall through to the ` +
+        `route group's generic skeleton, which is the shape of a different page`,
+    );
+
+    return `${reads.length} database-backed routes, each with its own loader`;
+  });
+
   // ------------------------------------------------------------ chat (AI) --
+  // --------------------------------------------------------- chat history --
+  group('Chat history');
+
+  await check('both chat tables exist with row-level security on', async () => {
+    const rows = (await db.execute(sql`
+      select tablename, rowsecurity from pg_tables
+      where schemaname = 'public' and tablename in ('chat_thread', 'chat_message')
+    `)) as unknown as { tablename: string; rowsecurity: boolean }[];
+
+    assert(rows.length === 2, `expected 2 tables, found ${rows.length}`);
+    for (const row of rows) assert(row.rowsecurity === true, `${row.tablename} has RLS off`);
+
+    return 'chat_thread + chat_message, RLS on both';
+  });
+
+  /**
+   * A transcript is written by the server after it has run the turn.
+   *
+   * There is deliberately no INSERT or UPDATE policy on either table: an
+   * assistant turn somebody authored themselves is the one thing that could
+   * put a price into the record without a tool result behind it (#4).
+   */
+  await check('nothing may author a transcript line but the server', async () => {
+    const rows = (await db.execute(sql`
+      select tablename, policyname, cmd from pg_policies
+      where schemaname='public' and tablename in ('chat_thread','chat_message')
+    `)) as unknown as { tablename: string; policyname: string; cmd: string }[];
+
+    const writes = rows.filter((r) => r.cmd === 'INSERT' || r.cmd === 'UPDATE');
+    assert(
+      writes.length === 0,
+      `found a write policy on a chat table: ${writes.map((w) => w.policyname).join(', ')}`,
+    );
+    assert(rows.length === 4, `expected 4 policies, found ${rows.length}`);
+
+    return `${rows.length} policies, all SELECT or DELETE`;
+  });
+
+  /**
+   * The bug this guards was reported from a screenshot: the thread list
+   * lived in the sidebar, the sidebar only renders once a conversation has
+   * started, and a returning visitor landing on the empty hero had no route
+   * back to anything they had said. The history existed; the door did not.
+   */
+  await check('the chat offers New chat and History before a word is typed', async () => {
+    if (!webUp) skip('web app is not running');
+
+    const res = await http(`${WEB}/chat`);
+    assert(res.status === 200, `/chat answered ${res.status}`);
+
+    const html = await res.text();
+    assert(html.includes('New chat'), '/chat has no New chat control on the empty state');
+    assert(html.includes('History'), '/chat has no History control on the empty state');
+
+    return 'both controls render on the empty hero';
+  });
+
+  await check('every page offers a way into an account', async () => {
+    if (!webUp) skip('web app is not running');
+
+    // Deliberately one neutral link rather than "Sign in" / "My alerts":
+    // telling those apart would mean reading the session cookie in the
+    // shared header, and that header renders on `/`, which is static.
+    for (const path of ['/', '/search', '/chat']) {
+      const html = await (await http(`${WEB}${path}`)).text();
+      assert(html.includes('href="/alerts"'), `${path} has no account link in the header`);
+    }
+
+    return '/ , /search and /chat all link to /alerts';
+  });
+
+  /**
+   * Every auth account must have its `public.user` row.
+   *
+   * Everything a consumer owns — saved searches, saved conversations —
+   * has a foreign key to that row. Without it the inserts die on the
+   * constraint and the writer swallows the error, so the symptom is an
+   * empty History with nothing in the UI to explain it. Two real accounts
+   * were in exactly that state when this check was written.
+   *
+   * A data invariant rather than a code review: the row is created at
+   * sign-in now, and this is what notices if a path is ever added that
+   * forgets to.
+   */
+  await check('every account is mirrored into public.user', async () => {
+    const rows = (await db.execute(sql`
+      select count(*)::int as orphans
+      from auth.users au
+      left join public."user" pu on pu.id = au.id
+      where pu.id is null and au.email is not null
+    `)) as unknown as { orphans: number }[];
+
+    const orphans = rows[0]?.orphans ?? 0;
+    assert(
+      orphans === 0,
+      `${orphans} auth accounts have no public.user row — their saved searches and conversations cannot be written`,
+    );
+
+    return 'every auth account has its app row';
+  });
+
+  await check('no saved conversation is older than the retention window', async () => {
+    const rows = (await db.execute(sql`
+      select count(*)::int as stale from chat_thread
+      where last_message_at < now() - interval '91 days'
+    `)) as unknown as { stale: number }[];
+
+    const stale = rows[0]?.stale ?? 0;
+    // APP 11.2, as a data invariant rather than a policy document. The
+    // scheduler tick sweeps these; this is what notices if it stops.
+    assert(stale === 0, `${stale} conversations are past 90 days — is the tick running?`);
+
+    return 'every stored conversation is inside 90 days';
+  });
+
+  // ----------------------------------------------------- search schedules --
+  group('Search schedules');
+
+  /**
+   * This whole group is FREE and runs on every `pnpm smoke`.
+   *
+   * The scheduler's two metered things — the model and the mail provider —
+   * are ports, so the entire pipeline can be driven with `fakeTransport()`
+   * and no summariser. Dry mode is not a special code path here; it is a
+   * different value in a slot the signature already has, which is what
+   * makes exercising it worth anything.
+   */
+  const PROBE_USER = '00000000-0000-4000-8000-00000000c0de';
+
+  async function withProbeUser<T>(fn: (actor: { userId: string }) => Promise<T>): Promise<T> {
+    await db
+      .insert(userTable)
+      .values({ id: PROBE_USER, email: 'smoke-probe@example.invalid', name: 'Smoke probe' })
+      .onConflictDoNothing();
+    try {
+      return await fn({ userId: PROBE_USER });
+    } finally {
+      // schedule_run and search_schedule both cascade from the user row.
+      await db.delete(userTable).where(eq(userTable.id, PROBE_USER));
+    }
+  }
+
+  await check('both scheduler tables exist with row-level security on', async () => {
+    const rows = await db.execute(sql`
+      select tablename, rowsecurity from pg_tables
+      where schemaname = 'public' and tablename in ('search_schedule', 'schedule_run')
+    `);
+    const found = rows as unknown as { tablename: string; rowsecurity: boolean }[];
+
+    assert(found.length === 2, `expected 2 tables, found ${found.length}`);
+    for (const row of found) {
+      assert(row.rowsecurity === true, `${row.tablename} has RLS disabled`);
+    }
+
+    const gone = await db.execute(
+      sql`select 1 from pg_tables where schemaname='public' and tablename='saved_search'`,
+    );
+    assert((gone as unknown as unknown[]).length === 0, 'saved_search should have been dropped');
+
+    return 'search_schedule + schedule_run, RLS on both, saved_search gone';
+  });
+
+  await check('the due index is partial and the slot index is unique', async () => {
+    const rows = (await db.execute(sql`
+      select indexname, indexdef from pg_indexes
+      where schemaname = 'public'
+        and indexname in ('search_schedule_due_idx', 'schedule_run_slot_idx')
+    `)) as unknown as { indexname: string; indexdef: string }[];
+
+    const due = rows.find((r) => r.indexname === 'search_schedule_due_idx');
+    const slot = rows.find((r) => r.indexname === 'schedule_run_slot_idx');
+
+    assert(Boolean(due), 'search_schedule_due_idx is missing');
+    /**
+     * Read the DEFINITION, not the name. Drizzle can express `.where()` on
+     * an index and does not emit it, so the predicate is applied by hand in
+     * migration 0009 — and a name-only check would pass happily after
+     * somebody regenerated the migration and lost it.
+     */
+    assert(
+      /where .*status/i.test(due!.indexdef),
+      `due index is not partial: ${due!.indexdef}`,
+    );
+
+    assert(Boolean(slot), 'schedule_run_slot_idx is missing');
+    assert(/unique/i.test(slot!.indexdef), 'the slot index is not UNIQUE');
+
+    return 'due index partial on status, slot index unique';
+  });
+
+  await check('the schedule policies are exactly the ones 0009 declares', async () => {
+    const rows = (await db.execute(sql`
+      select tablename, policyname from pg_policies
+      where schemaname='public' and tablename in ('search_schedule','schedule_run')
+    `)) as unknown as { tablename: string; policyname: string }[];
+
+    const names = rows.map((r) => r.policyname).sort();
+    assert(names.length === 5, `expected 5 policies, found ${names.length}: ${names.join(', ')}`);
+
+    // schedule_run is SELECT-only on purpose: a run is written by the
+    // scheduler and by nothing else, so no credential can forge a delivery.
+    const runPolicies = rows.filter((r) => r.tablename === 'schedule_run');
+    assert(runPolicies.length === 1, 'schedule_run should have exactly one (SELECT) policy');
+
+    return names.join(', ');
+  });
+
+  /**
+   * `nextRunFor` against an independent oracle — Postgres itself.
+   *
+   * Deliberately not a second TypeScript implementation, which would just be
+   * the same assumptions written twice. If the two disagree, one of them is
+   * wrong about Australian daylight saving and that is worth knowing.
+   */
+  await check('the local-time cursor agrees with Postgres', async () => {
+    const cases = [
+      { date: '2026-01-15', zone: 'Australia/Melbourne' },
+      { date: '2026-06-15', zone: 'Australia/Melbourne' },
+      { date: '2026-10-04', zone: 'Australia/Melbourne' },
+      { date: '2026-04-05', zone: 'Australia/Melbourne' },
+      { date: '2026-06-15', zone: 'Australia/Brisbane' },
+      { date: '2026-06-15', zone: 'Australia/Eucla' },
+    ];
+
+    const { instantForLocalTime } = await import('@repo/core/schedules');
+    const checked: string[] = [];
+
+    for (const c of cases) {
+      const rows = (await db.execute(
+        sql`select (timestamp '${sql.raw(c.date)} 20:00' at time zone '${sql.raw(c.zone)}') as utc`,
+      )) as unknown as { utc: Date | string }[];
+
+      const expected = new Date(rows[0]!.utc).toISOString();
+      const [y, m, d] = c.date.split('-').map(Number);
+      const actual = instantForLocalTime(
+        { year: y!, month: m!, day: d! },
+        20 * 60,
+        c.zone,
+      ).toISOString();
+
+      assert(
+        actual === expected,
+        `${c.zone} ${c.date} 20:00 — TS said ${actual}, Postgres said ${expected}`,
+      );
+      checked.push(`${c.zone.split('/')[1]} ${c.date}`);
+    }
+
+    return `${checked.length} instants agree with Postgres, incl. both DST boundaries`;
+  });
+
+  await check('a due schedule is claimed exactly once by two concurrent ticks', async () => {
+    return withProbeUser(async (actor) => {
+      const suburb = (await liveSuburbs(db))[0];
+      if (!suburb) skip('no live listings to build a probe search from');
+
+      const { id } = await createSchedule(db, actor, {
+        searchPath: `/search?channel=sale&suburb=${encodeURIComponent(suburb)}`,
+        name: 'smoke probe',
+        cadence: 'daily',
+        sendAtMinute: 1200,
+        timezone: 'Australia/Melbourne',
+      });
+
+      // Make it due now.
+      await db
+        .update(searchSchedule)
+        .set({ nextRunAt: new Date(Date.now() - 60_000) })
+        .where(eq(searchSchedule.id, id));
+
+      /**
+       * The reason SKIP LOCKED and the unique index both exist. Remove
+       * either one and this goes red — verified by doing exactly that.
+       */
+      /**
+       * Scoped to the probe user, because an unscoped tick is not a test.
+       *
+       * This used to call the real claim with no narrowing, so it swept up
+       * whatever live schedules happened to be due — and it did: three
+       * half-finished `running` rows were found sitting on a real person's
+       * saved search, written by this check. A suite that edits production
+       * rows to prove a point is not verifying the system, it is changing
+       * it.
+       */
+      const [a, b] = await Promise.all([
+        claimDueSchedules(db, { limit: 5, ownerId: actor.userId }),
+        claimDueSchedules(db, { limit: 5, ownerId: actor.userId }),
+      ]);
+
+      const mine = [...a, ...b].filter((c) => c.scheduleId === id);
+      assert(mine.length === 1, `claimed ${mine.length} times, expected exactly 1`);
+
+      const runs = await db
+        .select({ id: scheduleRun.id })
+        .from(scheduleRun)
+        .where(eq(scheduleRun.scheduleId, id));
+      assert(runs.length === 1, `${runs.length} run rows for one slot, expected 1`);
+
+      await deleteSchedule(db, actor, id);
+      return 'two overlapping ticks produced one run';
+    });
+  });
+
+  await check('a tick runs a real search and records what it would send', async () => {
+    return withProbeUser(async (actor) => {
+      const suburb = (await liveSuburbs(db))[0];
+      if (!suburb) skip('no live listings to build a probe search from');
+
+      const searchPath = `/search?channel=sale&suburb=${encodeURIComponent(suburb)}`;
+      const { id } = await createSchedule(db, actor, {
+        searchPath,
+        name: 'smoke probe',
+        cadence: 'daily',
+        sendAtMinute: 1200,
+        timezone: 'Australia/Melbourne',
+      });
+
+      await db
+        .update(searchSchedule)
+        .set({ nextRunAt: new Date(Date.now() - 60_000) })
+        .where(eq(searchSchedule.id, id));
+
+      const transport = fakeTransport();
+      const report = await runScheduleTick(
+        db,
+        {
+          search: (query) => searchPublicListings(db, query),
+          resolvePlace: async () => null,
+          transport,
+          sender: {
+            from: { email: 'alerts@example.invalid', name: 'Smoke Co' },
+            postalAddress: '1 Smoke St, Test City',
+          },
+          baseUrl: WEB,
+          unsubscribeSecret: 'smoke-secret',
+          // No summariser: this group must never call a metered model.
+        },
+        // Same reason as the claim check above: this tick may only see the
+        // probe user's schedules, never a live one.
+        { limit: 5, ownerId: actor.userId },
+      );
+
+      // Exactly one now, not "at least one" — the tick can no longer reach
+      // anything but the row this check just created, so a second claim
+      // would mean the narrowing leaked.
+      assert(report.claimed === 1, `claimed ${report.claimed}, expected exactly 1`);
+
+      const [run] = await db
+        .select()
+        .from(scheduleRun)
+        .where(eq(scheduleRun.scheduleId, id))
+        .limit(1);
+
+      assert(Boolean(run), 'no run row was written');
+
+      // The run's own count must equal what the same query returns now.
+      const expected = await searchPublicListings(db, {
+        channel: 'sale',
+        suburb,
+        limit: 24,
+      });
+      assert(
+        run!.matched === expected.length,
+        `run recorded ${run!.matched} matches, the query returns ${expected.length}`,
+      );
+
+      // First run for this schedule, so everything it found is new and one
+      // email was built. A digest with no unsubscribe cannot be built at all.
+      if (expected.length > 0) {
+        assert(transport.sent.length === 1, `built ${transport.sent.length} emails, expected 1`);
+        const message = transport.sent[0]!;
+        assert(Boolean(message.listUnsubscribeUrl), 'the email carries no unsubscribe URL');
+        assert(message.text.includes('1 Smoke St'), 'the text part has no postal address');
+        assert(
+          message.html.includes(`View all ${run!.matched} results`),
+          'the email count disagrees with the run',
+        );
+      }
+
+      await deleteSchedule(db, actor, id);
+      return `claimed ${report.claimed}, matched ${run!.matched}, built ${transport.sent.length} email(s)`;
+    });
+  });
+
+  await check('an every-2-hours schedule advances by exactly two hours', async () => {
+    return withProbeUser(async (actor) => {
+      const suburb = (await liveSuburbs(db))[0];
+      if (!suburb) skip('no live listings to build a probe search from');
+
+      /**
+       * An interval carries no wall clock, so none of the daylight-saving
+       * machinery applies to it. This is the check that says the cron
+       * actually supports a frequency that is not daily.
+       */
+      const { id } = await createSchedule(db, actor, {
+        searchPath: `/search?channel=sale&suburb=${encodeURIComponent(suburb)}`,
+        name: 'smoke interval probe',
+        cadence: 'interval',
+        intervalMinutes: 120,
+        sendAtMinute: 0,
+        timezone: 'Australia/Melbourne',
+      });
+
+      const due = new Date(Date.now() - 60_000);
+      await db.update(searchSchedule).set({ nextRunAt: due }).where(eq(searchSchedule.id, id));
+
+      await claimDueSchedules(db, { limit: 5 });
+
+      const [after] = await db
+        .select({ nextRunAt: searchSchedule.nextRunAt })
+        .from(searchSchedule)
+        .where(eq(searchSchedule.id, id));
+
+      const advanced = new Date(after!.nextRunAt).getTime() - due.getTime();
+      assert(
+        advanced === 120 * 60 * 1000,
+        `cursor advanced ${advanced / 60000} minutes, expected 120`,
+      );
+
+      await deleteSchedule(db, actor, id);
+      return 'cursor moved exactly 120 minutes from the claimed slot';
+    });
+  });
+
+  await check('a schedule the guide drafted survives the round trip unchanged', async () => {
+    const secret = process.env.ALERT_UNSUBSCRIBE_SECRET?.trim();
+    if (!secret) skip('ALERT_UNSUBSCRIBE_SECRET is not set');
+
+    const draft = {
+      searchPath: '/search?channel=rent&suburb=Pakenham&radius=30',
+      cadence: 'interval' as const,
+      sendAtMinute: 0,
+      intervalMinutes: 120,
+      timezone: 'Australia/Melbourne' as const,
+    };
+
+    const token = signScheduleDraft(draft, secret);
+    const claim = verifyScheduleDraft(token, secret);
+    assert(claim.ok, 'a freshly signed draft did not verify');
+
+    /**
+     * The card goes out to a browser and comes back. This is the tamper
+     * that matters: a signed "every two hours" accepted as "every minute"
+     * would be a mailing list nobody agreed to.
+     */
+    const tampered = { ...draft, intervalMinutes: 1 };
+    const forged = `${Buffer.from(JSON.stringify(tampered)).toString('base64url')}.${token.split('.')[1]}`;
+    assert(!verifyScheduleDraft(forged, secret).ok, 'a tampered frequency was accepted');
+
+    return 'signed draft verifies; a swapped frequency does not';
+  });
+
+  /**
+   * The floor and the tick are one decision written in two files.
+   *
+   * `MIN_INTERVAL_MINUTES` lives in packages/core; the tick lives in
+   * apps/web/vercel.json. Nothing imports one from the other, and nothing
+   * would fail if they drifted — the schedules would simply stop catching
+   * up after an outage, silently, months later. `nextRunFor` advances an
+   * interval schedule one slot per tick, so the tick must be strictly
+   * faster than the shortest interval or a row that falls behind stays
+   * behind for ever.
+   *
+   * A file read rather than a comment, because a comment did not stop the
+   * last two numbers in this repo from drifting.
+   */
+  await check('a run that was claimed and never finished gets closed out', async () => {
+    return withProbeUser(async (actor) => {
+      const suburb = (await liveSuburbs(db))[0];
+      if (!suburb) skip('no live listings to build a probe search from');
+
+      const { id } = await createSchedule(db, actor, {
+        searchPath: `/search?channel=sale&suburb=${encodeURIComponent(suburb)}`,
+        name: 'smoke abandoned-run probe',
+        cadence: 'daily',
+        sendAtMinute: 1200,
+        timezone: 'Australia/Melbourne',
+      });
+
+      /**
+       * Two rows, one old and one new, because a sweeper that marks
+       * everything is worse than none: it would overwrite a run that is
+       * still working with a report that it died.
+       */
+      const [stale] = await db
+        .insert(scheduleRun)
+        .values({
+          scheduleId: id,
+          userId: actor.userId,
+          scheduledFor: new Date(Date.now() - 4 * 60 * 60_000),
+          status: 'running',
+          query: { channel: 'sale', suburb },
+          createdAt: new Date(Date.now() - 4 * 60 * 60_000),
+        })
+        .returning({ id: scheduleRun.id });
+
+      const [fresh] = await db
+        .insert(scheduleRun)
+        .values({
+          scheduleId: id,
+          userId: actor.userId,
+          scheduledFor: new Date(),
+          status: 'running',
+          query: { channel: 'sale', suburb },
+        })
+        .returning({ id: scheduleRun.id });
+
+      const swept = await sweepAbandonedRuns(db, { olderThanMinutes: ABANDONED_RUN_MINUTES });
+
+      const after = await db
+        .select({ id: scheduleRun.id, status: scheduleRun.status, error: scheduleRun.error })
+        .from(scheduleRun)
+        .where(eq(scheduleRun.scheduleId, id));
+
+      const staleRow = after.find((r) => r.id === stale!.id);
+      const freshRow = after.find((r) => r.id === fresh!.id);
+
+      assert(staleRow?.status === 'failed', `stale run is ${staleRow?.status}, expected failed`);
+      assert(
+        Boolean(staleRow?.error),
+        'the swept run carries no reason — a failure with no explanation is not a record',
+      );
+      assert(
+        freshRow?.status === 'running',
+        `a run claimed seconds ago was swept (${freshRow?.status}) — the sweeper is too eager`,
+      );
+
+      await deleteSchedule(db, actor, id);
+      return `swept ${swept} stale, left the in-flight one alone`;
+    });
+  });
+
+  await check('a run that finds nothing new still sends an email', async () => {
+    return withProbeUser(async (actor) => {
+      const suburb = (await liveSuburbs(db))[0];
+      if (!suburb) skip('no live listings to build a probe search from');
+
+      const { id } = await createSchedule(db, actor, {
+        searchPath: `/search?channel=sale&suburb=${encodeURIComponent(suburb)}`,
+        name: 'smoke repeat-send probe',
+        cadence: 'interval',
+        sendAtMinute: 0,
+        intervalMinutes: MIN_INTERVAL_MINUTES,
+        timezone: 'Australia/Melbourne',
+      });
+
+      const transport = fakeTransport();
+      const deps = {
+        search: (query: Parameters<typeof searchPublicListings>[1]) =>
+          searchPublicListings(db, query),
+        resolvePlace: async () => null,
+        transport,
+        sender: {
+          from: { email: 'alerts@example.invalid', name: 'Smoke Co' },
+          postalAddress: '1 Smoke St, Test City',
+        },
+        baseUrl: WEB,
+        unsubscribeSecret: 'smoke-secret',
+        // No summariser: this group must never call a metered model.
+      };
+
+      const due = async () => {
+        await db
+          .update(searchSchedule)
+          .set({ nextRunAt: new Date(Date.now() - 60_000) })
+          .where(eq(searchSchedule.id, id));
+      };
+
+      // First tick: nothing has been delivered before, so everything matches
+      // as new and the digest carries news.
+      await due();
+      await runScheduleTick(db, deps, { limit: 5, ownerId: actor.userId });
+
+      // Second tick against an unchanged database. This is the one that used
+      // to send nothing at all.
+      await due();
+      await runScheduleTick(db, deps, { limit: 5, ownerId: actor.userId });
+
+      const runs = await db
+        .select({
+          status: scheduleRun.status,
+          newCount: scheduleRun.newCount,
+          emailStatus: scheduleRun.emailStatus,
+        })
+        .from(scheduleRun)
+        .where(eq(scheduleRun.scheduleId, id))
+        .orderBy(scheduleRun.scheduledFor);
+
+      assert(runs.length === 2, `expected 2 runs, got ${runs.length}`);
+      assert(
+        transport.sent.length === 2,
+        `${transport.sent.length} email(s) for 2 runs — a run that found nothing new sent none`,
+      );
+
+      const second = runs[1]!;
+      assert(second.newCount === 0, `second run found ${second.newCount} new, expected 0`);
+      // The two facts stay separate: the SEARCH was empty, the EMAIL was sent.
+      assert(second.status === 'empty', `second run recorded ${second.status}, expected empty`);
+      assert(
+        second.emailStatus === 'sent',
+        `second run's email is ${second.emailStatus} — it should have gone anyway`,
+      );
+
+      // And it says so, rather than claiming news it does not have.
+      const subject = transport.sent[1]!.subject;
+      assert(
+        /no new listings/i.test(subject),
+        `the no-news email is subjected "${subject}" — it must not imply there is news`,
+      );
+
+      await deleteSchedule(db, actor, id);
+      return `2 runs, 2 emails, second one "${subject.slice(0, 40)}…"`;
+    });
+  });
+
+  await check('an exact AM/PM time survives the round trip to the database', async () => {
+    return withProbeUser(async (actor) => {
+      const suburb = (await liveSuburbs(db))[0];
+      if (!suburb) skip('no live listings to build a probe search from');
+      const searchPath = `/search?channel=sale&suburb=${encodeURIComponent(suburb)}`;
+
+      /**
+       * 4:15 PM, because it is the case the old picker could not express.
+       * It offered eight times on the hour, so a quarter past anything was
+       * not a setting somebody could choose.
+       */
+      const { id } = await createSchedule(db, actor, {
+        searchPath,
+        name: 'smoke clock probe',
+        cadence: 'daily',
+        sendAtMinute: minutesFrom12Hour({ hour12: 4, minute: 15, meridiem: 'PM' }),
+        timezone: 'Australia/Melbourne',
+      });
+
+      const [row] = await db
+        .select({ sendAtMinute: searchSchedule.sendAtMinute })
+        .from(searchSchedule)
+        .where(eq(searchSchedule.id, id));
+
+      assert(row?.sendAtMinute === 975, `stored ${row?.sendAtMinute}, expected 975`);
+
+      const [summary] = await listSchedules(db, actor);
+      const said = describeCadence(summary!);
+      assert(
+        said.includes('4:15 PM'),
+        `read back as "${said}" — the minute did not survive`,
+      );
+
+      // The other end: a gap under the floor is refused outright here, where
+      // the chat clamps. A form can show the reason; a model cannot be
+      // trusted to.
+      let refused = false;
+      try {
+        await createSchedule(db, actor, {
+          searchPath,
+          name: 'smoke floor probe',
+          cadence: 'interval',
+          sendAtMinute: 0,
+          intervalMinutes: MIN_INTERVAL_MINUTES - 1,
+          timezone: 'Australia/Melbourne',
+        });
+      } catch {
+        refused = true;
+      }
+      assert(refused, `a ${MIN_INTERVAL_MINUTES - 1}-minute gap was accepted — the floor is not a floor`);
+
+      // And the ceiling is genuinely gone: a fortnight is an ordinary ask.
+      const fortnight = await createSchedule(db, actor, {
+        searchPath,
+        name: 'smoke fortnight probe',
+        cadence: 'interval',
+        sendAtMinute: 0,
+        intervalMinutes: 14 * 24 * 60,
+        timezone: 'Australia/Melbourne',
+      });
+
+      await deleteSchedule(db, actor, id);
+      await deleteSchedule(db, actor, fortnight.id);
+      return '4:15 PM stored as 975; 9 minutes refused; a fortnight accepted';
+    });
+  });
+
+  await check('the schedule forms and their actions agree on every field name', async () => {
+    /**
+     * The one seam a unit test cannot reach.
+     *
+     * The picker renders `name="…"` attributes; the server actions read
+     * `formData.get('…')`. Nothing connects the two but a string, and a
+     * mismatch does not fail to compile, does not throw, and fails no test —
+     * the field simply arrives undefined and the schedule is saved at
+     * whatever the fallback is, or refused with a message about a field the
+     * person did fill in.
+     *
+     * Both forms are read, because the picker is now shared between "save a
+     * new search" and "edit this one" and each wraps it with fields of its
+     * own — `searchPath` and `prompt` on one, `scheduleId` on the other.
+     *
+     * The conversions themselves are unit-tested (time-input.test.ts,
+     * including the 12 AM / 12 PM trap and a round trip over all 1440
+     * minutes of the day). This is the other half: that the names match.
+     */
+    const read = (file: string) =>
+      readFileSync(resolve(process.cwd(), '../..', file), 'utf8');
+
+    const markup = [
+      'apps/web/components/schedule-picker.tsx',
+      'apps/web/components/save-search.tsx',
+      'apps/web/app/alerts/schedule-row.tsx',
+    ]
+      .map(read)
+      .join('\n');
+    const actions = read('apps/web/app/alerts/actions.ts');
+
+    const emitted = new Set(
+      [...markup.matchAll(/name="([A-Za-z]+)"/g)].map((m) => m[1] as string),
+    );
+    const consumed = new Set(
+      [...actions.matchAll(/formData\.get\('([A-Za-z]+)'\)/g)].map((m) => m[1] as string),
+    );
+
+    assert(
+      emitted.size > 0 && consumed.size > 0,
+      'found no field names — the patterns stopped matching',
+    );
+
+    const unread = [...emitted].filter((name) => !consumed.has(name));
+    assert(
+      unread.length === 0,
+      `the forms send ${unread.join(', ')} and no action reads ${unread.length === 1 ? 'it' : 'them'}`,
+    );
+
+    const missing = [...consumed].filter((name) => !emitted.has(name));
+    assert(
+      missing.length === 0,
+      `the actions read ${missing.join(', ')} and no form sends ${missing.length === 1 ? 'it' : 'them'}`,
+    );
+
+    /**
+     * And that the picker is still ONE picker. A second copy would satisfy
+     * every assertion above while drifting from the first — which is the
+     * failure this codebase has already had once, with describeCadence.
+     */
+    for (const file of ['apps/web/components/save-search.tsx', 'apps/web/app/alerts/schedule-row.tsx']) {
+      const source = read(file);
+      assert(
+        source.includes('<SchedulePicker'),
+        `${file} no longer uses SchedulePicker — a second cadence form has appeared`,
+      );
+      assert(
+        !source.includes('name="sendAtHour"'),
+        `${file} renders its own clock controls instead of using the shared picker`,
+      );
+    }
+
+    return `${emitted.size} field names, matched both ways, one picker`;
+  });
+
+  await check('the alerts page does not hand-roll a cadence label', async () => {
+    /**
+     * A duplication check, because the bug was a duplicate.
+     *
+     * `/alerts` carried its own copy of `describeCadence` that knew about
+     * `weekly` and read everything else as daily, so an hourly schedule was
+     * labelled "Every day at 12:00 AM" — an interval row holds
+     * `sendAtMinute: 0` because an interval has no clock. Two formatters for
+     * one fact is how they drift, and nothing failed while they did.
+     */
+    const page = readFileSync(
+      resolve(process.cwd(), '../../apps/web/app/alerts/page.tsx'),
+      'utf8',
+    );
+
+    assert(
+      page.includes('describeCadence'),
+      '/alerts no longer uses describeCadence — a second cadence formatter has come back',
+    );
+    assert(
+      !/function\s+cadenceLabel/.test(page),
+      '/alerts defines its own cadenceLabel again',
+    );
+
+    return 'one cadence formatter, in core';
+  });
+
+  await check('no live run is stuck half-finished', async () => {
+    /**
+     * The invariant behind the sweeper, asserted against real rows.
+     *
+     * Four of these were found on a live saved search, written by this very
+     * suite claiming schedules it did not own. The tick now sweeps and the
+     * suite now scopes itself; this is what says both are still true.
+     */
+    const rows = (await db.execute(sql`
+      select count(*)::int as stuck from schedule_run
+      where status = 'running'
+        and created_at < now() - interval '2 hours'
+    `)) as unknown as { stuck: number }[];
+
+    const stuck = rows[0]?.stuck ?? 0;
+    assert(
+      stuck === 0,
+      `${stuck} runs have been 'running' for over two hours — a tick died, or something claimed rows it does not finish`,
+    );
+
+    return 'every run either finished or is still in flight';
+  });
+
+  await check('the cron tick is strictly faster than the shortest interval', async () => {
+    const vercelJson = JSON.parse(
+      readFileSync(resolve(process.cwd(), '../../apps/web/vercel.json'), 'utf8'),
+    ) as { crons?: { path: string; schedule: string }[] };
+
+    const alerts = vercelJson.crons?.find((c) => c.path === '/api/cron/alerts');
+    assert(alerts, 'apps/web/vercel.json declares no cron for /api/cron/alerts');
+
+    // Only the every-N-minutes form is understood, which is the only form
+    // this endpoint has ever used. Anything else should fail loudly here
+    // rather than be assumed fine.
+    const every = /^\*\/(\d+) \* \* \* \*$/.exec(alerts.schedule);
+    assert(every, `cannot read the tick from "${alerts.schedule}"`);
+
+    const tickMinutes = Number(every[1]);
+    assert(
+      tickMinutes < MIN_INTERVAL_MINUTES,
+      `the tick is every ${tickMinutes} min and the shortest schedule is every ` +
+        `${MIN_INTERVAL_MINUTES} min — a schedule that falls behind can never catch up`,
+    );
+
+    return `tick ${tickMinutes} min vs floor ${MIN_INTERVAL_MINUTES} min (${(
+      MIN_INTERVAL_MINUTES / tickMinutes
+    ).toFixed(1)}:1 catch-up)`;
+  });
+
+  await check('no live schedule has a cursor stuck in the past', async () => {
+    const rows = (await db.execute(sql`
+      select count(*)::int as stale from search_schedule
+      where status = 'active' and next_run_at < now() - interval '1 hour'
+    `)) as unknown as { stale: number }[];
+
+    const stale = rows[0]?.stale ?? 0;
+    // The "cron stopped and nobody noticed" check. A tick every 5 minutes
+    // means an active schedule more than an hour overdue is not a backlog.
+    assert(stale === 0, `${stale} active schedules are over an hour overdue — is the cron running?`);
+
+    return 'every active schedule is on time';
+  });
+
+  await check('the cron endpoint refuses a caller with no secret', async () => {
+    if (!webUp) skip('web app is not running');
+
+    const anonymous = await http(`${WEB}/api/cron/alerts`);
+    assert(
+      anonymous.status === 401 || anonymous.status === 503,
+      `answered ${anonymous.status}, expected 401 or 503`,
+    );
+
+    const secret = process.env.CRON_SECRET?.trim();
+    if (!secret) return `${anonymous.status} with no secret (CRON_SECRET not set here)`;
+
+    const wrong = await fetch(`${WEB}/api/cron/alerts`, {
+      method: 'POST',
+      headers: { 'x-cron-secret': 'b'.repeat(secret.length) },
+      signal: AbortSignal.timeout(20_000),
+    });
+    assert(wrong.status === 401, `a wrong secret of the right length got ${wrong.status}`);
+
+    return `401 with no secret, 401 with a wrong one of equal length`;
+  });
+
   group('AI property chat');
 
   /**
@@ -1187,6 +2921,131 @@ async function main() {
     assert(search.query.priceTo === 900_000, `priceTo was ${search.query.priceTo}`);
     assert(search.deepLink.startsWith('/search?'), `deep link was ${search.deepLink}`);
     return `${search.matched} matches in ${suburb}`;
+  });
+
+  await check('"cheapest near my office" is answered from SQL, both ways', async () => {
+    /**
+     * The question the portal could not answer until now.
+     *
+     * `search_listings` sorts by price OR by distance, never both, and the
+     * model may not do the arithmetic itself (#4) — so "where is the cheapest
+     * place near my office" got a list sorted one way and prose hand-waving
+     * the other.
+     *
+     * `cheapest_near` returns two rankings from one statement. This asserts
+     * the guide actually reaches for it, and — the part that matters — that
+     * what it says matches what Postgres computed. A guide that calls the
+     * tool and then rounds, converts or invents is the failure #4 exists for.
+     */
+    if (!webUp) skip('web app is not running');
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+
+    const suburbs = await liveSuburbs(db);
+    const suburb = suburbs[0];
+    if (!suburb) skip('no live listings');
+
+    const centre = await resolvePlace(db, `${suburb}, Australia`);
+    if (!centre) skip(`could not locate ${suburb}`);
+
+    const market = await nearbyMarket(db, {
+      near: { lat: centre.latitude, lng: centre.longitude, radiusKm: 20 },
+      channel: 'sale',
+    });
+    if (!market.bySuburb.length) skip(`nothing priced within 20 km of ${suburb}`);
+
+    const turn = await chat({
+      message: `my office is in ${suburb}. where is the cheapest house near it to buy?`,
+    });
+
+    assert(turn.text.trim().length > 0, 'the guide answered with nothing');
+
+    /**
+     * The cheapest suburb Postgres found has to be the one the guide names.
+     *
+     * Checked as "is it in the answer" rather than "is it first", because the
+     * guide writes prose — but naming a different suburb as the cheapest when
+     * SQL says otherwise is exactly the invention this catches.
+     */
+    const cheapestSuburb = market.bySuburb[0]!.suburb;
+    assert(
+      turn.text.toLowerCase().includes(cheapestSuburb.toLowerCase()),
+      `SQL says the cheapest nearby is ${cheapestSuburb}; the guide never mentioned it: "${turn.text.slice(0, 160)}"`,
+    );
+
+    /**
+     * And no invented travel time.
+     *
+     * Every distance this platform holds is straight-line. "About 12 minutes"
+     * is a figure no tool produced, and a road can easily double it.
+     */
+    assert(
+      !/\b\d+\s*(minutes?|mins?|hours?)\b/i.test(turn.text),
+      `the guide turned a distance into travel time: "${turn.text.slice(0, 160)}"`,
+    );
+
+    return `named ${cheapestSuburb}, cheapest of ${market.bySuburb.length} suburb(s)`;
+  });
+
+  await check('a turn that already has requirements is not a 400', async () => {
+    /**
+     * The turn every live check here was missing.
+     *
+     * Not one of them sent `slots`, so every one took the empty-requirements
+     * path — and that path worked throughout the outage. The whole AI group
+     * was green while the chat was broken for anyone who had got as far as
+     * telling the guide what they wanted.
+     *
+     * The failure was `400 role 'system' is not supported on this model`:
+     * `reconstructMessages` put a `{ role: 'system' }` entry in `messages`,
+     * which the Opus and Fable families implement and Haiku 4.5 — what this
+     * route runs — does not. It only fired once `slots` had something in it,
+     * so the opening turns of every conversation worked and the rest did not.
+     *
+     * This is the shape the visitor was in when it broke: a second message,
+     * with a brief already gathered. It has to reach the model by whichever
+     * carrier the configured model accepts, and the turn has to come back.
+     */
+    if (!webUp) skip('web app is not running');
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+
+    const suburbs = await liveSuburbs(db);
+    const suburb = suburbs[0];
+    if (!suburb) skip('no live listings to search');
+
+    const turn = await chat({
+      message: 'actually make it four bedrooms',
+      turns: [
+        { role: 'user', text: `somewhere in ${suburb} to buy` },
+        { role: 'assistant', text: 'What is your budget?' },
+      ],
+      // The part that matters. `chat()` already asserts HTTP 200 and no error
+      // on the turn, so a 400 from the API fails here with the API's own words.
+      slots: { channel: 'sale', suburb, priceTo: 900_000 },
+    });
+
+    assert(turn.text.trim().length > 0, 'the guide answered with nothing');
+
+    /**
+     * And the requirements actually landed.
+     *
+     * "It no longer 400s" is satisfied by dropping them on the floor, so the
+     * carrier has to be doing its job: the guide was told the channel and the
+     * suburb in the slots and must not have thrown them away. If it searched,
+     * it must have searched with them.
+     */
+    const search = turn.results[turn.results.length - 1];
+    if (search) {
+      assert(
+        search.query.suburb?.toLowerCase() === suburb.toLowerCase(),
+        `searched ${search.query.suburb} — the suburb in the brief was ignored`,
+      );
+      assert(
+        search.query.channel === 'sale',
+        `channel was ${search.query.channel} — the brief said sale`,
+      );
+    }
+
+    return search ? `searched ${search.query.suburb} with the brief kept` : 'answered, brief kept';
   });
 
   await check('a distance in the message becomes a radius, unasked', async () => {

@@ -3,8 +3,8 @@
   gap: 0.75rem;
   padding: 1rem;
   border-radius: 0.875rem;
-  background: var(--color-surface, #fff);
-  border: 1px solid var(--color-border, #d9d2c5);
+  background: var(--color-card, #fff);
+  border: 1px solid var(--color-line, #d9d2c5);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
 
@@ -13,9 +13,9 @@
 .channel {
   padding: 0.4375rem 1rem;
   border-radius: 9999px;
-  border: 1px solid var(--color-border, #d9d2c5);
+  border: 1px solid var(--color-line, #d9d2c5);
   background: transparent;
-  color: var(--color-muted, #5c5c5c);
+  color: var(--color-ink-soft, #5c5c5c);
   font: inherit;
   font-size: 0.875rem;
   font-weight: 600;
@@ -23,8 +23,8 @@
 }
 
 .channelOn {
-  background: #0b3d2e;
-  border-color: #0b3d2e;
+  background: var(--color-brand, #0b3d2e);
+  border-color: var(--color-brand, #0b3d2e);
   color: #fff;
 }
 
@@ -38,8 +38,8 @@
   min-width: 0;
   padding: 0.625rem 0.75rem;
   border-radius: 0.5rem;
-  border: 1px solid var(--color-border, #d9d2c5);
-  background: var(--color-bg, #fff);
+  border: 1px solid var(--color-line, #d9d2c5);
+  background: var(--color-canvas, #fff);
   color: inherit;
   font: inherit;
   font-size: 0.9375rem;
@@ -53,8 +53,8 @@
 .go {
   padding: 0.625rem 1.5rem;
   border-radius: 0.5rem;
-  border: 1px solid #0b3d2e;
-  background: #0b3d2e;
+  border: 1px solid var(--color-brand, #0b3d2e);
+  background: var(--color-brand, #0b3d2e);
   color: #fff;
   font: inherit;
   font-size: 0.9375rem;
@@ -89,7 +89,7 @@
 }
 
 .radiusHint {
-  color: var(--color-muted, #5c5c5c);
+  color: var(--color-ink-soft, #5c5c5c);
 }
 
 .clearPin {
@@ -99,7 +99,7 @@
   padding: 0;
   font: inherit;
   font-size: 0.8125rem;
-  color: #0b3d2e;
+  color: var(--color-brand, #0b3d2e);
   text-decoration: underline;
   cursor: pointer;
 }
@@ -112,7 +112,7 @@
   font: inherit;
   font-size: 0.875rem;
   font-weight: 600;
-  color: #0b3d2e;
+  color: var(--color-brand, #0b3d2e);
   cursor: pointer;
 }
 
@@ -129,7 +129,7 @@
 .areaHint {
   margin: 0;
   font-size: 0.8125rem;
-  color: var(--color-muted, #5c5c5c);
+  color: var(--color-ink-soft, #5c5c5c);
 }
 
 
@@ -186,7 +186,7 @@
 
 /* Keyboard focus has to remain visible even though the input is not. */
 .channel:focus-within {
-  outline: 2px solid var(--color-accent, #0b3d2e);
+  outline: 2px solid var(--color-brand, #0b3d2e);
   outline-offset: 2px;
 }
 
@@ -196,4 +196,13 @@
 }
 .more > summary::-webkit-details-marker {
   display: none;
+}
+
+/* Sits beside the Buy/Rent pills when the chosen channel has no listings at
+   all. Not an error — nothing has gone wrong, there is simply nothing there —
+   so it is muted rather than red. */
+.channelNote {
+  align-self: center;
+  font-size: 0.8125rem;
+  color: var(--color-ink-soft, #5c5c5c);
 }

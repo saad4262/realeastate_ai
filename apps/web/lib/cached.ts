@@ -4,16 +4,24 @@ import {
   listingAgentCards,
   listingInspections,
   propertyTimeline,
-  livePropertyTypes,
-  liveSuburbs,
+  nearbyMarket,
+  searchFacets,
   searchPublicListingsPage,
+  topSuburbAgents,
+  nearbySuburbs,
   type PublicAgentCard,
   type PublicInspection,
   type PublicListing,
   type PublicListingSummary,
   type PublicTimelineEntry,
   type PublicSearchQuery,
+  type PublicSuburbAgent,
+  type PublicNearbySuburb,
+  type SearchFacets,
+  type NearbyMarket,
+  type NearbyMarketQuery,
 } from '@repo/core/listings';
+import { listingPhotos, type ListingPhoto } from '@repo/core/media';
 import { resolvePlace } from '@repo/core/geo';
 import type { ResolvedPlace } from '@repo/core/geo/schema';
 import { getWebDb } from './db';
@@ -204,35 +212,69 @@ export async function cachedListing(id: string): Promise<PublicListing | null> {
 }
 
 /**
- * The filter options: suburbs and property types with something live in them.
+ * Everything the search filters may offer, from what is actually listed.
  *
- * One call, not two. These were separate queries made on every page load of
- * both the home page and the search page — two round trips to Seoul for two
- * short lists that change when an agency publishes in a new suburb, which is
- * not often.
+ * ONE call and one query, where this used to be two — and where the obvious
+ * shape would now be six. Beds, baths, car spaces, property types, price
+ * bounds and the suburb list all come out of the same statement, split by
+ * channel, because this is on the first paint of the home page, the search
+ * page and the chat, and the database is a region away.
+ *
+ * Five minutes and the listings tag. These change when an agency publishes in
+ * a new suburb or lists the first four-bedroom house, which is not often, and
+ * a publish clears the tag within a second either way.
+ */
+const EMPTY_CHANNEL = {
+  total: 0,
+  bedrooms: [] as number[],
+  bathrooms: [] as number[],
+  carSpaces: [] as number[],
+  propertyTypes: [] as string[],
+  priceMin: null,
+  priceMax: null,
+};
+
+export async function cachedFacets(): Promise<SearchFacets> {
+  const run = unstable_cache(
+    async () => {
+      try {
+        return await searchFacets(getWebDb());
+      } catch {
+        // The filters lose their options; the search still runs, and every
+        // control falls back to "Any".
+        return {
+          sale: { ...EMPTY_CHANNEL },
+          rent: { ...EMPTY_CHANNEL },
+          suburbs: [] as string[],
+        } satisfies SearchFacets;
+      }
+    },
+    ['facets'],
+    { tags: [LISTINGS_TAG], revalidate: 300 },
+  );
+  return run();
+}
+
+/**
+ * The two lists the property chat shows the model.
+ *
+ * Derived from the same cached facets rather than queried again: the model is
+ * told which suburbs and property types exist so it cannot invent one, and
+ * that is a strict subset of what the filters already know. Property types are
+ * unioned across channels — a renter asking for a townhouse should not be told
+ * townhouses do not exist because only sale listings have one.
  */
 export async function cachedFilterOptions(): Promise<{
   suburbs: string[];
   propertyTypes: string[];
 }> {
-  const run = unstable_cache(
-    async () => {
-      try {
-        const db = getWebDb();
-        const [suburbs, propertyTypes] = await Promise.all([
-          liveSuburbs(db),
-          livePropertyTypes(db),
-        ]);
-        return { suburbs, propertyTypes };
-      } catch {
-        // The filters lose their suggestions; the search still runs.
-        return { suburbs: [] as string[], propertyTypes: [] as string[] };
-      }
-    },
-    ['filter-options'],
-    { tags: [LISTINGS_TAG], revalidate: 300 },
-  );
-  return run();
+  const facets = await cachedFacets();
+  return {
+    suburbs: facets.suburbs,
+    propertyTypes: [
+      ...new Set([...facets.sale.propertyTypes, ...facets.rent.propertyTypes]),
+    ].sort((a, b) => a.localeCompare(b)),
+  };
 }
 
 /**
@@ -255,6 +297,135 @@ export async function cachedPlace(query: string): Promise<ResolvedPlace | null> 
     },
     ['place', query.toLowerCase()],
     { revalidate: 86_400 },
+  );
+  return run();
+}
+
+/**
+ * The two sidebar panels on /search.
+ *
+ * Cached for five minutes and tagged like everything else, because both answers
+ * only move when an agency publishes or withdraws — and a results page is
+ * already paying for a search, a place lookup and a filter list. These must not
+ * add two more cold round trips to Seoul on top of that.
+ *
+ * Both swallow their own failures. The sidebar is the least important thing on
+ * this page; an outage there should cost the panel, not the results beside it.
+ */
+export async function cachedTopAgents(scope: {
+  suburb: string;
+  state?: string;
+  channel?: PublicSearchQuery['channel'];
+}): Promise<PublicSuburbAgent[]> {
+  const run = unstable_cache(
+    async () => {
+      try {
+        return await topSuburbAgents(getWebDb(), scope);
+      } catch {
+        return [] as PublicSuburbAgent[];
+      }
+    },
+    ['top-agents', scope.suburb.toLowerCase(), scope.state ?? '', scope.channel ?? ''],
+    { tags: [LISTINGS_TAG], revalidate: 300 },
+  );
+  return run();
+}
+
+export async function cachedNearbySuburbs(scope: {
+  suburb?: string;
+  state?: string;
+  channel?: PublicSearchQuery['channel'];
+  near?: PublicSearchQuery['near'];
+}): Promise<PublicNearbySuburb[]> {
+  const run = unstable_cache(
+    async () => {
+      try {
+        return await nearbySuburbs(getWebDb(), scope);
+      } catch {
+        return [] as PublicNearbySuburb[];
+      }
+    },
+    [
+      'nearby-suburbs',
+      scope.suburb?.toLowerCase() ?? '',
+      scope.state ?? '',
+      scope.channel ?? '',
+      // The centre is part of the key: the same suburb searched with a
+      // different radius is drawn from the same point, but a street-address
+      // search is not, and two of those must not share an entry.
+      scope.near ? `${scope.near.lat},${scope.near.lng}` : '',
+    ],
+    { tags: [LISTINGS_TAG], revalidate: 300 },
+  );
+  return run();
+}
+
+/**
+ * A listing's photos, for the gallery.
+ *
+ * Tagged per listing exactly like the row itself, so uploading or deleting a
+ * photo clears this page and nothing else the moment the console calls
+ * /api/revalidate. Without the tag a new photo would appear when a timer said
+ * so — the same failure that made the site uncacheable before revalidation
+ * existed.
+ *
+ * The results page does NOT use this. It gets each listing's cover key inside
+ * the search statement itself, because one read per row is the N+1 that
+ * query-count.test.ts refuses.
+ */
+export async function cachedListingPhotos(listingId: string): Promise<ListingPhoto[]> {
+  const run = unstable_cache(
+    async () => {
+      try {
+        return await listingPhotos(getWebDb(), listingId);
+      } catch {
+        // The gallery falls back to its placeholder. A storage or database
+        // hiccup should cost the photos, not the property page.
+        return [] as ListingPhoto[];
+      }
+    },
+    ['listing-photos', listingId],
+    { tags: [LISTINGS_TAG, `listing:${listingId}`], revalidate: 60 },
+  );
+  return run();
+}
+
+/**
+ * "Cheapest near here", for the property guide.
+ *
+ * Cached like every other read on this route — the guide's tools are injected
+ * precisely so the app decides that, and this was a direct database call for
+ * one commit, which made it the only read here going to the database region
+ * on every turn.
+ *
+ * Thirty seconds, matching cachedSearch: this answers the same question about
+ * the same rows, and the two disagreeing about how stale they may be would let
+ * the guide quote a listing the results panel beside it no longer shows.
+ *
+ * The key carries the point to six decimal places. Two offices a street apart
+ * are different questions.
+ */
+export async function cachedNearbyMarket(query: NearbyMarketQuery): Promise<NearbyMarket> {
+  const run = unstable_cache(
+    async () => {
+      try {
+        return await nearbyMarket(getWebDb(), query);
+      } catch {
+        // The guide is told nothing was found rather than being handed an
+        // exception mid-turn. dispatchTool turns a throw into a dead turn.
+        return { listings: [], bySuburb: [], unpriced: 0 } satisfies NearbyMarket;
+      }
+    },
+    [
+      'nearby-market',
+      `${query.near.lat.toFixed(6)},${query.near.lng.toFixed(6)}`,
+      String(query.near.radiusKm),
+      query.channel,
+      query.bedrooms === undefined ? '' : String(query.bedrooms),
+      query.propertyType ?? '',
+      String(query.limit ?? ''),
+    ],
+    { tags: [LISTINGS_TAG], revalidate: 30 },
   );
   return run();
 }

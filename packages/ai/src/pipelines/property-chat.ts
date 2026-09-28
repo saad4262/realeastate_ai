@@ -2,7 +2,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { PublicSearchQuery } from '@repo/core/listings';
 import { searchQueryToPath } from '@repo/core/listings';
 import { getModel } from '../models';
-import { catalogueBlock, PROMPT_VERSION, PROPERTY_CHAT_V6 } from '../prompts/v6';
+import { catalogueBlock, PROMPT_VERSION, PROPERTY_CHAT_V8 } from '../prompts/v8';
+import { slotsToQuery } from '../schemas/chat-request';
 import type { ChatEvent } from '../schemas/chat-events';
 import { MAX_HISTORY_CHARS, toClientSlots, type ChatRequest, type ChatTurn } from '../schemas/chat-request';
 import { dispatchTool, PROPERTY_CHAT_TOOLS, type ToolContext } from '../tools';
@@ -55,7 +56,33 @@ export type PropertyChatInput = {
  * price from memory and has to call get_listing. That is #4 enforced by
  * construction rather than by asking the model nicely.
  */
-export function reconstructMessages(request: ChatRequest): Anthropic.MessageParam[] {
+/**
+ * The accumulated requirements, as operator text.
+ *
+ * One definition, two carriers. Which carrier is used is a property of the
+ * model — see requirementsCarrier below — but the words are the same either
+ * way, so they live here rather than being written twice and drifting.
+ */
+export function requirementsBlock(slots: PublicSearchQuery | undefined): string | null {
+  if (!slots || Object.keys(slots).length === 0) return null;
+  return (
+    `<known_requirements>${JSON.stringify(slots)}</known_requirements>\n` +
+    'Advisory only — what the visitor has told you so far. Do not read it back ' +
+    'to them; use it to decide what is still missing.'
+  );
+}
+
+export function reconstructMessages(
+  request: ChatRequest,
+  /**
+   * Whether this model accepts `{ role: 'system' }` inside `messages`.
+   *
+   * Defaults to false, and the default is the point: a caller that forgets to
+   * ask gets the carrier every model accepts, rather than the one that returns
+   * HTTP 400 on all but the Opus and Fable families.
+   */
+  opts: { midConversationSystem?: boolean } = {},
+): Anthropic.MessageParam[] {
   const kept: ChatTurn[] = [];
   let chars = request.message.length;
 
@@ -96,17 +123,24 @@ export function reconstructMessages(request: ChatRequest): Anthropic.MessagePara
    * The requirements gathered so far, as an operator instruction rather than
    * as words in the visitor's message.
    *
-   * A mid-conversation system message sits after every cache breakpoint, so it
-   * costs nothing in cache terms, and it carries operator authority — unlike a
-   * block prepended to the user's text, which a visitor could imitate by
-   * typing the closing tag themselves.
+   * Never as text prepended to what the visitor typed: a visitor can close the
+   * tag themselves and write their own requirements, which is the injection
+   * this shape exists to avoid. Both carriers below are operator-authored.
+   *
+   * A mid-conversation system message is the better of the two when the model
+   * has it — it sits after the conversation, so the requirements are the last
+   * thing the model reads, and it is after every cache breakpoint so it costs
+   * nothing in cache terms. But it is implemented on the Opus and Fable
+   * families only. Sending it to Haiku, which this route runs, returns
+   * `400 role 'system' is not supported on this model` and kills the turn.
+   *
+   * Placement, for the models that do accept it: it goes after the final user
+   * message, so it is never messages[0] and it is either last or followed by
+   * the assistant turn the tool loop appends. Both are required by the API.
    */
-  const slots = request.slots;
-  if (slots && Object.keys(slots).length > 0) {
-    messages.push({
-      role: 'system',
-      content: `<known_requirements>${JSON.stringify(slots)}</known_requirements>\nAdvisory only — what the visitor has told you so far. Do not read it back to them; use it to decide what is still missing.`,
-    });
+  const block = requirementsBlock(request.slots as PublicSearchQuery | undefined);
+  if (block && opts.midConversationSystem) {
+    messages.push({ role: 'system', content: block });
   }
 
   return messages;
@@ -145,11 +179,32 @@ export async function* runPropertyChat(
   const model = getModel(FEATURE, env ?? process.env);
   const turnId = crypto.randomUUID();
 
+  /**
+   * Seed the schedulable search from the brief the client carries.
+   *
+   * `tools` is built per HTTP request, so `lastSearch` starts empty on
+   * every turn. Without this, "schedule that" on the turn after a search
+   * made `draft_schedule` report that nothing had been searched, the model
+   * re-ran the search to satisfy it, and the turn ran out of tool rounds
+   * mid-sentence with no card on screen. Seen live.
+   *
+   * A real `search_listings` call still overwrites this with the query it
+   * actually ran — this is only the floor, for the turn where the person
+   * asks to schedule something they were shown a moment ago.
+   */
+  if (!tools.lastSearch && request.slots) {
+    const carried = slotsToQuery(request.slots);
+    if (carried) tools.lastSearch = carried as PublicSearchQuery;
+  }
+
   yield { type: 'turn', id: turnId };
 
-  const messages = reconstructMessages(request);
+  const messages = reconstructMessages(request, {
+    midConversationSystem: model.midConversationSystem,
+  });
+
   const system: Anthropic.TextBlockParam[] = [
-    { type: 'text', text: PROPERTY_CHAT_V6, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: PROPERTY_CHAT_V8, cache_control: { type: 'ephemeral' } },
     {
       type: 'text',
       text: catalogueBlock(catalogue.suburbs, catalogue.propertyTypes),
@@ -157,8 +212,31 @@ export async function* runPropertyChat(
     },
   ];
 
+  /**
+   * The fallback carrier, for a model with no system role in messages.
+   *
+   * A third system block, AFTER the two cached ones and deliberately without
+   * `cache_control` of its own. Caching is a prefix match, so a block appended
+   * past the last breakpoint changes every turn without invalidating anything
+   * in front of it — the frozen prompt and the catalogue still come from the
+   * cache. Putting the requirements in front of them, or adding a breakpoint
+   * here, would rewrite the prefix on every turn and cache nothing.
+   *
+   * It loses one property the message carrier has: the requirements are read
+   * before the conversation rather than after it. That is the cost of a model
+   * that cannot take the better carrier, and it is a smaller cost than a 400.
+   */
+  const requirements = model.midConversationSystem
+    ? null
+    : requirementsBlock(request.slots as PublicSearchQuery | undefined);
+  if (requirements) {
+    system.push({ type: 'text', text: requirements });
+  }
+
   let slots: PublicSearchQuery = { ...(request.slots as PublicSearchQuery | undefined) };
   let rounds = 0;
+  /** Whether any round has produced prose yet — see the separator below. */
+  let spokenSoFar = false;
   let stopReason: string | null = null;
 
   try {
@@ -189,8 +267,32 @@ export async function* runPropertyChat(
         { signal },
       );
 
+      /**
+       * Rounds run together unless something separates them.
+       *
+       * A turn that searches writes text, calls a tool, then writes more — and
+       * the client appends every delta to one string. With nothing between
+       * them the visitor read
+       *
+       *   "…within 30 km of Pakenham.Within 30 km of Pakenham there are 3…"
+       *
+       * A blank line rather than a space, because the two halves are two
+       * thoughts: one said what it was about to do, the other reports what it
+       * found. The renderer turns it into a paragraph break.
+       *
+       * Emitted lazily — on the first delta of a later round, not at the top
+       * of it — so a round that produces only a tool call and no prose does
+       * not leave a trailing gap.
+       */
+      let wroteThisRound = false;
+
       for await (const event of stream) {
         if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+          if (!wroteThisRound) {
+            wroteThisRound = true;
+            if (rounds > 0 && spokenSoFar) yield { type: 'text', delta: '\n\n' };
+          }
+          spokenSoFar = true;
           yield { type: 'text', delta: event.delta.text };
         }
       }
@@ -245,6 +347,18 @@ export async function* runPropertyChat(
 
       for (const { use, outcome } of outcomes) {
         if (outcome.slots) slots = { ...slots, ...outcome.slots };
+        if (outcome.scheduleDraft) {
+          /**
+           * The confirmation card.
+           *
+           * Yielded as its own frame rather than folded into the answer
+           * text, because the person is about to agree to it: what they
+           * press Accept on has to be the server's description of what
+           * will be stored, not the model's account of what it did.
+           */
+          yield { type: 'schedule_draft', toolUseId: use.id, ...outcome.scheduleDraft };
+        }
+
         if (outcome.resultsFrame) {
           yield { type: 'results', toolUseId: use.id, ...outcome.resultsFrame };
         }

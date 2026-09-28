@@ -8,8 +8,22 @@ import {
   type ChatTurnResult,
   type ToolContext,
 } from '@repo/ai/chat';
+import { appendTurn } from '@repo/core/chat';
+import {
+  listSchedules,
+  requireDraftSecret,
+  updateSchedule,
+} from '@repo/core/schedules';
 import { getWebDb } from '../../../lib/db';
-import { cachedFilterOptions, cachedListing, cachedPlace, cachedSearch } from '../../../lib/cached';
+import { ensureConsumerAccount } from '../../../lib/account';
+import { currentWebUser } from '../../../lib/session';
+import {
+  cachedFilterOptions,
+  cachedListing,
+  cachedNearbyMarket,
+  cachedPlace,
+  cachedSearch,
+} from '../../../lib/cached';
 
 /** postgres.js opens raw sockets, so this cannot run on the edge runtime. */
 export const runtime = 'nodejs';
@@ -107,10 +121,64 @@ function errorResponse(event: ChatEvent, status: number): NextResponse {
  * functions precisely so @repo/ai never imports unstable_cache — that is a
  * Next API, and the package should not know which framework called it.
  */
-function toolContext(): ToolContext {
+/**
+ * The scheduling half of the tool context, or WHY it cannot run.
+ *
+ * The two reasons are reported separately on purpose. This used to return
+ * `undefined` for both, and an anonymous visitor asking to be emailed
+ * daily was told "scheduling isn't available at the moment" — which is
+ * false, unactionable, and reads as a broken feature when the fix is to
+ * sign in. Seen in a real conversation.
+ */
+function schedulingContext(userId: string | null): ToolContext['scheduling'] {
+  if (!userId) return { state: 'signed_out' };
+
+  let draftSecret: string;
+  try {
+    draftSecret = requireDraftSecret();
+  } catch {
+    // ALERT_UNSUBSCRIBE_SECRET is unset. Nobody in the conversation can
+    // fix that, so the model must not send the visitor off to try.
+    return { state: 'unconfigured' };
+  }
+
+  const db = getWebDb();
+  const actor = { userId };
+
+  return {
+    state: 'ready',
+    draftSecret,
+    listSchedules: async () =>
+      (await listSchedules(db, actor)).map((s) => ({
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        status: s.status,
+      })),
+    /**
+     * Pause, never delete, and `can()` decides inside `updateSchedule`.
+     *
+     * The id reaching here came from `listSchedules` for this same actor,
+     * so it is already theirs — but the check is not skipped on that
+     * basis. A model choosing which id to act on is exactly the situation
+     * where the authorisation should not be inferred from context.
+     */
+    pauseSchedule: async (id: string) => {
+      try {
+        await updateSchedule(db, actor, id, { status: 'paused' });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
+function toolContext(userId: string | null): ToolContext {
   const db = getWebDb();
   return {
     db,
+    scheduling: schedulingContext(userId),
     places: new Map(),
     resolvePlace: (query) => cachedPlace(query),
     search: async (query) => {
@@ -127,7 +195,70 @@ function toolContext(): ToolContext {
       return rows;
     },
     getListing: (id) => cachedListing(id),
+    nearbyMarket: (query) => cachedNearbyMarket(query),
   };
+}
+
+/**
+ * Save the exchange, if there is somebody to save it for.
+ *
+ * Both turns in one transaction: half an exchange in the record — a
+ * question with no answer — is worse than none, because reopening the
+ * thread would replay it to the model as though the guide had said nothing.
+ *
+ * Failure is swallowed on purpose. A visitor who asked about a house has
+ * already had their answer streamed to them; losing the transcript is a
+ * smaller harm than a 500 after a successful turn, and the same trade
+ * `trackAiRunQuietly` makes one line above.
+ */
+async function persistTurn(input: {
+  userId: string | null;
+  threadId: string | null;
+  userMessage: string;
+  answer: string;
+  citations: { query: unknown; matched: number; shown: number }[];
+  resultsFrame: unknown;
+  deepLink: string | null;
+}): Promise<string | null> {
+  if (!input.userId) return null;
+  if (!input.threadId && !input.answer.trim()) return null;
+
+  try {
+    /**
+     * The `public.user` row has to exist before anything can reference it.
+     *
+     * Normally the sign-in action created it. This is the belt: a session
+     * minted before that existed, or a row removed underneath us, would
+     * otherwise fail the foreign key and lose the transcript silently —
+     * which is exactly how this was found.
+     */
+    await ensureConsumerAccount();
+
+    const db = getWebDb();
+    const actor = { userId: input.userId };
+
+    return await db.transaction(async (tx) => {
+      const { threadId } = await appendTurn(tx, actor, {
+        threadId: input.threadId,
+        role: 'user',
+        text: input.userMessage,
+      });
+
+      await appendTurn(tx, actor, {
+        threadId,
+        role: 'assistant',
+        text: input.answer,
+        searches: input.citations.length > 0 ? input.citations : null,
+        resultsFrame: input.resultsFrame,
+        deepLink: input.deepLink,
+      });
+
+      return threadId;
+    });
+  } catch (err) {
+    console.error('[chat] failed to save the conversation', err);
+    return null;
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -188,11 +319,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  /**
+   * Read once, here, and passed down.
+   *
+   * The scheduling tools and the transcript writer both need it, and
+   * `currentWebUser` is a header read with no I/O — but calling it twice
+   * would make it look like two different questions were being asked.
+   */
+  const sessionUser = await currentWebUser();
+  const sessionUserId = sessionUser?.id ?? null;
+
   let catalogue: { suburbs: string[]; propertyTypes: string[] };
   let tools: ToolContext;
   try {
     catalogue = await cachedFilterOptions();
-    tools = toolContext();
+    tools = toolContext(sessionUserId);
   } catch {
     return errorResponse(
       {
@@ -205,6 +346,16 @@ export async function POST(request: NextRequest) {
   }
 
   const db = tools.db;
+
+  /**
+   * The thread to append to, as a header rather than a body field.
+   *
+   * `chatRequestSchema` is `.strict()` and describes what the MODEL is
+   * given; a thread id is app plumbing and has no business in it. Widening
+   * that schema for storage would blur the one boundary it exists to hold.
+   * An id the session does not own is refused in appendTurn.
+   */
+  const threadId = request.headers.get('x-chat-thread')?.trim() || null;
 
   const turn = runPropertyChat({
     apiKey,
@@ -271,9 +422,51 @@ export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      /**
+       * Collected as the stream goes out, and written once at the end.
+       *
+       * Only for a signed-in visitor — see persistTurn. An anonymous
+       * conversation is not stored at all, which is both the smaller privacy
+       * surface and the honest behaviour for somebody who has not said who
+       * they are.
+       */
+      let answer = '';
+      const citations: { query: unknown; matched: number; shown: number }[] = [];
+      let lastResults: unknown = null;
+      let lastLink: string | null = null;
+
       try {
         for await (const event of turn) {
           controller.enqueue(encoder.encode(frame(event)));
+
+          if (event.type === 'text') answer += event.delta;
+          else if (event.type === 'results') {
+            citations.push({
+              query: event.query,
+              matched: event.matched,
+              shown: event.listings.length,
+            });
+            lastResults = event;
+            lastLink = event.deepLink;
+          } else if (event.type === 'state' && event.deepLink) {
+            lastLink = event.deepLink;
+          }
+        }
+
+        const savedId = await persistTurn({
+          userId: sessionUserId,
+          threadId,
+          userMessage: parsed.data.message,
+          answer,
+          citations,
+          resultsFrame: lastResults,
+          deepLink: lastLink,
+        });
+
+        // After `done`, so a client that stops reading early loses only the
+        // id and never a word of the answer.
+        if (savedId) {
+          controller.enqueue(encoder.encode(frame({ type: 'saved', threadId: savedId })));
         }
       } catch (err) {
         console.error('[chat] stream failed', err);

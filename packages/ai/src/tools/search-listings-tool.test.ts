@@ -45,6 +45,7 @@ function row(i: number, over: Partial<PublicListing> = {}): PublicListing {
     agencyName: 'Saadiii',
     agents: ['Jane Doe'],
     publishedAt: null,
+    mainPhotoKey: null,
     ...over,
   };
 }
@@ -54,7 +55,11 @@ function ctx(rows: PublicListing[], over: Partial<ToolContext> = {}) {
   const context: ToolContext = {
     db: {} as Db,
     places: new Map(),
+    // These tests are about finding homes, not scheduling. `signed_out` is
+    // the honest default: no session, so the scheduling tools refuse.
+    scheduling: { state: 'signed_out' },
     resolvePlace: vi.fn(async () => PAKENHAM),
+    nearbyMarket: vi.fn(async () => ({ listings: [], bySuburb: [], unpriced: 0 })),
     search: vi.fn(async (q: PublicSearchQuery) => {
       searched.push(q);
       return rows.slice(0, q.limit ?? rows.length);

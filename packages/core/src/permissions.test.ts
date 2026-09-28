@@ -106,4 +106,56 @@ describe('can()', () => {
     };
     expect(can(noAgency, 'console:agency', { type: 'console' })).toBe(false);
   });
+
+  /**
+   * Scheduled searches belong to a person, not to an agency.
+   *
+   * This is the first resource in the system with that shape, and these tests
+   * are what stop the next person from "fixing" the missing `isAgencyAdmin`
+   * check in those two cases. See docs/adr/0011.
+   */
+  describe('scheduled searches', () => {
+    const buyer: Actor = { userId: 'buyer-1' };
+    const otherBuyer: Actor = { userId: 'buyer-2' };
+    const scheduleOfBuyer1 = { type: 'schedule', id: 'sched-1', ownerId: 'buyer-1' };
+
+    it('allows an account with no agency to create one, and refuses a signed-out actor', () => {
+      expect(can(buyer, 'schedule:create', { type: 'schedule' })).toBe(true);
+      expect(can({ userId: '' }, 'schedule:create', { type: 'schedule' })).toBe(false);
+    });
+
+    it('allows the owner to read their own schedule and denies another account', () => {
+      expect(can(buyer, 'schedule:read', scheduleOfBuyer1)).toBe(true);
+      expect(can(otherBuyer, 'schedule:read', scheduleOfBuyer1)).toBe(false);
+    });
+
+    it('allows the owner to manage their own schedule and denies another account', () => {
+      expect(can(buyer, 'schedule:manage', scheduleOfBuyer1)).toBe(true);
+      expect(can(otherBuyer, 'schedule:manage', scheduleOfBuyer1)).toBe(false);
+    });
+
+    /**
+     * The interesting one. Everywhere else in this file an agency owner is the
+     * most powerful actor there is; here they are nobody. A buyer's saved
+     * search is not agency data, and no role grants it.
+     */
+    it('denies an agency owner any access to a consumer schedule', () => {
+      const owner: Actor = { userId: 'owner-a', agencyId: agencyA, membershipRole: 'owner' };
+
+      expect(can(owner, 'schedule:read', scheduleOfBuyer1)).toBe(false);
+      expect(can(owner, 'schedule:manage', scheduleOfBuyer1)).toBe(false);
+      // ...and still yes to their own.
+      expect(can(owner, 'schedule:read', { type: 'schedule', ownerId: 'owner-a' })).toBe(true);
+    });
+
+    /**
+     * A resource with no owner must not match an actor with no id. Both being
+     * `undefined` compares equal, which would hand every unowned row to every
+     * signed-out caller.
+     */
+    it('does not let an ownerless resource match an actorless request', () => {
+      expect(can({ userId: '' }, 'schedule:read', { type: 'schedule' })).toBe(false);
+      expect(can(buyer, 'schedule:read', { type: 'schedule' })).toBe(false);
+    });
+  });
 });

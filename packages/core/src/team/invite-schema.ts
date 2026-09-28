@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { storageKeySchema } from '../media/storage-key';
 import type { MembershipRole } from '../permissions';
 
 /** Maps wizard operational presets → membership.role (never check role strings in UI). */
@@ -123,6 +124,17 @@ export const inviteAgentDraftSchema = z.object({
   permissionFlags: z.record(z.boolean()).default({}),
   photoUrl: z
     .union([z.string().url('Photo URL must be a full https:// link'), z.literal(''), z.null()])
+    .optional()
+    .transform((v) => (v ? v : null)),
+  /**
+   * An uploaded headshot's storage key, from the wizard's upload control.
+   *
+   * Validated as a key this platform issued rather than as free text — it has
+   * been to a browser and back, and a path is exactly the thing not to trust
+   * on the way in. Preferred over photoUrl by everything that renders it.
+   */
+  photoKey: z
+    .union([storageKeySchema, z.literal(''), z.null()])
     .optional()
     .transform((v) => (v ? v : null)),
   bio: z

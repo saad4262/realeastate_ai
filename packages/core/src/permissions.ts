@@ -30,12 +30,32 @@ export type Action =
   /** Agency OS host — owner|admin only */
   | 'console:agency'
   /** Agent desk host — any active membership */
-  | 'console:agent';
+  | 'console:agent'
+  /** Save a scheduled search. Any signed-in account; no agency required. */
+  | 'schedule:create'
+  /** Read a schedule and its runs — /alerts, the chat card, the run detail. */
+  | 'schedule:read'
+  /** Pause, resume, rename, retime, delete. */
+  | 'schedule:manage'
+  /** Read one's own saved conversations. */
+  | 'chat:read'
+  /** Append to, or delete, one's own saved conversations. */
+  | 'chat:write';
 
 export type Resource = {
-  type: 'listing' | 'team' | 'agency' | 'console' | string;
+  type: 'listing' | 'team' | 'agency' | 'console' | 'schedule' | 'chat' | string;
   id?: string;
   agencyId?: string;
+  /**
+   * Whose thing this is, for resources a person owns rather than an agency
+   * does.
+   *
+   * A consumer has no agency, so `sameAgency` can never be the question for
+   * one of their resources. This is the second axis the model needed and the
+   * reason a consumer did not have to be given a fake membership — see
+   * docs/adr/0011.
+   */
+  ownerId?: string;
 };
 
 const ADMIN_ROLES: MembershipRole[] = ['owner', 'admin'];
@@ -115,7 +135,37 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'console:agent':
       return Boolean(actor.agencyId && actor.membershipRole);
 
-    default:
-      return false;
+    case 'schedule:create':
+      // Ownership, not membership. An agency owner gets this because they are
+      // a signed-in person, not because of their role — to this action a
+      // consumer account and an agent's account are the same kind of thing.
+      return Boolean(actor.userId);
+
+    case 'chat:read':
+    case 'chat:write':
+    case 'schedule:read':
+    case 'schedule:manage':
+      // Deliberately NOT `|| isAgencyAdmin(actor)`. An agency admin has no
+      // claim on a buyer's saved search or their conversation with the guide:
+      // between them those record where somebody wants to live, what they can
+      // spend and what they asked in their own words. Being the largest
+      // account on the platform is not a reason to read any of it. This is the
+      // one place in this file where admin power stops at the tenancy line
+      // rather than crossing it.
+      return Boolean(actor.userId) && actor.userId === resource.ownerId;
+
+    default: {
+      /**
+       * Exhaustiveness, the same forcing function `getModel` has.
+       *
+       * This used to be `return false`, which meant a new Action compiled
+       * cleanly and silently denied everything — the failure would have shown
+       * up as a button that does nothing, with the permission test as the only
+       * thing standing between that and production. Adding an action is now a
+       * compile error until it has a rule.
+       */
+      const never: never = action;
+      throw new Error(`No rule for action: ${String(never)}`);
+    }
   }
 }

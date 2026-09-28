@@ -1,5 +1,6 @@
 import { WebShell } from '../../../components/web-shell';
 import { ListingSkeleton } from '../../../components/skeletons';
+import { portalFonts } from '../../portal-fonts';
 
 /**
  * The one navigation on this site that had no feedback at all.
@@ -16,8 +17,13 @@ import { ListingSkeleton } from '../../../components/skeletons';
  */
 export default function ListingLoading() {
   return (
-    <WebShell>
-      <ListingSkeleton />
+    <WebShell wide>
+      {/* The skin and the mock's families, same as the page. Without them the
+          page arrives and changes both colour and typeface, which reads as a
+          second load rather than as the first one finishing. */}
+      <div data-skin="portal" className={`${portalFonts} min-h-screen bg-canvas`}>
+        <ListingSkeleton />
+      </div>
     </WebShell>
   );
 }

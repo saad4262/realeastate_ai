@@ -16,7 +16,20 @@
     "./listings": "./src/listings/index.ts",
     "./listings/schema": "./src/listings/listing-schema.ts",
     "./listings/format": "./src/listings/format.ts",
+  "./listings/pagination": "./src/listings/pagination.ts",
+  "./listings/facets": "./src/listings/search-facets.ts",
+  "./listings/price-ladder": "./src/listings/price-ladder.ts",
+  "./markdown": "./src/markdown.ts",
+  "./media": "./src/media/index.ts",
+  "./media/url": "./src/media/media-url.ts",
+  "./media/storage": "./src/media/storage-client.ts",
     "./listings/url": "./src/listings/search-url.ts",
+    "./email": "./src/email/index.ts",
+    "./chat": "./src/chat/threads.ts",
+    "./schedules": "./src/schedules/index.ts",
+    "./schedules/schema": "./src/schedules/schedule-schema.ts",
+    "./schedules/next-run": "./src/schedules/next-run.ts",
+    "./schedules/timezones": "./src/schedules/timezones.ts",
     "./geo": "./src/geo/index.ts",
     "./geo/schema": "./src/geo/place-schema.ts"
   },
@@ -32,6 +45,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@repo/auth": "workspace:*",
     "dotenv": "^16.4.7",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",

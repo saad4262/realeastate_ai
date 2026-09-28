@@ -5,13 +5,17 @@ import {
   useEffect,
   useRef,
   useState,
-  type FormEvent,
-  type KeyboardEvent,
 } from 'react';
 import Link from 'next/link';
 import type { ChatEvent, ResultsEvent, StateEvent } from '@repo/ai/chat-events';
 import { readChatStream } from './chat-stream';
 import { ResultsPanel } from './results-panel';
+import { DeliveredRun } from './delivered-run';
+import { ChatToolbar } from './chat-toolbar';
+import { HistoryScreen } from './history-screen';
+import { ScheduleCard } from './schedule-card';
+import { Composer } from './composer';
+import { RichText } from './rich-text';
 import styles from './chat.module.css';
 
 /**
@@ -43,6 +47,19 @@ type Turn = {
    * from, but the brief so far is still a real search.
    */
   stateLink?: string | null;
+  /**
+   * A schedule the guide proposed on this turn, awaiting confirmation.
+   *
+   * Held on the turn rather than in page state so it stays anchored to the
+   * message that produced it — scrolling back to an older card and pressing
+   * Accept on it is exactly as valid as pressing the newest one.
+   */
+  scheduleDraft?: {
+    token: string;
+    search: string;
+    cadence: string;
+    searchPath: string;
+  };
 };
 
 type Slots = StateEvent['slots'];
@@ -118,31 +135,6 @@ const BRIEF_FIELDS: { id: string; label: string; format: (slots: Slots) => strin
   },
 ];
 
-function SendIcon({ variant = 'arrow' }: { variant?: 'arrow' | 'plane' }) {
-  if (variant === 'plane') {
-    return (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-        <path
-          d="M4.4 11.2 19.2 4.7c.7-.3 1.4.4 1.1 1.1l-6.5 14.8c-.3.7-1.3.6-1.5-.1l-1.8-5.4a1 1 0 0 0-.6-.6l-5.4-1.8c-.7-.2-.8-1.2-.1-1.5Z"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-        />
-      </svg>
-    );
-  }
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M4.5 12h15m0 0-6.5-6.5M19.5 12 13 18.5"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
 
 function TypingSkeleton({ label }: { label: string }) {
   return (
@@ -193,21 +185,86 @@ function turnLink(turn: Turn): { href: string; label: string; aria: string } | n
   };
 }
 
-export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
-  const [turns, setTurns] = useState<Turn[]>([]);
-  const [draft, setDraft] = useState('');
+/**
+ * A scheduled run handed down by the page, already formatted.
+ *
+ * Primitives only. Everything here crossed the server/client boundary as
+ * JSON, so a `Date` would arrive as a string while the type still claimed
+ * `Date` — ARCHITECTURE § 6's named class of bug. Prices arrive as strings
+ * too, formatted by `priceLabel` on the server, because this file may not
+ * import the listings barrel.
+ */
+export type DeliveredRunSeed = {
+  ranAtIso: string;
+  scheduleName: string;
+  description: string;
+  matched: number;
+  newCount: number;
+  summary: string | null;
+  summarySource: 'model' | 'template' | 'none';
+  searchPath: string;
+  listings: { id: string; price: string; address: string }[];
+  prompt: string;
+};
+
+export function ChatView({
+  exampleSuburb,
+  delivered = null,
+  signedIn = false,
+  historyOpen = false,
+  activeTitle = null,
+  initialThreadId = null,
+  initialSlots = null,
+  initialResults = null,
+  initialTurns = [],
+  threads = [],
+}: {
+  exampleSuburb: string | null;
+  delivered?: DeliveredRunSeed | null;
+  /** `/chat?history=1` — the list, instead of the hero or a transcript. */
+  historyOpen?: boolean;
+  /** Title stored for the thread the URL opened. */
+  activeTitle?: string | null;
+  /** The thread being reopened, when the URL names one. */
+  initialThreadId?: string | null;
+  /** Brief restored from the last saved search, so a reply still knows it. */
+  initialSlots?: Slots | null;
+  /** Last results frame, so the sidebar comes back with the transcript. */
+  initialResults?: ResultsEvent | null;
+  /** Its turns, already in the shape this component stores them. */
+  initialTurns?: Turn[];
+  /** The sidebar list. Empty for an anonymous visitor, who saves nothing. */
+  threads?: { id: string; title: string; lastMessageAt: string }[];
+  /**
+   * Display only. `/chat` is inside the middleware matcher, so unlike
+   * `/search` this is a verified session rather than a cookie sniff — but
+   * the Server Action still reads the session itself and refuses on its own.
+   */
+  signedIn?: boolean;
+}) {
+  const [turns, setTurns] = useState<Turn[]>(initialTurns);
   const [streaming, setStreaming] = useState(false);
   const [working, setWorking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [slots, setSlots] = useState<Slots | null>(null);
-  const [results, setResults] = useState<ResultsEvent | null>(null);
+  const [slots, setSlots] = useState<Slots | null>(initialSlots);
+  const [results, setResults] = useState<ResultsEvent | null>(initialResults);
   const [tab, setTab] = useState<'chat' | 'results'>('chat');
 
   const threadRef = useRef<HTMLDivElement>(null);
+  /**
+   * The saved conversation this is appending to, if any.
+   *
+   * A ref rather than state: it is read inside `send` and changing it must
+   * not re-render the transcript. The server creates the thread on the
+   * first exchange and reports its id back in a response header, because at
+   * the time the request is made there is nothing to send.
+   */
+  const threadIdRef = useRef<string | null>(initialThreadId);
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const empty = turns.length === 0;
+
 
   // Follow the answer as it arrives. Not aria-live per delta — see below.
   useEffect(() => {
@@ -223,7 +280,6 @@ export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
       const text = message.trim();
       if (!text || streaming) return;
 
-      setDraft('');
       setError(null);
       setStreaming(true);
       setWorking(null);
@@ -238,7 +294,18 @@ export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
       try {
         const response = await fetch('/api/chat', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            /**
+             * App plumbing, so it travels as a header rather than in the
+             * body: chatRequestSchema is `.strict()` and describes what the
+             * MODEL is given. A thread id has no business in it.
+             *
+             * The server refuses an id this session does not own, so a
+             * forged one appends nothing.
+             */
+            ...(threadIdRef.current ? { 'x-chat-thread': threadIdRef.current } : {}),
+          },
           signal: controller.signal,
           body: JSON.stringify({
             message: text,
@@ -314,6 +381,43 @@ export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
               setError(event.message);
               break;
 
+            case 'schedule_draft':
+              setTurns((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last) {
+                  next[next.length - 1] = {
+                    ...last,
+                    scheduleDraft: {
+                      token: event.token,
+                      search: event.search,
+                      cadence: event.cadence,
+                      searchPath: event.searchPath,
+                    },
+                  };
+                }
+                return next;
+              });
+              break;
+
+            case 'saved': {
+              // First exchange of a new conversation: remember where it
+              // landed so the next turn appends rather than starting again.
+              //
+              // The URL is updated without a Next navigation. A router
+              // replace would re-render this page and, because the view is
+              // keyed on the thread id, remount it — dropping the
+              // confirmation card, which is not stored. A reload still
+              // opens the same chat, because the query is what the server
+              // reads.
+              threadIdRef.current = event.threadId;
+              const nextUrl = `/chat?thread=${event.threadId}`;
+              if (window.location.pathname + window.location.search !== nextUrl) {
+                window.history.replaceState(window.history.state, '', nextUrl);
+              }
+              break;
+            }
+
             case 'turn':
             case 'done':
               break;
@@ -341,105 +445,59 @@ export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
     [slots, streaming, turns],
   );
 
-  function onSubmit(event: FormEvent) {
-    event.preventDefault();
-    void send(draft);
-  }
-
-  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      void send(draft);
-    }
-  }
 
   const last = turns[turns.length - 1];
   const awaitingReply =
     streaming && last?.role === 'assistant' && !last.text && !last.results && !working;
 
-  const composer = (
-    <div className={empty ? styles.heroComposer : styles.composer}>
-      {empty ? (
-        <div className={styles.chips}>
-          {STARTERS.map((starter) => (
-            <button
-              key={starter}
-              type="button"
-              className={styles.chipBtn}
-              onClick={() => void send(starter)}
-              disabled={streaming}
-            >
-              {starter}
-            </button>
-          ))}
-        </div>
-      ) : null}
+  /**
+   * Stable, so `memo` on Composer is worth having.
+   *
+   * `send` already depends on slots/streaming/turns, which change during a
+   * turn — but not on the draft, which is the thing changing thirty times
+   * a sentence. That is the re-render this split removes.
+   */
+  const onStop = useCallback(() => abortRef.current?.abort(), []);
 
-      <form
-        className={empty ? styles.heroComposeBox : styles.composeBox}
-        onSubmit={onSubmit}
-      >
-        <textarea
-          ref={inputRef}
-          className={styles.input}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={
-            empty
-              ? exampleSuburb
-                ? `e.g. a family home near ${exampleSuburb}, under $900k, 3 beds…`
-                : 'Suburb, budget, bedrooms — or ask where you should look…'
-              : 'Ask a follow-up, or change the brief…'
-          }
-          maxLength={1000}
-          rows={empty ? 3 : 1}
-          aria-label="Message the property guide"
-          disabled={streaming}
-        />
-        {empty ? (
-          <div className={styles.composeToolbar}>
-            <span className={styles.composeHint}>AI guide · prices from live listings</span>
-            {streaming ? (
-              <button
-                type="button"
-                className={styles.stop}
-                onClick={() => abortRef.current?.abort()}
-              >
-                Stop
-              </button>
-            ) : (
-              <button
-                type="submit"
-                className={styles.sendPill}
-                disabled={!draft.trim()}
-                aria-label="Send"
-              >
-                Ask the guide
-                <SendIcon />
-              </button>
-            )}
-          </div>
-        ) : streaming ? (
-          <button
-            type="button"
-            className={styles.stop}
-            onClick={() => abortRef.current?.abort()}
-          >
-            Stop
-          </button>
-        ) : (
-          <button
-            type="submit"
-            className={styles.sendIcon}
-            disabled={!draft.trim()}
-            aria-label="Send"
-          >
-            <SendIcon variant="plane" />
-          </button>
-        )}
-      </form>
-    </div>
+  /**
+   * Drop the draft without a navigation.
+   *
+   * New chat on the empty URL cannot remount this view — the key stays
+   * `new` — so the turns have to be cleared here. A thread id written into
+   * the address bar by the save frame is cleared with them, or a reload
+   * would bring the conversation back.
+   */
+  const startFresh = useCallback(() => {
+    setTurns([]);
+    setSlots(null);
+    setResults(null);
+    setError(null);
+    setWorking(null);
+    threadIdRef.current = null;
+    if (window.location.pathname + window.location.search !== '/chat') {
+      window.history.replaceState(window.history.state, '', '/chat');
+    }
+  }, []);
+
+  const liveTitle =
+    activeTitle ??
+    (() => {
+      const first = turns.find((turn) => turn.role === 'user')?.text.trim();
+      if (!first) return null;
+      const cleaned = first.replace(/\s+/g, ' ');
+      return cleaned.length <= 60 ? cleaned : `${cleaned.slice(0, 57)}…`;
+    })();
+
+  const composer = (
+    <Composer
+      ref={inputRef}
+      empty={empty}
+      streaming={streaming}
+      exampleSuburb={exampleSuburb}
+      starters={STARTERS}
+      onSend={send}
+      onStop={onStop}
+    />
   );
 
   const sidebar = (
@@ -470,6 +528,18 @@ export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
         <p className={styles.briefFoot}>
           Listing prices and match counts come from the live search — never from the model.
         </p>
+
+        {/*
+          There is no save button here any more.
+
+          Scheduling is something the visitor ASKS for — "send me this
+          daily", "every two hours" — and the guide answers with a
+          confirmation card in the conversation. A button in the sidebar
+          offered one frequency, in one place, with no way to say anything
+          else about it; the tool can take any of them and shows what it
+          understood before anything is saved. See draft_schedule in
+          packages/ai/src/tools/schedule-tools.ts.
+        */}
       </div>
 
       <ResultsPanel results={results} embedded />
@@ -477,8 +547,12 @@ export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
   );
 
   return (
-    <div className={`${styles.page} ${empty ? styles.pageEmpty : styles.pageActive}`}>
-      {!empty ? (
+    <div
+      className={`${styles.page} ${
+        historyOpen ? styles.pageHistory : empty ? styles.pageEmpty : styles.pageActive
+      }`}
+    >
+      {!historyOpen && !empty ? (
         <div className={styles.tabs} role="tablist" aria-label="Chat or search">
           <button
             type="button"
@@ -503,9 +577,56 @@ export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
 
       <div className={styles.split}>
         <section
-          className={`${styles.main} ${!empty && tab === 'results' ? styles.hiddenMobile : ''}`}
-          aria-label="Conversation"
+          className={`${styles.main} ${!historyOpen && !empty && tab === 'results' ? styles.hiddenMobile : ''}`}
+          aria-label={historyOpen ? 'Past conversations' : 'Conversation'}
         >
+          <ChatToolbar
+            count={threads.length}
+            historyOpen={historyOpen}
+            loadedThread={Boolean(initialThreadId)}
+            activeTitle={historyOpen ? null : liveTitle}
+            onFresh={startFresh}
+          />
+
+          {historyOpen ? (
+            <HistoryScreen threads={threads} signedIn={signedIn} activeId={initialThreadId} />
+          ) : (
+            <>
+          {/*
+            The delivered run sits ABOVE the conversation and never inside
+            it. It is not a turn: `turns` is what gets replayed to the model
+            on the next request, and a fabricated assistant message would be
+            the model reading words it never said — with listings attached,
+            which is the one shape chatRequestSchema refuses from a client
+            because a tool result is the only source of a price (#4).
+          */}
+          {delivered ? (
+            <DeliveredRun
+              ranAtIso={delivered.ranAtIso}
+              scheduleName={delivered.scheduleName}
+              description={delivered.description}
+              matched={delivered.matched}
+              newCount={delivered.newCount}
+              summary={delivered.summary}
+              summarySource={delivered.summarySource}
+              searchPath={delivered.searchPath}
+              listings={delivered.listings}
+              onContinue={() => {
+                /*
+                  Sends it rather than prefilling the box.
+                 
+                  The draft now lives inside Composer — which is what stops
+                  every keystroke re-rendering the map — so the parent has
+                  no way to write into it, and inventing one would put the
+                  state back where it was. Sending is also the better
+                  behaviour: the button says "Ask about these", and one
+                  click doing exactly that beats one click typing for you.
+                */
+                void send(`About my saved search — ${delivered.prompt}.`);
+              }}
+            />
+          ) : null}
+
           {empty ? (
             <div className={styles.hero}>
               <span className={styles.badge}>
@@ -553,7 +674,7 @@ export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
                         <span className={styles.msgName}>{isUser ? 'You' : 'Guide'}</span>
                       </div>
                       <div className={isUser ? styles.bubbleUser : styles.bubbleAi}>
-                        {turn.text ? <p className={styles.msgText}>{turn.text}</p> : null}
+                        {turn.text ? <RichText text={turn.text} /> : null}
 
                         {turn.results ? (
                           <div className={styles.searched}>
@@ -597,6 +718,21 @@ export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
                             </Link>
                           );
                         })()}
+
+                        {/*
+                          The confirmation card, anchored to the turn that
+                          proposed it. Nothing is saved until Accept — see
+                          schedule-card.tsx.
+                        */}
+                        {turn.scheduleDraft ? (
+                          <ScheduleCard
+                            token={turn.scheduleDraft.token}
+                            search={turn.scheduleDraft.search}
+                            cadence={turn.scheduleDraft.cadence}
+                            searchPath={turn.scheduleDraft.searchPath}
+                            signedIn={signedIn}
+                          />
+                        ) : null}
                       </div>
                     </div>
                   );
@@ -622,9 +758,11 @@ export function ChatView({ exampleSuburb }: { exampleSuburb: string | null }) {
               {composer}
             </>
           )}
+            </>
+          )}
         </section>
 
-        {!empty ? sidebar : null}
+        {!historyOpen && !empty ? sidebar : null}
       </div>
     </div>
   );

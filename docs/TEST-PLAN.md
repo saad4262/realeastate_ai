@@ -189,7 +189,7 @@ Suburb and pin are two different things. These cases are about the pin.
 | G3 | Publish a listing, then navigate away and back | Your own change is visible at once — mutations clear the cache |
 | G4 | Sign in as a user with no agency | Sent to `/get-started` |
 | G5 | Sign in as a plain agent and open the **agency** host | Bounced to the agent desk |
-| G5a | On **Agents & Team**, click the "Pending invite" tab, then click an agent row | The URL becomes `/team?tab=invited&agent=<id>`. Both are navigations now, not client state — the skeleton appears between them |
+| G5a | On **Agents & Team**, click the "Pending invite" tab, then click an agent row | The URL becomes `/team?tab=invited&agent=<id>`. Both are navigations, not client state — but the roster **stays on screen** while each one lands. A small spinner appears inside the tab or the name you clicked, and nowhere else. The boundary used to be keyed on both params, so every click blanked the whole roster to a skeleton for a round trip the query never needed |
 | G5b | Copy that URL into a new tab | The same tab and the same dossier open. Press **Back** and it returns to the previous tab/agent, and again to the roster |
 | G5c | Switch tabs with JavaScript disabled | Still works. The tabs are links and the rows are links; the directory holds no state and renders entirely on the server |
 | G6 | DevTools → Network, filter `_rsc`, then load any console page | A handful of prefetches as links enter the viewport — **not** twelve full page renders the moment the shell mounts. Both mechanisms used to run at once |
@@ -198,6 +198,11 @@ Suburb and pin are two different things. These cases are about the pin.
 | G9 | Sign out, then open `/live-listings` directly | Still `307 → /login`. Adding `error.tsx` must never swallow the redirect `requireConsoleAccess` throws — `pnpm smoke` asserts this too |
 | G10 | Open `/listing/<id-that-does-not-exist>` on the consumer site | A 404 **inside the site's own header**, offering the search — not Next's unstyled default page |
 | G11 | **The header strip.** Start a throwaway console: `cd apps/console && NEXT_PUBLIC_UI_PREVIEW=1 NEXT_DIST_DIR=.next-preview npx next dev --port 3002`. Take a real active `membership.user_id` from the database, then `curl -i -H "x-console-user-id: <that id>" http://agency.lvh.me:3002/live-listings` | **307 to /login.** Anything else is impersonation: server actions now trust this header, so a 200 here means a forged header can publish, edit and delete that agency's listings. Preview mode is the one path where middleware returns before authenticating, so the strip is the only thing standing there. Verified failing (HTTP 200, rendering the owner's console) with the strip removed, and passing with it |
+| G12 | On **Listings**, press **Edit** on a row | The form's own shape appears **at once** — section cards, the field grid, the map block, the footer buttons — and fills in. It must not be the listings table's shape (a title, three stat tiles, one card); that was the old fallback and it read as two seconds of the wrong page |
+| G13 | On that same edit page, watch the photo panel | The form arrives **first** and is typeable; the photo strip fills in a moment later behind its own boundary. The form used to wait for the photo query before anything painted |
+| G14 | **Agents & Team → + Add Agent**, then walk all five steps with Continue | The wizard card, its header and its step rail stay put the whole way. The body is the only thing that changes. If you ever see a centred column with three stat tiles, the wizard fell through to the route-group skeleton again |
+| G15 | Same walk with DevTools → Network throttled to Slow 3G | Continue shows a spinning glyph and refuses a second click; the fallback you land on is the **wizard's** shape, not a dashboard's. The step either side of the current one is prefetched, so at normal speed there is usually no fallback at all |
+| G16 | With `prefers-reduced-motion` set in the OS, load any of the above | Every skeleton and spinner is still there and still says "loading" by its shape — nothing animates |
 
 > G4 and G5 are client-side redirects since the shell now flushes before the permission
 > gate resolves. They work, but they are the two paths most likely to regress.
@@ -273,3 +278,92 @@ assert(rows.length === 3, 'expected 3 results');
 
 Before trusting a new check, break the thing it guards and confirm it goes red. A check that
 has never failed has never been shown to work.
+
+---
+
+## I. Scheduled searches (AI task scheduler)
+
+Needs a browser and a real inbox. Everything that can be checked without
+one is already in `pnpm smoke` → **Search schedules** and **Consumer
+accounts**, which cover the tables, the RLS policies, the partial index, the
+claim, a real search end to end, and the cron endpoint's refusals.
+
+**Before you start.** `ALERT_EMAIL_FROM` is `onboarding@resend.dev` in
+`.env.local`, and Resend will only deliver from that address **to the Resend
+account owner's own email**. So sign up in I1 with that address, or verify a
+domain first. Anything else comes back `403 validation_error` — which is
+recorded honestly on the run (`email_status = 'failed'`) rather than
+swallowed, so I3 will still show you the failure.
+
+| # | Case | Expected |
+|---|---|---|
+| I1 | Sign up at `web.lvh.me:3000/login` with a magic link | The email arrives, the link signs you in and lands on `/alerts`. `public.user` has a row; `membership` does **not** — a consumer has no agency (ADR 0011). |
+| I2 | Search something real, press **Save this search**, pick daily / 8:00 PM / Melbourne | It appears on `/alerts` with the filters written out as a sentence, the next run time, and an **On** badge. |
+| I3 | `curl -s -X POST localhost:3000/api/cron/alerts -H "x-cron-secret: $CRON_SECRET"` after setting `next_run_at` into the past | Answers `{ ok: true, claimed: 1, delivered: 1 }`. The email arrives. The **View all N results** button opens exactly the search you saved. |
+| I4 | Run the same tick again immediately | `claimed: 0`. No second email. The cursor moved to tomorrow. |
+| I5 | Run it a third time with the cursor pushed back, changing nothing in the database | `empty: 1` **and `emailsSent: 1`**. The run is `empty` because the search found nothing new; the digest goes out anyway, subjected "No new listings — …". Changed on request 2026-09-28; it used to send nothing. |
+| I6 | Press unsubscribe **in the mail client** (the one-click control, not the footer link) | The schedule flips to Paused with `unsubscribed_at` set. No further email. |
+| I7 | Open the confirmation page's **Turn it back on** | It resumes, and `next_run_at` re-anchors to the next real 8 PM rather than firing immediately. |
+| I8 | Open `/chat?alert=<run id>` | The delivered run shows as a card above an empty conversation, with "This alert is saved. Anything you ask below is not." **Ask about these** prefills the composer; sending it starts a normal turn. |
+| I9 | As a second account, open `/chat?alert=<the first account's run id>` and `/alerts` | 404 for the run. `/alerts` shows only your own. An agency owner is refused too — `can()` has a test saying so by name. |
+| I10 | Set `AI_DAILY_BUDGET_USD=0`, restart, run a tick | The email still arrives. The paragraph is the templated sentence and `/alerts` shows no "Written by the property guide" label. Degrading the prose is right; dropping the alert is not. |
+| I11 | Unset `CRON_SECRET`, restart, hit the endpoint | 503, not 401. Unconfigured refuses everything — an open trigger here is a bill and a mailing. |
+| I12 | Across the first Sunday in April or October, with a fixed `now` | The alert still arrives at 8 PM local. `pnpm smoke` checks the maths against Postgres as an oracle; this is the one that checks the delivery. |
+
+### I.13–I.17 — scheduling from the chat, and chat history
+
+| # | Case | Expected |
+|---|---|---|
+| I13 | Signed in, ask the guide for something real, then use **Email me these daily** in the "Your search" panel | The form opens with the name prefilled from your sentence. Saving lands it on `/alerts` with the filters the guide actually searched. |
+| I14 | Signed out, same panel | The control is a link to `/login?next=…`, not a form. Signing in returns you to the chat. |
+| I15 | Have a conversation, refresh the page | It is listed on **History**, titled from your first message. Opening it restores the turns and the search beside them. |
+| I16 | Continue a reopened thread | The reply lands in the same thread, not a new one. Check `chat_message` — one thread id throughout. |
+| I17 | Sign out, use `/chat` anonymously | It works, and nothing is stored: `chat_thread` gains no row, and no sidebar appears. |
+| I18 | Delete a conversation with **Delete** on the History screen | It goes, and you stay on `/chat?history=1`. As another account, its `?thread=` URL is a 404. |
+
+### I.19–I.24 — conversational scheduling
+
+| # | Case | Expected |
+|---|---|---|
+| I19 | Signed in, search in the chat, then type "send me this every 2 hours" | A confirmation card appears in the conversation reading **Every 2 hours**, with the search written out, and Accept / Cancel. Nothing in `search_schedule` yet. |
+| I20 | Press **Accept** | The card becomes "Scheduled", the row appears on `/alerts`, and its `next_run_at` is two hours out. |
+| I21 | Ask for "every 5 minutes" | The guide explains an hour is the shortest and offers hourly or daily. No card. |
+| I22 | Search something with no matches, then "email me daily when one comes up" | It still drafts — an empty search is the most useful kind to schedule. Default 8:00 PM. |
+| I23 | Say "cancel my Pakenham alert" with two running | It pauses only that one and says "paused". With two that both match the words, it asks which instead of guessing. |
+| I24 | Tamper: copy the Accept request and change the frequency in the token payload | Refused. The signature covers the search and the frequency. |
+
+### I.25–I.28 — getting in, and getting back
+
+| # | Case | Expected |
+|---|---|---|
+| I25 | Open `/chat` fresh, signed out, then **History** | History is its own screen, not a menu over the headline. It says the chats are not being saved and offers a sign-in. **New chat** returns to the empty hero. |
+| I26 | Signed in with two past conversations, open **History** | The screen lists both, each with **Open**. Opening one restores its turns and stays open (the address is `/chat?thread=…`). **New chat** returns to an empty hero. Reload of that URL opens the same chat. |
+| I27 | Press **My alerts** in the header while signed out | Lands on the redesigned sign-in screen, and after the emailed link, back on `/alerts`. |
+| I28 | `/login` with JavaScript disabled | The form still submits and still says "Check your email". |
+
+### I.29–I.34 — email, password and name
+
+| # | Case | Expected |
+|---|---|---|
+| I29 | `/signup` with a name, email and 8+ character password | Signed in immediately and landed on `/alerts` — "Confirm email" is OFF in this project, verified. `public.user` has the row with the name; `membership` does not. |
+| I30 | Sign up again with the same email | "There is already an account with that email. Sign in instead." |
+| I31 | `/login` with the wrong password, then with an address that has no account | **The same message both times.** Different ones would let anybody test which addresses are registered. |
+| I32 | `/forgot` with a real address, then with one that has no account | "Check your email" both times. The real one receives a link that lands on `/reset`. |
+| I33 | Set a new password on `/reset`, then sign in with it | Works, and the old password no longer does. |
+| I34 | All four screens with JavaScript disabled | Every form still submits — they are server actions behind plain forms. |
+
+### I.35–I.37 — session reaches the API, and typing is cheap
+
+| # | Case | Expected |
+|---|---|---|
+| I35 | Signed in, ask the guide to schedule a search | It drafts a card. It must **not** say you need to sign in — that was `/api/chat` sitting outside the middleware matcher while `/chat` was inside it. |
+| I36 | Signed in, have a conversation, then reload | It is in History. Before the matcher fix, nothing was ever saved from the browser. |
+| I37 | With a results map on screen, type a long sentence slowly | The pins do not flicker or re-drop. Open React DevTools' "Highlight updates" — only the composer should repaint per keystroke. |
+
+### I.38–I.40 — the session actually reaching things
+
+| # | Case | Expected |
+|---|---|---|
+| I38 | Sign up on **`http://localhost:3000`** (not lvh.me), then reload | Still signed in. `COOKIE_DOMAIN=.lvh.me` used to be sent on localhost, where the browser discards it — sign-in looked fine and never persisted. |
+| I39 | Straight after signing up, go to `/chat` and ask something, then open History | The conversation is there. It used to fail the `public.user` foreign key silently, because that row was only created by visiting `/alerts`. |
+| I40 | Sign in on `web.lvh.me:3000`, then open `agency.lvh.me:3001` | Still signed in — the shared `.lvh.me` domain must survive the host-aware change. |

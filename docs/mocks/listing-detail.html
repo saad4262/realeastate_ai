@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_standard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "primary-fixed-dim": "#bec6e0", "border-strong": "#CBD5E1", "surface-container-highest": "#d3e4fe", "surface-tint": "#565e74", "on-primary": "#ffffff", "error-container": "#ffdad6", "surface-variant": "#d3e4fe", "inverse-surface": "#213145", "tertiary-fixed": "#ffdcc3", "tertiary": "#000000", "tertiary-fixed-dim": "#ffb77d", "error": "#ba1a1a", "sapphire-intelligence": "#2563EB", "on-tertiary-container": "#c76c00", "on-background": "#0b1c30", "border-default": "#E2E8F0", "emerald-success": "#059669", "primary-container": "#131b2e", "on-tertiary-fixed": "#2f1500", "outline": "#76777d", "primary": "#000000", "on-secondary": "#ffffff", "on-primary-container": "#7c839b", "primary-fixed": "#dae2fd", "tertiary-container": "#2f1500", "on-primary-fixed": "#131b2e", "crimson-subtle": "#FFF1F2", "on-error-container": "#93000a", "surface-container": "#e5eeff", "border-subtle": "#F1F5F9", "on-secondary-fixed": "#00174b", "secondary-fixed-dim": "#b4c5ff", "emerald-subtle": "#ECFDF5", "surface-canvas": "#F8FAFC", "amber-subtle": "#FFFBEB", "sapphire-subtle": "#EFF6FF", "on-tertiary": "#ffffff", "inverse-primary": "#bec6e0", "surface-container-low": "#eff4ff", "text-primary": "#0F172A", "surface-container-high": "#dce9ff", "inverse-on-surface": "#eaf1ff", "surface-card": "#FFFFFF", "crimson-critical": "#E11D48", "on-secondary-container": "#fefcff", "outline-variant": "#c6c6cd", "amber-luxury": "#D97706", "surface-elevated": "#FFFFFF", "surface-bright": "#f8f9ff", "on-secondary-fixed-variant": "#003ea8", "on-tertiary-fixed-variant": "#6e3900", "on-error": "#ffffff", "text-secondary": "#475569", "secondary-container": "#316bf3", "surface-container-lowest": "#ffffff", "on-primary-fixed-variant": "#3f465c", "secondary-fixed": "#dbe1ff", "surface-dim": "#cbdbf5", "secondary": "#0051d5", "on-surface-variant": "#45464d", "on-surface": "#0b1c30", "background": "#f8f9ff", "surface": "#f8f9ff", "text-muted": "#94A3B8" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "space-xs": "0.25rem", "space-md": "0.875rem", "gutter": "1.25rem", "space-xl": "2rem", "margin": "1.5rem", "space-sm": "0.5rem", "space-lg": "1.25rem" }, "fontFamily": { "headline-lg": ["Plus Jakarta Sans"], "body-sm": ["Inter"], "title-sm": ["Inter"], "body-md": ["Inter"], "headline-md": ["Plus Jakarta Sans"], "data-tabular": ["Inter"], "headline-lg-mobile": ["Plus Jakarta Sans"], "label-md": ["Inter"], "headline-xl": ["Plus Jakarta Sans"], "headline-xl-mobile": ["Plus Jakarta Sans"], "label-sm": ["Inter"], "body-lg": ["Inter"] }, "fontSize": { "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }], "body-sm": ["12px", { "lineHeight": "18px", "letterSpacing": "0", "fontWeight": "400" }], "title-sm": ["15px", { "lineHeight": "22px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "body-md": ["13.5px", { "lineHeight": "20px", "letterSpacing": "-0.002em", "fontWeight": "400" }], "headline-md": ["18px", { "lineHeight": "26px", "letterSpacing": "-0.015em", "fontWeight": "600" }], "data-tabular": ["13px", { "lineHeight": "18px", "letterSpacing": "-0.01em", "fontWeight": "500" }], "headline-lg-mobile": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.015em", "fontWeight": "600" }], "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.01em", "fontWeight": "500" }], "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.025em", "fontWeight": "700" }], "headline-xl-mobile": ["26px", { "lineHeight": "34px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "600" }], "body-lg": ["15px", { "lineHeight": "24px", "letterSpacing": "-0.005em", "fontWeight": "400" }] } } } };</script></head><body class="bg-surface-canvas font-body-md text-body-md text-text-primary antialiased min-h-screen"><header class="fixed top-0 left-0 right-0 z-50 bg-surface-card shadow-[0_1px_8px_rgba(0,0,0,0.06)]"><div class="h-28 w-full"><div class="h-16 w-full max-w-7xl mx-auto px-margin flex items-center justify-between"><div class="flex items-center gap-space-lg"><a class="flex items-center gap-space-xs" href="#"><div class="w-8 h-8 rounded bg-crimson-critical flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[20px]">roofing</span></div><span class="font-headline-lg text-headline-lg font-bold text-text-primary tracking-tight">realestate<span class="text-crimson-critical">.com.au</span></span></a><nav class="hidden xl:flex items-center gap-space-md" data-active-classes="text-crimson-critical font-semibold"><a aria-current="page" class="transition-colors text-crimson-critical font-semibold" data-path="property-overview" href="#">Buy</a><a class="text-text-secondary hover:text-text-primary font-body-md text-body-md transition-colors" data-path="rent" href="#">Rent</a><a class="text-text-secondary hover:text-text-primary font-body-md text-body-md transition-colors" data-path="sold" href="#">Sold</a><a class="text-text-secondary hover:text-text-primary font-body-md text-body-md transition-colors" data-path="share" href="#">Share</a><a class="text-text-secondary hover:text-text-primary font-body-md text-body-md transition-colors" data-path="new-homes" href="#">New homes</a><a class="text-text-secondary hover:text-text-primary font-body-md text-body-md transition-colors" data-path="find-agents" href="#">Find agents</a><a class="text-text-secondary hover:text-text-primary font-body-md text-body-md transition-colors" data-path="commercial" href="#">Commercial</a><a class="text-text-secondary hover:text-text-primary font-body-md text-body-md transition-colors" data-path="news" href="#">News</a></nav></div><div class="flex items-center gap-space-md"><a class="flex items-center gap-space-xs text-text-secondary hover:text-crimson-critical transition-colors py-space-xs px-space-sm rounded-lg" data-path="saved-properties" href="#"><span class="material-symbols-outlined text-[20px]">favorite</span><span class="hidden sm:inline font-label-md text-label-md">Saved</span></a><a class="bg-surface-canvas hover:bg-surface-container-high text-text-primary font-label-md text-label-md py-space-xs px-space-md rounded-lg transition-all" data-path="sign-in" href="#">Sign in</a><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div><div class="h-12 w-full bg-surface-card shadow-[0_1px_4px_rgba(0,0,0,0.03)]"><div class="max-w-7xl mx-auto px-margin h-full flex items-center justify-between"><nav class="flex items-center gap-space-lg overflow-x-auto h-full" data-active-classes="text-crimson-critical border-b-2 border-crimson-critical font-semibold"><a aria-current="page" class="h-full flex items-center whitespace-nowrap transition-colors text-crimson-critical border-b-2 border-crimson-critical font-semibold" data-path="property-overview" href="#">Property Overview</a><a class="text-text-secondary hover:text-text-primary font-body-sm text-body-sm h-full flex items-center whitespace-nowrap transition-colors" data-path="photo-gallery" href="#">Photo Gallery</a><a class="text-text-secondary hover:text-text-primary font-body-sm text-body-sm h-full flex items-center whitespace-nowrap transition-colors" data-path="key-features" href="#">Key Features</a><a class="text-text-secondary hover:text-text-primary font-body-sm text-body-sm h-full flex items-center whitespace-nowrap transition-colors" data-path="floorplan-tour" href="#">Floorplan &amp; Tour</a><a class="text-text-secondary hover:text-text-primary font-body-sm text-body-sm h-full flex items-center whitespace-nowrap transition-colors" data-path="inspection-times" href="#">Inspection Times</a><a class="text-text-secondary hover:text-text-primary font-body-sm text-body-sm h-full flex items-center whitespace-nowrap transition-colors" data-path="suburb-profile" href="#">Suburb Profile</a><a class="text-text-secondary hover:text-text-primary font-body-sm text-body-sm h-full flex items-center whitespace-nowrap transition-colors" data-path="agent-inquiry" href="#">Agent Inquiry</a></nav><div class="hidden md:flex items-center gap-space-sm"><span class="font-label-sm text-label-sm text-emerald-success bg-emerald-subtle px-space-xs py-0.5 rounded">VIC REIV COMPLIANT</span></div></div></div></div></header><main class="w-full pt-28 bg-surface-canvas"><div class="flex flex-col w-full">
+<!-- Sub-Header / Breadcrumb & Action Utility Bar -->
+<section class="w-full bg-surface-card shadow-sm">
+<div class="max-w-7xl mx-auto px-margin py-3 flex flex-wrap items-center justify-between gap-space-sm text-body-sm font-body-sm text-text-secondary">
+<nav aria-label="Breadcrumb" class="flex items-center flex-wrap gap-1.5">
+<a class="hover:text-crimson-critical transition-colors" href="#">Home</a>
+<span class="text-text-muted">/</span>
+<a class="hover:text-crimson-critical transition-colors" href="#">VIC</a>
+<span class="text-text-muted">/</span>
+<a class="hover:text-crimson-critical transition-colors" href="#">Pakenham 3810</a>
+<span class="text-text-muted">/</span>
+<a class="hover:text-crimson-critical transition-colors" href="#">Townhouses</a>
+<span class="text-text-muted">/</span>
+<span class="text-text-primary font-medium truncate max-w-xs sm:max-w-md">12/1A Rogers Street</span>
+</nav>
+<div class="flex items-center gap-2">
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-canvas hover:bg-surface-container-high text-text-primary transition-all shadow-sm" id="save-btn" onclick="toggleSave()">
+<span class="material-symbols-outlined text-crimson-critical text-[18px]" id="heart-icon">favorite_border</span>
+<span class="font-label-md text-label-md font-medium">Save (<span id="save-count">142</span>)</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-canvas hover:bg-surface-container-high text-text-primary transition-all shadow-sm" onclick="copyPropertyUrl()">
+<span class="material-symbols-outlined text-[18px]">share</span>
+<span class="hidden sm:inline font-label-md text-label-md font-medium">Share</span>
+</button>
+<button class="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-canvas hover:bg-surface-container-high text-text-primary transition-all shadow-sm" onclick="window.print()">
+<span class="material-symbols-outlined text-[18px]">print</span>
+<span class="font-label-md text-label-md font-medium">Print</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-canvas hover:bg-surface-container-high text-text-muted hover:text-text-primary transition-all shadow-sm" title="Hide property from search">
+<span class="material-symbols-outlined text-[18px]">visibility_off</span>
+</button>
+</div>
+</div>
+</section>
+<!-- High-Density Hero Photo Gallery Mosaic -->
+<section class="w-full max-w-7xl mx-auto px-margin pt-4">
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-2 h-auto lg:h-[480px] rounded-xl overflow-hidden relative shadow-md">
+<!-- Main Large Exterior Image -->
+<div class="lg:col-span-7 h-72 lg:h-full relative overflow-hidden group cursor-pointer" onclick="openGalleryModal()">
+<img alt="Townhouse exterior facade 12/1A Rogers Street Pakenham" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAknDxQK08ZBcUYJsMW__-6aWsT2rPJo_qHjvlvkXJRp8fJMdD2LAQMTatWUvc2HU9S86EkqqnFPMTAqfk5_T_rWgfS-DBgHymfc9mSnxBNAWWOepui4B5Nw56BHDv53xSDTiUBUHmPQfEIbwlTZc369MCaFqn0Sh12Q6ipywDXqi-Lz0dsMoQTgzaWhA-9AKRfqPBqIrnGid4gGIOLZc48DcM0fVVHd3Zss_JJT17H_YABqltxiIRsAA"/>
+<div class="absolute inset-0 bg-gradient-to-t from-primary/60 via-transparent to-transparent pointer-events-none"></div>
+<div class="absolute top-4 left-4 flex flex-wrap gap-2">
+<span class="bg-primary text-on-primary font-label-sm text-label-sm uppercase tracking-wider px-2.5 py-1 rounded shadow-sm">Exclusive Listing</span>
+<span class="bg-amber-luxury text-on-primary font-label-sm text-label-sm uppercase tracking-wider px-2.5 py-1 rounded shadow-sm">Under Offer Review</span>
+</div>
+<div class="absolute bottom-4 left-4 text-on-primary">
+<p class="font-label-sm text-label-sm uppercase tracking-widest text-on-primary/80">Facade &amp; Private Driveway</p>
+<p class="font-headline-md text-headline-md drop-shadow">Contemporary Architectural Streetscape</p>
+</div>
+</div>
+<!-- Secondary Right Grid Tiles -->
+<div class="lg:col-span-5 grid grid-cols-2 grid-rows-2 gap-2 h-64 lg:h-full">
+<!-- Tile 1: Kitchen -->
+<div class="col-span-2 row-span-1 relative overflow-hidden group cursor-pointer rounded-sm" onclick="openGalleryModal()">
+<img alt="Designer stone benchtop kitchen with stainless appliances" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAfj-Cao0Rwd2M1Smb39icPR_6q-Mk_IDQ6wHwS4kjRyfkMGOFUEwR-nsBUl2rD3z6592hPSQ98lyY6XW2JgcFTW3lVX3DBdW7mvdUg23HUR5ZeGmBZMVjojcbSkh2H5kK9Vx6xiXnXan0ChBdNndrk2hijc53VcZJ9qXFkMTSAoNE5ijCDolOG5sLCVRNpHuD5DZXNXjhhc3T1Acw2rtuq5txqNtMfUnskSi4zyJWV-57aJN6BGKFGgQ"/>
+<div class="absolute inset-0 bg-primary/10 group-hover:bg-transparent transition-colors"></div>
+<span class="absolute bottom-2 left-2 bg-primary/75 text-on-primary font-label-sm text-label-sm px-2 py-0.5 rounded backdrop-blur-sm">Gourmet Kitchen &amp; Dining</span>
+</div>
+<!-- Tile 2: Master Bedroom -->
+<div class="col-span-1 row-span-1 relative overflow-hidden group cursor-pointer rounded-sm" onclick="openGalleryModal()">
+<img alt="Master bedroom suite with sunlight" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBUW6g6j0xa5TjgzskdTH-I241jt-29Q8S4KvCHUoTUkknZ-ahCM8mWtrcw52_2rNv2c6Q8qEU0ICH3_mgti3QrA0BWCUNlBD3uifPjdSqwkf9s93zFoqN_Ar1ITz4ipqAdGHz1Cq-1NZa0Wi0D8Me6DYT2Z4k-3qVnxzQF0DimXDh0zX9Ol4i6y_OebsSmGH1XvdKdAb0mHFrLiUHCvBA7uS0VhmTZ9x6Zck70wLX9lGNRLdyW2M1OpQ"/>
+<span class="absolute bottom-2 left-2 bg-primary/75 text-on-primary font-label-sm text-label-sm px-2 py-0.5 rounded backdrop-blur-sm">Master Suite</span>
+</div>
+<!-- Tile 3: Luxe Bathroom + Overlay trigger -->
+<div class="col-span-1 row-span-1 relative overflow-hidden group cursor-pointer rounded-sm" onclick="openGalleryModal()">
+<img alt="Walk-in frameless shower and floating vanity" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDg9QTqRJmQrw0d5Ak3K8hUbDjOXLt_AhIuafoKDM6GpiEm83EBTTnF8mUHddRhw8-B5pwD5FCuj3SiVwgpe4yDbRwtkuFZDCTqWLer5iRM-W6pDoCXhh5-BZEsykjTPer_rbmM0tEN_01MKDI8iqt8zfNu-GYVCGQfYIxNeQnnYr1um6pDS5SrKjilqEw--coU0Zu5kI5BRgWoZRkEmMGRFzUOB8VSwOdvejuJJa2VuwpEeTpjdrjigQ"/>
+<div class="absolute inset-0 bg-primary/50 group-hover:bg-primary/60 transition-colors flex flex-col items-center justify-center text-on-primary text-center p-2 backdrop-blur-[2px]">
+<span class="material-symbols-outlined text-[28px] mb-1">photo_library</span>
+<span class="font-headline-md text-headline-md leading-none">24</span>
+<span class="font-label-sm text-label-sm uppercase tracking-wide mt-1">View all photos</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Media Nav Pills Below Gallery -->
+<div class="flex items-center justify-between py-3">
+<div class="flex items-center gap-2">
+<a class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-card hover:bg-surface-container-high text-text-primary text-body-sm font-medium shadow-sm transition-all" href="#floorplan">
+<span class="material-symbols-outlined text-[18px] text-sapphire-intelligence">square_foot</span>
+          Interactive Floorplan
+        </a>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-card hover:bg-surface-container-high text-text-primary text-body-sm font-medium shadow-sm transition-all" onclick="openVideoTour()">
+<span class="material-symbols-outlined text-[18px] text-crimson-critical">videocam</span>
+          HD Video Walkthrough
+        </button>
+<span class="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-subtle text-emerald-success font-label-sm text-label-sm uppercase font-semibold">
+<span class="material-symbols-outlined text-[16px]">verified</span> Statement of Information Verified
+        </span>
+</div>
+<div class="text-text-muted font-label-sm text-label-sm">
+        Listing ID: <span class="font-data-tabular text-text-secondary">152297452</span>
+</div>
+</div>
+</section>
+<!-- Sticky In-Page Navigation Bar -->
+<div class="sticky top-28 z-40 bg-surface-card shadow-sm w-full">
+<div class="max-w-7xl mx-auto px-margin flex items-center justify-between overflow-x-auto h-12">
+<div class="flex items-center gap-6 h-full whitespace-nowrap text-body-sm font-body-sm">
+<a class="text-crimson-critical font-semibold border-b-2 border-crimson-critical h-full flex items-center" href="#overview">Overview</a>
+<a class="text-text-secondary hover:text-text-primary h-full flex items-center transition-colors" href="#inspection">Inspection Times</a>
+<a class="text-text-secondary hover:text-text-primary h-full flex items-center transition-colors" href="#features">Features &amp; Amenities</a>
+<a class="text-text-secondary hover:text-text-primary h-full flex items-center transition-colors" href="#floorplan">Floorplan</a>
+<a class="text-text-secondary hover:text-text-primary h-full flex items-center transition-colors" href="#market-insights">Market Insights</a>
+<a class="text-text-secondary hover:text-text-primary h-full flex items-center transition-colors" href="#suburb-profile">Pakenham 3810</a>
+</div>
+<div class="hidden lg:flex items-center gap-3">
+<span class="font-headline-md text-headline-md text-text-primary font-bold">$580,000 - $630,000</span>
+<a class="bg-primary text-on-primary px-3 py-1.5 rounded-lg text-body-sm font-medium hover:bg-inverse-surface transition-all" href="#enquiry-card">Enquire</a>
+</div>
+</div>
+</div>
+<!-- Main Dual-Column Content Structure -->
+<main class="w-full max-w-7xl mx-auto px-margin py-6">
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+<!-- LEFT PRIMARY COLUMN (68% -> 8 of 12 cols) -->
+<div class="lg:col-span-8 flex flex-col gap-8 min-w-0" id="overview">
+<!-- Property Header Card -->
+<div class="bg-surface-card p-6 rounded-xl shadow-sm flex flex-col gap-4">
+<div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
+<div>
+<span class="font-label-sm text-label-sm uppercase font-bold text-sapphire-intelligence tracking-wider">Private Sale Guide</span>
+<h1 class="font-headline-xl text-headline-xl font-bold text-text-primary tracking-tight mt-1">$580,000 - $630,000</h1>
+</div>
+<div class="flex items-center gap-2">
+<span class="px-2.5 py-1 bg-surface-canvas rounded text-text-secondary font-label-md text-label-md">Section 32 Available</span>
+<a class="px-2.5 py-1 bg-sapphire-subtle text-sapphire-intelligence rounded font-label-md text-label-md font-semibold hover:bg-surface-container-high transition-colors" href="#soi-modal" onclick="downloadSOI()">Download SOI</a>
+</div>
+</div>
+<div>
+<h2 class="font-headline-md text-headline-md font-semibold text-text-primary">12/1A Rogers Street, Pakenham, VIC 3810</h2>
+<p class="font-body-md text-body-md text-text-secondary mt-0.5">Cardinia Shire Council • Comprehensive Plan of Subdivision 839210M • Zone: GRZ1</p>
+</div>
+<!-- Key Specifications Bar -->
+<div class="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-4 bg-surface-canvas p-4 rounded-xl">
+<div class="flex items-center gap-2.5">
+<div class="w-10 h-10 rounded-lg bg-surface-card flex items-center justify-center text-text-primary shadow-sm">
+<span class="material-symbols-outlined text-[22px]">bed</span>
+</div>
+<div>
+<span class="block font-headline-md text-headline-md font-bold text-text-primary">3</span>
+<span class="font-label-sm text-label-sm text-text-secondary uppercase">Bedrooms</span>
+</div>
+</div>
+<div class="flex items-center gap-2.5">
+<div class="w-10 h-10 rounded-lg bg-surface-card flex items-center justify-center text-text-primary shadow-sm">
+<span class="material-symbols-outlined text-[22px]">bathtub</span>
+</div>
+<div>
+<span class="block font-headline-md text-headline-md font-bold text-text-primary">2</span>
+<span class="font-label-sm text-label-sm text-text-secondary uppercase">Bathrooms</span>
+</div>
+</div>
+<div class="flex items-center gap-2.5">
+<div class="w-10 h-10 rounded-lg bg-surface-card flex items-center justify-center text-text-primary shadow-sm">
+<span class="material-symbols-outlined text-[22px]">directions_car</span>
+</div>
+<div>
+<span class="block font-headline-md text-headline-md font-bold text-text-primary">2</span>
+<span class="font-label-sm text-label-sm text-text-secondary uppercase">Garage lockup</span>
+</div>
+</div>
+<div class="flex items-center gap-2.5">
+<div class="w-10 h-10 rounded-lg bg-surface-card flex items-center justify-center text-text-primary shadow-sm">
+<span class="material-symbols-outlined text-[22px]">straighten</span>
+</div>
+<div>
+<span class="block font-headline-md text-headline-md font-bold text-text-primary">185 m²</span>
+<span class="font-label-sm text-label-sm text-text-secondary uppercase">Land size</span>
+</div>
+</div>
+<div class="flex items-center gap-2.5 col-span-2 sm:col-span-1">
+<div class="w-10 h-10 rounded-lg bg-surface-card flex items-center justify-center text-text-primary shadow-sm">
+<span class="material-symbols-outlined text-[22px]">domain</span>
+</div>
+<div>
+<span class="block font-headline-md text-headline-md font-bold text-text-primary">Townhouse</span>
+<span class="font-label-sm text-label-sm text-text-secondary uppercase">Type</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Open for Inspection Callout Box -->
+<section class="bg-surface-card p-6 rounded-xl shadow-sm relative overflow-hidden" id="inspection">
+<div class="absolute left-0 top-0 bottom-0 w-1.5 bg-emerald-success"></div>
+<div class="flex items-start justify-between flex-wrap gap-4">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="material-symbols-outlined text-emerald-success text-[20px]">calendar_month</span>
+<span class="font-label-sm text-label-sm font-bold uppercase tracking-wider text-emerald-success">Upcoming Inspection Sessions</span>
+</div>
+<h3 class="font-headline-md text-headline-md font-bold text-text-primary">Open for Inspection Times</h3>
+<p class="font-body-sm text-body-sm text-text-secondary">Please bring photo ID upon arrival as requested by the vendor.</p>
+</div>
+<button class="flex items-center gap-2 px-3 py-2 bg-emerald-subtle hover:bg-surface-container-high text-emerald-success font-label-md text-label-md rounded-lg transition-colors" onclick="downloadICS()">
+<span class="material-symbols-outlined text-[18px]">event_available</span>
+              Add to Calendar (.ics)
+            </button>
+</div>
+<div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+<div class="p-4 rounded-xl bg-surface-canvas flex items-center justify-between">
+<div>
+<div class="flex items-center gap-2">
+<span class="font-headline-md text-headline-md font-bold text-text-primary">Saturday 24th Oct</span>
+<span class="px-2 py-0.5 rounded bg-emerald-success text-on-primary font-label-sm text-label-sm font-semibold uppercase">Confirmed</span>
+</div>
+<div class="font-body-md text-body-md text-text-secondary mt-1 flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[18px] text-text-muted">schedule</span>
+                  11:30 AM – 12:00 PM AEST
+                </div>
+</div>
+<button class="px-3 py-1.5 bg-surface-card hover:bg-surface-container-high rounded text-text-primary text-body-sm font-semibold shadow-sm transition-all" onclick="attendCheckin('Saturday 24th Oct 11:30 AM')">
+                RSVP
+              </button>
+</div>
+<div class="p-4 rounded-xl bg-surface-canvas flex items-center justify-between">
+<div>
+<div class="flex items-center gap-2">
+<span class="font-headline-md text-headline-md font-bold text-text-primary">Tuesday 27th Oct</span>
+<span class="px-2 py-0.5 rounded bg-sapphire-subtle text-sapphire-intelligence font-label-sm text-label-sm font-semibold uppercase">Twilight</span>
+</div>
+<div class="font-body-md text-body-md text-text-secondary mt-1 flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[18px] text-text-muted">schedule</span>
+                  5:15 PM – 5:45 PM AEST
+                </div>
+</div>
+<button class="px-3 py-1.5 bg-surface-card hover:bg-surface-container-high rounded text-text-primary text-body-sm font-semibold shadow-sm transition-all" onclick="attendCheckin('Tuesday 27th Oct 5:15 PM')">
+                RSVP
+              </button>
+</div>
+</div>
+</section>
+<!-- Detailed Property Editorial / Copy -->
+<article class="bg-surface-card p-6 rounded-xl shadow-sm flex flex-col gap-5">
+<div class="flex items-center justify-between">
+<h3 class="font-headline-lg text-headline-lg font-bold text-text-primary">Property Description</h3>
+<span class="font-label-sm text-label-sm uppercase bg-surface-canvas px-2 py-1 rounded text-text-muted">Verified by Selling Principal</span>
+</div>
+<h4 class="font-title-sm text-title-sm text-text-primary font-bold">
+            Contemporary Elegance &amp; Low-Maintenance Lifestyle in Prime Pakenham Pocket
+          </h4>
+<div class="prose font-body-lg text-body-lg text-text-secondary space-y-4 leading-relaxed">
+<p>
+              Positioned in an exceptionally quiet and boutique enclave of Rogers Street, this architecturally curated two-storey townhouse redefines modern executive living. Perfectly suited for discerning first-home buyers, downsizers desiring low-maintenance sophistication, or high-yield portfolio investors seeking strong capital retention in Melbourne's south-eastern corridor.
+            </p>
+<p>
+              Stepping through the wide entry foyer, you are greeted by warm timber floorboards and high ceilings that lead into a luminous open-plan family living and dining sanctuary. At the culinary heart of the home, the gourmet kitchen commands attention with 40mm engineered stone benchtops with breakfast bar, 900mm stainless steel freestanding gas cooktop and oven, integrated dishwasher, and an expansive walk-in pantry.
+            </p>
+<p>
+              Accommodation is thoughtfully zoned across both levels. The lavish master suite boasts a private sun-drenched sanctuary accompanied by an oversized walk-in robe and an opulent ensuite featuring full-height porcelain tiling, a frameless walk-in glass shower, and a floating dual vanity. Two additional bedrooms upstairs are generously scaled with tailored built-in robes, serviced by a central designer bathroom and separate powder room.
+            </p>
+<p>
+              Seamless indoor-outdoor synergy is achieved via glass sliding doors extending onto an alfresco entertainer's paved courtyard, fully fenced for privacy and framed by low-maintenance perimeter plantings—ideal for relaxed weekend barbecues and pet owners.
+            </p>
+</div>
+<div class="bg-surface-canvas p-4 rounded-xl">
+<h5 class="font-headline-md text-headline-md font-bold text-text-primary mb-3">Key Location Proximities</h5>
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-body-md font-body-md text-text-secondary">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sapphire-intelligence text-[20px]">train</span>
+<span><strong>750m</strong> to Pakenham Railway Station</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sapphire-intelligence text-[20px]">shopping_bag</span>
+<span><strong>400m</strong> to Pakenham Central Marketplace</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sapphire-intelligence text-[20px]">local_cafe</span>
+<span><strong>1.2km</strong> to Lakeside Boulevard Cafes</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sapphire-intelligence text-[20px]">directions_car</span>
+<span><strong>3 min</strong> direct access to M1 Princes Freeway</span>
+</div>
+</div>
+</div>
+</article>
+<!-- Features & Amenities Accordion / Grid -->
+<section class="bg-surface-card p-6 rounded-xl shadow-sm" id="features">
+<div class="flex items-center justify-between mb-6">
+<div>
+<h3 class="font-headline-lg text-headline-lg font-bold text-text-primary">Features &amp; Inclusions</h3>
+<p class="font-body-sm text-body-sm text-text-secondary">Comprehensive specification schedule for 12/1A Rogers Street</p>
+</div>
+<div class="flex items-center gap-2 bg-emerald-subtle px-3 py-1.5 rounded-lg text-emerald-success">
+<span class="material-symbols-outlined text-[20px]">bolt</span>
+<span class="font-headline-md text-headline-md font-bold">6.5 Star</span>
+<span class="font-label-sm text-label-sm uppercase">Energy Rating</span>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<!-- Indoor Features -->
+<div class="flex flex-col gap-3">
+<div class="flex items-center gap-2 text-text-primary font-headline-md text-headline-md font-semibold">
+<span class="material-symbols-outlined text-text-secondary text-[20px]">weekend</span>
+                Indoor Living
+              </div>
+<ul class="space-y-2 text-body-md font-body-md text-text-secondary">
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-crimson-critical"></span>Built-in wardrobes throughout</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-crimson-critical"></span>Dishwasher (Stainless Steel)</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-crimson-critical"></span>Ducted gas heating zoned</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-crimson-critical"></span>Split-system inverter cooling</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-crimson-critical"></span>Timber floorboards downstairs</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-crimson-critical"></span>NBN Broadband connected (FTTP)</li>
+</ul>
+</div>
+<!-- Outdoor Features -->
+<div class="flex flex-col gap-3">
+<div class="flex items-center gap-2 text-text-primary font-headline-md text-headline-md font-semibold">
+<span class="material-symbols-outlined text-text-secondary text-[20px]">yard</span>
+                Outdoor &amp; Parking
+              </div>
+<ul class="space-y-2 text-body-md font-body-md text-text-secondary">
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-emerald-success"></span>Double lock-up remote garage</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-emerald-success"></span>Secure internal garage access</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-emerald-success"></span>Paved entertainer courtyard</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-emerald-success"></span>Fully fenced private perimeter</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-emerald-success"></span>Exposed aggregate driveway</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-emerald-success"></span>Outdoor security sensor lighting</li>
+</ul>
+</div>
+<!-- Eco & Sustainability -->
+<div class="flex flex-col gap-3">
+<div class="flex items-center gap-2 text-text-primary font-headline-md text-headline-md font-semibold">
+<span class="material-symbols-outlined text-text-secondary text-[20px]">eco</span>
+                Eco Credentials
+              </div>
+<ul class="space-y-2 text-body-md font-body-md text-text-secondary">
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-amber-luxury"></span>3.5kW Solar panel array installed</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-amber-luxury"></span>2,000L Rainwater detention tank</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-amber-luxury"></span>Double glazed thermal windows</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-amber-luxury"></span>LED downlights throughout</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-amber-luxury"></span>Continuous solar hot water system</li>
+</ul>
+</div>
+</div>
+</section>
+<!-- Interactive Floorplan Preview -->
+<section class="bg-surface-card p-6 rounded-xl shadow-sm" id="floorplan">
+<div class="flex items-center justify-between mb-4">
+<div>
+<h3 class="font-headline-lg text-headline-lg font-bold text-text-primary">Architectural Floorplan</h3>
+<p class="font-body-sm text-body-sm text-text-secondary">2 Levels • 185 m² internal living + 36 m² double garage</p>
+</div>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-canvas hover:bg-surface-container-high text-text-primary font-label-md text-label-md shadow-sm transition-all" onclick="openFloorplanModal()">
+<span class="material-symbols-outlined text-[18px]">zoom_in</span>
+              Expand Blueprint
+            </button>
+</div>
+<!-- Floorplan Schematic Representation -->
+<div class="relative bg-surface-canvas rounded-xl p-6 flex flex-col items-center justify-center overflow-hidden min-h-[340px]">
+<!-- Decorative SVG Architectural Grid Blueprint -->
+<svg class="w-full max-w-xl h-64 text-text-primary" fill="none" viewbox="0 0 600 320" xmlns="http://www.w3.org/2000/svg">
+<rect fill="#FFFFFF" height="300" rx="8" stroke="#CBD5E1" stroke-dasharray="4 4" stroke-width="2" width="580" x="10" y="10"></rect>
+<!-- Ground Level Zone -->
+<rect fill="#F8FAFC" height="260" rx="4" stroke="#0F172A" stroke-width="2" width="260" x="30" y="30"></rect>
+<text fill="#0F172A" font-family="Plus Jakarta Sans" font-size="14" font-weight="bold" x="45" y="60">GROUND LEVEL</text>
+<rect fill="#EFF6FF" height="120" stroke="#94A3B8" width="120" x="45" y="80"></rect>
+<text fill="#2563EB" font-family="Inter" font-size="12" font-weight="600" x="55" y="145">Double Garage</text>
+<text fill="#475569" font-family="Inter" font-size="10" x="55" y="165">6.0m x 5.8m</text>
+<rect fill="#F1F5F9" height="190" stroke="#94A3B8" width="100" x="175" y="80"></rect>
+<text fill="#0F172A" font-family="Inter" font-size="12" font-weight="600" x="185" y="150">Open Living</text>
+<text fill="#475569" font-family="Inter" font-size="10" x="185" y="170">&amp; Dining</text>
+<text fill="#475569" font-family="Inter" font-size="10" x="185" y="190">8.4m x 4.2m</text>
+<!-- Level 1 Zone -->
+<rect fill="#F8FAFC" height="260" rx="4" stroke="#0F172A" stroke-width="2" width="260" x="310" y="30"></rect>
+<text fill="#0F172A" font-family="Plus Jakarta Sans" font-size="14" font-weight="bold" x="325" y="60">FIRST LEVEL</text>
+<rect fill="#FFFBEB" height="110" stroke="#94A3B8" width="120" x="325" y="80"></rect>
+<text fill="#D97706" font-family="Inter" font-size="12" font-weight="600" x="335" y="125">Master Bed</text>
+<text fill="#475569" font-family="Inter" font-size="10" x="335" y="145">WIR + Ensuite</text>
+<rect fill="#ECFDF5" height="90" stroke="#94A3B8" width="100" x="455" y="80"></rect>
+<text fill="#059669" font-family="Inter" font-size="12" font-weight="600" x="465" y="125">Bed 2</text>
+<text fill="#475569" font-family="Inter" font-size="10" x="465" y="145">3.4m x 3.2m</text>
+<rect fill="#ECFDF5" height="75" stroke="#94A3B8" width="110" x="325" y="200"></rect>
+<text fill="#059669" font-family="Inter" font-size="12" font-weight="600" x="335" y="235">Bed 3</text>
+<rect fill="#EFF6FF" height="95" stroke="#94A3B8" width="110" x="445" y="180"></rect>
+<text fill="#2563EB" font-family="Inter" font-size="12" font-weight="600" x="455" y="230">Main Bath</text>
+</svg>
+<div class="mt-4 flex items-center gap-3 text-body-sm text-text-secondary">
+<span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm bg-surface-card border-subtle"></span> Living Space</span>
+<span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm bg-amber-subtle"></span> Master Sanctuary</span>
+<span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm bg-emerald-subtle"></span> Guest / Secondary</span>
+</div>
+</div>
+</section>
+<!-- Property History & Suburb Financial Intelligence -->
+<section class="bg-surface-card p-6 rounded-xl shadow-sm" id="market-insights">
+<div class="flex items-center justify-between mb-4">
+<div>
+<span class="font-label-sm text-label-sm uppercase font-bold text-sapphire-intelligence tracking-wider">Property Telemetry &amp; Valuation</span>
+<h3 class="font-headline-lg text-headline-lg font-bold text-text-primary">Pakenham Market Performance</h3>
+</div>
+<span class="font-label-sm text-label-sm text-emerald-success bg-emerald-subtle px-2.5 py-1 rounded font-semibold">CoreLogic &amp; REA Data Stream</span>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+<div class="p-4 bg-surface-canvas rounded-xl">
+<div class="font-label-sm text-label-sm text-text-muted uppercase">Suburb Median Townhouse</div>
+<div class="font-headline-xl text-headline-xl font-bold text-text-primary mt-1">$590,000</div>
+<div class="flex items-center gap-1 text-emerald-success font-label-md text-label-md mt-1">
+<span class="material-symbols-outlined text-[16px]">trending_up</span>
+                +4.8% (12-month capital gain)
+              </div>
+</div>
+<div class="p-4 bg-surface-canvas rounded-xl">
+<div class="font-label-sm text-label-sm text-text-muted uppercase">Estimated Rental Yield</div>
+<div class="font-headline-xl text-headline-xl font-bold text-text-primary mt-1">$530 <span class="text-body-sm font-normal text-text-secondary">/wk</span></div>
+<div class="flex items-center gap-1 text-sapphire-intelligence font-label-md text-label-md mt-1">
+<span class="material-symbols-outlined text-[16px]">insights</span>
+                4.8% Gross Rental Yield
+              </div>
+</div>
+<div class="p-4 bg-surface-canvas rounded-xl">
+<div class="font-label-sm text-label-sm text-text-muted uppercase">Avg. Days On Market</div>
+<div class="font-headline-xl text-headline-xl font-bold text-text-primary mt-1">26 Days</div>
+<div class="flex items-center gap-1 text-amber-luxury font-label-md text-label-md mt-1">
+<span class="material-symbols-outlined text-[16px]">bolt</span>
+                High Buyer Demand Rating
+              </div>
+</div>
+</div>
+<!-- Sales History Timeline Table -->
+<h4 class="font-headline-md text-headline-md font-bold text-text-primary mb-3">Property Transaction Timeline</h4>
+<div class="overflow-x-auto">
+<table class="w-full text-left font-body-sm text-body-sm">
+<thead class="bg-surface-canvas text-text-secondary uppercase font-label-sm text-label-sm">
+<tr>
+<th class="py-2.5 px-3">Date</th>
+<th class="py-2.5 px-3">Event</th>
+<th class="py-2.5 px-3">Price</th>
+<th class="py-2.5 px-3">Agency</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-border-subtle text-text-primary">
+<tr class="hover:bg-surface-canvas/60 transition-colors">
+<td class="py-3 px-3 font-data-tabular">Oct 2025</td>
+<td class="py-3 px-3"><span class="px-2 py-0.5 rounded bg-sapphire-subtle text-sapphire-intelligence font-medium">Listed for Sale</span></td>
+<td class="py-3 px-3 font-semibold font-data-tabular">$580,000 - $630,000</td>
+<td class="py-3 px-3">Harcourts Pakenham</td>
+</tr>
+<tr class="hover:bg-surface-canvas/60 transition-colors">
+<td class="py-3 px-3 font-data-tabular">Jun 2021</td>
+<td class="py-3 px-3"><span class="px-2 py-0.5 rounded bg-emerald-subtle text-emerald-success font-medium">Sold (Prior)</span></td>
+<td class="py-3 px-3 font-data-tabular">$492,000</td>
+<td class="py-3 px-3">Local Agency Partner</td>
+</tr>
+<tr class="hover:bg-surface-canvas/60 transition-colors">
+<td class="py-3 px-3 font-data-tabular">Jan 2019</td>
+<td class="py-3 px-3"><span class="px-2 py-0.5 rounded bg-surface-canvas text-text-secondary font-medium">Off-the-Plan Contract</span></td>
+<td class="py-3 px-3 font-data-tabular">$430,000</td>
+<td class="py-3 px-3">Developer Direct</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- Suburb Profile: Pakenham 3810 -->
+<section class="bg-surface-card p-6 rounded-xl shadow-sm" id="suburb-profile">
+<div class="flex items-center justify-between mb-4">
+<div>
+<span class="font-label-sm text-label-sm uppercase font-bold text-sapphire-intelligence tracking-wider">Local Neighbourhood</span>
+<h3 class="font-headline-lg text-headline-lg font-bold text-text-primary">Pakenham, VIC 3810</h3>
+</div>
+<a class="text-sapphire-intelligence hover:underline font-label-md text-label-md flex items-center gap-1" href="#">
+              Explore full suburb profile <span class="material-symbols-outlined text-[16px]">chevron_right</span>
+</a>
+</div>
+<p class="font-body-md text-body-md text-text-secondary leading-relaxed mb-6">
+            A flourishing, family-centric township in Melbourne’s South East corridor with exceptional rail connectivity, lakeside dining, extensive parklands, and major retail facilities including the Cardinia Cultural Centre and Pakenham Lifestyle Centre.
+          </p>
+<!-- Schools & Education Accordion -->
+<div class="space-y-3">
+<h4 class="font-headline-md text-headline-md font-bold text-text-primary">Schools &amp; Catchment (Within 2.5km)</h4>
+<div class="flex items-center justify-between p-3 rounded-lg bg-surface-canvas">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-sapphire-subtle text-sapphire-intelligence flex items-center justify-center font-bold font-data-tabular">1</div>
+<div>
+<div class="font-title-sm text-title-sm font-semibold text-text-primary">Pakenham Consolidated School</div>
+<div class="font-body-sm text-body-sm text-text-muted">Primary • Public • Government Catchment</div>
+</div>
+</div>
+<span class="font-data-tabular text-body-sm text-text-secondary">0.8 km</span>
+</div>
+<div class="flex items-center justify-between p-3 rounded-lg bg-surface-canvas">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-emerald-subtle text-emerald-success flex items-center justify-center font-bold font-data-tabular">2</div>
+<div>
+<div class="font-title-sm text-title-sm font-semibold text-text-primary">Beaconhills College (Pakenham Campus)</div>
+<div class="font-body-sm text-body-sm text-text-muted">Combined Primary &amp; Secondary • Independent Private</div>
+</div>
+</div>
+<span class="font-data-tabular text-body-sm text-text-secondary">1.9 km</span>
+</div>
+<div class="flex items-center justify-between p-3 rounded-lg bg-surface-canvas">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-amber-subtle text-amber-luxury flex items-center justify-center font-bold font-data-tabular">3</div>
+<div>
+<div class="font-title-sm text-title-sm font-semibold text-text-primary">Pakenham Secondary College</div>
+<div class="font-body-sm text-body-sm text-text-muted">Secondary • Public • Government Catchment</div>
+</div>
+</div>
+<span class="font-data-tabular text-body-sm text-text-secondary">1.4 km</span>
+</div>
+</div>
+<!-- Location Map View -->
+<div class="mt-6">
+<h4 class="font-headline-md text-headline-md font-bold text-text-primary mb-3">Map &amp; Local Precinct</h4>
+<div class="w-full h-72 rounded-xl bg-surface-canvas flex items-center justify-center relative overflow-hidden shadow-inner" data-location="12/1A Rogers Street, Pakenham VIC 3810, Australia" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuAWJIW4C0j1MX82LtQm3uEfQHAdq6Xn0BpBvy1fhkcK7lol1tqqhWDbDHxwRACKwBwq-kh9akpqzbOHKTpbnHoE0zRKaxdSMwpmNmO3srs549FqKkKAIX0KQLShkF5pUyXh_eUHoK06kgeEWaNPqQrE0kmawzlAypqA7eGklMn2HSIUHrv7DCRPZmw36iMS-0NqabDtlg96k9-OCWFXcaGPgcppvfEA9liVNMx2HXWKwi1QAbRpy0Orxg')">
+<div class="absolute inset-0 bg-primary/20 backdrop-blur-[1px] flex flex-col items-center justify-center text-center p-4">
+<div class="w-12 h-12 rounded-full bg-crimson-critical text-on-primary flex items-center justify-center shadow-lg animate-bounce">
+<span class="material-symbols-outlined text-[24px]">location_on</span>
+</div>
+<div class="mt-3 bg-surface-card px-4 py-2 rounded-xl shadow-md">
+<p class="font-headline-md text-headline-md font-bold text-text-primary">12/1A Rogers St, Pakenham</p>
+<p class="font-body-sm text-body-sm text-text-secondary">Walking distance to Pakenham Station &amp; Shopping Hub</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Mandatory Victorian Due Diligence Compliance Checklist Box -->
+<section class="bg-surface-card p-6 rounded-xl shadow-sm border-l-4 border-sapphire-intelligence">
+<div class="flex items-start gap-4">
+<span class="material-symbols-outlined text-sapphire-intelligence text-[32px]">gavel</span>
+<div class="flex flex-col gap-2">
+<h4 class="font-headline-md text-headline-md font-bold text-text-primary">Consumer Affairs Victoria Due Diligence Checklist</h4>
+<p class="font-body-sm text-body-sm text-text-secondary leading-relaxed">
+                Under Section 33B of the Sale of Land Act 1962 (VIC), estate agents and sellers of residential property must provide a Due Diligence Checklist to prospective buyers. This checklist assists buyers in identifying potential issues that could affect property enjoyment, zoning regulations, planning overlays, covenants, or future liabilities.
+              </p>
+<div class="flex items-center gap-3 pt-2">
+<a class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sapphire-subtle hover:bg-surface-container-high text-sapphire-intelligence font-label-md text-label-md font-semibold transition-colors" href="https://www.consumer.vic.gov.au/duediligencechecklist" rel="noopener noreferrer" target="_blank">
+<span class="material-symbols-outlined text-[16px]">open_in_new</span>
+                  View Official VIC Checklist
+                </a>
+<button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-canvas hover:bg-surface-container-high text-text-primary font-label-md text-label-md font-semibold transition-colors" onclick="downloadSOI()">
+<span class="material-symbols-outlined text-[16px]">description</span>
+                  Download Statement of Information (PDF)
+                </button>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- RIGHT STICKY SIDEBAR (32% -> 4 of 12 cols) -->
+<aside class="lg:col-span-4 flex flex-col gap-6 lg:sticky lg:top-44" id="enquiry-card">
+<!-- Agency Brand & Agent Contact Card -->
+<div class="bg-surface-card rounded-xl shadow-md p-6 flex flex-col gap-5">
+<!-- Agency Banner Head -->
+<div class="flex items-center justify-between border-b border-border-subtle pb-4">
+<div>
+<span class="font-label-sm text-label-sm uppercase tracking-wider text-text-muted font-bold">Listing Agency</span>
+<h3 class="font-headline-md text-headline-md font-bold text-text-primary">Harcourts Pakenham</h3>
+<p class="font-body-sm text-body-sm text-text-secondary">Licensed Estate Agency 081292L</p>
+</div>
+<div class="w-12 h-12 rounded-lg bg-surface-canvas flex items-center justify-center text-sapphire-intelligence font-bold font-headline-lg shadow-sm">
+              H
+            </div>
+</div>
+<!-- Agents Detail -->
+<div class="space-y-4">
+<!-- Lead Agent -->
+<div class="flex items-center gap-3.5">
+<div class="w-14 h-14 rounded-full bg-surface-canvas flex items-center justify-center overflow-hidden flex-shrink-0 shadow-sm border border-border-default">
+<span class="material-symbols-outlined text-[36px] text-text-muted">account_circle</span>
+</div>
+<div class="flex-1 min-w-0">
+<div class="font-title-sm text-title-sm font-bold text-text-primary truncate">Daniel Vance</div>
+<div class="font-body-sm text-body-sm text-text-secondary">Lead Sales Consultant &amp; Partner</div>
+<a class="inline-flex items-center gap-1 font-data-tabular text-body-sm font-semibold text-sapphire-intelligence hover:underline mt-0.5" href="tel:+61412884920">
+<span class="material-symbols-outlined text-[15px]">call</span>
+                  0412 884 920
+                </a>
+</div>
+</div>
+<!-- Second Agent -->
+<div class="flex items-center gap-3.5">
+<div class="w-14 h-14 rounded-full bg-surface-canvas flex items-center justify-center overflow-hidden flex-shrink-0 shadow-sm border border-border-default">
+<span class="material-symbols-outlined text-[36px] text-text-muted">account_circle</span>
+</div>
+<div class="flex-1 min-w-0">
+<div class="font-title-sm text-title-sm font-bold text-text-primary truncate">Sarah Jenkins</div>
+<div class="font-body-sm text-body-sm text-text-secondary">Licensed Estate Agent</div>
+<a class="inline-flex items-center gap-1 font-data-tabular text-body-sm font-semibold text-sapphire-intelligence hover:underline mt-0.5" href="tel:+61411920334">
+<span class="material-symbols-outlined text-[15px]">call</span>
+                  0411 920 334
+                </a>
+</div>
+</div>
+</div>
+<!-- Fast Action Buttons -->
+<div class="grid grid-cols-2 gap-2 pt-2">
+<button class="w-full py-2.5 px-3 bg-surface-canvas hover:bg-surface-container-high text-text-primary rounded-lg font-label-md text-label-md font-semibold transition-all text-center" onclick="requestInspectionModal()">
+              Book Private Inspect
+            </button>
+<button class="w-full py-2.5 px-3 bg-surface-canvas hover:bg-surface-container-high text-crimson-critical rounded-lg font-label-md text-label-md font-semibold transition-all text-center" onclick="makeOfferModal()">
+              Submit Offer
+            </button>
+</div>
+<!-- Fast Enquiry Form -->
+<form class="space-y-3 pt-2" id="listing-enquiry-form" onsubmit="handleEnquiry(event)">
+<div>
+<label class="block font-label-sm text-label-sm text-text-secondary uppercase mb-1">Your Full Name</label>
+<input class="w-full h-10 px-3 rounded-lg bg-surface-canvas text-body-md text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-primary transition-all" placeholder="Jane Doe" required="" type="text"/>
+</div>
+<div class="grid grid-cols-2 gap-2">
+<div>
+<label class="block font-label-sm text-label-sm text-text-secondary uppercase mb-1">Email</label>
+<input class="w-full h-10 px-3 rounded-lg bg-surface-canvas text-body-md text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-primary transition-all" placeholder="jane@example.com" required="" type="email"/>
+</div>
+<div>
+<label class="block font-label-sm text-label-sm text-text-secondary uppercase mb-1">Mobile Phone</label>
+<input class="w-full h-10 px-3 rounded-lg bg-surface-canvas text-body-md text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-primary transition-all" placeholder="0400 000 000" required="" type="tel"/>
+</div>
+</div>
+<div>
+<label class="block font-label-sm text-label-sm text-text-secondary uppercase mb-1">I am interested in</label>
+<select class="w-full h-10 px-3 rounded-lg bg-surface-canvas text-body-md text-text-primary focus:outline-none focus:ring-1 focus:ring-primary transition-all">
+<option>Inspecting this property (Saturday 24th Oct)</option>
+<option>Requesting Section 32 &amp; Contract of Sale</option>
+<option>Formal Price Guide Breakdown</option>
+<option>Making an early written offer</option>
+</select>
+</div>
+<div>
+<label class="block font-label-sm text-label-sm text-text-secondary uppercase mb-1">Message to Agent</label>
+<textarea class="w-full p-3 rounded-lg bg-surface-canvas text-body-md text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-primary transition-all" placeholder="Hi Daniel, I would like more information on 12/1A Rogers Street..." rows="3"></textarea>
+</div>
+<button class="w-full py-3 bg-crimson-critical hover:bg-crimson-critical/90 active:scale-[0.99] text-on-primary font-headline-md text-headline-md font-bold rounded-lg shadow-md transition-all flex items-center justify-center gap-2" type="submit">
+<span class="material-symbols-outlined text-[20px]">send</span>
+              Send Enquiry
+            </button>
+<div class="hidden text-center font-label-md text-label-md text-emerald-success bg-emerald-subtle py-2 rounded" id="enquiry-status">
+              Enquiry dispatched to Daniel Vance &amp; Sarah Jenkins.
+            </div>
+</form>
+</div>
+<!-- Mortgage Repayment Estimator Box -->
+<div class="bg-surface-card rounded-xl shadow-md p-6 flex flex-col gap-4">
+<div class="flex items-center justify-between">
+<h4 class="font-headline-md text-headline-md font-bold text-text-primary">Mortgage Estimator</h4>
+<span class="font-label-sm text-label-sm text-text-muted uppercase">6.14% p.a. • 30 Yr</span>
+</div>
+<div class="bg-surface-canvas p-4 rounded-xl flex flex-col items-center text-center">
+<span class="font-label-sm text-label-sm text-text-secondary uppercase">Approximate Weekly Repayment</span>
+<span class="font-headline-xl text-headline-xl font-bold text-text-primary mt-1 font-data-tabular" id="repayment-amount">~$712 <span class="text-body-sm font-normal text-text-secondary">/ wk</span></span>
+<span class="font-body-sm text-body-sm text-text-muted mt-1">Based on 20% deposit ($121,000) on $605,000 midpoint</span>
+</div>
+<div class="space-y-3">
+<div>
+<div class="flex justify-between text-body-sm font-body-sm text-text-secondary mb-1">
+<span>Purchase Price</span>
+<span class="font-semibold text-text-primary font-data-tabular" id="calc-price-display">$605,000</span>
+</div>
+<input class="w-full accent-primary cursor-pointer" id="price-range-slider" max="680000" min="550000" oninput="updateRepayment(this.value)" step="5000" type="range" value="605000"/>
+</div>
+<a class="block text-center py-2.5 rounded-lg bg-surface-canvas hover:bg-surface-container-high text-sapphire-intelligence font-label-md text-label-md font-semibold transition-colors" href="#">
+              Get Pre-Approved with Aussie Home Loans
+            </a>
+</div>
+</div>
+</aside>
+</div>
+</main>
+<!-- Interactive Lightbox Photo Modal (Hidden by Default) -->
+<div class="fixed inset-0 z-50 bg-primary/90 backdrop-blur-md hidden items-center justify-center p-4" id="gallery-modal">
+<div class="relative w-full max-w-5xl bg-surface-card rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+<div class="flex items-center justify-between p-4 border-b border-border-subtle">
+<h3 class="font-headline-md text-headline-md font-bold text-text-primary">12/1A Rogers Street — Photo Gallery</h3>
+<button class="w-8 h-8 rounded-full bg-surface-canvas hover:bg-surface-container-high flex items-center justify-center text-text-primary" onclick="closeGalleryModal()">
+<span class="material-symbols-outlined text-[20px]">close</span>
+</button>
+</div>
+<div class="p-6 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-4">
+<div class="space-y-2">
+<img alt="Townhouse Exterior" class="w-full rounded-xl object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAknDxQK08ZBcUYJsMW__-6aWsT2rPJo_qHjvlvkXJRp8fJMdD2LAQMTatWUvc2HU9S86EkqqnFPMTAqfk5_T_rWgfS-DBgHymfc9mSnxBNAWWOepui4B5Nw56BHDv53xSDTiUBUHmPQfEIbwlTZc369MCaFqn0Sh12Q6ipywDXqi-Lz0dsMoQTgzaWhA-9AKRfqPBqIrnGid4gGIOLZc48DcM0fVVHd3Zss_JJT17H_YABqltxiIRsAA"/>
+<span class="font-label-sm text-label-sm text-text-secondary">Image 1: Architectural Facade &amp; Private Garden</span>
+</div>
+<div class="space-y-2">
+<img alt="Modern Kitchen" class="w-full rounded-xl object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAfj-Cao0Rwd2M1Smb39icPR_6q-Mk_IDQ6wHwS4kjRyfkMGOFUEwR-nsBUl2rD3z6592hPSQ98lyY6XW2JgcFTW3lVX3DBdW7mvdUg23HUR5ZeGmBZMVjojcbSkh2H5kK9Vx6xiXnXan0ChBdNndrk2hijc53VcZJ9qXFkMTSAoNE5ijCDolOG5sLCVRNpHuD5DZXNXjhhc3T1Acw2rtuq5txqNtMfUnskSi4zyJWV-57aJN6BGKFGgQ"/>
+<span class="font-label-sm text-label-sm text-text-secondary">Image 2: Gourmet Open Plan Kitchen</span>
+</div>
+<div class="space-y-2">
+<img alt="Master Bedroom" class="w-full rounded-xl object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBUW6g6j0xa5TjgzskdTH-I241jt-29Q8S4KvCHUoTUkknZ-ahCM8mWtrcw52_2rNv2c6Q8qEU0ICH3_mgti3QrA0BWCUNlBD3uifPjdSqwkf9s93zFoqN_Ar1ITz4ipqAdGHz1Cq-1NZa0Wi0D8Me6DYT2Z4k-3qVnxzQF0DimXDh0zX9Ol4i6y_OebsSmGH1XvdKdAb0mHFrLiUHCvBA7uS0VhmTZ9x6Zck70wLX9lGNRLdyW2M1OpQ"/>
+<span class="font-label-sm text-label-sm text-text-secondary">Image 3: Spacious Sun-drenched Master Suite</span>
+</div>
+<div class="space-y-2">
+<img alt="Designer Bathroom" class="w-full rounded-xl object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDg9QTqRJmQrw0d5Ak3K8hUbDjOXLt_AhIuafoKDM6GpiEm83EBTTnF8mUHddRhw8-B5pwD5FCuj3SiVwgpe4yDbRwtkuFZDCTqWLer5iRM-W6pDoCXhh5-BZEsykjTPer_rbmM0tEN_01MKDI8iqt8zfNu-GYVCGQfYIxNeQnnYr1um6pDS5SrKjilqEw--coU0Zu5kI5BRgWoZRkEmMGRFzUOB8VSwOdvejuJJa2VuwpEeTpjdrjigQ"/>
+<span class="font-label-sm text-label-sm text-text-secondary">Image 4: Master Ensuite with Frameless Glass</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Inline Script for Client-side Real Estate Micro-Interactions -->
+<script>
+    let saved = false;
+    function toggleSave() {
+      saved = !saved;
+      const heart = document.getElementById('heart-icon');
+      const count = document.getElementById('save-count');
+      if (saved) {
+        heart.textContent = 'favorite';
+        heart.style.fontVariationSettings = "'FILL' 1";
+        count.textContent = '143';
+      } else {
+        heart.textContent = 'favorite_border';
+        heart.style.fontVariationSettings = "'FILL' 0";
+        count.textContent = '142';
+      }
+    }
+
+    function copyPropertyUrl() {
+      navigator.clipboard.writeText(window.location.href);
+      alert('Property link copied to clipboard: 12/1A Rogers Street, Pakenham VIC 3810');
+    }
+
+    function openGalleryModal() {
+      const modal = document.getElementById('gallery-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeGalleryModal() {
+      const modal = document.getElementById('gallery-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    function openFloorplanModal() {
+      openGalleryModal();
+    }
+
+    function openVideoTour() {
+      alert('Opening high-definition 4K virtual property tour for 12/1A Rogers Street...');
+    }
+
+    function downloadSOI() {
+      alert('Initiating download: Statement-Of-Information-12-1A-Rogers-St-Pakenham.pdf compliant with VIC Consumer Affairs.');
+    }
+
+    function downloadICS() {
+      alert('Calendar invite for Saturday 24th Oct 11:30 AM downloaded (.ics).');
+    }
+
+    function attendCheckin(session) {
+      alert('RSVP registered for ' + session + '. SMS confirmation dispatched to your registered number.');
+    }
+
+    function requestInspectionModal() {
+      const input = document.querySelector('#listing-enquiry-form textarea');
+      input.value = "Hi Daniel & Sarah, I would like to request a private inspection during weekday hours.";
+      input.scrollIntoView({ behavior: 'smooth' });
+      input.focus();
+    }
+
+    function makeOfferModal() {
+      const select = document.querySelector('#listing-enquiry-form select');
+      select.value = "Making an early written offer";
+      const input = document.querySelector('#listing-enquiry-form textarea');
+      input.value = "I wish to register a formal offer under Section 32 terms for vendor consideration.";
+      input.scrollIntoView({ behavior: 'smooth' });
+      input.focus();
+    }
+
+    function handleEnquiry(e) {
+      e.preventDefault();
+      const status = document.getElementById('enquiry-status');
+      status.classList.remove('hidden');
+      setTimeout(() => {
+        status.classList.add('hidden');
+      }, 5000);
+    }
+
+    function updateRepayment(val) {
+      const price = parseInt(val);
+      document.getElementById('calc-price-display').textContent = '$' + price.toLocaleString();
+      const loan = price * 0.8;
+      // standard 30 year amortisation at 6.14%
+      const r = 0.0614 / 52;
+      const n = 30 * 52;
+      const weekly = (loan * (r * Math.pow(1 + r, n))) / (Math.pow(1 + r, n) - 1);
+      document.getElementById('repayment-amount').innerHTML = '~$' + Math.round(weekly) + ' <span class="text-body-sm font-normal text-text-secondary">/ wk</span>';
+    }
+  </script>
+</div></main><footer class="w-full bg-surface-card mt-space-xl shadow-[0_-1px_6px_rgba(0,0,0,0.03)]"><div class="max-w-7xl mx-auto px-margin py-space-xl"><div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-gutter pb-space-lg"><div class="flex flex-col gap-space-xs"><span class="font-label-sm text-label-sm uppercase text-text-muted tracking-wider mb-space-xs">Real Estate</span><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">Properties for sale</a><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" data-path="rent" href="#">Rental properties</a><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">Research property</a><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">Sold house prices</a></div><div class="flex flex-col gap-space-xs"><span class="font-label-sm text-label-sm uppercase text-text-muted tracking-wider mb-space-xs">New Homes</span><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">New apartments</a><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">House and land packages</a><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">New home designs</a><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">Land estates</a></div><div class="flex flex-col gap-space-xs"><span class="font-label-sm text-label-sm uppercase text-text-muted tracking-wider mb-space-xs">Commercial</span><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">Commercial real estate</a><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">Offices for sale</a><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">Retail shops for lease</a><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">Industrial &amp; warehouse</a></div><div class="flex flex-col gap-space-xs"><span class="font-label-sm text-label-sm uppercase text-text-muted tracking-wider mb-space-xs">Explore Agents</span><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">Find local real estate agents</a><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">Real estate agent reviews</a><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">Agency franchise directory</a><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">Auction results NSW &amp; VIC</a></div><div class="flex flex-col gap-space-xs"><span class="font-label-sm text-label-sm uppercase text-text-muted tracking-wider mb-space-xs">News &amp; Advice</span><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">Property market news</a><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">Home improvement</a><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">Guides for buyers</a><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">Guides for tenants</a></div><div class="flex flex-col gap-space-xs"><span class="font-label-sm text-label-sm uppercase text-text-muted tracking-wider mb-space-xs">Legal &amp; Compliance</span><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">VIC Due Diligence Checklist</a><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">NSW Fair Trading Statement</a><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">QLD Property Law Act</a><a class="font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors" href="#">WA Consumer Protection</a></div></div><div class="py-space-md bg-surface-canvas rounded-lg px-space-md mb-space-lg text-text-secondary"><p class="font-body-sm text-body-sm leading-relaxed"><strong class="font-semibold text-text-primary">Consumer Warning &amp; State Disclosures:</strong> Information on this portal is provided for general guidance only. In Victoria, under section 33A of the Sale of Land Act 1962, licensed estate agents and sellers must provide a due diligence checklist to prospective buyers of residential property. In NSW, prospective buyers should verify all representations with Fair Trading NSW. Trust accounting telemetry and deposit reconciliations comply strictly with state statutory guidelines.</p></div><div class="flex flex-col sm:flex-row items-center justify-between gap-space-sm pt-space-md"><div class="flex flex-wrap items-center gap-space-md font-body-sm text-body-sm text-text-muted"><a class="hover:text-text-primary transition-colors" href="#">Privacy Policy</a><a class="hover:text-text-primary transition-colors" href="#">Terms of Use</a><a class="hover:text-text-primary transition-colors" href="#">Editorial Guidelines</a><a class="hover:text-text-primary transition-colors" href="#">Sitemap</a></div><span class="font-body-sm text-body-sm text-text-muted">© 2025 REA Group Ltd. All rights reserved. Australian Credit Licence 388986.</span></div></div></footer></body></html>

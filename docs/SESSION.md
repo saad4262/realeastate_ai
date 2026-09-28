@@ -1,3 +1,1869 @@
+## 2026-09-28 — Claude Code — every run emails, including the ones with no news
+
+- Goal: asked for, explicitly: an email at every scheduled time whether or not anything new
+  turned up. The `newIds.length === 0` early return in `runOneSchedule` is gone.
+- Files touched: `packages/core/src/schedules/run-schedule.ts`, `apps/web/app/alerts/page.tsx`,
+  `packages/smoke/src/index.ts`, `docs/STATUS.md`, `docs/TEST-PLAN.md`
+
+### The old reasoning is kept in the comment, not deleted
+
+It was not wrong — a recurring "no change" message is the fastest way to teach somebody to
+mute a sender, and enough spam complaints take the sending domain down for the digests that
+DO carry news. But it is the product owner's call, and the legal position holds either way:
+the recipient created the schedule themselves (that is the Spam Act's consent), and every
+message still carries sender identity, postal address and a working one-click unsubscribe.
+Lawful; whether it is wise is a judgement about their own list. The comment says so, so
+nobody re-litigates it from scratch in six months.
+
+### Two facts, two columns
+
+`status` still means what the SEARCH found — `empty` when nothing was new — and
+`email_status` means what happened to the message. An emailed run that found nothing is
+`status: 'empty'`, `email_status: 'sent'`. Keeping them separate matters in two places:
+
+- `claimDueSchedules` anchors the "what is new" diff on the last **delivered** run, so the
+  baseline still only advances when there genuinely was news. Collapsing everything to
+  `delivered` would have made a withdrawn-and-relisted property count as new.
+- `/alerts` promises "everything we have sent", so it now filters on `email_status = 'sent'`
+  rather than `status = 'delivered'`. Historical rows read correctly too: the old empty runs
+  recorded `skipped`, and no email was sent for them.
+
+### No prose for a digest with no news
+
+The model call is skipped when `newCount === 0`. `templateSummary` already writes the right
+sentence — "No new listings since we last looked. 3 still match …" — and there is nothing
+for a model to add. It matters at this cadence: a 10-minute schedule is 144 runs a day, and
+paying for a paragraph on the ~140 that say "nothing changed" is the entire per-user budget
+spent on the least interesting sentence in the product.
+
+### Verified on the real schedule
+
+    { "claimed": 1, "delivered": 0, "empty": 1, "emailsSent": 1, "emailsSkipped": 0 }
+
+    status: 'empty'  new_count: 0  email_status: 'sent'
+    emailed_at: 2026-09-28T07:03:11Z  recipient: mohad@gmail.com
+
+A real email went to a real address. Resend's domain `quotemydecking.com.au` was confirmed
+`verified` / `sending: enabled` first, and a digest built from live rows had already been
+accepted by Resend via their `delivered@resend.dev` simulator.
+
+New smoke check: two ticks against an unchanged database must produce two emails, the second
+subjected "No new listings". Broken on purpose (§ 12) by restoring the skip — went red with
+"1 email(s) for 2 runs".
+
+### One interrupted tick, and the sweeper earning its keep
+
+A `running` row appeared on the live schedule for the 06:52 slot and never finished — a tick
+that claimed and then died, which is exactly the case `sweepAbandonedRuns` was written for
+last session. It was swept. Worth stating the consequence now that every run emails: an
+interrupted tick is one missed email, because the cursor advances inside the claim
+transaction and that slot never comes back. The next slot sends normally.
+
+- Left unfinished (exact next step): nothing on localhost ticks the cron, so "every 10
+  minutes" is every 10 minutes only where something pokes `/api/cron/alerts`.
+- Risks / watch: the Spam Act footer is still `Test Company` / `123 Test St, Test City`, and
+  the cadence change makes that more pressing, not less — there is simply more mail now.
+
+### Numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10
+- `pnpm test` — 597 (414 `@repo/core`, 183 `@repo/ai`)
+- `pnpm smoke` — **95 passed, 0 failed**, 10 skipped
+
+## 2026-09-28 — Claude Code — editing a schedule, and a sender address that is one
+
+- Goal: let somebody change a saved search's time after the fact, and make the alert
+  sender address correct by default.
+- Files touched: `apps/web/components/{schedule-picker.tsx,save-search.tsx}`,
+  `apps/web/app/alerts/{schedule-row.tsx,page.tsx,actions.ts}`,
+  `packages/core/src/email/{resend-transport.ts,email.test.ts}`,
+  `packages/core/src/schedules/{draft.ts,draft.test.ts}`, `packages/smoke/src/index.ts`,
+  `.env.example`
+
+### The picker was extracted before it was reused
+
+`SchedulePicker` is now one component used by both "save a new search" and the new inline
+edit form. Copying it would have satisfied every test while drifting — which is exactly
+what happened with `describeCadence`, whose duplicate in `/alerts` labelled every hourly
+schedule "Every day at 12:00 AM" for months without failing anything. The smoke check that
+matched form field names to action reads was widened to cover both forms and now also
+asserts there is still only one picker; it goes red on a second copy.
+
+Both actions share one parser, `cadenceFieldsFrom`. Create and update differ in exactly one
+place and it is commented: a patch uses `null` to mean "clear it", a create has nothing to
+clear and the contract refuses a daily schedule carrying a weekday at all, so the field is
+omitted rather than nulled. Switching weekly → daily has to clear the weekday or the row
+carries two answers to "when does this fire".
+
+Editing does **not** resume a paused schedule. Changing the time of something switched off
+is not a request to switch it on, and the form says which it is.
+
+### The interval label was wrong in a new way
+
+Removing the one-week ceiling last session made `describeCadence` say **"Every 336 hours"**
+for a fortnight — right, and not a sentence anybody would say, on a card somebody is asked
+to agree to. It now uses the largest unit that divides cleanly: weeks, then days, then
+hours, then minutes. One day stays "Every 24 hours" rather than "Every day", because
+"Every day" is the `daily` cadence — a wall-clock time that survives a DST change — and an
+interval is elapsed time that does not.
+
+### `ALERT_EMAIL_FROM` is now checked, not just present
+
+`.env.example` carries `alerts@quotemydecking.com.au` with a note. More usefully,
+`requireSenderIdentity` now rejects a value that is not an address: the live config held
+the bare domain `quotemydecking.com.au` for two days, which passed the non-empty check,
+went out as `Test Company <quotemydecking.com.au>` and was refused by Resend on every
+send. Recorded honestly on each run, which nobody reads until somebody asks why no email
+arrived. Present is not the same as usable.
+
+A shape check, not an RFC 5322 parser — the mistake to catch is a missing mailbox, and
+anything stricter starts rejecting valid addresses to catch faults nobody has made. The
+message carries the fix, not just the verdict, because it is read by whoever set the
+variable and thought it was fine.
+
+### Verified against the live database
+
+    created  -> Every day at 8:00 PM, Sydney time
+    retimed  -> Every day at 4:15 PM, Melbourne time
+    weekly   -> Every Saturday at 9:00 AM, Melbourne time
+    interval -> Every 2 weeks      | weekday cleared: true
+    next run re-anchored to the future: true
+    9-minute edit refused: The shortest gap we can run is every 10 minutes
+
+Three guards broken on purpose and seen red (§ 12): the one-picker assertion (replaced the
+shared picker with a raw select), the field-name match, and the address validation.
+
+- Left unfinished (exact next step): the edit form was exercised through core rather than
+  through a browser — the server action wire format defeated a curl reproduction, which is
+  what the field-name smoke check exists to cover. Worth one manual pass on `/alerts`.
+- Risks / watch: the sending domain still has to be verified in Resend before any real
+  recipient can be reached, and the Spam Act footer is still `Test Company` /
+  `123 Test St, Test City`.
+
+### Numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **597** (414 `@repo/core`, 183 `@repo/ai`)
+- `pnpm smoke` — **94 passed, 0 failed**, 10 skipped
+- `/` still `○` static, 459 B · `/alerts` 3.67 kB · `/search` 3.99 kB
+
+## 2026-09-28 — Claude Code — an exact clock, no ceiling, and three fixes
+
+- Goal: the three faults reported last session, plus an alarm-style AM/PM time picker with
+  a hard 10-minute floor and no upper limit.
+- Files touched: `packages/core/src/schedules/{time-input.ts,sweep-runs.ts,claim.ts,run-schedule.ts,schedule-schema.ts,index.ts,draft.test.ts,time-input.test.ts}`,
+  `packages/ai/src/tools/{schedule-tools.ts,index.ts,schedule-tools.test.ts}`,
+  `apps/web/app/alerts/{page.tsx,actions.ts}`, `apps/web/components/save-search.tsx`,
+  `packages/smoke/src/index.ts`
+
+### 1. `/alerts` was lying about every interval schedule
+
+It carried its own copy of `describeCadence` that knew `weekly` and read everything else
+as daily. An interval row holds `sendAtMinute: 0` because an interval has no clock, so an
+hourly schedule was labelled **"Every day at 12:00 AM"** — wrong about both halves, on
+screen, for as long as the page has existed. The page imports core's formatter now. Two
+formatters for one fact is how they drift, and nothing failed while they did.
+
+### 2. The test suite was editing a real person's data
+
+`claimDueSchedules` had no way to narrow, so the concurrency check claimed whatever
+happened to be due — and it did, leaving **four half-finished runs on a live saved
+search**. `claimDueSchedules` and `runScheduleTick` now take `ownerId`; the scheduler
+never passes it and smoke always does. Written as a narrowing that composes into the same
+WHERE, so it cannot widen anything and an omitted value behaves exactly as before. The
+tick check now asserts `claimed === 1` rather than `>= 1`, so a leak fails.
+
+### 3. The stuck rows had a cause, so the cause was fixed too
+
+`sweepAbandonedRuns` closes out any run still `running` 30 minutes after it was claimed,
+and the tick calls it beside the retention prune. This is not only a test artefact: the
+claim commits before the work starts (§ 8 keeps network calls out of transactions), so a
+crashed tick leaves exactly the same row and always could have. **Marked failed, not
+deleted** — a lost alert must not be indistinguishable from one that never happened — and
+`consecutiveFailures` is deliberately untouched, because the schedule did nothing wrong.
+The four live rows were swept. Nothing was blocked by them: each run is keyed on its own
+slot and the cursor had already moved, which is why nobody noticed.
+
+### 4. The picker offered eight times, and the ceiling was wrong
+
+The time control was a dropdown of eight times on the hour, 7 AM to 9 PM. It looked like a
+design and was a limit: 4:15 PM was not a setting anybody could choose, and the column has
+always been a minute of the day, so nothing below it was in the way. Now hour · minute ·
+AM/PM, every minute of the day.
+
+**Three selects, not `<input type="time">`.** That was the obvious choice and it is wrong
+here: whether it renders 12-hour or 24-hour follows the *browser's* locale, not the page's,
+so an AM/PM picker would silently become a 24-hour one for some visitors.
+
+**Parsed on the server.** It would have been one line to multiply the three fields out in
+the browser and post a hidden `sendAtMinute`, and then the number deciding when mail goes
+out would be one the browser chose (§ 9). It also still works with JavaScript off.
+
+**The field is `sendAtMinuteOfHour`.** It was briefly `sendAtMinute` — the same name as the
+column, which is a minute of the *day*. One careless edit from 8:00 PM being stored as
+12:20 AM.
+
+**The ceiling is gone; the floor is absolute.** `MAX_INTERVAL_MINUTES` was one week, on the
+reasoning that `weekly` was the better shape past that. It was wrong in an ordinary case:
+`weekly` cannot express a fortnight, so "every two weeks" was silently clamped to one week
+— twice the email somebody asked for. The only bound left is the `integer` column's
+(~4000 years), which exists so the limit fails with a sentence rather than a stack trace.
+The 10-minute floor stays hard and is enforced twice, differently on purpose: the form
+**refuses** with the reason beside the field, the chat tool **clamps**, because a model
+that has begun a sentence narrates a refusal as success and the visitor sees no card.
+
+### Five new checks, each broken on purpose first (§ 12)
+
+| Check | Broken by | Went red with |
+|---|---|---|
+| the alerts page does not hand-roll a cadence label | removing the import | "a second cadence formatter has come back" |
+| a claimed-and-never-finished run gets closed out | dropping the sweeper's cutoff | "a run claimed seconds ago was swept — too eager" |
+| the form and its action agree on every field name | renaming one `name=` | "the form sends sendAtMinuteOfHourX and the action never reads it" |
+| no live run is stuck half-finished | — (invariant over real rows) | |
+| an exact AM/PM time survives the round trip | — | 4:15 PM → 975; 9 minutes refused; a fortnight accepted |
+
+The field-name check is the one that needed writing: the picker renders `name="…"`, the
+action reads `formData.get('…')`, nothing connects them but a string, and a mismatch
+compiles, throws nothing and fails no test.
+
+`time-input.test.ts` covers the arithmetic — the 12 AM / 12 PM trap in both directions
+(the naive `hour12 + 12` puts midnight at noon), a round trip over all 1440 minutes, and
+`''` being rejected rather than read as `Number('') === 0`.
+
+- Left unfinished (exact next step): there is still no way to **edit** an existing
+  schedule's time — `/alerts` offers Turn on / View results / Delete, and `updateSchedule`
+  already supports it. The chat's `draft_schedule` takes `atTime` as 24-hour text, so the
+  model converts "4:15 PM" itself; that conversion is not tested against a live model.
+- Risks / watch: `ALERT_EMAIL_FROM` is still `"quotemydecking.com.au"`, a bare domain
+  rather than an address, so any real send will be rejected by Resend.
+
+### Numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **584** (401 `@repo/core`, 183 `@repo/ai`)
+- `pnpm smoke` — **94 passed, 0 failed**, 10 skipped
+- `/` still `○` static, 457 B · `/search` 3.73 kB · `/alerts` 2.06 kB
+
+## 2026-09-28 — Claude Code — an account section, and a way out of it
+
+- Goal: somewhere to see the account and sign out of it. There was no sign-out control
+  anywhere on the site; `/sign-out` existed and nothing pointed at it.
+- Done: `/account` (name, email, member since, saved-search count, change password, Log
+  out), an account chip in the shared header, and `/alerts` finally wrapped in the shell.
+- Files touched: `apps/web/app/account/{page.tsx,account.module.css,loading.tsx}`,
+  `packages/ui/src/app-shell.{tsx,module.css}`, `apps/web/components/web-shell.tsx`,
+  `apps/web/app/{page,search/page,chat/page,listing/[id]/page,alerts/page,alerts/loading}.tsx`,
+  `apps/web/app/alerts/alerts.module.css`, `packages/smoke/src/index.ts`
+
+### The design constraint was `/`, and it shaped everything
+
+`/` is the site's only statically rendered route (`revalidate = 300`, measured at 33 ms).
+Drawing an account chip means knowing whether somebody is signed in, which means reading
+a cookie, and a `cookies()` call anywhere in that tree opts the whole route out of static
+rendering — silently, with no error.
+
+So the chip is **data passed in**, not a session read: `AppShell` takes
+`account?: { signedIn: boolean }` and packages/ui never learns what a session is. Every
+`force-dynamic` page passes it; `/` passes nothing and its header is unchanged.
+
+`undefined` and `{ signedIn: false }` are deliberately different. The first means "this
+page did not look", the second means "nobody is signed in". Collapsing them would put a
+Sign in button in front of somebody who already is.
+
+Build output after: **`/` still `○` static, 457 B, revalidate 30s.** `/account` is 651 B.
+
+### A menu would have cost more than it was worth
+
+The header renders on every route, so a dropdown there is either client JavaScript in the
+most widely rendered component on the site, or a `<details>` panel that cannot close on
+an outside click without the same JavaScript. The chip is a link and the account page is
+the panel — it holds what a menu never could, and Log out is a plain `<form method=post>`
+that works with JavaScript off. /sign-out stays POST-only, for the reason already written
+there: Next prefetches links in the viewport.
+
+### No initial in the chip, on purpose
+
+`/chat` and `/alerts` are inside the middleware matcher and know the visitor's name;
+`/search` and `/listing/[id]` are outside it on purpose and only have a cookie sniff. An
+initial would therefore be a letter on some pages and a shape on others, which reads as a
+bug. The glyph is uniform; the name lives on `/account`.
+
+### `/alerts` had no header at all
+
+It rendered its own `<main>` instead of going through the shell — no brand, no nav, no way
+back to the site but the browser's back button. That is also why the account control had
+nowhere to sit. Now wrapped, with its own top padding dropped so it is not padded twice.
+
+### The new guard caught its own author
+
+`pnpm smoke` asserts that three files — `app/page.tsx`, `web-shell.tsx`, `app-shell.tsx` —
+read no session. The first version searched the source for `cookies(` and went red on the
+comment in `page.tsx` explaining the rule. Prose about a ban is not the ban being broken,
+so it checks **import statements** instead, where a session read cannot hide. Broken
+deliberately afterwards (§ 12) by importing `looksSignedIn` into `web-shell.tsx`:
+
+    ✗ apps/web/components/web-shell.tsx imports looksSignedIn — reading a session
+      there makes the statically rendered / dynamic
+
+### Verified end to end, real cookie jar on the running dev server
+
+Signed up through the real form → `/account` 200 with name, email and "September 2026" →
+chip present on `/search`, `/chat`, `/alerts`, `/listing/[id]` and absent on `/` → signed
+out shows "Sign in" → `POST /sign-out` 303 to `/`, after which `/account` is
+`307 /login?next=%2Faccount`. `GET /sign-out` is 405. Probe account deleted afterwards.
+
+- Left unfinished (exact next step): `/alerts` still labels an `interval` schedule as
+  "Every day at 12:00 AM" — `cadenceLabel` in `alerts/page.tsx` has no interval branch and
+  duplicates core's `describeCadence` instead of importing it. Reported, not fixed.
+- Risks / watch: three `schedule_run` rows are stuck in `running` on a real schedule,
+  left by smoke's claim test claiming a row it does not own.
+
+### Numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — 564 (383 `@repo/core`, 181 `@repo/ai`)
+- `pnpm smoke` — **89 passed, 0 failed**, 10 skipped
+- `/` 457 B / 131 kB (static, 30s) · `/account` 651 B / 107 kB · `/alerts` 2.06 kB / 108 kB
+
+## 2026-09-28 — Claude Code — the interval floor drops to 10 minutes
+
+- Goal: let somebody schedule a search more often than hourly. Asked for 5, settled on 10.
+- Done: `MIN_INTERVAL_MINUTES` 60 → 10; the Vercel tick `*/15` → `*/5`; `everyMinutes`
+  added to `draft_schedule` beside `everyHours`; the clamp report rewritten from hours to
+  minutes plus a ready-made phrase.
+- Files touched: `packages/core/src/schedules/schedule-schema.ts`,
+  `packages/ai/src/tools/schedule-tools.ts`, `packages/ai/src/tools/index.ts`,
+  `packages/ai/src/tools/schedule-tools.test.ts`, `packages/smoke/src/index.ts`,
+  `apps/web/vercel.json`, `apps/web/CRON.md`, `docs/STATUS.md`
+
+### The floor and the tick are one number written twice
+
+`nextRunFor` advances an interval schedule exactly one slot from the slot it just ran,
+never to `now` — that is what keeps an 8 PM alert at 8 PM after an outage. A row
+therefore catches up at one slot per tick, so **the tick has to be strictly faster than
+the shortest interval or a schedule that falls behind never returns**. At the numbers
+asked for — a 5-minute floor on a 5-minute tick — that is 1:1 and the backlog is
+permanent. 10 against 5 is 2:1 and drains.
+
+Nothing imports one of those numbers from the other and nothing would have failed if
+they drifted; the schedules would simply have stopped catching up, silently, months
+later. So `pnpm smoke` now reads `apps/web/vercel.json`, parses the cron and asserts the
+ratio. Set back to `*/15` it reads:
+
+    ✗ the cron tick is strictly faster than the shortest interval
+      the tick is every 15 min and the shortest schedule is every 10 min
+
+### Why the clamp report had to change units
+
+The clamp already existed and was right: an out-of-range frequency produces a real card
+at the nearest legal value rather than a refusal the model narrates as success. But it
+reported `askedForHours` / `usingHours`, and at a 10-minute floor a clamped "every 5
+minutes" becomes `usingHours: 0.1666…` — a fraction the model then has to turn back into
+English in front of the visitor. It now carries minutes and a `using` string taken from
+the same `describeCadence` that writes the card, so the two cannot disagree.
+
+`everyMinutes` exists for the same reason at the input end: ten minutes as `everyHours`
+is a fraction the model has to derive before it can be parsed.
+
+### Cost, which was the actual worry and is not one
+
+A run that finds nothing new returns before the model call and before the transport
+([run-schedule.ts:177](packages/core/src/schedules/run-schedule.ts#L177)). So a
+10-minute schedule is 144 runs a day of which almost all are one SQL query and a row —
+not 144 emails, and not 144 Haiku calls. Email volume tracks new listings, not cadence.
+
+- Left unfinished (exact next step): nothing ticks the cron on localhost, so the one live
+  schedule has been due since 2026-09-26 and `pnpm smoke` fails its stale-cursor check
+  because of it. That check is correct and should stay red until a tick runs.
+- Risks / watch: `ALERT_EMAIL_FROM` is `"quotemydecking.com.au"` — a bare domain, not an
+  address. `requireSenderIdentity` only checks it is non-empty, so this will reach Resend
+  as `Test Company <quotemydecking.com.au>` and be rejected. Sender name and postal
+  address are still the `Test Company` dummies.
+
+### Numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10
+- `pnpm test` — **564** (383 `@repo/core`, 181 `@repo/ai`)
+- `pnpm smoke` — 86 passed, **1 failed** (the stale cursor above), 10 skipped
+
+## 2026-09-26 — Cursor — chat history is a screen
+
+- Goal: A proper history screen, and opening a past chat should show that conversation and leave it open.
+- Done: `/chat?history=1` replaces the dropdown. Each row links to `/chat?thread=…`. `ChatView` is keyed on the thread id so client navigation actually loads the turns. The last search is restored into the sidebar. Saving a turn writes `?thread=` with `history.replaceState` so a reload reopens it without remounting mid-card. Delete returns to the history screen.
+- Files touched: `apps/web/app/chat/page.tsx`, `chat-view.tsx`, `chat-toolbar.tsx`, `history-screen.tsx`, `chat.module.css`, `thread-actions.ts`, `docs/TEST-PLAN.md`
+- Decisions: History is a query on `/chat`, not a new route. The URL update on save is `replaceState`, not `router.replace`, because a Next navigation would remount the keyed view and drop an unconfirmed schedule card.
+- Left unfinished (exact next step): Signed-in open-a-thread was not clicked in the browser here — that browser had no session. Confirm on a signed-in account: History lists the chat, Open shows the turns, reload keeps them.
+- Risks / watch: `useState` will ignore new turns again if the `key` on `ChatView` is removed.
+
+## 2026-09-26 (and finally) — Three bugs behind one "i signed in already???"
+
+The previous fix was right and did not fix it, because there were three
+faults stacked and each one hid the next. Found by reproducing the whole
+flow with a real cookie jar instead of reasoning about it.
+
+### 1. `/api/chat` was outside the session layer
+
+`/chat` was in the middleware matcher, `/api/chat` was not. The page knew
+who you were; the route did not. Fixed, and guarded by a smoke check that
+asserts the `x-web-session` marker on both the chat API and the cron API —
+because a matcher line can be deleted and nothing else would notice.
+
+### 2. The session cookie was being thrown away on `localhost`
+
+`cookieOptions()` applied `COOKIE_DOMAIN=.lvh.me` unconditionally. RFC 6265
+requires a cookie's `Domain` to domain-match the host, and `.lvh.me` does
+not match `localhost` — so on `http://localhost:3000` **the browser
+discarded every session cookie silently**. Sign-in appeared to work, the
+redirect happened, and there was never a session. Nothing logs, because
+rejecting a cookie is the browser's decision and the server never hears.
+
+`cookieDomainFor(host)` now applies the domain only when the host belongs
+to it. Verified both ways on a real signup through the real form:
+
+    localhost      Set-Cookie: sb-…-auth-token=…; Path=/; SameSite=lax
+    web.lvh.me     Set-Cookie: sb-…-auth-token=…; Path=/; Domain=.lvh.me
+
+Host-only where it must be, shared where the console depends on it. It also
+refuses a suffix that is not a subdomain — `evil-lvh.me` ends with `lvh.me`
+as a string and is a different site.
+
+### 3. The account had no `public.user` row
+
+The one that actually ate the conversations. Everything a consumer owns has
+a foreign key to `public.user`, and that row was only created on a visit to
+`/alerts`. Somebody who signed up and went straight to the chat had a
+session and no row, so every transcript insert died on
+`chat_thread_user_id_user_id_fk` — and `persistTurn` swallows its errors by
+design, so the symptom was an empty History with nothing to explain it.
+
+    detail: 'Key (user_id)=(05f98b56-…) is not present in table "user".'
+
+The row is now created in the sign-up and sign-in actions, from Supabase's
+own response rather than the form (ADR 0006, on the one request where the
+session headers do not exist yet because that request is creating them),
+with `ensureConsumerAccount()` in the transcript writer as the belt.
+
+**Two real accounts were already in that state** — `saad@gmail.com` and
+`shahzaib13118@gmail.com` — and have been repaired, name included where
+the signup metadata had one. Tightening the rule and repairing the rows in
+the same change, per § 7.
+
+`pnpm smoke` now asserts zero unmirrored accounts, as a data invariant
+rather than a code review.
+
+### What the whole flow does now, end to end and verified
+
+Signed up through the real form on `localhost`, then:
+
+- `/chat` and `/api/chat` both report `x-web-session: user`
+- "schedule this every 10 minutes" → *"The shortest interval this site can
+  run is every hour. I've set up a schedule … every hour instead. A
+  confirmation card will appear"* — clamped, honest, card drawn
+- the conversation saved: a `saved` frame with a thread id, a `chat_thread`
+  titled from the first message, and both turns in `chat_message`
+- no `membership` row, which is the point of ADR 0011
+
+### Numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **562** · `pnpm smoke` — **78 passed, 0 failed**
+
+### The lesson worth keeping
+
+Every one of these was invisible to the tests that existed. The database
+probe called core functions directly and skipped the route; the unit tests
+mocked the context; the smoke checks used a cookie-less client. All three
+faults lived in the space between those. The check that would have caught
+the first one — assert the marker, not the config — is the shape the other
+two now have as well.
+
+## 2026-09-26 (and then) — "i signed in already???"
+
+Two bugs, both reported from one screenshot, and the first is the worst
+one in this whole feature so far.
+
+### The chat API was outside the session layer
+
+`/chat` was in the middleware matcher. **`/api/chat` was not.**
+
+So the page knew who you were and the route did not. A signed-in visitor
+asking to schedule something was told to sign in — and `persistTurn` reads
+the same header, so **every conversation silently failed to save**. Chat
+history worked perfectly in the database probe and never once worked in the
+browser, because the probe called the core functions directly.
+
+The page being in the matcher is what hid it: the History sidebar was
+populated from a Server Component that DID have a session, so the UI looked
+signed in while the route it talked to did not.
+
+`/api/chat` is now in the matcher. The round trip is affordable precisely
+there — the route is already `force-dynamic` and already spends a second on
+a model. `/api/cron/*` and `/api/revalidate` stay out: a machine caller has
+no session and refreshing one for it is pure cost.
+
+The smoke check asserts the `x-web-session` marker on both, rather than the
+matcher's contents — a config line can be deleted and nothing else would
+notice. Removing `/api/chat` from the matcher turns it red; verified.
+
+### Typing re-rendered the map
+
+Reported as the pins refreshing on every keystroke, and read as the page
+reloading. It nearly was: `draft` was `useState` on `ChatView`, so every
+character re-rendered the transcript, the sidebar, the results panel and
+the Google map inside it — thirty times a sentence.
+
+Two changes, both ordinary:
+
+- **The draft moved into `Composer`**, its own memoised component. State
+  belongs at the lowest node that needs it. Typing now re-renders a
+  textarea and a send button; `ChatView` does not re-render at all. The
+  parent hears about the draft once, on submit.
+- **`ResultsPanel` is memoised.** Its props change when a search returns,
+  which is rare; its parent re-renders on every streamed token. Without
+  this the map was reconciled on each one, which is the flicker.
+
+`memo` and the move are both needed — without `memo` the parent's own
+re-renders during streaming would reconcile the textarea on every frame.
+
+One consequence, taken deliberately: the delivered-run card's "Ask about
+these" used to prefill the message box, and the parent can no longer write
+into it. It sends the message instead, which is also the better behaviour —
+the button says "Ask about these", and one click doing that beats one click
+typing for you.
+
+### Numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **557** · `pnpm smoke` — **77 passed, 0 failed**
+- `/chat` 11.8 kB / 123 kB, unchanged by the split
+
+## 2026-09-26 (and then) — Three bugs the screenshot found
+
+A real conversation, screenshotted: *"can you schedule that after every 5
+mins"*, and the guide answered **"Unfortunately, scheduling isn't
+available at the moment."** Three separate faults behind that one reply.
+
+### 1. Two reasons that read as one
+
+`ToolContext.scheduling` was an optional object, and absent meant either
+"not signed in" or "no signing secret configured". The tool could not tell
+them apart, so somebody who simply had no account was told the feature was
+unavailable — false, unactionable, and it reads as a broken product when
+the fix takes ten seconds.
+
+It is now a discriminated union: `ready | signed_out | unconfigured`. The
+property is **required**, so every construction of a tool context has to
+say which — the same forcing function `getModel`'s `never` guard has, and
+it caught four call sites immediately.
+
+The same distinction `packages/smoke` already draws between "you chose not
+to spend money" and "you asked to and cannot".
+
+### 2. The model narrated a card that did not exist
+
+Signed in, asking for five minutes: the floor refused it, and the model
+said *"A confirmation card should appear letting you accept the schedule to
+email you every 5 minutes."* No card, no schedule, and a confident sentence
+saying otherwise.
+
+A sterner prompt rule would not fix that — the model had already begun its
+sentence before the result came back. So the tool stopped refusing:
+**out-of-range intervals are clamped into range and a real card is always
+drawn.** Five minutes produces a card reading *Every hour*. The model
+cannot claim a card that is not there, because there is one; and it cannot
+misdescribe it, because the card is written by the server. The adjustment
+is reported so the model can explain it, but the truth no longer depends on
+the model choosing to say it.
+
+### 3. `lastSearch` did not survive the turn
+
+The worst of the three, and only visible live. `tools` is built per HTTP
+request, so `lastSearch` starts empty on every turn. "Schedule that" on the
+turn after a search therefore told `draft_schedule` nothing had been
+searched — the model re-ran the search to satisfy it, then tried again, and
+hit `MAX_TOOL_ROUNDS` mid-sentence with nothing on screen.
+
+The brief is already round-tripped by the client on every request, because
+the conversation is not stored. `slotsToQuery` turns it back into a query
+and seeds `lastSearch` at the top of the turn; a real `search_listings`
+call still overwrites it with what actually ran.
+
+The trust question is answered in the comment rather than waved away: those
+slots come from a browser, have been through `slotsSchema`, and are used
+only to PROPOSE a schedule on a card the person confirms — after which
+`createSchedule` re-parses the path with the same vocabulary `/search`
+applies to any shared link. The trust level is that of a pasted URL, which
+is the level `/search` already works at. It never answers a question about
+listings; only a real tool result carries a price.
+
+### Verified live, all three
+
+- signed out → *"you'll need to sign in to your account — it's free and
+  takes just a moment"*
+- signed in, five minutes → card reads **Every hour**, and the model says
+  *"The shortest gap this site can run is every hour, not every 5 minutes.
+  A confirmation card has appeared on screen."*
+- the two-turn flow (search, then "schedule that") now draws the card on
+  the first attempt
+
+### Numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **557** · `pnpm smoke` — **76 passed, 0 failed**
+
+## 2026-09-26 (and then this) — Password auth, and a sign-in screen that was broken
+
+Reported from a screenshot, and the screenshot was right: the copy was
+wrapping one word per line down the left of the page.
+
+### Why the layout collapsed
+
+`AppShell`'s `wide` main sets `display: flex; flex-direction: column`. The
+sign-in screen was a Tailwind two-column grid inside it, and its `1fr`
+tracks have a `min-width: auto` floor — so the left track collapsed to the
+width of its longest word while the card took the rest. Nothing was
+mis-typed; the grid was reshaped by a container it did not know about.
+
+Rebuilt as **`(auth)/auth.module.css`**, one centred column, the same way
+/chat and /search are styled. A module owns its own box. A form with three
+fields never needed a second column of marketing beside it, and a layout
+with nothing to balance is a layout with nothing to go wrong.
+
+### Magic link → email, password and a name
+
+Asked for directly, and right. The trade is worth writing down because it
+went the other way a few hours ago: a link in an inbox has no credential to
+leak and no reset flow to build, but it also means waiting for an email
+every time you want to look at your own saved searches. For somebody
+checking property daily that is the wrong side of it — and it is why the
+console has always used passwords.
+
+Four screens, sharing one module: `/signup` (name, email, password),
+`/login`, `/forgot`, `/reset`. All four are **169 B** each: plain forms
+posting to server actions, no `'use client'` anywhere, working with
+JavaScript off. Supabase's SSR client sets its cookies on the response, so
+signing in server-side needs nothing in the browser.
+
+### Two things about what is said back
+
+**Sign-in gives one answer for a wrong password and an unknown address.**
+Different messages there let anybody check which addresses have accounts.
+Signup cannot hide it — the account is either created or it is not — so
+that one says so plainly rather than stranding somebody who already has an
+account, and the enumeration is closed where it can be.
+
+**Forgot-password always says "check your email"**, whatever Supabase
+returns, for the same reason.
+
+### A build error worth remembering
+
+`Failed to collect configuration for /reset`, naming neither a file nor a
+reason. The cause was `export { MIN_PASSWORD }` from a `'use server'`
+module — a server action file may only export async functions. The
+constant now lives in `(auth)/constants.ts` with a comment saying why.
+
+### Verified against the live project
+
+Not guessed from the docs — run against this Supabase project:
+
+- `signUp` succeeds and creates the user
+- **"Confirm email" is OFF**, so a session comes back immediately and
+  signup signs you straight in. The confirm-email branch is still written,
+  because that setting is one checkbox away and the code branches on what
+  came back rather than on an assumption
+- `signInWithPassword` works
+- a wrong password returns exactly `Invalid login credentials`, which is
+  what the error mapping keys on
+
+Probe accounts deleted afterwards.
+
+### Numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **554** · `pnpm smoke` — **76 passed, 0 failed**
+- A new smoke check renders all four screens and asserts the fields each
+  one claims — which is also what would catch somebody reaching for
+  `createBrowserSupabaseClient` again and putting 69 kB back on the route
+- `/login` `/signup` `/forgot` `/reset` — 169 B / 106 kB each
+
+## 2026-09-26 (last) — A door to the history, and a real sign-in screen
+
+Both reported from a screenshot, and both the same kind of mistake: the
+thing existed, the way in did not.
+
+### The history had no door
+
+`ThreadList` lived in the chat sidebar, and the sidebar renders only once a
+conversation has started (`{!empty ? sidebar : null}`). So a returning
+visitor landed on the empty hero with no route back to anything they had
+said. The list was correct, queried correctly, and unreachable.
+
+It is now a toolbar above the conversation — **New chat** and **History** —
+rendered in both states. History is a dropdown rather than a column,
+because the hero is a centred page with no room for one and a list of past
+conversations is something you open rather than read while typing. Signed
+out it says the chats are not being saved and offers a sign-in, which is
+the truth; an empty list would have read as "you have none".
+
+### There was no way to sign in at all
+
+The header had Search and Ask the guide, and nothing else. Accounts,
+alerts and saved conversations all existed with no link anywhere in the UI.
+
+The header now carries **My alerts**. One neutral link for both states, on
+purpose: telling signed-in from signed-out here would mean reading the
+session cookie in the shared header, and that header renders on `/`, which
+is a statically rendered ISR route measured at 33 ms. A `cookies()` call
+there would make it dynamic. So the link names its destination and the
+routing sorts it out — middleware sends a signed-out visitor from /alerts
+to /login?next=/alerts and back again afterwards.
+
+### The sign-in screen
+
+Was a plain card. It is now a two-column page in the site's own type —
+Fraunces display, warm cream, deep green — with the reason to bother on the
+left and the form on the right. Everything in that column is something the
+account actually does; a bare email box on an empty page asks somebody to
+hand over their address for no stated return.
+
+Four states, all server-rendered: idle, sent, expired-link, bad address.
+Still **352 B / 107 kB** — no `'use client'` anywhere on the route, and it
+works with JavaScript off.
+
+### Verified
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **554** · `pnpm smoke` — **75 passed, 0 failed**
+- Two new smoke checks, both guarding exactly the reported bugs: the chat
+  renders New chat and History *before a word is typed*, and `/`, `/search`
+  and `/chat` all carry an account link. `/` still returns no
+  `x-web-session` header, so it is still outside the session layer.
+- Every Tailwind token used by the new screen was checked against the
+  compiled CSS rather than assumed — `bg-canvas`, `font-display`,
+  `bg-notice-soft`, the arbitrary shadow and the rest all emit.
+
+## 2026-09-26 (later) — Scheduling becomes something you ask for
+
+The sidebar button is gone. Scheduling is now two tools the guide reaches
+for when the visitor asks, and a confirmation card they press Accept on.
+
+### Why the button was wrong
+
+It offered one frequency, in one place, with no way to say anything else
+about it. "Send me this every two hours" had nowhere to go. A tool can take
+any of them, show what it understood, and be argued with.
+
+### The frequency model grew a third shape
+
+`daily` and `weekly` are statements about a **wall clock** and are resolved
+against a timezone — that is the whole reason `next-run.ts` exists. "Every
+two hours" is a statement about **elapsed time** and has no opinion about
+what the clock reads. Trying to express one as the other is how a scheduler
+fires twice at 2 AM once a year, so `interval` is its own cadence with its
+own column and its own branch, and the branch does no timezone work at all.
+
+Floored at an hour: the tick runs every fifteen minutes, so anything finer
+is a promise the scheduler cannot keep, and "every five minutes" describes
+a notification product rather than a digest.
+
+### Nothing is written until Accept
+
+`draft_schedule` writes nothing. It returns an **HMAC-signed draft** and the
+pipeline yields it as a `schedule_draft` frame, which the chat renders as a
+card. Pressing Accept sends the token back; `acceptScheduleDraft` verifies
+it and only then creates the row.
+
+Signed rather than stored as a `draft` row, for two reasons: nothing exists
+until somebody agrees, which is what was asked for, and a card nobody
+accepts leaves nothing to collect. The signature is what makes it safe — a
+browser can read the draft and cannot change the search or the frequency
+inside it.
+
+**The token carries no user id.** It authorises the content; the session
+decides whose it becomes. That is what lets an anonymous visitor be shown a
+card, sign in, and accept it as themselves.
+
+The card's wording is the SERVER's, derived from the draft that will
+actually be stored — not the model's account of what it did. What somebody
+presses Accept on has to describe the row.
+
+### Cancel pauses, and that is why it needs no card
+
+`cancel_schedule` pauses rather than deletes. Reversible in one click from
+/alerts, so a model that misreads "cancel the Pakenham one" costs a resume
+rather than somebody's saved search — which is the whole reason creating
+needs confirmation and stopping does not. Ambiguity stops it: two matches
+returns the names and asks, because pausing the wrong alert is silent and
+only noticed when the email stops.
+
+### What the live model actually did
+
+Two rounds against the real model, and the first found a prompt bug.
+
+**Cancel worked first time**: called the tool, said "paused", pointed at the
+alerts page.
+
+**Drafting did not.** The prompt said "a search must have run", the model
+read it as "there must be results", and refused to schedule an empty
+Pakenham rental search — *"I need at least one result to work with"*. That
+is backwards. An empty search is when an alert is most useful: "there is
+nothing right now" is exactly when somebody wants to be told the moment
+there is. The prompt (v8) now says so in as many words.
+
+After the fix, both paths work: "every 2 hours" over a populated search
+drafts `Every 2 hours` with a verifying token, and "email me daily when
+something comes up" over an empty one drafts `Every day at 8:00 PM, Sydney
+time`.
+
+One residue, honestly: the model sometimes writes "Done." before "A
+confirmation card is now on screen", which the prompt explicitly forbids.
+The card itself says *Nothing is saved until you accept*, and that is the
+surface somebody acts on, so this is a wording annoyance rather than a
+false claim about state. Not chased further.
+
+### Verified
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **554** (378 `@repo/core`, 176 `@repo/ai`)
+- `pnpm smoke` — **73 passed, 0 failed**, including an every-2-hours cursor
+  that advances by exactly 120 minutes and a signed draft whose frequency
+  cannot be swapped
+- `/chat` 11.3 kB / 123 kB
+
+## 2026-09-26 — The AI task scheduler
+
+A saved search that runs itself: prompt and time in, email and an in-app
+record out. Nine pieces, and only one of them is the scheduler.
+
+### The decision everything follows from
+
+**A schedule stores a frozen query, not a prompt to re-interpret** (ADR
+0010). The obvious reading of "the AI runs the research daily" is that
+`runPropertyChat` runs again each morning. That is wrong here for three
+reasons, in ascending order of cost: a scheduled search must be the search
+that was confirmed, and a model re-reading the sentence can drift without
+telling anyone; every existing cost ceiling is an in-process `Map` keyed on
+an IP and a cron tick has neither; and under the ACL "what did we send this
+person and why" has to be answerable from the database.
+
+So the run path is pure SQL, and the browser hands over the **`/search?…`
+path** rather than a set of filters. The server re-parses it with the same
+vocabulary `/search` itself parses — which meant giving
+`packages/core/src/listings/search-url.ts` an inverse it never had. That
+file's own header note had been asking for it: three places wrote the URL
+vocabulary and nothing read it back.
+
+### Consumer accounts, and the matcher that is the whole point
+
+`apps/web` had no auth at all. It now has magic-link sign-in and no
+passwords — the address *is* the product here, so proving it works is the
+only signup step worth having, and it deletes the reset flow entirely.
+
+**The matcher is the load-bearing line.** `updateSession` is a Supabase
+round trip, and `/`, `/search` and `/listing/[id]` are the three fastest
+pages in the repo, measured with no middleware. They stay outside it. `/`
+is still `○` static with ISR 30s after the change.
+
+`/login` first shipped at **69.2 kB / 176 kB** — supabase-js in the browser
+to send one email. Moving the OTP send into a server action made it **161 B
+/ 106 kB**, and it works with JavaScript off.
+
+A consumer is an `Actor` with a userId and **no agency** (ADR 0011). The
+tempting alternative — a `membership` row with a `consumer` role — needs a
+sentinel agency, and `public.user_agency_ids()` would then hand every
+consumer SELECT on eleven tables of other people's data. `Actor` needed no
+change; `Resource` gained `ownerId`.
+
+### Three things found by running it, not by building it
+
+- **`POST /sign-out` redirected to `localhost`.** `request.url` is the
+  address the server listens on, not the host the browser asked for. That
+  drops the `.lvh.me` cookie scope, so a signed-out visitor can land looking
+  signed in. The same trap `@repo/auth/callback` documents.
+- **My own smoke check was worthless until I broke it.** "The public pages
+  still have no session layer" tested only that `/` does not redirect — and
+  stayed green with the matcher widened to *every route on the site*,
+  because a widened matcher does not redirect, it just spends a round trip.
+  Absence of a redirect was never the invariant. The middleware now sets an
+  `x-web-session` marker and the check asserts its absence on the public
+  pages *and* its presence on `/login`, so "absent" means "did not run"
+  rather than "no such header".
+- **The comment on the claim was wrong, and measuring said so.** It claimed
+  `FOR UPDATE SKIP LOCKED` is what stops a double-send. Removing `SKIP
+  LOCKED` left the check green; removing `FOR UPDATE` entirely left it green
+  too; dropping the unique index on `(schedule_id, scheduled_for)` turned it
+  red at once. The **index** is the correctness guard — the slot is the thing
+  made exclusive, not the row. `SKIP LOCKED` earns its place for throughput:
+  without it the second tick blocks behind the first rather than taking the
+  next batch. Both kept, comment corrected to say which does what.
+
+### #4 held structurally, in four layers
+
+The one metered call per run writes two sentences of prose. It cannot
+produce a number because: the facts carry no bare figures (prices arrive as
+strings from `priceLabel`, counts as the words "a single"/"several"); the
+request has **no `tools` key at all**, not an empty array; every figure in
+the email is rendered by the template from SQL; and `findFigures` rejects
+any output containing a digit, a `$`, a percentage or a written-out count.
+
+Measured against the live model on real listings: **two of three accepted,
+one rejected for the word "two"**. Rule 1 of the prompt now names
+written-out numbers explicitly because of that run. A rejection costs
+$0.0006 and a plainer sentence, not somebody's alert.
+
+### #7 needed amending rather than dodging
+
+The summary is model output reaching a person with nobody in between, which
+#7 forbids. The rule as written says *listing* copy — an advertisement in an
+agency's name under the ACL — so the scope is now written down: anything
+model-written reaching a **third party** needs a human; anything reaching
+the person who asked for it needs a **label**. The paragraph carries
+"Written by the property guide" in the email and on `/alerts`.
+
+### Spam Act, structurally
+
+`buildScheduleDigestEmail` **throws** without a sender name, a postal
+address or an unsubscribe URL. An email that cannot identify its sender is
+not a degraded email; it is one that must not be sent, so the failure is a
+throw rather than a line on a review checklist. Both parts carry the footer,
+and `List-Unsubscribe` + `List-Unsubscribe-Post` are on every message.
+
+The unsubscribe is a signed HMAC over the ids, with **no expiry on purpose**
+— the Act wants the facility working for at least 30 days and people
+unsubscribe from mail they find months later. `GET` performs it, which is
+normally wrong: a confirm-first page is not compliant, so the resolution is
+that the confirmation page's first control is a one-click undo.
+
+### Verified
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **499** (352 `@repo/core`, 147 `@repo/ai`), was 406
+- `pnpm smoke` — **70 passed, 0 failed**, two new groups, both free
+- Live end to end: `claimed 1, delivered 1`, two listings snapshotted, the
+  email refused by Resend with `403 validation_error` (the testing sender can
+  only reach the account owner) and that refusal **recorded** on the run
+  rather than swallowed — `status` stayed `delivered`, because the in-app
+  channel succeeded and one channel failing is not the run failing
+- `ai_run` row written with `cost_usd 0.000579` and a non-null `user_id`:
+  the priced-alias guard holds and the budget has something to read
+- Web routes: `/` 459 B / 131 kB (ISR 30s) · `/login` 161 B / 106 kB ·
+  `/alerts` 1.44 kB / 108 kB · `/search` 3.78 kB / 134 kB (+2 kB for the save
+  control) · `/chat` 9.89 kB / 121 kB (+0.68 kB for the delivered card)
+
+### Two gaps the user found, and both are now closed
+
+**There was no way to schedule from the chat.** The save control only
+existed on `/search`, which is the wrong place: the chat is where people
+describe what they want. The "Your search" panel now carries **"Email me
+these daily"**, wired to the `/search?…` link the chat has always produced
+per turn and never had a use for beyond opening it. It sends the sentence
+too, which the `/search` path cannot — there somebody picked filters, here
+they said something, and the sentence becomes the schedule's name.
+
+Adding it cost `/chat` 17 kB of First Load, because `AU_TIMEZONES` lived
+beside its `z.enum` and a `<select>` dragged zod and the whole saved-query
+schema graph into the browser. The list moved to `schedules/timezones.ts`,
+a module with no imports at all: **138 kB → 123 kB**. Same lesson as
+SORT_OPTIONS one layer up — a vocabulary should cost what a vocabulary
+costs.
+
+**Chat history.** Originally left out; reversed on request.
+`chat_thread` + `chat_message`, a sidebar of past conversations, and a
+reopened thread that keeps its place.
+
+The objection that made me leave it out turned out to have a clean answer:
+**store only what `chatRequestSchema` already lets a client send.** A
+stored assistant turn holds `text` and `searches` citations; the listings
+live in a separate `results_frame` column that is display-only and that
+`toModelTurns` drops on the floor. So replaying a stored thread is
+byte-for-byte what the browser already posts today, `chatRequestSchema`
+validates it unchanged, and no new trust surface opens. A tool result
+remains the only source of a price (#4). `toModelTurns` is a pure function
+precisely so that property has an offline test — break it to include
+`resultsFrame` and two tests go red.
+
+Neither table has an INSERT or UPDATE policy. A transcript line is written
+by the server after it has run the turn; an assistant turn somebody
+authored themselves is the one thing that could put a price into the record
+with no tool result behind it.
+
+**Retention is enforced, not documented.** 90 days (APP 11.2), swept by the
+scheduler tick — which already runs on a clock — before the budget check,
+because deleting old data is free and must not be skipped when the model
+budget happens to be spent. A person can delete a thread sooner; deleting
+an account takes everything by cascade. `pnpm smoke` asserts no stored
+conversation is older than the window, so a tick that stops is visible.
+
+An anonymous visitor's conversation is still not stored at all, and the
+sidebar renders nothing rather than an advert to sign in.
+
+### Deliberately not built
+
+- **No cross-device chat sync beyond the account**, and no export.
+- **No catch-up.** A schedule paused for a month fires once on resume and
+  re-anchors, rather than replaying every missed day.
+- **`MAX_SCHEDULES_PER_USER` is not airtight.** Two requests in the same
+  millisecond can both read nine. It is a ceiling on accident, and a unique
+  constraint cannot express "at most ten rows".
+
+## 2026-09-25 (and finally) — The onboarding wizard uploads the headshot
+
+The field said it itself:
+
+    Photo URL optional for now (R2 upload lands with media milestone).
+
+The media milestone landed earlier today — on Supabase Storage, ADR 0009 — and
+this was the one place still asking for a link.
+
+### Uploading for somebody who does not exist yet
+
+The wizard's draft lives in the browser until the invite is dispatched. There
+is no user id and no `agent_profile` row, so there is nothing to key a storage
+path on — which is the whole reason this was left as a URL box.
+
+The stable id at that moment is the **agency**, from the session. So a third
+owner kind: `agencies/<agencyId>/<uuid>.<ext>`, authorised by `team:manage` —
+the same permission that lets someone run the wizard at all.
+
+Deliberately **not** `assertCanEditAgentPhoto`. There is no agent to check
+against, and inventing a placeholder id to satisfy that function would be a
+check that looks like one and is not.
+
+It is also the honest owner. The agency uploaded the file before anyone had
+accepted anything, and if the invite is never taken up the file was always
+theirs.
+
+### The key travels
+
+`inviteAgent` already creates `user`, `membership` and `agent_profile` in one
+transaction at dispatch — the profile row exists the moment the invite is sent,
+not when it is accepted. So the draft carries `photoKey`, validated by
+`storageKeySchema` rather than as free text (it has been to a browser and back,
+and a path is exactly the thing not to trust inbound), and the profile insert
+writes it.
+
+A later upload from the team drawer replaces it with an `agents/<userId>/…`
+key and deletes the old object, so `keyBelongsTo` stays strict on that path.
+Readers never validate — they only turn a key into a URL — so an `agencies/…`
+key renders exactly like an agent-scoped one.
+
+One line fixed while passing: `list-agents.ts` hard-coded `photoKey: null` for
+a pending invite with no profile row, with a comment saying there was nothing
+to upload against. Written one commit earlier, when that was true. The draft
+carries the key now.
+
+### Verified
+
+Sign → PUT → public read against the live bucket, with a real agency id:
+
+    key: agencies/5660ac6f-…/69227091-….png | schema ok: true
+    PUT: 200
+    public read: 200 image/png
+
+And the folder separation is tested: collapsing `agency` into the `agents`
+folder — which would let a wizard upload satisfy an agent-scoped check — turns
+two tests red.
+
+### Numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **406** (272 `@repo/core`, 134 `@repo/ai`)
+- `pnpm smoke` — 64 passed, 0 failed
+
+### Known cost
+
+A wizard someone abandons leaves its upload behind. Nothing points at the file
+and it is invisible, but it is paid for. Collecting orphans is a job for later
+— not a reason to make the upload wait for a row that does not exist yet.
+
+The URL box stays beside the uploader. An agency that already hosts its
+headshots should not have to re-upload them, and `photo_url` is the column that
+has always held those. The uploaded key wins wherever both exist, which is the
+rule the public agent panel and the team directory already follow.
+
+## 2026-09-25 (last, and then this) — "+ Add Agent" did nothing, and the reason was three rows down
+
+Reported as a dead button on the agency team page. It is not a dead button.
+
+    <Link href="/team/onboarding" className={styles.btnPrimary}>
+
+A real link, to a route that exists and compiles — verified by running a
+throwaway console on another port and watching it build:
+`✓ Compiled /team/onboarding in 2.7s`.
+
+### What the screenshot gave away
+
+Safari's status bar, bottom-left:
+
+    Open "agency.lvh.me:3001/team?agent=695676b2-…" in a new tab
+
+That is the **roster row's** URL, and the cursor was at the top of the page,
+nowhere near the row. Something belonging to a table row was lying across the
+whole page — and the only thing on that page that stretches is:
+
+    .row      { position: relative }        /* on a <tr> */
+    .rowLink::after { position: absolute; inset: 0 }
+
+The stretched-link pattern: the anchor sits on the agent's name, the overlay
+makes the row clickable, one accessible name, no JavaScript. It is a good
+pattern and it was applied to the one element it cannot be applied to.
+
+**A `<tr>` does not reliably establish a containing block.** In Chrome it does,
+which is why every screenshot before this one came from Chrome and nobody saw
+it. In Safari the overlay resolved against the next positioned ancestor
+instead, escaped the row, and covered everything above it — including the
+button that "did nothing", which was simply underneath a transparent link to
+somebody's agent profile.
+
+### The fix is which element, not which property
+
+`position: relative` moved off the `<tr>` and onto `.person`, the plain flex
+div already wrapping the avatar and name inside the cell. A div is a containing
+block in every browser, so the overlay cannot escape it anywhere.
+
+The cost is honest and stated in the CSS: the clickable area is now the
+avatar-plus-name block rather than the entire row. `cursor: pointer` moved with
+it — a row that says "click me" across its full width and only responds in one
+place is worse than one that says nothing. The hover tint stays, because that
+only claims "this is the row you are over".
+
+Two other `::after` overlays in the console were checked. Both sit on a card
+and on a switch; neither is a table element.
+
+`.person` was briefly declared twice in one file — the flex rules in one place
+and the positioning in another. Folded into one. Two declarations of one class
+where the loser is invisible is the trap `tailwind.css` already names about
+`--color-surface`.
+
+### What I could not do
+
+**I did not reproduce this in Safari.** There is no Safari automation in this
+repo, and the console needs a real session to render. The diagnosis rests on
+four things that fit together and nothing that contradicts them: the link and
+its route are real and compile; the only stretching rule on the page is that
+overlay; its containing block was a `<tr>`; and Safari reported the row's URL
+from a point three hundred pixels above the row.
+
+Strong, but inferred. It wants one click in Safari to confirm.
+
+### Numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — 404, unchanged; this is a CSS containing block and no unit test
+  reaches it. The guard is the note in the stylesheet, which says what the
+  rule is and which element it must never move back to.
+
+## 2026-09-25 (last, later still) — The chat renders the Markdown it was already being sent
+
+Reported from a screenshot: literal asterisks on screen.
+
+    I'd start by looking at the suburbs nearest to Berwick: **Pakenham** and
+    **Narre Warren South**.
+
+The guide has always written Markdown — bold suburb names, numbered questions,
+blank-line paragraphs — and `chat-view.tsx` put `turn.text` into a single
+`<p>`. So every marker the model emitted was shown to the visitor.
+
+The prompt was not the place to fix it. Bold place names and a numbered pair of
+questions genuinely read better; telling the model to stop would have made the
+answers worse to look at, not better.
+
+### A parser for the subset a chat answer actually contains
+
+`packages/core/src/markdown.ts` — bold, italic, inline code, ordered and
+unordered lists, headings, paragraphs. Everything else passes through as text.
+
+react-markdown plus remark is tens of kilobytes on a route already carrying the
+chat client, and it parses tables, footnotes, reference links and HTML
+passthrough that this text never contains.
+
+In core rather than in the component for the reason `pageWindow` went there
+earlier today: apps/web has no test runner, and a hand-written parser is
+exactly the thing that needs its edges pinned. Fourteen tests.
+
+**It returns a tree, not a string.** There is no `dangerouslySetInnerHTML` on
+this path. The renderer turns nodes into React elements and React escapes every
+string it is handed, so model output shaped by whatever an anonymous visitor
+typed cannot become markup — by construction, not by sanitising.
+
+**An unmatched marker stays literal.** `**not closed` renders as `**not
+closed`. A parser that guesses where emphasis was meant to end eats characters
+the visitor never sees again, and this also makes streaming safe: a half-
+written `**bold` is just characters until the rest arrives.
+
+### The other half of the bug
+
+The same screenshots had this, from an earlier turn:
+
+    …within 30 km of Pakenham.Within 30 km of Pakenham there are 3 homes…
+
+A turn that searches writes prose, calls a tool, writes more — and the client
+appends every delta to one string with nothing between the rounds. The pipeline
+now emits a blank line on the first delta of a later round, lazily, so a round
+that produces only a tool call leaves no trailing gap. Confirmed against the
+live API:
+
+    "…within a reasonable commute of home.\n\nWithin 20 km of Berwick…"
+
+### A comment that was confidently wrong
+
+The regex carried: *"`**` has to be tried before `*` or every bold marker reads
+as two empty italics."*
+
+It does not. Flipping the alternation and running the suite: **14 passed**. What
+actually prevents it is `[^*]` inside each alternative — after the first `*`
+comes another `*`, so the italic branch cannot start there and the engine falls
+through to bold. The ordering is decoration.
+
+Found by trying to prove the tests caught a real break and discovering the
+break was not one. The comment and the test name now say the true thing, and
+breaking bold handling for real turns four tests red.
+
+That is worth recording on its own: a plausible explanation written beside
+working code is not evidence. This one had survived being typed, read and
+committed.
+
+### Numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **404** (270 `@repo/core`, 134 `@repo/ai`)
+- `pnpm smoke` — 63 passed, 0 failed
+- `/chat` 9.21 kB / 121 kB — +0.6 kB, all of it the renderer. A Markdown
+  library would have been thirty times that.
+
+### Verified, and what was not
+
+The parser is covered by unit tests that go red on a real break; the round
+separator is covered by two, and was confirmed against a live turn; the new CSS
+classes were confirmed in the stylesheet the page actually serves.
+
+**Not** verified: a pixel screenshot of a rendered turn. Driving the chat UI
+headlessly needs a browser automation dependency this repo does not have, so
+the rendering itself was proved component-by-component rather than end to end.
+
+## 2026-09-25 (last, later) — The guide can answer "where is the cheapest place near my office"
+
+Two asks, and they turned out to be different sizes.
+
+### 1. Ask for buy-or-rent when you are stopping anyway
+
+v6 deliberately does **not** ask the channel. "I need a house in Pakenham" is a
+complete brief to any human agent, and v1 blocking on "buy or rent?" before
+showing anything was the bug v2 fixed. That is still right and v7 keeps it.
+
+But the assumption also fired on a bare **"I need a house"** — no place,
+nothing searchable, the guide stops to ask regardless. Assuming the channel
+there buys nothing and spends the one question it was already going to ask.
+
+v7 turns the rule on whether a search is *possible* rather than on the words:
+no place → ask for the area and the channel together, one short message, then
+search. Budget and bedrooms still wait until something is on screen; a first
+message that asks four things is the interrogation v2 removed.
+
+### 2. "Cheapest near my office" was unanswerable
+
+`search_listings` sorts by price **or** by distance, never both, and the model
+may not do the arithmetic itself (#4). So the guide could show the cheapest
+anywhere in one suburb, or the nearest at any price, and then hand-wave the
+trade-off in prose.
+
+`nearbyMarket` answers it in **one statement** — a CTE, then two aggregates:
+
+    listings  the cheapest inside the radius, each with its own distance
+    bySuburb  per suburb: how many, the cheapest, how far the nearest one is
+
+The second is what actually answers "where". Somebody asking wants a direction
+to look in, not a single address. The prompt says to lead with it.
+
+Three decisions worth keeping:
+
+- **Straight-line, and the payload says so.** `distanceIs: 'straight-line
+  distance, not drive time'`, and the prompt forbids turning kilometres into
+  minutes. A routing API would be a per-listing network call and a bill; it was
+  offered and declined. A road can double a crow-flies distance, so "about 12
+  minutes" is an invented figure.
+- **Unpriced listings are counted, not dropped.** "Contact agent" cannot be
+  ranked as cheapest. Excluding them silently would shrink the market without
+  saying so, so they come back as `unpriced` and the guide is told to mention
+  them.
+- **Sale ranks on `price_from`, rent on `rent_pw`.** A weekly rent and a sale
+  price must never be sorted in the same column.
+
+### Two things I got wrong on the way
+
+**The read went straight to `ctx.db`.** Every other read on this route is
+*injected* so apps/web can wrap it in `unstable_cache` — the context file says
+so at the top — and mine was the only one hitting the database region on every
+turn. Now injected, cached 30 s to match `cachedSearch`: the guide and the
+results panel beside it must not disagree about how stale they may be.
+
+**`query-count.test.ts` could not see it.** The counting fake had no
+`execute`, so a hand-written SQL statement was invisible to every count in the
+file. One line, and it is the kind of gap that makes a whole test file quietly
+narrower than it reads.
+
+### Verified live, and broken live
+
+`pnpm smoke:ai` — the guide answered and named **Pakenham**, which is what SQL
+says is cheapest nearby:
+
+    Pakenham is your cheapest option near your office — one house at $23,000,
+    about 10.3 km out (straight-line distance, not drive time).
+
+Leads with the suburb, quotes the figure, does not invent minutes.
+
+Then the check was broken to prove it is live: flipping `order by min(price)`
+to `desc` makes SQL disagree with the answer, and it goes red naming both.
+
+### Numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **388** (256 `@repo/core`, 132 `@repo/ai`)
+- `pnpm smoke` — 63 passed · `pnpm smoke:ai` — **71 passed, 0 failed**
+- Adding a tool moves `PROPERTY_CHAT_TOOLS`, which is the head of the cache
+  prefix, so this resets the prompt cache **once**, deliberately.
+
+### A flake, named rather than hidden
+
+`a distance in the message becomes a radius, unasked` failed **once in five**
+live runs. Not a regression — it passed on the two runs that already had the
+new tool and v7 in place. The guide narrated its plan and stopped mid-word:
+
+    "First, let me resolve that location, then search.Now "
+
+`models.ts` predicted this in writing when the route moved to Haiku for cost:
+*"A smaller model with no reasoning budget is more likely to make those
+mistakes, not less."* Haiku accepts neither `effort` nor adaptive thinking, and
+this turn now has four tools to choose between rather than three. If it gets
+worse, the fix is a measurement against a model that takes an effort
+parameter — not a prompt tweak.
+
+## 2026-09-25 (last) — The chat broke again, on the same class of bug as last time
+
+Reported as a screenshot: "Something went wrong reaching the assistant", after
+several turns that had worked. The dev log had it exactly:
+
+    [ai] property chat failed 400 {"type":"invalid_request_error",
+      "message":"role 'system' is not supported on this model"}
+
+`reconstructMessages` appended `{ role: 'system', content: '<known_requirements>…' }`
+to the `messages` array. That is a **real** API feature — a mid-conversation
+operator instruction that carries operator authority and sits after every cache
+breakpoint, so it costs nothing in cache terms — and the code's comment about
+why it was preferable to prepending text to the visitor's message is still
+correct. It is also **implemented on the Opus and Fable families only**.
+
+This route runs **Haiku 4.5**, which does not have it.
+
+### Why it looked intermittent
+
+The block only ran once `slots` had something in it. So the opening turns of
+every conversation worked, and the moment the guide had actually gathered a
+requirement — which is the point of the thing — every subsequent turn 400ed.
+The screenshot shows precisely that: the sidebar full of gathered requirements,
+and the next message failing.
+
+### The same lesson, a second time
+
+The commit two before this one is literally titled *"A model parameter is a
+capability, not a preference — /chat was broken"*. It added `CAPABILITIES` to
+`models.ts` for `effort` and `adaptiveThinking`, both of which Haiku rejects
+with a 400, with a comment explaining that there is no degraded mode.
+
+`midConversationSystem` is the third member of that set and was never added.
+It is now, and the table is the point: **the three do not travel together** —
+Sonnet 5 takes `effort` and adaptive thinking but *not* a system role in
+messages. A tier would have got that wrong.
+
+### The requirements still have to arrive
+
+"It no longer 400s" is satisfied by dropping the requirements on the floor, so
+the fix has two halves and both are asserted:
+
+- **Model has the capability** → `{ role: 'system' }` after the final user
+  message. Never `messages[0]`, always after a user turn, and either last or
+  followed by the assistant turn the tool loop appends — all three are rejected
+  by the API rather than ignored.
+- **Model does not** → a third block on the top-level `system` array, *after*
+  the two cached ones and deliberately **without** `cache_control`. Caching is a
+  prefix match, so a block past the last breakpoint changes every turn without
+  invalidating anything in front of it; the frozen prompt and the catalogue
+  still come from cache. Adding a breakpoint there would rewrite the prefix
+  every turn and cache nothing.
+
+The fallback loses one property: the requirements are read before the
+conversation rather than after it. That is the cost of a model that cannot take
+the better carrier, and it is smaller than a 400.
+
+`reconstructMessages` now takes the capability and **defaults it to false**.
+A caller that forgets to ask gets the carrier every model accepts.
+
+### Tests, broken first
+
+Seven new ones. Verified by reintroducing each half of the bug separately:
+
+- push the system message unconditionally → 3 red, including
+  *"never puts a system role in messages on Haiku"*
+- gate it correctly but drop the fallback → 2 red, including
+  *"still sends the requirements on Haiku, as a trailing system block"*
+
+One pre-existing test had to change: it asserted the old unconditional
+behaviour. It now passes the capability explicitly, and a sibling covers the
+default.
+
+One of my own new tests was wrong and the failure taught me something: I
+asserted the system message must be **last** in `messages`. It was at index 1
+of 3. The fake client records the params object **by reference**, and the tool
+loop keeps appending to that same array — so by assertion time the assistant
+turn was already on the end. That is the second of the two legal placements,
+and the request was valid. The test now asserts the actual rule.
+
+### Numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **370** (255 `@repo/core`, 115 `@repo/ai`)
+- `pnpm smoke` — **63 passed, 0 failed**
+- `pnpm smoke:ai` — **70 passed, 0 failed** (one new live check, verified red)
+
+### The live suite was green throughout the outage
+
+`pnpm smoke:ai` was run on request. First result: **69 passed, 0 failed** — and
+it proved nothing, because **not one live AI check sent `slots`**. Every one of
+them took the empty-requirements path, which is the path that worked the whole
+time the chat was broken. The entire AI group was green while the feature was
+unusable for anyone who had got as far as telling the guide what they wanted.
+
+That is the fourth check in this session to report green over the thing it
+existed to cover, and the same shape every time: it asked a question the broken
+system could still answer.
+
+So: **a turn that already has requirements is not a 400** — a second message
+with a brief already gathered, which is the state the visitor was in when they
+hit it. It asserts the turn comes back *and* that the brief was not thrown away
+on the way.
+
+Broken against the live API to prove it works: reinstating the unconditional
+push reproduces the visitor's own error verbatim —
+
+    ✗ a turn that already has requirements is not a 400
+      the guide errored: Something went wrong reaching the assistant.
+
+Restored: **70 passed, 0 failed**.
+
+### One row still unmeasured
+
+`CAPABILITIES` says Opus 5 accepts the message carrier. That row is documented
+rather than measured; the other two rows in that table were measured with one
+1-token request each. It is off the default path, so nothing in production
+depends on it being right — but it is not proven.
+
+## 2026-09-25 (later again) — The filters offer what is listed, not what was typed
+
+Reported as "filters ko dynamic karo". Checked against the database first, and
+the report was an understatement. Four of the six controls on `/search` could
+only ever empty the page:
+
+    sale prices    ladder started at $750,000   dearest live listing: $50,000
+    beds           offered 1–5                  most any property has: 3
+    baths          offered 1–4                  present: 2 and 3
+    parking        offered 1–3                  present: 1 and 2
+    Rent tab       searched a channel with      live rentals: 0
+                   nothing in it
+
+Property type was the one control that already had the right rule, and its
+comment said so — "only types with something live in them, so no choice here
+can produce an empty page by itself". The other five never got it. A dropdown
+entry that cannot return a result is worse than a missing one: it looks like a
+working control, it empties the page, and the visitor concludes the portal has
+nothing rather than that the option was fiction.
+
+### One query for all of it
+
+`searchFacets` returns, per channel, the bedroom / bathroom / car-space values
+actually present, the property types, the price bounds and the live count —
+plus the suburb list. It is a single statement with `FILTER` aggregates,
+because the obvious shape is six round trips to a database in another region
+on the first paint of the three most-visited pages. `query-count.test.ts` holds
+it to one.
+
+`cachedFilterOptions` is now derived from it rather than querying, so the chat's
+catalogue and the search filters cannot disagree about which suburbs exist.
+
+Every value comes back as text — `numeric` as text, `count(*)` as text because
+it is a bigint, and `array_agg` as an array of text. That is all three shapes of
+the § 6 boundary bug in one row.
+
+### The price ladder is generated, and rounded
+
+Steps between the real minimum and maximum, snapped to figures a person would
+type. `$23,478 / $31,203 / $38,928` is arithmetically even and reads as a
+machine talking; buyers think in $25k, $50k, $500k. Both ends stay strictly
+inside the range — an option at the maximum is "everything", which "Any price"
+already is.
+
+Radius stays a fixed ladder and is the only one that does. Distance is not a
+property of the data: the honest answer to a 2 km search that finds nothing is
+an empty result with the radius still set, and narrowing it would cost a PostGIS
+query per rung on every page load.
+
+### An empty channel says so
+
+Switching to Rent searched, found nothing, and rendered "Nothing matched that
+search. Try a wider price range" — advice that cannot help, about a filter the
+visitor never set. The count is already in the facets, so the box now says
+"Nothing is listed for rent yet" beside the toggle.
+
+### The smoke check is the feature
+
+`no filter option the search box offers can return zero results` takes the
+options the box will actually render and runs every one of them — both
+directions of the price ladder, because a rung that works as a ceiling can
+still be empty as a floor. It re-tightens on its own as the data changes;
+there is no ladder in the check to keep in step.
+
+Verified by putting the old ladder back: *sale: "from 750000" is offered in the
+search box and returns nothing.* The unit tests go red on the same change.
+
+### One self-inflicted outage, and the comment that predicted it
+
+Importing `priceLadder` from `search-facets.ts` into `search-bar.tsx` took the
+whole site down: every page 500, eighteen smoke checks red at once. The client
+component pulled a module that imports `listing` and `property` from @repo/db
+as values, @repo/db reaches postgres.js, and postgres.js imports `net`.
+
+`listing-card.tsx` has carried a paragraph warning about exactly this since the
+chat shipped — "a value import from the barrel here fails the web build with
+Can't resolve 'fs' — it did, once." It has now done it twice. The pure function
+lives in `price-ladder.ts`, a leaf with no database import, and both files say
+why.
+
+Worth noting what caught it: not typecheck, not lint, not the unit tests — all
+three stayed green. `pnpm smoke` went from 63 passing to 42, and the dev log
+named the import chain.
+
+### Numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **363** (255 `@repo/core`, 108 `@repo/ai`); +9 facet and ladder
+  tests, verified red first
+- `pnpm smoke` — **63 passed, 0 failed**
+- `pnpm smoke:ai` — **70 passed, 0 failed** (one new live check, verified red) (1 new, verified red)
+- `/search` 1.79 kB / 132 kB — unchanged; the facets arrive as props on a
+  component that was already there
+
+### Still missing
+
+`landFrom` is in `PublicSearchQuery`, every property carries a land size, and
+no control exposes it. Sort has no facet behind it — "Price: low to high" is
+offered on a channel with no prices at all, which is harmless but not checked.
+And the option lists say what exists, not how many: "3+ beds" does not yet say
+"(2)". Counts that respect the other active filters are a per-request query
+rather than a cached one, which is a different decision from this change.
+
+## 2026-09-25 (later still) — Images: upload, storage, and every page that shows one
+
+The `media` table has been in this schema since it was written and nothing has
+ever put a row in it. Now something does.
+
+Decision in `docs/adr/0009-images-on-supabase-storage.md`, in ten lines. The
+short version: one **public** Supabase Storage bucket, `media`, and every row
+holds a **key** — `listings/<id>/<uuid>.jpg` — never a URL.
+
+### The key rule is the whole design
+
+`mediaUrl()` in `packages/core/src/media` is the only function in this codebase
+that knows where images are hosted. Everything else — the search statement, the
+media table, `agent_profile.photo_key`, three components — deals in keys. That
+is what makes CLAUDE.md's stated destination, R2, a change to one resolver
+rather than a migration across two tables and every component that happened to
+read one.
+
+`pnpm smoke` now enforces it: any row holding `%://%` fails the suite. It is
+exactly the rule that is obeyed for months and then broken by one well-meaning
+line in an import script, silently, because a URL renders perfectly well.
+
+### Uploads are closed even though the bucket is open
+
+Reads are public, because these are property ads and a signed URL that expires
+inside an ISR-cached page is worse than no image. Writes are a different story:
+**the bucket has no RLS insert policy at all**, so the anon key that ships to
+every browser cannot put a byte in it. Proved live — a valid PNG with the anon
+key is refused with "new row violates row-level security policy".
+
+Every upload is three steps: the server checks `can()` and issues a signed URL
+scoped to one key it chose; the browser PUTs straight to storage; the server
+records the row **after HEADing the object**. That last part is what makes the
+shape safe — "I uploaded to this key" is a claim from a browser, and a caller
+that skips step two and calls step three gets a refusal rather than a row
+pointing at a 404.
+
+Bytes never pass through Next. A Server Action body caps at 1 MB, property
+photos are several, and proxying them would move every byte twice.
+
+### Ordering, both ways round
+
+    upload → verify the object → write the row
+    delete the row → then delete the object
+
+Both fail safe in the same direction. A file with no row is invisible and costs
+storage; a row with no file is a broken image on a live ad. Only one of those is
+worth avoiding, and it decides which way round every operation goes. Deleting a
+cover also promotes the next photo — without it a listing kept its photos and
+lost its hero on both public pages.
+
+### One component, three surfaces
+
+`ListingMedia` was built as a frame with the placeholder as an absolutely
+positioned child, months before any photo existed, specifically so `next/image`
+with `fill` could drop in as a sibling. It did. Results rows, the chat's
+sidebar cards and the property gallery all render through it, so "listings have
+photos" was one component to change and no layout moved.
+
+The cover key is sub-selected **inside the search statement**, beside the agent
+names that were put there for the same reason. One photo lookup per row is 24
+extra round trips to another region on a results page, and it reads perfectly
+well in a component.
+
+### A check that skipped over its own bug
+
+The first version of the photo smoke check asked the search for rows with a
+cover and then verified those. Deleting the cover sub-select from the search
+made it report **"no listing has a photo yet" and pass** — it filtered on the
+very thing that had broken.
+
+Rewritten to take its expected set from the `media` table, so the search has to
+account for every row in it. Deleting the sub-select now fails with "media says
+d56336f7.png, the search says nothing".
+
+That is the third time in two sessions. The pattern is identical each time: the
+check asked a question the broken page could still answer correctly.
+
+### One thing I could not verify
+
+"The media bucket refuses an anonymous write" passes, and the refusal is real —
+it was proved by hand before the check was written. But I could **not** prove
+it goes red, because doing so means adding an RLS insert policy to open the
+bucket, and that was refused as a security weakening. So treat that one check
+as unverified in the negative direction until someone opens the bucket
+deliberately and watches it fail.
+
+### Numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **354** (246 `@repo/core`, 108 `@repo/ai`); +14 are permission
+  and storage-key tests, each verified red first
+- `pnpm smoke` — **62 passed, 0 failed** (4 new, three verified red)
+- Client JS **+5–6 kB on every public page**: `/` 125 → 130 kB, `/chat` 114 →
+  120, `/listing/[id]` 109 → 114, `/search` 126 → 132. That is next/image in
+  the shared chunk, and it is the cost of the optimiser resizing a 320 px
+  thumbnail out of a 4000 px camera file rather than sending the original.
+
+### Still missing
+
+Floorplans: `media.kind` has the enum value and nothing writes it. No reordering
+beyond "make this the cover" — `sort_order` exists and the UI does not expose
+drag. No image-derived metadata; `ai_tags` and `ai_quality_score` are still
+empty columns. The console's own thumbnails are plain `<img>`, deliberately —
+it is an authenticated page whose Core Web Vitals nobody measures, and
+next/image there would need its own `remotePatterns` in a second config.
+
+## 2026-09-25 (later) — The mock is in the repository, and the property page is built to it
+
+The entry below says the mock was not in this repository and that whatever had
+been pasted into a chat was gone. That was true of the *chat* transcript and
+false of the project: Stitch still had it. `.cursor/mcp.json` carries a working
+key for `https://stitch.googleapis.com/mcp`, `get_screen` returns download URLs
+for the HTML and the screenshot, and both are now committed under `docs/mocks/`
+with a README covering how to pull the rest of the project. **Anything a page
+is built to belongs in there.** The cost of not having it was a day of building
+from screenshots.
+
+### Building from a photograph is not building from the design
+
+The reference used for `/search` was two screenshots of realestate.com.au, and
+the skin that came out of it was `#E4002B` on `#F2F2F2` — warm crimson on
+neutral grey. The mock's own Tailwind config says `#E11D48` on `#F8FAFC`: cool
+slate with blue in it, `text-primary` `#0F172A`, `border-default` `#E2E8F0`.
+Side by side the difference is obvious, and it is the difference between "looks
+like a property portal" and "looks like *this* design".
+
+Every value in `[data-skin='portal']` is now read out of
+`docs/mocks/listing-detail.html`, with the mock's own token names in the
+comments beside each one so the two can be checked against each other rather
+than trusted.
+
+### Two families, measured rather than assumed
+
+The mock is set in Inter and Plus Jakarta Sans. Setting a slate portal in
+Source Sans and Fraunces was most of what made the first attempt read as a
+different design — but § 11 exists because the largest win in this repo was
+deleting a font, so this was measured on a production build rather than waved
+through:
+
+    /            2 files   46,912 b     unchanged
+    /chat        2 files   46,912 b     unchanged
+    /search      4 files  122,616 b     +75,704 b
+    /listing     4 files  122,616 b     +75,704 b
+
+The two new families are imported from `app/portal-fonts.ts`, not from
+`layout.tsx`, and applied on the same element that carries `data-skin`. next/font
+preloads a font on the routes whose module graph reaches it, so `/` and `/chat`
+— which would never draw a glyph from either — download neither. Confirmed by
+diffing the CSS each route serves: 57,227 b with no `Plus Jakarta` in it,
+against 67,595 b with it.
+
+Those two pages still carry Fraunces as well, because the header is AppShell's
+and sits outside the wrapper. If the skin ever goes site-wide that becomes a net
+reduction, not an addition.
+
+### The property page
+
+Rebuilt section by section against the mock: the one-large-plus-two gallery
+grid, the media strip, the sticky in-page tab bar, the price-first card with
+the mock's five icon-tiles, inspection sessions with their kind as a pill, the
+transaction history as the mock's four-column table, the agency panel with
+tappable `tel:` links, and the Victorian due diligence notice — which is a real
+obligation under s.33A of the Sale of Land Act 1962 and is therefore rendered
+only for VIC listings, linking to Consumer Affairs Victoria rather than
+paraphrasing the Act.
+
+Icons are inline SVG, one path each, shared with the results row. Material
+Symbols is what § 11 is about; it is not coming back for a dozen glyphs.
+
+Everything the mock asks for and this database cannot answer — the 24 photos,
+the energy rating, the inclusions schedule, the floorplan, the CoreLogic
+medians, the rental yield, days on market, school catchments, the mortgage
+estimator, the council zoning line — is named in one line each and drawn
+nowhere. The mortgage estimator is the clearest case: the arithmetic is fine,
+the 6.14% it is computed from would be invented.
+
+### A third check that passed over its own bug
+
+The in-page tab bar is built from whichever sections rendered, because a
+listing may have no inspections, no history and no coordinates. That decision
+was being made twice — `timeline.length` for the tab, a filtered list inside
+the section — and the two disagreed. A property whose only history is its own
+live listing rendered a "History" tab that scrolled to nothing, which is not an
+error, not a warning, and not visible in a screenshot: it is a click that does
+nothing.
+
+`usefulTimeline` is now the one place that decides, and a smoke check pulls the
+hrefs out of the rendered nav and requires an element with each id. Restoring
+the old expression turns it red with "history is a tab that scrolls to nothing".
+
+That is the third check in two sessions written for a bug it then failed to
+catch until it was deliberately broken. The pattern is the same each time: the
+check asked a question the page could answer correctly while still being wrong.
+
+### Numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **340** (232 `@repo/core`, 108 `@repo/ai`)
+- `pnpm smoke` — **58 passed, 0 failed** (4 new checks, each verified red first)
+- `/search` 1.79 kB / 126 kB · `/listing/[id]` 2.79 kB / 109 kB — +0.13 kB each,
+  all of it markup. Everything added is a Server Component.
+
+### Still missing, deliberately
+
+No photos: the `media` table is empty, there is no upload path and no R2
+credential, so the gallery is the mock's grid with id-derived gradients in it,
+shaped so `next/image` with `fill` drops in as a sibling without the layout
+moving. The header keeps the warm green — it is AppShell's, shared with `/` and
+`/chat`, and re-skinning it re-skins every page. Moving the skin selector to
+`:root` is the one line that rolls the portal look out site-wide.
+
+## 2026-09-25 — /search gets the portal design it was supposed to have
+
+Reported in one line: the link from the chat opens, and what opens is not the
+design that was handed over. Correct. The previous session took the mock's
+token *structure* and kept this site's values on purpose, and recorded the
+reason — the mock is cool slate, this site is warm, and adopting its palette
+would have left /search looking like a different product from / and /chat. The
+reasoning was sound and the outcome was still wrong: what shipped did not look
+like what was asked for, and nothing in the repo held the original design, so
+there was nothing to diff against.
+
+**The mock code is not in this repository.** Not committed, not in `docs/`, not
+untracked. `apps/console/public/stitch/` holds console PNGs and that is all.
+Whatever was pasted into a chat is gone. This was rebuilt from two
+realestate.com.au screenshots instead. If the original turns up, put it in
+`docs/mocks/` — the cost of losing it was this session.
+
+### The palette is a wrapper, not a rewrite
+
+`/search` is re-skinned by one `[data-skin='portal']` block in `tailwind.css`
+that redefines the colour tokens, plus one attribute on the page. Every
+Tailwind utility compiles to `var(--color-…)` and every CSS Module reads the
+same custom properties, so twenty lines re-skin the search bar, the cards, the
+map and the sidebar together. Structure untouched: same token names, same
+scale, same shadow slots.
+
+Four CSS Modules were hard-coding `#0b3d2e` and the `packages/ui` token names,
+which is why they could not follow. They now read the theme tokens. Every swap
+is pixel-identical outside the wrapper, because `packages/ui/styles.css`
+declares each of those with exactly the value the theme token carries
+(`--color-accent` *is* `#0b3d2e`, `--color-border` *is* `#d9d2c5`).
+
+The header is deliberately still green. It lives in AppShell, above the
+wrapper and shared with `/` and `/chat`. Moving that one selector to `:root` is
+what rolls the portal look out site-wide — it is one line, and it is a
+decision, not a default.
+
+### The sidebar is two panels, because that is how many this database can answer
+
+The reference sidebar is medians, days on market, rental yield, a twelve-month
+trend and a mortgage calculator. Six of those need a market data source that
+does not exist here, and a plausible median is precisely the invented number
+#4 forbids. So: **agents listing in this suburb** and **suburbs near it**, both
+real aggregates, both one query (`search-sidebar.ts`), both cached five minutes
+behind the listings tag, both rendering nothing at all when they have nothing
+to say. A third panel states in one line that the market data is missing.
+
+`count(*)` came back as a string again — the fourth appearance of the same
+boundary bug in this repo. Converted where the lie is created, and the test
+asserts the **type**, which is the assertion that actually fails.
+
+### Two things found by breaking the checks that were meant to catch them
+
+`pageWindow` started life in `apps/web/app/search/results.tsx`, where nothing
+can test it — apps/web has no runner. It moved to `packages/core` and the test
+immediately earned itself: deleting `out.push(total)` turns four assertions
+red, and that bug is a last page nobody can reach, which looks perfectly fine
+on the page-1 screenshot that gets reviewed.
+
+The smoke check for the skin **passed while the skin was removed.** `/search`
+streams `loading.tsx`'s shell into the same response, the skeleton carries the
+skin too (it has to, or the page changes colour on arrival), and "is
+`data-skin` anywhere in this HTML" is a question the skeleton answers yes to on
+its own. It now matches the one element carrying both `data-skin` and
+`data-page="search-results"`. Deleting the attribute from the real page is now
+red. This is the second time a check in this repo passed over the bug it was
+written for.
+
+### Numbers
+
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **340** (232 `@repo/core`, 108 `@repo/ai`)
+- `pnpm smoke` — **57 passed, 0 failed** (3 new checks, each verified red first)
+- `/search` **1.66 kB / 126 kB — unchanged.** Everything added is a Server
+  Component.
+
+### Still missing, deliberately
+
+No photos, still — the `media` table is empty and there is no upload path, so
+every result carries a per-listing gradient with the price on a scrim over it.
+The reference's photo counts, favourite and share controls have no data or
+account behind them and are not drawn. `/listing/[id]` was not touched: the
+scope agreed was `/search` only, so the property page keeps the warm palette
+and the two public pages currently do not match.
+
+### Tool split
+
+This is `apps/web`, which `CLAUDE.md` assigns to Cursor. Done here at the
+user's request. The core additions (`search-sidebar.ts`, `pagination.ts`) are
+Claude Code's side and are where the logic lives — rule #10 is why `pageWindow`
+is not in the page that renders it.
+
 ## 2026-09-24 (later again) — The chat hands over a search, and the public pages become a portal
 
 Eight phases. The request was small and concrete — after the guide answers,

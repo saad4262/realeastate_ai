@@ -1,0 +1,227 @@
+/*
+ * The account screens: sign in, sign up, forgot, reset.
+ *
+ * A CSS module rather than utility classes, for the same reason /chat and
+ * /search are. The first build of this screen was a Tailwind two-column
+ * grid inside `AppShell`'s `wide` main — which sets `display: flex` — and
+ * the left track collapsed to its own min-content, wrapping the copy one
+ * word per line. A module owns its own box and cannot be reshaped by a
+ * container it does not know about.
+ *
+ * One centred column, deliberately. A form with three fields does not need
+ * a second column of marketing beside it, and a layout with nothing to
+ * balance is a layout with nothing to go wrong.
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  min-height: calc(100dvh - 4.5rem);
+  padding: 3rem 1.25rem 4rem;
+  box-sizing: border-box;
+  background: var(--color-canvas, #f7f4ef);
+}
+
+.card {
+  width: 100%;
+  max-width: 27rem;
+  padding: 2rem;
+  box-sizing: border-box;
+  border: 1px solid var(--color-line, #d9d2c5);
+  border-radius: 1rem;
+  background: var(--color-card, #fff);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 4%),
+    0 14px 34px -18px rgb(0 0 0 / 18%);
+}
+
+.eyebrow {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint, #8c8577);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display, Georgia, serif);
+  font-size: 1.75rem;
+  line-height: 1.2;
+  font-weight: 600;
+  color: var(--color-ink, #1a1a1a);
+}
+
+.subtitle {
+  margin: 0.5rem 0 0;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: var(--color-ink-soft, #5c5c5c);
+}
+
+.form {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-ink, #1a1a1a);
+}
+
+.input {
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  box-sizing: border-box;
+  border: 1px solid var(--color-line, #d9d2c5);
+  border-radius: 0.5rem;
+  background: var(--color-card, #fff);
+  color: var(--color-ink, #1a1a1a);
+  font: inherit;
+  font-size: 0.9375rem;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.input::placeholder {
+  color: var(--color-ink-faint, #8c8577);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-brand, #0b3d2e);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-brand, #0b3d2e) 16%, transparent);
+}
+
+/* The one-line rule under a password box. Says the requirement BEFORE it is
+ * broken, rather than as an error after somebody has chosen something. */
+.hint {
+  font-size: 0.75rem;
+  color: var(--color-ink-faint, #8c8577);
+}
+
+.submit {
+  margin-top: 0.25rem;
+  width: 100%;
+  padding: 0.8rem 1rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: var(--color-brand, #0b3d2e);
+  color: var(--color-brand-ink, #f7f4ef);
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.submit:hover {
+  background: var(--color-brand-deep, #072a20);
+}
+
+.submit:focus-visible {
+  outline: 2px solid var(--color-brand, #0b3d2e);
+  outline-offset: 2px;
+}
+
+.alert {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1.25rem 0 0;
+  padding: 0.7rem 0.9rem;
+  border-radius: 0.5rem;
+  background: var(--color-alert-soft, #fbeae9);
+  color: var(--color-alert, #b3261e);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.notice {
+  composes: alert;
+  background: var(--color-notice-soft, #fbf1e3);
+  color: var(--color-notice, #a8620a);
+}
+
+.success {
+  composes: alert;
+  background: var(--color-success-soft, #e8f4ee);
+  color: var(--color-success, #0f7a52);
+}
+
+.meta {
+  margin: 1.25rem 0 0;
+  padding-top: 1.125rem;
+  border-top: 1px solid var(--color-line-subtle, #ece7dd);
+  font-size: 0.875rem;
+  color: var(--color-ink-soft, #5c5c5c);
+}
+
+.metaRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.link {
+  color: var(--color-brand, #0b3d2e);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.fine {
+  margin: 1rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--color-ink-faint, #8c8577);
+}
+
+.below {
+  margin: 1.25rem 0 0;
+  font-size: 0.875rem;
+  color: var(--color-ink-soft, #5c5c5c);
+  text-align: center;
+}
+
+/* The "check your email" state. Replaces the form rather than sitting above
+ * it — a form somebody can fill in again after a link is already sent is an
+ * invitation to send a second one. */
+.sentIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin-bottom: 1rem;
+  border-radius: 999px;
+  background: var(--color-brand-soft, #eaf1ed);
+  font-size: 1.25rem;
+}
+
+@media (max-width: 480px) {
+  .page {
+    padding: 1.5rem 1rem 3rem;
+  }
+
+  .card {
+    padding: 1.5rem;
+  }
+
+  .title {
+    font-size: 1.5rem;
+  }
+}

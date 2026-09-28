@@ -8,6 +8,7 @@
     "./models": "./src/models.ts",
     "./usage": "./src/usage.ts",
     "./chat": "./src/pipelines/property-chat.ts",
+    "./alert-summary": "./src/pipelines/alert-summary.ts",
     "./chat-events": "./src/schemas/chat-events.ts",
     "./chat-request": "./src/schemas/chat-request.ts",
     "./tools": "./src/tools/index.ts"

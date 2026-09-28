@@ -138,6 +138,14 @@ export type PublicAgentCard = {
   role: string;
   /** Only when the agent's profile is marked public. */
   photoUrl: string | null;
+  /**
+   * An uploaded portrait's storage key, gated the same way.
+   *
+   * Preferred over photoUrl by the components that render it: an upload is a
+   * deliberate act by the agency, while photo_url is a link somebody pasted
+   * once and may now be dead.
+   */
+  photoKey: string | null;
   bio: string | null;
   licenceNumber: string | null;
 };
@@ -175,6 +183,7 @@ export async function listingAgentCards(
       role: listingAgent.role,
       isPublic: agentProfile.public,
       photoUrl: agentProfile.photoUrl,
+      photoKey: agentProfile.photoKey,
       bio: agentProfile.bio,
       licenceNumber: agentProfile.licenceNumber,
     })
@@ -191,6 +200,7 @@ export async function listingAgentCards(
       phone: r.phone,
       role: r.role as string,
       photoUrl: shown ? r.photoUrl : null,
+      photoKey: shown ? r.photoKey : null,
       bio: shown ? r.bio : null,
       licenceNumber: shown ? r.licenceNumber : null,
     };

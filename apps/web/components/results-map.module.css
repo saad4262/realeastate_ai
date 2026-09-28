@@ -8,9 +8,9 @@
   justify-self: start;
   padding: 0.45rem 0.75rem;
   border-radius: 9999px;
-  border: 1px solid var(--color-border, #d9d2c5);
-  background: var(--color-surface, #fff);
-  color: var(--color-accent, #0b3d2e);
+  border: 1px solid var(--color-line, #d9d2c5);
+  background: var(--color-card, #fff);
+  color: var(--color-brand, #0b3d2e);
   font: inherit;
   font-size: 0.8125rem;
   font-weight: 600;
@@ -18,13 +18,13 @@
 }
 
 .toggle:hover {
-  border-color: #0b3d2e;
-  background: color-mix(in srgb, #0b3d2e 6%, #fff);
+  border-color: var(--color-brand, #0b3d2e);
+  background: color-mix(in srgb, var(--color-brand, #0b3d2e) 6%, #fff);
 }
 
 .note {
   margin: 0;
   font-size: 0.75rem;
-  color: var(--color-muted, #5c5c5c);
+  color: var(--color-ink-soft, #5c5c5c);
   line-height: 1.4;
 }

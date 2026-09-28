@@ -1,8 +1,8 @@
 import { Suspense } from 'react';
 import { listAgencyAgents, listAgencyInvites } from '@repo/core/team';
-import { PageSkeleton } from '@/components/page-skeleton';
 import { getConsoleDb } from '../../../lib/db';
 import { requireConsoleAccess } from '../../../lib/require-console-access';
+import { TeamSkeleton } from './team-skeleton';
 import { PendingInvites } from './pending-invites';
 import { TeamDirectory, teamTabOf } from './team-directory';
 
@@ -28,16 +28,26 @@ export default async function TeamPage({
   const selectedId = one('agent')?.trim() || '';
 
   /**
-   * Keyed on the two parameters, so switching tab or agent shows the skeleton
-   * rather than the previous roster.
+   * Deliberately NOT keyed on tab or agent.
    *
-   * A searchParams-only change re-renders the page but does NOT trigger
-   * loading.tsx — no route segment changed — so without this boundary the old
-   * table would sit there until the new one arrived. Same pattern as
-   * apps/web/app/search/page.tsx.
+   * It used to be `key={`${tab}:${selectedId}`}`, and that made every click in
+   * the directory — a tab, an agent's name — throw the whole roster away and
+   * paint a skeleton while it came back. But neither parameter reaches the
+   * database: `listAgencyAgents` and `listAgencyInvites` take the actor and
+   * nothing else, and the tab filter, the three counts and the open dossier are
+   * all computed in TeamDirectory from the same array. The rows on screen are
+   * already the right rows for the new tab.
+   *
+   * ARCHITECTURE.md § 5: key a boundary on the query, not on the raw params.
+   * The query here is constant, so there is no key. A navigation is a React
+   * transition, so the roster you are looking at stays on screen and is
+   * replaced when the re-render lands, instead of blinking through a loader.
+   *
+   * Contrast apps/web/app/search/page.tsx, where the params ARE the query and
+   * keying is correct.
    */
   return (
-    <Suspense key={`${tab}:${selectedId}`} fallback={<PageSkeleton rows={3} />}>
+    <Suspense fallback={<TeamSkeleton />}>
       <Roster tab={tab} selectedId={selectedId} />
     </Suspense>
   );

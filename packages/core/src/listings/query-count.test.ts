@@ -6,6 +6,9 @@ import {
   getListingForEdit,
 } from './list-listings';
 import { searchPublicListings, liveSuburbs, livePropertyTypes } from './search-listings';
+import { nearbySuburbs, topSuburbAgents } from './search-sidebar';
+import { searchFacets } from './search-facets';
+import { nearbyMarket } from './nearby-market';
 import {
   listingAgentCards,
   listingInspections,
@@ -60,6 +63,10 @@ function countingDb(rows: unknown[] = THREE_ROWS) {
   };
   chain.limit = () => chain;
   chain.offset = () => chain;
+  // Raw SQL goes through execute() rather than the builder, and it is just as
+  // much a round trip. Without this line a hand-written statement was invisible
+  // to every count in this file.
+  chain.execute = terminal;
   chain.returning = terminal;
   chain.then = (res: (v: unknown) => unknown) => terminal().then(res);
   chain.transaction = async (fn: (tx: unknown) => unknown) => fn(chain);
@@ -183,5 +190,93 @@ describe('reads cost a fixed number of queries', () => {
     const b = countingDb();
     await livePropertyTypes(b.db);
     expect(b.count()).toBe(1);
+  });
+
+  it('every filter option on the search page is one query, not six', async () => {
+    // Beds, baths, car spaces, property types, price bounds and the suburb
+    // list, split by channel — all of it in a single statement with FILTER
+    // aggregates. A query per facet is six round trips to the database region
+    // on the first paint of the most-visited page on the site.
+    const { db, count } = countingDb([{ saleTotal: '3', rentTotal: '0' }]);
+    await searchFacets(db);
+    expect(count()).toBe(1);
+  });
+
+  it('"cheapest near here" is one query, not one per shape', async () => {
+    // It answers two questions — the cheapest listings with their distances,
+    // and a per-suburb breakdown — and the obvious shape is a query each.
+    // That doubles a round trip to another region for two halves of one
+    // answer, on a route where a turn already pays for a geocode.
+    const { db, count } = countingDb([{ listings: [], by_suburb: [], unpriced: 0 }]);
+    await nearbyMarket(db, {
+      near: { lat: -38.0777, lng: 145.4819, radiusKm: 20 },
+      channel: 'sale',
+      bedrooms: 3,
+      propertyType: 'house',
+    });
+    expect(count()).toBe(1);
+  });
+
+  it('each results-page sidebar panel is one query', async () => {
+    // Both are aggregates. The tempting shape — list the suburbs, then count
+    // each one — is a query per suburb on a page that already ran a search.
+    const agents = countingDb();
+    await topSuburbAgents(agents.db, { suburb: 'Pakenham', state: 'VIC', channel: 'sale' });
+    expect(agents.count()).toBe(1);
+
+    const suburbs = countingDb();
+    await nearbySuburbs(suburbs.db, {
+      suburb: 'Pakenham',
+      state: 'VIC',
+      channel: 'sale',
+      near: { lat: -38.0777, lng: 145.4819, radiusKm: 30 },
+    });
+    expect(suburbs.count()).toBe(1);
+  });
+
+  it('a sidebar with a centre costs no more queries than one without', async () => {
+    const plain = countingDb();
+    await nearbySuburbs(plain.db, { suburb: 'Pakenham' });
+
+    const radius = countingDb();
+    await nearbySuburbs(radius.db, {
+      suburb: 'Pakenham',
+      near: { lat: -38.0777, lng: 145.4819, radiusKm: 30 },
+    });
+
+    expect(radius.count()).toBe(plain.count());
+  });
+});
+
+/**
+ * The counts these panels return are bigints, and a bigint arrives as text.
+ *
+ * This is the third file in this repo to need the same assertion. The value
+ * test passes either way — `"3"` and `3` both render as "3" — so it is the
+ * TYPE that has to be asserted, which is the one line ARCHITECTURE.md § 6 says
+ * actually catches this. Delete the Number() in search-sidebar.ts and only
+ * these two tests go red.
+ */
+describe('the sidebar counts are numbers, not the strings Postgres sends', () => {
+  it('an agent listing count is a number', async () => {
+    const { db } = countingDb([
+      { userId: 'u-1', name: 'Daniel Vance', agencyName: 'Harcourts', listingCount: '54' },
+    ]);
+    const [agent] = await topSuburbAgents(db, { suburb: 'Pakenham' });
+    expect(typeof agent?.listingCount).toBe('number');
+    expect(agent?.listingCount).toBe(54);
+  });
+
+  it('a nearby suburb count is a number and its distance is a number or null', async () => {
+    const { db } = countingDb([
+      { suburb: 'Officer', state: 'VIC', postcode: '3809', listingCount: '3', distanceKm: '5.6' },
+      { suburb: 'Berwick', state: 'VIC', postcode: '3806', listingCount: '1', distanceKm: null },
+    ]);
+    const [officer, berwick] = await nearbySuburbs(db, { suburb: 'Pakenham' });
+    expect(typeof officer?.listingCount).toBe('number');
+    expect(typeof officer?.distanceKm).toBe('number');
+    expect(officer?.distanceKm).toBe(5.6);
+    // Never 0. A suburb nothing has geocoded is unknown, not on top of you.
+    expect(berwick?.distanceKm).toBeNull();
   });
 });

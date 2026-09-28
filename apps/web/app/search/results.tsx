@@ -1,8 +1,9 @@
 import { cache } from 'react';
 import Link from 'next/link';
 import type { PublicListingSummary, PublicSearchQuery } from '@repo/core/listings';
+import { PAGE_GAP, pageWindow } from '@repo/core/listings/pagination';
 import type { Near } from '@repo/core/geo/schema';
-import { ListingCard } from '../../components/listing-card';
+import { ResultRow } from '../../components/result-row';
 import { ResultsMap } from '../../components/results-map';
 import { PrefetchOnIntent } from '../../components/prefetch-on-intent';
 import { cachedSearch } from '../../lib/cached';
@@ -157,10 +158,20 @@ export async function ResultsList({
     <>
       <ResultsMap pins={pins} unpinned={rows.length - pins.length} />
 
+      {/*
+        A stacked list, not a grid of cards.
+
+        The results now sit in an 8-of-12 column beside a sidebar, and a
+        17rem auto-fill grid in that column produced two cramped cards per row
+        with a ragged last line. One full-width row per listing is what the
+        reference does and what the column is shaped for — and it is the only
+        layout with room for the price on the media, the specs with icons, and
+        a second action.
+      */}
       {rows.length ? (
-        <PrefetchOnIntent className="grid gap-md [grid-template-columns:repeat(auto-fill,minmax(17rem,1fr))]">
+        <PrefetchOnIntent className="grid gap-md">
           {rows.map((listing) => (
-            <ListingCard key={listing.id} listing={listing} searchedSuburb={suburb} />
+            <ResultRow key={listing.id} listing={listing} searchedSuburb={suburb} />
           ))}
         </PrefetchOnIntent>
       ) : (
@@ -184,26 +195,72 @@ export async function ResultsList({
         cacheable, in the history, indexable, and it works with no JavaScript.
       */}
       {pages > 1 ? (
-        <nav className="mt-lg flex items-center justify-center gap-md" aria-label="Search result pages">
-          {page > 1 ? (
-            <Link href={pageHref(page - 1)} className="rounded-md border border-line bg-card px-md py-sm text-body-sm text-ink hover:border-line-strong" rel="prev">
-              ← Previous
-            </Link>
-          ) : (
-            <span className="rounded-md border border-line-subtle px-md py-sm text-body-sm text-ink-faint opacity-50">← Previous</span>
+        <nav className="mt-lg flex flex-wrap items-center justify-center gap-1" aria-label="Search result pages">
+          <PageLink href={pageHref(page - 1)} disabled={page === 1} rel="prev">
+            ← Previous
+          </PageLink>
+
+          {pageWindow(page, pages).map((n, i) =>
+            n === PAGE_GAP ? (
+              <span key={`gap-${i}`} className="px-sm text-body-sm text-ink-faint" aria-hidden>
+                …
+              </span>
+            ) : n === page ? (
+              // The current page is not a link to itself. aria-current is what
+              // tells a screen reader which one it is on; the styling is what
+              // tells everyone else.
+              <span
+                key={n}
+                aria-current="page"
+                className="min-w-9 rounded-sm bg-brand px-sm py-2 text-center text-body-sm text-brand-ink"
+              >
+                {n}
+              </span>
+            ) : (
+              <PageLink key={n} href={pageHref(n)}>
+                {n}
+              </PageLink>
+            ),
           )}
-          <span className="text-body-sm text-ink-soft">
-            Page {page} of {pages}
-          </span>
-          {page < pages ? (
-            <Link href={pageHref(page + 1)} className="rounded-md border border-line bg-card px-md py-sm text-body-sm text-ink hover:border-line-strong" rel="next">
-              Next →
-            </Link>
-          ) : (
-            <span className="rounded-md border border-line-subtle px-md py-sm text-body-sm text-ink-faint opacity-50">Next →</span>
-          )}
+
+          <PageLink href={pageHref(page + 1)} disabled={page === pages} rel="next">
+            Next →
+          </PageLink>
         </nav>
       ) : null}
     </>
+  );
+}
+
+/**
+ * One page control.
+ *
+ * A disabled control is a <span>, not a disabled <a> — there is no such thing.
+ * Previous on page one has nowhere to go, so it is not a link at all rather
+ * than a link that navigates to the page you are on.
+ */
+function PageLink({
+  href,
+  children,
+  disabled = false,
+  rel,
+}: {
+  href: string;
+  children: React.ReactNode;
+  disabled?: boolean;
+  rel?: string;
+}) {
+  const base = 'min-w-9 rounded-sm border px-sm py-2 text-center text-body-sm';
+  if (disabled) {
+    return (
+      <span className={`${base} border-line-subtle text-ink-faint opacity-50`} aria-hidden>
+        {children}
+      </span>
+    );
+  }
+  return (
+    <Link href={href} rel={rel} className={`${base} border-line bg-card text-ink hover:border-brand hover:text-brand`}>
+      {children}
+    </Link>
   );
 }

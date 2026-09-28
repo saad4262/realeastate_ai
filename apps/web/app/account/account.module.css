@@ -1,0 +1,190 @@
+/*
+ * The account page.
+ *
+ * Same column width and rhythm as /alerts — these two are the account area
+ * and a visitor moves between them, so a different measure on each would
+ * read as two different products.
+ */
+
+.page {
+  width: 100%;
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 1rem 0 2rem;
+  box-sizing: border-box;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 9999px;
+  background: var(--shell-accent, #0b3d2e);
+  color: var(--color-accent-fg, #f7f4ef);
+  font-family: var(--font-display, Georgia, serif);
+  font-size: 1.4rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.identity {
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display, Georgia, serif);
+  font-size: clamp(1.6rem, 3vw, 1.875rem);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  color: var(--color-ink, #1a1a1a);
+  /* An email can be long and a name can be one unbroken word. */
+  overflow-wrap: anywhere;
+}
+
+.email {
+  margin: 0.2rem 0 0;
+  font-size: 0.9375rem;
+  color: var(--color-muted, #5c5c5c);
+  overflow-wrap: anywhere;
+}
+
+.card {
+  padding: 1.25rem 1.35rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--color-border, #d9d2c5);
+  border-radius: 1rem;
+  background: color-mix(in srgb, #fff 80%, transparent);
+}
+
+.cardLabel {
+  margin: 0 0 0.85rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted, #5c5c5c);
+}
+
+.rows {
+  margin: 0;
+}
+
+/*
+ * Grid rather than flex, so every value starts on the same x whatever the
+ * label says. `auto` on the key column keeps it as narrow as the longest
+ * label instead of a guessed width.
+ */
+.row {
+  display: grid;
+  grid-template-columns: 8.5rem 1fr;
+  gap: 0.5rem 1rem;
+  padding: 0.55rem 0;
+  border-top: 1px solid color-mix(in srgb, var(--color-border, #d9d2c5) 55%, transparent);
+}
+
+.row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.key {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-muted, #5c5c5c);
+}
+
+.value {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-ink, #1a1a1a);
+  overflow-wrap: anywhere;
+}
+
+.none {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--color-muted, #5c5c5c);
+}
+
+.body {
+  margin: 0 0 0.9rem;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--color-muted, #5c5c5c);
+}
+
+.secondary {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--color-border, #d9d2c5);
+  border-radius: 9999px;
+  background: #fff;
+  color: var(--color-ink, #1a1a1a);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.secondary:hover {
+  border-color: color-mix(in srgb, var(--shell-accent, #0b3d2e) 40%, transparent);
+  color: var(--shell-accent, #0b3d2e);
+}
+
+.signOut {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  margin-top: 1.75rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid color-mix(in srgb, var(--color-border, #d9d2c5) 70%, transparent);
+}
+
+/*
+ * Outlined, not filled.
+ *
+ * Nothing on this page is destructive — signing out loses no data and takes
+ * one click to undo. A solid red button would say otherwise, and sitting it
+ * next to the real delete controls on /alerts would teach the wrong weight.
+ */
+.danger {
+  padding: 0.55rem 1.25rem;
+  border: 1px solid color-mix(in srgb, #8b2f2f 45%, transparent);
+  border-radius: 9999px;
+  background: #fff;
+  color: #8b2f2f;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.danger:hover {
+  background: color-mix(in srgb, #8b2f2f 7%, #fff);
+  border-color: #8b2f2f;
+}
+
+.signOutNote {
+  font-size: 0.8125rem;
+  color: var(--color-muted, #5c5c5c);
+}
+
+@media (max-width: 540px) {
+  .row {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
+  }
+}

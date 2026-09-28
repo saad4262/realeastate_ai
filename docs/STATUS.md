@@ -1,8 +1,103 @@
 # Status
-- Milestone: consumer AI property guide at `/chat`; listings full CRUD; PostGIS radius search
+- Milestone: **M4 started** — consumer accounts and the AI task scheduler;
+  consumer AI property guide at `/chat`; listings full CRUD; PostGIS radius search
 - Build order (locked): Agency UI → Agent UI → Consumer web
-- Last tool: Claude Code
-- Last updated: 2026-09-24
+- Last tool: Cursor
+- Last updated: 2026-09-26
+
+## Chat history is a screen, and opening one stays open (2026-09-26)
+
+History was a dropdown drawn over the hero, so the headline showed through
+the one saved chat and there was no real way to open it. It is now
+`/chat?history=1`: a list, each row an **Open** link to `/chat?thread=…`.
+
+Opening one used to change the URL and leave the empty hero on screen.
+`ChatView` keeps the transcript in `useState`, and a client navigation does
+not remount it, so the new turns were ignored. The view is keyed on the
+thread id. A reload of that URL opens the same chat; the sidebar brief is
+restored from the last saved search. Delete returns to the history screen.
+
+## The AI task scheduler is built (2026-09-26)
+
+A saved search that runs on a clock and arrives unasked — by email with a
+summary and a link, and in the app at `/alerts` and on a `/chat` card. Full
+account in `docs/SESSION.md`; the decisions are ADR **0010** (a schedule
+stores a frozen query, not a prompt to re-interpret) and ADR **0011** (a
+consumer is an actor with no agency).
+
+**Consumer accounts exist.** `apps/web` has email/password sign-up and sign-in
+with a name, plus forgot/reset,
+and a middleware matcher that covers account routes only — `/`, `/search` and
+`/listing/[id]` stay outside it and keep their 33/36/32 ms. `/` is still a
+static ISR route.
+
+**The run path calls no model.** The browser hands over the `/search?…` path,
+the server re-parses it with the same vocabulary `/search` uses, and each run
+is pure SQL plus one cheap Haiku call for two sentences of prose. That call
+is skipped when the durable spend budget says so, and the alert still goes
+out with a templated sentence.
+
+**Email is real.** `packages/core/src/email/` — a port, a fake for tests, a
+Resend adapter over plain `fetch`, and a digest that **throws** rather than
+building a message with no sender identity or no unsubscribe.
+
+**Scheduling is conversational.** There is no save button in the chat. The
+visitor asks — "send me this daily", "every two hours" — the guide calls
+`draft_schedule`, and a confirmation card appears in the conversation with
+Accept and Cancel. Nothing is written until Accept: the draft travels as an
+HMAC-signed token, so the browser cannot change the search or the frequency
+it is agreeing to. `cancel_schedule` pauses rather than deletes, and asks
+which when more than one matches. Cadence is `daily`, `weekly` or
+`interval` (10 minutes and up, with no ceiling — a fortnight and a quarter are
+both expressible); the `/search` page keeps its own save
+button for people who never open the chat. Conversations are saved for a signed-in visitor
+(`chat_thread` + `chat_message`), with a sidebar, delete, and a 90-day
+retention sweep on the scheduler tick. A replayed thread carries no prices:
+`toModelTurns` returns only what `chatRequestSchema` already accepts from a
+browser.
+
+### Current numbers
+- `pnpm typecheck` 10/10 · `pnpm lint` 10/10 · `pnpm build` 2/2
+- `pnpm test` — **554** (378 `@repo/core`, 176 `@repo/ai`)
+- `pnpm smoke` — **0 failed** (76 with the console down)
+- Web routes: `/` 459 B / 131 kB (ISR 30s) · `/login` 161 B / 106 kB ·
+  `/alerts` 1.44 kB / 108 kB · `/search` 3.78 kB / 134 kB · `/chat` 9.89 kB / 121 kB
+
+### What still needs a person
+- ~~A verified Resend domain~~ **Done, and the send path is proven.**
+  `quotemydecking.com.au` is `status: verified`, `sending: enabled`, and
+  `ALERT_EMAIL_FROM` is `alerts@quotemydecking.com.au`. A real digest built
+  from live rows was accepted by Resend on 2026-09-28 (to
+  `delivered@resend.dev`, their simulator, so no person was emailed).
+  `requireSenderIdentity` now also refuses a value that is not an address —
+  the bare domain was set here for two days and every send failed validation.
+- **The sender identity is dummy data.** `ALERT_SENDER_NAME="Test Company"`
+  and `ALERT_SENDER_ADDRESS="123 Test St, Test City"` are in `.env.local` for
+  testing. The Spam Act requires a real legal entity and a real postal
+  address before any message goes to a real person.
+- **`ALERT_UNSUBSCRIBE_SECRET` and `CRON_SECRET` are dev placeholders.** Both
+  need real values in any deployment; unset means the endpoint refuses
+  everything with 503, which is the intended failure.
+- **Every run emails, including one that found nothing new.** Changed on
+  request 2026-09-28. A run still records `status: 'empty'` when the search
+  turns up nothing new — that is what the search found — but the digest goes
+  out regardless, subjected "No new listings — …". `/alerts` therefore lists
+  runs by `email_status = 'sent'` rather than by status.
+  **Watch the deliverability.** A recurring no-change message is the fastest
+  way to train somebody to mark a sender as spam, and enough complaints take
+  the sending domain down for the digests that do carry news. Lawful (the
+  recipient created the schedule, and every message carries sender identity,
+  postal address and one-click unsubscribe); still worth watching the Resend
+  bounce and complaint rates once real recipients exist.
+- **Vercel Hobby only runs crons daily.** `apps/web/vercel.json` declares
+  `*/5 * * * *`, which needs Pro — or any external pinger, since the
+  endpoint authorises a shared secret and does not care who calls it. See
+  `apps/web/CRON.md`. **Nothing ticks it on localhost**, which is the whole
+  reason a saved schedule appears to do nothing in development: run it by
+  hand with the curl in `CRON.md`.
+- **Manual cases are `docs/TEST-PLAN.md` § I.** Nothing in them has been run
+  by a person yet; everything checkable without a browser and an inbox is in
+  `pnpm smoke`.
 
 ## The chat hands over a search, and both public pages become a portal (2026-09-24, phases 1–8)
 
@@ -392,7 +487,9 @@ decision for the user.
   and a Turnstile or signed page token. The in-process per-IP limiter (10/min) and
   `AI_CHAT_DAILY_TURN_CAP` are ceilings on *accidental* cost, not security controls —
   behind several instances the real ceiling multiplies and a determined caller rotates IPs
-- `RESEND_API_KEY` empty → invite links are shared manually (the panel makes that workable)
+- ~~`RESEND_API_KEY` empty~~ **Set, and alert email is wired.** Agent invite
+  links are still shared manually — `packages/core/src/email/` is the port to
+  route them through when somebody wants to
 - No Cloudflare R2 credentials → listings have no photos; `media` table is unused and cards show a
   gradient placeholder
 - `site.com.au` is still a placeholder domain. Nothing in code hardcodes it — every host comes
@@ -411,8 +508,11 @@ decision for the user.
   metering, prompts, tools and the chat pipeline. Still no listing-copy draft, no lead
   summarising, no Batch API path
 - No photos anywhere: `media` is unused and there is no `packages/media`
-- No consumer accounts, shortlist or enquiry form
+- ~~No consumer accounts~~ **Built** (magic link, no passwords). No shortlist
+  yet; the enquiry form exists
 - pgvector is installed but nothing uses it
+- ~~No chat threads~~ **Built.** Saved for signed-in visitors only, 90-day
+  retention. No export and no cross-device sync beyond the account
 
 ## Standing decisions
 - Preview off (`NEXT_PUBLIC_UI_PREVIEW=0`); white-label = No; Seoul = dev, Sydney = prod later

@@ -24,3 +24,31 @@ export function PageSkeleton({ rows = 1 }: { rows?: number }) {
     </div>
   );
 }
+
+/**
+ * One shimmering block, for skeletons that are built out of a page's own CSS
+ * module rather than out of this file's generic shapes.
+ *
+ * ARCHITECTURE.md § 10: a skeleton is built to the same measurements as the
+ * real component, and the cheapest way to guarantee that is to render the real
+ * component's own classes and fill the holes with these. Size comes in as a
+ * style because the caller knows the measurement; the shimmer stays here so
+ * there is one animation and one prefers-reduced-motion rule in the console.
+ */
+export function SkeletonBar({
+  height,
+  width = '100%',
+  radius,
+}: {
+  height: number | string;
+  width?: number | string;
+  radius?: number | string;
+}) {
+  return (
+    <span
+      aria-hidden
+      className={styles.bar}
+      style={{ display: 'block', height, width, borderRadius: radius }}
+    />
+  );
+}

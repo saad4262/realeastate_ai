@@ -24,10 +24,12 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
+    ".next-baseline/types/**/*.ts",
     ".next-dev/types/**/*.ts",
+    ".next-preview/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next-preview/types/**/*.ts"
+    ".next-measure/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

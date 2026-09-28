@@ -190,3 +190,104 @@
   --shadow-raised: 0 4px 12px rgba(60, 48, 30, 0.08);
   --shadow-float: 0 10px 28px rgba(60, 48, 30, 0.12);
 }
+
+/*
+ * The portal skin.
+ *
+ * The public pages were asked to look like the Stitch mock this project was
+ * designed from — "Remix of LocalAgentHub Agency Operating System", screen
+ * "12/1A Rogers Street, Pakenham VIC 3810". The mock is now in the repository
+ * (`docs/mocks/listing-detail.html`), and every value below is read out of its
+ * own Tailwind config rather than guessed from a screenshot. That matters: the
+ * first pass at this was built from a photograph of realestate.com.au and was
+ * a warm crimson on neutral grey. The mock is cool slate with #E11D48, and the
+ * difference is visible at a glance.
+ *
+ * Done by REDEFINING the tokens on a wrapper rather than by writing a second
+ * set of classes. Every Tailwind utility on these pages compiles to
+ * `var(--color-…)` and every CSS Module reads the same custom properties, so
+ * one block re-skins the search bar, the cards, the map, the sidebar and the
+ * property page at once — including `search-bar.module.css`,
+ * `location-input.module.css` and `results-map.module.css`, which this change
+ * also stopped hard-coding #0b3d2e so they could follow.
+ *
+ * It is a wrapper and not `:root` on purpose. The header lives in AppShell,
+ * above this element and shared with `/` and `/chat`, so it deliberately stays
+ * green: re-skinning it would re-skin every page. Moving this one selector to
+ * `:root` is what rolls the portal look out site-wide, if that is ever wanted.
+ *
+ * Structure is untouched. Same token names, same scale, same shadow slots —
+ * only the values move, which is the whole reason the token set was written
+ * with structure and values separated. The mock's own names are given beside
+ * each one so the two can be checked against each other.
+ */
+[data-skin='portal'] {
+  /* ---- surfaces ----
+     surface-canvas / surface-card / surface-container-low, verbatim. Slate,
+     not neutral grey: #F8FAFC has blue in it and a white card on top of it
+     reads as cooler and crisper than the same card on #F2F2F2. */
+  --color-canvas: #f8fafc;
+  --color-card: #ffffff;
+  --color-raised: #ffffff;
+  --color-sunken: #f1f5f9;
+
+  /* ---- ink ---- text-primary / text-secondary / text-muted */
+  --color-ink: #0f172a;
+  --color-ink-soft: #475569;
+  --color-ink-faint: #94a3b8;
+
+  /* ---- rules ---- border-subtle / border-default / border-strong */
+  --color-line-subtle: #f1f5f9;
+  --color-line: #e2e8f0;
+  --color-line-strong: #cbd5e1;
+
+  /* ---- brand ---- crimson-critical / crimson-subtle.
+     On the rest of this site crimson is --color-alert and only ever means
+     "attention"; inside this wrapper it is identity, which is why the alert
+     tokens below shift to amber — two things that both shout, in the same
+     colour, say nothing. */
+  --color-brand: #e11d48;
+  --color-brand-deep: #be123c;
+  --color-brand-soft: #fff1f2;
+  --color-brand-ink: #ffffff;
+
+  /* ---- status ----
+     The mock names these by what they mean rather than by hue —
+     emerald-success, amber-luxury, sapphire-intelligence — and uses each for
+     exactly one job: verified, premium, data-derived. */
+  --color-success: #059669;
+  --color-success-soft: #ecfdf5;
+  --color-notice: #d97706;
+  --color-notice-soft: #fffbeb;
+  --color-alert: #b45309;
+  --color-alert-soft: #fffbeb;
+  --color-info: #2563eb;
+  --color-info-soft: #eff6ff;
+
+  /* ---- type ----
+     The mock's two families, loaded by portal-fonts.ts and applied on the same
+     wrapper — so `/` and `/chat`, which do not use them, never download them.
+     Both fall back to this site's own sans, which is what renders if the
+     wrapper is ever used without the font classes beside it. */
+  --font-sans: var(--font-inter), var(--font-source-sans), 'Segoe UI', sans-serif;
+  --font-display: var(--font-jakarta), var(--font-inter), var(--font-source-sans), sans-serif;
+
+  /* ---- elevation ----
+     Slate-tinted rather than warm or neutral black, matching the mock's
+     shadow-sm on a slate canvas. A warm shadow here reads as dirt. */
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-raised: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-float: 0 12px 32px rgba(15, 23, 42, 0.14);
+}
+
+/*
+ * The body has to carry the skin's canvas as well.
+ *
+ * `min-h-screen` on the wrapper covers the viewport, but a short page still
+ * shows the document background below the fold on a tall window, and rubber
+ * band scrolling shows it at both ends. The wrapper sets a variable the body
+ * reads, so the colour still comes from one place.
+ */
+body:has([data-skin='portal']) {
+  background-color: #f8fafc;
+}

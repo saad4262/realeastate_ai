@@ -1,6 +1,9 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import type { AgencyAgentRow } from '@repo/core/team';
+import { mediaUrl } from '@repo/core/media/url';
+import { AgentPhoto } from '@/components/photo-uploader';
+import { LinkPending } from './link-pending';
 import styles from './team.module.css';
 
 /**
@@ -60,8 +63,9 @@ function mapRow(row: AgencyAgentRow): Agent {
     id: row.userId,
     name: row.name,
     role: roleLabel,
+    // An uploaded portrait first, then whatever URL the wizard was given.
     // A default stock photo made every agent look like the same person.
-    avatar: row.photoUrl || null,
+    avatar: mediaUrl(row.photoKey) ?? row.photoUrl ?? null,
     license: row.licenceNumber ? `Lic #${row.licenceNumber}` : 'Licence pending',
     suburbs: row.territorySuburbs?.length ? row.territorySuburbs : ['—'],
     status: row.status,
@@ -436,6 +440,7 @@ export function TeamDirectory({
             >
               <span>{t.label}</span>
               <span className={styles.tabCount}>{t.count}</span>
+              <LinkPending />
             </Link>
           ))}
         </div>
@@ -515,6 +520,7 @@ export function TeamDirectory({
                               className={`${styles.name} ${styles.rowLink}`}
                             >
                               {a.name}
+                              <LinkPending />
                             </Link>
                             <div className={styles.role}>{a.role}</div>
                           </div>
@@ -558,19 +564,37 @@ export function TeamDirectory({
       {selected ? (
         <aside className={styles.drawer}>
           <div className={styles.drawerInner}>
-            <div className={styles.drawerHead}>
-              <Avatar
-                src={selected.avatar}
-                name={selected.name}
-                size={48}
-                className={styles.drawerAvatar}
-              />
-              <div>
-                <div className={styles.name}>{selected.name}</div>
-                <div className={styles.role}>{selected.role}</div>
-                <div className={styles.lic}>{selected.license}</div>
+            {/*
+              One header: photo + name/role/licence side by side, with Edit
+              on the same block. Invited rows have no agent_profile yet, so
+              setAgentPhoto would refuse — show a read-only head instead.
+            */}
+            {selected.status !== 'invited' ? (
+              <div className={styles.drawerHead}>
+                <AgentPhoto
+                  agentUserId={selected.row.userId}
+                  name={selected.name}
+                  role={selected.role}
+                  license={selected.license}
+                  photoKey={selected.row.photoKey}
+                  photoUrl={selected.row.photoUrl}
+                />
               </div>
-            </div>
+            ) : (
+              <div className={styles.drawerHead}>
+                <Avatar
+                  src={selected.avatar}
+                  name={selected.name}
+                  size={48}
+                  className={styles.drawerAvatar}
+                />
+                <div>
+                  <div className={styles.name}>{selected.name}</div>
+                  <div className={styles.role}>{selected.role}</div>
+                  <div className={styles.lic}>{selected.license}</div>
+                </div>
+              </div>
+            )}
 
             <Dossier row={selected.row} />
           </div>

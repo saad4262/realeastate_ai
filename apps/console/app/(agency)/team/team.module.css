@@ -363,7 +363,10 @@
 }
 
 .row {
-  cursor: pointer;
+  /* The hover tint stays — it says which row the cursor is over. The pointer
+     cursor moved to .person, which is the part that is actually a link now;
+     a row that says "click me" everywhere and only responds in one place is
+     worse than one that says nothing. */
   transition: background 0.15s;
 }
 
@@ -380,6 +383,10 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  /* The containing block for .rowLink::after — see the long note beside it.
+     Must stay on this div and never move to the <tr> or the <td>. */
+  position: relative;
+  cursor: pointer;
 }
 
 .avatarWrap {
@@ -664,7 +671,7 @@
 .drawerHead {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
+  gap: 0.75rem;
   padding-bottom: 1rem;
   border-bottom: 1px solid var(--border-default);
 }
@@ -836,14 +843,26 @@
   display: inline-flex;
 }
 
-/* The roster row is a link now, not an onClick handler.
-   The anchor sits on the agent's name and stretches over the whole row, which
-   keeps one accessible name for the link, reaches the keyboard without a
-   tabindex, and needs no JavaScript at all. */
-.row {
-  position: relative;
-}
+/* The roster row is a link, not an onClick handler: the anchor sits on the
+   agent's name and an overlay makes a larger area clickable. One accessible
+   name, reachable by keyboard with no tabindex, and no JavaScript.
 
+   THE OVERLAY IS SCOPED TO THE PERSON CELL, NOT THE ROW, AND THAT IS THE BUG
+   THIS COMMENT EXISTS TO PREVENT COMING BACK.
+
+   It used to be `.row { position: relative }` on the <tr>, with the overlay
+   at `inset: 0` over the whole row. In Chrome that works. In Safari a <tr>
+   does not reliably establish a containing block for an absolutely positioned
+   descendant, so the overlay escaped the row, resolved against the next
+   positioned ancestor, and covered the page — including the "+ Add Agent"
+   button at the top, which stopped responding to clicks while the status bar
+   showed the row's URL from anywhere on screen.
+
+   `.person` is a plain flex div inside the cell. A div is a containing block
+   everywhere, so the overlay cannot escape it in any browser. The cost is that
+   the clickable area is the avatar-plus-name block rather than the whole row;
+   the correctness is that it is the same area in every browser. Never move
+   `position: relative` back onto a <tr> or a <td>. */
 .rowLink {
   text-decoration: none;
   color: inherit;
@@ -864,4 +883,36 @@
 a.tab {
   text-decoration: none;
   cursor: pointer;
+}
+
+/* ------------------------------------------------- navigation in progress -- */
+
+/* Rendered by LinkPending inside the tab or row that was clicked. Sized to the
+   text beside it so appearing does not move anything. */
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: 9999px;
+  border: 2px solid color-mix(in srgb, var(--sapphire) 30%, transparent);
+  border-top-color: var(--sapphire);
+  animation: team-spin 0.6s linear infinite;
+}
+
+@keyframes team-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* No spin for anyone who asked for less motion — the ring still shows that
+   something is in flight. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; }
+}
+
+/* The tab rail is an inline-flex with its own gap; the name link is not, so the
+   spinner needs the spacing here. */
+.name .spinner {
+  margin-inline-start: 0.375rem;
+  vertical-align: middle;
 }

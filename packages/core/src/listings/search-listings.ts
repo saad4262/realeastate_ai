@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, lte, or, sql, type SQL } from 'drizzle-orm';
 import { agency, listing, property, type Db } from '@repo/db';
 import type { Near } from '../geo/place-schema';
-import { formatAddress, type ListingChannel } from './listing-schema';
+import { formatAddress, type ListingChannel, type SearchSort } from './listing-schema';
 
 /**
  * A listing as a card shows it.
@@ -36,6 +36,14 @@ export type PublicListingSummary = {
   agencyName: string;
   agents: string[];
   publishedAt: Date | null;
+  /**
+   * The cover photo's storage KEY, or null when the listing has no photos.
+   *
+   * A key, not a URL — `mediaUrl()` in packages/core/src/media is the only
+   * thing that turns one into the other, which is what keeps the host out of
+   * every row and every component. See media/storage-key.ts.
+   */
+  mainPhotoKey: string | null;
 };
 
 /**
@@ -52,8 +60,18 @@ export type PublicListing = PublicListingSummary & {
   propertyId: string;
 };
 
-export const SORT_OPTIONS = ['relevance', 'newest', 'price_asc', 'price_desc'] as const;
-export type SearchSort = (typeof SORT_OPTIONS)[number];
+/**
+ * Re-exported from ./listing-schema, which is where the vocabularies live.
+ *
+ * It moved because this module imports `@repo/db`, and therefore postgres.js.
+ * Anything that wants only the list of sort options — a zod schema, a form —
+ * was dragging a database driver in behind it to get four strings. That has
+ * already happened once here, as a client component importing the barrel and
+ * failing to build with `Can't resolve 'fs'`.
+ *
+ * Kept exported from this module so no existing call site had to change.
+ */
+export { SORT_OPTIONS, type SearchSort } from './listing-schema';
 
 export type PublicSearchQuery = {
   text?: string;
@@ -105,7 +123,7 @@ const num = (v: string | number | null): number | null => {
  * so this is the single place that decides what the public can see — no caller
  * gets to widen it by passing a status.
  */
-const PUBLIC_STATUS = 'live' as const;
+export const PUBLIC_STATUS = 'live' as const;
 
 /** A rental's price lives in a different column from a sale's. */
 function isRental(channel: ListingChannel | undefined): boolean {
@@ -120,7 +138,10 @@ function isRental(channel: ListingChannel | undefined): boolean {
  * be a second place for a property's location to live — and would tempt the
  * next `drizzle-kit generate` into rewriting a column Postgres maintains.
  */
-const GEOM = sql`${property}.geom`;
+export const PROPERTY_GEOM = sql`${property}.geom`;
+
+/** The name this file has always used. Same expression, one definition. */
+const GEOM = PROPERTY_GEOM;
 
 /**
  * Distance to the searched point, in kilometres.
@@ -173,6 +194,26 @@ function selection(near: Near | undefined) {
       from listing_agent la where la.listing_id = ${listing.id}
     ), '{}')`,
     /**
+     * The cover photo, in the SAME statement.
+     *
+     * The tempting shape is to fetch the rows and then ask for each one's main
+     * photo, which on a page of 24 results is 24 extra round trips to a
+     * database in another region — the N+1 that query-count.test.ts exists to
+     * refuse, and the one that would be easiest to introduce here because it
+     * reads perfectly well in a component.
+     *
+     * `is_main desc` then `sort_order` rather than `where is_main` alone: a
+     * listing whose cover was deleted has photos and no main one for as long
+     * as it takes the promotion in removeListingPhoto to run, and a gallery
+     * that empties itself mid-delete is worse than one showing the next photo.
+     */
+    mainPhotoKey: sql<string | null>`(
+      select m.storage_key from media m
+      where m.listing_id = ${listing.id} and m.kind = 'photo'
+      order by m.is_main desc, m.sort_order asc, m.created_at asc
+      limit 1
+    )`,
+    /**
      * How many rows matched before LIMIT, counted by the same statement.
      *
      * A window function rather than a second SELECT, so a paged search still
@@ -207,7 +248,7 @@ function toSummary(r: Record<string, unknown>, agents: string[]): PublicListingS
     postcode: string; bedrooms: number | null; bathrooms: string | null;
     carSpaces: number | null; propertyType: string | null; landAreaSqm: string | null;
     latitude: string | null; longitude: string | null; distanceKm: string | null;
-    agencyName: string;
+    agencyName: string; mainPhotoKey: string | null;
   };
   return {
     id: row.id,
@@ -232,6 +273,7 @@ function toSummary(r: Record<string, unknown>, agents: string[]): PublicListingS
     agencyName: row.agencyName,
     agents,
     publishedAt: row.publishedAt,
+    mainPhotoKey: row.mainPhotoKey ?? null,
   };
 }
 

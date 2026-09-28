@@ -78,6 +78,9 @@ importers:
       '@repo/ai':
         specifier: workspace:*
         version: link:../../packages/ai
+      '@repo/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@repo/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -197,6 +200,9 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
+      '@repo/auth':
+        specifier: workspace:*
+        version: link:../auth
       '@repo/config':
         specifier: workspace:*
         version: link:../config

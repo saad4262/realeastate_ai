@@ -16,6 +16,14 @@ export type AiRunInput = {
   latencyMs: number;
   /** Correlates the several requests that made up one turn. */
   entityId?: string;
+  /**
+   * Whose call this was, when there is a whose.
+   *
+   * Null for the consumer chat, which is anonymous. Set by the scheduler, so
+   * `checkAiBudget` can answer "how much has this account cost today" — a
+   * question `entityId` cannot answer, because it identifies a turn.
+   */
+  userId?: string;
   promptVersion: string;
 };
 
@@ -28,6 +36,7 @@ export async function trackAiRun(db: DbOrTx, input: AiRunInput): Promise<void> {
     costUsd: String(costUsd(input.model, input.usage)),
     latencyMs: input.latencyMs,
     entityId: input.entityId ?? null,
+    userId: input.userId ?? null,
     promptVersion: input.promptVersion,
   });
 }

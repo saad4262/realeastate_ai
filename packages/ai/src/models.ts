@@ -49,6 +49,16 @@ const PRICES: Readonly<Record<string, Price>> = Object.freeze({
  * Verified against the live API on 2026-09-25, one 1-token request per model
  * per parameter. Opus 5 and Sonnet 5 accept both. Haiku 4.5 accepts neither.
  *
+ * `midConversationSystem` is the same class of thing and was the second one to
+ * take the chat down. A `{ role: 'system' }` entry in the `messages` array is a
+ * real feature — an operator instruction that arrives mid-conversation without
+ * invalidating the cached prefix — but it is implemented on Opus 5, Opus 4.8
+ * and the Fable/Mythos family ONLY. Sonnet 5 does not have it, and neither
+ * does Haiku 4.5, which is what this route runs. The failure is
+ * `400 role 'system' is not supported on this model`, and it only fired once
+ * the guide had gathered a requirement to send — so the first few turns of
+ * every conversation worked and the rest did not.
+ *
  * An id that is not listed is treated as accepting nothing, which is the safe
  * direction: omitting a parameter a model would have honoured costs some
  * answer quality, while sending one it rejects costs the whole turn.
@@ -58,17 +68,29 @@ export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 type Capabilities = {
   effort: boolean;
   adaptiveThinking: boolean;
+  /** `{ role: 'system' }` inside the messages array. Opus/Fable family only. */
+  midConversationSystem: boolean;
 };
 
 const CAPABILITIES: Readonly<Record<string, Capabilities>> = Object.freeze({
-  'claude-opus-5': { effort: true, adaptiveThinking: true },
-  'claude-sonnet-5': { effort: true, adaptiveThinking: true },
-  'claude-haiku-4-5': { effort: false, adaptiveThinking: false },
+  'claude-opus-5': { effort: true, adaptiveThinking: true, midConversationSystem: true },
+  // Sonnet 5 takes effort and adaptive thinking but NOT a system role in
+  // messages. The three capabilities do not travel together, which is the
+  // reason this is a table rather than a tier.
+  'claude-sonnet-5': { effort: true, adaptiveThinking: true, midConversationSystem: false },
+  'claude-haiku-4-5': { effort: false, adaptiveThinking: false, midConversationSystem: false },
 });
 
-const NO_CAPABILITIES: Capabilities = { effort: false, adaptiveThinking: false };
+const NO_CAPABILITIES: Capabilities = {
+  effort: false,
+  adaptiveThinking: false,
+  midConversationSystem: false,
+};
 
-export type AiFeature = 'property-chat';
+export type AiFeature =
+  | 'property-chat'
+  /** Two sentences of prose over a scheduled search's results. ADR 0010. */
+  | 'alert-summary';
 
 export type ModelChoice = {
   id: string;
@@ -113,6 +135,15 @@ export type ModelChoice = {
    * this is a capability of the id rather than a preference of the route.
    */
   adaptiveThinking: boolean;
+  /**
+   * Whether the accumulated requirements may ride as a `{ role: 'system' }`
+   * entry in `messages`.
+   *
+   * When false they are still sent — as a trailing block on the top-level
+   * `system` array, after the cached ones. The requirements must reach the
+   * model either way; only the carrier changes. See reconstructMessages.
+   */
+  midConversationSystem: boolean;
 };
 
 /**
@@ -148,6 +179,30 @@ export function getModel(feature: AiFeature, env: NodeJS.ProcessEnv = process.en
         // absent is the thing being asserted, so make it absent.
         ...(can.effort ? { effort: CHAT_EFFORT } : {}),
         adaptiveThinking: can.adaptiveThinking,
+        midConversationSystem: can.midConversationSystem,
+      };
+    }
+    case 'alert-summary': {
+      const id = env.ANTHROPIC_ALERT_MODEL?.trim() || DEFAULT_CHAT_MODEL;
+      return {
+        id,
+        /**
+         * Three sentences. An answer longer than this is a bug rather than a
+         * feature — the email has one paragraph and the figures around it
+         * come from SQL.
+         */
+        maxTokens: 400,
+        /**
+         * Hard false, whatever the id would support.
+         *
+         * The chat's `effort: medium` was measured on a task where choosing
+         * filters out of a sentence IS the reasoning. Writing a paragraph
+         * from a handful of preformatted strings is not, and inheriting that
+         * number would be copying a measurement across a task it was never
+         * taken on (§ 12b).
+         */
+        adaptiveThinking: false,
+        midConversationSystem: false,
       };
     }
     default: {

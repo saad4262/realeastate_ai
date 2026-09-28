@@ -1,10 +1,33 @@
 import type { PublicAgentCard, PublicInspection, PublicTimelineEntry } from '@repo/core/listings';
+import Image from 'next/image';
+import { mediaUrl } from '@repo/core/media/url';
+import { Icon, type IconName } from './icons';
 
 /**
  * The parts of a property page that are not the property.
  *
+ * Built to `docs/mocks/listing-detail.html` — the Stitch screen this project
+ * was designed from — section by section, and to its tokens rather than to a
+ * screenshot of it.
+ *
  * All Server Components. Nothing here takes an event handler, so nothing here
  * costs the browser anything.
+ *
+ * ## What the mock asks for and this database does not have
+ *
+ * The mock is a full portal page: a 24-photo gallery, an energy rating, an
+ * inclusions schedule, an interactive floorplan, CoreLogic medians, a rental
+ * yield, days on market, school catchments, a mortgage estimator and a council
+ * zoning line. Checked against `schema.ts`, this platform holds **none** of
+ * them. What it does hold is the price, the address, the room counts, the land
+ * size, the description, the inspection times, the property's own transaction
+ * history and who to call.
+ *
+ * So the sections below are the ones with a source. The rest are named once,
+ * in a line, rather than drawn as convincing empty panels — a plausible median
+ * is exactly the invented number non-negotiable #4 exists to forbid, and it
+ * would be quoted back at us with nothing on the page to say where it came
+ * from.
  */
 
 const WHEN = new Intl.DateTimeFormat('en-AU', {
@@ -20,40 +43,91 @@ const AUD = new Intl.NumberFormat('en-AU', {
 });
 const DATE = new Intl.DateTimeFormat('en-AU', { month: 'short', year: 'numeric' });
 
+/* ------------------------------------------------------------------ shell -- */
+
+/**
+ * One panel.
+ *
+ * `eyebrow` is the small coloured label the mock puts above nearly every
+ * heading — "PROPERTY TELEMETRY & VALUATION", "UPCOMING INSPECTION SESSIONS",
+ * "LOCAL NEIGHBOURHOOD". It carries most of the page's density, and leaving it
+ * out was one of the things that made the first attempt read as a plainer
+ * design rather than this one.
+ *
+ * `action` is the right-hand slot the mock uses for a chip or a link on the
+ * same line as the heading.
+ *
+ * `scroll-mt` matters because the in-page tab bar is sticky: without it every
+ * anchor lands with its heading underneath the bar that just took you there.
+ */
 export function Card({
   id,
+  eyebrow,
   title,
   note,
+  action,
   children,
 }: {
   id?: string;
+  eyebrow?: string;
   title: string;
   note?: string;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section
       id={id}
-      className="rounded-lg border border-line-subtle bg-card p-lg shadow-card sm:p-margin"
+      className="scroll-mt-28 rounded-xl border border-line-subtle bg-card p-lg shadow-card sm:p-margin"
     >
-      <div className="mb-md">
-        <h2 className="text-headline-md font-display text-ink">{title}</h2>
-        {note ? <p className="mt-1 text-body-sm text-ink-faint">{note}</p> : null}
+      <div className="mb-md flex flex-wrap items-start justify-between gap-sm">
+        <div>
+          {eyebrow ? (
+            <p className="text-label-sm uppercase tracking-wide text-brand">{eyebrow}</p>
+          ) : null}
+          <h2 className="font-display text-headline-lg text-ink">{title}</h2>
+          {note ? <p className="mt-1 text-body-sm text-ink-faint">{note}</p> : null}
+        </div>
+        {action ? <div className="shrink-0">{action}</div> : null}
       </div>
       {children}
     </section>
   );
 }
 
+/** The mock's small status pills. Colour is meaning, never decoration. */
+export function Chip({
+  tone = 'neutral',
+  icon,
+  children,
+}: {
+  tone?: 'neutral' | 'success' | 'info' | 'notice' | 'brand';
+  icon?: IconName;
+  children: React.ReactNode;
+}) {
+  const tones = {
+    neutral: 'bg-sunken text-ink-soft',
+    success: 'bg-success-soft text-success',
+    info: 'bg-info-soft text-info',
+    notice: 'bg-notice-soft text-notice',
+    brand: 'bg-brand-soft text-brand',
+  } as const;
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-sm px-2 py-1 text-label-sm uppercase ${tones[tone]}`}
+    >
+      {icon ? <Icon name={icon} className="size-3.5" /> : null}
+      {children}
+    </span>
+  );
+}
+
 /**
  * A section this platform does not have the data for, said plainly.
  *
- * One line, muted, never a skeleton or a placeholder chart. The mock this page
- * follows carries ten sections of market intelligence, school catchments and
- * inclusion schedules; this database holds none of it. Drawing a convincing
- * empty chart would be inventing the thing #4 exists to forbid, and drawing a
- * full-height "coming soon" panel six times over would make a working page
- * read as broken.
+ * One line, muted, never a skeleton or a placeholder chart. See the note at
+ * the top of this file for the ten sections this covers.
  */
 export function NotConnected({ title, what }: { title: string; what: string }) {
   return (
@@ -64,35 +138,97 @@ export function NotConnected({ title, what }: { title: string; what: string }) {
   );
 }
 
+/* ------------------------------------------------------------ key specs -- */
+
+export type SpecTile = { icon: IconName; value: string; label: string };
+
+/**
+ * The mock's key specification bar: an icon in a raised square, the figure
+ * above its label, five across on a sunken strip.
+ *
+ * This replaced a bare `<dl>` of numbers. The difference is not decoration —
+ * the tiles are what make five unlabelled integers legible at a glance, which
+ * is the one thing a buyer scans a property page for.
+ */
+export function SpecBar({ specs }: { specs: SpecTile[] }) {
+  if (specs.length === 0) return null;
+
+  return (
+    <dl
+      /*
+        auto-fit, not a fixed five.
+
+        The mock always has five tiles. Here a listing may have one — bedrooms,
+        bathrooms and car spaces are all nullable — and five fixed columns gave
+        that one tile a fifth of the row, which was narrow enough that "322 m²"
+        wrapped between the number and the unit. auto-fit gives each tile a
+        floor of 8rem and still fits five across the 8-of-12 column.
+      */
+      className="grid gap-md rounded-xl bg-canvas p-md [grid-template-columns:repeat(auto-fit,minmax(8rem,1fr))]"
+    >
+      {specs.map((s) => (
+        <div key={s.label} className="flex items-center gap-sm">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-card text-ink shadow-card">
+            <Icon name={s.icon} className="size-5" />
+          </span>
+          <div className="min-w-0">
+            <dd className="font-display text-headline-md text-ink">{s.value}</dd>
+            <dt className="truncate text-label-sm uppercase text-ink-soft">{s.label}</dt>
+          </div>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/* ----------------------------------------------------------- inspections -- */
+
+/**
+ * The mock's inspection sessions: one row per time, the day in bold, the
+ * window under it, and the kind as a pill — because "auction" and "private
+ * appointment" are different commitments from "open for inspection" and a
+ * visitor who mistakes one for the other turns up to a locked door.
+ *
+ * `listingInspections` drops past sessions in SQL, so everything here is
+ * attendable. That is why there is no "past inspections" state to render.
+ */
 export function Inspections({ inspections }: { inspections: PublicInspection[] }) {
   if (inspections.length === 0) {
     return (
-      <Card title="Inspections">
+      <Card id="inspections" eyebrow="Inspections" title="No times scheduled">
         <p className="text-body-md text-ink-soft">
-          No inspection times are scheduled. Ask the agent to arrange one.
+          Nothing is open right now. Send an enquiry and the agent can arrange a
+          private appointment.
         </p>
       </Card>
     );
   }
 
+  const tone = { open: 'success', private: 'info', auction: 'notice' } as const;
+  const label = { open: 'Confirmed', private: 'By appointment', auction: 'Auction' } as const;
+
   return (
-    <Card id="inspections" title="Inspections" note="Times the property is open to visit.">
-      <ul className="grid gap-sm sm:grid-cols-2">
+    <Card
+      id="inspections"
+      eyebrow="Upcoming inspection sessions"
+      title="Open for inspection"
+      note="Bring photo ID if the agency asks for it on arrival."
+    >
+      <ul className="m-0 grid list-none gap-sm p-0 sm:grid-cols-2">
         {inspections.map((i) => (
           <li
             key={i.id}
-            className="rounded-md border border-line-subtle bg-canvas px-md py-sm"
+            className="flex items-center gap-md rounded-lg border border-line-subtle bg-canvas px-md py-sm"
           >
-            <div className="flex items-baseline justify-between gap-sm">
-              <span className="text-title-sm text-ink">{WHEN.format(i.startsAt)}</span>
-              {i.kind !== 'open' ? (
-                <span className="rounded-sm bg-brand-soft px-1.5 py-0.5 text-label-sm uppercase text-brand">
-                  {i.kind}
-                </span>
-              ) : null}
-            </div>
-            <div className="mt-0.5 text-body-sm text-ink-soft">
-              {TIME.format(i.startsAt)} – {TIME.format(i.endsAt)}
+            <Icon name="calendar" className="size-5 text-brand" />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-sm">
+                <span className="text-title-sm text-ink">{WHEN.format(i.startsAt)}</span>
+                <Chip tone={tone[i.kind]}>{label[i.kind]}</Chip>
+              </div>
+              <div className="mt-0.5 text-body-sm tabular-nums text-ink-soft">
+                {TIME.format(i.startsAt)} – {TIME.format(i.endsAt)}
+              </div>
             </div>
           </li>
         ))}
@@ -101,13 +237,43 @@ export function Inspections({ inspections }: { inspections: PublicInspection[] }
   );
 }
 
+/* -------------------------------------------------------------- timeline -- */
+
 /**
- * What has happened at this address.
+ * What has happened at this address, as the mock's transaction table.
+ *
+ * Date · Event · Price · Agency, which is exactly the shape `propertyTimeline`
+ * returns — and the one section of the mock's "Market Performance" block this
+ * platform can fill honestly. The three stat tiles beside it in the mock
+ * (suburb median, rental yield, days on market) need a market data feed that
+ * does not exist here, so they are not drawn.
  *
  * Every figure is `sold_price` as the agency entered it and every date is
- * `sold_date`. Nothing is estimated, modelled or compared to a median — the
- * page has no median and will not invent one.
+ * `sold_date`. Nothing is estimated, modelled or compared to a median.
+ *
+ * It is a real <table>: four columns of the same four fields per row is
+ * tabular data, and a screen reader reading "Oct 2025, Sold, $492,000, Local
+ * Agency Partner" needs the column headers to make sense of the third value.
  */
+/**
+ * The entries worth showing.
+ *
+ * One entry that IS this listing tells the reader nothing they cannot already
+ * see above it, so it is dropped — and then there is nothing left to draw.
+ *
+ * Exported because the page's in-page tab bar has to make the same decision.
+ * It did not: the tab was built from `timeline.length` while the section was
+ * built from this filter, so a property whose only history is its own live
+ * listing rendered a "History" tab that scrolled to nothing. Two places
+ * deciding one thing is how that happens; this is the one place.
+ */
+export function usefulTimeline(
+  entries: PublicTimelineEntry[],
+  currentListingId: string,
+): PublicTimelineEntry[] {
+  return entries.filter((e) => e.listingId !== currentListingId || entries.length > 1);
+}
+
 export function Timeline({
   entries,
   currentListingId,
@@ -115,44 +281,74 @@ export function Timeline({
   entries: PublicTimelineEntry[];
   currentListingId: string;
 }) {
-  // One entry that IS this listing tells the reader nothing they cannot see
-  // above it.
-  const useful = entries.filter((e) => e.listingId !== currentListingId || entries.length > 1);
+  const useful = usefulTimeline(entries, currentListingId);
   if (useful.length === 0) return null;
 
   return (
     <Card
       id="history"
-      title="Property history"
-      note="Taken from the listings written against this address."
+      eyebrow="Property telemetry"
+      title="Transaction timeline"
+      note="Taken from the listings written against this address. Nothing here is estimated."
     >
-      <ol className="divide-y divide-line-subtle">
-        {useful.map((e) => {
-          const when = e.soldDate ?? e.publishedAt;
-          const isThis = e.listingId === currentListingId;
-          return (
-            <li
-              key={e.listingId}
-              className="flex flex-wrap items-baseline justify-between gap-x-md gap-y-1 py-sm"
-            >
-              <span className="text-body-sm tabular-nums text-ink-faint">
-                {when ? DATE.format(when) : '—'}
-              </span>
-              <span className="text-body-md text-ink">
-                {e.status === 'sold' ? 'Sold' : isThis ? 'This listing' : 'Listed'}
-              </span>
-              <span className="text-data text-ink">
-                {e.soldPrice !== null ? AUD.format(e.soldPrice) : (e.priceDisplay ?? '—')}
-              </span>
-              <span className="text-body-sm text-ink-faint">{e.agencyName}</span>
-            </li>
-          );
-        })}
-      </ol>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-left">
+          <thead>
+            <tr className="border-b border-line">
+              {['Date', 'Event', 'Price', 'Agency'].map((h) => (
+                <th key={h} scope="col" className="py-sm pr-md text-label-sm uppercase text-ink-faint">
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {useful.map((e) => {
+              const when = e.soldDate ?? e.publishedAt;
+              const isThis = e.listingId === currentListingId;
+              return (
+                <tr key={e.listingId} className="border-b border-line-subtle last:border-0">
+                  <td className="py-sm pr-md text-body-sm tabular-nums text-ink-soft">
+                    {when ? DATE.format(when) : '—'}
+                  </td>
+                  <td className="py-sm pr-md">
+                    {e.status === 'sold' ? (
+                      <Chip tone="success">Sold</Chip>
+                    ) : isThis ? (
+                      <Chip tone="brand">This listing</Chip>
+                    ) : (
+                      <Chip>Listed</Chip>
+                    )}
+                  </td>
+                  <td className="py-sm pr-md text-data text-ink">
+                    {e.soldPrice !== null ? AUD.format(e.soldPrice) : (e.priceDisplay ?? '—')}
+                  </td>
+                  <td className="py-sm text-body-sm text-ink-soft">{e.agencyName}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </Card>
   );
 }
 
+/* ---------------------------------------------------------------- agents -- */
+
+/**
+ * The mock's listing agency panel: agency, licence line, then the people, each
+ * with a tappable number.
+ *
+ * `tel:` is the point of this panel. On the device most property pages are
+ * read on, a phone number that is not a link is a number to be copied by hand.
+ *
+ * The email address is deliberately absent — `listingAgentCards` does not
+ * return it. A phone number on a property ad is the convention and the reason
+ * the snapshot column exists; an email rendered into a public page is
+ * harvested within days. The enquiry form below is the route for written
+ * contact.
+ */
 export function AgentPanel({
   agents,
   agencyName,
@@ -161,53 +357,75 @@ export function AgentPanel({
   agencyName: string;
 }) {
   return (
-    <div className="rounded-lg border border-line-subtle bg-card p-lg shadow-card">
+    <div className="rounded-xl border border-line-subtle bg-card p-lg shadow-card">
       <div className="border-b border-line-subtle pb-md">
-        <div className="text-label-sm uppercase text-ink-faint">Marketed by</div>
-        <div className="mt-0.5 text-headline-md font-display text-ink">{agencyName}</div>
+        <div className="text-label-sm uppercase tracking-wide text-ink-faint">Listing agency</div>
+        <div className="mt-0.5 font-display text-headline-md text-ink">{agencyName}</div>
       </div>
 
       {agents.length === 0 ? (
         <p className="pt-md text-body-sm text-ink-soft">
-          Contact details for this listing are not published.
+          Contact details for this listing are not published. Use the enquiry
+          form below.
         </p>
       ) : (
-        <ul className="grid gap-md pt-md">
+        <ul className="m-0 grid list-none gap-md p-0 pt-md">
           {agents.map((a) => (
             <li key={`${a.name}-${a.phone}`} className="flex items-start gap-sm">
-              {a.photoUrl ? (
-                /* eslint-disable-next-line @next/next/no-img-element -- agent
-                   photos are arbitrary remote URLs stored in agent_profile and
-                   next/image needs every host allow-listed in next.config. A
-                   plain img is correct until there is one media host. */
+              {/*
+                An uploaded portrait beats a pasted link.
+
+                `photoKey` is a file this platform holds, in the one bucket
+                next.config allows, so it goes through next/image and is
+                resized to the 44px it is drawn at. `photoUrl` is whatever URL
+                an agency typed into the console at some point — an arbitrary
+                remote host that next/image would refuse, so it stays a plain
+                <img>. Both are already gated on agent_profile.public by
+                listingAgentCards; neither is a decision made here.
+              */}
+              {mediaUrl(a.photoKey) ? (
+                <Image
+                  src={mediaUrl(a.photoKey) as string}
+                  alt=""
+                  width={44}
+                  height={44}
+                  className="size-11 shrink-0 rounded-full border border-line-subtle object-cover"
+                />
+              ) : a.photoUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element -- see above */
                 <img
                   src={a.photoUrl}
                   alt=""
-                  width={48}
-                  height={48}
-                  className="size-12 shrink-0 rounded-full border border-line-subtle object-cover"
+                  width={44}
+                  height={44}
+                  className="size-11 shrink-0 rounded-full border border-line-subtle object-cover"
                 />
               ) : (
                 <span
                   aria-hidden
-                  className="flex size-12 shrink-0 items-center justify-center rounded-full bg-brand-soft text-title-sm text-brand"
+                  className="flex size-11 shrink-0 items-center justify-center rounded-full bg-brand-soft text-title-sm uppercase text-brand"
                 >
-                  {a.name.slice(0, 1)}
+                  {a.name
+                    .split(/\s+/)
+                    .slice(0, 2)
+                    .map((part) => part[0] ?? '')
+                    .join('')}
                 </span>
               )}
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="text-title-sm text-ink">{a.name}</div>
-                {a.licenceNumber ? (
-                  <div className="text-body-sm text-ink-faint">Licence {a.licenceNumber}</div>
-                ) : null}
-                <a
-                  href={`tel:${a.phone.replace(/\s+/g, '')}`}
-                  className="mt-0.5 inline-block text-data text-brand hover:underline"
-                >
-                  {a.phone}
-                </a>
-                {a.bio ? (
-                  <p className="mt-1 text-body-sm leading-snug text-ink-soft">{a.bio}</p>
+                <div className="text-body-sm text-ink-soft">
+                  {a.role === 'lead' ? 'Lead agent' : a.role === 'co' ? 'Co-agent' : 'Property manager'}
+                  {a.licenceNumber ? ` · Licence ${a.licenceNumber}` : ''}
+                </div>
+                {a.phone ? (
+                  <a
+                    href={`tel:${a.phone.replace(/\s+/g, '')}`}
+                    className="mt-1 inline-flex items-center gap-1.5 text-body-sm text-brand hover:underline"
+                  >
+                    <Icon name="phone" className="size-3.5" />
+                    {a.phone}
+                  </a>
                 ) : null}
               </div>
             </li>
@@ -215,5 +433,47 @@ export function AgentPanel({
         </ul>
       )}
     </div>
+  );
+}
+
+/* -------------------------------------------------------- due diligence -- */
+
+/**
+ * Victoria's due diligence checklist, and only Victoria's.
+ *
+ * The mock carries this block because its listing is in Pakenham. It is a real
+ * obligation under section 33A of the Sale of Land Act 1962, not portal
+ * furniture — but it is a *Victorian* one, so rendering it on a NSW listing
+ * would be stating a legal requirement that does not apply there.
+ *
+ * The wording stays general and links to the official page rather than
+ * paraphrasing the Act. This platform is not the authority on it and should
+ * not read as though it is.
+ */
+export function DueDiligence({ state }: { state: string }) {
+  if (state.toUpperCase() !== 'VIC') return null;
+
+  return (
+    <aside className="rounded-xl border border-line-subtle border-l-4 border-l-info bg-card p-lg shadow-card">
+      <div className="flex items-start gap-md">
+        <Icon name="doc" className="mt-0.5 size-5 text-info" />
+        <div>
+          <h2 className="text-title-sm text-ink">Due diligence checklist</h2>
+          <p className="mt-1 text-body-sm text-ink-soft">
+            Consumer Affairs Victoria publishes a due diligence checklist for
+            buyers of residential property. Victorian vendors and their agents
+            must make it available before a property is offered for sale.
+          </p>
+          <a
+            className="mt-sm inline-flex items-center gap-1.5 text-body-sm text-info hover:underline"
+            href="https://www.consumer.vic.gov.au/duediligencechecklist"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Read the official checklist
+          </a>
+        </div>
+      </div>
+    </aside>
   );
 }

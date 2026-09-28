@@ -46,6 +46,7 @@ const DEFAULT_STATE: OnboardingState = {
     fido: true,
   },
   photoUrl: null,
+  photoKey: null,
   bio: null,
 };
 

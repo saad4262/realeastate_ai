@@ -685,3 +685,98 @@
 .inputInvalid:focus {
   box-shadow: 0 0 0 1px var(--rose);
 }
+
+/* ---------------------------------------------------- headshot upload -- */
+
+.photoEmpty {
+  width: 120px;
+  height: 120px;
+  border-radius: 0.75rem;
+  border: 1px dashed var(--border-strong, #cbd5e1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.photoActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.625rem;
+}
+
+/* A <label> wrapping a visually hidden input, not a button that calls .click()
+   on one — that loses the keyboard and the picker's own labelling. */
+.photoPick {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3125rem 0.625rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-strong, #cbd5e1);
+  background: var(--surface-card, #fff);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+  cursor: pointer;
+}
+
+.photoPick:hover {
+  border-color: var(--text-muted, #94a3b8);
+}
+
+.photoPick[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.photoFile {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.photoClear {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--crimson-critical, #e11d48);
+  cursor: pointer;
+}
+
+.photoClear:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.photoError {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--crimson-critical, #e11d48);
+  max-width: 200px;
+}
+
+/* The Continue glyph while the next step is on its way. The icon font is loaded
+   without &icon_names=, so progress_activity is present — see app/layout.tsx. */
+.spin {
+  display: inline-block;
+  animation: wizard-spin 0.9s linear infinite;
+}
+
+@keyframes wizard-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation: none; }
+}

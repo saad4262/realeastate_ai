@@ -314,6 +314,23 @@ status served fresh is a bug; a wrong status served from a cache sticks.
 
 ---
 
+### A background job reads the uncached path, deliberately
+
+The rule above is about writes busting the cache. It says nothing about a
+cron *reading*, and the obvious move — reuse `cachedSearch` — is wrong.
+
+A 30-second Data Cache TTL is right for a page somebody is looking at and
+wrong for a once-a-day email: the run must see the database as it is at
+8 PM, not as it was for whoever last loaded `/search`. `unstable_cache` also
+serialises `Date` to a string, and a snapshot stored from it would carry that
+lie into `schedule_run.listings` permanently.
+
+So `apps/web/lib/scheduler.ts` injects `searchPublicListings` and
+`resolvePlace` directly. A background job has no page whose staleness budget
+applies to it.
+
+---
+
 ## 7. Forms and validation
 
 **One schema, enforced on the server, reused on the client.** The listing form
@@ -395,6 +412,23 @@ Old rows were legal when they were written. Two things make that safe:
 - **Rate limit every public write**, and say honestly in the comment that an
   in-process counter is a ceiling on accidental volume, not a security control.
 - Hiding a button is a courtesy. The server refuses regardless.
+- **A machine caller authenticates with a shared secret and supplies nothing
+  else.** `/api/cron/alerts` reads no body, no query parameter and no id: it
+  looks up what is due itself. Batch size is a constant in `packages/core`
+  and dry mode is an environment variable, because a parameter that changes
+  behaviour is a parameter an outside caller eventually gets wrong. The guard
+  lives in `packages/core/src/schedules/cron-guard.ts` rather than in the
+  route, because `pnpm test` runs core and ai only — a guard written in a
+  route handler is a guard with no test, which is still true of the
+  revalidate one it was copied from.
+- **apps/web's middleware runs on account routes only.** `/`, `/search` and
+  `/listing/[id]` are outside the matcher on purpose: `updateSession` is a
+  Supabase round trip, those are the three fastest pages in the repo
+  (33/36/32 ms) and `/` is a cached route. A cached route that authenticates
+  before serving is not a cached route. The natural next edit is to widen the
+  matcher so a header can say "Sign in" everywhere — do not. Fetch the
+  session in the layout of the routes that need it. `looksSignedIn()` exists
+  for the display-only case and verifies nothing.
 
 ---
 
@@ -403,12 +437,73 @@ Old rows were legal when they were written. Two things make that safe:
 - **Every route that queries the database gets a `loading.tsx`.** It renders
   that page's own chrome — header, shell, skeleton in the shape of the real
   content — so the transition is a fill, not a flash.
+- **A route group's `loading.tsx` is not that route's loader.** One fallback for
+  eleven pages cannot be the shape of any of them. `pnpm smoke` now enforces
+  this: a console `page.tsx` that mentions `getConsoleDb` must have a
+  `loading.tsx` in its own folder.
 - **No root `app/loading.tsx`.** It replaces the whole shell, header included,
   and reads as a full reload because visually it is one.
 - Skeletons are built to the same measurements as the real component. A
   skeleton of the wrong height is a layout shift with extra steps.
+- **Build the skeleton out of the real component's own CSS module** rather than
+  out of fresh rectangles. `ListingFormSkeleton` renders
+  `listing-form.module.css`'s `.form`, `.section`, `.grid` and `.field`, so the
+  form cannot be re-spaced without the skeleton moving with it. `SkeletonBar`
+  in `page-skeleton.tsx` is the one shimmer, so there is one animation and one
+  `prefers-reduced-motion` rule.
 - Console errors render **inside** the shell so the sidebar survives. A bare
   error page reads as "the site is down".
+
+### The wrong loader reads as a page reload
+
+This was the console's worst-felt problem and none of it was a slow query. The
+whole console had two loaders, both the route-group roots, both rendering the
+same generic `PageSkeleton`: a title, three stat tiles and a card. So:
+
+- **Pressing Edit on a listing** painted the listings table's shape for two
+  round trips, then replaced it with a form. Nothing was broken, and it read as
+  two seconds of the wrong page.
+- **The five-step onboarding wizard** is five routes. Every Continue tore the
+  wizard card down, painted the shape of a dashboard, and rebuilt the wizard —
+  indistinguishable from the browser reloading, because visually it is one.
+
+Both are fixed by a loader per route, in that route's shape. Neither needed a
+query to get faster.
+
+### A multi-step form is still a navigation
+
+Where the steps of a wizard are separate routes, each step keeps its own
+`loading.tsx` in the wizard's shape **and** prefetches the step either side of
+it (`router.prefetch` in `WizardChrome`). Two, not five — § 3. The step
+transition then comes out of the router cache and the skeleton is the fallback
+for a slow connection rather than the thing you see five times on the way
+through. The Continue button navigates inside a `useTransition` so it can say
+it is working; without that, a step that costs a round trip looks like a button
+that does nothing.
+
+### Stream the second round trip; do not wait for it
+
+A page with two sequential reads should not make the first one's output wait
+for the second. Both listing edit pages read the listing, then the photos —
+second and not parallel on purpose, because the listing read is what decides
+whether this actor may see this id at all. Putting the photo read in its own
+async component behind `<Suspense>` keeps that ordering exactly and stops the
+form waiting: the form is on screen and typeable while the photos arrive.
+
+### Do not key a boundary on a param the query ignores
+
+`/team`'s boundary was keyed on `tab` and `selectedId`, so every tab click and
+every agent click threw the roster away and painted a skeleton. But neither
+parameter reaches the database — `listAgencyAgents` takes the actor and nothing
+else, and the tab filter, the counts and the open dossier are all computed from
+the same array. Key on the query (§ 5); the query here is constant, so there is
+no key, and a navigation leaves the correct rows on screen while it re-renders.
+
+That leaves one round trip in which the screen is right but unchanged, which
+reads as "my click did nothing" and gets clicked again. `useLinkStatus`, in a
+component rendered **inside** the Link, is the answer — it is scoped to its own
+Link, so three tabs and twenty rows share one router and only the clicked one
+spins. `/team`'s costs 70 bytes, measured.
 
 ---
 
@@ -424,8 +519,10 @@ Current, from `next build`. Treat a regression as a bug with a cause.
 | `/listing/[id]` | 2.64 kB | 109 kB |
 | `/chat` | 8.1 kB | 114 kB |
 | console shared | — | 103 kB |
-| `/team` | 4.4 kB | 111 kB |
-| listing form routes | 138 B | 126 kB |
+| `/team` | 4.59 kB | 114 kB |
+| listing form routes (new) | 171 B | 126 kB |
+| listing form routes (edit) | 202 B | 129 kB |
+| `/team/onboarding` | 2.88 kB | 128 kB |
 
 `/listing/[id]` grew four times its content and still costs 109 kB, because
 all of it is Server Components. The one client island on it — the enquiry form
@@ -511,6 +608,19 @@ Order: `pnpm typecheck` → `pnpm lint` → `pnpm test` → `pnpm smoke` →
 `docs/TEST-PLAN.md` for anything needing a browser.
 
 ---
+
+### An in-process cap does not cover a background run
+
+Every cost ceiling before the scheduler was a `Map` on `globalThis` keyed on
+an IP address — the chat's 10/min limiter and `AI_CHAT_DAILY_TURN_CAP`. A
+cron tick has no IP and may not share the process, so **neither applies to
+it at all**. `checkAiBudget` is a `sum(cost_usd)` over `ai_run`, which is
+durable, shared between processes and survives a restart.
+
+It is still advisory: two runs can read the total before either writes. The
+backstop that actually holds is a spend cap in the Anthropic console, and
+saying so in the comment is part of the rule. Note `cost_usd` is `numeric`
+and comes back as a **string** — coerce it, and assert the type.
 
 ### A model parameter is a capability of the id, not a preference of the route
 

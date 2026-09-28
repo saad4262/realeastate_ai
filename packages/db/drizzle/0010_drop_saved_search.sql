@@ -1,0 +1,13 @@
+-- saved_search is replaced by search_schedule + schedule_run in 0009.
+--
+-- It was written in 0000 and never read or written by anything: the only
+-- references outside the schema were the truncate list in src/reset.ts. It
+-- could not be extended into the scheduler in place — no prompt column, no
+-- cursor, no timezone, no claim, and a free-text `frequency` that
+-- ARCHITECTURE § 7 does not allow for a dimension anything filters on.
+--
+-- Dropped in its own migration rather than alongside the creates so that
+-- drizzle-kit saw two additions and no removal in 0009, and therefore never
+-- had to ask whether this was a rename. It is not a rename: none of the
+-- columns survive, and the row count was confirmed to be zero first.
+DROP TABLE "saved_search" CASCADE;

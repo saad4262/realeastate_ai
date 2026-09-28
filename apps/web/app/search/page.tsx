@@ -1,12 +1,23 @@
 import { Suspense } from 'react';
+import Link from 'next/link';
 import type { Metadata } from 'next';
-import type { ListingChannel, PublicSearchQuery, SearchSort } from '@repo/core/listings';
+import type {
+  ListingChannel,
+  PublicSearchQuery,
+  SearchFacets,
+  SearchSort,
+} from '@repo/core/listings';
 import { nearSchema } from '@repo/core/geo/schema';
 import { WebShell } from '../../components/web-shell';
 import { SearchBar } from '../../components/search-bar';
-import { SearchBarSkeleton, CardGridSkeleton } from '../../components/skeletons';
+import { SearchBarSkeleton, ResultListSkeleton, PanelSkeleton } from '../../components/skeletons';
 import { ResultsList, ResultsSummary } from './results';
-import { cachedFilterOptions, cachedPlace } from '../../lib/cached';
+import { NearbySuburbsPanel, NotConnectedPanel, TopAgentsPanel } from './sidebar';
+import { parseSearchParams, savedQueryToPath } from '@repo/core/listings/url';
+import { SaveSearch } from '../../components/save-search';
+import { looksSignedIn } from '../../lib/session';
+import { cachedFacets, cachedPlace } from '../../lib/cached';
+import { portalFonts } from '../portal-fonts';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,7 +93,24 @@ export default async function SearchPage({
    * and handing the promise to a component inside the existing Suspense
    * boundary means the results never wait on it even when it is cold.
    */
-  const filterOptions = cachedFilterOptions();
+  const filterOptions = cachedFacets();
+
+  /**
+   * The same URL, read back as a saved search.
+   *
+   * Parsed rather than rebuilt from the local variables below, so the thing
+   * offered for saving is provably the thing in the address bar — one
+   * vocabulary, both directions. `looksSignedIn` is a cookie sniff and
+   * decides nothing; the Server Action reads the real session.
+   */
+  const savedQuery = parseSearchParams(
+    new URLSearchParams(
+      Object.entries(params).flatMap(([key, value]) =>
+        value === undefined ? [] : [[key, Array.isArray(value) ? (value[0] ?? '') : value] as [string, string]],
+      ),
+    ),
+  );
+  const signedIn = await looksSignedIn();
 
   const suburb = one('suburb')?.trim() || undefined;
   const state = one('state')?.trim() || undefined;
@@ -194,6 +222,62 @@ export default async function SearchPage({
     return qs ? `/search?${qs}` : '/search';
   };
 
+  /** The same link, with one parameter replaced and the page reset to one. */
+  const withParam = (key: string, value: string) => {
+    const next = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      const val = Array.isArray(v) ? v[0] : v;
+      // `page` is dropped: changing the sort of a 20-page search and landing
+      // on page 7 of the new order is a different search with the old
+      // scroll position, which reads as results that will not settle.
+      if (val && k !== 'page' && k !== key) next.set(k, val);
+    }
+    if (value) next.set(key, value);
+    const qs = next.toString();
+    return qs ? `/search?${qs}` : '/search';
+  };
+
+  /**
+   * The heading a portal puts above its results.
+   *
+   * Built from the search rather than fixed, because it is the page's <h1> and
+   * the thing a search engine indexes this URL by — "Real estate & property for
+   * sale in Pakenham, VIC 3810" is the query, written out. The old <h1> was
+   * `sr-only` and said "Search properties" on every search there has ever been.
+   */
+  const kindLabel = query.channel === 'rent' ? 'for rent' : 'for sale';
+  /**
+   * Punctuated as an address, not as `place`.
+   *
+   * `place` is a space-joined "Pakenham VIC 3810" and it is load-bearing in
+   * the summary sentence below, so it is left alone. A heading is prose and
+   * wants the comma an address is written with.
+   */
+  const headingPlace = suburb
+    ? [suburb, [state, postcode].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+    : place;
+  const whereLabel = near ? 'in the area you searched' : 'across Australia';
+  const heading = `Real estate & property ${kindLabel} ${
+    headingPlace ? `in ${headingPlace}` : whereLabel
+  }`;
+
+  /**
+   * Sort as links, not as a second select.
+   *
+   * The search bar already has a sort control, and a dropdown here would be a
+   * second place the same value lives — the exact mirror-of-the-URL problem
+   * the search bar was rewritten to remove. Links write to the URL, which is
+   * the only copy of the search, so the two controls cannot disagree. They
+   * also work with no JavaScript, which a submit-on-change select does not.
+   */
+  const currentSort = sortOf(one('sort')) ?? '';
+  const sorts: { value: string; label: string }[] = [
+    { value: '', label: near ? 'Nearest' : 'Featured' },
+    { value: 'newest', label: 'Newest' },
+    { value: 'price_asc', label: 'Price ↑' },
+    { value: 'price_desc', label: 'Price ↓' },
+  ];
+
   const shared = { query, suburb, place, near, page, pageSize: PAGE_SIZE, pageHref };
 
   /**
@@ -212,51 +296,158 @@ export default async function SearchPage({
   const searchKey = JSON.stringify(query);
 
   return (
-    <WebShell wide>
-      <div className="mx-auto w-full max-w-[1200px] px-gutter pb-xl">
-        {/*
-          The search box first, the count under it — a portal's order, and the
-          reverse of what this page did. The box is what a visitor came to use;
-          the sentence is the answer to it.
+    // Outside the middleware matcher, so this is `looksSignedIn()` — a cookie
+    // sniff, good enough to choose which of two links to draw and never
+    // trusted for anything else. Both destinations re-check on the server.
+    <WebShell wide account={{ signedIn }}>
+      {/*
+        The portal skin.
 
-          NOT sticky. AppShell's header already is (top: 0, z-index: 20), and a
-          second sticky bar under it has to know that header's height to sit
-          below it — a number that lives in another package and changes with
-          its padding. One sticky element, and it is the one with the nav in it.
-        */}
-        <div className="py-md">
-          <h1 className="sr-only">Search properties</h1>
-          <Suspense fallback={<SearchBarSkeleton />}>
-            <SearchBarSlot options={filterOptions} />
-          </Suspense>
+        One attribute. Every token inside this element is redefined by the
+        [data-skin='portal'] block in tailwind.css — white cards on grey,
+        crimson as the brand, no serif — so the utilities and the CSS Modules
+        below both change together without a single class being renamed.
+
+        It is here rather than on <body> because the header above it is
+        AppShell's and shared with / and /chat, which keep the warm green.
+      */}
+      <div
+        data-skin="portal"
+        /* Marks THIS element as the page's own wrapper.
+
+           loading.tsx carries the skin too — it has to, or the page changes
+           colour when it arrives — and its shell is streamed into the same
+           HTML document. So "is data-skin anywhere in the response" is a
+           question the skeleton alone can answer yes to, and it did: removing
+           the attribute from this element left the smoke check passing.
+
+           The check now looks for both attributes on one tag, which only this
+           element has. */
+        data-page="search-results"
+        className={`${portalFonts} min-h-screen bg-canvas`}
+      >
+        <div className="mx-auto w-full max-w-[1200px] px-gutter pb-xl">
+          {/*
+            The search box first, the heading and count under it — a portal's
+            order, and the reverse of what this page did. The box is what a
+            visitor came to use; the sentence is the answer to it.
+
+            NOT sticky. AppShell's header already is (top: 0, z-index: 20), and
+            a second sticky bar under it has to know that header's height to sit
+            below it — a number that lives in another package and changes with
+            its padding. One sticky element, and it is the one with the nav in
+            it.
+          */}
+          <div className="py-md">
+            <Suspense fallback={<SearchBarSkeleton />}>
+              <SearchBarSlot options={filterOptions} />
+            </Suspense>
+          </div>
+
+          <h1 className="pt-sm text-headline-xl font-display text-ink">{heading}</h1>
+
+          <div className="mt-sm flex flex-wrap items-center justify-between gap-sm border-b border-line-subtle pb-md">
+            {/*
+              The one line that depends on the answer, streaming in beside a
+              search box that never leaves the screen.
+
+              Its wording is load-bearing beyond this page: packages/smoke reads
+              the result count straight out of this rendered HTML with
+              /([0-9]+) results?\s+—/, and five checks depend on it. The layout
+              around it changed twice now; the sentence deliberately did not.
+            */}
+            <Suspense
+              key={`s-${searchKey}`}
+              fallback={<p className="text-body-md text-ink-soft">Searching…</p>}
+            >
+              <ResultsSummary {...shared} />
+            </Suspense>
+
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="text-label-md uppercase text-ink-faint">Sort by</span>
+              {sorts.map((s) => (
+                <Link
+                  key={s.value || 'default'}
+                  href={withParam('sort', s.value)}
+                  prefetch={false}
+                  aria-current={s.value === currentSort ? 'true' : undefined}
+                  className={
+                    s.value === currentSort
+                      ? 'rounded-sm bg-brand px-sm py-1 text-body-sm text-brand-ink'
+                      : 'rounded-sm px-sm py-1 text-body-sm text-ink-soft hover:text-brand'
+                  }
+                >
+                  {s.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          {/*
+            Save this search.
+
+            It is handed the path rather than the parsed filters: the server
+            re-parses it with the same vocabulary this page just used, so what
+            gets saved is exactly what produced the results above (§ 9). The
+            signed-in flag is a display hint only — see looksSignedIn().
+          */}
+          <div className="pt-md">
+            <SaveSearch
+              searchPath={savedQueryToPath(savedQuery)}
+              signedIn={signedIn}
+              hasFilters={Object.keys(savedQuery).length > 0}
+            />
+          </div>
+
+          {/*
+            Results beside a sidebar, 8 and 4 of twelve — the split the listing
+            page already uses, so the two public pages have one column system
+            between them rather than one each.
+
+            `items-start` is what lets the sidebar stick: a stretched grid item
+            is as tall as the results column, and a sticky element inside
+            something that tall never has anywhere to stick to.
+          */}
+          <div className="grid items-start gap-lg pt-lg lg:grid-cols-12">
+            <section className="lg:col-span-8">
+              {/* A stack of card shapes rather than a spinner: the results are
+                  about to be a stack of cards, and a centred spinner makes the
+                  page jump from nothing to full height. */}
+              <Suspense key={`r-${searchKey}`} fallback={<ResultListSkeleton count={4} />}>
+                <ResultsList {...shared} />
+              </Suspense>
+            </section>
+
+            {/*
+              Its own boundary, and deliberately outside the results one.
+
+              These are two more reads. Inside the results boundary they would
+              hold the listings back; awaited in the page they would hold the
+              whole page back. In a boundary of their own the results render
+              the moment the search returns and the panels arrive when they
+              arrive — which is the right priority, because nobody came here
+              for the sidebar.
+            */}
+            <aside className="grid gap-md lg:sticky lg:top-lg lg:col-span-4">
+              <Suspense key={`a-${searchKey}`} fallback={<PanelSkeleton rows={3} />}>
+                {suburb ? (
+                  <TopAgentsPanel suburb={suburb} state={state} channel={query.channel} />
+                ) : null}
+              </Suspense>
+
+              <Suspense key={`n-${searchKey}`} fallback={<PanelSkeleton rows={4} />}>
+                <NearbySuburbsPanel
+                  suburb={suburb}
+                  state={state}
+                  channel={query.channel}
+                  near={near}
+                />
+              </Suspense>
+
+              <NotConnectedPanel />
+            </aside>
+          </div>
         </div>
-
-        {/*
-          The one line that depends on the answer, streaming in beside a search
-          box that never leaves the screen.
-
-          Its wording is load-bearing beyond this page: packages/smoke reads the
-          result count straight out of this rendered HTML with
-          /([0-9]+) results?\s+—/, and five checks depend on it. The layout
-          around it changed; the sentence deliberately did not.
-        */}
-        <div className="flex flex-wrap items-baseline justify-between gap-sm border-b border-line-subtle pb-md">
-          <Suspense
-            key={`s-${searchKey}`}
-            fallback={<p className="text-body-md text-ink-soft">Searching…</p>}
-          >
-            <ResultsSummary {...shared} />
-          </Suspense>
-        </div>
-
-        <section className="pt-lg">
-          {/* A grid of card shapes rather than a spinner: the results are about
-              to be a grid of cards, and a centred spinner makes the page jump
-              from nothing to full height. */}
-          <Suspense key={`r-${searchKey}`} fallback={<CardGridSkeleton count={6} />}>
-            <ResultsList {...shared} />
-          </Suspense>
-        </section>
       </div>
     </WebShell>
   );
@@ -269,11 +460,7 @@ export default async function SearchPage({
  * results independent of it: a cold filter-options read delays the box it
  * belongs to and nothing else.
  */
-async function SearchBarSlot({
-  options,
-}: {
-  options: Promise<{ suburbs: string[]; propertyTypes: string[] }>;
-}) {
-  const { propertyTypes } = await options;
-  return <SearchBar propertyTypes={propertyTypes} />;
+async function SearchBarSlot({ options }: { options: Promise<SearchFacets> }) {
+  const facets = await options;
+  return <SearchBar facets={facets} />;
 }

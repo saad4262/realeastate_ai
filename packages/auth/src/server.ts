@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
+import { sessionCookieOptions } from './cookie-domain';
 
 function publicEnv() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -10,16 +11,15 @@ function publicEnv() {
   return { url, key };
 }
 
-function cookieOptions() {
-  const domain = process.env.COOKIE_DOMAIN;
-  return domain ? { domain, path: '/', sameSite: 'lax' as const } : { path: '/', sameSite: 'lax' as const };
-}
-
 /** Server Components / Route Handlers — Supabase session via cookies. */
 export async function createServerSupabaseClient() {
   const cookieStore = await cookies();
   const { url, key } = publicEnv();
-  const base = cookieOptions();
+  /**
+   * Host-aware. A `.lvh.me` domain on a `localhost` request is a cookie
+   * the browser throws away without telling anyone — see ./cookie-domain.
+   */
+  const base = sessionCookieOptions((await headers()).get('host'));
 
   return createServerClient(url, key, {
     cookies: {

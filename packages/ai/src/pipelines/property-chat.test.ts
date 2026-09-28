@@ -48,6 +48,7 @@ const LISTING: PublicListing = {
   longitude: 145.48,
   distanceKm: null,
   agencyName: 'Saadiii',
+  mainPhotoKey: null,
   agents: [],
   publishedAt: null,
 };
@@ -105,9 +106,13 @@ function tools(over: Partial<ToolContext> = {}): ToolContext {
   return {
     db: {} as Db,
     places: new Map(),
+    // These tests are about finding homes, not scheduling. `signed_out` is
+    // the honest default: no session, so the scheduling tools refuse.
+    scheduling: { state: 'signed_out' },
     resolvePlace: vi.fn(async () => PLACE),
     search: vi.fn(async () => [LISTING]),
     getListing: vi.fn(async () => LISTING),
+    nearbyMarket: vi.fn(async () => ({ listings: [], bySuburb: [], unpriced: 0 })),
     ...over,
   };
 }
@@ -377,17 +382,43 @@ describe('reconstructMessages', () => {
   });
 
   it('carries the known requirements as an operator instruction, not as the visitor speaking', async () => {
-    const messages = reconstructMessages({
-      message: 'anything cheaper?',
-      turns: [],
-      slots: { channel: 'sale', suburb: 'Pakenham', priceTo: 900_000 },
-    });
+    const messages = reconstructMessages(
+      {
+        message: 'anything cheaper?',
+        turns: [],
+        slots: { channel: 'sale', suburb: 'Pakenham', priceTo: 900_000 },
+      },
+      { midConversationSystem: true },
+    );
 
     const last = messages.at(-1)!;
     expect(last.role).toBe('system');
     expect(String(last.content)).toContain('known_requirements');
     // The visitor's own message is still its own turn, unmodified.
     expect(messages.at(-2)).toEqual({ role: 'user', content: 'anything cheaper?' });
+  });
+
+  it('adds no system message when the model was not said to accept one', async () => {
+    /**
+     * The default is the fix.
+     *
+     * This function used to push `{ role: 'system' }` unconditionally, and on
+     * Haiku — which this route runs — that is
+     * `400 role 'system' is not supported on this model`. A caller that does
+     * not say whether the model has the capability must get the carrier every
+     * model accepts, not the one that works on two families.
+     *
+     * runPropertyChat then puts the requirements on the system array instead;
+     * that half is asserted further down, against the recorded request.
+     */
+    const messages = reconstructMessages({
+      message: 'anything cheaper?',
+      turns: [],
+      slots: { channel: 'sale', suburb: 'Pakenham', priceTo: 900_000 },
+    });
+
+    expect(messages.map((m) => m.role)).not.toContain('system');
+    expect(messages.at(-1)).toEqual({ role: 'user', content: 'anything cheaper?' });
   });
 
   it('adds no system message when nothing is known yet', async () => {
@@ -491,5 +522,182 @@ describe('the request body only carries parameters the model accepts', () => {
       const params = await paramsFor({ ANTHROPIC_CHAT_MODEL: id } as NodeJS.ProcessEnv);
       expect(params.max_tokens).toBe(4096);
     }
+  });
+});
+
+/**
+ * The second capability to take this route down.
+ *
+ * `{ role: 'system' }` inside `messages` is a real feature — a mid-conversation
+ * operator instruction that does not invalidate the cached prefix — and it is
+ * implemented on the Opus and Fable families only. Haiku 4.5, which this route
+ * runs, answers `400 role 'system' is not supported on this model`.
+ *
+ * It fired only once the guide had gathered a requirement worth sending, so the
+ * opening turns of every conversation worked and the rest did not, and the
+ * visitor saw "Something went wrong reaching the assistant" halfway through.
+ *
+ * Both halves are asserted, because "it no longer 400s" is satisfied by simply
+ * dropping the requirements on the floor. They have to still reach the model.
+ */
+describe('the accumulated requirements reach the model by a carrier it accepts', () => {
+  const SLOTS = { channel: 'rent' as const, suburb: 'Berwick', priceTo: 800 };
+
+  const answer = () => ({
+    events: [textDelta('Right.')],
+    final: message({ content: [{ type: 'text', text: 'Right.', citations: [] }] }),
+  });
+
+  async function paramsFor(modelId: string, slots?: Record<string, unknown>) {
+    const { client, calls } = fakeClient([answer()]);
+    await collect(
+      runPropertyChat({
+        apiKey: 'test-key',
+        client,
+        request: { message: 'i need in berwick', turns: [], ...(slots ? { slots } : {}) },
+        catalogue: { suburbs: ['Berwick'], propertyTypes: ['House'] },
+        tools: tools(),
+        track: trackSpy(),
+        env: { ANTHROPIC_CHAT_MODEL: modelId } as NodeJS.ProcessEnv,
+      }),
+    );
+    return calls[0]!;
+  }
+
+  const systemText = (params: { system?: unknown }) =>
+    ((params.system ?? []) as { text?: string }[]).map((b) => b.text ?? '').join('\n');
+
+  it('never puts a system role in messages on Haiku', async () => {
+    const params = await paramsFor('claude-haiku-4-5', SLOTS);
+    const roles = (params.messages as { role: string }[]).map((m) => m.role);
+    expect(roles).not.toContain('system');
+  });
+
+  it('still sends the requirements on Haiku, as a trailing system block', async () => {
+    const params = await paramsFor('claude-haiku-4-5', SLOTS);
+    expect(systemText(params)).toContain('<known_requirements>');
+    expect(systemText(params)).toContain('Berwick');
+
+    // After the cached blocks and uncached itself. Caching is a prefix match,
+    // so a breakpoint here would rewrite the prefix every turn and cache
+    // nothing — the frozen prompt and the catalogue must stay in front of it.
+    const blocks = params.system as { cache_control?: unknown; text: string }[];
+    const last = blocks.at(-1)!;
+    expect(last.text).toContain('<known_requirements>');
+    expect('cache_control' in last).toBe(false);
+    expect(blocks.slice(0, -1).every((b) => 'cache_control' in b)).toBe(true);
+  });
+
+  it('uses the message carrier on a model that has it, and not both', async () => {
+    const params = await paramsFor('claude-opus-5', SLOTS);
+    const messages = params.messages as { role: string; content: unknown }[];
+    const system = messages.filter((m) => m.role === 'system');
+    expect(system).toHaveLength(1);
+    expect(String(system[0]!.content)).toContain('<known_requirements>');
+
+    // Not duplicated onto the system array — the model would read the same
+    // requirements twice, once stale.
+    expect(systemText(params)).not.toContain('<known_requirements>');
+  });
+
+  it('places the system message where the API allows it', async () => {
+    /**
+     * Three rules, all rejected by the API rather than ignored: it may not be
+     * messages[0], it must follow a user turn, and it must be either the last
+     * entry or followed by an assistant turn.
+     *
+     * The array read here is the SAME array the tool loop keeps appending to —
+     * the fake client records the params object by reference — so by the time
+     * this runs the assistant turn is already on the end. That is the second
+     * of the two legal shapes, and asserting "must be last" instead failed
+     * against a request that was perfectly valid.
+     */
+    const params = await paramsFor('claude-opus-5', SLOTS);
+    const messages = params.messages as { role: string }[];
+    const at = messages.findIndex((m) => m.role === 'system');
+
+    expect(at).toBeGreaterThan(0);
+    expect(messages[at - 1]!.role).toBe('user');
+
+    const after = messages[at + 1];
+    expect(after === undefined || after.role === 'assistant').toBe(true);
+  });
+
+  it('sends no requirements at all when none have been gathered', async () => {
+    for (const id of ['claude-haiku-4-5', 'claude-opus-5']) {
+      const params = await paramsFor(id);
+      expect((params.messages as { role: string }[]).map((m) => m.role)).not.toContain('system');
+      expect(systemText(params)).not.toContain('<known_requirements>');
+    }
+  });
+
+  it('omits the message carrier on an unrecognised model', async () => {
+    // Unknown ids fall to NO_CAPABILITIES. Guessing the other way would be a
+    // 400 on every turn of every conversation that got as far as a requirement.
+    const params = await paramsFor('claude-something-7', SLOTS);
+    expect((params.messages as { role: string }[]).map((m) => m.role)).not.toContain('system');
+    expect(systemText(params)).toContain('<known_requirements>');
+  });
+});
+
+/**
+ * Two rounds of prose are two thoughts, not one run-on sentence.
+ *
+ * A turn that searches says what it is about to do, calls the tool, then
+ * reports what it found — and the client appends every delta to one string.
+ * With nothing between them the visitor read
+ *
+ *   "…within 30 km of Pakenham.Within 30 km of Pakenham there are 3 homes…"
+ *
+ * which was on screen in the bug report that started this.
+ */
+describe('text from separate rounds is separated', () => {
+  const searchCall = () => ({
+    events: [textDelta("Now I'll search for homes near Pakenham.")],
+    final: message({
+      stop_reason: 'tool_use',
+      content: [
+        { type: 'text', text: "Now I'll search for homes near Pakenham.", citations: [] },
+        SEARCH_CALL,
+      ],
+    }),
+  });
+  const reply = () => ({
+    events: [textDelta('Within 30 km of Pakenham there are 3 homes.')],
+    final: message({
+      content: [{ type: 'text', text: 'Within 30 km of Pakenham there are 3 homes.', citations: [] }],
+    }),
+  });
+
+  async function fullText() {
+    const { client } = fakeClient([searchCall(), reply()]);
+    const events = await collect(
+      runPropertyChat({
+        apiKey: 'test-key',
+        client,
+        request: { message: 'a house in Pakenham', turns: [] },
+        catalogue: { suburbs: ['Pakenham'], propertyTypes: ['House'] },
+        tools: tools(),
+        track: trackSpy(),
+        env: { ANTHROPIC_CHAT_MODEL: 'claude-haiku-4-5' } as NodeJS.ProcessEnv,
+      }),
+    );
+    return events
+      .filter((e): e is Extract<typeof e, { type: 'text' }> => e.type === 'text')
+      .map((e) => e.delta)
+      .join('');
+  }
+
+  it('puts a blank line between the two halves', async () => {
+    const text = await fullText();
+    expect(text).not.toContain('Pakenham.Within');
+    expect(text).toContain('Pakenham.\n\nWithin');
+  });
+
+  it('adds nothing before the first round', async () => {
+    // The separator is emitted on the first delta of a LATER round, so a turn
+    // never opens with a blank line.
+    const text = await fullText();
+    expect(text.startsWith("Now I'll")).toBe(true);
   });
 });

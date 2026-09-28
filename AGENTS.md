@@ -54,7 +54,17 @@ Either may touch shared packages. Handoff files are the source of truth.
 5.  Never put `new Date()` in a system prompt — it breaks prompt caching.
 6.  price_display (string) AND price_from/price_to (numeric) are both stored.
     Never parse the string at query time.
-7.  AI-written listing copy is always a draft. Never auto-publish.
+7.  AI-written **listing copy** is always a draft. Never auto-publish.
+    Scope, added when the alert digest was built: this covers copy that
+    becomes a public advertisement in an agency's name, where the ACL makes
+    the agency answerable for it. It does not cover a first-person message
+    from the platform to its own account holder — the scheduled alert's
+    summary paragraph is sent unreviewed, under three structural constraints:
+    it is handed no numbers and has no tools, every figure around it is
+    rendered from SQL, and any output containing a figure is rejected in
+    favour of a template. It carries a visible "Written by the property
+    guide" label. Anything model-written that reaches a THIRD party needs a
+    human; anything that reaches the person who asked for it needs a label.
 8.  Types are derived from packages/db/schema.ts. Never hand-write a duplicate type.
 9.  Two apps, THREE domains, ONE database, ONE packages layer.
     agents.* and agency.* are the SAME app — never fork them.

@@ -28,6 +28,7 @@ function listing(over: Partial<PublicListing>): PublicListing {
     agencyName: 'Saadiii',
     agents: [],
     publishedAt: null,
+    mainPhotoKey: null,
     ...over,
   };
 }

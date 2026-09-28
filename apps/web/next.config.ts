@@ -1,4 +1,8 @@
 import type { NextConfig } from 'next';
+import { mediaHostname } from '@repo/core/media/url';
+
+/** Null when Supabase is not configured — then no remote host is allowed. */
+const mediaHost = mediaHostname();
 
 const nextConfig: NextConfig = {
   /**
@@ -14,7 +18,32 @@ const nextConfig: NextConfig = {
    * database driver into the browser bundle. The client may only touch
    * @repo/ai/chat-events, which imports neither, and only with `import type`.
    */
-  transpilePackages: ['@repo/ui', '@repo/core', '@repo/db', '@repo/config', '@repo/ai'],
+  transpilePackages: ['@repo/ui', '@repo/core', '@repo/db', '@repo/config', '@repo/ai', '@repo/auth'],
+  /**
+   * The one remote host next/image may fetch from.
+   *
+   * next/image refuses any host that is not allow-listed, so this and
+   * `mediaUrl()` in packages/core/src/media have to agree about where images
+   * live. Both read NEXT_PUBLIC_SUPABASE_URL rather than naming a hostname,
+   * which is what stops them drifting the day the project moves — a hostname
+   * typed in here would be right until then and silently wrong after.
+   *
+   * The path is narrowed to the public object route. A bare host allow-list
+   * would let any URL on the Supabase domain through the image optimiser,
+   * including the auth and REST endpoints, which is a needlessly wide door to
+   * leave open for the sake of one folder of photos.
+   */
+  images: {
+    remotePatterns: mediaHost
+      ? [
+          {
+            protocol: 'https' as const,
+            hostname: mediaHost,
+            pathname: '/storage/v1/object/public/**',
+          },
+        ]
+      : [],
+  },
   /**
    * How long a visited page stays usable in the client router cache.
    *

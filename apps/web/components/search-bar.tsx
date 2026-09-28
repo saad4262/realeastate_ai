@@ -4,6 +4,17 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useRef, useState, useTransition, type FormEvent } from 'react';
 import { DEFAULT_RADIUS_KM, type ResolvedPlace } from '@repo/core/geo/schema';
 import { propertyTypeLabel } from '@repo/core/listings/schema';
+/**
+ * From the leaf, NOT from ./facets.
+ *
+ * search-facets.ts runs the query, so it imports `listing` and `property` from
+ * @repo/db as values, and @repo/db reaches postgres.js, which imports `net`.
+ * This file is a client component: importing priceLadder from there broke
+ * every page on the site with "Can't resolve 'net'". The type import below is
+ * erased at compile time and is safe.
+ */
+import { priceLadder } from '@repo/core/listings/price-ladder';
+import type { SearchFacets } from '@repo/core/listings';
 import { LocationInput } from './location-input';
 import styles from './search-bar.module.css';
 
@@ -14,8 +25,16 @@ import styles from './search-bar.module.css';
  */
 const RADII = [2, 5, 10, 20, 50];
 
-const SALE_PRICES = [750_000, 1_000_000, 1_500_000, 2_000_000, 3_000_000, 5_000_000];
-const RENT_PRICES = [400, 500, 650, 750, 1000, 1500, 2000];
+/**
+ * Radius stays a fixed ladder, and it is the only one that does.
+ *
+ * Every other control here now offers what is actually listed — see the
+ * `facets` prop below. Distance is not a property of the data: "within 10 km"
+ * is a question about the map, and the honest answer to a radius that finds
+ * nothing is an empty result with the radius still set, not a missing option.
+ * Narrowing this to radii that happen to return something would also cost a
+ * PostGIS query per rung on every page load.
+ */
 
 /**
  * The consumer search box.
@@ -54,7 +73,7 @@ const RENT_PRICES = [400, 500, 650, 750, 1000, 1500, 2000];
  * all. onSubmit intercepts to keep the soft navigation and the in-button
  * spinner; the native path is what happens when that never runs.
  */
-export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) {
+export function SearchBar({ facets }: { facets: SearchFacets }) {
   const router = useRouter();
   const params = useSearchParams();
   const formRef = useRef<HTMLFormElement>(null);
@@ -170,9 +189,38 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
     : '';
 
   const isRent = channel === 'rent';
-  const prices = isRent ? RENT_PRICES : SALE_PRICES;
-  const priceLabel = (n: number) =>
-    isRent ? `$${n} pw` : `$${(n / 1_000_000).toFixed(n >= 1_000_000 ? 1 : 2)}M`;
+
+  /**
+   * Every option below is read out of what is actually live, per channel.
+   *
+   * This is the change the whole component was reworked for. The ladders used
+   * to be constants: sale prices starting at $750,000 against a database whose
+   * dearest listing is $50,000, beds up to 5 where the most any property has
+   * is 3, baths up to 4, parking up to 3. Four of six controls could only ever
+   * empty the page, which reads as "this portal has nothing" rather than as
+   * "that filter was fiction".
+   *
+   * `facets` recomputes when the channel radio flips because it is derived
+   * during render from `channel`, which IS state — the one thing on this form
+   * that has to be.
+   */
+  const live = isRent ? facets.rent : facets.sale;
+  const prices = priceLadder(live.priceMin, live.priceMax);
+
+  /**
+   * Money the way each channel is quoted.
+   *
+   * A rent ladder is tens of dollars and a sale ladder is hundreds of
+   * thousands, so one format cannot serve both: "$0.00M" was what a $450
+   * weekly rent rendered as. Sale figures switch to millions only once they
+   * are large enough for it to shorten anything.
+   */
+  const priceLabel = (n: number) => {
+    if (isRent) return `$${n.toLocaleString('en-AU')} pw`;
+    if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
+    if (n >= 10_000) return `$${Math.round(n / 1000)}k`;
+    return `$${n.toLocaleString('en-AU')}`;
+  };
 
   /**
    * Coordinates for a place the URL did not carry any.
@@ -346,6 +394,22 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
             {c.label}
           </label>
         ))}
+
+        {/*
+          A channel with nothing in it says so, here, rather than on the
+          results page.
+
+          There is not one rental on this platform, so switching to Rent
+          searched, found nothing, and rendered "Nothing matched that search.
+          Try a wider price range" — advice that cannot help, about a filter
+          the visitor did not set. The count comes from the same facets query
+          that fills every dropdown, so it costs nothing to say.
+        */}
+        {live.total === 0 ? (
+          <span className={styles.channelNote}>
+            Nothing is listed {isRent ? 'for rent' : 'for sale'} yet.
+          </span>
+        ) : null}
       </div>
 
       <div className={styles.row}>
@@ -358,7 +422,10 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
           aria-label="Minimum bedrooms"
         >
           <option value="">Any beds</option>
-          {[1, 2, 3, 4, 5].map((n) => (
+          {/* Only counts some live property actually has. The filter is "N or
+              more", so the largest value present is the largest that can still
+              return a result — and nothing above it is offered. */}
+          {live.bedrooms.map((n) => (
             <option key={n} value={n}>
               {n}+ beds
             </option>
@@ -483,7 +550,7 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
             aria-label="Minimum bathrooms"
           >
             <option value="">Any baths</option>
-            {[1, 2, 3, 4].map((n) => (
+            {live.bathrooms.map((n) => (
               <option key={n} value={n}>
                 {n}+ baths
               </option>
@@ -497,7 +564,7 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
             aria-label="Minimum car spaces"
           >
             <option value="">Any parking</option>
-            {[1, 2, 3].map((n) => (
+            {live.carSpaces.map((n) => (
               <option key={n} value={n}>
                 {n}+ car
               </option>
@@ -512,8 +579,9 @@ export function SearchBar({ propertyTypes = [] }: { propertyTypes?: string[] }) 
           >
             <option value="">Any type</option>
             {/* Only types with something live in them, so no choice here can
-                produce an empty page by itself. */}
-            {propertyTypes.map((t) => (
+                produce an empty page by itself. This was the one control that
+                already had that rule; now they all do. */}
+            {live.propertyTypes.map((t) => (
               <option key={t} value={t}>
                 {propertyTypeLabel(t)}
               </option>

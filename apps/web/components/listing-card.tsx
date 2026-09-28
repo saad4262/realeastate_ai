@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import Image from 'next/image';
+import type { ReactNode } from 'react';
 import type { PublicListingSummary } from '@repo/core/listings';
 /**
  * From the leaf, NOT from the ./listings barrel.
@@ -10,6 +12,13 @@ import type { PublicListingSummary } from '@repo/core/listings';
  * import above is erased at compile time and is safe.
  */
 import { channelLabel, landLabel, priceLabel, specLine } from '@repo/core/listings/format';
+/**
+ * From the leaf, and value-safe in the browser: media-url.ts is string
+ * concatenation over two NEXT_PUBLIC_ variables. The service-role storage
+ * client lives behind `@repo/core/media/storage` and must never be imported
+ * from anything that ships to a client.
+ */
+import { mediaUrl } from '@repo/core/media/url';
 
 /**
  * Re-exported because a card is still where most of the app reaches for these,
@@ -33,42 +42,106 @@ export { priceLabel, specLine };
 export type ListingCardVariant = 'grid' | 'row' | 'compact';
 
 /**
- * The media slot.
+ * The media slot: a real photo when there is one, the gradient when there is
+ * not.
  *
- * A frame that owns the aspect ratio with the gradient as an absolutely
- * positioned child, rather than a background on the frame itself. That is the
- * shape `next/image` with `fill` needs, so when the media table is finally
- * populated a photo drops in as a sibling and nothing about this layout moves.
+ * THIS IS THE ONLY PLACE either decision is made. The results row, the chat's
+ * sidebar card and the property page's gallery all render through here, so
+ * "listings have photos now" was one component to change rather than three —
+ * which is exactly why the frame was built this way before any photo existed.
  *
- * The hue is derived from the listing id. A results page of 24 identical green
+ * The shape has not moved: a frame that owns the aspect ratio, with the image
+ * absolutely positioned inside it. `next/image` with `fill` needs precisely
+ * that, so the photo dropped in as a sibling of the gradient and nothing about
+ * any of the three layouts shifted.
+ *
+ * The hue is derived from the listing id. A results page of 24 identical
  * rectangles reads as a page that failed to load; 24 different ones read as a
- * page whose photos have not been added. Same information, and it is the one
- * cheap thing that stops a photo-less portal looking broken.
+ * page whose photos have not been added. It is still the fallback, because
+ * most listings in this database have no photos yet.
  */
-function Media({
+export function ListingMedia({
   listing,
   className,
+  children,
+  photoKey,
+  alt,
+  sizes = '(max-width: 640px) 100vw, (max-width: 1200px) 50vw, 640px',
+  priority = false,
 }: {
   listing: PublicListingSummary;
   className: string;
+  /**
+   * Overlays drawn on top of the frame — badges, the price.
+   *
+   * Not `aria-hidden` like the placeholder beneath it, which is why the
+   * attribute sits on the gradient itself rather than on the wrapper: a price
+   * hidden from a screen reader because it happens to sit on an image is a
+   * price that page does not have.
+   */
+  children?: ReactNode;
+  /**
+   * A specific photo, for the gallery. Defaults to the listing's cover.
+   *
+   * A KEY, never a URL — `mediaUrl` is the one function that knows where
+   * images are hosted, so moving off Supabase Storage never reaches this file.
+   */
+  photoKey?: string | null;
+  /**
+   * What the photo shows.
+   *
+   * Required in spirit: the gallery passes "Photo 3 of 8 of 12 Henry Street",
+   * the cards pass the address. An empty alt would be right for pure
+   * decoration and wrong here — on a property ad the photo IS the content, and
+   * the address is the least useful thing it could say only if it were
+   * repeated from an adjacent line, which on the results row it is not.
+   */
+  alt?: string;
+  /** Handed to next/image so it fetches a width that matches the slot. */
+  sizes?: string;
+  /** Set on the one image above the fold — the gallery's hero. */
+  priority?: boolean;
 }) {
+  const src = mediaUrl(photoKey === undefined ? listing.mainPhotoKey : photoKey);
+
   let hash = 0;
   for (const ch of listing.id) hash = (hash * 31 + ch.charCodeAt(0)) % 360;
   const from = `hsl(${(hash + 140) % 360} 42% 18%)`;
   const to = `hsl(${(hash + 170) % 360} 38% 32%)`;
 
   return (
-    <div className={`relative shrink-0 overflow-hidden ${className}`} aria-hidden>
-      <div
-        className="absolute inset-0"
-        style={{ backgroundImage: `linear-gradient(135deg, ${from}, ${to})` }}
-      />
-      <span className="absolute inset-0 flex items-center justify-center px-2 text-center text-label-sm uppercase text-white/70">
-        {listing.suburb}
-      </span>
+    <div className={`relative shrink-0 overflow-hidden ${className}`}>
+      {src ? (
+        <Image
+          src={src}
+          alt={alt ?? listing.address}
+          fill
+          sizes={sizes}
+          priority={priority}
+          className="object-cover"
+        />
+      ) : (
+        <>
+          <div
+            aria-hidden
+            className="absolute inset-0"
+            style={{ backgroundImage: `linear-gradient(135deg, ${from}, ${to})` }}
+          />
+          <span
+            aria-hidden
+            className="absolute inset-0 flex items-center justify-center px-2 text-center text-label-sm uppercase text-white/70"
+          >
+            {listing.suburb}
+          </span>
+        </>
+      )}
+      {children}
     </div>
   );
 }
+
+/** The name this file has always used internally. */
+const Media = ListingMedia;
 
 export function ListingCard({
   listing,

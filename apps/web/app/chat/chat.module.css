@@ -257,7 +257,7 @@
   justify-content: center;
   flex-shrink: 0;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--color-accent-fg, #f7f4ef);
   background: var(--chat-forest);
@@ -296,11 +296,52 @@
   gap: 0.75rem;
 }
 
+/*
+ * The answer body. Now a container of blocks rather than one paragraph.
+ *
+ * `pre-wrap` moved down to the paragraphs. On the wrapper it would have made
+ * the newlines BETWEEN blocks visible as blank lines on top of the margins the
+ * blocks already have, so every gap in a multi-paragraph answer doubled.
+ */
 .msgText {
   margin: 0;
-  white-space: pre-wrap;
   line-height: 1.6;
   font-size: 0.975rem;
+  display: grid;
+  gap: 0.625rem;
+}
+
+/* A soft-wrapped sentence the model split across two lines is one sentence,
+   and pre-wrap is what keeps its break. */
+.msgText p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.msgHeading {
+  /* Not an <h3> — see rich-text.tsx. The weight is the whole point. */
+  font-size: 1rem;
+}
+
+.msgList {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.msgList li {
+  /* A list item's own soft wraps are the author's; its marker supplies the
+     indent, so pre-wrap here would fight the padding above. */
+  white-space: normal;
+}
+
+.msgCode {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  padding: 0.075rem 0.25rem;
+  border-radius: 0.25rem;
+  background: rgba(0, 0, 0, 0.055);
 }
 
 .searched {
@@ -613,7 +654,7 @@
 .briefTitle {
   margin: 0;
   font-size: 0.6875rem;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: color-mix(in srgb, var(--color-fg, #1a1a1a) 72%, transparent);
@@ -719,7 +760,7 @@
 .panelTitle {
   margin: 0;
   font-size: 0.6875rem;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: color-mix(in srgb, var(--color-fg, #1a1a1a) 72%, transparent);
@@ -890,4 +931,520 @@
   .sendPill:hover:not(:disabled) {
     transform: none;
   }
+}
+
+/*
+ * The save-a-schedule control in the brief panel.
+ *
+ * Separated from the note above it by a rule rather than just space: the
+ * note is about where prices come from, and this is an action. They should
+ * not read as one block.
+ */
+.briefSave {
+  margin-top: var(--space-md, 1rem);
+  padding-top: var(--space-md, 1rem);
+  border-top: 1px solid var(--color-line-subtle);
+}
+
+/* ---------------------------------------------------------------- toolbar --
+ * New chat + History. History is a screen, so these are links, and the
+ * active one is the screen you are on.
+ */
+.toolbar {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.toolbarRow {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0 0 0.75rem;
+}
+
+.toolbarBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--chat-border);
+  border-radius: 999px;
+  background: var(--chat-surface);
+  color: var(--color-ink, #1a1a1a);
+  font: 500 0.8125rem/1 inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.toolbarBtn:hover {
+  border-color: var(--color-line-strong, #c2b8a6);
+}
+
+.toolbarBtnActive {
+  border-color: color-mix(in srgb, var(--chat-forest) 45%, var(--chat-border));
+  background: var(--chat-forest-soft);
+  color: var(--chat-forest);
+}
+
+.toolbarIcon {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.toolbarCount {
+  min-width: 1.25rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--chat-cream-deep, #f1ece3);
+  color: var(--color-ink-soft, #5c5c5c);
+  font-size: 0.6875rem;
+  text-align: center;
+}
+
+.toolbarBtnActive .toolbarCount {
+  background: var(--chat-surface);
+  color: var(--chat-forest);
+}
+
+.toolbarCurrent {
+  margin: -0.25rem 0 0.75rem;
+  padding: 0 0.15rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-ink, #1a1a1a);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * On the hero the column is centred, so the toolbar centres with it —
+ * left-aligned controls over a centred headline read as a misalignment
+ * rather than a deliberate row.
+ */
+.pageEmpty .toolbarRow {
+  justify-content: center;
+  padding-bottom: 1.25rem;
+}
+
+.pageEmpty .toolbarCurrent {
+  text-align: center;
+}
+
+/* --------------------------------------------------------------- history --
+ * A screen, not a menu. The list fills the column under the toolbar and
+ * scrolls on its own, so a long history does not push the headline around.
+ */
+.pageHistory {
+  height: calc(100dvh - 4.5rem);
+  max-height: calc(100dvh - 4.5rem);
+  padding: 1.25rem 1.25rem 0;
+  box-sizing: border-box;
+}
+
+.pageHistory .split {
+  width: 100%;
+  max-width: 36rem;
+  margin: 0 auto;
+  min-height: 0;
+}
+
+.pageHistory .main {
+  min-height: 0;
+}
+
+.history {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding-bottom: 2rem;
+}
+
+.historyHead {
+  padding: 0.15rem 0.15rem 0.15rem;
+}
+
+.historyTitle {
+  margin: 0;
+  font-family: var(--font-display, Georgia, serif);
+  font-size: clamp(1.6rem, 3vw, 2rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--chat-forest);
+}
+
+.historySub {
+  margin: 0.4rem 0 0;
+  max-width: 34rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--chat-muted);
+}
+
+.historyList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.historyItem {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  background: var(--chat-surface);
+  border: 1px solid var(--chat-border);
+  border-radius: 0.95rem;
+  box-shadow: 0 1px 2px rgba(11, 61, 46, 0.04);
+}
+
+.historyItemActive {
+  border-color: color-mix(in srgb, var(--chat-forest) 40%, var(--chat-border));
+  background: var(--chat-forest-soft);
+}
+
+.historyLink {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.9rem 0.85rem 0.9rem 1rem;
+  text-decoration: none;
+  color: inherit;
+  border-radius: 0.95rem;
+}
+
+.historyLink:hover .historyLinkTitle {
+  color: var(--chat-forest);
+}
+
+.historyLinkTitle {
+  font-size: 0.975rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--color-ink, #1a1a1a);
+}
+
+.historyLinkMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  font-size: 0.75rem;
+  color: var(--chat-muted);
+}
+
+.historyOpen {
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  background: var(--chat-forest);
+  color: var(--color-accent-fg, #f7f4ef);
+  font-weight: 600;
+}
+
+.historyDelete,
+.historyDeleteConfirm {
+  flex-shrink: 0;
+  align-self: center;
+  margin-right: 0.65rem;
+  padding: 0.35rem 0.6rem;
+  border: 0;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: var(--chat-muted);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.historyDelete:hover {
+  color: var(--color-alert, #b3261e);
+  background: color-mix(in srgb, var(--color-alert, #b3261e) 8%, transparent);
+}
+
+.historyDeleteConfirm {
+  background: var(--color-alert, #b3261e);
+  color: #fff;
+}
+
+.historyDeleteConfirm:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.historyEmpty {
+  padding: 1.5rem 1.15rem;
+  border: 1px dashed var(--chat-border);
+  border-radius: 1rem;
+  background: var(--chat-surface);
+}
+
+.historyEmptyTitle {
+  margin: 0 0 0.35rem;
+  font-weight: 600;
+  color: var(--color-ink, #1a1a1a);
+}
+
+.historyEmpty p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--chat-muted);
+}
+
+.historyPrimary {
+  display: inline-block;
+  margin-top: 0.9rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 999px;
+  background: var(--chat-forest);
+  color: var(--color-accent-fg, #f7f4ef);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* --------------------------------------------------------- schedule card --
+ * The confirmation sits inside a chat bubble. It used to be a generic
+ * Tailwind card, which read as a different product dropped into the thread.
+ */
+.sched,
+.schedQuiet,
+.schedDone,
+.delivery {
+  border-radius: 0.95rem;
+  border: 1px solid var(--chat-border);
+  background: var(--chat-page-bg);
+}
+
+.sched,
+.schedDone,
+.delivery {
+  padding: 0.95rem 1rem 1rem;
+}
+
+.schedQuiet {
+  padding: 0.75rem 0.9rem;
+  font-size: 0.875rem;
+  color: var(--chat-muted);
+}
+
+.schedTitle,
+.schedDoneTitle,
+.deliveryTitle {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-ink, #1a1a1a);
+}
+
+.schedHint,
+.schedDoneMeta,
+.deliveryDesc,
+.deliveryNote,
+.deliveryFoot {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--chat-muted);
+}
+
+.schedList {
+  margin: 0.85rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--chat-border);
+  border-bottom: 1px solid var(--chat-border);
+}
+
+.schedRow {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+.schedTerm {
+  width: 4.5rem;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--chat-muted);
+}
+
+.schedValue,
+.schedValueMuted {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.schedValueMuted {
+  color: var(--chat-muted);
+}
+
+.schedChip {
+  display: inline-flex;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  background: var(--chat-surface);
+  border: 1px solid var(--chat-border);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--chat-forest);
+}
+
+.schedView {
+  color: var(--chat-forest);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.schedError {
+  margin: 0.75rem 0 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.65rem;
+  background: #fdf3f3;
+  color: #7a2727;
+  font-size: 0.8125rem;
+}
+
+.schedActions,
+.deliveryActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.85rem;
+}
+
+.schedPrimary,
+.schedGhost,
+.schedOff {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.schedPrimary {
+  border: 0;
+  background: var(--chat-forest);
+  color: var(--color-accent-fg, #f7f4ef);
+}
+
+.schedPrimary:hover {
+  opacity: 0.92;
+}
+
+.schedGhost {
+  border: 1px solid var(--chat-border);
+  background: var(--chat-surface);
+  color: var(--color-ink, #1a1a1a);
+}
+
+.schedGhost:hover {
+  border-color: var(--color-line-strong, #c2b8a6);
+}
+
+.schedOff {
+  border: 0;
+  background: #1a1a1a;
+  color: #f7f4ef;
+}
+
+.schedOff:hover {
+  background: var(--chat-forest);
+}
+
+.schedPrimary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.schedDone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.75rem;
+}
+
+.schedDoneTitle {
+  color: var(--chat-forest);
+}
+
+.schedDoneMeta {
+  margin: 0;
+  flex: 1;
+}
+
+.deliveryHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem 0.75rem;
+}
+
+.deliveryWhen {
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  background: var(--chat-surface);
+  border: 1px solid var(--chat-border);
+  font-size: 0.6875rem;
+  color: var(--chat-muted);
+}
+
+.deliverySummary {
+  margin: 0.65rem 0 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.deliveryList {
+  margin: 0.75rem 0 0;
+  padding: 0.7rem 0 0;
+  list-style: none;
+  border-top: 1px solid var(--chat-border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.deliveryList a {
+  font-size: 0.875rem;
+  color: var(--chat-muted);
+  text-decoration: none;
+}
+
+.deliveryList a:hover {
+  color: var(--chat-forest);
+}
+
+.deliveryPrice {
+  font-weight: 600;
+  color: var(--color-ink, #1a1a1a);
+}
+
+.deliveryFoot {
+  margin-top: 0.85rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--chat-border);
 }

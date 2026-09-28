@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import Link from 'next/link';
 import type { ResultsEvent } from '@repo/ai/chat-events';
 import { ListingCard } from '../../components/listing-card';
@@ -41,7 +42,15 @@ function filterChips(results: ResultsEvent): string[] {
   return chips;
 }
 
-export function ResultsPanel({
+/**
+ * Memoised, because it owns a Google map.
+ *
+ * Its props change when a search returns — which is rarely — but its
+ * parent re-renders on every streamed token. Without this the map is
+ * reconciled on each one, which is what made the pins visibly flicker
+ * while an answer was being written.
+ */
+function ResultsPanelImpl({
   results,
   hidden,
   embedded,
@@ -153,3 +162,5 @@ export function ResultsPanel({
     </section>
   );
 }
+
+export const ResultsPanel = memo(ResultsPanelImpl);

@@ -48,6 +48,21 @@ type AppShellProps = {
    * has not wired one up still renders — it just navigates the slow way.
    */
   linkAs?: LinkLike;
+  /**
+   * The account control at the end of the primary nav.
+   *
+   * Data, not a session. packages/ui has no way to read one and must not
+   * grow one: it is plain React shared by two Next apps, and a `cookies()`
+   * call in this file would make every page in both apps that renders a
+   * header dynamic. The app decides whether somebody is signed in; this
+   * file decides what that looks like, so it looks the same everywhere.
+   *
+   * `undefined` means "this page cannot tell" and renders nothing — the
+   * header then reads exactly as it did before this control existed. That
+   * is `/`, the one statically rendered route, and the omission is
+   * deliberate rather than a gap. See the note at that call site.
+   */
+  account?: { signedIn: boolean };
 };
 
 /**
@@ -59,6 +74,7 @@ export function AppShell({
   children,
   wide = false,
   linkAs: Link = 'a' as unknown as LinkLike,
+  account,
 }: AppShellProps) {
   const isWeb = surface === 'web';
 
@@ -74,9 +90,55 @@ export function AppShell({
             <Link href="/search" className={styles.navLink}>
               Search
             </Link>
+            {/*
+              One link for both states, on purpose.
+
+              "Sign in" is wrong for somebody already signed in and "My
+              alerts" is wrong for somebody who is not — and telling them
+              apart here would mean reading the session cookie in the shared
+              header, which runs on `/` as well. `/` is a statically
+              rendered ISR route; a `cookies()` call in this component would
+              make it dynamic and cost the 33 ms it was measured at.
+
+              So the link names its destination and the routing sorts it
+              out: middleware sends a signed-out visitor from /alerts to
+              /login?next=/alerts, which lands them back here afterwards.
+            */}
+            <Link href="/alerts" className={styles.navLink}>
+              My alerts
+            </Link>
             <Link href="/chat" className={styles.navCta}>
               Ask the guide
             </Link>
+            {account ? (
+              account.signedIn ? (
+                <Link href="/account" className={styles.account}>
+                  {/*
+                    A glyph, never an initial. /chat and /alerts know the
+                    visitor's name and /search does not — it is outside the
+                    middleware matcher on purpose — so an initial would be a
+                    letter on some pages and a shape on others, which reads
+                    as a bug rather than as a design.
+                  */}
+                  <span className={styles.accountAvatar} aria-hidden>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="8" r="3.4" stroke="currentColor" strokeWidth="1.8" />
+                      <path
+                        d="M4.8 20a7.2 7.2 0 0 1 14.4 0"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </span>
+                  <span className={styles.accountLabel}>Account</span>
+                </Link>
+              ) : (
+                <Link href="/login" className={styles.accountAnon}>
+                  Sign in
+                </Link>
+              )
+            ) : null}
           </nav>
         ) : null}
       </header>

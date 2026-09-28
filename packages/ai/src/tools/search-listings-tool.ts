@@ -244,6 +244,16 @@ export async function runSearchListings(
 
   const rows = await ctx.search({ ...query, limit: COUNT_LIMIT });
 
+  /**
+   * Remember what was actually searched, for `draft_schedule`.
+   *
+   * Recorded here rather than reconstructed later so a schedule freezes the
+   * query that ran, not one rebuilt from whatever the model said about it
+   * afterwards. Set even when nothing matched: "email me if anything comes
+   * up in Pakenham" is a perfectly good alert over an empty result today.
+   */
+  ctx.lastSearch = query;
+
   const capped = rows.length > COUNT_CAP;
   const matched = Math.min(rows.length, COUNT_CAP);
   const deepLink = searchQueryToPath(query);

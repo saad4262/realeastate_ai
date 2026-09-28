@@ -1,7 +1,14 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { AU_STATES, SORT_OPTIONS } from '@repo/core/listings';
+import { cheapestNearInput, runCheapestNear } from './cheapest-near';
 import { getListingInput, runGetListing } from './get-listing-tool';
 import { resolveLocationInput, runResolveLocation } from './resolve-location';
+import {
+  cancelScheduleInput,
+  draftScheduleInput,
+  runCancelSchedule,
+  runDraftSchedule,
+} from './schedule-tools';
 import { runSearchListings, searchListingsInput } from './search-listings-tool';
 import type { ToolContext, ToolOutcome } from './context';
 
@@ -123,6 +130,44 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
     },
   },
   {
+    name: 'cheapest_near',
+    description:
+      'Answer "where is the cheapest place near X" from one point — an office, a school, an address, a suburb. Returns the cheapest live listings inside a radius WITH each one\'s distance, and a per-suburb breakdown (how many, the cheapest, how far the nearest is). Use this instead of search_listings whenever the visitor ties price to a place they need to be near. Distances are straight-line, never drive time; say so if you mention minutes.',
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        place: {
+          type: 'string',
+          description:
+            'What to measure from, in the visitor\'s own words — "Berwick", "my office in Dandenong", "3 Collins St Melbourne". No coordinates: this tool resolves the point itself.',
+        },
+        channel: {
+          type: 'string',
+          enum: ['sale', 'rent'],
+          description: 'REQUIRED. Whether the visitor is buying or renting.',
+        },
+        radiusKm: {
+          type: 'number',
+          description:
+            'Between 0.5 and 50. Only when the visitor named a distance they would travel. Omitted means 20 km, which is a commute somebody would consider.',
+        },
+        state: {
+          type: 'string',
+          enum: [...AU_STATES],
+          description: 'Disambiguates a repeated place name. There is a Richmond in four states.',
+        },
+        bedrooms: { type: 'integer', description: 'Minimum bedrooms, 0 to 10.' },
+        propertyType: {
+          type: 'string',
+          description:
+            'Only when the visitor contrasted types (Unit, Apartment, Townhouse, Land vs House). Never for the everyday word "house".',
+        },
+      },
+      required: ['place', 'channel'],
+    },
+  },
+  {
     name: 'get_listing',
     description:
       'Fetch one live listing in full by its id, including the price and the agency\'s own description. Use this whenever the visitor asks about a specific property — you cannot recall figures from earlier in the conversation and must not try.',
@@ -135,9 +180,74 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
       required: ['listingId'],
     },
   },
+  {
+    name: 'draft_schedule',
+    description:
+      "Propose running the CURRENT search on a repeating schedule and emailing the visitor what is new. Call this when they ask to be sent results regularly — 'send me this daily', 'every two hours', 'each Saturday morning'. A search must already have run in this conversation; this uses that exact search, so do not describe the filters yourself. It SAVES NOTHING: it puts a confirmation card on screen and the visitor must press Accept. Never tell them it is running.",
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        cadence: {
+          type: 'string',
+          enum: ['daily', 'weekly', 'interval'],
+          description:
+            "'interval' for anything expressed as a gap ('every 2 hours'), 'daily' for a time each day, 'weekly' for a day of the week.",
+        },
+        everyHours: {
+          type: 'number',
+          description:
+            'Only for interval, and only for gaps of an hour or more. Hours between runs. There is no upper limit — every 336 hours is a fortnight and is fine. For anything under an hour use everyMinutes instead of a fraction.',
+        },
+        everyMinutes: {
+          type: 'number',
+          description:
+            'Only for interval. Minutes between runs, for a gap the visitor expressed in minutes. Ten minutes is the shortest available and is a hard floor; anything shorter is moved up to ten and the card will say so.',
+        },
+        atTime: {
+          type: 'string',
+          description:
+            "Only for daily and weekly. 24-hour local time, e.g. '20:00'. Defaults to 20:00 when the visitor did not say.",
+        },
+        weekday: {
+          type: 'number',
+          description: 'Only for weekly. 0 is Sunday, 6 is Saturday.',
+        },
+        timezone: {
+          type: 'string',
+          description:
+            "The visitor's Australian IANA timezone, e.g. 'Australia/Melbourne'. Defaults to Australia/Sydney. Ignored for interval.",
+        },
+      },
+      required: ['cadence'],
+    },
+  },
+  {
+    name: 'cancel_schedule',
+    description:
+      "Stop a saved search the visitor asked to cancel. Pauses it rather than deleting it, so it can be turned back on. If the visitor has more than one and it is not clear which they mean, this returns the names instead of guessing — ask them which.",
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        which: {
+          type: 'string',
+          description:
+            "Words from the name or the search, as the visitor described it — e.g. 'Pakenham' or 'the rental one'. Leave out to stop all of them.",
+        },
+      },
+      required: [],
+    },
+  },
 ] satisfies Anthropic.Tool[]);
 
-export type ToolName = 'resolve_location' | 'search_listings' | 'get_listing';
+export type ToolName =
+  | 'resolve_location'
+  | 'search_listings'
+  | 'cheapest_near'
+  | 'get_listing'
+  | 'draft_schedule'
+  | 'cancel_schedule';
 
 /**
  * Run one tool call.
@@ -166,6 +276,21 @@ export async function dispatchTool(
         const parsed = searchListingsInput.safeParse(rawInput);
         if (!parsed.success) return invalid(name, parsed.error);
         return await runSearchListings(parsed.data, ctx);
+      }
+      case 'cheapest_near': {
+        const parsed = cheapestNearInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return await runCheapestNear(parsed.data, ctx);
+      }
+      case 'draft_schedule': {
+        const parsed = draftScheduleInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return await runDraftSchedule(parsed.data, ctx);
+      }
+      case 'cancel_schedule': {
+        const parsed = cancelScheduleInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return await runCancelSchedule(parsed.data, ctx);
       }
       case 'get_listing': {
         const parsed = getListingInput.safeParse(rawInput);
