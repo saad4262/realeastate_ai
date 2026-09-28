@@ -1,9 +1,75 @@
 # Status
-- Milestone: **M4 started** — consumer accounts and the AI task scheduler;
-  consumer AI property guide at `/chat`; listings full CRUD; PostGIS radius search
+- Milestone: **M4 is in history and the repo is deployable** — consumer accounts,
+  the AI task scheduler, media, chat history; consumer AI property guide at
+  `/chat`; listings full CRUD; PostGIS radius search
 - Build order (locked): Agency UI → Agent UI → Consumer web
-- Last tool: Cursor
-- Last updated: 2026-09-26
+- Last tool: Claude Code
+- Last updated: 2026-09-28
+- Deploying: `apps/web` only, Vercel Hobby. `apps/console` waits for a real
+  domain — see `docs/DEPLOY.md`. **Nothing is deployed yet.**
+
+## M4 stops living in the working tree (2026-09-28)
+
+The entire milestone was uncommitted — 166 files, ~9.3k lines, built over
+several sessions and never written to history. One commit, `6682c78`: consumer
+accounts, scheduled alerts, the email port, media, chat threads, search facets
+and pagination, and migrations 0008–0013.
+
+It went in as **one** commit rather than a layered series. Splitting it after
+the fact by package would have invented commits that never existed as working
+states; the milestone was developed together, so it is recorded together.
+
+`main` was almost empty and is now the real branch — fast-forwarded to
+`perf/phases-1-9` and pushed. Both branches point at the same commit.
+
+### The 5-minute cron would have failed the first deploy
+
+Not run late — **failed the deployment**. `apps/web/vercel.json` declared
+`*/5 * * * *`, and Vercel Hobby rejects any expression that would run more than
+once a day with *"Hobby accounts are limited to daily cron jobs."* Confirmed
+against Vercel's docs, not from memory. The error names cron and nothing in
+this repo, so it would have cost an afternoon.
+
+CRON.md had said Hobby "only runs crons once a day", which is the softer and
+wrong version of the same fact. Corrected, along with the per-hour precision
+limit (±59 min) that it had not mentioned at all.
+
+Two callers now:
+
+    .github/workflows/alerts-cron.yml   */5 * * * *   the real cadence
+    apps/web/vercel.json                0 3 * * *     a floor
+
+The floor is not duplication. GitHub disables scheduled workflows on a
+repository with 60 days of no activity, and the daily Vercel tick survives
+that. The endpoint needed **no change**: `authoriseCronRequest` already took
+`x-cron-secret` beside Vercel's `Authorization: Bearer`, the handler was
+already both GET and POST, and `maxDuration = 60` was already chosen to fit a
+free plan. Moving to Pro is deleting the workflow and restoring `*/5`.
+
+### Two things that would have gone wrong quietly
+
+**`/` queries the database at build time.** The build output says
+`○ /  Revalidate 30s` — prerendered. With no `DATABASE_URL` set on Vercel
+beforehand the first deploy does not render an empty homepage, it fails.
+
+**The console cannot go up on `*.vercel.app` at all.** `resolveSurface()` reads
+the host and treats an `agency.` prefix as the agency surface. A Vercel project
+has one vercel.app hostname, which does not carry that prefix, so the agency
+surface is unreachable and the app serves the agent surface at every URL —
+with no error anywhere. This is the surface model, not a missing setting. When
+the domain arrives it is two domains on **one** project (#9), never two.
+
+`COOKIE_DOMAIN` is deliberately left unset in production for now: the schema
+defaults it to `.lvh.me`, but `cookieDomainFor()` reads `process.env` directly,
+so unset yields a host-only cookie — the right answer. `.vercel.app` is on the
+Public Suffix List and no cookie may claim it.
+
+### Current numbers
+- `pnpm build` 2/2 · `pnpm test` green · zero calls to Anthropic
+- Verified before the commit; the staged diff was scanned for live credentials
+  and carries none. `.env.local` is untracked and has never been in history
+- **Not verified, because it needs a deployment to exist:** that the workflow's
+  URL resolves, that the tick returns 200, that the Vercel build succeeds
 
 ## Chat history is a screen, and opening one stays open (2026-09-26)
 
@@ -490,14 +556,31 @@ decision for the user.
 - ~~`RESEND_API_KEY` empty~~ **Set, and alert email is wired.** Agent invite
   links are still shared manually — `packages/core/src/email/` is the port to
   route them through when somebody wants to
-- No Cloudflare R2 credentials → listings have no photos; `media` table is unused and cards show a
-  gradient placeholder
+- ~~No Cloudflare R2 credentials → listings have no photos~~ **Media is built, on
+  Supabase Storage rather than R2** (ADR 0009, migration 0008): an uploader in the
+  console, `packages/core/src/media/`, public reads so a URL survives ISR and a CDN,
+  and writes only through a signed URL issued after `can()` agrees. R2 stays declared
+  and optional in env — `media.storage_key` holds a KEY, never a URL, precisely so the
+  host can be swapped. **Built and type-checked; not exercised against a real bucket in
+  this session**
 - `site.com.au` is still a placeholder domain. Nothing in code hardcodes it — every host comes
   from `NEXT_PUBLIC_*_URL` / `COOKIE_DOMAIN` — so this is a docs placeholder, not a code one
 - **Deleting rows from a script is blocked by the sandbox.** The junk listing ("dafdf" /
   Sahiwal NSW 5700) and the 4 seeded demo listings are still in the database. They can be
   removed from the console with the new Delete button (withdraw first), or by granting a Bash
   permission rule for the migration scripts
+- **Deployment is set up but has not happened.** In order: run migrations 0008–0013
+  against the real database with the **direct** connection (Vercel does not run them),
+  set `DATABASE_URL` and the rest on the Vercel project **before** the first build
+  (`/` prerenders and the build fails without it), then set `ALERTS_CRON_URL` and
+  `CRON_SECRET` as GitHub Actions repository secrets or the alerts never fire. Full
+  order and the full variable list in `docs/DEPLOY.md`
+- **`apps/console` cannot be deployed until there is a real domain.** Not a
+  configuration gap — see the 2026-09-28 section above. The agency surface is
+  unreachable on a `*.vercel.app` hostname and fails silently rather than erroring
+- **First check after the first deploy:** an unauthenticated POST to
+  `/api/cron/alerts` must answer **401**. A 200 means `CRON_SECRET` is unset, and an
+  open trigger is a bill and a mailing rather than a slow page
 
 ## Known placeholders (not built)
 - Agency console: overview, leads, customers, calendar, marketing, insights, finance, settings — mocks
@@ -507,9 +590,12 @@ decision for the user.
 - ~~`packages/ai` is empty~~ **Built**, for the consumer chat only: model router, `ai_run`
   metering, prompts, tools and the chat pipeline. Still no listing-copy draft, no lead
   summarising, no Batch API path
-- No photos anywhere: `media` is unused and there is no `packages/media`
-- ~~No consumer accounts~~ **Built** (magic link, no passwords). No shortlist
-  yet; the enquiry form exists
+- ~~No photos anywhere: `media` is unused~~ **Built** as `packages/core/src/media/`
+  (there is still no separate `packages/media`). Listing and agent-headshot upload
+  exist in the console
+- ~~No consumer accounts~~ **Built** — email/password sign-up and sign-in with a
+  name, plus forgot/reset, not the magic link this line used to describe. No
+  shortlist yet; the enquiry form exists
 - pgvector is installed but nothing uses it
 - ~~No chat threads~~ **Built.** Saved for signed-in visitors only, 90-day
   retention. No export and no cross-device sync beyond the account

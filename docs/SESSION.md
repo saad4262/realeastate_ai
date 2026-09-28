@@ -1,3 +1,119 @@
+## 2026-09-28 — Claude Code — M4 goes to GitHub, and the cron that would have failed the deploy
+
+- Goal: asked for, in these words: put the code on GitHub properly and get the project
+  ready to deploy on Vercel. The repo already existed — `saad4262/realeastate_ai` — so the
+  real work was that a whole milestone had never been committed, and that the deployment
+  config had a bug that only shows up on a Hobby account.
+- Files touched: `apps/web/vercel.json`, `apps/web/CRON.md`,
+  `.github/workflows/alerts-cron.yml` (new), `docs/DEPLOY.md` (new), `docs/STATUS.md`,
+  `docs/SESSION.md`. Plus commit `6682c78`, which is 166 files of already-written M4 work.
+- Not deployed. Everything below is verified locally or against documentation; nothing has
+  been verified against a running deployment, because there is not one yet.
+
+### The milestone was sitting in the working tree
+
+166 files, ~9.3k lines, six migrations: consumer accounts, the scheduler, the email port,
+media, chat threads, search facets and pagination. All of it built across several earlier
+sessions and none of it in history. `git status` was the only record that it existed.
+
+One commit, not a layered series. The temptation was to split it by package — db, then
+core, then apps — and each of those would have built, so it would have looked like a
+careful history. It would have been a fiction: those states never existed while the work
+was being done. The commit message enumerates what is in it instead.
+
+`main` turned out to be nearly empty — the fast-forward merge created `turbo.json` and
+`pnpm-workspace.yaml`. All 14 commits of `perf/phases-1-9` plus the new ones are now on
+`main`, and both branches point at the same place.
+
+Before committing: `pnpm build` 2/2, `pnpm test` green, and the staged diff grepped for
+`sb_secret_`, `sk-ant-`, `re_`, `AIza`, JWT shapes and postgres URLs with a password in
+them. Nothing. `.env.local` is gitignored and `git log --all --name-only` confirms it has
+never been in history — worth checking rather than assuming, because the answer is
+unrecoverable if it is wrong.
+
+### `*/5 * * * *` does not run late on Hobby. It fails the deployment.
+
+This is the finding worth keeping. `apps/web/vercel.json` declared a 5-minute cron, and
+Vercel Hobby rejects any expression that would run more than once a day:
+
+    Hobby accounts are limited to daily cron jobs.
+    This cron expression would run more than once per day.
+
+I nearly wrote `0 * * * *` as the fix, on the assumption that hourly was a reasonable
+middle ground and that Vercel would coerce anything too frequent. Checked the docs instead
+of shipping the assumption, and hourly fails for exactly the same reason. It is daily or
+nothing: `0 3 * * *`, and even that fires anywhere between 3:00 and 3:59, because Hobby
+scheduling precision is per-hour.
+
+`CRON.md` had this half-right already — "Vercel Hobby only runs crons once a day" — which
+is the version that sounds like a latency problem rather than a build failure. Corrected,
+with the deployment-failing wording quoted, because the difference is an afternoon of
+debugging an error message that names cron and nothing in this repo.
+
+### So the tick moved, and the endpoint did not
+
+`.github/workflows/alerts-cron.yml` runs `*/5 * * * *` and is the real cadence.
+`vercel.json` keeps a daily tick as a floor — not duplication, because GitHub disables
+scheduled workflows on a repository with 60 days of no activity, and on a quiet repo the
+5-minute tick would stop silently.
+
+The part worth noticing is that **no application code changed**. `authoriseCronRequest`
+already accepted `x-cron-secret` beside Vercel's `Authorization: Bearer`, the handler was
+already exported as both GET and POST, and `maxDuration = 60` was already chosen with the
+comment "300 needs a paid plan and the tick does not need it". The endpoint was written to
+not care who calls it, and that decision paid for itself here. Moving to Pro is deleting
+the workflow and putting `*/5` back.
+
+The workflow fails loudly: it exits 1 when either secret is unset, and
+`curl --fail-with-body` turns a 401 or 503 red with the body still readable rather than
+swallowing it. `concurrency` stops a slow tick stacking its own ticks behind it. The secret
+travels as a header, never in the URL.
+
+Two GitHub repository secrets are required and the alerts do not run without them:
+`ALERTS_CRON_URL`, `CRON_SECRET`.
+
+### Two things that would have gone wrong without saying why
+
+**`/` queries the database at build time.** The build output says `○ /  Revalidate 30s` —
+prerendered, not server-rendered. With no `DATABASE_URL` on the Vercel project the first
+deploy does not produce an empty homepage; it fails, and the error will not mention the
+homepage. This is now the first thing `docs/DEPLOY.md` says.
+
+**`apps/console` cannot go up on `*.vercel.app` at all.** `resolveSurface()` decides
+agency-vs-agent by reading the host and looking for an `agency.` prefix. A Vercel project
+has one vercel.app hostname and it does not carry that prefix, so every URL falls through
+to the agent surface and the agency surface simply does not exist. Nothing errors. It is
+quietly not the product — which is a worse failure than a crash, because it looks like it
+worked.
+
+Cookie sharing says the same thing from the other direction: `.vercel.app` is on the Public
+Suffix List, so no cookie may claim it. `cookieDomainFor()` already degrades correctly —
+a host outside the configured domain gets a host-only cookie rather than a silently
+discarded one — so sign-in on a single host still works. `COOKIE_DOMAIN` is therefore left
+**unset** in production for now, and `docs/DEPLOY.md` says so under a heading that explains
+it, because an unset variable looks like an oversight to the next person.
+
+The console waits for a real domain. Non-negotiable #9 is restated in the runbook: when it
+arrives, that is two domains on ONE project.
+
+### docs/DEPLOY.md
+
+A runbook, with the env table split by what **breaks** rather than alphabetically. The
+alert variables are the case that justifies the split: they are not
+optional-with-a-default, they throw. `buildScheduleDigestEmail` refuses to build a message
+with no sender identity or no unsubscribe link, so an unset `ALERT_SENDER_ADDRESS` is
+silence, not a degraded email.
+
+The verification section leads with a curl that expects **401**, not 200 — an
+unauthenticated call reaching the work is the failure worth catching on day one.
+
+### Left undone, deliberately
+
+The Vercel project itself. There is no `vercel` CLI on this machine and no way to
+authenticate one from here, so the dashboard steps are written down rather than performed.
+Migrations 0008–0013 have not been run against any real database either; that needs the
+direct connection string, which is not mine to use unasked.
+
 ## 2026-09-28 — Claude Code — every run emails, including the ones with no news
 
 - Goal: asked for, explicitly: an email at every scheduled time whether or not anything new
