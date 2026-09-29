@@ -5,6 +5,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useTransition,
 } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -152,6 +153,93 @@ function TypingSkeleton({ label }: { label: string }) {
 }
 
 /**
+ * The screen you asked for, before the server has it.
+ *
+ * Built out of the SAME classes as the thing it stands in for — `.thread`,
+ * `.msg`, `.bubbleAi`, `.composer` — rather than a spinner, for the reason
+ * `loading.tsx` gives about the other four dynamic routes: the real content
+ * should fill this in, not shove it aside. A centred spinner is one more
+ * relayout on arrival, on top of the one the navigation already causes.
+ *
+ * Three shapes, because `/chat` has three and they do not share a layout.
+ * Bubble widths are set here because a bubble with no text in it has no
+ * width of its own, and they are deliberately uneven: a column of identical
+ * blocks reads as a loading graphic, an uneven one reads as a conversation.
+ *
+ * `aria-busy` and a label, and no live region — the toolbar already names
+ * the conversation being opened, and a skeleton that announces itself on
+ * every navigation is noise.
+ */
+function OpeningSkeleton({ view }: { view: 'thread' | 'history' | 'new' }) {
+  if (view === 'new') {
+    return (
+      <div className={styles.hero} aria-busy="true" aria-label="Starting a new chat">
+        <span className={`${styles.skeletonBar} ${styles.openingBadge}`} aria-hidden />
+        <span className={`${styles.skeletonBar} ${styles.openingHeroTitle}`} aria-hidden />
+        <span className={`${styles.skeletonBar} ${styles.openingHeroSub}`} aria-hidden />
+        <div className={styles.heroComposer}>
+          <div className={`${styles.composeBox} ${styles.openingCompose}`} aria-hidden />
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'history') {
+    return (
+      <div className={styles.history} aria-busy="true" aria-label="Opening your conversations">
+        <div className={styles.historyHead}>
+          <span className={`${styles.skeletonBar} ${styles.openingHeroTitle}`} aria-hidden />
+          <span className={`${styles.skeletonBar} ${styles.openingHeroSub}`} aria-hidden />
+        </div>
+        <div aria-hidden>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <span key={i} className={`${styles.skeletonBar} ${styles.openingRow}`} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // A conversation: two exchanges' worth, which is enough to read as one
+  // without pretending to know how long the real transcript is.
+  return (
+    <>
+      <div className={styles.thread} aria-busy="true" aria-label="Opening the conversation">
+        {[0, 1].map((i) => (
+          <div key={i} className={styles.openingPair} aria-hidden>
+            <div className={`${styles.msg} ${styles.msgUser}`}>
+              <div className={`${styles.bubbleUser} ${styles.openingUser}`}>
+                <span className={styles.skeletonBar} />
+              </div>
+            </div>
+
+            <div className={`${styles.msg} ${styles.msgAi}`}>
+              <div className={styles.msgMeta}>
+                <span className={styles.avAi}>P</span>
+                <span className={`${styles.skeletonBar} ${styles.openingName}`} />
+              </div>
+              <div className={`${styles.bubbleAi} ${styles.openingAi}`}>
+                <div className={styles.skeleton}>
+                  <span className={styles.skeletonBar} />
+                  <span className={`${styles.skeletonBar} ${styles.skeletonBarMid}`} />
+                  <span className={`${styles.skeletonBar} ${styles.skeletonBarShort}`} />
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* At the height the real one sits at, so the box does not jump when
+          the conversation lands under it. */}
+      <div className={styles.composer} aria-hidden>
+        <div className={`${styles.composeBox} ${styles.openingCompose}`} />
+      </div>
+    </>
+  );
+}
+
+/**
  * The one link a turn hands over, and what to call it.
  *
  * Every figure in the label comes from the server's own frame — `matched` and
@@ -288,6 +376,39 @@ export function ChatView({
   */
   const closeRail = useCallback(() => setRailOpen(false), []);
   const openRail = useCallback(() => setRailOpen(true), []);
+
+  /**
+   * Moving between conversations, with something on screen while it lands.
+   *
+   * `loading.tsx` covers the FIRST paint of `/chat` and nothing after it.
+   * Clicking a row in the rail changes a search param, not a route segment,
+   * so Next resolves it as a soft navigation: the loader never mounts, and
+   * React holds the ENTIRE previous screen — old transcript, old sidebar,
+   * old map — until the new payload arrives. On a signed-in session that is
+   * middleware's `getUser` plus `listThreads` and `getThread` against the
+   * database, which is the 2–3 seconds during which clicking a conversation
+   * did nothing you could see. People clicked it again.
+   *
+   * `startTransition` is what makes the wait observable. Without it the
+   * router still navigates and `pending` is never true, so there is nothing
+   * to render a skeleton from; `router.push` inside one is the supported
+   * way to ask React for the pending flag on an App Router navigation.
+   *
+   * Nothing resets `opening` — the page keys ChatView on the open thread, so
+   * a committed navigation replaces this instance outright. `navigating`
+   * going false is what takes the skeleton down if the router bails.
+   */
+  const [opening, setOpening] = useState<string | null>(null);
+  const [navigating, startNavigation] = useTransition();
+
+  const go = useCallback(
+    (href: string) => {
+      setRailOpen(false);
+      setOpening(href);
+      startNavigation(() => router.push(href));
+    },
+    [router],
+  );
 
   const threadRef = useRef<HTMLDivElement>(null);
   /**
@@ -591,11 +712,55 @@ export function ChatView({
   const startNew = useCallback(() => {
     setRailOpen(false);
     if (historyOpen || initialThreadId) {
-      router.push('/chat');
+      go('/chat');
       return;
     }
     startFresh();
-  }, [historyOpen, initialThreadId, router, startFresh]);
+  }, [go, historyOpen, initialThreadId, startFresh]);
+
+  /**
+   * The screen the click asked for, read back off the href it pushed.
+   *
+   * Only while the transition is actually pending: `opening` outlives it by
+   * a render or two and a skeleton that outlives its navigation is worse
+   * than none. Three shapes because `/chat` has three — the hero, a
+   * transcript, the history list — and they do not share a layout, so
+   * drawing the wrong one would mean the real page arrives into a different
+   * geometry, which is the relayout the skeleton exists to prevent.
+   */
+  const openingView: 'thread' | 'history' | 'new' | null =
+    navigating && opening
+      ? opening.includes('history=1')
+        ? 'history'
+        : opening.includes('thread=')
+          ? 'thread'
+          : 'new'
+      : null;
+
+  /** Layout, from the pending screen when there is one and this one otherwise. */
+  const shape: 'thread' | 'history' | 'new' =
+    openingView ?? (historyOpen ? 'history' : empty ? 'new' : 'thread');
+
+  /**
+   * The title of the conversation being opened, from the rail's own row.
+   *
+   * It is already on the client — the rail is rendering it — so the toolbar
+   * can name the conversation before the server has said a word about it.
+   * Without this the header keeps the PREVIOUS chat's title over a skeleton
+   * of the next one, which is a worse lie than an empty header.
+   */
+  const openingTitle =
+    openingView === 'thread'
+      ? (threads.find((thread) => opening === `/chat?thread=${thread.id}`)?.title ?? null)
+      : null;
+
+  /*
+    The brief and the map belong to the conversation on screen, and during a
+    navigation there isn't one. Handing the sidebar the OLD search while the
+    transcript beside it is a skeleton is the stale-screen bug in miniature.
+  */
+  const shownSlots = openingView ? null : slots;
+  const shownResults = openingView ? null : results;
 
   const liveTitle =
     activeTitle ??
@@ -630,7 +795,7 @@ export function ChatView({
         </p>
         <ul className={styles.briefList}>
           {BRIEF_FIELDS.map((field) => {
-            const value = slots ? field.format(slots) : null;
+            const value = shownSlots ? field.format(shownSlots) : null;
             return (
               <li
                 key={field.id}
@@ -660,7 +825,7 @@ export function ChatView({
         */}
       </div>
 
-      <ResultsPanel results={results} embedded />
+      <ResultsPanel results={shownResults} embedded />
     </aside>
   );
 
@@ -676,7 +841,11 @@ export function ChatView({
     */
     <div
       className={`${styles.page} ${
-        historyOpen ? styles.pageHistory : empty ? styles.pageEmpty : styles.pageActive
+        shape === 'history'
+          ? styles.pageHistory
+          : shape === 'new'
+            ? styles.pageEmpty
+            : styles.pageActive
       }`}
     >
       <HistoryRail
@@ -687,10 +856,12 @@ export function ChatView({
         open={railOpen}
         onClose={closeRail}
         onNewChat={startNew}
+        pendingHref={navigating ? opening : null}
+        onOpen={go}
       />
 
       <div className={styles.content}>
-      {!historyOpen && !empty ? (
+      {shape === 'thread' ? (
         <div className={styles.tabs} role="tablist" aria-label="Chat or search">
           <button
             type="button"
@@ -708,25 +879,27 @@ export function ChatView({
             className={`${styles.tab} ${tab === 'results' ? styles.tabActive : ''}`}
             onClick={() => setTab('results')}
           >
-            Search{results ? ` (${results.listings.length})` : ''}
+            Search{shownResults ? ` (${shownResults.listings.length})` : ''}
           </button>
         </div>
       ) : null}
 
       <div className={styles.split}>
         <section
-          className={`${styles.main} ${!historyOpen && !empty && tab === 'results' ? styles.hiddenMobile : ''}`}
-          aria-label={historyOpen ? 'Past conversations' : 'Conversation'}
+          className={`${styles.main} ${shape === 'thread' && tab === 'results' ? styles.hiddenMobile : ''}`}
+          aria-label={shape === 'history' ? 'Past conversations' : 'Conversation'}
         >
           <ChatToolbar
             count={threads.length}
             historyOpen={historyOpen}
-            activeTitle={historyOpen ? null : liveTitle}
+            activeTitle={openingView ? openingTitle : historyOpen ? null : liveTitle}
             onNewChat={startNew}
             onOpenRail={openRail}
           />
 
-          {historyOpen ? (
+          {openingView ? (
+            <OpeningSkeleton view={openingView} />
+          ) : historyOpen ? (
             <HistoryScreen threads={threads} signedIn={signedIn} activeId={initialThreadId} />
           ) : (
             <>
@@ -900,7 +1073,7 @@ export function ChatView({
           )}
         </section>
 
-        {!historyOpen && !empty ? sidebar : null}
+        {shape === 'thread' ? sidebar : null}
       </div>
       </div>
     </div>

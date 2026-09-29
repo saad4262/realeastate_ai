@@ -1004,6 +1004,11 @@
     opacity: 0.7;
   }
 
+  .railItemOpening .railItemTitle {
+    animation: none;
+    opacity: 0.6;
+  }
+
   .hero {
     animation: none;
   }
@@ -1824,4 +1829,89 @@
   margin-top: 0.85rem;
   padding-top: 0.65rem;
   border-top: 1px solid var(--chat-border);
+}
+
+
+/* ---------- opening another conversation ---------- */
+
+/*
+ * Everything below dresses the OpeningSkeleton in chat-view.tsx, which draws
+ * itself out of the real transcript classes so the conversation fills it in
+ * rather than replacing it. What is left over is the handful of sizes a
+ * bubble with no text in it cannot work out for itself.
+ *
+ * These rules come after .skeletonBar deliberately: same specificity, later
+ * wins, so `.skeletonBar .openingRow` is a row-height bar and not a 10px one.
+ */
+
+.openingPair {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* A bubble sized by content has none when the content is a grey bar. Uneven
+   on purpose — two identical blocks read as a loading graphic. */
+.openingUser {
+  width: min(17rem, 62%);
+}
+
+.openingAi {
+  width: min(32rem, 88%);
+}
+
+/* The "GUIDE" label beside the avatar, at the size that word actually is. */
+.openingName {
+  width: 3.25rem;
+  height: 8px;
+}
+
+/* The composer, at its real height, so it does not jump when the live one
+   mounts under the arriving transcript. */
+.openingCompose {
+  height: 3rem;
+}
+
+.openingRow {
+  height: 3.25rem;
+  border-radius: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.openingBadge {
+  height: 1.5rem;
+  width: min(17rem, 80%);
+  border-radius: 9999px;
+}
+
+.openingHeroTitle {
+  height: 1.75rem;
+  width: min(22rem, 90%);
+}
+
+.openingHeroSub {
+  height: 0.75rem;
+  width: min(26rem, 95%);
+}
+
+/*
+ * The row you just clicked, while its conversation is still in flight.
+ *
+ * The active background comes from .railItemActive, which the row takes on
+ * immediately — the pulse is only what separates "opening" from "open", and
+ * it is on the title rather than the row so the highlight itself stays
+ * steady under it.
+ */
+.railItemOpening .railItemTitle {
+  animation: railPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes railPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.42;
+  }
 }

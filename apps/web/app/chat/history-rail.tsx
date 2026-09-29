@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { Icon } from '../../components/icons';
 import styles from './chat.module.css';
 import type { ThreadRow } from './chat-toolbar';
@@ -55,6 +55,8 @@ export const HistoryRail = memo(function HistoryRail({
   open,
   onClose,
   onNewChat,
+  pendingHref,
+  onOpen,
 }: {
   threads: (ThreadRow & { group: string })[];
   signedIn: boolean;
@@ -76,8 +78,51 @@ export const HistoryRail = memo(function HistoryRail({
   onClose: () => void;
   /** Clear the draft in place — see the note on ChatToolbar's own handler. */
   onNewChat: () => void;
+  /**
+   * The row whose conversation is being fetched right now, or null.
+   *
+   * An href rather than a thread id, so the footer link to the history
+   * screen can be in the same state without a second prop meaning the same
+   * thing about a different kind of row.
+   */
+  pendingHref: string | null;
+  /** Navigate inside a transition — see the note in ChatView. */
+  onOpen: (href: string) => void;
 }) {
   const [filter, setFilter] = useState('');
+
+  /**
+   * Open a row through the router instead of letting the anchor do it.
+   *
+   * These stay `<Link>`s — the href is real, middle-click and "open in new
+   * tab" and a copied address all have to keep working, and an onClick on a
+   * `<button>` would have thrown all of that away. So a plain left click is
+   * the only one taken over: anything with a modifier on it is the visitor
+   * asking the BROWSER for something, and the default is what does it.
+   *
+   * The handover is what buys the pending state. A Link navigates outside
+   * any transition, so React never reports the wait and there is nothing to
+   * draw a skeleton from; ChatView's `go` puts the same push inside
+   * `startTransition`.
+   */
+  const openHref = useCallback(
+    (event: MouseEvent<HTMLAnchorElement>, href: string) => {
+      onClose();
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
+      event.preventDefault();
+      onOpen(href);
+    },
+    [onClose, onOpen],
+  );
 
   /**
    * Escape closes the drawer.
@@ -218,14 +263,25 @@ export const HistoryRail = memo(function HistoryRail({
                 <h2 className={styles.railGroupLabel}>{label}</h2>
                 <ul className={styles.railItems}>
                   {rows.map((thread) => {
+                    const href = `/chat?thread=${thread.id}`;
                     const active = !historyOpen && thread.id === activeId;
+                    /*
+                      The row takes the active treatment the moment it is
+                      clicked, before the server has confirmed anything. A
+                      click that leaves no mark for two seconds is a click
+                      people make twice.
+                    */
+                    const opening = pendingHref === href;
                     return (
                       <li key={thread.id}>
                         <Link
-                          href={`/chat?thread=${thread.id}`}
-                          className={`${styles.railItem} ${active ? styles.railItemActive : ''}`}
+                          href={href}
+                          className={`${styles.railItem} ${
+                            active || opening ? styles.railItemActive : ''
+                          } ${opening ? styles.railItemOpening : ''}`}
                           aria-current={active ? 'page' : undefined}
-                          onClick={onClose}
+                          aria-busy={opening || undefined}
+                          onClick={(event) => openHref(event, href)}
                           /*
                             /chat is force-dynamic, so prefetching every row
                             in the rail would server-render one guide per
@@ -254,9 +310,12 @@ export const HistoryRail = memo(function HistoryRail({
         <div className={styles.railFoot}>
           <Link
             href="/chat?history=1"
-            className={`${styles.railFootLink} ${historyOpen ? styles.railFootLinkActive : ''}`}
+            className={`${styles.railFootLink} ${
+              historyOpen || pendingHref === '/chat?history=1' ? styles.railFootLinkActive : ''
+            }`}
             aria-current={historyOpen ? 'page' : undefined}
-            onClick={onClose}
+            aria-busy={pendingHref === '/chat?history=1' || undefined}
+            onClick={(event) => openHref(event, '/chat?history=1')}
             prefetch={false}
           >
             All conversations
