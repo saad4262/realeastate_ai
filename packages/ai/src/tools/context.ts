@@ -83,6 +83,41 @@ export type SchedulingContext =
   /** No ALERT_UNSUBSCRIBE_SECRET. Nobody in the conversation can fix it. */
   | { state: 'unconfigured' };
 
+/**
+ * What a tool call established, for the chips under the answer.
+ *
+ * Deliberately NOT part of `result`. `result` is what the model reads; this
+ * is what the suggestion builder reads, and the two must not be the same
+ * object. The model is never shown these facts and has no way to write one,
+ * so a chip quoting a price is quoting Postgres by construction rather than
+ * by the model behaving itself — the same reasoning that keeps coordinates
+ * out of the tool schemas above.
+ *
+ * Merged across the calls in one turn; a later call of the same tool wins,
+ * because the visitor is looking at the later result.
+ */
+export type TurnFacts = {
+  /** A `search_listings` call, and what it found. */
+  search?: {
+    matched: number;
+    suburb?: string;
+    /** Present only when the search actually ran with a radius. */
+    radiusKm?: number;
+  };
+  /**
+   * `cheapest_near`'s per-suburb breakdown, cheapest first.
+   *
+   * `cheapest` is already a formatted label from `priceLabel` — the same
+   * string the cards show. Never a raw number, so nothing downstream is even
+   * able to do arithmetic on it.
+   */
+  nearby?: { suburb: string; cheapest: string }[];
+  /** The suburb the breakdown was measured from, so it is not offered back. */
+  nearbyCentre?: string;
+  /** Listings inside the radius carrying no price, and so ranked nowhere. */
+  unpriced?: number;
+};
+
 /** What one tool call produces: a block for the model, and maybe a frame for the UI. */
 export type ToolOutcome = {
   /** JSON the model reads. Every figure in it was computed by Postgres. */
@@ -92,6 +127,8 @@ export type ToolOutcome = {
   resultsFrame?: Omit<ResultsEvent, 'type' | 'toolUseId'>;
   /** Filters this call established, merged into the running slot state. */
   slots?: PublicSearchQuery;
+  /** What this call establishes for the chips. Never shown to the model. */
+  facts?: TurnFacts;
   /** Something short for the "running" indicator. */
   label?: string;
   /**

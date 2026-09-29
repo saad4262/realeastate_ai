@@ -586,6 +586,25 @@
   cursor: not-allowed;
 }
 
+/*
+ * The guide's offer of a next step, under an answer.
+ *
+ * Shares .chipBtn with the hero's starters, because they do the same thing —
+ * press one and it becomes your next message — and looking alike is how
+ * somebody learns that once. It does NOT share .chips: that one centres
+ * itself for the empty hero, and centred buttons under a left-aligned answer
+ * read as belonging to the page rather than to the answer above them.
+ *
+ * Its own top margin rather than a border. .turnLink above it already draws
+ * one when it is present, and two rules stacked look like a mistake.
+ */
+.suggests {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.7rem;
+}
+
 .sendPill {
   display: inline-flex;
   align-items: center;

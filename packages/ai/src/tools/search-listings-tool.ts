@@ -12,7 +12,7 @@ import {
   type PublicListingSummary,
   type PublicSearchQuery,
 } from '@repo/core/listings';
-import { placeKey, type ToolContext, type ToolOutcome } from './context';
+import { placeKey, type ToolContext, type ToolOutcome, type TurnFacts } from './context';
 
 /**
  * The search, and the two gates that make the guide ask questions.
@@ -245,6 +245,23 @@ export async function runSearchListings(
   const rows = await ctx.search({ ...query, limit: COUNT_LIMIT });
 
   /**
+   * What the chips under the answer read. Never shown to the model.
+   *
+   * `radiusKm` comes from `near`, not from `input.radiusKm`. The two differ
+   * exactly when a radius was asked for and could not be centred — resolveNear
+   * drops it rather than guessing — and reporting the input there would offer
+   * "look wider" to somebody who already had, whose wider search would come
+   * back just as empty.
+   */
+  const factsFor = (count: number): TurnFacts => ({
+    search: {
+      matched: count,
+      suburb: input.suburb,
+      ...(near ? { radiusKm: near.radiusKm } : {}),
+    },
+  });
+
+  /**
    * Remember what was actually searched, for `draft_schedule`.
    *
    * Recorded here rather than reconstructed later so a schedule freezes the
@@ -273,6 +290,7 @@ export async function runSearchListings(
         note: `Nothing live matches ${filters}. Tell the visitor plainly and offer to relax one filter — name which one. Do not run more searches to find out which.`,
       },
       resultsFrame: { query, deepLink, matched: 0, capped: false, listings: [] },
+      facts: factsFor(0),
     };
   }
 
@@ -301,6 +319,7 @@ export async function runSearchListings(
       },
       // The panel stays empty too, so the screen agrees with the answer.
       resultsFrame: { query, deepLink, matched, capped, listings: [] },
+      facts: factsFor(matched),
     };
   }
 
@@ -320,5 +339,6 @@ export async function runSearchListings(
       note: `The visitor can see ${panel.length} results beside the conversation. Mention two or three worth a look; do not list them all. Copy every price and distance exactly as written above.`,
     },
     resultsFrame: { query, deepLink, matched, capped, listings: panel },
+    facts: factsFor(matched),
   };
 }

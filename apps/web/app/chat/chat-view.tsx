@@ -9,7 +9,7 @@ import {
 } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { ChatEvent, ResultsEvent, StateEvent } from '@repo/ai/chat-events';
+import type { ChatEvent, ChatSuggestion, ResultsEvent, StateEvent } from '@repo/ai/chat-events';
 import { readChatStream } from './chat-stream';
 import { ResultsPanel } from './results-panel';
 import { DeliveredRun } from './delivered-run';
@@ -40,6 +40,15 @@ type Turn = {
   searches?: { query: unknown; matched: number; shown: number }[];
   /** Kept client-side only, to redraw the chips under an answer. */
   results?: ResultsEvent;
+  /**
+   * The server's offer of a next step. Never the model's.
+   *
+   * Stored on the turn rather than in one piece of view state so that
+   * reopening a thread, or a turn arriving while an older one is still on
+   * screen, cannot leave chips attached to the wrong answer. Only the last
+   * turn renders them — see the guard at the render site.
+   */
+  suggestions?: ChatSuggestion[];
   /**
    * The turn's own `/search` link, from the accumulated brief rather than from
    * the last tool call.
@@ -575,6 +584,15 @@ export function ChatView({
               });
               break;
 
+            case 'suggestions':
+              setTurns((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last) next[next.length - 1] = { ...last, suggestions: event.items };
+                return next;
+              });
+              break;
+
             case 'error':
               setError(event.message);
               break;
@@ -1043,6 +1061,36 @@ export function ChatView({
                             searchPath={turn.scheduleDraft.searchPath}
                             signedIn={signedIn}
                           />
+                        ) : null}
+
+                        {/*
+                          The server's offer of a next step.
+
+                          Only on the LAST turn, and never while a reply is
+                          streaming. Chips on every answer turn the transcript
+                          into a wall of buttons, and the ones higher up are
+                          stale: they describe a search two questions ago.
+                          Sending a new message makes this turn no longer last,
+                          so the old chips retire by themselves.
+
+                          Every one of these costs a billed turn to press, so
+                          they are disabled while one is in flight — the same
+                          rule the composer's own chips follow.
+                        */}
+                        {turn.suggestions?.length && i === turns.length - 1 && !streaming ? (
+                          <div className={styles.suggests}>
+                            {turn.suggestions.map((s) => (
+                              <button
+                                key={s.kind}
+                                type="button"
+                                className={styles.chipBtn}
+                                onClick={() => send(s.send)}
+                                disabled={streaming}
+                              >
+                                {s.label}
+                              </button>
+                            ))}
+                          </div>
                         ) : null}
                       </div>
                     </div>

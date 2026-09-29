@@ -66,6 +66,54 @@ export type StateEvent = {
   deepLink: string | null;
 };
 
+/**
+ * One chip under an answer: the obvious next thing to ask.
+ *
+ * SERVER-AUTHORED, like the schedule card and unlike the answer above it.
+ * The model does not write these, is never shown them, and cannot add one.
+ * That is what keeps non-negotiable #4 true on a chip that quotes a price:
+ * every figure in a `label` was either copied from the query the server had
+ * just run, or formatted by `priceLabel` from a number Postgres returned.
+ *
+ * `label` and `send` differ on purpose. A chip has room for three words; the
+ * guide answers a whole sentence far better than a fragment, and the sentence
+ * is what lands in the transcript as the visitor's own words.
+ *
+ * Pressing one costs a full model turn, so the list is deliberately short —
+ * see MAX_SUGGESTIONS in ../suggestions.ts.
+ */
+export type ChatSuggestionKind =
+  /** A neighbouring suburb with cheaper live stock, named by SQL. */
+  | 'nearby_cheaper'
+  /** The suburb itself was empty and no radius had been tried. */
+  | 'widen_radius'
+  /** Nothing matched, and one filter the visitor gave is the likely cause. */
+  | 'drop_filter'
+  /** Several matches and nobody has asked which is cheapest yet. */
+  | 'cheapest_first'
+  /** Listings inside the radius that say "contact agent" and were not ranked. */
+  | 'unpriced'
+  /** Run this same search on a schedule and email what is new. */
+  | 'schedule';
+
+export type ChatSuggestion = {
+  kind: ChatSuggestionKind;
+  /** What the chip says. Short. */
+  label: string;
+  /** The message posted when it is pressed. A whole sentence. */
+  send: string;
+};
+
+/**
+ * The chips for this turn. Often absent — silence is the common case.
+ *
+ * Emitted once, after `state` and before `done`, so the client has the final
+ * slot state before it draws anything that depends on it. A turn that failed
+ * emits none: chips under an error message read as though the error were a
+ * menu.
+ */
+export type SuggestionsEvent = { type: 'suggestions'; items: ChatSuggestion[] };
+
 export type ChatErrorCode =
   | 'rate_limited'
   | 'daily_cap'
@@ -126,7 +174,8 @@ export type ChatEvent =
   | ErrorEvent
   | DoneEvent
   | SavedEvent
-  | ScheduleDraftEvent;
+  | ScheduleDraftEvent
+  | SuggestionsEvent;
 
 /**
  * The whole turn at once, for callers that cannot stream.
@@ -140,6 +189,8 @@ export type ChatTurnResult = {
   text: string;
   results: ResultsEvent[];
   state: StateEvent | null;
+  /** The chips the turn ended with. Empty when it offered none. */
+  suggestions: ChatSuggestion[];
   error: ErrorEvent | null;
   stopReason: string | null;
   rounds: number;

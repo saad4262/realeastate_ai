@@ -1,71 +1,73 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useRef, useState, useTransition, type FormEvent } from 'react';
+import { useState, useTransition, type FormEvent } from 'react';
 import { DEFAULT_RADIUS_KM, type ResolvedPlace } from '@repo/core/geo/schema';
-import { propertyTypeLabel } from '@repo/core/listings/schema';
-/**
- * From the leaf, NOT from ./facets.
- *
- * search-facets.ts runs the query, so it imports `listing` and `property` from
- * @repo/db as values, and @repo/db reaches postgres.js, which imports `net`.
- * This file is a client component: importing priceLadder from there broke
- * every page on the site with "Can't resolve 'net'". The type import below is
- * erased at compile time and is safe.
- */
-import { priceLadder } from '@repo/core/listings/price-ladder';
-import type { SearchFacets } from '@repo/core/listings';
 import { LocationInput } from './location-input';
 import { Spinner } from './spinner';
 import styles from './search-bar.module.css';
 
 /**
- * Radii a buyer actually thinks in. Anything wider is a suburb list, not a
- * search. The empty option is the default and is not "no filter" — it is
- * "this suburb and nothing else".
+ * Filters this box no longer shows, and must therefore never destroy.
+ *
+ * Buy/Rent, beds, price, baths, parking, type and the radius used to be
+ * controls here. They are the property guide's job now — it writes them into
+ * the URL through packages/core/listings/search-url.ts — but the URL is still
+ * the only copy of the search, and this form still submits a whole URL. A
+ * visitor who refines "3-bed rentals under $600" by typing a suburb into this
+ * box would have lost every one of those filters if the form rebuilt the query
+ * from what it can see.
+ *
+ * So they travel: as hidden inputs, so a native GET submit carries them too,
+ * and through buildAndGo, which reads them straight back out of the FormData.
+ *
+ * `radius` is NOT in this list. It is meaningless without a centre, so it is
+ * carried inside the place block below and dropped with the place.
  */
-const RADII = [2, 5, 10, 20, 50];
+const CARRIED = [
+  'channel',
+  'beds',
+  'baths',
+  'cars',
+  'type',
+  'priceFrom',
+  'priceTo',
+  'sort',
+] as const;
+
+/** "Pakenham, VIC 3810" — the shape the suggestion dropdown shows. */
+function labelOf(p: { suburb?: string | null; state?: string | null; postcode?: string | null }) {
+  return [p.suburb, [p.state, p.postcode].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+}
 
 /**
- * Radius stays a fixed ladder, and it is the only one that does.
+ * The consumer search box: one field, searched by name.
  *
- * Every other control here now offers what is actually listed — see the
- * `facets` prop below. Distance is not a property of the data: "within 10 km"
- * is a question about the map, and the honest answer to a radius that finds
- * nothing is an empty result with the radius still set, not a missing option.
- * Narrowing this to radii that happen to return something would also cost a
- * PostGIS query per rung on every page load.
- */
-
-/**
- * The consumer search box.
+ * It was a six-control panel — Buy/Rent, beds, a price ceiling, an area
+ * radius, and four more under "More filters". All of that is a question the
+ * property guide can be asked in a sentence, and every one of those controls
+ * was a second place a filter lived. What is left is the one thing a portal
+ * cannot ask a model to do on its behalf: name a place and go there.
  *
- * Everything lands in the URL rather than component state so a result page can
- * be shared, bookmarked and rendered on the server. That includes the chosen
- * coordinates: a link to "within 5 km of Bondi Beach" has to survive being
- * pasted into a message.
+ * ## What did NOT change
  *
- * It does NOT take the list of live suburbs. That list was rendered into a
- * <datalist id="suburb-options"> that no input ever referenced with a `list`
- * attribute, so every live suburb was serialised into this page's payload, and
- * into the DOM, to do nothing.
+ * The URL vocabulary. search/page.tsx still parses all twelve parameters and
+ * the chat still writes them, so a shared link, a saved search and an alert
+ * built before this change all still resolve. Only the chrome is gone — see
+ * `CARRIED` for what that costs and how it is paid.
  *
  * ## The URL is the only copy of the search
  *
  * This used to mirror eleven search parameters into useState, initialised once
  * from useSearchParams and never re-read. The component is not remounted when
  * the URL changes, so the initialisers never ran again and the two drifted:
+ * searching Pakenham, then Bondi, then pressing Back left the box reading
+ * Bondi over Pakenham's results, and the next submit sent the stale box.
  *
- *   1. search "Pakenham, 3 beds"      — box and results agree
- *   2. search "Bondi, 2 beds"         — box and results agree
- *   3. press Back                     — URL and results revert to Pakenham,
- *                                       the box still reads Bondi/2 beds
- *
- * and the next submit sent the stale box. The fix is not to sync the mirror,
- * it is to not keep one: every field below is an uncontrolled input whose
- * defaultValue is read from the URL, and the whole form is keyed on the URL,
- * so Back and Forward re-mount it with the right values by construction. There
- * is nothing left that can disagree.
+ * The fix was not to sync the mirror, it was to not keep one. The form is
+ * keyed on the URL, so Back and Forward re-mount it with the right values by
+ * construction. That rule survives the rewrite and is why `text`, `place` and
+ * `radius` can be state at all.
  *
  * ## It is a real GET form
  *
@@ -74,57 +76,29 @@ const RADII = [2, 5, 10, 20, 50];
  * all. onSubmit intercepts to keep the soft navigation and the in-button
  * spinner; the native path is what happens when that never runs.
  */
-export function SearchBar({ facets }: { facets: SearchFacets }) {
+export function SearchBar() {
   const router = useRouter();
   const params = useSearchParams();
-  const formRef = useRef<HTMLFormElement>(null);
 
   /**
    * The navigation runs as a transition, which is what stops the page blanking.
    *
-   * Without it Next swaps in search/loading.tsx — the whole page, hero and
-   * search box included, replaced by a skeleton and then rebuilt. It reads as a
-   * full reload because visually it is one. Inside a transition React keeps the
-   * current page on screen until the next one is ready, and `searching` carries
-   * the only thing that should change meanwhile: that something is happening.
+   * Without it Next swaps in search/loading.tsx — the whole page, box included,
+   * replaced by a skeleton and then rebuilt. It reads as a full reload because
+   * visually it is one. Inside a transition React keeps the current page on
+   * screen until the next one is ready, and `searching` carries the only thing
+   * that should change meanwhile: that something is happening.
    */
   const [searching, startSearching] = useTransition();
 
   const initial = (key: string) => params.get(key) ?? '';
 
   /**
-   * The three things that genuinely cannot be uncontrolled.
-   *
-   * `channel` decides which set of price options exists at all — sale prices
-   * and weekly rents are different orders of magnitude. `place` decides whether
-   * the radius control exists and carries the hidden fields. `text` has to be
-   * controlled because LocationInput debounces on it.
-   *
-   * None of them can drift from the URL, because the form they live in is keyed
-   * on it and re-mounts when it changes.
-   */
-  const [channel, setChannel] = useState(initial('channel') || 'sale');
-  const [text, setText] = useState(initial('q'));
-  /**
-   * A display-only echo of the radius select, for the sentence beside it.
-   *
-   * The select itself stays uncontrolled — this is not a second source of
-   * truth, it is what the hint reads. It cannot drift from the URL for the
-   * same reason nothing else here can: the form is keyed on it.
-   */
-  const [radiusEcho, setRadiusEcho] = useState(initial('radius'));
-  const [more, setMore] = useState(
-    // Opened when the visitor arrived on a link that uses them, so the filters
-    // shaping their results are never invisible.
-    Boolean(params.get('baths') || params.get('cars') || params.get('type') || params.get('priceFrom')),
-  );
-
-  /**
    * The place the visitor picked from the dropdown.
    *
    * suburb/state/postcode are what make the search exact — there is a Richmond
-   * in four states — and the coordinates are what the radius is drawn from.
-   * Both travel in the URL so the result page can be shared.
+   * in four states — and the coordinates are what a radius is drawn from. Both
+   * travel in the URL so the result page can be shared.
    */
   const [place, setPlace] = useState<{
     lat: string;
@@ -144,21 +118,43 @@ export function SearchBar({ facets }: { facets: SearchFacets }) {
       : null,
   );
 
-  /** Write straight to the DOM node — these inputs have no React state. */
-  function setField(name: string, value: string) {
-    const el = formRef.current?.elements.namedItem(name);
-    if (el instanceof HTMLInputElement || el instanceof HTMLSelectElement) el.value = value;
-  }
+  /**
+   * The box shows the place it is searching, rather than sitting empty.
+   *
+   * The suburb used to be legible from the "Area — Pakenham only" row under
+   * the box. That row is gone with the radius control, and an empty field over
+   * results headed "for sale in Pakenham" leaves the only mutable part of the
+   * search invisible: there is nothing to edit, and no way to tell whether the
+   * place is still set. Prefilling the name is what makes this a search *by
+   * name* rather than a box that forgets what it was asked.
+   *
+   * It is a label, not a term — see buildAndGo, which is why it is never also
+   * sent as `q`.
+   */
+  const [text, setText] = useState(
+    initial('q') ||
+      labelOf({
+        suburb: params.get('suburb'),
+        state: params.get('state'),
+        postcode: params.get('postcode'),
+      }),
+  );
 
-  /** The select and the sentence beside it, together. */
-  function setRadius(value: string) {
-    setField('radius', value);
-    setRadiusEcho(value);
-  }
+  /**
+   * Carried, not shown.
+   *
+   * There is no radius control any more — "within 20 km of Pakenham" is a
+   * sentence for the guide. But a link that already has one keeps it, and a
+   * picked street address still gets one, because an address has no suburb of
+   * its own to search and without a radius it matches nothing at all.
+   */
+  const [radius, setRadius] = useState(initial('radius'));
 
   function onPlace(resolved: ResolvedPlace | null) {
     if (!resolved) {
       setPlace(null);
+      // A radius with no centre is meaningless, and a stale one would redraw
+      // the next search's circle around the place just typed away from.
       setRadius('');
       return;
     }
@@ -169,59 +165,8 @@ export function SearchBar({ facets }: { facets: SearchFacets }) {
       state: resolved.state,
       postcode: resolved.postcode,
     });
-    // A street address has no suburb of its own to search, so it needs a radius
-    // to mean anything. A suburb does: picking Pakenham means Pakenham until
-    // the visitor asks for its surrounds too.
-    if (resolved.kind === 'address' && !currentRadius()) {
-      setRadius(String(DEFAULT_RADIUS_KM.address));
-    }
+    if (resolved.kind === 'address' && !radius) setRadius(String(DEFAULT_RADIUS_KM.address));
   }
-
-  function currentRadius(): string {
-    const el = formRef.current?.elements.namedItem('radius');
-    return el instanceof HTMLSelectElement ? el.value : '';
-  }
-
-  /** "Pakenham, VIC 3810" — the same shape the dropdown shows. */
-  const placeLabel = place
-    ? [place.suburb, [place.state, place.postcode].filter(Boolean).join(' ')]
-        .filter(Boolean)
-        .join(', ')
-    : '';
-
-  const isRent = channel === 'rent';
-
-  /**
-   * Every option below is read out of what is actually live, per channel.
-   *
-   * This is the change the whole component was reworked for. The ladders used
-   * to be constants: sale prices starting at $750,000 against a database whose
-   * dearest listing is $50,000, beds up to 5 where the most any property has
-   * is 3, baths up to 4, parking up to 3. Four of six controls could only ever
-   * empty the page, which reads as "this portal has nothing" rather than as
-   * "that filter was fiction".
-   *
-   * `facets` recomputes when the channel radio flips because it is derived
-   * during render from `channel`, which IS state — the one thing on this form
-   * that has to be.
-   */
-  const live = isRent ? facets.rent : facets.sale;
-  const prices = priceLadder(live.priceMin, live.priceMax);
-
-  /**
-   * Money the way each channel is quoted.
-   *
-   * A rent ladder is tens of dollars and a sale ladder is hundreds of
-   * thousands, so one format cannot serve both: "$0.00M" was what a $450
-   * weekly rent rendered as. Sale figures switch to millions only once they
-   * are large enough for it to shorten anything.
-   */
-  const priceLabel = (n: number) => {
-    if (isRent) return `$${n.toLocaleString('en-AU')} pw`;
-    if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
-    if (n >= 10_000) return `$${Math.round(n / 1000)}k`;
-    return `$${n.toLocaleString('en-AU')}`;
-  };
 
   /**
    * Coordinates for a place the URL did not carry any.
@@ -266,7 +211,7 @@ export function SearchBar({ facets }: { facets: SearchFacets }) {
    * The URL, built from the form rather than from a copy of it.
    *
    * FormData is read off the submitted form, so what travels is exactly what
-   * the visitor can see. That is the whole point of dropping the mirror.
+   * the visitor can see — plus the hidden fields that carry what they cannot.
    */
   async function buildAndGo(data: FormData) {
     const next = new URLSearchParams();
@@ -288,14 +233,8 @@ export function SearchBar({ facets }: { facets: SearchFacets }) {
      * for all the world like a broken distance filter.
      */
     if (!place) set('q', str('q'));
-    set('channel', str('channel'));
-    set('beds', str('beds'));
-    set('baths', str('baths'));
-    set('cars', str('cars'));
-    set('type', str('type'));
-    set('priceFrom', str('priceFrom'));
-    set('priceTo', str('priceTo'));
-    set('sort', str('sort'));
+
+    for (const key of CARRIED) set(key, str(key));
 
     if (place) {
       // Suburb, state and postcode are the exact match. They go every time,
@@ -329,18 +268,9 @@ export function SearchBar({ facets }: { facets: SearchFacets }) {
         next.set('lng', coords.lng);
       }
 
-      /**
-       * A radius needs a centre, but not necessarily one written in the URL.
-       *
-       * This used to be nested inside the coordinates check, which is what made
-       * choosing a radius on a page rebuilt from a link do nothing at all: no
-       * lat/lng meant no radius either, so the dropdown said "+ within 10 km"
-       * and the results did not move. A named suburb is a centre the server can
-       * find on its own, so the radius travels with it.
-       */
-      if (place.suburb || (coords?.lat && coords.lng)) {
-        set('radius', str('radius'));
-      }
+      // A radius needs a centre, but not necessarily one written in the URL: a
+      // named suburb is a centre the server can find on its own.
+      if (place.suburb || (coords?.lat && coords.lng)) set('radius', str('radius'));
     }
 
     router.push(`/search?${next}`);
@@ -351,13 +281,12 @@ export function SearchBar({ facets }: { facets: SearchFacets }) {
       /**
        * Re-mount whenever the URL changes.
        *
-       * This one line is what makes the defaultValues below trustworthy. Back
-       * and Forward change the URL without unmounting this component, so
-       * without a key the inputs would keep whatever the visitor last typed
-       * while the results behind them said something else.
+       * This one line is what makes the state above trustworthy. Back and
+       * Forward change the URL without unmounting this component, so without a
+       * key the box would keep whatever the visitor last typed while the
+       * results behind it said something else.
        */
       key={params.toString()}
-      ref={formRef}
       className={styles.bar}
       // The no-JavaScript path. Named inputs under a GET submit produce the
       // same URL search/page.tsx parses, so the search still works.
@@ -366,86 +295,8 @@ export function SearchBar({ facets }: { facets: SearchFacets }) {
       onSubmit={onSubmit}
       role="search"
     >
-      <div className={styles.channels}>
-        {[
-          { id: 'sale', label: 'Buy' },
-          { id: 'rent', label: 'Rent' },
-        ].map((c) => (
-          /* A real radio group, so the channel travels with a native submit.
-             The label carries the styling the button used to. */
-          <label
-            key={c.id}
-            className={channel === c.id ? `${styles.channel} ${styles.channelOn}` : styles.channel}
-          >
-            <input
-              type="radio"
-              name="channel"
-              value={c.id}
-              checked={channel === c.id}
-              className={styles.srOnly}
-              onChange={() => {
-                setChannel(c.id);
-                // Sale and rent prices are different orders of magnitude, so a
-                // bound carried across reads as "no results anywhere". These
-                // are uncontrolled, so they are cleared on the node itself.
-                setField('priceFrom', '');
-                setField('priceTo', '');
-              }}
-            />
-            {c.label}
-          </label>
-        ))}
-
-        {/*
-          A channel with nothing in it says so, here, rather than on the
-          results page.
-
-          There is not one rental on this platform, so switching to Rent
-          searched, found nothing, and rendered "Nothing matched that search.
-          Try a wider price range" — advice that cannot help, about a filter
-          the visitor did not set. The count comes from the same facets query
-          that fills every dropdown, so it costs nothing to say.
-        */}
-        {live.total === 0 ? (
-          <span className={styles.channelNote}>
-            Nothing is listed {isRent ? 'for rent' : 'for sale'} yet.
-          </span>
-        ) : null}
-      </div>
-
       <div className={styles.row}>
         <LocationInput value={text} onChange={setText} onPlace={onPlace} name="q" />
-
-        <select
-          className={styles.select}
-          name="beds"
-          defaultValue={initial('beds')}
-          aria-label="Minimum bedrooms"
-        >
-          <option value="">Any beds</option>
-          {/* Only counts some live property actually has. The filter is "N or
-              more", so the largest value present is the largest that can still
-              return a result — and nothing above it is offered. */}
-          {live.bedrooms.map((n) => (
-            <option key={n} value={n}>
-              {n}+ beds
-            </option>
-          ))}
-        </select>
-
-        <select
-          className={styles.select}
-          name="priceTo"
-          defaultValue={initial('priceTo')}
-          aria-label="Maximum price"
-        >
-          <option value="">Any price</option>
-          {prices.map((n) => (
-            <option key={n} value={n}>
-              Up to {priceLabel(n)}
-            </option>
-          ))}
-        </select>
 
         <button type="submit" className={styles.go} disabled={searching} aria-busy={searching}>
           {/* In the button, because that is where the click was and where the
@@ -456,8 +307,17 @@ export function SearchBar({ facets }: { facets: SearchFacets }) {
         </button>
       </div>
 
-      {/* The chosen place, for the server. Hidden rather than absent so a
-          native submit carries them too. */}
+      {/* Everything the guide set and this box does not show. Hidden rather
+          than absent so a native submit carries them too — see CARRIED. */}
+      {CARRIED.map((key) =>
+        params.get(key) ? (
+          <input key={key} type="hidden" name={key} value={params.get(key) ?? ''} />
+        ) : null,
+      )}
+
+      {/* The chosen place, for the server. Rendered from state, so typing away
+          from a suburb removes them — including the radius, which cannot
+          outlive the centre it was drawn around. */}
       {place ? (
         <>
           <input type="hidden" name="suburb" value={place.suburb ?? ''} />
@@ -465,143 +325,9 @@ export function SearchBar({ facets }: { facets: SearchFacets }) {
           <input type="hidden" name="postcode" value={place.postcode ?? ''} />
           <input type="hidden" name="lat" value={place.lat} />
           <input type="hidden" name="lng" value={place.lng} />
+          <input type="hidden" name="radius" value={radius} />
         </>
       ) : null}
-
-      {/*
-        The area control cannot exist before a place does — a radius with no
-        centre is meaningless. But an invisible option is an option nobody finds,
-        and this one was reported as missing. One line says it is there and what
-        reveals it.
-      */}
-      {!place ? (
-        <p className={styles.areaHint}>
-          Pick a suburb from the list to search a distance around it as well.
-        </p>
-      ) : null}
-
-      <div className={styles.radiusRow} hidden={!place}>
-        <label htmlFor="radius" className={styles.radiusLabel}>
-          Area
-        </label>
-        {/* Rendered even with no place, just hidden, so the node exists for
-            onPlace to write a default radius into the moment one is picked. */}
-        <select
-          id="radius"
-          name="radius"
-          className={styles.select}
-          defaultValue={initial('radius')}
-          onChange={(e) => setRadiusEcho(e.target.value)}
-        >
-          {/* The default is the suburb itself. Widening is a deliberate act,
-              and the wording says what each choice actually does rather than
-              leaving "within 5 km" to imply it replaced the suburb. */}
-          <option value="">{placeLabel || 'This location'} only</option>
-          {RADII.map((km) => (
-            <option key={km} value={km}>
-              + within {km} km
-            </option>
-          ))}
-        </select>
-        <span className={styles.radiusHint}>
-          {radiusEcho
-            ? `${placeLabel} plus anything within ${radiusEcho} km of it`
-            : `Only listings in ${placeLabel || 'this location'}`}
-        </span>
-        <button
-          type="button"
-          className={styles.clearPin}
-          onClick={() => {
-            setPlace(null);
-            setRadius('');
-          }}
-        >
-          Clear location
-        </button>
-      </div>
-
-      {/* <details> rather than a button, so More filters opens without
-          JavaScript. The state only drives the label. */}
-      <details
-        className={styles.more}
-        open={more}
-        onToggle={(e) => setMore(e.currentTarget.open)}
-      >
-        <summary className={styles.moreToggle}>{more ? 'Fewer filters' : 'More filters'}</summary>
-
-        <div className={styles.moreRow}>
-          <select
-            className={styles.select}
-            name="priceFrom"
-            defaultValue={initial('priceFrom')}
-            aria-label="Minimum price"
-          >
-            <option value="">No minimum</option>
-            {prices.map((n) => (
-              <option key={n} value={n}>
-                From {priceLabel(n)}
-              </option>
-            ))}
-          </select>
-
-          <select
-            className={styles.select}
-            name="baths"
-            defaultValue={initial('baths')}
-            aria-label="Minimum bathrooms"
-          >
-            <option value="">Any baths</option>
-            {live.bathrooms.map((n) => (
-              <option key={n} value={n}>
-                {n}+ baths
-              </option>
-            ))}
-          </select>
-
-          <select
-            className={styles.select}
-            name="cars"
-            defaultValue={initial('cars')}
-            aria-label="Minimum car spaces"
-          >
-            <option value="">Any parking</option>
-            {live.carSpaces.map((n) => (
-              <option key={n} value={n}>
-                {n}+ car
-              </option>
-            ))}
-          </select>
-
-          <select
-            className={styles.select}
-            name="type"
-            defaultValue={initial('type')}
-            aria-label="Property type"
-          >
-            <option value="">Any type</option>
-            {/* Only types with something live in them, so no choice here can
-                produce an empty page by itself. This was the one control that
-                already had that rule; now they all do. */}
-            {live.propertyTypes.map((t) => (
-              <option key={t} value={t}>
-                {propertyTypeLabel(t)}
-              </option>
-            ))}
-          </select>
-
-          <select
-            className={styles.select}
-            name="sort"
-            defaultValue={initial('sort')}
-            aria-label="Sort results"
-          >
-            <option value="">{place ? 'Nearest first' : 'Newest first'}</option>
-            <option value="price_asc">Price: low to high</option>
-            <option value="price_desc">Price: high to low</option>
-            <option value="newest">Newest first</option>
-          </select>
-        </div>
-      </details>
     </form>
   );
 }

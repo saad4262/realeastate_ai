@@ -12,7 +12,7 @@ import {
 import { runSearchListings, searchListingsInput } from './search-listings-tool';
 import type { ToolContext, ToolOutcome } from './context';
 
-export { type ToolContext, type ToolOutcome, placeKey } from './context';
+export { type ToolContext, type ToolOutcome, type TurnFacts, placeKey } from './context';
 export { toPublicSearchQuery, type SearchListingsInput } from './search-listings-tool';
 
 /**

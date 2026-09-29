@@ -387,6 +387,7 @@ export async function POST(request: NextRequest) {
       text: '',
       results: [],
       state: null,
+      suggestions: [],
       error: null,
       stopReason: null,
       rounds: 0,
@@ -405,6 +406,9 @@ export async function POST(request: NextRequest) {
           break;
         case 'state':
           collected.state = event;
+          break;
+        case 'suggestions':
+          collected.suggestions = event.items;
           break;
         case 'error':
           collected.error = event;

@@ -110,6 +110,10 @@ export async function runCheapestNear(
             ? `Nothing within ${radiusKm} km carries a price — ${market.unpriced} listing(s) there say "contact agent". Offer to widen the radius.`
             : `Nothing live within ${radiusKm} km. Offer to widen the radius or try a different area.`,
       },
+      facts: {
+        ...(place.suburb ? { nearbyCentre: place.suburb } : {}),
+        ...(market.unpriced > 0 ? { unpriced: market.unpriced } : {}),
+      },
     };
   }
 
@@ -168,6 +172,29 @@ export async function runCheapestNear(
             unpricedNote: `${market.unpriced} more listing(s) inside the radius say "contact agent" and are not ranked here.`,
           }
         : {}),
+    },
+    /**
+     * The per-suburb breakdown again, for the chips — bare suburb names and
+     * the same formatted price labels the model was handed.
+     *
+     * `bySuburb` arrives cheapest-first from SQL, so the first row that is not
+     * the suburb the visitor is already looking at IS the cheaper alternative.
+     * Nothing here is sorted, compared or rounded a second time; the ranking
+     * is Postgres's and the strings are `priceLabel`'s (#4).
+     */
+    facts: {
+      nearby: market.bySuburb.map((s) => ({
+        suburb: s.suburb,
+        cheapest: priceLabel({
+          channel: input.channel,
+          priceDisplay: null,
+          priceFrom: s.cheapest,
+          priceTo: null,
+          rentPw: input.channel === 'rent' ? s.cheapest : null,
+        } as Parameters<typeof priceLabel>[0]),
+      })),
+      ...(place.suburb ? { nearbyCentre: place.suburb } : {}),
+      ...(market.unpriced > 0 ? { unpriced: market.unpriced } : {}),
     },
     /**
      * Slots, so the deep link and the sidebar follow the conversation.

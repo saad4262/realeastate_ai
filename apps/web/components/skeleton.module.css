@@ -36,17 +36,23 @@
 }
 
 /* --- the search bar's own footprint ------------------------------------- */
-/* Reserves the height the real bar occupies so the hero does not jump when it
-   hydrates. This replaced `fallback={null}`, which reserved nothing. */
+/* Reserves the height the real bar occupies so the page does not jump when it
+   hydrates. This replaced `fallback={null}`, which reserved nothing.
+   
+   132px was the six-control panel: Buy/Rent, a field, two selects, the area
+   row and "More filters". The bar is one field and a button now — 1rem of
+   padding either side of a 40px control — and a skeleton left at the old
+   height is the layout shift it exists to prevent, in the other direction. */
 .searchBar {
-  height: 132px;
+  height: 72px;
   border-radius: 0.875rem;
   border: 1px solid var(--color-border, #d9d2c5);
   background: var(--color-surface, #fff);
 }
 
+/* The field and the button stack below 720px — see search-bar.module.css. */
 @media (max-width: 720px) {
-  .searchBar { height: 210px; }
+  .searchBar { height: 120px; }
 }
 
 /* --- a grid of cards ----------------------------------------------------- */

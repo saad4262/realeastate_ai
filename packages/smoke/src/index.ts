@@ -2923,6 +2923,60 @@ async function main() {
     return `${search.matched} matches in ${suburb}`;
   });
 
+  await check('a searched turn comes back with server-authored chips', async () => {
+    /**
+     * The chips under an answer, over the wire.
+     *
+     * `suggestions.test.ts` pins the rules and `property-chat.test.ts` pins
+     * the wiring; both run against a fake. This is the only check that proves
+     * the frame survives the route, the NDJSON serialiser and the buffered
+     * JSON collector — three places that each have their own copy of the
+     * event union and could silently drop a member.
+     *
+     * What it deliberately does NOT assert is which chips appear. That
+     * depends on what the live database holds, and a check that goes red
+     * because a suburb sold out is a check people learn to ignore.
+     */
+    if (!webUp) skip('web app is not running');
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+
+    const suburbs = await liveSuburbs(db);
+    const suburb = suburbs[0];
+    if (!suburb) skip('no live listings to search');
+
+    const turn = await chat({ message: `homes for sale in ${suburb}` });
+    onlySearch(turn);
+
+    assert(Array.isArray(turn.suggestions), 'the turn carried no suggestions array');
+    assert(
+      turn.suggestions.length > 0,
+      'a turn that searched offered no next step at all',
+    );
+    // MAX_SUGGESTIONS in packages/ai/src/suggestions.ts. Restated rather than
+    // imported: this is a black-box check of the wire contract, and importing
+    // the constant would make it agree with itself.
+    assert(
+      turn.suggestions.length <= 3,
+      `${turn.suggestions.length} chips — every one costs a billed turn to press`,
+    );
+
+    const kinds = turn.suggestions.map((c) => c.kind);
+    assert(new Set(kinds).size === kinds.length, `a kind repeated: ${kinds.join(', ')}`);
+    for (const chip of turn.suggestions) {
+      assert(chip.label.trim().length > 0, `a chip had no label: ${JSON.stringify(chip)}`);
+      /**
+       * `send` becomes the visitor's next message and goes straight back
+       * through `chatRequestSchema`. A chip the server cannot accept is worse
+       * than no chip: it looks pressable and 400s.
+       */
+      assert(
+        chip.send.trim().length > 0 && chip.send.length <= 1000,
+        `chip "${chip.label}" would not pass chatRequestSchema: ${chip.send.length} chars`,
+      );
+    }
+    return kinds.join(' · ');
+  });
+
   await check('"cheapest near my office" is answered from SQL, both ways', async () => {
     /**
      * The question the portal could not answer until now.

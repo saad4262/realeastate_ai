@@ -19,8 +19,7 @@ import { cachedSearch } from '../../lib/cached';
 const runSearch = cache(
   (
     query: PublicSearchQuery,
-  ): Promise<{ rows: PublicListingSummary[]; total: number; down: boolean }> =>
-    cachedSearch(query),
+  ): Promise<{ rows: PublicListingSummary[]; total: number; down: boolean }> => cachedSearch(query),
 );
 
 type Shared = {
@@ -42,16 +41,10 @@ type Shared = {
  * broken filter. Naming both halves is the difference between a number the
  * visitor has to trust and one they can check.
  */
-export async function ResultsSummary({
-  query,
-  suburb,
-  place,
-  near,
-  page,
-  pageSize,
-}: Shared) {
+export async function ResultsSummary({ query, suburb, place, near, page, pageSize }: Shared) {
   const { rows, total, down } = await runSearch(query);
-  if (down) return <p className="text-body-md text-ink-soft">Listings are temporarily unavailable.</p>;
+  if (down)
+    return <p className="text-body-md text-ink-soft">Listings are temporarily unavailable.</p>;
 
   const inSuburb = suburb
     ? rows.filter((r) => r.suburb.toLowerCase() === suburb.toLowerCase()).length
@@ -59,10 +52,9 @@ export async function ResultsSummary({
   const nearby = rows.length - inSuburb;
 
   const kind = query.channel === 'rent' ? 'rentals' : 'properties for sale';
-  const extras = [
-    query.bedrooms ? `${query.bedrooms}+ bedrooms` : null,
-    query.propertyType,
-  ].filter(Boolean);
+  const extras = [query.bedrooms ? `${query.bedrooms}+ bedrooms` : null, query.propertyType].filter(
+    Boolean,
+  );
 
   /**
    * The total, and which slice of it is on screen.
@@ -175,14 +167,33 @@ export async function ResultsList({
           ))}
         </PrefetchOnIntent>
       ) : (
+        /*
+         * Advice that names a control the visitor can actually reach.
+         *
+         * "Try a wider price range" and "try a wider radius" were written when
+         * a price ceiling and a radius select sat at the top of this page.
+         * Both are the property guide's now, and an empty result that tells
+         * someone to widen a filter they cannot see is worse than saying
+         * nothing — it reads as a broken page rather than an empty one.
+         *
+         * So the sentence still names the way out, and the way out is a link.
+         */
         <p className="rounded-lg border border-dashed border-line px-lg py-xl text-center text-body-md text-ink-soft">
-          {down
-            ? 'Please try again shortly.'
-            : near
-              ? `Nothing in ${place || 'that area'} or within ${near.radiusKm} km of it. Try a wider radius.`
-              : place
-                ? `Nothing listed in ${place} right now. Try searching the surrounding area instead.`
-                : 'Nothing matched that search. Try a wider price range or a different suburb.'}
+          {down ? (
+            'Please try again shortly.'
+          ) : (
+            <>
+              {near
+                ? `Nothing in ${place || 'that area'} or within ${near.radiusKm} km of it.`
+                : place
+                  ? `Nothing listed in ${place} right now.`
+                  : 'Nothing matched that search.'}{' '}
+              <Link href="/chat" className="text-brand underline">
+                Ask the guide
+              </Link>{' '}
+              to widen the search — a price range, a distance, or somewhere nearby.
+            </>
+          )}
         </p>
       )}
 
@@ -195,7 +206,10 @@ export async function ResultsList({
         cacheable, in the history, indexable, and it works with no JavaScript.
       */}
       {pages > 1 ? (
-        <nav className="mt-lg flex flex-wrap items-center justify-center gap-1" aria-label="Search result pages">
+        <nav
+          className="mt-lg flex flex-wrap items-center justify-center gap-1"
+          aria-label="Search result pages"
+        >
           <PageLink href={pageHref(page - 1)} disabled={page === 1} rel="prev">
             ← Previous
           </PageLink>
@@ -259,7 +273,11 @@ function PageLink({
     );
   }
   return (
-    <Link href={href} rel={rel} className={`${base} border-line bg-card text-ink hover:border-brand hover:text-brand`}>
+    <Link
+      href={href}
+      rel={rel}
+      className={`${base} border-line bg-card text-ink hover:border-brand hover:text-brand`}
+    >
       {children}
     </Link>
   );

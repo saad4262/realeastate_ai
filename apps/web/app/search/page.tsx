@@ -1,22 +1,17 @@
 import { Suspense } from 'react';
-import Link from 'next/link';
 import type { Metadata } from 'next';
-import type {
-  ListingChannel,
-  PublicSearchQuery,
-  SearchFacets,
-  SearchSort,
-} from '@repo/core/listings';
+import type { ListingChannel, PublicSearchQuery, SearchSort } from '@repo/core/listings';
 import { nearSchema } from '@repo/core/geo/schema';
 import { WebShell } from '../../components/web-shell';
 import { SearchBar } from '../../components/search-bar';
 import { SearchBarSkeleton, ResultListSkeleton, PanelSkeleton } from '../../components/skeletons';
 import { ResultsList, ResultsSummary } from './results';
+import { Refreshing, SortBar, SortingProvider } from './sorting';
 import { NearbySuburbsPanel, NotConnectedPanel, TopAgentsPanel } from './sidebar';
 import { parseSearchParams, savedQueryToPath } from '@repo/core/listings/url';
 import { SaveSearch } from '../../components/save-search';
 import { looksSignedIn } from '../../lib/session';
-import { cachedFacets, cachedPlace } from '../../lib/cached';
+import { cachedPlace } from '../../lib/cached';
 import { portalFonts } from '../portal-fonts';
 
 export const dynamic = 'force-dynamic';
@@ -47,9 +42,7 @@ function channelOf(value: string | undefined): ListingChannel | undefined {
 }
 
 function sortOf(value: string | undefined): SearchSort | undefined {
-  return value === 'price_asc' || value === 'price_desc' || value === 'newest'
-    ? value
-    : undefined;
+  return value === 'price_asc' || value === 'price_desc' || value === 'newest' ? value : undefined;
 }
 
 /**
@@ -62,11 +55,7 @@ function sortOf(value: string | undefined): SearchSort | undefined {
  * Parsed through the same zod schema the rest of the system uses, so a
  * hand-edited ?lat=999 is dropped rather than handed to PostGIS.
  */
-function nearOf(
-  lat: string | undefined,
-  lng: string | undefined,
-  radius: string | undefined,
-) {
+function nearOf(lat: string | undefined, lng: string | undefined, radius: string | undefined) {
   if (!lat || !lng || !radius) return undefined;
   const parsed = nearSchema.safeParse({ lat, lng, radiusKm: radius });
   return parsed.success ? parsed.data : undefined;
@@ -83,17 +72,19 @@ export default async function SearchPage({
     return Array.isArray(v) ? v[0] : v;
   };
 
-  /**
-   * Started now, awaited later, and not by this page at all.
+  /*
+   * There is no cachedFacets() call here any more.
    *
-   * The filter options depend on nothing above them, but they used to be
-   * fetched after the suburb centre had already been resolved — two
-   * independent reads run one after the other, with the cold one costing a
-   * round trip to the database region. Kicking it off here lets it overlap,
-   * and handing the promise to a component inside the existing Suspense
-   * boundary means the results never wait on it even when it is cold.
+   * It existed to fill the beds, price, baths, parking and type dropdowns, and
+   * every one of those controls has moved into the property guide. The read is
+   * still made by / and /chat; this page simply no longer needs it, which is
+   * one fewer database round trip on the most-visited URL on the site.
+   *
+   * The smoke check "no filter option the search box offers can return zero
+   * results" still runs against searchFacets directly. It is now guarding the
+   * options the GUIDE offers rather than the ones a dropdown did, which is the
+   * same rule about the same data.
    */
-  const filterOptions = cachedFacets();
 
   /**
    * The same URL, read back as a saved search.
@@ -106,7 +97,9 @@ export default async function SearchPage({
   const savedQuery = parseSearchParams(
     new URLSearchParams(
       Object.entries(params).flatMap(([key, value]) =>
-        value === undefined ? [] : [[key, Array.isArray(value) ? (value[0] ?? '') : value] as [string, string]],
+        value === undefined
+          ? []
+          : [[key, Array.isArray(value) ? (value[0] ?? '') : value] as [string, string]],
       ),
     ),
   );
@@ -184,9 +177,7 @@ export default async function SearchPage({
     .filter(Boolean)
     .map((v) => (v as string).trim().toLowerCase());
   const text =
-    typed && placeWords.length && placeWords.includes(typed.toLowerCase())
-      ? undefined
-      : typed;
+    typed && placeWords.length && placeWords.includes(typed.toLowerCase()) ? undefined : typed;
 
   const query: PublicSearchQuery = {
     text,
@@ -262,21 +253,24 @@ export default async function SearchPage({
   }`;
 
   /**
-   * Sort as links, not as a second select.
+   * Sort as links, not as a select.
    *
-   * The search bar already has a sort control, and a dropdown here would be a
-   * second place the same value lives — the exact mirror-of-the-URL problem
-   * the search bar was rewritten to remove. Links write to the URL, which is
-   * the only copy of the search, so the two controls cannot disagree. They
-   * also work with no JavaScript, which a submit-on-change select does not.
+   * It is the last filter with a control on this page, and it keeps one for
+   * the reason the others lost theirs: it is a single tap, it is instantly
+   * reversible, and it is pure SQL — asking the guide to re-order a list costs
+   * a model round trip to produce an ORDER BY.
+   *
+   * Links, because the href IS the search: middle-click opens the other order
+   * in a tab, and with no JavaScript the plain navigation still works. SortBar
+   * intercepts the ordinary click to run it as a transition — see sorting.tsx.
    */
   const currentSort = sortOf(one('sort')) ?? '';
-  const sorts: { value: string; label: string }[] = [
+  const sorts = [
     { value: '', label: near ? 'Nearest' : 'Featured' },
     { value: 'newest', label: 'Newest' },
     { value: 'price_asc', label: 'Price ↑' },
     { value: 'price_desc', label: 'Price ↓' },
-  ];
+  ].map((s) => ({ ...s, href: withParam('sort', s.value) }));
 
   const shared = { query, suburb, place, near, page, pageSize: PAGE_SIZE, pageHref };
 
@@ -292,8 +286,18 @@ export default async function SearchPage({
    * string, so a parameter that changes nothing — a utm_source on a shared
    * link, a stray key — no longer throws the results away and re-fetches them
    * to show the same answer.
+   *
+   * `sort` is left out on purpose, and it is the one exception the paragraph
+   * above describes rather than a hole in it. Re-ordering is not a different
+   * question: the same listings come back in another order, so throwing them
+   * away for a skeleton and rebuilding is the flicker that made a sort read as
+   * a page reload. With the key unchanged the old rows stay on screen for the
+   * whole transition and `Refreshing` shims over them instead.
+   *
+   * JSON.stringify drops undefined properties, so this is the query minus one
+   * key rather than the query with a null in it.
    */
-  const searchKey = JSON.stringify(query);
+  const searchKey = JSON.stringify({ ...query, sort: undefined });
 
   return (
     // Outside the middleware matcher, so this is `looksSignedIn()` — a cookie
@@ -311,9 +315,10 @@ export default async function SearchPage({
         It is here rather than on <body> because the header above it is
         AppShell's and shared with / and /chat, which keep the warm green.
       */}
-      <div
-        data-skin="portal"
-        /* Marks THIS element as the page's own wrapper.
+      <SortingProvider>
+        <div
+          data-skin="portal"
+          /* Marks THIS element as the page's own wrapper.
 
            loading.tsx carries the skin too — it has to, or the page changes
            colour when it arrives — and its shell is streamed into the same
@@ -323,11 +328,11 @@ export default async function SearchPage({
 
            The check now looks for both attributes on one tag, which only this
            element has. */
-        data-page="search-results"
-        className={`${portalFonts} min-h-screen bg-canvas`}
-      >
-        <div className="mx-auto w-full max-w-[1200px] px-gutter pb-xl">
-          {/*
+          data-page="search-results"
+          className={`${portalFonts} min-h-screen bg-canvas`}
+        >
+          <div className="mx-auto w-full max-w-[1200px] px-gutter pb-xl">
+            {/*
             The search box first, the heading and count under it — a portal's
             order, and the reverse of what this page did. The box is what a
             visitor came to use; the sentence is the answer to it.
@@ -338,16 +343,19 @@ export default async function SearchPage({
             its padding. One sticky element, and it is the one with the nav in
             it.
           */}
-          <div className="py-md">
-            <Suspense fallback={<SearchBarSkeleton />}>
-              <SearchBarSlot options={filterOptions} />
-            </Suspense>
-          </div>
+            <div className="py-md">
+              {/* Still inside a boundary: SearchBar reads useSearchParams, which
+                requires one. It no longer waits on a database read to fill its
+                options, because it no longer has any. */}
+              <Suspense fallback={<SearchBarSkeleton />}>
+                <SearchBar />
+              </Suspense>
+            </div>
 
-          <h1 className="pt-sm text-headline-xl font-display text-ink">{heading}</h1>
+            <h1 className="pt-sm text-headline-xl font-display text-ink">{heading}</h1>
 
-          <div className="mt-sm flex flex-wrap items-center justify-between gap-sm border-b border-line-subtle pb-md">
-            {/*
+            <div className="mt-sm flex flex-wrap items-center justify-between gap-sm border-b border-line-subtle pb-md">
+              {/*
               The one line that depends on the answer, streaming in beside a
               search box that never leaves the screen.
 
@@ -356,34 +364,17 @@ export default async function SearchPage({
               /([0-9]+) results?\s+—/, and five checks depend on it. The layout
               around it changed twice now; the sentence deliberately did not.
             */}
-            <Suspense
-              key={`s-${searchKey}`}
-              fallback={<p className="text-body-md text-ink-soft">Searching…</p>}
-            >
-              <ResultsSummary {...shared} />
-            </Suspense>
+              <Suspense
+                key={`s-${searchKey}`}
+                fallback={<p className="text-body-md text-ink-soft">Searching…</p>}
+              >
+                <ResultsSummary {...shared} />
+              </Suspense>
 
-            <div className="flex flex-wrap items-center gap-1">
-              <span className="text-label-md uppercase text-ink-faint">Sort by</span>
-              {sorts.map((s) => (
-                <Link
-                  key={s.value || 'default'}
-                  href={withParam('sort', s.value)}
-                  prefetch={false}
-                  aria-current={s.value === currentSort ? 'true' : undefined}
-                  className={
-                    s.value === currentSort
-                      ? 'rounded-sm bg-brand px-sm py-1 text-body-sm text-brand-ink'
-                      : 'rounded-sm px-sm py-1 text-body-sm text-ink-soft hover:text-brand'
-                  }
-                >
-                  {s.label}
-                </Link>
-              ))}
+              <SortBar options={sorts} current={currentSort} />
             </div>
-          </div>
 
-          {/*
+            {/*
             Save this search.
 
             It is handed the path rather than the parsed filters: the server
@@ -391,15 +382,15 @@ export default async function SearchPage({
             gets saved is exactly what produced the results above (§ 9). The
             signed-in flag is a display hint only — see looksSignedIn().
           */}
-          <div className="pt-md">
-            <SaveSearch
-              searchPath={savedQueryToPath(savedQuery)}
-              signedIn={signedIn}
-              hasFilters={Object.keys(savedQuery).length > 0}
-            />
-          </div>
+            <div className="pt-md">
+              <SaveSearch
+                searchPath={savedQueryToPath(savedQuery)}
+                signedIn={signedIn}
+                hasFilters={Object.keys(savedQuery).length > 0}
+              />
+            </div>
 
-          {/*
+            {/*
             Results beside a sidebar, 8 and 4 of twelve — the split the listing
             page already uses, so the two public pages have one column system
             between them rather than one each.
@@ -408,17 +399,28 @@ export default async function SearchPage({
             is as tall as the results column, and a sticky element inside
             something that tall never has anywhere to stick to.
           */}
-          <div className="grid items-start gap-lg pt-lg lg:grid-cols-12">
-            <section className="lg:col-span-8">
-              {/* A stack of card shapes rather than a spinner: the results are
-                  about to be a stack of cards, and a centred spinner makes the
-                  page jump from nothing to full height. */}
-              <Suspense key={`r-${searchKey}`} fallback={<ResultListSkeleton count={4} />}>
-                <ResultsList {...shared} />
-              </Suspense>
-            </section>
+            <div className="grid items-start gap-lg pt-lg lg:grid-cols-12">
+              <section className="lg:col-span-8">
+                {/*
+                Two loading states, for two different events, and they never
+                both run.
 
-            {/*
+                The skeleton is for a NEW search — the key changed, there is
+                nothing on screen worth keeping, and a stack of card shapes
+                stops the page jumping from nothing to full height.
+
+                `Refreshing` is for a re-order — the key did not change, the
+                rows are still right, and they are dimmed in place until the
+                new order arrives.
+              */}
+                <Refreshing>
+                  <Suspense key={`r-${searchKey}`} fallback={<ResultListSkeleton count={4} />}>
+                    <ResultsList {...shared} />
+                  </Suspense>
+                </Refreshing>
+              </section>
+
+              {/*
               Its own boundary, and deliberately outside the results one.
 
               These are two more reads. Inside the results boundary they would
@@ -428,39 +430,28 @@ export default async function SearchPage({
               arrive — which is the right priority, because nobody came here
               for the sidebar.
             */}
-            <aside className="grid gap-md lg:sticky lg:top-lg lg:col-span-4">
-              <Suspense key={`a-${searchKey}`} fallback={<PanelSkeleton rows={3} />}>
-                {suburb ? (
-                  <TopAgentsPanel suburb={suburb} state={state} channel={query.channel} />
-                ) : null}
-              </Suspense>
+              <aside className="grid gap-md lg:sticky lg:top-lg lg:col-span-4">
+                <Suspense key={`a-${searchKey}`} fallback={<PanelSkeleton rows={3} />}>
+                  {suburb ? (
+                    <TopAgentsPanel suburb={suburb} state={state} channel={query.channel} />
+                  ) : null}
+                </Suspense>
 
-              <Suspense key={`n-${searchKey}`} fallback={<PanelSkeleton rows={4} />}>
-                <NearbySuburbsPanel
-                  suburb={suburb}
-                  state={state}
-                  channel={query.channel}
-                  near={near}
-                />
-              </Suspense>
+                <Suspense key={`n-${searchKey}`} fallback={<PanelSkeleton rows={4} />}>
+                  <NearbySuburbsPanel
+                    suburb={suburb}
+                    state={state}
+                    channel={query.channel}
+                    near={near}
+                  />
+                </Suspense>
 
-              <NotConnectedPanel />
-            </aside>
+                <NotConnectedPanel />
+              </aside>
+            </div>
           </div>
         </div>
-      </div>
+      </SortingProvider>
     </WebShell>
   );
-}
-
-/**
- * The search box, once its option lists arrive.
- *
- * Awaiting inside the boundary rather than in the page is what keeps the
- * results independent of it: a cold filter-options read delays the box it
- * belongs to and nothing else.
- */
-async function SearchBarSlot({ options }: { options: Promise<SearchFacets> }) {
-  const facets = await options;
-  return <SearchBar facets={facets} />;
 }

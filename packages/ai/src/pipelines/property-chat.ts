@@ -6,7 +6,8 @@ import { catalogueBlock, PROMPT_VERSION, PROPERTY_CHAT_V8 } from '../prompts/v8'
 import { slotsToQuery } from '../schemas/chat-request';
 import type { ChatEvent } from '../schemas/chat-events';
 import { MAX_HISTORY_CHARS, toClientSlots, type ChatRequest, type ChatTurn } from '../schemas/chat-request';
-import { dispatchTool, PROPERTY_CHAT_TOOLS, type ToolContext } from '../tools';
+import { buildSuggestions } from '../suggestions';
+import { dispatchTool, PROPERTY_CHAT_TOOLS, type ToolContext, type TurnFacts } from '../tools';
 import { trackAiRunQuietly } from '../usage';
 
 const FEATURE = 'property-chat';
@@ -234,6 +235,18 @@ export async function* runPropertyChat(
   }
 
   let slots: PublicSearchQuery = { ...(request.slots as PublicSearchQuery | undefined) };
+  /**
+   * What the tools established, for the chips at the end of the turn.
+   *
+   * Accumulated beside `slots` rather than inside it: slots are the brief and
+   * go back to the client to be echoed on the next request, while these are
+   * facts about THIS turn only and are thrown away after the chips are built.
+   */
+  let facts: TurnFacts = {};
+  /** A confirmation card went on screen. The chips must not offer a second. */
+  let scheduleOffered = false;
+  /** The turn ended in an error frame, so there is nothing to offer next. */
+  let failed = false;
   let rounds = 0;
   /** Whether any round has produced prose yet — see the separator below. */
   let spokenSoFar = false;
@@ -308,6 +321,7 @@ export async function* runPropertyChat(
       stopReason = message.stop_reason;
 
       if (message.stop_reason === 'refusal') {
+        failed = true;
         yield {
           type: 'error',
           code: 'refusal',
@@ -347,6 +361,7 @@ export async function* runPropertyChat(
 
       for (const { use, outcome } of outcomes) {
         if (outcome.slots) slots = { ...slots, ...outcome.slots };
+        if (outcome.facts) facts = { ...facts, ...outcome.facts };
         if (outcome.scheduleDraft) {
           /**
            * The confirmation card.
@@ -356,6 +371,7 @@ export async function* runPropertyChat(
            * press Accept on has to be the server's description of what
            * will be stored, not the model's account of what it did.
            */
+          scheduleOffered = true;
           yield { type: 'schedule_draft', toolUseId: use.id, ...outcome.scheduleDraft };
         }
 
@@ -388,6 +404,7 @@ export async function* runPropertyChat(
       return;
     }
     console.error('[ai] property chat failed', err);
+    failed = true;
     yield {
       type: 'error',
       code: 'upstream',
@@ -402,6 +419,25 @@ export async function* runPropertyChat(
     missing: missingSlots(slots),
     deepLink: hasQuery ? searchQueryToPath(slots) : null,
   };
+  /**
+   * The chips, after `state` and before `done`.
+   *
+   * After `state` because a chip and the slot panel describe the same brief
+   * and the client should not paint them a frame apart. Before `done` because
+   * a client is entitled to treat `done` as the end of the turn.
+   *
+   * Nothing is yielded when there is nothing to offer — an empty frame would
+   * make the browser clear chips it never drew.
+   */
+  const suggestions = buildSuggestions({
+    facts,
+    slots,
+    scheduling: tools.scheduling.state,
+    scheduleOffered,
+    failed,
+  });
+  if (suggestions.length > 0) yield { type: 'suggestions', items: suggestions };
+
   yield { type: 'done', stopReason, rounds };
 }
 
