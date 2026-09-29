@@ -32,10 +32,23 @@ export const metadata: Metadata = {
 export default async function ChatPage({
   searchParams,
 }: {
-  searchParams: Promise<{ alert?: string; thread?: string; history?: string }>;
+  searchParams: Promise<{ alert?: string; thread?: string; history?: string; ask?: string }>;
 }) {
   const [{ suburbs }, params] = await Promise.all([cachedFilterOptions(), searchParams]);
   const showHistory = params.history === '1';
+
+  /**
+   * The sentence somebody typed on the home page, on its way to the guide.
+   *
+   * Only ever honoured on a blank chat. Arriving with both `?thread=` and
+   * `?ask=` would mean appending a message to a conversation the visitor did
+   * not choose to append it to, and `?history=1` is a list rather than a
+   * conversation at all. Trimmed and capped to the same 1000 characters
+   * `chatRequestSchema` accepts, so a hand-written URL cannot make the
+   * client fire a request the server is going to refuse.
+   */
+  const ask =
+    !showHistory && !params.thread ? (params.ask?.trim().slice(0, 1000) || null) : null;
 
   const [delivered, user] = await Promise.all([
     params.alert && !showHistory ? loadDeliveredRun(params.alert) : Promise.resolve(null),
@@ -63,6 +76,25 @@ export default async function ChatPage({
   if (!showHistory && params.thread && !opened) notFound();
 
   const restored = opened ? reopenFrom(opened.turns) : { results: null, slots: null };
+
+  /**
+   * The rail's date headings, decided here rather than in the browser.
+   *
+   * `/chat` is `force-dynamic`, so this costs nothing to compute per
+   * request — and doing it on the server is the only way the rail renders
+   * the same GROUPS on both sides of hydration. Working it out in the
+   * client component would compare `lastMessageAt` to `Date.now()` once
+   * during the server render and once during hydration, in two different
+   * zones, and a row landing in "Today" on one pass and "Yesterday" on the
+   * other is a structural mismatch React cannot reconcile.
+   *
+   * Pinned to Sydney rather than to the server's own zone. This is an
+   * Australian site — the schedules are already stored against AU zones —
+   * and an hour's disagreement with a visitor's own midnight is a heading
+   * that reads oddly, where a floating server zone is a heading that
+   * changes when the deployment region does.
+   */
+  const now = new Date();
 
   return (
     // `/chat` is inside the middleware matcher, so this is the verified
@@ -95,14 +127,50 @@ export default async function ChatPage({
             ...(turn.deepLink ? { stateLink: turn.deepLink } : {}),
           })) ?? []
         }
+        initialAsk={ask}
         threads={threads.map((thread) => ({
           id: thread.id,
           title: thread.title,
           lastMessageAt: thread.lastMessageAt.toISOString(),
+          group: groupFor(thread.lastMessageAt, now),
         }))}
       />
     </WebShell>
   );
+}
+
+/** Calendar days between two instants, as Sydney counts them. */
+const SYDNEY_DAY = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Australia/Sydney',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+function daysApart(earlier: Date, later: Date): number {
+  // `en-CA` renders as YYYY-MM-DD, which Date.parse reads as midnight UTC —
+  // so subtracting two of them measures whole days in the named zone rather
+  // than 24-hour blocks straddling whatever local midnight is.
+  const a = Date.parse(SYDNEY_DAY.format(earlier));
+  const b = Date.parse(SYDNEY_DAY.format(later));
+  return Math.round((b - a) / 86_400_000);
+}
+
+/**
+ * Which heading a conversation sits under in the rail.
+ *
+ * By day and not by elapsed hours, because "yesterday" is a thing people
+ * say about a calendar and not about the last 48 hours — a chat at 11pm is
+ * yesterday's chat at 1am, and calling it "today" for another hour is the
+ * kind of correctness nobody asked for.
+ */
+function groupFor(when: Date, now: Date): string {
+  const days = daysApart(when, now);
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days <= 7) return 'Previous 7 days';
+  if (days <= 30) return 'Previous 30 days';
+  return 'Older';
 }
 
 /**

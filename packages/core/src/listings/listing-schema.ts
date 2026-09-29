@@ -171,20 +171,25 @@ export const propertyDraftSchema = z.object({
 export type PropertyDraft = z.infer<typeof propertyDraftSchema>;
 
 /**
- * A headline has to be a line, not a keystroke.
+ * A headline is whatever the agency wrote.
  *
- * `min(1)` let "dfs", "dfsdsf" and "jdsfjdfjl" through onto the live public
- * site, where a headline is the largest text on the card and the first thing
- * a buyer reads. Two rules, both about shape rather than taste: long enough
- * to be a phrase, and made of more than one word. Neither judges the writing
- * — they refuse the things that are plainly not writing at all.
+ * There used to be two shape rules here — at least ten characters, and at
+ * least two words — added because "dfs", "dfsdsf" and "jdsfjdfjl" were live
+ * on the public site. They were removed deliberately, at the owner's
+ * request: the people filling this form are the agency whose name is on the
+ * listing, and a portal that argues with them about their own copy costs
+ * more in refused saves than it ever saved in junk.
+ *
+ * The 200 stays, and it is not a taste rule. It is what the card, the
+ * search result and the email subject are laid out for, and what stops a
+ * paste of a whole brochure travelling with every row of every result page.
+ * `min(1)` stays too — the column is the title of the card, and a card with
+ * no title renders as a blank line rather than as a choice somebody made.
+ *
+ * If the junk comes back, the answer is a REVIEW step, not a regex: refusing
+ * the save only moves the problem to whoever is watching the form.
  */
-const MIN_HEADLINE = 10;
-const headlineSchema = trimmed(200)
-  .min(MIN_HEADLINE, `Headline needs at least ${MIN_HEADLINE} characters`)
-  .refine((v) => /\S\s+\S/.test(v), {
-    message: 'Headline should be a phrase, not a single word',
-  });
+const headlineSchema = trimmed(200).min(1, 'Headline is required');
 
 /**
  * Price copy, not a number.
@@ -231,11 +236,13 @@ export const listingDraftSchema = z
      * there IS a description it has to be writing, and the floor is low enough
      * that one real sentence clears it.
      */
-    description: trimmed(20_000)
-      .refine((v) => v === '' || v.trim().length >= 20, {
-        message: 'A description should be at least a sentence, or left empty',
-      })
-      .optional(),
+    /**
+     * Optional, and unjudged. Same decision as the headline above: the
+     * "at least a sentence" floor is gone, so "asd" saves if that is what
+     * the agency meant to write. 20,000 is the bound that remains, because
+     * this column is read whole by the edit form and by the public page.
+     */
+    description: trimmed(20_000).optional(),
     priceDisplay: priceDisplaySchema.optional(),
     priceFrom: z.coerce.number().min(0).max(1_000_000_000).optional(),
     priceTo: z.coerce.number().min(0).max(1_000_000_000).optional(),

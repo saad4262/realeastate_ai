@@ -7,12 +7,14 @@ import {
   useState,
 } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { ChatEvent, ResultsEvent, StateEvent } from '@repo/ai/chat-events';
 import { readChatStream } from './chat-stream';
 import { ResultsPanel } from './results-panel';
 import { DeliveredRun } from './delivered-run';
 import { ChatToolbar } from './chat-toolbar';
 import { HistoryScreen } from './history-screen';
+import { HistoryRail } from './history-rail';
 import { ScheduleCard } from './schedule-card';
 import { Composer } from './composer';
 import { RichText } from './rich-text';
@@ -218,6 +220,7 @@ export function ChatView({
   initialResults = null,
   initialTurns = [],
   threads = [],
+  initialAsk = null,
 }: {
   exampleSuburb: string | null;
   delivered?: DeliveredRunSeed | null;
@@ -233,8 +236,24 @@ export function ChatView({
   initialResults?: ResultsEvent | null;
   /** Its turns, already in the shape this component stores them. */
   initialTurns?: Turn[];
-  /** The sidebar list. Empty for an anonymous visitor, who saves nothing. */
-  threads?: { id: string; title: string; lastMessageAt: string }[];
+  /**
+   * The rail's list. Empty for an anonymous visitor, who saves nothing.
+   *
+   * `group` is the heading each row belongs under — "Today", "Yesterday" —
+   * and it is computed on the server for the hydration reason set out in
+   * history-rail.tsx.
+   */
+  threads?: { id: string; title: string; lastMessageAt: string; group: string }[];
+  /**
+   * A sentence typed on the home page, to be sent on arrival.
+   *
+   * Handed over in the URL (`/chat?ask=…`) rather than in a store, because
+   * the navigation that brings somebody here is a server render: there is
+   * no client state that survives it. It is consumed once — see the effect
+   * below — and the query is stripped immediately so a reload does not ask
+   * the guide the same thing again.
+   */
+  initialAsk?: string | null;
   /**
    * Display only. `/chat` is inside the middleware matcher, so unlike
    * `/search` this is a verified session rather than a cookie sniff — but
@@ -249,6 +268,26 @@ export function ChatView({
   const [slots, setSlots] = useState<Slots | null>(initialSlots);
   const [results, setResults] = useState<ResultsEvent | null>(initialResults);
   const [tab, setTab] = useState<'chat' | 'results'>('chat');
+  /**
+   * The conversations drawer, on a phone.
+   *
+   * Starts closed, and that is safe on a desktop too: above 1024px the
+   * stylesheet puts the rail in the layout and ignores this flag entirely.
+   * One flag meaning "in the layout" and "over the top of everything" at
+   * once would need opposite defaults on the two viewports, which the
+   * server cannot choose between.
+   */
+  const [railOpen, setRailOpen] = useState(false);
+
+  const router = useRouter();
+
+  /*
+    Stable, for the same reason Composer's `onSend` is: HistoryRail is
+    memoised, and an inline arrow here would hand it a new prop on every
+    streaming token and make the memo a no-op.
+  */
+  const closeRail = useCallback(() => setRailOpen(false), []);
+  const openRail = useCallback(() => setRailOpen(true), []);
 
   const threadRef = useRef<HTMLDivElement>(null);
   /**
@@ -262,6 +301,14 @@ export function ChatView({
   const threadIdRef = useRef<string | null>(initialThreadId);
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  /**
+   * Whether the home page's sentence has already been sent.
+   *
+   * A ref and not state: the effect below depends on `send`, whose identity
+   * changes on every token that arrives, so it re-runs constantly during
+   * the very turn it started. This is what makes it fire once.
+   */
+  const askedRef = useRef(false);
 
   const empty = turns.length === 0;
 
@@ -320,7 +367,26 @@ export function ChatView({
           }),
         });
 
-        if (!response.ok && !response.body) {
+        /**
+         * Every non-2xx, not just the ones with no body.
+         *
+         * This used to read `!response.ok && !response.body`, which can
+         * never be true: `/api/chat` reports its refusals with
+         * `NextResponse.json(...)`, and a JSON response always HAS a body.
+         * So the rate limit, the 400s, the missing API key and the daily
+         * cap all fell through to the NDJSON reader — where they happened
+         * to work, because a one-line JSON error frame is indistinguishable
+         * from a one-line NDJSON error frame.
+         *
+         * Happened to. The case that does not survive it is an error that
+         * is not our JSON at all: a 502 or a 504 from a proxy, which comes
+         * back as HTML. The reader would parse nothing, dispatch nothing
+         * and return; the `finally` below would strip the empty bubble; and
+         * the visitor would be left having pressed Send with absolutely
+         * nothing on screen — no answer and no error. Reading the status is
+         * the whole fix.
+         */
+        if (!response.ok) {
           const payload = (await response.json().catch(() => null)) as ChatEvent | null;
           setError(
             payload && payload.type === 'error'
@@ -330,7 +396,18 @@ export function ChatView({
           return;
         }
 
+        /**
+         * A 200 that carries nothing is the same dead end by another route.
+         *
+         * `readChatStream` returns immediately on a null body, and a stream
+         * that is cut before its first frame dispatches no events at all.
+         * Either way nothing would be said, so the count is checked rather
+         * than assumed.
+         */
+        let frames = 0;
+
         await readChatStream(response, (event) => {
+          frames += 1;
           switch (event.type) {
             case 'text':
               setTurns((prev) => {
@@ -423,6 +500,9 @@ export function ChatView({
               break;
           }
         });
+        // Silence is not success. Nothing arrived, so say so rather than
+        // quietly removing the bubble and leaving the page as it was.
+        if (frames === 0) setError('The guide did not answer. Please try again.');
       } catch (err) {
         // An abort is the visitor's own doing, not a failure to report.
         if ((err as Error).name !== 'AbortError') {
@@ -445,6 +525,25 @@ export function ChatView({
     [slots, streaming, turns],
   );
 
+  /**
+   * Send the sentence the home page collected, exactly once.
+   *
+   * The query is stripped BEFORE the request goes out, not after it comes
+   * back: a turn takes seconds, and a reload inside that window would
+   * otherwise arrive on `/chat?ask=…` again and ask the guide — and bill a
+   * model call — a second time. `replaceState` rather than a router
+   * navigation, for the same reason the `saved` frame uses it: this view is
+   * keyed on the thread, and a real navigation would remount it and throw
+   * away the turn that is mid-flight.
+   */
+  useEffect(() => {
+    if (!initialAsk || askedRef.current) return;
+    askedRef.current = true;
+    if (window.location.search) {
+      window.history.replaceState(window.history.state, '', '/chat');
+    }
+    void send(initialAsk);
+  }, [initialAsk, send]);
 
   const last = turns[turns.length - 1];
   const awaitingReply =
@@ -468,6 +567,7 @@ export function ChatView({
    * would bring the conversation back.
    */
   const startFresh = useCallback(() => {
+    setRailOpen(false);
     setTurns([]);
     setSlots(null);
     setResults(null);
@@ -478,6 +578,24 @@ export function ChatView({
       window.history.replaceState(window.history.state, '', '/chat');
     }
   }, []);
+
+  /**
+   * New chat, wherever it is pressed from.
+   *
+   * Two shapes, one meaning. When the URL names a conversation — `?thread=`
+   * or `?history=1` — the page has server state that has to be thrown away,
+   * so it is a real navigation. When it does not, pushing `/chat` is a no-op
+   * the router drops on the floor and the turns would simply stay on screen,
+   * so the view clears itself instead.
+   */
+  const startNew = useCallback(() => {
+    setRailOpen(false);
+    if (historyOpen || initialThreadId) {
+      router.push('/chat');
+      return;
+    }
+    startFresh();
+  }, [historyOpen, initialThreadId, router, startFresh]);
 
   const liveTitle =
     activeTitle ??
@@ -547,11 +665,31 @@ export function ChatView({
   );
 
   return (
+    /*
+      Two columns at the top level: the rail, and everything else.
+
+      The rail is a sibling of the content rather than a third track inside
+      `.split`, and that is what keeps the hero centred. `.pageEmpty .split`
+      is a centred, max-width block — put the rail inside it and the
+      headline centres against the remaining space instead of against the
+      column it belongs to, which reads as a page that has slipped sideways.
+    */
     <div
       className={`${styles.page} ${
         historyOpen ? styles.pageHistory : empty ? styles.pageEmpty : styles.pageActive
       }`}
     >
+      <HistoryRail
+        threads={threads}
+        signedIn={signedIn}
+        activeId={initialThreadId}
+        historyOpen={historyOpen}
+        open={railOpen}
+        onClose={closeRail}
+        onNewChat={startNew}
+      />
+
+      <div className={styles.content}>
       {!historyOpen && !empty ? (
         <div className={styles.tabs} role="tablist" aria-label="Chat or search">
           <button
@@ -583,9 +721,9 @@ export function ChatView({
           <ChatToolbar
             count={threads.length}
             historyOpen={historyOpen}
-            loadedThread={Boolean(initialThreadId)}
             activeTitle={historyOpen ? null : liveTitle}
-            onFresh={startFresh}
+            onNewChat={startNew}
+            onOpenRail={openRail}
           />
 
           {historyOpen ? (
@@ -763,6 +901,7 @@ export function ChatView({
         </section>
 
         {!historyOpen && !empty ? sidebar : null}
+      </div>
       </div>
     </div>
   );

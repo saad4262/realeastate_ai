@@ -17,13 +17,20 @@ import { MIN_PASSWORD } from './constants';
  * property daily that is the wrong side of the trade, and it is the reason
  * the console has always used passwords.
  *
- * ## Still no client JavaScript
+ * ## Almost no client JavaScript
  *
  * Every one of these is a server action behind a plain `<form action={…}>`.
  * Supabase's SSR client sets its cookies on the response, so signing in
- * server-side works and the browser downloads nothing. The first build of
- * this screen imported `createBrowserSupabaseClient` and cost 69 kB of
- * First Load to send one email; these pages are 352 B.
+ * happens server-side. The first build of this screen imported
+ * `createBrowserSupabaseClient` and cost 69 kB of First Load to send one
+ * email; these pages were 352 B afterwards.
+ *
+ * They are 815 B now, and the ~460 B is `./submit-button.tsx` — one client
+ * component per form, which is what gives the button a pending state and
+ * stops it being pressed twice while Supabase is thinking. The rule that
+ * mattered was never "zero JavaScript"; it was "no auth SDK in the
+ * browser", and that still holds. See the note in that file for why the
+ * button had to be its own component.
  */
 
 
@@ -45,14 +52,6 @@ function field(data: FormData, name: string): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-/**
- * Supabase's own messages leak whether an address is registered.
- *
- * "User already registered" on signup and "Invalid login credentials" on
- * sign-in are different enough to enumerate accounts with. The second is
- * fine — it is the same answer for a wrong password and an unknown address.
- * The first is not, so it is rewritten.
- */
 /**
  * Mirror the new auth user into `public.user`, now rather than later.
  *
@@ -84,14 +83,94 @@ async function mirrorAppUser(user: { id: string; email?: string | null }, name?:
   }
 }
 
-function friendlyError(message: string): string {
+/** Enough of an address to match a log line to a report, and no more. */
+function maskEmail(email: string): string {
+  const [local = '', domain = ''] = email.split('@');
+  const head = local.slice(0, 2);
+  return `${head}${'*'.repeat(Math.max(local.length - 2, 0))}@${domain}`;
+}
+
+/**
+ * What went wrong, as a code the page has a sentence for.
+ *
+ * ## Read `code`, not `message`
+ *
+ * This used to match on substrings of `error.message`, and that was wrong in
+ * a way that cost an afternoon. The test was
+ * `lower.includes('weak') || lower.includes('password')` — so ANY failure
+ * whose message happened to contain the word "password" came back as
+ * `weak_password`, and `/login` has no sentence for that code because a
+ * weak password is not a thing you can fail sign-in with. It fell through to
+ * `failed`: "Something went wrong signing you in." A rate limit, a banned
+ * account and a dropped connection all arrived looking identical, and none
+ * of them said what they were.
+ *
+ * `AuthApiError` has carried a stable `code` since auth-js 2.x, so that is
+ * what is read. The message is still consulted as a fallback for the
+ * non-API errors — a fetch that never got a reply has no code at all.
+ *
+ * ## And it is logged
+ *
+ * Every branch here throws the real reason away before it reaches the
+ * browser, which is correct — `invalid_credentials` is deliberately the
+ * same answer for a wrong password and an address with no account, because
+ * a page that tells those apart is an account-enumeration oracle. Signup is
+ * the one place that cannot hide it: the account either gets created or it
+ * does not. But nothing was
+ * writing it down either, so a report of "it says something went wrong" had
+ * no corresponding record anywhere. One `console.error` on the server is the
+ * whole difference between that and knowing.
+ */
+function classify(error: unknown, context: string, email: string): string {
+  const err = error as { code?: string; status?: number; message?: string; name?: string };
+  const code = typeof err?.code === 'string' ? err.code : '';
+  const message = typeof err?.message === 'string' ? err.message : String(error);
+
+  console.error('[auth] %s failed', context, {
+    email: maskEmail(email),
+    code: code || '(none)',
+    status: err?.status ?? '(none)',
+    name: err?.name ?? '(none)',
+    message,
+  });
+
+  switch (code) {
+    case 'invalid_credentials':
+      return 'bad_credentials';
+    case 'email_not_confirmed':
+      return 'unconfirmed';
+    case 'user_already_exists':
+    case 'email_exists':
+      return 'already_registered';
+    case 'weak_password':
+      return 'weak_password';
+    case 'user_banned':
+      return 'banned';
+    case 'over_request_rate_limit':
+    case 'over_email_send_rate_limit':
+    case 'over_sms_send_rate_limit':
+      return 'rate_limited';
+    case 'signup_disabled':
+    case 'email_provider_disabled':
+      return 'signup_disabled';
+  }
+
+  /**
+   * No code means it never reached Supabase's API — a DNS failure, a dropped
+   * TLS handshake, a timeout. Worth its own sentence: "try again" is real
+   * advice for this one and useless for most of the others.
+   */
+  if (err?.status === 429) return 'rate_limited';
+  if (err?.name === 'AuthRetryableFetchError' || /fetch failed|network|timeout|ENOTFOUND|ECONNRESET/i.test(message)) {
+    return 'unavailable';
+  }
+
   const lower = message.toLowerCase();
   if (lower.includes('already registered') || lower.includes('already exists')) {
     return 'already_registered';
   }
   if (lower.includes('invalid login')) return 'bad_credentials';
   if (lower.includes('email not confirmed')) return 'unconfirmed';
-  if (lower.includes('weak') || lower.includes('password')) return 'weak_password';
   return 'failed';
 }
 
@@ -121,7 +200,7 @@ export async function signUpAction(formData: FormData): Promise<void> {
     },
   });
 
-  if (error) redirect(back(friendlyError(error.message)));
+  if (error) redirect(back(classify(error, 'sign-up', email)));
 
   /**
    * Whether a session exists here depends on a project setting.
@@ -150,7 +229,7 @@ export async function signInAction(formData: FormData): Promise<void> {
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
-  if (error) redirect(back(friendlyError(error.message)));
+  if (error) redirect(back(classify(error, 'sign-in', email)));
 
   // Covers accounts created before this mirroring existed, too.
   if (data.user) {
@@ -198,7 +277,7 @@ export async function setPasswordAction(formData: FormData): Promise<void> {
   const supabase = await createServerSupabaseClient();
   const { error } = await supabase.auth.updateUser({ password });
 
-  if (error) redirect(`/reset?error=${friendlyError(error.message)}`);
+  if (error) redirect(`/reset?error=${classify(error, 'set-password', '(session)')}`);
 
   redirect('/alerts?password=updated');
 }

@@ -1,29 +1,197 @@
-.hero { max-width: 760px; margin: 0 auto 2.75rem; }
+/*
+ * The public home page.
+ *
+ * The hero is the guide now, not a filter bar: one box, three openers, and a
+ * way back into a past conversation. Values are the shared tokens from
+ * apps/web/app/tailwind.css so this reads as the same product as /search and
+ * /listing rather than as a landing page bolted onto them.
+ */
+
+.hero {
+  max-width: 46rem;
+  margin: 0 auto 3rem;
+  text-align: center;
+}
 
 .kicker {
   margin: 0 0 0.65rem;
-  font-size: 0.75rem;
-  font-weight: 700;
+  font-size: var(--text-label-sm, 0.6875rem);
+  font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--color-accent, #0b3d2e);
+  color: var(--color-brand, #0b3d2e);
 }
 
 .title {
   font-family: var(--font-display, inherit);
   font-size: clamp(2rem, 5vw, 2.85rem);
   line-height: 1.12;
-  margin: 0 0 0.65rem;
+  margin: 0 0 0.75rem;
   letter-spacing: -0.025em;
-  color: var(--color-accent, #0b3d2e);
+  color: var(--color-brand, #0b3d2e);
+  text-wrap: balance;
+}
+
+/* The second clause, quieter than the first. One sentence, two weights of
+   attention — the promise is what the guide does, not that it exists. */
+.titleMuted {
+  color: color-mix(in srgb, var(--color-brand, #0b3d2e) 55%, var(--color-canvas, #f7f4ef));
 }
 
 .sub {
-  color: var(--color-muted, #5c5c5c);
-  margin: 0 0 1.6rem;
-  font-size: 1.05rem;
+  color: var(--color-ink-soft, #5c5c5c);
+  margin: 0 auto 1.75rem;
+  font-size: var(--text-body-lg, 1rem);
+  line-height: 1.6;
+  max-width: 34rem;
+  text-wrap: pretty;
+}
+
+/* ------------------------------------------------------------------ ask --
+ * The composer, in its resting state. It is the same shape as the one on
+ * /chat on purpose: pressing Ask here should feel like the page grew around
+ * the box rather than like it navigated away from it.
+ */
+
+.ask {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  text-align: left;
+}
+
+.askBox {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.85rem 0.9rem 0.7rem;
+  border: 1px solid var(--color-line, #d9d2c5);
+  border-radius: var(--radius-xl, 1rem);
+  background: var(--color-card, #fff);
+  box-shadow: var(--shadow-card, 0 1px 8px rgba(60, 48, 30, 0.05));
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.askBox:focus-within {
+  border-color: color-mix(in srgb, var(--color-brand, #0b3d2e) 40%, var(--color-line, #d9d2c5));
+  box-shadow: var(--shadow-raised, 0 4px 12px rgba(60, 48, 30, 0.08));
+}
+
+.askInput {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: var(--color-ink, #1a1a1a);
+  font: inherit;
+  font-size: var(--text-body-lg, 1rem);
   line-height: 1.55;
-  max-width: 38rem;
+  padding: 0.25rem 0.15rem;
+  field-sizing: content;
+  max-height: 9rem;
+}
+
+.askInput::placeholder {
+  color: var(--color-ink-faint, #8c8577);
+}
+
+.askInput:disabled {
+  opacity: 0.6;
+}
+
+.askFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.askHint {
+  font-size: var(--text-body-sm, 0.8125rem);
+  color: var(--color-ink-faint, #8c8577);
+  line-height: 1.35;
+}
+
+.askSend {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  padding: 0.55rem 1rem;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--color-brand, #0b3d2e);
+  color: var(--color-brand-ink, #f7f4ef);
+  font: inherit;
+  font-size: var(--text-body-sm, 0.8125rem);
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.askSend:hover:not(:disabled) {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+.askSend:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.starter {
+  padding: 0.45rem 0.85rem;
+  border: 1px solid var(--color-line-subtle, #ece7dd);
+  border-radius: 9999px;
+  background: var(--color-card, #fff);
+  color: var(--color-ink-soft, #5c5c5c);
+  font: inherit;
+  font-size: var(--text-body-sm, 0.8125rem);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.starter:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-brand, #0b3d2e) 35%, transparent);
+  background: var(--color-brand-soft, #eaf1ed);
+  color: var(--color-brand, #0b3d2e);
+}
+
+.starter:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* The way back into a conversation, from the home page as well as from the
+   guide's own rail. Quiet: it only means anything to somebody who has been
+   here before. */
+.resume {
+  margin: 1.25rem 0 0;
+  font-size: var(--text-body-sm, 0.8125rem);
+  color: var(--color-ink-soft, #5c5c5c);
+}
+
+.resumeLink {
+  color: var(--color-brand, #0b3d2e);
+  font-weight: 600;
+}
+
+.resumeLink:hover {
+  text-decoration: underline;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .askSend:hover:not(:disabled) {
+    transform: none;
+  }
 }
 
 .section { max-width: 1100px; margin: 0 auto; }
@@ -58,66 +226,4 @@
   border: 1px dashed var(--color-border, #d9d2c5);
   border-radius: 0.875rem;
   margin: 0;
-}
-
-/* The conversational way in, offered under the filter search rather than
-   instead of it — a visitor who knows their filters is faster with them. */
-.guideLine {
-  margin: 0.875rem 0 0;
-  font-size: 0.9375rem;
-  color: var(--color-muted, #5c5c5c);
-}
-
-.guideLink {
-  color: var(--color-accent, #0b3d2e);
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.guideLink:hover {
-  text-decoration: underline;
-}
-
-/* Result paging. Links rather than a "load more" button, so each page is its
-   own URL: shareable, in the Back history, indexable, and working without
-   JavaScript. */
-.pager {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1.25rem;
-  margin: 2rem 0 0;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--color-border, #d9d2c5);
-}
-
-.pagerLink,
-.pagerOff {
-  font-size: 0.9375rem;
-  font-weight: 600;
-  padding: 0.5rem 0.875rem;
-  border-radius: var(--radius, 6px);
-}
-
-.pagerLink {
-  color: var(--color-accent, #0b3d2e);
-  text-decoration: none;
-  border: 1px solid var(--color-border, #d9d2c5);
-}
-
-.pagerLink:hover {
-  border-color: var(--color-accent, #0b3d2e);
-}
-
-/* Kept in the layout rather than removed, so the page indicator does not jump
-   sideways between the first page and the middle of a set. */
-.pagerOff {
-  color: var(--color-muted, #5c5c5c);
-  opacity: 0.5;
-  border: 1px solid transparent;
-}
-
-.pagerAt {
-  font-size: 0.875rem;
-  color: var(--color-muted, #5c5c5c);
 }

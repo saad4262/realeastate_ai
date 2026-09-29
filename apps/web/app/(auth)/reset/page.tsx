@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { setPasswordAction } from '../actions';
+import { SubmitButton } from '../submit-button';
 import { MIN_PASSWORD } from '../constants';
 import styles from '../auth.module.css';
 
@@ -12,6 +13,8 @@ export const metadata: Metadata = {
 const ERRORS: Record<string, string> = {
   short_password: `Use at least ${MIN_PASSWORD} characters.`,
   weak_password: 'Choose a stronger password.',
+  rate_limited: 'Too many attempts. Wait a minute and try again.',
+  unavailable: 'We could not reach the sign-in service. Check your connection and try again.',
   failed: 'That link may have expired. Ask for a new one and try again.',
 };
 
@@ -63,9 +66,7 @@ export default async function ResetPage({
           <span className={styles.hint}>At least {MIN_PASSWORD} characters.</span>
         </div>
 
-        <button type="submit" className={styles.submit}>
-          Save new password
-        </button>
+        <SubmitButton pendingLabel="Saving…">Save new password</SubmitButton>
       </form>
 
       <div className={styles.meta}>

@@ -16,6 +16,7 @@ import { propertyTypeLabel } from '@repo/core/listings/schema';
 import { priceLadder } from '@repo/core/listings/price-ladder';
 import type { SearchFacets } from '@repo/core/listings';
 import { LocationInput } from './location-input';
+import { Spinner } from './spinner';
 import styles from './search-bar.module.css';
 
 /**
@@ -446,11 +447,11 @@ export function SearchBar({ facets }: { facets: SearchFacets }) {
           ))}
         </select>
 
-        <button type="submit" className={styles.go} disabled={searching}>
+        <button type="submit" className={styles.go} disabled={searching} aria-busy={searching}>
           {/* In the button, because that is where the click was and where the
               eye already is. A separate bar elsewhere on the page makes people
               look for what moved. */}
-          {searching ? <span className={styles.spin} aria-hidden /> : null}
+          {searching ? <Spinner /> : null}
           {searching ? 'Searching' : 'Search'}
         </button>
       </div>

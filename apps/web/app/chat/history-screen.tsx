@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useState, useTransition } from 'react';
+import { Spinner } from '../../components/spinner';
 import styles from './chat.module.css';
 import { deleteThreadAction } from './thread-actions';
 import type { ThreadRow } from './chat-toolbar';
@@ -81,6 +82,7 @@ export function HistoryScreen({
                   <button
                     type="button"
                     disabled={pending}
+                    aria-busy={pending}
                     className={styles.historyDeleteConfirm}
                     onClick={() =>
                       startTransition(async () => {
@@ -89,7 +91,15 @@ export function HistoryScreen({
                       })
                     }
                   >
-                    Delete
+                    {/* This one navigates when it finishes, so the wait is
+                        the whole of the feedback until the page changes. */}
+                    {pending ? (
+                      <>
+                        <Spinner /> Deleting…
+                      </>
+                    ) : (
+                      'Delete'
+                    )}
                   </button>
                 ) : (
                   <button

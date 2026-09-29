@@ -87,9 +87,23 @@ export function AppShell({
 
         {isWeb ? (
           <nav className={styles.nav} aria-label="Primary">
-            <Link href="/search" className={styles.navLink}>
-              Search
-            </Link>
+            {/*
+              There is no Search link here any more, and `/search` is not
+              gone — it is no longer an ENTRANCE.
+
+              The way in is the guide: somebody says what they want in a
+              sentence, and the answer hands them a `/search?…` link built
+              from what the guide actually understood. That link, the ones
+              in an alert email, and the ones on a listing page all still
+              resolve; the route, its filters and its tests are untouched.
+              What changed is that nobody is asked to choose a set of
+              filters before they have said anything.
+
+              A nav link back to a bare `/search` would undo that by being
+              the first thing on every page — so it is removed rather than
+              hidden, because a control nobody can see is one nobody
+              maintains.
+            */}
             {/*
               One link for both states, on purpose.
 

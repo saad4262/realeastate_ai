@@ -16,12 +16,13 @@ export default function NotFound() {
       <div className={styles.wrap}>
         <h1 className={styles.title}>This page isn’t here</h1>
         <p className={styles.body}>
-          The listing may have been sold or withdrawn, or the link may be wrong. The
-          search has everything that is currently on the market.
+          The listing may have been sold or withdrawn, or the link may be wrong. Tell
+          the guide what you were after and it will search what is currently on the
+          market.
         </p>
         <div className={styles.actions}>
-          <Link href="/search" className={styles.primary}>
-            Search listings
+          <Link href="/chat" className={styles.primary} prefetch={false}>
+            Ask the guide
           </Link>
           <Link href="/" className={styles.secondary}>
             Go home

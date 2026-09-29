@@ -150,18 +150,13 @@
   cursor: progress;
 }
 
-.spin {
-  width: 0.875rem;
-  height: 0.875rem;
-  border-radius: 999px;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #fff;
-  animation: spin 0.7s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+/*
+ * The spinner that used to live here is gone, and `<Spinner>` is used
+ * instead. It was the same ring, hardcoded to white — which worked because
+ * this one button happens to be dark, and would have quietly produced an
+ * invisible spinner the first time anyone reused it. The shared one takes
+ * `currentColor` and sizes in `em`, and it is the only one in the app.
+ */
 
 @media (prefers-reduced-motion: reduce) {
   .spin { animation: none; opacity: 0.6; }

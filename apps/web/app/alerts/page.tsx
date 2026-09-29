@@ -65,7 +65,10 @@ export default async function AlertsPage() {
       */}
       <header className={styles.head}>
         <h1 className={styles.title}>My alerts</h1>
-        <Link href="/search" className={styles.cta}>
+        {/* The guide, not /search: a schedule is created by ASKING for one
+            ("send me this daily"), and the confirmation card in the chat is
+            the only place a cadence can be named. See draft_schedule. */}
+        <Link href="/chat" className={styles.cta} prefetch={false}>
           Save a new search
         </Link>
         <p className={styles.sub}>Saved searches we run for you, and everything we have sent.</p>
@@ -78,11 +81,11 @@ export default async function AlertsPage() {
           <div className={styles.emptyDashed}>
             <p className={styles.emptyTitle}>You have no saved searches yet</p>
             <p className={styles.emptyBody}>
-              Run a search, then press <strong>Save this search</strong> and pick a time. We will do
-              it for you and email you what is new.
+              Tell the guide what you are after, then ask it to keep watching — &ldquo;send
+              me this every morning&rdquo;. We will run it for you and email you what is new.
             </p>
-            <Link href="/search" className={styles.emptyCta}>
-              Start a search
+            <Link href="/chat" className={styles.emptyCta} prefetch={false}>
+              Ask the guide
             </Link>
           </div>
         ) : (

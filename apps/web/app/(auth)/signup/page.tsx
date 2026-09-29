@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { signUpAction } from '../actions';
+import { SubmitButton } from '../submit-button';
 import { MIN_PASSWORD } from '../constants';
 import styles from '../auth.module.css';
 
@@ -23,6 +24,9 @@ const ERRORS: Record<string, string> = {
    * and that is where the answer is uniform.
    */
   already_registered: 'There is already an account with that email. Sign in instead.',
+  rate_limited: 'Too many attempts. Wait a minute and try again.',
+  unavailable: 'We could not reach the sign-up service. Check your connection and try again.',
+  signup_disabled: 'New accounts are not being accepted right now.',
   failed: 'Something went wrong. Try again in a moment.',
 };
 
@@ -137,9 +141,7 @@ export default async function SignupPage({
           <span className={styles.hint}>At least {MIN_PASSWORD} characters.</span>
         </div>
 
-        <button type="submit" className={styles.submit}>
-          Create account
-        </button>
+        <SubmitButton pendingLabel="Creating your account…">Create account</SubmitButton>
       </form>
 
       <p className={styles.fine}>

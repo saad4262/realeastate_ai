@@ -38,8 +38,8 @@ export default function WebError({
           <button type="button" className={styles.primary} onClick={reset}>
             Try again
           </button>
-          <Link href="/search" className={styles.secondary}>
-            Back to search
+          <Link href="/" className={styles.secondary}>
+            Back to the home page
           </Link>
         </div>
         {/*

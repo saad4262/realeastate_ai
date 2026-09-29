@@ -1,0 +1,54 @@
+/*
+ * The one spinner.
+ *
+ * CSS rather than an animated SVG or a GIF: it costs no request, it scales
+ * with the font size of whatever it sits in, and it takes its colour from
+ * `currentColor` — so the same element reads correctly on a dark brand
+ * button and inside a light bordered one without a second variant.
+ */
+
+.spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+  border-radius: 50%;
+  /*
+   * Three sides at 35% and one opaque. A ring with a single bright arc
+   * reads as rotation even at 14px, where a ring with one transparent
+   * quarter just flickers.
+   */
+  border: 2px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-top-color: currentColor;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/*
+ * Reduced motion still needs to say "working".
+ *
+ * Removing the animation entirely leaves a static ring that looks like a
+ * decoration, which is the opposite of the point — the whole reason this
+ * element exists is that a button with no feedback reads as broken. A
+ * fade is motion the vestibular guidance permits where rotation is not.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.4;
+    }
+  }
+}

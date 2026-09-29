@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { signInAction } from '../actions';
+import { SubmitButton } from '../submit-button';
 import styles from '../auth.module.css';
 
 export const metadata: Metadata = {
@@ -19,6 +20,25 @@ const ERRORS: Record<string, string> = {
   unconfirmed: 'Confirm your email first — check your inbox for the link we sent.',
   // From @repo/auth/callback: a stale or already-used link.
   auth_link: 'That link has expired or was already used. Sign in below instead.',
+  /**
+   * Supabase rate-limits its token endpoint per IP. Worth its own sentence:
+   * every other message here is about the account, and this one is not —
+   * the credentials are fine and waiting actually is the fix.
+   */
+  rate_limited: 'Too many attempts. Wait a minute and try again.',
+  banned: 'This account has been suspended. Contact us if that seems wrong.',
+  /**
+   * Nothing reached Supabase — DNS, a dropped connection, a timeout. It
+   * looked identical to `failed` until `classify` learned to tell them
+   * apart, which is the whole reason this entry exists.
+   */
+  unavailable: 'We could not reach the sign-in service. Check your connection and try again.',
+  /**
+   * Unreachable on this page in practice — you cannot fail a sign-in with a
+   * weak password. Here so that if it ever does arrive, it says what it is
+   * instead of falling through to the sentence below.
+   */
+  weak_password: 'That password was rejected. Reset it and choose a stronger one.',
   failed: 'Something went wrong signing you in. Try again in a moment.',
 };
 
@@ -84,9 +104,7 @@ export default async function LoginPage({
           />
         </div>
 
-        <button type="submit" className={styles.submit}>
-          Sign in
-        </button>
+        <SubmitButton pendingLabel="Signing in…">Sign in</SubmitButton>
       </form>
 
       <div className={styles.meta}>
@@ -104,7 +122,7 @@ export default async function LoginPage({
       </div>
 
       <p className={styles.below}>
-        <Link href="/search" className={styles.link}>
+        <Link href="/chat" className={styles.link}>
           Keep browsing without an account
         </Link>
       </p>

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { requestResetAction } from '../actions';
+import { SubmitButton } from '../submit-button';
 import styles from '../auth.module.css';
 
 export const metadata: Metadata = {
@@ -73,9 +74,7 @@ export default async function ForgotPage({
           />
         </div>
 
-        <button type="submit" className={styles.submit}>
-          Email me a reset link
-        </button>
+        <SubmitButton pendingLabel="Sending the link…">Email me a reset link</SubmitButton>
       </form>
 
       <div className={styles.meta}>

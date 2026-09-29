@@ -8,6 +8,7 @@ import {
   SchedulePicker,
   type ScheduleDefaults,
 } from '../../components/schedule-picker';
+import { Spinner } from '../../components/spinner';
 
 /**
  * One saved search, with its controls.
@@ -135,14 +136,33 @@ export function ScheduleRow({
         <button
           type="button"
           disabled={pending}
+          aria-busy={pending}
           onClick={() => act(() => setScheduleStatusAction(id, status === 'active' ? 'paused' : 'active'))}
           className={
             status === 'active'
-              ? 'rounded-full bg-ink px-4 py-2 text-sm font-semibold text-canvas hover:bg-brand-deep disabled:opacity-60'
-              : 'rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-brand-deep disabled:opacity-60'
+              ? 'inline-flex items-center justify-center gap-2 rounded-full bg-ink px-4 py-2 text-sm font-semibold text-canvas hover:bg-brand-deep disabled:opacity-60'
+              : 'inline-flex items-center justify-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-brand-deep disabled:opacity-60'
           }
         >
-          {status === 'active' ? 'Turn off' : 'Turn on'}
+          {/*
+            This one is the reason the audit was worth doing. Turning an
+            alert off is a server action, a database write and a
+            revalidate — and until now its entire feedback was the button
+            going slightly transparent. Pressed on a slow connection it
+            looked like nothing happened, which invites a second press on a
+            control whose whole job is to change a state.
+
+            The label says which direction it is going, not just "…".
+          */}
+          {pending ? (
+            <>
+              <Spinner /> {status === 'active' ? 'Turning off…' : 'Turning on…'}
+            </>
+          ) : status === 'active' ? (
+            'Turn off'
+          ) : (
+            'Turn on'
+          )}
         </button>
 
         <button
@@ -171,9 +191,15 @@ export function ScheduleRow({
               type="button"
               disabled={pending}
               onClick={() => act(() => deleteScheduleAction(id))}
-              className="rounded-full bg-alert px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-alert px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
             >
-              {pending ? 'Deleting…' : 'Delete'}
+              {pending ? (
+                <>
+                  <Spinner /> Deleting…
+                </>
+              ) : (
+                'Delete'
+              )}
             </button>
             <button
               type="button"
@@ -243,9 +269,15 @@ export function ScheduleRow({
             <button
               type="submit"
               disabled={pending}
-              className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-brand-deep disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-brand-deep disabled:opacity-60"
             >
-              {pending ? 'Saving…' : 'Save changes'}
+              {pending ? (
+                <>
+                  <Spinner /> Saving…
+                </>
+              ) : (
+                'Save changes'
+              )}
             </button>
             <button
               type="button"

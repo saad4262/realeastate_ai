@@ -2,6 +2,7 @@
 
 import { useState, useTransition, type FormEvent } from 'react';
 import { sendEnquiryAction } from '../lib/enquiry-action';
+import { Spinner } from './spinner';
 
 /**
  * The one interactive thing on the listing page.
@@ -122,9 +123,16 @@ export function EnquiryForm({
       <button
         type="submit"
         disabled={busy}
-        className="rounded-md bg-brand px-md py-sm text-body-md text-brand-ink transition hover:opacity-90 disabled:opacity-60"
+        aria-busy={busy}
+        className="inline-flex items-center justify-center gap-2 rounded-md bg-brand px-md py-sm text-body-md text-brand-ink transition hover:opacity-90 disabled:opacity-60"
       >
-        {busy ? 'Sending…' : 'Send enquiry'}
+        {busy ? (
+          <>
+            <Spinner /> Sending…
+          </>
+        ) : (
+          'Send enquiry'
+        )}
       </button>
 
       <p className="text-body-sm text-ink-faint">

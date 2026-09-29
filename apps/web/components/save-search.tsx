@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { createScheduleAction } from '../app/alerts/actions';
 import { ScheduleAccuracyNote, SchedulePicker } from './schedule-picker';
+import { Spinner } from './spinner';
 
 
 
@@ -139,9 +140,16 @@ export function SaveSearch({
         <button
           type="submit"
           disabled={pending}
-          className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-brand-deep disabled:opacity-60"
+          aria-busy={pending}
+          className="inline-flex items-center justify-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-brand-deep disabled:opacity-60"
         >
-          {pending ? 'Saving…' : 'Save search'}
+          {pending ? (
+            <>
+              <Spinner /> Saving…
+            </>
+          ) : (
+            'Save search'
+          )}
         </button>
         <button
           type="button"

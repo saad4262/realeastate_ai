@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useState, useTransition } from 'react';
 import { acceptScheduleDraftAction } from './schedule-actions';
 import styles from './chat.module.css';
+import { Spinner } from '../../components/spinner';
 
 /**
  * The confirmation card.
@@ -92,6 +93,7 @@ export function ScheduleCard({
           <button
             type="button"
             disabled={pending}
+            aria-busy={pending}
             onClick={() => {
               setError(null);
               startTransition(async () => {
@@ -102,7 +104,13 @@ export function ScheduleCard({
             }}
             className={styles.schedPrimary}
           >
-            {pending ? 'Starting…' : 'Accept'}
+            {pending ? (
+              <>
+                <Spinner /> Starting…
+              </>
+            ) : (
+              'Accept'
+            )}
           </button>
         ) : (
           /*

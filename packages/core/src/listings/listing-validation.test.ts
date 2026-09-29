@@ -6,13 +6,20 @@ import {
 } from './listing-schema';
 
 /**
- * The rules that exist because this database had junk in it.
+ * The rules that exist because this database had junk in it — and the ones
+ * that were taken back out again.
  *
- * Every "rejects" case below is a real value that was live on the public site
- * when these rules were written — not an invented worst case. The "accepts"
- * cases are the seed data and the copy an agency actually writes, and they
- * matter just as much: a rule that refuses "Contact agent" or "Offers over
- * $1.45m" would be worse than the junk it caught.
+ * Every case here is a real value that was live on the public site, not an
+ * invented worst case. Some are now ACCEPT cases: the headline and
+ * description shape rules were removed at the owner's request, on the view
+ * that an agency writing its own copy should not be argued with. Those tests
+ * were kept and flipped rather than deleted, so the decision is recorded
+ * where the next person will actually look.
+ *
+ * What is still refused is bounds, not taste: a length the layout cannot
+ * hold, a price range the wrong way round, a rental with no rent. The
+ * "accepts" cases matter just as much — a rule that refused "Contact agent"
+ * or "Offers over $1.45m" would be worse than the junk it caught.
  */
 
 const validProperty = {
@@ -34,17 +41,15 @@ const firstMessage = (r: ReturnType<typeof draft>) =>
   r.success ? null : r.error.issues[0]?.message ?? '';
 
 describe('headline', () => {
-  // The three that were live when this was written.
-  it.each(['dfs', 'dfsdsf', 'jdsfjdfjl'])('rejects %j', (headline) => {
-    expect(draft({ headline }).success).toBe(false);
-  });
-
-  it('rejects one long word', () => {
-    expect(draft({ headline: 'aaaaaaaaaaaaaaaaaaaa' }).success).toBe(false);
-  });
-
-  it('rejects whitespace padded to length', () => {
-    expect(draft({ headline: '   dfs    ' }).success).toBe(false);
+  /**
+   * These three were live on the public site, and the schema used to refuse
+   * them. It does not any more — see the note on `headlineSchema`. They are
+   * kept as ACCEPT cases rather than deleted, so the change of mind is
+   * visible here rather than only in a diff: if any of these starts failing
+   * again, somebody has quietly put the shape rules back.
+   */
+  it.each(['dfs', 'dfsdsf', 'jdsfjdfjl', 'aaaaaaaaaaaaaaaaaaaa'])('accepts %j', (headline) => {
+    expect(draft({ headline }).success).toBe(true);
   });
 
   it.each([
@@ -53,6 +58,24 @@ describe('headline', () => {
     'Family home on a quiet block',
   ])('accepts %j', (headline) => {
     expect(draft({ headline }).success).toBe(true);
+  });
+
+  /** Trimmed first, so padding is not a headline. */
+  it('rejects whitespace only', () => {
+    expect(draft({ headline: '     ' }).success).toBe(false);
+  });
+
+  it('rejects an empty headline — the card needs a title', () => {
+    expect(draft({ headline: '' }).success).toBe(false);
+  });
+
+  /** The bound that stayed: the card and the email subject are sized for it. */
+  it('rejects over 200 characters', () => {
+    expect(draft({ headline: 'a'.repeat(201) }).success).toBe(false);
+  });
+
+  it('accepts exactly 200', () => {
+    expect(draft({ headline: 'a'.repeat(200) }).success).toBe(true);
   });
 });
 
@@ -157,9 +180,9 @@ describe('property type is a vocabulary, not a text box', () => {
 });
 
 describe('description', () => {
-  // On a live listing, under the heading "About this property".
-  it.each(['asd', 'dfg', 'test copy'])('rejects %j', (description) => {
-    expect(draft({ description }).success).toBe(false);
+  /** Refused once, accepted now. Same reversal as the headline above. */
+  it.each(['asd', 'dfg', 'test copy'])('accepts %j', (description) => {
+    expect(draft({ description }).success).toBe(true);
   });
 
   it('accepts a real sentence', () => {
@@ -170,5 +193,14 @@ describe('description', () => {
 
   it('stays optional — plenty of listings have no body copy', () => {
     expect(draft({ description: undefined }).success).toBe(true);
+  });
+
+  it('accepts an empty string', () => {
+    expect(draft({ description: '' }).success).toBe(true);
+  });
+
+  /** The only bound left: this column is read whole by the edit form. */
+  it('rejects over 20,000 characters', () => {
+    expect(draft({ description: 'a'.repeat(20_001) }).success).toBe(false);
   });
 });

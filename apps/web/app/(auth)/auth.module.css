@@ -116,6 +116,15 @@
 .submit {
   margin-top: 0.25rem;
   width: 100%;
+  /*
+   * A flex row rather than plain text, so the spinner and the label sit on
+   * one baseline. `gap` is what keeps them apart — a nbsp in the JSX would
+   * put the spacing inside the words instead.
+   */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
   padding: 0.8rem 1rem;
   border: 0;
   border-radius: 0.5rem;
@@ -125,10 +134,23 @@
   font-size: 0.9375rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.15s ease;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
 }
 
-.submit:hover {
+/*
+ * Dimmed, but not faded out.
+ *
+ * The usual `opacity: 0.5` for a disabled control is wrong here: this one
+ * is not unavailable, it is BUSY, and it comes back on its own in a second.
+ * Fading it to the strength of a control you are not allowed to press says
+ * the wrong thing about one that is working.
+ */
+.submit:disabled {
+  cursor: progress;
+  opacity: 0.85;
+}
+
+.submit:hover:not(:disabled) {
   background: var(--color-brand-deep, #072a20);
 }
 
