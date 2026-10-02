@@ -2704,7 +2704,14 @@ async function main() {
    * started, and a returning visitor landing on the empty hero had no route
    * back to anything they had said. The history existed; the door did not.
    */
-  await check('the chat offers New chat and History before a word is typed', async () => {
+  await check('the chat offers New chat and past conversations before a word is typed', async () => {
+    /**
+     * The requirement is a way back to earlier conversations from the empty
+     * state, not the word "History". The UI pass (ff1a481) replaced the
+     * History link with a permanent rail labelled "Your conversations", and a
+     * "Chats" handle that opens it as a drawer on a phone — so this asks for
+     * those, and kept failing on a label nothing renders any more until it did.
+     */
     if (!webUp) skip('web app is not running');
 
     const res = await http(`${WEB}/chat`);
@@ -2712,9 +2719,15 @@ async function main() {
 
     const html = await res.text();
     assert(html.includes('New chat'), '/chat has no New chat control on the empty state');
-    assert(html.includes('History'), '/chat has no History control on the empty state');
+    // The <aside> itself: the phone handle carries the same accessible name,
+    // so matching the label alone passed with the rail gone.
+    assert(
+      /<aside[^>]*aria-label="Your conversations"/.test(html),
+      '/chat has no conversations rail on the empty state',
+    );
+    assert(/>Chats</.test(html), '/chat has no Chats handle to open the rail on a phone');
 
-    return 'both controls render on the empty hero';
+    return 'New chat, the conversations rail and its phone handle all render';
   });
 
   await check('every page offers a way into an account', async () => {
@@ -3467,18 +3480,27 @@ async function main() {
   });
 
   await check('the cron tick is strictly faster than the shortest interval', async () => {
-    const vercelJson = JSON.parse(
-      readFileSync(resolve(process.cwd(), '../../apps/web/vercel.json'), 'utf8'),
-    ) as { crons?: { path: string; schedule: string }[] };
-
-    const alerts = vercelJson.crons?.find((c) => c.path === '/api/cron/alerts');
-    assert(alerts, 'apps/web/vercel.json declares no cron for /api/cron/alerts');
+    /**
+     * The tick is the GitHub Actions workflow, not Vercel Cron.
+     *
+     * Hobby fails the deployment for any cron that runs more than daily, so
+     * since 2ad2629 `.github/workflows/alerts-cron.yml` carries the real
+     * cadence and `apps/web/vercel.json` only a daily floor for when GitHub
+     * disables a quiet repository's schedules (apps/web/CRON.md). This check
+     * kept reading vercel.json and failing on the floor's "0 3 * * *" — so it
+     * reads the workflow for the cadence, and asks vercel.json only that the
+     * floor is still there.
+     */
+    const root = resolve(process.cwd(), '../..');
+    const workflow = readFileSync(join(root, '.github/workflows/alerts-cron.yml'), 'utf8');
+    const crons = [...workflow.matchAll(/^\s*-\s*cron:\s*['"]([^'"]+)['"]/gm)].map((m) => m[1]);
+    assert(crons.length > 0, '.github/workflows/alerts-cron.yml declares no schedule');
 
     // Only the every-N-minutes form is understood, which is the only form
     // this endpoint has ever used. Anything else should fail loudly here
     // rather than be assumed fine.
-    const every = /^\*\/(\d+) \* \* \* \*$/.exec(alerts.schedule);
-    assert(every, `cannot read the tick from "${alerts.schedule}"`);
+    const every = /^\*\/(\d+) \* \* \* \*$/.exec(crons[0] ?? '');
+    assert(every, `cannot read the tick from "${crons[0]}"`);
 
     const tickMinutes = Number(every[1]);
     assert(
@@ -3487,9 +3509,17 @@ async function main() {
         `${MIN_INTERVAL_MINUTES} min — a schedule that falls behind can never catch up`,
     );
 
-    return `tick ${tickMinutes} min vs floor ${MIN_INTERVAL_MINUTES} min (${(
+    const vercelJson = JSON.parse(
+      readFileSync(join(root, 'apps/web/vercel.json'), 'utf8'),
+    ) as { crons?: { path: string; schedule: string }[] };
+    assert(
+      vercelJson.crons?.some((c) => c.path === '/api/cron/alerts'),
+      'apps/web/vercel.json lost the daily floor for /api/cron/alerts',
+    );
+
+    return `tick ${tickMinutes} min (GitHub Actions) vs floor ${MIN_INTERVAL_MINUTES} min (${(
       MIN_INTERVAL_MINUTES / tickMinutes
-    ).toFixed(1)}:1 catch-up)`;
+    ).toFixed(1)}:1 catch-up), daily Vercel floor present`;
   });
 
   await check('no live schedule has a cursor stuck in the past', async () => {
