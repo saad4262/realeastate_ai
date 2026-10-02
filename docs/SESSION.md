@@ -14,8 +14,11 @@
 - ADR 0013. Smoke: "listing never shows sale price" inverted; new checks for the
   property redirect and the sold-bookmark redirect (break-checked red).
 - Verified by HTTP on dev with a temporary relist (deleted afterwards).
-- Left: see STATUS "Open / next" — fact overwrite on re-list, the dev property
-  row to restore, the dev pool limit.
+- Then fixed the fact overwrite it exposed: a listing joining an existing
+  property writes only the facts it states; blanks clear only on an edit of the
+  listing's own property. Break-checked red.
+- Left: see STATUS "Open / next" — the dev property row (user restoring it), the
+  dev pool limit.
 
 ## 2026-09-30 — Claude Code — Sold properties end to end, and the lead inbox that receives the offers
 

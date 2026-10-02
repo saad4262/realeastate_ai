@@ -30,6 +30,9 @@ a transaction-scoped advisory lock, so a second agency re-listing an address
 joins the existing property. A live address sends `/property/<id>`, an old
 `/listing/<sold id>` bookmark and `/sold` cards to the live listing ("For sale
 now"); off-market, the bookmark goes to `/property/<id>`. Drafts never redirect.
+Joining an existing property writes only the physical facts the new ad states
+(`providedPhysicalFields`); blanks clear a field only when an agent edits the
+property their own listing already stands on.
 
 **`/property/[id]`** — the first public route keyed by a property. Renders only
 when nothing at the address is on the market AND something there was once
@@ -74,7 +77,7 @@ which offers never existed rather than one saying three are hidden.
 ## Numbers as of this entry
 
 - `pnpm typecheck` 10/10, `pnpm build` 2/2
-- `pnpm test` 498 (@repo/core) + 260 (@repo/ai), all offline and free
+- `pnpm test` 500 (@repo/core) + 260 (@repo/ai), all offline and free
 - `pnpm smoke` 107 passed, 14 skipped, **2 failures that pre-date this work**:
   `the chat offers New chat and History before a word is typed`, and
   `the cron tick is strictly faster than the shortest interval`
@@ -85,10 +88,6 @@ which offers never existed rather than one saying three are hidden.
 
 ## Open / next
 
-- **Re-listing overwrites the property's physical facts.** `upsertProperty`
-  writes `physicalFields(p)` on a match, and a field the new ad leaves blank is
-  written as NULL — so a re-listing agency that skips bedrooms erases them for
-  the address. Should probably only write fields the draft actually carries.
 - **Dev data:** the 2026-10-02 relist E2E did exactly that to property
   `e99d1a30` (32/6E Henry Street): land 322 m², pin -38.076151/145.483831 and
   formatted_address were overwritten and are not yet restored (the DB write was

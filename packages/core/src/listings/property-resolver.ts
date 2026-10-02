@@ -14,6 +14,11 @@ export function money(value: number | undefined): string | null {
  *
  * Shared by create and update because they are facts about the place, not the
  * campaign: a fourth bedroom added between two listings is true for both.
+ *
+ * Every field, blanks as NULL. Right for a new property, and for an agent
+ * editing the property their own listing already stands on — clearing a wrong
+ * bedroom count has to be possible. NOT right for joining a property somebody
+ * else described; see `providedPhysicalFields`.
  */
 function physicalFields(p: PropertyDraft) {
   return {
@@ -25,6 +30,22 @@ function physicalFields(p: PropertyDraft) {
     buildingAreaSqm: money(p.buildingAreaSqm),
     yearBuilt: p.yearBuilt ?? null,
   };
+}
+
+/**
+ * Only the facts this draft actually states.
+ *
+ * For a listing joining an EXISTING property — another agency re-listing a
+ * house, or an edit that moves a listing onto an address already on file. A
+ * field left blank on the new ad means "not given", not "this house has none":
+ * writing it as NULL erased the bedrooms, land size and so on that the earlier
+ * agency recorded, from the property every listing at the address reads.
+ */
+function providedPhysicalFields(p: PropertyDraft) {
+  const all = physicalFields(p);
+  return Object.fromEntries(
+    Object.entries(all).filter(([, v]) => v !== null),
+  ) as Partial<typeof all>;
 }
 
 /** What gets written to the pin columns, or null when there is nothing to pin. */
@@ -127,6 +148,15 @@ export async function upsertProperty(
   tx: DbOrTx,
   p: PropertyDraft,
   pin: ResolvedPin,
+  opts: {
+    /**
+     * The property the listing being edited stands on now. When the address
+     * still resolves to it, blanks clear fields — the agent is correcting their
+     * own record. Anything else is joining a property, and only what the draft
+     * states is written.
+     */
+    editingPropertyId?: string;
+  } = {},
 ): Promise<string> {
   const key = addressKey(p);
   await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
@@ -167,7 +197,13 @@ export async function upsertProperty(
 
     await tx
       .update(property)
-      .set({ ...physicalFields(p), ...(write ?? {}), updatedAt: sql`now()` })
+      .set({
+        ...(existing.id === opts.editingPropertyId
+          ? physicalFields(p)
+          : providedPhysicalFields(p)),
+        ...(write ?? {}),
+        updatedAt: sql`now()`,
+      })
       .where(eq(property.id, existing.id));
 
     return existing.id;

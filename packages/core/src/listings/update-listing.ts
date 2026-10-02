@@ -88,7 +88,9 @@ export async function updateListing(
    * listing pointing at the new address with the old agents — or with none.
    */
   return db.transaction(async (tx) => {
-    const propertyId = await upsertProperty(tx, draft.property, pin);
+    const propertyId = await upsertProperty(tx, draft.property, pin, {
+      editingPropertyId: target.propertyId,
+    });
 
     const [row] = await tx
       .update(listing)

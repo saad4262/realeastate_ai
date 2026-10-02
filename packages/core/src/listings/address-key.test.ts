@@ -47,8 +47,13 @@ describe('addressKey keeps different dwellings apart', () => {
 describe('upsertProperty reuses the property a re-listing agency describes differently', () => {
   function fake(candidates: unknown[]) {
     const writes: string[] = [];
+    const sets: Record<string, unknown>[] = [];
     const chain: Record<string, unknown> = {};
-    for (const m of ['select', 'from', 'where', 'orderBy', 'set', 'values']) chain[m] = () => chain;
+    for (const m of ['select', 'from', 'where', 'orderBy', 'values']) chain[m] = () => chain;
+    chain.set = (v: Record<string, unknown>) => {
+      sets.push(v);
+      return chain;
+    };
     chain.execute = () => Promise.resolve([]);
     chain.update = () => {
       writes.push('update');
@@ -62,7 +67,7 @@ describe('upsertProperty reuses the property a re-listing agency describes diffe
     chain.then = (res: (v: unknown) => unknown) =>
       Promise.resolve(reads++ === 0 ? candidates : []).then(res);
     chain.returning = () => Promise.resolve([{ id: 'p-new' }]);
-    return { db: chain as unknown as DbOrTx, writes };
+    return { db: chain as unknown as DbOrTx, writes, sets };
   }
 
   const soldBefore = {
@@ -94,5 +99,35 @@ describe('upsertProperty reuses the property a re-listing agency describes diffe
     );
     expect(id).toBe('p-new');
     expect(writes).toEqual(['insert']);
+  });
+
+  /**
+   * The bug this guards: a re-listing agency that leaves bedrooms blank used
+   * to write NULL over the bedrooms the first agency recorded — erasing them
+   * for every listing at the address.
+   */
+  it('leaves facts the new ad does not state untouched', async () => {
+    const { db, sets } = fake([soldBefore]);
+    await upsertProperty(
+      db,
+      { unit: '32', streetNumber: '6E', street: 'Henry Street', ...base, state: 'VIC', bedrooms: 4 },
+      null,
+    );
+    const written = sets[0] ?? {};
+    expect(written.bedrooms).toBe(4);
+    for (const blank of ['bathrooms', 'carSpaces', 'landAreaSqm', 'buildingAreaSqm', 'yearBuilt', 'propertyType']) {
+      expect(written).not.toHaveProperty(blank);
+    }
+  });
+
+  it('still lets an agent clear a field on the property their own listing stands on', async () => {
+    const { db, sets } = fake([soldBefore]);
+    await upsertProperty(
+      db,
+      { unit: '32', streetNumber: '6E', street: 'Henry Street', ...base, state: 'VIC' },
+      null,
+      { editingPropertyId: 'p-sold-2025' },
+    );
+    expect(sets[0]).toMatchObject({ bedrooms: null, landAreaSqm: null });
   });
 });
