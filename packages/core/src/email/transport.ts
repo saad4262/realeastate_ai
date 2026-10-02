@@ -13,13 +13,13 @@ export type EmailAddress = {
   name?: string;
 };
 
-export type EmailMessage = {
+type EmailBase = {
   to: EmailAddress;
   from: EmailAddress;
   subject: string;
   html: string;
   /**
-   * Always present, never optional.
+   * Always present, never optional, on both kinds.
    *
    * A text/plain part is a deliverability requirement — a multipart message
    * without one scores as spam — and it is the version a plain-text client
@@ -27,11 +27,59 @@ export type EmailMessage = {
    * identification has to appear in both, or it appears in neither.
    */
   text: string;
-  /** RFC 8058 one-click, and the Spam Act's functional unsubscribe in header form. */
-  listUnsubscribeUrl: string;
   /** Correlation only. Never a person's details — these reach the provider's logs. */
   tags?: Record<string, string>;
 };
+
+/**
+ * Bulk mail somebody asked to receive and can stop receiving.
+ *
+ * The saved-search digest, and for now only that. The unsubscribe URL is
+ * required by the type because s.18 of the Spam Act requires it in fact, and
+ * because a digest built without one would otherwise be a runtime surprise.
+ */
+export type MarketingMessage = EmailBase & {
+  kind: 'marketing';
+  /** RFC 8058 one-click, and the Spam Act's functional unsubscribe in header form. */
+  listUnsubscribeUrl: string;
+};
+
+/**
+ * A one-off notification to somebody about something that just happened to
+ * them — a private offer arriving in an agency's inbox.
+ *
+ * It carries NO unsubscribe header, and `?: never` rather than `?: string` so
+ * that setting one is a compile error rather than a quiet mistake. Two reasons,
+ * and the second is the load-bearing one:
+ *
+ * 1. It is doubtful this is a "commercial electronic message" under s.6 at all.
+ *    It does not advertise or promote the sender's goods or services; it tells a
+ *    business that an offer has been made TO it. s.18's unsubscribe requirement
+ *    attaches to commercial electronic messages, so there is nothing here to
+ *    relax away — the old shape simply over-applied s.18 to a category it does
+ *    not cover, which is why it fought every transactional message.
+ *
+ * 2. `resendTransport` pairs `List-Unsubscribe` with
+ *    `List-Unsubscribe-Post: One-Click`, which is a promise that the URL accepts
+ *    an unauthenticated POST and acts on it. Mailbox providers, link scanners
+ *    and prefetchers all take that promise up. Inventing an unsubscribe target
+ *    for an agency's offer notifications would ship a one-click way to silently
+ *    switch them off, and a lost offer is worse than any deliverability gain.
+ *
+ * s.17 sender identification is NOT relaxed: it is cheap, it is correct on any
+ * business mail, and `requireSenderFooter` enforces it on both kinds.
+ */
+export type TransactionalMessage = EmailBase & {
+  kind: 'transactional';
+  listUnsubscribeUrl?: never;
+};
+
+/**
+ * `kind` has no default and no optional marker, so a new builder cannot omit
+ * it. "Transactional" is always a word somebody typed and a reviewer reads in
+ * the diff, never an omission.
+ */
+export type EmailMessage = MarketingMessage | TransactionalMessage;
 
 export type SendResult =
   | { ok: true; id: string }

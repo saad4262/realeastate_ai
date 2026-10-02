@@ -133,3 +133,18 @@ export function addressLines(listing: {
   // above the locality reads as a missing heading.
   return { street: street.trim() || locality, locality };
 }
+
+/**
+ * Where a visitor reads the history this sale belongs to, or null.
+ *
+ * One rule, used by the /sold page and the guide's panel alike:
+ * - nothing at the address on the market → `/property/<id>`, the off-market page;
+ * - re-listed and live → that listing, whose page shows the same history;
+ * - under offer → nowhere, because neither page exists for it.
+ */
+export function saleHistoryPath(
+  s: { propertyId: string; onMarketNow: boolean; liveListingId: string | null },
+): string | null {
+  if (s.liveListingId) return `/listing/${s.liveListingId}`;
+  return s.onMarketNow ? null : `/property/${s.propertyId}`;
+}

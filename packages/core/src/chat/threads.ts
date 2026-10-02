@@ -49,6 +49,8 @@ export type StoredTurn = {
   text: string;
   searches: unknown;
   resultsFrame: unknown;
+  /** Display-only, like `resultsFrame`. Never replayed to the model. */
+  salesFrame: unknown;
   deepLink: string | null;
   createdAt: Date;
 };
@@ -129,6 +131,7 @@ export async function getThread(
       text: row.text,
       searches: row.searches,
       resultsFrame: row.resultsFrame,
+      salesFrame: row.salesFrame,
       deepLink: row.deepLink,
       createdAt: asDate(row.createdAt),
     })),
@@ -180,6 +183,7 @@ export type AppendTurnInput = {
   text: string;
   searches?: unknown;
   resultsFrame?: unknown;
+  salesFrame?: unknown;
   deepLink?: string | null;
 };
 
@@ -231,6 +235,7 @@ export async function appendTurn(
     text: input.text,
     searches: input.searches ?? null,
     resultsFrame: input.resultsFrame ?? null,
+    salesFrame: input.salesFrame ?? null,
     deepLink: input.deepLink ?? null,
   });
 

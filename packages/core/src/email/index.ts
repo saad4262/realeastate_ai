@@ -6,7 +6,9 @@ export {
   type EmailMessage,
   type EmailTransport,
   type FakeTransport,
+  type MarketingMessage,
   type SendResult,
+  type TransactionalMessage,
 } from './transport';
 
 export {
@@ -27,6 +29,12 @@ export {
 export {
   buildScheduleDigestEmail,
   escapeHtml,
+  requireSenderFooter,
   templateSummary,
   type ScheduleDigestInput,
 } from './schedule-digest';
+
+export {
+  buildPrivateOfferEmail,
+  type PrivateOfferEmailInput,
+} from './private-offer';

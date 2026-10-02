@@ -29,7 +29,7 @@ import { cachedNearbySuburbs, cachedTopAgents } from '../../lib/cached';
  * fewer thing on it.
  */
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+export function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="overflow-hidden rounded-md border border-line-subtle bg-card shadow-card">
       <h2 className="border-b border-line-subtle px-md py-sm text-label-md uppercase text-ink-soft">

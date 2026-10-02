@@ -13,6 +13,8 @@ function ctx(over: Partial<ToolContext> = {}): ToolContext {
     resolvePlace: vi.fn(async () => null),
     search: vi.fn(async () => []),
     getListing: vi.fn(async () => null),
+    // No sales unless a test says so — an empty market, not a missing tool.
+    recentSales: vi.fn(async () => ({ rows: [], total: 0 })),
     nearbyMarket: vi.fn(async () => ({}) as never),
     lastSearch: { channel: 'rent', suburb: 'Pakenham', bedrooms: 3 },
     scheduling: {

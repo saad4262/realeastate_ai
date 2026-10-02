@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PublicListingSummary } from '../listings/search-listings';
 import { buildScheduleDigestEmail, templateSummary } from './schedule-digest';
+import { buildPrivateOfferEmail } from './private-offer';
 import { requireSenderIdentity, resendTransport } from './resend-transport';
 import { EmailError, fakeTransport } from './transport';
 import { signUnsubscribeToken, unsubscribeUrl, verifyUnsubscribeToken } from './unsubscribe';
@@ -288,5 +289,102 @@ describe('requireSenderIdentity', () => {
 
   it('still reports a missing value as missing rather than as malformed', () => {
     expect(() => requireSenderIdentity({ ...ok, ALERT_EMAIL_FROM: '' })).toThrow(/not set/);
+  });
+});
+
+/**
+ * A transactional notification — an offer arriving in an agency's inbox.
+ *
+ * The half of the Spam Act that is relaxed here is s.18's unsubscribe, and
+ * these tests are what say the relaxation went exactly that far and no further.
+ * The digest tests above are the other half of the pair: they still assert that
+ * bulk mail refuses to build without an unsubscribe link.
+ */
+describe('a private offer notification', () => {
+  const OFFER = {
+    to: { email: 'owner@agency.example', name: 'Agency Owner' },
+    from: { email: 'alerts@example.com', name: 'Test Company' },
+    postalAddress: '1 Test Street, Sydney NSW 2000',
+    propertyAddress: '14 Henry Road, Pakenham, VIC 3810',
+    amount: 905_000,
+    offeredBy: { name: 'Jane Buyer', email: 'jane@example.test', phone: '0412 884 920' },
+    message: 'I have been watching this street and would like to buy.',
+    propertyUrl: 'https://example.com/property/p-1',
+  };
+
+  /**
+   * The reason the type split exists.
+   *
+   * `List-Unsubscribe-Post` is a promise that the URL accepts an unauthenticated
+   * POST and acts on it — and mailbox providers, link scanners and prefetchers
+   * all take that promise up. Sending it on a notification nobody subscribed to
+   * would ship a one-click way to silently switch an agency's offer alerts off.
+   * Both headers are asserted absent, not just the first: one without the other
+   * is its own bug.
+   */
+  it('carries neither unsubscribe header', async () => {
+    let captured: { init: RequestInit } | null = null;
+    const transport = resendTransport({
+      apiKey: 'test-key',
+      fetchImpl: (async (_url: string, init: RequestInit) => {
+        captured = { init };
+        return new Response(JSON.stringify({ id: 'msg_2' }), { status: 200 });
+      }) as unknown as typeof fetch,
+    });
+
+    await transport.send(buildPrivateOfferEmail(OFFER));
+
+    const sent = captured as unknown as { init: RequestInit };
+    const body = JSON.parse(String(sent.init.body)) as Record<string, unknown>;
+    const headers = (body.headers ?? {}) as Record<string, string>;
+    expect(headers['List-Unsubscribe']).toBeUndefined();
+    expect(headers['List-Unsubscribe-Post']).toBeUndefined();
+  });
+
+  it('still identifies its sender in both parts', () => {
+    // s.17 is NOT what was relaxed. It is cheap and correct on any business
+    // mail, and a text/plain part without it identifies nobody.
+    const message = buildPrivateOfferEmail(OFFER);
+    expect(message.html).toContain('1 Test Street, Sydney NSW 2000');
+    expect(message.text).toContain('1 Test Street, Sydney NSW 2000');
+    expect(message.html).toContain('Test Company');
+    expect(message.text).toContain('Test Company');
+    expect(message.text.length).toBeGreaterThan(0);
+  });
+
+  it('refuses to build with no sender identity, exactly as the digest does', () => {
+    expect(() => buildPrivateOfferEmail({ ...OFFER, postalAddress: '  ' })).toThrow(EmailError);
+    expect(() =>
+      buildPrivateOfferEmail({ ...OFFER, from: { ...OFFER.from, name: '' } }),
+    ).toThrow(EmailError);
+  });
+
+  it('puts the figure and the address where the agency will read them', () => {
+    const message = buildPrivateOfferEmail(OFFER);
+    // This email IS the routing — there is no Leads screen yet — so the offer
+    // has to be legible without following a link.
+    expect(message.subject).toContain('$905,000');
+    expect(message.subject).toContain('14 Henry Road');
+    expect(message.html).toContain('$905,000');
+    expect(message.text).toContain('$905,000');
+    expect(message.text).toContain('jane@example.test');
+  });
+
+  it('is labelled transactional, in a word somebody had to type', () => {
+    // `kind` has no default, so a builder cannot drift into this branch by
+    // omission — it is one word in a diff a reviewer reads.
+    expect(buildPrivateOfferEmail(OFFER).kind).toBe('transactional');
+    expect(buildScheduleDigestEmail(BASE).kind).toBe('marketing');
+  });
+
+  it('escapes what the offerer typed', () => {
+    const message = buildPrivateOfferEmail({
+      ...OFFER,
+      message: '<script>alert(1)</script>',
+      offeredBy: { ...OFFER.offeredBy, name: 'Jane "Quote" <b>' },
+    });
+    expect(message.html).not.toContain('<script>');
+    expect(message.html).toContain('&lt;script&gt;');
+    expect(message.html).not.toContain('<b>');
   });
 });

@@ -34,16 +34,27 @@ export function resendTransport(opts: {
         subject: message.subject,
         html: message.html,
         text: message.text,
-        headers: {
-          /**
-           * RFC 8058. The `-Post` header is what makes Gmail and Outlook show
-           * their own one-click unsubscribe control, which is both the best
-           * unsubscribe experience and a large deliverability signal. Sending
-           * the first without the second gets the link ignored.
-           */
-          'List-Unsubscribe': `<${message.listUnsubscribeUrl}>`,
-          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-        },
+        /**
+         * RFC 8058, on marketing mail only.
+         *
+         * The `-Post` header is what makes Gmail and Outlook show their own
+         * one-click unsubscribe control, which is both the best unsubscribe
+         * experience and a large deliverability signal. Sending the first
+         * without the second gets the link ignored — so both go together or
+         * neither does, which is why this is one spread and not two.
+         *
+         * Transactional mail sends neither. `-Post` promises the URL accepts an
+         * unauthenticated POST, and there is no such URL for a notification
+         * nobody subscribed to. See TransactionalMessage.
+         */
+        ...(message.kind === 'marketing'
+          ? {
+              headers: {
+                'List-Unsubscribe': `<${message.listUnsubscribeUrl}>`,
+                'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+              },
+            }
+          : {}),
         ...(message.tags
           ? { tags: Object.entries(message.tags).map(([name, value]) => ({ name, value })) }
           : {}),

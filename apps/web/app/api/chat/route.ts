@@ -21,6 +21,7 @@ import {
   cachedFilterOptions,
   cachedListing,
   cachedNearbyMarket,
+  cachedRecentSales,
   cachedPlace,
   cachedSearch,
 } from '../../../lib/cached';
@@ -196,6 +197,7 @@ function toolContext(userId: string | null): ToolContext {
     },
     getListing: (id) => cachedListing(id),
     nearbyMarket: (query) => cachedNearbyMarket(query),
+    recentSales: (query) => cachedRecentSales(query),
   };
 }
 
@@ -218,6 +220,7 @@ async function persistTurn(input: {
   answer: string;
   citations: { query: unknown; matched: number; shown: number }[];
   resultsFrame: unknown;
+  salesFrame: unknown;
   deepLink: string | null;
 }): Promise<string | null> {
   if (!input.userId) return null;
@@ -250,6 +253,7 @@ async function persistTurn(input: {
         text: input.answer,
         searches: input.citations.length > 0 ? input.citations : null,
         resultsFrame: input.resultsFrame,
+        salesFrame: input.salesFrame,
         deepLink: input.deepLink,
       });
 
@@ -386,6 +390,8 @@ export async function POST(request: NextRequest) {
       id: '',
       text: '',
       results: [],
+      sales: [],
+      tools: [],
       state: null,
       suggestions: [],
       error: null,
@@ -403,6 +409,15 @@ export async function POST(request: NextRequest) {
           break;
         case 'results':
           collected.results.push(event);
+          break;
+        case 'sales':
+          collected.sales.push(event);
+          break;
+        case 'tool':
+          // Name and label only. The tool's RESULT is never collected — it is
+          // the model's working, not the visitor's answer, and some of it
+          // (coordinates, ids) is deliberately kept out of reach.
+          collected.tools.push({ name: event.name, label: event.label });
           break;
         case 'state':
           collected.state = event;
@@ -437,6 +452,9 @@ export async function POST(request: NextRequest) {
       let answer = '';
       const citations: { query: unknown; matched: number; shown: number }[] = [];
       let lastResults: unknown = null;
+      // Saved too, or reopening the thread loses the sold cards, their map and
+      // the "View all sold" link that the answer above them points at.
+      let lastSales: unknown = null;
       let lastLink: string | null = null;
 
       try {
@@ -452,6 +470,8 @@ export async function POST(request: NextRequest) {
             });
             lastResults = event;
             lastLink = event.deepLink;
+          } else if (event.type === 'sales') {
+            lastSales = event;
           } else if (event.type === 'state' && event.deepLink) {
             lastLink = event.deepLink;
           }
@@ -464,6 +484,7 @@ export async function POST(request: NextRequest) {
           answer,
           citations,
           resultsFrame: lastResults,
+          salesFrame: lastSales,
           deepLink: lastLink,
         });
 

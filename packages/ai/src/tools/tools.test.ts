@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ZodObject, ZodRawShape } from 'zod';
 import { getListingInput } from './get-listing-tool';
 import { resolveLocationInput } from './resolve-location';
+import { recentSalesInput } from './recent-sales-tool';
 import { searchListingsInput } from './search-listings-tool';
 import { PROPERTY_CHAT_TOOLS } from './index';
 
@@ -13,6 +14,7 @@ import { PROPERTY_CHAT_TOOLS } from './index';
 const PAIRS = [
   { name: 'resolve_location', zod: resolveLocationInput },
   { name: 'search_listings', zod: searchListingsInput },
+  { name: 'recent_sales', zod: recentSalesInput },
   { name: 'get_listing', zod: getListingInput },
 ] as const;
 
@@ -97,6 +99,11 @@ describe('tool definitions', () => {
       'resolve_location',
       'search_listings',
       'cheapest_near',
+      // Beside the other place-based reads and before the detail fetch: it is
+      // another way of looking at an area, just backwards in time. Appending it
+      // after get_listing would read as an afterthought in the one place the
+      // model reads first. This move reset the cache once, deliberately.
+      'recent_sales',
       'get_listing',
       // The scheduling pair goes at the END, after the four tools that find
       // a home. They are a different kind of thing — one acts on a search

@@ -64,13 +64,17 @@ async function sessionFromMiddleware() {
 export type ConsoleChrome = {
   userRole: string;
   agencyName: string | null;
-  summary: { members: number; liveListings: number; pendingInvites: number };
+  /**
+   * `newOffers` is already zeroed for anyone who may not read a private offer —
+   * the decision is made by can() in load-actor.ts, never re-made by the chrome.
+   */
+  summary: { members: number; liveListings: number; pendingInvites: number; newOffers: number };
 };
 
 const CHROME_FALLBACK: ConsoleChrome = {
   userRole: 'Member',
   agencyName: null,
-  summary: { members: 0, liveListings: 0, pendingInvites: 0 },
+  summary: { members: 0, liveListings: 0, pendingInvites: 0, newOffers: 0 },
 };
 
 /**

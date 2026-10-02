@@ -1,14 +1,19 @@
 import { unstable_cache } from 'next/cache';
 import {
+  getOffMarketProperty,
   getPublicListing,
   listingAgentCards,
   listingInspections,
   propertyTimeline,
+  liveListingIdForProperty,
+  formerListingDestination,
   nearbyMarket,
+  recentSalesPage,
   searchFacets,
   searchPublicListingsPage,
   topSuburbAgents,
   nearbySuburbs,
+  type OffMarketProperty,
   type PublicAgentCard,
   type PublicInspection,
   type PublicListing,
@@ -20,6 +25,8 @@ import {
   type SearchFacets,
   type NearbyMarket,
   type NearbyMarketQuery,
+  type RecentSalesPage,
+  type RecentSalesQuery,
 } from '@repo/core/listings';
 import { listingPhotos, type ListingPhoto } from '@repo/core/media';
 import { resolvePlace } from '@repo/core/geo';
@@ -209,6 +216,154 @@ export async function cachedListing(id: string): Promise<PublicListing | null> {
   );
   const row = await run();
   return row && { ...row, publishedAt: reviveDate(row.publishedAt) };
+}
+
+/**
+ * What has recently sold in an area, for the guide.
+ *
+ * Tagged with the global listings tag: recording a sale changes this answer,
+ * and the console always clears that tag when it does. 300 seconds rather than
+ * the search's 30 — a completed sale does not change, so the only thing a
+ * shorter window buys is a newly recorded one appearing sooner, and five
+ * minutes is soon enough for a market question.
+ *
+ * `since` is part of the key as an ISO day, not a timestamp. The tool computes
+ * it from the clock, so a raw Date would make every single call a cache miss
+ * while still describing the same window.
+ */
+function salesKey(query: RecentSalesQuery): string[] {
+  return [
+    query.suburb?.toLowerCase() ?? '',
+    query.state ?? '',
+    query.near
+      ? `${query.near.lat.toFixed(4)},${query.near.lng.toFixed(4)},${query.near.radiusKm}`
+      : '',
+    query.since ? query.since.toISOString().slice(0, 10) : '',
+    String(query.bedrooms ?? ''),
+    query.propertyType ?? '',
+    query.sort ?? '',
+    String(query.limit ?? ''),
+    String(query.offset ?? ''),
+  ];
+}
+
+/** A page of sales with its total, for /sold. Same read, same cache rules. */
+export async function cachedRecentSalesPage(
+  query: RecentSalesQuery,
+): Promise<RecentSalesPage> {
+  const run = unstable_cache(
+    async () => {
+      try {
+        return await recentSalesPage(getWebDb(), query);
+      } catch {
+        return { rows: [], total: 0 };
+      }
+    },
+    ['recent-sales-page', ...salesKey(query)],
+    { tags: [LISTINGS_TAG], revalidate: 300 },
+  );
+  const page = await run();
+  return {
+    ...page,
+    rows: page.rows.map((r) => ({ ...r, soldDate: reviveDate(r.soldDate) as Date })),
+  };
+}
+
+export async function cachedRecentSales(query: RecentSalesQuery): Promise<RecentSalesPage> {
+  const run = unstable_cache(
+    async () => {
+      try {
+        // The paged form, so the guide's panel can say "View all N sold" with a
+        // real N. `recentSales` alone would have made that figure a guess.
+        return await recentSalesPage(getWebDb(), query);
+      } catch {
+        return { rows: [], total: 0 };
+      }
+    },
+    ['recent-sales', ...salesKey(query)],
+    { tags: [LISTINGS_TAG], revalidate: 300 },
+  );
+  const page = await run();
+  // unstable_cache JSON round-trips, so soldDate comes back an ISO string
+  // while the type still says Date.
+  return {
+    ...page,
+    rows: page.rows.map((r) => ({ ...r, soldDate: reviveDate(r.soldDate) as Date })),
+  };
+}
+
+/**
+ * The property behind an off-market page.
+ *
+ * Tagged with the global listings tag and NOT `property:<id>`, for the same
+ * reason `cachedTimeline` is: what makes this page exist or stop existing is a
+ * listing's status changing, and the listing that changes need not be one this
+ * page has ever named. Recording a sale is exactly that — the moment
+ * /listing/<id> starts 404ing and this page starts answering — and
+ * `revalidateWeb` always clears the global tag, so one console action covers
+ * both sides of the swap.
+ *
+ * `null` on a database failure, like `cachedListing`, so a blip renders a 404
+ * rather than a 500. It also means a blip cannot accidentally publish the
+ * history: the gate failing closed is the safe direction here.
+ */
+export async function cachedOffMarketProperty(
+  propertyId: string,
+): Promise<OffMarketProperty | null> {
+  const run = unstable_cache(
+    async () => {
+      try {
+        return await getOffMarketProperty(getWebDb(), propertyId);
+      } catch {
+        return null;
+      }
+    },
+    ['off-market-property', propertyId],
+    { tags: [LISTINGS_TAG], revalidate: 60 },
+  );
+  // No Date fields on this shape, so nothing to revive.
+  return await run();
+}
+
+/**
+ * The live listing at an address, for `/property/<id>` to hand off to once the
+ * address is re-listed. Same tag and same reasoning as `cachedOffMarketProperty`
+ * — the two flip together when a listing goes live — and null on a failure,
+ * which leaves the page a 404 rather than a 500.
+ */
+export async function cachedLiveListingId(propertyId: string): Promise<string | null> {
+  const run = unstable_cache(
+    async () => {
+      try {
+        return await liveListingIdForProperty(getWebDb(), propertyId);
+      } catch {
+        return null;
+      }
+    },
+    ['live-listing-for-property', propertyId],
+    { tags: [LISTINGS_TAG], revalidate: 60 },
+  );
+  return await run();
+}
+
+/**
+ * Where an old listing URL goes once its ad is no longer live. Same tag as the
+ * rest of the swap; null on a failure (a malformed id included) so the page
+ * falls back to its 404 rather than a 500.
+ */
+export async function cachedFormerListingDestination(listingId: string): Promise<string | null> {
+  const run = unstable_cache(
+    async () => {
+      try {
+        return await formerListingDestination(getWebDb(), listingId);
+      } catch {
+        return null;
+      }
+    },
+    ['former-listing-destination', listingId],
+    { tags: [LISTINGS_TAG], revalidate: 60 },
+  );
+  return await run();
 }
 
 /**

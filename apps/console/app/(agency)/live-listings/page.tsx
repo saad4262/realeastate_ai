@@ -66,7 +66,11 @@ export default async function AgencyListingsPage({
       pageSize={CONSOLE_PAGE_SIZE}
       basePath="/live-listings"
       // Dates do not cross the server/client boundary intact.
-      rows={result.rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }))}
+      rows={result.rows.map((r) => ({
+        ...r,
+        createdAt: r.createdAt.toISOString(),
+        soldDate: r.soldDate?.toISOString() ?? null,
+      }))}
     />
   );
 }

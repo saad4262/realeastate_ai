@@ -64,6 +64,8 @@ function ctx(over: Partial<ToolContext> = {}) {
     resolvePlace: vi.fn(async () => BERWICK),
     search: vi.fn(async () => []),
     getListing: vi.fn(async () => null),
+    // No sales unless a test says so — an empty market, not a missing tool.
+    recentSales: vi.fn(async () => ({ rows: [], total: 0 })),
     nearbyMarket: vi.fn(async (q: NearbyMarketQuery) => {
       asked.push(q);
       return MARKET;

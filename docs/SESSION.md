@@ -1,3 +1,136 @@
+## 2026-10-02 — Claude Code — One address is one property, and its history follows it
+
+- Goal: the client wants realestate.com.au behaviour — a house sold by one agency
+  and re-listed by another shows every earlier sale on the new ad, with no
+  duplicate "sold" and "for sale" pages for one house, and offers/enquiries
+  reaching the right agency.
+- Done: `addressKey` + matching/lock in `upsertProperty`; Timeline + tab on
+  `/listing/[id]`; `/property/[id]` → live listing; `formerListingDestination`
+  so an old `/listing/<sold>` bookmark redirects; `saleHistoryPath` shared by
+  `/sold` and the `recent_sales` tool, `forSaleNow` on `SoldCard`. Earlier in the
+  session: sold chat frame persisted (`chat_message.sales_frame`, migration
+  0015), `/sold` rebuilt like `/search`, `/property/[id]` in the listing layout,
+  "Make an offer" opening the form.
+- ADR 0013. Smoke: "listing never shows sale price" inverted; new checks for the
+  property redirect and the sold-bookmark redirect (break-checked red).
+- Verified by HTTP on dev with a temporary relist (deleted afterwards).
+- Left: see STATUS "Open / next" — fact overwrite on re-list, the dev property
+  row to restore, the dev pool limit.
+
+## 2026-09-30 — Claude Code — Sold properties end to end, and the lead inbox that receives the offers
+
+- Goal: in the user's words — a "Private Offer" module plus "adjust how property
+  history is displayed". Two client rules: hide a property's past sale prices
+  while it is listed, and let a visitor make a private offer on an off-market
+  address routed to the agency that last sold it. Later in the same session,
+  after seeing the guide say "sold properties are not on the portal": make the
+  chatbot answer what has sold, and make the property page follow
+  realestate.com.au's Property history layout. Finally: build the lead inbox so
+  the offers have somewhere to land besides an email.
+
+- Done: five phases, each verified before the next began.
+  - **Phase 1** — the write path for a sale. `soldDetailsSchema`,
+    `setListingStatus` accepting `'sold'` with figures, a new `listing:sell`
+    action, the console "Mark sold" dialog and "Under offer" control.
+  - **Phase 2** — `ON_MARKET_STATUSES`, `getOffMarketProperty`, the Timeline
+    stripped from `/listing/[id]`, and the new `/property/[id]` page.
+  - **Phase 3** — migration 0014, the marketing/transactional email split,
+    `createPrivateOffer`, `agencyNotificationRecipients`, the offer form and
+    server action.
+  - **Phase 4** (asked for after the first three) — `recent_sales` core read and
+    AI tool, prompt v9, the Property history redesign, and `soldPrice`/`soldDate`
+    on the console table.
+  - **Phase 5** — the lead inbox. `lead:read` + `lead:read_offer`,
+    `listAgencyLeads`, and `/leads` with tabs, replacing the placeholder.
+
+- Files touched:
+  - db: `schema.ts` (lead property-anchored, `offer` kind, `offer_amount`, three
+    indexes), `drizzle/0014_lead_property_offers.sql` (hand-split), `seed.ts`
+  - core: `listing-schema.ts`, `publish-listing.ts`, `permissions.ts`,
+    `listing-detail.ts`, `recent-sales.ts` (new), `list-listings.ts`,
+    `leads/{create-enquiry,create-private-offer,offer-schema}.ts`,
+    `agency/notification-recipients.ts` (new),
+    `email/{transport,resend-transport,schedule-digest,private-offer}.ts`
+  - ai: `tools/{context,index,recent-sales-tool}.ts`, `prompts/v9.ts` (v8 kept),
+    `schemas/chat-events.ts` (`tools` on the buffered turn)
+  - web: `app/property/[id]/{page,loading}.tsx` (new), `app/listing/[id]/page.tsx`,
+    `components/{listing-sections,private-offer-form}.tsx`,
+    `lib/{cached,offer-action}.ts`, `middleware.ts`, `app/api/chat/route.ts`
+  - console: `components/{listing-table,mark-sold-dialog,lead-table}.tsx`,
+    `app/(agency)/leads/{page,loading}.tsx`, `app/(agency)/{nav-list,agency-shell}.tsx`,
+    `lib/{listing-actions,load-actor,require-console-access}.ts`, the two pages
+    that serialise rows
+  - docs: `adr/0012-a-private-offer-is-a-lead-against-a-property.md`
+
+- Decisions:
+  - `under_offer` counts as on-market. The user first chose "live only"; I
+    raised that an `under_offer` listing has no public page, so that rule would
+    make a property mid-sale read as off-market — publishing its last sale price
+    and inviting an offer aimed at the agency currently selling it. They changed
+    it. Recorded in ADR 0012.
+  - `lead.property_id` NOT NULL with a backfill, rather than an XOR check
+    against `listing_id`. Also: no DDL in 0014 may mention `'offer'` — Postgres
+    forbids using a new enum value in the transaction that added it, and
+    `drizzle-kit migrate` wraps the whole pending set in one.
+  - `MarketingMessage | TransactionalMessage` with `listUnsubscribeUrl?: never`
+    on the transactional branch. `buildScheduleDigestEmail` narrows its return
+    to `MarketingMessage`, which is why **no existing email test changed**.
+  - Sold data stays out of the public search surface; the guide gets its own
+    tool instead. The user was told this reverses the "direct link only"
+    discovery decision and confirmed.
+  - **Offers share the Leads screen rather than getting their own.** The schema
+    decision in ADR 0012 already settled the table; a second screen would have
+    duplicated the permission check, the read, pagination and the triage
+    mutations, and given two places that can disagree about state. The counter
+    -argument — rare high-value rows get buried — is answered by the tabs and
+    the nav badge, not by a second route.
+  - **Two lead permissions, not one.** `can()` cannot see a row's kind, so a
+    single action would have forced a role check inside the query, which #2
+    forbids. `lead:read_offer` becomes a WHERE clause instead. A non-admin sees
+    an inbox in which offers never existed — not a "3 hidden" count, because
+    that discloses most of what the restriction withholds.
+
+- Left unfinished (exact next step): **lead triage**. The inbox reads; nothing
+  writes. `lead.status` and `lead.assigned_to` exist and no code sets them, so a
+  lead cannot be marked contacted, assigned or closed. Next increment: a
+  `lead:manage` action, an update function beside `listAgencyLeads`, and
+  optimistic mutations in `lead-table.tsx` — `listing-table.tsx` is the pattern
+  to copy, including the `useOptimistic` reducer that moves the counts with the
+  row. Also undecided: the agent desk's Leads link is still `href: '#'`, and
+  agent scoping (own listings? assigned only?) has not been chosen.
+
+- Risks / watch:
+  - **Two smoke checks were green for the wrong reason and only mutation
+    testing showed it.** (1) "a private offer cannot be filed on a property that
+    is not open to one" passed with the on-market guard removed, because
+    `status = 'sold'` was doing the refusing — the guard only matters for a
+    *re-listed* property, which no row had. (2) "the sold-history read can only
+    ever see sold listings" passed with its status filter removed, because
+    `sold_price is not null` happened to exclude everything — until a
+    sold-then-withdrawn row exists, which is a state Phase 1 deliberately
+    creates. Both checks now name the sub-case they covered in their output, so
+    its absence is visible. Assume any new check is untrustworthy until broken.
+  - `/property/:path*` must stay in the middleware matcher or `currentWebUser()`
+    is silently null there and the offer form prompts a signed-in visitor to
+    sign in — the `/api/chat` bug that file already documents.
+  - Deleting the `Timeline` render from a listing page without also deleting its
+    `#history` tab turns `the property page is skinned and every in-page tab
+    lands somewhere` red. That is by design.
+  - `recent_sales` moved `PROPERTY_CHAT_TOOLS`, which resets the prompt cache
+    once. Expected, and `tools.test.ts` pins the new order.
+  - The inbox disclosure check was **also** green on an empty set until an offer
+    was seeded — the third time this session. It now prints the offer count it
+    saw ("1 admin(s) see 1 offer(s)"), so a zero is visible in the output.
+  - `summary.newOffers` in `load-actor.ts` is counted for everyone in SQL and
+    zeroed by `can()` in TypeScript. If that zeroing is ever removed, the nav
+    badge silently becomes a disclosure channel that the inbox itself refuses.
+  - An existing smoke check caught a gap I introduced: `/leads` reads the
+    database and owed its own `loading.tsx`. Worth knowing that check exists
+    before adding the next console route.
+  - Adding a tool to the buffered `ChatTurnResult` (`tools`) was needed because
+    every @repo/ai unit test runs against a fake model — "does a real one pick
+    the right tool" had no answer from outside otherwise.
+
 ## 2026-09-28 — Claude Code — M4 goes to GitHub, and the cron that would have failed the deploy
 
 - Goal: asked for, in these words: put the code on GitHub properly and get the project

@@ -9,11 +9,17 @@ import { searchPublicListings, liveSuburbs, livePropertyTypes } from './search-l
 import { nearbySuburbs, topSuburbAgents } from './search-sidebar';
 import { searchFacets } from './search-facets';
 import { nearbyMarket } from './nearby-market';
+import { recentSales } from './recent-sales';
+import { formerListingDestination } from './listing-detail';
 import {
+  getOffMarketProperty,
   listingAgentCards,
   listingInspections,
   propertyTimeline,
 } from './listing-detail';
+import { createPrivateOffer } from '../leads/create-private-offer';
+import { listAgencyLeads } from '../leads/list-leads';
+import { agencyNotificationRecipients } from '../agency/notification-recipients';
 import type { Actor } from '../permissions';
 
 /**
@@ -130,11 +136,112 @@ describe('reads cost a fixed number of queries', () => {
     expect(count()).toBe(1);
   });
 
+  it('recent sales are one query, including the re-listed check', async () => {
+    /**
+     * `onMarketNow` is an inline EXISTS, not a lookup per sale. Asking "is this
+     * address live again" once per row would be an N+1 that grows with the
+     * number of sales shown — and the guide asks for eight of them.
+     */
+    const { db, count } = countingDb([
+      { listingId: 'l-1', propertyId: 'p-1', suburb: 'Pakenham', state: 'VIC', postcode: '3810',
+        soldPrice: '812000.00', soldDate: new Date('2024-03-11'), agencyName: 'A',
+        bedrooms: 3, bathrooms: '2', carSpaces: 1, propertyType: 'house',
+        distanceKm: null, onMarketNow: false },
+      { listingId: 'l-2', propertyId: 'p-2', suburb: 'Pakenham', state: 'VIC', postcode: '3810',
+        soldPrice: '640000.00', soldDate: new Date('2024-01-02'), agencyName: 'B',
+        bedrooms: 2, bathrooms: '1', carSpaces: 1, propertyType: 'unit',
+        distanceKm: null, onMarketNow: true },
+    ]);
+    const sales = await recentSales(db, { suburb: 'Pakenham', near: { lat: -38, lng: 145, radiusKm: 10 } });
+    expect(sales).toHaveLength(2);
+    expect(count()).toBe(1);
+  });
+
+  it('an old listing link is resolved in one query', async () => {
+    // Where a bookmark of a sold listing goes: the live listing, the history
+    // page, or nowhere. Every request for a dead link pays this, so it is one
+    // statement rather than three lookups.
+    const { db, count } = countingDb([{ property_id: 'p-1', live_id: 'l-live', off_market: false }]);
+    await expect(formerListingDestination(db, 'l-old')).resolves.toBe('/listing/l-live');
+    expect(count()).toBe(1);
+  });
+
+  it('the off-market gate is one query, both conditions included', async () => {
+    /**
+     * Two questions — is anything on the market at this address, and was
+     * anything here ever public — answered by two correlated EXISTS inside one
+     * statement, not by two round trips or by counting every listing.
+     *
+     * An explicit property-shaped row rather than THREE_ROWS: this read ends in
+     * .limit(1) and returns the place itself, so the shared listing fixture
+     * would prove nothing about it.
+     */
+    const { db, count } = countingDb([{ id: 'p-1', suburb: 'Pakenham', state: 'VIC', postcode: '3810' }]);
+    await getOffMarketProperty(db, 'p-1');
+    expect(count()).toBe(1);
+  });
+
   it('the agent cards are one query, profile join included', async () => {
     const { db, count } = countingDb();
     await listingAgentCards(db, 'l-1');
     // The profile is a join, not a lookup per agent. Fetching agent_profile
     // per listing_agent row is the N+1 this number exists to refuse.
+    expect(count()).toBe(1);
+  });
+
+  it('recording a private offer is one query, agency resolved by the database', async () => {
+    /**
+     * The check and the write are one INSERT ... SELECT, not a read followed by
+     * an insert — see create-private-offer.ts for the window a two-step version
+     * leaves open. Two here would mean somebody split it.
+     */
+    const { db, count } = countingDb([{ id: 'lead-1', agency_id: 'a-1' }]);
+    await createPrivateOffer(
+      db,
+      'p-1',
+      { userId: 'u-1', email: 'jane@example.test' },
+      {
+        name: 'Jane Buyer',
+        message: 'I have been watching this street and would like to buy.',
+        offerAmount: 905_000,
+      },
+    );
+    expect(count()).toBe(1);
+  });
+
+  it('the offer notification recipients are one query, not one per member', async () => {
+    /**
+     * The tempting N+1: list the memberships, then look up each user. Fed more
+     * than one row on purpose — a zero-row fake cannot catch a per-row query
+     * because the loop never runs.
+     */
+    const { db, count } = countingDb([
+      { userId: 'u-1', email: 'owner@example.test', name: 'Owner' },
+      { userId: 'u-2', email: 'admin@example.test', name: 'Admin' },
+    ]);
+    const recipients = await agencyNotificationRecipients(db, 'a-1');
+    expect(recipients).toHaveLength(2);
+    expect(count()).toBe(1);
+  });
+
+  it('the lead inbox is one query, tab counts included', async () => {
+    /**
+     * The three tab counts are window functions over the same scan. The obvious
+     * way to add them is a second SELECT, which is a round trip to the database
+     * region for three integers — and a third for the offers count.
+     */
+    const { db, count } = countingDb([
+      { id: 'lead-1', kind: 'enquiry', status: 'new', name: 'A', email: 'a@example.test',
+        phone: null, message: null, offerAmount: null, propertyId: 'p-1', listingId: 'l-1',
+        createdAt: new Date(), unit: null, streetNumber: '1', street: 'X', suburb: 'Pakenham',
+        state: 'VIC', postcode: '3810', totalCount: '2', unreadCount: '1', offerCount: '0' },
+      { id: 'lead-2', kind: 'offer', status: 'new', name: 'B', email: 'b@example.test',
+        phone: null, message: null, offerAmount: '905000.00', propertyId: 'p-2', listingId: null,
+        createdAt: new Date(), unit: null, streetNumber: '2', street: 'Y', suburb: 'Pakenham',
+        state: 'VIC', postcode: '3810', totalCount: '2', unreadCount: '1', offerCount: '0' },
+    ]);
+    const page = await listAgencyLeads(db, actor, { limit: 25 });
+    expect(page.rows).toHaveLength(2);
     expect(count()).toBe(1);
   });
 

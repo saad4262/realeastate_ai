@@ -1,0 +1,97 @@
+.wrap { display: grid; gap: 1rem; }
+
+.head { display: grid; gap: 0.25rem; }
+.title { margin: 0; font-family: var(--font-display, inherit); font-size: 1.5rem; letter-spacing: -0.02em; }
+.sub { margin: 0; font-size: 0.8125rem; color: var(--text-secondary); }
+
+/* The tabs. Links, not buttons: the kind belongs in the URL so Back works and
+   a filtered inbox can be sent to a colleague — the same reasoning the public
+   search pages through the URL rather than through state. */
+.tabs { display: flex; flex-wrap: wrap; gap: 0.375rem; }
+
+.tab {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.5rem 0.875rem; border-radius: 0.5rem;
+  border: 1px solid var(--border-default);
+  background: var(--surface-canvas);
+  color: var(--text-secondary);
+  font-size: 0.8125rem; font-weight: 600; text-decoration: none;
+}
+
+.tab:hover { color: var(--text-primary); }
+
+.tabOn {
+  background: var(--surface-elevated);
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+}
+
+.tabCount {
+  min-width: 1.25rem; padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-default);
+  font-size: 0.6875rem; font-variant-numeric: tabular-nums; text-align: center;
+}
+
+.tabOn .tabCount { background: var(--surface-canvas); }
+
+.card {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.table { width: 100%; border-collapse: collapse; }
+
+.table th {
+  text-align: left;
+  padding: 0.75rem 1rem;
+  font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.table td { padding: 0.875rem 1rem; border-bottom: 1px solid var(--border-default); vertical-align: top; }
+.table tr:last-child td { border-bottom: 0; }
+
+.who { font-weight: 600; color: var(--text-primary); }
+.contact { margin-top: 0.125rem; font-size: 0.75rem; color: var(--text-muted); }
+.contact a { color: inherit; }
+
+.addr { color: var(--text-secondary); font-size: 0.8125rem; }
+.msg {
+  margin-top: 0.25rem; font-size: 0.75rem; color: var(--text-muted);
+  /* Two lines, then stop. A long enquiry must not push every other row off. */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+.when { font-size: 0.8125rem; color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+.badge {
+  display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px;
+  font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.02em;
+}
+
+.kindOffer  { background: var(--emerald-subtle); color: var(--emerald); border: 1px solid color-mix(in srgb, var(--emerald) 25%, transparent); }
+.kindPlain  { background: var(--surface-canvas); color: var(--text-muted); border: 1px solid var(--border-default); }
+.statusNew  { background: var(--amber-subtle); color: var(--amber); border: 1px solid color-mix(in srgb, var(--amber) 25%, transparent); }
+.statusDone { background: var(--surface-canvas); color: var(--text-muted); border: 1px solid var(--border-default); }
+
+/* The figure is why an offer is in this list. It is not a body-text number. */
+.amount {
+  font-size: 1.05rem; font-weight: 700; color: var(--text-primary);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.noAmount { color: var(--text-muted); }
+
+.empty { padding: 2.5rem 1rem; text-align: center; }
+.emptyTitle { font-weight: 600; margin: 0 0 0.25rem; }
+.emptyHint { margin: 0; font-size: 0.8125rem; color: var(--text-muted); }
+
+@media (max-width: 860px) {
+  .table thead { display: none; }
+  .table tr { display: grid; gap: 0.35rem; padding: 0.875rem 1rem; border-bottom: 1px solid var(--border-default); }
+  .table td { border: 0; padding: 0; }
+}

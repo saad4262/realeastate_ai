@@ -9,6 +9,7 @@ import {
   runCancelSchedule,
   runDraftSchedule,
 } from './schedule-tools';
+import { recentSalesInput, runRecentSales } from './recent-sales-tool';
 import { runSearchListings, searchListingsInput } from './search-listings-tool';
 import type { ToolContext, ToolOutcome } from './context';
 
@@ -168,6 +169,44 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
     },
   },
   {
+    name: 'recent_sales',
+    description:
+      "What has recently SOLD in a suburb, newest first, with what each one sold for, the date and the agency. Use this whenever the visitor asks about sold homes, past sales, or what the market has been doing — search_listings cannot see sold properties and never will. These are completed sales, NOT homes the visitor can buy: never offer an inspection for one. The portal only knows sales its own agencies recorded, so a small result is not evidence the suburb is quiet, and you must say so rather than implying nothing sold.",
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        suburb: {
+          type: 'string',
+          description: 'REQUIRED. The suburb, as resolve_location returned it.',
+        },
+        state: {
+          type: 'string',
+          enum: [...AU_STATES],
+          description: 'State abbreviation, e.g. VIC or NSW. Disambiguates a repeated suburb name.',
+        },
+        postcode: { type: 'string', description: 'Four digits, e.g. 3810.' },
+        radiusKm: {
+          type: 'number',
+          description:
+            'Between 0.5 and 50. Only when the visitor asked to include the surrounding area. Omit it for the suburb itself.',
+        },
+        months: {
+          type: 'integer',
+          description:
+            'How far back to look, 1 to 120. Omitted means the last 24 months. Use this when the visitor names a period — "this year", "the last six months".',
+        },
+        bedrooms: { type: 'integer', description: 'Minimum bedrooms, 0 to 10.' },
+        propertyType: {
+          type: 'string',
+          description:
+            'Only when the visitor contrasted types (Unit, Apartment, Townhouse, Land vs House). Never for the everyday word "house".',
+        },
+      },
+      required: ['suburb'],
+    },
+  },
+  {
     name: 'get_listing',
     description:
       'Fetch one live listing in full by its id, including the price and the agency\'s own description. Use this whenever the visitor asks about a specific property — you cannot recall figures from earlier in the conversation and must not try.',
@@ -245,6 +284,7 @@ export type ToolName =
   | 'resolve_location'
   | 'search_listings'
   | 'cheapest_near'
+  | 'recent_sales'
   | 'get_listing'
   | 'draft_schedule'
   | 'cancel_schedule';
@@ -291,6 +331,11 @@ export async function dispatchTool(
         const parsed = cancelScheduleInput.safeParse(rawInput);
         if (!parsed.success) return invalid(name, parsed.error);
         return await runCancelSchedule(parsed.data, ctx);
+      }
+      case 'recent_sales': {
+        const parsed = recentSalesInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return await runRecentSales(parsed.data, ctx);
       }
       case 'get_listing': {
         const parsed = getListingInput.safeParse(rawInput);

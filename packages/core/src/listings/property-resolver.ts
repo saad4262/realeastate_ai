@@ -1,8 +1,8 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
-import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import { and, eq, sql } from 'drizzle-orm';
 import { property, type Db, type DbOrTx } from '@repo/db';
 import { geocodeAddress } from '../geo/places';
 import { ListingError, formatAddress, type PropertyDraft } from './listing-schema';
+import { addressKey } from './address-key';
 
 /** numeric columns take strings; passing a JS number loses precision at scale. */
 export function money(value: number | undefined): string | null {
@@ -103,33 +103,58 @@ export async function resolvePin(db: Db, p: PropertyDraft): Promise<ResolvedPin>
  *
  * Takes a transaction handle and does nothing but database work, so the caller
  * decides what is atomic with what. Reuse is the point (non-negotiable #1): a
- * house sold in 2019 and re-listed today is one property with two listings, and
- * the history is why the tables are separate. Matching is on the parts that
- * identify a dwelling — NULL never equals NULL in SQL, so each optional part
- * needs its own is-null branch.
+ * house sold in 2019 and re-listed today by a different agency is one property
+ * with two listings, and the history is why the tables are separate.
+ *
+ * ## Matching
+ *
+ * On `addressKey`, not the raw columns. The agency re-listing an address types
+ * it themselves, and "6E Henry St" against "6e Henry Street" used to create a
+ * second property — so the new listing showed none of the sale history and the
+ * old sale lived on as a different house. The candidates are every property in
+ * the same suburb, postcode and state (already a narrow set, and this runs once
+ * per save), and the key decides among them in one place that is unit-tested.
+ *
+ * ## Two agencies at once
+ *
+ * There is no unique index to lean on, so two saves for the same new address
+ * racing each other would both find nothing and both insert. A transaction-
+ * scoped advisory lock on the address key serialises exactly those two and
+ * nothing else; the second waits, then finds the first one's row. It releases
+ * itself at commit or rollback.
  */
 export async function upsertProperty(
   tx: DbOrTx,
   p: PropertyDraft,
   pin: ResolvedPin,
 ): Promise<string> {
-  const matches = (col: AnyPgColumn, value: string | undefined) =>
-    value === undefined || value === '' ? isNull(col) : eq(col, value);
+  const key = addressKey(p);
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
 
-  const [existing] = await tx
-    .select({ id: property.id, latitude: property.latitude })
+  const candidates = await tx
+    .select({
+      id: property.id,
+      latitude: property.latitude,
+      unit: property.unit,
+      streetNumber: property.streetNumber,
+      street: property.street,
+      suburb: property.suburb,
+      state: property.state,
+      postcode: property.postcode,
+    })
     .from(property)
     .where(
       and(
-        eq(sql`lower(${property.suburb})`, p.suburb.toLowerCase()),
+        eq(sql`lower(trim(${property.suburb}))`, p.suburb.trim().toLowerCase()),
         eq(property.postcode, p.postcode),
         eq(property.state, p.state),
-        matches(property.unit, p.unit),
-        matches(property.streetNumber, p.streetNumber),
-        matches(property.street, p.street),
       ),
     )
-    .limit(1);
+    // Oldest first, so if duplicates already exist from before this matching,
+    // every new listing joins the one with the longest history.
+    .orderBy(property.createdAt);
+
+  const existing = candidates.find((c) => addressKey(c) === key);
 
   if (existing) {
     // A pin the caller is carrying always wins: it is either the one the

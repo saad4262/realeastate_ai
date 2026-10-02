@@ -2,8 +2,9 @@
 
 import { memo } from 'react';
 import Link from 'next/link';
-import type { ResultsEvent } from '@repo/ai/chat-events';
+import type { ResultsEvent, SalesEvent } from '@repo/ai/chat-events';
 import { ListingCard } from '../../components/listing-card';
+import { SoldListingCard } from '../../components/sold-card';
 import { ResultsMap } from '../../components/results-map';
 import styles from './chat.module.css';
 
@@ -18,6 +19,70 @@ import styles from './chat.module.css';
  * Pins come from the same rows (`latitude` / `longitude`). The model never
  * sees coordinates; the map does not need it to.
  */
+
+/**
+ * What has sold, as its own labelled block.
+ *
+ * Deliberately NOT a ListingCard. A sale cannot be enquired about, inspected or
+ * bought, and rendering it through the same card would invite the exact
+ * confusion the prompt spends three rules preventing — starting with a visitor
+ * clicking "Enquire" on a house somebody else already owns.
+ *
+ * Every figure here is a string the server formatted from SQL. Nothing on this
+ * panel is ever a number the model produced (#4).
+ */
+function SoldList({ sales }: { sales: SalesEvent }) {
+  if (sales.sales.length === 0) return null;
+
+  /**
+   * Sales go on a map for the same reason live results do: "within 30 km" is a
+   * claim about geography, and a list of addresses does not show it. Built from
+   * the same pin shape, so the one ResultsMap draws both.
+   */
+  const pins = sales.sales
+    .filter((s) => s.latitude !== null && s.longitude !== null)
+    .map((s) => ({
+      id: s.listingId,
+      lat: s.latitude as number,
+      lng: s.longitude as number,
+      label: `${s.price} · ${s.address}`,
+      // A pin only links where the page exists, exactly as the card does.
+      href: s.historyPath ?? undefined,
+    }));
+  const unpinned = sales.sales.length - pins.length;
+
+  return (
+    <div className={styles.soldBlock}>
+      <div className={styles.soldHead}>
+        <h3 className={styles.soldTitle}>Recently sold</h3>
+        <span className={styles.soldScope}>
+          {sales.searched} · last {sales.months} months
+        </span>
+      </div>
+
+      {pins.length > 0 ? (
+        <ResultsMap pins={pins} unpinned={unpinned} defaultOpen height={200} />
+      ) : null}
+
+      {sales.sales.map((sale) => (
+        <div key={sale.listingId} className={styles.listingWrap}>
+          <SoldListingCard sale={sale} variant="compact" />
+        </div>
+      ))}
+
+      {/*
+        The same affordance a live search gets. The guide is forbidden from
+        writing links out, so this is the only way a visitor reaches the full
+        list — and its absence is what made the guide read out addresses
+        instead.
+      */}
+      <Link href={sales.searchPath} className={styles.soldAll} prefetch={false}>
+        View all {sales.total} sold
+        <span aria-hidden>↗</span>
+      </Link>
+    </div>
+  );
+}
 
 /** The filters, from the query the SERVER ran — not from what the model asked for. */
 function filterChips(results: ResultsEvent): string[] {
@@ -54,12 +119,22 @@ function ResultsPanelImpl({
   results,
   hidden,
   embedded,
+  sales,
 }: {
   results: ResultsEvent | null;
   /** Legacy mobile hide — prefer the sidebar's own mobile class when embedded. */
   hidden?: boolean;
   /** Nested under the search brief in the redesigned sidebar. */
   embedded?: boolean;
+  /**
+   * Completed sales, when the guide looked them up.
+   *
+   * Rendered below the matches and labelled apart from them, because a sale is
+   * not something the visitor can buy. It was the absence of this that made the
+   * guide point at an empty panel: `recent_sales` had nowhere to put what it
+   * found, so the answer described results nobody could see.
+   */
+  sales?: SalesEvent | null;
 }) {
   const chips = results ? filterChips(results) : [];
   const listings = results?.listings ?? [];
@@ -104,11 +179,18 @@ function ResultsPanelImpl({
       ) : null}
 
       <div className={styles.panelBody}>
-        {!results ? (
+        {/*
+          Sales first when there are no live matches, because then they are the
+          whole answer — and after the matches when both exist, because a home
+          somebody can actually buy is the more useful of the two.
+        */}
+        {sales && listings.length === 0 ? <SoldList sales={sales} /> : null}
+
+        {!results && !sales ? (
           <p className={styles.panelEmpty}>
             Matching homes will land here once we run a search.
           </p>
-        ) : listings.length === 0 ? (
+        ) : !results ? null : listings.length === 0 ? (
           <p className={styles.panelEmpty}>
             {results.matched === 0
               ? 'Nothing live matches that yet.'
@@ -126,6 +208,8 @@ function ResultsPanelImpl({
                 />
               </div>
             ))}
+            {/* And the sales under them, when the guide looked up both. */}
+            {sales ? <SoldList sales={sales} /> : null}
           </>
         )}
       </div>

@@ -59,6 +59,8 @@ function ctx(rows: PublicListing[], over: Partial<ToolContext> = {}) {
     // the honest default: no session, so the scheduling tools refuse.
     scheduling: { state: 'signed_out' },
     resolvePlace: vi.fn(async () => PAKENHAM),
+    // No sales unless a test says so — an empty market, not a missing tool.
+    recentSales: vi.fn(async () => ({ rows: [], total: 0 })),
     nearbyMarket: vi.fn(async () => ({ listings: [], bySuburb: [], unpriced: 0 })),
     search: vi.fn(async (q: PublicSearchQuery) => {
       searched.push(q);

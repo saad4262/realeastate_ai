@@ -41,7 +41,16 @@ const AUD = new Intl.NumberFormat('en-AU', {
   currency: 'AUD',
   maximumFractionDigits: 0,
 });
-const DATE = new Intl.DateTimeFormat('en-AU', { month: 'short', year: 'numeric' });
+/**
+ * The full day, not just the month.
+ *
+ * This was month-and-year, which was right for a four-column table where the
+ * year also sat in its own cell. In the timeline the year is already in the
+ * margin, so "Sold Jun 2026" repeated it and dropped the one part a reader
+ * actually wants — the exact date a sale settled, which is what makes two
+ * sales at the same address comparable.
+ */
+const DATE = new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
 
 /* ------------------------------------------------------------------ shell -- */
 
@@ -258,19 +267,27 @@ export function Inspections({ inspections }: { inspections: PublicInspection[] }
 /**
  * The entries worth showing.
  *
- * One entry that IS this listing tells the reader nothing they cannot already
- * see above it, so it is dropped — and then there is nothing left to draw.
+ * One entry that IS the listing being viewed tells the reader nothing they
+ * cannot already see above it, so it is dropped — and then there is nothing
+ * left to draw.
  *
- * Exported because the page's in-page tab bar has to make the same decision.
+ * `currentListingId` is optional because the off-market property page has no
+ * current listing: nothing there is on the market, so every entry is history
+ * and all of them are worth showing. Passing nothing keeps the whole list,
+ * which is why the filter is written as a comparison against `undefined`
+ * rather than a truthiness test.
+ *
+ * Exported because the listing page's tab bar had to make the same decision.
  * It did not: the tab was built from `timeline.length` while the section was
- * built from this filter, so a property whose only history is its own live
+ * built from this filter, so a property whose only history was its own live
  * listing rendered a "History" tab that scrolled to nothing. Two places
  * deciding one thing is how that happens; this is the one place.
  */
 export function usefulTimeline(
   entries: PublicTimelineEntry[],
-  currentListingId: string,
+  currentListingId?: string,
 ): PublicTimelineEntry[] {
+  if (currentListingId === undefined) return entries;
   return entries.filter((e) => e.listingId !== currentListingId || entries.length > 1);
 }
 
@@ -279,7 +296,8 @@ export function Timeline({
   currentListingId,
 }: {
   entries: PublicTimelineEntry[];
-  currentListingId: string;
+  /** Omitted on the off-market page, where there is no listing being viewed. */
+  currentListingId?: string;
 }) {
   const useful = usefulTimeline(entries, currentListingId);
   if (useful.length === 0) return null;
@@ -288,48 +306,102 @@ export function Timeline({
     <Card
       id="history"
       eyebrow="Property telemetry"
-      title="Transaction timeline"
+      title="Property history"
       note="Taken from the listings written against this address. Nothing here is estimated."
     >
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-left">
-          <thead>
-            <tr className="border-b border-line">
-              {['Date', 'Event', 'Price', 'Agency'].map((h) => (
-                <th key={h} scope="col" className="py-sm pr-md text-label-sm uppercase text-ink-faint">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {useful.map((e) => {
-              const when = e.soldDate ?? e.publishedAt;
-              const isThis = e.listingId === currentListingId;
-              return (
-                <tr key={e.listingId} className="border-b border-line-subtle last:border-0">
-                  <td className="py-sm pr-md text-body-sm tabular-nums text-ink-soft">
-                    {when ? DATE.format(when) : '—'}
-                  </td>
-                  <td className="py-sm pr-md">
-                    {e.status === 'sold' ? (
+      {/*
+        A vertical timeline, not the table this used to be.
+
+        Four columns of Date · Event · Price · Agency was tabular and honest,
+        but it buried the one figure a reader came for — the sale price — in a
+        third column at body size. The price is the heading of each entry now,
+        with the year in the margin and a rule connecting them, which is how
+        every portal that shows this data presents it and is genuinely easier
+        to scan.
+
+        Still a real list: `<ol>` because these are ordered events, newest
+        first, and a screen reader should say so.
+      */}
+      <ol className="grid gap-0">
+        {useful.map((e, i) => {
+          const when = e.soldDate ?? e.publishedAt;
+          const isThis = e.listingId === currentListingId;
+          const isSold = e.status === 'sold';
+          const last = i === useful.length - 1;
+          const thumb = mediaUrl(e.mainPhotoKey);
+
+          return (
+            <li key={e.listingId} className="grid grid-cols-[3.5rem_1fr] gap-x-sm">
+              {/* The year, and the dot-and-rule that makes it a timeline. */}
+              <div className="grid grid-cols-[1fr_auto] items-start gap-x-2 pt-1">
+                <span className="text-body-sm tabular-nums text-ink-soft">
+                  {when ? when.getFullYear() : '—'}
+                </span>
+                <span className="grid justify-items-center self-stretch">
+                  <span
+                    aria-hidden
+                    className={`mt-1.5 size-2 rounded-full ${isSold ? 'bg-brand' : 'bg-line'}`}
+                  />
+                  {/* No rule under the last entry, or the list trails into nothing. */}
+                  {last ? null : <span aria-hidden className="w-px flex-1 bg-line-subtle" style={{ minHeight: '100%' }} />}
+                </span>
+              </div>
+
+              <div className={`flex flex-wrap items-start justify-between gap-sm ${last ? 'pb-0' : 'pb-lg'}`}>
+                <div className="grid gap-1">
+                  <div className="flex flex-wrap items-center gap-sm">
+                    {isSold ? (
                       <Chip tone="success">Sold</Chip>
                     ) : isThis ? (
                       <Chip tone="brand">This listing</Chip>
                     ) : (
                       <Chip>Listed</Chip>
                     )}
-                  </td>
-                  <td className="py-sm pr-md text-data text-ink">
-                    {e.soldPrice !== null ? AUD.format(e.soldPrice) : (e.priceDisplay ?? '—')}
-                  </td>
-                  <td className="py-sm text-body-sm text-ink-soft">{e.agencyName}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                    {/*
+                      The figure, at heading size, because it is what the entry
+                      is about. `sold_price` as the agency entered it, or the
+                      display copy when there is no sale — never both, and never
+                      computed from anything (#4).
+                    */}
+                    <span className="text-headline-sm font-display text-ink">
+                      {e.soldPrice !== null ? AUD.format(e.soldPrice) : (e.priceDisplay ?? '—')}
+                    </span>
+                  </div>
+                  <p className="text-body-sm text-ink-soft">
+                    {isSold ? 'Sold' : 'Listed'}
+                    {when ? ` ${DATE.format(when)}` : ''} by {e.agencyName}
+                  </p>
+                </div>
+
+                {/*
+                  The campaign's cover photo and how many it had.
+
+                  Both come from the one timeline query, sub-selected — a
+                  thumbnail per entry fetched separately would be the N+1 that
+                  query-count.test.ts refuses. A campaign with no photos simply
+                  renders no frame rather than an empty grey box.
+                */}
+                {thumb ? (
+                  <div className="flex items-center gap-sm">
+                    <img
+                      src={thumb}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      className="h-14 w-20 rounded-md object-cover"
+                    />
+                    {e.photoCount > 0 ? (
+                      <span className="text-body-sm tabular-nums text-ink-faint">
+                        {e.photoCount} photo{e.photoCount === 1 ? '' : 's'}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
     </Card>
   );
 }
@@ -352,21 +424,27 @@ export function Timeline({
 export function AgentPanel({
   agents,
   agencyName,
+  sold = false,
 }: {
   agents: PublicAgentCard[];
   agencyName: string;
+  /** On a sold property's page: the agency that sold it, and no enquiry form. */
+  sold?: boolean;
 }) {
   return (
     <div className="rounded-xl border border-line-subtle bg-card p-lg shadow-card">
       <div className="border-b border-line-subtle pb-md">
-        <div className="text-label-sm uppercase tracking-wide text-ink-faint">Listing agency</div>
+        <div className="text-label-sm uppercase tracking-wide text-ink-faint">
+          {sold ? 'Sold by' : 'Listing agency'}
+        </div>
         <div className="mt-0.5 font-display text-headline-md text-ink">{agencyName}</div>
       </div>
 
       {agents.length === 0 ? (
         <p className="pt-md text-body-sm text-ink-soft">
-          Contact details for this listing are not published. Use the enquiry
-          form below.
+          {sold
+            ? 'Contact details for this agency are not published. Use the offer form below.'
+            : 'Contact details for this listing are not published. Use the enquiry form below.'}
         </p>
       ) : (
         <ul className="m-0 grid list-none gap-md p-0 pt-md">

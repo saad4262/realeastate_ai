@@ -9,6 +9,7 @@ import {
   updateListing,
   type ListingErrorCode,
   type ListingStatus,
+  type SettableStatus,
 } from '@repo/core/listings';
 import {
   resolvePlace,
@@ -69,27 +70,41 @@ export type SetStatusActionResult =
   | { ok: true; status: ListingStatus }
   | { ok: false; error: string; code: ListingErrorCode };
 
-/** Publish or withdraw. Separate from creation — non-negotiable #7. */
+/**
+ * Publish, withdraw, or record a sale. Separate from creation — non-negotiable #7.
+ *
+ * `sold` is the one transition that carries data with it, and the only way a
+ * sale price is ever written. The figures are passed straight through as
+ * `unknown`: `soldDetailsSchema` in packages/core is what validates them, so
+ * this layer has no second copy of the rules to disagree with.
+ */
 export async function setListingStatusAction(
   listingId: string,
-  next: 'draft' | 'live' | 'under_offer' | 'withdrawn',
+  next: SettableStatus,
+  sold?: unknown,
 ): Promise<SetStatusActionResult> {
   const userId = await requireActionUserId();
 
   try {
-    // loadListingActor, not loadActor: listing:publish consults listing_agent
-    // for anyone who is not an agency admin.
+    // loadListingActor, not loadActor: listing:publish and listing:sell both
+    // consult listing_agent for anyone who is not an agency admin.
     const actor = await loadListingActor(userId);
     if (!actor) {
       return { ok: false, error: 'Database is not configured.', code: 'unknown' };
     }
 
-    const result = await setListingStatus(getConsoleDb(), actor, listingId, next);
+    const result = await setListingStatus(getConsoleDb(), actor, listingId, next, sold);
 
     revalidatePath('/live-listings');
     revalidatePath('/listings');
-    // Publishing and withdrawing are exactly the moments the public site is
-    // wrong until it is told.
+    /**
+     * Publishing, withdrawing and selling are exactly the moments the public
+     * site is wrong until it is told.
+     *
+     * A sale matters most: it is the transition that makes /listing/<id> start
+     * 404ing and /property/<propertyId> start existing. Both hang off the global
+     * listings tag, which this always clears, so one call covers it.
+     */
     await revalidateWeb(listingId);
 
     return { ok: true, status: result.status };

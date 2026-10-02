@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { PublicSearchQuery } from '@repo/core/listings';
 import { searchQueryToPath } from '@repo/core/listings';
 import { getModel } from '../models';
-import { catalogueBlock, PROMPT_VERSION, PROPERTY_CHAT_V8 } from '../prompts/v8';
+import { catalogueBlock, PROMPT_VERSION, PROPERTY_CHAT_V10 } from '../prompts/v10';
 import { slotsToQuery } from '../schemas/chat-request';
 import type { ChatEvent } from '../schemas/chat-events';
 import { MAX_HISTORY_CHARS, toClientSlots, type ChatRequest, type ChatTurn } from '../schemas/chat-request';
@@ -205,7 +205,7 @@ export async function* runPropertyChat(
   });
 
   const system: Anthropic.TextBlockParam[] = [
-    { type: 'text', text: PROPERTY_CHAT_V8, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: PROPERTY_CHAT_V10, cache_control: { type: 'ephemeral' } },
     {
       type: 'text',
       text: catalogueBlock(catalogue.suburbs, catalogue.propertyTypes),
@@ -377,6 +377,12 @@ export async function* runPropertyChat(
 
         if (outcome.resultsFrame) {
           yield { type: 'results', toolUseId: use.id, ...outcome.resultsFrame };
+        }
+
+        // Sales go to the panel too, as their own frame — see SalesEvent for
+        // why they are not rendered through the listing cards.
+        if (outcome.salesFrame) {
+          yield { type: 'sales', toolUseId: use.id, ...outcome.salesFrame };
         }
       }
 

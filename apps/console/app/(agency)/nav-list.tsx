@@ -48,7 +48,7 @@ function isNavActive(pathname: string, href: string) {
  * the skeleton immediately and the page arrives behind it, and Link skips
  * prefetching entirely on a slow connection or with Save-Data set.
  */
-export function NavList() {
+export function NavList({ newOffers = 0 }: { newOffers?: number }) {
   const pathname = usePathname();
 
   return (
@@ -69,6 +69,18 @@ export function NavList() {
               {item.icon}
             </span>
             <span>{item.label}</span>
+            {/*
+              Unactioned private offers, counted by SQL and already zeroed by
+              can() for anyone who may not read one — see load-actor.ts. This is
+              the only signal an agency gets without opening the screen, and it
+              is why offers were allowed to share the Leads inbox rather than
+              needing their own: rare, high-value rows get buried in a
+              date-sorted list, and email is currently the only other way one is
+              noticed.
+            */}
+            {item.href === '/leads' && newOffers > 0 ? (
+              <span className={`${styles.navBadge} ${styles.navBadgeBlue}`}>{newOffers}</span>
+            ) : null}
             {item.badge ? (
               <span
                 className={`${styles.navBadge} ${

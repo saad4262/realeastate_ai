@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import {
   addressLines,
   channelLabel,
@@ -15,14 +15,14 @@ import { ListingMap } from '../../../components/listing-map';
 import { EnquiryForm } from '../../../components/enquiry-form';
 import {
   AgentPanel,
+  Timeline,
+  usefulTimeline,
   Card,
   Chip,
   DueDiligence,
   Inspections,
   NotConnected,
   SpecBar,
-  Timeline,
-  usefulTimeline,
   type SpecTile,
 } from '../../../components/listing-sections';
 import { Icon } from '../../../components/icons';
@@ -32,6 +32,7 @@ import {
   cachedAgentCards,
   cachedInspections,
   cachedListing,
+  cachedFormerListingDestination,
   cachedListingPhotos,
   cachedTimeline,
 } from '../../../lib/cached';
@@ -102,28 +103,43 @@ export async function generateMetadata({
 export default async function ListingPage({ params }: { params: Promise<{ id: string }> }) {
   const listing = await load((await params).id);
 
-  // getPublicListing only returns live listings, so a draft or a withdrawn one
-  // is a 404 here rather than a partially rendered page.
-  if (!listing) notFound();
+  // getPublicListing only returns live listings. An ad that WAS public — sold,
+  // under offer, withdrawn — sends an old bookmark on to wherever the address
+  // lives now: its new listing, or its history page. A draft or a bad id is
+  // still a 404, so a guessed id confirms nothing.
+  if (!listing) {
+    const destination = await cachedFormerListingDestination((await params).id);
+    if (destination) redirect(destination);
+    notFound();
+  }
 
   /**
    * Five reads, started together.
    *
-   * Sequential awaits would make this page four round trips to a database a
+   * Sequential awaits would make this page several round trips to a database a
    * region away instead of one. The listing itself has to resolve first —
-   * nothing else can be asked for without its id and property id — but the
-   * other three have no dependency on each other.
+   * nothing else can be asked for without its id — but the rest have no
+   * dependency on each other.
+   *
+   * The property's history is among them again. It was left out while the
+   * rule was "hide what a house last sold for while it is on the market"
+   * (ADR 0012); the client asked for the portal-standard behaviour instead —
+   * a re-listed house shows every earlier sale, by whichever agency made it —
+   * which is ADR 0013. Keyed by the PROPERTY, so a listing written by a new
+   * agency shows the sales other agencies recorded at the same address.
    */
-  const [inspections, timeline, agents, photos, signedIn] = await Promise.all([
+  const [inspections, agents, photos, signedIn, timeline] = await Promise.all([
     cachedInspections(listing.id),
-    cachedTimeline(listing.propertyId),
     cachedAgentCards(listing.id),
     cachedListingPhotos(listing.id),
     // A cookie sniff, not a session: this route is outside the middleware
     // matcher. It reads no network and only decides which header link to
     // draw — see looksSignedIn().
     looksSignedIn(),
+    cachedTimeline(listing.propertyId),
   ]);
+  // The same filter the section uses, so the tab never scrolls to nothing.
+  const hasHistory = usefulTimeline(timeline, listing.id).length > 0;
 
   const { street, locality } = addressLines(listing);
 
@@ -173,7 +189,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
     { href: '#overview', label: 'Overview' },
     inspections.length ? { href: '#inspections', label: 'Inspection times' } : null,
     listing.description || listing.headline ? { href: '#about', label: 'About' } : null,
-    usefulTimeline(timeline, listing.id).length ? { href: '#history', label: 'History' } : null,
+    hasHistory ? { href: '#history', label: 'Property history' } : null,
     hasMap ? { href: '#map', label: 'Location' } : null,
     { href: '#enquire', label: 'Contact agent' },
   ].filter((t): t is { href: string; label: string } => t !== null);
@@ -419,6 +435,8 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
                 </Card>
               ) : null}
 
+              {/* Earlier sales at this address, by any agency. Drops itself when
+                  the only entry is this listing. */}
               <Timeline entries={timeline} currentListingId={listing.id} />
 
               {hasMap ? (

@@ -23,8 +23,38 @@ export type Action =
   | 'listing:create'
   | 'listing:edit'
   | 'listing:publish'
+  /**
+   * Record a sale: the status, the price it went for, the date.
+   *
+   * Same rule as publish today, and separate from it on purpose. A published ad
+   * can be withdrawn; a sale price becomes a permanent line in the public
+   * history of an address, and `UNDELETABLE` then refuses to delete the listing
+   * carrying it. Tightening one should not mean tightening the other.
+   */
+  | 'listing:sell'
   /** Remove a listing outright. Narrower than edit — admins only. */
   | 'listing:delete'
+  /**
+   * Open the agency's lead inbox at all.
+   *
+   * Any active member. An enquiry is ordinary business: somebody asked about a
+   * listing and whoever is working that campaign has to answer it, so gating
+   * this on admin would leave the agent desk with an inbox it cannot open.
+   */
+  | 'lead:read'
+  /**
+   * Read a PRIVATE OFFER specifically. Narrower, and separate on purpose.
+   *
+   * An offer is a named person's financial intent about somebody's home, with
+   * their contact details attached, on a property the agency no longer markets.
+   * It is the most commercially sensitive row this system holds, and
+   * `agencyNotificationRecipients` already decided who hears about one: the
+   * owners and admins who run the agency, not everyone who has a login there.
+   * This is the same decision, asked on the way in rather than on the way out —
+   * and it is a separate ACTION rather than a role check inside the query,
+   * because non-negotiable #2 says the decision lives here or nowhere.
+   */
+  | 'lead:read_offer'
   | 'team:manage'
   | 'agency:billing'
   /** Agency OS host — owner|admin only */
@@ -43,7 +73,7 @@ export type Action =
   | 'chat:write';
 
 export type Resource = {
-  type: 'listing' | 'team' | 'agency' | 'console' | 'schedule' | 'chat' | string;
+  type: 'listing' | 'lead' | 'team' | 'agency' | 'console' | 'schedule' | 'chat' | string;
   id?: string;
   agencyId?: string;
   /**
@@ -113,9 +143,19 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
 
     case 'listing:edit':
     case 'listing:publish':
+    // Grouped with publish because the rule is the same, not because the
+    // decision is. See the Action union for why it is its own member.
+    case 'listing:sell':
       if (!sameAgency(actor, resource)) return false;
       if (isAgencyAdmin(actor)) return true;
       return isListingAgent(actor, resource.id);
+
+    case 'lead:read':
+      // Any active membership. `sameAgency` is what stops it crossing tenancy.
+      return sameAgency(actor, resource) && Boolean(actor.membershipRole);
+
+    case 'lead:read_offer':
+      return sameAgency(actor, resource) && isAgencyAdmin(actor);
 
     case 'listing:delete':
       // Deliberately narrower than edit. A deleted listing takes its enquiries,

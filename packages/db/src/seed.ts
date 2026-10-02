@@ -125,7 +125,11 @@ async function main() {
         propertyId: prop.id,
         agencyId: org.id,
         officeId: firstOffice?.id ?? null,
-        channel: 'sold',
+        // channel is what the ad was selling; status is where it ended up.
+        // See docs/adr/0012 — the 'sold' channel value is legacy and nothing
+        // new writes it, or a listing reads as sold on one axis and for sale
+        // on the other.
+        channel: 'sale',
         status: 'sold',
         priceFrom: '1200000',
         priceTo: '1200000',

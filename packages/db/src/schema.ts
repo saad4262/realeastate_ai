@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { desc, sql } from 'drizzle-orm';
 import {
   boolean,
   index,
@@ -63,7 +63,16 @@ export const mediaKindEnum = pgEnum('media_kind', ['photo', 'floorplan', 'video'
 
 export const inspectionKindEnum = pgEnum('inspection_kind', ['open', 'private', 'auction']);
 
-export const leadKindEnum = pgEnum('lead_kind', ['enquiry', 'inspection', 'appraisal']);
+/**
+ * `offer` is a private offer on a property that is not on the market — it
+ * arrives with an amount and no listing. See docs/adr/0012.
+ */
+export const leadKindEnum = pgEnum('lead_kind', [
+  'enquiry',
+  'inspection',
+  'appraisal',
+  'offer',
+]);
 
 export const leadStatusEnum = pgEnum('lead_status', [
   'new',
@@ -325,34 +334,46 @@ export const placeCache = pgTable(
 );
 
 /** Ad over a property — no agent_id column; use listing_agent. */
-export const listing = pgTable('listing', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  propertyId: uuid('property_id')
-    .notNull()
-    .references(() => property.id, { onDelete: 'restrict' }),
-  agencyId: uuid('agency_id')
-    .notNull()
-    .references(() => agency.id, { onDelete: 'restrict' }),
-  officeId: uuid('office_id').references(() => office.id, { onDelete: 'set null' }),
-  teamId: uuid('team_id').references(() => team.id, { onDelete: 'set null' }),
-  channel: listingChannelEnum('channel').notNull(),
-  status: listingStatusEnum('status').notNull().default('draft'),
-  priceFrom: numeric('price_from', { precision: 14, scale: 2 }),
-  priceTo: numeric('price_to', { precision: 14, scale: 2 }),
-  priceDisplay: text('price_display'),
-  rentPw: numeric('rent_pw', { precision: 12, scale: 2 }),
-  availableFrom: timestamp('available_from', { withTimezone: true }),
-  headline: text('headline'),
-  description: text('description'),
-  soldPrice: numeric('sold_price', { precision: 14, scale: 2 }),
-  soldDate: timestamp('sold_date', { withTimezone: true }),
-  auctionDate: timestamp('auction_date', { withTimezone: true }),
-  publishedAt: timestamp('published_at', { withTimezone: true }),
-  expiresAt: timestamp('expires_at', { withTimezone: true }),
-  source: listingSourceEnum('source').notNull().default('portal'),
-  externalRef: varchar('external_ref', { length: 128 }),
-  ...timestamps,
-});
+export const listing = pgTable(
+  'listing',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => property.id, { onDelete: 'restrict' }),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'restrict' }),
+    officeId: uuid('office_id').references(() => office.id, { onDelete: 'set null' }),
+    teamId: uuid('team_id').references(() => team.id, { onDelete: 'set null' }),
+    channel: listingChannelEnum('channel').notNull(),
+    status: listingStatusEnum('status').notNull().default('draft'),
+    priceFrom: numeric('price_from', { precision: 14, scale: 2 }),
+    priceTo: numeric('price_to', { precision: 14, scale: 2 }),
+    priceDisplay: text('price_display'),
+    rentPw: numeric('rent_pw', { precision: 12, scale: 2 }),
+    availableFrom: timestamp('available_from', { withTimezone: true }),
+    headline: text('headline'),
+    description: text('description'),
+    soldPrice: numeric('sold_price', { precision: 14, scale: 2 }),
+    soldDate: timestamp('sold_date', { withTimezone: true }),
+    auctionDate: timestamp('auction_date', { withTimezone: true }),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    source: listingSourceEnum('source').notNull().default('portal'),
+    externalRef: varchar('external_ref', { length: 128 }),
+    ...timestamps,
+  },
+  (t) => [
+    /**
+     * Postgres does not index a foreign key column, and every read that asks
+     * "what has happened at this address" filters on this one — the public
+     * timeline on each listing page, and both halves of the off-market gate.
+     * It was a sequential scan of the whole table each time.
+     */
+    index('listing_property_idx').on(t.propertyId),
+  ],
+);
 
 export const listingAgent = pgTable(
   'listing_agent',
@@ -401,27 +422,62 @@ export const inspection = pgTable('inspection', {
   ...timestamps,
 });
 
-export const lead = pgTable('lead', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  listingId: uuid('listing_id')
-    .notNull()
-    .references(() => listing.id, { onDelete: 'cascade' }),
-  agencyId: uuid('agency_id')
-    .notNull()
-    .references(() => agency.id, { onDelete: 'cascade' }),
-  userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
-  name: text('name').notNull(),
-  email: text('email').notNull(),
-  phone: text('phone'),
-  message: text('message'),
-  kind: leadKindEnum('kind').notNull().default('enquiry'),
-  status: leadStatusEnum('status').notNull().default('new'),
-  assignedTo: uuid('assigned_to').references(() => user.id, { onDelete: 'set null' }),
-  aiSummary: text('ai_summary'),
-  aiIntent: text('ai_intent'),
-  aiQualification: jsonb('ai_qualification'),
-  ...timestamps,
-});
+/**
+ * Somebody wanting to talk to an agency about an address.
+ *
+ * Anchored to the PROPERTY, not to the ad. An enquiry arrives through a live
+ * listing and a private offer arrives with no listing at all — the address is
+ * the only thing both have — so `property_id` is the required key and
+ * `listing_id` records which ad brought it in, if an ad did. See docs/adr/0012.
+ *
+ * `property_id` is `restrict` while `agency_id` is `cascade`, and the asymmetry
+ * is deliberate: deleting an agency is a decision about that agency's own data,
+ * but a property outlives every ad written against it (#1) and so does a third
+ * party's offer on it. `listing_id` stays `cascade` — losing "which ad" when the
+ * ad is deleted is correct, and it is why an offer must never hang off one.
+ */
+export const lead = pgTable(
+  'lead',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => property.id, { onDelete: 'restrict' }),
+    /** Null for an approach that came through no advertisement. */
+    listingId: uuid('listing_id').references(() => listing.id, { onDelete: 'cascade' }),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
+    name: text('name').notNull(),
+    email: text('email').notNull(),
+    phone: text('phone'),
+    message: text('message'),
+    kind: leadKindEnum('kind').notNull().default('enquiry'),
+    status: leadStatusEnum('status').notNull().default('new'),
+    /**
+     * What the visitor offered, on a lead that is an offer.
+     *
+     * Their own figure, stored as they typed it — never computed, estimated or
+     * compared to anything (#4). Null on every other kind of lead; the rule that
+     * an offer carries one lives in createPrivateOffer, not in a CHECK, because
+     * a constraint naming 'offer' cannot be added in the same migration that
+     * adds the enum value.
+     */
+    offerAmount: numeric('offer_amount', { precision: 14, scale: 2 }),
+    assignedTo: uuid('assigned_to').references(() => user.id, { onDelete: 'set null' }),
+    aiSummary: text('ai_summary'),
+    aiIntent: text('ai_intent'),
+    aiQualification: jsonb('ai_qualification'),
+    ...timestamps,
+  },
+  (t) => [
+    /** The agency inbox: their leads, newest first. There was no index at all. */
+    index('lead_agency_created_idx').on(t.agencyId, desc(t.createdAt)),
+    /** Every approach ever made about one address, which is the point of #1. */
+    index('lead_property_idx').on(t.propertyId),
+  ],
+);
 
 /**
  * `interval` is a different kind of thing from the other two, and the
@@ -693,6 +749,12 @@ export const chatMessage = pgTable(
     searches: jsonb('searches'),
     /** DISPLAY ONLY. Never sent to the model. See the note above. */
     resultsFrame: jsonb('results_frame'),
+    /**
+     * DISPLAY ONLY, like `resultsFrame`: the `recent_sales` frame, so a
+     * reopened thread redraws its sold cards, map and "View all sold" link
+     * instead of an empty panel under an answer that points at it.
+     */
+    salesFrame: jsonb('sales_frame'),
     /** The `/search?…` this turn produced, if any. */
     deepLink: text('deep_link'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -764,3 +826,4 @@ export type ScheduleRun = typeof scheduleRun.$inferSelect;
 export type ChatThread = typeof chatThread.$inferSelect;
 export type ChatMessage = typeof chatMessage.$inferSelect;
 export type AgentInvite = typeof agentInvite.$inferSelect;
+export type Lead = typeof lead.$inferSelect;

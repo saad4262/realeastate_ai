@@ -9,7 +9,13 @@ import {
 } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { ChatEvent, ChatSuggestion, ResultsEvent, StateEvent } from '@repo/ai/chat-events';
+import type {
+  ChatEvent,
+  ChatSuggestion,
+  ResultsEvent,
+  SalesEvent,
+  StateEvent,
+} from '@repo/ai/chat-events';
 import { readChatStream } from './chat-stream';
 import { ResultsPanel } from './results-panel';
 import { DeliveredRun } from './delivered-run';
@@ -40,6 +46,8 @@ type Turn = {
   searches?: { query: unknown; matched: number; shown: number }[];
   /** Kept client-side only, to redraw the chips under an answer. */
   results?: ResultsEvent;
+  /** The turn's `recent_sales` frame, for its chips and "View all sold" link. */
+  sales?: SalesEvent;
   /**
    * The server's offer of a next step. Never the model's.
    *
@@ -275,6 +283,17 @@ function turnLink(turn: Turn): { href: string; label: string; aria: string } | n
     };
   }
 
+  // A sold-homes answer gets its own way out. Without it the guide said "see
+  // the panel" and the turn itself offered nothing to click.
+  const sales = turn.sales;
+  if (sales && sales.total > 0) {
+    return {
+      href: sales.searchPath,
+      label: `View all ${sales.total} sold`,
+      aria: `View all ${sales.total} recently sold properties — opens in a new tab`,
+    };
+  }
+
   const fallback = turn.stateLink;
   if (!fallback || fallback === results?.deepLink) return null;
   return {
@@ -315,6 +334,7 @@ export function ChatView({
   initialThreadId = null,
   initialSlots = null,
   initialResults = null,
+  initialSales = null,
   initialTurns = [],
   threads = [],
   initialAsk = null,
@@ -331,6 +351,8 @@ export function ChatView({
   initialSlots?: Slots | null;
   /** Last results frame, so the sidebar comes back with the transcript. */
   initialResults?: ResultsEvent | null;
+  /** Last sales frame, so a reopened sold-homes answer keeps its panel and map. */
+  initialSales?: SalesEvent | null;
   /** Its turns, already in the shape this component stores them. */
   initialTurns?: Turn[];
   /**
@@ -364,6 +386,14 @@ export function ChatView({
   const [error, setError] = useState<string | null>(null);
   const [slots, setSlots] = useState<Slots | null>(initialSlots);
   const [results, setResults] = useState<ResultsEvent | null>(initialResults);
+  /**
+   * The last `recent_sales` frame, for the panel.
+   *
+   * Kept beside `results` rather than inside it: a sale is not a listing, and
+   * folding the two would mean the panel could not tell them apart — which is
+   * the distinction the whole of `SoldList` exists to draw.
+   */
+  const [sales, setSales] = useState<SalesEvent | null>(initialSales);
   const [tab, setTab] = useState<'chat' | 'results'>('chat');
   /**
    * The conversations drawer, on a phone.
@@ -568,6 +598,18 @@ export function ChatView({
                     ],
                   };
                 }
+                return next;
+              });
+              break;
+
+            case 'sales':
+              // Replaces rather than accumulates: the visitor is looking at the
+              // area they just asked about, not the one before it.
+              setSales(event);
+              setTurns((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last) next[next.length - 1] = { ...last, sales: event };
                 return next;
               });
               break;
@@ -779,6 +821,7 @@ export function ChatView({
   */
   const shownSlots = openingView ? null : slots;
   const shownResults = openingView ? null : results;
+  const shownSales = openingView ? null : sales;
 
   const liveTitle =
     activeTitle ??
@@ -843,7 +886,7 @@ export function ChatView({
         */}
       </div>
 
-      <ResultsPanel results={shownResults} embedded />
+      <ResultsPanel results={shownResults} sales={shownSales} embedded />
     </aside>
   );
 
@@ -984,7 +1027,12 @@ export function ChatView({
                 {turns.map((turn, i) => {
                   const isUser = turn.role === 'user';
                   const isStreamingTail =
-                    streaming && i === turns.length - 1 && !isUser && !turn.text && !turn.results;
+                    streaming &&
+                    i === turns.length - 1 &&
+                    !isUser &&
+                    !turn.text &&
+                    !turn.results &&
+                    !turn.sales;
 
                   // Empty assistant shell while waiting — typing row handles it.
                   if (isStreamingTail) return null;
@@ -1020,6 +1068,14 @@ export function ChatView({
                                 within {turn.results.query.near.radiusKm} km
                               </span>
                             ) : null}
+                          </div>
+                        ) : null}
+
+                        {turn.sales && turn.sales.total > 0 ? (
+                          <div className={styles.searched}>
+                            <span className={styles.chip}>{turn.sales.total} sold</span>
+                            <span className={styles.chip}>{turn.sales.searched}</span>
+                            <span className={styles.chip}>last {turn.sales.months} months</span>
                           </div>
                         ) : null}
 

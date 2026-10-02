@@ -35,7 +35,12 @@ const VALID = {
   message: 'I would like to arrange an inspection this weekend.',
 };
 
-const LIVE = [{ agencyId: 'agency-real' }];
+/**
+ * What the listing lookup answers with. The propertyId matters: a lead is
+ * anchored to the address, and an empty-row fake would let the column be
+ * silently undefined while every assertion still passed.
+ */
+const LIVE = [{ agencyId: 'agency-real', propertyId: 'property-real' }];
 
 describe('a public enquiry', () => {
   it('records the enquiry against the listing', async () => {
@@ -44,6 +49,10 @@ describe('a public enquiry', () => {
 
     expect(leadId).toBe('lead-1');
     expect(inserted[0]).toMatchObject({
+      // Both keys, and the property one comes from the listing rather than the
+      // caller — an enquiry and a private offer on the same address have to
+      // land in the same inbox for that inbox to mean anything.
+      propertyId: 'property-real',
       listingId: 'listing-1',
       name: 'Jane Buyer',
       email: 'jane@example.test',

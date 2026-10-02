@@ -61,7 +61,11 @@ export default async function AgentListingsPage({
       page={page}
       pageSize={CONSOLE_PAGE_SIZE}
       basePath="/listings"
-      rows={result.rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }))}
+      rows={result.rows.map((r) => ({
+        ...r,
+        createdAt: r.createdAt.toISOString(),
+        soldDate: r.soldDate?.toISOString() ?? null,
+      }))}
     />
   );
 }

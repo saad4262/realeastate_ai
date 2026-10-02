@@ -13,6 +13,7 @@ export {
   PROPERTY_TYPES,
   propertyTypeLabel,
   propertyTypeSchema,
+  soldDetailsSchema,
   toListingError,
   updateListingInputSchema,
   type CreateListingInput,
@@ -24,8 +25,18 @@ export {
   type ListingStatus,
   type PropertyDraft,
   type PropertyType,
+  type SoldDetails,
   type UpdateListingInput,
 } from './listing-schema';
+export {
+  recentSales,
+  recentSalesPage,
+  saleHistoryPath,
+  type RecentSale,
+  type RecentSalesPage,
+  type RecentSalesQuery,
+  type RecentSalesSort,
+} from './recent-sales';
 export { CONSOLE_PAGE_SIZE, consolePage } from './console-page';
 export { PAGE_GAP, pageWindow } from './pagination';
 export {
@@ -42,9 +53,15 @@ export {
   type SearchFacets,
 } from './search-facets';
 export {
+  getOffMarketProperty,
+  liveListingIdForProperty,
+  formerListingDestination,
+  HISTORIC_STATUSES,
   listingAgentCards,
   listingInspections,
+  ON_MARKET_STATUSES,
   propertyTimeline,
+  type OffMarketProperty,
   type PublicAgentCard,
   type PublicInspection,
   type PublicTimelineEntry,
@@ -80,7 +97,11 @@ export {
   type PublicNearbySuburb,
   type PublicSuburbAgent,
 } from './search-sidebar';
-export { setListingStatus, type PublishListingResult } from './publish-listing';
+export {
+  setListingStatus,
+  type PublishListingResult,
+  type SettableStatus,
+} from './publish-listing';
 export {
   addressLines,
   channelLabel,

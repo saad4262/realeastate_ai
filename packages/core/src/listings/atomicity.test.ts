@@ -89,6 +89,9 @@ function txDb(opts: { failOn: 'agents' | null; results?: unknown[][] } = { failO
     }
   };
 
+  // The advisory lock upsertProperty takes. Not a queued result: it returns
+  // nothing anybody reads, and consuming a slot would shift every fixture.
+  chain.execute = () => Promise.resolve([]);
   chain.limit = () => Promise.resolve(results[i++] ?? []);
   chain.returning = () => Promise.resolve(results[i++] ?? []);
   chain.then = (res: (v: unknown) => unknown) => Promise.resolve(results[i++] ?? []).then(res);
@@ -143,7 +146,7 @@ describe('nothing is written unless the last step succeeds', () => {
       failOn: 'agents',
       results: [
         [{ id: listingId, agencyId: agencyA, propertyId: 'p1', status: 'draft' }],
-        [{ id: 'p1', latitude: '-33.890800' }],
+        [{ ...property, id: 'p1', latitude: '-33.890800' }],
         [],
         [{ id: listingId, status: 'draft', propertyId: 'p1' }],
         [],

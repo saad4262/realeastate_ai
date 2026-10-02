@@ -1934,3 +1934,38 @@
     opacity: 0.42;
   }
 }
+
+/* ------------------------------------------------------- recently sold -- */
+
+/*
+  Labelled apart from the matches on purpose. A sale is not something the
+  visitor can buy, and a block that looked like the listing cards above it
+  would invite a click on "Enquire" for a house somebody already owns.
+*/
+.soldBlock { display: grid; gap: 0.5rem; margin-top: 0.75rem; }
+
+.soldHead {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line, #d9d2c5);
+}
+
+.soldTitle { margin: 0; font-size: 0.8125rem; font-weight: 600; }
+.soldScope { font-size: 0.6875rem; opacity: 0.65; }
+
+ /*
+  The full list, with the same weight the live search's "View all" has. Its
+  absence is what made the guide read addresses out instead of pointing here.
+*/
+.soldAll {
+  display: flex; align-items: center; justify-content: center; gap: 0.35rem;
+  margin-top: 0.25rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--line, #d9d2c5);
+  border-radius: 0.5rem;
+  font-size: 0.75rem; font-weight: 600;
+  text-decoration: none; color: inherit;
+}
+
+.soldAll:hover { border-color: var(--ink, #1a1a1a); }

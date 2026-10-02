@@ -26,12 +26,38 @@ export type ListingRow = {
   bathrooms: number | null;
   carSpaces: number | null;
   propertyType: string | null;
+  /**
+   * What it actually sold for, and when. Null on everything that has not.
+   *
+   * Carried because the agency's own book was the one place that could NOT see
+   * it: a sold row showed `price_display`, which is the copy from the ad that
+   * ran — so the console reported the asking price of a house that had already
+   * been bought for something else, while the public property page showed the
+   * real figure. Selected in the same statement as the rest; see SELECTION.
+   */
+  soldPrice: number | null;
+  soldDate: Date | null;
   agencyName: string;
   agents: string[];
   createdAt: Date;
 };
 
-const num = (v: string | null): number | null => (v === null ? null : Number(v));
+/**
+ * A numeric column, or null. Never NaN.
+ *
+ * `Number(v)` alone was not enough and produced a real defect: a column missing
+ * from the select arrives as `undefined` rather than null, `Number(undefined)`
+ * is NaN, and NaN passes every `!== null` guard downstream — so the console
+ * rendered a sold listing's price as **"$NaN"** to the agency that sold it.
+ *
+ * The same shape `search-listings.ts` has always used. The two were different
+ * for no reason and only this one was reachable with a missing column.
+ */
+const num = (v: string | number | null | undefined): number | null => {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+};
 
 const FORBIDDEN = new ListingError(
   'forbidden',
@@ -47,6 +73,8 @@ const SELECTION = {
   priceFrom: listing.priceFrom,
   priceTo: listing.priceTo,
   rentPw: listing.rentPw,
+  soldPrice: listing.soldPrice,
+  soldDate: listing.soldDate,
   createdAt: listing.createdAt,
   unit: property.unit,
   streetNumber: property.streetNumber,
@@ -90,6 +118,12 @@ const SELECTION = {
 type RawRow = {
   [K in keyof typeof SELECTION]: K extends 'createdAt'
     ? Date
+    : // A timestamp column, so the driver hands back a Date — but a nullable
+      // one. Without its own branch it falls to the `string | null` default
+      // below, which is the wrong lie: `num()` would not be applied and the
+      // value would be typed as text while being a Date at runtime.
+      K extends 'soldDate'
+      ? Date | null
     : K extends 'agentNames'
       ? string[]
       : K extends 'totalCount' | 'liveCount' | 'draftCount'
@@ -119,6 +153,8 @@ function toRow(r: RawRow, agents: string[]): ListingRow {
     bathrooms: num(r.bathrooms),
     carSpaces: r.carSpaces,
     propertyType: r.propertyType,
+    soldPrice: num(r.soldPrice),
+    soldDate: r.soldDate,
     agencyName: r.agencyName,
     agents,
     createdAt: r.createdAt,

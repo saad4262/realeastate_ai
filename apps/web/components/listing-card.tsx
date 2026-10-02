@@ -69,7 +69,11 @@ export function ListingMedia({
   sizes = '(max-width: 640px) 100vw, (max-width: 1200px) 50vw, 640px',
   priority = false,
 }: {
-  listing: PublicListingSummary;
+  /**
+   * Only what the frame reads — so a sold property's page, which has no live
+   * listing row, draws its gallery through the same component.
+   */
+  listing: Pick<PublicListingSummary, 'id' | 'mainPhotoKey' | 'address' | 'suburb'>;
   className: string;
   /**
    * Overlays drawn on top of the frame — badges, the price.

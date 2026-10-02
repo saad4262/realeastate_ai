@@ -53,6 +53,78 @@ export type ResultsEvent = {
   listings: PublicListingSummary[];
 };
 
+/**
+ * One completed sale, as the panel draws it.
+ *
+ * SERVER-AUTHORED and pre-formatted, like every other frame here. `price` and
+ * `soldOn` are strings because the server formatted them from what Postgres
+ * returned — the panel renders these, never the model's prose, which is what
+ * keeps #4 true on screen no matter what the guide says above it.
+ *
+ * `historyPath` comes from `saleHistoryPath`: the off-market page, or the live
+ * listing when the address has been re-listed (that page carries the same
+ * history), or null while it is under offer and neither page exists.
+ */
+export type SoldCard = {
+  listingId: string;
+  propertyId: string;
+  address: string;
+  suburb: string;
+  state: string;
+  postcode: string;
+  /** "$812,000", already formatted. */
+  price: string;
+  /** "15 June 2026", already formatted. */
+  soldOn: string;
+  agencyName: string;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  carSpaces: number | null;
+  /** "4.2 km", when a radius was searched. */
+  distance: string | null;
+  /** The cover photo's storage KEY. A key, not a URL — `mediaUrl` makes those. */
+  mainPhotoKey: string | null;
+  /** What the ad asked before it sold, when it said anything. */
+  priceDisplay: string | null;
+  /** The pin, so a sale goes on the same map a live result does. */
+  latitude: number | null;
+  longitude: number | null;
+  /** Where the full history is — see above. */
+  historyPath: string | null;
+  /**
+   * True when `historyPath` is a live listing: the address is for sale again,
+   * and the card says so rather than presenting it as only a past sale.
+   * Optional because sales frames stored before it existed are replayed.
+   */
+  forSaleNow?: boolean;
+};
+
+/**
+ * What has sold, for the panel beside the conversation.
+ *
+ * A frame of its own rather than a `results` event, because a sale is not a
+ * listing: it cannot be enquired about, inspected or bought, and rendering it
+ * through the same cards would invite exactly the confusion the prompt spends
+ * three rules preventing. The panel labels these differently for the same
+ * reason.
+ *
+ * Its absence was a real bug. `recent_sales` was the only tool whose findings
+ * had nowhere to go, so the guide — told in general terms that results appear
+ * beside the conversation — pointed a visitor at an empty panel.
+ */
+export type SalesEvent = {
+  type: 'sales';
+  toolUseId: string;
+  /** "Pakenham", or "within 30 km of Pakenham". Server's words, for the heading. */
+  searched: string;
+  months: number;
+  /** How many matched before the cap — the panel's "View all N sold". */
+  total: number;
+  /** Where the full list lives. Server-built, like the search deep link. */
+  searchPath: string;
+  sales: SoldCard[];
+};
+
 /** The accumulated requirements after this turn. The client echoes `slots` back. */
 export type StateEvent = {
   type: 'state';
@@ -170,6 +242,7 @@ export type ChatEvent =
   | TextEvent
   | ToolEvent
   | ResultsEvent
+  | SalesEvent
   | StateEvent
   | ErrorEvent
   | DoneEvent
@@ -188,6 +261,19 @@ export type ChatTurnResult = {
   id: string;
   text: string;
   results: ResultsEvent[];
+  /** Completed sales the turn found. Empty unless `recent_sales` ran. */
+  sales: SalesEvent[];
+  /**
+   * Which tools the turn ran, in order.
+   *
+   * Only ever present on the BUFFERED result — a streaming client watches the
+   * `tool` frames go by instead. It exists so a black-box check can assert that
+   * the guide reached for the right tool, which is otherwise unobservable from
+   * outside: every unit test in @repo/ai runs against a fake model, so "does a
+   * real one pick recent_sales for a sold-homes question" had no answer that did
+   * not involve reading prose and guessing.
+   */
+  tools: { name: string; label: string }[];
   state: StateEvent | null;
   /** The chips the turn ended with. Empty when it offered none. */
   suggestions: ChatSuggestion[];

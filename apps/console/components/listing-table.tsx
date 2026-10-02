@@ -6,10 +6,15 @@ import { useOptimistic, useState, useTransition } from 'react';
 import type { ListingCounts, ListingRow, ListingStatus } from '@repo/core/listings';
 import { deleteListingAction, setListingStatusAction } from '@/lib/listing-actions';
 import { useToast } from '@/components/toast';
+import { MarkSoldDialog, type SoldDraft } from './mark-sold-dialog';
 import styles from './listing-table.module.css';
 
 /** Dates do not survive the server/client boundary, so they arrive as ISO. */
-export type Row = Omit<ListingRow, 'createdAt'> & { createdAt: string };
+export type Row = Omit<ListingRow, 'createdAt' | 'soldDate'> & {
+  createdAt: string;
+  /** Null on everything that has not sold. */
+  soldDate: string | null;
+};
 
 /**
  * CSS module keys are typed as possibly undefined, so the class is picked
@@ -52,6 +57,28 @@ const AUD = new Intl.NumberFormat('en-AU', {
  * is no copy. The display string is never parsed — non-negotiable #6.
  */
 function priceOf(row: Row): { main: string; hint?: string } {
+  /**
+   * A sold listing shows what it SOLD for, not what the ad asked.
+   *
+   * This column read `price_display` for every row, which on a sold listing is
+   * the copy from a campaign that has already ended — so the agency's own book
+   * reported the asking price of a house somebody had already bought for
+   * something else, while the public property page showed the real figure. The
+   * asking price moves to the hint, because "listed at X, sold for Y" is the
+   * one comparison an agency actually wants here.
+   */
+  // Number.isFinite, not `!== null`. NaN is not null, so the weaker guard let a
+  // missing price through and printed "$NaN" in the price column. A sold row
+  // whose figure did not arrive falls through to the ordinary price below,
+  // which is wrong-but-readable rather than broken.
+  if (row.status === 'sold' && Number.isFinite(row.soldPrice)) {
+    const asked = row.priceDisplay ?? (row.priceFrom ? AUD.format(row.priceFrom) : null);
+    return {
+      main: AUD.format(row.soldPrice as number),
+      ...(asked ? { hint: `Listed at ${asked}` } : {}),
+    };
+  }
+
   if (row.channel === 'rent' || row.channel === 'leased') {
     return { main: row.rentPw ? `${AUD.format(row.rentPw)} pw` : 'Contact agent' };
   }
@@ -125,6 +152,8 @@ export function ListingTable({
   const [isPending, startTransition] = useTransition();
   /** Which row is one click away from deletion. Null when nothing is armed. */
   const [confirming, setConfirming] = useState<string | null>(null);
+  /** The row whose sale is being recorded, if the dialog is open. */
+  const [selling, setSelling] = useState<Row | null>(null);
 
   /**
    * The status badge flips before the server answers.
@@ -175,7 +204,14 @@ export function ListingTable({
   const pages = Math.max(1, Math.ceil(view.total / pageSize));
   const pageHref = (n: number) => (n <= 1 ? basePath : `${basePath}?page=${n}`);
 
-  function move(row: Row, next: 'live' | 'draft' | 'withdrawn') {
+  const MOVED: Record<'live' | 'draft' | 'under_offer' | 'withdrawn', string> = {
+    live: 'Listing is live',
+    draft: 'Back to draft',
+    under_offer: 'Marked under offer',
+    withdrawn: 'Listing withdrawn',
+  };
+
+  function move(row: Row, next: 'live' | 'draft' | 'under_offer' | 'withdrawn') {
     startTransition(async () => {
       applyOptimistic({ id: row.id, status: next });
 
@@ -188,20 +224,46 @@ export function ListingTable({
 
       toast({
         variant: 'success',
-        title:
-          next === 'live'
-            ? 'Listing is live'
-            : next === 'draft'
-              ? 'Back to draft'
-              : 'Listing withdrawn',
+        title: MOVED[next],
         description:
           next === 'live'
             ? `${row.address} is now on the public site.`
-            : `${row.address} is no longer public.`,
+            : next === 'under_offer'
+              ? `${row.address} is off the public site while the offer stands.`
+              : `${row.address} is no longer public.`,
       });
 
       // Re-read from the server so the optimistic value is replaced by the
       // real one rather than merely agreeing with it.
+      router.refresh();
+    });
+  }
+
+  /**
+   * Record a sale.
+   *
+   * Apart from `move` because it carries the figures, and because the dialog
+   * has to stay open if the server refuses them — closing it would throw away
+   * what was typed and leave the agent guessing which field was wrong. It
+   * closes on success only.
+   */
+  function sell(row: Row, draft: SoldDraft) {
+    startTransition(async () => {
+      applyOptimistic({ id: row.id, status: 'sold' });
+
+      const result = await setListingStatusAction(row.id, 'sold', draft);
+
+      if (!result.ok) {
+        toast({ variant: 'error', title: 'Sale not recorded', description: result.error });
+        return;
+      }
+
+      setSelling(null);
+      toast({
+        variant: 'success',
+        title: 'Sale recorded',
+        description: `${row.address} is off the market, and its sale history is now public.`,
+      });
       router.refresh();
     });
   }
@@ -313,7 +375,7 @@ export function ListingTable({
                     </td>
                     <td>
                       <div className={styles.actions}>
-                        {row.status === 'live' ? (
+                        {row.status === 'live' || row.status === 'under_offer' ? (
                           <button
                             type="button"
                             className={styles.btn}
@@ -322,7 +384,7 @@ export function ListingTable({
                           >
                             Withdraw
                           </button>
-                        ) : (
+                        ) : row.status === 'sold' ? null : (
                           <button
                             type="button"
                             className={styles.btn}
@@ -335,6 +397,46 @@ export function ListingTable({
                             Publish
                           </button>
                         )}
+
+                        {/*
+                          Under offer, then sold — the two steps of a sale, and
+                          neither existed in this UI before. `under_offer` takes
+                          the ad off the public site and hides the property's
+                          past sale prices while the deal is live; `sold` ends
+                          the campaign and publishes the history.
+
+                          Rentals are excluded: a lease is not a sale, and
+                          sold_price on a rental listing would put a purchase
+                          price on the public timeline of a house nobody bought.
+                        */}
+                        {(row.status === 'live' || row.status === 'under_offer') &&
+                        row.channel !== 'rent' &&
+                        row.channel !== 'leased' ? (
+                          <>
+                            {row.status === 'live' ? (
+                              <button
+                                type="button"
+                                className={styles.btn}
+                                disabled={isPending}
+                                onClick={() => move(row, 'under_offer')}
+                              >
+                                Under offer
+                              </button>
+                            ) : null}
+
+                            <button
+                              type="button"
+                              className={styles.btn}
+                              disabled={isPending}
+                              onClick={() => setSelling(row)}
+                            >
+                              <span className={styles.glyphSm} aria-hidden>
+                                sell
+                              </span>
+                              Mark sold
+                            </button>
+                          </>
+                        ) : null}
 
                         <Link
                           href={`${editHrefBase}/${row.id}/edit`}
@@ -420,6 +522,23 @@ export function ListingTable({
             <span className={`${styles.pageLink} ${styles.pageLinkOff}`}>Next</span>
           )}
         </nav>
+      ) : null}
+
+      {/*
+        One dialog for the whole table, keyed on the row it was opened from.
+        Mounted last so it sits above the rows without either needing a
+        stacking context of its own.
+      */}
+      {selling ? (
+        <MarkSoldDialog
+          address={selling.address}
+          {...(priceOf(selling).main !== 'Contact agent'
+            ? { priceHint: priceOf(selling).main }
+            : {})}
+          busy={isPending}
+          onCancel={() => setSelling(null)}
+          onConfirm={(draft) => sell(selling, draft)}
+        />
       ) : null}
     </div>
   );

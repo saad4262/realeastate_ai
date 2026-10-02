@@ -76,7 +76,16 @@ function labelOf(p: { suburb?: string | null; state?: string | null; postcode?: 
  * all. onSubmit intercepts to keep the soft navigation and the in-button
  * spinner; the native path is what happens when that never runs.
  */
-export function SearchBar() {
+export function SearchBar({
+  action = '/search',
+}: {
+  /**
+   * Which results page the box searches. `/sold` takes the same place
+   * parameters, so the one box serves both — a second search box would be a
+   * second place the location rules could drift.
+   */
+  action?: '/search' | '/sold';
+} = {}) {
   const router = useRouter();
   const params = useSearchParams();
 
@@ -273,7 +282,7 @@ export function SearchBar() {
       if (place.suburb || (coords?.lat && coords.lng)) set('radius', str('radius'));
     }
 
-    router.push(`/search?${next}`);
+    router.push(`${action}?${next}`);
   }
 
   return (
@@ -290,7 +299,7 @@ export function SearchBar() {
       className={styles.bar}
       // The no-JavaScript path. Named inputs under a GET submit produce the
       // same URL search/page.tsx parses, so the search still works.
-      action="/search"
+      action={action}
       method="get"
       onSubmit={onSubmit}
       role="search"

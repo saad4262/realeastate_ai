@@ -9,3 +9,7 @@ export {
   type RegisteringAccount,
   type RegisterAgencyResult,
 } from './register-agency';
+export {
+  agencyNotificationRecipients,
+  type NotificationRecipient,
+} from './notification-recipients';

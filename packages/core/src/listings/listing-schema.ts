@@ -281,6 +281,38 @@ export const listingDraftSchema = z
 
 export type ListingDraft = z.infer<typeof listingDraftSchema>;
 
+/**
+ * What an agency has to say to record a sale.
+ *
+ * Deliberately its OWN schema rather than two more optional fields on
+ * `listingDraftSchema`. That schema is replayed by `pnpm smoke` over every
+ * existing `status = 'live'` row to prove the live site is servable, so a field
+ * that is required for a sale and meaningless for a live ad would turn that
+ * check red on data that is perfectly correct. A sale is a transition, not an
+ * edit — it arrives through setListingStatus, next to the status it belongs to.
+ *
+ * Both fields are required together. `status = 'sold'` with no price is the
+ * state the public timeline cannot render and the one `pnpm smoke` now refuses
+ * to find in the database.
+ */
+export const soldDetailsSchema = z.object({
+  /**
+   * What it actually sold for. The agency's own figure, stored, never derived —
+   * non-negotiable #4. Zero is not a sale, so the floor is above it.
+   */
+  soldPrice: z.coerce.number().min(1, 'Enter what the property sold for').max(1_000_000_000),
+  /**
+   * When. A future date is a contract, not a sale, and the timeline orders on
+   * this column — one mistyped year puts a 2019 sale at the top of the history
+   * of every address that agency has ever sold.
+   */
+  soldDate: z.coerce
+    .date()
+    .refine((d) => d.getTime() <= Date.now(), { message: 'A sale cannot be dated in the future' }),
+});
+
+export type SoldDetails = z.infer<typeof soldDetailsSchema>;
+
 export const createListingInputSchema = z.object({
   property: propertyDraftSchema,
   listing: listingDraftSchema,

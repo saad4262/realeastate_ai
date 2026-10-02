@@ -112,6 +112,8 @@ function tools(over: Partial<ToolContext> = {}): ToolContext {
     resolvePlace: vi.fn(async () => PLACE),
     search: vi.fn(async () => [LISTING]),
     getListing: vi.fn(async () => LISTING),
+    // No sales unless a test says so — an empty market, not a missing tool.
+    recentSales: vi.fn(async () => ({ rows: [], total: 0 })),
     nearbyMarket: vi.fn(async () => ({ listings: [], bySuburb: [], unpriced: 0 })),
     ...over,
   };

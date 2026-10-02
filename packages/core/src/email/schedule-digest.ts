@@ -1,6 +1,27 @@
 import { priceLabel, specLine } from '../listings/format';
 import type { PublicListingSummary } from '../listings/search-listings';
-import { EmailError, type EmailMessage } from './transport';
+import { EmailError, type MarketingMessage } from './transport';
+
+/**
+ * Spam Act s.17, in one place for every kind of mail this system sends.
+ *
+ * Identification and a postal contact are required of any commercial message
+ * and are cheap enough to be correct on business mail regardless. This is the
+ * half that is NOT relaxed for transactional notifications, so it lives here
+ * rather than being copied into each builder — a second copy is how one of them
+ * ends up without it.
+ */
+export function requireSenderFooter(
+  from: { name: string },
+  postalAddress: string,
+  what: string,
+): void {
+  if (!from.name.trim() || !postalAddress.trim()) {
+    throw new EmailError(
+      `Refusing to build ${what === 'alert' ? 'an alert' : `a ${what}`} email with no sender identity — see ALERT_SENDER_NAME / ALERT_SENDER_ADDRESS`,
+    );
+  }
+}
 
 /** The one escape. Every interpolated value goes through it. */
 export function escapeHtml(value: string): string {
@@ -106,12 +127,8 @@ function listingText(listing: PublicListingSummary): string {
  * one that must not be sent, so the failure belongs here and not in a
  * reviewer's memory.
  */
-export function buildScheduleDigestEmail(input: ScheduleDigestInput): EmailMessage {
-  if (!input.from.name.trim() || !input.postalAddress.trim()) {
-    throw new EmailError(
-      'Refusing to build an alert email with no sender identity — see ALERT_SENDER_NAME / ALERT_SENDER_ADDRESS',
-    );
-  }
+export function buildScheduleDigestEmail(input: ScheduleDigestInput): MarketingMessage {
+  requireSenderFooter(input.from, input.postalAddress, 'alert');
   if (!input.unsubscribeUrl.trim()) {
     throw new EmailError('Refusing to build an alert email with no unsubscribe link');
   }
@@ -212,6 +229,11 @@ export function buildScheduleDigestEmail(input: ScheduleDigestInput): EmailMessa
     .join('\n');
 
   return {
+    // Bulk mail somebody subscribed to, so it carries the unsubscribe the type
+    // demands. The narrowed return type is what keeps that true: leave it as
+    // the EmailMessage union and a later edit could quietly drop to the
+    // transactional branch and lose the s.18 guard above.
+    kind: 'marketing',
     to: input.to,
     from: input.from,
     subject,

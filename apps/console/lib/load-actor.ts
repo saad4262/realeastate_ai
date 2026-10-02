@@ -1,7 +1,7 @@
 import { cache } from 'react';
 import { eq, sql } from 'drizzle-orm';
 import { agency, listingAgent, membership, user } from '@repo/db/schema';
-import type { Actor, MembershipRole } from '@repo/core/permissions';
+import { can, type Actor, type MembershipRole } from '@repo/core/permissions';
 import { getConsoleDb } from './db';
 
 /**
@@ -25,7 +25,21 @@ export type ActorContext = {
    * chrome still costs one round trip, and every figure comes from SQL —
    * the header used to show invented market stats.
    */
-  summary: { members: number; liveListings: number; pendingInvites: number };
+  summary: {
+    members: number;
+    liveListings: number;
+    pendingInvites: number;
+    /**
+     * Unactioned private offers, and ZERO for anyone who may not read one.
+     *
+     * Counted in SQL for everybody and zeroed below by can(), rather than
+     * conditionally selected — the query shape stays fixed at one statement,
+     * and the disclosure decision stays in permissions.ts where #2 requires it.
+     * A badge saying 3 to an assistant would disclose most of what
+     * `lead:read_offer` exists to withhold.
+     */
+    newOffers: number;
+  };
 };
 
 /**
@@ -61,6 +75,11 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
         where i.agency_id = ${membership.agencyId}
           and i.status = 'pending' and i.expires_at > now()
       )`,
+      newOffers: sql<number>`(
+        select count(*) from lead l
+        where l.agency_id = ${membership.agencyId}
+          and l.kind = 'offer' and l.status = 'new'
+      )`,
     })
     .from(membership)
     .leftJoin(agency, eq(agency.id, membership.agencyId))
@@ -68,7 +87,7 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
     .where(eq(membership.userId, userId))
     .limit(1);
 
-  const empty = { members: 0, liveListings: 0, pendingInvites: 0 };
+  const empty = { members: 0, liveListings: 0, pendingInvites: 0, newOffers: 0 };
 
   if (!mem || mem.status !== 'active') {
     return {
@@ -80,12 +99,21 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
     };
   }
 
+  const actor: Actor = {
+    userId,
+    agencyId: mem.agencyId,
+    membershipRole: mem.role as MembershipRole,
+  };
+
+  // The same question the inbox asks. Asked here too so the chrome cannot
+  // disclose by counting what the screen would refuse to show.
+  const maySeeOffers = can(actor, 'lead:read_offer', {
+    type: 'lead',
+    agencyId: mem.agencyId,
+  });
+
   return {
-    actor: {
-      userId,
-      agencyId: mem.agencyId,
-      membershipRole: mem.role as MembershipRole,
-    },
+    actor,
     agencyName: mem.agencyName,
     agencySlug: mem.agencySlug,
     userName: mem.userName,
@@ -93,6 +121,7 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
       members: Number(mem.members ?? 0),
       liveListings: Number(mem.liveListings ?? 0),
       pendingInvites: Number(mem.pendingInvites ?? 0),
+      newOffers: maySeeOffers ? Number(mem.newOffers ?? 0) : 0,
     },
   };
 }

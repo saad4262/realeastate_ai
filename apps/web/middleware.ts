@@ -156,5 +156,20 @@ export const config = {
      * no session, and refreshing one for it is pure cost.
      */
     '/api/chat',
+    /**
+     * The off-market property page, for the same reason.
+     *
+     * It offers a private offer only to a signed-in visitor, and it decides that
+     * from `currentWebUser()` — which reads the header this middleware sets. Left
+     * out of the matcher the header is absent, the page believes an authenticated
+     * visitor is anonymous, and it shows a "sign in to make an offer" prompt to
+     * somebody who already has. Exactly the `/api/chat` failure above, which was
+     * reported as "i signed in already???".
+     *
+     * `/listing/[id]` stays out: it only needs to know which header link to draw
+     * and uses the cookie sniff for that. This route needs the real answer,
+     * because it gates a write.
+     */
+    '/property/:path*',
   ],
 };

@@ -6,8 +6,10 @@ import type {
   PublicListing,
   PublicListingSummary,
   PublicSearchQuery,
+  RecentSalesPage,
+  RecentSalesQuery,
 } from '@repo/core/listings';
-import type { ResultsEvent } from '../schemas/chat-events';
+import type { ResultsEvent, SalesEvent } from '../schemas/chat-events';
 
 /**
  * What a tool needs to do its job.
@@ -33,6 +35,16 @@ export type ToolContext = {
    * only read on this route that went to the database region every time.
    */
   nearbyMarket: (query: NearbyMarketQuery) => Promise<NearbyMarket>;
+  /**
+   * What has recently sold in an area.
+   *
+   * A separate read from `search`, not a flag on it. `search` answers what a
+   * visitor can buy today and is the one place `PUBLIC_STATUS` is applied;
+   * this answers what the market did, from listings that were public while
+   * they ran. Injected for the same reason as the others — the app decides
+   * what is cached.
+   */
+  recentSales: (query: RecentSalesQuery) => Promise<RecentSalesPage>;
   /**
    * Places resolved during this turn, keyed by lowercased suburb.
    *
@@ -125,6 +137,13 @@ export type ToolOutcome = {
   isError?: boolean;
   /** Listings for the panel, when this call produced any. */
   resultsFrame?: Omit<ResultsEvent, 'type' | 'toolUseId'>;
+  /**
+   * Completed sales for the panel. A separate frame from `resultsFrame` because
+   * a sale is not a listing — it cannot be enquired about or bought, and one
+   * set of cards for both would undo the rules that keep the guide from
+   * offering an inspection on a house somebody already owns.
+   */
+  salesFrame?: Omit<SalesEvent, 'type' | 'toolUseId'>;
   /** Filters this call established, merged into the running slot state. */
   slots?: PublicSearchQuery;
   /** What this call establishes for the chips. Never shown to the model. */

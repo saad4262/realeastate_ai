@@ -12,6 +12,7 @@ import {
   isListingError,
   listingDraftSchema,
   propertyDraftSchema,
+  soldDetailsSchema,
   toListingError,
 } from './listing-schema';
 
@@ -48,12 +49,17 @@ const validInput = {
 function fakeDb(results: unknown[][] = []) {
   let i = 0;
   const touched: string[] = [];
+  /** What each `.set()` was handed, so a test can assert what was written. */
+  const sets: Record<string, unknown>[] = [];
   const chain: Record<string, unknown> = {};
   for (const m of ['select', 'selectDistinct', 'from', 'innerJoin', 'leftJoin', 'where',
                    'update', 'set', 'insert', 'values', 'orderBy', 'delete',
                    'onConflictDoUpdate']) {
-    chain[m] = () => {
+    chain[m] = (arg: unknown) => {
       touched.push(m);
+      if (m === 'set' && arg && typeof arg === 'object') {
+        sets.push(arg as Record<string, unknown>);
+      }
       return chain;
     };
   }
@@ -64,11 +70,14 @@ function fakeDb(results: unknown[][] = []) {
    * rather than this code.
    */
   chain.transaction = (fn: (tx: unknown) => unknown) => Promise.resolve(fn(chain));
+  // The advisory lock upsertProperty takes. Not a queued result: it returns
+  // nothing anybody reads, and consuming a slot would shift every fixture.
+  chain.execute = () => Promise.resolve([]);
   chain.limit = () => Promise.resolve(results[i++] ?? []);
   chain.returning = () => Promise.resolve(results[i++] ?? []);
   chain.then = (res: (v: unknown) => unknown) =>
     Promise.resolve(results[i++] ?? []).then(res);
-  return { db: chain as unknown as Db, touched };
+  return { db: chain as unknown as Db, touched, sets };
 }
 
 describe('listing permissions', () => {
@@ -186,6 +195,127 @@ describe('setListingStatus guards', () => {
     await expect(setListingStatus(db, owner, listingId, 'live')).rejects.toSatisfy(
       (err: unknown) => isListingError(err) && err.code === 'not_found',
     );
+  });
+});
+
+/**
+ * Recording a sale.
+ *
+ * The transition that carries data, and the only way sold_price and sold_date
+ * are ever written — updateListing cannot reach those columns. Every refusal
+ * here is checked BEFORE the listing is read, because a malformed sale is the
+ * caller's mistake and there is nothing to look up for it.
+ */
+describe('setListingStatus records a sale', () => {
+  const sold = { soldPrice: 1_200_000, soldDate: new Date('2026-06-15') };
+  const found: unknown[][] = [
+    [{ id: listingId, agencyId: agencyA }],
+    [{ id: listingId, status: 'sold', publishedAt: new Date() }],
+  ];
+
+  it('writes the price and the date in the same statement as the status', async () => {
+    const { db, sets } = fakeDb(found);
+    await expect(setListingStatus(db, owner, listingId, 'sold', sold)).resolves.toMatchObject({
+      listingId,
+      status: 'sold',
+    });
+
+    // One write, carrying all three. A sale recorded in two statements can be
+    // half-recorded, and the public timeline cannot render a sold listing with
+    // no price.
+    expect(sets).toHaveLength(1);
+    expect(sets[0]).toMatchObject({ status: 'sold', soldDate: sold.soldDate });
+    // numeric columns take strings — a JS number loses precision at scale.
+    expect(sets[0]?.soldPrice).toBe('1200000.00');
+  });
+
+  it('refuses a sale with no figures at all, before reading anything', async () => {
+    const { db, touched } = fakeDb(found);
+    await expect(setListingStatus(db, owner, listingId, 'sold')).rejects.toSatisfy(
+      (err: unknown) => isListingError(err) && err.code === 'invalid_draft',
+    );
+    expect(touched).toEqual([]);
+  });
+
+  it.each([
+    ['a price of zero', { soldPrice: 0, soldDate: new Date('2026-06-15') }],
+    ['a negative price', { soldPrice: -5, soldDate: new Date('2026-06-15') }],
+    ['no date', { soldPrice: 1_200_000 }],
+    ['a date in the future', { soldPrice: 1_200_000, soldDate: new Date(Date.now() + 86_400_000) }],
+  ])('refuses %s', async (_label, bad) => {
+    const { db, touched } = fakeDb(found);
+    await expect(setListingStatus(db, owner, listingId, 'sold', bad)).rejects.toSatisfy(
+      (err: unknown) => isListingError(err) && err.code === 'invalid_draft',
+    );
+    expect(touched).toEqual([]);
+  });
+
+  it('names the field that was wrong, so a form can highlight it', async () => {
+    const { db } = fakeDb(found);
+    await expect(
+      setListingStatus(db, owner, listingId, 'sold', { soldPrice: 1_200_000 }),
+    ).rejects.toSatisfy((err: unknown) => isListingError(err) && err.field === 'soldDate');
+  });
+
+  it('refuses sale figures attached to a change that is not a sale', async () => {
+    // A caller passing these to 'withdrawn' believes it is recording something.
+    // Dropping them silently would leave the sale nowhere and return success.
+    const { db, touched } = fakeDb(found);
+    await expect(
+      setListingStatus(db, owner, listingId, 'withdrawn', sold),
+    ).rejects.toSatisfy((err: unknown) => isListingError(err) && err.code === 'invalid_draft');
+    expect(touched).toEqual([]);
+  });
+
+  it('leaves the sale columns alone on every other transition', async () => {
+    // A sold listing later withdrawn keeps what it sold for — the agency's
+    // record of the transaction, and the public timeline's only figure.
+    const { db, sets } = fakeDb([
+      [{ id: listingId, agencyId: agencyA }],
+      [{ id: listingId, status: 'withdrawn', publishedAt: new Date() }],
+    ]);
+    await setListingStatus(db, owner, listingId, 'withdrawn');
+    expect(sets[0]).not.toHaveProperty('soldPrice');
+    expect(sets[0]).not.toHaveProperty('soldDate');
+  });
+
+  it('refuses an agent who is not named on the listing', async () => {
+    const { db } = fakeDb(found);
+    await expect(setListingStatus(db, agent, listingId, 'sold', sold)).rejects.toSatisfy(
+      (err: unknown) => isListingError(err) && err.code === 'forbidden',
+    );
+  });
+
+  it('says a sale was refused, not that publishing was', async () => {
+    const { db } = fakeDb(found);
+    await expect(setListingStatus(db, agent, listingId, 'sold', sold)).rejects.toThrow(
+      /record a sale/i,
+    );
+  });
+});
+
+describe('the sale contract', () => {
+  it('accepts what an agency actually types', () => {
+    // Coerced, because a form hands over strings.
+    const parsed = soldDetailsSchema.parse({ soldPrice: '1200000', soldDate: '2026-06-15' });
+    expect(parsed.soldPrice).toBe(1_200_000);
+    expect(parsed.soldDate.getUTCFullYear()).toBe(2026);
+  });
+
+  it('stays out of listingDraftSchema', () => {
+    /**
+     * `pnpm smoke` replays listingDraftSchema over every live row to prove the
+     * site is servable. A sale field required there would turn that check red
+     * on data that is perfectly correct — so a sale is a transition, not an
+     * edit, and these two schemas never merge.
+     */
+    const parsed = listingDraftSchema.parse({
+      channel: 'sale',
+      headline: 'Renovated family home',
+      priceDisplay: 'Offers over $1.2M',
+    });
+    expect(parsed).not.toHaveProperty('soldPrice');
+    expect(parsed).not.toHaveProperty('soldDate');
   });
 });
 
@@ -317,7 +447,7 @@ describe('updateListing guards', () => {
     const { db } = fakeDb([
       [{ id: listingId, agencyId: agencyA, propertyId: 'p1', status: 'draft' }],
       // resolvePropertyId finds the same address, already pinned, so no geocode
-      [{ id: 'p1', latitude: '-33.890800' }],
+      [{ id: 'p1', latitude: '-33.890800', ...validInput.property }],
       [],
       [{ id: listingId, status: 'draft', propertyId: 'p1' }],
     ]);
@@ -331,7 +461,7 @@ describe('updateListing guards', () => {
   it('reports an address change, because the listing moved property rows', async () => {
     const { db } = fakeDb([
       [{ id: listingId, agencyId: agencyA, propertyId: 'p-old', status: 'draft' }],
-      [{ id: 'p-new', latitude: '-33.890800' }],
+      [{ id: 'p-new', latitude: '-33.890800', ...validInput.property }],
       [],
       [{ id: listingId, status: 'draft', propertyId: 'p-new' }],
     ]);
@@ -402,5 +532,40 @@ describe('deleteListing guards', () => {
     await expect(deleteListing(db, owner, listingId)).rejects.toSatisfy(
       (err: unknown) => isListingError(err) && err.code === 'not_found',
     );
+  });
+});
+
+/**
+ * The console row's numeric columns.
+ *
+ * Not an abstract edge case: a column missing from the select arrives as
+ * `undefined`, `Number(undefined)` is NaN, and NaN passes every `!== null`
+ * guard downstream — which is how the agency console printed a sold listing's
+ * price as "$NaN" in its own book.
+ */
+describe('a console row never carries NaN', () => {
+  it('turns a missing numeric into null, not NaN', () => {
+    const rows = [
+      {
+        id: listingId, channel: 'sale', status: 'sold', headline: null,
+        priceDisplay: null, priceFrom: '800', priceTo: null, rentPw: null,
+        // The shape that caused it: present in the type, absent from the row.
+        soldPrice: undefined, soldDate: null,
+        createdAt: new Date(), unit: null, streetNumber: '32', street: 'Henry Street',
+        suburb: 'Pakenham', state: 'VIC', postcode: '3810',
+        bedrooms: null, bathrooms: undefined, carSpaces: null, propertyType: null,
+        agencyName: 'Test', agentNames: [], totalCount: 1, liveCount: 0, draftCount: 0,
+      },
+    ];
+    const { db } = fakeDb([rows]);
+
+    return listAgencyListings(db, owner).then((out) => {
+      const row = out[0];
+      expect(row?.soldPrice).toBeNull();
+      expect(row?.bathrooms).toBeNull();
+      expect(Number.isNaN(row?.soldPrice as number)).toBe(false);
+      // And a real figure still survives the same path.
+      expect(row?.priceFrom).toBe(800);
+    });
   });
 });

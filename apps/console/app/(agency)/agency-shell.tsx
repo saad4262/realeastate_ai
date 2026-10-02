@@ -69,7 +69,15 @@ export function AgencyShell({ children, userLabel, chrome }: AgencyShellProps) {
             <kbd className={styles.cmdK}>⌘K</kbd>
           </div>
 
-          <NavList />
+          {/*
+            The nav paints immediately with no badge, and the badge streams in
+            behind it — the same Suspense shape Brand and Ticker use. Waiting on
+            the database to draw the sidebar would undo the whole reason the
+            chrome is a Server Component.
+          */}
+          <Suspense fallback={<NavList />}>
+            <NavWithOffers chrome={chrome} />
+          </Suspense>
         </div>
 
         <div className={styles.sidebarFoot}>
@@ -200,6 +208,18 @@ function BrandFallback() {
 async function ProfileRole({ chrome }: { chrome: Promise<ConsoleChrome> }) {
   const { userRole } = await chrome;
   return <div className={styles.profileRole}>{userRole}</div>;
+}
+
+/**
+ * The nav, once the unactioned-offer count is known.
+ *
+ * `summary.newOffers` is already zero for anyone `lead:read_offer` refuses —
+ * decided in load-actor.ts by can(), not here. This component must never make
+ * that decision itself (#2); it only draws the number it is handed.
+ */
+async function NavWithOffers({ chrome }: { chrome: Promise<ConsoleChrome> }) {
+  const { summary } = await chrome;
+  return <NavList newOffers={summary.newOffers} />;
 }
 
 async function Ticker({ chrome }: { chrome: Promise<ConsoleChrome> }) {

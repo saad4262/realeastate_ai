@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { toClientSlots } from '@repo/ai/chat-request';
-import type { ResultsEvent } from '@repo/ai/chat-events';
+import type { ResultsEvent, SalesEvent } from '@repo/ai/chat-events';
 import { priceLabel } from '@repo/core/listings/format';
 import type { PublicListingSummary } from '@repo/core/listings';
 import { describeSavedQuery, savedQueryToPath, savedSearchQuerySchema } from '@repo/core/listings/url';
@@ -75,7 +75,7 @@ export default async function ChatPage({
   // A thread id that is not this person's reads as missing, not as refused.
   if (!showHistory && params.thread && !opened) notFound();
 
-  const restored = opened ? reopenFrom(opened.turns) : { results: null, slots: null };
+  const restored = opened ? reopenFrom(opened.turns) : { results: null, sales: null, slots: null };
 
   /**
    * The rail's date headings, decided here rather than in the browser.
@@ -118,12 +118,14 @@ export default async function ChatPage({
         initialThreadId={opened?.thread.id ?? null}
         initialSlots={restored.slots}
         initialResults={restored.results}
+        initialSales={restored.sales}
         initialTurns={
           opened?.turns.map((turn) => ({
             role: turn.role,
             text: turn.text,
             ...(turn.searches ? { searches: turn.searches as never } : {}),
             ...(turn.resultsFrame ? { results: turn.resultsFrame as never } : {}),
+            ...(isSalesFrame(turn.salesFrame) ? { sales: turn.salesFrame } : {}),
             ...(turn.deepLink ? { stateLink: turn.deepLink } : {}),
           })) ?? []
         }
@@ -182,17 +184,33 @@ function groupFor(when: Date, now: Date): string {
  */
 function reopenFrom(turns: StoredTurn[]): {
   results: ResultsEvent | null;
+  sales: SalesEvent | null;
   slots: ReturnType<typeof toClientSlots> | null;
 } {
+  // The last sales frame, found independently: a thread that asked what sold
+  // and never searched live still has a panel to redraw.
+  let sales: SalesEvent | null = null;
+  for (let i = turns.length - 1; i >= 0 && !sales; i--) {
+    const frame = turns[i]?.salesFrame;
+    if (isSalesFrame(frame)) sales = frame;
+  }
+
   for (let i = turns.length - 1; i >= 0; i--) {
     const frame = turns[i]?.resultsFrame;
     if (!frame || typeof frame !== 'object') continue;
     const event = frame as ResultsEvent;
     if (event.type !== 'results' || !event.query || !Array.isArray(event.listings)) continue;
     const slots = toClientSlots(event.query);
-    return { results: event, slots: Object.keys(slots).length > 0 ? slots : null };
+    return { results: event, sales, slots: Object.keys(slots).length > 0 ? slots : null };
   }
-  return { results: null, slots: null };
+  return { results: null, sales, slots: null };
+}
+
+/** A stored `sales` frame, checked the way `reopenFrom` checks a results one. */
+function isSalesFrame(frame: unknown): frame is SalesEvent {
+  if (!frame || typeof frame !== 'object') return false;
+  const event = frame as SalesEvent;
+  return event.type === 'sales' && Array.isArray(event.sales) && typeof event.searchPath === 'string';
 }
 
 /**

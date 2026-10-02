@@ -80,6 +80,9 @@ describe('toModelTurns', () => {
     resultsFrame: {
       listings: [{ id: 'l1', priceDisplay: '$780,000', address: '12 Example St' }],
     },
+    salesFrame: {
+      sales: [{ listingId: 'l2', price: '$612,500', address: '4 Sold Ct' }],
+    },
     deepLink: '/search?suburb=Pakenham',
     createdAt: new Date('2026-09-26T00:00:00Z'),
     ...over,
@@ -106,6 +109,8 @@ describe('toModelTurns', () => {
     // Belt and braces: no price survives anywhere in the payload.
     expect(JSON.stringify(projected)).not.toContain('780,000');
     expect(JSON.stringify(projected)).not.toContain('priceDisplay');
+    // Sold prices are stored for display too, and are dropped the same way.
+    expect(JSON.stringify(projected)).not.toContain('612,500');
   });
 
   it('keeps only the keys chatRequestSchema accepts', () => {

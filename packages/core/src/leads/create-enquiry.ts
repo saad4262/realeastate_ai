@@ -44,7 +44,12 @@ export async function createEnquiry(
   }
 
   const [target] = await db
-    .select({ agencyId: listing.agencyId })
+    /**
+     * The property as well as the agency, because a lead is anchored to the
+     * address and not to the ad (docs/adr/0012). Both come from the listing;
+     * neither is accepted from the browser.
+     */
+    .select({ agencyId: listing.agencyId, propertyId: listing.propertyId })
     .from(listing)
     .where(and(eq(listing.id, listingId), eq(listing.status, PUBLIC_STATUS)))
     .limit(1);
@@ -54,6 +59,7 @@ export async function createEnquiry(
   const [row] = await db
     .insert(lead)
     .values({
+      propertyId: target.propertyId,
       listingId,
       agencyId: target.agencyId,
       name: parsed.data.name,

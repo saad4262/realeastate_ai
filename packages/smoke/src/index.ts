@@ -13,7 +13,9 @@ import {
   type Db,
 } from '@repo/db';
 import {
+  getOffMarketProperty,
   getPublicListing,
+  recentSales,
   listingAgentCards,
   listingDraftSchema,
   propertyTimeline,
@@ -35,7 +37,8 @@ import {
   reverseGeocode,
   suggestPlaces,
 } from '@repo/core/geo';
-import { createEnquiry } from '@repo/core/leads';
+import { createEnquiry, createPrivateOffer, listAgencyLeads } from '@repo/core/leads';
+import { agencyNotificationRecipients } from '@repo/core/agency';
 import { fakeTransport } from '@repo/core/email';
 import {
   claimDueSchedules,
@@ -309,6 +312,175 @@ async function main() {
     return 'every listing has one';
   });
 
+  await check('every sold listing says what it sold for and when', async () => {
+    /**
+     * The state the public timeline cannot render.
+     *
+     * `setListingStatus` writes status, sold_price and sold_date in one
+     * statement and refuses the transition without both, so a row here means
+     * something wrote `status = 'sold'` outside that function — a script, a
+     * hand-run UPDATE, or a second code path that should not exist.
+     *
+     * It also guards the off-market property page: that page's whole content is
+     * these two columns, and a sold listing with neither renders a history
+     * table of em-dashes.
+     */
+    const rows = await db.execute<{ n: number; ids: string | null }>(
+      sql`select count(*)::int as n,
+                 string_agg(left(id::text, 8), ', ') as ids
+          from listing
+          where status = 'sold' and (sold_price is null or sold_date is null)`,
+    );
+    const n = rows[0]?.n ?? 0;
+    assert(n === 0, `${n} sold listing(s) carry no sale figures: ${rows[0]?.ids}`);
+
+    const [total] = await db.execute<{ n: number }>(
+      sql`select count(*)::int as n from listing where status = 'sold'`,
+    );
+    return `${total?.n ?? 0} sold listing(s), all with a price and a date`;
+  });
+
+  await check('the lead inbox never hands a private offer to someone who may not read one', async () => {
+    /**
+     * The disclosure rule, against the real query and real memberships.
+     *
+     * An offer is a named person's financial intent about somebody's home. Only
+     * the people who run the agency are told about one — `lead:read_offer`, and
+     * `agencyNotificationRecipients` mails the same set. This is what says those
+     * two agree, and that the filter is a WHERE clause rather than something the
+     * UI is trusted to hide.
+     *
+     * It asserts the COUNTS as well as the rows. A non-admin must see an inbox
+     * in which offers never existed, not one that says three are hidden —
+     * "3 hidden" discloses most of what the restriction withholds.
+     */
+    const members = await db.execute<{ user_id: string; agency_id: string; role: string }>(
+      sql`select user_id, agency_id, role::text from membership where status = 'active'`,
+    );
+    if (members.length === 0) skip('no active memberships to check');
+
+    const admins = members.filter((m) => m.role === 'owner' || m.role === 'admin');
+    const others = members.filter((m) => m.role !== 'owner' && m.role !== 'admin');
+
+    let offersVisible = 0;
+    for (const m of admins) {
+      const page = await listAgencyLeads(db, {
+        userId: m.user_id,
+        agencyId: m.agency_id,
+        membershipRole: m.role as 'owner' | 'admin',
+      });
+      assert(page.maySeeOffers, `${m.role} was refused the offers tab in their own agency`);
+      offersVisible += page.counts.offers;
+    }
+
+    for (const m of others) {
+      const actor = {
+        userId: m.user_id,
+        agencyId: m.agency_id,
+        membershipRole: m.role as 'agent' | 'assistant' | 'property_manager' | 'read_only',
+      };
+      const page = await listAgencyLeads(db, actor);
+
+      assert(!page.maySeeOffers, `a ${m.role} was told they may read private offers`);
+      assert(
+        page.rows.every((r) => r.kind !== 'offer'),
+        `a ${m.role} was handed a private offer row`,
+      );
+      assert(
+        page.counts.offers === 0,
+        `a ${m.role} was told ${page.counts.offers} offer(s) exist — that is the disclosure`,
+      );
+
+      // And the tab itself is refused rather than shown empty: an empty page
+      // reads as "no offers yet" to somebody who simply may not see them.
+      let refused = false;
+      try {
+        await listAgencyLeads(db, actor, { kind: 'offer' });
+      } catch {
+        refused = true;
+      }
+      assert(refused, `a ${m.role} was given the offers tab instead of a refusal`);
+    }
+
+    return `${admins.length} admin(s) see ${offersVisible} offer(s), ${others.length} other member(s) see none`;
+  });
+
+  await check('the sold-history read can only ever see sold listings', async () => {
+    /**
+     * The security of the guide's new `recent_sales` tool, asked of the real
+     * query.
+     *
+     * It is the first read on this platform whose whole job is to return
+     * listings that are NOT live, which makes it the first one where a missing
+     * status filter would not look broken — it would simply answer with more.
+     * A draft is an agency's unpublished work and must never reach it.
+     *
+     * Every row is cross-checked against the database rather than trusted: the
+     * function could filter correctly and still be handed the wrong rows by a
+     * later edit to the join.
+     */
+    const sales = await recentSales(db, { limit: 30 });
+    if (sales.length === 0) skip('no sales recorded to check');
+
+    /**
+     * An IN list built from individually-bound ids, not `any($1::uuid[])`.
+     * Drizzle binds a JS array as ONE parameter, so the array form reaches
+     * Postgres as a bare uuid string and fails with "malformed array literal".
+     */
+    const ids = sql.join(
+      sales.map((s) => sql`${s.listingId}::uuid`),
+      sql`, `,
+    );
+    const rows = await db.execute<{ id: string; status: string }>(
+      sql`select id, status::text from listing where id in (${ids})`,
+    );
+
+    const wrong = rows.filter((r) => r.status !== 'sold');
+    assert(
+      wrong.length === 0,
+      `the sold history returned ${wrong.map((r) => `${r.id.slice(0, 8)} (${r.status})`).join(', ')}`,
+    );
+    assert(
+      sales.every((s) => s.soldPrice > 0 && s.soldDate instanceof Date),
+      'a sale came back with no price or no date — it cannot be shown to anyone',
+    );
+
+    /**
+     * And newest first, because "recent sales" is a claim about order. The
+     * guide reads these out in the order given and a visitor will take the
+     * first one as the latest.
+     */
+    const dates = sales.map((s) => s.soldDate.getTime());
+    assert(
+      dates.every((d, i) => i === 0 || dates[i - 1]! >= d),
+      'sales came back out of order — the guide would call an old sale the latest',
+    );
+
+    return `${sales.length} sale(s), all sold, all priced, newest first`;
+  });
+
+  await check('a sold listing is never also on sale on the channel axis', async () => {
+    /**
+     * Two columns encoding the same fact is how a listing ends up sold on one
+     * axis and for sale on the other. docs/adr/0012 settles it: `status` is the
+     * lifecycle, `channel` is what the ad was selling, and the 'sold'/'leased'
+     * channel values are legacy.
+     *
+     * An `info` row rather than a failure: rows written before that ADR are not
+     * wrong, they are just from before. It turns into a real check the day the
+     * count reaches zero and stays there.
+     */
+    const rows = await db.execute<{ n: number }>(
+      sql`select count(*)::int as n from listing where channel in ('sold', 'leased')`,
+    );
+    const n = rows[0]?.n ?? 0;
+    if (n > 0) {
+      note('legacy channel', `${n} listing(s) still use the 'sold'/'leased' channel — pre-ADR 0012`);
+      skip(`${n} legacy row(s) — nothing new writes these values`);
+    }
+    return 'nothing uses the legacy channel values';
+  });
+
   await check('every live listing still satisfies the listing contract', async () => {
     /**
      * The schema the console form enforces, asked of what is actually in the
@@ -413,6 +585,247 @@ async function main() {
 
     assert(leaked.length === 0, `timeline exposed: ${leaked.join(', ')}`);
     return `${props.length} propert(ies), ${entries} public entries, no drafts`;
+  });
+
+  await check('a property on the market has no off-market page', async () => {
+    /**
+     * The requirement, asked of the real WHERE clause.
+     *
+     * While an address is being sold or rented, what it last sold for is the
+     * vendor's business and the selling agency's. The unit test can only assert
+     * that ON_MARKET_STATUSES holds the right two words; this asserts the query
+     * acts on them, against every such property in the database.
+     *
+     * `under_offer` is in the list deliberately — a listing under offer has no
+     * public page of its own, so keying this off `live` alone would make a
+     * property mid-transaction read as off-market. See docs/adr/0012.
+     */
+    const onMarket = await db.execute<{ id: string; status: string }>(
+      sql`select distinct p.id, l.status
+          from property p join listing l on l.property_id = p.id
+          where l.status in ('live', 'under_offer')`,
+    );
+    if (onMarket.length === 0) skip('nothing is on the market to check');
+
+    const leaked: string[] = [];
+    for (const p of onMarket) {
+      if (await getOffMarketProperty(db, p.id)) {
+        leaked.push(`${p.id.slice(0, 8)} has a ${p.status} listing`);
+      }
+    }
+
+    assert(leaked.length === 0, `off-market page offered for: ${leaked.join(', ')}`);
+    return `${onMarket.length} on-market propert(ies), none reachable`;
+  });
+
+  await check('an address nobody ever listed publicly cannot be opened', async () => {
+    /**
+     * The security of the route, and the half that breaks silently.
+     *
+     * A `property` row is created by the first agency that drafts an ad against
+     * the address, and it outlives every ad (#1). So a property whose listings
+     * are all drafts is an agency's unpublished pipeline — an address they are
+     * about to bring to market, months before they say so. Without the gate's
+     * second condition, `/property/<guessed-uuid>` would confirm each one exists
+     * and print its address, its bedrooms and its map pin.
+     *
+     * Nothing about the page would look wrong. This is what notices.
+     */
+    const hidden = await db.execute<{ id: string }>(
+      sql`select p.id from property p
+          where exists (select 1 from listing l where l.property_id = p.id)
+            and not exists (
+              select 1 from listing l
+              where l.property_id = p.id and l.status in ('live', 'under_offer', 'sold')
+            )`,
+    );
+    if (hidden.length === 0) skip('no draft-only or withdrawn-only property present');
+
+    const leaked: string[] = [];
+    for (const p of hidden) {
+      const open = await getOffMarketProperty(db, p.id);
+      if (open) leaked.push(`${p.id.slice(0, 8)} — ${open.address}`);
+    }
+
+    assert(leaked.length === 0, `unpublished address exposed: ${leaked.join(', ')}`);
+    return `${hidden.length} never-public propert(ies), none reachable`;
+  });
+
+  await check('an off-market page and its history agree with each other', async () => {
+    /**
+     * Two reads, one page. The gate decides whether the page exists; the
+     * timeline fills it. They apply their status rules separately, so this is
+     * what says they cannot disagree — a page that renders with a live listing
+     * in its history table is the leak, arriving through the back door.
+     */
+    const props = await db.execute<{ id: string }>(
+      sql`select distinct property_id as id from listing`,
+    );
+    if (props.length === 0) skip('no listings to check');
+
+    let open = 0;
+    let sales = 0;
+    const wrong: string[] = [];
+
+    for (const p of props) {
+      if (!(await getOffMarketProperty(db, p.id))) continue;
+      open++;
+      for (const entry of await propertyTimeline(db, p.id)) {
+        if (entry.status === 'sold') sales++;
+        if (entry.status === 'live' || entry.status === 'under_offer') {
+          wrong.push(`${p.id.slice(0, 8)} shows a ${entry.status} listing`);
+        }
+      }
+    }
+
+    assert(wrong.length === 0, `off-market history disagrees: ${wrong.join(', ')}`);
+    if (open === 0) skip('no property is off-market yet — nothing to cross-check');
+    return `${open} off-market page(s), ${sales} sale(s), no on-market rows`;
+  });
+
+  await check('a private offer cannot be filed on a property that is not open to one', async () => {
+    /**
+     * Fail-closed, against the real WHERE clause.
+     *
+     * `createPrivateOffer` is one INSERT ... SELECT: the statement that decides
+     * whether the offer is allowed is the statement that writes it. So there is
+     * no way to unit-test the decision — a fake can only report what it was
+     * asked, not whether the answer is right. This asks Postgres.
+     *
+     * Three refusals, and the last is the one the requirement turns on: an
+     * address currently being sold must not accept an offer aimed at whoever
+     * sold it previously.
+     */
+    const OFFER = {
+      name: 'Smoke Check',
+      phone: '0400 000 000',
+      message: 'This is a smoke check and should never be recorded anywhere.',
+      offerAmount: 1,
+    };
+    const [someone] = await db.execute<{ id: string; email: string }>(
+      sql`select id, email from "user" limit 1`,
+    );
+    if (!someone) skip('no user account to attribute an offer to');
+    const offerer = { userId: someone.id, email: 'smoke-offer@example.invalid' };
+
+    const refused = async (propertyId: string): Promise<boolean> => {
+      try {
+        await createPrivateOffer(db, propertyId, offerer, OFFER);
+        return false;
+      } catch {
+        return true;
+      }
+    };
+
+    assert(
+      await refused('00000000-0000-4000-8000-000000000000'),
+      'an offer was accepted for an id that is not a property',
+    );
+
+    const [onMarket] = await db.execute<{ id: string; status: string }>(
+      sql`select distinct p.id, l.status from property p
+          join listing l on l.property_id = p.id
+          where l.status in ('live', 'under_offer') limit 1`,
+    );
+    if (onMarket) {
+      assert(
+        await refused(onMarket.id),
+        `an offer was accepted on a property with a ${onMarket.status} listing`,
+      );
+    }
+
+    /**
+     * The re-listed case, and the only one that actually exercises the
+     * on-market guard.
+     *
+     * A property with nothing but a live listing is already refused by
+     * `status = 'sold'` — there is no sale to route to. The guard only earns its
+     * place on a property that sold once and is on the market AGAIN: a house
+     * sold in 2019, listed today. There the sale exists, the agency is
+     * resolvable, and the only thing standing between a stranger's offer and
+     * the vendor's current agent is the NOT EXISTS.
+     *
+     * Removing that clause left this whole check green until this sub-case
+     * existed, which is exactly the kind of green CLAUDE.md warns about.
+     */
+    const [relisted] = await db.execute<{ id: string }>(
+      sql`select p.id from property p
+          where exists (select 1 from listing l
+                        where l.property_id = p.id and l.status = 'sold')
+            and exists (select 1 from listing l
+                        where l.property_id = p.id and l.status in ('live', 'under_offer'))
+          limit 1`,
+    );
+    if (relisted) {
+      assert(
+        await refused(relisted.id),
+        'an offer was accepted on a property that sold once and is on the market again',
+      );
+    }
+
+    const [neverPublic] = await db.execute<{ id: string }>(
+      sql`select p.id from property p
+          where exists (select 1 from listing l where l.property_id = p.id)
+            and not exists (
+              select 1 from listing l where l.property_id = p.id
+                and l.status in ('live', 'under_offer', 'sold')
+            ) limit 1`,
+    );
+    if (neverPublic) {
+      assert(await refused(neverPublic.id), 'an offer was accepted on a never-public address');
+    }
+
+    // Nothing may have been written by any of the above — the same convention
+    // the enquiry check uses, and the only way to know a refusal was a refusal
+    // rather than a thrown error after a successful insert.
+    const [leaked] = await db.execute<{ n: number }>(
+      sql`select count(*)::int as n from lead where email = 'smoke-offer@example.invalid'`,
+    );
+    assert((leaked?.n ?? 0) === 0, `${leaked?.n} smoke offer(s) were written`);
+
+    const tested = [
+      'unknown id',
+      onMarket && 'on-market',
+      relisted && 'sold-then-relisted',
+      neverPublic && 'never-public',
+    ].filter(Boolean);
+    // Named in the output on purpose: "sold-then-relisted" missing from this
+    // line means the on-market guard went untested on this database.
+    return `${tested.join(', ')} refused, nothing written`;
+  });
+
+  await check('an offer notification goes to owners and admins only', async () => {
+    /**
+     * `agency` has no email column, so "tell the agency" means telling people —
+     * and which people is a disclosure decision. A private offer on a past sale
+     * is commercially sensitive, and a revoked membership is somebody who has
+     * left the business.
+     */
+    const [anAgency] = await db.execute<{ id: string }>(sql`select id from agency limit 1`);
+    if (!anAgency) skip('no agency to check');
+
+    const recipients = await agencyNotificationRecipients(db, anAgency.id);
+    const allowed = await db.execute<{ email: string }>(
+      sql`select u.email from membership m join "user" u on u.id = m.user_id
+          where m.agency_id = ${anAgency.id} and m.status = 'active'
+            and m.role in ('owner', 'admin')`,
+    );
+
+    const expected = new Set(allowed.map((r) => r.email));
+    const unexpected = recipients.filter((r) => !expected.has(r.email));
+    assert(
+      unexpected.length === 0,
+      `would notify ${unexpected.map((r) => r.email).join(', ')} — not an owner or admin`,
+    );
+    assert(
+      recipients.length === expected.size,
+      `${expected.size} owner/admin(s) but ${recipients.length} recipient(s)`,
+    );
+    assert(
+      recipients.every((r) => r.email.includes('@')),
+      'a recipient has no email address',
+    );
+    return `${recipients.length} recipient(s), every one an active owner or admin`;
   });
 
   await check('a public listing never exposes an agent email', async () => {
@@ -1008,6 +1421,240 @@ async function main() {
     );
 
     return `skinned, ${targets.length} tabs: ${targets.join(', ')}`;
+  });
+
+  await check("a re-listed property's listing page shows its earlier sales", async () => {
+    /**
+     * The requirement, asked of the rendered HTML (ADR 0013, which replaced
+     * ADR 0012's "hide the history while on the market").
+     *
+     * A house sold by one agency and listed again by another is ONE property.
+     * Its new listing page must carry the earlier sale — by price, the way the
+     * timeline formats it — or the history the property/listing split exists
+     * for is invisible exactly when a buyer is looking.
+     *
+     * Checks the tab and the section together. They were built from two separate
+     * decisions once, and a `#history` tab scrolling to nothing is how that
+     * showed up.
+     */
+    if (!webUp) skip('web app is not running');
+
+    /**
+     * A live listing whose property HAS a past sale. Only there does the price
+     * assertion mean anything; with none, the check says so instead of passing.
+     */
+    const [relisted] = await db.execute<{ id: string }>(
+      sql`select l.id from listing l
+          where l.status = 'live'
+            and exists (select 1 from listing s
+                        where s.property_id = l.property_id and s.status = 'sold'
+                          and s.sold_price is not null)
+          limit 1`,
+    );
+    if (!relisted) skip('no live listing stands on an address that sold before');
+
+    const res = await http(`${WEB}/listing/${relisted.id}`);
+    assert(res.ok, `the listing page returned HTTP ${res.status}`);
+    const html = await res.text();
+
+    const sales = await db.execute<{ price: string }>(
+      sql`select sold_price::bigint::text as price from listing
+          where property_id = (select property_id from listing where id = ${relisted.id})
+            and status = 'sold' and sold_price is not null`,
+    );
+    const missing = sales
+      .map((r) => Number(r.price).toLocaleString('en-AU'))
+      .filter((formatted) => !html.includes(formatted));
+    assert(
+      missing.length === 0,
+      `a re-listed property's page leaves out its earlier sale(s): ${missing.join(', ')}`,
+    );
+    assert(/id="history"/.test(html), 'a re-listed listing page has no history section');
+    assert(/href="#history"/.test(html), 'a re-listed listing page has no history tab');
+
+    return `${sales.length} earlier sale(s) shown on the live listing, with its tab`;
+  });
+
+  await check('an off-market property page carries its history and no index', async () => {
+    /**
+     * The other side of the same swap: the page that DOES show the history.
+     *
+     * Only reachable once nothing at the address is on the market, which is why
+     * this skips rather than fails when the database happens to hold no sold
+     * listing — there is genuinely no such page to fetch then, and saying so is
+     * more use than a green tick.
+     */
+    if (!webUp) skip('web app is not running');
+
+    const [offMarket] = await db.execute<{ id: string }>(
+      sql`select p.id from property p
+          where exists (select 1 from listing l
+                        where l.property_id = p.id and l.status = 'sold')
+            and not exists (select 1 from listing l
+                            where l.property_id = p.id
+                              and l.status in ('live', 'under_offer'))
+          limit 1`,
+    );
+    if (!offMarket) skip('no property is off-market — nothing to fetch');
+
+    const res = await http(`${WEB}/property/${offMarket.id}`);
+    assert(res.ok, `the off-market page returned HTTP ${res.status}`);
+    const html = await res.text();
+
+    const wrapper = /<div[^>]*data-page="property-detail"[^>]*>/.exec(html);
+    assert(wrapper !== null, 'the off-market page did not render — it may be 404ing');
+    assert(
+      /data-skin="portal"/.test(wrapper[0]),
+      'the off-market page renders outside the portal skin',
+    );
+
+    /**
+     * noindex is a product decision, not decoration: the page is reachable by
+     * link and deliberately not advertised, so a crawler must not build a
+     * directory of recently-sold addresses out of it.
+     */
+    assert(
+      /name="robots"[^>]*content="[^"]*noindex/.test(html) ||
+        /content="[^"]*noindex[^"]*"[^>]*name="robots"/.test(html),
+      'the off-market page is missing its noindex — it can be crawled and indexed',
+    );
+
+    assert(
+      /Not currently on the market/.test(html),
+      'the off-market page does not say the property is off the market',
+    );
+    assert(/Property history/.test(html), 'the off-market page shows no history');
+    // Signed out, so the form must be a sign-in prompt rather than an offer box.
+    assert(
+      /Sign in to make an offer/.test(html),
+      'the off-market page offers the form to an anonymous visitor',
+    );
+
+    return 'skinned, noindex, history shown, offer behind sign-in';
+  });
+
+  await check('the sold index lists sales and links each to its own history', async () => {
+    /**
+     * The browse page behind the guide's "View all N sold".
+     *
+     * It is the counterpart to `/search` and has to behave like one: real
+     * cards, each linking somewhere that exists. It is also `noindex`, which is
+     * not decoration — a crawlable directory of recently-sold addresses is
+     * something this platform deliberately does not publish, and making sold
+     * data browsable from the guide did not change that decision.
+     */
+    if (!webUp) skip('web app is not running');
+
+    const [sale] = await db.execute<{ suburb: string }>(
+      sql`select p.suburb from listing l join property p on p.id = l.property_id
+          where l.status = 'sold' and l.sold_price is not null
+            and l.sold_date > now() - interval '24 months'
+          limit 1`,
+    );
+    if (!sale) skip('no sale recorded to list');
+
+    const res = await http(`${WEB}/sold?suburb=${encodeURIComponent(sale.suburb)}`);
+    assert(res.ok, `/sold returned HTTP ${res.status}`);
+    const html = await res.text();
+
+    assert(/data-page="sold-index"/.test(html), '/sold did not render its own page');
+    assert(/data-skin="portal"/.test(html), '/sold renders outside the portal skin');
+    assert(
+      /name="robots"[^>]*content="[^"]*noindex/.test(html) ||
+        /content="[^"]*noindex[^"]*"[^>]*name="robots"/.test(html),
+      '/sold is missing its noindex — a directory of sold addresses can be crawled',
+    );
+
+    // A sale links to its history: the off-market page, or — for an address
+    // re-listed since — the live listing, which carries the same history.
+    const links = html.match(/href="\/(property|listing)\/[0-9a-f-]{36}"/g) ?? [];
+    assert(links.length > 0, '/sold listed a sale with no link to its history');
+
+    /**
+     * And no enquiry affordance on the card itself. Nobody can enquire about a
+     * house that has already been bought; a re-listed one is reached through
+     * its own listing page, where the enquiry goes to the agency selling it now.
+     */
+    assert(!/Enquire/i.test(html), '/sold offers to enquire about a completed sale');
+
+    return `${links.length} sale(s) listed, each linked, noindex`;
+  });
+
+  await check('an on-market property sends its history link to the live listing', async () => {
+    /**
+     * The off-market page and the private offer on it exist only while nothing
+     * at the address is on the market. Once it is live again, an old
+     * `/property/<id>` link must land on the listing — whose enquiry reaches
+     * the agency selling it NOW, not whoever sold it last.
+     */
+    if (!webUp) skip('web app is not running');
+
+    const [live] = await db.execute<{ property_id: string; id: string }>(
+      sql`select l.property_id, l.id from listing l where l.status = 'live'
+          order by l.published_at desc nulls last limit 1`,
+    );
+    if (!live) skip('nothing is live');
+
+    const res = await http(`${WEB}/property/${live.property_id}`);
+    const html = res.status >= 300 && res.status < 400 ? '' : await res.text();
+    const location = res.headers.get('location') ?? '';
+    /**
+     * A redirect from a dynamic page streams as a meta refresh when the shell
+     * has already been sent, so either form counts — what must NOT happen is
+     * the off-market page, and its offer form, rendering.
+     */
+    assert(
+      location.includes(`/listing/${live.id}`) || html.includes(`/listing/${live.id}`),
+      `/property/<live> did not send the visitor to /listing/${live.id}`,
+    );
+    assert(
+      !/data-page="property-detail"/.test(html),
+      'an on-market property rendered its off-market page, offer form and all',
+    );
+    return `redirected to the live listing (${res.status})`;
+  });
+
+  await check('an old sold-listing link goes on to where the address lives now', async () => {
+    /**
+     * Bookmarks outlive ads. A sold listing's URL must land on the live
+     * listing at that address, or its history page — never a dead end. And a
+     * draft's URL must NOT be followed anywhere: that would confirm to somebody
+     * guessing ids that an agency has an unpublished ad at an address.
+     *
+     * Redirects from this streamed route arrive as NEXT_REDIRECT in the body
+     * rather than a Location header, so both are accepted.
+     */
+    if (!webUp) skip('web app is not running');
+
+    const [sold] = await db.execute<{ id: string }>(
+      sql`select l.id from listing l where l.status = 'sold' limit 1`,
+    );
+    if (!sold) skip('no sold listing to follow');
+
+    const res = await http(`${WEB}/listing/${sold.id}`);
+    const body = res.status >= 300 && res.status < 400 ? '' : await res.text();
+    const target =
+      res.headers.get('location') ??
+      /NEXT_REDIRECT;[a-z]+;(\/(?:listing|property)\/[0-9a-f-]{36})/.exec(body)?.[1] ??
+      null;
+    assert(
+      target !== null && /\/(listing|property)\/[0-9a-f-]{36}/.test(target),
+      `/listing/<sold> did not redirect anywhere (HTTP ${res.status})`,
+    );
+
+    const [draft] = await db.execute<{ id: string }>(
+      sql`select l.id from listing l where l.status = 'draft' limit 1`,
+    );
+    if (draft) {
+      const d = await http(`${WEB}/listing/${draft.id}`);
+      const dBody = d.status >= 300 && d.status < 400 ? '' : await d.text();
+      assert(
+        !d.headers.get('location') && !/NEXT_REDIRECT/.test(dBody),
+        'a draft listing URL redirected — it confirms an unpublished ad exists',
+      );
+    }
+
+    return `sold → ${target}${draft ? ', draft stays a 404' : ' (no draft to test)'}`;
   });
 
   await check('no filter option the search box offers can return zero results', async () => {
@@ -1871,6 +2518,10 @@ async function main() {
     [`${AGENCY}/live-listings/new`, 'agency add-listing'],
     [`${AGENCY}/live-listings/00000000-0000-0000-0000-000000000000/edit`, 'agency edit-listing'],
     [`${AGENCY}/team`, 'agency team'],
+    // The inbox holds contact details and private offers. It joined this list
+    // the moment it stopped being a placeholder.
+    [`${AGENCY}/leads`, 'agency leads'],
+    [`${AGENCY}/leads?kind=offer`, 'agency leads (offers tab)'],
     [`${AGENT}/listings`, 'agent listings'],
     [`${AGENT}/listings/00000000-0000-0000-0000-000000000000/edit`, 'agent edit-listing'],
   ];
@@ -2921,6 +3572,122 @@ async function main() {
     assert(search.query.priceTo === 900_000, `priceTo was ${search.query.priceTo}`);
     assert(search.deepLink.startsWith('/search?'), `deep link was ${search.deepLink}`);
     return `${search.matched} matches in ${suburb}`;
+  });
+
+  await check('the guide reaches for sold data instead of denying it exists', async () => {
+    /**
+     * The regression this feature was built for.
+     *
+     * Asked "a house in Pakenham which is already sold", the guide used to say
+     * sold properties are not on the portal — true of its search tools and
+     * false of the database they sit on. Every unit test here runs against a
+     * fake model, so the only way to know a real one reaches for the new tool
+     * is to ask a real one.
+     *
+     * Asserts the TOOL was called, not what the answer said. Whether any sale
+     * exists depends on what the database holds today, and a check that goes
+     * red because nothing has sold lately is a check people learn to ignore.
+     */
+    if (!webUp) skip('web app is not running');
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+
+    /**
+     * A suburb that HAS a recorded sale, when the database holds one.
+     *
+     * Any live suburb was the first version, and it asked about a suburb with
+     * no sales — so the tool call was asserted and every card assertion below
+     * was skipped. The third time that pattern bit in this project.
+     */
+    const [withSale] = await db.execute<{ suburb: string }>(
+      sql`select distinct p.suburb from listing l
+          join property p on p.id = l.property_id
+          where l.status = 'sold' and l.sold_price is not null
+            and l.sold_date > now() - interval '24 months'
+          limit 1`,
+    );
+
+    const suburb = withSale?.suburb ?? (await liveSuburbs(db))[0];
+    if (!suburb) skip('no suburb to ask about');
+
+    const turn = await chat({ message: `what has sold recently in ${suburb}?` });
+    const called = turn.tools.map((t) => t.name);
+
+    assert(
+      called.includes('recent_sales'),
+      `the guide answered a sold-homes question with ${called.join(', ') || 'no tools at all'}`,
+    );
+    /**
+     * And it must not have fallen back to the live search, which cannot see a
+     * sold listing and would have produced a confidently wrong answer.
+     */
+    assert(
+      !called.includes('search_listings'),
+      'the guide searched live listings for a question about sold homes',
+    );
+
+    /**
+     * And the findings reached the panel.
+     *
+     * This is the frame whose absence caused the bug v10 fixes: `recent_sales`
+     * had nowhere to put what it found, so the guide — forbidden from writing
+     * links out — told the visitor to click a sale that was not on screen.
+     *
+     * Asserted over the wire rather than in the tool, because three separate
+     * places carry their own copy of the event union (the pipeline, the NDJSON
+     * serialiser, the buffered collector) and any of them can silently drop a
+     * member.
+     */
+    assert(Array.isArray(turn.sales), 'the turn carried no sales array at all');
+
+    const cards = turn.sales.flatMap((f) => f.sales);
+    if (cards.length === 0) {
+      // No sale recorded in that suburb is a legitimate state, and the tool
+      // call above is the thing this check exists for.
+      return `called ${called.join(', ')} — no sales recorded to render`;
+    }
+
+    for (const frame of turn.sales) {
+      /**
+       * The affordances a live search gets, which the sold panel had none of —
+       * which is why the guide read addresses out instead of pointing at a
+       * list. `total` drives "View all N sold"; `searchPath` is where it goes.
+       */
+      assert(
+        frame.searchPath.startsWith('/sold?'),
+        `a sales frame's browse link is not a /sold path: ${frame.searchPath}`,
+      );
+      assert(
+        frame.total >= frame.sales.length,
+        `a sales frame says ${frame.total} total but carries ${frame.sales.length} cards`,
+      );
+    }
+
+    for (const card of cards) {
+      assert(/\$/.test(card.price), `a sold card carried no formatted price: ${card.price}`);
+      assert(card.soldOn.trim().length > 0, 'a sold card carried no date');
+      assert(card.address.trim().length > 0, 'a sold card carried no address');
+      /**
+       * Null is a valid answer — an address under offer again has no page to
+       * send anyone to — but a path must be a path. A malformed one would render a link
+       * straight to a 404.
+       */
+      assert(
+        card.historyPath === null ||
+          /^\/(property|listing)\/[0-9a-f-]{36}$/.test(card.historyPath),
+        `a sold card's link is not a property or listing path: ${card.historyPath}`,
+      );
+      /**
+       * A pin is optional — an address nobody geocoded is simply not placeable
+       * — but a half-pin is not. Latitude without longitude puts a marker in
+       * the ocean, which is the bug the live map's own counter was written for.
+       */
+      assert(
+        (card.latitude === null) === (card.longitude === null),
+        `a sold card carries half a pin: ${card.latitude}, ${card.longitude}`,
+      );
+    }
+
+    return `called ${called.join(', ')}, ${cards.length} card(s) rendered`;
   });
 
   await check('a searched turn comes back with server-authored chips', async () => {
