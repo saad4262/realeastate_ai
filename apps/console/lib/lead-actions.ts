@@ -1,13 +1,16 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 import {
   assignLead,
   LeadTriageError,
+  notifyLeadAssigned,
   updateLeadStatus,
   type LeadStatus,
   type TriageErrorCode,
 } from '@repo/core/leads';
+import { noticeMailFromEnv } from '@repo/core/email';
 import { getConsoleDb } from './db';
 import { loadListingActor } from './load-actor';
 import { requireActionUserId } from './auth-account';
@@ -64,5 +67,22 @@ export async function assignLeadAction(
   leadId: string,
   assigneeUserId: string | null,
 ): Promise<TriageActionResult> {
-  return run((actor) => assignLead(getConsoleDb(), actor, leadId, assigneeUserId));
+  return run(async (actor) => {
+    const result = await assignLead(getConsoleDb(), actor, leadId, assigneeUserId);
+    const assignee = result.assignedTo;
+    // After the response: the picker should not wait on Resend, and a failed
+    // email must not read as a failed assignment — the lead is assigned either way.
+    if (assignee) after(() => emailAssignee(leadId, assignee, actor.userId));
+    return result;
+  });
+}
+
+async function emailAssignee(leadId: string, assigneeUserId: string, assignedBy: string) {
+  const mail = noticeMailFromEnv();
+  if (!mail) return;
+  try {
+    await notifyLeadAssigned(getConsoleDb(), mail, leadId, assigneeUserId, assignedBy);
+  } catch (err) {
+    console.error(`[lead-notice] assignment notice for lead ${leadId} failed`, err);
+  }
 }

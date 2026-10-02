@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import {
+  emailAgentInvite,
   inviteAgent,
   listAgencyAgents,
   resendAgentInvite,
@@ -11,6 +12,32 @@ import {
 } from '@repo/core/team';
 import { requireConsoleAccess } from '../../../lib/require-console-access';
 import { getConsoleDb } from '../../../lib/db';
+import { noticeMailFromEnv } from '@repo/core/email';
+import type { Actor } from '@repo/core/permissions';
+
+/**
+ * Email the claim link. Never fails the invite: the link is on screen with a
+ * Copy button either way, and the screen says whether the email went.
+ */
+async function emailInvite(
+  actor: Actor,
+  invite: { inviteId: string; claimPath: string; expiresAt: Date },
+): Promise<boolean> {
+  const mail = noticeMailFromEnv();
+  if (!mail) return false;
+  try {
+    const outcome = await emailAgentInvite(
+      getConsoleDb(),
+      { mailer: mail.mailer, agentUrl: mail.urls.agentUrl },
+      actor,
+      invite,
+    );
+    return outcome.emailed;
+  } catch (err) {
+    console.error('[invite] email failed', err);
+    return false;
+  }
+}
 
 export type InviteAgentActionResult =
   | {
@@ -21,6 +48,8 @@ export type InviteAgentActionResult =
       status: string;
       /** ISO — the claim link stops working at this instant. */
       expiresAt: string;
+      /** Whether the link also went to the agent by email. */
+      emailed: boolean;
     }
   | {
       ok: false;
@@ -46,7 +75,16 @@ export async function inviteAgentAction(
     // email is configured, not back to createUser.
     const result = await inviteAgent(db, session.actor, draft);
     revalidatePath('/team');
+    const emailed =
+      result.status === 'pending'
+        ? await emailInvite(session.actor, {
+            inviteId: result.inviteId,
+            claimPath: result.claimPath,
+            expiresAt: result.expiresAt,
+          })
+        : false;
     return {
+      emailed,
       ok: true,
       inviteId: result.inviteId,
       token: result.token,
@@ -74,7 +112,7 @@ export async function loadTeamAgentsAction() {
 
 
 export type ResendInviteActionResult =
-  | { ok: true; inviteId: string; claimPath: string; expiresAt: string }
+  | { ok: true; inviteId: string; claimPath: string; expiresAt: string; emailed: boolean }
   | { ok: false; error: string; code: InviteErrorCode };
 
 /** Cut a fresh link for an invite that lapsed, without redoing the wizard. */
@@ -88,7 +126,9 @@ export async function resendInviteAction(
   try {
     const result = await resendAgentInvite(getConsoleDb(), session.actor, inviteId);
     revalidatePath('/team');
+    const emailed = await emailInvite(session.actor, result);
     return {
+      emailed,
       ok: true,
       inviteId: result.inviteId,
       claimPath: result.claimPath,

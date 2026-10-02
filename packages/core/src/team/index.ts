@@ -34,3 +34,8 @@ export {
   type ResendInviteResult,
 } from './manage-invites';
 export { listAgencyAgents, type AgencyAgentRow } from './list-agents';
+export {
+  emailAgentInvite,
+  type InviteEmailDeps,
+  type InviteEmailOutcome,
+} from './invite-email';

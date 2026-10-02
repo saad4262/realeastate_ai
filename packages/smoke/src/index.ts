@@ -45,6 +45,7 @@ import {
   createPrivateOffer,
   LeadTriageError,
   listAgencyLeads,
+  notifyNewLead,
   updateLeadStatus,
 } from '@repo/core/leads';
 import { can, type MembershipRole } from '@repo/core/permissions';
@@ -583,6 +584,57 @@ async function main() {
     }
     assert(wrong.length === 0, wrong.join('; '));
     return rows.length > 0 ? `${rows.length} assigned lead(s), all workable` : 'no lead is assigned yet';
+  });
+
+  await check('a new enquiry is mailed to somebody, and only to people who may read it', async () => {
+    /**
+     * The lead notice, through real rows and a fake transport — nothing is
+     * sent. Two halves: every recent enquiry reaches at least one person (a
+     * lead nobody hears about is the failure the notice exists to prevent),
+     * and every person it reaches is an active member of that lead's agency
+     * who is either named on its listing or runs the agency. The second half
+     * is checked in SQL here, independently of the can() calls inside.
+     */
+    const leads = await db.execute<{ id: string }>(sql`
+      select id from lead where kind = 'enquiry' order by created_at desc limit 10
+    `);
+    if (leads.length === 0) skip('no enquiry to send a notice for');
+
+    const transport = fakeTransport();
+    const deps = {
+      mailer: {
+        sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' },
+        transport,
+      },
+      urls: { agentUrl: 'http://agents.smoke', agencyUrl: 'http://agency.smoke' },
+    };
+
+    const wrong: string[] = [];
+    let sent = 0;
+    for (const { id } of leads) {
+      const before = transport.sent.length;
+      await notifyNewLead(db, deps, id);
+      const to = transport.sent.slice(before).map((m) => m.to.email.toLowerCase());
+      sent += to.length;
+      if (to.length === 0) wrong.push(`${id.slice(0, 8)} reaches nobody`);
+
+      const allowed = await db.execute<{ email: string }>(sql`
+        select lower(u.email) as email
+        from lead l
+        join membership m on m.agency_id = l.agency_id and m.status = 'active'
+        join "user" u on u.id = m.user_id
+        where l.id = ${id}
+          and (m.role in ('owner', 'admin')
+               or exists (select 1 from listing_agent la
+                          where la.listing_id = l.listing_id and la.user_id = m.user_id))
+      `);
+      const ok = new Set(allowed.map((r) => r.email));
+      for (const email of to) {
+        if (!ok.has(email)) wrong.push(`${id.slice(0, 8)} was mailed to someone outside its listing and admins`);
+      }
+    }
+    assert(wrong.length === 0, wrong.join('; '));
+    return `${leads.length} enquiry(ies), ${sent} notice(s), all to people who may read them`;
   });
 
   await check('triage writes run against the real schema, and stop at the tenancy line', async () => {

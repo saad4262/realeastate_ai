@@ -1,4 +1,4 @@
-import { EmailError, type EmailMessage, type EmailTransport, type SendResult } from './transport';
+import { dryRunTransport, EmailError, type EmailMessage, type EmailTransport, type SendResult } from './transport';
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 
@@ -162,4 +162,50 @@ export function requireResendTransport(env: NodeJS.ProcessEnv = process.env): Em
   const apiKey = env.RESEND_API_KEY?.trim();
   if (!apiKey) throw new EmailError('Alert email is not configured: RESEND_API_KEY not set');
   return resendTransport({ apiKey });
+}
+
+/**
+ * Sender and transport together, for a notice sent from a request.
+ *
+ * `ALERTS_DRY_RUN=1` builds everything and sends nothing — the switch the
+ * digest and the offer notice already honour, so one setting quiets all mail
+ * from an environment. Throws (EmailError) when mail is not configured; the
+ * callers treat that as "not sent", never as a failed request.
+ */
+export function mailerFromEnv(env: NodeJS.ProcessEnv = process.env): {
+  sender: SenderIdentity;
+  transport: EmailTransport;
+} {
+  const sender = requireSenderIdentity(env);
+  const transport = env.ALERTS_DRY_RUN === '1' ? dryRunTransport() : requireResendTransport(env);
+  return { sender, transport };
+}
+
+/**
+ * Everything a notice sent from a request needs: the mailer, and the origins
+ * of the two console hosts its links point at. Both apps send notices (the web
+ * app on a new enquiry, the console on an invite or an assignment), so this is
+ * here rather than written twice.
+ *
+ * Null when mail is not configured: the caller carries on without sending and
+ * says so, rather than failing the write it follows.
+ */
+export function noticeMailFromEnv(env: NodeJS.ProcessEnv = process.env): {
+  mailer: { sender: SenderIdentity; transport: EmailTransport };
+  urls: { agentUrl: string; agencyUrl: string };
+} | null {
+  let mailer: ReturnType<typeof mailerFromEnv>;
+  try {
+    mailer = mailerFromEnv(env);
+  } catch (err) {
+    console.warn('[mail] not configured:', (err as Error).message);
+    return null;
+  }
+  return {
+    mailer,
+    urls: {
+      agentUrl: env.NEXT_PUBLIC_AGENT_URL?.trim() || 'http://agents.lvh.me:3001',
+      agencyUrl: env.NEXT_PUBLIC_AGENCY_URL?.trim() || 'http://agency.lvh.me:3001',
+    },
+  };
 }

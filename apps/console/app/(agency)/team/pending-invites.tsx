@@ -95,11 +95,19 @@ export function PendingInvites({ invites }: { invites: Row[] }) {
         ),
       );
       setRevealedId(null);
-      toast({
-        variant: 'success',
-        title: 'New link ready',
-        description: `Share it with ${row.email} — the old link no longer works.`,
-      });
+      toast(
+        result.emailed
+          ? {
+              variant: 'success',
+              title: 'New link emailed',
+              description: `We emailed it to ${row.email}. The old link no longer works.`,
+            }
+          : {
+              variant: 'warning',
+              title: 'New link ready — not emailed',
+              description: `The email did not go. Share the link with ${row.email} yourself — the old one no longer works.`,
+            },
+      );
     });
   }
 

@@ -102,11 +102,21 @@ export default function OnboardingDispatchPage() {
     setSent(result);
     setSentDraft(payload);
     const who = payload.displayName || payload.email;
-    toast({
-      variant: 'success',
-      title: resend ? 'New link sent' : 'Invitation stored',
-      description: `${who} can claim their account with the link below.`,
-    });
+    // Says plainly whether the email went: if it did not, the admin has to
+    // pass the link on themselves, and only this toast tells them so.
+    toast(
+      result.emailed
+        ? {
+            variant: 'success',
+            title: resend ? 'New link emailed' : 'Invitation emailed',
+            description: `We emailed ${payload.email} their link. It is also below if you want to send it yourself.`,
+          }
+        : {
+            variant: 'warning',
+            title: resend ? 'New link ready — not emailed' : 'Invitation stored — not emailed',
+            description: `The email did not go. Copy the link below and send it to ${who}.`,
+          },
+    );
     if (!resend) reset();
   }
 

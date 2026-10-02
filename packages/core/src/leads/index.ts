@@ -26,3 +26,9 @@ export {
   type TriageErrorCode,
   type TriagedLead,
 } from './triage-lead';
+export {
+  notifyLeadAssigned,
+  notifyNewLead,
+  type NoticeDeps,
+  type NoticeOutcome,
+} from './lead-notices';

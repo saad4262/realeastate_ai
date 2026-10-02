@@ -1,7 +1,14 @@
 'use server';
 
 import { headers } from 'next/headers';
-import { createEnquiry, EnquiryError, type EnquiryResult } from '@repo/core/leads';
+import { after } from 'next/server';
+import { noticeMailFromEnv } from '@repo/core/email';
+import {
+  createEnquiry,
+  EnquiryError,
+  notifyNewLead,
+  type EnquiryResult,
+} from '@repo/core/leads';
 import { getWebDb } from './db';
 
 /**
@@ -70,7 +77,10 @@ export async function sendEnquiryAction(
   }
 
   try {
-    await createEnquiry(getWebDb(), listingId, input);
+    const { leadId } = await createEnquiry(getWebDb(), listingId, input);
+    // Tell the listing's agents — after the response, so the visitor never
+    // waits on Resend, and outside the write, so a mail outage loses no lead.
+    after(() => emailListingAgents(leadId));
     return { ok: true };
   } catch (err) {
     if (err instanceof EnquiryError || (err as Error)?.name === 'EnquiryError') {
@@ -79,5 +89,15 @@ export async function sendEnquiryAction(
     }
     // Never hand a raw database error to a public page.
     return { ok: false, error: 'Could not send that just now. Please try again.' };
+  }
+}
+
+async function emailListingAgents(leadId: string) {
+  const mail = noticeMailFromEnv();
+  if (!mail) return;
+  try {
+    await notifyNewLead(getWebDb(), mail, leadId);
+  } catch (err) {
+    console.error(`[lead-notice] new-lead notice for lead ${leadId} failed`, err);
   }
 }

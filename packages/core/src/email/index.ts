@@ -12,6 +12,8 @@ export {
 } from './transport';
 
 export {
+  mailerFromEnv,
+  noticeMailFromEnv,
   requireResendTransport,
   requireSenderIdentity,
   resendTransport,
@@ -38,3 +40,10 @@ export {
   buildPrivateOfferEmail,
   type PrivateOfferEmailInput,
 } from './private-offer';
+
+export {
+  buildAgentInviteEmail,
+  buildLeadNoticeEmail,
+  type AgentInviteEmailInput,
+  type LeadNoticeEmailInput,
+} from './team-notices';
