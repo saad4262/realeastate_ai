@@ -49,6 +49,44 @@ export function findFigures(text: string): string | null {
  * model is forbidden from writing a number and handing it one is an
  * invitation. The email prints the real figures itself, from SQL.
  */
+/**
+ * Whether the paragraph is the paragraph — or the model talking to us.
+ *
+ * `findFigures` guards #4. This guards the other way an unreviewed paragraph
+ * goes wrong: the model steps out of the brief. Shown test listings headed
+ * "kd kad kd", it did not write an opening — it wrote to the operator ("I can
+ * see the listings table… could you provide the real listing data?") and that
+ * went out to a subscriber under "Written by the property guide". Nothing
+ * caught it, because it contained no figure.
+ *
+ * Structural tests only, all from the brief itself, so they do not drift with
+ * the prompt's wording:
+ * - a question — the paragraph tells the reader something, it never asks;
+ * - the first person singular — it is written to the reader, not as a reply;
+ * - words that only appear when the model is discussing its input or refusing;
+ * - more than three sentences, which the prompt forbids outright.
+ *
+ * False rejections are cheap: the email falls back to the template sentence,
+ * which is plainer and always correct.
+ */
+export function findOffBrief(text: string): string | null {
+  if (text.includes('?')) return 'asks a question';
+
+  const firstPerson = /\b(?:I|I'm|I've|I'll|I'd|me|my|myself)\b/.exec(text);
+  if (firstPerson) return `first person (${firstPerson[0]})`;
+
+  const meta =
+    /\b(?:placeholder|corrupted|test data|listing data|provide|please|sorry|apologi[sz]e|unable|cannot|can't|as an ai|the data you|you've shared|you have shared)\b/i.exec(
+      text,
+    );
+  if (meta) return `talks about its input (${meta[0]})`;
+
+  const sentences = text.split(/[.!]+(?:\s|$)/).filter((s) => s.trim().length > 0);
+  if (sentences.length > 3) return `too long (${sentences.length} sentences)`;
+
+  return null;
+}
+
 function factsMessage(facts: AlertSummaryFacts): string {
   const scale =
     facts.newCount === 1 ? 'a single new listing' : 'several new listings';
@@ -162,6 +200,9 @@ export async function writeAlertSummary(
 
   const figure = findFigures(text);
   if (figure) return { source: 'template', text: null, rejected: figure };
+
+  const offBrief = findOffBrief(text);
+  if (offBrief) return { source: 'template', text: null, rejected: offBrief };
 
   return { source: 'model', text };
 }

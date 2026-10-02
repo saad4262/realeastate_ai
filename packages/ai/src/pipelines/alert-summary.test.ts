@@ -4,6 +4,7 @@ import { getModel, isPricedModel } from '../models';
 import { ALERT_SUMMARY_V1 } from '../prompts/alert-summary-v1';
 import {
   findFigures,
+  findOffBrief,
   writeAlertSummary,
   type AlertSummaryFacts,
   type WriteAlertSummaryInput,
@@ -152,6 +153,40 @@ describe('writeAlertSummary', () => {
     expect(message).toContain('several new listings');
     expect(message).not.toContain('12');
     expect(message).not.toMatch(/matched|newCount/);
+  });
+});
+
+/**
+ * The paragraph that reached a subscriber on 2026-10-02, verbatim apart from
+ * the quoted headlines. No figure in it, so `findFigures` let it through.
+ */
+const SENT_TO_A_SUBSCRIBER =
+  "I can see the listings table format you've shared, but the entries appear to contain placeholder or corrupted text (like \"kd kad kd\" and \"njdsajks asdoosa lkas\"). To write an honest opening paragraph, I need the actual listing details that will print in the email—things like suburb, property type, or any genuine distinguishing features of these homes. Could you provide the real listing data? Once I can see what's actually there, I'll write a plain, factual opening that tells the reader what's worth noticing about this batch.";
+
+describe('a paragraph that steps out of the brief', () => {
+  it('falls back to the template instead of mailing the model talking to us', async () => {
+    const { result, track } = await run(SENT_TO_A_SUBSCRIBER);
+    expect(result.source).toBe('template');
+    expect(result.text).toBeNull();
+    // Still metered: the call was made and cost money (#3).
+    expect(track).toHaveBeenCalledOnce();
+  });
+
+  it('names each way out of the brief', () => {
+    expect(findOffBrief('Which of these suits you?')).toContain('question');
+    expect(findOffBrief('I think the second one stands out.')).toContain('first person');
+    expect(findOffBrief('These entries look like placeholder text.')).toContain('input');
+    expect(
+      findOffBrief('One. Two sentences. Three of them. And a fourth, which is too many.'),
+    ).toContain('too long');
+  });
+
+  it('passes an ordinary opening', () => {
+    expect(
+      findOffBrief(
+        'Both of these sit close to the station, and the larger one backs onto open parkland. Worth a look if a quiet street matters to you.',
+      ),
+    ).toBeNull();
   });
 });
 
