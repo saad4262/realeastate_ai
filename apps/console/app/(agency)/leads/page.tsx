@@ -1,4 +1,10 @@
-import { listAgencyLeads, type LeadKind, type LeadPage } from '@repo/core/leads';
+import {
+  listAgencyLeads,
+  listLeadAssignees,
+  type LeadAssignee,
+  type LeadKind,
+  type LeadPage,
+} from '@repo/core/leads';
 import { LeadTable } from '@/components/lead-table';
 import { getConsoleDb } from '../../../lib/db';
 import { requireConsoleAccess } from '../../../lib/require-console-access';
@@ -36,14 +42,20 @@ export default async function LeadsPage({
     rows: [],
     counts: { total: 0, unread: 0, offers: 0 },
     maySeeOffers: false,
+    mayAssign: false,
   };
+  let assignees: LeadAssignee[] = [];
   let loadError: string | null = null;
 
   try {
-    result = await listAgencyLeads(getConsoleDb(), session.actor, {
-      ...(kind ? { kind } : {}),
-      limit: 50,
-    });
+    // Together: the picker's members do not depend on the inbox page.
+    [result, assignees] = await Promise.all([
+      listAgencyLeads(getConsoleDb(), session.actor, {
+        ...(kind ? { kind } : {}),
+        limit: 50,
+      }),
+      listLeadAssignees(getConsoleDb(), session.actor),
+    ]);
   } catch (err) {
     /**
      * A refusal reads as a refusal.
@@ -77,6 +89,7 @@ export default async function LeadsPage({
       counts={result.counts}
       {...(kind ? { kind } : {})}
       maySeeOffers={result.maySeeOffers}
+      assignees={assignees}
     />
   );
 }

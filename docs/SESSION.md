@@ -1,3 +1,18 @@
+## 2026-10-02 (later) — Claude Code — Lead triage, a green smoke suite, the dev pool
+
+- Goal: finish the leads loop (status + assignment), make `pnpm smoke` green,
+  stop dev pages hanging on the Supabase session pooler's 15-client cap.
+- Done: `lead:update` / `lead:assign` in permissions with tests;
+  `updateLeadStatus`, `assignLead`, `listLeadAssignees` in core;
+  `listAgencyLeads` returns assignee + per-row `mayUpdate` + `mayAssign`;
+  console `lead-actions.ts` and `lead-triage.tsx` (optimistic selects);
+  two triage smoke checks (assignment invariant; real writes in a rolled-back
+  transaction + cross-tenant refusal). Fixed the two stale smoke checks.
+  DATABASE_URL → :6543 in .env.local (gitignored; apps symlink to it).
+- Verified: test 518 + 260, smoke 111/0. Break-checked: offer privacy and
+  tenancy scope (unit), cron tick and chat rail (smoke).
+- Not verified: the /leads UI in a browser — no signed-in console session here.
+
 ## 2026-10-02 — Claude Code — One address is one property, and its history follows it
 
 - Goal: the client wants realestate.com.au behaviour — a house sold by one agency

@@ -79,6 +79,20 @@
 .statusNew  { background: var(--amber-subtle); color: var(--amber); border: 1px solid color-mix(in srgb, var(--amber) 25%, transparent); }
 .statusDone { background: var(--surface-canvas); color: var(--text-muted); border: 1px solid var(--border-default); }
 
+/* Triage controls. Compact, because they sit in a table cell beside a badge-
+   sized kind; "new" keeps the amber of the old badge so unhandled leads still
+   stand out down the column. */
+.select {
+  padding: 0.25rem 0.5rem; border-radius: 0.5rem;
+  border: 1px solid var(--border-default);
+  background: var(--surface-canvas); color: var(--text-primary);
+  font: inherit; font-size: 0.8125rem; max-width: 11rem;
+}
+.select:focus { outline: 2px solid color-mix(in srgb, var(--sapphire) 45%, transparent); outline-offset: 1px; }
+.select:disabled { opacity: 0.6; }
+.selectNew { border-color: color-mix(in srgb, var(--amber) 45%, transparent); color: var(--amber); font-weight: 600; }
+.assignee { font-size: 0.8125rem; color: var(--text-secondary); }
+
 /* The figure is why an offer is in this list. It is not a body-text number. */
 .amount {
   font-size: 1.05rem; font-weight: 700; color: var(--text-primary);

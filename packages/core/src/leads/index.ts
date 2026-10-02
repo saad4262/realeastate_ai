@@ -8,7 +8,9 @@ export {
 } from './offer-schema';
 export {
   listAgencyLeads,
+  listLeadAssignees,
   LeadError,
+  type LeadAssignee,
   type LeadCounts,
   type LeadKind,
   type LeadPage,
@@ -16,3 +18,11 @@ export {
   type LeadStatus,
   type ListLeadsOptions,
 } from './list-leads';
+export {
+  assignLead,
+  updateLeadStatus,
+  leadStatusSchema,
+  LeadTriageError,
+  type TriageErrorCode,
+  type TriagedLead,
+} from './triage-lead';

@@ -23,7 +23,7 @@ const noAgency: Actor = { userId: 'u-none' };
 function fakeDb(rows: unknown[]) {
   const wheres: unknown[] = [];
   const chain: Record<string, unknown> = {};
-  for (const m of ['select', 'from', 'innerJoin', 'orderBy', 'limit', 'offset']) {
+  for (const m of ['select', 'from', 'innerJoin', 'leftJoin', 'orderBy', 'limit', 'offset']) {
     chain[m] = () => chain;
   }
   const dialect = new PgDialect();

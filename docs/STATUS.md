@@ -49,6 +49,15 @@ nullable `listing_id`. Sign-in required — the first code to populate
 has sold in Pakenham within 30km", a live model now calls it and answers with
 the exact price, date and distance, and says the sale is not something to buy.
 
+**Lead triage (2026-10-02).** `/leads` now moves leads: a status picker
+(new / contacted / qualified / closed, any direction) and an assignee picker.
+`lead:update` — an admin, or the member the lead is assigned to (resource
+`ownerId`); `lead:assign` — admins. On an offer both also need
+`lead:read_offer`, and an offer cannot be assigned to someone who cannot read
+it. `updateLeadStatus` guards on the assignment it decided on (a reassignment
+in between is a `conflict`); `assignLead` repeats the active-membership check
+inside the UPDATE. Another agency's lead id is `not_found`.
+
 **The lead inbox.** `/leads` was an `AgencyPlaceholder`; it now reads the `lead`
 table. Enquiries and private offers share one screen with tabs, because they
 share a row and every lead is anchored to a property — but offers are rare and
@@ -77,10 +86,11 @@ which offers never existed rather than one saying three are hidden.
 ## Numbers as of this entry
 
 - `pnpm typecheck` 10/10, `pnpm build` 2/2
-- `pnpm test` 500 (@repo/core) + 260 (@repo/ai), all offline and free
-- `pnpm smoke` 107 passed, 14 skipped, **2 failures that pre-date this work**:
-  `the chat offers New chat and History before a word is typed`, and
-  `the cron tick is strictly faster than the shortest interval`
+- `pnpm test` 518 (@repo/core) + 260 (@repo/ai), all offline and free
+- `pnpm smoke` 111 passed, 0 failed, 14 skipped — fully green. The two
+  long-standing failures were stale checks: the chat one asked for a "History"
+  label the UI pass replaced with a conversations rail, and the cron one read
+  vercel.json's daily Hobby floor instead of the GitHub Actions tick.
 - `pnpm smoke:ai` run once deliberately (~US$0.02): the new
   `the guide reaches for sold data instead of denying it exists` check passed
 - Migration `0014_lead_property_offers` is applied to the dev database;
@@ -92,15 +102,14 @@ which offers never existed rather than one saying three are hidden.
   `e99d1a30` (32/6E Henry Street): land 322 m², pin -38.076151/145.483831 and
   formatted_address were overwritten and are not yet restored (the DB write was
   not permitted in-session).
-- **Dev DB pool:** Supabase session pooler (port 5432) allows 15 clients; web
-  and console each pool up to 10, so concurrent dev use can hang pages on
-  EMAXCONNSESSION. Use the transaction pooler (6543) or lower `max`.
-
-- **Lead triage is read-only.** The inbox lists leads; nothing marks one
-  contacted, assigns it, or closes it. `lead.status` and `lead.assigned_to`
-  exist and nothing writes them. That is the obvious next increment, and
-  `lead-table.tsx` is where the optimistic mutations would land — the listing
-  table is the pattern to copy.
+- **Dev DB pool:** `.env.local` DATABASE_URL now uses the transaction pooler
+  (:6543); DIRECT_URL stays on the session pooler for migrations. Running dev
+  servers keep their old pool until restarted.
+- **Triage smoke on dev data:** the dev DB holds only offers, so the tenancy
+  half of the triage smoke check cannot be isolated there (it says so in its
+  output); the unit test covers it and was break-checked.
+- **Next on leads:** the agent desk's Leads link (now that assignment gives an
+  agent "their" leads), and an open/closed filter on the inbox.
 - **The agent desk's Leads link is still `href: '#'`.** Agents now hold
   `lead:read`, so the screen would work for them; what is undecided is scoping —
   an agent should probably see leads on listings they are named on, or ones

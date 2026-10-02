@@ -55,6 +55,26 @@ export type Action =
    * because non-negotiable #2 says the decision lives here or nowhere.
    */
   | 'lead:read_offer'
+  /**
+   * Move a lead through triage: new → contacted → qualified → closed, or back.
+   *
+   * An agency admin, or the member the lead is ASSIGNED to — passed as the
+   * resource's `ownerId`. Assignment is what makes a lead somebody's job, so it
+   * is what lets them say they have done it. Anyone else in the agency can read
+   * the lead and not move it, which keeps two people from "handling" the same
+   * enquiry and each assuming the other did.
+   *
+   * On an offer the caller must ALSO pass `lead:read_offer`: you cannot triage
+   * a row you are not allowed to see.
+   */
+  | 'lead:update'
+  /**
+   * Give a lead to a member, or take it back.
+   *
+   * Admins only. Deciding who works which enquiry is running the agency, the
+   * same line `listing:delete` and `team:manage` draw.
+   */
+  | 'lead:assign'
   | 'team:manage'
   | 'agency:billing'
   /** Agency OS host — owner|admin only */
@@ -155,6 +175,14 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       return sameAgency(actor, resource) && Boolean(actor.membershipRole);
 
     case 'lead:read_offer':
+      return sameAgency(actor, resource) && isAgencyAdmin(actor);
+
+    case 'lead:update':
+      if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      if (isAgencyAdmin(actor)) return true;
+      return Boolean(actor.userId) && actor.userId === resource.ownerId;
+
+    case 'lead:assign':
       return sameAgency(actor, resource) && isAgencyAdmin(actor);
 
     case 'listing:delete':

@@ -168,6 +168,49 @@ describe('can()', () => {
       expect(can(agent, 'lead:read', inbox)).toBe(true);
       expect(can(agent, 'lead:read_offer', inbox)).toBe(false);
     });
+
+    describe('triage', () => {
+      const lead = (assignedTo?: string) => ({
+        type: 'lead',
+        id: 'lead-1',
+        agencyId: agencyA,
+        ...(assignedTo ? { ownerId: assignedTo } : {}),
+      });
+
+      it('lets an admin move any lead, assigned or not', () => {
+        for (const actor of [owner, admin]) {
+          expect(can(actor, 'lead:update', lead())).toBe(true);
+          expect(can(actor, 'lead:update', lead('agent-a'))).toBe(true);
+        }
+      });
+
+      it('lets a member move only the lead assigned to them', () => {
+        expect(can(agent, 'lead:update', lead('agent-a'))).toBe(true);
+        expect(can(agent, 'lead:update', lead('asst-a'))).toBe(false);
+        // Unassigned is nobody's job yet, so not this agent's to close.
+        expect(can(agent, 'lead:update', lead())).toBe(false);
+        expect(can(assistant, 'lead:update', lead('agent-a'))).toBe(false);
+      });
+
+      it("refuses another agency, even an owner, even one 'assigned' by id", () => {
+        const outsider: Actor = { userId: 'agent-a', agencyId: agencyB, membershipRole: 'owner' };
+        // Same user id as the assignee: tenancy is checked before ownership.
+        expect(can(outsider, 'lead:update', lead('agent-a'))).toBe(false);
+        expect(can(outsider, 'lead:assign', lead())).toBe(false);
+      });
+
+      it('refuses a former member whose membership is gone', () => {
+        const left: Actor = { userId: 'agent-a', agencyId: agencyA };
+        expect(can(left, 'lead:update', lead('agent-a'))).toBe(false);
+      });
+
+      it('lets only admins assign', () => {
+        expect(can(owner, 'lead:assign', lead())).toBe(true);
+        expect(can(admin, 'lead:assign', lead())).toBe(true);
+        expect(can(agent, 'lead:assign', lead('agent-a'))).toBe(false);
+        expect(can(assistant, 'lead:assign', lead())).toBe(false);
+      });
+    });
   });
 
   /**

@@ -1,10 +1,24 @@
-import { and, desc, eq, ne, sql } from 'drizzle-orm';
-import { lead, property, type Db } from '@repo/db';
-import { can, type Actor } from '../permissions';
+import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
+import {
+  agentProfile,
+  lead,
+  membership,
+  property,
+  user,
+  type Db,
+  type leadKindEnum,
+  type leadStatusEnum,
+} from '@repo/db';
+import { can, type Actor, type MembershipRole } from '../permissions';
 import { formatAddress } from '../listings/listing-schema';
 
-export type LeadKind = 'enquiry' | 'inspection' | 'appraisal' | 'offer';
-export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'closed';
+/** Derived from the enums, never re-typed (#8). */
+export type LeadKind = (typeof leadKindEnum.enumValues)[number];
+export type LeadStatus = (typeof leadStatusEnum.enumValues)[number];
+
+/** The user row again, as the person a lead is assigned to. */
+const assignee = alias(user, 'assignee');
 
 /** One row of the agency's inbox. */
 export type LeadRow = {
@@ -30,6 +44,14 @@ export type LeadRow = {
   /** Which ad brought it in, if an ad did. Null on an offer. */
   listingId: string | null;
   createdAt: Date;
+  /** Whose job it is, or null while nobody's. */
+  assignedTo: string | null;
+  assigneeName: string | null;
+  /**
+   * Whether THIS actor may change the status — decided by can() here, with the
+   * row's assignee as its owner, so the table never compares roles (#2).
+   */
+  mayUpdate: boolean;
 };
 
 /** The tab counts, over the whole inbox rather than the page. */
@@ -52,6 +74,8 @@ export type LeadPage = {
    * non-negotiable #2 forbids. The decision is made once, by can().
    */
   maySeeOffers: boolean;
+  /** Whether this actor may assign leads. Same reasoning as `maySeeOffers`. */
+  mayAssign: boolean;
 };
 
 export type ListLeadsOptions = {
@@ -106,6 +130,7 @@ export async function listAgencyLeads(
   if (!can(actor, 'lead:read', resource)) throw FORBIDDEN;
 
   const maySeeOffers = can(actor, 'lead:read_offer', resource);
+  const mayAssign = can(actor, 'lead:assign', resource);
 
   // Asking for the offers tab without the permission is a refusal, not an empty
   // list: an empty page would read as "no offers yet" to somebody who simply
@@ -129,6 +154,9 @@ export async function listAgencyLeads(
       propertyId: lead.propertyId,
       listingId: lead.listingId,
       createdAt: lead.createdAt,
+      assignedTo: lead.assignedTo,
+      assigneeName: assignee.name,
+      assigneeEmail: assignee.email,
       unit: property.unit,
       streetNumber: property.streetNumber,
       street: property.street,
@@ -141,6 +169,7 @@ export async function listAgencyLeads(
     })
     .from(lead)
     .innerJoin(property, eq(property.id, lead.propertyId))
+    .leftJoin(assignee, eq(assignee.id, lead.assignedTo))
     .where(and(...filters))
     // Newest first, with a unique tiebreaker so a page boundary inside a group
     // sharing a timestamp does not repeat one row and skip another.
@@ -169,6 +198,14 @@ export async function listAgencyLeads(
       postcode: r.postcode,
       listingId: r.listingId,
       createdAt: r.createdAt,
+      assignedTo: r.assignedTo,
+      assigneeName: r.assignedTo ? r.assigneeName || r.assigneeEmail : null,
+      mayUpdate: can(actor, 'lead:update', {
+        type: 'lead',
+        id: r.id,
+        agencyId: actor.agencyId as string,
+        ...(r.assignedTo ? { ownerId: r.assignedTo } : {}),
+      }),
     })),
     counts: {
       /**
@@ -185,5 +222,59 @@ export async function listAgencyLeads(
       offers: Number(first?.offerCount ?? 0),
     },
     maySeeOffers,
+    mayAssign,
   };
+}
+
+/** Somebody a lead can be given to. */
+export type LeadAssignee = {
+  userId: string;
+  name: string;
+  /**
+   * Whether they may be given a private offer. Decided by can() against their
+   * own membership, so the picker can grey them out on an offer row instead of
+   * offering a choice `assignLead` would then refuse.
+   */
+  mayTakeOffers: boolean;
+};
+
+/**
+ * The active members of the actor's agency, for the assign picker.
+ *
+ * Only for an actor who may assign at all — anybody else gets an empty list,
+ * not a refusal, because the inbox renders for them too and simply draws no
+ * picker. Invited and suspended members are left out: `assignLead` refuses
+ * them, and a picker should not offer what the write will reject.
+ */
+export async function listLeadAssignees(db: Db, actor: Actor): Promise<LeadAssignee[]> {
+  if (!actor.agencyId) return [];
+  const resource = { type: 'lead', agencyId: actor.agencyId };
+  if (!can(actor, 'lead:assign', resource)) return [];
+
+  const rows = await db
+    .select({
+      userId: user.id,
+      name: user.name,
+      email: user.email,
+      displayName: agentProfile.displayName,
+      role: membership.role,
+    })
+    .from(membership)
+    .innerJoin(user, eq(user.id, membership.userId))
+    .leftJoin(agentProfile, eq(agentProfile.userId, membership.userId))
+    .where(and(eq(membership.agencyId, actor.agencyId), eq(membership.status, 'active')))
+    .orderBy(asc(user.name), asc(user.id));
+
+  return rows.map((r) => {
+    const them: Actor = {
+      userId: r.userId,
+      agencyId: actor.agencyId,
+      membershipRole: r.role as MembershipRole,
+    };
+    return {
+      userId: r.userId,
+      name: r.displayName || r.name || r.email,
+      mayTakeOffers: can(them, 'lead:read_offer', resource),
+    };
+  });
 }

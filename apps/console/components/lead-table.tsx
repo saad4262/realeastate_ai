@@ -1,13 +1,15 @@
 import Link from 'next/link';
-import type { LeadCounts, LeadKind, LeadRow, LeadStatus } from '@repo/core/leads';
+import type { LeadAssignee, LeadCounts, LeadKind, LeadRow } from '@repo/core/leads';
+import { LeadAssignControl, LeadStatusControl } from './lead-triage';
 import styles from './lead-table.module.css';
 
 /**
  * The agency inbox.
  *
- * A server component, unlike the listing table: nothing here is optimistic yet
- * because nothing here mutates yet. Triage — assigning, marking contacted —
- * is the next thing to build, and this file is where it will land.
+ * A server component; the two cells that mutate — status and assignee — are
+ * small client islands in ./lead-triage, each optimistic on its own. Whether
+ * either is a control or plain text for this actor is decided by can() on the
+ * server and arrives as `mayUpdate` on the row and a non-empty `assignees`.
  *
  * ## One screen, not two
  *
@@ -43,13 +45,6 @@ const KIND_LABEL: Record<LeadKind, string> = {
   offer: 'Offer',
 };
 
-const STATUS_LABEL: Record<LeadStatus, string> = {
-  new: 'New',
-  contacted: 'Contacted',
-  qualified: 'Qualified',
-  closed: 'Closed',
-};
-
 type Tab = { href: string; label: string; count?: number; on: boolean };
 
 export function LeadTable({
@@ -58,8 +53,11 @@ export function LeadTable({
   kind,
   maySeeOffers,
   webUrl,
+  assignees,
 }: {
   rows: Row[];
+  /** Who a lead may be given to. Empty unless this actor may assign (can()). */
+  assignees: LeadAssignee[];
   counts: LeadCounts;
   /** The consumer site's origin — the console is on a different host. */
   webUrl: string;
@@ -133,6 +131,7 @@ export function LeadTable({
                 <th>Offer</th>
                 <th>Kind</th>
                 <th>Status</th>
+                <th>Assigned to</th>
                 <th>Received</th>
               </tr>
             </thead>
@@ -148,16 +147,19 @@ export function LeadTable({
                   </td>
                   <td>
                     {/*
-                      An offer's address links to the public property page,
-                      which is where its sale history is — the thing the offer
-                      was made against. An enquiry's does not: that address is
-                      on the market, so its history is deliberately not public
-                      (docs/adr/0012) and the link would 404. Plain text is
-                      better than a link that goes nowhere.
+                      An offer links to the public property page, where the
+                      sale history it was made against lives. An enquiry links
+                      to the ad it came through: while live that is the listing,
+                      and once sold the old URL redirects to wherever the
+                      address is now (docs/adr/0013), so the link never dies.
                     */}
-                    {r.kind === 'offer' ? (
+                    {r.kind === 'offer' || r.listingId ? (
                       <a
-                        href={`${webUrl}/property/${r.propertyId}`}
+                        href={
+                          r.kind === 'offer' || !r.listingId
+                            ? `${webUrl}/property/${r.propertyId}`
+                            : `${webUrl}/listing/${r.listingId}`
+                        }
                         className={styles.addr}
                         target="_blank"
                         rel="noreferrer"
@@ -188,11 +190,16 @@ export function LeadTable({
                     </span>
                   </td>
                   <td>
-                    <span
-                      className={`${styles.badge} ${r.status === 'new' ? styles.statusNew : styles.statusDone}`}
-                    >
-                      {STATUS_LABEL[r.status]}
-                    </span>
+                    <LeadStatusControl leadId={r.id} status={r.status} mayUpdate={r.mayUpdate} />
+                  </td>
+                  <td>
+                    <LeadAssignControl
+                      leadId={r.id}
+                      kind={r.kind}
+                      assignedTo={r.assignedTo}
+                      assigneeName={r.assigneeName}
+                      assignees={assignees}
+                    />
                   </td>
                   <td className={styles.when}>{WHEN.format(new Date(r.createdAt))}</td>
                 </tr>

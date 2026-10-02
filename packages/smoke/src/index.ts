@@ -1,4 +1,5 @@
 import { config } from 'dotenv';
+import { randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { and, eq, sql } from 'drizzle-orm';
@@ -37,7 +38,15 @@ import {
   reverseGeocode,
   suggestPlaces,
 } from '@repo/core/geo';
-import { createEnquiry, createPrivateOffer, listAgencyLeads } from '@repo/core/leads';
+import {
+  assignLead,
+  createEnquiry,
+  createPrivateOffer,
+  LeadTriageError,
+  listAgencyLeads,
+  updateLeadStatus,
+} from '@repo/core/leads';
+import { can, type MembershipRole } from '@repo/core/permissions';
 import { agencyNotificationRecipients } from '@repo/core/agency';
 import { fakeTransport } from '@repo/core/email';
 import {
@@ -403,6 +412,110 @@ async function main() {
     }
 
     return `${admins.length} admin(s) see ${offersVisible} offer(s), ${others.length} other member(s) see none`;
+  });
+
+  await check('every assigned lead belongs to someone who may work it', async () => {
+    /**
+     * Triage's data invariant, against real rows.
+     *
+     * `assignLead` refuses an assignee who is not an active member of the
+     * lead's agency, and an offer to anyone who cannot read offers. This is
+     * what notices a row that got there another way — written by hand, or left
+     * behind when a member was suspended or changed role after being assigned.
+     * Judged by can() through the real memberships, not by role strings.
+     */
+    const rows = await db.execute<{
+      id: string;
+      kind: string;
+      agency_id: string;
+      assigned_to: string;
+      role: string | null;
+    }>(sql`
+      select l.id, l.kind::text, l.agency_id, l.assigned_to, m.role::text as role
+      from lead l
+      left join membership m
+        on m.user_id = l.assigned_to and m.agency_id = l.agency_id and m.status = 'active'
+      where l.assigned_to is not null
+    `);
+
+    const wrong: string[] = [];
+    for (const r of rows) {
+      if (!r.role) {
+        wrong.push(`${r.id.slice(0, 8)} is held by someone not active in its agency`);
+        continue;
+      }
+      const holder = {
+        userId: r.assigned_to,
+        agencyId: r.agency_id,
+        membershipRole: r.role as MembershipRole,
+      };
+      const res = { type: 'lead', id: r.id, agencyId: r.agency_id, ownerId: r.assigned_to };
+      if (r.kind === 'offer' && !can(holder, 'lead:read_offer', res)) {
+        wrong.push(`offer ${r.id.slice(0, 8)} is held by a ${r.role}, who cannot read it`);
+      }
+    }
+    assert(wrong.length === 0, wrong.join('; '));
+    return rows.length > 0 ? `${rows.length} assigned lead(s), all workable` : 'no lead is assigned yet';
+  });
+
+  await check('triage writes run against the real schema, and stop at the tenancy line', async () => {
+    /**
+     * The status and assignment writes through real Postgres, inside a
+     * transaction that is always rolled back — so the SQL the unit fakes can
+     * only render (the assignee EXISTS, the assigned_to guard) actually runs,
+     * and the inbox is left exactly as it was.
+     */
+    const [target] = await db.execute<{ id: string; agency_id: string; status: string; kind: string; user_id: string; role: string }>(sql`
+      select l.id, l.agency_id, l.status::text, l.kind::text, m.user_id, m.role::text
+      from lead l
+      join membership m on m.agency_id = l.agency_id and m.status = 'active'
+                        and m.role in ('owner', 'admin')
+      -- An enquiry first. On an offer an outsider is refused by the offer rule
+      -- before the tenancy scope is ever asked, so the refusal below would pass
+      -- with the agency filter deleted — which is exactly what it did once.
+      order by (l.kind = 'offer'), l.created_at desc
+      limit 1
+    `);
+    if (!target) skip('no lead in an agency with an active owner or admin');
+
+    const owner = {
+      userId: target.user_id,
+      agencyId: target.agency_id,
+      membershipRole: target.role as MembershipRole,
+    };
+    const ROLLBACK = new Error('smoke rollback');
+    let moved = '';
+    try {
+      await db.transaction(async (tx) => {
+        const next = target.status === 'contacted' ? 'qualified' : 'contacted';
+        const a = await updateLeadStatus(tx, owner, target.id, next);
+        assert(a.status === next, `status did not move to ${next}`);
+        const b = await assignLead(tx, owner, target.id, owner.userId);
+        assert(b.assignedTo === owner.userId, 'the lead was not assigned');
+        const c = await assignLead(tx, owner, target.id, null);
+        assert(c.assignedTo === null, 'the lead was not unassigned');
+        moved = `${target.status} → ${next}, assigned and unassigned`;
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+
+    // Another agency's owner, same lead id: refused as if it did not exist.
+    const outsider = { userId: target.user_id, agencyId: randomUUID(), membershipRole: 'owner' as const };
+    let refusal = '';
+    try {
+      await updateLeadStatus(db, outsider, target.id, 'closed');
+    } catch (err) {
+      refusal = err instanceof LeadTriageError ? err.code : String(err);
+    }
+    assert(refusal === 'not_found', `another agency's owner got "${refusal || 'success'}" on this lead`);
+
+    const [after] = await db.execute<{ status: string }>(sql`select status::text from lead where id = ${target.id}`);
+    assert(after?.status === target.status, 'the rolled-back triage left a change behind');
+
+    return `${moved}, rolled back; another agency refused as not_found` +
+      (target.kind === 'offer' ? ' (only offers here — tenancy scope not isolated)' : '');
   });
 
   await check('the sold-history read can only ever see sold listings', async () => {
