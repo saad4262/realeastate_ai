@@ -214,6 +214,84 @@ describe('can()', () => {
   });
 
   /**
+   * The approval step (ADR 0014): agents submit, owners and admins publish.
+   */
+  describe('submitting and publishing a listing', () => {
+    const resource = { type: 'listing', id: listingA, agencyId: agencyA };
+    const named: Actor = {
+      userId: 'agent-a',
+      agencyId: agencyA,
+      membershipRole: 'agent',
+      listingAgentOf: [listingA],
+    };
+    const owner: Actor = { userId: 'owner-a', agencyId: agencyA, membershipRole: 'owner' };
+    const admin: Actor = { userId: 'admin-a', agencyId: agencyA, membershipRole: 'admin' };
+
+    it('lets the named agent submit but never publish', () => {
+      expect(can(named, 'listing:submit', resource)).toBe(true);
+      expect(can(named, 'listing:publish', resource)).toBe(false);
+    });
+
+    it('lets owners and admins publish', () => {
+      expect(can(owner, 'listing:publish', resource)).toBe(true);
+      expect(can(admin, 'listing:publish', resource)).toBe(true);
+    });
+
+    it('refuses submit to an agent not named on the listing, and publish across agencies', () => {
+      const other: Actor = { userId: 'agent-x', agencyId: agencyA, membershipRole: 'agent' };
+      expect(can(other, 'listing:submit', resource)).toBe(false);
+      const outsider: Actor = { userId: 'owner-b', agencyId: agencyB, membershipRole: 'owner' };
+      expect(can(outsider, 'listing:publish', resource)).toBe(false);
+      expect(can(outsider, 'listing:submit', resource)).toBe(false);
+    });
+  });
+
+  /**
+   * An agent's leads (ADR 0014): theirs, or their listing's.
+   */
+  describe("an agent's view of one lead", () => {
+    const named: Actor = {
+      userId: 'agent-a',
+      agencyId: agencyA,
+      membershipRole: 'agent',
+      listingAgentOf: [listingA],
+    };
+    const lead = (over: { ownerId?: string; listingId?: string | null } = {}) => ({
+      type: 'lead',
+      id: 'lead-1',
+      agencyId: agencyA,
+      ...over,
+    });
+
+    it('reads a lead assigned to them, from any listing', () => {
+      expect(can(named, 'lead:read', lead({ ownerId: 'agent-a', listingId: listingB }))).toBe(true);
+    });
+
+    it("reads their own listing's lead, assigned to anyone or no one", () => {
+      expect(can(named, 'lead:read', lead({ listingId: listingA }))).toBe(true);
+      expect(can(named, 'lead:read', lead({ listingId: listingA, ownerId: 'agent-x' }))).toBe(true);
+    });
+
+    it("does not read another agent's lead, or one with no listing", () => {
+      expect(can(named, 'lead:read', lead({ listingId: listingB }))).toBe(false);
+      expect(can(named, 'lead:read', lead({ listingId: listingB, ownerId: 'agent-x' }))).toBe(false);
+      expect(can(named, 'lead:read', lead({ listingId: null }))).toBe(false);
+    });
+
+    it('works an unassigned lead from their listing, but not one assigned to someone else', () => {
+      expect(can(named, 'lead:update', lead({ listingId: listingA }))).toBe(true);
+      expect(can(named, 'lead:update', lead({ listingId: listingA, ownerId: 'agent-x' }))).toBe(false);
+    });
+
+    it('never reads the whole agency, which admins do', () => {
+      expect(can(named, 'lead:read_all', { type: 'lead', agencyId: agencyA })).toBe(false);
+      const owner: Actor = { userId: 'owner-a', agencyId: agencyA, membershipRole: 'owner' };
+      expect(can(owner, 'lead:read_all', { type: 'lead', agencyId: agencyA })).toBe(true);
+      expect(can(owner, 'lead:read', lead({ listingId: listingB, ownerId: 'agent-x' }))).toBe(true);
+    });
+  });
+
+  /**
    * Recording a sale.
    *
    * `listing:sell` shares publish's rule and is deliberately a separate action:
@@ -255,14 +333,17 @@ describe('can()', () => {
       expect(can(owner, 'listing:sell', sellable)).toBe(true);
     });
 
-    it('answers the same as publish today, for every role', () => {
+    it('answers the same as edit, for every role — not as publish any more', () => {
+      /**
+       * It used to mirror publish. ADR 0014 made publish the approval step,
+       * admins only; recording a sale stayed with whoever works the listing,
+       * because it ends a campaign rather than starting one in public.
+       */
       const roles = ['owner', 'admin', 'agent', 'assistant', 'property_manager', 'read_only'] as const;
       for (const membershipRole of roles) {
         for (const listingAgentOf of [[], [listingA]]) {
           const actor: Actor = { userId: 'u', agencyId: agencyA, membershipRole, listingAgentOf };
-          expect(can(actor, 'listing:sell', sellable)).toBe(
-            can(actor, 'listing:publish', sellable),
-          );
+          expect(can(actor, 'listing:sell', sellable)).toBe(can(actor, 'listing:edit', sellable));
         }
       }
     });

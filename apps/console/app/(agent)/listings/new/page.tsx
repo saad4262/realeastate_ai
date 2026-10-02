@@ -9,7 +9,7 @@ export default async function NewAgentListingPage() {
       <div>
         <h1 style={{ margin: 0, fontSize: '1.5rem', letterSpacing: '-0.02em' }}>Add a listing</h1>
         <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
-          You are recorded as the lead agent. It saves as a draft until you publish it.
+          You are recorded as the lead agent. It saves as a draft; submit it for approval and an owner or admin publishes it.
         </p>
       </div>
       <ListingForm backHref="/listings" />

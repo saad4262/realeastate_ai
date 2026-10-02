@@ -10,6 +10,7 @@ const leadId = '33333333-3333-3333-3333-333333333333';
 const agentId = '44444444-4444-4444-4444-444444444444';
 const otherAgentId = '55555555-5555-5555-5555-555555555555';
 const ownerId = '66666666-6666-6666-6666-666666666666';
+const listingId = '77777777-7777-7777-7777-777777777777';
 
 const owner: Actor = { userId: ownerId, agencyId: agencyA, membershipRole: 'owner' };
 const agent: Actor = { userId: agentId, agencyId: agencyA, membershipRole: 'agent' };
@@ -46,6 +47,7 @@ const enquiry = (assignedTo: string | null = null) => ({
   agencyId: agencyA,
   kind: 'enquiry',
   assignedTo,
+  listingId: null as string | null,
 });
 const offer = (assignedTo: string | null = null) => ({ ...enquiry(assignedTo), kind: 'offer' });
 
@@ -86,12 +88,30 @@ describe('updateLeadStatus', () => {
     expect(sets[0]).toMatchObject({ status: 'contacted' });
   });
 
-  it('refuses an agent the lead is not assigned to, and writes nothing', async () => {
+  it("treats another agent's lead as not found, and writes nothing", async () => {
+    // Not assigned to them and not from their listing: they cannot see it, so
+    // they cannot learn it exists (ADR 0014).
     for (const assigned of [null, otherAgentId]) {
       const { db, sets } = fakeDb({ reads: [[enquiry(assigned)]] });
-      expect(await code(updateLeadStatus(db, agent, leadId, 'closed'))).toBe('forbidden');
+      expect(await code(updateLeadStatus(db, agent, leadId, 'closed'))).toBe('not_found');
       expect(sets).toEqual([]);
     }
+  });
+
+  it("lets the listing's agent work an unassigned lead, but not one given to someone else", async () => {
+    const named: Actor = { ...agent, listingAgentOf: [listingId] };
+    const ok = fakeDb({
+      reads: [[{ ...enquiry(), listingId }]],
+      returns: [[{ id: leadId, status: 'contacted', assignedTo: null }]],
+    });
+    await expect(updateLeadStatus(ok.db, named, leadId, 'contacted')).resolves.toMatchObject({
+      status: 'contacted',
+    });
+
+    // They can still SEE it (their listing), so the answer is a refusal.
+    const taken = fakeDb({ reads: [[{ ...enquiry(otherAgentId), listingId }]] });
+    expect(await code(updateLeadStatus(taken.db, named, leadId, 'closed'))).toBe('forbidden');
+    expect(taken.sets).toEqual([]);
   });
 
   it('lets the assigned agent move it, but only while it is still theirs', async () => {

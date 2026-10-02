@@ -128,13 +128,34 @@ describe('the agency lead inbox', () => {
        */
       const { db: agentDb, wheres: agentWheres } = fakeDb([row()]);
       await listAgencyLeads(agentDb, agent);
-      expect(String(agentWheres[0])).toMatch(/"kind" <> /);
+      // agentWheres also holds the listing_agent subquery's own WHERE, which
+      // the fake records first — the outer statement is the one with the kind.
+      expect(agentWheres.join(' ')).toMatch(/"kind" <> /);
 
       const { db: ownerDb, wheres: ownerWheres } = fakeDb([row()]);
       await listAgencyLeads(ownerDb, owner);
       // An admin gets no such clause — every kind is theirs to read.
       expect(String(ownerWheres[0])).not.toMatch(/"kind" <> /);
       expect(String(ownerWheres[0])).toMatch(/"agency_id" = /);
+    });
+
+    it("narrows an agent's inbox to their leads in SQL, and leaves an admin's whole", async () => {
+      /**
+       * ADR 0014. In the statement, so the tab counts — window functions over
+       * the same scan — describe the agent's leads and never the agency's.
+       */
+      const { db: agentDb, wheres: agentWheres } = fakeDb([row()]);
+      await listAgencyLeads(agentDb, agent);
+      const agentSql = agentWheres.join(' ');
+      expect(agentSql).toMatch(/"assigned_to" = \$/);
+      expect(agentSql).toMatch(/"lead"\."listing_id" in /);
+      // The subquery's own WHERE, which the fake records separately: the
+      // listings are the ones THIS agent is named on.
+      expect(agentSql).toMatch(/"listing_agent"\."user_id" = /);
+
+      const { db: ownerDb, wheres: ownerWheres } = fakeDb([row()]);
+      await listAgencyLeads(ownerDb, owner);
+      expect(ownerWheres.join(' ')).not.toMatch(/listing_agent|"assigned_to"/);
     });
 
     it('refuses the offers tab outright instead of showing an empty one', async () => {

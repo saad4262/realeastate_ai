@@ -47,7 +47,7 @@ describe('SQL counts arrive as numbers', () => {
       { limit: 25 },
     );
 
-    expect(counts).toEqual({ total: 3, live: 3, draft: 0 });
+    expect(counts).toEqual({ total: 3, live: 3, draft: 0, pending: 0 });
     for (const v of Object.values(counts)) expect(typeof v).toBe('number');
     // The failure this exists for, spelled out.
     expect(counts.live + 1).toBe(4);

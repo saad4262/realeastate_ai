@@ -54,8 +54,16 @@ export function LeadTable({
   maySeeOffers,
   webUrl,
   assignees,
+  basePath = '/leads',
+  title = 'Leads',
+  subtitle,
 }: {
   rows: Row[];
+  /** Where the tabs point — `/leads` on the agency console, `/my-leads` on the desk. */
+  basePath?: string;
+  title?: string;
+  /** Overrides the agency wording; the agent desk describes a narrower inbox. */
+  subtitle?: string;
   /** Who a lead may be given to. Empty unless this actor may assign (can()). */
   assignees: LeadAssignee[];
   counts: LeadCounts;
@@ -67,32 +75,36 @@ export function LeadTable({
   maySeeOffers: boolean;
 }) {
   const tabs: Tab[] = [
-    { href: '/leads', label: 'All', count: counts.total, on: kind === undefined },
+    { href: basePath, label: 'All', count: counts.total, on: kind === undefined },
     // Only drawn when the actor may read one. An "Offers (0)" tab shown to an
     // assistant would say three offers arrived and you may not see them, which
     // is most of what the restriction exists to withhold.
     ...(maySeeOffers
       ? [
           {
-            href: '/leads?kind=offer',
+            href: `${basePath}?kind=offer`,
             label: 'Offers',
             count: counts.offers,
             on: kind === 'offer',
           },
         ]
       : []),
-    { href: '/leads?kind=enquiry', label: 'Enquiries', on: kind === 'enquiry' },
+    { href: `${basePath}?kind=enquiry`, label: 'Enquiries', on: kind === 'enquiry' },
   ];
 
   return (
     <div className={styles.wrap}>
       <div className={styles.head}>
-        <h1 className={styles.title}>Leads</h1>
+        <h1 className={styles.title}>{title}</h1>
         <p className={styles.sub}>
-          Everyone who has asked about an address the agency holds.
-          {maySeeOffers
-            ? ' Private offers on properties you have sold appear here too.'
-            : ''}
+          {subtitle ?? (
+            <>
+              Everyone who has asked about an address the agency holds.
+              {maySeeOffers
+                ? ' Private offers on properties you have sold appear here too.'
+                : ''}
+            </>
+          )}
         </p>
       </div>
 

@@ -1,3 +1,20 @@
+## 2026-10-02 (evening) — Claude Code — Approval workflow and agents' own leads
+
+- Goal (client): agents submit listings and only owners/admins publish; agents
+  see only leads assigned to them or from their own listings, unassigned too.
+- Done: ADR 0014. permissions: `listing:publish` admin-only, new
+  `listing:submit`, `lead:read` per-lead (assignee or listing agent),
+  `lead:read_all`, `lead:update` for a listing agent on an unassigned lead.
+  core: `setListingStatus` maps each transition to its permission, submit only
+  from draft/withdrawn (guarded again in the UPDATE), `pending` counted;
+  `listAgencyLeads` narrows non-admins in SQL; triage treats a lead you cannot
+  see as not_found. console: approval buttons, `/my-leads` (+ loader), nav link,
+  copy that no longer tells agents they publish.
+- Verified: test 528 + 260, smoke 113/0; new smoke checks (agent inbox scope with
+  counts, submit/publish through the real write in a rolled-back tx) and the
+  publish rule / SQL filter both break-checked red.
+- Not verified in a browser: no signed-in console session here.
+
 ## 2026-10-02 (later) — Claude Code — Lead triage, a green smoke suite, the dev pool
 
 - Goal: finish the leads loop (status + assignment), make `pnpm smoke` green,

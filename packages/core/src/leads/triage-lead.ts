@@ -39,6 +39,7 @@ type Loaded = {
   agencyId: string;
   kind: string;
   assignedTo: string | null;
+  listingId: string | null;
 };
 
 /** The lead, inside the actor's own agency or not at all. */
@@ -53,6 +54,7 @@ async function loadLead(db: DbOrTx, actor: Actor, leadId: string): Promise<Loade
       agencyId: lead.agencyId,
       kind: lead.kind,
       assignedTo: lead.assignedTo,
+      listingId: lead.listingId,
     })
     .from(lead)
     .where(and(eq(lead.id, leadId), eq(lead.agencyId, actor.agencyId)))
@@ -67,6 +69,7 @@ function resourceFor(row: Loaded): Resource {
     type: 'lead',
     id: row.id,
     agencyId: row.agencyId,
+    listingId: row.listingId,
     ...(row.assignedTo ? { ownerId: row.assignedTo } : {}),
   };
 }
@@ -76,7 +79,14 @@ function resourceFor(row: Loaded): Resource {
  * Asked through can() like the rest, never as a role comparison here (#2).
  */
 function maySee(actor: Actor, row: Loaded): boolean {
+  // This lead specifically (ADR 0014): an agent's own, or their listing's.
+  if (!can(actor, 'lead:read', resourceFor(row))) return false;
   return row.kind !== 'offer' || can(actor, 'lead:read_offer', resourceFor(row));
+}
+
+/** Offer visibility alone, for judging somebody who does not hold the lead yet. */
+function maySeeKind(actor: Actor, row: Loaded): boolean {
+  return row.kind !== 'offer' || can(actor, 'lead:read_offer', { type: 'lead', agencyId: row.agencyId });
 }
 
 /** Where a lead stands after a write, for the UI to reconcile against. */
@@ -111,7 +121,8 @@ export async function updateLeadStatus(
   if (!parsed.success) throw new LeadTriageError('invalid', 'Choose a status from the list');
 
   const row = await loadLead(db, actor, leadId);
-  // An offer this actor may not see is, to them, a lead that does not exist.
+  // A lead this actor may not see — another agent's, or an offer — is, to
+  // them, a lead that does not exist.
   if (!maySee(actor, row)) throw NOT_FOUND();
   if (!can(actor, 'lead:update', resourceFor(row))) {
     throw new LeadTriageError('forbidden', 'Only an admin or the person this lead is assigned to can update it');
@@ -189,7 +200,10 @@ export async function assignLead(
       agencyId: row.agencyId,
       membershipRole: member.role as MembershipRole,
     };
-    if (!can(assignee, 'lead:read', resourceFor(row)) || !maySee(assignee, row)) {
+    // Judged on the inbox, not on this lead: they do not hold it yet, and
+    // being given it is exactly what will make it theirs.
+    const inbox = { type: 'lead', agencyId: row.agencyId };
+    if (!can(assignee, 'lead:read', inbox) || !maySeeKind(assignee, row)) {
       throw new LeadTriageError(
         'invalid',
         row.kind === 'offer'

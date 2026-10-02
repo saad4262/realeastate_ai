@@ -22,7 +22,16 @@ export type Action =
   | 'listing:read'
   | 'listing:create'
   | 'listing:edit'
+  /**
+   * Put a listing on the public site. Owner/admin only (ADR 0014): an agent's
+   * ad reaches the public after somebody who runs the agency has seen it.
+   */
   | 'listing:publish'
+  /**
+   * Ask for that: draft or withdrawn → `pending`. Whoever may edit the listing
+   * — an admin, or an agent named on it.
+   */
+  | 'listing:submit'
   /**
    * Record a sale: the status, the price it went for, the date.
    *
@@ -43,6 +52,11 @@ export type Action =
    */
   | 'lead:read'
   /**
+   * Every lead in the agency, unscoped. Owner/admin. Anybody else's inbox is
+   * narrowed in SQL to the leads `lead:read` would let them open one by one.
+   */
+  | 'lead:read_all'
+  /**
    * Read a PRIVATE OFFER specifically. Narrower, and separate on purpose.
    *
    * An offer is a named person's financial intent about somebody's home, with
@@ -60,9 +74,10 @@ export type Action =
    *
    * An agency admin, or the member the lead is ASSIGNED to — passed as the
    * resource's `ownerId`. Assignment is what makes a lead somebody's job, so it
-   * is what lets them say they have done it. Anyone else in the agency can read
-   * the lead and not move it, which keeps two people from "handling" the same
-   * enquiry and each assuming the other did.
+   * is what lets them say they have done it. While nobody is assigned, an agent
+   * named on the listing it came through (`listingId`) may move it — the buyer
+   * asked them. Once assigned to someone else it is theirs alone, which keeps
+   * two people from "handling" one enquiry and each assuming the other did.
    *
    * On an offer the caller must ALSO pass `lead:read_offer`: you cannot triage
    * a row you are not allowed to see.
@@ -106,6 +121,12 @@ export type Resource = {
    * docs/adr/0011.
    */
   ownerId?: string;
+  /**
+   * The listing a lead came through, when the resource is one lead. An agent
+   * named on that listing may read the lead even while nobody is assigned —
+   * it is their campaign's buyer.
+   */
+  listingId?: string | null;
 };
 
 const ADMIN_ROLES: MembershipRole[] = ['owner', 'admin'];
@@ -162,17 +183,34 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       return sameAgency(actor, resource) && Boolean(actor.membershipRole);
 
     case 'listing:edit':
-    case 'listing:publish':
-    // Grouped with publish because the rule is the same, not because the
+    case 'listing:submit':
+    // Grouped with edit because the rule is the same, not because the
     // decision is. See the Action union for why it is its own member.
     case 'listing:sell':
       if (!sameAgency(actor, resource)) return false;
       if (isAgencyAdmin(actor)) return true;
       return isListingAgent(actor, resource.id);
 
-    case 'lead:read':
-      // Any active membership. `sameAgency` is what stops it crossing tenancy.
-      return sameAgency(actor, resource) && Boolean(actor.membershipRole);
+    case 'listing:publish':
+      // ADR 0014: the approval step. Being named on the listing is enough to
+      // write it and to submit it, not to put it in front of the public.
+      return sameAgency(actor, resource) && isAgencyAdmin(actor);
+
+    case 'lead:read': {
+      // Any active membership opens an inbox. `sameAgency` stops it crossing
+      // tenancy.
+      if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      // Asked about the inbox as a whole (no lead id): yes — what is IN it is
+      // narrowed by `lead:read_all` below.
+      if (!resource.id || isAgencyAdmin(actor)) return true;
+      // One lead (ADR 0014): theirs if it is assigned to them, or if it came
+      // through a listing they are named on, assigned to anyone or no one.
+      if (actor.userId === resource.ownerId) return true;
+      return isListingAgent(actor, resource.listingId ?? undefined);
+    }
+
+    case 'lead:read_all':
+      return sameAgency(actor, resource) && isAgencyAdmin(actor);
 
     case 'lead:read_offer':
       return sameAgency(actor, resource) && isAgencyAdmin(actor);
@@ -180,7 +218,10 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'lead:update':
       if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
       if (isAgencyAdmin(actor)) return true;
-      return Boolean(actor.userId) && actor.userId === resource.ownerId;
+      if (resource.ownerId) return Boolean(actor.userId) && actor.userId === resource.ownerId;
+      // Unassigned: the agent whose listing it came through may work it — they
+      // are the one the buyer asked. Once assigned, it is the assignee's.
+      return isListingAgent(actor, resource.listingId ?? undefined);
 
     case 'lead:assign':
       return sameAgency(actor, resource) && isAgencyAdmin(actor);

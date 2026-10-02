@@ -20,7 +20,7 @@ export default async function AgentListingsPage({
   const session = await requireConsoleAccess('agent');
   const page = consolePage((await searchParams).page);
 
-  let result: ListingPage = { rows: [], counts: { total: 0, live: 0, draft: 0 } };
+  let result: ListingPage = { rows: [], counts: { total: 0, live: 0, draft: 0, pending: 0 } };
   let loadError: string | null = null;
 
   try {
@@ -49,13 +49,20 @@ export default async function AgentListingsPage({
     agencyId: session.actor.agencyId,
   });
 
+  // Publish vs submit for approval (ADR 0014), decided by can() like delete.
+  const mayPublish = can(session.actor, 'listing:publish', {
+    type: 'listing',
+    agencyId: session.actor.agencyId,
+  });
+
   return (
     <ListingTable
       title="My Listings"
-      subtitle="Listings you are named on. The agency book lives in the agency console."
+      subtitle="Listings you are named on. Submit a draft for approval and an owner or admin publishes it."
       newHref="/listings/new"
       editHrefBase="/listings"
       canDelete={canDelete}
+      mayPublish={mayPublish}
       emptyHint="Add a listing and you are recorded as its lead agent."
       counts={result.counts}
       page={page}

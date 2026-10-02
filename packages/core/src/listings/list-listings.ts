@@ -113,6 +113,8 @@ const SELECTION = {
   totalCount: sql<number>`count(*) over()`,
   liveCount: sql<number>`count(*) filter (where ${listing.status} = 'live') over()`,
   draftCount: sql<number>`count(*) filter (where ${listing.status} = 'draft') over()`,
+  /** Submitted and waiting for an owner or admin (ADR 0014). */
+  pendingCount: sql<number>`count(*) filter (where ${listing.status} = 'pending') over()`,
 } as const;
 
 type RawRow = {
@@ -126,7 +128,7 @@ type RawRow = {
       ? Date | null
     : K extends 'agentNames'
       ? string[]
-      : K extends 'totalCount' | 'liveCount' | 'draftCount'
+      : K extends 'totalCount' | 'liveCount' | 'draftCount' | 'pendingCount'
         ? number
         : K extends 'bedrooms' | 'carSpaces'
           ? number | null
@@ -166,6 +168,8 @@ export type ListingCounts = {
   total: number;
   live: number;
   draft: number;
+  /** Waiting for approval. */
+  pending: number;
 };
 
 export type ListingPage = {
@@ -241,6 +245,7 @@ export async function listAgencyListingsPage(
       total: Number(rows[0]?.totalCount ?? 0),
       live: Number(rows[0]?.liveCount ?? 0),
       draft: Number(rows[0]?.draftCount ?? 0),
+      pending: Number(rows[0]?.pendingCount ?? 0),
     },
   };
 }

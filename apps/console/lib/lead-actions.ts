@@ -9,7 +9,7 @@ import {
   type TriageErrorCode,
 } from '@repo/core/leads';
 import { getConsoleDb } from './db';
-import { loadActor } from './load-actor';
+import { loadListingActor } from './load-actor';
 import { requireActionUserId } from './auth-account';
 
 export type TriageActionResult =
@@ -23,7 +23,7 @@ export type TriageActionResult =
  * the outcome for the table.
  */
 async function run(
-  write: (actor: NonNullable<Awaited<ReturnType<typeof loadActor>>>) => Promise<{
+  write: (actor: NonNullable<Awaited<ReturnType<typeof loadListingActor>>>) => Promise<{
     status: LeadStatus;
     assignedTo: string | null;
   }>,
@@ -33,13 +33,17 @@ async function run(
   const userId = await requireActionUserId();
 
   try {
-    const actor = await loadActor(userId);
+    // With listing links: an agent may work an unassigned lead that came
+    // through a listing they are named on (ADR 0014), which can() can only
+    // answer if it knows their listings.
+    const actor = await loadListingActor(userId);
     if (!actor) return { ok: false, error: 'Database is not configured.', code: 'unknown' };
 
     const result = await write(actor);
 
     // The inbox and the nav badge beside it, which counts new offers.
     revalidatePath('/leads');
+    revalidatePath('/my-leads');
     return { ok: true, status: result.status, assignedTo: result.assignedTo };
   } catch (err) {
     if (err instanceof LeadTriageError) return { ok: false, error: err.message, code: err.code };

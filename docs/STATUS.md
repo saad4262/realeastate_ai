@@ -49,6 +49,17 @@ nullable `listing_id`. Sign-in required — the first code to populate
 has sold in Pakenham within 30km", a live model now calls it and answers with
 the exact price, date and distance, and says the sale is not something to buy.
 
+**Approval and agent lead privacy (ADR 0014, 2026-10-02).** Agents no longer
+publish: `listing:publish` is owner/admin only, and the new `listing:submit`
+(admin or named agent) moves a draft/withdrawn listing to `pending` ("Pending
+approval"). The agency table offers "Approve & publish" / "Send back"; the agent
+table "Submit for approval" / "Cancel submission"; both headers count
+"Awaiting approval". Leads: `lead:read_all` (admins) is the whole agency;
+anybody else's inbox is narrowed in SQL to leads assigned to them or from a
+listing they are named on (unassigned included), and such an agent may work an
+unassigned one. The agent desk's Leads link is live at `/my-leads`. Known gap:
+an agent editing a LIVE listing still changes the public ad without review.
+
 **Lead triage (2026-10-02).** `/leads` now moves leads: a status picker
 (new / contacted / qualified / closed, any direction) and an assignee picker.
 `lead:update` — an admin, or the member the lead is assigned to (resource
@@ -86,8 +97,8 @@ which offers never existed rather than one saying three are hidden.
 ## Numbers as of this entry
 
 - `pnpm typecheck` 10/10, `pnpm build` 2/2
-- `pnpm test` 518 (@repo/core) + 260 (@repo/ai), all offline and free
-- `pnpm smoke` 111 passed, 0 failed, 14 skipped — fully green. The two
+- `pnpm test` 528 (@repo/core) + 260 (@repo/ai), all offline and free
+- `pnpm smoke` 113 passed, 0 failed, 14 skipped — fully green. The two
   long-standing failures were stale checks: the chat one asked for a "History"
   label the UI pass replaced with a conversations rail, and the cron one read
   vercel.json's daily Hobby floor instead of the GitHub Actions tick.
@@ -108,8 +119,9 @@ which offers never existed rather than one saying three are hidden.
 - **Triage smoke on dev data:** the dev DB holds only offers, so the tenancy
   half of the triage smoke check cannot be isolated there (it says so in its
   output); the unit test covers it and was break-checked.
-- **Next on leads:** the agent desk's Leads link (now that assignment gives an
-  agent "their" leads), and an open/closed filter on the inbox.
+- **Next on leads/listings:** an open/closed filter on the inbox; telling
+  admins a listing is waiting (email or nav badge); review of edits to live
+  listings (needs revisions — see ADR 0014 "Not done").
 - **The agent desk's Leads link is still `href: '#'`.** Agents now hold
   `lead:read`, so the screen would work for them; what is undecided is scoping —
   an agent should probably see leads on listings they are named on, or ones

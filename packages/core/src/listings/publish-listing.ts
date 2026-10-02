@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { listing, type DbOrTx } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import {
@@ -17,8 +17,46 @@ export type PublishListingResult = {
 /** The statuses a person may move a listing to by hand. */
 export type SettableStatus = Extract<
   ListingStatus,
-  'draft' | 'live' | 'under_offer' | 'sold' | 'withdrawn'
+  'draft' | 'pending' | 'live' | 'under_offer' | 'sold' | 'withdrawn'
 >;
+
+/**
+ * Where a listing may be submitted for approval FROM.
+ *
+ * Not from live or under offer — that is already public, and "submitting" it
+ * would take a live ad down to wait for an approval it already had. Not from
+ * sold: a finished campaign is not re-advertised by resubmitting it.
+ */
+export const SUBMITTABLE_FROM = ['draft', 'withdrawn'] as const;
+
+/**
+ * Which permission a transition needs (ADR 0014).
+ *
+ * - `live` puts content in front of the public: `listing:publish`, admins only.
+ * - `pending` asks for that: `listing:submit`, the agent named on it or an admin.
+ * - `sold` writes a permanent public figure: `listing:sell`.
+ * - everything else takes the ad down or keeps it private (draft, under offer,
+ *   withdrawn — including sending a submission back): `listing:edit`.
+ */
+function actionFor(next: SettableStatus) {
+  switch (next) {
+    case 'live':
+      return 'listing:publish' as const;
+    case 'pending':
+      return 'listing:submit' as const;
+    case 'sold':
+      return 'listing:sell' as const;
+    default:
+      return 'listing:edit' as const;
+  }
+}
+
+const REFUSAL: Record<ReturnType<typeof actionFor>, string> = {
+  'listing:publish': 'Only an agency owner or admin can publish a listing',
+  'listing:submit': 'You do not have permission to submit this listing',
+  'listing:sell': 'You do not have permission to record a sale on this listing',
+  'listing:edit': 'You do not have permission to change this listing',
+};
 
 /**
  * Move a listing through its life.
@@ -33,7 +71,8 @@ export type SettableStatus = Extract<
  * so a sale price is always something somebody typed into a sale, never a side
  * effect of an edit.
  *
- * `'pending'` is deliberately absent. Nothing reads it and no screen offers it.
+ * `'pending'` means submitted for approval (ADR 0014): an agent cannot publish,
+ * so they submit, and an owner or admin publishes — or sends it back to draft.
  */
 export async function setListingStatus(
   db: DbOrTx,
@@ -76,7 +115,7 @@ export async function setListingStatus(
   // the actor against itself, which always passed — the scoping was really
   // being done by the WHERE clause, and a refusal surfaced as "not found".
   const [target] = await db
-    .select({ id: listing.id, agencyId: listing.agencyId })
+    .select({ id: listing.id, agencyId: listing.agencyId, status: listing.status })
     .from(listing)
     .where(eq(listing.id, listingId))
     .limit(1);
@@ -84,26 +123,30 @@ export async function setListingStatus(
   if (!target) throw new ListingError('not_found', 'That listing no longer exists');
 
   /**
-   * Recording a sale is its own permission.
+   * One permission per kind of transition — see `actionFor`.
    *
-   * `listing:sell` has the same rule as `listing:publish` today — an agency
-   * admin, or the agent named on the listing. It is a separate action because
-   * the two are separate decisions: publishing puts an ad on a website and can
-   * be undone by withdrawing it, while a sale price becomes a permanent line in
-   * the public history of an address and `UNDELETABLE` then refuses to remove
-   * the listing carrying it. Tightening one should not mean tightening the
-   * other.
+   * `listing:sell` is separate from publish because a sale price becomes a
+   * permanent line in the public history of an address and `UNDELETABLE` then
+   * refuses to remove the listing carrying it; publish is separate from edit
+   * because it is the approval step. Tightening one should not tighten another.
    *
-   * Both check listing_agent for non-admins, so the actor must have been loaded
-   * with its links (loadListingActor, not loadActor).
+   * All but publish check listing_agent for non-admins, so the actor must have
+   * been loaded with its links (loadListingActor, not loadActor).
    */
-  const action = next === 'sold' ? 'listing:sell' : 'listing:publish';
+  const action = actionFor(next);
   if (!can(actor, action, { type: 'listing', id: listingId, agencyId: target.agencyId })) {
+    throw new ListingError('forbidden', REFUSAL[action]);
+  }
+
+  if (
+    next === 'pending' &&
+    !(SUBMITTABLE_FROM as readonly string[]).includes(target.status)
+  ) {
     throw new ListingError(
-      'forbidden',
-      next === 'sold'
-        ? 'You do not have permission to record a sale on this listing'
-        : 'You do not have permission to publish this listing',
+      'conflict',
+      target.status === 'pending'
+        ? 'This listing is already waiting for approval'
+        : 'Only a draft or withdrawn listing can be submitted for approval',
     );
   }
 
@@ -129,14 +172,26 @@ export async function setListingStatus(
         : {}),
       updatedAt: sql`now()`,
     })
-    .where(and(eq(listing.id, listingId), eq(listing.agencyId, target.agencyId)))
+    .where(
+      and(
+        eq(listing.id, listingId),
+        eq(listing.agencyId, target.agencyId),
+        // The submit guard again, in the write: a listing published by an
+        // admin a moment ago must not be pulled back to pending by a stale tab.
+        next === 'pending' ? inArray(listing.status, [...SUBMITTABLE_FROM]) : undefined,
+      ),
+    )
     .returning({
       id: listing.id,
       status: listing.status,
       publishedAt: listing.publishedAt,
     });
 
-  if (!row) throw new ListingError('not_found', 'That listing no longer exists');
+  if (!row) {
+    throw next === 'pending'
+      ? new ListingError('conflict', 'This listing changed a moment ago — refresh and try again')
+      : new ListingError('not_found', 'That listing no longer exists');
+  }
 
   return {
     listingId: row.id,

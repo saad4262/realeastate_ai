@@ -37,7 +37,7 @@ function statusClass(status: ListingStatus): string | undefined {
 const STATUS_LABEL: Record<ListingStatus, string> = {
   live: 'Live',
   draft: 'Draft',
-  pending: 'Pending',
+  pending: 'Pending approval',
   under_offer: 'Under offer',
   sold: 'Sold',
   withdrawn: 'Withdrawn',
@@ -112,6 +112,7 @@ export function ListingTable({
   emptyHint,
   editHrefBase,
   canDelete,
+  mayPublish,
   counts,
   page,
   pageSize,
@@ -133,6 +134,12 @@ export function ListingTable({
    * only stops the console offering a button that always fails.
    */
   canDelete: boolean;
+  /**
+   * Whether this actor may put a listing live — owners and admins (ADR 0014),
+   * decided by can() on the server. Without it the table offers "Submit for
+   * approval" where it would have offered "Publish".
+   */
+  mayPublish: boolean;
   /**
    * Total / live / draft for the WHOLE book, counted by Postgres.
    *
@@ -183,6 +190,7 @@ export function ListingTable({
         ...state,
         live: status === 'live' ? state.live + by : state.live,
         draft: status === 'draft' ? state.draft + by : state.draft,
+        pending: status === 'pending' ? state.pending + by : state.pending,
       });
 
       if ('remove' in change) {
@@ -204,14 +212,15 @@ export function ListingTable({
   const pages = Math.max(1, Math.ceil(view.total / pageSize));
   const pageHref = (n: number) => (n <= 1 ? basePath : `${basePath}?page=${n}`);
 
-  const MOVED: Record<'live' | 'draft' | 'under_offer' | 'withdrawn', string> = {
+  const MOVED: Record<'live' | 'draft' | 'pending' | 'under_offer' | 'withdrawn', string> = {
     live: 'Listing is live',
     draft: 'Back to draft',
+    pending: 'Submitted for approval',
     under_offer: 'Marked under offer',
     withdrawn: 'Listing withdrawn',
   };
 
-  function move(row: Row, next: 'live' | 'draft' | 'under_offer' | 'withdrawn') {
+  function move(row: Row, next: 'live' | 'draft' | 'pending' | 'under_offer' | 'withdrawn') {
     startTransition(async () => {
       applyOptimistic({ id: row.id, status: next });
 
@@ -228,6 +237,10 @@ export function ListingTable({
         description:
           next === 'live'
             ? `${row.address} is now on the public site.`
+            : next === 'pending'
+              ? `An owner or admin will review ${row.address} before it goes public.`
+              : next === 'draft' && row.status === 'pending'
+                ? `${row.address} is back to draft and no longer waiting for approval.`
             : next === 'under_offer'
               ? `${row.address} is off the public site while the offer stands.`
               : `${row.address} is no longer public.`,
@@ -333,6 +346,10 @@ export function ListingTable({
           <div className={styles.statLabel}>Drafts</div>
           <div className={styles.statVal}>{view.draft}</div>
         </div>
+        <div className={styles.stat}>
+          <div className={styles.statLabel}>Awaiting approval</div>
+          <div className={styles.statVal}>{view.pending}</div>
+        </div>
       </div>
 
       <div className={styles.card}>
@@ -384,7 +401,46 @@ export function ListingTable({
                           >
                             Withdraw
                           </button>
-                        ) : row.status === 'sold' ? null : (
+                        ) : row.status === 'sold' ? null : row.status === 'pending' ? (
+                          /*
+                            Waiting for approval (ADR 0014). An owner or admin
+                            approves it straight to live or sends it back to
+                            draft; the agent who submitted it can only take the
+                            submission back.
+                          */
+                          mayPublish ? (
+                            <>
+                              <button
+                                type="button"
+                                className={styles.btn}
+                                disabled={isPending}
+                                onClick={() => move(row, 'live')}
+                              >
+                                <span className={styles.glyphSm} aria-hidden>
+                                  task_alt
+                                </span>
+                                Approve &amp; publish
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.btn}
+                                disabled={isPending}
+                                onClick={() => move(row, 'draft')}
+                              >
+                                Send back
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              className={styles.btn}
+                              disabled={isPending}
+                              onClick={() => move(row, 'draft')}
+                            >
+                              Cancel submission
+                            </button>
+                          )
+                        ) : mayPublish ? (
                           <button
                             type="button"
                             className={styles.btn}
@@ -395,6 +451,18 @@ export function ListingTable({
                               public
                             </span>
                             Publish
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className={styles.btn}
+                            disabled={isPending}
+                            onClick={() => move(row, 'pending')}
+                          >
+                            <span className={styles.glyphSm} aria-hidden>
+                              send
+                            </span>
+                            Submit for approval
                           </button>
                         )}
 

@@ -1,8 +1,9 @@
-import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   agentProfile,
   lead,
+  listingAgent,
   membership,
   property,
   user,
@@ -139,6 +140,32 @@ export async function listAgencyLeads(
 
   const filters = [eq(lead.agencyId, actor.agencyId)];
   if (!maySeeOffers) filters.push(ne(lead.kind, 'offer'));
+
+  /**
+   * An agent's inbox is THEIR leads (ADR 0014): assigned to them, or come
+   * through a listing they are named on — assigned to anyone or no one.
+   *
+   * In SQL, like the offer filter, and for the same reason: the counts are
+   * window functions over this scan, so an agent's tab counts describe their
+   * leads and never disclose how many the rest of the agency has. The listing
+   * half reads `listing_agent` in the statement rather than trusting the
+   * actor's loaded links, so a caller that forgot to load them narrows to
+   * "assigned to me" instead of widening.
+   */
+  if (!can(actor, 'lead:read_all', resource)) {
+    filters.push(
+      or(
+        eq(lead.assignedTo, actor.userId),
+        inArray(
+          lead.listingId,
+          db
+            .select({ id: listingAgent.listingId })
+            .from(listingAgent)
+            .where(eq(listingAgent.userId, actor.userId)),
+        ),
+      )!,
+    );
+  }
   if (opts.kind) filters.push(eq(lead.kind, opts.kind));
 
   const rows = await db
@@ -204,6 +231,7 @@ export async function listAgencyLeads(
         type: 'lead',
         id: r.id,
         agencyId: actor.agencyId as string,
+        listingId: r.listingId,
         ...(r.assignedTo ? { ownerId: r.assignedTo } : {}),
       }),
     })),

@@ -99,14 +99,16 @@ describe('listing permissions', () => {
     expect(can(agent, 'listing:create', resource)).toBe(true);
     expect(can(agent, 'listing:publish', resource)).toBe(false);
 
+    // Named on it, they may submit it; only an owner or admin publishes (ADR 0014).
     const named: Actor = { ...agent, listingAgentOf: [listingId] };
-    expect(can(named, 'listing:publish', resource)).toBe(true);
+    expect(can(named, 'listing:submit', resource)).toBe(true);
+    expect(can(named, 'listing:publish', resource)).toBe(false);
     expect(can(owner, 'listing:publish', resource)).toBe(true);
   });
 
   it('fails closed when the actor was loaded without its listing links', () => {
     // loadActor skips listing_agent; loadListingActor is required here.
-    expect(can(agent, 'listing:publish', resource)).toBe(false);
+    expect(can(agent, 'listing:submit', resource)).toBe(false);
   });
 });
 

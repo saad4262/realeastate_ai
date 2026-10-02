@@ -347,7 +347,7 @@ export function ListingForm({
             // is that saving takes it down. Status is not something this form
             // can change at all.
             'Its status is unchanged — publishing stays a separate step.'
-          : 'Nothing is public until you publish it.',
+          : 'Nothing is public until it is published.',
       });
       router.push(backHref);
       router.refresh();
@@ -703,7 +703,7 @@ export function ListingForm({
         <p className={styles.note}>
           {editing
             ? 'Editing never changes whether a listing is public. Publish and withdraw stay on the listings table.'
-            : 'Saved listings start as drafts. Nothing reaches the public site until you publish it.'}
+            : 'Saved listings start as drafts. Nothing reaches the public site until it is published.'}
         </p>
       </div>
     </form>

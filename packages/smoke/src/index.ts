@@ -29,6 +29,7 @@ import {
   searchPublicListingsPage,
   topSuburbAgents,
   nearbySuburbs,
+  setListingStatus,
   type PublicListingSummary,
   type PublicSearchQuery,
 } from '@repo/core/listings';
@@ -412,6 +413,132 @@ async function main() {
     }
 
     return `${admins.length} admin(s) see ${offersVisible} offer(s), ${others.length} other member(s) see none`;
+  });
+
+  await check("an agent's inbox holds only their own leads", async () => {
+    /**
+     * ADR 0014, against real memberships and real rows: for every active
+     * non-admin member, every lead their inbox returns is assigned to them or
+     * came through a listing they are named on — and the counts match what
+     * Postgres says they are entitled to, so the totals disclose nothing about
+     * the rest of the agency.
+     */
+    const members = await db.execute<{ user_id: string; agency_id: string; role: string }>(
+      sql`select user_id, agency_id, role::text from membership
+          where status = 'active' and role not in ('owner', 'admin')`,
+    );
+    if (members.length === 0) skip('no non-admin members to check');
+
+    let checked = 0;
+    for (const m of members) {
+      const links = await db.execute<{ listing_id: string }>(
+        sql`select listing_id from listing_agent where user_id = ${m.user_id}`,
+      );
+      const mine = new Set(links.map((l) => l.listing_id));
+      const actor = {
+        userId: m.user_id,
+        agencyId: m.agency_id,
+        membershipRole: m.role as MembershipRole,
+        listingAgentOf: [...mine],
+      };
+      const page = await listAgencyLeads(db, actor, { limit: 500 });
+      for (const r of page.rows) {
+        assert(
+          r.assignedTo === m.user_id || (r.listingId !== null && mine.has(r.listingId)),
+          `a ${m.role} was shown lead ${r.id.slice(0, 8)}, which is neither assigned to them nor from their listing`,
+        );
+      }
+
+      const [entitled] = await db.execute<{ n: number }>(sql`
+        select count(*)::int as n from lead l
+        where l.agency_id = ${m.agency_id} and l.kind <> 'offer'
+          and (l.assigned_to = ${m.user_id}
+               or l.listing_id in (select listing_id from listing_agent where user_id = ${m.user_id}))
+      `);
+      assert(
+        page.counts.total === (entitled?.n ?? 0),
+        `a ${m.role}'s inbox counts ${page.counts.total} lead(s) but they are entitled to ${entitled?.n ?? 0}`,
+      );
+      checked += 1;
+    }
+    return `${checked} non-admin member(s), each shown only their own leads`;
+  });
+
+  await check('an agent can submit a listing for approval but never publish it', async () => {
+    /**
+     * ADR 0014 through the real write path, inside a transaction that is
+     * always rolled back. An agent named on a listing moves it to pending;
+     * asking for live is refused; an owner or admin can then publish it.
+     */
+    const [row] = await db.execute<{
+      listing_id: string;
+      agency_id: string;
+      status: string;
+      agent_id: string;
+      admin_id: string | null;
+      admin_role: string | null;
+    }>(sql`
+      select l.id as listing_id, l.agency_id, l.status::text, la.user_id as agent_id,
+             a.user_id as admin_id, a.role::text as admin_role
+      from listing l
+      join listing_agent la on la.listing_id = l.id
+      join membership m on m.user_id = la.user_id and m.agency_id = l.agency_id
+                       and m.status = 'active' and m.role not in ('owner', 'admin')
+      left join lateral (
+        select user_id, role from membership
+        where agency_id = l.agency_id and status = 'active' and role in ('owner', 'admin')
+        limit 1
+      ) a on true
+      -- Prefer a draft, but take any: the transaction below puts it in draft
+      -- first, and is rolled back either way.
+      order by (l.status = 'draft') desc
+      limit 1
+    `);
+    if (!row) skip('no listing with a non-admin agent named on it');
+
+    const agent = {
+      userId: row.agent_id,
+      agencyId: row.agency_id,
+      membershipRole: 'agent' as const,
+      listingAgentOf: [row.listing_id],
+    };
+    const ROLLBACK = new Error('smoke rollback');
+    let detail = '';
+    try {
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`update listing set status = 'draft' where id = ${row.listing_id}`);
+        let refused = '';
+        try {
+          await setListingStatus(tx, agent, row.listing_id, 'live');
+        } catch (err) {
+          refused = (err as { code?: string }).code ?? String(err);
+        }
+        assert(refused === 'forbidden', `an agent publishing got "${refused || 'success'}"`);
+
+        const submitted = await setListingStatus(tx, agent, row.listing_id, 'pending');
+        assert(submitted.status === 'pending', 'the submission did not land as pending');
+
+        if (row.admin_id) {
+          const admin = {
+            userId: row.admin_id,
+            agencyId: row.agency_id,
+            membershipRole: row.admin_role as MembershipRole,
+          };
+          const published = await setListingStatus(tx, admin, row.listing_id, 'live');
+          assert(published.status === 'live', 'an admin could not approve the submission');
+        }
+        detail = `agent refused live, submitted draft → pending${row.admin_id ? ', admin approved it live' : ''}`;
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+
+    const [after] = await db.execute<{ status: string }>(
+      sql`select status::text from listing where id = ${row.listing_id}`,
+    );
+    assert(after?.status === row.status, 'the rolled-back approval left a change behind');
+    return `${detail}; rolled back`;
   });
 
   await check('every assigned lead belongs to someone who may work it', async () => {

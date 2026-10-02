@@ -6,7 +6,7 @@ import styles from './agent-shell.module.css';
 
 const NAV = [
   { href: '/listings', label: 'My Listings', icon: 'home_work' },
-  { href: '#', label: 'Leads', icon: 'person_search' },
+  { href: '/my-leads', label: 'Leads', icon: 'person_search' },
   { href: '#', label: 'Inspections', icon: 'event' },
   { href: '#', label: 'Offers', icon: 'handshake' },
 ];
