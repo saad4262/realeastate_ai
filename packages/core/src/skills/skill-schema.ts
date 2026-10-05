@@ -8,12 +8,19 @@ import { isValidTimeZone } from '../time/local-input';
  * fails if they drift.
  */
 
-export const SKILL_HANDLERS = ['morning_brief', 'important_emails'] as const;
+export const SKILL_HANDLERS = ['morning_brief', 'important_emails', 'template_email'] as const;
 export type SkillHandler = (typeof SKILL_HANDLERS)[number];
 export const SKILL_HANDLER_LABELS: Record<SkillHandler, string> = {
   morning_brief: 'Morning Brief',
   important_emails: 'Most important emails',
+  template_email: 'Template email to contacts',
 };
+
+/**
+ * Handlers that never run on a schedule or by "Run now": the template email
+ * runs only through Prepare → Approve & Send (ADR 0022).
+ */
+export const MANUAL_ONLY_HANDLERS: readonly SkillHandler[] = ['template_email'];
 
 export const SKILL_MODEL_TIERS = ['summary', 'agent', 'hard'] as const;
 export type SkillModelTier = (typeof SKILL_MODEL_TIERS)[number];

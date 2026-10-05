@@ -183,6 +183,13 @@
       "when": 1791200762067,
       "tag": "0025_skills",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791206452398,
+      "tag": "0026_template_email",
+      "breakpoints": true
     }
   ]
 }

@@ -1335,7 +1335,7 @@ export const aiRun = pgTable('ai_run', {
 // ── Skills (docs/adr/0021) ──────────────────────────────────────────────────
 
 /** The code a skill runs. Editing a skill's Markdown never changes this. */
-export const skillHandlerEnum = pgEnum('skill_handler', ['morning_brief', 'important_emails']);
+export const skillHandlerEnum = pgEnum('skill_handler', ['morning_brief', 'important_emails', 'template_email']);
 /** Which model tier a skill asks for — mapped to a model id in packages/ai. */
 export const skillModelTierEnum = pgEnum('skill_model_tier', ['summary', 'agent', 'hard']);
 export const skillRunStatusEnum = pgEnum('skill_run_status', ['running', 'succeeded', 'failed', 'skipped']);
@@ -1450,6 +1450,147 @@ export const skillRun = pgTable(
   ],
 );
 
+
+// ── Template email (docs/adr/0022) ──────────────────────────────────────────
+
+/** A directory filter an agent saved, to choose recipients from. */
+export const contactFilter = pgTable(
+  'contact_filter',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    /** A ContactListQuery (q, role, source, assigned, archived), parsed on every read. */
+    query: jsonb('query').notNull(),
+    ...timestamps,
+  },
+  (t) => [index('contact_filter_user_idx').on(t.userId, desc(t.createdAt))],
+);
+
+export const emailTemplateStatusEnum = pgEnum('email_template_status', [
+  'draft',
+  'pending_approval',
+  'approved',
+  'retired',
+]);
+
+/**
+ * A marketing email the agency may send in bulk. Anyone may draft one; only
+ * an owner/admin approves it, and only an approved one can be used. Approved
+ * templates are not edited — retire and write a new one, so a sent email can
+ * always be traced to the exact text approved.
+ */
+export const emailTemplate = pgTable(
+  'email_template',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    subject: text('subject').notNull(),
+    /** Plain text with merge fields like {{first_name}}. */
+    body: text('body').notNull(),
+    status: emailTemplateStatusEnum('status').notNull().default('draft'),
+    createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
+    approvedBy: uuid('approved_by').references(() => user.id, { onDelete: 'set null' }),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    retiredAt: timestamp('retired_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index('email_template_agency_idx').on(t.agencyId, t.status)],
+);
+
+export const emailBatchStatusEnum = pgEnum('email_batch_status', [
+  'prepared',
+  'approved_sending',
+  'sent',
+  'expired',
+  'cancelled',
+]);
+
+/**
+ * One Prepare → Approve & Send. The recipients, the template text and the
+ * filter are FROZEN when it is prepared; nothing that changes afterwards
+ * (except a contact opting out, re-checked at send) alters what was shown.
+ */
+export const emailBatch = pgTable(
+  'email_batch',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    templateId: uuid('template_id')
+      .notNull()
+      .references(() => emailTemplate.id, { onDelete: 'restrict' }),
+    filterId: uuid('filter_id').references(() => contactFilter.id, { onDelete: 'set null' }),
+    /** The template's name, subject and body as approved, at Prepare. */
+    templateSnapshot: jsonb('template_snapshot').notNull(),
+    /** The filter's name and query, at Prepare. */
+    filterSnapshot: jsonb('filter_snapshot').notNull(),
+    status: emailBatchStatusEnum('status').notNull().default('prepared'),
+    preparedAt: timestamp('prepared_at', { withTimezone: true }).notNull().defaultNow(),
+    /** prepared_at + 48 h. Past it, the batch cannot be approved. */
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index('email_batch_agency_idx').on(t.agencyId, desc(t.preparedAt)),
+    index('email_batch_user_idx').on(t.userId, desc(t.preparedAt)),
+  ],
+);
+
+export const emailRecipientStatusEnum = pgEnum('email_recipient_status', [
+  'queued',
+  'sending',
+  'sent',
+  'failed',
+  'skipped',
+]);
+
+/** One person in a batch, frozen at Prepare: who, which address, and why skipped if skipped. */
+export const emailBatchRecipient = pgTable(
+  'email_batch_recipient',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    batchId: uuid('batch_id')
+      .notNull()
+      .references(() => emailBatch.id, { onDelete: 'cascade' }),
+    contactId: uuid('contact_id')
+      .notNull()
+      .references(() => contact.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    email: text('email'),
+    status: emailRecipientStatusEnum('status').notNull(),
+    /** Why skipped: opted_out, archived, recently_emailed, no_consent, no_email, batch_limit, dev_allowlist. */
+    skipReason: varchar('skip_reason', { length: 32 }),
+    /** Skipped at Prepare, or only at the moment of sending. */
+    skippedAtSend: boolean('skipped_at_send').notNull().default(false),
+    threadId: uuid('thread_id').references(() => mailThread.id, { onDelete: 'set null' }),
+    mailMessageId: uuid('mail_message_id').references(() => mailMessage.id, { onDelete: 'set null' }),
+    attempts: integer('attempts').notNull().default(0),
+    error: text('error'),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('email_batch_recipient_unique_idx').on(t.batchId, t.contactId),
+    index('email_batch_recipient_status_idx').on(t.batchId, t.status),
+  ],
+);
+
 export type User = typeof user.$inferSelect;
 export type Agency = typeof agency.$inferSelect;
 export type Listing = typeof listing.$inferSelect;
@@ -1475,3 +1616,7 @@ export type IntegrationAccount = typeof integrationAccount.$inferSelect;
 export type Skill = typeof skill.$inferSelect;
 export type AgentSkill = typeof agentSkill.$inferSelect;
 export type SkillRun = typeof skillRun.$inferSelect;
+export type EmailTemplate = typeof emailTemplate.$inferSelect;
+export type EmailBatch = typeof emailBatch.$inferSelect;
+export type EmailBatchRecipient = typeof emailBatchRecipient.$inferSelect;
+export type ContactFilter = typeof contactFilter.$inferSelect;

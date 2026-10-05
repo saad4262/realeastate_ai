@@ -7,6 +7,7 @@ import { nextRunFor } from '../schedules/next-run';
 import { isValidTimeZone } from '../time/local-input';
 import {
   librarySkillSchema,
+  MANUAL_ONLY_HANDLERS,
   parseSkillMarkdown,
   scheduleFromInput,
   skillBodySchema,
@@ -230,6 +231,9 @@ export async function addSkillToMine(db: Db, actor: Actor, skillId: string, time
     .where(and(eq(skill.id, skillId), isNull(skill.archivedAt), or(isNull(skill.agencyId), eq(skill.agencyId, actor.agencyId))))
     .limit(1);
   if (!s || !can(actor, 'skill:read', { type: 'skill', ...(s.agencyId ? { agencyId: s.agencyId } : {}) })) throw NOT_FOUND();
+  if (MANUAL_ONLY_HANDLERS.includes(s.handler as SkillHandler)) {
+    throw new SkillError('conflict', 'This skill is used from its own page: Prepare, then Approve & Send');
+  }
   const zone = isValidTimeZone(timezone) ? timezone : 'Australia/Sydney';
   const [row] = await db
     .insert(agentSkill)

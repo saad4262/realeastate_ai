@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, lt, lte, notInArray, sql } from 'drizzle-orm';
 import { agentSkill, membership, skill, skillRun, user, type Db } from '@repo/db';
 import { can, type Actor, type MembershipRole } from '../permissions';
 import { requireIntegrations } from '../integrations/accounts';
@@ -16,7 +16,7 @@ import {
   type MorningBriefFacts,
   type SkillItem,
 } from './facts';
-import { parseSkillMarkdown, type SkillHandler, type SkillModelTier } from './skill-schema';
+import { MANUAL_ONLY_HANDLERS, parseSkillMarkdown, type SkillHandler, type SkillModelTier } from './skill-schema';
 import { getMySkill, requiresOf, SkillError } from './skills';
 
 /**
@@ -69,8 +69,11 @@ export async function claimDueSkills(db: Db, opts: { now?: Date; limit?: number;
         nextRunAt: agentSkill.nextRunAt,
       })
       .from(agentSkill)
+      .innerJoin(skill, eq(skill.id, agentSkill.skillId))
       .where(
         and(
+          // The template email runs only through Prepare → Approve (ADR 0022).
+          notInArray(skill.handler, [...MANUAL_ONLY_HANDLERS]),
           // Disabled skills are never claimed — whatever their cursor says.
           eq(agentSkill.enabled, true),
           isNull(agentSkill.archivedAt),
@@ -202,6 +205,9 @@ export async function executeSkillRun(db: Db, deps: SkillDeps, runId: string, no
   };
 
   try {
+    if (MANUAL_ONLY_HANDLERS.includes(row.handler as SkillHandler)) {
+      return await skip('This skill runs only through Prepare → Approve & Send');
+    }
     const actor = await memberActor(db, row.userId, row.agencyId);
     if (!actor) return await skip('No longer an active member of the agency');
 
@@ -345,6 +351,9 @@ export async function runSkillNow(db: Db, deps: SkillDeps, actor: Actor, agentSk
   const s = await getMySkill(db, actor, agentSkillId);
   if (!can(actor, 'agent_skill:manage', { type: 'agent_skill', id: s.id, agencyId: s.agencyId, ownerId: s.userId })) {
     throw new SkillError('forbidden', 'You can view this skill but not run it');
+  }
+  if (MANUAL_ONLY_HANDLERS.includes(s.handler)) {
+    throw new SkillError('conflict', 'This skill runs only through Prepare → Approve & Send');
   }
   if (!s.enabled) throw new SkillError('conflict', 'Switch the skill on to run it');
   if (s.requires.length) {
