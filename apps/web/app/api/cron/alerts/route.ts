@@ -2,6 +2,12 @@ import { after, NextResponse, type NextRequest } from 'next/server';
 import { pullReceivedMail } from '@repo/core/mail';
 import { authoriseCronRequest, runScheduleTick } from '@repo/core/schedules';
 import { runSkillTick } from '@repo/core/skills';
+import {
+  expirePreparedBatches,
+  recoverStuckRecipients,
+  resumeSendingBatches,
+  templateSendDepsFromEnv,
+} from '@repo/core/template-email';
 import { getWebDb } from '../../../../lib/db';
 import { schedulerDeps, skillDeps } from '../../../../lib/scheduler';
 
@@ -70,9 +76,23 @@ async function handler(request: NextRequest) {
       error: err instanceof Error ? err.message : 'skills tick failed',
     }));
 
+    /**
+     * Template email housekeeping (ADR 0022): prepared batches past 48 h
+     * expire; recipients stuck mid-send are settled from their message's own
+     * status; an approved batch left with people queued carries on. It never
+     * prepares or approves anything — that is always a person.
+     */
+    const templateEmail = await (async () => {
+      const expired = await expirePreparedBatches(getWebDb());
+      const recovered = await recoverStuckRecipients(getWebDb());
+      const sendDeps = templateSendDepsFromEnv();
+      const resumed = sendDeps.ok ? await resumeSendingBatches(getWebDb(), sendDeps.deps) : null;
+      return { expired, recovered, resumed };
+    })().catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'template email tick failed' }));
+
     // No ids, no addresses, no listing text — this is read from a cron log.
     return NextResponse.json(
-      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills },
+      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills, templateEmail },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (err) {

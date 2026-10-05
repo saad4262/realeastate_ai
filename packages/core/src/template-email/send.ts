@@ -9,9 +9,9 @@ import {
   skill,
   type Db,
 } from '@repo/db';
-import { checkEmailLimits, devAllowlist, type TemplateLimits } from '../email/limits';
+import { checkEmailLimits, devAllowlist, emailLimitsFromEnv, type TemplateLimits } from '../email/limits';
 import { contactUnsubscribeUrl } from '../email/unsubscribe';
-import { deliverOutbound, recordOutbound, type MailDeps } from '../mail/send';
+import { deliverOutbound, mailDepsFromEnv, recordOutbound, type MailDeps } from '../mail/send';
 import { mergeValuesFor, recentlyEmailedSql, classify, type TemplateSnapshot } from './batches';
 import { renderMerge, type SkipReason } from './schema';
 
@@ -304,3 +304,19 @@ export async function ensureTemplateEmailSkill(db: Db): Promise<void> {
 }
 
 
+
+/**
+ * Everything sending needs, from the environment — or null with the reason
+ * when it cannot send: no mail provider, or no unsubscribe secret (a
+ * marketing email without a working unsubscribe is not sent, Spam Act s.18).
+ */
+export function templateSendDepsFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): { ok: true; deps: TemplateSendDeps } | { ok: false; reason: string } {
+  const mail = mailDepsFromEnv(env);
+  if (!mail) return { ok: false, reason: 'Email is not set up on this server (Resend and the sender identity).' };
+  const secret = env.ALERT_UNSUBSCRIBE_SECRET?.trim();
+  if (!secret) return { ok: false, reason: 'ALERT_UNSUBSCRIBE_SECRET is not set — a marketing email must carry a working unsubscribe link.' };
+  const baseUrl = env.NEXT_PUBLIC_WEB_URL?.trim() || 'http://web.lvh.me:3000';
+  return { ok: true, deps: { mail, unsubscribe: { baseUrl, secret }, limits: emailLimitsFromEnv(env), env } };
+}

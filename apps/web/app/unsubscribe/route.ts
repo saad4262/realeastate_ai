@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { requireUnsubscribeSecret, verifyUnsubscribeToken } from '@repo/core/email';
+import { requireUnsubscribeSecret, verifyContactUnsubscribeToken, verifyUnsubscribeToken } from '@repo/core/email';
+import { optOutContact } from '@repo/core/template-email';
 import { pauseScheduleByOwner } from '@repo/core/schedules';
 import { getWebDb } from '../../lib/db';
 
@@ -96,7 +97,7 @@ function page(title: string, body: string, status = 200): NextResponse {
   );
 }
 
-async function unsubscribe(request: NextRequest): Promise<{ ok: boolean; scheduleId?: string }> {
+async function unsubscribe(request: NextRequest): Promise<{ ok: boolean; scheduleId?: string; contact?: boolean }> {
   const token = request.nextUrl.searchParams.get('t');
   if (!token) return { ok: false };
 
@@ -105,6 +106,18 @@ async function unsubscribe(request: NextRequest): Promise<{ ok: boolean; schedul
     secret = requireUnsubscribeSecret();
   } catch {
     return { ok: false };
+  }
+
+  /**
+   * A contact's link, from an agency's template email (ADR 0022): opted out
+   * of that agency's marketing email, as a dated fact. A different token
+   * shape and signing domain from a saved search's — neither reads as the
+   * other.
+   */
+  const contactClaim = verifyContactUnsubscribeToken(token, secret);
+  if (contactClaim.ok) {
+    const done = await optOutContact(getWebDb(), contactClaim.contactId);
+    return { ok: done.ok, contact: true };
   }
 
   const claim = verifyUnsubscribeToken(token, secret);
@@ -150,6 +163,15 @@ export async function GET(request: NextRequest) {
       // 200, not 404. A different status for "already unsubscribed" tells an
       // outsider whether a given token was ever real.
       200,
+    );
+  }
+
+  if (result.contact) {
+    return page(
+      'Unsubscribed',
+      `<h1>You are unsubscribed</h1>
+       <p>You will not receive marketing email from that agency again. Replies about anything you
+          asked them directly are not affected.</p>`,
     );
   }
 

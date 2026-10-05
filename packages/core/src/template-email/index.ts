@@ -35,6 +35,7 @@ export {
   recoverStuckRecipients,
   resumeSendingBatches,
   sendBatch,
+  templateSendDepsFromEnv,
   type SendReport,
   type TemplateSendDeps,
 } from './send';
