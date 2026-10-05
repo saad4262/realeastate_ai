@@ -121,6 +121,35 @@ Generate the two secrets with `openssl rand -hex 32`.
     ALERTS_DRY_RUN                       `1` builds every digest and sends no
                                          mail. Set this on any preview that
                                          shares the production database.
+    MAIL_INBOUND_DOMAIN                  The domain Resend receives on, e.g.
+    MAIL_REPLY_SECRET                    reply.example.com.au, plus the key that
+                                         signs reply addresses. Both or neither.
+                                         Unset: console replies still send, but
+                                         buyers' answers go to the agent's own
+                                         email instead of back into the inbox.
+    RESEND_WEBHOOK_SECRET                `whsec_…` of the inbound webhook.
+                                         Unset: /api/mail/inbound refuses all.
+
+### Email conversations — one-time setup (docs/adr/0016)
+
+Quickest (no DNS): Resend gives every account a receiving subdomain.
+1. Resend → Emails → **Receiving** → ⋯ → **Receiving address**. It looks like
+   `anything@<id>.resend.app`; the part after `@` is the domain.
+2. Set `MAIL_INBOUND_DOMAIN=<id>.resend.app` and a long random
+   `MAIL_REPLY_SECRET` (`openssl rand -hex 32`). Restart the servers.
+3. That is enough, on localhost too: the inbox, the buyer's messages page and
+   the cron tick PULL received mail from Resend (`pullReceivedMail`), so no
+   webhook or public URL is needed.
+
+Optional, for instant delivery once deployed: Resend → Webhooks → endpoint
+`https://<web host>/api/mail/inbound`, event `email.received`, its secret in
+`RESEND_WEBHOOK_SECRET`. Own domain instead of resend.app: Resend → Domains →
+enable receiving on a SUBDOMAIN (e.g. `reply.example.com.au`) and add its MX —
+never the main domain, whose mail lives elsewhere.
+
+4. Run migrations 0016–0018 before deploying the code that reads them.
+5. Check: send a reply from `/inbox`, answer it from Gmail, and it appears in the
+   thread within seconds. Each agency's own address is shown on its `/inbox`.
 
 ### Deliberately NOT set
 

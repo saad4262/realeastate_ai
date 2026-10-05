@@ -1,3 +1,72 @@
+## 2026-10-03 (evening) — Claude Code — Replies actually come back, buyers reply on the site, detailed agency emails
+
+- Goal (user): buyer's Gmail replies never reached the agency; buyers saw no
+  messages on the site and should be able to reply there; agency emails should
+  say which offer/lead/property and what is being asked.
+- Found: inbound was never configured (no MAIL_* vars; Resend domain has
+  receiving disabled, 0 received emails), so Reply-To fell back to the agent's
+  own Gmail. No buyer account had proved its address. And a real bug:
+  `shahzaib13118@` signed up again after their auth account was deleted — the
+  old `public.user` row kept the unique email, so the new account could never
+  get its row and every account page failed for it.
+- Done: `pullReceivedMail` / `syncReceivedEmails` (list → fetch only ours →
+  ingest), called by an island on /inbox, /my-inbox and the buyer's pages every
+  20 s, and by the cron tick. `replyAsCustomer` + `ReplyBox` (migration 0018:
+  `mail_channel` 'website'). Agency replies carry a mailbox-proving website
+  link (`conversationLink`, `*` tokens, 30 days); the middleware now keeps the
+  query through sign-in so the token survives. `loadLeadContext` + one
+  `lead-details` block in the new-lead/assigned notice, the private-offer email
+  (now also with the thread Reply-To) and the reply notice. `ensureAppUser`
+  frees an address held by a row whose auth account is gone.
+- Verified: typecheck, lint 0 errors, test 588 + 263, build 2/2. Smoke 121
+  passed / 5 failed: the 4 stale-dev-server cache checks, and "every account is
+  mirrored" until shahzaib's account opens any account page (the fix then
+  mirrors it). New checks — sync + website reply + link proof; orphaned email —
+  pass and were break-checked red.
+- Not verified: a real email round trip — needs MAIL_INBOUND_DOMAIN set (see
+  DEPLOY "Email conversations"). Nothing clicked in a browser.
+
+## 2026-10-03 — Claude Code — Email conversations in the app (ADR 0016)
+
+- Goal (client): agencies read and send email inside the console, buyers read
+  theirs on the website, and Gmail keeps working for anyone who prefers it.
+  User chose "Plan B": the platform owns the conversation, no OAuth into Gmail.
+- Done: ADR 0016. db: `mail_thread` / `mail_message` / `mail_read`, a trigger
+  giving every lead its thread (+ backfill), RLS SELECT-only (migration 0016);
+  `user.verified_email` (0017). core `mail/`: signed Reply-To addresses
+  (`t+<thread>.<hmac>@MAIL_INBOUND_DOMAIN`), agency addresses (`<slug>@…`),
+  Svix webhook verify, Resend inbound fetch + ingest (relay an agent's Gmail
+  reply only when DMARC passes and can() lets them send), outbox-style sending
+  (recorded `queued`, sent after the tx, `failed` keeps a retry), reply notices,
+  buyer reads gated on a proven address, email-verification link.
+  permissions: `mail:read` (= lead:read), `mail:send` (= lead:update),
+  `mail:read_own`. Lead notices now carry the thread's Reply-To when inbound is
+  on. console: `/inbox` + `/my-inbox` (shared component), nav badges, "Open
+  conversation" on lead rows. web: `/api/mail/inbound`, `/account/messages`,
+  `/[id]`, `/verify`, a Messages card on /account.
+- Caught mid-build: TEST-PLAN I29 says "Confirm email" is OFF, so matching a
+  buyer on their sign-in email would let anyone register as someone else and
+  read their agency mail. Fixed with `verified_email` + an emailed link; the
+  smoke check proves an unproved account sees nothing (break-checked red).
+- Verified: typecheck 10/10, lint 0 errors, test 581 + 263, build 2/2; smoke
+  119 passed / 4 failed — the 4 are the cache-speed checks, see STATUS. All six
+  new smoke checks green and each guard break-checked red (trigger, DMARC,
+  agent narrowing, address proof). `now()` → `clock_timestamp()` for unread
+  ordering, found by the round-trip check.
+- Not verified: anything in a browser (no signed-in session here) — TEST-PLAN
+  section M. Nothing real was sent or received: inbound needs DNS + webhook.
+
+- Later, from the user's screenshots: (1) "keeps asking me to sign in" —
+  `updateSession` and both middlewares copied refreshed cookies as
+  `set(name, value)`, dropping Domain/Max-Age/SameSite (proved with a script);
+  a host-only copy sat beside the old `.lvh.me` one and the other app refreshed
+  with a rotated-out token. Now whole cookies; smoke source check, break-checked.
+  (2) "An unexpected response was received from the server" on Messages: the
+  web middleware 307'd a Server Action POST to /login; actions now pass through
+  and redirect themselves. (3) The inbox read like a chat: now a mail-client
+  layout — full-width list, the open thread replaces it, message cards with
+  sender/to/date, older ones folded. Buyer page restyled to match.
+
 ## 2026-10-02 (evening) — Claude Code — Approval workflow and agents' own leads
 
 - Goal (client): agents submit listings and only owners/admins publish; agents

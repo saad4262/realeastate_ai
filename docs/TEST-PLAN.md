@@ -367,3 +367,26 @@ swallowed, so I3 will still show you the failure.
 | I38 | Sign up on **`http://localhost:3000`** (not lvh.me), then reload | Still signed in. `COOKIE_DOMAIN=.lvh.me` used to be sent on localhost, where the browser discards it — sign-in looked fine and never persisted. |
 | I39 | Straight after signing up, go to `/chat` and ask something, then open History | The conversation is there. It used to fail the `public.user` foreign key silently, because that row was only created by visiting `/alerts`. |
 | I40 | Sign in on `web.lvh.me:3000`, then open `agency.lvh.me:3001` | Still signed in — the shared `.lvh.me` domain must survive the host-aware change. |
+
+## M — Email conversations (ADR 0016)
+
+Needs a signed-in console session, a signed-in website account, and — for M6–M9 —
+`MAIL_INBOUND_DOMAIN`, `MAIL_REPLY_SECRET` and `RESEND_WEBHOOK_SECRET` set with the
+Resend receiving domain and webhook from docs/DEPLOY.md. None of this was clicked
+through when it was built; every row below is unverified until somebody does.
+
+| # | Case | Expected |
+|---|---|---|
+| M1 | Owner opens `agency…/inbox` | Folders All / Unread / Assigned to me / Offers / Agency mailbox. Every lead is a conversation; new ones are bold with a dot. The nav's **Inbox** badge equals the Unread count. |
+| M2 | Open a conversation | The buyer's form message is first. The bold and the badge clear without a reload. Status and assignee pickers work from the header, and the change shows on `/leads` too. |
+| M3 | Write a reply, press ⌘/Ctrl+Enter | "Sent" toast, the reply appears on the right, the box empties. The buyer's mailbox gets it from "<agent> · <agency>", with the subject "Re: …". |
+| M4 | Send an empty reply | Refused in the browser, no round trip. |
+| M5 | Agent opens `agents…/my-inbox` | Only their own leads' conversations. No Offers or Agency mailbox folder. On a lead assigned to someone else: readable, no reply box, the sentence saying why. |
+| M6 | Buyer answers M3's email from Gmail | Within seconds it is in the same conversation, unread again, quoted history behind "Show quoted text". The assignee (or the listing's agents, or the admins) gets a "<buyer> replied" email. |
+| M7 | Agent answers that notice from their own Gmail | Their reply shows on the right, marked "replied by email", and the buyer receives it — without the quoted notice under it. |
+| M8 | Email the agency address shown on `/inbox` from any mailbox | A new thread in **Agency mailbox**, owners/admins only. A second email with the same subject joins it. |
+| M9 | An HTML email with a remote image | "View original formatting" shows it in a frame; the remote image does NOT load (no tracking pixel). Links open in a new tab. |
+| M10 | On a phone width, open a conversation | The list is replaced by the reader with "← All conversations"; Back returns to the list. |
+| M11 | Buyer signs in on the website, opens **Account → Messages** | "Confirm your email first". Nothing email-matched shows yet. **Email me a link** → the link → **Confirm** → their enquiries and the agency's replies appear. |
+| M12 | Register a NEW account with somebody else's address, open Messages | Nothing of theirs shows. Pressing Email me a link sends the link to that address — the impostor never sees it. |
+| M13 | Open the emailed link while signed in as a DIFFERENT account | "That link has expired or belongs to another account." Nothing is confirmed. |

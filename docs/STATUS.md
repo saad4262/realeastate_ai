@@ -1,14 +1,41 @@
 # Status
-- Milestone: **M5 — sold properties are first-class, and the lead inbox is
-  real.** An agency can record a sale; an off-market address has its own public
-  page carrying its sale history; a signed-in visitor can make a private offer
-  on one; the AI guide can answer what has sold; and `/leads` is a working
-  inbox rather than a placeholder.
+- Milestone: **M6 — email conversations live in the app (ADR 0016).** Every lead
+  is a conversation an agency can read and answer in the console; buyers read
+  theirs on the website; replies from Gmail land back in the same thread.
+  Built on M5 (sold properties, private offers, the lead inbox).
 - Build order (locked): Agency UI → Agent UI → Consumer web
 - Last tool: Claude Code
-- Last updated: 2026-10-02
+- Last updated: 2026-10-03
 - Deploying: `apps/web` only, Vercel Hobby. `apps/console` waits for a real
   domain — see `docs/DEPLOY.md`. **Nothing is deployed yet.**
+
+## What M6 added (ADR 0016)
+
+**The platform owns the conversation; Gmail is a window onto it.** No OAuth
+into anybody's mailbox. Every email a conversation sends carries a signed
+Reply-To, `t+<threadId>.<hmac>@MAIL_INBOUND_DOMAIN`; Resend Inbound posts the
+answer to `/api/mail/inbound` (Svix-signed) and it lands in the same thread.
+Each agency also has `<slug>@MAIL_INBOUND_DOMAIN`, an admin-only mailbox.
+
+- **Data:** `mail_thread` (one per lead, made by a trigger on `lead` insert,
+  backfilled), `mail_message`, `mail_read` (per-person unread). Status and
+  assignee stay on `lead`. RLS on, SELECT-only. `user.verified_email` (0017).
+- **Permissions:** `mail:read` = `lead:read`, `mail:send` = `lead:update`, an
+  offer's thread also needs `lead:read_offer`, agency-address mail is
+  `lead:read_all` only. Non-admins narrowed in SQL, as the lead inbox.
+- **Sending:** recorded `queued` in a tx, sent after it, marked `sent`/`failed`
+  with a retry. An agent answering a notice from Gmail is RELAYED to the buyer
+  only when DMARC passed and can() lets them send; otherwise held with a reason.
+- **Console:** `/inbox` (agency) and `/my-inbox` (agent) — folders, unread,
+  reader with status/assignee pickers, composer, sandboxed original HTML (no
+  remote fetches). Nav badges. "Open conversation" on every lead row.
+- **Website:** `/account/messages` (+ `/[id]`). Email-matched threads show only
+  after the account proves its address via an emailed link (`/verify`, POST to
+  confirm) — sign-up here does not confirm emails, so the address alone would
+  let anyone read someone else's agency mail. Alert emails stay on `/alerts`.
+- **Off until configured:** with `MAIL_INBOUND_DOMAIN` + `MAIL_REPLY_SECRET`
+  unset, console replies still send and replies go to the agent's own email.
+  Setup steps: `docs/DEPLOY.md` → "Email conversations — one-time setup".
 
 ## What M5 added
 
@@ -96,36 +123,46 @@ which offers never existed rather than one saying three are hidden.
 
 ## Numbers as of this entry
 
-- `pnpm typecheck` 10/10, `pnpm build` 2/2
-- `pnpm test` 528 (@repo/core) + 260 (@repo/ai), all offline and free
-- `pnpm smoke` 113 passed, 0 failed, 14 skipped — fully green. The two
-  long-standing failures were stale checks: the chat one asked for a "History"
-  label the UI pass replaced with a conversations rail, and the cron one read
-  vercel.json's daily Hobby floor instead of the GitHub Actions tick.
-- `pnpm smoke:ai` run once deliberately (~US$0.02): the new
-  `the guide reaches for sold data instead of denying it exists` check passed
-- Migration `0014_lead_property_offers` is applied to the dev database;
-  `pnpm db:generate` afterwards reports no drift
+- `pnpm typecheck` 10/10, `pnpm lint` 0 errors (1 old `<img>` warning),
+  `pnpm build` 2/2 — `/inbox` 137 B / 124 kB first load
+- `pnpm test` 588 (@repo/core) + 263 (@repo/ai), all offline and free
+- `pnpm smoke` 119 passed, 4 failed, 14 skipped. The 6 new email checks pass,
+  each break-checked red. **The 4 failures are the cache-speed checks** (home,
+  suburb, radius, "fast the second time"): the long-running dev server on :3000
+  now needs two requests after a revalidate before it serves from cache. A
+  fresh `next dev` on another port, with this code, measured cold ~430 ms →
+  warm ~40 ms, and the same server failed identically with the change stashed —
+  so: restart the dev servers and re-run before reading anything into them.
+- Migrations 0016 and 0017 are applied to the dev database; no drift.
+- Not clicked through in a browser: TEST-PLAN section M. Nothing was really
+  sent or received — inbound needs the Resend domain, MX and webhook.
 
 ## Open / next
 
-- **Dev data:** the 2026-10-02 relist E2E did exactly that to property
-  `e99d1a30` (32/6E Henry Street): land 322 m², pin -38.076151/145.483831 and
-  formatted_address were overwritten and are not yet restored (the DB write was
-  not permitted in-session).
-- **Dev DB pool:** `.env.local` DATABASE_URL now uses the transaction pooler
-  (:6543); DIRECT_URL stays on the session pooler for migrations. Running dev
-  servers keep their old pool until restarted.
-- **Triage smoke on dev data:** the dev DB holds only offers, so the tenancy
-  half of the triage smoke check cannot be isolated there (it says so in its
-  output); the unit test covers it and was break-checked.
-- **Next on leads/listings:** an open/closed filter on the inbox; telling
-  admins a listing is waiting (email or nav badge); review of edits to live
-  listings (needs revisions — see ADR 0014 "Not done").
-- **The agent desk's Leads link is still `href: '#'`.** Agents now hold
-  `lead:read`, so the screen would work for them; what is undecided is scoping —
-  an agent should probably see leads on listings they are named on, or ones
-  assigned to them, not the whole agency book.
-- `apps/web` and `apps/console` were written by Claude Code this session at the
-  user's explicit request, against the tool split in CLAUDE.md.
-- The two pre-existing smoke failures are untouched and unrelated.
+- **To make replies come back:** set `MAIL_INBOUND_DOMAIN` to Resend's
+  `<id>.resend.app` receiving domain (Emails → Receiving → ⋯) and
+  `MAIL_REPLY_SECRET`; restart. Pulling works on localhost — no webhook needed.
+
+- **One browser = one account across web, agency and agents** (shared
+  `.lvh.me` cookie, ADR 0003). Signing in on the website as a buyer signs the
+  console out of the agency account, and the reverse. Test the buyer side in a
+  private window or another browser.
+
+- **To switch inbound on:** Resend receiving subdomain + MX, webhook to
+  `/api/mail/inbound` (`email.received`), then `MAIL_INBOUND_DOMAIN`,
+  `MAIL_REPLY_SECRET`, `RESEND_WEBHOOK_SECRET`. Then TEST-PLAN M1–M13.
+- **Not built (ADR 0016 "Not done"):** attachments are listed, not stored or
+  sent; no rich-text composer or signature; buyers reply by email, not on the
+  site; no realtime — the inbox refreshes on navigation and after actions.
+- **Private-offer notice** (web `offer-action.ts`) does not carry the thread's
+  Reply-To yet; offers are answered from `/inbox`.
+- **Dev data:** property `e99d1a30` (32/6E Henry Street) still has the
+  overwritten land/pin/address from the 2026-10-02 relist test.
+- **Dev DB pool:** `.env.local` DATABASE_URL is the transaction pooler (:6543);
+  DIRECT_URL the session pooler for migrations.
+- **Next on leads/listings:** an open/closed filter; telling admins a listing
+  is waiting; review of edits to live listings (ADR 0014 "Not done").
+- **Docs drift:** CLAUDE.md still says media is on R2 and Supabase Storage is
+  unused; ADR 0009 and the code use Supabase Storage.
+- `apps/web` and `apps/console` were written by Claude Code at the user's
+  explicit request, against the tool split in CLAUDE.md.
