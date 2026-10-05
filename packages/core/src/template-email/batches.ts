@@ -113,7 +113,8 @@ export async function prepareBatch(
       archivedAt: contact.archivedAt,
       optOutAt: contact.emailOptOutAt,
       consentAt: contact.marketingConsentAt,
-      recently: recentlyEmailedSql(contact.id, limits.repeatDays),
+      // Qualified by hand: a single-table select renders its columns as a bare "id", which the subquery's own tables would make ambiguous.
+      recently: recentlyEmailedSql(sql.raw('"contact"."id"'), limits.repeatDays),
     })
     .from(contact)
     .where(and(...contactQueryFilters(actor, { ...query, archived: 'all' }, seesAll)))

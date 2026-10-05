@@ -1,3 +1,27 @@
+## 2026-10-05 (night) — Claude Code — Template email to contacts (ADR 0022)
+
+- Goal (user): build ADR 0022 as decided — tables, permissions, Prepare →
+  frozen list → Approve & Send, send-time re-checks and limits, the mail
+  pipeline + contact unsubscribe, Skills library entry (manual only),
+  EMAIL_DEV_ALLOWLIST, smoke, TEST-PLAN S. User testing N–R on the same dev
+  servers/DB: no restarts, no seeding/deleting, additive migrations only.
+- Done in 6 commits: 0026 schema; permissions + env limits + allowlist +
+  contact unsubscribe + marketing email build; core template-email
+  (templates, filters, prepare, approve, send loop, retry, recovery);
+  /unsubscribe for contacts + cron housekeeping; console pages; smoke + docs.
+- Bug found by smoke: `recentlyEmailedSql` rendered a bare `"id"` that was
+  ambiguous in joined queries — qualified as `"contact"."id"`.
+- Incident: a break-check edited core files in the working tree, which the
+  running dev server hot-reloaded — for a few minutes the live console had
+  the allowlist/opt-out re-check disabled. Restored at once; DB showed 0
+  batches and 0 templates, so nothing could have been sent. Rule from now
+  on: break-checks only in a separate worktree copy, never in the tree the
+  dev servers run from.
+- Verified: typecheck, lint, test 690 + 270; smoke 154 passed / 1 failed
+  (the known unmirrored dev account) / 14 skipped. Each new smoke check broken
+  and seen red (two rounds).
+- Not verified in a browser: S. No real email sent; no live model call.
+
 ## 2026-10-05 (late night) — Claude Code — Startup guard, DEPLOY key guide, CRM Phase 5: skills
 
 - Goal (user): (a) refuse to start in production with the stub on or no

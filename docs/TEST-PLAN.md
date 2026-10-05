@@ -507,3 +507,30 @@ appointment today and an unanswered email for the agent, so there is something t
 | R11 | Set `AI_DAILY_BUDGET_USD=0` in `.env.local`, restart, Run now | The run is **Skipped — the daily AI budget is used up**; no cost line. Put it back afterwards. |
 | R12 | Switch the skill Off, wait past its time | No new run appears (the scheduler never claims a skill that is off). |
 | R13 | Read-only member opens `/my-skills` | Library visible; no Add buttons. |
+
+## S — Template email to contacts (ADR 0022)
+
+**Safety first.** In development nothing is sent to anyone not on `EMAIL_DEV_ALLOWLIST` in
+`.env.local` (comma-separated addresses or `@domain`; unset = nobody). Put ONLY your own test
+addresses there — Next reloads `.env.local` by itself; if it does not, restart `pnpm dev`.
+`ALERT_UNSUBSCRIBE_SECRET` must be set. Owner in one browser, agent in another. Give two or
+three of the agent's contacts marketing consent (Edit → "Has agreed to receive marketing
+email", with a note) and your allowlisted addresses; leave one without consent.
+
+| # | Case | Expected |
+|---|---|---|
+| S1 | Agent → **Bulk email** → **+ New template**: subject `Hi {{first_name}}`, body with `{{agent_name}}`; Save draft | Saved as Draft. A field like `{{suburb}}` is refused with the list of allowed fields. |
+| S2 | Agent: **Submit for approval**. Agent tries to Prepare | The template is not offered — only approved templates are. |
+| S3 | Owner → Bulk email → the template → **Approve** (or Send back) | Status Approved, "approved by <owner>". It can no longer be edited (retire and write a new one). |
+| S4 | Agent → Customers/My contacts → filter (e.g. Role = Buyer) → **Save this filter** | Saved; it appears in Bulk email's filter picker. |
+| S5 | Bulk email → pick the template and the filter → **Prepare** | The batch page: counts, the email as the first person gets it (merge fields filled), every recipient by name, and every skipped contact with the reason (no consent, opted out, archived, emailed in the last 7 days, no email, over 20). Expiry shown 48 h ahead. Nothing sent. |
+| S6 | Edit a recipient's name, give a skipped contact consent, add a new matching contact; reload the batch | The list is exactly as prepared — frozen. |
+| S7 | Before approving, open one recipient and tick off their consent (or use their unsubscribe link from an earlier email) | After Approve & Send they show **Skipped — … (found at the moment of sending)**. |
+| S8 | **Approve & Send** — double-click it | One confirmation; it locks; each person receives ONE email (check your inbox). Recipients turn Sent; each has a "conversation" link; the contact's Timeline shows "Template email sent". |
+| S9 | Reply to one of the emails from your mailbox | The reply lands in that conversation in the console. |
+| S10 | Click **Unsubscribe** in a received email | "You are unsubscribed"; that contact's Marketing email shows "Opted out <date>" and the timeline "Unsubscribed from marketing email". A new Prepare skips them as opted out. |
+| S11 | Prepare again at once with the same filter | People emailed in the last 7 days are skipped with that reason. |
+| S12 | A recipient whose address is NOT on the allowlist | Skipped: "Not on the development allowlist" — and no email went out. |
+| S13 | Leave a prepared batch 48 h (or ask me to back-date one) | "Expired — prepare again"; no Approve button. |
+| S14 | Second agent opens the first agent's batch URL | "That batch was not found". The owner sees it in the agency's list but has no Approve button. |
+| S15 | Skills → Library | "Template email to contacts" shows **Open bulk email**, not "Add". |

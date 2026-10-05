@@ -99,6 +99,15 @@ export const envSchema = z.object({
   INTEGRATION_TOKEN_KEY_PREVIOUS: z.string().optional(),
   INTEGRATION_OAUTH_RETURN_BASE: z.string().url().optional(),
   INTEGRATIONS_STUB: z.string().optional(),
+  /**
+   * Template email (docs/adr/0022). EMAIL_DEV_ALLOWLIST: outside production,
+   * only these addresses / @domains receive bulk email; unset = nobody.
+   * Ignored in production. The rest are limits with the agreed defaults.
+   */
+  EMAIL_DEV_ALLOWLIST: z.string().optional(),
+  EMAIL_LIMIT_PER_BATCH: z.coerce.number().int().positive().default(20),
+  EMAIL_REPEAT_DAYS: z.coerce.number().int().positive().default(7),
+  EMAIL_SEND_DELAY_MS: z.coerce.number().int().min(0).default(500),
   EMAIL_LIMIT_PER_AGENT_DAY: z.coerce.number().int().positive().default(50),
   EMAIL_LIMIT_PER_AGENCY_DAY: z.coerce.number().int().positive().default(200),
   ALERT_SENDER_NAME: z.string().optional(),

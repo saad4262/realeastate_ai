@@ -1,7 +1,7 @@
-# 0022 — The "send a template email to N contacts" skill (DECIDED — not built yet)
+# 0022 — The "send a template email to N contacts" skill (BUILT 2026-10-05)
 
-**Status:** decisions agreed with the user 2026-10-05 (see "Decided" below). NOT BUILT — the user reports
-the N–R browser tests first.
+**Status:** built 2026-10-05 as decided below (migration 0026). Where "Decision (proposed)"
+and "Decided" differ, "Decided" is what was built.
 
 **Context.** Agents want to email a template ("New listing in your street", "Market update")
 to a handful of contacts in one go. This is MARKETING email in the agency's name to third
@@ -54,6 +54,17 @@ non-negotiable #7 (AI copy reaching a third party needs a human).
    Opt-out and consent are **checked again at the moment of sending** — someone who opts
    out between Prepare and Send is not emailed.
 4. **48 hours** to approve; an expired batch must be prepared again.
+
+**As built.** Tables `email_template`, `contact_filter`, `email_batch`,
+`email_batch_recipient` (frozen name/email, status, skip reason, whether skipped at send).
+Approve is one guarded UPDATE (`status = 'prepared' AND expires_at > now()`); each
+recipient is claimed `queued → sending` with FOR UPDATE SKIP LOCKED, so neither a double
+click nor two send loops email anyone twice; a retry re-delivers the same message. Limits
+from env (EMAIL_LIMIT_PER_BATCH 20, _PER_AGENT_DAY 50, _PER_AGENCY_DAY 200,
+EMAIL_REPEAT_DAYS 7, EMAIL_SEND_DELAY_MS 500). Outside production only
+`EMAIL_DEV_ALLOWLIST` addresses receive anything (unset = nobody). The unsubscribe is a
+separate contact token kind on `/unsubscribe`, setting `email_opt_out_at` with a timeline
+entry. It appears in the Skills library ("Open bulk email") and never runs on a schedule.
 
 **Alternatives.** Sending without consent filtering (unlawful). Auto-send on schedule
 (fails #7 and "no silent sending").

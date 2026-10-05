@@ -3,13 +3,10 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
-- **Now: CRM Phase 5 (skills: Morning Brief + 10 most important emails) done
-  on `feat/crm`, waiting for review.** ADR 0022 (template-email skill): decisions
-  agreed 2026-10-05 and recorded in the ADR — NOT built; waiting for the user's
-  N–R browser-test report before anything else. TEST-PLAN R is new.
-  Next: the user's call — 0022 after review, Phase 3b, or Phase 6.
+- **Now: template-email skill (ADR 0022, migration 0026) built on `feat/crm`,
+  waiting for review.** TEST-PLAN S is new. Phase 5 (skills) done before it.
+  Not started (by instruction): Phase 3b, Phase 6, Phase 7.
   Plan: `~/.claude/plans/pasted-content-id-f0ff-you-are-functional-frost.md`.
-  Next: Phase 3 (appointments, then Zoom / Google Calendar) — not started.
 - Build order (locked): Agency UI → Agent UI → Consumer web
 - Last tool: Claude Code
 - Last updated: 2026-10-05
@@ -43,6 +40,39 @@
 7. Earlier, still standing: one person = one contact with role tags; agents see only
    what they could already open; phone matches are suggestions; enquiries are not
    marketing consent; read-only members view only and connect nothing.
+
+## Template email to contacts (2026-10-05, ADR 0022, migration 0026)
+
+- Tables `email_template` (draft → pending_approval → approved → retired),
+  `contact_filter` (saved directory filters), `email_batch` (frozen template
+  + filter snapshot, 48 h expiry), `email_batch_recipient` (frozen name/email,
+  status queued|sending|sent|failed|skipped, skip reason, thread + message).
+  RLS on, no grants. Applied on dev (additive only).
+- Permissions: agents draft templates; only owner/admin approves/retires;
+  a batch is seen by its author and admins; only its author sends; author or
+  admin cancels; saved filters are personal.
+- Flow: approved template + saved filter → Prepare (recipients frozen, every
+  skip shown with its reason) → Approve & Send (guarded update — a second
+  press sends nothing). No scheduled sending. Expired after 48 h.
+- At send: consent, opt-out, archive, email change, 7-day repeat, daily caps
+  and the dev allowlist re-checked per recipient. Limits from env (20/batch,
+  50/agent/day, 200/agency/day, 7 days, 500 ms between messages). Each email
+  is a conversation (thread + mail_message kind `template_email`), with the
+  agency sender, a contact `/unsubscribe` link + List-Unsubscribe, and a
+  timeline row. Retry re-delivers only failed recipients. Cron expires old
+  batches, recovers stuck "sending" rows, resumes interrupted batches.
+- `EMAIL_DEV_ALLOWLIST`: outside production only listed addresses/@domains
+  are sent to (unset = nobody); production ignores it. `.env.example`,
+  DEPLOY.md, smoke check.
+- Skills library lists "Template email to contacts" → "Open bulk email";
+  the runner refuses to schedule or run it (manual only).
+- Console: /bulk-email (agency), /my-bulk-email (agent), template pages,
+  batch page, "Save this filter" on the contact directory.
+- Smoke: 5 checks (unapproved template, frozen list, opted-out at send,
+  double approve/send, limits + allowlist, expiry + other agent's batch),
+  each broken and seen red.
+- **Your `.env.local` has no `EMAIL_DEV_ALLOWLIST`** → in dev every
+  recipient is skipped until you add your own test addresses.
 
 ## CRM Phase 5 — skills (2026-10-05, ADR 0021, migration 0025)
 

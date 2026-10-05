@@ -100,7 +100,7 @@ export async function sendBatch(db: Db, deps: TemplateSendDeps, batchId: string)
         mergedIntoId: contact.mergedIntoId,
         optOutAt: contact.emailOptOutAt,
         consentAt: contact.marketingConsentAt,
-        recently: recentlyEmailedSql(contact.id, deps.limits.repeatDays, r.mail_message_id),
+        recently: recentlyEmailedSql(sql.raw('"contact"."id"'), deps.limits.repeatDays, r.mail_message_id),
       })
       .from(contact)
       .where(eq(contact.id, r.contact_id))

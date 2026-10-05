@@ -196,6 +196,25 @@ The same key also signs the OAuth `state` (through a derived key), so a rotation
 also expires any Connect that is half-way through — the person simply presses
 Connect again.
 
+### Template email to contacts (console + web; docs/adr/0022)
+
+    ALERT_UNSUBSCRIBE_SECRET   REQUIRED for it — every template email carries a
+                               contact unsubscribe link signed with it; without it
+                               nothing is sent (Approve says why).
+    EMAIL_LIMIT_PER_BATCH      20   recipients per batch
+    EMAIL_LIMIT_PER_AGENT_DAY  50   per agent per rolling 24 h (all platform-composed mail)
+    EMAIL_LIMIT_PER_AGENCY_DAY 200  per agency per rolling 24 h
+    EMAIL_REPEAT_DAYS          7    the same person not again within N days
+    EMAIL_SEND_DELAY_MS        500  pause between two messages of a batch
+    EMAIL_DEV_ALLOWLIST        DEVELOPMENT ONLY. Outside production, template emails
+                               go only to these addresses / @domains; unset means
+                               NOBODY (everyone shows "dev allowlist"). Production
+                               ignores it entirely — set nothing there.
+
+Nothing is ever sent on a schedule: a person prepares a batch, checks the frozen
+list, and presses Approve & Send. The cron tick only expires batches after 48 h,
+settles a send that was interrupted, and resumes an approved batch left queued.
+
 ### Deliberately NOT set
 
     COOKIE_DOMAIN     Leave unset on a *.vercel.app deployment. The schema
