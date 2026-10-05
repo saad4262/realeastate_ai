@@ -1,8 +1,9 @@
 import { after, NextResponse, type NextRequest } from 'next/server';
 import { pullReceivedMail } from '@repo/core/mail';
 import { authoriseCronRequest, runScheduleTick } from '@repo/core/schedules';
+import { runSkillTick } from '@repo/core/skills';
 import { getWebDb } from '../../../../lib/db';
-import { schedulerDeps } from '../../../../lib/scheduler';
+import { schedulerDeps, skillDeps } from '../../../../lib/scheduler';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -61,9 +62,17 @@ async function handler(request: NextRequest) {
     const mail = await pullReceivedMail({ db: getWebDb });
     if (mail.followUp) after(mail.followUp);
 
+    /**
+     * Agents' skills (docs/adr/0021), in the same tick. A skill that fails is
+     * recorded on its own run; nothing here can fail the alerts above.
+     */
+    const skills = await runSkillTick(getWebDb(), skillDeps()).catch((err: unknown) => ({
+      error: err instanceof Error ? err.message : 'skills tick failed',
+    }));
+
     // No ids, no addresses, no listing text — this is read from a cron log.
     return NextResponse.json(
-      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason } },
+      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (err) {

@@ -262,6 +262,14 @@ Two repository secrets, at Settings → Secrets and variables → Actions:
 The workflow exits 1 when either is missing, so a forgotten secret is a red
 run rather than alerts that quietly never fire.
 
+### On Vercel Pro (CRM skills, docs/adr/0021)
+
+The same tick now also runs agents' skills. On Pro, replace the daily floor and the
+GitHub Actions pinger with one Vercel cron: `*/5 * * * *` on `/api/cron/alerts`
+(set `maxDuration` to what Pro allows if many skills are due at once). Every 5
+minutes means a 07:00 skill starts by 07:05; skill intervals are at least an hour.
+Every minute is allowed on Pro and buys nothing a person would notice.
+
 ## After the first deploy — verify, do not assume
 
     # 1. The cron endpoint is reachable AND closed to strangers.

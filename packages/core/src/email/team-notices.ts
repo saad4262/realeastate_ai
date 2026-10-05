@@ -349,3 +349,49 @@ export function buildContactAssignedEmail(input: ContactAssignedEmailInput): Tra
     tags: { kind: 'contact-assigned' },
   };
 }
+
+// ── Skill result (to the agent themselves) ─────────────────────────────────
+
+export type SkillResultEmailInput = {
+  to: { email: string; name?: string };
+  from: { email: string; name: string };
+  postalAddress: string;
+  skillName: string;
+  /** "Monday 6 October", in the agent's zone. */
+  today: string;
+  summary: string | null;
+  /** True when the summary is the assistant's — then it carries a visible label (#7). */
+  summaryByAssistant: boolean;
+  /** Lines rendered from SQL: times, names, subjects. */
+  lines: string[];
+  resultUrl: string;
+};
+
+/**
+ * A skill's result, to the agent who ran it (docs/adr/0021). Transactional:
+ * it tells a person what they asked for; it advertises nothing. The
+ * assistant's text is labelled; every list line is from SQL; citation
+ * markers like [A1] are stripped here — the page has the links.
+ */
+export function buildSkillResultEmail(input: SkillResultEmailInput): TransactionalMessage {
+  requireSenderFooter(input.from, input.postalAddress, 'skill result');
+  const heading = `${input.skillName} — ${input.today}`;
+  const summary = input.summary?.replace(/\s*\[[A-Z]\d{1,3}\]/g, '').trim() ?? null;
+  const footer: Footer = {
+    from: input.from,
+    postalAddress: input.postalAddress,
+    why: 'Sent because you asked for this skill’s result by email. Turn it off on the skill’s page.',
+  };
+  const label = input.summaryByAssistant ? 'Written by the AI assistant from your records' : 'Summary';
+  const html = layout({
+    heading,
+    intro: label,
+    body: `${summary ? `<p style="font:400 15px/1.6 ${FONT};color:#1a1a1a;margin:12px 0 0;">${escapeHtml(summary)}</p>` : ''}
+          ${input.lines.length ? `<ul style="font:400 14px/1.6 ${FONT};color:#1a1a1a;padding-left:18px;margin:14px 0 0;">${input.lines.map((l) => `<li>${escapeHtml(l)}</li>`).join('')}</ul>` : ''}`,
+    button: { label: 'Open the full result', url: input.resultUrl },
+    footer,
+  });
+  const text = [heading, '', `${label}:`, summary ?? '', '', ...input.lines.map((l) => `- ${l}`), '', `Open the full result: ${input.resultUrl}`, '', ...textFooter(footer)]
+    .join('\n');
+  return { kind: 'transactional', to: input.to, from: input.from, subject: heading, html, text, tags: { kind: 'skill-result' } };
+}

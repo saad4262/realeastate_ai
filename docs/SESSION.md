@@ -1,3 +1,28 @@
+## 2026-10-05 (late night) — Claude Code — Startup guard, DEPLOY key guide, CRM Phase 5: skills
+
+- Goal (user): (a) refuse to start in production with the stub on or no
+  token key; (b) DEPLOY.md key guidance; then skills — tables, permissions,
+  /skills + /my-skills, runner on the scheduler pieces with model tiers and
+  budget caps, Morning Brief + 10 most important emails (read-only, every
+  AI claim cited), an ADR (not code) for the template-email skill, smoke, R.
+- Answers recorded: one Google app, incremental scopes; Zoom tunnel only if
+  needed; least-privilege scopes in 3b; read-only cannot connect.
+- Done: instrumentation guard (Node-only module so node:crypto stays out of
+  the edge bundle — the first attempt failed the build), proven by starting a
+  production build three ways; committed separately (build noise in
+  tsconfig/next-env caught and amended out). ADR 0021 (skills), ADR 0022
+  (template email — PROPOSED). Migration 0025 + 2 seeded skills. core
+  skills/ (schema + front-matter parser, citations, facts, CRUD, runner),
+  email builder for the agent's result. ai: 5.5 prices/capabilities, skill
+  tiers, skills-v1 prompts, metered writer (offline tests with a fake
+  client). Cron tick runs skills. Console: actions, islands, pages, nav.
+- Caught in review before running: "Run now" briefly called the runner twice
+  (would have double-spent) — fixed before first use.
+- Verified: typecheck, lint 0 errors, test 677 + 270, build 2/2, smoke 149/1.
+  Break-checked red: getMySkill without can(), requires ignoring the library,
+  claim without the enabled filter, run without the budget check.
+- Not verified in a browser: R. No live model call made.
+
 ## 2026-10-05 (later still) — Claude Code — CRM Phase 4: integrations hub
 
 - Goal (user): `integration_account` with encrypted tokens, permissions,

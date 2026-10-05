@@ -106,3 +106,30 @@ describe('parameters are only claimed where the model accepts them', () => {
     expect('effort' in choice).toBe(false);
   });
 });
+
+describe('skill tiers (ADR 0021)', () => {
+  it('defaults each tier to the model the plan names, every one of them priced', () => {
+    const env = {} as NodeJS.ProcessEnv;
+    expect(getModel('skill-summary', env).id).toBe('claude-haiku-4-5');
+    expect(getModel('skill-agent', env).id).toBe('claude-sonnet-5-5');
+    expect(getModel('skill-hard', env).id).toBe('claude-opus-5-5');
+    for (const f of ['skill-summary', 'skill-agent', 'skill-hard'] as const) {
+      expect(isPricedModel(getModel(f, env).id)).toBe(true);
+    }
+  });
+
+  it('is an env override, not a code change', () => {
+    expect(getModel('skill-summary', { ANTHROPIC_SKILL_SUMMARY_MODEL: 'claude-sonnet-5-5' } as NodeJS.ProcessEnv).id).toBe('claude-sonnet-5-5');
+  });
+
+  it('never asks Haiku for effort or adaptive thinking, which it rejects', () => {
+    const haiku = getModel('skill-summary', {} as NodeJS.ProcessEnv);
+    expect(haiku.effort).toBeUndefined();
+    expect(haiku.adaptiveThinking).toBe(false);
+  });
+
+  it('costs Sonnet 5.5 and Opus 5.5 at their published rates', () => {
+    expect(costUsd('claude-sonnet-5-5', { inputTokens: 1_000_000, outputTokens: 1_000_000 })).toBe(12);
+    expect(costUsd('claude-opus-5-5', { inputTokens: 1_000_000, outputTokens: 0, cacheReadInputTokens: 1_000_000 })).toBeCloseTo(4.4);
+  });
+});

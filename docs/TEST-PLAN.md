@@ -484,3 +484,26 @@ Needs in `.env.local`: `INTEGRATION_TOKEN_KEY` (`openssl rand -base64 32`),
 | Q8 | Start a Connect as the agent, then (before Allow) sign in as the owner in that browser and press Allow | "That connection was started by a different account" — nothing stored for anyone. |
 | Q9 | Open `http://localhost:3001/api/integrations/oauth/return?state=forged&code=x` | Lands on an Integrations page with "That connection link has expired" — never on another site. |
 | Q10 | Read-only member opens `/my-integrations` | Statuses only; no Connect anywhere. |
+
+## R — Skills (ADR 0021, CRM Phase 5)
+
+Agent in one browser, owner in another. "Run now" with `ANTHROPIC_API_KEY` set calls a real
+model (Haiku 4.5, a fraction of a cent per run, metered and inside `AI_DAILY_BUDGET_USD`);
+without a key every run uses its template and costs nothing. Have a contact with a lead, an
+appointment today and an unanswered email for the agent, so there is something to brief.
+
+| # | Case | Expected |
+|---|---|---|
+| R1 | Agent → **Skills** (`/my-skills`) | "Your skills" empty; Library lists Morning Brief and 10 most important emails, "Built-in", each saying what it needs (nothing to connect). |
+| R2 | **Add to my skills** on Morning Brief | Opens its page: Off, the Markdown instructions, a schedule (Every day, 07:00 on YOUR clock with your zone named), empty run history. |
+| R3 | Press **Run now** while Off | Not allowed: "Switch the skill on to run it". |
+| R4 | Switch **On**, then **Run now** | A result page: a summary labelled "Written by the AI assistant from your records" (or "Summary" without a key) with chips like `L1`; sections for today's appointments, overdue next actions, waiting conversations and new leads, each line linking to its record, times in your timezone. History shows the run and its cost. |
+| R5 | Click a chip in the summary | Opens exactly the record it cites. Every sentence has a chip; no number appears that is not in the record it cites. |
+| R6 | Edit the instructions (e.g. "Mention new leads first"), Save, Run now | The next brief follows it. Break the front-matter (`requires: [fax]`) — Save is refused with the reason. |
+| R7 | Tick **Also email me the result**, Save schedule, Run now | The agent receives the brief by email, the assistant's text labelled, with a link to the result page; the run says "emailed to you". |
+| R8 | Add **10 most important emails**, switch on, Run now | Up to ten conversations, offers first; each reason is about that email (or "Waiting for a reply." if the assistant's reason was refused); each links to the conversation. |
+| R9 | Owner → **Skills** (`/skills`) → **+ New library skill**: handler Morning Brief, front-matter `requires: [google_calendar]` | Appears in the library as "Agency", needing Google Calendar. The agent adds it: switching it **On** is refused with "Connect Google Calendar first" and a Connect button. |
+| R10 | Owner opens the agent's skill URL (`/skills/<the agent's id>`) | "That skill was not found" — nobody sees another person's skills. |
+| R11 | Set `AI_DAILY_BUDGET_USD=0` in `.env.local`, restart, Run now | The run is **Skipped — the daily AI budget is used up**; no cost line. Put it back afterwards. |
+| R12 | Switch the skill Off, wait past its time | No new run appears (the scheduler never claims a skill that is off). |
+| R13 | Read-only member opens `/my-skills` | Library visible; no Add buttons. |

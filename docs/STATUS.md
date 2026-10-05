@@ -3,9 +3,10 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
-- **Now: CRM Phase 4 (integrations hub, stub provider only) done on
-  `feat/crm`, waiting for review.** The user is browser-testing P; Q is new.
-  Next: Phase 3b (real Zoom / Google Calendar) or Phase 5 (skills) — user's call.
+- **Now: CRM Phase 5 (skills: Morning Brief + 10 most important emails) done
+  on `feat/crm`, waiting for review.** ADR 0022 (template-email skill) is a
+  PROPOSAL for the user to review — not built. TEST-PLAN R is new.
+  Next: the user's call — 0022 after review, Phase 3b, or Phase 6.
   Plan: `~/.claude/plans/pasted-content-id-f0ff-you-are-functional-frost.md`.
   Next: Phase 3 (appointments, then Zoom / Google Calendar) — not started.
 - Build order (locked): Agency UI → Agent UI → Consumer web
@@ -13,6 +14,39 @@
 - Last updated: 2026-10-05
 - Deploying: `apps/web` only, Vercel Hobby. `apps/console` waits for a real
   domain — see `docs/DEPLOY.md`. **Nothing is deployed yet.**
+
+## CRM Phase 5 — skills (2026-10-05, ADR 0021, migration 0025)
+
+- Before skills: the console REFUSES TO START in production with
+  `INTEGRATIONS_STUB=1` or no/malformed `INTEGRATION_TOKEN_KEY`
+  (instrumentation.ts; verified by starting a production build three ways).
+  DEPLOY.md: own production key, losing it = everyone reconnects, rotation.
+- Tables `skill` (library; agency_id null = built-in; handler fixed in code;
+  Markdown body with front-matter `requires`/`model`/`schedule`),
+  `agent_skill` (an agent's copy: own body, on/off, schedule + IANA zone,
+  email-me), `skill_run` (status, summary + source, structured result, cost
+  via ai_run.entity_id). Two built-ins seeded. Applied on dev.
+- Permissions `skill:read|curate`, `agent_skill:read|manage` (own only; not
+  even admins see another person's skills; read-only cannot add).
+- Runner: claim (SKIP LOCKED + unique slot), nextRunFor, 3 failures pause;
+  per run: member → requireIntegrations (library ∪ copy requires) → budget
+  (skipped, no model call) → gather AS THE AGENT → model → citation check →
+  store → optional email to the agent. In the existing cron tick.
+- Citations (`skills/citations.ts`): every sentence cites a given record;
+  numbers only when quoted verbatim from a cited record; else template.
+- Models: `claude-sonnet-5-5` ($2/$10) and `claude-opus-5-5` ($4/$20) priced;
+  tiers via ANTHROPIC_SKILL_{SUMMARY,AGENT,HARD}_MODEL (Haiku 4.5 / Sonnet 5.5
+  / Opus 5.5). Both skills use the summary tier. The Claude API reference
+  recommends server-side `fallbacks` for Sonnet/Opus 5.5 — add it when the
+  agent tier is first used (not now: Haiku only).
+- Console: /skills (+ library/new for admins), /my-skills, detail (editor,
+  on/off with "Connect X first", schedule on the agent's clock, run now,
+  history with cost), result page with clickable citations. Nav links.
+- Vercel Pro cron: `*/5 * * * *` on /api/cron/alerts (DEPLOY.md).
+- Numbers: typecheck 10/10, lint 0 errors, test 677 + 270, build 2/2, smoke
+  149 passed / 1 failed (known dev account). Four skills smoke checks, each
+  break-checked red.
+- Not clicked in a browser: R. No live model call was made by any test.
 
 ## CRM Phase 4 — integrations hub (2026-10-05, ADR 0020, migration 0024)
 

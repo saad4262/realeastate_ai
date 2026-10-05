@@ -91,6 +91,10 @@ export const envSchema = z.object({
    * (dev: http://localhost:3001); unset = the agency console URL.
    * INTEGRATIONS_STUB=1: a local pretend provider, never in production.
    */
+  /** Skill model per tier (docs/adr/0021). Unset = the defaults in packages/ai/src/models.ts. */
+  ANTHROPIC_SKILL_SUMMARY_MODEL: z.string().optional(),
+  ANTHROPIC_SKILL_AGENT_MODEL: z.string().optional(),
+  ANTHROPIC_SKILL_HARD_MODEL: z.string().optional(),
   INTEGRATION_TOKEN_KEY: z.string().optional(),
   INTEGRATION_TOKEN_KEY_PREVIOUS: z.string().optional(),
   INTEGRATION_OAUTH_RETURN_BASE: z.string().url().optional(),

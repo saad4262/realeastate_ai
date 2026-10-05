@@ -15,6 +15,20 @@ type Price = {
 };
 
 const PRICES: Readonly<Record<string, Price>> = Object.freeze({
+  // Opus 5.5 and Sonnet 5.5: from the Claude API reference (cached 2026-09-25),
+  // added 2026-10-05 for the skill tiers. Cache reads $0.20/MTok = 0.1x input.
+  'claude-opus-5-5': {
+    inputPerMTok: 4,
+    outputPerMTok: 20,
+    cacheWriteMultiplier: 1.25,
+    cacheReadMultiplier: 0.1,
+  },
+  'claude-sonnet-5-5': {
+    inputPerMTok: 2,
+    outputPerMTok: 10,
+    cacheWriteMultiplier: 1.25,
+    cacheReadMultiplier: 0.1,
+  },
   'claude-opus-5': {
     inputPerMTok: 5,
     outputPerMTok: 25,
@@ -79,6 +93,16 @@ const CAPABILITIES: Readonly<Record<string, Capabilities>> = Object.freeze({
   // reason this is a table rather than a tier.
   'claude-sonnet-5': { effort: true, adaptiveThinking: true, midConversationSystem: false },
   'claude-haiku-4-5': { effort: false, adaptiveThinking: false, midConversationSystem: false },
+  /**
+   * The 5.5 pair (Claude API reference, 2026-09-25): effort, adaptive thinking
+   * and a system role in messages all accepted. Two things they REJECT with a
+   * 400 that older models took: `thinking: { type: 'disabled' }` (Sonnet 5.5
+   * turns thinking off only with `between_tools`; Opus 5.5 not at all) and a
+   * forced `tool_choice` of `any`/`tool`. No pipeline here sends either — keep
+   * it that way, or gate it here first.
+   */
+  'claude-opus-5-5': { effort: true, adaptiveThinking: true, midConversationSystem: true },
+  'claude-sonnet-5-5': { effort: true, adaptiveThinking: true, midConversationSystem: true },
 });
 
 const NO_CAPABILITIES: Capabilities = {
@@ -90,7 +114,16 @@ const NO_CAPABILITIES: Capabilities = {
 export type AiFeature =
   | 'property-chat'
   /** Two sentences of prose over a scheduled search's results. ADR 0010. */
-  | 'alert-summary';
+  | 'alert-summary'
+  /**
+   * Skills (ADR 0021), by the tier a skill declares: `summary` — summaries,
+   * ranking and classification (Haiku 4.5); `agent` — tool-calling agent
+   * actions (Sonnet 5.5); `hard` — the rare heavy job (Opus 5.5). Each is an
+   * env override with a default, never a code change.
+   */
+  | 'skill-summary'
+  | 'skill-agent'
+  | 'skill-hard';
 
 export type ModelChoice = {
   id: string;
@@ -202,6 +235,30 @@ export function getModel(feature: AiFeature, env: NodeJS.ProcessEnv = process.en
          * taken on (§ 12b).
          */
         adaptiveThinking: false,
+        midConversationSystem: false,
+      };
+    }
+    case 'skill-summary':
+    case 'skill-agent':
+    case 'skill-hard': {
+      const fallback =
+        feature === 'skill-summary' ? 'claude-haiku-4-5' : feature === 'skill-agent' ? 'claude-sonnet-5-5' : 'claude-opus-5-5';
+      const variable =
+        feature === 'skill-summary'
+          ? env.ANTHROPIC_SKILL_SUMMARY_MODEL
+          : feature === 'skill-agent'
+            ? env.ANTHROPIC_SKILL_AGENT_MODEL
+            : env.ANTHROPIC_SKILL_HARD_MODEL;
+      const id = variable?.trim() || fallback;
+      const can = CAPABILITIES[id] ?? NO_CAPABILITIES;
+      return {
+        id,
+        // A brief or a ranked list of ten: short by design.
+        maxTokens: 1500,
+        // Low effort where accepted: these are small, well-specified writing
+        // jobs over data the handler already chose — not open reasoning.
+        ...(can.effort ? { effort: 'low' as const } : {}),
+        adaptiveThinking: can.adaptiveThinking,
         midConversationSystem: false,
       };
     }

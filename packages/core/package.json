@@ -41,7 +41,9 @@
     "./appointments/schema": "./src/appointments/appointment-schema.ts",
     "./integrations": "./src/integrations/index.ts",
     "./integrations/providers": "./src/integrations/providers.ts",
-    "./integrations/startup": "./src/integrations/startup.ts"
+    "./integrations/startup": "./src/integrations/startup.ts",
+    "./skills": "./src/skills/index.ts",
+    "./skills/schema": "./src/skills/skill-schema.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

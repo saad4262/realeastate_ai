@@ -27,6 +27,7 @@ import { contactCounts } from '../contacts/counts';
 import { listContactNotes } from '../contacts/notes';
 import { listAppointments } from '../appointments/appointments';
 import { checkEmailLimits } from '../email/limits';
+import { listMySkills, listSkillLibrary } from '../skills/skills';
 import { agencyNotificationRecipients } from '../agency/notification-recipients';
 import type { Actor } from '../permissions';
 
@@ -316,6 +317,15 @@ describe('reads cost a fixed number of queries', () => {
     expect(limits.count()).toBe(1);
     // Driver bigints as strings, and the agent's cap reached.
     expect(check).toMatchObject({ ok: false, agentUsed: 1, agencyUsed: 3 });
+  });
+
+  it('the skills page is one query for your skills and one for the library', async () => {
+    const mine = countingDb([]);
+    await listMySkills(mine.db, actor);
+    expect(mine.count()).toBe(1);
+    const lib = countingDb([]);
+    await listSkillLibrary(lib.db, actor);
+    expect(lib.count()).toBe(1);
   });
 
   it('opening one listing for editing is one query', async () => {

@@ -126,6 +126,17 @@ import {
   tokenKeysFromEnv,
   tokensForUse,
 } from '@repo/core/integrations';
+import {
+  addSkillToMine,
+  claimDueSkills,
+  createAgencySkill,
+  executeSkillRun,
+  getMySkill,
+  listMySkills,
+  runSkillNow,
+  setSkillEnabled,
+  type SkillWriter,
+} from '@repo/core/skills';
 import { assert, check, group, note, report, skip } from './runner';
 
 config({ path: resolve(process.cwd(), '../../.env.local') });
@@ -4138,6 +4149,142 @@ async function main() {
       const floc = forged.headers.get('location') ?? '';
       assert(!floc.startsWith('http://localhost') && /error=/.test(floc), `a forged state went to ${floc}`);
       summary += '; live route hops and refuses a forged state';
+    }
+    return summary;
+  });
+
+  // ------------------------------------------------------------ skills --
+  group('Skills');
+
+  /** The two built-in library skills, by slug — seeded by migration 0025. */
+  const libraryId = async (t: Db, slug: string) =>
+    (await t.execute<{ id: string }>(sql`select id from skill where agency_id is null and slug = ${slug}`))[0]!.id;
+
+  /** A fake model: answers what it is told, and remembers it was asked. Never the network. */
+  const fakeWriter = (text: string) => {
+    const calls: Parameters<SkillWriter>[0][] = [];
+    const write: SkillWriter = async (input) => {
+      calls.push(input);
+      return { text, model: 'fake-model' };
+    };
+    return { write, calls };
+  };
+
+  await check("an agent can neither see nor run another agent's skill", async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const { id } = await addSkillToMine(t, f.actor('a1'), await libraryId(t, 'morning-brief'), 'Australia/Melbourne');
+        await setSkillEnabled(t, f.actor('a1'), id, true);
+        for (const who of ['a2', 'owner'] as const) {
+          const seen = await getMySkill(t, f.actor(who), id).then(() => 'seen', (e: unknown) => (e as { code?: string }).code);
+          assert(seen === 'not_found', `${who} opening A1's skill got ${seen}`);
+          const ran = await runSkillNow(t, {}, f.actor(who), id).then(() => 'ran', (e: unknown) => (e as { code?: string }).code);
+          assert(ran === 'not_found', `${who} running A1's skill got ${ran}`);
+          assert((await listMySkills(t, f.actor(who))).every((s) => s.id !== id), `A1's skill is in ${who}'s list`);
+        }
+        const viewer = await addSkillToMine(t, f.actor('viewer'), await libraryId(t, 'morning-brief'), 'UTC')
+          .then(() => 'added', (e: unknown) => (e as { code?: string }).code);
+        assert(viewer === 'forbidden', `a read-only member adding a skill got ${viewer}`);
+        summary = "A2 and the owner: not found, by id and in lists; read-only cannot add";
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check('a skill whose integration is missing cannot be switched on or run', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const lib = await createAgencySkill(t, f.actor('owner'), {
+          name: 'Calendar brief',
+          description: 'Needs the calendar',
+          handler: 'morning_brief',
+          bodyMd: '---\nrequires: [google_calendar]\nmodel: summary\n---\nBrief me.',
+        });
+        const { id } = await addSkillToMine(t, f.actor('a1'), lib.id, 'UTC');
+        const on = await setSkillEnabled(t, f.actor('a1'), id, true).then(() => 'on', (e: unknown) => (e as { code?: string; missing?: string[] }));
+        assert(typeof on === 'object' && on.code === 'missing_integrations' && on.missing?.includes('google_calendar'), `switching on without the calendar: ${JSON.stringify(on)}`);
+        // A copy whose own front-matter drops the requirement still needs it: the library's counts.
+        await t.execute(sql`update agent_skill set body_md = ${'---\nrequires: []\n---\nBrief me.'}, enabled = true where id = ${id}`);
+        const ran = await runSkillNow(t, {}, f.actor('a1'), id).then(() => 'ran', (e: unknown) => (e as { code?: string }).code);
+        assert(ran === 'missing_integrations', `running without the calendar got ${ran}`);
+        summary = 'refused on and run, naming Google Calendar — even with the requirement edited out of the copy';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check('a disabled skill is never claimed; an enabled one is, once per slot', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const a = await addSkillToMine(t, f.actor('a1'), await libraryId(t, 'morning-brief'), 'UTC');
+        const b = await addSkillToMine(t, f.actor('a2'), await libraryId(t, 'important-emails'), 'UTC');
+        await setSkillEnabled(t, f.actor('a1'), a.id, true);
+        // Both due; only A1's is on. B has a due cursor but is off.
+        await t.execute(sql`update agent_skill set next_run_at = now() - interval '1 minute' where id in (${a.id}, ${b.id})`);
+        const claimed = await claimDueSkills(t, { now: new Date(), limit: 50, userId: f.people.a1 });
+        const claimedB = await claimDueSkills(t, { now: new Date(), limit: 50, userId: f.people.a2 });
+        assert(claimed.length === 1 && claimedB.length === 0, `claimed on=${claimed.length}, off=${claimedB.length}`);
+        const again = await claimDueSkills(t, { now: new Date(), limit: 50, userId: f.people.a1 });
+        assert(again.length === 0, 'the same slot was claimed twice');
+        summary = 'off: 0 runs; on: 1 run; the slot is not claimed again';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check('the budget cap stops a run before any model is called; a run cites its records or falls back', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        // A fresh lead A1 can see, so the brief has a record to cite.
+        await f.lead(`brief.${f.tag}@smoke.test`, 'Brief Buyer', { listing: true });
+        const { id } = await addSkillToMine(t, f.actor('a1'), await libraryId(t, 'morning-brief'), 'UTC');
+        await setSkillEnabled(t, f.actor('a1'), id, true);
+
+        const capped = fakeWriter('Call Brief Buyer [L1].');
+        const over = await runSkillNow(t, { write: capped.write, env: { ...process.env, AI_DAILY_BUDGET_USD: '0' } }, f.actor('a1'), id);
+        assert(over.status === 'skipped' && /budget/i.test(over.reason ?? ''), `over the cap: ${JSON.stringify(over)}`);
+        assert(capped.calls.length === 0, 'the model was called over the cap');
+
+        const good = fakeWriter('Call Brief Buyer first [L1].');
+        const ok = await runSkillNow(t, { write: good.write, env: { ...process.env, AI_DAILY_BUDGET_USD: '1000', AI_DAILY_BUDGET_USD_PER_USER: '1000' } }, f.actor('a1'), id);
+        const [r1] = await t.execute<{ summary: string; summary_source: string }>(sql`select summary, summary_source from skill_run where id = ${ok.runId}`);
+        assert(ok.status === 'succeeded' && r1?.summary_source === 'model' && r1.summary.includes('[L1]'), `a cited answer: ${JSON.stringify(r1)}`);
+        assert(!/\d{4}|October|Monday/.test(good.calls[0]!.instructions) && good.calls[0]!.today.length > 0, 'the date was not passed apart from the instructions');
+
+        const bad = fakeWriter('You have three new leads and 905,000 on the table.');
+        const fb = await runSkillNow(t, { write: bad.write, env: { ...process.env, AI_DAILY_BUDGET_USD: '1000', AI_DAILY_BUDGET_USD_PER_USER: '1000' } }, f.actor('a1'), id);
+        const [r2] = await t.execute<{ summary: string; summary_source: string }>(sql`select summary, summary_source from skill_run where id = ${fb.runId}`);
+        assert(r2?.summary_source === 'template' && !r2.summary.includes('905,000'), `an uncited answer was kept: ${JSON.stringify(r2)}`);
+        summary = 'cap: skipped, model not called; cited answer kept; uncited answer replaced by the template';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
     }
     return summary;
   });

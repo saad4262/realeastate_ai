@@ -191,6 +191,21 @@ export type Action =
    * agency-level one for any active member.
    */
   | 'integration:use'
+  /**
+   * Browse the skill library (ADR 0021): the platform's skills (no agency on
+   * the resource) and your own agency's. Any active member.
+   */
+  | 'skill:read'
+  /** Add, edit or archive your agency's own library skills. Owner/admin. */
+  | 'skill:curate'
+  /**
+   * Your own copy of a skill (`ownerId` = its agent): read it and its runs.
+   * Nobody else's — not even an admin's, as with saved searches: a brief is
+   * one person's working view.
+   */
+  | 'agent_skill:read'
+  /** Add to your list, edit, schedule, switch on/off, run now. Not read-only members. */
+  | 'agent_skill:manage'
   | 'team:manage'
   | 'agency:billing'
   /** Agency OS host — owner|admin only */
@@ -424,6 +439,23 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
         return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
       }
       return false;
+
+    case 'skill:read':
+      // A platform skill has no agency; any member may read it. An agency's own,
+      // only that agency's members.
+      if (!actor.agencyId || !actor.membershipRole) return false;
+      return !resource.agencyId || sameAgency(actor, resource);
+
+    case 'skill:curate':
+      return sameAgency(actor, resource) && isAgencyAdmin(actor);
+
+    case 'agent_skill:read':
+      return sameAgency(actor, resource) && Boolean(actor.membershipRole) &&
+        Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'agent_skill:manage':
+      return sameAgency(actor, resource) && mayWrite(actor) &&
+        Boolean(resource.ownerId) && actor.userId === resource.ownerId;
 
     case 'team:manage':
     case 'agency:billing':

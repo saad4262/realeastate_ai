@@ -53,6 +53,8 @@ export {
   buildAgentInviteEmail,
   buildLeadNoticeEmail,
   buildContactAssignedEmail,
+  buildSkillResultEmail,
+  type SkillResultEmailInput,
   type ContactAssignedEmailInput,
   type AgentInviteEmailInput,
   type LeadNoticeEmailInput,

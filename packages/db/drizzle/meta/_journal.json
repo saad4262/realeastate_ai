@@ -176,6 +176,13 @@
       "when": 1791197023668,
       "tag": "0024_integration_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791200762067,
+      "tag": "0025_skills",
+      "breakpoints": true
     }
   ]
 }

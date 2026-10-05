@@ -633,3 +633,39 @@ describe('integrations', () => {
     expect(can(agent, 'integration:use', { ...agencyAcct, ownerId: agencyB })).toBe(false);
   });
 });
+
+/** Skills (ADR 0021). */
+describe('skills', () => {
+  const m = (userId: string, membershipRole: Actor['membershipRole']): Actor => ({ userId, agencyId: agencyA, membershipRole });
+  const owner = m('owner', 'owner');
+  const agent = m('agent', 'agent');
+  const other = m('other', 'agent');
+  const viewer = m('viewer', 'read_only');
+  const rival: Actor = { userId: 'rival', agencyId: agencyB, membershipRole: 'owner' };
+  const copy = (ownerId: string) => ({ type: 'agent_skill', id: 'as-1', agencyId: agencyA, ownerId });
+
+  it('lets any member read the platform library and their own agency’s, never another agency’s', () => {
+    expect(can(agent, 'skill:read', { type: 'skill' })).toBe(true);
+    expect(can(agent, 'skill:read', { type: 'skill', agencyId: agencyA })).toBe(true);
+    expect(can(agent, 'skill:read', { type: 'skill', agencyId: agencyB })).toBe(false);
+    expect(can({ userId: 'x' }, 'skill:read', { type: 'skill' })).toBe(false);
+  });
+
+  it('keeps curating the library to admins', () => {
+    expect(can(owner, 'skill:curate', { type: 'skill', agencyId: agencyA })).toBe(true);
+    expect(can(agent, 'skill:curate', { type: 'skill', agencyId: agencyA })).toBe(false);
+    expect(can(rival, 'skill:curate', { type: 'skill', agencyId: agencyA })).toBe(false);
+  });
+
+  it("lets an agent manage only their own copy — not even an admin manages someone else's", () => {
+    expect(can(agent, 'agent_skill:manage', copy('agent'))).toBe(true);
+    expect(can(other, 'agent_skill:manage', copy('agent'))).toBe(false);
+    expect(can(other, 'agent_skill:read', copy('agent'))).toBe(false);
+    expect(can(owner, 'agent_skill:read', copy('agent'))).toBe(false);
+    expect(can(owner, 'agent_skill:manage', copy('agent'))).toBe(false);
+  });
+
+  it('gives read-only members nothing to run', () => {
+    expect(can(viewer, 'agent_skill:manage', copy('viewer'))).toBe(false);
+  });
+});

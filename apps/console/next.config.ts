@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
    * build somewhere else entirely and never touch the running one.
    */
   distDir: process.env.NEXT_DIST_DIR || '.next',
-  transpilePackages: ['@repo/ui', '@repo/auth', '@repo/core', '@repo/db', '@repo/config'],
+  transpilePackages: ['@repo/ui', '@repo/auth', '@repo/core', '@repo/db', '@repo/config', '@repo/ai'],
   /**
    * How long a visited segment stays usable in the client router cache.
    *

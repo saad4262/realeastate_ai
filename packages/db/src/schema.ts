@@ -1331,6 +1331,125 @@ export const aiRun = pgTable('ai_run', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+
+// ── Skills (docs/adr/0021) ──────────────────────────────────────────────────
+
+/** The code a skill runs. Editing a skill's Markdown never changes this. */
+export const skillHandlerEnum = pgEnum('skill_handler', ['morning_brief', 'important_emails']);
+/** Which model tier a skill asks for — mapped to a model id in packages/ai. */
+export const skillModelTierEnum = pgEnum('skill_model_tier', ['summary', 'agent', 'hard']);
+export const skillRunStatusEnum = pgEnum('skill_run_status', ['running', 'succeeded', 'failed', 'skipped']);
+export const skillRunTriggerEnum = pgEnum('skill_run_trigger', ['schedule', 'manual']);
+
+/**
+ * A library skill: a prompt (Markdown with front-matter) over a fixed handler.
+ * `agency_id` null = the platform's own library; set = that agency's, curated
+ * by its admins. `requires` is parsed from the front-matter on save.
+ */
+export const skill = pgTable(
+  'skill',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id').references(() => agency.id, { onDelete: 'cascade' }),
+    slug: varchar('slug', { length: 80 }).notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull(),
+    handler: skillHandlerEnum('handler').notNull(),
+    bodyMd: text('body_md').notNull(),
+    requires: text('requires').array().notNull().default(sql`'{}'::text[]`),
+    modelTier: skillModelTierEnum('model_tier').notNull().default('summary'),
+    defaultCadence: scheduleCadenceEnum('default_cadence').notNull().default('daily'),
+    defaultSendAtMinute: integer('default_send_at_minute').notNull().default(420),
+    defaultSendOnWeekday: integer('default_send_on_weekday'),
+    defaultIntervalMinutes: integer('default_interval_minutes'),
+    createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('skill_scope_slug_idx').on(sql`coalesce(${t.agencyId}, '00000000-0000-0000-0000-000000000000'::uuid)`, t.slug),
+  ],
+);
+
+/**
+ * One agent's copy of a skill: their own words, their own schedule. Only they
+ * manage it (`agent_skill:manage`). Off until they switch it on; a skill whose
+ * `requires` are not connected cannot be switched on.
+ */
+export const agentSkill = pgTable(
+  'agent_skill',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    skillId: uuid('skill_id')
+      .notNull()
+      .references(() => skill.id, { onDelete: 'restrict' }),
+    bodyMd: text('body_md').notNull(),
+    enabled: boolean('enabled').notNull().default(false),
+    /** Also email the result to the agent themselves. */
+    emailMe: boolean('email_me').notNull().default(false),
+    cadence: scheduleCadenceEnum('cadence').notNull().default('daily'),
+    sendAtMinute: integer('send_at_minute').notNull().default(420),
+    sendOnWeekday: integer('send_on_weekday'),
+    intervalMinutes: integer('interval_minutes'),
+    /** IANA zone, validated in core. Where "7 AM" is. */
+    timezone: text('timezone').notNull(),
+    nextRunAt: timestamp('next_run_at', { withTimezone: true }),
+    lastRunAt: timestamp('last_run_at', { withTimezone: true }),
+    /** Three in a row and the scheduler stops claiming it; a good run resets it. */
+    consecutiveFailures: integer('consecutive_failures').notNull().default(0),
+    /** Removed from the agent's list. Runs are kept. */
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('agent_skill_user_skill_idx').on(t.userId, t.skillId).where(sql`archived_at is null`),
+    index('agent_skill_due_idx').on(t.nextRunAt).where(sql`enabled and archived_at is null`),
+  ],
+);
+
+/** One execution of an agent's skill. Cost: `ai_run` rows whose entity_id is this id. */
+export const skillRun = pgTable(
+  'skill_run',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agentSkillId: uuid('agent_skill_id')
+      .notNull()
+      .references(() => agentSkill.id, { onDelete: 'cascade' }),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    trigger: skillRunTriggerEnum('trigger').notNull(),
+    /** The slot. With the unique index, what makes a double-fired tick harmless. */
+    scheduledFor: timestamp('scheduled_for', { withTimezone: true }).notNull(),
+    status: skillRunStatusEnum('status').notNull().default('running'),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    /** The assistant's text, already checked (citations, no invented numbers). */
+    summary: text('summary'),
+    summarySource: summarySourceEnum('summary_source').notNull().default('none'),
+    /** What the handler read, as SQL rendered it — lists, times, record ids. */
+    result: jsonb('result'),
+    error: text('error'),
+    itemsProcessed: integer('items_processed').notNull().default(0),
+    model: text('model'),
+    emailedAt: timestamp('emailed_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('skill_run_slot_idx').on(t.agentSkillId, t.scheduledFor),
+    index('skill_run_user_idx').on(t.userId, desc(t.createdAt)),
+  ],
+);
+
 export type User = typeof user.$inferSelect;
 export type Agency = typeof agency.$inferSelect;
 export type Listing = typeof listing.$inferSelect;
@@ -1353,3 +1472,6 @@ export type Note = typeof note.$inferSelect;
 export type Activity = typeof activity.$inferSelect;
 export type Appointment = typeof appointment.$inferSelect;
 export type IntegrationAccount = typeof integrationAccount.$inferSelect;
+export type Skill = typeof skill.$inferSelect;
+export type AgentSkill = typeof agentSkill.$inferSelect;
+export type SkillRun = typeof skillRun.$inferSelect;

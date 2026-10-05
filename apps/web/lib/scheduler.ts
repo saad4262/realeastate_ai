@@ -6,6 +6,9 @@ import { requireUnsubscribeSecret } from '@repo/core/email';
 import { resolvePlace } from '@repo/core/geo';
 import { searchPublicListings } from '@repo/core/listings';
 import type { ScheduleDeps } from '@repo/core/schedules';
+import type { SkillDeps } from '@repo/core/skills';
+import { noticeMailFromEnv } from '@repo/core/email';
+import { skillWriterFromEnv } from '@repo/ai/skills';
 import { getWebDb } from './db';
 
 /**
@@ -80,5 +83,21 @@ export function schedulerDeps(): ScheduleDeps {
             ),
         }
       : {}),
+  };
+}
+
+/**
+ * What the skills runner needs (docs/adr/0021), for the same cron tick. The
+ * model writer is absent without ANTHROPIC_API_KEY — skills then produce
+ * their templates, never an error. The mailer is only for the agent's own
+ * "email me the result".
+ */
+export function skillDeps(): SkillDeps {
+  const db = getWebDb();
+  const write = skillWriterFromEnv(db);
+  return {
+    ...(write ? { write } : {}),
+    mail: noticeMailFromEnv(),
+    env: process.env,
   };
 }

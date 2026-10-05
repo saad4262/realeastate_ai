@@ -11,7 +11,8 @@
     "./alert-summary": "./src/pipelines/alert-summary.ts",
     "./chat-events": "./src/schemas/chat-events.ts",
     "./chat-request": "./src/schemas/chat-request.ts",
-    "./tools": "./src/tools/index.ts"
+    "./tools": "./src/tools/index.ts",
+    "./skills": "./src/pipelines/skills.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
