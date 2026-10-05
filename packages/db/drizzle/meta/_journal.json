@@ -162,6 +162,13 @@
       "when": 1791193227554,
       "tag": "0022_note_private",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791194698276,
+      "tag": "0023_appointments",
+      "breakpoints": true
     }
   ]
 }

@@ -121,6 +121,8 @@ export async function recordOutbound(
     channel: 'console' | 'email';
     providerId?: string;
     rfcMessageId?: string | null;
+    /** A platform-composed email's kind (`mail_message.kind`); counts against the sending limits. */
+    kind?: string;
   },
 ): Promise<string> {
   return db.transaction(async (tx) => {
@@ -139,6 +141,7 @@ export async function recordOutbound(
         sentBy: m.sentBy,
         ...(m.providerId ? { providerId: m.providerId } : {}),
         ...(m.rfcMessageId ? { rfcMessageId: m.rfcMessageId } : {}),
+        ...(m.kind ? { kind: m.kind } : {}),
       })
       .returning({ id: mailMessage.id });
     if (!row) throw new MailError('invalid', 'Could not record the message');

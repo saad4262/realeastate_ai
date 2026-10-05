@@ -507,17 +507,21 @@ export function NotesTab({ contact: c, notes }: { contact: ContactView; notes: N
 
 // ── Not connected yet ──────────────────────────────────────────────────────
 
-export function NotConnected({ which }: { which: 'calendar' | 'reviews' }) {
-  const copy =
-    which === 'calendar'
-      ? {
-          name: 'Google Calendar',
-          what: "Appointments with this person — inspections, appraisals, meetings — will show here once your agency's calendar is connected.",
-        }
-      : {
-          name: 'Google Business Profile',
-          what: "Reviews this person left for the agency will show here once the agency's Google Business Profile is connected and a review is matched to them. A review is only attached to a person when the match is confirmed.",
-        };
+export function NotConnected({ which }: { which: 'google-calendar' | 'zoom' | 'reviews' }) {
+  const copy = {
+    'google-calendar': {
+      name: 'Google Calendar',
+      what: 'Appointments booked here will also appear in your Google Calendar once it is connected. Until then they live only in this calendar.',
+    },
+    zoom: {
+      name: 'Zoom',
+      what: 'Once Zoom is connected, a Zoom appointment creates its meeting link by itself. Until then, paste a link into the appointment.',
+    },
+    reviews: {
+      name: 'Google Business Profile',
+      what: "Reviews this person left for the agency will show here once the agency's Google Business Profile is connected and a review is matched to them. A review is only attached to a person when the match is confirmed.",
+    },
+  }[which];
   return (
     <div className={styles.card}>
       <div className={styles.connect}>

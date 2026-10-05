@@ -104,6 +104,17 @@ import {
   visibleContactIdsSql,
   type ContactView,
 } from '@repo/core/contacts';
+import {
+  AppointmentError,
+  cancelAppointment,
+  completeAppointment,
+  getAppointment,
+  listAppointments,
+  previewInvitation,
+  rescheduleAppointment,
+  scheduleAppointment,
+  sendInvitation,
+} from '@repo/core/appointments';
 import { assert, check, group, note, report, skip } from './runner';
 
 config({ path: resolve(process.cwd(), '../../.env.local') });
@@ -3777,6 +3788,156 @@ async function main() {
           .then(() => 'linked', (e: unknown) => (e as ContactError).code);
         assert(viewer === 'forbidden', `a read-only member adding an address got ${viewer}`);
         summary = 'one property per address; existing property untouched; read-only refused';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  // ------------------------------------------------------- appointments --
+  group('Appointments');
+
+  /** An hour-long slot `daysAhead` from now, as the browser sends it: instants and a zone. */
+  const slot = (daysAhead: number) => {
+    const start = new Date(Date.now() + daysAhead * 86_400_000);
+    start.setUTCMinutes(0, 0, 0);
+    return {
+      startsAt: start.toISOString(),
+      endsAt: new Date(start.getTime() + 3_600_000).toISOString(),
+      timezone: 'Australia/Melbourne',
+    };
+  };
+
+  await check("an agent sees only their own appointments — on the calendar, the contact's tab, and by id", async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const forA1 = await scheduleAppointment(t, f.actor('owner'), f.contacts.p1, { title: 'For A1', type: 'appraisal', ...slot(2), assignedAgentId: f.people.a1 });
+        const a2Own = await scheduleAppointment(t, f.actor('a2'), f.contacts.p2, { title: 'A2 own', type: 'phone_call', ...slot(3) });
+        // Owner books with P1 for themselves: same contact A1 can see, not A1's appointment.
+        const ownerOwn = await scheduleAppointment(t, f.actor('owner'), f.contacts.p1, { title: 'Owner own', type: 'meeting', ...slot(4) });
+
+        const ids = async (who: 'a1' | 'a2' | 'owner' | 'viewer') =>
+          (await listAppointments(t, f.actor(who), { when: 'upcoming' })).rows.map((r) => r.id).sort();
+        const a1 = await ids('a1');
+        assert(a1.length === 1 && a1[0] === forA1.id, `A1's calendar holds ${JSON.stringify(a1)}`);
+        assert((await ids('a2')).join() === a2Own.id, "A2's calendar is not just their own");
+        assert((await ids('owner')).length === 3, 'the owner does not see the whole agency');
+        assert((await ids('viewer')).length === 0, 'a read-only member sees appointments that are not theirs');
+
+        const view = (await getContact(t, f.actor('a1'), f.contacts.p1)) as ContactView;
+        const tab = await listAppointments(t, f.actor('a1'), { contact: view.ref, when: 'upcoming' });
+        assert(tab.rows.length === 1 && tab.rows[0]!.id === forA1.id, "A1's Calendar tab on P1 shows the owner's own appointment");
+        const probe = await getAppointment(t, f.actor('a1'), a2Own.id).then(() => 'opened', (e: unknown) => (e as AppointmentError).code);
+        assert(probe === 'not_found', `A1 opening A2's appointment by id got ${probe}`);
+        const change = await cancelAppointment(t, f.actor('a1'), ownerOwn.id, {}).then(() => 'cancelled', (e: unknown) => (e as AppointmentError).code);
+        assert(change === 'not_found', `A1 cancelling the owner's appointment got ${change}`);
+        summary = 'A1 1, A2 1, owner 3, read-only 0; by id and by tab the same';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check('booking, moving, completing and cancelling each write an activity row; times are stored as instants', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const a1 = f.actor('a1');
+        const viewer = await scheduleAppointment(t, f.actor('viewer'), f.contacts.p4, { title: 'x', type: 'meeting', ...slot(1) })
+          .then(() => 'booked', (e: unknown) => (e as AppointmentError).code);
+        assert(viewer === 'forbidden', `a read-only member booking got ${viewer}`);
+
+        // 9 AM in Melbourne on 14 Oct 2027 (AEDT, +11), sent as the browser sends it.
+        const { id } = await scheduleAppointment(t, a1, f.contacts.p1, {
+          title: 'Appraisal', type: 'appraisal',
+          startsAt: '2027-10-13T22:00:00.000Z', endsAt: '2027-10-13T23:00:00.000Z', timezone: 'Australia/Melbourne',
+        });
+        const [stored] = await t.execute<{ utc: string; tz: string }>(sql`
+          select to_char(starts_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI') as utc, timezone as tz from appointment where id = ${id}
+        `);
+        assert(stored?.utc === '2027-10-13T22:00' && stored.tz === 'Australia/Melbourne', `stored as ${JSON.stringify(stored)}`);
+
+        await rescheduleAppointment(t, a1, id, { ...slot(5), outcome: 'They asked for later' });
+        await completeAppointment(t, a1, id, { outcome: 'Appraised at the range we discussed' });
+        const again = await cancelAppointment(t, a1, id, {}).then(() => 'cancelled', (e: unknown) => (e as AppointmentError).code);
+        assert(again === 'conflict', `cancelling a completed appointment got ${again}`);
+        const other = await scheduleAppointment(t, a1, f.contacts.p1, { title: 'Call', type: 'phone_call', ...slot(6) });
+        await cancelAppointment(t, a1, other.id, { outcome: 'Not needed' });
+
+        const kinds = (await t.execute<{ kind: string }>(sql`
+          select kind from activity where contact_id = ${f.contacts.p1} order by occurred_at, id
+        `)).map((r) => r.kind);
+        for (const k of ['appointment_scheduled', 'appointment_rescheduled', 'appointment_completed', 'appointment_cancelled']) {
+          assert(kinds.includes(k), `no ${k} on the timeline: ${kinds.join(', ')}`);
+        }
+        const view = (await getContact(t, a1, f.contacts.p1)) as ContactView;
+        const timeline = await listContactTimeline(t, a1, view.ref);
+        assert(timeline.items.filter((i) => i.type === 'activity' && i.kind.startsWith('appointment_')).length >= 5, 'the timeline does not show the appointment history');
+        summary = 'read-only refused; 09:00 AEDT stored as 22:00Z with its zone; 5 timeline entries; finished twice refused';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check('an invitation is sent only on Send, once, through the conversation, and within the limits', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const transport = fakeTransport();
+        const deps = {
+          mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport },
+          config: null,
+        };
+        const limits = { perAgentDay: 2, perAgencyDay: 200 };
+        // Through a function: an assert on `.length` would narrow it for TypeScript.
+        const emails = () => transport.sent.length;
+        const a1 = f.actor('a1');
+        const { id } = await scheduleAppointment(t, a1, f.contacts.p1, {
+          title: 'Appraisal', type: 'appraisal', ...slot(2), location: '1 Smoke Street', notes: 'SECRET internal note',
+        });
+        assert(emails() === 0, 'booking emailed the contact by itself');
+        const preview = await previewInvitation(t, a1, id, limits);
+        assert(emails() === 0, 'the preview sent an email');
+        assert(preview.problem === null && preview.to?.email === `p1.${f.tag}@smoke.test`, `preview: ${preview.problem ?? preview.to?.email}`);
+        assert(!preview.body.includes('SECRET'), 'the invitation carries the internal notes');
+
+        const sent = await sendInvitation(t, deps, a1, id, limits);
+        assert(sent.status === 'sent' && emails() === 1, `send: ${sent.status}, ${emails()} emails`);
+        const [msg] = await t.execute<{ kind: string | null; contact_id: string | null }>(sql`
+          select m.kind, t.contact_id from mail_message m join mail_thread t on t.id = m.thread_id where t.id = ${sent.threadId}
+        `);
+        assert(msg?.kind === 'appointment_invitation' && msg.contact_id === f.contacts.p1, `the message is ${JSON.stringify(msg)}`);
+        const twice = await sendInvitation(t, deps, a1, id, limits).then(() => 'sent', (e: unknown) => (e as AppointmentError).code);
+        assert(twice === 'conflict' && emails() === 1, `a second Send got ${twice}`);
+        const [act] = await t.execute<{ n: number }>(sql`
+          select count(*)::int as n from activity where contact_id = ${f.contacts.p1} and kind = 'appointment_invitation_sent'
+        `);
+        assert(act?.n === 1, 'the invitation is not on the timeline');
+
+        // A second invitation fills the cap of 2; a third is refused before anything is sent.
+        const second = await scheduleAppointment(t, a1, f.contacts.p1, { title: 'Second', type: 'meeting', ...slot(3) });
+        await sendInvitation(t, deps, a1, second.id, limits);
+        const third = await scheduleAppointment(t, a1, f.contacts.p1, { title: 'Third', type: 'meeting', ...slot(4) });
+        const capped = await sendInvitation(t, deps, a1, third.id, limits).then(() => 'sent', (e: unknown) => (e as AppointmentError).code);
+        assert(capped === 'limit' && emails() === 2, `over the cap got ${capped}, ${emails()} emails`);
+        summary = 'nothing on book or preview; one on Send; second Send refused; cap of 2 holds';
         throw ROLLBACK;
       });
     } catch (err) {

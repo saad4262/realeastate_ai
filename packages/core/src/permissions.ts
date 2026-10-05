@@ -153,6 +153,24 @@ export type Action =
    * that is how a list decides whether to filter at all.
    */
   | 'note:read_private'
+  /**
+   * See one appointment (ADR 0019). Admins see the agency's whole calendar; any
+   * other member sees appointments assigned to them (`ownerId`) or that they
+   * booked (`createdBy`) — never another agent's, even with the same contact.
+   * No id: "open my calendar", which any active member may.
+   */
+  | 'appointment:read'
+  /** The agency's whole calendar, unnarrowed. Owner/admin. */
+  | 'appointment:read_all'
+  /** Book one. Any active member who is not read-only — and who may see the contact. */
+  | 'appointment:create'
+  /**
+   * Complete, cancel, reschedule, edit, send its invitation: the agent it is
+   * assigned to (`ownerId`), or an admin. Read-only members never.
+   */
+  | 'appointment:update'
+  /** Book one for somebody else, or hand it over. Admins, as with leads and contacts. */
+  | 'appointment:assign'
   | 'team:manage'
   | 'agency:billing'
   /** Agency OS host — owner|admin only */
@@ -194,6 +212,8 @@ export type Resource = {
   leadAssigneeIds?: string[];
   /** On a contact: members named on a listing it is tied to. See `contact:read`. */
   listingAgentIds?: string[];
+  /** On an appointment: who booked it. */
+  createdBy?: string | null;
 };
 
 const ADMIN_ROLES: MembershipRole[] = ['owner', 'admin'];
@@ -344,6 +364,25 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
 
     case 'note:read_private':
       if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      if (isAgencyAdmin(actor)) return true;
+      return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'appointment:read': {
+      if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      if (!resource.id || isAgencyAdmin(actor)) return true;
+      if (resource.ownerId && actor.userId === resource.ownerId) return true;
+      return Boolean(resource.createdBy) && actor.userId === resource.createdBy;
+    }
+
+    case 'appointment:read_all':
+    case 'appointment:assign':
+      return sameAgency(actor, resource) && isAgencyAdmin(actor);
+
+    case 'appointment:create':
+      return sameAgency(actor, resource) && mayWrite(actor);
+
+    case 'appointment:update':
+      if (!sameAgency(actor, resource) || !mayWrite(actor)) return false;
       if (isAgencyAdmin(actor)) return true;
       return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
 

@@ -1,5 +1,5 @@
 import { and, eq, sql } from 'drizzle-orm';
-import { activity, contact, lead, mailThread, note, type Db } from '@repo/db';
+import { activity, appointment, contact, lead, mailThread, note, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { loadContactHead } from './get-contact';
 import { CONTACT_NOT_FOUND, ContactError } from './list-contacts';
@@ -10,7 +10,7 @@ import { recordActivity } from './write-contacts';
  * Fold `loserId` into `survivorId` (ADR 0018). Admins only: who a lead belongs
  * to decides who may see the person, so a merge changes visibility.
  *
- * Nothing is deleted. The loser's leads, conversations, notes and timeline move
+ * Nothing is deleted. The loser's leads, conversations, notes, appointments and timeline move
  * to the survivor; its roles and property ties are COPIED (the loser keeps its
  * own, harmlessly, since a merged contact is never listed); the survivor fills
  * any blank email, phone or assignee from the loser and keeps everything it
@@ -67,6 +67,7 @@ export async function mergeContacts(
     await tx.update(lead).set({ contactId: survivorId }).where(and(eq(lead.contactId, loserId), eq(lead.agencyId, agencyId)));
     await tx.update(mailThread).set({ contactId: survivorId }).where(and(eq(mailThread.contactId, loserId), eq(mailThread.agencyId, agencyId)));
     await tx.update(note).set({ contactId: survivorId }).where(eq(note.contactId, loserId));
+    await tx.update(appointment).set({ contactId: survivorId }).where(and(eq(appointment.contactId, loserId), eq(appointment.agencyId, agencyId)));
     await tx.update(activity).set({ contactId: survivorId }).where(eq(activity.contactId, loserId));
     await tx.execute(sql`
       insert into contact_role (contact_id, role, source, created_by)

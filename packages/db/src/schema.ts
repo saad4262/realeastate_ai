@@ -608,6 +608,13 @@ export const mailMessage = pgTable(
     attachments: jsonb('attachments').notNull().default(sql`'[]'::jsonb`),
     /** Why a send failed. Never shown to the buyer. */
     error: text('error'),
+    /**
+     * What sort of email the platform composed, when it composed it — e.g.
+     * `appointment_invitation`. Null for a person's own reply in a
+     * conversation. Templated mail counts against the daily sending limits
+     * (`email/limits.ts`); a reply to a buyer never does.
+     */
+    kind: varchar('kind', { length: 32 }),
     ...timestamps,
   },
   (t) => [
@@ -855,6 +862,85 @@ export const activity = pgTable(
     ...timestamps,
   },
   (t) => [index('activity_contact_idx').on(t.contactId, desc(t.occurredAt))],
+);
+
+// ── Appointments (docs/adr/0019) ────────────────────────────────────────────
+
+export const appointmentTypeEnum = pgEnum('appointment_type', [
+  'appraisal',
+  'phone_call',
+  'zoom',
+  'inspection',
+  'meeting',
+]);
+
+/**
+ * `rescheduled` is still on: it is a scheduled appointment whose time was
+ * moved, kept distinct so the list can say so. `completed` and `cancelled`
+ * are finished, and carry the outcome note.
+ */
+export const appointmentStatusEnum = pgEnum('appointment_status', [
+  'scheduled',
+  'completed',
+  'cancelled',
+  'rescheduled',
+]);
+
+/** One extra person at an appointment besides the contact and the agent. */
+export type AppointmentAttendee = { name: string; email: string | null };
+
+/**
+ * A booked time with a contact (ADR 0019): an appraisal, a call, an
+ * inspection. The platform's own record — Google Calendar and Zoom, when they
+ * are connected (Phase 3b), mirror it through the `external_*` and
+ * `zoom_meeting_id` columns, which stay empty until then.
+ *
+ * Times are instants (UTC). `timezone` is the IANA zone the appointment was
+ * booked in — what an invitation email prints the time in. The console always
+ * shows each viewer their own browser's time.
+ */
+export const appointment = pgTable(
+  'appointment',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    contactId: uuid('contact_id')
+      .notNull()
+      .references(() => contact.id, { onDelete: 'cascade' }),
+    /** The address it is about, if any. `restrict`: a property outlives everything (#1). */
+    propertyId: uuid('property_id').references(() => property.id, { onDelete: 'restrict' }),
+    createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
+    /** Whose appointment it is. They — and admins — may change it. */
+    assignedAgentId: uuid('assigned_agent_id').references(() => user.id, { onDelete: 'set null' }),
+    title: text('title').notNull(),
+    type: appointmentTypeEnum('type').notNull(),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+    timezone: text('timezone').notNull(),
+    status: appointmentStatusEnum('status').notNull().default('scheduled'),
+    location: text('location'),
+    meetingUrl: text('meeting_url'),
+    /** Internal. Never put in an email to the contact. */
+    notes: text('notes'),
+    /** What happened — written when it is completed, cancelled or moved. */
+    outcome: text('outcome'),
+    attendees: jsonb('attendees').$type<AppointmentAttendee[]>().notNull().default(sql`'[]'::jsonb`),
+    /** Minutes before the start to remind the agent. Stored now; sent by a later phase. */
+    reminderMinutes: integer('reminder_minutes'),
+    /** When an invitation email was sent to the contact, if one was. */
+    invitationSentAt: timestamp('invitation_sent_at', { withTimezone: true }),
+    externalCalendarId: text('external_calendar_id'),
+    externalCalendarProvider: varchar('external_calendar_provider', { length: 32 }),
+    zoomMeetingId: text('zoom_meeting_id'),
+    ...timestamps,
+  },
+  (t) => [
+    index('appointment_agency_starts_idx').on(t.agencyId, t.startsAt),
+    index('appointment_contact_starts_idx').on(t.contactId, t.startsAt),
+    index('appointment_agent_starts_idx').on(t.assignedAgentId, t.startsAt),
+  ],
 );
 
 /**
@@ -1212,3 +1298,4 @@ export type ContactRole = typeof contactRole.$inferSelect;
 export type ContactProperty = typeof contactProperty.$inferSelect;
 export type Note = typeof note.$inferSelect;
 export type Activity = typeof activity.$inferSelect;
+export type Appointment = typeof appointment.$inferSelect;

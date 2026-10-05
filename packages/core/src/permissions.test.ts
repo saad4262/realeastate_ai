@@ -531,3 +531,57 @@ describe('contacts', () => {
     expect(can({ ...agent, userId: '' }, 'contact:update', { ...nobodys, ownerId: '' })).toBe(false);
   });
 });
+
+/** Appointments (ADR 0019): admin all, agent own/assigned, read-only view only. */
+describe('appointments', () => {
+  const m = (userId: string, membershipRole: Actor['membershipRole']): Actor => ({ userId, agencyId: agencyA, membershipRole });
+  const owner = m('owner', 'owner');
+  const agent = m('agent', 'agent');
+  const other = m('other', 'agent');
+  const viewer = m('viewer', 'read_only');
+  const rival: Actor = { userId: 'rival', agencyId: agencyB, membershipRole: 'owner' };
+  const appt = (ownerId: string | null, createdBy: string | null = null) => ({
+    type: 'appointment',
+    id: 'appt-1',
+    agencyId: agencyA,
+    ...(ownerId ? { ownerId } : {}),
+    createdBy,
+  });
+  const calendar = { type: 'appointment', agencyId: agencyA };
+
+  it('shows an agent their own and the ones they booked — never another agent’s', () => {
+    expect(can(agent, 'appointment:read', appt('agent'))).toBe(true);
+    expect(can(agent, 'appointment:read', appt('other', 'agent'))).toBe(true);
+    expect(can(other, 'appointment:read', appt('agent'))).toBe(false);
+    expect(can(agent, 'appointment:read', appt(null))).toBe(false);
+  });
+
+  it('lets admins see and change the whole calendar, and nobody cross agencies', () => {
+    expect(can(owner, 'appointment:read', appt('agent'))).toBe(true);
+    expect(can(owner, 'appointment:update', appt('agent'))).toBe(true);
+    expect(can(owner, 'appointment:read_all', calendar)).toBe(true);
+    expect(can(rival, 'appointment:read', appt('rival'))).toBe(false);
+    expect(can(rival, 'appointment:update', appt('rival'))).toBe(false);
+  });
+
+  it('lets only the assigned agent (or an admin) change one — not whoever booked it for them', () => {
+    expect(can(agent, 'appointment:update', appt('agent'))).toBe(true);
+    expect(can(agent, 'appointment:update', appt('other', 'agent'))).toBe(false);
+    expect(can(other, 'appointment:update', appt('agent'))).toBe(false);
+  });
+
+  it('gives read-only members their calendar to look at and nothing to change', () => {
+    expect(can(viewer, 'appointment:read', calendar)).toBe(true);
+    expect(can(viewer, 'appointment:read', appt('viewer'))).toBe(true);
+    expect(can(viewer, 'appointment:create', calendar)).toBe(false);
+    expect(can(viewer, 'appointment:update', appt('viewer'))).toBe(false);
+  });
+
+  it('keeps booking for somebody else, and the whole calendar, to admins', () => {
+    for (const a of [agent, viewer]) {
+      expect(can(a, 'appointment:assign', calendar)).toBe(false);
+      expect(can(a, 'appointment:read_all', calendar)).toBe(false);
+    }
+    expect(can(agent, 'appointment:create', calendar)).toBe(true);
+  });
+});

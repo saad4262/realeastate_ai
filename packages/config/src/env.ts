@@ -75,6 +75,15 @@ export const envSchema = z.object({
    * cannot — an email with no sender identity is worse than no email.
    */
   ALERT_EMAIL_FROM: z.string().optional(),
+  /**
+   * Daily caps on email the PLATFORM composes and sends for somebody — an
+   * appointment invitation now, a skill's template email later (CRM plan).
+   * A person's own reply in a conversation never counts. Read in
+   * packages/core/src/email/limits.ts; adjustable per deployment until an
+   * admin setting replaces them (Phase 5).
+   */
+  EMAIL_LIMIT_PER_AGENT_DAY: z.coerce.number().int().positive().default(50),
+  EMAIL_LIMIT_PER_AGENCY_DAY: z.coerce.number().int().positive().default(200),
   ALERT_SENDER_NAME: z.string().optional(),
   ALERT_SENDER_ADDRESS: z.string().optional(),
   /** HMAC key for unsubscribe links. No default — a default is a forgeable link. */

@@ -3,8 +3,9 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
-- **Now: CRM Phase 2 + follow-up (private notes, new-address link) done on
-  `feat/crm`, waiting for the user's browser test of N and O.**
+- **Now: CRM Phase 3a (appointments, no Zoom/Google) done on `feat/crm`,
+  waiting for review.** The user is browser-testing N and O; P is new.
+  Next: Phase 3b (Zoom, Google Calendar) — not started.
   Plan: `~/.claude/plans/pasted-content-id-f0ff-you-are-functional-frost.md`.
   Next: Phase 3 (appointments, then Zoom / Google Calendar) — not started.
 - Build order (locked): Agency UI → Agent UI → Consumer web
@@ -12,6 +13,32 @@
 - Last updated: 2026-10-05
 - Deploying: `apps/web` only, Vercel Hobby. `apps/console` waits for a real
   domain — see `docs/DEPLOY.md`. **Nothing is deployed yet.**
+
+## CRM Phase 3a — appointments (2026-10-05, ADR 0019, migration 0023)
+
+- `appointment` table (applied on dev): contact, optional related property,
+  assigned agent, type, status, UTC instants + booking zone, location / link,
+  internal notes, outcome, attendees (JSON), reminder choice (stored only),
+  empty external_calendar_* / zoom_meeting_id for 3b. `mail_message.kind`.
+- Permissions `appointment:read|read_all|create|update|assign`: admin all;
+  others own (assigned or booked by them); read-only views only. SQL twin
+  `appointmentScopeFilters`.
+- Complete / cancel / reschedule with outcome; each change an `activity` row.
+- Invitation email: opt-in, exact preview, explicit Send, via the conversation
+  pipeline (a new conversation with the contact), transactional, never the
+  internal notes. Counts toward `EMAIL_LIMIT_PER_AGENT_DAY` (50) /
+  `EMAIL_LIMIT_PER_AGENCY_DAY` (200), which count `mail_message.kind` rows only.
+- Times: `@repo/core/time` converts typed wall-clock ⇄ instants in a NAMED zone
+  (the browser's); the UTC-pinned test fails on the naive `new Date(typed)`.
+- Console: contact Calendar tab (Upcoming/Past, Schedule side panel, Google +
+  Zoom "Not connected"), `/calendar` (agency, agent filter), `/my-calendar`
+  (agent; replaces the dead "Inspections" link). Day-grouped list, no library.
+- Merging contacts now moves appointments too.
+- Numbers: typecheck 10/10, lint 0 errors, test 645 + 263, build 2/2, smoke 141
+  passed / 1 failed (known dev account). One earlier smoke run had 12 HTTP
+  failures from the web dev server recompiling after `pnpm build`; a re-run was
+  clean. Three new smoke checks, each break-checked red.
+- Not clicked in a browser: TEST-PLAN P.
 
 ## CRM Phase 2 follow-up (2026-10-05, migration 0022)
 

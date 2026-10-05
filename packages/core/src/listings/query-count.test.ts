@@ -25,6 +25,8 @@ import { listContactTimeline } from '../contacts/timeline';
 import { listContactProperties } from '../contacts/properties';
 import { contactCounts } from '../contacts/counts';
 import { listContactNotes } from '../contacts/notes';
+import { listAppointments } from '../appointments/appointments';
+import { checkEmailLimits } from '../email/limits';
 import { agencyNotificationRecipients } from '../agency/notification-recipients';
 import type { Actor } from '../permissions';
 
@@ -303,6 +305,17 @@ describe('reads cost a fixed number of queries', () => {
       await read(db);
       expect(count()).toBe(1);
     }
+  });
+
+  it('a calendar page is one query, and the sending-limit check is one', async () => {
+    const calendar = countingDb([]);
+    await listAppointments(calendar.db, actor, { when: 'upcoming' });
+    expect(calendar.count()).toBe(1);
+    const limits = countingDb([{ agency: '3', agent: '1' }]);
+    const check = await checkEmailLimits(limits.db, { agencyId: actor.agencyId!, userId: 'u-1' }, { perAgentDay: 1, perAgencyDay: 200 });
+    expect(limits.count()).toBe(1);
+    // Driver bigints as strings, and the agent's cap reached.
+    expect(check).toMatchObject({ ok: false, agentUsed: 1, agencyUsed: 3 });
   });
 
   it('opening one listing for editing is one query', async () => {

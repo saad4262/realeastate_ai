@@ -57,3 +57,5 @@ export {
   type AgentInviteEmailInput,
   type LeadNoticeEmailInput,
 } from './team-notices';
+
+export { checkEmailLimits, emailLimitsFromEnv, type EmailLimitCheck, type EmailLimits } from './limits';

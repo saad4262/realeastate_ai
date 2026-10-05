@@ -446,3 +446,22 @@ an email reply in their conversation.
 | O13 | Archive a contact | Gone from /customers; "Archived only" filter shows it; its profile still opens with an "Archived" banner and a Restore button. |
 | O14 | Notes: tick **Private (admins only)** and add a note as the owner; open the same contact as the agent | The agent does not see it — not in Notes, not in Timeline, and the Notes count excludes it. The owner sees it tagged "Private". An agent's own private note is visible to them and to admins. |
 | O15 | Properties → "Not in the list? Add a new address" → pick a suggestion (or type one), choose Owner → Add and link | Linked as Owner. Adding the same address to another contact reuses it (one property). Its public page is not reachable — nothing was published. |
+
+## P — Appointments (ADR 0019, CRM Phase 3a)
+
+Owner in one browser, agent in another. Use a contact that has an email you can open.
+
+| # | Case | Expected |
+|---|---|---|
+| P1 | Contact → Calendar tab | Upcoming / Past toggle, a **+ Schedule** button, and "Not connected" cards for Google Calendar and Zoom. |
+| P2 | + Schedule → title, Appraisal, tomorrow 10:00–11:00, a location, a related property, one extra attendee, "1 hour before", a note → **Book** (invitation box unticked) | Panel closes; the appointment shows under tomorrow's date at 10:00–11:00. **No email arrives.** The Timeline shows "Appointment booked". |
+| P3 | Change your computer's timezone (or open the console from a browser in another zone) and reload | The same appointment shows at that zone's clock time — e.g. 10:00 Melbourne = 07:00 Perth. The line under the list names your zone. |
+| P4 | Schedule another with **Send invitation** ticked → Book and preview invitation | The panel shows To, Subject and the exact text — the time in the booked zone with its name, no internal notes — and today's sending count. Nothing is sent yet. |
+| P5 | Press **Send invitation** | The contact receives it. It appears in the contact's Emails tab. Their reply comes back into that conversation. The Timeline shows "Invitation emailed". Pressing Send again is not offered. |
+| P6 | On an upcoming appointment: **Reschedule** to another time with a note | It moves, marked "Rescheduled"; the Timeline shows "Appointment moved". Its invitation can be sent again (the old one named the old time). |
+| P7 | **Complete** one with an outcome; **Cancel** another with a reason | Each moves to Past with its outcome; each is on the Timeline. Neither offers buttons any more. |
+| P8 | Owner: `/calendar` | Every agent's appointments, each linking to its contact. "Every agent" picker narrows to one. |
+| P9 | Agent: **Calendar** in the menu (`/my-calendar`) | Only their own appointments — never one the owner booked for themselves with the same contact. |
+| P10 | Agent pastes the id of another agent's appointment into an action (or opens that contact's Calendar tab) | Not shown / "not found". |
+| P11 | Read-only member opens a contact's Calendar tab | No Schedule button; no Complete / Cancel / Reschedule. |
+| P12 | Set `EMAIL_LIMIT_PER_AGENT_DAY=1` in `.env.local`, restart, send two invitations | The second preview says the limit is reached and Send is disabled. (Put it back afterwards.) |

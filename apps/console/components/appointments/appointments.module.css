@@ -1,0 +1,51 @@
+.wrap { display: grid; gap: 1rem; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: space-between; }
+.toggle { display: inline-flex; gap: 0.25rem; }
+.zone { font-size: 0.75rem; color: var(--text-muted); }
+
+.day { display: grid; gap: 0.5rem; }
+.dayHead { margin: 0; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+
+.item {
+  display: grid; grid-template-columns: 7.5rem 1fr; gap: 0.75rem;
+  padding: 0.85rem 1rem; border: 1px solid var(--border-default); border-radius: 0.75rem;
+  background: var(--surface-elevated); font-size: 0.8125rem;
+}
+.time { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.timeEnd { display: block; font-weight: 500; color: var(--text-muted); }
+.title { font-weight: 600; color: var(--text-primary); }
+.meta { margin-top: 0.15rem; color: var(--text-secondary); }
+.meta a { color: inherit; }
+.outcome { margin-top: 0.35rem; color: var(--text-secondary); white-space: pre-wrap; }
+.actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+
+.badge { display: inline-block; margin-left: 0.4rem; padding: 0.1rem 0.45rem; border-radius: 999px; font-size: 0.6875rem; font-weight: 700; border: 1px solid var(--border-default); color: var(--text-muted); }
+.badgeMoved { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+.badgeDone { color: var(--emerald); border-color: color-mix(in srgb, var(--emerald) 40%, transparent); }
+.badgeCancelled { text-decoration: line-through; }
+
+.inlineForm { display: grid; gap: 0.5rem; margin-top: 0.5rem; padding: 0.75rem; border-radius: 0.5rem; background: var(--surface-canvas); border: 1px solid var(--border-default); }
+
+/* The Schedule side panel */
+.scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 40; }
+.panel {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 41;
+  width: min(30rem, 100vw); overflow-y: auto;
+  background: var(--surface-elevated); border-left: 1px solid var(--border-default);
+  padding: 1.25rem; display: grid; gap: 0.875rem; align-content: start;
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.15);
+}
+.panelHead { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.panelTitle { margin: 0; font-size: 1.125rem; }
+.close { background: none; border: 0; font-size: 1.25rem; cursor: pointer; color: var(--text-secondary); }
+.three { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 0.5rem; }
+.attendee { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.4rem; }
+
+.preview { display: grid; gap: 0.5rem; padding: 0.875rem; border-radius: 0.5rem; border: 1px solid var(--border-default); background: var(--surface-canvas); }
+.previewBody { margin: 0; white-space: pre-wrap; font: inherit; font-size: 0.8125rem; color: var(--text-primary); }
+.previewMeta { font-size: 0.75rem; color: var(--text-muted); }
+
+@media (max-width: 640px) {
+  .item { grid-template-columns: 1fr; gap: 0.35rem; }
+  .three { grid-template-columns: 1fr; }
+}

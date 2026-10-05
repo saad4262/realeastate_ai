@@ -1,3 +1,25 @@
+## 2026-10-05 (night) — Claude Code — CRM Phase 3a: appointments
+
+- Goal (user): an `appointment` table and permissions, the contact Calendar tab
+  with a Schedule panel, /calendar and an agent calendar, complete / cancel /
+  reschedule with outcomes on the timeline, an opt-in invitation email with
+  preview and explicit Send within the limits, UTC + zone with browser display
+  (and a test), Google/Zoom "Not connected". No Zoom or Google.
+- Done: ADR 0019; migration 0023 (applied on dev); `@repo/core/time`;
+  `appointments/` (schema, scope, list/get/schedule/complete/cancel/reschedule,
+  invitation preview/send); `email/limits.ts` + env vars; `recordOutbound` kind;
+  permissions + tests; console Calendar tab, Schedule panel, Agenda, calendar
+  pages, agent nav. Merge moves appointments.
+- Decisions made here (in the ADR): an agent sees appointments assigned to them
+  or booked by them, not every appointment with a contact they share; only the
+  assignee or an admin changes one; the invitation is transactional and goes
+  through a new conversation; limits count platform-composed mail only (a
+  reply to a buyer never counts); times are entered on the agent's own clock.
+- Verified: typecheck, lint 0 errors, test 645 + 263, build 2/2, smoke 141/1.
+  Break-checked red: naive timezone conversion (unit); agent scope, timeline
+  entry on reschedule, second Send (smoke).
+- Not verified in a browser: P.
+
 ## 2026-10-05 (late) — Claude Code — Private notes and linking a new address
 
 - Goal (user): a "Private (admins only)" tick on notes; link a contact to a

@@ -43,6 +43,11 @@ export const ACTIVITY_KINDS = [
   'contact_restored',
   'property_linked',
   'property_unlinked',
+  'appointment_scheduled',
+  'appointment_rescheduled',
+  'appointment_completed',
+  'appointment_cancelled',
+  'appointment_invitation_sent',
 ] as const;
 export const activityKindSchema = z.enum(ACTIVITY_KINDS);
 export type ActivityKind = z.infer<typeof activityKindSchema>;
@@ -78,6 +83,11 @@ export const ACTIVITY_LABELS: Record<ActivityKind, string> = {
   contact_restored: 'Restored from the archive',
   property_linked: 'Property linked',
   property_unlinked: 'Property unlinked',
+  appointment_scheduled: 'Appointment booked',
+  appointment_rescheduled: 'Appointment moved',
+  appointment_completed: 'Appointment completed',
+  appointment_cancelled: 'Appointment cancelled',
+  appointment_invitation_sent: 'Invitation emailed',
 };
 
 export const CONTACT_SOURCE_LABELS: Record<ContactSource, string> = {
