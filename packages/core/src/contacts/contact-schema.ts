@@ -48,6 +48,8 @@ export const ACTIVITY_KINDS = [
   'appointment_completed',
   'appointment_cancelled',
   'appointment_invitation_sent',
+  'template_email_sent',
+  'contact_opted_out',
 ] as const;
 export const activityKindSchema = z.enum(ACTIVITY_KINDS);
 export type ActivityKind = z.infer<typeof activityKindSchema>;
@@ -88,6 +90,8 @@ export const ACTIVITY_LABELS: Record<ActivityKind, string> = {
   appointment_completed: 'Appointment completed',
   appointment_cancelled: 'Appointment cancelled',
   appointment_invitation_sent: 'Invitation emailed',
+  template_email_sent: 'Template email sent',
+  contact_opted_out: 'Unsubscribed from marketing email',
 };
 
 export const CONTACT_SOURCE_LABELS: Record<ContactSource, string> = {

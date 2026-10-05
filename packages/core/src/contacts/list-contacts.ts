@@ -69,27 +69,14 @@ function roleArray(value: unknown): ContactRoleKind[] {
 }
 
 /**
- * One page of the contacts this actor may see, newest first, with the total.
- *
- * One statement: the total is a window function and the roles a sub-select,
- * so `query-count.test.ts` holds it to one query. Who is visible is
- * `visibleContactIdsSql` — the same rule can() applies to one contact.
+ * The directory's WHERE clauses for a query, as this actor sees it — the
+ * visibility rule plus every filter. Shared with the template email's
+ * Prepare (ADR 0022), so a saved filter resolves to exactly the people the
+ * directory would list.
  */
-export async function listContacts(
-  db: Db,
-  actor: Actor,
-  query: Partial<ContactListQuery> = {},
-): Promise<ContactPage> {
-  if (!actor.agencyId) throw new ContactError('forbidden', 'You do not have permission to view contacts');
-  const directory = { type: 'contact', agencyId: actor.agencyId };
-  if (!can(actor, 'contact:read', directory)) {
-    throw new ContactError('forbidden', 'You do not have permission to view contacts');
-  }
-  const seesAll = can(actor, 'contact:read_all', directory);
-  const page = Math.max(1, query.page ?? 1);
-
+export function contactQueryFilters(actor: Actor, query: Partial<ContactListQuery>, seesAll: boolean): SQL[] {
   const filters: SQL[] = [
-    eq(contact.agencyId, actor.agencyId),
+    eq(contact.agencyId, actor.agencyId as string),
     isNull(contact.mergedIntoId),
     sql`${contact.id} in (${visibleContactIdsSql(actor)})`,
   ];
@@ -120,6 +107,31 @@ export async function listContacts(
   // Archived people are out of the way unless asked for (ADR 0018).
   if (query.archived === 'archived') filters.push(isNotNull(contact.archivedAt));
   else if (query.archived !== 'all') filters.push(isNull(contact.archivedAt));
+
+  return filters;
+}
+
+/**
+ * One page of the contacts this actor may see, newest first, with the total.
+ *
+ * One statement: the total is a window function and the roles a sub-select,
+ * so `query-count.test.ts` holds it to one query. Who is visible is
+ * `visibleContactIdsSql` — the same rule can() applies to one contact.
+ */
+export async function listContacts(
+  db: Db,
+  actor: Actor,
+  query: Partial<ContactListQuery> = {},
+): Promise<ContactPage> {
+  if (!actor.agencyId) throw new ContactError('forbidden', 'You do not have permission to view contacts');
+  const directory = { type: 'contact', agencyId: actor.agencyId };
+  if (!can(actor, 'contact:read', directory)) {
+    throw new ContactError('forbidden', 'You do not have permission to view contacts');
+  }
+  const seesAll = can(actor, 'contact:read_all', directory);
+  const page = Math.max(1, query.page ?? 1);
+
+  const filters = contactQueryFilters(actor, query, seesAll);
 
   const rows = await db
     .select({

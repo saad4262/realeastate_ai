@@ -43,7 +43,9 @@
     "./integrations/providers": "./src/integrations/providers.ts",
     "./integrations/startup": "./src/integrations/startup.ts",
     "./skills": "./src/skills/index.ts",
-    "./skills/schema": "./src/skills/skill-schema.ts"
+    "./skills/schema": "./src/skills/skill-schema.ts",
+    "./template-email": "./src/template-email/index.ts",
+    "./template-email/schema": "./src/template-email/schema.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
