@@ -40,7 +40,8 @@
     "./appointments": "./src/appointments/index.ts",
     "./appointments/schema": "./src/appointments/appointment-schema.ts",
     "./integrations": "./src/integrations/index.ts",
-    "./integrations/providers": "./src/integrations/providers.ts"
+    "./integrations/providers": "./src/integrations/providers.ts",
+    "./integrations/startup": "./src/integrations/startup.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

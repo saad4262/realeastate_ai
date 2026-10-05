@@ -150,6 +150,52 @@ never the main domain, whose mail lives elsewhere.
 5. Check: send a reply from `/inbox`, answer it from Gmail, and it appears in the
    thread within seconds. Each agency's own address is shown on its `/inbox`.
 
+### Integrations — the token key (console project; docs/adr/0020)
+
+Google Calendar, Zoom, Sheets and Reviews tokens are stored **encrypted** with a key
+that lives only in the environment — never in the database, never in git, never in a log.
+
+    INTEGRATION_TOKEN_KEY          REQUIRED on the console in production.
+                                   32 random bytes, base64:  openssl rand -base64 32
+    INTEGRATION_TOKEN_KEY_PREVIOUS Only during a rotation (below).
+    INTEGRATION_OAUTH_RETURN_BASE  Leave UNSET in production — the return address is
+                                   then NEXT_PUBLIC_AGENCY_URL (which must be https).
+                                   Dev only: http://localhost:3001.
+    INTEGRATIONS_STUB              NEVER in production.
+
+**The console refuses to start in production** if `INTEGRATIONS_STUB=1` is set or
+`INTEGRATION_TOKEN_KEY` is missing or malformed (`apps/console/instrumentation.ts`;
+checked by starting a production build both ways). The log line says which variable.
+
+**Production gets its OWN key.** Never copy the dev key from `.env.local`: anyone
+holding a key plus a database dump can read every stored token. Generate a fresh
+one for production, keep it only in Vercel → Settings → Environment Variables
+(Production scope), and in your password manager.
+
+**Losing the key means everyone reconnects.** Without it no stored token can be
+decrypted. Nothing else is lost — appointments, contacts and the rest are
+untouched — but every Google/Zoom connection must be disconnected and connected
+again by its owner (agents their own, an admin the agency's). There is no recovery
+path by design.
+
+**Rotating the key** (yearly, or at once if it may have leaked):
+
+1. Generate a new key: `openssl rand -base64 32`.
+2. On Vercel set `INTEGRATION_TOKEN_KEY_PREVIOUS` = the current key and
+   `INTEGRATION_TOKEN_KEY` = the new one. Redeploy.
+   From now on new tokens are written with the new key; old ones still decrypt
+   with the previous key (each stored value names the key that wrote it).
+3. Let every connection be re-saved under the new key — a reconnect does it.
+   (Until a re-encrypt script exists, ask owners to reconnect, or wait until
+   tokens refresh in Phase 3b, which re-saves them.)
+4. When no row is left on the old key, remove `INTEGRATION_TOKEN_KEY_PREVIOUS` and
+   redeploy. If the old key leaked, do not wait: remove it at once and have
+   everyone reconnect — a leaked key must not keep working.
+
+The same key also signs the OAuth `state` (through a derived key), so a rotation
+also expires any Connect that is half-way through — the person simply presses
+Connect again.
+
 ### Deliberately NOT set
 
     COOKIE_DOMAIN     Leave unset on a *.vercel.app deployment. The schema
