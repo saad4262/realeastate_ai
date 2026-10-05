@@ -38,7 +38,9 @@
     "./contacts/schema": "./src/contacts/contact-schema.ts",
     "./time": "./src/time/local-input.ts",
     "./appointments": "./src/appointments/index.ts",
-    "./appointments/schema": "./src/appointments/appointment-schema.ts"
+    "./appointments/schema": "./src/appointments/appointment-schema.ts",
+    "./integrations": "./src/integrations/index.ts",
+    "./integrations/providers": "./src/integrations/providers.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -13,6 +13,8 @@ import {
 import { listAgencyLeads, listLeadAssignees, type LeadAssignee } from '@repo/core/leads';
 import { getMailThread, listMailThreads, mailConfigFromEnv, MailError } from '@repo/core/mail';
 import { appointmentListQuerySchema, listAppointments } from '@repo/core/appointments';
+import { requireIntegrations } from '@repo/core/integrations';
+import { ConnectFirst } from '@/components/integrations/integration-ui';
 import { can } from '@repo/core/permissions';
 import { Agenda } from '@/components/appointments/agenda';
 import { toItem } from '@/components/appointments/item';
@@ -197,11 +199,16 @@ export async function ContactPage({
       const { when } = appointmentListQuerySchema.parse({ when: first(sp.when) });
       const mayBook = can(actor, 'appointment:create', { type: 'appointment', agencyId: c.ref.agencyId });
       const mayAssign = can(actor, 'appointment:assign', { type: 'appointment', agencyId: c.ref.agencyId });
-      const [list, properties, assignees] = await Promise.all([
+      const [list, properties, assignees, integrations] = await Promise.all([
         listAppointments(db, actor, { contact: c.ref, when }),
         mayBook ? listContactProperties(db, actor, c.ref) : Promise.resolve([]),
         mayAssign ? listContactAssignees(db, actor) : Promise.resolve<ContactAssignee[]>([]),
+        requireIntegrations(db, actor, ['google_calendar', 'zoom']),
       ]);
+      const [calendarReq, zoomReq] = integrations.results as [
+        (typeof integrations.results)[number],
+        (typeof integrations.results)[number],
+      ];
       body = (
         <div style={{ display: 'grid', gap: '1rem' }}>
           <div className={styles.inlineForm} style={{ justifyContent: 'space-between' }}>
@@ -224,8 +231,8 @@ export async function ContactPage({
             contactBasePath={basePath}
             emptyText={when === 'upcoming' ? 'Nothing booked with them that you can see.' : 'No past appointments you can see.'}
           />
-          <NotConnected which="google-calendar" />
-          <NotConnected which="zoom" />
+          <ConnectFirst requirement={calendarReq} purpose="Appointments booked here will be added to your Google Calendar (Phase 3b)." />
+          <ConnectFirst requirement={zoomReq} purpose="Zoom appointments will create their own meeting link (Phase 3b)." />
         </div>
       );
       break;

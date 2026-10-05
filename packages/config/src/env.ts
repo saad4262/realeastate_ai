@@ -82,6 +82,19 @@ export const envSchema = z.object({
    * packages/core/src/email/limits.ts; adjustable per deployment until an
    * admin setting replaces them (Phase 5).
    */
+  /**
+   * Integrations (docs/adr/0020). INTEGRATION_TOKEN_KEY: 32 bytes, base64
+   * (`openssl rand -base64 32`) — encrypts stored OAuth tokens and, through a
+   * derived key, signs the OAuth state. Never in the database, never logged.
+   * _PREVIOUS still decrypts during a rotation. Unset: integrations cannot be
+   * connected. INTEGRATION_OAUTH_RETURN_BASE: where providers send people back
+   * (dev: http://localhost:3001); unset = the agency console URL.
+   * INTEGRATIONS_STUB=1: a local pretend provider, never in production.
+   */
+  INTEGRATION_TOKEN_KEY: z.string().optional(),
+  INTEGRATION_TOKEN_KEY_PREVIOUS: z.string().optional(),
+  INTEGRATION_OAUTH_RETURN_BASE: z.string().url().optional(),
+  INTEGRATIONS_STUB: z.string().optional(),
   EMAIL_LIMIT_PER_AGENT_DAY: z.coerce.number().int().positive().default(50),
   EMAIL_LIMIT_PER_AGENCY_DAY: z.coerce.number().int().positive().default(200),
   ALERT_SENDER_NAME: z.string().optional(),

@@ -465,3 +465,22 @@ Owner in one browser, agent in another. Use a contact that has an email you can 
 | P10 | Agent pastes the id of another agent's appointment into an action (or opens that contact's Calendar tab) | Not shown / "not found". |
 | P11 | Read-only member opens a contact's Calendar tab | No Schedule button; no Complete / Cancel / Reschedule. |
 | P12 | Set `EMAIL_LIMIT_PER_AGENT_DAY=1` in `.env.local`, restart, send two invitations | The second preview says the limit is reached and Send is disabled. (Put it back afterwards.) |
+
+## Q — Integrations hub (ADR 0020, CRM Phase 4 — stub provider only)
+
+Needs in `.env.local`: `INTEGRATION_TOKEN_KEY` (`openssl rand -base64 32`),
+`INTEGRATION_OAUTH_RETURN_BASE=http://localhost:3001`, `INTEGRATIONS_STUB=1`; restart
+`pnpm dev`. No real Google or Zoom account is involved. Owner in one browser, agent in another.
+
+| # | Case | Expected |
+|---|---|---|
+| Q1 | Owner → Settings → Integrations (`/settings/integrations`) | Cards: the agency's Zoom, Google Reviews, Google Sheets, and the owner's own Google Calendar, Zoom, Sheets — each "Not connected", with what it does and "Why we ask for each permission". A yellow note says the stub is on. |
+| Q2 | Connect on the agency's **Zoom** | A "Pretend Zoom — dev only" page lists two permissions, both ticked. Allow → the browser goes to `localhost:3001/...return` and straight on to `agency.lvh.me` (watch the address bar) → back on Integrations with "Zoom connected", the account label and the time. |
+| Q3 | Connect **Google Calendar**, untick `calendar.events`, Allow | Back with "connected without: …calendar.events"; the card says **Permission missing** and offers **Reconnect**. Reconnect with everything ticked → **Connected**. |
+| Q4 | Connect anything, press **Deny** | Back with "permission was declined"; nothing stored. |
+| Q5 | **Disconnect** Google Calendar → confirm | "disconnected — its stored access was deleted"; card back to Not connected. |
+| Q6 | Agent → **Integrations** in the menu (`/my-integrations`) | Their own Calendar / Zoom / Sheets to connect; the agency's Zoom / Reviews / Sheets shown with status but "Only an owner or admin connects the agency's account" — no buttons. |
+| Q7 | Agent opens a contact → Calendar tab | Google Calendar: "Connect Google Calendar first" with a Connect button. Zoom: Connected — "Using the agency's account" (from Q2). After the agent connects their own Zoom: "Using your account". |
+| Q8 | Start a Connect as the agent, then (before Allow) sign in as the owner in that browser and press Allow | "That connection was started by a different account" — nothing stored for anyone. |
+| Q9 | Open `http://localhost:3001/api/integrations/oauth/return?state=forged&code=x` | Lands on an Integrations page with "That connection link has expired" — never on another site. |
+| Q10 | Read-only member opens `/my-integrations` | Statuses only; no Connect anywhere. |

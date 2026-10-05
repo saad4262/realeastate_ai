@@ -943,6 +943,59 @@ export const appointment = pgTable(
   ],
 );
 
+// ── Integrations (docs/adr/0020) ────────────────────────────────────────────
+
+export const integrationProviderEnum = pgEnum('integration_provider', [
+  'google_calendar',
+  'zoom',
+  'google_sheets',
+  'google_reviews',
+]);
+export const integrationOwnerTypeEnum = pgEnum('integration_owner_type', ['user', 'agency']);
+/** No row means "not connected". */
+export const integrationStatusEnum = pgEnum('integration_status', [
+  'connected',
+  'expired',
+  'error',
+  'permission_missing',
+]);
+
+/**
+ * One connected account (ADR 0020): a person's Google Calendar, the agency's
+ * Zoom. Server-only — RLS on, no grants (ADR 0017) — and the token columns are
+ * ciphertext (`integrations/crypto.ts`, AES-256-GCM, key from the environment,
+ * bound to this row and column). Nothing that feeds a screen selects them.
+ */
+export const integrationAccount = pgTable(
+  'integration_account',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    provider: integrationProviderEnum('provider').notNull(),
+    ownerType: integrationOwnerTypeEnum('owner_type').notNull(),
+    /** The user's id for `user`, the agency's id for `agency`. */
+    ownerId: uuid('owner_id').notNull(),
+    /** What the provider says the account is — usually its email. */
+    externalAccountLabel: text('external_account_label'),
+    grantedScopes: text('granted_scopes').array().notNull().default(sql`'{}'::text[]`),
+    status: integrationStatusEnum('status').notNull(),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    /** Why it is in `error`. Never contains a token. */
+    lastError: text('last_error'),
+    accessTokenEnc: text('access_token_enc'),
+    refreshTokenEnc: text('refresh_token_enc'),
+    tokenExpiresAt: timestamp('token_expires_at', { withTimezone: true }),
+    connectedBy: uuid('connected_by').references(() => user.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('integration_account_owner_idx').on(t.provider, t.ownerType, t.ownerId),
+    index('integration_account_agency_idx').on(t.agencyId),
+  ],
+);
+
 /**
  * `interval` is a different kind of thing from the other two, and the
  * difference is daylight saving.
@@ -1299,3 +1352,4 @@ export type ContactProperty = typeof contactProperty.$inferSelect;
 export type Note = typeof note.$inferSelect;
 export type Activity = typeof activity.$inferSelect;
 export type Appointment = typeof appointment.$inferSelect;
+export type IntegrationAccount = typeof integrationAccount.$inferSelect;

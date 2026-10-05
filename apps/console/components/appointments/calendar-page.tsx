@@ -6,7 +6,8 @@ import {
   type AppointmentPage,
 } from '@repo/core/appointments';
 import { listContactAssignees, type ContactAssignee } from '@repo/core/contacts';
-import { NotConnected } from '@/components/contacts/contact-profile';
+import { requireIntegrations, type IntegrationCheck } from '@repo/core/integrations';
+import { ConnectFirst } from '@/components/integrations/integration-ui';
 import contactStyles from '@/components/contacts/contacts.module.css';
 import { getConsoleDb } from '../../lib/db';
 import { requireConsoleAccess } from '../../lib/require-console-access';
@@ -39,11 +40,13 @@ export async function CalendarPage({
 
   let page: AppointmentPage | null = null;
   let agents: ContactAssignee[] = [];
+  let integrations: IntegrationCheck | null = null;
   let loadError: string | null = null;
   try {
-    [page, agents] = await Promise.all([
+    [page, agents, integrations] = await Promise.all([
       listAppointments(getConsoleDb(), session.actor, query),
       listContactAssignees(getConsoleDb(), session.actor),
+      requireIntegrations(getConsoleDb(), session.actor, ['google_calendar']),
     ]);
   } catch (err) {
     loadError = err instanceof AppointmentError ? err.message : 'Failed to load the calendar';
@@ -100,7 +103,9 @@ export async function CalendarPage({
         contactBasePath={contactBase}
         emptyText={query.when === 'upcoming' ? 'Nothing booked yet.' : 'No past appointments.'}
       />
-      <NotConnected which="google-calendar" />
+      {integrations?.results[0] ? (
+        <ConnectFirst requirement={integrations.results[0]} purpose="Appointments will be added to your Google Calendar (Phase 3b)." />
+      ) : null}
     </div>
   );
 }

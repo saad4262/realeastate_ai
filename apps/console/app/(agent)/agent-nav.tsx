@@ -11,6 +11,7 @@ const NAV = [
   { href: '/my-contacts', label: 'Contacts', icon: 'contacts' },
   { href: '/my-calendar', label: 'Calendar', icon: 'event' },
   { href: '#', label: 'Offers', icon: 'handshake' },
+  { href: '/my-integrations', label: 'Integrations', icon: 'extension' },
 ];
 
 /**

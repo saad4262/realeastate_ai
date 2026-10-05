@@ -585,3 +585,51 @@ describe('appointments', () => {
     expect(can(agent, 'appointment:create', calendar)).toBe(true);
   });
 });
+
+/** Integrations (ADR 0020). */
+describe('integrations', () => {
+  const m = (userId: string, membershipRole: Actor['membershipRole']): Actor => ({ userId, agencyId: agencyA, membershipRole });
+  const owner = m('owner', 'owner');
+  const agent = m('agent', 'agent');
+  const other = m('other', 'agent');
+  const viewer = m('viewer', 'read_only');
+  const rival: Actor = { userId: 'rival', agencyId: agencyB, membershipRole: 'owner' };
+  const mine = (userId: string) => ({ type: 'integration', agencyId: agencyA, integrationOwnerType: 'user' as const, ownerId: userId });
+  const agencyAcct = { type: 'integration', agencyId: agencyA, integrationOwnerType: 'agency' as const, ownerId: agencyA };
+
+  it("lets an agent manage and use only their own account — never another's", () => {
+    expect(can(agent, 'integration:manage', mine('agent'))).toBe(true);
+    expect(can(agent, 'integration:use', mine('agent'))).toBe(true);
+    expect(can(agent, 'integration:read', mine('other'))).toBe(false);
+    expect(can(agent, 'integration:use', mine('other'))).toBe(false);
+    expect(can(agent, 'integration:manage', mine('other'))).toBe(false);
+  });
+
+  it("does not let even an admin use or manage a person's own account", () => {
+    expect(can(owner, 'integration:use', mine('agent'))).toBe(false);
+    expect(can(owner, 'integration:manage', mine('agent'))).toBe(false);
+  });
+
+  it('keeps agency accounts to admins to manage, and lets members see and use them', () => {
+    expect(can(owner, 'integration:manage', agencyAcct)).toBe(true);
+    expect(can(agent, 'integration:manage', agencyAcct)).toBe(false);
+    expect(can(agent, 'integration:read', agencyAcct)).toBe(true);
+    expect(can(agent, 'integration:use', agencyAcct)).toBe(true);
+  });
+
+  it('never crosses agencies, even for an owner', () => {
+    expect(can(rival, 'integration:read', agencyAcct)).toBe(false);
+    expect(can(rival, 'integration:use', agencyAcct)).toBe(false);
+    expect(can(rival, 'integration:manage', { ...agencyAcct, agencyId: agencyB })).toBe(false);
+  });
+
+  it('gives read-only members nothing to connect', () => {
+    expect(can(viewer, 'integration:manage', mine('viewer'))).toBe(false);
+    expect(can(viewer, 'integration:read', mine('viewer'))).toBe(true);
+  });
+
+  it('refuses an agency-level resource whose owner is not the agency', () => {
+    expect(can(owner, 'integration:manage', { ...agencyAcct, ownerId: agencyB })).toBe(false);
+    expect(can(agent, 'integration:use', { ...agencyAcct, ownerId: agencyB })).toBe(false);
+  });
+});

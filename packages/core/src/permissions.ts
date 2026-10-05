@@ -171,6 +171,26 @@ export type Action =
   | 'appointment:update'
   /** Book one for somebody else, or hand it over. Admins, as with leads and contacts. */
   | 'appointment:assign'
+  /**
+   * See a connected account's STATUS (ADR 0020) — never its tokens. Your own
+   * user-level accounts; your agency's agency-level ones (an agent must be able
+   * to see that the agency's Zoom is connected). The resource carries
+   * `integrationOwnerType` and `ownerId` (a user id, or the agency id). No id
+   * with no owner type: "open my integrations page", any active member.
+   */
+  | 'integration:read'
+  /**
+   * Connect or disconnect. Your own user-level account (not read-only
+   * members); an agency-level one only owner/admin.
+   */
+  | 'integration:manage'
+  /**
+   * Let the SERVER use the tokens on your behalf (create your calendar event,
+   * a meeting on the agency's Zoom). Never a way to read them: no function
+   * returns a token outside packages/core. Your own user-level account; an
+   * agency-level one for any active member.
+   */
+  | 'integration:use'
   | 'team:manage'
   | 'agency:billing'
   /** Agency OS host — owner|admin only */
@@ -214,6 +234,8 @@ export type Resource = {
   listingAgentIds?: string[];
   /** On an appointment: who booked it. */
   createdBy?: string | null;
+  /** On an integration account: a person's (`user`) or the agency's. */
+  integrationOwnerType?: 'user' | 'agency';
 };
 
 const ADMIN_ROLES: MembershipRole[] = ['owner', 'admin'];
@@ -385,6 +407,23 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       if (!sameAgency(actor, resource) || !mayWrite(actor)) return false;
       if (isAgencyAdmin(actor)) return true;
       return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'integration:read':
+    case 'integration:use':
+      if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      if (!resource.integrationOwnerType) return action === 'integration:read' && !resource.id;
+      if (resource.integrationOwnerType === 'agency') return resource.ownerId === actor.agencyId;
+      return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'integration:manage':
+      if (!sameAgency(actor, resource) || !mayWrite(actor)) return false;
+      if (resource.integrationOwnerType === 'agency') {
+        return resource.ownerId === actor.agencyId && isAgencyAdmin(actor);
+      }
+      if (resource.integrationOwnerType === 'user') {
+        return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+      }
+      return false;
 
     case 'team:manage':
     case 'agency:billing':

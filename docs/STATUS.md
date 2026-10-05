@@ -3,9 +3,9 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
-- **Now: CRM Phase 3a (appointments, no Zoom/Google) done on `feat/crm`,
-  waiting for review.** The user is browser-testing N and O; P is new.
-  Next: Phase 3b (Zoom, Google Calendar) — not started.
+- **Now: CRM Phase 4 (integrations hub, stub provider only) done on
+  `feat/crm`, waiting for review.** The user is browser-testing P; Q is new.
+  Next: Phase 3b (real Zoom / Google Calendar) or Phase 5 (skills) — user's call.
   Plan: `~/.claude/plans/pasted-content-id-f0ff-you-are-functional-frost.md`.
   Next: Phase 3 (appointments, then Zoom / Google Calendar) — not started.
 - Build order (locked): Agency UI → Agent UI → Consumer web
@@ -13,6 +13,32 @@
 - Last updated: 2026-10-05
 - Deploying: `apps/web` only, Vercel Hobby. `apps/console` waits for a real
   domain — see `docs/DEPLOY.md`. **Nothing is deployed yet.**
+
+## CRM Phase 4 — integrations hub (2026-10-05, ADR 0020, migration 0024)
+
+- `integration_account` (applied on dev): provider, owner_type user|agency,
+  owner_id, agency_id, label, granted scopes, status, last sync / error,
+  AES-256-GCM token columns (key `INTEGRATION_TOKEN_KEY`, AAD = row + column,
+  rotation via `_PREVIOUS`). RLS on, no grants. CHECKs: who may own which.
+- Permissions `integration:read|manage|use`: own user-level; agency-level
+  managed by owner/admin only, seen and used by members. Nobody reads anyone
+  else's tokens; no screen read selects a token column.
+- `requireIntegrations` (Zoom: own → agency; Calendar: own; Reviews: agency;
+  Sheets: own → agency) + `ConnectFirst` card, wired into the contact
+  Calendar tab and /calendar.
+- OAuth plumbing: signed, user-bound, 10-minute state; one return route
+  `/api/integrations/oauth/return` (public; on localhost it hops to the
+  console host the state names); scope re-check → `permission_missing`.
+  Dev stub provider (`INTEGRATIONS_STUB=1`, never in production).
+- Pages: `/settings` (index), `/settings/integrations`, `/my-integrations`
+  (agent nav). Disconnect deletes the row and its tokens.
+- `.env.local` on this machine now has a generated `INTEGRATION_TOKEN_KEY`,
+  `INTEGRATION_OAUTH_RETURN_BASE=http://localhost:3001`, `INTEGRATIONS_STUB=1`.
+- Numbers: typecheck 10/10, lint 0 errors, test 660 + 263, build 2/2, smoke 145
+  passed / 1 failed (known dev account). Four new smoke checks, each
+  break-checked red (the user-binding one only after it was tightened).
+- NOT SURE (ADR 0020): one Google app or three; Zoom's http/localhost redirect
+  rules; exact scope names (verify in 3b).
 
 ## CRM Phase 3a — appointments (2026-10-05, ADR 0019, migration 0023)
 

@@ -1,0 +1,22 @@
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); gap: 1rem; }
+.card { display: grid; gap: 0.6rem; align-content: start; padding: 1.1rem; border: 1px solid var(--border-default); border-radius: 0.75rem; background: var(--surface-elevated); font-size: 0.8125rem; }
+.cardHead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.name { font-weight: 700; font-size: 0.9375rem; color: var(--text-primary); }
+.level { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+.purpose { margin: 0; color: var(--text-secondary); }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 0.75rem; margin: 0; }
+.facts dt { color: var(--text-muted); }
+.facts dd { margin: 0; color: var(--text-primary); overflow-wrap: anywhere; }
+.scopes { margin: 0; padding-left: 1rem; color: var(--text-secondary); display: grid; gap: 0.25rem; }
+.scope code { font-size: 0.6875rem; color: var(--text-muted); }
+.status { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.6875rem; font-weight: 700; border: 1px solid var(--border-default); color: var(--text-muted); background: var(--surface-canvas); }
+.ok { color: var(--emerald); border-color: color-mix(in srgb, var(--emerald) 40%, transparent); }
+.warn { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+.bad { color: var(--rose); border-color: color-mix(in srgb, var(--rose) 40%, transparent); }
+.row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.note { margin: 0; color: var(--text-muted); font-size: 0.75rem; }
+.gate { display: grid; gap: 0.5rem; padding: 1rem 1.1rem; border: 1px dashed var(--border-default); border-radius: 0.75rem; background: var(--surface-canvas); font-size: 0.8125rem; }
+.gateTitle { font-weight: 700; color: var(--text-primary); }
+.banner { margin: 0; padding: 0.6rem 0.875rem; border-radius: 0.5rem; font-size: 0.8125rem; border: 1px solid var(--border-default); }
+.bannerOk { composes: banner; border-color: color-mix(in srgb, var(--emerald) 40%, transparent); }
+.bannerBad { composes: banner; border-color: color-mix(in srgb, var(--rose) 40%, transparent); color: var(--rose); }

@@ -1,3 +1,26 @@
+## 2026-10-05 (later still) — Claude Code — CRM Phase 4: integrations hub
+
+- Goal (user): `integration_account` with encrypted tokens, permissions,
+  `requireIntegrations` + "Connect X first" wired into the Calendar tab, the
+  agency and agent integrations pages, generic OAuth plumbing with a dev answer
+  to "Google refuses http on lvh.me" — ADR first — and no real provider.
+- Done: ADR 0020 written before building (localhost return route that hops to
+  the console host named by a signed, user-bound state). Migration 0024
+  (applied on dev). core `integrations/`: providers registry (provisional
+  scopes), AES-256-GCM crypto, signed state, accounts (safe reads,
+  requireIntegrations, save with scope re-check, disconnect, tokensForUse),
+  oauth (startConnect, returnHop, completeConnect, stub adapter). permissions.
+  console: return route (public in middleware), stub consent pages,
+  connect/disconnect actions, IntegrationCard / ConnectFirst, settings pages,
+  Calendar tab + /calendar gates, agent nav. Dev env values added to
+  .env.local; dev servers restarted.
+- Verified: typecheck, lint 0 errors, test 660 + 263, build 2/2, smoke 145/1.
+  Break-checked red: token column in a screen read; tokensForUse without
+  can(); requireIntegrations ignoring missing scopes; the OAuth user binding
+  (that check first stayed green — can() caught it too — and was tightened to
+  assert the binding's own refusal).
+- Not verified in a browser: Q.
+
 ## 2026-10-05 (night) — Claude Code — CRM Phase 3a: appointments
 
 - Goal (user): an `appointment` table and permissions, the contact Calendar tab

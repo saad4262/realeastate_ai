@@ -169,6 +169,13 @@
       "when": 1791194698276,
       "tag": "0023_appointments",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791197023668,
+      "tag": "0024_integration_accounts",
+      "breakpoints": true
     }
   ]
 }

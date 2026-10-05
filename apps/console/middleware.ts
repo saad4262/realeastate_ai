@@ -69,7 +69,11 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/reset') ||
     pathname.startsWith('/forgot-password') ||
     pathname.startsWith('/auth') ||
-    pathname.startsWith('/sign-out');
+    pathname.startsWith('/sign-out') ||
+    // The OAuth return (ADR 0020). In dev it lands on localhost, which never
+    // has the .lvh.me session; the route itself hands over to the right host
+    // and refuses unless the signed-in user is the one who started it.
+    pathname === '/api/integrations/oauth/return';
 
   const uiPreview = process.env.NEXT_PUBLIC_UI_PREVIEW === '1';
 

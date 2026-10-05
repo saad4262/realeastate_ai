@@ -1,5 +1,5 @@
 import { config } from 'dotenv';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { and, eq, sql } from 'drizzle-orm';
@@ -115,6 +115,17 @@ import {
   scheduleAppointment,
   sendInvitation,
 } from '@repo/core/appointments';
+import {
+  completeConnect,
+  disconnectIntegration,
+  listIntegrationSlots,
+  requireIntegrations,
+  returnHop,
+  saveConnection,
+  signState,
+  tokenKeysFromEnv,
+  tokensForUse,
+} from '@repo/core/integrations';
 import { assert, check, group, note, report, skip } from './runner';
 
 config({ path: resolve(process.cwd(), '../../.env.local') });
@@ -3942,6 +3953,191 @@ async function main() {
       });
     } catch (err) {
       if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  // ------------------------------------------------------- integrations --
+  group('Integrations');
+
+  /** Keys made here, so these checks never depend on the server's own key. */
+  const testKeys = tokenKeysFromEnv({ INTEGRATION_TOKEN_KEY: randomBytes(32).toString('base64') } as NodeJS.ProcessEnv)!;
+  const granted = (scopes: string[], label = 'smoke@example.test') => ({
+    accessToken: `smoke-access-${randomUUID()}`,
+    refreshToken: `smoke-refresh-${randomUUID()}`,
+    expiresAt: new Date(Date.now() + 3600_000),
+    grantedScopes: scopes,
+    accountLabel: label,
+  });
+  const ALL = {
+    google_calendar: ['https://www.googleapis.com/auth/calendar.events', 'openid', 'email'],
+    zoom: ['meeting:write:meeting', 'user:read:user'],
+  };
+
+  await check('stored tokens are ciphertext, and no screen read ever returns one', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const g = granted(ALL.google_calendar);
+        const target = { provider: 'google_calendar' as const, ownerType: 'user' as const, ownerId: f.people.a1, agencyId: f.agencyId };
+        const { id } = await saveConnection(t, testKeys, f.actor('a1'), target, g);
+        const [raw] = await t.execute<{ a: string; r: string }>(sql`
+          select access_token_enc as a, refresh_token_enc as r from integration_account where id = ${id}
+        `);
+        assert(raw?.a.startsWith('v1.') && !raw.a.includes(g.accessToken) && !raw.r.includes(g.refreshToken), 'a token is stored readable');
+        const slots = JSON.stringify(await listIntegrationSlots(t, f.actor('a1')));
+        const check = JSON.stringify(await requireIntegrations(t, f.actor('a1'), ['google_calendar', 'zoom']));
+        for (const [name, text] of [['the settings read', slots], ['requireIntegrations', check]] as const) {
+          assert(!text.includes(g.accessToken) && !text.includes(g.refreshToken) && !text.includes('v1.'), `${name} carries a token`);
+          assert(!/tokenEnc|_enc/i.test(text), `${name} carries a token field`);
+        }
+        const [grants] = await t.execute<{ n: number }>(sql`
+          select count(*)::int as n from information_schema.role_table_grants
+          where table_name = 'integration_account' and grantee in ('anon', 'authenticated')
+        `);
+        assert(grants?.n === 0, 'the browser keys hold a grant on integration_account');
+        summary = 'ciphertext at rest; no token in any screen read; no browser-key grant';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check("nobody reads or uses another person's connection, and disconnect wipes the tokens", async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const target = { provider: 'google_calendar' as const, ownerType: 'user' as const, ownerId: f.people.a1, agencyId: f.agencyId };
+        const g = granted(ALL.google_calendar);
+        const { id } = await saveConnection(t, testKeys, f.actor('a1'), target, g);
+        const forged = await saveConnection(t, testKeys, f.actor('a2'), target, granted(ALL.google_calendar))
+          .then(() => 'saved', (e: unknown) => (e as { code?: string }).code);
+        assert(forged === 'forbidden', `A2 writing A1's connection got ${forged}`);
+
+        const a2Slots = await listIntegrationSlots(t, f.actor('a2'));
+        assert(!a2Slots.some((sl) => sl.account?.id === id), "A2's integrations page shows A1's calendar");
+        for (const who of ['a2', 'owner'] as const) {
+          const got = await tokensForUse(t, testKeys, f.actor(who), id).then(() => 'tokens', (e: unknown) => (e as { code?: string }).code);
+          assert(got === 'not_found', `${who} using A1's tokens got ${got}`);
+        }
+        const mine = await tokensForUse(t, testKeys, f.actor('a1'), id);
+        assert(mine.accessToken === g.accessToken, 'A1 cannot use their own connection');
+
+        const agencyNo = await disconnectIntegration(t, f.actor('a1'), { provider: 'zoom', ownerType: 'agency' })
+          .then(() => 'done', (e: unknown) => (e as { code?: string }).code);
+        assert(agencyNo === 'forbidden', `an agent disconnecting the agency's Zoom got ${agencyNo}`);
+        const { removed } = await disconnectIntegration(t, f.actor('a1'), { provider: 'google_calendar', ownerType: 'user' });
+        const [left] = await t.execute<{ n: number }>(sql`select count(*)::int as n from integration_account where id = ${id}`);
+        assert(removed && left?.n === 0, 'disconnect left the row and its tokens behind');
+        summary = "A2 and the owner refused A1's tokens; agent cannot touch agency Zoom; disconnect deletes the row";
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check('requireIntegrations reports not connected, agency fallback, missing permission and expiry', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const a1 = f.actor('a1');
+        const state = async () =>
+          Object.fromEntries((await requireIntegrations(t, a1, ['google_calendar', 'zoom'])).results.map((r) => [r.provider, `${r.state}/${r.ownerType ?? '-'}`]));
+
+        let s1 = await state();
+        assert(s1.google_calendar === 'not_connected/-' && s1.zoom === 'not_connected/-', `nothing connected: ${JSON.stringify(s1)}`);
+
+        await saveConnection(t, testKeys, f.actor('owner'), { provider: 'zoom', ownerType: 'agency', ownerId: f.agencyId, agencyId: f.agencyId }, granted(ALL.zoom));
+        await saveConnection(t, testKeys, a1, { provider: 'google_calendar', ownerType: 'user', ownerId: f.people.a1, agencyId: f.agencyId }, granted(['openid', 'email']));
+        s1 = await state();
+        assert(s1.zoom === 'connected/agency', `agency Zoom not used as the fallback: ${s1.zoom}`);
+        assert(s1.google_calendar === 'permission_missing/user', `an unticked scope reads ${s1.google_calendar}`);
+
+        await t.execute(sql`
+          update integration_account set status = 'connected', token_expires_at = now() - interval '1 hour', refresh_token_enc = null
+          where provider = 'google_calendar' and owner_id = ${f.people.a1}
+        `);
+        const [s0, s1s, s2] = ALL.google_calendar as [string, string, string];
+        await t.execute(sql`update integration_account set granted_scopes = array[${s0}, ${s1s}, ${s2}]::text[] where provider = 'google_calendar' and owner_id = ${f.people.a1}`);
+        s1 = await state();
+        assert(s1.google_calendar === 'expired/user', `a lapsed token with no refresh reads ${s1.google_calendar}`);
+        summary = 'not_connected → agency Zoom fallback → permission_missing → expired, each reported';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check("the OAuth return is bound to its user, hops only to our own hosts, and re-checks scopes", async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    const env = {
+      ...process.env,
+      INTEGRATIONS_STUB: '1',
+      NODE_ENV: 'development',
+      NEXT_PUBLIC_AGENT_URL: AGENT,
+      NEXT_PUBLIC_AGENCY_URL: AGENCY,
+      INTEGRATION_OAUTH_RETURN_BASE: 'http://localhost:3001',
+    } as NodeJS.ProcessEnv;
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const token = signState(
+          { provider: 'zoom', ownerType: 'user', ownerId: f.people.a1, agencyId: f.agencyId, userId: f.people.a1, surface: 'agent' },
+          testKeys,
+        );
+        const stubCode = (scopes: string[]) => `stub.${Buffer.from(JSON.stringify({ scopes, label: 'a1@zoom.test' })).toString('base64url')}`;
+        const q = (code: string, st = token) => new URLSearchParams({ state: st, code });
+
+        const hop = returnHop('http://localhost:3001', q('x'), testKeys, env);
+        assert(hop?.startsWith(`${AGENT}/api/integrations/oauth/return?`), `the localhost return hopped to ${hop}`);
+        assert(returnHop(AGENT, q('x'), testKeys, env) === null, 'the right host hopped again');
+        assert(returnHop('http://localhost:3001', q('x', `${token}x`), testKeys, env) === null, 'a tampered state was forwarded');
+
+        const wrongUser = await completeConnect(t, testKeys, f.actor('a2'), q(stubCode(ALL.zoom)), env);
+        // The state's own binding refuses it, before can() is even asked.
+        assert(!wrongUser.ok && /different account/.test(wrongUser.error), `A2 completing A1's connection got ${JSON.stringify(wrongUser)}`);
+        const unticked = await completeConnect(t, testKeys, f.actor('a1'), q(stubCode(['user:read:user'])), env);
+        assert(unticked.ok && unticked.status === 'permission_missing', `an unticked scope stored as ${unticked.ok ? unticked.status : unticked.error}`);
+        const full = await completeConnect(t, testKeys, f.actor('a1'), q(stubCode(ALL.zoom)), env);
+        assert(full.ok && full.status === 'connected', 'a full grant did not connect');
+        summary = 'localhost → agent host only with a valid state; wrong user refused; unticked scope → permission_missing';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+
+    // The real route, on the real dev server, when it is running with a key.
+    const serverKeys = tokenKeysFromEnv();
+    if (serverKeys && (await reachable('http://localhost:3001/login'))) {
+      const st = signState(
+        { provider: 'zoom', ownerType: 'user', ownerId: randomUUID(), agencyId: randomUUID(), userId: randomUUID(), surface: 'agent' },
+        serverKeys,
+      );
+      const res = await http(`http://localhost:3001/api/integrations/oauth/return?state=${encodeURIComponent(st)}&code=x`);
+      const loc = res.headers.get('location') ?? '';
+      assert(res.status >= 300 && res.status < 400 && loc.startsWith(`${AGENT}/api/integrations/oauth/return?`), `localhost answered ${res.status} → ${loc}`);
+      const forged = await http(`http://localhost:3001/api/integrations/oauth/return?state=forged&code=x`);
+      const floc = forged.headers.get('location') ?? '';
+      assert(!floc.startsWith('http://localhost') && /error=/.test(floc), `a forged state went to ${floc}`);
+      summary += '; live route hops and refuses a forged state';
     }
     return summary;
   });
