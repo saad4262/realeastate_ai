@@ -67,7 +67,19 @@ Google Business Profile (reviews). We must hold OAuth tokens safely, let every f
 `localhost` as the dev console host — breaks the shared `.lvh.me` session (ADR 0003).
 Storing tokens unencrypted behind RLS — a dump or a mistaken grant leaks them.
 
-**NOT SURE (for the user).** One Google OAuth app for Calendar + Sheets + Reviews
-(incremental scopes) or three; Zoom's redirect rules for http/localhost (verify in 3b);
-exact scope names (verify against provider docs in 3b — listed provisionally); whether
-read-only members may connect their own calendar (decided: no).
+**Decided (client/PM, 2026-10-05) — replaces the earlier NOT SURE list. Recorded, not built (Phase 3b).**
+- **Google:** ONE Google Cloud app for Calendar, Sheets and Reviews; permissions requested
+  incrementally (each when its feature is first connected). Until Google verifies the app it
+  stays in Testing: only listed test users can connect, and their tokens expire after about
+  7 days (the integrations page must show "Expired — reconnect"). Verification needs a real
+  domain, a homepage and a privacy policy — so it waits for the domain (after testing).
+- **Least privilege:** Sheets must reach ONLY the file the person picks (Google Picker with
+  the per-file `drive.file` scope), never all of Drive or every sheet —
+  `spreadsheets.readonly` in `integrations/providers.ts` is provisional and changes in 3b.
+  Calendar: events only. All scope names verified against Google's docs in 3b.
+- **Zoom:** each agent connects their own Zoom; an owner/admin connects the agency's Zoom
+  (the "own, else agency" fallback stays). Letting accounts outside our own Zoom account
+  connect needs the app approved/published on the Zoom Marketplace — check Zoom's docs in
+  3b. Zoom's redirect rules for http/localhost are checked then too; a tunnel is used for
+  Zoom only, if Zoom refuses localhost.
+- **Read-only members** cannot connect any account (implemented).

@@ -16,6 +16,34 @@
 - Deploying: `apps/web` only, Vercel Hobby. `apps/console` waits for a real
   domain — see `docs/DEPLOY.md`. **Nothing is deployed yet.**
 
+## Decisions from the client/PM (recorded 2026-10-05 — not built)
+
+1. **Zoom:** each agent connects their own Zoom; an admin connects the agency Zoom.
+   Letting other people's accounts connect needs the app approved/published on the Zoom
+   Marketplace — check Zoom's docs in 3b. Tunnel for Zoom only if it refuses localhost.
+   → ADR 0020 "Decided".
+2. **Google:** ONE app (Calendar, Sheets, Reviews), permissions asked incrementally.
+   Until verified, only test users can connect and tokens expire after ~7 days.
+   Verification needs a domain, a homepage and a privacy policy. Least privilege:
+   Sheets reaches only the picked file, never all of Drive. → ADR 0020 "Decided".
+3. **Google Reviews, two steps:** first the Places API with the existing Google key
+   (rating, count, a few recent reviews, Google attribution — check the Places terms on
+   storing reviews); later the Business Profile API for all reviews. Business-level only;
+   agent profiles show the agency's reviews; a review is linked to a contact only by an
+   admin's manual "Link to contact", otherwise "Unmatched". Review requests by email with
+   preview + approve; no incentives, no review gating. → ADR 0023 (planned).
+4. **CSV listings import:** an owner/admin import goes live directly (option: import as
+   draft); an agent import goes through submit-for-approval. Waiting for the sample CSV
+   and the photo format. → ADR 0024 (planned).
+5. **Domain and paid hosting come after testing.** Until then: nothing deployed, Google
+   stays in Testing, no Zoom Marketplace publishing.
+6. **Template-email skill** (ADR 0022): owner/admin-approved templates only; manual
+   Prepare → Approve & Send, no scheduled sending; recipients frozen at Prepare, shown in
+   full with skips and reasons, opt-out/consent re-checked at send; 48 h expiry.
+7. Earlier, still standing: one person = one contact with role tags; agents see only
+   what they could already open; phone matches are suggestions; enquiries are not
+   marketing consent; read-only members view only and connect nothing.
+
 ## CRM Phase 5 — skills (2026-10-05, ADR 0021, migration 0025)
 
 - Before skills: the console REFUSES TO START in production with
