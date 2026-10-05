@@ -98,9 +98,8 @@ Generate the two secrets with `openssl rand -hex 32`.
 
     ANTHROPIC_API_KEY                    Unset: /chat answers 503 with a readable
                                          reason. Every other page is unaffected.
-    ANTHROPIC_CHAT_MODEL                 Defaults to claude-opus-5. The deployed
-                                         default is currently Haiku — see
-                                         DEFAULT_CHAT_MODEL.
+    ANTHROPIC_CHAT_MODEL                 Unset: DEFAULT_CHAT_MODEL in
+    ANTHROPIC_ALERT_MODEL                packages/ai/src/models.ts (claude-haiku-4-5).
     AI_CHAT_DAILY_TURN_CAP               Default 2000. A cost ceiling, NOT a
                                          security control. Set a hard spend cap
                                          in the Anthropic console as well.

@@ -132,6 +132,11 @@ const PIPELINE = [
 export default function AgencyOverviewPage() {
   return (
     <div className={styles.page}>
+      <p className={styles.demoBanner} role="note">
+        <strong>Demo data.</strong> Every figure, name and recommendation on this page is a
+        sample for the design — none of it is your agency&apos;s. Live numbers are on Leads,
+        Inbox and Live listings.
+      </p>
       <div className={styles.headerRow}>
         <div>
           <h1 className={styles.greeting}>
@@ -161,7 +166,7 @@ export default function AgencyOverviewPage() {
         </div>
       </div>
 
-      <section className={styles.briefing} aria-label="AI executive briefing">
+      <section className={styles.briefing} aria-label="Sample briefing (demo)">
         <div className={styles.briefingAccent} />
         <div className={styles.briefingInner}>
           <div>
@@ -169,9 +174,9 @@ export default function AgencyOverviewPage() {
               <span className={styles.glyphSm} aria-hidden>
                 smart_toy
               </span>
-              LocalAgent AI Briefing Engine v4.2
+              Sample briefing
               <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>
-                · Generated 07:15 AEST
+                · demo text, not written by AI
               </span>
             </div>
             <p className={styles.briefingText}>

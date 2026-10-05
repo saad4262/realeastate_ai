@@ -371,9 +371,19 @@ swallowed, so I3 will still show you the failure.
 ## M — Email conversations (ADR 0016)
 
 Needs a signed-in console session, a signed-in website account, and — for M6–M9 —
-`MAIL_INBOUND_DOMAIN`, `MAIL_REPLY_SECRET` and `RESEND_WEBHOOK_SECRET` set with the
-Resend receiving domain and webhook from docs/DEPLOY.md. None of this was clicked
-through when it was built; every row below is unverified until somebody does.
+`MAIL_INBOUND_DOMAIN` and `MAIL_REPLY_SECRET` (docs/DEPLOY.md). On localhost no webhook
+is needed: `/inbox`, `/my-inbox` and the buyer's pages pull received mail every 20 s.
+
+**Setup, once (2026-10-05 state of dev):** sending is from the verified Resend domain
+`quotemydecking.com.au`, so any address receives mail. Receiving is the Resend
+`*.resend.app` address in `MAIL_INBOUND_DOMAIN`. Then:
+1. `pnpm dev` (restart it after any `.env.local` change).
+2. Use two browsers (or one + a private window): one cookie spans all three hosts, so
+   signing in as a buyer signs the console out (ADR 0003).
+3. Buyer side: `web.lvh.me:3000` → any live listing → enquire with a Gmail you can open.
+
+**Verified for real on 2026-10-03:** M3 and M6 — a console reply arrived in Gmail and
+the Gmail answer was back in the same thread 7 s later. Every other row is unverified.
 
 | # | Case | Expected |
 |---|---|---|

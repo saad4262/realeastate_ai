@@ -8,8 +8,8 @@ apps/console — agent + agency, host-routed:
                agency.site.com.au → (agency) route group
 packages/: db (Drizzle), core, auth (Supabase Auth SSR), ai, ui, config
 Supabase Postgres + PostGIS + pgvector (dev may be Seoul; prod Sydney later).
-Auth: Supabase Auth. Media: Cloudflare R2.
-NOT used: Supabase Storage.
+Auth: Supabase Auth. Media: Supabase Storage (ADR 0009; R2 maybe later).
+The server is the only door to the database (ADR 0017): no browser table access.
 TypeScript strict. Tailwind + shadcn/ui.
 
 ## Verifying

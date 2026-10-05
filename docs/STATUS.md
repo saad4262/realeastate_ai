@@ -3,11 +3,35 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
+- **Now: CRM, Phase 0 (safety) done on branch `feat/crm`, waiting for approval.**
+  Plan: `~/.claude/plans/pasted-content-id-f0ff-you-are-functional-frost.md`
+  (Phase 1 = contacts; design in that file, not built).
 - Build order (locked): Agency UI → Agent UI → Consumer web
 - Last tool: Claude Code
-- Last updated: 2026-10-03
+- Last updated: 2026-10-05
 - Deploying: `apps/web` only, Vercel Hobby. `apps/console` waits for a real
   domain — see `docs/DEPLOY.md`. **Nothing is deployed yet.**
+
+## CRM Phase 0 (2026-10-05)
+
+- M6 committed on `main` (3 commits); CRM work on `feat/crm`.
+- **Migration 0019 written, NOT applied** (ADR 0017, "the server is the only
+  door"): `anon`/`authenticated` held ALL privileges on every public table,
+  4 tables had no RLS, and policies let any member update any listing and read
+  every offer/email through the Data API. 0019 revokes the grants (and the
+  default ones), turns RLS on everywhere, drops the wide policies. Dry-run in a
+  rolled-back tx: 0 grants left, `authenticated` refused. Smoke check "the
+  public schema is closed to the browser keys" is RED until 0019 is applied —
+  apply with `pnpm --filter @repo/db db:migrate` once approved.
+- `/overview` carries a "Demo data" banner; the fake AI briefing is labelled a
+  sample. `.env.example`/env.ts/DEPLOY/CLAUDE.md: media is Supabase Storage;
+  the model default lives only in `packages/ai/src/models.ts`;
+  `ANTHROPIC_ALERT_MODEL` declared.
+- Email: sending is from verified `quotemydecking.com.au`; receiving on the
+  `*.resend.app` address. A real round trip (console reply → Gmail → back into
+  the thread) worked on 2026-10-03. M5, M7–M13 still to click through.
+- Smoke 125 passed / 2 failed: the 0019 check (expected) and "every account is
+  mirrored" (dev account that has not opened a page since the fix).
 
 ## What M6 added (ADR 0016)
 
@@ -134,8 +158,8 @@ which offers never existed rather than one saying three are hidden.
   warm ~40 ms, and the same server failed identically with the change stashed —
   so: restart the dev servers and re-run before reading anything into them.
 - Migrations 0016 and 0017 are applied to the dev database; no drift.
-- Not clicked through in a browser: TEST-PLAN section M. Nothing was really
-  sent or received — inbound needs the Resend domain, MX and webhook.
+- TEST-PLAN section M: M3 + M6 verified for real (2026-10-03); the rest not
+  yet clicked through.
 
 ## Open / next
 
@@ -162,7 +186,5 @@ which offers never existed rather than one saying three are hidden.
   DIRECT_URL the session pooler for migrations.
 - **Next on leads/listings:** an open/closed filter; telling admins a listing
   is waiting; review of edits to live listings (ADR 0014 "Not done").
-- **Docs drift:** CLAUDE.md still says media is on R2 and Supabase Storage is
-  unused; ADR 0009 and the code use Supabase Storage.
 - `apps/web` and `apps/console` were written by Claude Code at the user's
   explicit request, against the tool split in CLAUDE.md.

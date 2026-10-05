@@ -15,8 +15,14 @@ export const envSchema = z.object({
   NEXT_PUBLIC_AGENCY_URL: z.string().url().default('http://agency.lvh.me:3001'),
   COOKIE_DOMAIN: z.string().default('.lvh.me'),
   ANTHROPIC_API_KEY: z.string().optional(),
-  /** Model for the consumer property chat. Overridable without a code change. */
-  ANTHROPIC_CHAT_MODEL: z.string().default('claude-opus-5'),
+  /**
+   * Model overrides, read by getModel in packages/ai/src/models.ts. No default
+   * here on purpose: the fallback is DEFAULT_CHAT_MODEL in that file, and a
+   * second default in this schema had already drifted from it.
+   */
+  ANTHROPIC_CHAT_MODEL: z.string().optional(),
+  /** The saved-search digest's summary paragraph. Falls back like the chat's. */
+  ANTHROPIC_ALERT_MODEL: z.string().optional(),
   /**
    * Turns one process will serve in a day before /chat starts refusing.
    *
@@ -40,8 +46,8 @@ export const envSchema = z.object({
    */
   NEXT_PUBLIC_SUPABASE_MEDIA_BUCKET: z.string().default('media'),
   /**
-   * R2 was the original plan for media and is still where this should end up —
-   * see CLAUDE.md. These stay declared and optional so the move is a change of
+   * R2 was the original plan for media and may still be where this ends up —
+   * see docs/adr/0009. Nothing reads these today. These stay declared and optional so the move is a change of
    * one resolver rather than a change of schema: `media.storage_key` holds a
    * KEY, never a URL, precisely so the host can be swapped underneath it.
    */

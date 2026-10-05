@@ -271,6 +271,43 @@ async function main() {
 
   group('Database health');
 
+  await check('the public schema is closed to the browser keys', async () => {
+    /**
+     * ADR 0017. The server connects as the owner and decides with can();
+     * nothing reads a table through the Data API. So the anon key — public by
+     * design — and a signed-in user's JWT must hold no privilege on any table,
+     * every table must have RLS on as the second lock, and no policy may be
+     * `USING (true)` for anybody.
+     */
+    const grants = await db.execute<{ grantee: string; table_name: string }>(sql`
+      select distinct grantee, table_name from information_schema.role_table_grants
+      where table_schema = 'public' and grantee in ('anon', 'authenticated')
+    `);
+    const noRls = await db.execute<{ relname: string }>(sql`
+      select c.relname from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
+      where c.relkind in ('r', 'p') and not c.relrowsecurity
+    `);
+    const open = await db.execute<{ name: string }>(sql`
+      select tablename || '.' || policyname as name from pg_policies
+      where schemaname = 'public' and trim(coalesce(qual, '')) = 'true'
+    `);
+    const [defaults] = await db.execute<{ n: number }>(sql`
+      select count(*)::int as n from pg_default_acl a
+      join pg_namespace n on n.oid = a.defaclnamespace and n.nspname = 'public'
+      where pg_get_userbyid(a.defaclrole) = 'postgres'
+        and (a.defaclacl::text like '%anon=%' or a.defaclacl::text like '%authenticated=%')
+    `);
+    const problems = [
+      grants.length && `${grants.length} grant(s) to anon/authenticated (e.g. ${grants[0]!.grantee} on ${grants[0]!.table_name})`,
+      noRls.length && `RLS off on ${noRls.map((r) => r.relname).join(', ')}`,
+      open.length && `open policy ${open.map((p) => p.name).join(', ')}`,
+      defaults?.n && 'new tables would still be granted to anon/authenticated by default',
+    ].filter(Boolean);
+    assert(problems.length === 0, `${problems.join('; ')} — migration 0019 not applied?`);
+    return 'no grants, RLS on every table, no open policy';
+  });
+
   await check('every index the queries rely on is present', async () => {
     const wanted = [
       ['property_geom_idx', 'radius search — without it every search scans the table'],

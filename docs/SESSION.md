@@ -1,3 +1,21 @@
+## 2026-10-05 — Claude Code — CRM Phase 0: safety first
+
+- Goal (client, via user): a CRM on the console (contacts, Contact 360,
+  integrations, skills, AI dashboards, reviews, import), built phase by phase.
+  Phase 0 = commit M6, close database exposure, prove email, fix misleading UI/docs.
+- Decided with the user: agents see on a contact only what they can already
+  open; phone matches are suggestions, never auto-merges; OAuth callbacks reuse
+  NEXT_PUBLIC_AGENCY_URL / NEXT_PUBLIC_AGENT_URL; M6 on main, CRM on `feat/crm`.
+- Done: M6 in 3 commits on main. ADR 0017 + migration 0019 (NOT applied —
+  user reviews the SQL first) + smoke check. `/overview` demo banner.
+  .env.example / env.ts / DEPLOY / CLAUDE.md drift fixed. TEST-PLAN M setup.
+- Found: Data API grants (ALL on every table to anon/authenticated); a real
+  email round trip already worked on 10-03; sending is from a verified domain.
+- Verified: typecheck 10/10, lint 0 errors, test 588 + 263, smoke 125/2 —
+  the new 0019 check (red until applied; dry-run in a rolled-back tx shows it
+  green) and the known unmirrored dev account.
+- Console UI in this phase written by Claude Code at the user's request.
+
 ## 2026-10-03 (evening) — Claude Code — Replies actually come back, buyers reply on the site, detailed agency emails
 
 - Goal (user): buyer's Gmail replies never reached the agency; buyers saw no
