@@ -44,6 +44,27 @@ existed only as text on each `lead` and `mail_thread` row.
 remember; scripts would not). Auto-merge on phone (wrong for shared phones). Separate
 buyer/seller tables (one person, many roles). Reusing `event` (see 6).
 
-**Not done (Phase 2+).** Contact 360 tabs (properties, emails, enquiries, notes,
-appointments, reviews), merge UI, notes UI, last-activity column, `contact.user_id`
-(set only once an account proves the address).
+**Phase 2 (2026-10-05, migration 0021) — Contact 360.**
+- Tabs: Overview, Timeline, Properties, Emails, Enquiries, Notes, Calendar and Reviews
+  (the last two say "Not connected" until the integrations hub exists).
+- Each tab reuses its screen's own rule: Enquiries = `listAgencyLeads({contactId})`;
+  Emails = `listMailThreads({contactId})` drawn with the inbox's own `ThreadList` and
+  `ThreadReader`; the timeline and the counts apply `leadScopeFilters` /
+  `threadScopeFilters`, the inbox's filters factored out. So a tab or a count never
+  shows an agent a lead or email their inbox would not.
+- Timeline is one UNION ALL query (lead, mail_message, note, activity), with a
+  (time, id) cursor.
+- Properties are the `contact_property` ties plus addresses from scoped leads, and
+  link to `/property/[id]`. Only an address the agency has listed or been asked about
+  can be linked; a brand-new address needs geocoding, which is later.
+- Notes: anyone who sees the contact reads them; read-only members write none; the
+  author or an admin edits or deletes. A delete sets `note.deleted_at` and keeps the row.
+- Archive (`contact.archived_at`, `contact:archive` = the edit rule) hides a contact
+  from the directory's default view. Nothing else changes, and a new enquiry still
+  lands on the same row (no "unconfirmed" state — the user's decision).
+- Merge button on "Possible duplicates" (admins). Assigning a contact emails the new
+  assignee (transactional, `notifyContactAssigned`): not on self-assignment, and not
+  once it has been reassigned again.
+
+**Not done.** Last-activity column in the directory; `contact.user_id` (set only once
+an account proves the address); linking a never-seen address; appointments (Phase 3).

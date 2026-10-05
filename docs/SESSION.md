@@ -1,3 +1,27 @@
+## 2026-10-05 (evening) — Claude Code — CRM Phase 2: Contact 360
+
+- Goal (user): the profile — Overview, Properties (→ /property/[id]), Emails
+  (reuse the inbox), Enquiries, Notes, next action, a unified timeline, Calendar
+  and Reviews "not connected"; plus archive + source filter, the merge button,
+  and an email to the agent when a contact is assigned to them (not self).
+- Found: the user reported the backfill applied and section N passing, but the
+  dev DB had 0 contacts, no notes and no activity — neither had happened there.
+  Ran the backfill (dry run, then --apply): 4 leads → 4 contacts.
+- Done: migration 0021 (archive, note soft-delete). core: `ReadableContact`
+  token from getContact; timeline (UNION ALL, exact cursor), properties
+  (list/search/link/unlink), notes, counts, archive, next action,
+  contact-assigned notice + email builder; `leadScopeFilters` and
+  `threadScopeFilters` factored out and reused; listAgencyLeads /
+  listMailThreads take `contactId`. permissions: `contact:archive`. console:
+  tabbed profile (shared ContactPage), inbox ThreadList/ThreadReader exported,
+  LeadTable `compact`, archived filter, islands. Fixed before shipping: due dates
+  were formatted in the server's zone (UTC on Vercel) — now the browser's.
+- Verified: typecheck, lint 0 errors, test 624 + 263, build 2/2, smoke 136/1.
+  Break-checked red: profile lead scoping (unit); timeline scope, deleted note
+  hidden, merge moves notes, unknown address refused, no self-assignment email
+  (smoke).
+- Not verified: anything in a browser (N, O).
+
 ## 2026-10-05 (later) — Claude Code — CRM Phase 1: contacts foundation
 
 - Goal (client, via user): one person = one contact with roles; anything a person

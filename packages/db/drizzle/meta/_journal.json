@@ -148,6 +148,13 @@
       "when": 1791185097593,
       "tag": "0020_contacts",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791191299267,
+      "tag": "0021_contact_archive_note_delete",
+      "breakpoints": true
     }
   ]
 }

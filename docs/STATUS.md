@@ -3,14 +3,35 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
-- **Now: CRM Phase 1 (contacts foundation) done on `feat/crm`, waiting for review.**
+- **Now: CRM Phase 2 (Contact 360) done on `feat/crm`, waiting for review.**
   Plan: `~/.claude/plans/pasted-content-id-f0ff-you-are-functional-frost.md`.
-  Next: Phase 2 (Contact 360 profile) — not started.
+  Next: Phase 3 (appointments, then Zoom / Google Calendar) — not started.
 - Build order (locked): Agency UI → Agent UI → Consumer web
 - Last tool: Claude Code
 - Last updated: 2026-10-05
 - Deploying: `apps/web` only, Vercel Hobby. `apps/console` waits for a real
   domain — see `docs/DEPLOY.md`. **Nothing is deployed yet.**
+
+## CRM Phase 2 — Contact 360 (2026-10-05, ADR 0018 addendum)
+
+- Migration 0021 applied on dev (additive): `contact.archived_at/_by`,
+  `note.deleted_at/_by`.
+- Profile tabs: Overview (facts, next-action quick edit, counts, recent
+  activity, duplicates + Merge), Timeline (one UNION query, cursor paging),
+  Properties (ties + enquired addresses → /property/[id]; link/unlink known
+  addresses), Emails (inbox ThreadList/ThreadReader reused), Enquiries
+  (LeadTable `compact`), Notes (add/edit/soft-delete), Calendar and Reviews
+  ("Not connected").
+- Every tab and count uses the inbox's own scope (`leadScopeFilters`,
+  `threadScopeFilters`, factored out of list-leads/threads).
+- Archive/restore + "Archived" directory filter. Contact-assigned email
+  (`notifyContactAssigned`), not on self-assignment.
+- The backfill was NOT applied when the user reported it; applied 2026-10-05
+  by Claude Code (4 leads → 4 contacts). Section N must be re-tested.
+- Numbers: typecheck 10/10, lint 0 errors, test 624 + 263, build 2/2, smoke
+  136 passed / 1 failed (known unmirrored dev account). Five new smoke checks,
+  each break-checked red.
+- Not clicked in a browser: TEST-PLAN sections N and O.
 
 ## CRM Phase 1 — contacts (2026-10-05, ADR 0018)
 
@@ -20,7 +41,7 @@
   `contact_upsert` + BEFORE INSERT triggers on `lead` and lead-less
   `mail_thread`. Same email = same person (fills blanks, never overwrites);
   same phone = duplicate SUGGESTION only. `event` left untouched.
-- **Backfill NOT applied — the user runs it:**
+- **Backfill applied 2026-10-05** (see Phase 2). Was:
   `pnpm --filter @repo/core contacts:backfill` (dry run: 4 leads → 4 contacts
   on dev) then `... --apply`. Smoke "every lead and conversation has its
   contact" is red until then.

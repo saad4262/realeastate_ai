@@ -423,3 +423,24 @@ account and an agent account (two browsers — one cookie spans all hosts).
 | N12 | Send an enquiry on the website with a NEW email, then one with the SAME email in capitals and a phone | One contact; first name kept; phone filled in; role Buyer (inferred, dashed). |
 | N13 | Email the agency address from a new address, then assign that contact to the agent | Owner sees the thread in Inbox at once; after assigning, the agent sees it in My inbox and may reply. |
 | N14 | Two contacts with the same phone, different emails | Both exist; the owner sees "Possible duplicates" on each profile. |
+
+## O — Contact 360 (ADR 0018, CRM Phase 2)
+
+Owner in one browser, agent in another. Pick a contact who has an enquiry, ideally with
+an email reply in their conversation.
+
+| # | Case | Expected |
+|---|---|---|
+| O1 | Owner opens a contact | Tabs: Overview, Timeline, Properties, Emails, Enquiries, Notes, Calendar, Reviews. Counts on Emails / Enquiries / Notes match what each tab then lists. |
+| O2 | Overview → change Next action and its due time → Save | Saved without leaving the page; due time shows in YOUR timezone. Reload: unchanged. The Timeline shows "Details changed". |
+| O3 | Timeline | Enquiries, emails both ways, notes and changes, newest first. "Open conversation" opens the email in the Emails tab. Many items: "Older →" pages without repeating or skipping. |
+| O4 | Properties | The address they enquired about, tagged "Enquiry" (dashed), linking to the public page (opens in a new tab). |
+| O5 | Properties → Link a property: search an address your agency listed, pick "Owner" → Link | Appears tagged "Owner". ✕ removes it. An address the agency never listed or was asked about is not found. |
+| O6 | Emails → open a conversation → reply | The inbox reader, inside the profile. "← <name>'s conversations" returns to the list. The reply also shows in /inbox. |
+| O7 | Enquiries | Their leads only, with status and assignee pickers working as on /leads. |
+| O8 | Notes: add one, edit it, delete it | Each saves; a deleted note disappears. Another agent cannot edit or delete it; read-only sees no box. |
+| O9 | Calendar, Reviews | "Not connected" cards — nothing to click yet. |
+| O10 | Agent opens the same contact (seen through their listing) | Enquiries and Emails show only their own; never an offer. No Edit, no Archive; they CAN add notes. |
+| O11 | Owner assigns the contact to the agent | The agent receives "<name> is now your contact" with a link to /my-contacts/<id>. Assigning to yourself sends nothing. |
+| O12 | Two contacts with the same phone → on one, "Merge into this contact" → confirm | The other's enquiries, emails and notes now show here; opening the other's old link lands on this one. |
+| O13 | Archive a contact | Gone from /customers; "Archived only" filter shows it; its profile still opens with an "Archived" banner and a Restore button. |

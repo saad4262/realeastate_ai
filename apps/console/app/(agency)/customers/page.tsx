@@ -27,6 +27,7 @@ export default async function ContactsPage({
     role: first(raw.role) || undefined,
     source: first(raw.source) || undefined,
     assigned: first(raw.assigned) || undefined,
+    archived: first(raw.archived) || undefined,
     page: first(raw.page),
   });
 

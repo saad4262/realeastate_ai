@@ -720,6 +720,13 @@ export const contact = pgTable(
     }),
     /** When they asked to receive no more marketing. Wins over consent. */
     emailOptOutAt: timestamp('email_opt_out_at', { withTimezone: true }),
+    /**
+     * Put away by a person — spam, a duplicate nobody wants to merge, somebody
+     * gone. Hidden from the directory's default view; nothing else changes and
+     * nothing is deleted. A new enquiry from them still lands on this row.
+     */
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    archivedBy: uuid('archived_by').references(() => user.id, { onDelete: 'set null' }),
     /** Set on the losing side of a merge. Such a row is never listed. */
     mergedIntoId: uuid('merged_into_id').references((): AnyPgColumn => contact.id, {
       onDelete: 'set null',
@@ -800,6 +807,12 @@ export const note = pgTable(
       .references(() => contact.id, { onDelete: 'cascade' }),
     authorId: uuid('author_id').references(() => user.id, { onDelete: 'set null' }),
     body: text('body').notNull(),
+    /**
+     * Deleted by its author or an admin. Kept, never shown: a note somebody
+     * relied on should not vanish without trace, and nothing here deletes rows.
+     */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    deletedBy: uuid('deleted_by').references(() => user.id, { onDelete: 'set null' }),
     ...timestamps,
   },
   (t) => [index('note_contact_idx').on(t.contactId, desc(t.createdAt))],

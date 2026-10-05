@@ -495,6 +495,14 @@ describe('contacts', () => {
     expect(can(viewer, 'note:manage', { type: 'note', id: 'n', agencyId: agencyA, ownerId: 'viewer' })).toBe(false);
   });
 
+  it('archives on the edit rule: the assignee or an admin, never read-only', () => {
+    expect(can(agent, 'contact:archive', theirs('agent'))).toBe(true);
+    expect(can(agent, 'contact:archive', viaLead('agent'))).toBe(false);
+    expect(can(owner, 'contact:archive', nobodys)).toBe(true);
+    expect(can(viewer, 'contact:archive', theirs('viewer'))).toBe(false);
+    expect(can(rivalOwner, 'contact:archive', { ...nobodys })).toBe(false);
+  });
+
   it('lets a note be changed by its author or an admin only', () => {
     const note = { type: 'note', id: 'n-1', agencyId: agencyA, ownerId: 'agent' };
     expect(can(agent, 'note:manage', note)).toBe(true);

@@ -125,7 +125,16 @@ export function InboxView(props: InboxViewProps) {
 
       <section className={styles.card} aria-label={thread ? 'Conversation' : 'Conversations'}>
         {thread === null ? (
-          <ThreadList rows={page.rows} basePath={basePath} folder={folder} />
+          <ThreadList
+            rows={page.rows}
+            threadHref={(id) => hrefFor(basePath, folder, id)}
+            emptyTitle={folder === 'unread' ? 'All caught up' : 'No conversations here'}
+            emptyHint={
+              folder === 'general'
+                ? 'Email sent straight to your agency address lands here.'
+                : 'Every enquiry starts a conversation, and replies to it collect here.'
+            }
+          />
         ) : !thread.ok ? (
           <>
             <div className={styles.toolbar}>
@@ -152,16 +161,27 @@ export function InboxView(props: InboxViewProps) {
   );
 }
 
-function ThreadList({ rows, basePath, folder }: { rows: MailThreadRow[]; basePath: string; folder: MailFolder }) {
+/**
+ * The list of conversations. Exported for the contact profile's Emails tab
+ * (ADR 0018), which shows one person's threads with the same rows; where a row
+ * opens is the caller's (`threadHref`), so each screen keeps its own URLs.
+ */
+export function ThreadList({
+  rows,
+  threadHref,
+  emptyTitle,
+  emptyHint,
+}: {
+  rows: MailThreadRow[];
+  threadHref: (threadId: string) => string;
+  emptyTitle: string;
+  emptyHint: string;
+}) {
   if (rows.length === 0) {
     return (
       <div className={styles.empty}>
-        <p className={styles.emptyTitle}>{folder === 'unread' ? 'All caught up' : 'No conversations here'}</p>
-        <p className={styles.emptyHint}>
-          {folder === 'general'
-            ? 'Email sent straight to your agency address lands here.'
-            : 'Every enquiry starts a conversation, and replies to it collect here.'}
-        </p>
+        <p className={styles.emptyTitle}>{emptyTitle}</p>
+        <p className={styles.emptyHint}>{emptyHint}</p>
       </div>
     );
   }
@@ -170,7 +190,7 @@ function ThreadList({ rows, basePath, folder }: { rows: MailThreadRow[]; basePat
     <ul className={styles.list}>
       {rows.map((r) => (
         <li key={r.id} className={styles.item}>
-          <Link href={hrefFor(basePath, folder, r.id)} className={`${styles.row} ${r.unread ? styles.unread : ''}`}>
+          <Link href={threadHref(r.id)} className={`${styles.row} ${r.unread ? styles.unread : ''}`}>
             {r.unread ? <span className={styles.dot} aria-label="Unread" /> : <span className={styles.noDot} />}
             <span className={styles.sender}>{r.contactName || r.contactEmail}</span>
             <span className={styles.line}>
@@ -203,10 +223,12 @@ function ThreadList({ rows, basePath, folder }: { rows: MailThreadRow[]; basePat
   );
 }
 
-function ThreadReader({
+/** One conversation. Exported for the contact profile's Emails tab, like ThreadList. */
+export function ThreadReader({
   view,
   unread,
   backHref,
+  backLabel = '← Inbox',
   assignees,
   inboundOn,
   webUrl,
@@ -214,6 +236,7 @@ function ThreadReader({
   view: MailThreadView;
   unread: boolean;
   backHref: string;
+  backLabel?: string;
   assignees: LeadAssignee[];
   inboundOn: boolean;
   webUrl: string;
@@ -235,7 +258,7 @@ function ThreadReader({
 
       <div className={styles.toolbar}>
         <Link href={backHref} className={styles.back}>
-          ← Inbox
+          {backLabel}
         </Link>
       </div>
 

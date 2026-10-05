@@ -20,7 +20,11 @@ import {
 import { createPrivateOffer } from '../leads/create-private-offer';
 import { listAgencyLeads } from '../leads/list-leads';
 import { listContacts } from '../contacts/list-contacts';
-import { getContact } from '../contacts/get-contact';
+import { getContact, type ReadableContact } from '../contacts/get-contact';
+import { listContactTimeline } from '../contacts/timeline';
+import { listContactProperties } from '../contacts/properties';
+import { contactCounts } from '../contacts/counts';
+import { listContactNotes } from '../contacts/notes';
 import { agencyNotificationRecipients } from '../agency/notification-recipients';
 import type { Actor } from '../permissions';
 
@@ -280,6 +284,25 @@ describe('reads cost a fixed number of queries', () => {
     const forAdmin = countingDb([head]);
     await getContact(forAdmin.db, actor, head.id);
     expect(forAdmin.count()).toBe(2);
+  });
+
+  it("each Contact 360 tab's read is one query, whatever it unions", async () => {
+    /**
+     * The timeline is four sources and the properties tab two; each is one
+     * UNION ALL, not a query per source — and certainly not one per row.
+     */
+    const ref = { id: '99999999-9999-9999-9999-999999999999', agencyId: actor.agencyId } as ReadableContact;
+    const reads = [
+      (db: Db) => listContactTimeline(db, actor, ref),
+      (db: Db) => listContactProperties(db, actor, ref),
+      (db: Db) => contactCounts(db, actor, ref),
+      (db: Db) => listContactNotes(db, actor, ref),
+    ];
+    for (const read of reads) {
+      const { db, count } = countingDb([]);
+      await read(db);
+      expect(count()).toBe(1);
+    }
   });
 
   it('opening one listing for editing is one query', async () => {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -12,6 +12,7 @@ import {
 } from '@repo/core/contacts/schema';
 import { useToast } from '@/components/toast';
 import { createContactAction, updateContactAction } from '@/lib/contact-actions';
+import { toLocalInput } from './islands';
 import styles from './contacts.module.css';
 
 export type ContactFormValues = {
@@ -20,7 +21,7 @@ export type ContactFormValues = {
   phone: string;
   roles: ContactRoleKind[];
   nextAction: string;
-  /** `YYYY-MM-DDTHH:mm`, local, as the input wants it. */
+  /** `YYYY-MM-DDTHH:mm` in the browser's zone, as the input wants it. */
   nextActionAt: string;
   marketingConsent: boolean;
   marketingConsentNote: string;
@@ -52,7 +53,10 @@ export function ContactForm({
   initial = EMPTY_CONTACT,
   basePath,
   assignees = [],
+  nextActionAtIso = null,
 }: {
+  /** The saved due instant; turned into the input's local value after mount. */
+  nextActionAtIso?: string | null;
   mode: 'create' | 'edit';
   contactId?: string;
   initial?: ContactFormValues;
@@ -66,6 +70,9 @@ export function ContactForm({
   const [values, setValues] = useState(initial);
   const [assignedTo, setAssignedTo] = useState('');
   const [error, setError] = useState<{ message: string; existingId?: string } | null>(null);
+  useEffect(() => {
+    if (nextActionAtIso) setValues((v) => ({ ...v, nextActionAt: toLocalInput(nextActionAtIso) }));
+  }, [nextActionAtIso]);
 
   const set = <K extends keyof ContactFormValues>(key: K, value: ContactFormValues[K]) =>
     setValues((v) => ({ ...v, [key]: value }));

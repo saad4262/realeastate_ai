@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   lead,
@@ -152,12 +152,54 @@ export type MailThreadPage = {
   folders: { offers: boolean; general: boolean };
 };
 
-export type ListThreadsOptions = { folder?: MailFolder; limit?: number; offset?: number };
+export type ListThreadsOptions = {
+  folder?: MailFolder;
+  limit?: number;
+  offset?: number;
+  /** One person's conversations, for their contact profile (ADR 0018). Still scoped. */
+  contactId?: string;
+};
 
 const FORBIDDEN = () => new MailError('forbidden', 'You do not have permission to view this inbox');
 
 /** Newer than when this person last opened it — one expression, used for the flag and the count. */
 const unreadSql = sql<boolean>`${mailThread.lastInboundAt} > coalesce(${mailRead.lastReadAt}, '-infinity'::timestamptz)`;
+
+/**
+ * The conversations this actor may see, as WHERE clauses over `mail_thread`
+ * LEFT JOIN `lead` — the inbox's rule, shared with the contact profile and its
+ * timeline so they can never show a thread the inbox would not.
+ */
+export function threadScopeFilters(db: DbOrTx, actor: Actor): SQL[] {
+  const agencyId = actor.agencyId ?? '00000000-0000-0000-0000-000000000000';
+  const inbox: Resource = { type: 'mail_thread', agencyId };
+  const readAll = can(actor, 'lead:read_all', inbox);
+  const offers = can(actor, 'lead:read_offer', inbox);
+  const filters: SQL[] = [eq(mailThread.agencyId, agencyId)];
+  if (!offers) filters.push(sql`${lead.kind} is distinct from 'offer'`);
+  if (!readAll) {
+    filters.push(
+      or(
+        and(
+          isNotNull(mailThread.leadId),
+          or(
+            eq(lead.assignedTo, actor.userId),
+            inArray(
+              lead.listingId,
+              db
+                .select({ id: listingAgent.listingId })
+                .from(listingAgent)
+                .where(eq(listingAgent.userId, actor.userId)),
+            ),
+          ),
+        ),
+        // Mail to the agency address from a contact this actor may see (ADR 0018).
+        and(isNull(mailThread.leadId), sql`${mailThread.contactId} in (${visibleContactIdsSql(actor)})`),
+      )!,
+    );
+  }
+  return filters;
+}
 
 /**
  * One page of the actor's conversations, newest activity first, with counts
@@ -182,29 +224,8 @@ export async function listMailThreads(
   if (folder === 'offers' && !offers) throw FORBIDDEN();
   if (folder === 'general' && !readAll) throw FORBIDDEN();
 
-  const filters = [eq(mailThread.agencyId, actor.agencyId)];
-  if (!offers) filters.push(sql`${lead.kind} is distinct from 'offer'`);
-  if (!readAll) {
-    filters.push(
-      or(
-        and(
-          isNotNull(mailThread.leadId),
-          or(
-            eq(lead.assignedTo, actor.userId),
-            inArray(
-              lead.listingId,
-              db
-                .select({ id: listingAgent.listingId })
-                .from(listingAgent)
-                .where(eq(listingAgent.userId, actor.userId)),
-            ),
-          ),
-        ),
-        // Mail to the agency address from a contact this actor may see (ADR 0018).
-        and(isNull(mailThread.leadId), sql`${mailThread.contactId} in (${visibleContactIdsSql(actor)})`),
-      )!,
-    );
-  }
+  const filters = threadScopeFilters(db, actor);
+  if (opts.contactId) filters.push(eq(mailThread.contactId, opts.contactId));
   if (folder === 'unread') filters.push(unreadSql);
   if (folder === 'mine') {
     filters.push(

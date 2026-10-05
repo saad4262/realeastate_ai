@@ -12,7 +12,9 @@ import {
 import { can, type Actor, type MembershipRole } from '../permissions';
 import {
   createContactSchema,
+  nextActionSchema,
   updateContactSchema,
+  type NextActionInput,
   type ActivityKind,
   type CreateContactInput,
   type UpdateContactInput,
@@ -332,5 +334,66 @@ export async function assignContact(
       from: head.row.assignedTo,
       to: assignTo,
     });
+  });
+}
+
+/**
+ * Archive a contact, or bring it back. Hides it from the directory's default
+ * view; deletes nothing, changes nothing else. A new enquiry from them still
+ * lands on the same row. Whoever may edit the contact may do this.
+ */
+export async function setContactArchived(
+  db: Db,
+  actor: Actor,
+  contactId: string,
+  archived: boolean,
+): Promise<void> {
+  const head = await loadContactHead(db, actor, contactId);
+  if (!head || head.row.mergedIntoId) throw CONTACT_NOT_FOUND();
+  const resource = contactResource(head.facts);
+  if (!can(actor, 'contact:read', resource)) throw CONTACT_NOT_FOUND();
+  if (!can(actor, 'contact:archive', resource)) {
+    throw new ContactError('forbidden', 'Only the agent this contact is assigned to, or an admin, may archive it');
+  }
+  if (Boolean(head.row.archivedAt) === archived) return;
+  await db.transaction(async (tx) => {
+    await tx
+      .update(contact)
+      .set(
+        archived
+          ? { archivedAt: sql`now()`, archivedBy: actor.userId, updatedAt: sql`now()` }
+          : { archivedAt: null, archivedBy: null, updatedAt: sql`now()` },
+      )
+      .where(and(eq(contact.id, head.row.id), eq(contact.agencyId, head.row.agencyId)));
+    await recordActivity(tx, actor, head.row.agencyId, head.row.id, archived ? 'contact_archived' : 'contact_restored');
+  });
+}
+
+/**
+ * The next action alone — the overview's quick edit. Same permission as any
+ * other edit (`contact:update`): the assignee or an admin.
+ */
+export async function setNextAction(
+  db: Db,
+  actor: Actor,
+  contactId: string,
+  input: NextActionInput,
+): Promise<void> {
+  const head = await loadContactHead(db, actor, contactId);
+  if (!head || head.row.mergedIntoId) throw CONTACT_NOT_FOUND();
+  const resource = contactResource(head.facts);
+  if (!can(actor, 'contact:read', resource)) throw CONTACT_NOT_FOUND();
+  if (!can(actor, 'contact:update', resource)) {
+    throw new ContactError('forbidden', 'Only the agent this contact is assigned to, or an admin, may change it');
+  }
+  const parsed = nextActionSchema.safeParse(input);
+  if (!parsed.success) throw new ContactError('invalid', firstIssue(parsed.error));
+  const v = parsed.data;
+  await db.transaction(async (tx) => {
+    await tx
+      .update(contact)
+      .set({ nextAction: v.nextAction ?? null, nextActionAt: v.nextActionAt ?? null, updatedAt: sql`now()` })
+      .where(and(eq(contact.id, head.row.id), eq(contact.agencyId, head.row.agencyId)));
+    await recordActivity(tx, actor, head.row.agencyId, head.row.id, 'contact_updated', { fields: ['nextAction'] });
   });
 }

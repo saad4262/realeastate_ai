@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { contact, user, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
@@ -38,6 +38,7 @@ export type ContactRow = {
   source: ContactSource;
   assignedTo: string | null;
   assigneeName: string | null;
+  archived: boolean;
   createdAt: Date;
 };
 
@@ -116,6 +117,9 @@ export async function listContacts(
   else if (query.assigned === 'none') filters.push(isNull(contact.assignedTo));
   // Somebody else's book is a filter only on a directory that already holds it.
   else if (query.assigned && seesAll) filters.push(eq(contact.assignedTo, query.assigned));
+  // Archived people are out of the way unless asked for (ADR 0018).
+  if (query.archived === 'archived') filters.push(isNotNull(contact.archivedAt));
+  else if (query.archived !== 'all') filters.push(isNull(contact.archivedAt));
 
   const rows = await db
     .select({
@@ -128,6 +132,7 @@ export async function listContacts(
       assigneeName: assignee.name,
       assigneeEmail: assignee.email,
       createdAt: contact.createdAt,
+      archivedAt: contact.archivedAt,
       roles: sql<unknown>`(
         select array_agg(r.role order by r.role) from contact_role r where r.contact_id = ${contact.id}
       )`,
@@ -150,6 +155,7 @@ export async function listContacts(
       source: r.source as ContactSource,
       assignedTo: r.assignedTo,
       assigneeName: r.assignedTo ? r.assigneeName || r.assigneeEmail || null : null,
+      archived: Boolean(r.archivedAt),
       createdAt: new Date(r.createdAt),
     })),
     // bigint arrives as a string (ARCHITECTURE § 5).

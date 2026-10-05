@@ -38,6 +38,7 @@ export async function loadContactHead(db: DbOrTx, actor: Actor, contactId: strin
       consentByName: consentBy.name,
       consentByEmail: consentBy.email,
       emailOptOutAt: contact.emailOptOutAt,
+      archivedAt: contact.archivedAt,
       mergedIntoId: contact.mergedIntoId,
       createdAt: contact.createdAt,
       updatedAt: contact.updatedAt,
@@ -66,6 +67,16 @@ export async function loadContactHead(db: DbOrTx, actor: Actor, contactId: strin
   return { row, facts };
 }
 
+declare const readable: unique symbol;
+
+/**
+ * Proof that can() said this actor may read this contact. Only `getContact`
+ * makes one, so the profile's other reads (timeline, properties, notes,
+ * counts) can take it instead of re-checking — and cannot be called with a
+ * bare id somebody typed.
+ */
+export type ReadableContact = { readonly id: string; readonly agencyId: string; readonly [readable]: true };
+
 export type DuplicateSuggestion = { id: string; name: string; email: string | null; phone: string | null };
 
 export type ContactView = {
@@ -83,15 +94,20 @@ export type ContactView = {
   nextActionAt: Date | null;
   marketingConsent: { at: Date; note: string | null; byName: string | null } | null;
   emailOptOutAt: Date | null;
+  /** Put away; hidden from the directory's default view. */
+  archivedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   /** Same phone, different person — for an admin to merge or leave (ADR 0018). */
   possibleDuplicates: DuplicateSuggestion[];
   /** Decided by can(); the screen draws from these, the actions re-check. */
   mayUpdate: boolean;
+  mayArchive: boolean;
   mayAssign: boolean;
   mayMerge: boolean;
   mayNote: boolean;
+  /** For the profile's other reads. See `ReadableContact`. */
+  ref: ReadableContact;
 };
 
 /**
@@ -148,12 +164,15 @@ export async function getContact(
         }
       : null,
     emailOptOutAt: row.emailOptOutAt ? new Date(row.emailOptOutAt) : null,
+    archivedAt: row.archivedAt ? new Date(row.archivedAt) : null,
     createdAt: new Date(row.createdAt),
     updatedAt: new Date(row.updatedAt),
     possibleDuplicates,
     mayUpdate: can(actor, 'contact:update', resource),
+    mayArchive: can(actor, 'contact:archive', resource),
     mayAssign: can(actor, 'contact:assign', resource),
     mayMerge,
     mayNote: can(actor, 'note:create', resource),
+    ref: { id: row.id, agencyId: row.agencyId } as ReadableContact,
   };
 }

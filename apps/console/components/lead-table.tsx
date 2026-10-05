@@ -58,7 +58,13 @@ export function LeadTable({
   inboxPath = '/inbox',
   title = 'Leads',
   subtitle,
+  compact = false,
 }: {
+  /**
+   * Just the table — no heading, no tabs. For one person's leads on their
+   * contact profile (ADR 0018), where the profile is the heading.
+   */
+  compact?: boolean;
   rows: Row[];
   /** Where the tabs point — `/leads` on the agency console, `/my-leads` on the desk. */
   basePath?: string;
@@ -97,44 +103,54 @@ export function LeadTable({
 
   return (
     <div className={styles.wrap}>
-      <div className={styles.head}>
-        <h1 className={styles.title}>{title}</h1>
-        <p className={styles.sub}>
-          {subtitle ?? (
-            <>
-              Everyone who has asked about an address the agency holds.
-              {maySeeOffers
-                ? ' Private offers on properties you have sold appear here too.'
-                : ''}
-            </>
-          )}
-        </p>
-      </div>
+      {compact ? null : (
+        <>
+          <div className={styles.head}>
+            <h1 className={styles.title}>{title}</h1>
+            <p className={styles.sub}>
+              {subtitle ?? (
+                <>
+                  Everyone who has asked about an address the agency holds.
+                  {maySeeOffers
+                    ? ' Private offers on properties you have sold appear here too.'
+                    : ''}
+                </>
+              )}
+            </p>
+          </div>
 
-      <nav className={styles.tabs} aria-label="Lead kind">
-        {tabs.map((t) => (
-          <Link
-            key={t.href}
-            href={t.href}
-            className={`${styles.tab} ${t.on ? styles.tabOn : ''}`}
-            aria-current={t.on ? 'page' : undefined}
-          >
-            {t.label}
-            {t.count !== undefined ? <span className={styles.tabCount}>{t.count}</span> : null}
-          </Link>
-        ))}
-      </nav>
+          <nav className={styles.tabs} aria-label="Lead kind">
+            {tabs.map((t) => (
+              <Link
+                key={t.href}
+                href={t.href}
+                className={`${styles.tab} ${t.on ? styles.tabOn : ''}`}
+                aria-current={t.on ? 'page' : undefined}
+              >
+                {t.label}
+                {t.count !== undefined ? <span className={styles.tabCount}>{t.count}</span> : null}
+              </Link>
+            ))}
+          </nav>
+        </>
+      )}
 
       <div className={styles.card}>
         {rows.length === 0 ? (
           <div className={styles.empty}>
             <p className={styles.emptyTitle}>
-              {kind === 'offer' ? 'No private offers yet' : 'Nothing here yet'}
+              {compact
+                ? 'No enquiries you can see'
+                : kind === 'offer'
+                  ? 'No private offers yet'
+                  : 'Nothing here yet'}
             </p>
             <p className={styles.emptyHint}>
-              {kind === 'offer'
-                ? 'An offer arrives when somebody makes one on a property your agency has sold and that is no longer listed.'
-                : 'Enquiries from the public site land here as soon as somebody sends one.'}
+              {compact
+                ? 'Enquiries and offers from this person appear here — only the ones you are allowed to open.'
+                : kind === 'offer'
+                  ? 'An offer arrives when somebody makes one on a property your agency has sold and that is no longer listed.'
+                  : 'Enquiries from the public site land here as soon as somebody sends one.'}
             </p>
           </div>
         ) : (
@@ -157,7 +173,12 @@ export function LeadTable({
                     <div className={styles.who}>{r.name}</div>
                     <div className={styles.contact}>
                       <a href={`mailto:${r.email}`}>{r.email}</a>
-                      {r.phone ? <> · <a href={`tel:${r.phone}`}>{r.phone}</a></> : null}
+                      {r.phone ? (
+                        <>
+                          {' '}
+                          · <a href={`tel:${r.phone}`}>{r.phone}</a>
+                        </>
+                      ) : null}
                     </div>
                     {r.threadId ? (
                       <Link href={`${inboxPath}?thread=${r.threadId}`} className={styles.convo}>

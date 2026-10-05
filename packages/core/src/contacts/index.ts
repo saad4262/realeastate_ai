@@ -5,16 +5,40 @@ export {
   type ContactPage,
   type ContactRow,
 } from './list-contacts';
-export { getContact, type ContactView, type DuplicateSuggestion } from './get-contact';
+export {
+  getContact,
+  type ContactView,
+  type DuplicateSuggestion,
+  type ReadableContact,
+} from './get-contact';
 export {
   createContact,
   updateContact,
   assignContact,
+  setContactArchived,
+  setNextAction,
   listContactAssignees,
   type ContactAssignee,
 } from './write-contacts';
 export { mergeContacts } from './merge-contacts';
 export { backfillContacts, type BackfillReport } from './backfill';
+export {
+  listContactTimeline,
+  TIMELINE_PAGE_SIZE,
+  type TimelineItem,
+  type TimelinePage,
+} from './timeline';
+export {
+  listContactProperties,
+  searchLinkableProperties,
+  linkContactProperty,
+  unlinkContactProperty,
+  type ContactPropertyView,
+  type PropertyMatch,
+} from './properties';
+export { listContactNotes, createNote, updateNote, deleteNote, type NoteView } from './notes';
+export { contactCounts, type ContactCounts } from './counts';
+export { notifyContactAssigned } from './contact-notices';
 export {
   visibleContactIdsSql,
   narrowedContactIdsSql,

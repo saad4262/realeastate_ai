@@ -85,11 +85,23 @@ import type { ChatTurnResult } from '@repo/ai/chat-events';
 import {
   assignContact,
   auPhoneKey,
+  contactCounts,
   ContactError,
+  createNote,
+  deleteNote,
   getContact,
+  linkContactProperty,
+  listContactNotes,
+  listContactProperties,
+  listContactTimeline,
   listContacts,
+  mergeContacts,
+  notifyContactAssigned,
   PHONE_KEY_SAMPLES,
+  setContactArchived,
+  updateNote,
   visibleContactIdsSql,
+  type ContactView,
 } from '@repo/core/contacts';
 import { assert, check, group, note, report, skip } from './runner';
 
@@ -3490,6 +3502,198 @@ async function main() {
       if (err !== ROLLBACK) throw err;
     }
     return steps.join('; ');
+  });
+
+  await check("Contact 360: every tab, and its count, shows an agent only what their inbox would", async () => {
+    /**
+     * One person with an enquiry through A1's listing, a lead assigned to A2,
+     * and a private offer. A1 must see exactly the first — in the timeline, the
+     * Enquiries tab, the Emails tab and the overview's counts — and the owner
+     * all three. A count that disagrees with its own tab is a disclosure too.
+     */
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const email = `x.${f.tag}@smoke.test`;
+        const viaListing = await f.lead(email, 'X', { listing: true });
+        await f.lead(email, 'X', { assigned: f.people.a2 });
+        await f.lead(email, 'X', { kind: 'offer' });
+        const cid = viaListing.contact_id;
+        await createNote(t, f.actor('owner'), cid, 'Smoke note');
+
+        const tabsFor = async (who: 'a1' | 'owner') => {
+          const a = f.actor(who);
+          const view = (await getContact(t, a, cid)) as ContactView;
+          const [timeline, counts, leads, threads, props] = await Promise.all([
+            listContactTimeline(t, a, view.ref),
+            contactCounts(t, a, view.ref),
+            listAgencyLeads(t, a, { contactId: cid, limit: 100 }),
+            listMailThreads(t, a, { contactId: cid, limit: 100 }),
+            listContactProperties(t, a, view.ref),
+          ]);
+          return { timeline, counts, leads, threads, props };
+        };
+
+        const a1 = await tabsFor('a1');
+        const a1Leads = a1.timeline.items.filter((i) => i.type === 'lead');
+        assert(a1Leads.length === 1, `A1's timeline holds ${a1Leads.length} leads, expected 1`);
+        assert(!a1Leads.some((i) => i.type === 'lead' && i.kind === 'offer'), "A1's timeline shows the offer");
+        assert(a1.leads.rows.length === 1 && a1.counts.enquiries === 1, `A1: ${a1.leads.rows.length} enquiry rows, count ${a1.counts.enquiries}`);
+        assert(a1.threads.rows.length === a1.counts.conversations, `A1: ${a1.threads.rows.length} threads listed, count says ${a1.counts.conversations}`);
+        assert(a1.timeline.items.some((i) => i.type === 'note'), "A1 cannot see the contact's note");
+        assert(a1.props.length === 1 && a1.props[0]!.leadKinds.join() === 'enquiry', 'A1 learns of addresses through leads they cannot open');
+
+        const owner = await tabsFor('owner');
+        assert(owner.leads.rows.length === 3 && owner.counts.enquiries === 3, `owner sees ${owner.leads.rows.length} of 3 leads`);
+        assert(owner.threads.rows.length === owner.counts.conversations, 'the owner\'s Emails count disagrees with the tab');
+        assert(owner.timeline.items.filter((i) => i.type === 'lead').length === 3, "the owner's timeline is missing leads");
+        summary = 'A1: 1 lead, no offer, counts match tabs; owner: 3';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check('notes: read-only writes none, only the author edits, a delete hides and keeps', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    const steps: string[] = [];
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const cid = f.contacts.p4; // the read-only member's own contact
+        const refused = await createNote(t, f.actor('viewer'), cid, 'nope').then(() => 'written', (e: unknown) => (e as ContactError).code);
+        assert(refused === 'forbidden', `a read-only member's note was ${refused}`);
+        const { id } = await createNote(t, f.actor('owner'), cid, 'First');
+        const p1 = f.contacts.p1;
+        const { id: a1Note } = await createNote(t, f.actor('a1'), p1, 'Through the listing');
+        const stranger = await updateNote(t, f.actor('a2'), a1Note, 'x').then(() => 'edited', (e: unknown) => (e as ContactError).code);
+        assert(stranger === 'not_found', `another agent editing A1's note got ${stranger}`);
+        await updateNote(t, f.actor('a1'), a1Note, 'Edited by A1');
+        steps.push('read-only refused; author edits; a stranger cannot even find it');
+        await deleteNote(t, f.actor('owner'), id);
+        const view = (await getContact(t, f.actor('owner'), cid)) as ContactView;
+        const left = await listContactNotes(t, f.actor('owner'), view.ref);
+        assert(!left.some((n) => n.id === id), 'a deleted note is still shown');
+        const [kept] = await t.execute<{ deleted_at: string | null }>(sql`select deleted_at from note where id = ${id}`);
+        assert(kept?.deleted_at, 'a deleted note was destroyed rather than hidden');
+        steps.push('a deleted note is hidden and kept');
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return steps.join('; ');
+  });
+
+  await check('merge moves everything onto the survivor and deletes nothing; archive only hides', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    const steps: string[] = [];
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const owner = f.actor('owner');
+        const keep = (await f.lead(`keep.${f.tag}@smoke.test`, 'Keep', { phone: '0412 000 111' })).contact_id;
+        const lose = (await f.lead(`lose.${f.tag}@smoke.test`, 'Lose', { phone: '+61 412 000 111' })).contact_id;
+        await createNote(t, owner, lose, 'On the duplicate');
+        const before = (await getContact(t, owner, keep)) as ContactView;
+        assert(before.possibleDuplicates.some((d) => d.id === lose), 'the shared phone was not suggested');
+        const refused = await mergeContacts(t, f.actor('a1'), keep, lose).then(() => 'merged', (e: unknown) => (e as ContactError).code);
+        assert(refused !== 'merged', 'an agent merged two contacts');
+        await mergeContacts(t, owner, keep, lose);
+        const [moved] = await t.execute<{ leads: number; threads: number; notes: number; loser: number }>(sql`
+          select (select count(*)::int from lead where contact_id = ${keep}) as leads,
+                 (select count(*)::int from mail_thread where contact_id = ${keep}) as threads,
+                 (select count(*)::int from note where contact_id = ${keep}) as notes,
+                 (select count(*)::int from contact where id = ${lose} and merged_into_id = ${keep}) as loser
+        `);
+        assert(moved?.leads === 2 && moved.threads === 2 && moved.notes === 1, `after merge: ${JSON.stringify(moved)}`);
+        assert(moved.loser === 1, 'the merged contact row is gone or not pointing at the survivor');
+        const old = await getContact(t, owner, lose);
+        assert('mergedInto' in old && old.mergedInto === keep, 'an old link to the merged contact goes nowhere');
+        steps.push('leads, threads and notes moved; the old row kept and redirecting');
+
+        await setContactArchived(t, owner, keep, true);
+        const listed = await listContacts(t, owner, {});
+        assert(!listed.rows.some((r) => r.id === keep), 'an archived contact is still in the default list');
+        const archived = await listContacts(t, owner, { archived: 'archived' });
+        assert(archived.rows.some((r) => r.id === keep), 'the archived filter does not find it');
+        assert(!('mergedInto' in (await getContact(t, owner, keep))), 'an archived profile no longer opens');
+        steps.push('archived: out of the list, in the archived filter, profile still opens');
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return steps.join('; ');
+  });
+
+  await check('a property can be linked only if the agency knows the address', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const owner = f.actor('owner');
+        const [stranger] = await t.execute<{ id: string }>(sql`
+          insert into property (street_number, street, suburb, state, postcode)
+          values ('9', 'Elsewhere Road', 'Officer', 'VIC', '3809') returning id
+        `);
+        const refused = await linkContactProperty(t, owner, f.contacts.p6, { propertyId: stranger!.id, relation: 'owner' })
+          .then(() => 'linked', (e: unknown) => (e as ContactError).code);
+        assert(refused === 'invalid', `an address the agency never touched was ${refused}`);
+        await linkContactProperty(t, owner, f.contacts.p6, { propertyId: f.propertyId, relation: 'vendor' });
+        const view = (await getContact(t, owner, f.contacts.p6)) as ContactView;
+        const props = await listContactProperties(t, owner, view.ref);
+        assert(props.length === 1 && props[0]!.links[0]?.relation === 'vendor', `linked: ${JSON.stringify(props)}`);
+        const notes = await listContactTimeline(t, owner, view.ref);
+        assert(notes.items.some((i) => i.type === 'activity' && i.kind === 'property_linked'), 'the link is not on the timeline');
+        summary = "unknown address refused; the agency's own linked and on the timeline";
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check('assigning a contact emails the new assignee — never an admin assigning to themselves', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const transport = fakeTransport();
+        const deps = {
+          mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport },
+          urls: { agentUrl: 'http://agents.test', agencyUrl: 'http://agency.test' },
+        };
+        await assignContact(t, f.actor('owner'), f.contacts.p6, f.people.a2);
+        const toA2 = await notifyContactAssigned(t, deps, f.contacts.p6, f.people.a2, f.people.owner);
+        assert(toA2.sent === 1, `A2 was sent ${toA2.sent}`);
+        const mail = transport.sent[0]!;
+        assert(mail.to.email === `a2.${f.tag}@smoke.test`, `the notice went to ${mail.to.email}`);
+        assert(mail.text.includes(`http://agents.test/my-contacts/${f.contacts.p6}`), 'the link is not to the agent desk');
+        await assignContact(t, f.actor('owner'), f.contacts.p6, f.people.owner);
+        const self = await notifyContactAssigned(t, deps, f.contacts.p6, f.people.owner, f.people.owner);
+        assert(self.sent === 0 && transport.sent.length === 1, 'an admin assigning to themselves was emailed');
+        const stale = await notifyContactAssigned(t, deps, f.contacts.p6, f.people.a2, f.people.owner);
+        assert(stale.sent === 0, 'a notice went out for an assignment that was already undone');
+        summary = 'assignee emailed with their own link; self-assignment and stale ones not';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
   });
 
   group('Console (HTTP, signed out)');

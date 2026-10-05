@@ -52,6 +52,8 @@ export {
 export {
   buildAgentInviteEmail,
   buildLeadNoticeEmail,
+  buildContactAssignedEmail,
+  type ContactAssignedEmailInput,
   type AgentInviteEmailInput,
   type LeadNoticeEmailInput,
 } from './team-notices';

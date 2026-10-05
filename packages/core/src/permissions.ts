@@ -133,6 +133,12 @@ export type Action =
    * through a lead may add notes, not edit it. Read-only members never edit.
    */
   | 'contact:update'
+  /**
+   * Archive or restore a contact: hide it from the directory without deleting
+   * anything. Same rule as `contact:update` — it is that person's call about
+   * their own book, or an admin's.
+   */
+  | 'contact:archive'
   /** Give a contact to a member, or take it back. Admins, as with leads. */
   | 'contact:assign'
   /** Fold one contact into another. Admins: it changes who can see whom. */
@@ -319,6 +325,7 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       return sameAgency(actor, resource) && mayWrite(actor);
 
     case 'contact:update':
+    case 'contact:archive':
     // The same rule with a different owner: the contact's assignee there, the
     // note's author here. Grouped because the shape is one decision.
     case 'note:manage':

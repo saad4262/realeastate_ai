@@ -19,6 +19,7 @@ function hrefFor(basePath: string, query: Partial<ContactListQuery>, page: numbe
   if (query.role) p.set('role', query.role);
   if (query.source) p.set('source', query.source);
   if (query.assigned) p.set('assigned', query.assigned);
+  if (query.archived) p.set('archived', query.archived);
   if (page > 1) p.set('page', String(page));
   const s = p.toString();
   return s ? `${basePath}?${s}` : basePath;
@@ -50,7 +51,7 @@ export function ContactDirectory({
   /** Members to filter by. Empty unless this actor may assign (can()). */
   assignees: ContactAssignee[];
 }) {
-  const filtered = Boolean(query.q || query.role || query.source || query.assigned);
+  const filtered = Boolean(query.q || query.role || query.source || query.assigned || query.archived);
   const first = (page.page - 1) * page.pageSize + 1;
   const last = first + page.rows.length - 1;
   const hasNext = last < page.total;
@@ -100,6 +101,11 @@ export function ContactDirectory({
               ))
             : null}
         </select>
+        <select className={styles.select} name="archived" defaultValue={query.archived ?? ''} aria-label="Archived">
+          <option value="">Current</option>
+          <option value="archived">Archived only</option>
+          <option value="all">Current and archived</option>
+        </select>
         <button type="submit" className={styles.btnGhost}>Filter</button>
         {filtered ? <Link href={basePath} className={styles.back}>Clear</Link> : null}
       </form>
@@ -131,6 +137,7 @@ export function ContactDirectory({
                 <tr key={c.id}>
                   <td>
                     <Link href={`${basePath}/${c.id}`} className={styles.name}>{c.name}</Link>
+                    {c.archived ? <> <span className={styles.chipInferred}>Archived</span></> : null}
                   </td>
                   <td className={styles.reach}>
                     {c.email ? <div><a href={`mailto:${c.email}`}>{c.email}</a></div> : null}

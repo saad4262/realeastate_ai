@@ -174,4 +174,15 @@ describe('the agency lead inbox', () => {
       expect(page.rows[0]?.kind).toBe('offer');
     });
   });
+
+  it("narrows to one person's leads for their profile, and still scopes an agent", async () => {
+    const forAgent = fakeDb([]);
+    await listAgencyLeads(forAgent.db, agent, { contactId: 'contact-9' });
+    // The last WHERE is the outer one; the first is the listing_agent sub-select.
+    const where = forAgent.wheres.at(-1) as string;
+    expect(where).toContain('"contact_id"');
+    // The agent's own scope is still there: offers out, their leads only.
+    expect(where).toContain('"kind" <> ');
+    expect(where).toContain('"assigned_to"');
+  });
 });

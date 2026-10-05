@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   agentProfile,
@@ -85,6 +85,8 @@ export type LeadPage = {
 export type ListLeadsOptions = {
   /** Narrow to one kind — the tabs. Omit for everything visible. */
   kind?: LeadKind;
+  /** One person's leads, for their contact profile (ADR 0018). Still scoped as below. */
+  contactId?: string;
   limit?: number;
   offset?: number;
 };
@@ -99,6 +101,44 @@ export class LeadError extends Error {
 }
 
 const FORBIDDEN = new LeadError('You do not have permission to view this inbox');
+
+/**
+ * The leads this actor may see, as WHERE clauses on `lead` — the inbox's rule,
+ * shared with the contact profile and its timeline so they can never show a
+ * lead the inbox would not.
+ *
+ * Their agency; no offers without `lead:read_offer`; and an agent's are THEIR
+ * leads (ADR 0014): assigned to them, or come through a listing they are named
+ * on — assigned to anyone or no one.
+ *
+ * In SQL, like the offer filter, and for the same reason: the counts are
+ * window functions over this scan, so an agent's tab counts describe their
+ * leads and never disclose how many the rest of the agency has. The listing
+ * half reads `listing_agent` in the statement rather than trusting the
+ * actor's loaded links, so a caller that forgot to load them narrows to
+ * "assigned to me" instead of widening.
+ */
+export function leadScopeFilters(db: Db, actor: Actor): SQL[] {
+  const agencyId = actor.agencyId ?? '00000000-0000-0000-0000-000000000000';
+  const resource = { type: 'lead', agencyId };
+  const filters: SQL[] = [eq(lead.agencyId, agencyId)];
+  if (!can(actor, 'lead:read_offer', resource)) filters.push(ne(lead.kind, 'offer'));
+  if (!can(actor, 'lead:read_all', resource)) {
+    filters.push(
+      or(
+        eq(lead.assignedTo, actor.userId),
+        inArray(
+          lead.listingId,
+          db
+            .select({ id: listingAgent.listingId })
+            .from(listingAgent)
+            .where(eq(listingAgent.userId, actor.userId)),
+        ),
+      )!,
+    );
+  }
+  return filters;
+}
 
 /**
  * One page of the agency's lead inbox, plus the counts for the whole of it.
@@ -141,35 +181,9 @@ export async function listAgencyLeads(
   // may not see them, and they would stop looking.
   if (opts.kind === 'offer' && !maySeeOffers) throw FORBIDDEN;
 
-  const filters = [eq(lead.agencyId, actor.agencyId)];
-  if (!maySeeOffers) filters.push(ne(lead.kind, 'offer'));
-
-  /**
-   * An agent's inbox is THEIR leads (ADR 0014): assigned to them, or come
-   * through a listing they are named on — assigned to anyone or no one.
-   *
-   * In SQL, like the offer filter, and for the same reason: the counts are
-   * window functions over this scan, so an agent's tab counts describe their
-   * leads and never disclose how many the rest of the agency has. The listing
-   * half reads `listing_agent` in the statement rather than trusting the
-   * actor's loaded links, so a caller that forgot to load them narrows to
-   * "assigned to me" instead of widening.
-   */
-  if (!can(actor, 'lead:read_all', resource)) {
-    filters.push(
-      or(
-        eq(lead.assignedTo, actor.userId),
-        inArray(
-          lead.listingId,
-          db
-            .select({ id: listingAgent.listingId })
-            .from(listingAgent)
-            .where(eq(listingAgent.userId, actor.userId)),
-        ),
-      )!,
-    );
-  }
+  const filters = leadScopeFilters(db, actor);
   if (opts.kind) filters.push(eq(lead.kind, opts.kind));
+  if (opts.contactId) filters.push(eq(lead.contactId, opts.contactId));
 
   const rows = await db
     .select({

@@ -260,3 +260,92 @@ export function buildLeadNoticeEmail(input: LeadNoticeEmailInput): Transactional
     ...(input.replyTo ? { replyTo: input.replyTo } : {}),
   };
 }
+
+// ── Contact assigned ────────────────────────────────────────────────────────
+
+export type ContactAssignedEmailInput = {
+  to: { email: string; name?: string };
+  from: { email: string; name: string };
+  postalAddress: string;
+  contact: {
+    name: string;
+    email: string | null;
+    phone: string | null;
+    /** Role words, already labelled — "Buyer", "Seller". */
+    roles: string[];
+    nextAction: string | null;
+  };
+  /** Who handed it over, for the intro line. */
+  assignedByName: string | null;
+  /** The contact's profile, on the recipient's own host. */
+  profileUrl: string;
+};
+
+/**
+ * "A contact was assigned to you" (ADR 0018) — the lead notice's twin.
+ *
+ * Only who they are and how to reach them, never their enquiries or emails:
+ * those still answer to `lead:read` / `mail:read`, and the profile shows each
+ * one only to whoever may open it. contacts/contact-notices.ts decides who
+ * receives this, through can().
+ */
+export function buildContactAssignedEmail(input: ContactAssignedEmailInput): TransactionalMessage {
+  requireSenderFooter(input.from, input.postalAddress, 'contact notice');
+  const c = input.contact;
+  const heading = `${c.name} is now your contact`;
+  const intro = input.assignedByName
+    ? `${input.assignedByName} assigned them to you.`
+    : 'They were assigned to you.';
+  const footer: Footer = {
+    from: input.from,
+    postalAddress: input.postalAddress,
+    why: 'Sent because a contact was assigned to you.',
+  };
+
+  const lines = [
+    c.email ? `<a href="mailto:${escapeHtml(c.email)}" style="color:#0b3d2e;">${escapeHtml(c.email)}</a>` : null,
+    c.phone ? `Phone: <a href="tel:${escapeHtml(c.phone)}" style="color:#0b3d2e;">${escapeHtml(c.phone)}</a>` : null,
+    c.roles.length ? `Roles: ${escapeHtml(c.roles.join(', '))}` : null,
+    c.nextAction ? `Next action: ${escapeHtml(c.nextAction)}` : null,
+  ].filter(Boolean);
+
+  const html = layout({
+    heading,
+    intro,
+    body: `
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:18px;">
+            <tr><td style="padding:16px 0 0;border-top:1px solid #ece7dd;font:400 15px/1.6 ${FONT};color:#1a1a1a;">
+              <strong style="font-weight:600;">${escapeHtml(c.name)}</strong>${lines.length ? `<br>${lines.join('<br>')}` : ''}
+            </td></tr>
+          </table>`,
+    button: { label: 'Open their profile', url: input.profileUrl },
+    footer,
+  });
+
+  const text = [
+    heading,
+    intro,
+    '',
+    c.name,
+    c.email,
+    c.phone ? `Phone: ${c.phone}` : null,
+    c.roles.length ? `Roles: ${c.roles.join(', ')}` : null,
+    c.nextAction ? `Next action: ${c.nextAction}` : null,
+    '',
+    `Open their profile: ${input.profileUrl}`,
+    '',
+    ...textFooter(footer),
+  ]
+    .filter((line) => line !== null)
+    .join('\n');
+
+  return {
+    kind: 'transactional',
+    to: input.to,
+    from: input.from,
+    subject: heading,
+    html,
+    text,
+    tags: { kind: 'contact-assigned' },
+  };
+}

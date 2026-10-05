@@ -38,6 +38,10 @@ export const ACTIVITY_KINDS = [
   'role_removed',
   'consent_recorded',
   'consent_withdrawn',
+  'contact_archived',
+  'contact_restored',
+  'property_linked',
+  'property_unlinked',
 ] as const;
 export const activityKindSchema = z.enum(ACTIVITY_KINDS);
 export type ActivityKind = z.infer<typeof activityKindSchema>;
@@ -48,6 +52,31 @@ export const CONTACT_ROLE_LABELS: Record<ContactRoleKind, string> = {
   landlord: 'Landlord',
   tenant: 'Tenant',
   investor: 'Investor',
+};
+
+export const CONTACT_PROPERTY_RELATION_LABELS: Record<ContactPropertyRelation, string> = {
+  owner: 'Owner',
+  vendor: 'Selling',
+  landlord: 'Landlord',
+  tenant: 'Tenant',
+  interested: 'Interested',
+  other: 'Other',
+};
+
+/** What each timeline entry from `activity` says, in words. */
+export const ACTIVITY_LABELS: Record<ActivityKind, string> = {
+  contact_created: 'Contact added',
+  contact_updated: 'Details changed',
+  contact_assigned: 'Assigned',
+  contact_merged: 'Merged with a duplicate',
+  role_added: 'Role added',
+  role_removed: 'Role removed',
+  consent_recorded: 'Marketing consent recorded',
+  consent_withdrawn: 'Marketing consent withdrawn',
+  contact_archived: 'Archived',
+  contact_restored: 'Restored from the archive',
+  property_linked: 'Property linked',
+  property_unlinked: 'Property unlinked',
 };
 
 export const CONTACT_SOURCE_LABELS: Record<ContactSource, string> = {
@@ -127,6 +156,57 @@ export const contactListQuerySchema = z.object({
     .union([z.literal('me'), z.literal('none'), z.string().uuid()])
     .optional()
     .catch(undefined),
+  /** Archived contacts are hidden unless asked for. */
+  archived: z.enum(['archived', 'all']).optional().catch(undefined),
   page: z.coerce.number().int().min(1).max(10_000).default(1).catch(1),
 });
+
+/** A note, as the composer sends it. */
+export const MAX_NOTE_LENGTH = 5000;
+export const noteBodySchema = z
+  .string()
+  .transform((v) => v.replace(/\r\n?/g, '\n').trim())
+  .pipe(
+    z
+      .string()
+      .min(1, 'Write something first')
+      .max(MAX_NOTE_LENGTH, `Keep a note under ${MAX_NOTE_LENGTH.toLocaleString('en-AU')} characters`),
+  );
+
+/** Tie a contact to an address. */
+export const linkPropertySchema = z.object({
+  propertyId: z.string().uuid(),
+  relation: z.enum(CONTACT_PROPERTY_RELATIONS),
+  note: optionalText(300),
+});
+export type LinkPropertyInput = z.input<typeof linkPropertySchema>;
+
+/** The next-action quick edit on the overview. */
+export const nextActionSchema = z.object({
+  nextAction: optionalText(300),
+  nextActionAt: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v ? v : undefined))
+    .pipe(z.coerce.date().optional()),
+});
+export type NextActionInput = z.input<typeof nextActionSchema>;
+
+/** The profile's tabs. In the URL as `?tab=`; anything else is the overview. */
+export const CONTACT_TABS = [
+  'overview',
+  'timeline',
+  'properties',
+  'emails',
+  'enquiries',
+  'notes',
+  'calendar',
+  'reviews',
+] as const;
+export type ContactTab = (typeof CONTACT_TABS)[number];
+export function parseContactTab(raw: unknown): ContactTab {
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  return (CONTACT_TABS as readonly string[]).includes(v as string) ? (v as ContactTab) : 'overview';
+}
 export type ContactListQuery = z.infer<typeof contactListQuerySchema>;
