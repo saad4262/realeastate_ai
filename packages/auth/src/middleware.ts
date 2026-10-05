@@ -114,8 +114,13 @@ export async function updateSession(
     response = NextResponse.next({
       request: { headers: requestHeaders },
     });
+    // The WHOLE cookie, not name and value. Copying only those two dropped
+    // Domain, Max-Age and SameSite from every refreshed session cookie: the
+    // browser then held a host-only copy beside the old `.lvh.me` one, the
+    // other app kept refreshing with the rotated-out token, and Supabase's
+    // reuse detection revoked the session — "it keeps asking me to sign in".
     cookies.forEach((c) => {
-      response.cookies.set(c.name, c.value);
+      response.cookies.set(c);
     });
   }
 

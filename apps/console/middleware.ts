@@ -122,7 +122,8 @@ export async function middleware(request: NextRequest) {
       next && next.startsWith('/') ? next : homePath(surface);
     dest.search = '';
     const redirect = NextResponse.redirect(dest);
-    response.cookies.getAll().forEach((c) => redirect.cookies.set(c.name, c.value));
+    // Whole cookies: name+value alone drops Domain/Max-Age — see packages/auth.
+    response.cookies.getAll().forEach((c) => redirect.cookies.set(c));
     return withSurface(redirect, surface, cookieDomain);
   }
 
@@ -134,7 +135,7 @@ export async function middleware(request: NextRequest) {
       pathname === '/' ? homePath(surface) : pathname,
     );
     const redirect = NextResponse.redirect(login);
-    response.cookies.getAll().forEach((c) => redirect.cookies.set(c.name, c.value));
+    response.cookies.getAll().forEach((c) => redirect.cookies.set(c));
     return withSurface(redirect, surface, cookieDomain);
   }
 
@@ -142,7 +143,7 @@ export async function middleware(request: NextRequest) {
     const dest = request.nextUrl.clone();
     dest.pathname = homePath(surface);
     const redirect = NextResponse.redirect(dest);
-    response.cookies.getAll().forEach((c) => redirect.cookies.set(c.name, c.value));
+    response.cookies.getAll().forEach((c) => redirect.cookies.set(c));
     return withSurface(redirect, surface, cookieDomain);
   }
 

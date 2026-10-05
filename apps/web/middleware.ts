@@ -95,26 +95,42 @@ export async function middleware(request: NextRequest) {
   // Signed in and standing on the sign-in page: go where you were headed.
   if (userId && isAuthEntry) {
     const next = request.nextUrl.searchParams.get('next');
-    const dest = request.nextUrl.clone();
     // Only a path, never an absolute URL — `next=https://elsewhere` off a
     // login redirect is an open redirect, and this one would be reachable
-    // from any emailed link.
-    dest.pathname = next && next.startsWith('/') && !next.startsWith('//') ? next : '/alerts';
-    dest.search = '';
+    // from any emailed link. Resolved against this request's own origin, so a
+    // query in it (an emailed link's token) survives as a query.
+    const dest = new URL(
+      next && next.startsWith('/') && !next.startsWith('//') ? next : '/alerts',
+      request.nextUrl.origin,
+    );
     const redirect = NextResponse.redirect(dest);
-    response.cookies.getAll().forEach((c) => redirect.cookies.set(c.name, c.value));
+    // Whole cookies: name+value alone drops Domain/Max-Age — see packages/auth.
+    response.cookies.getAll().forEach((c) => redirect.cookies.set(c));
     return redirect;
   }
 
   const needsAccount = pathname.startsWith('/alerts') || pathname.startsWith('/account');
 
-  if (needsAccount && !userId) {
+  /**
+   * A Server Action POST is answered by the action, not redirected here.
+   *
+   * The client calls an action with fetch and expects an RSC payload back. A
+   * 307 to /login instead is "An unexpected response was received from the
+   * server" — a crash screen for what is only an expired session. Every
+   * account action reads the session itself and redirects to /login properly
+   * (`ensureConsumerAccount`), and the identity headers were stripped above,
+   * so letting the POST through hands it nothing it could misuse.
+   */
+  const isServerAction = request.method === 'POST' && request.headers.has('next-action');
+
+  if (needsAccount && !userId && !isServerAction) {
     const login = request.nextUrl.clone();
     login.pathname = '/login';
     login.search = '';
-    login.searchParams.set('next', pathname);
+    // With its query: an emailed link's token must survive the sign-in.
+    login.searchParams.set('next', pathname + request.nextUrl.search);
     const redirect = NextResponse.redirect(login);
-    response.cookies.getAll().forEach((c) => redirect.cookies.set(c.name, c.value));
+    response.cookies.getAll().forEach((c) => redirect.cookies.set(c));
     return redirect;
   }
 
