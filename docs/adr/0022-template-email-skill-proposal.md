@@ -1,6 +1,7 @@
-# 0022 — The "send a template email to N contacts" skill (PROPOSED — for review, not built)
+# 0022 — The "send a template email to N contacts" skill (DECIDED — not built yet)
 
-**Status:** proposed, 2026-10-05. Waiting for the user's review. Nothing here is built.
+**Status:** decisions agreed with the user 2026-10-05 (see "Decided" below). NOT BUILT — the user reports
+the N–R browser tests first.
 
 **Context.** Agents want to email a template ("New listing in your street", "Market update")
 to a handful of contacts in one go. This is MARKETING email in the agency's name to third
@@ -42,11 +43,17 @@ non-negotiable #7 (AI copy reaching a third party needs a human).
    <template name>", with the message id); excluded contacts get nothing. The skill_run
    records counts sent / excluded / failed — from SQL.
 
-**Open questions for the user.**
-- Who approves templates — any agent, or admins only?
-- Should a scheduled run be allowed at all, or only manual "prepare"?
-- Recipient selection: a saved filter of the directory (role/source/suburb) — enough?
-- Is 48 h the right expiry for an unapproved batch?
+**Decided (the user, 2026-10-05) — these override anything above that differs.**
+1. **Templates are approved by an owner/admin.** Agents may draft a template, but a bulk
+   send can only use an approved one.
+2. **No scheduled sending.** Only a manual **Prepare**, then the agent clicks
+   **Approve & Send**. (Point 5's "scheduled run prepares a batch" is dropped for now.)
+3. **Recipients** come from a saved directory filter. The resolved list is **frozen at
+   Prepare** and shown in full before approval: the count, every name, and everyone
+   skipped with the reason (opted out, archived, emailed in the last 7 days, no consent…).
+   Opt-out and consent are **checked again at the moment of sending** — someone who opts
+   out between Prepare and Send is not emailed.
+4. **48 hours** to approve; an expired batch must be prepared again.
 
 **Alternatives.** Sending without consent filtering (unlawful). Auto-send on schedule
 (fails #7 and "no silent sending").

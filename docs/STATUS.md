@@ -4,8 +4,9 @@
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
 - **Now: CRM Phase 5 (skills: Morning Brief + 10 most important emails) done
-  on `feat/crm`, waiting for review.** ADR 0022 (template-email skill) is a
-  PROPOSAL for the user to review — not built. TEST-PLAN R is new.
+  on `feat/crm`, waiting for review.** ADR 0022 (template-email skill): decisions
+  agreed 2026-10-05 and recorded in the ADR — NOT built; waiting for the user's
+  N–R browser-test report before anything else. TEST-PLAN R is new.
   Next: the user's call — 0022 after review, Phase 3b, or Phase 6.
   Plan: `~/.claude/plans/pasted-content-id-f0ff-you-are-functional-frost.md`.
   Next: Phase 3 (appointments, then Zoom / Google Calendar) — not started.
