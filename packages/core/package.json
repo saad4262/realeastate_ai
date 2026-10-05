@@ -18,13 +18,13 @@
     "./listings": "./src/listings/index.ts",
     "./listings/schema": "./src/listings/listing-schema.ts",
     "./listings/format": "./src/listings/format.ts",
-  "./listings/pagination": "./src/listings/pagination.ts",
-  "./listings/facets": "./src/listings/search-facets.ts",
-  "./listings/price-ladder": "./src/listings/price-ladder.ts",
-  "./markdown": "./src/markdown.ts",
-  "./media": "./src/media/index.ts",
-  "./media/url": "./src/media/media-url.ts",
-  "./media/storage": "./src/media/storage-client.ts",
+    "./listings/pagination": "./src/listings/pagination.ts",
+    "./listings/facets": "./src/listings/search-facets.ts",
+    "./listings/price-ladder": "./src/listings/price-ladder.ts",
+    "./markdown": "./src/markdown.ts",
+    "./media": "./src/media/index.ts",
+    "./media/url": "./src/media/media-url.ts",
+    "./media/storage": "./src/media/storage-client.ts",
     "./listings/url": "./src/listings/search-url.ts",
     "./email": "./src/email/index.ts",
     "./chat": "./src/chat/threads.ts",
@@ -33,13 +33,16 @@
     "./schedules/next-run": "./src/schedules/next-run.ts",
     "./schedules/timezones": "./src/schedules/timezones.ts",
     "./geo": "./src/geo/index.ts",
-    "./geo/schema": "./src/geo/place-schema.ts"
+    "./geo/schema": "./src/geo/place-schema.ts",
+    "./contacts": "./src/contacts/index.ts",
+    "./contacts/schema": "./src/contacts/contact-schema.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "echo \"no lint yet\"",
     "test": "vitest run",
-    "geo:backfill": "tsx src/geo/backfill.ts"
+    "geo:backfill": "tsx src/geo/backfill.ts",
+    "contacts:backfill": "tsx src/contacts/backfill-cli.ts"
   },
   "dependencies": {
     "@repo/db": "workspace:*",

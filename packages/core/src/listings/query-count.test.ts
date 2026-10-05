@@ -19,6 +19,8 @@ import {
 } from './listing-detail';
 import { createPrivateOffer } from '../leads/create-private-offer';
 import { listAgencyLeads } from '../leads/list-leads';
+import { listContacts } from '../contacts/list-contacts';
+import { getContact } from '../contacts/get-contact';
 import { agencyNotificationRecipients } from '../agency/notification-recipients';
 import type { Actor } from '../permissions';
 
@@ -243,6 +245,41 @@ describe('reads cost a fixed number of queries', () => {
     const page = await listAgencyLeads(db, actor, { limit: 25 });
     expect(page.rows).toHaveLength(2);
     expect(count()).toBe(1);
+  });
+
+  it('the contact directory is one query, roles and total included', async () => {
+    // Roles are a sub-select and the total a window function. Fetching roles
+    // per contact is the N+1 this refuses; three rows so a loop would show.
+    const contactRow = (id: string) => ({
+      id, name: 'A', email: `${id}@example.test`, phone: null, source: 'enquiry',
+      assignedTo: null, assigneeName: null, assigneeEmail: null, createdAt: new Date(),
+      roles: '{buyer}', total: '3',
+    });
+    const { db, count } = countingDb([contactRow('c1'), contactRow('c2'), contactRow('c3')]);
+    const page = await listContacts(db, actor, { q: '0412 345 678', role: 'buyer' });
+    expect(page.rows).toHaveLength(3);
+    expect(page.rows[0]?.roles).toEqual(['buyer']);
+    expect(count()).toBe(1);
+  });
+
+  it('opening one contact is one query for an agent, two for an admin (duplicates)', async () => {
+    const head = {
+      id: '99999999-9999-9999-9999-999999999999', agencyId: actor.agencyId, name: 'A',
+      email: null, phone: '0412 345 678', phoneKey: '61412345678', source: 'manual',
+      assignedTo: 'u-agent', assigneeName: null, assigneeEmail: null, nextAction: null,
+      nextActionAt: null, marketingConsentAt: null, marketingConsentNote: null,
+      consentByName: null, consentByEmail: null, emailOptOutAt: null, mergedIntoId: null,
+      createdAt: new Date(), updatedAt: new Date(), roles: null, inferredRoles: null,
+      leadAssigneeIds: null, listingAgentIds: null,
+    };
+    const agentActor: Actor = { ...actor, userId: 'u-agent', membershipRole: 'agent' };
+    const forAgent = countingDb([head]);
+    await getContact(forAgent.db, agentActor, head.id);
+    expect(forAgent.count()).toBe(1);
+
+    const forAdmin = countingDb([head]);
+    await getContact(forAdmin.db, actor, head.id);
+    expect(forAdmin.count()).toBe(2);
   });
 
   it('opening one listing for editing is one query', async () => {

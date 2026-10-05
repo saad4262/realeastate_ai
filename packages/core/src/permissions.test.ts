@@ -405,3 +405,109 @@ describe('can()', () => {
     });
   });
 });
+
+/**
+ * Contacts (ADR 0018), with the user's rules of 2026-10-05: an agent fully
+ * edits contacts assigned to them; one they meet only through a lead is notes
+ * only; assistants and property managers follow the agent rule; read-only
+ * members view and write nothing.
+ */
+describe('contacts', () => {
+  const contactId = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+  const member = (userId: string, membershipRole: Actor['membershipRole']): Actor => ({
+    userId,
+    agencyId: agencyA,
+    membershipRole,
+  });
+  const owner = member('owner', 'owner');
+  const agent = member('agent', 'agent');
+  const other = member('other', 'agent');
+  const assistant = member('assistant', 'assistant');
+  const pm = member('pm', 'property_manager');
+  const viewer = member('viewer', 'read_only');
+  const rivalOwner: Actor = { userId: 'rival', agencyId: agencyB, membershipRole: 'owner' };
+
+  const theirs = (userId: string) => ({ type: 'contact', id: contactId, agencyId: agencyA, ownerId: userId });
+  const viaLead = (userId: string) => ({ type: 'contact', id: contactId, agencyId: agencyA, leadAssigneeIds: [userId] });
+  const viaListing = (userId: string) => ({ type: 'contact', id: contactId, agencyId: agencyA, listingAgentIds: [userId] });
+  const nobodys = { type: 'contact', id: contactId, agencyId: agencyA };
+  const directory = { type: 'contact', agencyId: agencyA };
+
+  it("never crosses agencies, even for another agency's owner", () => {
+    for (const action of ['contact:read', 'contact:update', 'contact:assign', 'contact:merge', 'note:create'] as const) {
+      expect(can(rivalOwner, action, { ...theirs('rival'), agencyId: agencyA })).toBe(false);
+    }
+    expect(can(rivalOwner, 'contact:read', directory)).toBe(false);
+  });
+
+  it('lets admins see, edit, assign and merge every contact in their agency', () => {
+    for (const action of ['contact:read', 'contact:read_all', 'contact:update', 'contact:assign', 'contact:merge', 'note:create'] as const) {
+      expect(can(owner, action, nobodys)).toBe(true);
+    }
+  });
+
+  it('lets an agent fully edit a contact assigned to them', () => {
+    expect(can(agent, 'contact:read', theirs('agent'))).toBe(true);
+    expect(can(agent, 'contact:update', theirs('agent'))).toBe(true);
+    expect(can(agent, 'note:create', theirs('agent'))).toBe(true);
+  });
+
+  it('gives notes only on a contact met through a lead or a listing', () => {
+    for (const r of [viaLead('agent'), viaListing('agent')]) {
+      expect(can(agent, 'contact:read', r)).toBe(true);
+      expect(can(agent, 'note:create', r)).toBe(true);
+      expect(can(agent, 'contact:update', r)).toBe(false);
+    }
+  });
+
+  it("does not show an agent somebody else's contact, or nobody's", () => {
+    expect(can(other, 'contact:read', theirs('agent'))).toBe(false);
+    expect(can(other, 'contact:read', viaLead('agent'))).toBe(false);
+    expect(can(agent, 'contact:read', nobodys)).toBe(false);
+    expect(can(agent, 'note:create', nobodys)).toBe(false);
+  });
+
+  it('never lets a non-admin assign, merge or read the whole book', () => {
+    for (const a of [agent, assistant, pm, viewer]) {
+      expect(can(a, 'contact:assign', theirs(a.userId))).toBe(false);
+      expect(can(a, 'contact:merge', theirs(a.userId))).toBe(false);
+      expect(can(a, 'contact:read_all', directory)).toBe(false);
+    }
+  });
+
+  it('treats assistants and property managers exactly as agents', () => {
+    for (const a of [assistant, pm]) {
+      expect(can(a, 'contact:create', directory)).toBe(true);
+      expect(can(a, 'contact:update', theirs(a.userId))).toBe(true);
+      expect(can(a, 'contact:update', viaLead(a.userId))).toBe(false);
+      expect(can(a, 'note:create', viaLead(a.userId))).toBe(true);
+      expect(can(a, 'contact:read', nobodys)).toBe(false);
+    }
+  });
+
+  it('lets a read-only member view what an agent would, and write nothing', () => {
+    expect(can(viewer, 'contact:read', directory)).toBe(true);
+    expect(can(viewer, 'contact:read', theirs('viewer'))).toBe(true);
+    expect(can(viewer, 'contact:read', viaLead('viewer'))).toBe(true);
+    expect(can(viewer, 'contact:create', directory)).toBe(false);
+    expect(can(viewer, 'contact:update', theirs('viewer'))).toBe(false);
+    expect(can(viewer, 'note:create', theirs('viewer'))).toBe(false);
+    expect(can(viewer, 'note:manage', { type: 'note', id: 'n', agencyId: agencyA, ownerId: 'viewer' })).toBe(false);
+  });
+
+  it('lets a note be changed by its author or an admin only', () => {
+    const note = { type: 'note', id: 'n-1', agencyId: agencyA, ownerId: 'agent' };
+    expect(can(agent, 'note:manage', note)).toBe(true);
+    expect(can(other, 'note:manage', note)).toBe(false);
+    expect(can(owner, 'note:manage', note)).toBe(true);
+    expect(can(rivalOwner, 'note:manage', note)).toBe(false);
+  });
+
+  it('refuses an actor with no membership, and an id-less resource with no owner', () => {
+    const outsider: Actor = { userId: 'x' };
+    expect(can(outsider, 'contact:read', directory)).toBe(false);
+    expect(can(outsider, 'contact:create', directory)).toBe(false);
+    // An empty assignee must never match an actor whose id is also empty.
+    expect(can({ ...agent, userId: '' }, 'contact:update', { ...nobodys, ownerId: '' })).toBe(false);
+  });
+});

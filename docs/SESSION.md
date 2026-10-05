@@ -1,3 +1,26 @@
+## 2026-10-05 (later) — Claude Code — CRM Phase 1: contacts foundation
+
+- Goal (client, via user): one person = one contact with roles; anything a person
+  enquires about or emails lands on their contact; /customers for admins,
+  /my-contacts for agents.
+- User's decisions this session: apply 0019 on dev; agents fully edit contacts
+  assigned to them, notes-only through a lead; assistant/property_manager = agent
+  rule, read_only = view only; an enquiry is not marketing consent (separate
+  field); keep `event`, decide in Phase 1 → decided: new `activity`, event untouched.
+- Done: 0019 applied (curl proves anon refused). ADR 0018. Migration 0020 (applied
+  on dev, additive). core `contacts/`: schema, phone key, visibility (SQL twin of
+  can()), list/get/create/update/assign/merge, backfill (+ CLI, dry run = real
+  writes rolled back). permissions: contact:* + note:*. mail: lead-less threads
+  visible through the contact. console: /customers, /my-contacts (+ new, [id]),
+  agent nav, badge count includes contact mail. TEST-PLAN N.
+- Verified: typecheck, lint 0 errors, test 619 + 263, build 2/2, smoke 130/2
+  (backfill pending; known dev account). Break-checked red: read-only note rule,
+  assignee-may-answer rule, agent directory narrowing (unit); can()/SQL parity,
+  never-overwrite trigger (dev function swapped and restored), agency mail
+  reaching the agent (smoke).
+- Not done: the backfill --apply (user runs it); nothing clicked in a browser.
+- Console UI written by Claude Code at the user's request.
+
 ## 2026-10-05 — Claude Code — CRM Phase 0: safety first
 
 - Goal (client, via user): a CRM on the console (contacts, Contact 360,

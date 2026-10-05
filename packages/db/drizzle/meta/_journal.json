@@ -141,6 +141,13 @@
       "when": 1791184271583,
       "tag": "0019_server_is_the_only_door",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791185097593,
+      "tag": "0020_contacts",
+      "breakpoints": true
     }
   ]
 }

@@ -109,6 +109,38 @@ export type Action =
    * account the thread was matched to; no agency role reaches this.
    */
   | 'mail:read_own'
+  /**
+   * See a contact (ADR 0018). The resource carries the contact's assignee as
+   * `ownerId`, the members assigned its non-offer leads as `leadAssigneeIds`,
+   * and the members named on the listings it is tied to (its non-offer leads'
+   * listings, and this agency's listings at properties linked to it) as
+   * `listingAgentIds`. Admins see every contact; anybody else a contact that
+   * is theirs, or that they meet through a lead they could already open. No
+   * id: "open the directory", which any active member may.
+   *
+   * Seeing a contact is not seeing all of it: inside a profile each lead and
+   * email still answers to `lead:read` / `mail:read`, and offers stay
+   * `lead:read_offer`. A contact visible only through an offer is not visible.
+   */
+  | 'contact:read'
+  /** Every contact in the agency, unnarrowed. Owner/admin. */
+  | 'contact:read_all'
+  /** Add a contact by hand. Any active member who is not read-only. */
+  | 'contact:create'
+  /**
+   * Change a contact's details, roles, consent, next action. An admin, or the
+   * member it is ASSIGNED to (`ownerId`). Somebody who sees a contact only
+   * through a lead may add notes, not edit it. Read-only members never edit.
+   */
+  | 'contact:update'
+  /** Give a contact to a member, or take it back. Admins, as with leads. */
+  | 'contact:assign'
+  /** Fold one contact into another. Admins: it changes who can see whom. */
+  | 'contact:merge'
+  /** Write a note on a contact: whoever may see it, unless read-only. */
+  | 'note:create'
+  /** Edit or delete a note: its author (`ownerId`), or an admin. */
+  | 'note:manage'
   | 'team:manage'
   | 'agency:billing'
   /** Agency OS host — owner|admin only */
@@ -146,9 +178,20 @@ export type Resource = {
    * it is their campaign's buyer.
    */
   listingId?: string | null;
+  /** On a contact: members assigned one of its non-offer leads. */
+  leadAssigneeIds?: string[];
+  /** On a contact: members named on a listing it is tied to. See `contact:read`. */
+  listingAgentIds?: string[];
 };
 
 const ADMIN_ROLES: MembershipRole[] = ['owner', 'admin'];
+
+/**
+ * Roles that look and never touch (the user's rule for contacts, 2026-10-05):
+ * a read-only member sees what an agent would, and writes nothing — not even a
+ * note.
+ */
+const VIEW_ONLY_ROLES: MembershipRole[] = ['read_only'];
 
 /**
  * Does this role run the agency rather than sell for it?
@@ -181,6 +224,10 @@ function sameAgency(actor: Actor, resource: Resource): boolean {
 
 function isAgencyAdmin(actor: Actor): boolean {
   return Boolean(actor.membershipRole && ADMIN_ROLES.includes(actor.membershipRole));
+}
+
+function mayWrite(actor: Actor): boolean {
+  return Boolean(actor.membershipRole && !VIEW_ONLY_ROLES.includes(actor.membershipRole));
 }
 
 function isListingAgent(actor: Actor, listingId?: string): boolean {
@@ -254,6 +301,33 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       // should not be able to erase the agency's record of it. Being named on
       // the listing is enough to change it; it is not enough to remove it.
       return sameAgency(actor, resource) && isAgencyAdmin(actor);
+
+    case 'contact:read': {
+      if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      if (!resource.id || isAgencyAdmin(actor)) return true;
+      if (resource.ownerId && actor.userId === resource.ownerId) return true;
+      if (resource.leadAssigneeIds?.includes(actor.userId)) return true;
+      return Boolean(resource.listingAgentIds?.includes(actor.userId));
+    }
+
+    case 'contact:read_all':
+    case 'contact:assign':
+    case 'contact:merge':
+      return sameAgency(actor, resource) && isAgencyAdmin(actor);
+
+    case 'contact:create':
+      return sameAgency(actor, resource) && mayWrite(actor);
+
+    case 'contact:update':
+    // The same rule with a different owner: the contact's assignee there, the
+    // note's author here. Grouped because the shape is one decision.
+    case 'note:manage':
+      if (!sameAgency(actor, resource) || !mayWrite(actor)) return false;
+      if (isAgencyAdmin(actor)) return true;
+      return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'note:create':
+      return mayWrite(actor) && can(actor, 'contact:read', resource);
 
     case 'team:manage':
     case 'agency:billing':

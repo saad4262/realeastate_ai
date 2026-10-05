@@ -1,5 +1,6 @@
 import { desc, sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   boolean,
   index,
   integer,
@@ -474,6 +475,12 @@ export const lead = pgTable(
      */
     offerAmount: numeric('offer_amount', { precision: 14, scale: 2 }),
     assignedTo: uuid('assigned_to').references(() => user.id, { onDelete: 'set null' }),
+    /**
+     * The person behind it (ADR 0018). Set by the `lead` insert trigger through
+     * `public.contact_upsert`, matched on email; nullable only so the column
+     * could be added before the backfill.
+     */
+    contactId: uuid('contact_id').references((): AnyPgColumn => contact.id, { onDelete: 'set null' }),
     aiSummary: text('ai_summary'),
     aiIntent: text('ai_intent'),
     aiQualification: jsonb('ai_qualification'),
@@ -484,6 +491,7 @@ export const lead = pgTable(
     index('lead_agency_created_idx').on(t.agencyId, desc(t.createdAt)),
     /** Every approach ever made about one address, which is the point of #1. */
     index('lead_property_idx').on(t.propertyId),
+    index('lead_contact_idx').on(t.contactId),
   ],
 );
 
@@ -527,6 +535,13 @@ export const mailThread = pgTable(
     /** Lower-cased on write, so matching a buyer's sign-in email is an equality. */
     contactEmail: text('contact_email').notNull(),
     contactName: text('contact_name'),
+    /**
+     * The contact this conversation is with (ADR 0018) — the lead's, copied by
+     * the thread trigger, or matched on `contact_email` for mail to the
+     * agency's own address. What lets such a thread be read by the contact's
+     * agent rather than by admins only.
+     */
+    contactId: uuid('contact_id').references((): AnyPgColumn => contact.id, { onDelete: 'set null' }),
     lastMessageAt: timestamp('last_message_at', { withTimezone: true }).notNull().defaultNow(),
     /**
      * The last time somebody OUTSIDE wrote. Unread is "this is newer than when
@@ -538,6 +553,7 @@ export const mailThread = pgTable(
   (t) => [
     index('mail_thread_agency_idx').on(t.agencyId, desc(t.lastMessageAt)),
     index('mail_thread_contact_idx').on(t.contactEmail),
+    index('mail_thread_contact_id_idx').on(t.contactId),
   ],
 );
 
@@ -612,6 +628,214 @@ export const mailRead = pgTable(
     lastReadAt: timestamp('last_read_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.threadId, t.userId] })],
+);
+
+// ── Contacts (docs/adr/0018) ────────────────────────────────────────────────
+
+/** How the agency first met this person. */
+export const contactSourceEnum = pgEnum('contact_source', [
+  'enquiry',
+  'offer',
+  'email',
+  'manual',
+  'import',
+]);
+
+/** What a person is to the agency. A tag, not a separate table of people. */
+export const contactRoleKindEnum = pgEnum('contact_role_kind', [
+  'seller',
+  'buyer',
+  'landlord',
+  'tenant',
+  'investor',
+]);
+
+/** Whether somebody chose a tag, or it was read off what the person did. */
+export const contactTagSourceEnum = pgEnum('contact_tag_source', ['manual', 'inferred']);
+
+/** What a person is to an address. "Enquired about" is NOT here — that is `lead`. */
+export const contactPropertyRelationEnum = pgEnum('contact_property_relation', [
+  'owner',
+  'vendor',
+  'landlord',
+  'tenant',
+  'interested',
+  'other',
+]);
+
+/** Who did a thing on a contact's timeline. */
+export const activityActorTypeEnum = pgEnum('activity_actor_type', ['user', 'system', 'skill', 'ai']);
+
+/**
+ * One person the agency deals with, whatever they are to it (ADR 0018).
+ *
+ * Per agency, deliberately: the same buyer approaching two agencies is two
+ * contacts, because each agency's notes, assignments and consent are its own.
+ *
+ * Made automatically by `public.contact_upsert`, which the `lead` and
+ * `mail_thread` insert triggers call — so an enquiry, an offer and an email to
+ * the agency address all land on the same person, matched on email. A phone
+ * match with a different email is never merged; it is shown as a possible
+ * duplicate (`phone_key`) for an admin to decide.
+ *
+ * A merge never deletes: the losing row keeps its id with `merged_into_id` set,
+ * so every old link still resolves.
+ */
+export const contact = pgTable(
+  'contact',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    /** Lower-cased and trimmed on every write, so a match is an equality. */
+    email: text('email'),
+    /** As typed. */
+    phone: text('phone'),
+    /**
+     * Digits only, Australian numbers in international form — `0412 345 678`
+     * and `+61 412 345 678` are both `61412345678`. Postgres computes it from
+     * `phone` (`public.au_phone_key`); nothing writes it. For duplicate
+     * suggestions only, never for an automatic merge.
+     */
+    phoneKey: text('phone_key').generatedAlwaysAs(sql`public.au_phone_key(phone)`),
+    /** The agent whose contact this is. They may edit it in full. */
+    assignedTo: uuid('assigned_to').references(() => user.id, { onDelete: 'set null' }),
+    /** Their website account, when an offer told us (offers need a sign-in). */
+    userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
+    source: contactSourceEnum('source').notNull().default('manual'),
+    /** What should happen next with this person, in the agent's words. */
+    nextAction: text('next_action'),
+    nextActionAt: timestamp('next_action_at', { withTimezone: true }),
+    /**
+     * When this person agreed to marketing email, and how we know. Null means
+     * NO consent: an enquiry is not consent (the user's decision, 2026-10-05).
+     * A dated, attributed fact, because the Spam Act asks who consented and when.
+     */
+    marketingConsentAt: timestamp('marketing_consent_at', { withTimezone: true }),
+    marketingConsentNote: text('marketing_consent_note'),
+    marketingConsentBy: uuid('marketing_consent_by').references(() => user.id, {
+      onDelete: 'set null',
+    }),
+    /** When they asked to receive no more marketing. Wins over consent. */
+    emailOptOutAt: timestamp('email_opt_out_at', { withTimezone: true }),
+    /** Set on the losing side of a merge. Such a row is never listed. */
+    mergedIntoId: uuid('merged_into_id').references((): AnyPgColumn => contact.id, {
+      onDelete: 'set null',
+    }),
+    createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => [
+    /**
+     * One live contact per address per agency — what makes the trigger's
+     * upsert an upsert. Partial: a merged row keeps its old email without
+     * blocking the survivor, and a contact may have no email at all.
+     */
+    uniqueIndex('contact_agency_email_idx')
+      .on(t.agencyId, t.email)
+      .where(sql`email is not null and merged_into_id is null`),
+    index('contact_agency_phone_key_idx').on(t.agencyId, t.phoneKey),
+    index('contact_agency_assigned_idx').on(t.agencyId, t.assignedTo),
+    index('contact_agency_created_idx').on(t.agencyId, desc(t.createdAt)),
+  ],
+);
+
+export const contactRole = pgTable(
+  'contact_role',
+  {
+    contactId: uuid('contact_id')
+      .notNull()
+      .references(() => contact.id, { onDelete: 'cascade' }),
+    role: contactRoleKindEnum('role').notNull(),
+    source: contactTagSourceEnum('source').notNull().default('manual'),
+    createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => [
+    primaryKey({ columns: [t.contactId, t.role] }),
+    /** "Every seller" is a filter on the directory. */
+    index('contact_role_role_idx').on(t.role, t.contactId),
+  ],
+);
+
+/**
+ * A person's tie to an address that is not an enquiry: they own it, are
+ * selling it, rent it. Enquiries are read from `lead.property_id`, never
+ * copied here — a second record of one fact.
+ */
+export const contactProperty = pgTable(
+  'contact_property',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    contactId: uuid('contact_id')
+      .notNull()
+      .references(() => contact.id, { onDelete: 'cascade' }),
+    /** `restrict`: a property outlives every person and ad tied to it (#1). */
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => property.id, { onDelete: 'restrict' }),
+    relation: contactPropertyRelationEnum('relation').notNull(),
+    note: text('note'),
+    createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('contact_property_unique_idx').on(t.contactId, t.propertyId, t.relation),
+    index('contact_property_property_idx').on(t.propertyId),
+  ],
+);
+
+/** Something an agent wrote down about a contact. */
+export const note = pgTable(
+  'note',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    contactId: uuid('contact_id')
+      .notNull()
+      .references(() => contact.id, { onDelete: 'cascade' }),
+    authorId: uuid('author_id').references(() => user.id, { onDelete: 'set null' }),
+    body: text('body').notNull(),
+    ...timestamps,
+  },
+  (t) => [index('note_contact_idx').on(t.contactId, desc(t.createdAt))],
+);
+
+/**
+ * Timeline entries that have no other home (ADR 0018).
+ *
+ * A contact's timeline is read as one UNION over `lead`, `mail_message`,
+ * `note` and this table. Leads, emails and notes are NOT copied in here — they
+ * already have rows. This holds what does not: a contact created or merged, a
+ * role added, an assignment, a property linked; later appointments and skill
+ * actions. Not the old `event` table: that has no agency, no contact and no
+ * foreign key, so tenancy would be a convention and every read a scan.
+ *
+ * `kind` is text checked by zod (`activityKindSchema` in core), not an enum, so
+ * a new kind is a code change rather than a migration.
+ */
+export const activity = pgTable(
+  'activity',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    contactId: uuid('contact_id')
+      .notNull()
+      .references(() => contact.id, { onDelete: 'cascade' }),
+    kind: varchar('kind', { length: 64 }).notNull(),
+    actorType: activityActorTypeEnum('actor_type').notNull().default('user'),
+    actorId: uuid('actor_id').references(() => user.id, { onDelete: 'set null' }),
+    payload: jsonb('payload').notNull().default(sql`'{}'::jsonb`),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps,
+  },
+  (t) => [index('activity_contact_idx').on(t.contactId, desc(t.occurredAt))],
 );
 
 /**
@@ -964,3 +1188,8 @@ export type AgentInvite = typeof agentInvite.$inferSelect;
 export type Lead = typeof lead.$inferSelect;
 export type MailThread = typeof mailThread.$inferSelect;
 export type MailMessage = typeof mailMessage.$inferSelect;
+export type Contact = typeof contact.$inferSelect;
+export type ContactRole = typeof contactRole.$inferSelect;
+export type ContactProperty = typeof contactProperty.$inferSelect;
+export type Note = typeof note.$inferSelect;
+export type Activity = typeof activity.$inferSelect;

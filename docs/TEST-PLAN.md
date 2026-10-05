@@ -400,3 +400,26 @@ the Gmail answer was back in the same thread 7 s later. Every other row is unver
 | M11 | Buyer signs in on the website, opens **Account → Messages** | "Confirm your email first". Nothing email-matched shows yet. **Email me a link** → the link → **Confirm** → their enquiries and the agency's replies appear. |
 | M12 | Register a NEW account with somebody else's address, open Messages | Nothing of theirs shows. Pressing Email me a link sends the link to that address — the impostor never sees it. |
 | M13 | Open the emailed link while signed in as a DIFFERENT account | "That link has expired or belongs to another account." Nothing is confirmed. |
+
+## N — Contacts (ADR 0018, CRM Phase 1)
+
+Before: run the backfill once — `pnpm --filter @repo/core contacts:backfill` (dry run,
+read the numbers) then `pnpm --filter @repo/core contacts:backfill --apply`. Use an owner
+account and an agent account (two browsers — one cookie spans all hosts).
+
+| # | Case | Expected |
+|---|---|---|
+| N1 | Owner opens `agency…/customers` | Everyone who has enquired, offered or emailed, newest first. Roles show as chips; Source says Enquiry / Private offer / Email. |
+| N2 | Search a part of a name, an email, then a phone typed differently (`0412 345 678` vs `+61412345678`) | Each finds the person. |
+| N3 | Filter Role = Buyer, Assigned = Unassigned, then Clear | The URL changes with each; Back returns to the previous filter. |
+| N4 | **New contact** with a name only | Refused: "Give an email or a phone number". With an email already on a contact: refused with a link to that contact — nothing merged. |
+| N5 | Add one properly, tick a role, a next action, and marketing consent with a note | Lands on the profile. Consent shows the date and "recorded by <you>". |
+| N6 | On the profile, change **Assigned to** to the agent | Saved without a reload. |
+| N7 | Agent opens `agents…/my-contacts` | Only: contacts assigned to them, people who enquired on a listing they are named on, people on leads assigned to them. Never a private-offer maker. |
+| N8 | Agent opens a contact assigned to them → **Edit** | Can change everything and save. |
+| N9 | Agent opens a contact they see only through a lead | No Edit button; the note says only the assigned agent or an admin can edit. |
+| N10 | Agent pastes the id of a contact they cannot see into the URL | "That contact was not found" — same as a made-up id. |
+| N11 | Read-only member opens `/my-contacts` | Can view; no New contact, no Edit. |
+| N12 | Send an enquiry on the website with a NEW email, then one with the SAME email in capitals and a phone | One contact; first name kept; phone filled in; role Buyer (inferred, dashed). |
+| N13 | Email the agency address from a new address, then assign that contact to the agent | Owner sees the thread in Inbox at once; after assigning, the agent sees it in My inbox and may reply. |
+| N14 | Two contacts with the same phone, different emails | Both exist; the owner sees "Possible duplicates" on each profile. |

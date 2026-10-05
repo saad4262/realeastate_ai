@@ -21,7 +21,12 @@ import {
 import { decodeHtmlField, htmlToText, stripQuotedReply } from './body';
 import { receivedEmailSchema, type AttachmentNote, type ReceivedEmail } from './mail-schema';
 import { recordOutbound, type MailDeps } from './send';
-import { maySendOnThread, type ThreadAccessFacts } from './threads';
+import {
+  maySendOnThread,
+  threadContactColumns,
+  threadContactFacts,
+  type ThreadAccessFacts,
+} from './threads';
 
 /**
  * Mail arriving at MAIL_INBOUND_DOMAIN (docs/adr/0016).
@@ -138,13 +143,24 @@ async function threadFacts(db: Db, threadId: string): Promise<ThreadFacts | null
       listingId: lead.listingId,
       contactEmail: mailThread.contactEmail,
       subject: mailThread.subject,
+      ...threadContactColumns(),
     })
     .from(mailThread)
     .leftJoin(lead, eq(lead.id, mailThread.leadId))
     .where(eq(mailThread.id, threadId))
     .limit(1);
   if (!row) return null;
-  return { ...row, leadKind: (row.leadKind as LeadKind | null) ?? null };
+  return {
+    id: row.id,
+    agencyId: row.agencyId,
+    leadId: row.leadId,
+    leadKind: (row.leadKind as LeadKind | null) ?? null,
+    assignedTo: row.assignedTo,
+    listingId: row.listingId,
+    contactEmail: row.contactEmail,
+    subject: row.subject,
+    contact: threadContactFacts(row),
+  };
 }
 
 /**

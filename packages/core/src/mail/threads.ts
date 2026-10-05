@@ -13,6 +13,13 @@ import {
 } from '@repo/db';
 import { can, type Actor, type Resource } from '../permissions';
 import { formatAddress } from '../listings/listing-schema';
+import {
+  contactAccessColumns,
+  contactResource,
+  idArray,
+  visibleContactIdsSql,
+  type ContactAccessFacts,
+} from '../contacts/visibility';
 import type { LeadKind, LeadStatus } from '../leads/list-leads';
 import { snippet } from './body';
 import type { AttachmentNote, MailFolder } from './mail-schema';
@@ -24,8 +31,12 @@ import type { AttachmentNote, MailFolder } from './mail-schema';
  * IS the lead. `mail:read` has `lead:read`'s rule, an offer also needs
  * `lead:read_offer`, and an actor without `lead:read_all` is narrowed IN SQL to
  * the leads assigned to them or come through a listing they are named on — so
- * the counts never describe threads they cannot open. A thread with no lead is
- * mail to the agency's own address, and only `lead:read_all` sees those.
+ * the counts never describe threads they cannot open.
+ *
+ * A thread with no lead is mail to the agency's own address. Admins see all of
+ * those; since ADR 0018 anybody else sees one whose sender is a contact they
+ * may see (`contact:read`), and may answer it if they may edit that contact
+ * (`contact:update` — its assignee). One with no contact stays admins-only.
  */
 
 const assignee = alias(user, 'assignee');
@@ -51,7 +62,40 @@ export type ThreadAccessFacts = {
   leadKind: LeadKind | null;
   assignedTo: string | null;
   listingId: string | null;
+  /** The thread's contact, for mail with no lead (ADR 0018). Null when none. */
+  contact?: ContactAccessFacts | null;
 };
+
+/**
+ * Columns that load a thread's contact facts in the thread's own statement.
+ * Sub-selects keyed on `mail_thread.contact_id`, so no query is added.
+ */
+export function threadContactColumns() {
+  return {
+    contactId: mailThread.contactId,
+    contactAssignedTo: sql<string | null>`(
+      select c.assigned_to from contact c where c.id = ${mailThread.contactId}
+    )`,
+    ...contactAccessColumns(mailThread.contactId, mailThread.agencyId),
+  };
+}
+
+export function threadContactFacts(row: {
+  agencyId: string;
+  contactId: string | null;
+  contactAssignedTo: string | null;
+  leadAssigneeIds: string[] | string | null;
+  listingAgentIds: string[] | string | null;
+}): ContactAccessFacts | null {
+  if (!row.contactId) return null;
+  return {
+    id: row.contactId,
+    agencyId: row.agencyId,
+    assignedTo: row.contactAssignedTo,
+    leadAssigneeIds: idArray(row.leadAssigneeIds),
+    listingAgentIds: idArray(row.listingAgentIds),
+  };
+}
 
 export function threadResource(t: ThreadAccessFacts): Resource {
   return {
@@ -66,14 +110,20 @@ export function threadResource(t: ThreadAccessFacts): Resource {
 
 export function mayReadThread(actor: Actor, t: ThreadAccessFacts): boolean {
   const resource = threadResource(t);
+  if (!t.leadId) {
+    // Mail to the agency's own address: admins, or whoever may see its sender.
+    if (can(actor, 'mail:read', resource) && can(actor, 'lead:read_all', resource)) return true;
+    return Boolean(t.contact) && can(actor, 'contact:read', contactResource(t.contact!));
+  }
   if (!can(actor, 'mail:read', resource)) return false;
-  // Mail to the agency's own address has no lead to narrow it: admins only.
-  if (!t.leadId && !can(actor, 'lead:read_all', resource)) return false;
   return t.leadKind !== 'offer' || can(actor, 'lead:read_offer', resource);
 }
 
 export function maySendOnThread(actor: Actor, t: ThreadAccessFacts): boolean {
-  return mayReadThread(actor, t) && can(actor, 'mail:send', threadResource(t));
+  if (!mayReadThread(actor, t)) return false;
+  if (can(actor, 'mail:send', threadResource(t))) return true;
+  // No lead: answering the agency's mail is the contact's assignee's job.
+  return !t.leadId && Boolean(t.contact) && can(actor, 'contact:update', contactResource(t.contact!));
 }
 
 // ── The list ───────────────────────────────────────────────────────────────
@@ -135,22 +185,37 @@ export async function listMailThreads(
   const filters = [eq(mailThread.agencyId, actor.agencyId)];
   if (!offers) filters.push(sql`${lead.kind} is distinct from 'offer'`);
   if (!readAll) {
-    filters.push(isNotNull(mailThread.leadId));
     filters.push(
       or(
-        eq(lead.assignedTo, actor.userId),
-        inArray(
-          lead.listingId,
-          db
-            .select({ id: listingAgent.listingId })
-            .from(listingAgent)
-            .where(eq(listingAgent.userId, actor.userId)),
+        and(
+          isNotNull(mailThread.leadId),
+          or(
+            eq(lead.assignedTo, actor.userId),
+            inArray(
+              lead.listingId,
+              db
+                .select({ id: listingAgent.listingId })
+                .from(listingAgent)
+                .where(eq(listingAgent.userId, actor.userId)),
+            ),
+          ),
         ),
+        // Mail to the agency address from a contact this actor may see (ADR 0018).
+        and(isNull(mailThread.leadId), sql`${mailThread.contactId} in (${visibleContactIdsSql(actor)})`),
       )!,
     );
   }
   if (folder === 'unread') filters.push(unreadSql);
-  if (folder === 'mine') filters.push(eq(lead.assignedTo, actor.userId));
+  if (folder === 'mine') {
+    filters.push(
+      or(
+        eq(lead.assignedTo, actor.userId),
+        sql`(${mailThread.leadId} is null and exists (
+          select 1 from contact c where c.id = ${mailThread.contactId} and c.assigned_to = ${actor.userId}
+        ))`,
+      )!,
+    );
+  }
   if (folder === 'offers') filters.push(eq(lead.kind, 'offer'));
   if (folder === 'general') filters.push(isNull(mailThread.leadId));
 
@@ -291,6 +356,7 @@ async function loadThreadHead(db: DbOrTx, actor: Actor, threadId: string) {
       suburb: property.suburb,
       state: property.state,
       postcode: property.postcode,
+      ...threadContactColumns(),
     })
     .from(mailThread)
     .leftJoin(lead, eq(lead.id, mailThread.leadId))
@@ -307,6 +373,7 @@ async function loadThreadHead(db: DbOrTx, actor: Actor, threadId: string) {
     leadKind: (row.leadKind as LeadKind | null) ?? null,
     assignedTo: row.assignedTo,
     listingId: row.listingId,
+    contact: threadContactFacts(row),
   };
   return { row, facts };
 }

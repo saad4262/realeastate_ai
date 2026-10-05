@@ -2,6 +2,7 @@ import { cache } from 'react';
 import { eq, sql } from 'drizzle-orm';
 import { agency, listingAgent, membership, user } from '@repo/db/schema';
 import { can, type Actor, type MembershipRole } from '@repo/core/permissions';
+import { narrowedContactIdsSql } from '@repo/core/contacts';
 import { getConsoleDb } from './db';
 
 /**
@@ -94,14 +95,20 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
         where t.agency_id = ${membership.agencyId}
           and t.last_inbound_at > coalesce(r.last_read_at, '-infinity'::timestamptz)
       )`,
+      // The same threads /my-inbox lists: their leads' conversations, and
+      // mail to the agency address from a contact they may see (ADR 0018).
       unreadMailMine: sql<number>`(
         select count(*) from mail_thread t
-        join lead l on l.id = t.lead_id
+        left join lead l on l.id = t.lead_id
         left join mail_read r on r.thread_id = t.id and r.user_id = ${userId}
         where t.agency_id = ${membership.agencyId}
-          and l.kind <> 'offer'
-          and (l.assigned_to = ${userId}
-            or l.listing_id in (select la.listing_id from listing_agent la where la.user_id = ${userId}))
+          and (
+            (l.id is not null and l.kind <> 'offer'
+              and (l.assigned_to = ${userId}
+                or l.listing_id in (select la.listing_id from listing_agent la where la.user_id = ${userId})))
+            or (t.lead_id is null
+              and t.contact_id in (${narrowedContactIdsSql(userId, sql`${membership.agencyId}`)}))
+          )
           and t.last_inbound_at > coalesce(r.last_read_at, '-infinity'::timestamptz)
       )`,
     })

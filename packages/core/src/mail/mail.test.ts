@@ -256,6 +256,33 @@ describe('who may read and answer a conversation', () => {
     expect(mayReadThread(agentOnListing, general)).toBe(false);
   });
 
+  it('mail to the agency address from a contact: their agent reads and answers it (ADR 0018)', () => {
+    const contact = {
+      id: 'contact-1',
+      agencyId: agencyA,
+      assignedTo: 'agent',
+      leadAssigneeIds: [],
+      listingAgentIds: ['other'],
+    };
+    const general = { ...enquiry, leadId: null, leadKind: null, listingId: null, contact };
+    // Assigned the contact: reads and answers.
+    expect(mayReadThread(agentOnListing, general)).toBe(true);
+    expect(maySendOnThread(agentOnListing, general)).toBe(true);
+    // Meets the contact through a listing: reads, does not answer.
+    expect(mayReadThread(otherAgent, general)).toBe(true);
+    expect(maySendOnThread(otherAgent, general)).toBe(false);
+    // Read-only, even when it is theirs: reads, never answers.
+    const theirs = { ...general, contact: { ...contact, assignedTo: 'ro' } };
+    expect(mayReadThread(readOnly, theirs)).toBe(true);
+    expect(maySendOnThread(readOnly, theirs)).toBe(false);
+    // Nobody's contact: admins only, as before.
+    const nobodys = { ...general, contact: { ...contact, assignedTo: null, listingAgentIds: [] } };
+    expect(mayReadThread(agentOnListing, nobodys)).toBe(false);
+    expect(maySendOnThread(owner, nobodys)).toBe(true);
+    // And never across agencies.
+    expect(mayReadThread(outsider, general)).toBe(false);
+  });
+
   it('never crosses an agency', () => {
     expect(mayReadThread(outsider, enquiry)).toBe(false);
     expect(maySendOnThread(outsider, { ...enquiry, leadId: null, leadKind: null })).toBe(false);

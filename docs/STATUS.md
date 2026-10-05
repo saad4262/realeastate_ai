@@ -3,19 +3,49 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
-- **Now: CRM, Phase 0 (safety) done on branch `feat/crm`, waiting for approval.**
-  Plan: `~/.claude/plans/pasted-content-id-f0ff-you-are-functional-frost.md`
-  (Phase 1 = contacts; design in that file, not built).
+- **Now: CRM Phase 1 (contacts foundation) done on `feat/crm`, waiting for review.**
+  Plan: `~/.claude/plans/pasted-content-id-f0ff-you-are-functional-frost.md`.
+  Next: Phase 2 (Contact 360 profile) — not started.
 - Build order (locked): Agency UI → Agent UI → Consumer web
 - Last tool: Claude Code
 - Last updated: 2026-10-05
 - Deploying: `apps/web` only, Vercel Hobby. `apps/console` waits for a real
   domain — see `docs/DEPLOY.md`. **Nothing is deployed yet.**
 
+## CRM Phase 1 — contacts (2026-10-05, ADR 0018)
+
+- **Migration 0020 applied on dev** (additive): `contact`, `contact_role`,
+  `contact_property`, `note`, `activity`; `lead.contact_id`,
+  `mail_thread.contact_id`; `au_phone_key` (generated `phone_key`);
+  `contact_upsert` + BEFORE INSERT triggers on `lead` and lead-less
+  `mail_thread`. Same email = same person (fills blanks, never overwrites);
+  same phone = duplicate SUGGESTION only. `event` left untouched.
+- **Backfill NOT applied — the user runs it:**
+  `pnpm --filter @repo/core contacts:backfill` (dry run: 4 leads → 4 contacts
+  on dev) then `... --apply`. Smoke "every lead and conversation has its
+  contact" is red until then.
+- Permissions: `contact:read|read_all|create|update|assign|merge`,
+  `note:create|manage`. Visibility = can() + `contacts/visibility.ts`, held
+  together by a smoke parity check. Agents edit only contacts assigned to them;
+  read-only views only. Agency-address mail from a contact is now readable by
+  whoever sees the contact and answerable by its assignee.
+- Consent: `marketing_consent_at/_by/_note`, `email_opt_out_at`. An enquiry is
+  not consent.
+- Console: `/customers` (+ `/new`, `/[id]`) and `/my-contacts` (agent nav
+  "Contacts"). Profile is the Phase 1 card; Contact 360 tabs are Phase 2.
+- Not clicked in a browser: TEST-PLAN section N.
+- Numbers: typecheck 10/10, lint 0 errors, test 619 + 263, build 2/2,
+  smoke 130 passed / 2 failed (backfill not applied; known unmirrored dev
+  account). New checks break-checked red: SQL/can() parity, trigger
+  never-overwrites, agency mail reaching the contact's agent.
+- 0019 applied on dev 2026-10-05; the live Data API refuses the anon key on
+  every table (curl-verified). No browser code uses `.from()`/`.rpc()` — the
+  user may switch the Data API off.
+
 ## CRM Phase 0 (2026-10-05)
 
 - M6 committed on `main` (3 commits); CRM work on `feat/crm`.
-- **Migration 0019 written, NOT applied** (ADR 0017, "the server is the only
+- **Migration 0019 — applied on dev after review** (ADR 0017, "the server is the only
   door"): `anon`/`authenticated` held ALL privileges on every public table,
   4 tables had no RLS, and policies let any member update any listing and read
   every offer/email through the Data API. 0019 revokes the grants (and the

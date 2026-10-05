@@ -8,6 +8,7 @@ const NAV = [
   { href: '/listings', label: 'My Listings', icon: 'home_work' },
   { href: '/my-leads', label: 'Leads', icon: 'person_search' },
   { href: '/my-inbox', label: 'Inbox', icon: 'mail' },
+  { href: '/my-contacts', label: 'Contacts', icon: 'contacts' },
   { href: '#', label: 'Inspections', icon: 'event' },
   { href: '#', label: 'Offers', icon: 'handshake' },
 ];

@@ -82,6 +82,15 @@ import {
 import { mediaUrl } from '@repo/core/media/url';
 import { ensureAppUser } from '@repo/core/identity';
 import type { ChatTurnResult } from '@repo/ai/chat-events';
+import {
+  assignContact,
+  auPhoneKey,
+  ContactError,
+  getContact,
+  listContacts,
+  PHONE_KEY_SAMPLES,
+  visibleContactIdsSql,
+} from '@repo/core/contacts';
 import { assert, check, group, note, report, skip } from './runner';
 
 config({ path: resolve(process.cwd(), '../../.env.local') });
@@ -3267,6 +3276,220 @@ async function main() {
     assert(res.status === 307 || res.status === 302, `/account/messages answered ${res.status}, expected a redirect`);
     assert(location.includes('/login'), `redirected to ${location}, expected /login`);
     return `${res.status} → ${location.replace(WEB, '')}`;
+  });
+
+  // ------------------------------------------------------------ contacts --
+  group('Contacts');
+
+  /**
+   * A throwaway agency, written inside the caller's transaction (which is
+   * always rolled back): an owner, two agents, a read-only member, one listing
+   * agent A1 is named on, and the people around them. Self-contained, so these
+   * checks prove the rules whatever the dev data happens to hold.
+   */
+  async function contactFixture(t: Db) {
+    const id = () => randomUUID();
+    const tag = randomUUID().slice(0, 8);
+    const [ag] = await t.execute<{ id: string }>(sql`
+      insert into agency (name, slug) values (${'Smoke contacts ' + tag}, ${'smoke-contacts-' + tag}) returning id
+    `);
+    const agencyId = ag!.id;
+    const people = { owner: id(), a1: id(), a2: id(), viewer: id() };
+    const roles = { owner: 'owner', a1: 'agent', a2: 'agent', viewer: 'read_only' } as const;
+    for (const [k, uid] of Object.entries(people)) {
+      await t.execute(sql`insert into "user" (id, email, name) values (${uid}, ${`${k}.${tag}@smoke.test`}, ${k})`);
+      await t.execute(sql`
+        insert into membership (user_id, agency_id, role, status)
+        values (${uid}, ${agencyId}, ${roles[k as keyof typeof roles]}::membership_role, 'active')
+      `);
+    }
+    const [prop] = await t.execute<{ id: string }>(sql`
+      insert into property (street_number, street, suburb, state, postcode)
+      values ('1', 'Smoke Street', 'Pakenham', 'VIC', '3810') returning id
+    `);
+    const [lst] = await t.execute<{ id: string }>(sql`
+      insert into listing (property_id, agency_id, channel, status)
+      values (${prop!.id}, ${agencyId}, 'sale', 'live') returning id
+    `);
+    await t.execute(sql`
+      insert into listing_agent (listing_id, user_id, snapshot_name, snapshot_phone, snapshot_email)
+      values (${lst!.id}, ${people.a1}, 'A1', '0400000000', 'a1@smoke.test')
+    `);
+    const lead = async (email: string, name: string, extra: { listing?: boolean; assigned?: string; kind?: string; phone?: string } = {}) => {
+      const [row] = await t.execute<{ id: string; contact_id: string }>(sql`
+        insert into lead (property_id, listing_id, agency_id, name, email, phone, message, kind, assigned_to)
+        values (${prop!.id}, ${extra.listing ? lst!.id : null}, ${agencyId}, ${name}, ${email}, ${extra.phone ?? null},
+                'smoke', ${extra.kind ?? 'enquiry'}::lead_kind, ${extra.assigned ?? null})
+        returning id, contact_id
+      `);
+      return row!;
+    };
+    const contactRow = async (name: string, assigned: string | null) => {
+      const [row] = await t.execute<{ id: string }>(sql`
+        insert into contact (agency_id, name, email, assigned_to)
+        values (${agencyId}, ${name}, ${`${name.toLowerCase()}.${tag}@smoke.test`}, ${assigned}) returning id
+      `);
+      return row!.id;
+    };
+    const p1 = (await lead(`p1.${tag}@smoke.test`, 'P1', { listing: true })).contact_id; // A1: via listing
+    const p2 = (await lead(`p2.${tag}@smoke.test`, 'P2', { assigned: people.a2 })).contact_id; // A2: assigned lead
+    const p3 = (await lead(`p3.${tag}@smoke.test`, 'P3', { kind: 'offer', assigned: people.a1 })).contact_id; // offer: admins only
+    const p4 = await contactRow('P4', people.viewer); // the read-only member's own
+    const p5 = await contactRow('P5', null); // A1: tied to the address of A1's listing
+    await t.execute(sql`insert into contact_property (contact_id, property_id, relation) values (${p5}, ${prop!.id}, 'owner')`);
+    const p6 = await contactRow('P6', null); // nobody's
+    const actor = (k: keyof typeof people) => ({ userId: people[k], agencyId, membershipRole: roles[k] });
+    return { agencyId, tag, people, actor, contacts: { p1, p2, p3, p4, p5, p6 }, lead, propertyId: prop!.id };
+  }
+
+  await check('the phone key agrees in SQL and TypeScript', async () => {
+    // Search finds a typed number by `auPhoneKey`; Postgres stored it with
+    // `public.au_phone_key`. Two implementations, one answer — or search misses.
+    const rows = await db.execute<{ raw: string; key: string | null }>(sql`
+      select x as raw, public.au_phone_key(x) as key
+      from unnest(${sql.raw(`array[${PHONE_KEY_SAMPLES.map((s) => `'${s.replace(/'/g, "''")}'`).join(',')}]`)}::text[]) x
+    `);
+    const differ = rows.filter((r) => r.key !== auPhoneKey(r.raw));
+    assert(differ.length === 0, `differ on ${differ.map((r) => `"${r.raw}" (sql ${r.key} vs ts ${auPhoneKey(r.raw)})`).join(', ')}`);
+    return `${rows.length} shapes agree`;
+  });
+
+  await check('every lead and conversation has its contact', async () => {
+    // New rows get one from the 0020 triggers; older rows from the backfill.
+    const [gap] = await db.execute<{ leads: number; threads: number }>(sql`
+      select (select count(*)::int from lead where contact_id is null) as leads,
+             (select count(*)::int from mail_thread where lead_id is not null and contact_id is null) as threads
+    `);
+    assert(
+      Number(gap?.leads) === 0 && Number(gap?.threads) === 0,
+      `${gap?.leads} lead(s) and ${gap?.threads} conversation(s) have no contact — run \`pnpm --filter @repo/core contacts:backfill --apply\``,
+    );
+    return 'none missing';
+  });
+
+  await check('an enquiry finds its person by email and never overwrites them; a shared phone stays two people', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    const steps: string[] = [];
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const first = await f.lead(`Tom.${f.tag}@Smoke.test `, 'Tom', { listing: true });
+        const again = await f.lead(`tom.${f.tag}@smoke.test`, 'Thomas Changed', { phone: '0412 345 678' });
+        assert(first.contact_id === again.contact_id, 'the same email in another case made a second contact');
+        const [tom] = await t.execute<{ name: string; phone: string | null; n: number }>(sql`
+          select name, phone, (select count(*)::int from contact_role r where r.contact_id = c.id) as n
+          from contact c where id = ${first.contact_id}
+        `);
+        assert(tom?.name === 'Tom', `the name was overwritten to "${tom?.name}"`);
+        assert(tom?.phone === '0412 345 678', 'a blank phone was not filled');
+        assert(Number(tom?.n) >= 1, 'no role was tagged from the enquiry');
+        steps.push('same person, name kept, blank phone filled, role tagged');
+
+        const twin = await f.lead(`someone.else.${f.tag}@smoke.test`, 'Ann', { phone: '+61 412 345 678' });
+        assert(twin.contact_id !== first.contact_id, 'a shared phone merged two people');
+        steps.push('shared phone kept apart');
+
+        const [thread] = await t.execute<{ contact_id: string | null }>(sql`
+          select contact_id from mail_thread where lead_id = (select id from lead where contact_id = ${first.contact_id} limit 1)
+        `);
+        assert(thread?.contact_id === first.contact_id, "the lead's conversation does not carry its contact");
+        const [general] = await t.execute<{ contact_id: string | null }>(sql`
+          insert into mail_thread (agency_id, subject, contact_email, contact_name)
+          values (${f.agencyId}, 'Hello', ${`tom.${f.tag}@smoke.test`}, 'T') returning contact_id
+        `);
+        assert(general?.contact_id === first.contact_id, 'mail to the agency address did not find Tom');
+        const [colleague] = await t.execute<{ contact_id: string | null }>(sql`
+          insert into mail_thread (agency_id, subject, contact_email)
+          values (${f.agencyId}, 'Internal', ${`a1.${f.tag}@smoke.test`}) returning contact_id
+        `);
+        assert(colleague?.contact_id === null, 'a colleague emailing the agency became a contact');
+        steps.push('threads carry the contact; a colleague is not a customer');
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return steps.join('; ');
+  });
+
+  await check('contact visibility: can() and the SQL filter agree, for every member and contact', async () => {
+    /**
+     * ADR 0018. The rule lives in can(); the directory and the inbox use its
+     * SQL twin. If either moves without the other, some agent sees a row they
+     * cannot open — or cannot find one they can. Expected answers are spelled
+     * out too, so the two cannot agree on something wrong.
+     */
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const c = f.contacts;
+        const expected: Record<keyof typeof f.people, string[]> = {
+          owner: Object.values(c),
+          a1: [c.p1, c.p5],
+          a2: [c.p2],
+          viewer: [c.p4],
+        };
+        let pairs = 0;
+        for (const who of Object.keys(f.people) as (keyof typeof f.people)[]) {
+          const a = f.actor(who);
+          const visible = new Set(
+            (await t.execute<{ id: string }>(sql`${visibleContactIdsSql(a)}`)).map((r) => r.id),
+          );
+          for (const id of Object.values(c)) {
+            let canSee = true;
+            try {
+              await getContact(t, a, id);
+            } catch (err) {
+              if (!(err instanceof ContactError)) throw err;
+              canSee = false;
+            }
+            assert(canSee === visible.has(id), `${who} on ${id}: can() says ${canSee}, SQL says ${visible.has(id)}`);
+            assert(canSee === expected[who].includes(id), `${who} ${canSee ? 'sees' : 'does not see'} ${id}, which the rule says otherwise`);
+            pairs += 1;
+          }
+        }
+        const a1Page = await listContacts(t, f.actor('a1'));
+        assert(a1Page.total === 2, `A1's directory holds ${a1Page.total}, expected 2 (never the offer's)`);
+        summary = `${pairs} pairs agree; A1 sees 2 of 6, never the offer`;
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check("mail to the agency address reaches the inbox of the sender's agent", async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    const steps: string[] = [];
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const [thread] = await t.execute<{ id: string; contact_id: string }>(sql`
+          insert into mail_thread (agency_id, subject, contact_email, contact_name)
+          values (${f.agencyId}, 'Selling my house', ${`p7.${f.tag}@smoke.test`}, 'P7') returning id, contact_id
+        `);
+        const inbox = async (who: 'a2' | 'owner') =>
+          (await listMailThreads(t, f.actor(who), { limit: 200 })).rows.some((r) => r.id === thread!.id);
+        assert(await inbox('owner'), 'the owner does not see mail to the agency address');
+        assert(!(await inbox('a2')), "an agent sees mail from somebody who is not theirs");
+        steps.push('unassigned sender: admins only');
+        await assignContact(t, f.actor('owner'), thread!.contact_id, f.people.a2);
+        assert(await inbox('a2'), "the sender's agent does not see their email");
+        const view = await getMailThread(t, f.actor('a2'), thread!.id);
+        assert(view.maySend, "the sender's agent may not answer it");
+        steps.push("assigned: their agent reads and may answer");
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return steps.join('; ');
   });
 
   group('Console (HTTP, signed out)');
