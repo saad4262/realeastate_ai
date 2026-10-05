@@ -8,6 +8,7 @@ import {
   type ContactListQuery,
   type ContactPage,
 } from '@repo/core/contacts';
+import { SaveFilterForm } from '@/components/bulk-email/islands';
 import styles from './contacts.module.css';
 
 const WHEN = new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -109,6 +110,17 @@ export function ContactDirectory({
         <button type="submit" className={styles.btnGhost}>Filter</button>
         {filtered ? <Link href={basePath} className={styles.back}>Clear</Link> : null}
       </form>
+      {filtered && page.mayCreate ? (
+        <SaveFilterForm
+          query={{
+            ...(query.q ? { q: query.q } : {}),
+            ...(query.role ? { role: query.role } : {}),
+            ...(query.source ? { source: query.source } : {}),
+            ...(query.assigned ? { assigned: query.assigned } : {}),
+            ...(query.archived ? { archived: query.archived } : {}),
+          }}
+        />
+      ) : null}
 
       <div className={styles.card}>
         {page.rows.length === 0 ? (

@@ -12,6 +12,7 @@ const NAV = [
   { href: '/my-calendar', label: 'Calendar', icon: 'event' },
   { href: '#', label: 'Offers', icon: 'handshake' },
   { href: '/my-skills', label: 'Skills', icon: 'auto_awesome' },
+  { href: '/my-bulk-email', label: 'Bulk email', icon: 'forward_to_inbox' },
   { href: '/my-integrations', label: 'Integrations', icon: 'extension' },
 ];
 

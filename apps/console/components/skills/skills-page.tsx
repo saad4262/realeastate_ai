@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { LocalTime } from '@repo/ui';
 import { listMySkills, listSkillLibrary, SkillError, SKILL_HANDLER_LABELS } from '@repo/core/skills';
 import { PROVIDERS } from '@repo/core/integrations';
+import { ensureTemplateEmailSkill } from '@repo/core/template-email';
 import contactStyles from '@/components/contacts/contacts.module.css';
 import { getConsoleDb } from '../../lib/db';
 import { requireConsoleAccess } from '../../lib/require-console-access';
@@ -21,6 +22,8 @@ export async function SkillsPage({ surface }: { surface: 'agency' | 'agent' }) {
   let data: [Awaited<ReturnType<typeof listMySkills>>, Awaited<ReturnType<typeof listSkillLibrary>>] | null = null;
   let loadError: string | null = null;
   try {
+    // The template-email library entry cannot be seeded by its migration (a new enum value); see ensureTemplateEmailSkill.
+    await ensureTemplateEmailSkill(db);
     data = await Promise.all([listMySkills(db, session.actor), listSkillLibrary(db, session.actor)]);
   } catch (err) {
     loadError = err instanceof SkillError ? err.message : 'Failed to load skills';
@@ -86,7 +89,11 @@ export async function SkillsPage({ surface }: { surface: 'agency' | 'agent' }) {
                   </span>
                 </span>
                 <span className={contactStyles.inlineForm}>
-                  {s.myCopyId ? (
+                  {s.handler === 'template_email' ? (
+                    <Link href={surface === 'agency' ? '/bulk-email' : '/my-bulk-email'} className={contactStyles.btnGhost}>
+                      Open bulk email
+                    </Link>
+                  ) : s.myCopyId ? (
                     <Link href={`${basePath}/${s.myCopyId}`} className={contactStyles.btnGhost}>In your skills</Link>
                   ) : library.mayAdd ? (
                     <AddSkillButton skillId={s.id} basePath={basePath} />
