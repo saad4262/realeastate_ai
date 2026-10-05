@@ -1,3 +1,4 @@
+import { leadDetailsHtml, leadDetailsText, type LeadDetails } from './lead-details';
 import { escapeHtml, requireSenderFooter } from './schedule-digest';
 import { type TransactionalMessage } from './transport';
 
@@ -42,6 +43,11 @@ export type PrivateOfferEmailInput = {
   message: string;
   /** Where the agency can see the property this is about. */
   propertyUrl: string;
+  /**
+   * The property's facts and its last sale, read from the database after the
+   * offer was recorded. Optional: the email still goes out without them.
+   */
+  details?: LeadDetails;
 };
 
 const AUD = new Intl.NumberFormat('en-AU', {
@@ -79,14 +85,14 @@ export function buildPrivateOfferEmail(input: PrivateOfferEmailInput): Transacti
             ${escapeHtml(figure)}
           </div>
 
-          <p style="font:400 15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1a1a1a;margin:18px 0 0;white-space:pre-wrap;">${escapeHtml(input.message)}</p>
+          ${input.details ? `${leadDetailsHtml(input.details)}<div style="height:18px"></div>` : `<p style="font:400 15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1a1a1a;margin:18px 0 0;white-space:pre-wrap;">${escapeHtml(input.message)}</p>
 
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:22px;">
             <tr><td style="padding:16px 0;border-top:1px solid #ece7dd;font:400 15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1a1a1a;">
               <strong style="font-weight:600;">${escapeHtml(input.offeredBy.name)}</strong><br>
               <a href="mailto:${escapeHtml(input.offeredBy.email)}" style="color:#0b3d2e;">${escapeHtml(input.offeredBy.email)}</a>${phoneLine}
             </td></tr>
-          </table>
+          </table>`}
 
           <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:8px;">
             <tr><td style="background:#0b3d2e;border-radius:6px;">
@@ -119,12 +125,9 @@ export function buildPrivateOfferEmail(input: PrivateOfferEmailInput): Transacti
     '',
     `Offer: ${figure}`,
     '',
-    input.message,
-    '',
-    'From:',
-    input.offeredBy.name,
-    input.offeredBy.email,
-    input.offeredBy.phone,
+    ...(input.details
+      ? leadDetailsText(input.details)
+      : [input.message, '', 'From:', input.offeredBy.name, input.offeredBy.email, input.offeredBy.phone]),
     '',
     `View the property: ${input.propertyUrl}`,
     '',

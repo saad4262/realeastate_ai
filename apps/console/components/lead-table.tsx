@@ -55,12 +55,15 @@ export function LeadTable({
   webUrl,
   assignees,
   basePath = '/leads',
+  inboxPath = '/inbox',
   title = 'Leads',
   subtitle,
 }: {
   rows: Row[];
   /** Where the tabs point — `/leads` on the agency console, `/my-leads` on the desk. */
   basePath?: string;
+  /** Where a lead's conversation opens — `/inbox`, or `/my-inbox` on the desk (ADR 0016). */
+  inboxPath?: string;
   title?: string;
   /** Overrides the agency wording; the agent desk describes a narrower inbox. */
   subtitle?: string;
@@ -156,6 +159,11 @@ export function LeadTable({
                       <a href={`mailto:${r.email}`}>{r.email}</a>
                       {r.phone ? <> · <a href={`tel:${r.phone}`}>{r.phone}</a></> : null}
                     </div>
+                    {r.threadId ? (
+                      <Link href={`${inboxPath}?thread=${r.threadId}`} className={styles.convo}>
+                        Open conversation
+                      </Link>
+                    ) : null}
                   </td>
                   <td>
                     {/*

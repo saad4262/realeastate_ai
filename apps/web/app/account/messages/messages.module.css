@@ -1,0 +1,65 @@
+/*
+ * The buyer's messages (docs/adr/0016). Same column and card language as
+ * /account and /alerts — they are one account area.
+ */
+
+.page { width: 100%; max-width: 42rem; margin: 0 auto; padding: 1rem 0 2rem; box-sizing: border-box; }
+
+.back { display: inline-block; margin-bottom: 0.75rem; font-size: 0.875rem; color: var(--color-muted, #5c5c5c); text-decoration: none; }
+.back:hover { color: var(--color-ink, #1a1a1a); }
+
+.title {
+  margin: 0;
+  font-family: var(--font-display, Georgia, serif);
+  font-size: clamp(1.5rem, 3vw, 1.875rem);
+  font-weight: 600; letter-spacing: -0.025em; line-height: 1.2;
+  color: var(--color-ink, #1a1a1a);
+  overflow-wrap: anywhere;
+}
+.sub { margin: 0.35rem 0 1.5rem; font-size: 0.9375rem; color: var(--color-muted, #5c5c5c); }
+
+.list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--color-border, #d9d2c5); border-radius: 1rem; overflow: hidden; background: color-mix(in srgb, #fff 80%, transparent); }
+.item + .item { border-top: 1px solid color-mix(in srgb, var(--color-border, #d9d2c5) 55%, transparent); }
+.row { display: grid; gap: 0.2rem; padding: 0.9rem 1.1rem; color: inherit; text-decoration: none; }
+.row:hover { background: color-mix(in srgb, var(--color-border, #d9d2c5) 18%, transparent); }
+.rowTop { display: flex; align-items: baseline; gap: 0.75rem; }
+.agency { flex: 1; min-width: 0; font-weight: 600; color: var(--color-ink, #1a1a1a); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.when { flex: none; font-size: 0.75rem; color: var(--color-muted, #5c5c5c); font-variant-numeric: tabular-nums; }
+.subject { font-size: 0.875rem; color: var(--color-ink, #1a1a1a); overflow-wrap: anywhere; }
+.preview { font-size: 0.8125rem; color: var(--color-muted, #5c5c5c); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.replies { font-size: 0.75rem; font-weight: 600; color: var(--shell-accent, #0b3d2e); }
+
+.card { padding: 1.25rem 1.35rem; margin-top: 1rem; border: 1px solid var(--color-border, #d9d2c5); border-radius: 1rem; background: color-mix(in srgb, #fff 80%, transparent); }
+.cardLabel { margin: 0 0 0.5rem; font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-muted, #5c5c5c); }
+.body { margin: 0; font-size: 0.9375rem; line-height: 1.55; color: var(--color-ink, #1a1a1a); }
+.link { display: inline-block; margin-top: 0.75rem; font-size: 0.875rem; font-weight: 600; color: var(--shell-accent, #0b3d2e); }
+
+.empty { padding: 2rem 1.25rem; text-align: center; border: 1px dashed var(--color-border, #d9d2c5); border-radius: 1rem; }
+.emptyTitle { margin: 0; font-weight: 600; color: var(--color-ink, #1a1a1a); }
+.emptyHint { margin: 0.35rem 0 0; font-size: 0.875rem; color: var(--color-muted, #5c5c5c); }
+
+/* One conversation — mail cards in order, not chat bubbles. */
+.thread { display: grid; gap: 0; border: 1px solid var(--color-border, #d9d2c5); border-radius: 1rem; overflow: hidden; background: color-mix(in srgb, #fff 85%, transparent); }
+.msg { display: grid; gap: 0.5rem; padding: 1rem 1.25rem; }
+.msg + .msg { border-top: 1px solid color-mix(in srgb, var(--color-border, #d9d2c5) 70%, transparent); }
+.mine, .theirs { justify-self: stretch; }
+.meta { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 0.75rem; font-size: 0.75rem; color: var(--color-muted, #5c5c5c); }
+.from { font-size: 0.9375rem; font-weight: 600; color: var(--color-ink, #1a1a1a); }
+.theirs .from { color: var(--shell-accent, #0b3d2e); }
+.bubble { font-size: 0.9375rem; line-height: 1.6; color: var(--color-ink, #1a1a1a); white-space: pre-wrap; overflow-wrap: anywhere; }
+.hint { margin: 1.25rem 0 0; font-size: 0.875rem; color: var(--color-muted, #5c5c5c); }
+.alert { margin: 0; color: #b42318; }
+
+.notice { margin: 0 0 1rem; padding: 0.7rem 0.9rem; border-radius: 0.75rem; font-size: 0.875rem; background: color-mix(in srgb, var(--shell-accent, #0b3d2e) 8%, #fff); color: var(--color-ink, #1a1a1a); }
+.noticeBad { margin: 0 0 1rem; padding: 0.7rem 0.9rem; border-radius: 0.75rem; font-size: 0.875rem; background: #fff4ed; color: #b42318; }
+.verify { padding: 1.25rem 1.35rem; margin-bottom: 1rem; border: 1px solid color-mix(in srgb, var(--shell-accent, #0b3d2e) 35%, transparent); border-radius: 1rem; background: color-mix(in srgb, #fff 85%, transparent); }
+.button { margin-top: 0.85rem; padding: 0.6rem 1.1rem; border: 0; border-radius: 9999px; background: var(--shell-accent, #0b3d2e); color: var(--color-accent-fg, #f7f4ef); font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer; }
+.composer { display: grid; gap: 0.6rem; margin-top: 1rem; padding: 1rem 1.25rem; border: 1px solid var(--color-border, #d9d2c5); border-radius: 1rem; background: color-mix(in srgb, #fff 90%, transparent); }
+.composerLabel { font-size: 0.875rem; font-weight: 600; color: var(--color-ink, #1a1a1a); }
+.textarea { width: 100%; min-height: 7rem; resize: vertical; padding: 0.7rem 0.85rem; border: 1px solid var(--color-border, #d9d2c5); border-radius: 0.75rem; background: #fff; font: inherit; font-size: 0.9375rem; line-height: 1.55; color: var(--color-ink, #1a1a1a); box-sizing: border-box; }
+.textarea:focus { outline: 2px solid color-mix(in srgb, var(--shell-accent, #0b3d2e) 40%, transparent); outline-offset: 1px; }
+.composerFoot { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
+.composerFoot .button { margin-top: 0; }
+.composerNote { font-size: 0.8125rem; color: var(--color-muted, #5c5c5c); }
+.composerError { font-size: 0.8125rem; color: #b42318; }
+.button:disabled { opacity: 0.6; cursor: default; }

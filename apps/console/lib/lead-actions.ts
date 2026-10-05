@@ -47,6 +47,9 @@ async function run(
     // The inbox and the nav badge beside it, which counts new offers.
     revalidatePath('/leads');
     revalidatePath('/my-leads');
+    // The conversation view shows the same status and assignee (ADR 0016).
+    revalidatePath('/inbox');
+    revalidatePath('/my-inbox');
     return { ok: true, status: result.status, assignedTo: result.assignedTo };
   } catch (err) {
     if (err instanceof LeadTriageError) return { ok: false, error: err.message, code: err.code };

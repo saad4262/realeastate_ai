@@ -1,0 +1,1 @@
+ALTER TYPE "public"."mail_channel" ADD VALUE 'website';

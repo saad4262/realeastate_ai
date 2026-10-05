@@ -42,6 +42,14 @@ export {
 } from './private-offer';
 
 export {
+  buildConversationEmail,
+  buildReplyNoticeEmail,
+  replySubject,
+  type ConversationEmailInput,
+  type ReplyNoticeEmailInput,
+} from './conversation';
+
+export {
   buildAgentInviteEmail,
   buildLeadNoticeEmail,
   type AgentInviteEmailInput,

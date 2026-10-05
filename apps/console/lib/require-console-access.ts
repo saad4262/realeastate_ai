@@ -68,13 +68,20 @@ export type ConsoleChrome = {
    * `newOffers` is already zeroed for anyone who may not read a private offer —
    * the decision is made by can() in load-actor.ts, never re-made by the chrome.
    */
-  summary: { members: number; liveListings: number; pendingInvites: number; newOffers: number };
+  summary: {
+    members: number;
+    liveListings: number;
+    pendingInvites: number;
+    newOffers: number;
+    /** Unopened conversations — already narrowed by can() in load-actor.ts. */
+    unreadMail: number;
+  };
 };
 
 const CHROME_FALLBACK: ConsoleChrome = {
   userRole: 'Member',
   agencyName: null,
-  summary: { members: 0, liveListings: 0, pendingInvites: 0, newOffers: 0 },
+  summary: { members: 0, liveListings: 0, pendingInvites: 0, newOffers: 0, unreadMail: 0 },
 };
 
 /**

@@ -88,6 +88,23 @@ export const envSchema = z.object({
   ALERTS_DRY_RUN: z.string().optional(),
 
   /**
+   * Email conversations in the app (docs/adr/0016).
+   *
+   * MAIL_INBOUND_DOMAIN is the domain Resend receives on — its MX points at
+   * Resend — e.g. `reply.example.com.au`. Every email sent from a conversation
+   * carries a Reply-To on it, so a reply from Gmail lands back in the thread.
+   * MAIL_REPLY_SECRET signs those addresses; no default, a default is a
+   * forgeable address. Both unset: sending still works and replies go to the
+   * agent's own email, the way they did before.
+   *
+   * RESEND_WEBHOOK_SECRET (`whsec_…`) verifies /api/mail/inbound. Unset means
+   * the endpoint refuses everything, like CRON_SECRET.
+   */
+  MAIL_INBOUND_DOMAIN: z.string().optional(),
+  MAIL_REPLY_SECRET: z.string().optional(),
+  RESEND_WEBHOOK_SECRET: z.string().optional(),
+
+  /**
    * Was read straight from process.env in apps/web/app/api/revalidate/route.ts
    * and declared nowhere, so this schema was only ever half the story.
    */

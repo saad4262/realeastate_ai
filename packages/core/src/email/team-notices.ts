@@ -1,3 +1,4 @@
+import { leadDetailsHtml, leadDetailsText, type LeadDetails } from './lead-details';
 import { escapeHtml, requireSenderFooter } from './schedule-digest';
 import { type TransactionalMessage } from './transport';
 
@@ -152,6 +153,16 @@ export type LeadNoticeEmailInput = {
   message: string | null;
   /** Where the recipient works this lead — their own inbox, on their own host. */
   inboxUrl: string;
+  /**
+   * The lead's conversation address (ADR 0016). Replying to the notice then
+   * answers the buyer through the platform, and the console shows it.
+   */
+  replyTo?: { email: string; name?: string };
+  /**
+   * The full picture — offer, property, features, ad, last sale, person,
+   * message. When present it replaces the short message-and-contact block.
+   */
+  details?: LeadDetails;
 };
 
 const KIND_WORD: Record<LeadNoticeEmailInput['kind'], string> = {
@@ -169,8 +180,11 @@ const KIND_WORD: Record<LeadNoticeEmailInput['kind'], string> = {
  * who may already read the lead in the console are ever sent one; who that is
  * is decided in leads/lead-notices.ts, through can().
  *
- * An offer's amount is NOT in it. The amount is in the console behind the
- * offer permission; an assignment email is the wrong place to repeat it.
+ * With `details`, the whole lead is in it — including an offer's amount. That
+ * is safe because of who receives it: lead-notices.ts sends an offer's notice
+ * only to people `lead:read_offer` allows, the same people the console shows
+ * the amount to. The client asked for the detail so an agent can act from the
+ * email alone.
  */
 export function buildLeadNoticeEmail(input: LeadNoticeEmailInput): TransactionalMessage {
   requireSenderFooter(input.from, input.postalAddress, 'lead notice');
@@ -202,7 +216,9 @@ export function buildLeadNoticeEmail(input: LeadNoticeEmailInput): Transactional
   const html = layout({
     heading,
     intro,
-    body: `${
+    body: input.details
+      ? leadDetailsHtml(input.details)
+      : `${
       input.message
         ? `
           <p style="font:400 15px/1.6 ${FONT};color:#1a1a1a;margin:18px 0 0;white-space:pre-wrap;">${escapeHtml(input.message)}</p>`
@@ -222,11 +238,9 @@ export function buildLeadNoticeEmail(input: LeadNoticeEmailInput): Transactional
     heading,
     intro,
     '',
-    ...(input.message ? [input.message, ''] : []),
-    'From:',
-    p.name,
-    p.email,
-    p.phone,
+    ...(input.details
+      ? leadDetailsText(input.details)
+      : [...(input.message ? [input.message, ''] : []), 'From:', p.name, p.email, p.phone]),
     '',
     `Open in your leads: ${input.inboxUrl}`,
     '',
@@ -243,5 +257,6 @@ export function buildLeadNoticeEmail(input: LeadNoticeEmailInput): Transactional
     html,
     text,
     tags: { kind: input.reason === 'new' ? 'lead-new' : 'lead-assigned' },
+    ...(input.replyTo ? { replyTo: input.replyTo } : {}),
   };
 }

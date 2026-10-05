@@ -1,3 +1,4 @@
+import { mailConfigFromEnv, type MailConfig } from '../mail/address';
 import { dryRunTransport, EmailError, type EmailMessage, type EmailTransport, type SendResult } from './transport';
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
@@ -28,12 +29,23 @@ export function resendTransport(opts: {
 
   return {
     async send(message: EmailMessage): Promise<SendResult> {
+      const threadingHeaders = message.threading
+        ? {
+            'In-Reply-To': message.threading.inReplyTo,
+            References: message.threading.references.join(' '),
+          }
+        : null;
+
       const body = {
         from: formatAddress(message.from),
         to: [formatAddress(message.to)],
         subject: message.subject,
         html: message.html,
         text: message.text,
+        ...(message.replyTo ? { reply_to: [formatAddress(message.replyTo)] } : {}),
+        // Threading headers never meet the unsubscribe pair: a marketing
+        // message is never a reply, so at most one of these two spreads applies.
+        ...(threadingHeaders && message.kind === 'transactional' ? { headers: threadingHeaders } : {}),
         /**
          * RFC 8058, on marketing mail only.
          *
@@ -192,7 +204,9 @@ export function mailerFromEnv(env: NodeJS.ProcessEnv = process.env): {
  */
 export function noticeMailFromEnv(env: NodeJS.ProcessEnv = process.env): {
   mailer: { sender: SenderIdentity; transport: EmailTransport };
-  urls: { agentUrl: string; agencyUrl: string };
+  urls: { agentUrl: string; agencyUrl: string; webUrl: string };
+  /** Inbound mail, when set up (ADR 0016) — notices then reply into the conversation. */
+  config: MailConfig | null;
 } | null {
   let mailer: ReturnType<typeof mailerFromEnv>;
   try {
@@ -206,6 +220,8 @@ export function noticeMailFromEnv(env: NodeJS.ProcessEnv = process.env): {
     urls: {
       agentUrl: env.NEXT_PUBLIC_AGENT_URL?.trim() || 'http://agents.lvh.me:3001',
       agencyUrl: env.NEXT_PUBLIC_AGENCY_URL?.trim() || 'http://agency.lvh.me:3001',
+      webUrl: env.NEXT_PUBLIC_WEB_URL?.trim() || 'http://web.lvh.me:3000',
     },
+    config: mailConfigFromEnv(env),
   };
 }

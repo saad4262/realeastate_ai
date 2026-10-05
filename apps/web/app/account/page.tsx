@@ -109,6 +109,19 @@ export default async function AccountPage() {
           </dl>
         </section>
 
+        {/*
+          Conversations with agencies (docs/adr/0016). No count here, on
+          purpose: it would be one more query on every visit to a page most
+          people open to change a password.
+        */}
+        <section className={styles.card}>
+          <h2 className={styles.cardLabel}>Messages</h2>
+          <p className={styles.body}>Your enquiries, and every reply an agency has emailed you.</p>
+          <Link href="/account/messages" className={styles.secondary}>
+            Open messages
+          </Link>
+        </section>
+
         <section className={styles.card}>
           <h2 className={styles.cardLabel}>Saved searches</h2>
           <p className={styles.body}>

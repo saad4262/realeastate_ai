@@ -113,6 +113,27 @@
       "when": 1790916937084,
       "tag": "0015_chat_sales_frame",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791018753850,
+      "tag": "0016_mail_conversations",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791021342632,
+      "tag": "0017_user_verified_email",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791024284825,
+      "tag": "0018_mail_channel_website",
+      "breakpoints": true
     }
   ]
 }

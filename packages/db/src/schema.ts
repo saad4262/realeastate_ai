@@ -91,6 +91,14 @@ export const user = pgTable('user', {
   name: text('name'),
   phone: text('phone'),
   avatarUrl: text('avatar_url'),
+  /**
+   * The address this person has PROVED they receive mail at, by opening a link
+   * sent to it (docs/adr/0016). Not `email`: sign-up does not confirm an
+   * address in this project, so `email` is only what somebody typed. A buyer's
+   * conversations are matched on this, and only while it still equals `email`
+   * — changing the sign-in address leaves it stale, and stale matches nothing.
+   */
+  verifiedEmail: text('verified_email'),
   ...timestamps,
 });
 
@@ -479,6 +487,133 @@ export const lead = pgTable(
   ],
 );
 
+/** Which way a message went: from outside to the agency, or from the agency out. */
+export const mailDirectionEnum = pgEnum('mail_direction', ['in', 'out']);
+
+/**
+ * Where a message was written: `console` — an agent in the inbox; `email` — an
+ * agent's reply from their own mail client, relayed; `website` — the buyer,
+ * answering from their messages page instead of their mail app.
+ */
+export const mailChannelEnum = pgEnum('mail_channel', ['console', 'email', 'website']);
+
+/** `received` is every inbound row. The other three are an outbound send's life. */
+export const mailStatusEnum = pgEnum('mail_status', ['received', 'queued', 'sent', 'failed']);
+
+/**
+ * One email conversation with somebody outside the agency. See docs/adr/0016.
+ *
+ * Every lead has exactly one, made by a trigger on `lead` insert — so neither
+ * lead write path had to change, and a lead written by a script or the seed
+ * gets its conversation too. A thread with no lead is mail that arrived at the
+ * agency's own address about nothing we know of.
+ *
+ * Status and assignee are NOT here. On a lead thread they are the lead's, read
+ * through the join: two columns saying who owns one conversation is two
+ * answers to one question.
+ */
+export const mailThread = pgTable(
+  'mail_thread',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    /** Unique: one conversation per lead. Null for mail to the agency's own address. */
+    leadId: uuid('lead_id')
+      .unique()
+      .references(() => lead.id, { onDelete: 'cascade' }),
+    subject: text('subject').notNull(),
+    /** Lower-cased on write, so matching a buyer's sign-in email is an equality. */
+    contactEmail: text('contact_email').notNull(),
+    contactName: text('contact_name'),
+    lastMessageAt: timestamp('last_message_at', { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * The last time somebody OUTSIDE wrote. Unread is "this is newer than when
+     * you last opened it" — so your own reply never marks a thread unread for you.
+     */
+    lastInboundAt: timestamp('last_inbound_at', { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps,
+  },
+  (t) => [
+    index('mail_thread_agency_idx').on(t.agencyId, desc(t.lastMessageAt)),
+    index('mail_thread_contact_idx').on(t.contactEmail),
+  ],
+);
+
+/**
+ * One email, in or out.
+ *
+ * The opening message of a lead thread is NOT a row here — it is `lead.message`,
+ * rendered first. Copying it would be a second record of what the buyer wrote.
+ *
+ * `html` is stored as received and is NEVER put into a page as markup: the
+ * console renders it in a sandboxed iframe (ADR 0016 §5).
+ */
+export const mailMessage = pgTable(
+  'mail_message',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    threadId: uuid('thread_id')
+      .notNull()
+      .references(() => mailThread.id, { onDelete: 'cascade' }),
+    /** Denormalised so the RLS policy is readable without a join. */
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    direction: mailDirectionEnum('direction').notNull(),
+    /** Only on `out`: written in the console, or relayed from an agent's own mail. */
+    channel: mailChannelEnum('channel'),
+    status: mailStatusEnum('status').notNull(),
+    fromEmail: text('from_email').notNull(),
+    fromName: text('from_name'),
+    toEmails: text('to_emails').array().notNull().default(sql`'{}'::text[]`),
+    subject: text('subject').notNull(),
+    /** Plain text, always present. What lists, previews and relays use. */
+    text: text('text').notNull().default(''),
+    /** Inbound only, as received. Sandboxed on display, never trusted. */
+    html: text('html'),
+    /** The member who wrote it, on an outbound message. */
+    sentBy: uuid('sent_by').references(() => user.id, { onDelete: 'set null' }),
+    /**
+     * Resend's id. Unique, which is what makes a webhook delivered twice a
+     * no-op rather than a duplicated message. Postgres treats NULLs as
+     * distinct, so a queued send with no id yet does not collide.
+     */
+    providerId: text('provider_id').unique(),
+    /**
+     * The RFC 5322 Message-ID of a received message, so our answer can carry
+     * `In-Reply-To` and land under it in the buyer's client. Never used to
+     * ROUTE mail: a header anybody can write is not a key to a conversation —
+     * only the signed Reply-To is.
+     */
+    rfcMessageId: text('rfc_message_id'),
+    /** `[{ filename, contentType, size }]` — listed, not stored (ADR 0016, Not done). */
+    attachments: jsonb('attachments').notNull().default(sql`'[]'::jsonb`),
+    /** Why a send failed. Never shown to the buyer. */
+    error: text('error'),
+    ...timestamps,
+  },
+  (t) => [
+    index('mail_message_thread_idx').on(t.threadId, t.createdAt),
+  ],
+);
+
+/** When each member last opened each thread. Unread is per person, not per agency. */
+export const mailRead = pgTable(
+  'mail_read',
+  {
+    threadId: uuid('thread_id')
+      .notNull()
+      .references(() => mailThread.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    lastReadAt: timestamp('last_read_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.threadId, t.userId] })],
+);
+
 /**
  * `interval` is a different kind of thing from the other two, and the
  * difference is daylight saving.
@@ -827,3 +962,5 @@ export type ChatThread = typeof chatThread.$inferSelect;
 export type ChatMessage = typeof chatMessage.$inferSelect;
 export type AgentInvite = typeof agentInvite.$inferSelect;
 export type Lead = typeof lead.$inferSelect;
+export type MailThread = typeof mailThread.$inferSelect;
+export type MailMessage = typeof mailMessage.$inferSelect;

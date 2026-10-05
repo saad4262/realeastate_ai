@@ -64,10 +64,11 @@ export default function AccountLoading() {
           </div>
         </section>
 
-        {/* Saved searches, and Security. The same card twice: a label, a line
-            or two of body copy, and a pill. Their body text differs by a line,
-            which is the only reason the second one has three bars. */}
+        {/* Messages, Saved searches, and Security. The same card three times:
+            a label, a line or two of body copy, and a pill. Their body text
+            differs by a line, which is the only reason the last has three bars. */}
         {[
+          { label: '5.5rem', body: ['80%'], pill: '8rem' },
           { label: '8rem', body: ['70%'], pill: '7.5rem' },
           { label: '5rem', body: ['95%', '55%'], pill: '10rem' },
         ].map((card, i) => (

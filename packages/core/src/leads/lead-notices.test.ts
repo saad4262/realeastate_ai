@@ -36,19 +36,47 @@ function deps() {
   return { d, sent: () => transport.sent as TransactionalMessage[] };
 }
 
-const facts = (over: Record<string, unknown> = {}) => ({
-  id: leadId,
-  agencyId: agencyA,
-  listingId,
-  assignedTo: null,
-  kind: 'enquiry',
-  name: 'Bea Buyer',
-  email: 'bea@example.com',
-  phone: '0400 000 000',
-  message: 'Is the garage double?',
-  address: '3/10 Havana Parade, Pakenham',
-  ...over,
-});
+/** One row of `loadLeadContext`'s statement — the shape the notices read. */
+const facts = (over: Record<string, unknown> = {}) => {
+  const { id, listingId: lid, address, ...rest } = {
+    id: leadId,
+    listingId,
+    address: '3/10 Havana Parade, Pakenham',
+    ...over,
+  } as Record<string, unknown>;
+  return {
+    leadId: id,
+    agencyId: agencyA,
+    leadListingId: lid,
+    assignedTo: null,
+    threadId: null,
+    kind: 'enquiry',
+    status: 'new',
+    createdAt: new Date('2026-10-03T00:00:00Z'),
+    name: 'Bea Buyer',
+    email: 'bea@example.com',
+    phone: '0400 000 000',
+    message: 'Is the garage double?',
+    offerAmount: null,
+    propertyId: '88888888-8888-8888-8888-888888888888',
+    formattedAddress: address,
+    suburb: 'Pakenham',
+    state: 'VIC',
+    postcode: '3810',
+    propertyType: 'house',
+    bedrooms: 3,
+    bathrooms: '2.0',
+    carSpaces: 1,
+    landAreaSqm: null,
+    listingId: lid,
+    headline: 'Family home near the station',
+    priceDisplay: '$780,000',
+    listingStatus: 'live',
+    channel: 'sale',
+    lastSale: null,
+    ...rest,
+  };
+};
 
 const agent = { userId: agentId, email: 'agent@example.com', name: 'Ali Agent', role: 'agent' };
 const admin = { userId: adminId, email: 'boss@example.com', name: 'Sara Boss', role: 'owner' };
@@ -148,5 +176,32 @@ describe('notifyLeadAssigned', () => {
     const { d, sent } = deps();
     expect(await notifyLeadAssigned(db, d, leadId, agentId, adminId)).toEqual({ sent: 0, failed: 0 });
     expect(sent()).toEqual([]);
+  });
+});
+
+describe('the detail block', () => {
+  it('tells the agent the property, its features, the ad and the person — in both parts', async () => {
+    const { db } = fakeDb([[facts()], [agent]]);
+    const { d, sent } = deps();
+    await notifyNewLead(db, { ...d, urls: { ...d.urls, webUrl: 'http://web.test' } }, leadId);
+    const m = sent()[0]!;
+    for (const part of [m.text, m.html]) {
+      expect(part).toContain('3 bed · 2 bath · 1 car · House');
+      expect(part).toContain('Family home near the station');
+      expect(part).toContain('$780,000');
+      expect(part).toContain('Is the garage double?');
+    }
+    expect(m.text).toContain(`http://web.test/listing/${listingId}`);
+  });
+
+  it("puts an offer's amount in front of someone allowed to read it", async () => {
+    const { db } = fakeDb([
+      [facts({ kind: 'offer', listingId: null, offerAmount: '812000.00', assignedTo: adminId })],
+      [admin],
+    ]);
+    const { d, sent } = deps();
+    await notifyLeadAssigned(db, d, leadId, adminId, agentId);
+    expect(sent()[0]!.text).toContain('Offer: $812,000');
+    expect(sent()[0]!.text).toContain('Not on the market');
   });
 });

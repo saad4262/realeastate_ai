@@ -7,6 +7,7 @@ import styles from './agent-shell.module.css';
 const NAV = [
   { href: '/listings', label: 'My Listings', icon: 'home_work' },
   { href: '/my-leads', label: 'Leads', icon: 'person_search' },
+  { href: '/my-inbox', label: 'Inbox', icon: 'mail' },
   { href: '#', label: 'Inspections', icon: 'event' },
   { href: '#', label: 'Offers', icon: 'handshake' },
 ];
@@ -18,7 +19,7 @@ const NAV = [
  * layout is preserved across client navigation and would never recompute the
  * active class. Everything else in this shell is markup.
  */
-export function AgentNav() {
+export function AgentNav({ unreadMail = 0 }: { unreadMail?: number }) {
   const pathname = usePathname();
 
   return (
@@ -35,6 +36,12 @@ export function AgentNav() {
               {item.icon}
             </span>
             {item.label}
+            {/* Unopened conversations, narrowed by can() in load-actor.ts. */}
+            {item.href === '/my-inbox' && unreadMail > 0 ? (
+              <span className={styles.navBadge} aria-label={`${unreadMail} unread`}>
+                {unreadMail}
+              </span>
+            ) : null}
           </Link>
         );
       })}

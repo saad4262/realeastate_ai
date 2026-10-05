@@ -29,6 +29,17 @@ type EmailBase = {
   text: string;
   /** Correlation only. Never a person's details — these reach the provider's logs. */
   tags?: Record<string, string>;
+  /**
+   * Where a reply goes. A conversation's signed address (docs/adr/0016), so an
+   * answer from any mail client lands back in the thread. Absent: the From.
+   */
+  replyTo?: EmailAddress;
+  /**
+   * `In-Reply-To` / `References` only — what makes the recipient's client file
+   * a reply under the message it answers. Never List-Unsubscribe: that pair is
+   * set from `kind`, in one place, in the transport.
+   */
+  threading?: { inReplyTo: string; references: string[] };
 };
 
 /**

@@ -32,7 +32,10 @@ export function AgentShell({ children, userLabel, chrome }: AgentShellProps) {
             </Suspense>
           </div>
         </div>
-        <AgentNav />
+        {/* The nav paints at once; its unread badge arrives with the chrome. */}
+        <Suspense fallback={<AgentNav />}>
+          <NavWithCounts chrome={chrome} />
+        </Suspense>
         <div className={styles.foot}>
           <span className={styles.user}>{userLabel}</span>
           <Link href="/sign-out" className={styles.signOut}>
@@ -43,6 +46,12 @@ export function AgentShell({ children, userLabel, chrome }: AgentShellProps) {
       <div className={styles.main}>{children}</div>
     </div>
   );
+}
+
+/** The nav, once the unread count is known. It draws the number; can() chose it. */
+async function NavWithCounts({ chrome }: { chrome: Promise<ConsoleChrome> }) {
+  const { summary } = await chrome;
+  return <AgentNav unreadMail={summary.unreadMail} />;
 }
 
 /**

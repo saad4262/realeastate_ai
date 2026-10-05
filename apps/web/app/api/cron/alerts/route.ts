@@ -1,4 +1,5 @@
-import { NextResponse, type NextRequest } from 'next/server';
+import { after, NextResponse, type NextRequest } from 'next/server';
+import { pullReceivedMail } from '@repo/core/mail';
 import { authoriseCronRequest, runScheduleTick } from '@repo/core/schedules';
 import { getWebDb } from '../../../../lib/db';
 import { schedulerDeps } from '../../../../lib/scheduler';
@@ -50,8 +51,21 @@ async function handler(request: NextRequest) {
 
   try {
     const report = await runScheduleTick(getWebDb(), schedulerDeps());
+
+    /**
+     * The same tick pulls received mail (ADR 0016), so buyers' replies reach
+     * the inbox even when nobody has it open and no webhook is configured. It
+     * cannot fail the tick: `pullReceivedMail` never throws, and its sends run
+     * after the response.
+     */
+    const mail = await pullReceivedMail({ db: getWebDb });
+    if (mail.followUp) after(mail.followUp);
+
     // No ids, no addresses, no listing text — this is read from a cron log.
-    return NextResponse.json({ ok: true, ...report }, { headers: { 'cache-control': 'no-store' } });
+    return NextResponse.json(
+      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason } },
+      { headers: { 'cache-control': 'no-store' } },
+    );
   } catch (err) {
     // Configuration and connectivity, i.e. the tick could not start at all.
     const message = err instanceof Error ? err.message : 'Scheduler failed';

@@ -63,6 +63,7 @@ export default async function AgentLeadsPage({
   return (
     <LeadTable
       basePath="/my-leads"
+      inboxPath="/my-inbox"
       title="My leads"
       subtitle="Leads assigned to you, and anyone who asked about a listing you are named on."
       webUrl={process.env.NEXT_PUBLIC_WEB_URL ?? 'http://web.lvh.me:3000'}

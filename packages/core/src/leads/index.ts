@@ -32,3 +32,4 @@ export {
   type NoticeDeps,
   type NoticeOutcome,
 } from './lead-notices';
+export { loadLeadContext, type LeadContext } from './lead-context';

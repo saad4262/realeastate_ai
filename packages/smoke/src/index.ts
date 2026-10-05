@@ -52,6 +52,20 @@ import { can, type MembershipRole } from '@repo/core/permissions';
 import { agencyNotificationRecipients } from '@repo/core/agency';
 import { fakeTransport } from '@repo/core/email';
 import {
+  confirmEmailVerification,
+  conversationLink,
+  getCustomerThread,
+  getMailThread,
+  replyAsCustomer,
+  syncReceivedEmails,
+  ingestReceivedEmail,
+  listMailThreads,
+  markThreadRead,
+  sendThreadReply,
+  threadReplyAddress,
+  type MailConfig,
+} from '@repo/core/mail';
+import {
   claimDueSchedules,
   createSchedule,
   ABANDONED_RUN_MINUTES,
@@ -66,6 +80,7 @@ import {
   verifyScheduleDraft,
 } from '@repo/core/schedules';
 import { mediaUrl } from '@repo/core/media/url';
+import { ensureAppUser } from '@repo/core/identity';
 import type { ChatTurnResult } from '@repo/ai/chat-events';
 import { assert, check, group, note, report, skip } from './runner';
 
@@ -2801,6 +2816,422 @@ async function main() {
   });
 
   // --------------------------------------------------------------- console --
+
+  // ------------------------------------------------ email conversations --
+  group('Email conversations');
+
+  await check('the mail tables exist with row-level security on, and read-only policies', async () => {
+    /**
+     * ADR 0016. Only the server writes mail, so a client holding a Supabase
+     * key may at most SELECT its own agency's — never insert a message that
+     * would then be sent, or rewrite one that was.
+     */
+    const tables = await db.execute<{ relname: string; rls: boolean }>(sql`
+      select c.relname, c.relrowsecurity as rls from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
+      where c.relname in ('mail_thread', 'mail_message', 'mail_read')
+    `);
+    assert(tables.length === 3, `expected 3 mail tables, found ${tables.map((t) => t.relname).join(', ') || 'none'}`);
+    const off = tables.filter((t) => !t.rls).map((t) => t.relname);
+    assert(off.length === 0, `row-level security is off on ${off.join(', ')}`);
+
+    const policies = await db.execute<{ policyname: string; cmd: string }>(sql`
+      select policyname, cmd from pg_policies
+      where schemaname = 'public' and tablename in ('mail_thread', 'mail_message', 'mail_read')
+    `);
+    const writable = policies.filter((p) => p.cmd !== 'SELECT').map((p) => p.policyname);
+    assert(writable.length === 0, `a mail policy allows more than reading: ${writable.join(', ')}`);
+    return `3 tables, RLS on, ${policies.length} SELECT-only policies`;
+  });
+
+  await check('every lead has exactly one conversation, and a new lead gets one', async () => {
+    /**
+     * The trigger from migration 0016, both halves: the backfill left no lead
+     * without a thread, and inserting a lead (in a transaction that is rolled
+     * back) makes one in the same statement's transaction.
+     */
+    const [gap] = await db.execute<{ missing: string }>(sql`
+      select count(*) as missing from lead l
+      where not exists (select 1 from mail_thread t where t.lead_id = l.id)
+    `);
+    assert(Number(gap?.missing ?? 0) === 0, `${gap?.missing} lead(s) have no conversation`);
+
+    const [template] = await db.execute<{ property_id: string; agency_id: string }>(sql`
+      select property_id, agency_id from lead limit 1
+    `);
+    if (!template) return 'no lead yet to compare against; backfill gap is zero';
+
+    const ROLLBACK = new Error('smoke rollback');
+    let subject = '';
+    try {
+      await db.transaction(async (tx) => {
+        const [made] = await tx.execute<{ id: string }>(sql`
+          insert into lead (property_id, agency_id, name, email, message, kind, status)
+          values (${template.property_id}, ${template.agency_id}, 'Smoke Trigger',
+                  'Smoke.Trigger@Example.com', 'trigger check', 'enquiry', 'new')
+          returning id
+        `);
+        const [thread] = await tx.execute<{ subject: string; contact_email: string }>(sql`
+          select subject, contact_email from mail_thread where lead_id = ${made!.id}
+        `);
+        assert(thread, 'inserting a lead made no conversation — is the lead_mail_thread trigger missing?');
+        assert(
+          thread.contact_email === 'smoke.trigger@example.com',
+          `the contact address was not lower-cased: ${thread.contact_email}`,
+        );
+        subject = thread.subject;
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return `no lead without one; a new lead opened "${subject}" (rolled back)`;
+  });
+
+  await check('a reply goes out with its signed address and the answer comes back to the same thread', async () => {
+    /**
+     * The whole loop against the real schema, with a fake transport and inside
+     * a transaction that is always rolled back:
+     *   console reply → recorded, sent with Reply-To t+<thread>.<sig>@…
+     *   buyer answers that address → stored on the thread, unread again
+     *   the same delivery twice → duplicate, not a second row
+     *   a forged thread address → unrouted
+     *   an agent answering from their own mail (DMARC pass) → relayed
+     *   the same with DMARC failing → stored, NOT relayed, reason recorded
+     *   the buyer's view → only what passed between them, quote cut
+     */
+    const [target] = await db.execute<{
+      thread_id: string;
+      agency_id: string;
+      contact_email: string;
+      user_id: string;
+      role: string;
+      email: string;
+    }>(sql`
+      select t.id as thread_id, t.agency_id, t.contact_email, m.user_id, m.role::text, lower(u.email) as email
+      from mail_thread t
+      join lead l on l.id = t.lead_id
+      join membership m on m.agency_id = t.agency_id and m.status = 'active' and m.role in ('owner', 'admin')
+      join "user" u on u.id = m.user_id
+      where lower(u.email) <> t.contact_email
+      order by (l.kind = 'offer'), t.created_at desc
+      limit 1
+    `);
+    if (!target) skip('no conversation in an agency with an active owner or admin');
+
+    const owner = { userId: target.user_id, agencyId: target.agency_id, membershipRole: target.role as MembershipRole };
+    const config: MailConfig = { inboundDomain: 'reply.smoke.invalid', replySecret: 'smoke-secret' };
+    const transport = fakeTransport();
+    const deps = {
+      mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport },
+      config,
+    };
+    const replyAddress = threadReplyAddress(target.thread_id, config);
+    const received = (over: Record<string, unknown>) => ({
+      id: `smoke-${randomUUID()}`,
+      from: target.contact_email,
+      to: [replyAddress],
+      cc: [],
+      received_for: [],
+      subject: 'Re: smoke',
+      text: 'Saturday works.\n\nOn Fri, 3 Oct 2026 at 10:02, Smoke <smoke@example.com> wrote:\n> quoted',
+      html: null,
+      headers: {},
+      message_id: '<smoke@mail.example.com>',
+      authentication: { spf: 'pass', dkim: 'pass', dmarc: 'pass' },
+      attachments: [],
+      ...over,
+    });
+
+    const ROLLBACK = new Error('smoke rollback');
+    const steps: string[] = [];
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const sent = await sendThreadReply(t, deps, owner, target.thread_id, { body: 'Smoke reply' });
+        assert(sent.status === 'sent', `the console reply was ${sent.status}`);
+        const email = transport.sent.at(-1)!;
+        assert(email.replyTo?.email === replyAddress, `Reply-To was ${email.replyTo?.email ?? 'missing'}`);
+        steps.push('reply sent with the signed address');
+
+        await markThreadRead(t, owner, target.thread_id);
+        const first = received({});
+        const stored = await ingestReceivedEmail(t, deps, first);
+        assert(stored.kind === 'stored' && stored.threadId === target.thread_id, `the answer was ${stored.kind}`);
+        assert(stored.kind === 'stored' && stored.notify, 'the buyer writing back would tell nobody');
+        const page = await listMailThreads(t, owner, { folder: 'unread', limit: 200 });
+        assert(page.rows.some((r) => r.id === target.thread_id), 'the answered thread is not unread for the owner');
+        steps.push('answer routed back, thread unread');
+
+        const again = await ingestReceivedEmail(t, deps, first);
+        assert(again.kind === 'duplicate', `a repeated delivery was ${again.kind}`);
+        const forged = await ingestReceivedEmail(t, deps, received({
+          to: [replyAddress.replace(target.thread_id, randomUUID())],
+        }));
+        assert(forged.kind === 'unrouted', `a forged thread address was ${forged.kind}`);
+        steps.push('repeat ignored, forgery unrouted');
+
+        const relay = await ingestReceivedEmail(t, deps, received({ from: target.email, text: 'From my phone.\n\nOn Fri, Smoke wrote:\n> x' }));
+        assert(relay.kind === 'relay', `an admin's verified email reply was ${relay.kind}`);
+        const spoofed = await ingestReceivedEmail(t, deps, received({
+          from: target.email,
+          authentication: { spf: 'fail', dkim: 'fail', dmarc: 'fail' },
+        }));
+        assert(spoofed.kind === 'stored', `an unverified "admin" reply was ${spoofed.kind}`);
+        assert(spoofed.kind === 'stored', 'unreachable');
+        const [note] = await t.execute<{ error: string | null }>(sql`
+          select error from mail_message where id = ${spoofed.messageId}
+        `);
+        assert(note?.error?.includes('DMARC'), 'the refused relay does not say why');
+        steps.push('verified agent relayed, spoofed one held');
+
+        // Same address, never proved: sees nothing. Sign-up does not confirm an
+        // email here, so the address alone must not be a key (ADR 0016).
+        let unproved = '';
+        try {
+          await getCustomerThread(t, { userId: randomUUID(), email: target.contact_email }, target.thread_id);
+        } catch (err) {
+          unproved = (err as { code?: string }).code ?? String(err);
+        }
+        assert(unproved === 'not_found', `an account that never proved the address got "${unproved || 'the thread'}"`);
+
+        const [buyer] = await t.execute<{ id: string }>(sql`
+          insert into "user" (id, email, verified_email)
+          values (${randomUUID()}, ${target.contact_email}, ${target.contact_email})
+          on conflict (email) do update set verified_email = excluded.verified_email
+          returning id
+        `);
+        const view = await getCustomerThread(t, { userId: buyer!.id, email: target.contact_email }, target.thread_id);
+        // Judged by content, not by count: the thread may already hold real mail.
+        const outs = view.messages.filter((m) => !m.byYou).map((m) => m.text);
+        const mine = view.messages.filter((m) => m.byYou).map((m) => m.text);
+        assert(outs.includes('Smoke reply'), 'the buyer does not see the reply the agency sent');
+        assert(
+          !outs.some((t) => t.startsWith('From my phone')),
+          'the buyer sees a relay that was never delivered (still queued)',
+        );
+        assert(mine.includes('Saturday works.'), `the buyer's own reply, quote cut, is missing: ${JSON.stringify(mine)}`);
+        let stranger = '';
+        try {
+          await getCustomerThread(t, { userId: randomUUID(), email: 'someone.else@example.com' }, target.thread_id);
+        } catch (err) {
+          stranger = (err as { code?: string }).code ?? String(err);
+        }
+        assert(stranger === 'not_found', `another address reading this thread got "${stranger || 'it'}"`);
+        steps.push('an unproved address sees nothing; the proved buyer sees only their exchange; a stranger sees nothing');
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+
+    const [left] = await db.execute<{ n: string }>(sql`
+      select count(*) as n from mail_message where provider_id like 'smoke-%'
+         or (thread_id = ${target.thread_id} and text = 'Smoke reply')
+    `);
+    assert(Number(left?.n ?? 0) === 0, 'the rolled-back round trip left messages behind');
+    return `${steps.join('; ')} (rolled back)`;
+  });
+
+  await check("a buyer's Gmail reply is pulled in, and their website reply reaches the agency", async () => {
+    /**
+     * The two ways a buyer answers, through the real schema, in a transaction
+     * that is always rolled back; Resend is a fake `fetch`:
+     *   sync lists a received email to the thread's signed address → stored
+     *   the website link from the agency's email proves the buyer's mailbox
+     *   the buyer replies on the website → in the agency's thread, unread,
+     *   marked `website`
+     */
+    const [target] = await db.execute<{ thread_id: string; agency_id: string; contact_email: string; user_id: string; role: string }>(sql`
+      select t.id as thread_id, t.agency_id, t.contact_email, m.user_id, m.role::text
+      from mail_thread t
+      join lead l on l.id = t.lead_id
+      join membership m on m.agency_id = t.agency_id and m.status = 'active' and m.role in ('owner', 'admin')
+      join "user" u on u.id = m.user_id
+      where lower(u.email) <> t.contact_email
+      order by t.created_at desc
+      limit 1
+    `);
+    if (!target) skip('no conversation in an agency with an active owner or admin');
+
+    const owner = { userId: target.user_id, agencyId: target.agency_id, membershipRole: target.role as MembershipRole };
+    const config: MailConfig = { inboundDomain: 'reply.smoke.invalid', replySecret: 'smoke-secret' };
+    const deps = {
+      mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport: fakeTransport() },
+      config,
+    };
+    const emailId = `smoke-${randomUUID()}`;
+    const fakeResend = (async (url: string) => {
+      if (url.includes('/emails/receiving?')) {
+        return new Response(JSON.stringify({
+          has_more: false,
+          data: [
+            { id: emailId, to: [threadReplyAddress(target.thread_id, config)], created_at: new Date().toISOString() },
+            { id: `smoke-${randomUUID()}`, to: ['nobody@elsewhere.invalid'], created_at: new Date().toISOString() },
+          ],
+        }));
+      }
+      assert(url.endsWith(`/emails/receiving/${emailId}`), `sync fetched something it should not have: ${url}`);
+      return new Response(JSON.stringify({
+        id: emailId, from: target.contact_email, to: [threadReplyAddress(target.thread_id, config)],
+        subject: 'Re: smoke', text: 'Pulled in by the sync.', html: null, headers: {},
+        message_id: '<sync@smoke>', authentication: { dmarc: 'pass' }, attachments: [],
+      }));
+    }) as unknown as typeof fetch;
+
+    const ROLLBACK = new Error('smoke rollback');
+    const steps: string[] = [];
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const pulled = await syncReceivedEmails(t, deps, 'smoke-key', { fetchImpl: fakeResend });
+        assert(
+          pulled.outcomes.length === 1 && pulled.outcomes[0]!.kind === 'stored',
+          `the sync stored ${JSON.stringify(pulled.outcomes.map((o) => o.kind))}`,
+        );
+        const again = await syncReceivedEmails(t, deps, 'smoke-key', { fetchImpl: fakeResend });
+        assert(again.outcomes.length === 0, 'a second sync stored the same email again');
+        steps.push('Gmail reply pulled into its thread, once');
+
+        // The buyer: an account on the contact address, never proved.
+        const [buyer] = await t.execute<{ id: string }>(sql`
+          insert into "user" (id, email) values (${randomUUID()}, ${target.contact_email})
+          on conflict (email) do update set verified_email = null
+          returning id
+        `);
+        const who = { userId: buyer!.id, email: target.contact_email };
+        const link = conversationLink('http://web.smoke', target.thread_id, target.contact_email, 'smoke-secret');
+        const token = decodeURIComponent(/t=([^&]+)/.exec(link)![1]!);
+        await confirmEmailVerification(t, who, token, 'smoke-secret');
+        steps.push('the emailed link proved the mailbox');
+
+        // Read first, so "unread" below is the website reply's doing alone.
+        await markThreadRead(t, owner, target.thread_id);
+        await replyAsCustomer(t, who, target.thread_id, { body: 'Written on the website.' });
+        const view = await getMailThread(t, owner, target.thread_id);
+        // By text: inside one transaction every row shares a created_at.
+        const fromSite = view.messages.find((m) => m.text === 'Written on the website.');
+        assert(fromSite?.channel === 'website' && fromSite.direction === 'in', 'the website reply is not on the agency thread');
+        const unread = await listMailThreads(t, owner, { folder: 'unread', limit: 200 });
+        assert(unread.rows.some((r) => r.id === target.thread_id), 'the website reply did not make the thread unread');
+
+        let refused = '';
+        try {
+          await replyAsCustomer(t, { userId: randomUUID(), email: 'stranger@example.com' }, target.thread_id, { body: 'x' });
+        } catch (err) {
+          refused = (err as { code?: string }).code ?? String(err);
+        }
+        assert(refused === 'not_found', `a stranger replying got "${refused || 'through'}"`);
+        steps.push('website reply in the agency inbox, unread; a stranger refused');
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return `${steps.join('; ')} (rolled back)`;
+  });
+
+  await check("an agent's inbox holds only their own leads' conversations", async () => {
+    /**
+     * `listMailThreads` narrows a non-admin in SQL (ADR 0014's rule, carried
+     * over). Dev data alone cannot prove it: when the agency's only other
+     * thread is an offer, the offer rule hides it and the narrowing is never
+     * asked. So, inside a transaction that is always rolled back, an enquiry is
+     * planted that is NOT theirs — unassigned, through no listing — and it must
+     * not appear, while the count must still match their leads counted in SQL.
+     */
+    const [agent] = await db.execute<{ user_id: string; agency_id: string; role: string }>(sql`
+      select m.user_id, m.agency_id, m.role::text from membership m
+      where m.status = 'active' and m.role not in ('owner', 'admin')
+        and exists (select 1 from lead l where l.agency_id = m.agency_id)
+      order by exists (select 1 from listing_agent la where la.user_id = m.user_id) desc
+      limit 1
+    `);
+    if (!agent) skip('no active non-admin member in an agency with leads');
+
+    const links = await db.execute<{ listing_id: string }>(sql`
+      select listing_id from listing_agent where user_id = ${agent.user_id}
+    `);
+    const actor = {
+      userId: agent.user_id,
+      agencyId: agent.agency_id,
+      membershipRole: agent.role as MembershipRole,
+      listingAgentOf: links.map((l) => l.listing_id),
+    };
+
+    const ROLLBACK = new Error('smoke rollback');
+    let detail = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const [planted] = await tx.execute<{ id: string }>(sql`
+          insert into lead (property_id, agency_id, name, email, message, kind, status)
+          select property_id, agency_id, 'Smoke Not Theirs', 'not.theirs@example.com', 'x', 'enquiry', 'new'
+          from lead where agency_id = ${agent.agency_id} limit 1
+          returning id
+        `);
+        const page = await listMailThreads(t, actor, { limit: 500 });
+        const [truth] = await tx.execute<{ n: string }>(sql`
+          select count(*) as n from mail_thread th join lead l on l.id = th.lead_id
+          where th.agency_id = ${agent.agency_id} and l.kind <> 'offer'
+            and (l.assigned_to = ${agent.user_id}
+                 or l.listing_id in (select listing_id from listing_agent where user_id = ${agent.user_id}))
+        `);
+        assert(
+          !page.rows.some((r) => r.leadId === planted!.id),
+          "an enquiry that is not the agent's reached their inbox",
+        );
+        assert(
+          page.counts.total === Number(truth?.n ?? 0),
+          `the agent's inbox counts ${page.counts.total}, their leads number ${truth?.n}`,
+        );
+        assert(!page.folders.offers && !page.folders.general, 'an agent was offered the Offers or Agency mailbox folder');
+        assert(
+          page.rows.every((r) => r.leadKind !== 'offer' && r.leadId !== null),
+          'an offer or agency-address thread reached an agent',
+        );
+        detail = `${page.counts.total} conversation(s), all theirs; a planted enquiry that is not theirs stayed out`;
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return `${detail} (rolled back)`;
+  });
+
+  await check('the inbound webhook refuses an unsigned delivery', async () => {
+    if (!webUp) skip('web app is not running');
+    const res = await fetch(`${WEB}/api/mail/inbound`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'email.received', data: { email_id: 'smoke' } }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    assert(res.status === 401, `an unsigned POST got HTTP ${res.status}`);
+    const forged = await fetch(`${WEB}/api/mail/inbound`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'svix-id': 'msg_smoke',
+        'svix-timestamp': String(Math.floor(Date.now() / 1000)),
+        'svix-signature': 'v1,c21va2U=',
+      },
+      body: JSON.stringify({ type: 'email.received', data: { email_id: 'smoke' } }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    assert(forged.status === 401, `a wrongly signed POST got HTTP ${forged.status}`);
+    return '401 unsigned, 401 wrongly signed';
+  });
+
+  await check('a buyer\'s messages are an account route', async () => {
+    if (!webUp) skip('web app is not running');
+    const res = await http(`${WEB}/account/messages`);
+    const location = res.headers.get('location') ?? '';
+    assert(res.status === 307 || res.status === 302, `/account/messages answered ${res.status}, expected a redirect`);
+    assert(location.includes('/login'), `redirected to ${location}, expected /login`);
+    return `${res.status} → ${location.replace(WEB, '')}`;
+  });
+
   group('Console (HTTP, signed out)');
 
   const consoleUp = await reachable(AGENCY);
@@ -2816,6 +3247,10 @@ async function main() {
     [`${AGENCY}/leads?kind=offer`, 'agency leads (offers tab)'],
     [`${AGENT}/listings`, 'agent listings'],
     [`${AGENT}/listings/00000000-0000-0000-0000-000000000000/edit`, 'agent edit-listing'],
+    // Email conversations (ADR 0016): buyers' words, addresses and offers.
+    [`${AGENCY}/inbox`, 'agency inbox'],
+    [`${AGENCY}/inbox?folder=offers`, 'agency inbox (offers folder)'],
+    [`${AGENT}/my-inbox`, 'agent inbox'],
   ];
 
   /**
@@ -2876,6 +3311,22 @@ async function main() {
       return `${res.status} → login`;
     });
   }
+
+  await check('a refreshed session cookie keeps its domain and lifetime', async () => {
+    /**
+     * Copying a cookie as `set(c.name, c.value)` drops Domain, Max-Age and
+     * SameSite. After a token refresh that left a host-only copy beside the
+     * old `.lvh.me` one; the other app refreshed with the rotated-out token,
+     * Supabase revoked the session, and every click asked for a sign-in
+     * again. A source check: the bug is one innocent-looking line.
+     */
+    const files = ['packages/auth/src/middleware.ts', 'apps/web/middleware.ts', 'apps/console/middleware.ts'];
+    const bad = files.filter((f) =>
+      /cookies\.set\(\s*\w+\.name\s*,\s*\w+\.value\s*\)/.test(readFileSync(resolve(process.cwd(), '../..', f), 'utf8')),
+    );
+    assert(bad.length === 0, `a cookie is copied by name and value only in ${bad.join(', ')}`);
+    return `${files.length} files copy whole cookies`;
+  });
 
   // -------------------------------------------------- console loaders --
   group('Console loaders');
@@ -3049,6 +3500,35 @@ async function main() {
    * sign-in now, and this is what notices if a path is ever added that
    * forgets to.
    */
+  await check('a new account can take an address a deleted account left behind', async () => {
+    /**
+     * `user.email` is unique, and deleting an auth account leaves its app row.
+     * A new sign-up with that address could then never get its own row, and
+     * every account page failed for it — found on a real account.
+     *
+     * Not in a rolled-back transaction, unlike its neighbours: the fix retries
+     * after a unique violation, and inside a transaction the first failure
+     * aborts it — which is not how `ensureAppUser` runs (it is never handed a
+     * transaction). Two synthetic rows instead, deleted in `finally`.
+     */
+    const email = `smoke-orphan-${randomUUID().slice(0, 8)}@example.com`;
+    const orphan = randomUUID();
+    const fresh = randomUUID();
+    try {
+      await db.execute(sql`insert into "user" (id, email) values (${orphan}, ${email})`);
+      await ensureAppUser(db, { id: fresh, email });
+      const rows = await db.execute<{ id: string; email: string }>(sql`
+        select id, email from "user" where id in (${orphan}, ${fresh})
+      `);
+      assert(rows.find((r) => r.id === fresh)?.email === email, 'the new account got no row for its address');
+      const old = rows.find((r) => r.id === orphan);
+      assert(old && old.email !== email, 'the orphaned row still holds the address');
+      return 'the new id got its row; the orphan kept its data under a freed address';
+    } finally {
+      await db.execute(sql`delete from "user" where id in (${orphan}, ${fresh})`);
+    }
+  });
+
   await check('every account is mirrored into public.user', async () => {
     const rows = (await db.execute(sql`
       select count(*)::int as orphans

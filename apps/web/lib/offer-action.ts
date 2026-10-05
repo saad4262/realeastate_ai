@@ -3,9 +3,11 @@
 import { headers } from 'next/headers';
 import {
   createPrivateOffer,
+  loadLeadContext,
   OfferError,
   type PrivateOfferResult,
 } from '@repo/core/leads';
+import { mailConfigFromEnv, threadReplyAddress } from '@repo/core/mail';
 import { agencyNotificationRecipients } from '@repo/core/agency';
 import {
   buildPrivateOfferEmail,
@@ -73,6 +75,7 @@ async function overLimit(): Promise<boolean> {
  */
 async function notify(
   agencyId: string,
+  leadId: string,
   offer: {
     propertyAddress: string;
     propertyId: string;
@@ -101,6 +104,15 @@ async function notify(
 
     const baseUrl = process.env.NEXT_PUBLIC_WEB_URL ?? 'http://web.lvh.me:3000';
 
+    // The property's facts, its last sale and the lead's conversation — one
+    // read, after the offer is recorded. Missing, the email still goes.
+    const context = await loadLeadContext(getWebDb(), leadId).catch(() => null);
+    const config = mailConfigFromEnv();
+    const replyTo =
+      config && context?.threadId
+        ? { email: threadReplyAddress(context.threadId, config), name: offer.name }
+        : null;
+
     for (const recipient of recipients) {
       const message = buildPrivateOfferEmail({
         to: { email: recipient.email, ...(recipient.name ? { name: recipient.name } : {}) },
@@ -111,9 +123,12 @@ async function notify(
         offeredBy: { name: offer.name, email: offer.email, phone: offer.phone },
         message: offer.message,
         propertyUrl: `${baseUrl}/property/${offer.propertyId}`,
+        ...(context ? { details: { ...context, propertyUrl: `${baseUrl}/property/${offer.propertyId}` } } : {}),
       });
+      // Answering this email answers the buyer, into the conversation (ADR 0016).
+      const sendable = replyTo ? { ...message, replyTo } : message;
 
-      const result = await transport.send(message);
+      const result = await transport.send(sendable);
       if (!result.ok) {
         console.error(`[offer] could not notify ${recipient.email}: ${result.error}`);
       }
@@ -162,14 +177,14 @@ export async function sendPrivateOfferAction(
   try {
     // `offer` is what was parsed and stored, not what arrived — so the email
     // quotes the trimmed name and the coerced number the row holds.
-    const { agencyId, offer } = await createPrivateOffer(
+    const { agencyId, leadId, offer } = await createPrivateOffer(
       getWebDb(),
       propertyId,
       { userId: user.id, email: user.email },
       input,
     );
 
-    await notify(agencyId, {
+    await notify(agencyId, leadId, {
       propertyAddress,
       propertyId,
       amount: offer.offerAmount,

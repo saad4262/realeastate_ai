@@ -1,7 +1,10 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { lead, listingAgent, membership, property, user, type Db } from '@repo/db';
+import { listingAgent, membership, user, type Db } from '@repo/db';
 import { buildLeadNoticeEmail, type EmailTransport, type SenderIdentity } from '../email';
+import { threadReplyAddress, type MailConfig } from '../mail/address';
 import { can, type Actor, type MembershipRole, type Resource } from '../permissions';
+import type { LeadDetails } from '../email/lead-details';
+import { loadLeadContext, type LeadContext } from './lead-context';
 
 /**
  * Telling an agent a lead is waiting for them, by email.
@@ -33,7 +36,13 @@ import { can, type Actor, type MembershipRole, type Resource } from '../permissi
 export type NoticeDeps = {
   mailer: { sender: SenderIdentity; transport: EmailTransport };
   /** Origins of the two console hosts — admins work leads on one, agents on the other. */
-  urls: { agentUrl: string; agencyUrl: string };
+  urls: { agentUrl: string; agencyUrl: string; webUrl?: string };
+  /**
+   * Inbound mail (ADR 0016). When set, the notice's Reply-To is the lead's
+   * conversation, so answering it from Gmail answers the buyer. Absent: the
+   * notice behaves exactly as it always has.
+   */
+  config?: MailConfig | null;
 };
 
 export type NoticeOutcome = { sent: number; failed: number };
@@ -49,29 +58,43 @@ type Facts = {
   phone: string | null;
   message: string | null;
   address: string | null;
+  /** The lead's conversation, made by the trigger in migration 0016. */
+  threadId?: string | null;
 };
 
 type Person = { userId: string; email: string; name: string | null; role: MembershipRole };
 
-async function loadFacts(db: Db, leadId: string): Promise<Facts | null> {
-  const [row] = await db
-    .select({
-      id: lead.id,
-      agencyId: lead.agencyId,
-      listingId: lead.listingId,
-      assignedTo: lead.assignedTo,
-      kind: lead.kind,
-      name: lead.name,
-      email: lead.email,
-      phone: lead.phone,
-      message: lead.message,
-      address: property.formattedAddress,
-    })
-    .from(lead)
-    .leftJoin(property, eq(property.id, lead.propertyId))
-    .where(eq(lead.id, leadId))
-    .limit(1);
-  return (row as Facts | undefined) ?? null;
+/**
+ * The lead, with everything the email shows about it, in ONE statement —
+ * `loadLeadContext` — so adding the detail block cost no round trip.
+ */
+async function loadFacts(db: Db, leadId: string): Promise<(Facts & { context: LeadContext }) | null> {
+  const ctx = await loadLeadContext(db, leadId);
+  if (!ctx) return null;
+  return {
+    id: ctx.leadId,
+    agencyId: ctx.agencyId,
+    listingId: ctx.listingId,
+    assignedTo: ctx.assignedTo,
+    kind: ctx.kind,
+    name: ctx.name,
+    email: ctx.email,
+    phone: ctx.phone,
+    message: ctx.message,
+    address: ctx.address,
+    threadId: ctx.threadId,
+    context: ctx,
+  };
+}
+
+/** The detail block's input: the context, plus the public page it is about. */
+function detailsOf(ctx: LeadContext, webUrl: string | undefined): LeadDetails {
+  const page = webUrl
+    ? ctx.listing && ctx.kind !== 'offer'
+      ? `${webUrl}/listing/${ctx.listing.id}`
+      : `${webUrl}/property/${ctx.propertyId}`
+    : null;
+  return { ...ctx, propertyUrl: page };
 }
 
 function actorFor(person: Person, facts: Facts): Actor {
@@ -112,7 +135,7 @@ function inboxUrl(actor: Actor, facts: Facts, urls: NoticeDeps['urls']): string 
 
 async function send(
   deps: NoticeDeps,
-  facts: Facts,
+  facts: Facts & { context: LeadContext },
   reason: 'new' | 'assigned',
   recipients: { person: Person; actor: Actor }[],
 ): Promise<NoticeOutcome> {
@@ -130,6 +153,10 @@ async function send(
       person: { name: facts.name, email: facts.email, phone: facts.phone },
       message: facts.message,
       inboxUrl: inboxUrl(actor, facts, deps.urls),
+      details: detailsOf(facts.context, deps.urls.webUrl),
+      ...(deps.config && facts.threadId
+        ? { replyTo: { email: threadReplyAddress(facts.threadId, deps.config), name: facts.name } }
+        : {}),
     });
     const result = await transport.send(message);
     if (result.ok) outcome.sent += 1;

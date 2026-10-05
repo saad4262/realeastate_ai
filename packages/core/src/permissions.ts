@@ -90,6 +90,25 @@ export type Action =
    * same line `listing:delete` and `team:manage` draw.
    */
   | 'lead:assign'
+  /**
+   * Open one email conversation (ADR 0016). The resource is the thread, with
+   * its lead's assignee as `ownerId` and its lead's listing as `listingId` —
+   * the same rule as `lead:read`, because a lead's conversation IS the lead.
+   * A thread with no lead (mail to the agency's own address) carries neither,
+   * so only an admin may open it. An offer's thread must also pass
+   * `lead:read_offer`, exactly as the lead itself does.
+   */
+  | 'mail:read'
+  /**
+   * Reply on a conversation: `lead:update`'s rule. Writing to a buyer in the
+   * agency's name is working the lead; whoever may move it along may answer it.
+   */
+  | 'mail:send'
+  /**
+   * A buyer reading their own conversations on the website. `ownerId` is the
+   * account the thread was matched to; no agency role reaches this.
+   */
+  | 'mail:read_own'
   | 'team:manage'
   | 'agency:billing'
   /** Agency OS host — owner|admin only */
@@ -196,7 +215,9 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       // write it and to submit it, not to put it in front of the public.
       return sameAgency(actor, resource) && isAgencyAdmin(actor);
 
-    case 'lead:read': {
+    case 'lead:read':
+    // One rule, grouped on purpose: a lead's conversation is the lead (ADR 0016).
+    case 'mail:read': {
       // Any active membership opens an inbox. `sameAgency` stops it crossing
       // tenancy.
       if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
@@ -216,6 +237,7 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       return sameAgency(actor, resource) && isAgencyAdmin(actor);
 
     case 'lead:update':
+    case 'mail:send':
       if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
       if (isAgencyAdmin(actor)) return true;
       if (resource.ownerId) return Boolean(actor.userId) && actor.userId === resource.ownerId;
@@ -250,6 +272,7 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       // consumer account and an agent's account are the same kind of thing.
       return Boolean(actor.userId);
 
+    case 'mail:read_own':
     case 'chat:read':
     case 'chat:write':
     case 'schedule:read':

@@ -59,6 +59,8 @@
 .who { font-weight: 600; color: var(--text-primary); }
 .contact { margin-top: 0.125rem; font-size: 0.75rem; color: var(--text-muted); }
 .contact a { color: inherit; }
+.convo { display: inline-block; margin-top: 0.3rem; font-size: 0.75rem; font-weight: 600; color: var(--sapphire); text-decoration: none; }
+.convo:hover { text-decoration: underline; }
 
 .addr { color: var(--text-secondary); font-size: 0.8125rem; }
 .msg {

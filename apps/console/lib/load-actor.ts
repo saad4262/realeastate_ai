@@ -39,6 +39,14 @@ export type ActorContext = {
      * `lead:read_offer` exists to withhold.
      */
     newOffers: number;
+    /**
+     * Conversations with something this person has not opened (ADR 0016) —
+     * the Inbox badge. Two counts come back from SQL, the whole agency's and
+     * this member's own leads', and can() picks one below, the same way
+     * `newOffers` is zeroed: the query shape stays fixed and the disclosure
+     * decision stays in permissions.ts.
+     */
+    unreadMail: number;
   };
 };
 
@@ -80,6 +88,22 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
         where l.agency_id = ${membership.agencyId}
           and l.kind = 'offer' and l.status = 'new'
       )`,
+      unreadMailAll: sql<number>`(
+        select count(*) from mail_thread t
+        left join mail_read r on r.thread_id = t.id and r.user_id = ${userId}
+        where t.agency_id = ${membership.agencyId}
+          and t.last_inbound_at > coalesce(r.last_read_at, '-infinity'::timestamptz)
+      )`,
+      unreadMailMine: sql<number>`(
+        select count(*) from mail_thread t
+        join lead l on l.id = t.lead_id
+        left join mail_read r on r.thread_id = t.id and r.user_id = ${userId}
+        where t.agency_id = ${membership.agencyId}
+          and l.kind <> 'offer'
+          and (l.assigned_to = ${userId}
+            or l.listing_id in (select la.listing_id from listing_agent la where la.user_id = ${userId}))
+          and t.last_inbound_at > coalesce(r.last_read_at, '-infinity'::timestamptz)
+      )`,
     })
     .from(membership)
     .leftJoin(agency, eq(agency.id, membership.agencyId))
@@ -87,7 +111,7 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
     .where(eq(membership.userId, userId))
     .limit(1);
 
-  const empty = { members: 0, liveListings: 0, pendingInvites: 0, newOffers: 0 };
+  const empty = { members: 0, liveListings: 0, pendingInvites: 0, newOffers: 0, unreadMail: 0 };
 
   if (!mem || mem.status !== 'active') {
     return {
@@ -112,6 +136,12 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
     agencyId: mem.agencyId,
   });
 
+  // The whole agency's count only for whoever may read every thread in it,
+  // offers included; anybody else gets their own leads' count. Should those
+  // two permissions ever part, the narrower count is the safe one to show.
+  const seesAllMail =
+    maySeeOffers && can(actor, 'lead:read_all', { type: 'lead', agencyId: mem.agencyId });
+
   return {
     actor,
     agencyName: mem.agencyName,
@@ -122,6 +152,7 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
       liveListings: Number(mem.liveListings ?? 0),
       pendingInvites: Number(mem.pendingInvites ?? 0),
       newOffers: maySeeOffers ? Number(mem.newOffers ?? 0) : 0,
+      unreadMail: Number((seesAllMail ? mem.unreadMailAll : mem.unreadMailMine) ?? 0),
     },
   };
 }

@@ -4,6 +4,7 @@ import {
   agentProfile,
   lead,
   listingAgent,
+  mailThread,
   membership,
   property,
   user,
@@ -45,6 +46,8 @@ export type LeadRow = {
   /** Which ad brought it in, if an ad did. Null on an offer. */
   listingId: string | null;
   createdAt: Date;
+  /** Its email conversation (ADR 0016). Null only before migration 0016 ran. */
+  threadId: string | null;
   /** Whose job it is, or null while nobody's. */
   assignedTo: string | null;
   assigneeName: string | null;
@@ -181,6 +184,7 @@ export async function listAgencyLeads(
       propertyId: lead.propertyId,
       listingId: lead.listingId,
       createdAt: lead.createdAt,
+      threadId: mailThread.id,
       assignedTo: lead.assignedTo,
       assigneeName: assignee.name,
       assigneeEmail: assignee.email,
@@ -197,6 +201,8 @@ export async function listAgencyLeads(
     .from(lead)
     .innerJoin(property, eq(property.id, lead.propertyId))
     .leftJoin(assignee, eq(assignee.id, lead.assignedTo))
+    // One row per lead: `mail_thread.lead_id` is unique.
+    .leftJoin(mailThread, eq(mailThread.leadId, lead.id))
     .where(and(...filters))
     // Newest first, with a unique tiebreaker so a page boundary inside a group
     // sharing a timestamp does not repeat one row and skip another.
@@ -225,6 +231,7 @@ export async function listAgencyLeads(
       postcode: r.postcode,
       listingId: r.listingId,
       createdAt: r.createdAt,
+      threadId: r.threadId ?? null,
       assignedTo: r.assignedTo,
       assigneeName: r.assignedTo ? r.assigneeName || r.assigneeEmail : null,
       mayUpdate: can(actor, 'lead:update', {

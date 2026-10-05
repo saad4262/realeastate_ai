@@ -13,6 +13,8 @@
     "./team/schema": "./src/team/invite-schema.ts",
     "./leads": "./src/leads/index.ts",
     "./leads/schema": "./src/leads/lead-schema.ts",
+    "./mail": "./src/mail/index.ts",
+    "./mail/schema": "./src/mail/mail-schema.ts",
     "./listings": "./src/listings/index.ts",
     "./listings/schema": "./src/listings/listing-schema.ts",
     "./listings/format": "./src/listings/format.ts",
