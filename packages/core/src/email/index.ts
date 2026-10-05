@@ -25,6 +25,9 @@ export {
   signUnsubscribeToken,
   unsubscribeUrl,
   verifyUnsubscribeToken,
+  signContactUnsubscribeToken,
+  verifyContactUnsubscribeToken,
+  contactUnsubscribeUrl,
   type UnsubscribeClaim,
 } from './unsubscribe';
 
@@ -60,4 +63,4 @@ export {
   type LeadNoticeEmailInput,
 } from './team-notices';
 
-export { checkEmailLimits, emailLimitsFromEnv, type EmailLimitCheck, type EmailLimits } from './limits';
+export { checkEmailLimits, devAllowlist, emailLimitsFromEnv, type EmailLimitCheck, type EmailLimits, type TemplateLimits } from './limits';

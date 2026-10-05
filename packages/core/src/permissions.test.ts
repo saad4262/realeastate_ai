@@ -669,3 +669,40 @@ describe('skills', () => {
     expect(can(viewer, 'agent_skill:manage', copy('viewer'))).toBe(false);
   });
 });
+
+/** Template email (ADR 0022). */
+describe('template email', () => {
+  const m = (userId: string, membershipRole: Actor['membershipRole']): Actor => ({ userId, agencyId: agencyA, membershipRole });
+  const owner = m('owner', 'owner');
+  const agent = m('agent', 'agent');
+  const other = m('other', 'agent');
+  const viewer = m('viewer', 'read_only');
+  const rival: Actor = { userId: 'rival', agencyId: agencyB, membershipRole: 'owner' };
+  const tpl = (ownerId: string) => ({ type: 'email_template', id: 't-1', agencyId: agencyA, ownerId });
+  const batch = (ownerId: string) => ({ type: 'email_batch', id: 'b-1', agencyId: agencyA, ownerId });
+
+  it('lets agents draft and edit their own draft, and only admins approve', () => {
+    expect(can(agent, 'email_template:draft', { type: 'email_template', agencyId: agencyA })).toBe(true);
+    expect(can(agent, 'email_template:draft', tpl('agent'))).toBe(true);
+    expect(can(other, 'email_template:draft', tpl('agent'))).toBe(false);
+    expect(can(agent, 'email_template:approve', tpl('agent'))).toBe(false);
+    expect(can(owner, 'email_template:approve', tpl('agent'))).toBe(true);
+    expect(can(rival, 'email_template:approve', tpl('agent'))).toBe(false);
+    expect(can(viewer, 'email_template:draft', { type: 'email_template', agencyId: agencyA })).toBe(false);
+  });
+
+  it("shows an agent only their own batches; admins the agency's", () => {
+    expect(can(agent, 'email_batch:read', batch('agent'))).toBe(true);
+    expect(can(other, 'email_batch:read', batch('agent'))).toBe(false);
+    expect(can(owner, 'email_batch:read', batch('agent'))).toBe(true);
+    expect(can(rival, 'email_batch:read', batch('agent'))).toBe(false);
+  });
+
+  it('lets only the agent who prepared it send it — not even an admin', () => {
+    expect(can(agent, 'email_batch:send', batch('agent'))).toBe(true);
+    expect(can(owner, 'email_batch:send', batch('agent'))).toBe(false);
+    expect(can(other, 'email_batch:send', batch('agent'))).toBe(false);
+    expect(can(owner, 'email_batch:cancel', batch('agent'))).toBe(true);
+    expect(can(viewer, 'email_batch:create', { type: 'email_batch', agencyId: agencyA })).toBe(false);
+  });
+});

@@ -14,17 +14,52 @@ import { mailMessage, type DbOrTx } from '@repo/db';
  * marketing sends and arrive with them.
  */
 
-export type EmailLimits = { perAgentDay: number; perAgencyDay: number };
+export type EmailLimits = {
+  perAgentDay: number;
+  perAgencyDay: number;
+  /** Most recipients one template batch may send to (ADR 0022). */
+  perBatch?: number;
+  /** Days before the same person may get another template email. */
+  repeatDays?: number;
+  /** Pause between two messages of one batch, in ms. */
+  sendDelayMs?: number;
+};
+
+export type TemplateLimits = Required<EmailLimits>;
 
 function positive(raw: string | undefined, fallback: number): number {
   const n = Number(raw);
   return Number.isInteger(n) && n > 0 ? n : fallback;
 }
 
-export function emailLimitsFromEnv(env: NodeJS.ProcessEnv = process.env): EmailLimits {
+export function emailLimitsFromEnv(env: NodeJS.ProcessEnv = process.env): TemplateLimits {
   return {
     perAgentDay: positive(env.EMAIL_LIMIT_PER_AGENT_DAY, 50),
     perAgencyDay: positive(env.EMAIL_LIMIT_PER_AGENCY_DAY, 200),
+    perBatch: positive(env.EMAIL_LIMIT_PER_BATCH, 20),
+    repeatDays: positive(env.EMAIL_REPEAT_DAYS, 7),
+    sendDelayMs: Number.isInteger(Number(env.EMAIL_SEND_DELAY_MS)) && Number(env.EMAIL_SEND_DELAY_MS) >= 0 && env.EMAIL_SEND_DELAY_MS !== undefined && env.EMAIL_SEND_DELAY_MS !== ''
+      ? Number(env.EMAIL_SEND_DELAY_MS)
+      : 500,
+  };
+}
+
+/**
+ * Development safety (ADR 0022): outside production, template emails go ONLY
+ * to addresses on `EMAIL_DEV_ALLOWLIST` — comma-separated addresses, or
+ * `@domain` for a whole domain. Unset in development means NOBODY: a test
+ * batch can never reach a real client by accident. In production the
+ * variable is ignored.
+ */
+export function devAllowlist(env: NodeJS.ProcessEnv = process.env): ((email: string) => boolean) | null {
+  if (env.NODE_ENV === 'production') return null;
+  const entries = (env.EMAIL_DEV_ALLOWLIST ?? '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return (email: string) => {
+    const e = email.trim().toLowerCase();
+    return entries.some((entry) => (entry.startsWith('@') ? e.endsWith(entry) : e === entry));
   };
 }
 

@@ -162,7 +162,13 @@ export async function recordOutbound(
  * agency, the author, and the buyer's latest Message-ID to thread under — so
  * the console path and the relay path cannot build it differently.
  */
-export async function deliverOutbound(db: Db, deps: MailDeps, messageId: string): Promise<SendOutcome> {
+export async function deliverOutbound(
+  db: Db,
+  deps: MailDeps,
+  messageId: string,
+  /** Only for an approved template email (ADR 0022): makes it marketing, with the contact's unsubscribe link. */
+  opts: { unsubscribeUrl?: string } = {},
+): Promise<SendOutcome> {
   const [m] = await db
     .select({
       id: mailMessage.id,
@@ -223,6 +229,7 @@ export async function deliverOutbound(db: Db, deps: MailDeps, messageId: string)
         ? { viewUrl: conversationLink(deps.site.webUrl, m.threadId, m.contactEmail, deps.site.verifySecret) }
         : {}),
       ...(m.inReplyTo ? { threading: { inReplyTo: m.inReplyTo, references: [m.inReplyTo] } } : {}),
+      ...(opts.unsubscribeUrl ? { unsubscribeUrl: opts.unsubscribeUrl } : {}),
     });
     result = await transport.send(email);
   } catch (err) {

@@ -206,6 +206,25 @@ export type Action =
   | 'agent_skill:read'
   /** Add to your list, edit, schedule, switch on/off, run now. Not read-only members. */
   | 'agent_skill:manage'
+  /** See the agency's email templates (ADR 0022). Any active member. */
+  | 'email_template:read'
+  /**
+   * Draft a template, or edit/submit one still in draft: anyone who may write
+   * creates; only its author (`ownerId`) or an admin edits or submits it.
+   */
+  | 'email_template:draft'
+  /** Approve, send back or retire a template. Owner/admin only. */
+  | 'email_template:approve'
+  /** Prepare a bulk send. Any active member who is not read-only. */
+  | 'email_batch:create'
+  /** See a batch: the agent who prepared it (`ownerId`), or an admin. */
+  | 'email_batch:read'
+  /** Approve & Send, retry failed: only the agent who prepared it. */
+  | 'email_batch:send'
+  /** Cancel a prepared batch: its agent or an admin. */
+  | 'email_batch:cancel'
+  /** Save and use your own directory filters. */
+  | 'contact_filter:manage'
   | 'team:manage'
   | 'agency:billing'
   /** Agency OS host — owner|admin only */
@@ -456,6 +475,38 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'agent_skill:manage':
       return sameAgency(actor, resource) && mayWrite(actor) &&
         Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'email_template:read':
+      return sameAgency(actor, resource) && Boolean(actor.membershipRole);
+
+    case 'email_template:draft':
+      if (!sameAgency(actor, resource) || !mayWrite(actor)) return false;
+      if (!resource.id || isAgencyAdmin(actor)) return true;
+      return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'email_template:approve':
+      return sameAgency(actor, resource) && isAgencyAdmin(actor);
+
+    case 'email_batch:create':
+      return sameAgency(actor, resource) && mayWrite(actor);
+
+    case 'email_batch:read':
+      if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      if (!resource.id || isAgencyAdmin(actor)) return true;
+      return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'email_batch:send':
+      return sameAgency(actor, resource) && mayWrite(actor) &&
+        Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'email_batch:cancel':
+      if (!sameAgency(actor, resource) || !mayWrite(actor)) return false;
+      if (isAgencyAdmin(actor)) return true;
+      return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'contact_filter:manage':
+      return sameAgency(actor, resource) && mayWrite(actor) &&
+        (!resource.ownerId || actor.userId === resource.ownerId);
 
     case 'team:manage':
     case 'agency:billing':

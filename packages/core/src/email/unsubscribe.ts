@@ -108,3 +108,37 @@ export function unsubscribeUrl(
   const token = signUnsubscribeToken(scheduleId, userId, secret);
   return `${baseUrl.replace(/\/$/, '')}/unsubscribe?t=${encodeURIComponent(token)}`;
 }
+
+/**
+ * A CONTACT's unsubscribe (ADR 0022): a template email's link. A different
+ * token from a saved search's — three parts, prefixed `c.`, signed over
+ * `contact-optout:<id>` — so neither kind can ever be read as the other.
+ * Same secret (ALERT_UNSUBSCRIBE_SECRET), same /unsubscribe route.
+ */
+function contactSignature(contactId: string, secret: string): string {
+  return base64url(createHmac('sha256', secret).update(`contact-optout:${contactId}`).digest());
+}
+
+export function signContactUnsubscribeToken(contactId: string, secret: string): string {
+  return `c.${base64url(Buffer.from(contactId, 'utf8'))}.${contactSignature(contactId, secret)}`;
+}
+
+export function verifyContactUnsubscribeToken(token: string, secret: string): { ok: true; contactId: string } | { ok: false } {
+  const parts = token.split('.');
+  if (parts.length !== 3 || parts[0] !== 'c') return { ok: false };
+  let contactId: string;
+  try {
+    contactId = fromBase64url(parts[1]!).toString('utf8');
+  } catch {
+    return { ok: false };
+  }
+  if (!/^[0-9a-f-]{36}$/i.test(contactId)) return { ok: false };
+  const want = Buffer.from(contactSignature(contactId, secret));
+  const got = Buffer.from(parts[2]!);
+  if (want.length !== got.length || !timingSafeEqual(want, got)) return { ok: false };
+  return { ok: true, contactId };
+}
+
+export function contactUnsubscribeUrl(baseUrl: string, contactId: string, secret: string): string {
+  return `${baseUrl.replace(/\/$/, '')}/unsubscribe?t=${encodeURIComponent(signContactUnsubscribeToken(contactId, secret))}`;
+}

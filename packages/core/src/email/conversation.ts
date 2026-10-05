@@ -1,6 +1,6 @@
 import { leadDetailsHtml, leadDetailsText, type LeadDetails } from './lead-details';
 import { escapeHtml, requireSenderFooter } from './schedule-digest';
-import { type EmailAddress, type TransactionalMessage } from './transport';
+import { type EmailAddress, type TransactionalMessage, type EmailMessage } from './transport';
 
 /**
  * The two emails a conversation sends (docs/adr/0016).
@@ -49,6 +49,12 @@ export type ConversationEmailInput = {
   threading?: { inReplyTo: string; references: string[] };
   /** The conversation on the public site — one plain link, under the sign-off. */
   viewUrl?: string;
+  /**
+   * Set ONLY for an approved template email (ADR 0022): it makes the message
+   * MARKETING — an unsubscribe link in the footer and the one-click header,
+   * the subject as written (no "Re:"), and a footer that says why they get it.
+   */
+  unsubscribeUrl?: string;
 };
 
 /**
@@ -58,11 +64,16 @@ export type ConversationEmailInput = {
  * with an agent, and a templated look reads as marketing and gets filed as it.
  * The only platform line is the small footer, which the Spam Act requires.
  */
-export function buildConversationEmail(input: ConversationEmailInput): TransactionalMessage {
+export function buildConversationEmail(input: ConversationEmailInput & { unsubscribeUrl?: undefined }): TransactionalMessage;
+export function buildConversationEmail(input: ConversationEmailInput): EmailMessage;
+export function buildConversationEmail(input: ConversationEmailInput): EmailMessage {
   requireSenderFooter(input.from, input.postalAddress, 'conversation');
 
+  const marketing = Boolean(input.unsubscribeUrl);
   const signOff = `${input.authorName}\n${input.agencyName}`;
-  const why = `Sent by ${input.agencyName} in reply to your enquiry. Reply to this email to answer them.`;
+  const why = marketing
+    ? `You are receiving this because you agreed to hear from ${input.agencyName}. Reply to this email to answer them.`
+    : `Sent by ${input.agencyName} in reply to your enquiry. Reply to this email to answer them.`;
 
   const html = `<!doctype html>
 <html lang="en">
@@ -78,6 +89,7 @@ export function buildConversationEmail(input: ConversationEmailInput): Transacti
     <p style="font:400 12px/1.6 ${FONT};color:#8c8577;margin:28px 0 0;border-top:1px solid #ece7dd;padding-top:12px;">
       ${escapeHtml(why)}<br>
       ${escapeHtml(input.from.name)}, ${escapeHtml(input.postalAddress)}
+      ${marketing ? `<br><a href="${escapeHtml(input.unsubscribeUrl!)}" style="color:#8c8577;">Unsubscribe</a> — no more marketing email from ${escapeHtml(input.agencyName)}.` : ''}
     </p>
   </div>
 </body>
@@ -92,7 +104,22 @@ export function buildConversationEmail(input: ConversationEmailInput): Transacti
     '---',
     why,
     `${input.from.name}, ${input.postalAddress}`,
+    ...(marketing ? [`Unsubscribe: ${input.unsubscribeUrl}`] : []),
   ].join('\n');
+
+  if (marketing) {
+    return {
+      kind: 'marketing',
+      to: input.to,
+      from: input.from,
+      replyTo: input.replyTo,
+      subject: input.subject,
+      html,
+      text,
+      tags: { kind: 'template-email' },
+      listUnsubscribeUrl: input.unsubscribeUrl!,
+    };
+  }
 
   return {
     kind: 'transactional',
