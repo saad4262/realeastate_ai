@@ -66,5 +66,19 @@ buyer/seller tables (one person, many roles). Reusing `event` (see 6).
   assignee (transactional, `notifyContactAssigned`): not on self-assignment, and not
   once it has been reassigned again.
 
+**Phase 2 follow-up (2026-10-05, migration 0022) — the user's decisions.**
+- Notes stay visible to everyone who can see the contact, but a note may be ticked
+  **Private (admins only)**: then only the agency's admins and its author see it
+  (`note:read_private`). One filter, `noteVisibleSql`, is applied by the Notes tab,
+  the timeline and the counts, so a private note cannot leak through any of them.
+  The client should still confirm whether this is enough.
+- A contact can be tied to a **brand-new address** (an owner's or vendor's home that
+  is not listed), with the listing form's address picker. Geocoding happens before
+  the write; `upsertProperty(…, { leaveExisting: true })` finds the existing property
+  for that address or makes one, and NEVER changes an existing property (another
+  agency's pin or facts). A home added this way is not public: `/property/[id]`
+  renders only for an address that was once public.
+- Removing a property link stays a hard delete; the timeline records it.
+
 **Not done.** Last-activity column in the directory; `contact.user_id` (set only once
-an account proves the address); linking a never-seen address; appointments (Phase 3).
+an account proves the address); appointments (Phase 3).

@@ -90,6 +90,7 @@ import {
   createNote,
   deleteNote,
   getContact,
+  linkContactNewAddress,
   linkContactProperty,
   listContactNotes,
   listContactProperties,
@@ -3688,6 +3689,94 @@ async function main() {
         const stale = await notifyContactAssigned(t, deps, f.contacts.p6, f.people.a2, f.people.owner);
         assert(stale.sent === 0, 'a notice went out for an assignment that was already undone');
         summary = 'assignee emailed with their own link; self-assignment and stale ones not';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check('a private note reaches admins and its author only — on the Notes tab, the timeline and the count', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const cid = f.contacts.p1; // A1 sees P1 through the listing; the owner sees everyone
+        await createNote(t, f.actor('owner'), cid, 'Owner, shared');
+        const { id: secret } = await createNote(t, f.actor('owner'), cid, 'Owner, private', { isPrivate: true });
+        const { id: mine } = await createNote(t, f.actor('a1'), cid, 'A1, private', { isPrivate: true });
+        const seen = async (who: 'owner' | 'a1') => {
+          const a = f.actor(who);
+          const view = (await getContact(t, a, cid)) as ContactView;
+          const [notes, timeline, counts] = await Promise.all([
+            listContactNotes(t, a, view.ref),
+            listContactTimeline(t, a, view.ref),
+            contactCounts(t, a, view.ref),
+          ]);
+          return {
+            notes: notes.map((n) => n.id),
+            timeline: timeline.items.filter((i) => i.type === 'note').map((i) => i.id),
+            count: counts.notes,
+          };
+        };
+        const a1 = await seen('a1');
+        assert(!a1.notes.includes(secret), "A1's Notes tab shows the owner's private note");
+        assert(!a1.timeline.includes(secret), "A1's timeline shows the owner's private note");
+        assert(a1.count === 2 && a1.notes.length === 2, `A1 count ${a1.count}, notes ${a1.notes.length} (expected 2: shared + their own private)`);
+        assert(a1.notes.includes(mine), 'the author cannot see their own private note');
+        const editSecret = await updateNote(t, f.actor('a1'), secret, 'x').then(() => 'edited', (e: unknown) => (e as ContactError).code);
+        assert(editSecret === 'not_found', `A1 touching the owner's private note got ${editSecret}`);
+        const owner = await seen('owner');
+        assert(owner.count === 3 && owner.notes.includes(secret) && owner.notes.includes(mine), 'the owner does not see every note');
+        summary = "A1 sees the shared note and their own private one, never the owner's; the owner sees all three";
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check("a brand-new address can be linked, is one property however often, and an existing one is never changed", async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const owner = f.actor('owner');
+        // Coordinates supplied, as the address picker does: no geocoder call.
+        const home = {
+          streetNumber: '27', street: `Smoke Vendor Road ${f.tag}`, suburb: 'Officer', state: 'VIC' as const,
+          postcode: '3809', latitude: -38.06, longitude: 145.41, pinSource: 'google' as const,
+        };
+        const first = await linkContactNewAddress(t, owner, f.contacts.p6, { ...home, relation: 'owner' });
+        const again = await linkContactNewAddress(t, owner, f.contacts.p4, { ...home, street: home.street.toUpperCase(), relation: 'vendor' });
+        assert(first.propertyId === again.propertyId, 'the same address became two properties');
+        const view = (await getContact(t, owner, f.contacts.p6)) as ContactView;
+        const props = await listContactProperties(t, owner, view.ref);
+        assert(props.some((p) => p.propertyId === first.propertyId && p.links[0]?.relation === 'owner'), 'the new address is not on the contact');
+
+        // The fixture's listed property: linking a person to it moves nothing.
+        const [before] = await t.execute<{ latitude: string | null; updated_at: string }>(sql`
+          select latitude, updated_at::text from property where id = ${f.propertyId}
+        `);
+        await linkContactNewAddress(t, owner, f.contacts.p6, {
+          streetNumber: '1', street: 'Smoke Street', suburb: 'Pakenham', state: 'VIC', postcode: '3810',
+          latitude: -10, longitude: 120, pinSource: 'google', relation: 'other',
+        });
+        const [after] = await t.execute<{ latitude: string | null; updated_at: string }>(sql`
+          select latitude, updated_at::text from property where id = ${f.propertyId}
+        `);
+        assert(after?.latitude === before?.latitude && after?.updated_at === before?.updated_at, "linking a contact rewrote an existing property's pin");
+
+        const viewer = await linkContactNewAddress(t, f.actor('viewer'), f.contacts.p4, { ...home, relation: 'owner' })
+          .then(() => 'linked', (e: unknown) => (e as ContactError).code);
+        assert(viewer === 'forbidden', `a read-only member adding an address got ${viewer}`);
+        summary = 'one property per address; existing property untouched; read-only refused';
         throw ROLLBACK;
       });
     } catch (err) {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { propertyDraftSchema } from '../listings/listing-schema';
 
 /**
  * The contracts for contacts (docs/adr/0018).
@@ -180,6 +181,33 @@ export const linkPropertySchema = z.object({
   note: optionalText(300),
 });
 export type LinkPropertyInput = z.input<typeof linkPropertySchema>;
+
+/**
+ * Tie a contact to an address the system has never seen — an owner's or
+ * vendor's home that is not listed. The listing form's own address rules
+ * (`propertyDraftSchema`: suburb, state, 4-digit postcode, the pin from the
+ * address picker), plus a street, because a home has one. No physical facts:
+ * a contact link says who, not what the house is.
+ */
+export const linkNewAddressSchema = propertyDraftSchema
+  .pick({
+    unit: true,
+    streetNumber: true,
+    suburb: true,
+    state: true,
+    postcode: true,
+    latitude: true,
+    longitude: true,
+    placeId: true,
+    pinSource: true,
+    formattedAddress: true,
+  })
+  .extend({
+    street: z.string().trim().min(1, 'Street is required').max(200),
+    relation: z.enum(CONTACT_PROPERTY_RELATIONS),
+    note: optionalText(300),
+  });
+export type LinkNewAddressInput = z.input<typeof linkNewAddressSchema>;
 
 /** The next-action quick edit on the overview. */
 export const nextActionSchema = z.object({

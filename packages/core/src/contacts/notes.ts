@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { contact, note, user, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { noteBodySchema } from './contact-schema';
@@ -13,9 +13,23 @@ import { contactResource } from './visibility';
  * row: nothing here destroys what somebody wrote.
  */
 
+/**
+ * The notes this actor may read, as a WHERE clause on `note`: all of them for
+ * an admin; otherwise every note that is not private, plus their own private
+ * ones. Shared by the Notes tab, the timeline and the counts, so a private
+ * note cannot leak through one of them.
+ */
+export function noteVisibleSql(actor: Actor): SQL {
+  const agencyId = actor.agencyId ?? '00000000-0000-0000-0000-000000000000';
+  if (can(actor, 'note:read_private', { type: 'note', agencyId })) return sql`true`;
+  return or(eq(note.isPrivate, false), eq(note.authorId, actor.userId))!;
+}
+
 export type NoteView = {
   id: string;
   body: string;
+  /** Admins and the author only. */
+  isPrivate: boolean;
   authorName: string | null;
   createdAt: Date;
   /** Set when the text was changed after it was written. */
@@ -33,6 +47,7 @@ export async function listContactNotes(
     .select({
       id: note.id,
       body: note.body,
+      isPrivate: note.isPrivate,
       authorId: note.authorId,
       authorName: user.name,
       authorEmail: user.email,
@@ -41,7 +56,9 @@ export async function listContactNotes(
     })
     .from(note)
     .leftJoin(user, eq(user.id, note.authorId))
-    .where(and(eq(note.contactId, c.id), eq(note.agencyId, c.agencyId), isNull(note.deletedAt)))
+    .where(
+      and(eq(note.contactId, c.id), eq(note.agencyId, c.agencyId), isNull(note.deletedAt), noteVisibleSql(actor)),
+    )
     .orderBy(desc(note.createdAt), desc(note.id))
     .limit(200);
   return rows.map((r) => {
@@ -50,6 +67,7 @@ export async function listContactNotes(
     return {
       id: r.id,
       body: r.body,
+      isPrivate: r.isPrivate,
       authorName: r.authorName || r.authorEmail || null,
       createdAt: created,
       // A minute's grace: the insert's own timestamps differ by microseconds.
@@ -75,6 +93,7 @@ export async function createNote(
   actor: Actor,
   contactId: string,
   body: string,
+  opts: { isPrivate?: boolean } = {},
 ): Promise<{ id: string }> {
   const head = await loadContactHead(db, actor, contactId);
   if (!head || head.row.mergedIntoId) throw CONTACT_NOT_FOUND();
@@ -86,7 +105,13 @@ export async function createNote(
   const text = parseBody(body);
   const [row] = await db
     .insert(note)
-    .values({ agencyId: head.row.agencyId, contactId: head.row.id, authorId: actor.userId, body: text })
+    .values({
+      agencyId: head.row.agencyId,
+      contactId: head.row.id,
+      authorId: actor.userId,
+      body: text,
+      isPrivate: opts.isPrivate ?? false,
+    })
     .returning({ id: note.id });
   return { id: row!.id };
 }
@@ -95,7 +120,13 @@ export async function createNote(
 async function loadManageable(db: Db, actor: Actor, noteId: string) {
   if (!actor.agencyId || !/^[0-9a-f-]{36}$/i.test(noteId)) throw new ContactError('not_found', 'That note was not found');
   const [n] = await db
-    .select({ id: note.id, contactId: note.contactId, authorId: note.authorId, agencyId: note.agencyId })
+    .select({
+      id: note.id,
+      contactId: note.contactId,
+      authorId: note.authorId,
+      agencyId: note.agencyId,
+      isPrivate: note.isPrivate,
+    })
     .from(note)
     .innerJoin(contact, eq(contact.id, note.contactId))
     .where(and(eq(note.id, noteId), eq(note.agencyId, actor.agencyId), isNull(note.deletedAt)))
@@ -106,16 +137,33 @@ async function loadManageable(db: Db, actor: Actor, noteId: string) {
     throw new ContactError('not_found', 'That note was not found');
   }
   const resource = { type: 'note', id: n.id, agencyId: n.agencyId, ...(n.authorId ? { ownerId: n.authorId } : {}) };
+  // A private note you may not read is a note that does not exist, for you.
+  if (n.isPrivate && !can(actor, 'note:read_private', resource)) {
+    throw new ContactError('not_found', 'That note was not found');
+  }
   if (!can(actor, 'note:manage', resource)) {
     throw new ContactError('forbidden', 'Only whoever wrote this note, or an admin, may change it');
   }
   return n;
 }
 
-export async function updateNote(db: Db, actor: Actor, noteId: string, body: string): Promise<{ contactId: string }> {
+export async function updateNote(
+  db: Db,
+  actor: Actor,
+  noteId: string,
+  body: string,
+  opts: { isPrivate?: boolean } = {},
+): Promise<{ contactId: string }> {
   const n = await loadManageable(db, actor, noteId);
   const text = parseBody(body);
-  await db.update(note).set({ body: text, updatedAt: sql`now()` }).where(eq(note.id, n.id));
+  await db
+    .update(note)
+    .set({
+      body: text,
+      ...(opts.isPrivate === undefined ? {} : { isPrivate: opts.isPrivate }),
+      updatedAt: sql`now()`,
+    })
+    .where(eq(note.id, n.id));
   return { contactId: n.contactId };
 }
 

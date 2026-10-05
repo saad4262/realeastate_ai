@@ -3,7 +3,8 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
-- **Now: CRM Phase 2 (Contact 360) done on `feat/crm`, waiting for review.**
+- **Now: CRM Phase 2 + follow-up (private notes, new-address link) done on
+  `feat/crm`, waiting for the user's browser test of N and O.**
   Plan: `~/.claude/plans/pasted-content-id-f0ff-you-are-functional-frost.md`.
   Next: Phase 3 (appointments, then Zoom / Google Calendar) — not started.
 - Build order (locked): Agency UI → Agent UI → Consumer web
@@ -11,6 +12,18 @@
 - Last updated: 2026-10-05
 - Deploying: `apps/web` only, Vercel Hobby. `apps/console` waits for a real
   domain — see `docs/DEPLOY.md`. **Nothing is deployed yet.**
+
+## CRM Phase 2 follow-up (2026-10-05, migration 0022)
+
+- `note.is_private` (applied on dev). Private notes: admins + author only, on
+  the Notes tab, timeline and counts (`noteVisibleSql`). Ask the client if
+  that is enough.
+- Link a contact to a brand-new address with the listing form's address
+  picker (`linkContactNewAddress`); existing properties are never changed
+  (`upsertProperty` `leaveExisting`). TEST-PLAN O14–O15.
+- Numbers: typecheck 10/10, lint 0 errors, test 625 + 263, build 2/2, smoke
+  138 passed / 1 failed (known unmirrored dev account). Two new smoke checks,
+  each break-checked red.
 
 ## CRM Phase 2 — Contact 360 (2026-10-05, ADR 0018 addendum)
 

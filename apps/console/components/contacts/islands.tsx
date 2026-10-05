@@ -168,9 +168,20 @@ export function MergeButton({
   );
 }
 
+/** The private tick, worded the same in both places it appears. */
+function PrivateTick({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className={styles.check} title="Only the agency's admins and you will see it">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      Private (admins only)
+    </label>
+  );
+}
+
 export function NoteComposer({ contactId }: { contactId: string }) {
   const { pending, run } = useRun();
   const [body, setBody] = useState('');
+  const [isPrivate, setPrivate] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
     <form
@@ -183,7 +194,10 @@ export function NoteComposer({ contactId }: { contactId: string }) {
           return;
         }
         setError(null);
-        run(() => createNoteAction(contactId, body), 'Note added', () => setBody(''));
+        run(() => createNoteAction(contactId, body, isPrivate), 'Note added', () => {
+          setBody('');
+          setPrivate(false);
+        });
       }}
     >
       <textarea
@@ -196,26 +210,28 @@ export function NoteComposer({ contactId }: { contactId: string }) {
         aria-label="New note"
       />
       {error ? <p className={styles.error} role="alert">{error}</p> : null}
-      <div className={styles.actions}>
+      <div className={styles.actions} style={{ alignItems: 'center' }}>
         <button type="submit" className={styles.btn} disabled={pending || !body.trim()}>
           {pending ? 'Saving…' : 'Add note'}
         </button>
+        <PrivateTick checked={isPrivate} onChange={setPrivate} />
       </div>
     </form>
   );
 }
 
-export function NoteControls({ noteId, body }: { noteId: string; body: string }) {
+export function NoteControls({ noteId, body, isPrivate }: { noteId: string; body: string; isPrivate: boolean }) {
   const { pending, run } = useRun();
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(body);
+  const [priv, setPriv] = useState(isPrivate);
   if (editing) {
     return (
       <form
         className={styles.noteForm}
         onSubmit={(e) => {
           e.preventDefault();
-          run(() => updateNoteAction(noteId, text), 'Note saved', () => setEditing(false));
+          run(() => updateNoteAction(noteId, text, priv), 'Note saved', () => setEditing(false));
         }}
       >
         <textarea
@@ -228,9 +244,18 @@ export function NoteControls({ noteId, body }: { noteId: string; body: string })
         />
         <div className={styles.actions}>
           <button type="submit" className={styles.btn} disabled={pending || !text.trim()}>Save</button>
-          <button type="button" className={styles.btnGhost} onClick={() => { setText(body); setEditing(false); }}>
+          <button
+            type="button"
+            className={styles.btnGhost}
+            onClick={() => {
+              setText(body);
+              setPriv(isPrivate);
+              setEditing(false);
+            }}
+          >
             Cancel
           </button>
+          <PrivateTick checked={priv} onChange={setPriv} />
         </div>
       </form>
     );

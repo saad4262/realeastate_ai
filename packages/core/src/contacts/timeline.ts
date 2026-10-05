@@ -17,6 +17,7 @@ import { snippet } from '../mail/body';
 import { formatAddress } from '../listings/listing-schema';
 import { activityKindSchema, type ActivityKind } from './contact-schema';
 import type { ReadableContact } from './get-contact';
+import { noteVisibleSql } from './notes';
 
 /**
  * One person's history, newest first (ADR 0018): their enquiries and offers,
@@ -56,7 +57,7 @@ export type TimelineItem =
       threadId: string;
       who: string | null;
     }
-  | { type: 'note'; id: string; at: Date; body: string; who: string | null }
+  | { type: 'note'; id: string; at: Date; body: string; who: string | null; isPrivate: boolean }
   | {
       type: 'activity';
       id: string;
@@ -164,7 +165,7 @@ export async function listContactTimeline(
       type: sql<string>`'note'`.as('type'),
       at: sql<Date>`${note.createdAt}`.as('at'),
       id: sql<string>`${note.id}`.as('id'),
-      sub: sql<null>`null::text`.as('sub'),
+      sub: sql<string>`case when ${note.isPrivate} then 'private' else 'shared' end`.as('sub'),
       title: sql<null>`null::text`.as('title'),
       body: sql<string>`${note.body}`.as('body'),
       ref: sql<null>`null::uuid`.as('ref'),
@@ -174,7 +175,14 @@ export async function listContactTimeline(
     })
     .from(note)
     .leftJoin(author, eq(author.id, note.authorId))
-    .where(and(eq(note.contactId, contact.id), eq(note.agencyId, contact.agencyId), isNull(note.deletedAt)));
+    .where(
+      and(
+        eq(note.contactId, contact.id),
+        eq(note.agencyId, contact.agencyId),
+        isNull(note.deletedAt),
+        noteVisibleSql(actor),
+      ),
+    );
 
   const activities = db
     .select({
@@ -246,7 +254,7 @@ function toItem(r: Row): TimelineItem | null {
       };
     }
     case 'note':
-      return { type: 'note', id: r.id, at, body: r.body ?? '', who: r.who };
+      return { type: 'note', id: r.id, at, body: r.body ?? '', who: r.who, isPrivate: r.sub === 'private' };
     case 'activity': {
       const kind = activityKindSchema.safeParse(r.sub);
       // A kind this code no longer knows is left out rather than shown wrong.

@@ -147,6 +147,12 @@ export type Action =
   | 'note:create'
   /** Edit or delete a note: its author (`ownerId`), or an admin. */
   | 'note:manage'
+  /**
+   * Read a note marked private: the agency's admins, and its author
+   * (`ownerId`). No id: "every private note in the agency" — admins only, and
+   * that is how a list decides whether to filter at all.
+   */
+  | 'note:read_private'
   | 'team:manage'
   | 'agency:billing'
   /** Agency OS host — owner|admin only */
@@ -335,6 +341,11 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
 
     case 'note:create':
       return mayWrite(actor) && can(actor, 'contact:read', resource);
+
+    case 'note:read_private':
+      if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      if (isAgencyAdmin(actor)) return true;
+      return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
 
     case 'team:manage':
     case 'agency:billing':

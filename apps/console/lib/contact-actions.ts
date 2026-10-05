@@ -8,6 +8,7 @@ import {
   createContact,
   createNote,
   deleteNote,
+  linkContactNewAddress,
   linkContactProperty,
   mergeContacts,
   notifyContactAssigned,
@@ -18,6 +19,7 @@ import {
   updateContact,
   updateNote,
   type CreateContactInput,
+  type LinkNewAddressInput,
   type LinkPropertyInput,
   type NextActionInput,
   type PropertyMatch,
@@ -168,10 +170,14 @@ export async function mergeContactsAction(survivorId: string, loserId: string): 
   }
 }
 
-export async function createNoteAction(contactId: string, body: string): Promise<SimpleResult> {
+export async function createNoteAction(
+  contactId: string,
+  body: string,
+  isPrivate = false,
+): Promise<SimpleResult> {
   const who = await actor();
   try {
-    await createNote(getConsoleDb(), who, contactId, body);
+    await createNote(getConsoleDb(), who, contactId, body, { isPrivate });
     refresh(contactId);
     return { ok: true };
   } catch (err) {
@@ -179,10 +185,14 @@ export async function createNoteAction(contactId: string, body: string): Promise
   }
 }
 
-export async function updateNoteAction(noteId: string, body: string): Promise<SimpleResult> {
+export async function updateNoteAction(
+  noteId: string,
+  body: string,
+  isPrivate?: boolean,
+): Promise<SimpleResult> {
   const who = await actor();
   try {
-    const { contactId } = await updateNote(getConsoleDb(), who, noteId, body);
+    const { contactId } = await updateNote(getConsoleDb(), who, noteId, body, { isPrivate });
     refresh(contactId);
     return { ok: true };
   } catch (err) {
@@ -230,5 +240,20 @@ export async function unlinkPropertyAction(contactId: string, linkId: string): P
     return { ok: true };
   } catch (err) {
     return simpleFailure(err, 'Could not unlink the property');
+  }
+}
+
+/** Tie a contact to an address the system has never seen (geocoded in core, before any write). */
+export async function linkNewAddressAction(
+  contactId: string,
+  input: LinkNewAddressInput,
+): Promise<SimpleResult> {
+  const who = await actor();
+  try {
+    await linkContactNewAddress(getConsoleDb(), who, contactId, input);
+    refresh(contactId);
+    return { ok: true };
+  } catch (err) {
+    return simpleFailure(err, 'Could not add the address');
   }
 }

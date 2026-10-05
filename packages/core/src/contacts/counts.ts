@@ -4,6 +4,7 @@ import type { Actor } from '../permissions';
 import { leadScopeFilters } from '../leads/list-leads';
 import { threadScopeFilters } from '../mail/threads';
 import type { ReadableContact } from './get-contact';
+import { noteVisibleSql } from './notes';
 
 export type ContactCounts = { enquiries: number; conversations: number; notes: number; properties: number };
 
@@ -25,7 +26,7 @@ export async function contactCounts(db: Db, actor: Actor, c: ReadableContact): P
   const notes = db
     .select({ n: sql<number>`count(*)` })
     .from(note)
-    .where(and(eq(note.contactId, c.id), eq(note.agencyId, c.agencyId), isNull(note.deletedAt)));
+    .where(and(eq(note.contactId, c.id), eq(note.agencyId, c.agencyId), isNull(note.deletedAt), noteVisibleSql(actor)));
   const linked = db
     .select({ n: sql<number>`count(distinct ${contactProperty.propertyId})` })
     .from(contactProperty)

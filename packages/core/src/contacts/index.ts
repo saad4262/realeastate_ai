@@ -32,6 +32,7 @@ export {
   listContactProperties,
   searchLinkableProperties,
   linkContactProperty,
+  linkContactNewAddress,
   unlinkContactProperty,
   type ContactPropertyView,
   type PropertyMatch,

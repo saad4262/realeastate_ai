@@ -2,10 +2,13 @@ import { and, eq, or, sql } from 'drizzle-orm';
 import { contactProperty, lead, property, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { leadScopeFilters, type LeadKind } from '../leads/list-leads';
-import { formatAddress } from '../listings/listing-schema';
+import { formatAddress, type PropertyDraft } from '../listings/listing-schema';
+import { resolvePin, upsertProperty } from '../listings/property-resolver';
 import {
+  linkNewAddressSchema,
   linkPropertySchema,
   type ContactPropertyRelation,
+  type LinkNewAddressInput,
   type LinkPropertyInput,
 } from './contact-schema';
 import { loadContactHead, type ReadableContact } from './get-contact';
@@ -269,4 +272,50 @@ export async function unlinkContactProperty(
       relation: gone.relation,
     });
   });
+}
+
+/**
+ * Tie a contact to a brand-new address (the user's decision, 2026-10-05: an
+ * owner's or vendor's home is often not listed). Same path as the listing
+ * form: the address picker's pin when there is one, otherwise geocoded —
+ * BEFORE the transaction, never inside it — then `upsertProperty`, which
+ * finds the existing property for that address (one address is one property,
+ * ADR 0013) or makes one. An existing property is used exactly as it is.
+ *
+ * A property made this way is private: `/property/[id]` renders only for an
+ * address that was once public, so linking somebody's home publishes nothing.
+ */
+export async function linkContactNewAddress(
+  db: Db,
+  actor: Actor,
+  contactId: string,
+  input: LinkNewAddressInput,
+): Promise<{ propertyId: string }> {
+  const row = await requireEditable(db, actor, contactId);
+  const parsed = linkNewAddressSchema.safeParse(input);
+  if (!parsed.success) throw new ContactError('invalid', parsed.error.issues[0]?.message ?? 'Check the address');
+  const { relation, note: linkNote, ...address } = parsed.data;
+  const draft = address as PropertyDraft;
+
+  // The network call, outside any transaction (CLAUDE.md).
+  const pin = await resolvePin(db, draft);
+  const label = formatAddress(draft);
+
+  const propertyId = await db.transaction(async (tx) => {
+    const id = await upsertProperty(tx, draft, pin, { leaveExisting: true });
+    const inserted = await tx
+      .insert(contactProperty)
+      .values({ contactId: row.id, propertyId: id, relation, note: linkNote ?? null, createdBy: actor.userId })
+      .onConflictDoNothing()
+      .returning({ id: contactProperty.id });
+    if (inserted.length) {
+      await recordActivity(tx, actor, row.agencyId, row.id, 'property_linked', {
+        propertyId: id,
+        address: label,
+        relation,
+      });
+    }
+    return id;
+  });
+  return { propertyId };
 }

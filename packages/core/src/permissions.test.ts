@@ -503,6 +503,18 @@ describe('contacts', () => {
     expect(can(rivalOwner, 'contact:archive', { ...nobodys })).toBe(false);
   });
 
+  it('shows a private note to admins and its author only', () => {
+    const privateNote = { type: 'note', id: 'n-p', agencyId: agencyA, ownerId: 'agent' };
+    expect(can(owner, 'note:read_private', privateNote)).toBe(true);
+    expect(can(agent, 'note:read_private', privateNote)).toBe(true);
+    expect(can(other, 'note:read_private', privateNote)).toBe(false);
+    expect(can(viewer, 'note:read_private', privateNote)).toBe(false);
+    expect(can(rivalOwner, 'note:read_private', privateNote)).toBe(false);
+    // Asked about the agency as a whole: only admins see every private note.
+    expect(can(owner, 'note:read_private', { type: 'note', agencyId: agencyA })).toBe(true);
+    expect(can(agent, 'note:read_private', { type: 'note', agencyId: agencyA })).toBe(false);
+  });
+
   it('lets a note be changed by its author or an admin only', () => {
     const note = { type: 'note', id: 'n-1', agencyId: agencyA, ownerId: 'agent' };
     expect(can(agent, 'note:manage', note)).toBe(true);

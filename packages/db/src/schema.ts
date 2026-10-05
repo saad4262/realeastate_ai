@@ -808,6 +808,12 @@ export const note = pgTable(
     authorId: uuid('author_id').references(() => user.id, { onDelete: 'set null' }),
     body: text('body').notNull(),
     /**
+     * Private: only the agency's admins and the note's author see it — for
+     * what should not reach every agent who meets this person through a lead
+     * (money, a dispute). `note:read_private` in permissions.ts.
+     */
+    isPrivate: boolean('is_private').notNull().default(false),
+    /**
      * Deleted by its author or an admin. Kept, never shown: a note somebody
      * relied on should not vanish without trace, and nothing here deletes rows.
      */

@@ -24,6 +24,7 @@ import {
   PropertyLinker,
   UnlinkButton,
 } from './islands';
+import { NewAddressLinker } from './new-address-linker';
 import styles from './contacts.module.css';
 
 /**
@@ -370,7 +371,10 @@ export function TimelineList({
               </>
             ) : item.type === 'note' ? (
               <>
-                <div className={styles.eventTitle}>Note{item.who ? ` by ${item.who}` : ''}</div>
+                <div className={styles.eventTitle}>
+                  Note{item.who ? ` by ${item.who}` : ''}
+                  {item.isPrivate ? <> <span className={styles.chipInferred}>Private</span></> : null}
+                </div>
                 <div className={styles.eventBody}>{item.body}</div>
               </>
             ) : (
@@ -449,6 +453,7 @@ export function PropertiesTab({
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>Link a property</h2>
           <PropertyLinker contactId={c.id} />
+          <NewAddressLinker contactId={c.id} />
         </div>
       ) : null}
     </div>
@@ -477,11 +482,12 @@ export function NotesTab({ contact: c, notes }: { contact: ContactView; notes: N
                   <div className={styles.eventTitle}>
                     {n.authorName ?? 'Someone'}
                     {n.editedAt ? <span className={styles.muted}> · edited</span> : null}
+                    {n.isPrivate ? <> <span className={styles.chipInferred} title="Only admins and the author see this">Private</span></> : null}
                   </div>
                   {n.mayManage ? (
                     <>
                       <div className={styles.eventBody}>{n.body}</div>
-                      <NoteControls noteId={n.id} body={n.body} />
+                      <NoteControls noteId={n.id} body={n.body} isPrivate={n.isPrivate} />
                     </>
                   ) : (
                     <div className={styles.eventBody}>{n.body}</div>

@@ -444,3 +444,5 @@ an email reply in their conversation.
 | O11 | Owner assigns the contact to the agent | The agent receives "<name> is now your contact" with a link to /my-contacts/<id>. Assigning to yourself sends nothing. |
 | O12 | Two contacts with the same phone → on one, "Merge into this contact" → confirm | The other's enquiries, emails and notes now show here; opening the other's old link lands on this one. |
 | O13 | Archive a contact | Gone from /customers; "Archived only" filter shows it; its profile still opens with an "Archived" banner and a Restore button. |
+| O14 | Notes: tick **Private (admins only)** and add a note as the owner; open the same contact as the agent | The agent does not see it — not in Notes, not in Timeline, and the Notes count excludes it. The owner sees it tagged "Private". An agent's own private note is visible to them and to admins. |
+| O15 | Properties → "Not in the list? Add a new address" → pick a suggestion (or type one), choose Owner → Add and link | Linked as Owner. Adding the same address to another contact reuses it (one property). Its public page is not reachable — nothing was published. |

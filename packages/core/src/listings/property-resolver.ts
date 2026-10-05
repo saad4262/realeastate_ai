@@ -156,6 +156,12 @@ export async function upsertProperty(
      * states is written.
      */
     editingPropertyId?: string;
+    /**
+     * Use an existing property exactly as it is. For a contact's address
+     * (ADR 0018): tying a person to a home is not a statement about the home,
+     * and must not move another agency's pin or rewrite its facts.
+     */
+    leaveExisting?: boolean;
   } = {},
 ): Promise<string> {
   const key = addressKey(p);
@@ -185,6 +191,8 @@ export async function upsertProperty(
     .orderBy(property.createdAt);
 
   const existing = candidates.find((c) => addressKey(c) === key);
+
+  if (existing && opts.leaveExisting) return existing.id;
 
   if (existing) {
     // A pin the caller is carrying always wins: it is either the one the

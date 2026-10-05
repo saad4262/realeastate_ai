@@ -1,3 +1,17 @@
+## 2026-10-05 (late) — Claude Code — Private notes and linking a new address
+
+- Goal (user): a "Private (admins only)" tick on notes; link a contact to a
+  brand-new address with the listing form's lookup. Hard-removing a link stays.
+- Done: migration 0022 (`note.is_private`, applied on dev); `note:read_private`;
+  `noteVisibleSql` used by notes, timeline, counts; private tick on add/edit and a
+  "Private" tag. `linkNewAddressSchema` (the listing form's address rules + a
+  street) and `linkContactNewAddress` (resolvePin before the tx, upsertProperty
+  with new `leaveExisting`); `NewAddressLinker` reusing AddressAutocomplete.
+- Verified: typecheck, lint 0 errors, test 625 + 263, build 2/2, smoke 138/1.
+  Break-checked red: private note in an agent's timeline; contact link
+  rewriting an existing property's pin.
+- Not verified in a browser: O14, O15 (user is testing N and O).
+
 ## 2026-10-05 (evening) — Claude Code — CRM Phase 2: Contact 360
 
 - Goal (user): the profile — Overview, Properties (→ /property/[id]), Emails
