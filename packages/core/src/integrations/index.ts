@@ -4,6 +4,7 @@ export {
   integrationResource,
   listIntegrationSlots,
   requireIntegrations,
+  resolveIntegration,
   saveConnection,
   tokensForUse,
   type GrantedConnection,
@@ -40,3 +41,6 @@ export { googleAdapter, googleClientFromEnv, type GoogleClient } from './google-
 export { zoomAdapter, zoomClientFromEnv, type ZoomClient } from './zoom-oauth';
 export { ProviderError, type Fetch, type ProviderErrorKind } from './provider-http';
 export { disconnectAndRevoke, markExpired, markUsed, RENEW_EARLY_MS, withAccessToken, type ProviderDeps } from './tokens';
+export { CALENDAR_EVENTS_URL, eventIdFor, googleCalendarApi, stubCalendarApi, type CalendarApi, type CalendarEventInput, type CalendarEventSeen } from './google-calendar';
+export { stubZoomApi, zoomMeetingsApi, type ZoomApi, type ZoomMeetingInput, type ZoomMeetingRef } from './zoom-meetings';
+export { fakeFetch } from './fake-fetch';

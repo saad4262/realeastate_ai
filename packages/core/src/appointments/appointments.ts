@@ -19,6 +19,9 @@ import { CONTACT_NOT_FOUND } from '../contacts/list-contacts';
 import { contactResource } from '../contacts/visibility';
 import { recordActivity } from '../contacts/write-contacts';
 import type { ActivityKind } from '../contacts/contact-schema';
+import { resolveIntegration } from '../integrations/accounts';
+import type { CalendarConflict } from '@repo/db';
+import { pendingSyncFields, syncAppointment, type SyncDeps, type SyncOutcome, type SyncState } from './sync';
 import {
   ACTIVE_STATUSES,
   finishAppointmentSchema,
@@ -34,7 +37,8 @@ import {
 
 /**
  * Appointments (docs/adr/0019) — the platform's own calendar. Google Calendar
- * and Zoom mirror it in Phase 3b; until then the external columns stay empty.
+ * and Zoom mirror it (Phase 3b, `sync.ts`): every change here marks the row
+ * `pending` in its own transaction, and the caller then runs the sync.
  *
  * Who sees what is `appointment:read` in permissions.ts and its SQL twin
  * below: admins the agency's whole calendar; anybody else what is assigned to
@@ -43,7 +47,7 @@ import {
  */
 
 export class AppointmentError extends Error {
-  readonly code: 'forbidden' | 'not_found' | 'invalid' | 'conflict' | 'limit';
+  readonly code: 'forbidden' | 'not_found' | 'invalid' | 'conflict' | 'limit' | 'integration';
   constructor(code: AppointmentError['code'], message: string) {
     super(message);
     this.name = 'AppointmentError';
@@ -101,6 +105,15 @@ export type AppointmentView = {
   propertyAddress: string | null;
   assignedAgentId: string | null;
   assignedAgentName: string | null;
+  /** Google Calendar mirror: null = not mirrored (the agent has no calendar connected). */
+  calendarSyncState: SyncState | null;
+  calendarSyncedAt: Date | null;
+  calendarSyncError: string | null;
+  calendarConflict: CalendarConflict | null;
+  /** A Zoom meeting we created (its join link is `meetingUrl`). */
+  zoomMeeting: boolean;
+  zoomSyncState: SyncState | null;
+  zoomSyncError: string | null;
   /** Decided by can(); the screen draws its buttons from this. */
   mayUpdate: boolean;
 };
@@ -134,6 +147,14 @@ const columns = {
   suburb: property.suburb,
   state: property.state,
   postcode: property.postcode,
+  calendarSyncState: appointment.calendarSyncState,
+  calendarSyncedAt: appointment.calendarSyncedAt,
+  calendarSyncError: appointment.calendarSyncError,
+  calendarConflict: appointment.calendarConflict,
+  zoomMeetingId: appointment.zoomMeetingId,
+  zoomSyncState: appointment.zoomSyncState,
+  zoomSyncError: appointment.zoomSyncError,
+  externalCalendarId: appointment.externalCalendarId,
 };
 
 type Row = {
@@ -171,6 +192,13 @@ function toView(actor: Actor, r: Row): AppointmentView {
       : null,
     assignedAgentId: r.assignedAgentId,
     assignedAgentName: r.assignedAgentId ? ((r.agentName as string | null) || (r.agentEmail as string | null)) : null,
+    calendarSyncState: (r.calendarSyncState as SyncState | null) ?? null,
+    calendarSyncedAt: r.calendarSyncedAt ? new Date(r.calendarSyncedAt as Date) : null,
+    calendarSyncError: (r.calendarSyncError as string | null) ?? null,
+    calendarConflict: (r.calendarConflict as CalendarConflict | null) ?? null,
+    zoomMeeting: Boolean(r.zoomMeetingId),
+    zoomSyncState: (r.zoomSyncState as SyncState | null) ?? null,
+    zoomSyncError: (r.zoomSyncError as string | null) ?? null,
     mayUpdate: can(actor, 'appointment:update', appointmentResource({ ...r, agencyId: r.agencyId })),
   };
 }
@@ -239,7 +267,7 @@ function firstIssue(err: { issues: { message: string }[] }): string {
 }
 
 /** May `userId` own appointments here — an active member who could change one of their own? */
-async function assertAssignable(db: DbOrTx, actor: Actor, userId: string): Promise<void> {
+async function assertAssignable(db: DbOrTx, actor: Actor, userId: string): Promise<Actor> {
   const [row] = await db
     .select({ role: membership.role })
     .from(membership)
@@ -254,6 +282,26 @@ async function assertAssignable(db: DbOrTx, actor: Actor, userId: string): Promi
   ) {
     throw new AppointmentError('invalid', 'That person cannot be given appointments');
   }
+  return them;
+}
+
+/**
+ * A Zoom appointment without a link of its own needs a Zoom to create the
+ * meeting on: the assigned agent's own, else the agency's. Checked before
+ * anything is written, so "Connect Zoom first" is said instead of a booking
+ * that can never get its link.
+ */
+async function assertZoomUsable(db: DbOrTx, assignee: Actor, forSelf: boolean): Promise<void> {
+  const { accountId, requirement } = await resolveIntegration(db, assignee, 'zoom');
+  if (accountId) return;
+  const who = forSelf ? 'You have' : 'That agent has';
+  const why =
+    requirement.state === 'expired'
+      ? 'Zoom needs reconnecting (Integrations)'
+      : requirement.state === 'permission_missing'
+        ? 'Zoom is connected without every permission — reconnect it (Integrations)'
+        : `Connect Zoom first — ${who.toLowerCase()} no Zoom connected, and neither does the agency`;
+  throw new AppointmentError('integration', `${why}. Or paste a meeting link of your own.`);
 }
 
 /** The related property must be one of this contact's: linked to them, or one they asked about. */
@@ -309,8 +357,9 @@ export async function scheduleAppointment(
   const v = parsed.data;
 
   const assignee = can(actor, 'appointment:assign', calendar) ? (v.assignedAgentId ?? actor.userId) : actor.userId;
-  if (assignee !== actor.userId) await assertAssignable(db, actor, assignee);
+  const assigneeActor = assignee !== actor.userId ? await assertAssignable(db, actor, assignee) : actor;
   if (v.propertyId) await assertContactProperty(db, head.row.id, agencyId, v.propertyId);
+  if (v.type === 'zoom' && !v.meetingUrl) await assertZoomUsable(db, assigneeActor, assignee === actor.userId);
 
   return db.transaction(async (tx) => {
     const [row] = await tx
@@ -331,6 +380,7 @@ export async function scheduleAppointment(
         notes: v.notes ?? null,
         attendees: v.attendees,
         reminderMinutes: v.reminderMinutes,
+        ...pendingSyncFields({ type: v.type, meetingUrl: v.meetingUrl ?? null, zoomMeeting: false }, 'scheduled'),
       })
       .returning({ id: appointment.id });
     const id = row!.id;
@@ -366,7 +416,7 @@ async function finish(
     // Guarded on the status it was loaded with: two clicks finish it once.
     const done = await tx
       .update(appointment)
-      .set({ status, outcome: parsed.data.outcome ?? null, updatedAt: sql`now()` })
+      .set({ status, outcome: parsed.data.outcome ?? null, updatedAt: sql`now()`, ...pendingSyncFields(a, status) })
       .where(and(eq(appointment.id, a.id), inArray(appointment.status, [...ACTIVE_STATUSES])))
       .returning({ id: appointment.id });
     if (!done.length) throw new AppointmentError('conflict', 'This appointment was changed by somebody else — reload');
@@ -405,6 +455,7 @@ export async function rescheduleAppointment(
         // A moved appointment's invitation names the old time.
         invitationSentAt: null,
         updatedAt: sql`now()`,
+        ...pendingSyncFields(a, 'rescheduled'),
       })
       .where(and(eq(appointment.id, a.id), inArray(appointment.status, [...ACTIVE_STATUSES])))
       .returning({ id: appointment.id });
@@ -421,4 +472,27 @@ export async function rescheduleAppointment(
       ),
     );
   });
+}
+
+/**
+ * Retry — or "Keep ours" on a conflict: push this appointment to Google
+ * Calendar and Zoom again. Whoever may change the appointment may ask; the
+ * sync itself acts as the assigned agent.
+ */
+export async function retryAppointmentSync(db: DbOrTx, deps: SyncDeps, actor: Actor, id: string): Promise<SyncOutcome> {
+  const a = await getAppointment(db, actor, id);
+  if (!a.mayUpdate) {
+    throw new AppointmentError('forbidden', 'Only the agent this appointment is assigned to, or an admin, may change it');
+  }
+  // Marked first, so a crash between here and the sync is resumed by the cron.
+  await db
+    .update(appointment)
+    .set({
+      calendarSyncState: a.calendarSyncState === 'removed' ? 'removed' : 'pending',
+      ...(a.zoomSyncState === 'failed' ? { zoomSyncState: 'pending' } : {}),
+    })
+    .where(eq(appointment.id, a.id));
+  const out = await syncAppointment(db, deps, a.id);
+  if (!out.ran) throw new AppointmentError('conflict', 'It is syncing right now — give it a moment and reload');
+  return out;
 }

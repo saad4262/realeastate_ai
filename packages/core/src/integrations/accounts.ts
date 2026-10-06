@@ -188,41 +188,62 @@ export type IntegrationCheck = {
  * reviews only the agency's. One statement, however many providers are asked.
  */
 export async function requireIntegrations(
-  db: Db,
+  db: DbOrTx,
   actor: Actor,
   providers: readonly IntegrationProvider[],
   now = new Date(),
 ): Promise<IntegrationCheck> {
   const rows = actor.agencyId ? await visibleRows(db, actor) : [];
-  const results = providers.map((provider): IntegrationRequirement => {
-    const order = PROVIDERS[provider].ownerTypes;
-    const views = order
-      .map((ownerType) => rows.find((r) => r.provider === provider && r.ownerType === ownerType))
-      .filter((r): r is SafeRow => Boolean(r))
-      .map((r) => toView(r, now));
-    // A usable account wins; otherwise the first one that exists explains why not.
-    const usable = views.find((v) => v.state === 'connected' && v.missingScopes.length === 0);
-    const shown = usable ?? views[0] ?? null;
-    const mayConnect = order.some((ownerType) =>
-      actor.agencyId
-        ? can(actor, 'integration:manage', integrationResource({
-            agencyId: actor.agencyId,
-            ownerType,
-            ownerId: ownerType === 'user' ? actor.userId : actor.agencyId,
-          }))
-        : false,
-    );
-    return {
+  const results = providers.map((provider) => pick(rows, actor, provider, now).requirement);
+  const missing = results.filter((r) => r.state !== 'connected').map((r) => r.provider);
+  return { ok: missing.length === 0, results, missing };
+}
+
+/** One provider's answer, and — for the server only — which account row it is. */
+function pick(rows: SafeRow[], actor: Actor, provider: IntegrationProvider, now: Date): { requirement: IntegrationRequirement; accountId: string | null } {
+  const order = PROVIDERS[provider].ownerTypes;
+  const found = order
+    .map((ownerType) => rows.find((r) => r.provider === provider && r.ownerType === ownerType))
+    .filter((r): r is SafeRow => Boolean(r))
+    .map((r) => toView(r, now));
+  // A usable account wins; otherwise the first one that exists explains why not.
+  const usable = found.find((v) => v.state === 'connected' && v.missingScopes.length === 0);
+  const shown = usable ?? found[0] ?? null;
+  const mayConnect = order.some((ownerType) =>
+    actor.agencyId
+      ? can(actor, 'integration:manage', integrationResource({
+          agencyId: actor.agencyId,
+          ownerType,
+          ownerId: ownerType === 'user' ? actor.userId : actor.agencyId,
+        }))
+      : false,
+  );
+  return {
+    requirement: {
       provider,
       state: usable ? 'connected' : shown ? (shown.missingScopes.length && shown.state === 'connected' ? 'permission_missing' : shown.state) : 'not_connected',
       ownerType: shown?.ownerType ?? null,
       accountLabel: shown?.accountLabel ?? null,
       missingScopes: shown?.missingScopes ?? [],
       mayConnect,
-    };
-  });
-  const missing = results.filter((r) => r.state !== 'connected').map((r) => r.provider);
-  return { ok: missing.length === 0, results, missing };
+    },
+    accountId: usable?.id ?? null,
+  };
+}
+
+/**
+ * For the server's own use (appointment sync): the account `actor` would use
+ * for this provider — their own, else the agency's, by the provider's order —
+ * or null with the reason. The id never reaches a page.
+ */
+export async function resolveIntegration(
+  db: DbOrTx,
+  actor: Actor,
+  provider: IntegrationProvider,
+  now = new Date(),
+): Promise<{ accountId: string | null; requirement: IntegrationRequirement }> {
+  const rows = actor.agencyId ? await visibleRows(db, actor) : [];
+  return pick(rows, actor, provider, now);
 }
 
 /** What a provider handed back after the person approved. */

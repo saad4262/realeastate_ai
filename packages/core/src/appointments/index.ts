@@ -8,6 +8,7 @@ export {
   getAppointment,
   listAppointments,
   rescheduleAppointment,
+  retryAppointmentSync,
   scheduleAppointment,
   type AppointmentPage,
   type AppointmentView,
@@ -19,4 +20,16 @@ export {
   sendInvitation,
   type InvitationPreview,
 } from './invitation';
+export {
+  calendarDescription,
+  checkCalendarEvent,
+  runAppointmentSyncTick,
+  syncAppointment,
+  syncDepsFromEnv,
+  syncErrorMessage,
+  SYNC_STATES,
+  type SyncDeps,
+  type SyncOutcome,
+  type SyncState,
+} from './sync';
 export * from './appointment-schema';
