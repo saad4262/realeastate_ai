@@ -110,14 +110,14 @@ describe('runAssistantTool refuses before reaching the database', () => {
   });
 });
 
-describe('the assistant module writes nothing but its own tables', () => {
+describe('the assistant module writes nothing but its own tables — every other write goes through a screen’s own core function', () => {
   it('no insert/update/delete of a domain table under core/src/assistant', () => {
     const dir = __dirname;
     const offenders: string[] = [];
     for (const file of readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))) {
       const src = readFileSync(join(dir, file), 'utf8');
       for (const m of src.matchAll(/\.(insert|update|delete)\(\s*([A-Za-z]+)/g)) {
-        if (!['assistantConversation', 'assistantTurn'].includes(m[2]!)) offenders.push(`${file}: .${m[1]}(${m[2]})`);
+        if (!['assistantConversation', 'assistantTurn', 'proposedAction'].includes(m[2]!)) offenders.push(`${file}: .${m[1]}(${m[2]})`);
       }
       if (/\b(insert into|update \w+ set|delete from)\b/i.test(src.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''))) offenders.push(`${file}: raw SQL write`);
     }
@@ -189,4 +189,51 @@ describe('each tool is one statement, and totals are numbers', () => {
     await runAssistantTool({ ...ctx(handles, 'owner'), db }, 'find_contacts', { text: 'Person' });
     expect(handles).toEqual(before);
   });
+});
+
+describe('write tools (Phase B) — schema and refusals before any database work', () => {
+  const C = issueHandle({}, 'C', contactId);
+  const valid: Record<string, Record<string, unknown>> = {
+    add_note: { contact: 'C1', body: 'Called — wants a Saturday inspection.' },
+    set_next_action: { contact: 'S1', text: 'Send the contract', date: '2026-10-09', time: '10:00' },
+  };
+
+  it('accepts the documented shape for each', () => {
+    expect(C).toBe('C1');
+    for (const [tool, input] of Object.entries(valid)) {
+      expect(ASSISTANT_TOOL_INPUTS[tool as keyof typeof ASSISTANT_TOOL_INPUTS].safeParse(input).success, tool).toBe(true);
+    }
+  });
+
+  it('never takes an id, a name, an email, or a reference of the wrong kind', () => {
+    for (const contact of [contactId, 'Ali Khan', 'ali@example.com', 'L1', 'A1']) {
+      expect(ASSISTANT_TOOL_INPUTS.add_note.safeParse({ ...valid.add_note, contact }).success, contact).toBe(false);
+      expect(ASSISTANT_TOOL_INPUTS.set_next_action.safeParse({ ...valid.set_next_action, contact }).success, contact).toBe(false);
+    }
+  });
+
+  it('refuses extra fields — no recipient, owner, agency or status can be smuggled in', () => {
+    for (const extra of [{ to: 'everyone@x.com' }, { userId: 'u2' }, { agencyId }, { status: 'approved' }, { approve: true }]) {
+      for (const [tool, input] of Object.entries(valid)) {
+        expect(ASSISTANT_TOOL_INPUTS[tool as keyof typeof ASSISTANT_TOOL_INPUTS].safeParse({ ...input, ...extra }).success, `${tool} ${JSON.stringify(extra)}`).toBe(false);
+      }
+    }
+  });
+
+  it('dates and times must be real calendar values, and lengths are bounded', () => {
+    expect(ASSISTANT_TOOL_INPUTS.set_next_action.safeParse({ ...valid.set_next_action, time: '3pm' }).success).toBe(false);
+    expect(ASSISTANT_TOOL_INPUTS.set_next_action.safeParse({ ...valid.set_next_action, time: '25:00' }).success).toBe(false);
+    expect(ASSISTANT_TOOL_INPUTS.set_next_action.safeParse({ ...valid.set_next_action, date: 'tomorrow' }).success).toBe(false);
+    expect(ASSISTANT_TOOL_INPUTS.add_note.safeParse({ ...valid.add_note, body: 'x'.repeat(5001) }).success).toBe(false);
+    expect(ASSISTANT_TOOL_INPUTS.set_next_action.safeParse({ ...valid.set_next_action, text: 'x'.repeat(301) }).success).toBe(false);
+  });
+
+  it('a reference this conversation never issued is refused before the database is touched', async () => {
+    for (const [tool, input] of Object.entries(valid)) {
+      const out = await runAssistantTool(ctx({}), tool, input);
+      expect(out.isError, tool).toBe(true);
+      expect(JSON.stringify(out.result), tool).toMatch(/not one you were given/);
+    }
+  });
+
 });

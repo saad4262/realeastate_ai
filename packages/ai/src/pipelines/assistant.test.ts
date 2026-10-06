@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
-import { ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
+import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
 import { ASSISTANT_TOOLS } from '../tools/assistant-tools';
-import { ASSISTANT_SYSTEM } from '../prompts/assistant-v1';
+import { ASSISTANT_SYSTEM } from '../prompts/assistant-v2';
 import { contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
 /**
@@ -225,11 +225,17 @@ describe('caps', () => {
   });
 });
 
-describe('red team: a tricked model can only read', () => {
-  it('has no tool that writes, sends, approves or runs SQL — and every tool it is shown is one core enforces', () => {
+describe('red team: a tricked model can read and propose, never act', () => {
+  it('every tool either reads or only proposes — none approves, sends, runs or deletes', () => {
     const names = ASSISTANT_TOOLS.map((t) => t.name).sort();
     expect(names).toEqual([...ASSISTANT_TOOL_NAMES].sort());
-    for (const n of names) expect(n).toMatch(/^(find_|list_|check_)/);
+    for (const n of names) {
+      expect([...ASSISTANT_READ_TOOLS, ...ASSISTANT_WRITE_TOOLS] as string[]).toContain(n);
+      expect(n).not.toMatch(/approve|send|email|run|execute|delete|sql|assign/);
+    }
+    for (const t of ASSISTANT_TOOLS.filter((x) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(x.name))) {
+      expect(t.description).toMatch(/only PROPOSES/);
+    }
   });
 
   it('whatever tool name a tricked model invents goes to core, which refuses it', async () => {
@@ -262,7 +268,7 @@ describe('red team: a tricked model can only read', () => {
     const base = fakeDeps();
     const { deps } = fakeDeps({
       runTool: async (handles, name, input) => {
-        if (call++ === 0) return base.deps.runTool(handles, name, input);
+        if (call++ === 0) return base.deps.runTool(handles, name, input, { conversationId: 'c', turnId: 't', toolUseId: 'x', made: { count: 0 } });
         return runAssistantTool({ db: {} as never, actor: { userId: 'u', agencyId: 'a', membershipRole: 'agent' }, timeZone: 'UTC', handles, now: new Date() }, name, input);
       },
     });
@@ -297,5 +303,38 @@ describe('the tool definitions the model sees match what core enforces', () => {
       expect((schema.required ?? []).sort(), tool.name).toEqual(required);
       expect(JSON.stringify(tool)).not.toMatch(/"strict"|"minimum"|"maximum"|"pattern"/);
     }
+  });
+});
+
+describe('proposals (Phase B)', () => {
+  it('passes each write call its own tool_use id and ONE shared per-turn counter, and shows the card frame', async () => {
+    const { client } = fakeClient([
+      msg([toolUse('w1', 'add_note', { contact: 'C1', body: 'a' }), toolUse('w2', 'set_next_action', { contact: 'C1', text: 'b' })], 'tool_use'),
+      msg([toolUse('w3', 'add_note', { contact: 'C1', body: 'c' })], 'tool_use'),
+      msg([text('Two cards are waiting for you.')], 'end_turn'),
+    ]);
+    const seen: { toolUseId: string; made: { count: number }; turnId: string; conversationId: string }[] = [];
+    const { deps, finished } = fakeDeps({
+      runTool: async (_h, name, _input, proposal) => {
+        seen.push(proposal);
+        proposal.made.count += 1;
+        return { label: 'Preparing…', frame: { kind: 'proposal', id: `p-${proposal.toolUseId}`, tool: name as 'add_note' }, result: { proposed: true } };
+      },
+    });
+    const events = await run({ client, deps });
+    expect(seen.map((s) => s.toolUseId)).toEqual(['w1', 'w2', 'w3']);
+    expect(new Set(seen.map((s) => s.made)).size).toBe(1);
+    expect(seen[0]!.made.count).toBe(3);
+    expect(seen.every((s) => s.conversationId === 'conv-1' && s.turnId === (events[0] as { turnId: string }).turnId)).toBe(true);
+    expect(events.filter((e) => e.type === 'results').map((e) => (e as { frame: { kind: string } }).frame.kind)).toEqual(['proposal', 'proposal', 'proposal']);
+    expect(finished[0]!.frames).toHaveLength(3);
+  });
+
+  it('the model is never offered a way to approve: no tool, no field, and its words build no card', () => {
+    const writeFields = ASSISTANT_TOOLS.filter((t) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(t.name)).flatMap((t) =>
+      Object.keys((t.input_schema as { properties: Record<string, unknown> }).properties),
+    );
+    for (const f of writeFields) expect(f).not.toMatch(/approve|status|proposal|action_id|user|agency|owner|to$|recipient|email/);
+    expect(ASSISTANT_SYSTEM).toMatch(/cannot approve/);
   });
 });

@@ -50,6 +50,10 @@ export const ASSISTANT_LIMITS = {
   selection: 20,
   /** Days a conversation is kept after its last turn (decided Q5). */
   retentionDays: 30,
+  /** Write proposals in one turn (ADR 0025 §4). */
+  proposalsPerTurn: 3,
+  /** Hours a proposal waits for Approve before it expires (as ADR 0022's batches). */
+  proposalHours: 48,
 } as const;
 
 const limit = z.number().int().min(1).max(ASSISTANT_LIMITS.rowsPerTool).default(10);
@@ -99,13 +103,46 @@ export const checkConnectionsInput = z
   })
   .strict();
 
-/** Every Phase A tool. All read-only: none makes a card, none writes (ADR 0025 §8). */
+const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A date as YYYY-MM-DD');
+const timeString = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'A time as HH:mm, 24-hour');
+
+/**
+ * WRITE tools (Phase B). None of them writes: each resolves its
+ * references, checks the person may, and stores a `proposed_action` with the
+ * frozen, resolved arguments. Only the person's Approve runs it.
+ */
+export const addNoteInput = z
+  .object({
+    contact: contactHandleSchema,
+    body: z.string().trim().min(1).max(5000),
+    /** Private: only its author and admins can read it — the existing note rule. */
+    private: z.boolean().default(false),
+  })
+  .strict();
+
+export const setNextActionInput = z
+  .object({
+    contact: contactHandleSchema,
+    /** Empty clears it. */
+    text: z.string().trim().max(300),
+    date: dateString.optional(),
+    time: timeString.optional(),
+  })
+  .strict();
+
+export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action'] as const;
+export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
+
+/** Every tool. Read tools run at once; write tools only propose (ADR 0025 §8). */
 export const ASSISTANT_TOOL_INPUTS = {
   find_contacts: findContactsInput,
   find_leads: findLeadsInput,
   find_appointments: findAppointmentsInput,
   list_templates: listTemplatesInput,
   check_connections: checkConnectionsInput,
+  add_note: addNoteInput,
+  set_next_action: setNextActionInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];
@@ -160,7 +197,26 @@ export type AssistantFrame =
   | {
       kind: 'connections';
       rows: { provider: IntegrationProvider; label: string; state: string; whose: 'yours' | 'agency' | null; mayConnect: boolean }[];
-    };
+    }
+  /** A card waiting for the person. The panel loads it by id — from the database, never from the stream's text. */
+  | { kind: 'proposal'; id: string; tool: AssistantWriteTool };
+
+export const PROPOSAL_STATUSES = ['proposed', 'approved', 'rejected', 'expired', 'scheduled', 'running', 'done', 'failed', 'cancelled'] as const;
+export type ProposalStatus = (typeof PROPOSAL_STATUSES)[number];
+
+/**
+ * What a card shows, built by the server from the database when the action
+ * is proposed and frozen with it — so the audit shows exactly what the person
+ * approved. `text` is shown verbatim: it is what will be written.
+ */
+export type ProposalCard = {
+  title: string;
+  contact: { id: string; name: string };
+  lines: { label: string; value: string }[];
+  text?: { label: string; value: string };
+  /** Plain-words notes under the card ("No invitation is emailed…"). */
+  notes: string[];
+};
 
 /** The NDJSON frames of one turn, in order. */
 export type AssistantEvent =

@@ -1,5 +1,5 @@
 import { and, desc, eq, isNull, or, sql, type SQL } from 'drizzle-orm';
-import { contact, note, user, type Db } from '@repo/db';
+import { activity, contact, note, user, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { noteBodySchema } from './contact-schema';
 import { loadContactHead, type ReadableContact } from './get-contact';
@@ -23,6 +23,17 @@ export function noteVisibleSql(actor: Actor): SQL {
   const agencyId = actor.agencyId ?? '00000000-0000-0000-0000-000000000000';
   if (can(actor, 'note:read_private', { type: 'note', agencyId })) return sql`true`;
   return or(eq(note.isPrivate, false), eq(note.authorId, actor.userId))!;
+}
+
+/**
+ * The same rule for a timeline line ABOUT a private note — the assistant's
+ * proposal of one (ADR 0025), marked `payload.private`. Its words are never
+ * in the payload; this hides even that it exists, as the note itself is hidden.
+ */
+export function privateActivityVisibleSql(actor: Actor): SQL {
+  const agencyId = actor.agencyId ?? '00000000-0000-0000-0000-000000000000';
+  if (can(actor, 'note:read_private', { type: 'note', agencyId })) return sql`true`;
+  return or(sql`coalesce(${activity.payload}->>'private', 'false') <> 'true'`, eq(activity.actorId, actor.userId))!;
 }
 
 export type NoteView = {

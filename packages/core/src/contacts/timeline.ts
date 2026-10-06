@@ -17,7 +17,7 @@ import { snippet } from '../mail/body';
 import { formatAddress } from '../listings/listing-schema';
 import { activityKindSchema, type ActivityKind } from './contact-schema';
 import type { ReadableContact } from './get-contact';
-import { noteVisibleSql } from './notes';
+import { noteVisibleSql, privateActivityVisibleSql } from './notes';
 
 /**
  * One person's history, newest first (ADR 0018): their enquiries and offers,
@@ -199,7 +199,7 @@ export async function listContactTimeline(
     })
     .from(activity)
     .leftJoin(author, eq(author.id, activity.actorId))
-    .where(and(eq(activity.contactId, contact.id), eq(activity.agencyId, contact.agencyId)));
+    .where(and(eq(activity.contactId, contact.id), eq(activity.agencyId, contact.agencyId), privateActivityVisibleSql(actor)));
 
   const cursor = parseCursor(opts.before);
   const before = cursor ? sql`where (t.at, t.id) < (${cursor.at}::timestamptz, ${cursor.id}::uuid)` : sql``;

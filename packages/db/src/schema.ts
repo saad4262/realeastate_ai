@@ -1698,6 +1698,53 @@ export const assistantTurn = pgTable(
   (t) => [uniqueIndex('assistant_turn_seq_idx').on(t.conversationId, t.seq)],
 );
 
+/**
+ * An action the assistant PROPOSED and only a person may run (ADR 0025 §1, §7).
+ *
+ * `args` are frozen and RESOLVED — row ids, instants, the exact text — never
+ * the model's references. `card` is the snapshot the person saw, built from the
+ * database at proposal time, so the audit shows exactly what was approved.
+ * Approve claims the row (`proposed` → `running`) in the same transaction that
+ * runs it, so a double click runs it once. Kept after its conversation is
+ * purged (`set null`): it is the audit.
+ */
+export const proposedAction = pgTable(
+  'proposed_action',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    conversationId: uuid('conversation_id').references(() => assistantConversation.id, { onDelete: 'set null' }),
+    turnId: uuid('turn_id'),
+    /** The contact it is about, for the timeline. */
+    contactId: uuid('contact_id').references(() => contact.id, { onDelete: 'set null' }),
+    tool: varchar('tool', { length: 48 }).notNull(),
+    args: jsonb('args').notNull(),
+    card: jsonb('card').notNull(),
+    status: varchar('status', { length: 16 }).notNull().default('proposed'),
+    /** `conversation:tool_use_id`: a retried model request cannot make a second card. */
+    idempotencyKey: text('idempotency_key').notNull(),
+    runAt: timestamp('run_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decidedBy: uuid('decided_by').references(() => user.id, { onDelete: 'set null' }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    /** Per-step state for multi-step tools, so a resumed run skips what is done. */
+    steps: jsonb('steps').notNull().default({}),
+    result: jsonb('result'),
+    error: text('error'),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('proposed_action_idempotency_idx').on(t.idempotencyKey),
+    index('proposed_action_user_idx').on(t.userId, desc(t.createdAt)),
+  ],
+);
+
 export type User = typeof user.$inferSelect;
 export type Agency = typeof agency.$inferSelect;
 export type Listing = typeof listing.$inferSelect;
@@ -1729,3 +1776,4 @@ export type EmailBatchRecipient = typeof emailBatchRecipient.$inferSelect;
 export type ContactFilter = typeof contactFilter.$inferSelect;
 export type AssistantConversation = typeof assistantConversation.$inferSelect;
 export type AssistantTurn = typeof assistantTurn.$inferSelect;
+export type ProposedAction = typeof proposedAction.$inferSelect;

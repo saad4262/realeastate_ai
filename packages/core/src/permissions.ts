@@ -237,6 +237,16 @@ export type Action =
    * their audit, never the chat text.
    */
   | 'assistant_conversation:read'
+  /**
+   * See an action the assistant proposed (`ownerId` = the person it acted
+   * for): its author, or an admin — admins see actions and their audit, not
+   * the chat (ADR 0025 Q5).
+   */
+  | 'proposed_action:read'
+  /** Approve or reject it: its author only, never read-only (ADR 0025 §7). */
+  | 'proposed_action:decide'
+  /** Cancel one not yet run: its author or an admin. */
+  | 'proposed_action:cancel'
   | 'team:manage'
   | 'agency:billing'
   /** Agency OS host — owner|admin only */
@@ -494,6 +504,20 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'assistant_conversation:read':
       return sameAgency(actor, resource) && Boolean(actor.membershipRole) &&
         Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'proposed_action:read':
+      if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      if (isAgencyAdmin(actor)) return true;
+      return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'proposed_action:decide':
+      return sameAgency(actor, resource) && mayWrite(actor) &&
+        Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'proposed_action:cancel':
+      if (!sameAgency(actor, resource) || !mayWrite(actor)) return false;
+      if (isAgencyAdmin(actor)) return true;
+      return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
 
     case 'email_template:read':
       return sameAgency(actor, resource) && Boolean(actor.membershipRole);

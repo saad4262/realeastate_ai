@@ -5,7 +5,15 @@ import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AssistantEvent, AssistantFrame } from '@repo/core/assistant/schema';
 import type { ConversationSummary } from '@repo/core/assistant';
-import { getAssistantConversationAction, listAssistantConversationsAction } from '@/lib/assistant-actions';
+import {
+  approveProposedActionAction,
+  cancelProposedActionAction,
+  getAssistantConversationAction,
+  getProposedActionAction,
+  listAssistantConversationsAction,
+  rejectProposedActionAction,
+} from '@/lib/assistant-actions';
+import type { ProposalView } from '@repo/core/assistant';
 import styles from './assistant-panel.module.css';
 
 /**
@@ -168,7 +176,7 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
       <header className={styles.head}>
         <div>
           <div className={styles.title}>Assistant</div>
-          <div className={styles.sub}>Looks things up for you. It can’t send or change anything yet.</div>
+          <div className={styles.sub}>Looks things up, and suggests notes and next actions for you to approve. It never sends email.</div>
         </div>
         <div className={styles.headActions}>
           <button type="button" className={styles.ghost} onClick={showHistory} disabled={busy}>
@@ -208,6 +216,7 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
                 <li>“Which leads came in this week?”</li>
                 <li>“What’s on my calendar tomorrow?”</li>
                 <li>“Is my Google Calendar connected?”</li>
+                <li>“Add a note: called, wants a Saturday inspection.”</li>
               </ul>
             </div>
           ) : null}
@@ -335,6 +344,8 @@ function FrameView({ frame, surface }: { frame: AssistantFrame; surface: Surface
           ))}
         </FrameBox>
       );
+    case 'proposal':
+      return <ProposalCardView id={frame.id} surface={surface} />;
     case 'connections':
       return (
         <FrameBox title="Connected accounts">
@@ -371,3 +382,107 @@ function FrameBox({ title, total, shown, children }: { title: string; total?: nu
     </div>
   );
 }
+
+const STATUS_WORDS: Record<string, string> = {
+  proposed: 'Waiting for you',
+  running: 'Running…',
+  done: 'Done',
+  failed: 'Could not be done',
+  rejected: 'Rejected',
+  cancelled: 'Cancelled',
+  expired: 'Expired — ask again',
+  scheduled: 'Scheduled',
+  approved: 'Approved',
+};
+
+/**
+ * A proposed action's card (ADR 0025 §9). Everything on it is read back from
+ * the database by id — the stream only told us which card. Approve / Reject
+ * are the person's buttons; the model has no way to press them.
+ */
+function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
+  const [view, setView] = useState<ProposalView | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    void getProposedActionAction(id).then((r) => {
+      if (!live) return;
+      if (r.ok) setView(r.card);
+      else setMessage(r.error);
+    });
+    return () => {
+      live = false;
+    };
+  }, [id]);
+
+  const press = async (fn: (id: string) => ReturnType<typeof approveProposedActionAction>) => {
+    if (pending) return;
+    setPending(true);
+    setMessage(null);
+    const r = await fn(id);
+    setPending(false);
+    if (r.ok) {
+      setView(r.card);
+      if (r.message) setMessage(r.message);
+    } else setMessage(r.error);
+  };
+
+  if (!view) return message ? <div className={styles.error}>{message}</div> : <div className={styles.status}>Loading the card…</div>;
+  const { card } = view;
+  const contactHref = `${PATHS[surface].contact}/${card.contact.id}`;
+  const doneHref =
+    view.status === 'done'
+      ? `${contactHref}?tab=${view.tool === 'add_note' ? 'notes' : 'overview'}`
+      : null;
+
+  return (
+    <div className={`${styles.frame} ${styles.card}`} data-status={view.status}>
+      <div className={styles.frameHead}>
+        {card.title}
+        <span className={styles.badge}>{STATUS_WORDS[view.status] ?? view.status}</span>
+      </div>
+      <dl className={styles.cardLines}>
+        {card.lines.map((l) => (
+          <div key={l.label}>
+            <dt>{l.label}</dt>
+            <dd>{l.value}</dd>
+          </div>
+        ))}
+      </dl>
+      {card.text ? (
+        <div className={styles.cardText}>
+          <div className={styles.label}>{card.text.label} — exactly as it will be saved</div>
+          {card.text.value}
+        </div>
+      ) : null}
+      {card.notes.map((n) => (
+        <p key={n} className={styles.cardNote}>
+          {n}
+        </p>
+      ))}
+      {view.error ? <div className={styles.error}>{view.error}</div> : null}
+      {message ? <div className={styles.error}>{message}</div> : null}
+      <div className={styles.cardActions}>
+        {view.mayDecide ? (
+          <>
+            <button type="button" className={styles.send} disabled={pending} onClick={() => press(approveProposedActionAction)}>
+              {pending ? 'Working…' : 'Approve'}
+            </button>
+            <button type="button" className={styles.ghost} disabled={pending} onClick={() => press(rejectProposedActionAction)}>
+              Reject
+            </button>
+          </>
+        ) : null}
+        {view.mayCancel && !view.mayDecide ? (
+          <button type="button" className={styles.ghost} disabled={pending} onClick={() => press(cancelProposedActionAction)}>
+            Cancel
+          </button>
+        ) : null}
+        {doneHref ? <Link href={doneHref}>Open {card.contact.name}</Link> : null}
+      </div>
+    </div>
+  );
+}
+

@@ -11,7 +11,7 @@ import { ASSISTANT_LIMITS, type AssistantFrame } from './schema';
 
 export class AssistantError extends Error {
   constructor(
-    readonly code: 'forbidden' | 'not_found' | 'busy' | 'limit',
+    readonly code: 'forbidden' | 'not_found' | 'busy' | 'limit' | 'conflict' | 'expired',
     message: string,
   ) {
     super(message);

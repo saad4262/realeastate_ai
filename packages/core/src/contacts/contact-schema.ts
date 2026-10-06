@@ -50,6 +50,12 @@ export const ACTIVITY_KINDS = [
   'appointment_invitation_sent',
   'template_email_sent',
   'contact_opted_out',
+  // The console assistant (ADR 0025): a card proposed, and what became of it.
+  'assistant_proposed',
+  'assistant_approved',
+  'assistant_rejected',
+  'assistant_cancelled',
+  'assistant_failed',
 ] as const;
 export const activityKindSchema = z.enum(ACTIVITY_KINDS);
 export type ActivityKind = z.infer<typeof activityKindSchema>;
@@ -92,6 +98,11 @@ export const ACTIVITY_LABELS: Record<ActivityKind, string> = {
   appointment_invitation_sent: 'Invitation emailed',
   template_email_sent: 'Template email sent',
   contact_opted_out: 'Unsubscribed from marketing email',
+  assistant_proposed: 'Assistant suggested a change',
+  assistant_approved: 'Assistant change approved',
+  assistant_rejected: 'Assistant change rejected',
+  assistant_cancelled: 'Assistant change cancelled',
+  assistant_failed: 'Assistant change could not be made',
 };
 
 export const CONTACT_SOURCE_LABELS: Record<ContactSource, string> = {

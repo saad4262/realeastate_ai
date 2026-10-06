@@ -731,4 +731,19 @@ describe('assistant (ADR 0025)', () => {
     expect(can(rival, 'assistant_conversation:read', { ...convo('rival') })).toBe(false);
     expect(can(agent, 'assistant_conversation:read', { type: 'assistant_conversation', agencyId: agencyA })).toBe(false);
   });
+
+  it('a proposed action: its author approves; an admin may see and cancel it but never approve it; read-only never decides', () => {
+    const action = (ownerId: string) => ({ type: 'proposed_action', id: 'p-1', agencyId: agencyA, ownerId });
+    expect(can(agent, 'proposed_action:decide', action('agent'))).toBe(true);
+    expect(can(other, 'proposed_action:decide', action('agent'))).toBe(false);
+    expect(can(owner, 'proposed_action:decide', action('agent'))).toBe(false);
+    expect(can(viewer, 'proposed_action:decide', action('viewer'))).toBe(false);
+    expect(can(rival, 'proposed_action:decide', action('rival'))).toBe(false);
+    expect(can(owner, 'proposed_action:read', action('agent'))).toBe(true);
+    expect(can(other, 'proposed_action:read', action('agent'))).toBe(false);
+    expect(can(owner, 'proposed_action:cancel', action('agent'))).toBe(true);
+    expect(can(agent, 'proposed_action:cancel', action('agent'))).toBe(true);
+    expect(can(other, 'proposed_action:cancel', action('agent'))).toBe(false);
+    expect(can(viewer, 'proposed_action:cancel', action('viewer'))).toBe(false);
+  });
 });

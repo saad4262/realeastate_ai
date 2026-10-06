@@ -1,6 +1,6 @@
 import { after, NextResponse, type NextRequest } from 'next/server';
 import { runAppointmentSyncTick, syncDepsFromEnv } from '@repo/core/appointments';
-import { purgeAssistantConversations } from '@repo/core/assistant';
+import { expireProposedActions, purgeAssistantConversations } from '@repo/core/assistant';
 import { pullReceivedMail } from '@repo/core/mail';
 import { authoriseCronRequest, runScheduleTick } from '@repo/core/schedules';
 import { runSkillTick } from '@repo/core/skills';
@@ -106,8 +106,9 @@ async function handler(request: NextRequest) {
      * Console assistant conversations are kept 30 days after their last turn,
      * then deleted with their turns (ADR 0025, decided Q5). Cost rows stay.
      */
-    const assistant = await purgeAssistantConversations(getWebDb())
-      .then((purged) => ({ purged }))
+    // …and a card nobody approved within 48 h expires; its row stays as the record.
+    const assistant = await Promise.all([purgeAssistantConversations(getWebDb()), expireProposedActions(getWebDb())])
+      .then(([purged, expired]) => ({ purged, expired }))
       .catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'assistant purge failed' }));
 
     // No ids, no addresses, no listing text — this is read from a cron log.

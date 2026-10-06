@@ -18,10 +18,11 @@ import {
   type ClaimedTurn,
   type FinishedTurn,
   type HandleMap,
+  type ProposalContext,
   type ToolOutcome,
 } from '@repo/core/assistant';
 import { getModel, SERVER_FALLBACK_MODELS, type TokenUsage } from '../models';
-import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v1';
+import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v2';
 import { ASSISTANT_TOOLS } from '../tools/assistant-tools';
 import { trackAiRunQuietly } from '../usage';
 
@@ -45,7 +46,8 @@ export type AssistantDeps = {
   /** `S` references for what the person selected — visible contacts only. */
   selection(handles: HandleMap): Promise<{ ref: string; name: string }[]>;
   budget(): Promise<{ allowed: boolean; message: string | null }>;
-  runTool(handles: HandleMap, name: string, input: unknown): Promise<ToolOutcome>;
+  /** `proposal` lets a write tool store its card against this turn; read tools ignore it. */
+  runTool(handles: HandleMap, name: string, input: unknown, proposal: ProposalContext): Promise<ToolOutcome>;
   track(row: { model: string; usage: TokenUsage; latencyMs: number; entityId: string }): Promise<void>;
   finish(claim: ClaimedTurn, turn: FinishedTurn): Promise<void>;
   release(conversationId: string): Promise<void>;
@@ -124,7 +126,7 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
     claim = await deps.claim();
   } catch (err) {
     if (err instanceof AssistantError) {
-      const code = err.code === 'not_found' ? 'forbidden' : err.code;
+      const code = err.code === 'busy' || err.code === 'limit' ? err.code : 'forbidden';
       yield { type: 'error', code, message: err.message };
     } else {
       console.error('[assistant] claim failed', err);
@@ -160,6 +162,8 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
     const history = claim.history as Anthropic.Beta.BetaMessageParam[];
 
     let mustAnswer = false;
+    // Shared by every write tool in this turn: at most three cards per answer.
+    const made = { count: 0 };
     for (let round = 0; ; round++) {
       if (signal?.aborted) {
         status = 'failed';
@@ -256,7 +260,12 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
           continue;
         }
         toolCalls += 1;
-        const outcome = await deps.runTool(handles, use.name, use.input);
+        const outcome = await deps.runTool(handles, use.name, use.input, {
+          conversationId: claim.conversationId,
+          turnId,
+          toolUseId: use.id,
+          made,
+        });
         yield { type: 'status', label: outcome.label };
         if (outcome.frame) {
           frames.push(outcome.frame);
@@ -321,7 +330,8 @@ export function assistantDeps(db: Db, actor: Actor, request: AssistantTurnReques
     claim: () => claimTurn(db, actor, { ...(request.conversationId ? { conversationId: request.conversationId } : {}), message: request.message, surface }, now),
     selection: (handles) => selectionHandles(db, actor, handles, request.selection?.contactIds ?? []),
     budget: () => checkAssistantBudget(db, actor, { env }),
-    runTool: (handles, name, toolInput) => runAssistantTool({ db, actor, timeZone: request.timeZone, handles, now: new Date() }, name, toolInput),
+    runTool: (handles, name, toolInput, proposal) =>
+      runAssistantTool({ db, actor, timeZone: request.timeZone, handles, now: new Date(), proposal }, name, toolInput),
     track: (row) =>
       trackAiRunQuietly(db, {
         feature: ASSISTANT_FEATURE,

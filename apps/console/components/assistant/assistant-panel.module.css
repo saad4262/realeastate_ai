@@ -110,3 +110,21 @@
   background: var(--sapphire); color: #fff; font-weight: 600; font-size: 0.8125rem; cursor: pointer;
 }
 .send:disabled { opacity: 0.5; cursor: default; }
+
+/* A proposed action's card. */
+.card { border-color: var(--sapphire); }
+.card[data-status='done'] { border-color: var(--emerald); }
+.card[data-status='failed'], .card[data-status='expired'] { border-color: var(--rose); }
+.card[data-status='rejected'], .card[data-status='cancelled'] { border-color: var(--border-default); opacity: 0.8; }
+.badge { float: right; font-weight: 500; color: var(--text-secondary); }
+.cardLines { margin: 0; padding: 0.375rem 0.625rem; display: grid; gap: 0.25rem; font-size: 0.8125rem; }
+.cardLines div { display: grid; grid-template-columns: 7.5rem 1fr; gap: 0.5rem; }
+.cardLines dt { color: var(--text-secondary); }
+.cardLines dd { margin: 0; }
+.cardText {
+  margin: 0 0.625rem; padding: 0.5rem; border-radius: 0.375rem;
+  background: var(--surface-container-low); font-size: 0.8125rem; white-space: pre-wrap;
+}
+.cardNote { margin: 0.375rem 0.625rem 0; font-size: 0.75rem; color: var(--text-secondary); }
+.cardActions { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.625rem 0.625rem; }
+.cardActions a { color: var(--sapphire); font-size: 0.8125rem; margin-left: auto; }

@@ -1,0 +1,297 @@
+import { and, eq, gt, inArray, lt, sql } from 'drizzle-orm';
+import { proposedAction, type Db, type DbOrTx } from '@repo/db';
+import { can, type Actor } from '../permissions';
+import { recordActivity } from '../contacts/write-contacts';
+import { ContactError } from '../contacts/list-contacts';
+import { createNote } from '../contacts/notes';
+import { setNextAction } from '../contacts/write-contacts';
+import type { ActivityKind } from '../contacts/contact-schema';
+import { AssistantError } from './conversations';
+import { ASSISTANT_LIMITS, type AssistantWriteTool, type ProposalCard, type ProposalStatus } from './schema';
+import type { ToolContext, ToolOutcome } from './tools';
+
+/**
+ * Proposed actions (ADR 0025 §1, §6, §7): the model proposes; a person
+ * disposes. Nothing in this file is reachable from the model — `propose` is
+ * called by a write tool and only STORES; approve, reject and cancel are called
+ * by console buttons with the person's own session.
+ */
+
+/** What a write tool needs to store a proposal: where it came from, and this turn's count. */
+export type ProposalContext = {
+  conversationId: string;
+  turnId: string;
+  toolUseId: string;
+  /** Shared by every tool call in the turn. */
+  made: { count: number };
+};
+
+/** The resolved, frozen arguments each tool runs with. Ids and instants — never references. */
+export type FrozenArgs =
+  | { tool: 'add_note'; contactId: string; body: string; private: boolean }
+  | { tool: 'set_next_action'; contactId: string; nextAction: string | null; nextActionAt: string | null };
+function actionResource(a: { id: string; agencyId: string; userId: string }) {
+  return { type: 'proposed_action', id: a.id, agencyId: a.agencyId, ownerId: a.userId };
+}
+
+function auditPayload(id: string, tool: string, args: FrozenArgs, extra: Record<string, unknown> = {}) {
+  // Never the text: a timeline line is read by everyone who may see the
+  // contact, and a private note's words are not theirs to read.
+  return { actionId: id, tool, ...(args.tool === 'add_note' && args.private ? { private: true } : {}), ...extra };
+}
+
+/**
+ * Store a proposal and put it on the contact's timeline. Idempotent on
+ * `conversation:tool_use_id`: a retried model request finds the card it
+ * already made instead of making a second.
+ */
+export async function propose(
+  ctx: ToolContext,
+  label: string,
+  p: { tool: AssistantWriteTool; args: FrozenArgs; card: ProposalCard; contactId: string },
+): Promise<ToolOutcome> {
+  const { db, actor, proposal } = ctx;
+  if (!proposal || !actor.agencyId) {
+    return { label, isError: true, result: { error: 'Changes can only be proposed inside a conversation.' } };
+  }
+  if (proposal.made.count >= ASSISTANT_LIMITS.proposalsPerTurn) {
+    return {
+      label,
+      isError: true,
+      result: { error: `You have already proposed ${ASSISTANT_LIMITS.proposalsPerTurn} changes in this answer. Ask the person to deal with those cards first.` },
+    };
+  }
+  const agencyId = actor.agencyId;
+  const key = `${proposal.conversationId}:${proposal.toolUseId}`;
+  const expiresAt = new Date(ctx.now.getTime() + ASSISTANT_LIMITS.proposalHours * 3_600_000);
+
+  const id = await db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(proposedAction)
+      .values({
+        agencyId,
+        userId: actor.userId,
+        conversationId: proposal.conversationId,
+        turnId: proposal.turnId,
+        contactId: p.contactId,
+        tool: p.tool,
+        args: p.args,
+        card: p.card,
+        idempotencyKey: key,
+        expiresAt,
+      })
+      .onConflictDoNothing({ target: proposedAction.idempotencyKey })
+      .returning({ id: proposedAction.id });
+    if (!created) {
+      const [existing] = await tx.select({ id: proposedAction.id }).from(proposedAction).where(eq(proposedAction.idempotencyKey, key)).limit(1);
+      return existing!.id;
+    }
+    await recordActivity(tx, actor, agencyId, p.contactId, 'assistant_proposed', auditPayload(created.id, p.tool, p.args));
+    return created.id;
+  });
+  proposal.made.count += 1;
+
+  return {
+    label,
+    frame: { kind: 'proposal', id, tool: p.tool },
+    result: {
+      proposed: true,
+      status: 'waiting for the person',
+      note: 'A card is on screen. Nothing has happened yet: only the person can press Approve or Reject, and you cannot. Tell them in one sentence what the card will do.',
+    },
+  };
+}
+
+/** A domain refusal at run time — shown on the card as the reason; never a crash. */
+function runRefusal(err: unknown): string | null {
+  if (err instanceof ContactError || err instanceof AssistantError) return err.message;
+  return null;
+}
+
+/** Run one approved action AS the person, through the same core function a screen uses — which re-checks can(). */
+async function execute(tx: Db, actor: Actor, args: FrozenArgs, _now: Date): Promise<{ result: Record<string, unknown> }> {
+  switch (args.tool) {
+    case 'add_note': {
+      const { id } = await createNote(tx, actor, args.contactId, args.body, { isPrivate: args.private });
+      return { result: { noteId: id } };
+    }
+    case 'set_next_action': {
+      await setNextAction(tx, actor, args.contactId, {
+        ...(args.nextAction ? { nextAction: args.nextAction } : {}),
+        ...(args.nextActionAt ? { nextActionAt: args.nextActionAt } : {}),
+      });
+      return { result: {} };
+    }
+  }
+}
+
+const NOT_FOUND = () => new AssistantError('not_found', 'That card was not found');
+
+async function loadRow(db: DbOrTx, actor: Actor, id: string) {
+  if (!actor.agencyId || !/^[0-9a-f-]{36}$/i.test(id)) throw NOT_FOUND();
+  const [row] = await db
+    .select()
+    .from(proposedAction)
+    .where(and(eq(proposedAction.id, id), eq(proposedAction.agencyId, actor.agencyId)))
+    .limit(1);
+  if (!row || !can(actor, 'proposed_action:read', actionResource(row))) throw NOT_FOUND();
+  return row;
+}
+
+export type ApproveResult =
+  | { outcome: 'done'; result: Record<string, unknown> }
+  | { outcome: 'failed'; error: string }
+  | { outcome: 'already'; status: ProposalStatus };
+
+/**
+ * Approve: CLAIM and RUN in one transaction. The claim is a guarded update
+ * (`proposed`, unexpired, this person's) — a second click, a second tab or a
+ * replayed request finds nothing to claim and runs nothing. The run goes
+ * through the screen's own core function as this person, which asks can()
+ * again; a refusal (access lost, contact gone, appointment changed) marks the
+ * card failed with the reason.
+ */
+export async function approveProposedAction(
+  db: Db,
+  actor: Actor,
+  id: string,
+  now = new Date(),
+): Promise<ApproveResult> {
+  const row = await loadRow(db, actor, id);
+  if (!can(actor, 'proposed_action:decide', actionResource(row))) {
+    throw new AssistantError('forbidden', 'Only the person the assistant was working for can approve this.');
+  }
+  const args = row.args as FrozenArgs;
+
+  const ran = await db.transaction(async (tx) => {
+    const [claimed] = await tx
+      .update(proposedAction)
+      .set({ status: 'running', decidedAt: now, decidedBy: actor.userId, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(proposedAction.id, row.id),
+          eq(proposedAction.userId, actor.userId),
+          eq(proposedAction.status, 'proposed'),
+          gt(proposedAction.expiresAt, now),
+        ),
+      )
+      .returning({ id: proposedAction.id });
+    if (!claimed) return null;
+    const audit = (kind: ActivityKind, extra: Record<string, unknown> = {}) =>
+      row.contactId ? recordActivity(tx, actor, row.agencyId, row.contactId, kind, auditPayload(row.id, row.tool, args, extra)) : Promise.resolve();
+    await audit('assistant_approved');
+    try {
+      // A savepoint: a refusal undoes only the action, never the record of it.
+      const done = await tx.transaction((sp) => execute(sp as unknown as Db, actor, args, now));
+      await tx
+        .update(proposedAction)
+        .set({ status: 'done', result: done.result, finishedAt: now, updatedAt: sql`now()` })
+        .where(eq(proposedAction.id, row.id));
+      return { ok: true as const, ...done };
+    } catch (err) {
+      const reason = runRefusal(err);
+      if (!reason) throw err;
+      await tx
+        .update(proposedAction)
+        .set({ status: 'failed', error: reason, finishedAt: now, updatedAt: sql`now()` })
+        .where(eq(proposedAction.id, row.id));
+      await audit('assistant_failed');
+      return { ok: false as const, error: reason };
+    }
+  });
+
+  if (!ran) {
+    const [now2] = await db.select({ status: proposedAction.status, expiresAt: proposedAction.expiresAt }).from(proposedAction).where(eq(proposedAction.id, row.id)).limit(1);
+    const status = (now2?.status ?? 'expired') as ProposalStatus;
+    if (status === 'proposed') throw new AssistantError('expired', 'This card has expired. Ask the assistant again.');
+    if (status === 'running' || status === 'done' || status === 'approved' || status === 'scheduled') return { outcome: 'already', status };
+    throw new AssistantError('conflict', status === 'expired' ? 'This card has expired. Ask the assistant again.' : `This card was already ${status}.`);
+  }
+  if (!ran.ok) return { outcome: 'failed', error: ran.error };
+  return { outcome: 'done', result: ran.result };
+}
+
+/** Reject: only its author, only while it waits. A second click is harmless. */
+export async function rejectProposedAction(db: Db, actor: Actor, id: string): Promise<SettleResult> {
+  const row = await loadRow(db, actor, id);
+  if (!can(actor, 'proposed_action:decide', actionResource(row))) {
+    throw new AssistantError('forbidden', 'Only the person the assistant was working for can reject this.');
+  }
+  return settle(db, actor, row, ['proposed'], 'rejected', 'assistant_rejected');
+}
+
+/** Cancel one not yet run: its author or an admin (`proposed` now; `scheduled` once delayed runs exist). */
+export async function cancelProposedAction(db: Db, actor: Actor, id: string): Promise<SettleResult> {
+  const row = await loadRow(db, actor, id);
+  if (!can(actor, 'proposed_action:cancel', actionResource(row))) {
+    throw new AssistantError('forbidden', 'You may not cancel this.');
+  }
+  return settle(db, actor, row, ['proposed', 'scheduled'], 'cancelled', 'assistant_cancelled');
+}
+
+export type SettleResult = { outcome: 'rejected' | 'cancelled' | 'already'; status: ProposalStatus };
+
+async function settle(
+  db: Db,
+  actor: Actor,
+  row: { id: string; agencyId: string; contactId: string | null; tool: string; args: unknown },
+  from: ProposalStatus[],
+  to: 'rejected' | 'cancelled',
+  kind: ActivityKind,
+): Promise<SettleResult> {
+  return db.transaction(async (tx) => {
+    const [done] = await tx
+      .update(proposedAction)
+      .set({ status: to, decidedAt: sql`now()`, decidedBy: actor.userId, updatedAt: sql`now()` })
+      .where(and(eq(proposedAction.id, row.id), inArray(proposedAction.status, from)))
+      .returning({ id: proposedAction.id });
+    if (!done) {
+      const [cur] = await tx.select({ status: proposedAction.status }).from(proposedAction).where(eq(proposedAction.id, row.id)).limit(1);
+      return { outcome: 'already' as const, status: (cur?.status ?? to) as ProposalStatus };
+    }
+    if (row.contactId) await recordActivity(tx, actor, row.agencyId, row.contactId, kind, auditPayload(row.id, row.tool, row.args as FrozenArgs));
+    return { outcome: to, status: to };
+  });
+}
+
+/** The cron tick: proposals nobody decided within 48 h expire. The row keeps the record. */
+export async function expireProposedActions(db: Db, now = new Date()): Promise<number> {
+  const gone = await db
+    .update(proposedAction)
+    .set({ status: 'expired', updatedAt: sql`now()` })
+    .where(and(eq(proposedAction.status, 'proposed'), lt(proposedAction.expiresAt, now)))
+    .returning({ id: proposedAction.id });
+  return gone.length;
+}
+
+export type ProposalView = {
+  id: string;
+  tool: AssistantWriteTool;
+  status: ProposalStatus;
+  card: ProposalCard;
+  error: string | null;
+  /** Ids of what it made or changed — for links. Never model text. */
+  result: { noteId?: string } | null;
+  expiresAt: Date;
+  /** Decided by can(): the panel draws its buttons from these. */
+  mayDecide: boolean;
+  mayCancel: boolean;
+};
+
+/** One card, as the database holds it. Not-found for anyone `proposed_action:read` refuses. */
+export async function getProposedAction(db: Db, actor: Actor, id: string, now = new Date()): Promise<ProposalView> {
+  const row = await loadRow(db, actor, id);
+  const waiting = row.status === 'proposed' && new Date(row.expiresAt).getTime() > now.getTime();
+  const status = (row.status === 'proposed' && !waiting ? 'expired' : row.status) as ProposalStatus;
+  return {
+    id: row.id,
+    tool: row.tool as AssistantWriteTool,
+    status,
+    card: row.card as ProposalCard,
+    error: row.error,
+    result: (row.result as ProposalView['result']) ?? null,
+    expiresAt: new Date(row.expiresAt),
+    mayDecide: waiting && can(actor, 'proposed_action:decide', actionResource(row)),
+    mayCancel: (status === 'proposed' || status === 'scheduled') && can(actor, 'proposed_action:cancel', actionResource(row)),
+  };
+}

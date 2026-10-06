@@ -14,6 +14,8 @@ import { PROVIDERS } from '../integrations/providers';
 import { formatAddress } from '../listings/listing-schema';
 import { instantToLocalInput, localInputToInstant } from '../time/local-input';
 import { issueHandle, resolveHandle, type HandleMap } from './handles';
+import type { ProposalContext } from './actions';
+import { proposeAddNote, proposeSetNextAction } from './write-tools';
 import {
   ASSISTANT_TOOL_INPUTS,
   type AppointmentRange,
@@ -22,7 +24,8 @@ import {
 } from './schema';
 
 /**
- * The assistant's Phase A tools (ADR 0025 §8): READ-ONLY, each run AS the
+ * The assistant's tools (ADR 0025 §8). The read tools below run at once; the
+ * write tools (`write-tools.ts`) only propose. The read tools are READ-ONLY, each run AS the
  * signed-in person through the same scope the console's own screens use —
  * `contactQueryFilters`, `leadScopeFilters`, `appointmentScopeFilters`,
  * `listTemplates`, `requireIntegrations`. Nothing here inserts, updates or
@@ -42,6 +45,8 @@ export type ToolContext = {
   /** This conversation's names. Tools add to it; the turn saves it. */
   handles: HandleMap;
   now: Date;
+  /** Present inside a conversation turn: where a write tool's proposal comes from. */
+  proposal?: ProposalContext;
 };
 
 export type ToolOutcome = {
@@ -60,6 +65,8 @@ const LABELS: Record<AssistantToolName, string> = {
   find_appointments: 'Checking the calendar…',
   list_templates: 'Reading the email templates…',
   check_connections: 'Checking connected accounts…',
+  add_note: 'Preparing a note for you to approve…',
+  set_next_action: 'Preparing a next action for you to approve…',
 };
 
 const assignee = alias(user, 'assistant_assignee');
@@ -133,6 +140,11 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return listApprovedTemplates(ctx, label);
     case 'check_connections':
       return checkConnections(ctx, parsed.data as CheckConnections, label);
+    // Write tools: each only PROPOSES (ADR 0025 §1).
+    case 'add_note':
+      return proposeAddNote(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.add_note>, label);
+    case 'set_next_action':
+      return proposeSetNextAction(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.set_next_action>, label);
   }
 }
 

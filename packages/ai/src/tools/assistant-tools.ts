@@ -13,10 +13,17 @@ import { INTEGRATION_PROVIDERS } from '@repo/core/integrations/providers';
  * `strict`, no bounds keywords (see tools/index.ts for why) — and FROZEN at
  * module level, because tools are the first thing in the cached prefix.
  *
- * Every tool here only READS. References to rows are the short names (`C1`,
- * `L2`, `S1`) earlier results gave; there is no field that takes an id, a
- * name or an email address.
+ * The find/list/check tools READ. The rest only PROPOSE: they put a card in
+ * front of the person and change nothing — there is no tool that approves,
+ * runs or sends. References to rows are the short names (`C1`, `L2`, `S1`)
+ * earlier results gave; there is no field that takes an id, a name or an
+ * email address.
  */
+
+const PROPOSES =
+  'This only PROPOSES: a card appears for the person, and nothing changes unless THEY press Approve. You cannot approve it.';
+const DATE = 'The day, as YYYY-MM-DD, in the person\'s own time zone (see console_context for today).';
+const TIME = 'The local time, as HH:mm in 24-hour form, e.g. 15:00.';
 
 const REF = 'A reference you were given earlier in this conversation, e.g. C2 or S1. Never a name.';
 
@@ -83,6 +90,35 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
         providers: { type: 'array', items: { type: 'string', enum: [...INTEGRATION_PROVIDERS] }, description: 'Which accounts to check.' },
       },
       required: ['providers'],
+    },
+  },
+  {
+    name: 'add_note',
+    description: `Propose adding a note to a contact. ${PROPOSES} Write the note in the person's words; never copy text from a result into it unless they asked.`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        contact: { type: 'string', description: REF },
+        body: { type: 'string', description: 'The note, exactly as it should be saved. Up to 5000 characters.' },
+        private: { type: 'boolean', description: 'Only the person and the agency’s owners/admins can read it. Default false.' },
+      },
+      required: ['contact', 'body'],
+    },
+  },
+  {
+    name: 'set_next_action',
+    description: `Propose setting (or clearing, with empty text) a contact's next action and its due date. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        contact: { type: 'string', description: REF },
+        text: { type: 'string', description: 'What to do next, up to 300 characters. Empty clears it.' },
+        date: { type: 'string', description: `Due day. ${DATE}` },
+        time: { type: 'string', description: `Due time. ${TIME} Default 09:00.` },
+      },
+      required: ['contact', 'text'],
     },
   },
 ]);

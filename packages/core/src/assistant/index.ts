@@ -16,3 +16,16 @@ export {
   type Surface as AssistantSurface,
   type TurnView,
 } from './conversations';
+export {
+  approveProposedAction,
+  cancelProposedAction,
+  expireProposedActions,
+  getProposedAction,
+  propose,
+  rejectProposedAction,
+  type ApproveResult,
+  type FrozenArgs,
+  type ProposalContext,
+  type ProposalView,
+  type SettleResult,
+} from './actions';

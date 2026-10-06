@@ -419,3 +419,22 @@ Build order A→F.
 - **Console:** an Assistant button and right-hand panel on both surfaces; `/api/assistant`
   (NDJSON); History (own conversations only, 30 days); "Using this contact" on a contact page.
 - **Retention:** the cron tick deletes conversations 30 days after their last turn.
+
+## As built — Phase B (2026-10-06, migration 0029)
+
+- **`proposed_action`** as designed in §7 (status list, frozen resolved `args`, `card`
+  snapshot, `idempotency_key` = conversation:tool_use_id, 48 h `expires_at`), kept when its
+  conversation is purged (`set null`) — it is the audit. RLS on.
+- **Tools:** `add_note`, `set_next_action`. Each resolves handles only, asks `can()` as the
+  person, builds the card from the database and stores it; at most three per answer.
+- **Approve** (`approveProposedAction`): one transaction claims the card (`proposed`,
+  unexpired, the author's) and runs it in a savepoint through the screen's own function
+  (`createNote`, `setNextAction`), which re-checks `can()`; a refusal marks the card `failed`
+  with the reason and keeps the audit. Reject (author) and Cancel (author or admin) are guarded
+  updates. The cron tick expires undecided cards.
+- **Audit:** `activity` rows `assistant_proposed / _approved / _rejected / _cancelled / _failed`
+  on the contact (action id and tool, never the text). A private note's proposal is marked
+  `private` and the timeline shows it only to its author and admins (`privateActivityVisibleSql`).
+  `ai_run` is linked through `turn_id`.
+- **Not built:** editing a card's text before approving (§9 "Edit") — ask again instead.
+- **Prompt** `assistant@v2`.
