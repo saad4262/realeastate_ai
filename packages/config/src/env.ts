@@ -100,6 +100,17 @@ export const envSchema = z.object({
   INTEGRATION_OAUTH_RETURN_BASE: z.string().url().optional(),
   INTEGRATIONS_STUB: z.string().optional(),
   /**
+   * Real providers (Phase 3b). A provider with both its id and secret set is
+   * connected for real; otherwise the stub (dev) or nothing. Server-only.
+   * ZOOM_OAUTH_RETURN_BASE: Zoom's own return base (dev: an https tunnel —
+   * Zoom refuses localhost); unset = INTEGRATION_OAUTH_RETURN_BASE.
+   */
+  GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
+  GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
+  ZOOM_OAUTH_CLIENT_ID: z.string().optional(),
+  ZOOM_OAUTH_CLIENT_SECRET: z.string().optional(),
+  ZOOM_OAUTH_RETURN_BASE: z.string().url().optional(),
+  /**
    * Template email (docs/adr/0022). EMAIL_DEV_ALLOWLIST: outside production,
    * only these addresses / @domains receive bulk email; unset = nobody.
    * Ignored in production. The rest are limits with the agreed defaults.

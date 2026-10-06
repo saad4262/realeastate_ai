@@ -3,9 +3,10 @@
  * (ADR 0020). Pure — the settings page and the "Connect X first" card import
  * it. The owner types are also a CHECK in migration 0024; keep them equal.
  *
- * The scope names are PROVISIONAL until Phase 3b connects the real providers:
- * they are verified against Google's and Zoom's own documentation then, and
- * this file is the one place that changes.
+ * Google Calendar and Zoom scopes were checked against Google's and Zoom's
+ * own documentation on 2026-10-06 (Phase 3b) and are the least each feature
+ * needs. Sheets and Reviews are still PROVISIONAL until they are built.
+ * This file is the one place a scope changes.
  */
 
 export const INTEGRATION_PROVIDERS = ['google_calendar', 'zoom', 'google_sheets', 'google_reviews'] as const;
@@ -29,7 +30,9 @@ export const PROVIDERS: Record<IntegrationProvider, ProviderInfo> = {
     purpose: 'Appointments you book here appear in your Google Calendar and stay in step with it.',
     ownerTypes: ['user'],
     scopes: [
-      { scope: 'https://www.googleapis.com/auth/calendar.events', why: 'To add, move and cancel the events for appointments you book here. Nothing else in your calendar is read or changed.' },
+      // calendar.events.owned, not calendar.events: only calendars the person owns,
+      // which is where we write — still create, change, delete and read back.
+      { scope: 'https://www.googleapis.com/auth/calendar.events.owned', why: 'To add, move and cancel the events for appointments you book here, and to notice if you move one in Google. Other events are never read or changed.' },
       { scope: 'openid email', why: 'To show which Google account is connected.' },
     ],
   },
@@ -38,7 +41,9 @@ export const PROVIDERS: Record<IntegrationProvider, ProviderInfo> = {
     purpose: 'A Zoom appointment creates its own meeting link. Your own Zoom is used first, then the agency’s.',
     ownerTypes: ['user', 'agency'],
     scopes: [
-      { scope: 'meeting:write:meeting', why: 'To create, move and cancel the meeting for a Zoom appointment.' },
+      { scope: 'meeting:write:meeting', why: 'To create the meeting for a Zoom appointment.' },
+      { scope: 'meeting:update:meeting', why: 'To move that meeting when the appointment is rescheduled.' },
+      { scope: 'meeting:delete:meeting', why: 'To delete that meeting when the appointment is cancelled.' },
       { scope: 'user:read:user', why: 'To show which Zoom account is connected.' },
     ],
   },
@@ -66,9 +71,18 @@ export function requiredScopes(provider: IntegrationProvider): string[] {
   return PROVIDERS[provider].scopes.flatMap((s) => s.scope.split(' '));
 }
 
+/**
+ * Google answers a request for `email` / `profile` with the long names in the
+ * granted list — the same permission under two spellings.
+ */
+const SCOPE_ALIASES: Record<string, string> = {
+  'https://www.googleapis.com/auth/userinfo.email': 'email',
+  'https://www.googleapis.com/auth/userinfo.profile': 'profile',
+};
+
 /** Which required scopes a grant is missing. Empty means all of them were granted. */
 export function missingScopes(provider: IntegrationProvider, granted: readonly string[]): string[] {
-  const have = new Set(granted.flatMap((g) => g.split(' ')));
+  const have = new Set(granted.flatMap((g) => g.split(' ')).map((s) => SCOPE_ALIASES[s] ?? s));
   return requiredScopes(provider).filter((s) => !have.has(s));
 }
 

@@ -3995,8 +3995,8 @@ async function main() {
     accountLabel: label,
   });
   const ALL = {
-    google_calendar: ['https://www.googleapis.com/auth/calendar.events', 'openid', 'email'],
-    zoom: ['meeting:write:meeting', 'user:read:user'],
+    google_calendar: ['https://www.googleapis.com/auth/calendar.events.owned', 'openid', 'email'],
+    zoom: ['meeting:write:meeting', 'meeting:update:meeting', 'meeting:delete:meeting', 'user:read:user'],
   };
 
   await check('stored tokens are ciphertext, and no screen read ever returns one', async () => {

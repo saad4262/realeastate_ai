@@ -6,7 +6,8 @@ import { tokenKeysFromEnv, TokenKeyError } from './crypto';
  *    connections (it is also refused at runtime there; this refuses to boot);
  *  - no `INTEGRATION_TOKEN_KEY`, or one of the wrong shape — nothing could be
  *    connected, and stored tokens could not be read.
- * Outside production, only a malformed key is a problem.
+ *  - a provider's client id without its secret, or the other way round.
+ * Outside production, only a malformed key or half a client is a problem.
  *
  * Messages name the variable, never its value.
  */
@@ -15,6 +16,14 @@ export function integrationStartupProblems(env: NodeJS.ProcessEnv = process.env)
   const problems: string[] = [];
   if (production && env.INTEGRATIONS_STUB === '1') {
     problems.push('INTEGRATIONS_STUB=1 is set in production — remove it (it is a development-only pretend provider).');
+  }
+  // Half a client is a typo, not a choice: the provider would silently fall back.
+  for (const name of ['GOOGLE', 'ZOOM'] as const) {
+    const id = Boolean(env[`${name}_OAUTH_CLIENT_ID`]?.trim());
+    const secret = Boolean(env[`${name}_OAUTH_CLIENT_SECRET`]?.trim());
+    if (id !== secret) {
+      problems.push(`${name}_OAUTH_CLIENT_ID and ${name}_OAUTH_CLIENT_SECRET must be set together (only one is).`);
+    }
   }
   try {
     const keys = tokenKeysFromEnv(env);

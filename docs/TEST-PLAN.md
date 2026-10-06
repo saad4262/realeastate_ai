@@ -476,7 +476,7 @@ Needs in `.env.local`: `INTEGRATION_TOKEN_KEY` (`openssl rand -base64 32`),
 |---|---|---|
 | Q1 | Owner → Settings → Integrations (`/settings/integrations`) | Cards: the agency's Zoom, Google Reviews, Google Sheets, and the owner's own Google Calendar, Zoom, Sheets — each "Not connected", with what it does and "Why we ask for each permission". A yellow note says the stub is on. |
 | Q2 | Connect on the agency's **Zoom** | A "Pretend Zoom — dev only" page lists two permissions, both ticked. Allow → the browser goes to `localhost:3001/...return` and straight on to `agency.lvh.me` (watch the address bar) → back on Integrations with "Zoom connected", the account label and the time. |
-| Q3 | Connect **Google Calendar**, untick `calendar.events`, Allow | Back with "connected without: …calendar.events"; the card says **Permission missing** and offers **Reconnect**. Reconnect with everything ticked → **Connected**. |
+| Q3 | Connect **Google Calendar**, untick `calendar.events.owned`, Allow | Back with "connected without: …calendar.events.owned"; the card says **Permission missing** and offers **Reconnect**. Reconnect with everything ticked → **Connected**. |
 | Q4 | Connect anything, press **Deny** | Back with "permission was declined"; nothing stored. |
 | Q5 | **Disconnect** Google Calendar → confirm | "disconnected — its stored access was deleted"; card back to Not connected. |
 | Q6 | Agent → **Integrations** in the menu (`/my-integrations`) | Their own Calendar / Zoom / Sheets to connect; the agency's Zoom / Reviews / Sheets shown with status but "Only an owner or admin connects the agency's account" — no buttons. |

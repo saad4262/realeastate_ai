@@ -82,7 +82,11 @@ describe('OAuth state', () => {
 
 describe('scope re-check', () => {
   it('names what a person unticked on the consent screen', () => {
-    expect(missingScopes('zoom', ['user:read:user'])).toEqual(['meeting:write:meeting']);
-    expect(missingScopes('google_calendar', ['https://www.googleapis.com/auth/calendar.events', 'openid', 'email'])).toEqual([]);
+    expect(missingScopes('zoom', ['user:read:user', 'meeting:write:meeting', 'meeting:delete:meeting'])).toEqual(['meeting:update:meeting']);
+    expect(missingScopes('google_calendar', ['https://www.googleapis.com/auth/calendar.events.owned', 'openid', 'email'])).toEqual([]);
+    // Google grants `email` back under its long name — the same permission.
+    expect(missingScopes('google_calendar', ['openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/calendar.events.owned'])).toEqual([]);
+    // The broader calendar.events is not what was asked for, so it does not satisfy the check.
+    expect(missingScopes('google_calendar', ['https://www.googleapis.com/auth/calendar.events', 'openid', 'email'])).toEqual(['https://www.googleapis.com/auth/calendar.events.owned']);
   });
 });
