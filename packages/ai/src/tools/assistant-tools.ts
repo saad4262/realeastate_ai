@@ -1,5 +1,5 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { APPOINTMENT_RANGES, LEAD_SINCE, LEAD_STATUSES } from '@repo/core/assistant/schema';
+import { APPOINTMENT_RANGES, ASSISTANT_APPOINTMENT_TYPES, LEAD_SINCE, LEAD_STATUSES } from '@repo/core/assistant/schema';
 import { CONTACT_ROLES } from '@repo/core/contacts/schema';
 import { INTEGRATION_PROVIDERS } from '@repo/core/integrations/providers';
 
@@ -15,7 +15,7 @@ import { INTEGRATION_PROVIDERS } from '@repo/core/integrations/providers';
  *
  * The find/list/check tools READ. The rest only PROPOSE: they put a card in
  * front of the person and change nothing — there is no tool that approves,
- * runs or sends. References to rows are the short names (`C1`, `L2`, `S1`)
+ * runs or sends. References to rows are the short names (`C1`, `A2`, `S1`)
  * earlier results gave; there is no field that takes an id, a name or an
  * email address.
  */
@@ -119,6 +119,52 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
         time: { type: 'string', description: `Due time. ${TIME} Default 09:00.` },
       },
       required: ['contact', 'text'],
+    },
+  },
+  {
+    name: 'schedule_appointment',
+    description: `Propose booking an appointment with a contact on the person's own calendar. It needs Google Calendar connected (and Zoom for a Zoom type) — if not, it says "Connect … first" and proposes nothing; tell the person that. No invitation email is sent: tell the person to use the contact's Calendar tab for that. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        contact: { type: 'string', description: REF },
+        type: { type: 'string', enum: [...ASSISTANT_APPOINTMENT_TYPES], description: 'zoom creates a Zoom meeting on approval.' },
+        title: { type: 'string', description: 'A short title, e.g. "Appraisal at 12 Smith St".' },
+        date: { type: 'string', description: DATE },
+        time: { type: 'string', description: `Start. ${TIME}` },
+        duration_minutes: { type: 'integer', description: '15 to 480. Default 60 (30 for a phone call).' },
+        location: { type: 'string', description: 'An address, if it has one.' },
+      },
+      required: ['contact', 'type', 'title', 'date', 'time'],
+    },
+  },
+  {
+    name: 'reschedule_appointment',
+    description: `Propose moving an existing appointment to a new time. Its calendar event and Zoom meeting move with it. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        appointment: { type: 'string', description: 'An appointment reference from find_appointments, e.g. A1.' },
+        date: { type: 'string', description: DATE },
+        time: { type: 'string', description: `New start. ${TIME}` },
+        duration_minutes: { type: 'integer', description: '15 to 480. Default: the same length as now.' },
+      },
+      required: ['appointment', 'date', 'time'],
+    },
+  },
+  {
+    name: 'cancel_appointment',
+    description: `Propose cancelling an appointment. Its calendar event is removed and its Zoom meeting deleted. Nobody is emailed. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        appointment: { type: 'string', description: 'An appointment reference from find_appointments, e.g. A1.' },
+        reason: { type: 'string', description: 'Why, in a sentence — kept on the appointment.' },
+      },
+      required: ['appointment'],
     },
   },
 ]);

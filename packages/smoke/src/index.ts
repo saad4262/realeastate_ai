@@ -5147,6 +5147,76 @@ async function main() {
     return summary;
   });
 
+  await check('C: appointments — "Connect X first" proposes nothing; the card names the calendar and Zoom; Approve books once and syncs; move and cancel', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const g = fakeProviders();
+      const a1 = f.actor('a1');
+      const conv = await claimTurn(t, a1, { message: 'x', surface: 'agent' });
+      const h: HandleMap = {};
+      const ref = issueHandle(h, 'C', f.contacts.p1);
+      const cards = () => count(t, sql`select count(*)::int as n from proposed_action where user_id = ${f.people.a1}`);
+      const appts = () => count(t, sql`select count(*)::int as n from appointment where contact_id = ${f.contacts.p1}`);
+      const book = (type: string, time = '15:00') =>
+        runAssistantTool(proposeCtx(t, a1, h, conv.conversationId), 'schedule_appointment', { contact: ref, type, title: 'Appraisal', date: tomorrowLocal(), time });
+
+      // Nothing connected: Connect Google Calendar first, and no card.
+      const none = await book('appraisal');
+      assert(!none.isError && /Connect Google Calendar first/.test(JSON.stringify(none.result)) && (await cards()) === 0, `unconnected: ${JSON.stringify(none.result)}`);
+      await g.connect(t, a1, 'google_calendar', 'user', f.people.a1, f.agencyId);
+      const noZoom = await book('zoom');
+      assert(/Connect Zoom first/.test(JSON.stringify(noZoom.result)) && (await cards()) === 0, `no Zoom: ${JSON.stringify(noZoom.result)}`);
+      await g.connect(t, f.actor('owner'), 'zoom', 'agency', f.agencyId, f.agencyId);
+
+      const id = cardId(await book('zoom'));
+      const card = await getProposedAction(t, a1, id);
+      const line = (l: string) => card.card.lines.find((x) => x.label === l)?.value ?? '';
+      assert(/Your calendar/.test(line('Google Calendar')) && /agency’s Zoom/.test(line('Zoom')) && /3:00/.test(line('When')), `card lines: ${JSON.stringify(card.card.lines)}`);
+      assert(card.card.notes.some((n) => /No invitation is emailed/.test(n)), 'the card does not say no invitation is sent');
+      assert((await appts()) === 0, 'proposing booked an appointment');
+
+      // A2 cannot approve; A1 approves twice → one appointment, one event, one meeting, no email.
+      assert((await code(approveProposedAction(t, f.actor('a2'), id, { sync: g.deps }))) === 'not_found', 'A2 approved A1’s booking');
+      const r1 = await approveProposedAction(t, a1, id, { sync: g.deps });
+      const r2 = await approveProposedAction(t, a1, id, { sync: g.deps });
+      assert(r1.outcome === 'done' && r2.outcome === 'already' && (await appts()) === 1, `approve twice: ${r1.outcome}/${r2.outcome}, ${await appts()} appointments`);
+      assert(g.events.size === 1 && g.meetings.size === 1, `synced ${g.events.size} events, ${g.meetings.size} meetings`);
+      const apptId = String((r1 as { result: Record<string, unknown> }).result.appointmentId);
+      assert((await count(t, sql`select count(*)::int as n from mail_message m join mail_thread th on th.id = m.thread_id where th.contact_id = ${f.contacts.p1}`)) === 0, 'an email was sent');
+
+      // Move it: the appointment and its event move together.
+      const ah: HandleMap = { ...h };
+      await runAssistantTool(toolCtx(t, a1, ah), 'find_appointments', {});
+      const aref = Object.entries(ah).find(([, v]) => v.id === apptId)![0];
+      const mv = cardId(await runAssistantTool(proposeCtx(t, a1, ah, conv.conversationId), 'reschedule_appointment', { appointment: aref, date: tomorrowLocal(), time: '16:30' }));
+      assert((await approveProposedAction(t, a1, mv, { sync: g.deps })).outcome === 'done', 'reschedule not done');
+      const [moved] = await t.execute<{ status: string; at: string }>(sql`select status, to_char(starts_at at time zone 'Australia/Melbourne', 'HH24:MI') as at from appointment where id = ${apptId}`);
+      assert(moved?.status === 'rescheduled' && moved.at === '16:30', `moved: ${JSON.stringify(moved)}`);
+      const ev = [...g.events.values()][0]!;
+      assert(new Date(ev.start).getTime() === new Date((await getAppointment(t, a1, apptId)).startsAt).getTime(), 'the calendar event did not move');
+
+      // In the past: refused at propose.
+      const yesterday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Melbourne', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(Date.now() - 86_400_000));
+      const past = await runAssistantTool(proposeCtx(t, a1, h, conv.conversationId), 'schedule_appointment', { contact: ref, type: 'meeting', title: 'x', date: yesterday, time: '09:00' });
+      assert(past.isError, 'a booking in the past was proposed');
+      // Losing Google Calendar between propose and approve: the card fails with "Connect … first".
+      const cx = cardId(await runAssistantTool(proposeCtx(t, a1, ah, conv.conversationId), 'cancel_appointment', { appointment: aref, reason: 'Vendor asked' }));
+      await t.execute(sql`delete from integration_account where owner_id = ${f.people.a1} and provider = 'google_calendar'`);
+      const lost = await approveProposedAction(t, a1, cx, { sync: g.deps });
+      assert(lost.outcome === 'failed' && /Google Calendar is no longer connected/.test((lost as { error: string }).error), `approve without calendar: ${JSON.stringify(lost)}`);
+      const [still] = await t.execute<{ status: string }>(sql`select status from appointment where id = ${apptId}`);
+      assert(still?.status === 'rescheduled', 'it was cancelled without its calendar');
+
+      // A2 cannot propose changes to A1's appointment, even holding its reference.
+      const a2conv = await claimTurn(t, f.actor('a2'), { message: 'x', surface: 'agent' });
+      const forged: HandleMap = {};
+      issueHandle(forged, 'A', apptId);
+      const a2cancel = await runAssistantTool(proposeCtx(t, f.actor('a2'), forged, a2conv.conversationId), 'cancel_appointment', { appointment: 'A1' });
+      assert(a2cancel.isError, 'A2 proposed cancelling A1’s appointment');
+      return 'connect-first ×2 with no card; card names your calendar + agency Zoom; approve twice = 1 booking, 1 event, 1 meeting, 0 emails; moved with its event; calendar lost → failed; A2 and the past refused';
+    }),
+  );
+
   await check('an injected enquiry or contact name cannot steer: results never carry free text, and no tool approves', async () => {
     const ROLLBACK = new Error('smoke rollback');
     let summary = '';

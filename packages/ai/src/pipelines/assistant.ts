@@ -22,7 +22,7 @@ import {
   type ToolOutcome,
 } from '@repo/core/assistant';
 import { getModel, SERVER_FALLBACK_MODELS, type TokenUsage } from '../models';
-import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v2';
+import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v3';
 import { ASSISTANT_TOOLS } from '../tools/assistant-tools';
 import { trackAiRunQuietly } from '../usage';
 

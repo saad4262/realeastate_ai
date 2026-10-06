@@ -15,7 +15,13 @@ import { formatAddress } from '../listings/listing-schema';
 import { instantToLocalInput, localInputToInstant } from '../time/local-input';
 import { issueHandle, resolveHandle, type HandleMap } from './handles';
 import type { ProposalContext } from './actions';
-import { proposeAddNote, proposeSetNextAction } from './write-tools';
+import {
+  proposeAddNote,
+  proposeCancelAppointment,
+  proposeRescheduleAppointment,
+  proposeScheduleAppointment,
+  proposeSetNextAction,
+} from './write-tools';
 import {
   ASSISTANT_TOOL_INPUTS,
   type AppointmentRange,
@@ -67,6 +73,9 @@ const LABELS: Record<AssistantToolName, string> = {
   check_connections: 'Checking connected accounts…',
   add_note: 'Preparing a note for you to approve…',
   set_next_action: 'Preparing a next action for you to approve…',
+  schedule_appointment: 'Preparing an appointment for you to approve…',
+  reschedule_appointment: 'Preparing the new time for you to approve…',
+  cancel_appointment: 'Preparing the cancellation for you to approve…',
 };
 
 const assignee = alias(user, 'assistant_assignee');
@@ -145,6 +154,12 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return proposeAddNote(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.add_note>, label);
     case 'set_next_action':
       return proposeSetNextAction(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.set_next_action>, label);
+    case 'schedule_appointment':
+      return proposeScheduleAppointment(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.schedule_appointment>, label);
+    case 'reschedule_appointment':
+      return proposeRescheduleAppointment(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.reschedule_appointment>, label);
+    case 'cancel_appointment':
+      return proposeCancelAppointment(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.cancel_appointment>, label);
   }
 }
 

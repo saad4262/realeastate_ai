@@ -31,6 +31,9 @@ export const handleSchema = z
   .trim()
   .regex(/^[CLATS][1-9][0-9]{0,2}$/, 'Not a reference the assistant was given');
 
+/** A handle that must name an appointment. */
+export const appointmentHandleSchema = handleSchema.refine((h) => h.startsWith('A'), { message: 'Not an appointment reference' });
+
 /** A handle that must name a contact. */
 export const contactHandleSchema = handleSchema.refine((h) => h.startsWith('C') || h.startsWith('S'), {
   message: 'Not a contact reference',
@@ -107,7 +110,7 @@ const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A date as YYYY-MM-DD
 const timeString = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'A time as HH:mm, 24-hour');
 
 /**
- * WRITE tools (Phase B). None of them writes: each resolves its
+ * WRITE tools (Phases B and C). None of them writes: each resolves its
  * references, checks the person may, and stores a `proposed_action` with the
  * frozen, resolved arguments. Only the person's Approve runs it.
  */
@@ -130,8 +133,38 @@ export const setNextActionInput = z
   })
   .strict();
 
+export const ASSISTANT_APPOINTMENT_TYPES = ['appraisal', 'phone_call', 'zoom', 'inspection', 'meeting'] as const;
+
+export const scheduleAppointmentInput = z
+  .object({
+    contact: contactHandleSchema,
+    type: z.enum(ASSISTANT_APPOINTMENT_TYPES),
+    title: z.string().trim().min(1).max(160),
+    date: dateString,
+    time: timeString,
+    duration_minutes: z.number().int().min(15).max(480).optional(),
+    location: z.string().trim().max(300).optional(),
+  })
+  .strict();
+
+export const rescheduleAppointmentInput = z
+  .object({
+    appointment: appointmentHandleSchema,
+    date: dateString,
+    time: timeString,
+    duration_minutes: z.number().int().min(15).max(480).optional(),
+  })
+  .strict();
+
+export const cancelAppointmentInput = z
+  .object({
+    appointment: appointmentHandleSchema,
+    reason: z.string().trim().max(1000).optional(),
+  })
+  .strict();
+
 export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 
 /** Every tool. Read tools run at once; write tools only propose (ADR 0025 §8). */
@@ -143,6 +176,9 @@ export const ASSISTANT_TOOL_INPUTS = {
   check_connections: checkConnectionsInput,
   add_note: addNoteInput,
   set_next_action: setNextActionInput,
+  schedule_appointment: scheduleAppointmentInput,
+  reschedule_appointment: rescheduleAppointmentInput,
+  cancel_appointment: cancelAppointmentInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];

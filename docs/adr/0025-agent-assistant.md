@@ -438,3 +438,21 @@ Build order A→F.
   `ai_run` is linked through `turn_id`.
 - **Not built:** editing a card's text before approving (§9 "Edit") — ask again instead.
 - **Prompt** `assistant@v2`.
+
+## As built — Phase C (2026-10-06, no migration)
+
+- **Tools:** `schedule_appointment`, `reschedule_appointment`, `cancel_appointment`, which only
+  propose, like Phase B. A booking always goes on the person's own calendar (the assistant does
+  not book for somebody else). It needs Google Calendar connected, and a Zoom (theirs, else the
+  agency's) for a Zoom type. Otherwise the answer is "Connect … first" with the accounts panel
+  and a link, and **nothing is proposed**. Moving or cancelling needs the accounts that
+  appointment uses, when it is the person's own. Times are typed as the person's local
+  date + time and turned into instants in their zone. The card shows contact, type, time with
+  the zone's name, which calendar and which Zoom. A time in the past is refused.
+- **Approve** runs `scheduleAppointment` / `rescheduleAppointment` / `cancelAppointment` in
+  the same claimed transaction, after re-checking that the time is still ahead and the
+  accounts are still connected. Then `syncAppointment` runs after the commit (Google Calendar
+  event, Zoom meeting), so one Approve makes one event and one meeting.
+- **No invitation is ever sent** by the assistant. The card and the prompt point to the
+  contact's Calendar tab → Send invitation.
+- **Prompt** `assistant@v3`.

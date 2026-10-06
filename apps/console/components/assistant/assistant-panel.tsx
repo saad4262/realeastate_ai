@@ -176,7 +176,7 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
       <header className={styles.head}>
         <div>
           <div className={styles.title}>Assistant</div>
-          <div className={styles.sub}>Looks things up, and suggests notes and next actions for you to approve. It never sends email.</div>
+          <div className={styles.sub}>Looks things up, and suggests notes and appointments for you to approve. It never sends email.</div>
         </div>
         <div className={styles.headActions}>
           <button type="button" className={styles.ghost} onClick={showHistory} disabled={busy}>
@@ -216,7 +216,7 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
                 <li>“Which leads came in this week?”</li>
                 <li>“What’s on my calendar tomorrow?”</li>
                 <li>“Is my Google Calendar connected?”</li>
-                <li>“Add a note: called, wants a Saturday inspection.”</li>
+                <li>“Book an appraisal with this contact tomorrow at 3pm.”</li>
               </ul>
             </div>
           ) : null}
@@ -434,7 +434,7 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
   const contactHref = `${PATHS[surface].contact}/${card.contact.id}`;
   const doneHref =
     view.status === 'done'
-      ? `${contactHref}?tab=${view.tool === 'add_note' ? 'notes' : 'overview'}`
+      ? `${contactHref}?tab=${view.tool === 'add_note' ? 'notes' : view.tool === 'set_next_action' ? 'overview' : 'calendar'}`
       : null;
 
   return (

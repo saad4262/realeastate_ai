@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
 import { ASSISTANT_TOOLS } from '../tools/assistant-tools';
-import { ASSISTANT_SYSTEM } from '../prompts/assistant-v2';
+import { ASSISTANT_SYSTEM } from '../prompts/assistant-v3';
 import { contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
 /**
@@ -306,7 +306,7 @@ describe('the tool definitions the model sees match what core enforces', () => {
   });
 });
 
-describe('proposals (Phase B)', () => {
+describe('proposals (Phases B and C)', () => {
   it('passes each write call its own tool_use id and ONE shared per-turn counter, and shows the card frame', async () => {
     const { client } = fakeClient([
       msg([toolUse('w1', 'add_note', { contact: 'C1', body: 'a' }), toolUse('w2', 'set_next_action', { contact: 'C1', text: 'b' })], 'tool_use'),

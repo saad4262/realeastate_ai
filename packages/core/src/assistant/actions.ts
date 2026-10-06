@@ -5,6 +5,10 @@ import { recordActivity } from '../contacts/write-contacts';
 import { ContactError } from '../contacts/list-contacts';
 import { createNote } from '../contacts/notes';
 import { setNextAction } from '../contacts/write-contacts';
+import { AppointmentError, cancelAppointment, rescheduleAppointment, scheduleAppointment } from '../appointments/appointments';
+import { syncAppointment, type SyncDeps, type SyncOutcome } from '../appointments/sync';
+import { requireIntegrations } from '../integrations/accounts';
+import { PROVIDERS, type IntegrationProvider } from '../integrations/providers';
 import type { ActivityKind } from '../contacts/contact-schema';
 import { AssistantError } from './conversations';
 import { ASSISTANT_LIMITS, type AssistantWriteTool, type ProposalCard, type ProposalStatus } from './schema';
@@ -29,7 +33,22 @@ export type ProposalContext = {
 /** The resolved, frozen arguments each tool runs with. Ids and instants — never references. */
 export type FrozenArgs =
   | { tool: 'add_note'; contactId: string; body: string; private: boolean }
-  | { tool: 'set_next_action'; contactId: string; nextAction: string | null; nextActionAt: string | null };
+  | { tool: 'set_next_action'; contactId: string; nextAction: string | null; nextActionAt: string | null }
+  | {
+      tool: 'schedule_appointment';
+      contactId: string;
+      title: string;
+      type: 'appraisal' | 'phone_call' | 'zoom' | 'inspection' | 'meeting';
+      startsAt: string;
+      endsAt: string;
+      timezone: string;
+      location: string | null;
+      /** Providers that must still be connected when it runs. */
+      requires: IntegrationProvider[];
+    }
+  | { tool: 'reschedule_appointment'; appointmentId: string; contactId: string; startsAt: string; endsAt: string; timezone: string; requires: IntegrationProvider[] }
+  | { tool: 'cancel_appointment'; appointmentId: string; contactId: string; reason: string | null; requires: IntegrationProvider[] };
+
 function actionResource(a: { id: string; agencyId: string; userId: string }) {
   return { type: 'proposed_action', id: a.id, agencyId: a.agencyId, ownerId: a.userId };
 }
@@ -104,12 +123,21 @@ export async function propose(
 
 /** A domain refusal at run time — shown on the card as the reason; never a crash. */
 function runRefusal(err: unknown): string | null {
-  if (err instanceof ContactError || err instanceof AssistantError) return err.message;
+  if (err instanceof ContactError || err instanceof AppointmentError || err instanceof AssistantError) return err.message;
   return null;
 }
 
+async function assertStillConnected(db: DbOrTx, actor: Actor, providers: IntegrationProvider[], now: Date): Promise<void> {
+  if (!providers.length) return;
+  const check = await requireIntegrations(db, actor, providers, now);
+  if (!check.ok) {
+    const names = check.missing.map((m) => PROVIDERS[m].label).join(' and ');
+    throw new AssistantError('conflict', `${names} is no longer connected. Connect ${names} first (Integrations), then ask again.`);
+  }
+}
+
 /** Run one approved action AS the person, through the same core function a screen uses — which re-checks can(). */
-async function execute(tx: Db, actor: Actor, args: FrozenArgs, _now: Date): Promise<{ result: Record<string, unknown> }> {
+async function execute(tx: Db, actor: Actor, args: FrozenArgs, now: Date): Promise<{ result: Record<string, unknown>; appointmentId?: string }> {
   switch (args.tool) {
     case 'add_note': {
       const { id } = await createNote(tx, actor, args.contactId, args.body, { isPrivate: args.private });
@@ -121,6 +149,34 @@ async function execute(tx: Db, actor: Actor, args: FrozenArgs, _now: Date): Prom
         ...(args.nextActionAt ? { nextActionAt: args.nextActionAt } : {}),
       });
       return { result: {} };
+    }
+    case 'schedule_appointment': {
+      if (new Date(args.startsAt).getTime() <= now.getTime()) throw new AssistantError('conflict', 'That time has already passed. Ask again with a new time.');
+      await assertStillConnected(tx, actor, args.requires, now);
+      const { id } = await scheduleAppointment(tx, actor, args.contactId, {
+        title: args.title,
+        type: args.type,
+        startsAt: args.startsAt,
+        endsAt: args.endsAt,
+        timezone: args.timezone,
+        ...(args.location ? { location: args.location } : {}),
+      });
+      return { result: { appointmentId: id }, appointmentId: id };
+    }
+    case 'reschedule_appointment': {
+      if (new Date(args.startsAt).getTime() <= now.getTime()) throw new AssistantError('conflict', 'That time has already passed. Ask again with a new time.');
+      await assertStillConnected(tx, actor, args.requires, now);
+      await rescheduleAppointment(tx, actor, args.appointmentId, {
+        startsAt: args.startsAt,
+        endsAt: args.endsAt,
+        timezone: args.timezone,
+      });
+      return { result: { appointmentId: args.appointmentId }, appointmentId: args.appointmentId };
+    }
+    case 'cancel_appointment': {
+      await assertStillConnected(tx, actor, args.requires, now);
+      await cancelAppointment(tx, actor, args.appointmentId, { ...(args.reason ? { outcome: args.reason } : {}) });
+      return { result: { appointmentId: args.appointmentId }, appointmentId: args.appointmentId };
     }
   }
 }
@@ -139,7 +195,7 @@ async function loadRow(db: DbOrTx, actor: Actor, id: string) {
 }
 
 export type ApproveResult =
-  | { outcome: 'done'; result: Record<string, unknown> }
+  | { outcome: 'done'; result: Record<string, unknown>; sync: SyncOutcome | null }
   | { outcome: 'failed'; error: string }
   | { outcome: 'already'; status: ProposalStatus };
 
@@ -149,12 +205,14 @@ export type ApproveResult =
  * replayed request finds nothing to claim and runs nothing. The run goes
  * through the screen's own core function as this person, which asks can()
  * again; a refusal (access lost, contact gone, appointment changed) marks the
- * card failed with the reason.
+ * card failed with the reason. Google Calendar / Zoom are synced AFTER the
+ * transaction (a network call never runs inside one).
  */
 export async function approveProposedAction(
   db: Db,
   actor: Actor,
   id: string,
+  deps: { sync?: SyncDeps | null } = {},
   now = new Date(),
 ): Promise<ApproveResult> {
   const row = await loadRow(db, actor, id);
@@ -208,7 +266,12 @@ export async function approveProposedAction(
     throw new AssistantError('conflict', status === 'expired' ? 'This card has expired. Ask the assistant again.' : `This card was already ${status}.`);
   }
   if (!ran.ok) return { outcome: 'failed', error: ran.error };
-  return { outcome: 'done', result: ran.result };
+
+  let sync: SyncOutcome | null = null;
+  if (ran.appointmentId && deps.sync) {
+    sync = await syncAppointment(db, deps.sync, ran.appointmentId).catch(() => null);
+  }
+  return { outcome: 'done', result: ran.result, sync };
 }
 
 /** Reject: only its author, only while it waits. A second click is harmless. */
@@ -271,7 +334,7 @@ export type ProposalView = {
   card: ProposalCard;
   error: string | null;
   /** Ids of what it made or changed — for links. Never model text. */
-  result: { noteId?: string } | null;
+  result: { noteId?: string; appointmentId?: string } | null;
   expiresAt: Date;
   /** Decided by can(): the panel draws its buttons from these. */
   mayDecide: boolean;

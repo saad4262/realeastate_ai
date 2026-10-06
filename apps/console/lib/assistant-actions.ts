@@ -13,6 +13,7 @@ import {
   type ProposalView,
   type TurnView,
 } from '@repo/core/assistant';
+import { syncDepsFromEnv } from '@repo/core/appointments';
 import { getConsoleDb } from './db';
 import { loadActor } from './load-actor';
 import { requireActionUserId } from './auth-account';
@@ -46,7 +47,8 @@ export async function getAssistantConversationAction(
 /**
  * The card buttons (ADR 0025 §1). These — not the model — run a proposed
  * action: the person's own session, then core's approve, which claims the card
- * once and re-checks can() through the screen's own function.
+ * once and re-checks can() through the screen's own function. Google Calendar /
+ * Zoom are synced after it commits.
  */
 type CardResult = { ok: true; card: ProposalView; message?: string } | { ok: false; error: string };
 
@@ -71,7 +73,7 @@ export async function getProposedActionAction(id: string): Promise<CardResult> {
 
 export async function approveProposedActionAction(id: string): Promise<CardResult> {
   try {
-    const r = await approveProposedAction(getConsoleDb(), await actor(), id);
+    const r = await approveProposedAction(getConsoleDb(), await actor(), id, { sync: syncDepsFromEnv() });
     revalidatePath('/customers', 'layout');
     revalidatePath('/my-contacts', 'layout');
     const message =

@@ -606,13 +606,13 @@ appointment for tomorrow; give A2 their own contact and appointment.
 | U15 | Set `ASSISTANT_DAILY_BUDGET_USD_PER_USER=0` in `.env.local` (Next reloads it), ask anything | "You have reached your assistant limit for today." No model call is made (no new `ai_run` row). Put it back afterwards. |
 | U16 | After a few questions: `select feature, model, cost_usd, user_id, agency_id from ai_run order by created_at desc limit 5` | `feature = assistant`, `claude-sonnet-5-5` (or the fallback model on a classifier decline), your user and agency, a cost. One row per model request. |
 
-## V — Console assistant, Phase B: changes you approve (ADR 0025)
+## V — Console assistant, Phases B and C: changes you approve (ADR 0025)
 
 The assistant now **suggests** changes. Each suggestion is a **card** in the panel that says
 exactly what will happen. **Nothing changes until you press Approve on the card.** The
 assistant can't press it, and it never sends email. This costs a cent or two per question, as
 in U. Setup: owner in one browser, agent A1 in another, agent A2 as a second agent. A1 needs a
-contact **assigned to A1** (call it Ali).
+contact **assigned to A1** (call it Ali) and Google Calendar connected (TEST-PLAN T).
 
 **Notes and next action (Phase B)**
 
@@ -629,7 +629,21 @@ contact **assigned to A1** (call it Ali).
 | V9 | Leave a card unanswered for 48 hours (or ask a developer to set its `expires_at` in the past) | It shows **Expired — ask again** and Approve is gone. |
 | V10 | A1 asks for a note on a contact, then (before approving) the owner takes that contact away from A1 (re-assign, and remove A1 from its listing) | Approve shows **Could not be done** with the reason; no note. |
 
-**Prompt-injection checks**
+**Appointments (Phase C)**
+
+| # | Case | Expected |
+|---|---|---|
+| V11 | Disconnect Google Calendar. A1: "Book an appraisal with Ali tomorrow at 3pm" | The answer says **Connect Google Calendar first** with a link to Integrations. **No card.** |
+| V12 | Reconnect Google Calendar. "Book a Zoom call with Ali tomorrow at 3pm", with no Zoom (yours or the agency's) | **Connect Zoom first**; no card. |
+| V13 | Connect Zoom (yours, or the owner connects the agency's) and ask again | A card: **With** Ali, **When** tomorrow 3:00 pm – 4:00 pm with your time zone's name, **Google Calendar** "Your calendar (you@…)", **Zoom** "Your Zoom (…)" or "The agency's Zoom (…)", and "No invitation is emailed. To send one, open the contact's Calendar tab and press Send invitation." Nothing is booked yet. |
+| V14 | Press **Approve** | **Done**. Ali's Calendar tab shows it, "Google Calendar · synced", and **Join Zoom**. The event is in Google Calendar with the Zoom link; the meeting is in zoom.us. **Ali receives no email.** |
+| V15 | "Move it to 4:30" (the assistant looks it up first) → card shows **From** and **To** → Approve | The appointment shows "Rescheduled" at 4:30, and the Google event and Zoom meeting move with it. No email. |
+| V16 | "Cancel it, the vendor asked" → card says the event is removed and the meeting deleted → Approve | It's cancelled with that reason; gone from Google Calendar and Zoom. No email. |
+| V17 | Ask for a time that has passed ("yesterday at 9") | It says that time has passed; no card. |
+| V18 | Ask it to "send Ali the invitation" | It says it can't send email and points to the contact's Calendar tab → **Send invitation**. |
+| V19 | A2: "Cancel A1's appraisal with Ali" | It can't find or change it; no card. |
+
+**Prompt-injection checks (both phases)**
 
 | # | Case | Expected |
 |---|---|---|

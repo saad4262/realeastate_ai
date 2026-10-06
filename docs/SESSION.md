@@ -1,3 +1,27 @@
+## 2026-10-06 — Claude Code — Assistant Phases B and C (proposals you approve)
+
+- Goal (user): commit Phase A; build B (add_note, set_next_action) and C (appointments) as
+  proposals a person approves; tests, smoke, break-tests, TEST-PLAN V; separate commits;
+  stop before D. No dev restart, no dev data, additive migrations only.
+- Done: 7d6434c Phase A. Migration 0029 (`proposed_action`) applied on dev; only 0029 was
+  pending, checked first. 126f9ee Phase B, then Phase C. B and C were built together and
+  split afterwards: the B-only state was checked on its own in a worktree (typecheck, lint,
+  746 + 286 tests, smoke 9/9) before committing.
+- Decisions: approve claims + runs in ONE transaction, with the action in a savepoint, so a
+  refusal keeps the audit and marks the card failed. Bookings always go on the person's own
+  calendar (no booking for others yet). Connect-first answers propose nothing. Activity
+  payloads never carry text. A private note's proposal is hidden like the note. Prompt v2 (B)
+  then v3 (C). No card-text editing yet.
+- Break-checks (separate worktree): 18 smoke + 3 unit guards, all red. One run hit a
+  CONNECTION_CLOSED from the pooler and was re-run cleanly (red).
+- Smoke groups run: Console assistant 10/10, Contacts 12/12, Appointments 3/3,
+  Calendar/Zoom fakes 5/5. Full smoke not run.
+- Left unfinished (exact next step): the user walks TEST-PLAN U and V (first live model
+  calls); fix whatever they find in separate commits; Phase D only when asked.
+- Risks / watch: the first live calls will show whether Sonnet 5.5 picks the right date
+  from "tomorrow" (the card shows it in full). Conversations started under v1 change prompt
+  and tools once (drop_block covers it). AI_DAILY_BUDGET_USD default 5 still applies first.
+
 ## 2026-10-06 — Claude Code — ADR 0025 accepted; dev allowlist fix; Assistant Phase A
 
 - Goal (user): commit the ADR docs; move EMAIL_DEV_ALLOWLIST into the shared send path

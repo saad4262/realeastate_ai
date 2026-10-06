@@ -3,12 +3,11 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
-- **Now: Agent Assistant Phase A (read-only) BUILT on `feat/crm`, NOT committed — waiting
-  for the user's review and TEST-PLAN U.** ADR 0025 accepted (all 8 recommendations).
-  Migration 0028 applied on dev (additive: 2 tables + nullable `ai_run.agency_id`).
-  Next, only when asked: Phase B (proposed_action + cards: add_note, set_next_action).
-  Order after that: C appointments → D template email from picked contacts → E delayed run
-  (behind ASSISTANT_SCHEDULING=1, needs the 5-min cron) → F widgets hook.
+- **Now: Agent Assistant Phases A, B, C committed on `feat/crm`** (7d6434c A read-only,
+  126f9ee B notes + next action, Phase C appointments in the commit after it). Migrations 0028 and
+  0029 applied on dev (additive). Waiting for the user's walk-through of TEST-PLAN U and V.
+  **Not started (by instruction): Phase D** (template email from picked contacts), then
+  E (delayed run, needs the 5-min cron) and F (widgets hook).
 - **Dev allowlist fix (ADR 0025 Q6) committed (6238739):** `EMAIL_DEV_ALLOWLIST` now gates
   every platform-composed email (`mail_message.kind` set: template email, appointment
   invitation) in the shared `deliverOutbound`. A person's own typed reply is not gated.
@@ -26,6 +25,29 @@
 - Last updated: 2026-10-06
 - Deploying: `apps/web` only, Vercel Hobby. `apps/console` waits for a real
   domain — see `docs/DEPLOY.md`. **Nothing is deployed yet.**
+
+## Agent Assistant — Phases B and C, proposals you approve (2026-10-06, ADR 0025, migration 0029)
+
+- `proposed_action` (frozen resolved args, card snapshot, idempotency key per model tool
+  call, 48 h expiry, kept as audit). Permissions `proposed_action:read` (author, admin),
+  `:decide` (author only), `:cancel` (author or admin).
+- Write tools ONLY PROPOSE: `add_note`, `set_next_action` (B); `schedule_appointment`,
+  `reschedule_appointment`, `cancel_appointment` (C). Handles only, can() at propose, card from
+  the DB, at most 3 per answer. Bookings go on the person's own calendar: Google Calendar
+  required (+ Zoom for a Zoom type) or "Connect … first" with no card. No invitation is ever
+  sent; the card points to Calendar → Send invitation.
+- Approve = one transaction: claim (proposed, unexpired, author's) → run through the screen's
+  own core function (re-checks can()) → done or failed-with-reason; appointment sync after
+  commit. Double click = one write. Reject, Cancel, cron expiry.
+- Audit: activity `assistant_proposed/_approved/_rejected/_cancelled/_failed` (no text); a
+  private note's proposal visible only to author + admins on the timeline.
+- Panel: cards read back by id, Approve / Reject (Cancel for admins once delayed runs exist).
+  Prompt `assistant@v3`.
+- Tests: core 22 + ai 16 assistant unit tests, permissions, smoke "Console assistant" 10/10
+  (matrix, double approve, access lost, calendar lost, expiry, private note, injection), and 21
+  guards broken in a separate worktree, all seen red. Contacts 12/12, Appointments 3/3,
+  Calendar/Zoom 5/5. Typecheck 10/10, lint 0 errors, test 747 + 286.
+- Not done: card text editing before approve; no live model call yet (TEST-PLAN U/V are the first).
 
 ## Agent Assistant — Phase A, read-only (2026-10-06, ADR 0025, migration 0028)
 

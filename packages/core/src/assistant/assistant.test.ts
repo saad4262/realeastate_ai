@@ -191,11 +191,14 @@ describe('each tool is one statement, and totals are numbers', () => {
   });
 });
 
-describe('write tools (Phase B) — schema and refusals before any database work', () => {
+describe('write tools (Phases B and C) — schema and refusals before any database work', () => {
   const C = issueHandle({}, 'C', contactId);
   const valid: Record<string, Record<string, unknown>> = {
     add_note: { contact: 'C1', body: 'Called — wants a Saturday inspection.' },
     set_next_action: { contact: 'S1', text: 'Send the contract', date: '2026-10-09', time: '10:00' },
+    schedule_appointment: { contact: 'C1', type: 'appraisal', title: 'Appraisal', date: '2026-10-09', time: '15:00' },
+    reschedule_appointment: { appointment: 'A1', date: '2026-10-10', time: '09:30' },
+    cancel_appointment: { appointment: 'A1', reason: 'Vendor asked' },
   };
 
   it('accepts the documented shape for each', () => {
@@ -208,7 +211,10 @@ describe('write tools (Phase B) — schema and refusals before any database work
   it('never takes an id, a name, an email, or a reference of the wrong kind', () => {
     for (const contact of [contactId, 'Ali Khan', 'ali@example.com', 'L1', 'A1']) {
       expect(ASSISTANT_TOOL_INPUTS.add_note.safeParse({ ...valid.add_note, contact }).success, contact).toBe(false);
-      expect(ASSISTANT_TOOL_INPUTS.set_next_action.safeParse({ ...valid.set_next_action, contact }).success, contact).toBe(false);
+      expect(ASSISTANT_TOOL_INPUTS.schedule_appointment.safeParse({ ...valid.schedule_appointment, contact }).success, contact).toBe(false);
+    }
+    for (const appointment of ['C1', 'S1', contactId]) {
+      expect(ASSISTANT_TOOL_INPUTS.cancel_appointment.safeParse({ appointment }).success, appointment).toBe(false);
     }
   });
 
@@ -221,9 +227,10 @@ describe('write tools (Phase B) — schema and refusals before any database work
   });
 
   it('dates and times must be real calendar values, and lengths are bounded', () => {
-    expect(ASSISTANT_TOOL_INPUTS.set_next_action.safeParse({ ...valid.set_next_action, time: '3pm' }).success).toBe(false);
-    expect(ASSISTANT_TOOL_INPUTS.set_next_action.safeParse({ ...valid.set_next_action, time: '25:00' }).success).toBe(false);
-    expect(ASSISTANT_TOOL_INPUTS.set_next_action.safeParse({ ...valid.set_next_action, date: 'tomorrow' }).success).toBe(false);
+    expect(ASSISTANT_TOOL_INPUTS.schedule_appointment.safeParse({ ...valid.schedule_appointment, time: '3pm' }).success).toBe(false);
+    expect(ASSISTANT_TOOL_INPUTS.schedule_appointment.safeParse({ ...valid.schedule_appointment, time: '25:00' }).success).toBe(false);
+    expect(ASSISTANT_TOOL_INPUTS.schedule_appointment.safeParse({ ...valid.schedule_appointment, date: 'tomorrow' }).success).toBe(false);
+    expect(ASSISTANT_TOOL_INPUTS.schedule_appointment.safeParse({ ...valid.schedule_appointment, duration_minutes: 600 }).success).toBe(false);
     expect(ASSISTANT_TOOL_INPUTS.add_note.safeParse({ ...valid.add_note, body: 'x'.repeat(5001) }).success).toBe(false);
     expect(ASSISTANT_TOOL_INPUTS.set_next_action.safeParse({ ...valid.set_next_action, text: 'x'.repeat(301) }).success).toBe(false);
   });
@@ -236,4 +243,10 @@ describe('write tools (Phase B) — schema and refusals before any database work
     }
   });
 
+  it('a contact reference is not an appointment reference, even with the same id', async () => {
+    const handles: HandleMap = {};
+    issueHandle(handles, 'C', contactId);
+    const out = await runAssistantTool(ctx(handles), 'cancel_appointment', { appointment: 'A1' });
+    expect(out.isError).toBe(true);
+  });
 });
