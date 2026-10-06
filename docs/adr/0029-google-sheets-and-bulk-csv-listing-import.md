@@ -1,9 +1,6 @@
 # 0029 — Google Sheets and bulk CSV listing import
 
-**Status:** PROPOSED, 2026-10-06. Design only — nothing built, no migration written.
-**Supersedes ADR 0024** (its client decisions stand; this adds the design). **Blocked on the
-client's sample CSV and photo format** — see "What we need from the client". Open questions
-at the end.
+**Status:** ACCEPTED, 2026-10-06. Not built. **Supersedes ADR 0024** (its client decisions stand; this adds the design). The client asked us to define the CSV ourselves: the template is under "Decided".
 
 **Context.** An agency moving onto the platform brings 2,000–3,000 listings, as a CSV export
 or a Google Sheet. The rules: an owner/admin import goes live (or, by choice, draft); an
@@ -177,3 +174,54 @@ transaction (CLAUDE.md); a property is not a listing (#1).
    time*, so days-on-market stays meaningful.
 8. **Sold history** — *import sold rows as `sold` listings with price and date* so property
    history and the Sold value widget (ADR 0027) include them.
+
+## Decided (2026-10-06)
+
+- **Q3 (the user): skip** a row whose property already has one of the agency's active listings
+  (draft / pending / live / under offer); an **admin-only "Update from file"** option updates
+  that listing from the row instead.
+- **Client: "make the sample CSV yourself, matching how a listing is created today."** The
+  template below is derived from the console's listing form contract
+  (`createListingInputSchema` = `propertyDraftSchema` + `listingDraftSchema` +
+  `agentUserIds`, `soldDetailsSchema` for sales; `packages/core/src/listings/listing-schema.ts`).
+  It is in `docs/import/listings-template.csv` with three example rows. "What we need from
+  the client" above is answered by this template; the photo format is **links** (below).
+- **Accepted as recommended:** Q1 (admin default Live, Draft one click away; agents always
+  pending), Q2 (max 5,000 rows), Q4 (an agent email not on the platform → the importing admin is
+  listing agent and the row is flagged ⚠ "Agent not found"), Q5 (photos by **links**, no Drive
+  folder), Q6 (uploaded file kept 30 days), Q7 (`listed_on` → `published_at`, else the import
+  time), Q8 (sold history comes in as sold listings with price and date).
+
+### The CSV template (UTF-8, comma-separated, header row required)
+
+| Column | Required | Format / allowed values | Goes to |
+|---|---|---|---|
+| `external_id` | recommended | the agency's own listing id, unique per agency | import row → re-import updates |
+| `unit` | no | e.g. `2` (for `2/14 Smith St`) | property.unit |
+| `street_number` | yes* | e.g. `14`, `6E` | property.street_number |
+| `street` | yes* | e.g. `Smith Street` | property.street |
+| `suburb` | **yes** | e.g. `Pakenham` | property.suburb |
+| `state` | **yes** | NSW VIC QLD WA SA TAS ACT NT | property.state |
+| `postcode` | **yes** | 4 digits | property.postcode |
+| `property_type` | no | house apartment unit townhouse villa duplex studio acreage land rural other | property.property_type |
+| `bedrooms` / `bathrooms` / `car_spaces` | no | whole numbers (bathrooms may be `1.5`) | property |
+| `land_area_sqm` / `building_area_sqm` | no | number, square metres | property |
+| `year_built` | no | 4 digits | property.year_built |
+| `channel` | **yes** | `sale` or `rent` | listing.channel |
+| `status` | **yes** | `live` `under_offer` `sold` `withdrawn` (`draft` also accepted) | listing.status — an admin's **Draft** import makes every row draft; an **agent's** import makes every row `pending` |
+| `headline` | **yes** | up to 200 characters | listing.headline |
+| `description` | no | text; quote it if it has commas or line breaks | listing.description |
+| `price_display` | sale: one of the three | text a buyer reads — must contain a letter or `$` (`Offers over $700,000`, `Contact agent`) | listing.price_display |
+| `price_from` / `price_to` | sale: one of the three | whole dollars, no `$` or commas (`700000`) | listing.price_from / price_to (#6: both kept) |
+| `rent_pw` | **rent: yes** | whole dollars per week | listing.rent_pw |
+| `available_from` | no | `YYYY-MM-DD` | listing.available_from |
+| `auction_at` | no | `YYYY-MM-DD HH:mm`, agency time zone | listing.auction_date |
+| `listed_on` | no | `YYYY-MM-DD` | listing.published_at (else import time) |
+| `sold_price` | **sold: yes** | whole dollars, above 0 | listing.sold_price |
+| `sold_date` | **sold: yes** | `YYYY-MM-DD`, not in the future | listing.sold_date |
+| `agent_emails` | no | one or more platform members' emails, `;`-separated, first = lead agent | listing_agent (else the importer) |
+| `photo_urls` | no | `https://` links separated by a pipe (`\|`), in display order, first = main photo, max 30 | media, downloaded after the listing is written |
+
+\* A row with no street (e.g. vacant land "Lot 12") needs `street` with the lot description;
+the address must still geocode, or the row is ✗ "Check the address". Dates are always
+`YYYY-MM-DD`, so `03/04/2026` is never guessed.

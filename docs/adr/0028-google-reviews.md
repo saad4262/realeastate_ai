@@ -1,8 +1,6 @@
 # 0028 — Google Reviews
 
-**Status:** PROPOSED, 2026-10-06. Design only — nothing built, no migration written.
-**Supersedes ADR 0023** (the client's decisions recorded there all stand; this adds the
-design and settles its open item, where the place comes from). Open questions at the end.
+**Status:** ACCEPTED, 2026-10-06. Not built. **Supersedes ADR 0023** (its client decisions stand; this adds the design and settles where the place comes from). Decisions at the end ("Decided").
 
 **Context.** The agency's Google rating and reviews should show in the console and on the
 public agency and agent profiles. Reviews belong to the business. Google offers two sources:
@@ -119,3 +117,12 @@ access).
 5. **Hide low-star reviews?** — *Never*; showing a filtered set misleads (ACCC) and Google's
    terms require showing what it returns as returned.
 6. **Several offices/listings per agency?** — *One for now*; the table allows more later.
+
+## Decided (2026-10-06)
+
+- **Q6 (client): one Google listing per agency for now; several offices in version 2.**
+  `agency_google_place` stays a table (unique on agency for now) so v2 only drops the
+  uniqueness.
+- Q1–Q5: **accepted as recommended** (Places refresh every 6 h in the server cache only;
+  linking starts with step 2; the agency's reviews on agent profiles, labelled as the agency's;
+  no replying from the console yet; low-star reviews never hidden).

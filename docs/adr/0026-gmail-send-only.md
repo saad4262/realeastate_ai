@@ -1,7 +1,6 @@
 # 0026 — Gmail send-only (CRM phase 3c)
 
-**Status:** PROPOSED, 2026-10-06. Design only — nothing built, no migration written. Open
-questions at the end.
+**Status:** ACCEPTED, 2026-10-06. Not built. Decisions at the end ("Decided").
 
 **Context.** Agents want email to the people they work with to come *from them* — their own
 Gmail address, sitting in their Gmail "Sent" folder — not from the platform address. ADR 0016
@@ -134,3 +133,12 @@ listing, no deleting. Everything else about a conversation stays as ADR 0016 bui
    label as the console*; the buyer sees who wrote it either way.
 6. **Send-as aliases (e.g. a shared alias on a personal account)?** — *Not in v1*; From is the
    account's primary address only.
+
+## Decided (2026-10-06)
+
+- **Q3 (the user): yes.** The sender is the agent's own Gmail, else the agency's Gmail, else
+  the platform sender — and the agency Gmail step has an **admin switch** ("Members may send
+  from the agency Gmail") that turns it off for the agency.
+- Q1, Q2, Q4, Q5, Q6: **accepted as recommended** (bulk stays on the platform sender; no
+  automatic fallback, a visible button instead; replies to the agent's Gmail accepted and
+  documented; same "Sent from" label everywhere; no send-as aliases in v1).

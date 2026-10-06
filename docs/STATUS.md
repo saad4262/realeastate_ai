@@ -8,11 +8,29 @@
   0029 applied on dev (additive). Waiting for the user's walk-through of TEST-PLAN U and V.
   **Not started (by instruction): Phase D** (template email from picked contacts), then
   E (delayed run, needs the 5-min cron) and F (widgets hook).
-- **Designed, not built (2026-10-06, docs only):** ADR 0026 Gmail send-only (phase 3c),
-  0027 Mini dashboards, 0028 Google Reviews (supersedes 0023), 0029 Google Sheets + bulk CSV
-  listing import (supersedes 0024; blocked on the client's sample CSV and photo format),
-  0030 Tenant isolation and offboarding. Each ends with open questions for the user.
-  DEPLOY.md now starts with a go-live checklist.
+- **Accepted, not built (2026-10-06):** ADR 0026 Gmail send-only, 0027 Mini dashboards,
+  0028 Google Reviews (supersedes 0023), 0029 Sheets + CSV import (supersedes 0024; template
+  in `docs/import/listings-template.csv`), 0030 Tenant isolation and offboarding. All open
+  questions answered (user + client); each ADR ends with "Decided".
+- **Remaining build phases, in order** (each waits for the user's go):
+  1. **Tenant-isolation tests** (0030 part 1): schema classification + two-agency matrix.
+     Depends on nothing; first, so every later table must pass it.
+  2. **Assistant Phase D** (0025): `send_template_email` card from picked contacts;
+     `prepareBatch` from contact ids; platform sender. Depends on Phase C (done), 0022 (done).
+  3. **Dashboards** (0027 / 0025 Phase F): six widgets incl. new `email_replies`,
+     `agency.time_zone`, `report:read_agency`, `create_dashboard` card. Depends on the proposal
+     flow (done).
+  4. **CSV listing import** (0029, CSV part): mapping, dry run, chunks, duplicates, photo links.
+     Depends on the listing approval flow and geocoding (exist). Sheets part later (needs
+     Google verification of `drive.file` + Picker).
+  5. **Reviews step 1** (0028): place picker + Places rating, cached. Depends on
+     `GOOGLE_MAPS_API_KEY` (exists) and a check of the Places terms. Step 2 waits for Google's
+     Business Profile API approval.
+  6. **Gmail send** (0026): own → agency (admin switch) → platform. Depends on the shared send
+     path (done); real users need Google OAuth verification (go-live list).
+  7. **Offboarding** (0030 part 2) + one-membership-per-user index. Depends on 1, and comes
+     after 2–6 so it covers every token, card, import and dashboard they add.
+  Not in this list: Phase E delayed runs (blocked on Vercel Pro), Sheets import, Reviews step 2.
 - **Dev allowlist fix (ADR 0025 Q6) committed (6238739):** `EMAIL_DEV_ALLOWLIST` now gates
   every platform-composed email (`mail_message.kind` set: template email, appointment
   invitation) in the shared `deliverOutbound`. A person's own typed reply is not gated.

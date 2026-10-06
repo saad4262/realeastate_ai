@@ -1,7 +1,6 @@
 # 0027 — Mini dashboards
 
-**Status:** PROPOSED, 2026-10-06. Design only — nothing built, no migration written. This is
-ADR 0025's Phase F ("widgets hook"), made concrete. Open questions at the end.
+**Status:** ACCEPTED, 2026-10-06. Not built. This is ADR 0025's Phase F ("widgets hook"), made concrete. Decisions at the end ("Decided").
 
 **Context.** An admin asks the assistant "last 7 days Sold value" and wants a link that opens
 a screen that stays up to date — something to leave open on an office TV or send to a
@@ -132,3 +131,28 @@ same note rather than refusing the whole dashboard.
    means the same for everyone looking at one screen.
 6. **First widget list** — *the eight above*; the client picks which three matter most for the
    first release.
+
+## Decided (2026-10-06)
+
+- **Q1 (client): revenue = Sold value.** `sum(listing.sold_price)` of the agency's own sold
+  listings with `sold_date` in the range; sold listings without a disclosed price are counted
+  and shown separately, **never as zero**. No other revenue/commission source. Closed.
+- **Q2 (client): signed-in members of the same agency only.** No share link for anyone outside,
+  now or as a planned feature.
+- **Q4 (the user): only admins save dashboards** (`dashboard:create` owner/admin). Agents can
+  see inline widgets in the assistant.
+- **Q6 (client): the first widgets**, mapped to the list above:
+
+  | Client's widget | Widget |
+  |---|---|
+  | Sold value | `sold_value` |
+  | Number of sales | `sold_count` |
+  | New leads | `new_leads` |
+  | Appointments this week | `upcoming_appointments` (range `this_week`, Monday–Sunday in the agency's zone) |
+  | Active listings | `listings_by_status`, shown as one "Active" figure = live + under offer, with the split underneath |
+  | Email replies | **new widget `email_replies`** — messages received (`mail_message.direction = 'in'`) in the range on threads the viewer may read (`threadScopeFilters`), from SQL. It was not in the list of eight. |
+
+  **Left for later:** `leads_by_source`, `days_on_market` and `template_emails_sent`. That is
+  three rather than two, because "email replies" is a new widget rather than one of the eight.
+- Q3, Q5: **accepted as recommended** (30–60 s polling with 304s; add `agency.time_zone`,
+  default Australia/Sydney, which also defines "this week").

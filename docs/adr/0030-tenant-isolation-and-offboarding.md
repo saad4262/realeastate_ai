@@ -1,7 +1,6 @@
 # 0030 — Tenant isolation and offboarding
 
-**Status:** PROPOSED, 2026-10-06. Design only — nothing built, no migration written. Open
-questions at the end.
+**Status:** ACCEPTED, 2026-10-06. Not built. Decisions at the end ("Decided").
 
 **Context.** About 100 agencies on one database (two apps, one packages layer — #9), each with
 its own Zoom, Gmail, Google Sheets and Calendar connections, contacts, leads, conversations,
@@ -194,3 +193,17 @@ a change).
 8. **Agency-level accounts connected by the leaver** — *keep working but flagged* until an
    admin reconnects with an account the agency controls (forcing a disconnect would break the
    agency's Zoom for everyone mid-day).
+
+## Decided (2026-10-06)
+
+- **Q1 (the user): the admin must choose** who receives a removed person's work, or explicitly
+  choose "leave unassigned for review". There is no silent default, and Remove stays disabled
+  until a choice is made.
+- **Q4 (client): an agent may not belong to two agencies at once.** One active membership per
+  user, enforced in the data (a unique partial index on `membership(user_id) where status =
+  'active'`, additive) and in invite acceptance ("This person already belongs to another
+  agency"). User-level tokens therefore stay per user.
+- Q2, Q3, Q5, Q6, Q7, Q8: **accepted as recommended** (conversations deleted at removal; 30-day
+  restore; agency closure gets its own ADR before it happens; owners and admins see the
+  "Needs an owner" queue; unit parts in `pnpm test`, the smoke group before every deploy;
+  agency-level accounts connected by the leaver keep working, flagged for reconnection).

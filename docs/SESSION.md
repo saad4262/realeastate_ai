@@ -1,3 +1,22 @@
+## 2026-10-06 — Claude Code — Decisions recorded in ADRs 0026–0030; CSV template
+
+- Goal (user): docs only. Record the user's four decisions and the client's six answers,
+  accept the ADRs, write the import CSV template, list the remaining build phases.
+- Done: 0026–0030 → ACCEPTED with a "Decided" section each. The user's decisions: agent →
+  agency Gmail (admin switch) → platform; only admins save dashboards; skip rows matching an
+  active listing plus an admin-only Update; admin must choose who gets a leaver's work. The
+  client's answers: revenue = Sold value (undisclosed never zero); same-agency only, no share
+  links; first widgets mapped (Sold value, sales, new leads, appointments this week, active
+  listings, and a NEW `email_replies` widget — so three of the eight wait, not two); one
+  Google listing per agency (offices in v2); one agency per agent (unique active membership).
+- CSV template derived from `createListingInputSchema` / `soldDetailsSchema`: 29 columns, in
+  ADR 0029 and `docs/import/listings-template.csv` + README, three fictional rows (sale live,
+  rental unit, sold history). Parsed with Python's csv to check it.
+- Build phases (STATUS): isolation tests → D → dashboards → CSV import → Reviews step 1 → Gmail
+  → offboarding.
+- No code, no migrations, dev untouched.
+- Left unfinished (exact next step): the user picks which phase to build first.
+
 ## 2026-10-06 — Claude Code — Five design ADRs (0026–0030) and the go-live checklist
 
 - Goal (user): docs only, while they test U/V in the browser. Five ADRs with decisions,
