@@ -747,3 +747,12 @@ describe('assistant (ADR 0025)', () => {
     expect(can(viewer, 'proposed_action:cancel', action('viewer'))).toBe(false);
   });
 });
+
+describe('listing:read stays inside the agency (ADR 0030 matrix finding)', () => {
+  it('a member reads their own agency’s listings, never another agency’s — drafts included', () => {
+    const agent: Actor = { userId: 'a', agencyId: agencyA, membershipRole: 'agent' };
+    expect(can(agent, 'listing:read', { type: 'listing', id: listingA, agencyId: agencyA })).toBe(true);
+    expect(can(agent, 'listing:read', { type: 'listing', id: listingB, agencyId: agencyB })).toBe(false);
+    expect(can({ userId: 'x' }, 'listing:read', { type: 'listing', id: listingA, agencyId: agencyA })).toBe(false);
+  });
+});

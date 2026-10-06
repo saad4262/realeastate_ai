@@ -348,10 +348,14 @@ function isListingAgent(actor: Actor, listingId?: string): boolean {
 export function can(actor: Actor, action: Action, resource: Resource): boolean {
   switch (action) {
     case 'listing:read':
-      if (resource.type === 'listing') {
-        return sameAgency(actor, resource) || Boolean(actor.membershipRole);
-      }
-      return sameAgency(actor, resource);
+      // The agency's own listings only — drafts, pending and withdrawn ones
+      // included, so never another agency's. Was `|| Boolean(membershipRole)`
+      // for `type: 'listing'`, i.e. any member of ANY agency; every caller
+      // happened to pass its own agency id, so nothing leaked, but the first
+      // caller to pass the listing's real agency would have opened other
+      // agencies' drafts (found by the ADR 0030 matrix). Public listings are
+      // read through the public search, which never asks this.
+      return sameAgency(actor, resource) && Boolean(actor.membershipRole);
 
     case 'listing:create':
       // Any active member of the agency may draft a listing; publishing it is

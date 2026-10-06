@@ -8,6 +8,11 @@
   0029 applied on dev (additive). Waiting for the user's walk-through of TEST-PLAN U and V.
   **Not started (by instruction): Phase D** (template email from picked contacts), then
   E (delayed run, needs the 5-min cron) and F (widgets hook).
+- **Fix found by the tenant-isolation matrix (2026-10-06):** `can(actor, 'listing:read',
+  {type: 'listing', …})` returned true for a member of ANY agency (`|| membershipRole`). No
+  leak in practice — every caller passed its own agency id and the SQL filters by agency — but
+  the rule would have opened other agencies' drafts to the first caller that passed the
+  listing's real agency. Now same agency + a membership. Unit and smoke unchanged otherwise.
 - **Accepted, not built (2026-10-06):** ADR 0026 Gmail send-only, 0027 Mini dashboards,
   0028 Google Reviews (supersedes 0023), 0029 Sheets + CSV import (supersedes 0024; template
   in `docs/import/listings-template.csv`), 0030 Tenant isolation and offboarding. All open
