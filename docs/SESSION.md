@@ -1,3 +1,35 @@
+## 2026-10-06 — Claude Code — CRM Phase 3b: real Google Calendar and Zoom
+
+- Goal (user): real OAuth for Google Calendar and Zoom on the existing hub
+  (stub stays for tests), automatic renewal, revoked → expired → Reconnect;
+  appointments pushed to the assigned agent's calendar; Zoom meetings for type
+  Zoom (agent's own, else agency's, else "Connect Zoom first"); read-back that
+  flags conflicts; requireIntegrations everywhere; tests with fakes, smoke, T.
+  No dev restarts, additive migrations only. Sheets/Reviews not part of it.
+- Docs checked (2026-10-06): Google — http only for localhost redirects,
+  `calendar.events.owned` is the narrowest scope that creates/changes/deletes
+  and reads our events; `invalid_grant` = dead refresh token; events.list can't
+  combine syncToken with filters. Zoom — localhost refused, 127.0.0.1 only for
+  public PKCE clients → https tunnel for dev; refresh tokens rotate (90 days);
+  granular scopes meeting:write/update/delete:meeting.
+- Decision: read-back by `events.get` + ETag on our own events, not sync
+  tokens (those stream the agent's whole calendar, personal events included).
+- Done in 6 commits: env names + scopes + startup guard; real adapters, PKCE,
+  renewal (CAS for Zoom's rotation), revoke on disconnect; migration 0027
+  (applied on dev BEFORE any code reading it was saved — the dev server
+  hot-reloads); Calendar/Zoom clients + sync engine; console (sync after every
+  change, Retry, conflicts, Join Zoom, Zoom gate) + cron; smoke + T + ADR.
+- Bugs caught while building: release() compared updated_at as a JS Date
+  (milliseconds) against Postgres microseconds — would always "go round
+  again" (3 pushes per change); now compared as text in SQL. An invalid Zoom
+  id was treated as "already deleted" (caught by a unit test).
+- Break-checks done in a separate git worktree only (the rule from the last
+  session): 6 smoke breaks + 1 unit break, each red, then restored.
+- Dev DB had 0 integration rows and 0 appointments when the scopes changed,
+  so nothing of the user's tests was affected.
+- Not verified: anything against the real Google or Zoom (no credentials yet).
+- Added `SMOKE_ONLY=<group>` to the smoke runner.
+
 ## 2026-10-05 (night) — Claude Code — Template email to contacts (ADR 0022)
 
 - Goal (user): build ADR 0022 as decided — tables, permissions, Prepare →

@@ -3,13 +3,15 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
-- **Now: template-email skill (ADR 0022, migration 0026) built on `feat/crm`,
-  waiting for review.** TEST-PLAN S is new. Phase 5 (skills) done before it.
-  Not started (by instruction): Phase 3b, Phase 6, Phase 7.
+- **Now: CRM Phase 3b — real Google Calendar + Zoom (ADR 0020 "Phase 3b", migration
+  0027) built on `feat/crm`, waiting for review and for real credentials in
+  `.env.local`.** Tested with fakes only; TEST-PLAN T is the real-account walk-through.
+  Template email (ADR 0022, TEST-PLAN S) before it, also awaiting review.
+  Not started (by instruction): Google Sheets, Google Reviews, Phase 6, Phase 7.
   Plan: `~/.claude/plans/pasted-content-id-f0ff-you-are-functional-frost.md`.
 - Build order (locked): Agency UI → Agent UI → Consumer web
 - Last tool: Claude Code
-- Last updated: 2026-10-05
+- Last updated: 2026-10-06
 - Deploying: `apps/web` only, Vercel Hobby. `apps/console` waits for a real
   domain — see `docs/DEPLOY.md`. **Nothing is deployed yet.**
 
@@ -40,6 +42,35 @@
 7. Earlier, still standing: one person = one contact with role tags; agents see only
    what they could already open; phone matches are suggestions; enquiries are not
    marketing consent; read-only members view only and connect nothing.
+
+## CRM Phase 3b — real Google Calendar and Zoom (2026-10-06, ADR 0020, migration 0027)
+
+- Env: `GOOGLE_OAUTH_CLIENT_ID/_SECRET`, `ZOOM_OAUTH_CLIENT_ID/_SECRET`,
+  `ZOOM_OAUTH_RETURN_BASE` (dev tunnel — Zoom refuses localhost for apps with a secret).
+  Redirects: Google `http://localhost:3001/api/integrations/oauth/return`; Zoom
+  `https://<tunnel>/api/integrations/oauth/return`. A provider with both values set is
+  real; otherwise the stub (dev) — the stub stays for tests.
+- Scopes: Google `calendar.events.owned` + `openid email`; Zoom
+  `meeting:write:meeting meeting:update:meeting meeting:delete:meeting user:read:user`.
+- OAuth: PKCE (no storage), renewal before expiry and on 401, Zoom's rotating refresh
+  token stored by compare-and-swap, a dead refresh token → account `expired` →
+  "Expired — reconnect". Disconnect revokes at the provider first.
+- Appointments mirror OUT (sync.ts): acting as the assigned agent — their calendar;
+  their Zoom else the agency's. Book/reschedule/complete/cancel → event created /
+  moved / "✓ title" / deleted; Zoom meeting created / moved / deleted. No attendees,
+  sendUpdates=none: Google emails nobody. One run at a time + our own event id: a
+  double submit makes one event and one meeting. Only the Zoom join link is kept
+  (never start_url or passwords).
+- Read-back IN: the 5-minute cron `events.get`s our own upcoming events with their
+  ETag; a move/deletion in Google is flagged ("Keep ours" / "Use Google's time"),
+  never copied. Crashed syncs (`pending`) are resumed by the same tick.
+- Console: card shows "Google Calendar · synced <time>", failures with Retry,
+  conflicts, Join Zoom; Schedule panel says which Zoom hosts it or "Connect Zoom
+  first" (Book waits unless a link is pasted; the server refuses too).
+- Smoke: 5 checks with a fake Google/Zoom; `SMOKE_ONLY=<group>` runs one group.
+- NOT verified against the real Google/Zoom yet (no credentials). Known limits in
+  ADR 0020: an orphan Zoom meeting if the process dies mid-create; events stay in
+  Google after a disconnect; Sheets + Calendar sharing one Google grant — check later.
 
 ## Template email to contacts (2026-10-05, ADR 0022, migration 0026)
 
@@ -355,21 +386,15 @@ which offers never existed rather than one saying three are hidden.
   at all 8 filter sites, so the alerts scheduler and email digests are
   unchanged. The guide reaches sold data through its own tool.
 
-## Numbers as of this entry
+## Numbers as of this entry (2026-10-06, Phase 3b)
 
-- `pnpm typecheck` 10/10, `pnpm lint` 0 errors (1 old `<img>` warning),
-  `pnpm build` 2/2 — `/inbox` 137 B / 124 kB first load
-- `pnpm test` 588 (@repo/core) + 263 (@repo/ai), all offline and free
-- `pnpm smoke` 119 passed, 4 failed, 14 skipped. The 6 new email checks pass,
-  each break-checked red. **The 4 failures are the cache-speed checks** (home,
-  suburb, radius, "fast the second time"): the long-running dev server on :3000
-  now needs two requests after a revalidate before it serves from cache. A
-  fresh `next dev` on another port, with this code, measured cold ~430 ms →
-  warm ~40 ms, and the same server failed identically with the change stashed —
-  so: restart the dev servers and re-run before reading anything into them.
-- Migrations 0016 and 0017 are applied to the dev database; no drift.
-- TEST-PLAN section M: M3 + M6 verified for real (2026-10-03); the rest not
-  yet clicked through.
+- `pnpm typecheck` and `pnpm lint` clean; `pnpm build` 2/2.
+- `pnpm test` 709 (@repo/core) + 270 (@repo/ai), all offline and free.
+- `pnpm smoke` 159 passed, 1 failed, 14 skipped. The failure is the known dev
+  auth account with no public.user row (not this work). The 5 new Google/Zoom
+  checks pass, each break-checked red in a separate worktree.
+- A run started while the dev server was recompiling skips the web HTTP checks
+  ("web app is not running"); re-run once it answers.
 
 ## Open / next
 
