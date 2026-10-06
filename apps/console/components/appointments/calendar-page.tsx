@@ -104,7 +104,7 @@ export async function CalendarPage({
         emptyText={query.when === 'upcoming' ? 'Nothing booked yet.' : 'No past appointments.'}
       />
       {integrations?.results[0] ? (
-        <ConnectFirst requirement={integrations.results[0]} purpose="Appointments will be added to your Google Calendar (Phase 3b)." />
+        <ConnectFirst requirement={integrations.results[0]} purpose="Appointments assigned to you are added to your Google Calendar, and moved or removed with them." />
       ) : null}
     </div>
   );

@@ -26,13 +26,21 @@ import styles from './appointments.module.css';
  *
  * "Send invitation" is OFF by default. When ticked, booking does NOT email:
  * it opens the exact preview, and only its Send button sends.
+ *
+ * Type Zoom (Phase 3b): with a Zoom usable (the agent's own, else the
+ * agency's — `requireIntegrations` on the server) the meeting is created on
+ * booking; without one, "Connect Zoom first", and Book waits unless a link of
+ * their own is pasted. The server checks the same thing again.
  */
 export function SchedulePanel({
   contactId,
   contactHasEmail,
   properties,
   assignees,
+  zoom,
 }: {
+  /** What requireIntegrations said about Zoom for this person, and where to fix it. */
+  zoom: { state: string; ownerType: 'user' | 'agency' | null; accountLabel: string | null; integrationsPath: string };
   contactId: string;
   contactHasEmail: boolean;
   /** This contact's properties, for "related property". */
@@ -93,8 +101,15 @@ export function SchedulePanel({
     reset();
   }
 
+  const zoomReady = zoom.state === 'connected';
+  const zoomBlocked = type === 'zoom' && !zoomReady && !meetingUrl.trim();
+
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (zoomBlocked) {
+      setError('Connect Zoom first, or paste a meeting link of your own');
+      return;
+    }
     const tz = browserTimeZone();
     const s = localDateTimeToInstant(date, start, tz);
     const en = localDateTimeToInstant(date, end, tz);
@@ -194,9 +209,26 @@ export function SchedulePanel({
             </label>
             <label className={contactStyles.field}>
               <span className={contactStyles.label}>Meeting link</span>
-              <input className={contactStyles.input} type="url" value={meetingUrl} onChange={(e) => setMeetingUrl(e.target.value)} maxLength={500} placeholder="https://… (paste a Zoom or Meet link)" />
-              <span className={contactStyles.hint}>Zoom is not connected yet — paste a link if you have one.</span>
+              <input className={contactStyles.input} type="url" value={meetingUrl} onChange={(e) => setMeetingUrl(e.target.value)} maxLength={500} placeholder={type === 'zoom' && zoomReady ? 'Leave empty — Zoom creates the link' : 'https://… (paste a Zoom or Meet link)'} />
+              {type === 'zoom' && zoomReady ? (
+                <span className={contactStyles.hint}>
+                  A Zoom meeting is created when you book, on {zoom.ownerType === 'agency' ? 'the agency’s Zoom' : 'your Zoom'}
+                  {zoom.accountLabel ? ` (${zoom.accountLabel})` : ''}. Paste a link only to use your own instead.
+                </span>
+              ) : type !== 'zoom' ? (
+                <span className={contactStyles.hint}>Optional — paste a Meet or other link.</span>
+              ) : null}
             </label>
+            {type === 'zoom' && !zoomReady ? (
+              <div className={contactStyles.error} role="status">
+                {zoom.state === 'expired'
+                  ? 'Zoom needs reconnecting. '
+                  : zoom.state === 'permission_missing'
+                    ? 'Zoom is connected without every permission it needs — reconnect it. '
+                    : 'Connect Zoom first — you have no Zoom connected, and neither does the agency. '}
+                <a href={zoom.integrationsPath}>Open Integrations</a>, or paste a meeting link above.
+              </div>
+            ) : null}
 
             {properties.length ? (
               <label className={contactStyles.field}>
@@ -263,7 +295,7 @@ export function SchedulePanel({
             </label>
 
             <div className={contactStyles.actions}>
-              <button type="submit" className={contactStyles.btn} disabled={pending}>
+              <button type="submit" className={contactStyles.btn} disabled={pending || zoomBlocked}>
                 {pending ? 'Booking…' : invite ? 'Book and preview invitation' : 'Book'}
               </button>
               <button type="button" className={contactStyles.btnGhost} onClick={close} disabled={pending}>Cancel</button>

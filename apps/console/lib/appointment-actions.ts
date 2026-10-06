@@ -7,8 +7,11 @@ import {
   completeAppointment,
   previewInvitation,
   rescheduleAppointment,
+  retryAppointmentSync,
   scheduleAppointment,
   sendInvitation,
+  syncAppointment,
+  syncDepsFromEnv,
   type FinishAppointmentInput,
   type InvitationPreview,
   type RescheduleAppointmentInput,
@@ -24,6 +27,11 @@ import { requireActionUserId } from './auth-account';
  * The appointment actions (docs/adr/0019). The actor is rebuilt from the
  * session on every call; every decision is can()'s, inside packages/core.
  * Nothing here sends an email unless the person pressed Send.
+ *
+ * After each change commits, Google Calendar and Zoom are brought into line
+ * (Phase 3b) — awaited, so the screen shows the result (and the new Zoom
+ * link) at once. A sync problem never undoes the change: it is written on the
+ * appointment, with Retry; the cron resumes one that never ran.
  */
 
 export type AppointmentResult = { ok: true; id: string } | { ok: false; error: string };
@@ -43,6 +51,15 @@ function refresh() {
   revalidatePath('/my-contacts', 'layout');
 }
 
+/** Never throws: the outcome is on the row for the screen to show. */
+async function mirror(id: string): Promise<void> {
+  try {
+    await syncAppointment(getConsoleDb(), syncDepsFromEnv(), id);
+  } catch (err) {
+    console.error('[appointments] sync failed', err instanceof Error ? err.message : 'unknown');
+  }
+}
+
 function failure(err: unknown, fallback: string): { ok: false; error: string } {
   if (err instanceof AppointmentError || err instanceof ContactError) return { ok: false, error: err.message };
   console.error('[appointments] action failed', err);
@@ -56,6 +73,7 @@ export async function scheduleAppointmentAction(
   const who = await actor();
   try {
     const { id } = await scheduleAppointment(getConsoleDb(), who, contactId, input);
+    await mirror(id);
     refresh();
     return { ok: true, id };
   } catch (err) {
@@ -67,6 +85,7 @@ export async function completeAppointmentAction(id: string, input: FinishAppoint
   const who = await actor();
   try {
     await completeAppointment(getConsoleDb(), who, id, input);
+    await mirror(id);
     refresh();
     return { ok: true, id };
   } catch (err) {
@@ -78,6 +97,7 @@ export async function cancelAppointmentAction(id: string, input: FinishAppointme
   const who = await actor();
   try {
     await cancelAppointment(getConsoleDb(), who, id, input);
+    await mirror(id);
     refresh();
     return { ok: true, id };
   } catch (err) {
@@ -92,6 +112,7 @@ export async function rescheduleAppointmentAction(
   const who = await actor();
   try {
     await rescheduleAppointment(getConsoleDb(), who, id, input);
+    await mirror(id);
     refresh();
     return { ok: true, id };
   } catch (err) {
@@ -126,5 +147,17 @@ export async function sendInvitationAction(
     return { ok: true, status: result.status, error: result.error };
   } catch (err) {
     return failure(err, 'Could not send the invitation');
+  }
+}
+
+/** Retry a failed sync, or "Keep ours" on a change made in Google: push this appointment again. */
+export async function retryAppointmentSyncAction(id: string): Promise<AppointmentResult> {
+  const who = await actor();
+  try {
+    await retryAppointmentSync(getConsoleDb(), syncDepsFromEnv(), who, id);
+    refresh();
+    return { ok: true, id };
+  } catch (err) {
+    return failure(err, 'Could not sync the appointment');
   }
 }

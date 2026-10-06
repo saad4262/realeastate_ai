@@ -222,6 +222,12 @@ export async function ContactPage({
                 contactHasEmail={Boolean(c.email)}
                 properties={properties.map((p) => ({ propertyId: p.propertyId, address: p.address }))}
                 assignees={assignees.filter((a) => a.userId !== actor.userId)}
+                zoom={{
+                  state: zoomReq.state,
+                  ownerType: zoomReq.ownerType,
+                  accountLabel: zoomReq.accountLabel,
+                  integrationsPath: basePath === '/customers' ? '/settings/integrations' : '/my-integrations',
+                }}
               />
             ) : null}
           </div>
@@ -231,8 +237,8 @@ export async function ContactPage({
             contactBasePath={basePath}
             emptyText={when === 'upcoming' ? 'Nothing booked with them that you can see.' : 'No past appointments you can see.'}
           />
-          <ConnectFirst requirement={calendarReq} purpose="Appointments booked here will be added to your Google Calendar (Phase 3b)." />
-          <ConnectFirst requirement={zoomReq} purpose="Zoom appointments will create their own meeting link (Phase 3b)." />
+          <ConnectFirst requirement={calendarReq} purpose="Appointments assigned to you are added to your Google Calendar, and moved or removed with them." />
+          <ConnectFirst requirement={zoomReq} purpose="A Zoom appointment creates its own meeting, moved and deleted with it." />
         </div>
       );
       break;

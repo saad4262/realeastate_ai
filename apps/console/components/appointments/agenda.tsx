@@ -14,6 +14,7 @@ import {
   cancelAppointmentAction,
   completeAppointmentAction,
   rescheduleAppointmentAction,
+  retryAppointmentSyncAction,
 } from '@/lib/appointment-actions';
 import contactStyles from '@/components/contacts/contacts.module.css';
 import { InvitationPreviewBox } from './invitation-preview';
@@ -170,15 +171,21 @@ function AppointmentCard({
           {a.assignedAgentName ? ` · ${a.assignedAgentName}` : ''}
           {a.propertyAddress ? ` · ${a.propertyAddress}` : ''}
         </div>
-        {a.location || a.meetingUrl ? (
+        {a.location || (a.meetingUrl && !a.zoomMeeting) ? (
           <div className={styles.meta}>
             {a.location ? a.location : null}
-            {a.location && a.meetingUrl ? ' · ' : null}
-            {a.meetingUrl ? (
+            {a.location && a.meetingUrl && !a.zoomMeeting ? ' · ' : null}
+            {a.meetingUrl && !a.zoomMeeting ? (
               <a href={a.meetingUrl} target="_blank" rel="noopener noreferrer">Meeting link ↗</a>
             ) : null}
           </div>
         ) : null}
+        {a.zoomMeeting && a.meetingUrl && active && a.zoomSyncState !== 'removed' ? (
+          <div className={styles.actions}>
+            <a className={contactStyles.btnSmall} href={a.meetingUrl} target="_blank" rel="noopener noreferrer">Join Zoom ↗</a>
+          </div>
+        ) : null}
+        <SyncStatus item={a} zone={zone} active={active} />
         {a.attendees.length ? (
           <div className={styles.meta}>Also: {a.attendees.map((p) => p.name).join(', ')}</div>
         ) : null}
@@ -239,4 +246,97 @@ function AppointmentCard({
       </div>
     </article>
   );
+}
+
+function stamp(iso: string, zone: string | null): string {
+  if (!zone) return '';
+  return new Intl.DateTimeFormat('en-AU', { timeZone: zone, day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
+}
+
+/**
+ * How Google Calendar and Zoom stand for this appointment (Phase 3b). Our
+ * record is the truth: a change made inside Google is shown here as a
+ * conflict, and only a person decides — keep ours (push it back) or take
+ * Google's time (an ordinary reschedule).
+ */
+function SyncStatus({ item: a, zone, active }: { item: AppointmentItem; zone: string | null; active: boolean }) {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [pending, startTransition] = useTransition();
+
+  function run(fn: () => Promise<{ ok: boolean; error?: string }>, done: string) {
+    startTransition(async () => {
+      const r = await fn();
+      if (!r.ok) {
+        toast({ title: 'Not done', description: r.error, variant: 'error' });
+        return;
+      }
+      toast({ title: done, variant: 'success' });
+      router.refresh();
+    });
+  }
+  const retry = (label = 'Retry') =>
+    a.mayUpdate ? (
+      <button type="button" className={contactStyles.btnSmall} disabled={pending} onClick={() => run(() => retryAppointmentSyncAction(a.id), 'Synced again')}>
+        {pending ? 'Working…' : label}
+      </button>
+    ) : null;
+
+  const lines: React.ReactNode[] = [];
+
+  if (a.zoomSyncState === 'pending') lines.push(<div key="zp" className={styles.meta}>Zoom · creating the meeting…</div>);
+  if (a.zoomSyncState === 'failed') {
+    lines.push(
+      <div key="zf" className={styles.syncWarn} role="status">
+        <span>⚠ Zoom — {a.zoomSyncError ?? 'not synced'}</span>
+        {retry()}
+      </div>,
+    );
+  }
+  if (a.zoomMeeting && a.zoomSyncState === 'removed') lines.push(<div key="zr" className={styles.meta}>Zoom meeting deleted</div>);
+
+  const c = a.calendarSyncState;
+  if (c === 'synced' && a.calendarSyncedAt) {
+    lines.push(<div key="cs" className={styles.meta}>Google Calendar · synced {stamp(a.calendarSyncedAt, zone)}</div>);
+  } else if (c === 'pending') {
+    lines.push(<div key="cp" className={styles.meta}>Google Calendar · syncing…</div>);
+  } else if (c === 'removed') {
+    lines.push(<div key="cr" className={styles.meta}>Removed from Google Calendar</div>);
+  } else if (c === 'failed') {
+    lines.push(
+      <div key="cf" className={styles.syncWarn} role="status">
+        <span>⚠ Google Calendar — not synced. {a.calendarSyncError ?? ''}</span>
+        {retry()}
+      </div>,
+    );
+  } else if (c === 'conflict' && a.calendarConflict) {
+    const k = a.calendarConflict;
+    const moved = !k.deleted && k.startsAt && k.endsAt;
+    lines.push(
+      <div key="cc" className={styles.syncWarn} role="status">
+        <span>
+          ⚠ Changed in Google Calendar:{' '}
+          {k.deleted ? 'the event was deleted there.' : moved ? `moved to ${stamp(k.startsAt!, zone)} – ${clock(k.endsAt!, zone)}.` : 'it was edited there.'}{' '}
+          This record was not changed.
+        </span>
+        {active ? retry(k.deleted ? 'Put it back in Google' : 'Keep ours') : null}
+        {active && moved && a.mayUpdate ? (
+          <button
+            type="button"
+            className={contactStyles.btnSmall}
+            disabled={pending}
+            onClick={() =>
+              run(
+                () => rescheduleAppointmentAction(a.id, { startsAt: k.startsAt!, endsAt: k.endsAt!, timezone: browserTimeZone(), outcome: 'Moved to the time set in Google Calendar' }),
+                'Moved to Google’s time',
+              )
+            }
+          >
+            Use Google’s time
+          </button>
+        ) : null}
+      </div>,
+    );
+  }
+  return lines.length ? <>{lines}</> : null;
 }

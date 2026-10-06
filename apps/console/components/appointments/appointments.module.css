@@ -49,3 +49,6 @@
   .item { grid-template-columns: 1fr; gap: 0.35rem; }
   .three { grid-template-columns: 1fr; }
 }
+
+/* Google Calendar / Zoom: a problem the agent can act on (Phase 3b). */
+.syncWarn { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; margin-top: 0.35rem; padding: 0.4rem 0.55rem; border-radius: 8px; font-size: 0.8125rem; color: var(--text-primary); background: color-mix(in srgb, var(--amber) 12%, transparent); border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent); }

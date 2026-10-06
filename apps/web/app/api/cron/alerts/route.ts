@@ -1,4 +1,5 @@
 import { after, NextResponse, type NextRequest } from 'next/server';
+import { runAppointmentSyncTick, syncDepsFromEnv } from '@repo/core/appointments';
 import { pullReceivedMail } from '@repo/core/mail';
 import { authoriseCronRequest, runScheduleTick } from '@repo/core/schedules';
 import { runSkillTick } from '@repo/core/skills';
@@ -90,9 +91,19 @@ async function handler(request: NextRequest) {
       return { expired, recovered, resumed };
     })().catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'template email tick failed' }));
 
+    /**
+     * Google Calendar / Zoom (Phase 3b): finish syncs a crash left pending,
+     * and read back the events we created — a change made inside Google is
+     * flagged on the appointment, never copied over it. Polling, because a
+     * Google push channel needs a public https domain we do not have yet.
+     */
+    const appointmentSync = await runAppointmentSyncTick(getWebDb(), syncDepsFromEnv()).catch((err: unknown) => ({
+      error: err instanceof Error ? err.message : 'appointment sync tick failed',
+    }));
+
     // No ids, no addresses, no listing text — this is read from a cron log.
     return NextResponse.json(
-      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills, templateEmail },
+      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills, templateEmail, appointmentSync },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (err) {
