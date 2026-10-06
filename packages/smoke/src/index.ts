@@ -31,6 +31,10 @@ import {
   nearbySuburbs,
   setListingStatus,
   type PublicListingSummary,
+  listAgencyListings,
+  getAgencyListing,
+  getListingForEdit,
+  updateListing,
   type PublicSearchQuery,
 } from '@repo/core/listings';
 import {
@@ -47,6 +51,7 @@ import {
   listAgencyLeads,
   notifyNewLead,
   updateLeadStatus,
+  listLeadAssignees,
 } from '@repo/core/leads';
 import { can, type Actor, type MembershipRole } from '@repo/core/permissions';
 import { agencyNotificationRecipients } from '@repo/core/agency';
@@ -62,6 +67,7 @@ import {
   listMailThreads,
   markThreadRead,
   sendThreadReply,
+  retryFailedMessage,
   deliverOutbound,
   recordOutbound,
   threadReplyAddress,
@@ -103,6 +109,9 @@ import {
   notifyContactAssigned,
   PHONE_KEY_SAMPLES,
   setContactArchived,
+  updateContact,
+  setNextAction,
+  listContactAssignees,
   updateNote,
   visibleContactIdsSql,
   type ContactView,
@@ -148,6 +157,8 @@ import {
 } from '@repo/core/skills';
 import {
   approveBatch as approveEmailBatch,
+  cancelBatch as cancelEmailBatch,
+  listTemplates as listEmailTemplates,
   approveTemplate as approveEmailTemplate,
   createTemplate as createEmailTemplate,
   getBatch as getEmailBatch,
@@ -5268,6 +5279,317 @@ async function main() {
     assert(res.status !== 200 || !(res.headers.get('content-type') ?? '').includes('ndjson'), `signed out got ${res.status} ${res.headers.get('content-type')}`);
     return `${res.status}${location ? ` → ${new URL(location, 'http://x').pathname}` : ''}`;
   });
+
+  // ------------------------------------------------------- tenant isolation --
+  group('Tenant isolation');
+
+  /**
+   * ADR 0030: agency A never sees or acts on agency B. Two complete agencies
+   * (every agency-owned table has rows in both), then every read, write, token,
+   * assistant tool and the appointment-sync cron, as every role of A, against
+   * B. Everything in one transaction that is rolled back.
+   *
+   * The table lists mirror packages/core/src/isolation/schema-classification.test.ts,
+   * which fails when a table is added without a group.
+   */
+  const OWN_AGENCY_TABLES = [
+    'office', 'team', 'membership', 'agent_invite', 'listing', 'lead', 'mail_thread', 'mail_message', 'contact', 'note',
+    'activity', 'appointment', 'integration_account', 'ai_run', 'skill', 'agent_skill', 'skill_run', 'contact_filter',
+    'email_template', 'email_batch', 'assistant_conversation', 'proposed_action',
+  ] as const;
+  const CHILD_TABLES: [string, string, string][] = [
+    ['team_member', 'team_id', 'team'],
+    ['listing_agent', 'listing_id', 'listing'],
+    ['media', 'listing_id', 'listing'],
+    ['inspection', 'listing_id', 'listing'],
+    ['mail_read', 'thread_id', 'mail_thread'],
+    ['contact_role', 'contact_id', 'contact'],
+    ['contact_property', 'contact_id', 'contact'],
+    ['email_batch_recipient', 'batch_id', 'email_batch'],
+    ['assistant_turn', 'conversation_id', 'assistant_conversation'],
+  ];
+
+  /** One hash per table over everything agency X owns — before and after must match. */
+  async function agencySnapshot(t: Db, agencyId: string): Promise<Record<string, string>> {
+    const out: Record<string, string> = {};
+    for (const table of OWN_AGENCY_TABLES) {
+      const [r] = await t.execute<{ h: string }>(sql.raw(
+        `select md5(coalesce(string_agg(x::text, '|' order by x.id::text), '')) as h from "${table}" x where x.agency_id = '${agencyId}'`,
+      ));
+      out[table] = r!.h;
+    }
+    for (const [child, fk, parent] of CHILD_TABLES) {
+      const [r] = await t.execute<{ h: string }>(sql.raw(
+        `select md5(coalesce(string_agg(c::text, '|' order by c::text), '')) as h from "${child}" c join "${parent}" p on p.id = c.${fk} where p.agency_id = '${agencyId}'`,
+      ));
+      out[child] = r!.h;
+    }
+    return out;
+  }
+
+  /** Two agencies with a row in every agency-owned table each, and B's ids collected. */
+  async function isolationFixture(t: Db) {
+    const g = fakeProviders();
+    const make = async () => {
+      const f = await contactFixture(t);
+      const a1 = f.actor('a1');
+      const note = await createNote(t, a1, f.contacts.p1, `shared note ${f.tag}`);
+      const privateNote = await createNote(t, f.actor('owner'), f.contacts.p1, `private note ${f.tag}`, { isPrivate: true });
+      const tpl = await createEmailTemplate(t, a1, { name: `Tpl ${f.tag}`, subject: 'Hi {{first_name}}', body: 'Hi {{first_name}}.' });
+      await submitEmailTemplate(t, a1, tpl.id);
+      await approveEmailTemplate(t, f.actor('owner'), tpl.id);
+      // A contact of A1's own, so the saved filter matches someone and a batch can be prepared.
+      await t.execute(sql`insert into contact (agency_id, name, email, assigned_to) values (${f.agencyId}, ${`Mine ${f.tag}`}, ${`mine.${f.tag}@smoke.test`}, ${f.people.a1})`);
+      const filter = await saveContactFilter(t, a1, `Mine ${f.tag}`, { assigned: 'me' });
+      const batch = await prepareEmailBatch(t, a1, { templateId: tpl.id, filterId: filter.id }, { perBatch: 20, perAgentDay: 50, perAgencyDay: 200, repeatDays: 7, sendDelayMs: 0 });
+      const skill = await addSkillToMine(t, a1, await libraryId(t, 'morning-brief'), 'UTC');
+      const calendar = await g.connect(t, a1, 'google_calendar', 'user', f.people.a1, f.agencyId);
+      const zoom = await g.connect(t, f.actor('owner'), 'zoom', 'agency', f.agencyId, f.agencyId);
+      // Booked after connecting, so it is queued for Google Calendar (sync pending).
+      const appt = await scheduleAppointment(t, a1, f.contacts.p1, { title: `Appraisal ${f.tag}`, type: 'appraisal', ...slot(3) });
+      const conv = await claimTurn(t, a1, { message: 'x', surface: 'agent' });
+      const h: HandleMap = {};
+      issueHandle(h, 'C', f.contacts.p1);
+      const card = await runAssistantTool(
+        { db: t, actor: a1, timeZone: 'Australia/Melbourne', handles: h, now: new Date(), proposal: { conversationId: conv.conversationId, turnId: randomUUID(), toolUseId: randomUUID(), made: { count: 0 } } },
+        'add_note',
+        { contact: 'C1', body: `card ${f.tag}` },
+      );
+      const proposalId = (card.frame as { id: string }).id;
+      await t.execute(sql`insert into ai_run (feature, model, cost_usd, user_id, agency_id, prompt_version) values ('assistant', 'claude-sonnet-5-5', 0.5, ${f.people.a1}, ${f.agencyId}, 'smoke')`);
+      const [ids] = await t.execute<{ listing: string; lead: string; thread: string; offer: string }>(sql`
+        select (select id from listing where agency_id = ${f.agencyId} limit 1) as listing,
+               (select id from lead where agency_id = ${f.agencyId} and kind <> 'offer' order by created_at limit 1) as lead,
+               (select t.id from mail_thread t where t.agency_id = ${f.agencyId} order by t.created_at limit 1) as thread,
+               (select id from lead where agency_id = ${f.agencyId} and kind = 'offer' limit 1) as offer
+      `);
+      return {
+        f,
+        ids: {
+          contacts: Object.values(f.contacts),
+          people: Object.values(f.people),
+          appointment: appt.id,
+          notes: [note.id, privateNote.id],
+          template: tpl.id,
+          filter: filter.id,
+          batch: batch.id,
+          skill: skill.id,
+          accounts: [calendar, zoom],
+          conversation: conv.conversationId,
+          proposal: proposalId,
+          listing: ids!.listing,
+          lead: ids!.lead,
+          offer: ids!.offer,
+          thread: ids!.thread,
+        },
+      };
+    };
+    const A = await make();
+    const B = await make();
+    const bIds = [
+      ...B.ids.contacts, ...B.ids.people, B.ids.appointment, ...B.ids.notes, B.ids.template, B.ids.filter, B.ids.batch,
+      B.ids.skill, ...B.ids.accounts, B.ids.conversation, B.ids.proposal, B.ids.listing, B.ids.lead, B.ids.offer, B.ids.thread, B.f.agencyId,
+    ].filter(Boolean);
+    return { g, A, B, bIds };
+  }
+
+  const A_ROLES = ['owner', 'a1', 'a2', 'viewer'] as const;
+  const tolerate = <T,>(p: Promise<T>) => p.catch((e: unknown) => ({ refused: (e as { code?: string }).code ?? 'error' }));
+
+  await check('reads: every role of A, through every list and every getter, sees none of B’s rows', async () =>
+    inRollback(async (t) => {
+      const { A, B, bIds } = await isolationFixture(t);
+      const leaks: string[] = [];
+      let reads = 0;
+      for (const role of A_ROLES) {
+        const actor = A.f.actor(role);
+        const ctx = { db: t, actor, timeZone: 'Australia/Melbourne', handles: {} as HandleMap, now: new Date() };
+        const lists: [string, Promise<unknown>][] = [
+          ['listContacts', listContacts(t, actor, { archived: 'all' })],
+          ['listAgencyLeads', listAgencyLeads(t, actor)],
+          ['listAppointments upcoming', listAppointments(t, actor, { when: 'upcoming' })],
+          ['listAppointments past', listAppointments(t, actor, { when: 'past' })],
+          ['listMailThreads', listMailThreads(t, actor)],
+          ['listAgencyListings', listAgencyListings(t, actor)],
+          ['listEmailTemplates', listEmailTemplates(t, actor)],
+          ['listEmailBatches', listEmailBatches(t, actor)],
+          ['listMySkills', listMySkills(t, actor)],
+          ['listIntegrationSlots', listIntegrationSlots(t, actor)],
+          ['requireIntegrations', requireIntegrations(t, actor, ['google_calendar', 'zoom'])],
+          ['listAssistantConversations', listAssistantConversations(t, actor)],
+          ['listContactAssignees', listContactAssignees(t, actor)],
+          ['listLeadAssignees', listLeadAssignees(t, actor)],
+          ['find_contacts', runAssistantTool(ctx, 'find_contacts', { limit: 20, include_archived: true })],
+          ['find_leads', runAssistantTool(ctx, 'find_leads', { limit: 20 })],
+          ['find_appointments', runAssistantTool(ctx, 'find_appointments', { range: 'upcoming', limit: 20 })],
+          ['list_templates', runAssistantTool(ctx, 'list_templates', {})],
+          ['check_connections', runAssistantTool(ctx, 'check_connections', { providers: ['google_calendar', 'zoom'] })],
+          // Getters with B's ids: each must refuse (or return null), never B's row.
+          ['getContact(B)', getContact(t, actor, B.ids.contacts[0]!)],
+          ['getAppointment(B)', getAppointment(t, actor, B.ids.appointment)],
+          ['getMailThread(B)', getMailThread(t, actor, B.ids.thread)],
+          ['getAgencyListing(B)', getAgencyListing(t, actor, B.ids.listing)],
+          ['getListingForEdit(B)', getListingForEdit(t, actor, B.ids.listing)],
+          ['getEmailBatch(B)', getEmailBatch(t, actor, B.ids.batch)],
+          ['getMySkill(B)', getMySkill(t, actor, B.ids.skill)],
+          ['getAssistantConversation(B)', getAssistantConversation(t, actor, B.ids.conversation)],
+          ['getProposedAction(B)', getProposedAction(t, actor, B.ids.proposal)],
+          ['selectionHandles(B)', selectionHandles(t, actor, {}, B.ids.contacts)],
+        ];
+        for (const [name, p] of lists) {
+          reads += 1;
+          const json = JSON.stringify(await tolerate(p));
+          const hit = bIds.find((id) => json.includes(id));
+          if (hit) leaks.push(`${role} ${name} → ${hit}`);
+        }
+      }
+      // And B's own names never appear in A's lists (tags differ per agency).
+      assert(leaks.length === 0, `leaks: ${leaks.join('; ')}`);
+      return `${reads} reads across ${A_ROLES.length} roles; no B id in any result`;
+    }),
+  );
+
+  await check('writes: every role of A, aimed at B’s rows, is refused and changes nothing in B', async () =>
+    inRollback(async (t) => {
+      const { g, A, B } = await isolationFixture(t);
+      const before = await agencySnapshot(t, B.f.agencyId);
+      const transport = fakeTransport();
+      const mailDeps = { mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport }, config: null, env: { ...process.env, NODE_ENV: 'development', EMAIL_DEV_ALLOWLIST: '@smoke.test' } };
+      const limits = { perBatch: 20, perAgentDay: 50, perAgencyDay: 200, repeatDays: 7, sendDelayMs: 0 };
+      const accepted: string[] = [];
+      let attempts = 0;
+      for (const role of A_ROLES) {
+        const actor = A.f.actor(role);
+        const pctx = (handles: HandleMap) => ({
+          db: t, actor, timeZone: 'Australia/Melbourne', handles, now: new Date(),
+          proposal: { conversationId: A.ids.conversation, turnId: randomUUID(), toolUseId: randomUUID(), made: { count: 0 } },
+        });
+        const forged: HandleMap = {};
+        issueHandle(forged, 'C', B.ids.contacts[0]!);
+        issueHandle(forged, 'A', B.ids.appointment);
+        const bc = B.ids.contacts[0]!;
+        const writes: [string, () => Promise<unknown>][] = [
+          ['updateContact', () => updateContact(t, actor, bc, { name: 'Hijacked', roles: [] } as never)],
+          ['setNextAction', () => setNextAction(t, actor, bc, { nextAction: 'x' })],
+          ['createNote', () => createNote(t, actor, bc, 'x')],
+          ['assignContact', () => assignContact(t, actor, bc, actor.userId)],
+          ['assignContact(A contact → B person)', () => assignContact(t, actor, A.ids.contacts[0]!, B.ids.people[1]!)],
+          ['setContactArchived', () => setContactArchived(t, actor, bc, true)],
+          ['mergeContacts(A ← B)', () => mergeContacts(t, actor, A.ids.contacts[0]!, bc)],
+          ['mergeContacts(B ← A)', () => mergeContacts(t, actor, bc, A.ids.contacts[0]!)],
+          ['linkContactProperty', () => linkContactProperty(t, actor, bc, { propertyId: A.f.propertyId, relation: 'owner' })],
+          ['scheduleAppointment', () => scheduleAppointment(t, actor, bc, { title: 'x', type: 'meeting', ...slot(4) })],
+          ['rescheduleAppointment', () => rescheduleAppointment(t, actor, B.ids.appointment, { ...slot(5) })],
+          ['cancelAppointment', () => cancelAppointment(t, actor, B.ids.appointment, {})],
+          ['completeAppointment', () => completeAppointment(t, actor, B.ids.appointment, {})],
+          ['retryAppointmentSync', () => retryAppointmentSync(t, g.deps, actor, B.ids.appointment)],
+          ['sendInvitation', () => sendInvitation(t, mailDeps, actor, B.ids.appointment)],
+          ['updateLeadStatus', () => updateLeadStatus(t, actor, B.ids.lead, 'contacted')],
+          ['assignLead', () => assignLead(t, actor, B.ids.lead, actor.userId)],
+          ['assignLead(A lead → B person)', () => assignLead(t, actor, A.ids.lead, B.ids.people[1]!)],
+          ['markThreadRead', () => markThreadRead(t, actor, B.ids.thread)],
+          ['sendThreadReply', () => sendThreadReply(t, mailDeps, actor, B.ids.thread, { body: 'x' })],
+          ['approveEmailTemplate', () => approveEmailTemplate(t, actor, B.ids.template)],
+          ['prepareEmailBatch(B template)', () => prepareEmailBatch(t, actor, { templateId: B.ids.template, filterId: A.ids.filter }, limits)],
+          ['prepareEmailBatch(B filter)', () => prepareEmailBatch(t, actor, { templateId: A.ids.template, filterId: B.ids.filter }, limits)],
+          ['approveEmailBatch', () => approveEmailBatch(t, actor, B.ids.batch, limits)],
+          ['cancelEmailBatch', () => cancelEmailBatch(t, actor, B.ids.batch)],
+          ['setSkillEnabled', () => setSkillEnabled(t, actor, B.ids.skill, false)],
+          ['tokensForUse(B calendar)', () => tokensForUse(t, testKeys, actor, B.ids.accounts[0]!)],
+          ['tokensForUse(B agency Zoom)', () => tokensForUse(t, testKeys, actor, B.ids.accounts[1]!)],
+          ['claimTurn(B conversation)', () => claimTurn(t, actor, { conversationId: B.ids.conversation, message: 'x', surface: 'agent' })],
+          ['approveProposedAction', () => approveProposedAction(t, actor, B.ids.proposal)],
+          ['rejectProposedAction', () => rejectProposedAction(t, actor, B.ids.proposal)],
+          ['cancelProposedAction', () => cancelProposedAction(t, actor, B.ids.proposal)],
+          ['updateListing', () => updateListing(t, actor, B.ids.listing, { property: {}, listing: {} })],
+          ['setListingStatus', () => setListingStatus(t, actor, B.ids.listing, 'withdrawn')],
+          // Assistant write tools with forged references to B's rows.
+          ['add_note (forged)', () => runAssistantTool(pctx({ ...forged }), 'add_note', { contact: 'C1', body: 'x' })],
+          ['set_next_action (forged)', () => runAssistantTool(pctx({ ...forged }), 'set_next_action', { contact: 'C1', text: 'x' })],
+          ['schedule_appointment (forged)', () => runAssistantTool(pctx({ ...forged }), 'schedule_appointment', { contact: 'C1', type: 'meeting', title: 'x', date: '2099-01-01', time: '10:00' })],
+          ['reschedule_appointment (forged)', () => runAssistantTool(pctx({ ...forged }), 'reschedule_appointment', { appointment: 'A1', date: '2099-01-01', time: '10:00' })],
+          ['cancel_appointment (forged)', () => runAssistantTool(pctx({ ...forged }), 'cancel_appointment', { appointment: 'A1' })],
+        ];
+        for (const [name, run] of writes) {
+          attempts += 1;
+          // A savepoint each: a refusal that reached the database cannot poison the rest.
+          const outcome = await t.transaction(async (sp) => {
+            void sp;
+            return run().then(
+              (r) => {
+                const out = r as { isError?: boolean; ok?: boolean; frame?: { kind?: string } } | undefined;
+                // A tool answer counts as refused when it is an error and made no card.
+                if (out && typeof out === 'object' && 'isError' in out) return out.isError && out.frame?.kind !== 'proposal' ? 'refused' : 'ACCEPTED';
+                return 'ACCEPTED';
+              },
+              () => 'refused',
+            );
+          }).catch(() => 'refused');
+          // A2 assigning A's own lead to a B person must be refused too; everything else here aims at B.
+          if (outcome === 'ACCEPTED') accepted.push(`${role} ${name}`);
+        }
+      }
+      const after = await agencySnapshot(t, B.f.agencyId);
+      const changed = Object.keys(before).filter((k) => before[k] !== after[k]);
+      assert(changed.length === 0, `B's rows changed in: ${changed.join(', ')}`);
+      assert(accepted.length === 0, `accepted: ${accepted.join('; ')}`);
+      assert(transport.sent.length === 0, `${transport.sent.length} emails went out`);
+      return `${attempts} writes across ${A_ROLES.length} roles refused; ${Object.keys(before).length} B tables unchanged; 0 emails`;
+    }),
+  );
+
+  await check('tokens and the sync job: each agency’s appointments use only that agency’s Google and Zoom', async () =>
+    inRollback(async (t) => {
+      const { g, A, B } = await isolationFixture(t);
+      const tokenOf = async (x: typeof A, i: number) => (await tokensForUse(t, testKeys, x.f.actor(i === 0 ? 'a1' : 'owner'), x.ids.accounts[i]!)).accessToken;
+      const [aCal, aZoom, bCal, bZoom] = [await tokenOf(A, 0), await tokenOf(A, 1), await tokenOf(B, 0), await tokenOf(B, 1)];
+      // Zoom appointments too, so both providers are exercised.
+      const aZ = await scheduleAppointment(t, A.f.actor('a1'), A.ids.contacts[0]!, { title: 'Zoom A', type: 'zoom', ...slot(4) });
+      const bZ = await scheduleAppointment(t, B.f.actor('a1'), B.ids.contacts[0]!, { title: 'Zoom B', type: 'zoom', ...slot(4) });
+      // What the cron tick runs for each row it picks (`runAppointmentSyncTick` → `syncAppointment`),
+      // called for the fixture's rows only — the tick itself would also pick up whatever is
+      // pending in the dev database, and these checks never touch rows they did not make.
+      for (const id of [A.ids.appointment, B.ids.appointment, aZ.id, bZ.id]) await syncAppointment(t, g.deps, id);
+      const used = (appt: string) => g.calls.filter((c) => c.url.includes(eventIdFor(appt)) || c.body.includes(eventIdFor(appt))).map((c) => c.auth.replace(/^Bearer /, ''));
+      const zoomCalls = (topic: string) => g.calls.filter((c) => c.url.includes('/meetings') && c.body.includes(topic)).map((c) => c.auth.replace(/^Bearer /, ''));
+      const checks: [string, string[], string[]][] = [
+        ['A calendar', used(A.ids.appointment), [aCal]],
+        ['B calendar', used(B.ids.appointment), [bCal]],
+        ['A zoom', zoomCalls('Zoom A'), [aZoom]],
+        ['B zoom', zoomCalls('Zoom B'), [bZoom]],
+      ];
+      for (const [name, seen, allowed] of checks) {
+        assert(seen.length > 0, `${name}: the tick made no call`);
+        assert(seen.every((tok) => allowed.includes(tok)), `${name} used another agency's token`);
+      }
+      // A's member can never get B's token out of core, even the agency Zoom "any member may use".
+      for (const role of A_ROLES) {
+        for (const acct of B.ids.accounts) {
+          const r = await tokensForUse(t, testKeys, A.f.actor(role), acct).then(() => 'GOT', () => 'refused');
+          assert(r === 'refused', `${role} decrypted B's token`);
+        }
+      }
+      return `${g.calls.length} provider calls, each with its own agency's token; B's tokens refused to every A role`;
+    }),
+  );
+
+  await check('assistant: A’s caps never count B’s spend, and A’s conversations and cards are invisible to B', async () =>
+    inRollback(async (t) => {
+      const { A, B } = await isolationFixture(t);
+      const env = { ...process.env, AI_DAILY_BUDGET_USD: '1000000' };
+      // The fixture spent $0.50 in each agency; add $9.60 in B only.
+      await t.execute(sql`insert into ai_run (feature, model, cost_usd, user_id, agency_id, prompt_version) values ('assistant', 'claude-sonnet-5-5', 9.6, ${B.f.people.a2}, ${B.f.agencyId}, 'smoke')`);
+      const a = await checkAssistantBudget(t, A.f.actor('a2'), { env });
+      const b = await checkAssistantBudget(t, B.f.actor('a2'), { env });
+      assert(Math.abs(a.agency.spentUsd - 0.5) < 1e-6, `A's agency window counts $${a.agency.spentUsd}`);
+      assert(Math.abs(b.agency.spentUsd - 10.1) < 1e-6 && b.agency.exceeded, `B's agency window: $${b.agency.spentUsd}`);
+      assert(a.allowed, 'A was stopped by B’s spend');
+      for (const role of A_ROLES) {
+        assert(!(await listAssistantConversations(t, B.f.actor(role === 'viewer' ? 'viewer' : role))).some((c) => c.id === A.ids.conversation), `B ${role} lists A's conversation`);
+      }
+      return 'agency caps per agency; conversations and cards stay in their agency';
+    }),
+  );
 
   group('Console (HTTP, signed out)');
 

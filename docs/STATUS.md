@@ -8,6 +8,19 @@
   0029 applied on dev (additive). Waiting for the user's walk-through of TEST-PLAN U and V.
   **Not started (by instruction): Phase D** (template email from picked contacts), then
   E (delayed run, needs the 5-min cron) and F (widgets hook).
+- **Phase 1 — tenant isolation tests (ADR 0030) committed.** Unit (`packages/core/src/isolation/`):
+  every table classified (22 own-agency, 10 through a parent, 4 shared, 6 public-site user —
+  a new table fails until classified); every `can()` action (read from permissions.ts) × all
+  six roles of A × a B resource rigged to look like theirs → refused; every route handler and
+  server action reaches a session check or is public with a named guard; no door reads the
+  user/agency from the request. Smoke "Tenant isolation" (two complete agencies, rolled back):
+  116 reads (lists, getters, assistant read tools, selections) with no B id; 156 writes
+  (contacts, notes, appointments, leads, mail, templates, batches, skills, tokens, assistant
+  cards and forged-reference tools, listings) refused with B's 31 tables unchanged and 0
+  emails; each agency's sync uses only its own Google/Zoom tokens and B's tokens never
+  decrypt for A; the assistant's agency cap and conversations stay per agency. One real
+  finding (below), fixed in its own commit. Not covered by smoke: admin / property-manager /
+  assistant roles (the unit matrix covers them); route calls with a real browser session.
 - **Fix found by the tenant-isolation matrix (2026-10-06):** `can(actor, 'listing:read',
   {type: 'listing', …})` returned true for a member of ANY agency (`|| membershipRole`). No
   leak in practice — every caller passed its own agency id and the SQL filters by agency — but
