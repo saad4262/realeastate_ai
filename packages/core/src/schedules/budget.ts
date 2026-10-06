@@ -92,7 +92,10 @@ export async function checkAiBudget(
     const [userRow] = await db
       .select({ total: sql<string>`coalesce(sum(${aiRun.costUsd}), 0)` })
       .from(aiRun)
-      .where(and(gte(aiRun.createdAt, since), sql`${aiRun.userId} = ${opts.userId}`));
+      // The console assistant has its own per-person and per-agency caps
+      // (ADR 0025 §10, `assistant/budget.ts`); counting it here too would
+      // let a busy afternoon of questions pause that person's skills.
+      .where(and(gte(aiRun.createdAt, since), sql`${aiRun.userId} = ${opts.userId}`, sql`${aiRun.feature} <> 'assistant'`));
 
     user = decideBudget(toNumber(userRow?.total), userCap);
   }

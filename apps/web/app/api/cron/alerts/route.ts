@@ -1,5 +1,6 @@
 import { after, NextResponse, type NextRequest } from 'next/server';
 import { runAppointmentSyncTick, syncDepsFromEnv } from '@repo/core/appointments';
+import { purgeAssistantConversations } from '@repo/core/assistant';
 import { pullReceivedMail } from '@repo/core/mail';
 import { authoriseCronRequest, runScheduleTick } from '@repo/core/schedules';
 import { runSkillTick } from '@repo/core/skills';
@@ -101,9 +102,17 @@ async function handler(request: NextRequest) {
       error: err instanceof Error ? err.message : 'appointment sync tick failed',
     }));
 
+    /**
+     * Console assistant conversations are kept 30 days after their last turn,
+     * then deleted with their turns (ADR 0025, decided Q5). Cost rows stay.
+     */
+    const assistant = await purgeAssistantConversations(getWebDb())
+      .then((purged) => ({ purged }))
+      .catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'assistant purge failed' }));
+
     // No ids, no addresses, no listing text — this is read from a cron log.
     return NextResponse.json(
-      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills, templateEmail, appointmentSync },
+      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills, templateEmail, appointmentSync, assistant },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (err) {

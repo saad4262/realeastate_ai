@@ -1358,6 +1358,13 @@ export const aiRun = pgTable('ai_run', {
    * the id keeps the total right without identifying anybody (APP 11).
    */
   userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
+  /**
+   * The agency the call was made for, when there is one (ADR 0025): the
+   * assistant's per-agency daily cap sums on it. Null for the anonymous chat
+   * and for every row written before migration 0028. `set null` for the same
+   * reason as `user_id`.
+   */
+  agencyId: uuid('agency_id').references(() => agency.id, { onDelete: 'set null' }),
   promptVersion: varchar('prompt_version', { length: 64 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -1622,6 +1629,75 @@ export const emailBatchRecipient = pgTable(
   ],
 );
 
+// ── Console assistant (docs/adr/0025) ───────────────────────────────────────
+
+/**
+ * One person's conversation with the console assistant. Seen and continued
+ * by its author only — not even an admin (ADR 0025 Q5). Deleted 30 days after
+ * its last turn by the cron tick.
+ *
+ * `handles` is the server's map from the short names the model was shown
+ * (`C1`, `L3`, `S1`…) to row ids — `{ "C1": { "k": "contact", "id": "…" } }`.
+ * The model never sees an id; anything it refers to is looked up here and
+ * then checked again, as this person, by the scoped query that uses it.
+ */
+export const assistantConversation = pgTable(
+  'assistant_conversation',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    /** Which console it was started in: `agent` or `agency`. */
+    surface: varchar('surface', { length: 16 }).notNull(),
+    /** The first question, cut short — the list's label. */
+    title: text('title').notNull(),
+    handles: jsonb('handles').notNull().default({}),
+    turnCount: integer('turn_count').notNull().default(0),
+    /** Set while a turn runs: one turn at a time per conversation (two tabs, a double send). */
+    turnStartedAt: timestamp('turn_started_at', { withTimezone: true }),
+    lastTurnAt: timestamp('last_turn_at', { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps,
+  },
+  (t) => [
+    index('assistant_conversation_user_idx').on(t.userId, desc(t.lastTurnAt)),
+    index('assistant_conversation_last_turn_idx').on(t.lastTurnAt),
+  ],
+);
+
+/**
+ * One question and its answer. `api_messages` is exactly what was sent to and
+ * received from the model in this turn — replayed verbatim, append-only, on
+ * the next turn (so earlier turns are never edited, which keeps the prompt
+ * cache and the model's own reasoning blocks valid). Null on a failed turn,
+ * which is shown but never replayed. `frames` are the lists the panel drew,
+ * rendered from SQL.
+ */
+export const assistantTurn = pgTable(
+  'assistant_turn',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => assistantConversation.id, { onDelete: 'cascade' }),
+    seq: integer('seq').notNull(),
+    /** `done` or `failed`. */
+    status: varchar('status', { length: 16 }).notNull(),
+    userText: text('user_text').notNull(),
+    answer: text('answer').notNull().default(''),
+    frames: jsonb('frames').notNull().default([]),
+    apiMessages: jsonb('api_messages'),
+    error: text('error'),
+    model: text('model'),
+    toolCalls: integer('tool_calls').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('assistant_turn_seq_idx').on(t.conversationId, t.seq)],
+);
+
 export type User = typeof user.$inferSelect;
 export type Agency = typeof agency.$inferSelect;
 export type Listing = typeof listing.$inferSelect;
@@ -1651,3 +1727,5 @@ export type EmailTemplate = typeof emailTemplate.$inferSelect;
 export type EmailBatch = typeof emailBatch.$inferSelect;
 export type EmailBatchRecipient = typeof emailBatchRecipient.$inferSelect;
 export type ContactFilter = typeof contactFilter.$inferSelect;
+export type AssistantConversation = typeof assistantConversation.$inferSelect;
+export type AssistantTurn = typeof assistantTurn.$inferSelect;

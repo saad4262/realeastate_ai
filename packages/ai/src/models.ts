@@ -105,6 +105,15 @@ const CAPABILITIES: Readonly<Record<string, Capabilities>> = Object.freeze({
   'claude-sonnet-5-5': { effort: true, adaptiveThinking: true, midConversationSystem: true },
 });
 
+/**
+ * Models that accept server-side `fallbacks: "default"` (beta
+ * `server-side-fallback-2026-07-01`): on a classifier decline the API re-runs
+ * the request on the model Anthropic recommends for that category, inside the
+ * same call. Sending it to a model not listed here is a 400, so it is a
+ * capability of the id, like the table above.
+ */
+export const SERVER_FALLBACK_MODELS: ReadonlySet<string> = new Set(['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-opus-5']);
+
 const NO_CAPABILITIES: Capabilities = {
   effort: false,
   adaptiveThinking: false,
@@ -123,7 +132,12 @@ export type AiFeature =
    */
   | 'skill-summary'
   | 'skill-agent'
-  | 'skill-hard';
+  | 'skill-hard'
+  /**
+   * The console assistant (ADR 0025): tool-calling over the CRM, on the
+   * skills' agent tier — `ANTHROPIC_SKILL_AGENT_MODEL`, default Sonnet 5.5.
+   */
+  | 'assistant';
 
 export type ModelChoice = {
   id: string;
@@ -260,6 +274,21 @@ export function getModel(feature: AiFeature, env: NodeJS.ProcessEnv = process.en
         ...(can.effort ? { effort: 'low' as const } : {}),
         adaptiveThinking: can.adaptiveThinking,
         midConversationSystem: false,
+      };
+    }
+    case 'assistant': {
+      const id = env.ANTHROPIC_SKILL_AGENT_MODEL?.trim() || 'claude-sonnet-5-5';
+      const can = CAPABILITIES[id] ?? NO_CAPABILITIES;
+      return {
+        id,
+        // Streamed, and adaptive thinking spends from this too: headroom, not a cost ceiling.
+        maxTokens: 8000,
+        // Low: choosing a read tool and summarising a short list is chat-shaped
+        // work (the API reference's starting point for chat). Raise only on a
+        // measurement.
+        ...(can.effort ? { effort: 'low' as const } : {}),
+        adaptiveThinking: can.adaptiveThinking,
+        midConversationSystem: can.midConversationSystem,
       };
     }
     default: {

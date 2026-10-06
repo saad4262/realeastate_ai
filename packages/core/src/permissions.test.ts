@@ -706,3 +706,29 @@ describe('template email', () => {
     expect(can(viewer, 'email_batch:create', { type: 'email_batch', agencyId: agencyA })).toBe(false);
   });
 });
+
+describe('assistant (ADR 0025)', () => {
+  const m = (userId: string, membershipRole: Actor['membershipRole']): Actor => ({ userId, agencyId: agencyA, membershipRole });
+  const owner = m('owner', 'owner');
+  const agent = m('agent', 'agent');
+  const other = m('other', 'agent');
+  const viewer = m('viewer', 'read_only');
+  const rival: Actor = { userId: 'rival', agencyId: agencyB, membershipRole: 'owner' };
+  const convo = (ownerId: string) => ({ type: 'assistant_conversation', id: 'c-1', agencyId: agencyA, ownerId });
+
+  it('opens for every active member of the agency, read-only too, and nobody else', () => {
+    for (const a of [owner, agent, viewer]) expect(can(a, 'assistant:use', { type: 'assistant', agencyId: agencyA })).toBe(true);
+    expect(can(rival, 'assistant:use', { type: 'assistant', agencyId: agencyA })).toBe(false);
+    expect(can({ userId: 'x' }, 'assistant:use', { type: 'assistant', agencyId: agencyA })).toBe(false);
+    expect(can({ userId: 'x', agencyId: agencyA }, 'assistant:use', { type: 'assistant', agencyId: agencyA })).toBe(false);
+  });
+
+  it('shows a conversation to its author only — not to an admin, not across agencies', () => {
+    expect(can(agent, 'assistant_conversation:read', convo('agent'))).toBe(true);
+    expect(can(viewer, 'assistant_conversation:read', convo('viewer'))).toBe(true);
+    expect(can(other, 'assistant_conversation:read', convo('agent'))).toBe(false);
+    expect(can(owner, 'assistant_conversation:read', convo('agent'))).toBe(false);
+    expect(can(rival, 'assistant_conversation:read', { ...convo('rival') })).toBe(false);
+    expect(can(agent, 'assistant_conversation:read', { type: 'assistant_conversation', agencyId: agencyA })).toBe(false);
+  });
+});

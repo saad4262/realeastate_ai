@@ -1,3 +1,41 @@
+## 2026-10-06 — Claude Code — ADR 0025 accepted; dev allowlist fix; Assistant Phase A
+
+- Goal (user): commit the ADR docs; move EMAIL_DEV_ALLOWLIST into the shared send path
+  (invitations obey it); build Agent Assistant Phase A (read-only) and stop. No dev restart,
+  no touching dev data or .env.local.
+- Done: b9e5ad2 docs (ADR 0025 accepted, all 8 answers). 6238739 allowlist: one reason
+  (`DEV_ALLOWLIST_PROBLEM`), invitation preview/send refuse, `deliverOutbound` backstop for
+  any `mail_message.kind` message; typed replies not gated (on purpose: .env.local has no
+  allowlist, so gating them would block every dev reply). Found while doing it: `sendBatch`
+  had to pass its env through, or the backstop would have blocked every template email.
+- Phase A (uncommitted): migration 0028 applied on dev (only 0028 was pending, checked
+  first). Core `assistant/` (schema, handles, tools, budget, conversations), permissions,
+  ai pipeline + prompt + tool JSON, console route/actions/panel in both shells, cron purge,
+  .env.example, TEST-PLAN U, ADR "As built".
+- Decisions: one row per TURN (not per message) with exact API messages, for append-only
+  replay; 30 turns then "start a new one" (never trim — edits break the cache and
+  Sonnet 5.5's thinking binding); `drop_block` as the safety net; effort low;
+  `fallbacks: "default"`; v1 tools return no free text; leads never include offers; the
+  skills' per-user cap now ignores `feature = 'assistant'` (else $1 silently became $0.25).
+- Break-checks in a separate worktree: 9 smoke + 11 unit, all red, then restored. Two
+  (author-only claim; failed turns not replayed) stay green with one layer broken and
+  only go red with both broken. That's defence in depth, recorded so nobody thinks the
+  check is dead.
+- Numbers: typecheck 10/10, lint 0 errors, test 740 + 284, console build OK (throwaway
+  NEXT_DIST_DIR). Smoke groups: Console assistant 6/6, Database 30/30, Appointments 3/3,
+  Template email 5/5, Email conversations 7/7. Full smoke not run.
+- Files touched: packages/core/src/{assistant/*,permissions.ts,permissions.test.ts,
+  schedules/budget.ts,email/*,mail/*,appointments/invitation.ts,template-email/send.ts},
+  packages/ai/src/{models.ts,usage.ts,pipelines/assistant*.ts,prompts/assistant-v1.ts,
+  tools/assistant-tools.ts}, packages/db (schema, 0028), apps/console (api/assistant,
+  lib/assistant-actions.ts, components/assistant/*, both shells), apps/web cron route,
+  packages/smoke, docs (ADR 0025, TEST-PLAN P/T/U, STATUS, SESSION), .env.example.
+- Left unfinished (exact next step): the user reviews Phase A and walks TEST-PLAN U (first
+  live model call); commit Phase A when asked; Phase B only when asked.
+- Risks / watch: AI_DAILY_BUDGET_USD defaults to 5 and applies before the assistant's $10
+  agency cap. No live model call has been made, so the prompt is unmeasured. The panel is a
+  fixed button over every page, which may overlap page content at the bottom right.
+
 ## 2026-10-06 — Claude Code — OAuth return-loop fix; Agent Assistant design (ADR 0025)
 
 - Goal (user): (1) fix the "Too many redirects" on the real Google Calendar Connect,

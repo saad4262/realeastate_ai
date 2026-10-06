@@ -43,6 +43,8 @@
     "./integrations/providers": "./src/integrations/providers.ts",
     "./integrations/startup": "./src/integrations/startup.ts",
     "./skills": "./src/skills/index.ts",
+    "./assistant": "./src/assistant/index.ts",
+    "./assistant/schema": "./src/assistant/schema.ts",
     "./skills/schema": "./src/skills/skill-schema.ts",
     "./template-email": "./src/template-email/index.ts",
     "./template-email/schema": "./src/template-email/schema.ts"

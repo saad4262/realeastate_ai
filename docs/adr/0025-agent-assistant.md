@@ -387,3 +387,35 @@ moves into the shared send path, before anything else. (7) Caps: $1 per person a
 agency per day; 8 tool calls and 3 proposals per turn; 20 recipients. (8) Delayed
 execution stays behind `ASSISTANT_SCHEDULING=1` until the Vercel Pro 5-minute cron is live.
 Build order A→F.
+
+## As built — Phase A (2026-10-06, migration 0028)
+
+- **Tables:** `assistant_conversation` (author, agency, surface, title, the handle map, turn
+  count, a one-turn-at-a-time claim, last turn) and `assistant_turn`. The design's
+  `assistant_message` became one row per *turn*: the person's text, the answer, the SQL frames,
+  and `api_messages` (the turn's exact model messages, replayed verbatim next turn; null on a
+  failed turn, which is shown but never replayed). `proposed_action` waits for Phase B, the
+  first phase that needs it. `ai_run.agency_id` (nullable) was added for the per-agency cap. RLS on,
+  no grants.
+- **History is append-only, never trimmed.** A conversation stops at 30 turns ("start a new
+  one") rather than editing earlier turns, so the cached prefix and Sonnet 5.5's thinking
+  blocks stay valid. `thinking.block_binding.prefix_mismatch_behavior: "drop_block"` is sent
+  anyway, as a safety net.
+- **Model request:** `ANTHROPIC_SKILL_AGENT_MODEL` (default `claude-sonnet-5-5`), streamed,
+  adaptive thinking, effort `low`, `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`),
+  frozen system prompt and tools (`assistant@v1`), automatic cache breakpoint. The date, zone
+  and selection arrive in a `<console_context>` block at the top of each user turn. Selected
+  names are quoted with `<`/`>` escaped.
+- **Tools:** `find_contacts`, `find_leads` (never offers), `find_appointments`,
+  `list_templates` (approved only), `check_connections`. Each is one SQL statement through the
+  screens' own scope (`contactQueryFilters`, `leadScopeFilters`, `appointmentScopeFilters`).
+  Results return handles, names, statuses and server-formatted dates. Notes, enquiry text and email
+  bodies are never returned.
+- **Caps:** `ASSISTANT_DAILY_BUDGET_USD_PER_USER` (1.00) and `_PER_AGENCY` (10.00) on
+  `feature = 'assistant'`, plus the platform-wide `AI_DAILY_BUDGET_USD`, asked before every
+  model request. The skills' `AI_DAILY_BUDGET_USD_PER_USER` no longer counts assistant spend,
+  which would otherwise have silently cut the agreed $1 to $0.25 and let questions pause a
+  person's skills.
+- **Console:** an Assistant button and right-hand panel on both surfaces; `/api/assistant`
+  (NDJSON); History (own conversations only, 30 days); "Using this contact" on a contact page.
+- **Retention:** the cron tick deletes conversations 30 days after their last turn.

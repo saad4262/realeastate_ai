@@ -225,6 +225,18 @@ export type Action =
   | 'email_batch:cancel'
   /** Save and use your own directory filters. */
   | 'contact_filter:manage'
+  /**
+   * Open the console assistant (ADR 0025). Any active member — read-only
+   * members too, because Phase A's tools only read, and each tool still asks
+   * can() and the SQL scope filters as this person.
+   */
+  | 'assistant:use'
+  /**
+   * Read or continue an assistant conversation (`ownerId` = its author). Its
+   * author only — not even an admin (ADR 0025 Q5): admins see actions and
+   * their audit, never the chat text.
+   */
+  | 'assistant_conversation:read'
   | 'team:manage'
   | 'agency:billing'
   /** Agency OS host — owner|admin only */
@@ -474,6 +486,13 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
 
     case 'agent_skill:manage':
       return sameAgency(actor, resource) && mayWrite(actor) &&
+        Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'assistant:use':
+      return sameAgency(actor, resource) && Boolean(actor.membershipRole);
+
+    case 'assistant_conversation:read':
+      return sameAgency(actor, resource) && Boolean(actor.membershipRole) &&
         Boolean(resource.ownerId) && actor.userId === resource.ownerId;
 
     case 'email_template:read':

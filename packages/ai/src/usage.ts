@@ -24,6 +24,8 @@ export type AiRunInput = {
    * question `entityId` cannot answer, because it identifies a turn.
    */
   userId?: string;
+  /** The agency the call was made for — the assistant's per-agency cap sums on it (ADR 0025). */
+  agencyId?: string;
   promptVersion: string;
 };
 
@@ -37,6 +39,7 @@ export async function trackAiRun(db: DbOrTx, input: AiRunInput): Promise<void> {
     latencyMs: input.latencyMs,
     entityId: input.entityId ?? null,
     userId: input.userId ?? null,
+    agencyId: input.agencyId ?? null,
     promptVersion: input.promptVersion,
   });
 }

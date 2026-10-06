@@ -3,18 +3,21 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
-- **Now: Agent Assistant ACCEPTED — `docs/adr/0025-agent-assistant.md`
-  (all 8 recommendations accepted 2026-10-06). Next: dev-allowlist fix, then Phase A
-  only.** Phases A (read-only) → B (notes/next action) → C (appointments) →
-  D (template email from picked contacts) → E (delayed run, needs the 5-min cron) →
-  F (widgets hook). Amends ADR 0022 decision 2 ("approve now, run later").
+- **Now: Agent Assistant Phase A (read-only) BUILT on `feat/crm`, NOT committed — waiting
+  for the user's review and TEST-PLAN U.** ADR 0025 accepted (all 8 recommendations).
+  Migration 0028 applied on dev (additive: 2 tables + nullable `ai_run.agency_id`).
+  Next, only when asked: Phase B (proposed_action + cards: add_note, set_next_action).
+  Order after that: C appointments → D template email from picked contacts → E delayed run
+  (behind ASSISTANT_SCHEDULING=1, needs the 5-min cron) → F widgets hook.
+- **Dev allowlist fix (ADR 0025 Q6) committed (6238739):** `EMAIL_DEV_ALLOWLIST` now gates
+  every platform-composed email (`mail_message.kind` set: template email, appointment
+  invitation) in the shared `deliverOutbound`. A person's own typed reply is not gated.
+  **Your `.env.local` still has no `EMAIL_DEV_ALLOWLIST`** → invitations in dev are refused
+  ("not on the development allowlist") until you add your test addresses.
 - **CRM Phase 3b — real Google Calendar + Zoom (ADR 0020 "Phase 3b", migration
   0027) on `feat/crm`.** Real Google Calendar Connect verified end to end by the user
   on agents.lvh.me (2026-10-06) after the OAuth return-loop fix (commit 00c60a8).
   Zoom not yet tried with real credentials; TEST-PLAN T is the walk-through.
-- **Known gap (found 2026-10-06):** `EMAIL_DEV_ALLOWLIST` is enforced only in
-  `template-email/send.ts`; `sendInvitation` ignores it, so a dev appointment
-  invitation can reach a real address (ADR 0025 open question 6).
   Template email (ADR 0022, TEST-PLAN S) before it, also awaiting review.
   Not started (by instruction): Google Sheets, Google Reviews, Phase 6, Phase 7.
   Plan: `~/.claude/plans/pasted-content-id-f0ff-you-are-functional-frost.md`.
@@ -23,6 +26,33 @@
 - Last updated: 2026-10-06
 - Deploying: `apps/web` only, Vercel Hobby. `apps/console` waits for a real
   domain — see `docs/DEPLOY.md`. **Nothing is deployed yet.**
+
+## Agent Assistant — Phase A, read-only (2026-10-06, ADR 0025, migration 0028)
+
+- Tables `assistant_conversation` (author-only, handle map, one-turn claim, 30-turn cap) and
+  `assistant_turn` (text, answer, SQL frames, exact API messages for append-only replay;
+  failed turns shown, never replayed). `ai_run.agency_id`. RLS on, no grants.
+- Permissions `assistant:use` (any active member) and `assistant_conversation:read` (author
+  only, not admins).
+- Core `@repo/core/assistant`: zod contract, handles (C/L/A/T/S; the model never sees an id),
+  5 read tools each ONE statement through the screens' scope (`find_contacts`, `find_leads`
+  — never offers, `find_appointments`, `list_templates` — approved, `check_connections`),
+  caps ($1/person, $10/agency, inside AI_DAILY_BUDGET_USD; the skills' per-user cap no
+  longer counts assistant spend), purge after 30 days (cron tick).
+- AI `@repo/ai/assistant`: Sonnet 5.5 via ANTHROPIC_SKILL_AGENT_MODEL, streamed, adaptive
+  thinking + `drop_block`, effort low, `fallbacks: "default"`, frozen prompt `assistant@v1`,
+  date in a `<console_context>` user block, budget before every request, 8 tool calls/turn.
+- Console: Assistant button + right panel on both surfaces, `/api/assistant` (NDJSON),
+  History, "Using this contact". Label "Written by the assistant".
+- Tests: core 16 + ai 14 unit (incl. red-team: invented tools, foreign/invented references,
+  ids/names as references, a selected name closing the context tag, the 8-call cap, budget per
+  request, no date in the prompt), permissions 2, smoke group "Console assistant" (6), one
+  opt-in live red-team check in `pnpm smoke:ai`. 9 smoke + 11 unit guards broken in a separate
+  worktree and seen red (two needed both of their layers broken).
+- Numbers: typecheck 10/10, lint 0 errors, test 740 + 284, console production build OK
+  (throwaway dist dir). Full `pnpm smoke` not run (user's dev data); groups run: Console
+  assistant 6/6, Database 30/30, Appointments 3/3, Template email 5/5, Email conversations 7/7.
+- Not done: no live model call has been made (TEST-PLAN U is the first); not clicked in a browser.
 
 ## Decisions from the client/PM (recorded 2026-10-05 — not built)
 
