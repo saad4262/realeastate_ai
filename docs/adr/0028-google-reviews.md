@@ -126,3 +126,41 @@ access).
 - Q1–Q5: **accepted as recommended** (Places refresh every 6 h in the server cache only;
   linking starts with step 2; the agency's reviews on agent profiles, labelled as the agency's;
   no replying from the console yet; low-star reviews never hidden).
+
+## As built — step 1 (Phase 5, 2026-10-06)
+
+**Google's terms were checked before building** (Places API policies page and the Maps
+Platform service terms, 2026-10-06). They say:
+- The **place id** may be stored indefinitely. No other Places content may be pre-fetched,
+  cached or stored; only latitude/longitude may be cached, for up to 30 days.
+- Places content shown without a Google map carries Google's attribution (the logo, or the
+  text "Google Maps" where space is short).
+- Every review credits its author (name, photo, profile link) and links to the review on
+  Google Maps.
+- How reviews are chosen and ordered must be stated.
+
+Where this build differs from the decision above, **the terms win**:
+- **No cache.** The 6-hour server cache (decided Q1) is not built. Rating and reviews are
+  fetched from Google each time they are shown, and dropped after. Identical requests in
+  flight at the same instant share one call; nothing outlives the answer. **Cost:** one
+  Place Details call (with reviews) per view. To keep that down, the public section loads
+  only when a visitor scrolls near it. It is capped at 20 per minute per IP and 120 Google
+  calls per minute per server instance; past a cap, the section just doesn't show.
+- **`agency_google_place` stores only the place id** (and who picked it, when). It does not
+  store the name and address "as shown at pick time" from §2: those are Places content. The
+  console shows them live. A unit test fails if the table gains any other column.
+- **Public pages:** this platform has no public agency or agent profile pages yet. The
+  agency's rating and reviews show on each **live listing's page**, labelled "Reviews of
+  <Agency>". A browser component fetches them from `/api/reviews/<listingId>` (no-store,
+  rate-limited), so Google content never enters the ISR-cached HTML. It renders **nothing**
+  when the listing isn't live, nothing is picked, the place is gone, or Google doesn't answer.
+- **Console:** Settings → Google reviews (owner/admin: picker, change, remove) and **Agency
+  reviews** in the agent menu (every member, read-only).
+- **Attribution** lives in one component, `@repo/ui/google-reviews`. It uses the text form
+  "Google Maps"; **swap in Google's official logo asset before go-live** (design/legal). A
+  static test fails if attribution, author links, review links or the notice go missing, if
+  reviews are filtered/sorted/sliced, or if either app renders a review itself.
+- **"Link to contact" is not built in step 1** (ADR decision 3, Q2): Places review text may
+  not be stored, so there is nothing durable to link. It arrives with step 2.
+- Picker search: server-side, owner/admin, at most one search a second per person; a picked
+  id is confirmed with Google (outside any transaction) before it is stored.

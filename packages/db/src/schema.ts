@@ -1854,6 +1854,30 @@ export type Agency = typeof agency.$inferSelect;
 export type Listing = typeof listing.$inferSelect;
 export type Property = typeof property.$inferSelect;
 export type Membership = typeof membership.$inferSelect;
+// ── Google reviews, step 1 (docs/adr/0028) ──────────────────────────────────
+
+/**
+ * The agency's Google listing, picked by search. ONLY the place id is kept:
+ * Google's Places terms allow storing a place id indefinitely and nothing
+ * else — name, address, rating and reviews are fetched live each time and
+ * shown with Google's attribution. Unique per agency for now (one listing
+ * per agency, decided Q6); a table so several offices can come later.
+ */
+export const agencyGooglePlace = pgTable(
+  'agency_google_place',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    placeId: text('place_id').notNull(),
+    pickedBy: uuid('picked_by').references(() => user.id, { onDelete: 'set null' }),
+    pickedAt: timestamp('picked_at', { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('agency_google_place_agency_idx').on(t.agencyId)],
+);
+
 export type ListingAgent = typeof listingAgent.$inferSelect;
 export type AgentProfile = typeof agentProfile.$inferSelect;
 export type SearchSchedule = typeof searchSchedule.$inferSelect;
@@ -1884,3 +1908,4 @@ export type ProposedAction = typeof proposedAction.$inferSelect;
 export type Dashboard = typeof dashboard.$inferSelect;
 export type ListingImport = typeof listingImport.$inferSelect;
 export type ListingImportRow = typeof listingImportRow.$inferSelect;
+export type AgencyGooglePlace = typeof agencyGooglePlace.$inferSelect;

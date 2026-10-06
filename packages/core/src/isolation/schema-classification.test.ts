@@ -38,6 +38,7 @@ const OWN_AGENCY = [
   'proposed_action',
   'dashboard',
   'listing_import',
+  'agency_google_place',
 ] as const;
 
 /** Reaches an agency through a parent row: table → [foreign-key column, parent table]. */

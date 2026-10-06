@@ -8,6 +8,15 @@
   0029 applied on dev (additive). Waiting for the user's walk-through of TEST-PLAN U and V.
   **Not started (by instruction): Phase D** (template email from picked contacts), then
   E (delayed run, needs the 5-min cron) and F (widgets hook).
+- **Phase 5 — Google reviews step 1 (ADR 0028) committed.** Migration 0033 applied on dev
+  (agency_google_place: the place id only). Google's Places terms were checked first: only a
+  place id may be stored, and Places content may not be cached. So, unlike the ADR's 6-hour
+  cache, rating and reviews are fetched live each view and dropped. Settings → Google reviews
+  (owner/admin picker, search ≤ 1/s), "Agency reviews" for agents, and a section on live
+  listing pages loaded by the browser (never in ISR HTML), rate-limited, showing nothing when
+  not set up. Attribution in one shared component, guarded by a test. "Link to contact" waits
+  for step 2 (ADR decision). TEST-PLAN Z.
+  **Next: Phase 6 — Gmail send (ADR 0026).**
 - **Phase 4 — CSV listing import (ADR 0029) committed.** Migration 0032 applied on dev
   (listing.external_id unique per agency; listing_import, listing_import_row). Upload (≤ 5,000
   rows, ≤ 10 MB) → match columns → dry run (form rules, geocoding outside transactions,
@@ -17,7 +26,6 @@
   Owner/admin import live or draft; an agent's goes to approval; admin-only "Update from file";
   unknown agent email → under the uploader, flagged; file and cells cleared 30 days after.
   TEST-PLAN Y. Not measured: a 3,000-row run against the remote DB.
-  **Next: Phase 5 — Google reviews step 1 (ADR 0028).**
 - **Phase 3 — Dashboards (ADR 0027) committed.** Migrations 0030 (agency.time_zone, dashboard)
   and 0031 (proposed_action tool CHECK widened for create_dashboard — no row change) applied
   on dev. Six widgets, Sold value with undisclosed sales counted apart, viewer-scoped figures,

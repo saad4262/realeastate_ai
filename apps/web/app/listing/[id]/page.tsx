@@ -13,6 +13,7 @@ import { WebShell } from '../../../components/web-shell';
 import { looksSignedIn } from '../../../lib/session';
 import { ListingMap } from '../../../components/listing-map';
 import { EnquiryForm } from '../../../components/enquiry-form';
+import { ListingReviews } from '../../../components/listing-reviews';
 import {
   AgentPanel,
   Timeline,
@@ -448,6 +449,11 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
                   />
                 </Card>
               ) : null}
+
+              {/* The agency's Google rating and reviews (ADR 0028), fetched by the
+                  browser — never part of this cached page. Nothing at all
+                  when the agency has not set it up. */}
+              <ListingReviews listingId={listing.id} />
 
               {/*
                 Sections this platform has no data source for. Said in one line

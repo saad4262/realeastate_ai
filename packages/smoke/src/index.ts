@@ -204,6 +204,7 @@ import {
   startImport,
   type ImportDeps,
 } from '@repo/core/imports';
+import { agencyReviews, clearAgencyGooglePlace, publicListingReviews, searchGooglePlaces, setAgencyGooglePlace, type PlaceDetails, type PlacesClient } from '@repo/core/reviews';
 import { archiveDashboard, createDashboard, getDashboardData, listDashboards, rangeWindow, renderWidget, WIDGET_IDS, WIDGET_RANGES } from '@repo/core/dashboards';
 import { assert, check, group, note, report, skip } from './runner';
 
@@ -3401,6 +3402,15 @@ async function main() {
    * agent A1 is named on, and the people around them. Self-contained, so these
    * checks prove the rules whatever the dev data happens to hold.
    */
+  /** A fake Google: every place exists, named after its id, with one review by an author named after it. */
+  const echoPlaces: PlacesClient = {
+    search: async (q) => [{ placeId: `ChIJsearch_${q.replace(/\W/g, '_')}`, name: q, address: 'Somewhere VIC', rating: 4.5, ratingCount: 10 }],
+    details: async (placeId): Promise<PlaceDetails> => ({
+      placeId, name: `Place ${placeId}`, address: 'Somewhere VIC', rating: 4.5, ratingCount: 10, mapsUri: 'https://maps.google.com/?cid=1',
+      reviews: [{ rating: 5, text: `about ${placeId}`, when: 'a week ago', author: { name: `Author of ${placeId}`, uri: 'https://www.google.com/maps/contrib/1', photoUri: null }, mapsUri: 'https://www.google.com/maps/reviews/1' }],
+    }),
+  };
+
   async function contactFixture(t: Db) {
     const id = () => randomUUID();
     const tag = randomUUID().slice(0, 8);
@@ -5444,6 +5454,7 @@ async function main() {
     'office', 'team', 'membership', 'agent_invite', 'listing', 'lead', 'mail_thread', 'mail_message', 'contact', 'note',
     'activity', 'appointment', 'integration_account', 'ai_run', 'skill', 'agent_skill', 'skill_run', 'contact_filter',
     'email_template', 'email_batch', 'assistant_conversation', 'proposed_action', 'dashboard', 'listing_import',
+    'agency_google_place',
   ] as const;
   const CHILD_TABLES: [string, string, string][] = [
     ['team_member', 'team_id', 'team'],
@@ -5507,6 +5518,8 @@ async function main() {
       const proposalId = (card.frame as { id: string }).id;
       const dash = await createDashboard(t, f.actor('owner'), { title: `Agency ${f.tag}`, widgets: [{ widget: 'new_leads', params: {} }], audience: 'agency' });
       const imp = await createImport(t, f.actor('owner'), { fileName: `f-${f.tag}.csv`, text: `suburb,state,postcode,channel,status,headline\nPakenham,VIC,3810,sale,draft,${f.tag}` });
+      const placeId = `ChIJsmoke_${f.tag}_place`;
+      await setAgencyGooglePlace(t, f.actor('owner'), placeId, { places: echoPlaces });
       await t.execute(sql`insert into ai_run (feature, model, cost_usd, user_id, agency_id, prompt_version) values ('assistant', 'claude-sonnet-5-5', 0.5, ${f.people.a1}, ${f.agencyId}, 'smoke')`);
       const [ids] = await t.execute<{ listing: string; lead: string; thread: string; offer: string }>(sql`
         select (select id from listing where agency_id = ${f.agencyId} limit 1) as listing,
@@ -5530,6 +5543,7 @@ async function main() {
           proposal: proposalId,
           dashboard: dash.id,
           importId: imp.id,
+          placeId,
           listing: ids!.listing,
           lead: ids!.lead,
           offer: ids!.offer,
@@ -5541,7 +5555,7 @@ async function main() {
     const B = await make();
     const bIds = [
       ...B.ids.contacts, ...B.ids.people, B.ids.appointment, ...B.ids.notes, B.ids.template, B.ids.filter, B.ids.batch,
-      B.ids.skill, ...B.ids.accounts, B.ids.conversation, B.ids.proposal, B.ids.dashboard, B.ids.importId, B.ids.listing, B.ids.lead, B.ids.offer, B.ids.thread, B.f.agencyId,
+      B.ids.skill, ...B.ids.accounts, B.ids.conversation, B.ids.proposal, B.ids.dashboard, B.ids.importId, B.ids.placeId, B.ids.listing, B.ids.lead, B.ids.offer, B.ids.thread, B.f.agencyId,
     ].filter(Boolean);
     return { g, A, B, bIds };
   }
@@ -5593,6 +5607,7 @@ async function main() {
           ['show_widget', runAssistantTool(ctx, 'show_widget', { widget: 'listings_by_status' })],
           ['listImports', listImports(t, actor)],
           ['getImport(B)', getImport(t, actor, B.ids.importId)],
+          ['agencyReviews', agencyReviews(t, actor, { places: echoPlaces }).catch((e: unknown) => (e as { code?: string }).code === 'forbidden' ? null : Promise.reject(e))],
         ];
         // Handlers attached the moment each read starts: a refusal must never be an unhandled rejection.
         const settled = lists.map(([name, p]) => [name, tolerate(p)] as const);
@@ -6070,6 +6085,74 @@ async function main() {
       const [gone] = await t.execute<{ file: string | null; raws: number }>(sql`select file_text as file, (select count(*)::int from listing_import_row where import_id = ${id} and raw is not null) as raws from listing_import where id = ${id}`);
       assert(gone?.file === null && gone.raws === 0, `after 30 days: ${JSON.stringify(gone)}`);
       return 'a held lease blocks a second worker, a stale one does not; tick finished the dry run; a suspended uploader’s import failed with the reason; file and cells cleared after 30 days';
+    }),
+  );
+
+  group('Google reviews');
+
+  await check('nothing shows anywhere until an owner or admin picks the agency’s Google listing; an agent cannot pick', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const [lst] = await t.execute<{ id: string }>(sql`select id from listing where agency_id = ${f.agencyId} limit 1`);
+      assert((await publicListingReviews(t, lst!.id, { places: echoPlaces })) === null, 'the public page showed reviews with no listing picked');
+      const a1View = await agencyReviews(t, f.actor('a1'), { places: echoPlaces });
+      assert(a1View.state === 'not_set' && !a1View.mayManage, `agent view: ${JSON.stringify(a1View)}`);
+      const code = (p: Promise<unknown>) => p.then(() => 'ok', (e: unknown) => (e as { code?: string }).code ?? String(e));
+      assert((await code(setAgencyGooglePlace(t, f.actor('a1'), 'ChIJsmoke_agent_pick', { places: echoPlaces }))) === 'forbidden', 'an agent picked the listing');
+      assert((await code(searchGooglePlaces(f.actor('a1'), 'Smoke Realty', { places: echoPlaces }))) === 'forbidden', 'an agent searched');
+      assert((await count(t, sql`select count(*)::int as n from agency_google_place where agency_id = ${f.agencyId}`)) === 0, 'a row was written');
+      return 'public: nothing; agent: "not connected yet", cannot search or pick; nothing stored';
+    }),
+  );
+
+  await check('picked: only the place id is stored; members and the live listing’s page show Google’s rating and reviews; a draft listing, a retired place or a Google outage show nothing publicly', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const [lst] = await t.execute<{ id: string }>(sql`select id from listing where agency_id = ${f.agencyId} limit 1`);
+      const placeId = `ChIJsmoke_${f.tag}_pick`;
+      await setAgencyGooglePlace(t, owner, placeId, { places: echoPlaces });
+      const [row] = await t.execute<Record<string, unknown>>(sql`select * from agency_google_place where agency_id = ${f.agencyId}`);
+      const stored = JSON.stringify(row);
+      assert(row?.place_id === placeId && !/Place ChIJ|Author of|about ChIJ|4\.5|Somewhere/.test(stored), `stored more than the id: ${stored}`);
+      const a1View = await agencyReviews(t, f.actor('a1'), { places: echoPlaces });
+      assert(a1View.state === 'ok' && a1View.place.reviews[0]?.author.name === `Author of ${placeId}`, `agent view: ${JSON.stringify(a1View).slice(0, 200)}`);
+      const pub = await publicListingReviews(t, lst!.id, { places: echoPlaces });
+      assert(pub?.place.placeId === placeId && pub.place.reviews.length === 1, `public: ${JSON.stringify(pub)?.slice(0, 200)}`);
+      // Picking again replaces it — one listing per agency.
+      await setAgencyGooglePlace(t, owner, `${placeId}2`, { places: echoPlaces });
+      assert((await count(t, sql`select count(*)::int as n from agency_google_place where agency_id = ${f.agencyId}`)) === 1, 'two listings for one agency');
+      const [now] = await t.execute<{ place_id: string }>(sql`select place_id from agency_google_place where agency_id = ${f.agencyId}`);
+      assert(now?.place_id === `${placeId}2`, `re-picking did not replace the listing: ${now?.place_id}`);
+      await t.execute(sql`update listing set status = 'draft' where id = ${lst!.id}`);
+      assert((await publicListingReviews(t, lst!.id, { places: echoPlaces })) === null, 'a draft listing showed reviews');
+      await t.execute(sql`update listing set status = 'live' where id = ${lst!.id}`);
+      const gone: PlacesClient = { search: async () => [], details: async () => 'not_found' };
+      const down: PlacesClient = { search: async () => null, details: async () => null };
+      assert((await publicListingReviews(t, lst!.id, { places: gone })) === null && (await publicListingReviews(t, lst!.id, { places: down })) === null, 'public showed something when Google could not');
+      assert((await agencyReviews(t, owner, { places: gone })).state === 'not_found' && (await agencyReviews(t, owner, { places: down })).state === 'unavailable', 'console states');
+      await clearAgencyGooglePlace(t, owner);
+      assert((await publicListingReviews(t, lst!.id, { places: echoPlaces })) === null, 'still shown after Remove');
+      return 'id only stored; agent + public see reviews with authors; re-pick replaces; draft / retired / outage / removed → nothing public';
+    }),
+  );
+
+  await check('one agency’s Google listing never reaches another agency, and picking or removing touches only your own', async () =>
+    inRollback(async (t) => {
+      const fa = await contactFixture(t);
+      const fb = await contactFixture(t);
+      const bPlace = `ChIJsmoke_${fb.tag}_b`;
+      await setAgencyGooglePlace(t, fb.actor('owner'), bPlace, { places: echoPlaces });
+      const aView = await agencyReviews(t, fa.actor('owner'), { places: echoPlaces });
+      assert(aView.state === 'not_set' && !JSON.stringify(aView).includes(bPlace), `A saw: ${JSON.stringify(aView).slice(0, 200)}`);
+      await setAgencyGooglePlace(t, fa.actor('owner'), `ChIJsmoke_${fa.tag}_a`, { places: echoPlaces });
+      await clearAgencyGooglePlace(t, fa.actor('owner'));
+      const [b] = await t.execute<{ place_id: string }>(sql`select place_id from agency_google_place where agency_id = ${fb.agencyId}`);
+      assert(b?.place_id === bPlace, `B's listing changed: ${b?.place_id}`);
+      const [bl] = await t.execute<{ id: string }>(sql`select id from listing where agency_id = ${fb.agencyId} limit 1`);
+      const pub = await publicListingReviews(t, bl!.id, { places: echoPlaces });
+      assert(pub?.place.placeId === bPlace && pub.agencyName !== aView.agencyName, 'B’s listing page shows another agency’s reviews');
+      return 'A sees none of B’s; A’s pick and Remove leave B’s row; B’s listing shows B’s reviews';
     }),
   );
 

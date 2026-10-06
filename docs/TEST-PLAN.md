@@ -750,3 +750,30 @@ Download the template**) and make a copy to edit. In a spreadsheet, save as **CS
 | Y16 | Upload a file with more than 5,000 rows, or one that is not a CSV | A plain error; nothing is created. |
 | Y17 | Put `=HYPERLINK("http://example.com")` as a photo link, then download the row report and open it in Excel | The cell shows the text, starting with an apostrophe. It is **not** a live formula. |
 
+## Z — Google reviews, step 1 (ADR 0028)
+
+The agency's public Google rating and the few reviews Google makes public. They show in the
+console and on the website's **live listing pages**. Only the Google listing's ID is saved.
+Everything else comes live from Google each time, with Google's attribution (Google's rules
+allow nothing else). Reviews are the agency's, never an agent's.
+
+**Setup.** `GOOGLE_MAPS_API_KEY` with **Places API (New)** enabled in Google Cloud. This is a
+separate switch from "Places API"; both may be on. Owner, agent A1, and a second agency's
+owner. A real agency with Google reviews to search for (yours, or any well-known agency).
+Each page view that shows reviews is one billed Google call.
+
+| # | Case | Expected |
+|---|---|---|
+| Z1 | Before anything is set: open one of your **live** listings on the website and scroll to the bottom | No reviews section at all (no empty box, no stars). |
+| Z2 | A1 → **Agency reviews** in the menu | "Your agency hasn't connected its Google reviews yet." No search box. |
+| Z3 | Owner → Settings → **Google reviews** → type the agency's name and suburb → **Find our Google listing** | Up to 8 results, each with name, address and rating, and "Ratings and reviews from Google Maps" under the list. |
+| Z4 | Press search twice very quickly | The second says "One search a second — try again". |
+| Z5 | **This is us** on the right one | The page shows the rating, the review count, "See all on Google Maps", and up to 5 reviews. Each review has the author's name (a link to their Google profile), their photo, stars, "x weeks ago", the text and "View on Google Maps". Under them: "chosen and ordered by Google and shown unfiltered". |
+| Z6 | Open each link from Z5 | Each opens Google Maps (the author's profile, the review, the place). |
+| Z7 | Reload the website listing from Z1 and scroll down | "Reviews of <Agency>" with the same content and "Ratings and reviews from Google Maps". |
+| Z8 | A1 → **Agency reviews** | The same reviews, read-only: no search, no Remove. |
+| Z9 | Open a listing that is **not live** (draft, or withdrawn) by its link | No reviews section. |
+| Z10 | The second agency's live listing (its agency has not picked a listing) | No reviews section. Agency 1's reviews never appear there. |
+| Z11 | Owner → **Find a different listing** → pick another place | Every page now shows the new place. There is never more than one. |
+| Z12 | Owner → **Remove** → confirm | Console shows the "find your listing" box again. Listing pages show nothing. |
+| Z13 | (Optional) Temporarily remove `GOOGLE_MAPS_API_KEY` from the **web** app's environment (needs a restart, so do it at the end) | Listing pages show no reviews section, and no error. |

@@ -1,3 +1,19 @@
+## 2026-10-06 — Claude Code — Phase 5: Google reviews step 1 (ADR 0028)
+
+- Done: Places terms checked (policies page + service terms): place id storable, nothing
+  else cached; attribution + author attribution + review links required; ordering notice.
+  Migration 0033 (agency_google_place, RLS). `@repo/core/reviews` (Places (New) client with
+  field masks, picker search, set/clear place, agencyReviews, publicListingReviews, no cache,
+  in-flight coalescing only); permissions google_place:manage, review:read;
+  `@repo/ui/google-reviews` (attribution component); console Settings → Google reviews and
+  /my-reviews; web /api/reviews/<listingId> (public, rate-limited, no-store) + browser
+  section on the listing page; TEST-PLAN Z; ADR 0028 as-built (terms override the cache).
+- Checks: typecheck 10/10, lint 0 errors, unit green; smoke Google reviews 3/3, Tenant
+  isolation 4/4 (140 reads, 172 writes, 35 tables). Break-tests (two copies): 18 guards red
+  (one needed a stronger test: author link hidden behind `false ?` — test tightened, then
+  red; one needed a stronger smoke assert: re-pick not replacing — tightened, then red).
+- Next exact step: Phase 6 (Gmail send).
+
 ## 2026-10-06 — Claude Code — Phase 4: CSV listing import (ADR 0029)
 
 - Done: migration 0032 applied on dev; `@repo/core/imports` (csv reader, column mapping,

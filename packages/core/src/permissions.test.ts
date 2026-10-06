@@ -817,3 +817,18 @@ describe('listing import (ADR 0029)', () => {
   });
 });
 
+
+describe('Google reviews, step 1 (ADR 0028)', () => {
+  const m = (membershipRole: Actor['membershipRole']): Actor => ({ userId: 'u', agencyId: agencyA, membershipRole });
+  const place = { type: 'agency_google_place', agencyId: agencyA };
+  it('only an owner or admin picks the agency’s Google listing', () => {
+    expect(can(m('owner'), 'google_place:manage', place)).toBe(true);
+    expect(can(m('admin'), 'google_place:manage', place)).toBe(true);
+    for (const r of ['agent', 'assistant', 'property_manager', 'read_only'] as const) expect(can(m(r), 'google_place:manage', place), r).toBe(false);
+  });
+  it('every member of the agency sees its reviews; nobody else does', () => {
+    for (const r of ['owner', 'admin', 'agent', 'assistant', 'property_manager', 'read_only'] as const) expect(can(m(r), 'review:read', place), r).toBe(true);
+    expect(can({ userId: 'u', agencyId: agencyB, membershipRole: 'owner' }, 'review:read', place)).toBe(false);
+    expect(can({ userId: 'u' }, 'review:read', place)).toBe(false);
+  });
+});

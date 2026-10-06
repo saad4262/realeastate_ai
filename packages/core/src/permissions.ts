@@ -271,6 +271,10 @@ export type Action =
   | 'listing_import:run'
   /** Cancel it: its creator or an admin. */
   | 'listing_import:cancel'
+  /** Pick or change the agency's Google listing (ADR 0028): owner/admin. */
+  | 'google_place:manage'
+  /** See the agency's Google rating and reviews in the console: any active member. */
+  | 'review:read'
   | 'team:manage'
   | 'agency:billing'
   /** Agency OS host — owner|admin only */
@@ -548,6 +552,12 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       if (action === 'listing_import:cancel' && !mayWrite(actor)) return false;
       if (isAgencyAdmin(actor)) return true;
       return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'google_place:manage':
+      return sameAgency(actor, resource) && isAgencyAdmin(actor);
+
+    case 'review:read':
+      return sameAgency(actor, resource) && Boolean(actor.membershipRole);
 
     case 'listing_import:run':
       return sameAgency(actor, resource) && mayWrite(actor) && Boolean(resource.ownerId) && actor.userId === resource.ownerId;

@@ -14,6 +14,10 @@ export default function SettingsPage() {
           <Link href="/settings/integrations" className={contactStyles.name}>Integrations →</Link>
           <p className={contactStyles.note}>Google Calendar, Zoom, Google Sheets and Google reviews.</p>
         </div>
+        <div className={contactStyles.section}>
+          <Link href="/settings/reviews" className={contactStyles.name}>Google reviews →</Link>
+          <p className={contactStyles.note}>Find your agency’s Google listing; its rating and reviews show on your live listings.</p>
+        </div>
       </div>
     </div>
   );
