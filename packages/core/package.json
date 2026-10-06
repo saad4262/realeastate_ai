@@ -46,6 +46,8 @@
     "./assistant": "./src/assistant/index.ts",
     "./assistant/schema": "./src/assistant/schema.ts",
     "./dashboards": "./src/dashboards/index.ts",
+    "./imports": "./src/imports/index.ts",
+    "./imports/columns-client": "./src/imports/columns-client.ts",
     "./widgets": "./src/widgets/registry.ts",
     "./skills/schema": "./src/skills/skill-schema.ts",
     "./template-email": "./src/template-email/index.ts",

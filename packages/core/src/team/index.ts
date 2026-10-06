@@ -39,3 +39,4 @@ export {
   type InviteEmailDeps,
   type InviteEmailOutcome,
 } from './invite-email';
+export { activeMemberActor } from './member-actor';

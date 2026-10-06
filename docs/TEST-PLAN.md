@@ -714,3 +714,39 @@ the assistant steps (a cent or two each).
 | X10 | A1 asks the assistant to make a dashboard | It says only an owner or admin can save one; no card. |
 | X11 | Owner → **Dashboards** → Remove on one | Gone from the list; its link now says Not found. |
 | X12 | Leave a dashboard tab in the background for a few minutes, then come back | It updates when you return (it pauses while hidden). |
+
+## Y — Import listings from a CSV (ADR 0029)
+
+Owners, admins and agents can import up to 5,000 listings from a CSV file. Nothing is imported
+until every row has been checked and you have seen the report. An owner's or admin's import
+goes live (or as drafts, if they choose). An agent's import arrives **waiting for approval**.
+A row that matches one of the agency's active listings (same address, or the same id in your
+own system) is **skipped**. Only an owner or admin can tick **Update from file** to update
+those listings instead. Photos come from web links in the file. The uploaded file is deleted
+30 days after the import finishes; the row report stays.
+
+**Setup.** Owner, agent A1 and agent A2 in one agency, plus a second agency's owner. You need
+`GOOGLE_MAPS_API_KEY` (each address is looked up once), and Supabase Storage as for photo
+uploads. Download the template from the import page (**Listings → Import from CSV →
+Download the template**) and make a copy to edit. In a spreadsheet, save as **CSV UTF-8**.
+
+| # | Case | Expected |
+|---|---|---|
+| Y1 | Owner → Listings → **Import from CSV**. Upload the template unchanged, choosing "as in the file" | You land on the import page. The columns are already matched, and the first rows of the file are shown under the column choices. |
+| Y2 | Press **Check every row** | "Checking every row…" with counts going up. Then "Checked — review the report". The 3 template rows are **ready**. Your listings page has **no new listings yet**. |
+| Y3 | Edit your copy: make one price `$1.2m`, delete one headline, write one listed-on date as `03/04/2026`, give one row a made-up street (`999 Nowhere Rd`). Upload it and check it | Each of those rows appears under **Rows to look at**, with the column and a plain reason ("whole dollars", "required", "YYYY-MM-DD", "Google could not find this street address"). **Download the full row report** gives the same as a CSV. |
+| Y4 | Fix those rows; add a row with the address of one of your existing **live** listings; add a second row with the same address and channel as another row | Both new rows show as **duplicates** ("Matches one of your active listings" / "Same address and channel as row N"). |
+| Y5 | Press **Import N listings** (leave Update from file unticked) | Counts move through imported, then photos. "Finished. Open your listings". The new listings are live (a "sold" row is Sold with its price and date). Your existing listing from Y4 is **unchanged**. |
+| Y6 | Put an agent's email in `agent_emails` on one row, and `nobody@example.com` on another | The first listing shows that agent. The second shows **you**, and its row says "Agent not found: nobody@example.com — listed under you instead". |
+| Y7 | Put two photo links in `photo_urls` separated by `\|`: one real public JPEG and one broken link (e.g. a page that doesn't exist) | The listing has the real photo. The row lists the broken link with the reason. |
+| Y8 | A photo link to `http://localhost/…` or `http://169.254.169.254/…` | That photo fails with "not on the public internet". Nothing else is affected. |
+| Y9 | Upload again, start the import and **close the tab** halfway through a large file (a few hundred rows) | Reopen the import from **Earlier imports** a few minutes later. It has carried on (the scheduler runs it) and finishes. No listing appears twice. (Needs the cron, which runs every minute in dev only if you have it set up; otherwise reopening the page continues it.) |
+| Y10 | A1 → **Import from CSV** | The page says listings arrive waiting for approval. There is no "live / drafts" choice. |
+| Y11 | A1 imports a small file with one row matching an active listing | No **Update from file** box. The imported listings are **Pending approval**. The owner sees them waiting and can approve them as usual. |
+| Y12 | Owner imports a file whose row matches an active listing, ticks **Update from file**, imports | That existing listing's headline/price now match the file. **No second listing** at that address. |
+| Y13 | A2 opens A1's import link (copy it from A1's address bar) | Not found. The owner can open it and cancel it, but has no buttons to run it. |
+| Y14 | The second agency's owner opens the first agency's import link | Not found. |
+| Y15 | Upload the same file twice | A message says you uploaded this same file on <date>; the check shows its rows as duplicates. |
+| Y16 | Upload a file with more than 5,000 rows, or one that is not a CSV | A plain error; nothing is created. |
+| Y17 | Put `=HYPERLINK("http://example.com")` as a photo link, then download the row report and open it in Excel | The cell shows the text, starting with an apostrophe. It is **not** a live formula. |
+

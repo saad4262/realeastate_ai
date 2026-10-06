@@ -1,6 +1,7 @@
 import { after, NextResponse, type NextRequest } from 'next/server';
 import { runAppointmentSyncTick, syncDepsFromEnv } from '@repo/core/appointments';
 import { expireProposedActions, purgeAssistantConversations } from '@repo/core/assistant';
+import { purgeImportFiles, runImportTick } from '@repo/core/imports';
 import { pullReceivedMail } from '@repo/core/mail';
 import { authoriseCronRequest, runScheduleTick } from '@repo/core/schedules';
 import { runSkillTick } from '@repo/core/skills';
@@ -111,9 +112,18 @@ async function handler(request: NextRequest) {
       .then(([purged, expired]) => ({ purged, expired }))
       .catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'assistant purge failed' }));
 
+    /**
+     * CSV listing imports (ADR 0029): carry on an import whose tab was closed,
+     * one chunk each, as the person who started it (re-checked every tick);
+     * an uploaded file is deleted 30 days after upload, the report stays.
+     */
+    const imports = await Promise.all([runImportTick(getWebDb()), purgeImportFiles(getWebDb())])
+      .then(([tick, purged]) => ({ ...tick, purged }))
+      .catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'import tick failed' }));
+
     // No ids, no addresses, no listing text — this is read from a cron log.
     return NextResponse.json(
-      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills, templateEmail, appointmentSync, assistant },
+      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills, templateEmail, appointmentSync, assistant, imports },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (err) {

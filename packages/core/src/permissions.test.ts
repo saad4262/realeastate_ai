@@ -795,3 +795,25 @@ describe('dashboards (ADR 0027)', () => {
   });
 });
 
+describe('listing import (ADR 0029)', () => {
+  const m = (userId: string, membershipRole: Actor['membershipRole']): Actor => ({ userId, agencyId: agencyA, membershipRole });
+  const imp = (ownerId: string) => ({ type: 'listing_import', id: 'i1', agencyId: agencyA, ownerId });
+  const owner = m('owner', 'owner');
+  const agent = m('agent', 'agent');
+  const other = m('other', 'agent');
+  const viewer = m('viewer', 'read_only');
+  it('any writing member may start one; read-only may not', () => {
+    expect(can(agent, 'listing_import:create', { type: 'listing_import', agencyId: agencyA })).toBe(true);
+    expect(can(viewer, 'listing_import:create', { type: 'listing_import', agencyId: agencyA })).toBe(false);
+    expect(can({ userId: 'r', agencyId: agencyB, membershipRole: 'owner' }, 'listing_import:create', { type: 'listing_import', agencyId: agencyA })).toBe(false);
+  });
+  it('its creator runs it; an admin may read and cancel but not run another person’s', () => {
+    expect(can(agent, 'listing_import:run', imp('agent'))).toBe(true);
+    expect(can(owner, 'listing_import:run', imp('agent'))).toBe(false);
+    expect(can(owner, 'listing_import:read', imp('agent'))).toBe(true);
+    expect(can(owner, 'listing_import:cancel', imp('agent'))).toBe(true);
+    expect(can(other, 'listing_import:read', imp('agent'))).toBe(false);
+    expect(can(other, 'listing_import:cancel', imp('agent'))).toBe(false);
+  });
+});
+

@@ -259,6 +259,18 @@ export type Action =
   | 'dashboard:manage'
   /** Agency-wide money and performance figures (Sold value, sales). Owner/admin. */
   | 'report:read_agency'
+  /**
+   * Start a CSV listing import (ADR 0029): any member who may write. An
+   * agent's import is forced to `pending` (admin approval); only someone with
+   * `listing:publish` may import live or as draft.
+   */
+  | 'listing_import:create'
+  /** See an import and its row report: its creator, or an admin. */
+  | 'listing_import:read'
+  /** Map, dry-run and run it: its creator only. */
+  | 'listing_import:run'
+  /** Cancel it: its creator or an admin. */
+  | 'listing_import:cancel'
   | 'team:manage'
   | 'agency:billing'
   /** Agency OS host — owner|admin only */
@@ -526,6 +538,19 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'dashboard:create':
     case 'report:read_agency':
       return sameAgency(actor, resource) && isAgencyAdmin(actor);
+
+    case 'listing_import:create':
+      return sameAgency(actor, resource) && mayWrite(actor);
+
+    case 'listing_import:read':
+    case 'listing_import:cancel':
+      if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      if (action === 'listing_import:cancel' && !mayWrite(actor)) return false;
+      if (isAgencyAdmin(actor)) return true;
+      return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'listing_import:run':
+      return sameAgency(actor, resource) && mayWrite(actor) && Boolean(resource.ownerId) && actor.userId === resource.ownerId;
 
     case 'dashboard:read':
       if (!sameAgency(actor, resource) || !actor.membershipRole) return false;

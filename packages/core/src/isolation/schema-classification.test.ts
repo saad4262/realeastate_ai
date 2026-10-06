@@ -37,6 +37,7 @@ const OWN_AGENCY = [
   'assistant_conversation',
   'proposed_action',
   'dashboard',
+  'listing_import',
 ] as const;
 
 /** Reaches an agency through a parent row: table → [foreign-key column, parent table]. */
@@ -51,6 +52,7 @@ const THROUGH_PARENT: Record<string, [string, string]> = {
   email_batch_recipient: ['batch_id', 'email_batch'],
   assistant_turn: ['conversation_id', 'assistant_conversation'],
   agent_profile: ['user_id', 'user'],
+  listing_import_row: ['import_id', 'listing_import'],
 };
 
 /**

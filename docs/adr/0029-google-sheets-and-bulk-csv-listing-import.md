@@ -225,3 +225,40 @@ transaction (CLAUDE.md); a property is not a listing (#1).
 \* A row with no street (e.g. vacant land "Lot 12") needs `street` with the lot description;
 the address must still geocode, or the row is ✗ "Check the address". Dates are always
 `YYYY-MM-DD`, so `03/04/2026` is never guessed.
+
+## As built (Phase 4, 2026-10-06)
+
+CSV only; **Google Sheets is not built** (deferred by the client). Where the build differs from
+the text above:
+
+- **The file is kept in the database, not a Storage bucket.** `listing_import.file_text` holds
+  the uploaded CSV (≤ 10 MB) and `listing_import_row.raw` each row's cells. Thirty days after
+  the import finishes, the cron tick clears both (`purgeImportFiles`); the row report
+  (status, errors, warnings, the listing made) stays. One less bucket and policy, the same
+  retention.
+- **Duplicates:** same address (the property address key) with an active listing
+  (draft/pending/live/under offer) of this agency, or the same `external_id` among the
+  agency's listings, or an earlier row of the same file with the same address and channel.
+  `listing.external_id` was added, unique per agency. Found in three statements per chunk,
+  never one per row.
+- **Geocoding happens in the dry run**, outside any transaction. The pin is stored on the row,
+  so the import's `createListing` is handed coordinates and makes no network call inside its
+  transaction. Each row is its own savepoint: a failing row is marked failed with its reason
+  and the rest of the chunk goes in.
+- **One worker per import** is a lease (`claimed_at`, 2 minutes) taken by a guarded UPDATE,
+  not `FOR UPDATE SKIP LOCKED`: a chunk runs outside one long transaction, so a row lock
+  would not outlive the claim. A stale lease (a crashed worker) is taken over.
+- **Who runs it:** the page drives it chunk by chunk; the cron tick carries on an import nobody
+  is driving, **as its uploader as they are now** (`activeMemberActor`). If they are no longer
+  an active member, the import stops as failed with the reason. The mode is decided at upload
+  *and again* at Import, so an owner demoted in between imports as pending.
+- **Photos:** links only (the zip option is not built). JPEG/PNG/WebP, at most **10 MB** (the
+  same as a manual upload, not 15), at most the listing's normal photo limit
+  (`MAX_LISTING_PHOTOS`). The fetch refuses non-web schemes, credentials in links and every
+  private, loopback, link-local and carrier range. It re-checks each redirect (at most 3),
+  and checks the address **on the socket itself** (a guarded `lookup`), so DNS rebinding
+  cannot reach our network.
+- **The downloadable report** neutralises cells a spreadsheet would run as formulas.
+- **Not measured:** a full 3,000-row import against the remote dev database. The smoke suite
+  proves the chunking, the lease and resumption on 10-row files. Real timing goes in the
+  TEST-PLAN (Y9).

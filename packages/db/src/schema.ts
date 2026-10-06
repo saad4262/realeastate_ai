@@ -371,6 +371,12 @@ export const listing = pgTable(
     description: text('description'),
     soldPrice: numeric('sold_price', { precision: 14, scale: 2 }),
     soldDate: timestamp('sold_date', { withTimezone: true }),
+    /**
+     * The agency's own id for this listing, from its old system (ADR 0029) —
+     * so a second import of the same file updates instead of duplicating.
+     * Unique per agency when set.
+     */
+    externalId: text('external_id'),
     auctionDate: timestamp('auction_date', { withTimezone: true }),
     publishedAt: timestamp('published_at', { withTimezone: true }),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
@@ -1775,6 +1781,74 @@ export const dashboard = pgTable(
   (t) => [index('dashboard_agency_idx').on(t.agencyId, desc(t.createdAt))],
 );
 
+// ── Listing import (docs/adr/0029) ──────────────────────────────────────────
+
+/**
+ * One CSV import: uploaded → mapped → validating → validated → importing →
+ * done | failed | cancelled. Worked through in chunks of ~100 rows, by the open
+ * page and by the cron tick (so a closed tab loses nothing). `file_text` is
+ * the uploaded file, kept 30 days after the import finishes, then cleared.
+ */
+export const listingImport = pgTable(
+  'listing_import',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
+    fileName: text('file_name').notNull(),
+    fileHash: varchar('file_hash', { length: 64 }).notNull(),
+    fileText: text('file_text'),
+    headers: jsonb('headers').notNull().default([]),
+    /** Our field → the file's column index (or null). */
+    mapping: jsonb('mapping').notNull().default({}),
+    status: varchar('status', { length: 16 }).notNull().default('mapped'),
+    /** `live` | `draft` (owner/admin) or `pending` (an agent's import, ADR 0014). */
+    mode: varchar('mode', { length: 16 }).notNull().default('pending'),
+    /** Admin-only "Update from file": rows matching an active listing update it instead of skipping. */
+    updateDuplicates: boolean('update_duplicates').notNull().default(false),
+    totalRows: integer('total_rows').notNull().default(0),
+    /** A short lease on the job, so two workers never run the same chunk. */
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    error: text('error'),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    purgedAt: timestamp('purged_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index('listing_import_agency_idx').on(t.agencyId, desc(t.createdAt))],
+);
+
+/** One row of an import: the cells, what they became, and what happened. */
+export const listingImportRow = pgTable(
+  'listing_import_row',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    importId: uuid('import_id')
+      .notNull()
+      .references(() => listingImport.id, { onDelete: 'cascade' }),
+    rowNumber: integer('row_number').notNull(),
+    /** The file's cells; cleared with the file after 30 days. */
+    raw: jsonb('raw'),
+    /** After mapping, validation and geocoding — what the import writes. */
+    normalized: jsonb('normalized'),
+    /** pending | valid | error | duplicate | imported | updated | failed | skipped */
+    status: varchar('status', { length: 16 }).notNull().default('pending'),
+    errors: jsonb('errors').notNull().default([]),
+    warnings: jsonb('warnings').notNull().default([]),
+    duplicateOfListingId: uuid('duplicate_of_listing_id').references(() => listing.id, { onDelete: 'set null' }),
+    listingId: uuid('listing_id').references(() => listing.id, { onDelete: 'set null' }),
+    /** Per photo link: pending | done | failed (with why). */
+    photos: jsonb('photos').notNull().default([]),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('listing_import_row_number_idx').on(t.importId, t.rowNumber),
+    index('listing_import_row_status_idx').on(t.importId, t.status),
+  ],
+);
+
 export type User = typeof user.$inferSelect;
 export type Agency = typeof agency.$inferSelect;
 export type Listing = typeof listing.$inferSelect;
@@ -1808,3 +1882,5 @@ export type AssistantConversation = typeof assistantConversation.$inferSelect;
 export type AssistantTurn = typeof assistantTurn.$inferSelect;
 export type ProposedAction = typeof proposedAction.$inferSelect;
 export type Dashboard = typeof dashboard.$inferSelect;
+export type ListingImport = typeof listingImport.$inferSelect;
+export type ListingImportRow = typeof listingImportRow.$inferSelect;

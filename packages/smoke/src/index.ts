@@ -190,6 +190,20 @@ import {
   type HandleMap,
 } from '@repo/core/assistant';
 import { assistantDeps, runAssistantTurn, type AssistantEvent } from '@repo/ai/assistant';
+import {
+  cancelImport,
+  createImport,
+  getImport,
+  importReport,
+  listImports,
+  purgeImportFiles,
+  runImportChunk,
+  runImportTick,
+  setImportMapping,
+  startDryRun,
+  startImport,
+  type ImportDeps,
+} from '@repo/core/imports';
 import { archiveDashboard, createDashboard, getDashboardData, listDashboards, rangeWindow, renderWidget, WIDGET_IDS, WIDGET_RANGES } from '@repo/core/dashboards';
 import { assert, check, group, note, report, skip } from './runner';
 
@@ -5429,7 +5443,7 @@ async function main() {
   const OWN_AGENCY_TABLES = [
     'office', 'team', 'membership', 'agent_invite', 'listing', 'lead', 'mail_thread', 'mail_message', 'contact', 'note',
     'activity', 'appointment', 'integration_account', 'ai_run', 'skill', 'agent_skill', 'skill_run', 'contact_filter',
-    'email_template', 'email_batch', 'assistant_conversation', 'proposed_action', 'dashboard',
+    'email_template', 'email_batch', 'assistant_conversation', 'proposed_action', 'dashboard', 'listing_import',
   ] as const;
   const CHILD_TABLES: [string, string, string][] = [
     ['team_member', 'team_id', 'team'],
@@ -5441,6 +5455,7 @@ async function main() {
     ['contact_property', 'contact_id', 'contact'],
     ['email_batch_recipient', 'batch_id', 'email_batch'],
     ['assistant_turn', 'conversation_id', 'assistant_conversation'],
+    ['listing_import_row', 'import_id', 'listing_import'],
   ];
 
   /** One hash per table over everything agency X owns — before and after must match. */
@@ -5491,6 +5506,7 @@ async function main() {
       );
       const proposalId = (card.frame as { id: string }).id;
       const dash = await createDashboard(t, f.actor('owner'), { title: `Agency ${f.tag}`, widgets: [{ widget: 'new_leads', params: {} }], audience: 'agency' });
+      const imp = await createImport(t, f.actor('owner'), { fileName: `f-${f.tag}.csv`, text: `suburb,state,postcode,channel,status,headline\nPakenham,VIC,3810,sale,draft,${f.tag}` });
       await t.execute(sql`insert into ai_run (feature, model, cost_usd, user_id, agency_id, prompt_version) values ('assistant', 'claude-sonnet-5-5', 0.5, ${f.people.a1}, ${f.agencyId}, 'smoke')`);
       const [ids] = await t.execute<{ listing: string; lead: string; thread: string; offer: string }>(sql`
         select (select id from listing where agency_id = ${f.agencyId} limit 1) as listing,
@@ -5513,6 +5529,7 @@ async function main() {
           conversation: conv.conversationId,
           proposal: proposalId,
           dashboard: dash.id,
+          importId: imp.id,
           listing: ids!.listing,
           lead: ids!.lead,
           offer: ids!.offer,
@@ -5524,7 +5541,7 @@ async function main() {
     const B = await make();
     const bIds = [
       ...B.ids.contacts, ...B.ids.people, B.ids.appointment, ...B.ids.notes, B.ids.template, B.ids.filter, B.ids.batch,
-      B.ids.skill, ...B.ids.accounts, B.ids.conversation, B.ids.proposal, B.ids.dashboard, B.ids.listing, B.ids.lead, B.ids.offer, B.ids.thread, B.f.agencyId,
+      B.ids.skill, ...B.ids.accounts, B.ids.conversation, B.ids.proposal, B.ids.dashboard, B.ids.importId, B.ids.listing, B.ids.lead, B.ids.offer, B.ids.thread, B.f.agencyId,
     ].filter(Boolean);
     return { g, A, B, bIds };
   }
@@ -5574,10 +5591,14 @@ async function main() {
           ['listDashboards', listDashboards(t, actor)],
           ['getDashboardData(B)', getDashboardData(t, actor, B.ids.dashboard)],
           ['show_widget', runAssistantTool(ctx, 'show_widget', { widget: 'listings_by_status' })],
+          ['listImports', listImports(t, actor)],
+          ['getImport(B)', getImport(t, actor, B.ids.importId)],
         ];
-        for (const [name, p] of lists) {
+        // Handlers attached the moment each read starts: a refusal must never be an unhandled rejection.
+        const settled = lists.map(([name, p]) => [name, tolerate(p)] as const);
+        for (const [name, p] of settled) {
           reads += 1;
-          const json = JSON.stringify(await tolerate(p));
+          const json = JSON.stringify(await p);
           const hit = bIds.find((id) => json.includes(id));
           if (hit) leaks.push(`${role} ${name} → ${hit}`);
         }
@@ -5643,6 +5664,9 @@ async function main() {
           ['updateListing', () => updateListing(t, actor, B.ids.listing, { property: {}, listing: {} })],
           ['setListingStatus', () => setListingStatus(t, actor, B.ids.listing, 'withdrawn')],
           ['archiveDashboard', () => archiveDashboard(t, actor, B.ids.dashboard)],
+          ['cancelImport', () => cancelImport(t, actor, B.ids.importId)],
+          ['runImportChunk', () => runImportChunk(t, actor, B.ids.importId)],
+          ['setImportMapping', () => setImportMapping(t, actor, B.ids.importId, {})],
           // Assistant write tools with forged references to B's rows.
           ['add_note (forged)', () => runAssistantTool(pctx({ ...forged }), 'add_note', { contact: 'C1', body: 'x' })],
           ['set_next_action (forged)', () => runAssistantTool(pctx({ ...forged }), 'set_next_action', { contact: 'C1', text: 'x' })],
@@ -5846,6 +5870,208 @@ async function main() {
     assert(res.status !== 200, `signed out got ${res.status}`);
     return String(res.status);
   });
+
+  // --------------------------------------------------------- listing import --
+  group('Listing import');
+
+  const IMPORT_HEADER = 'external_id,unit,street_number,street,suburb,state,postcode,property_type,bedrooms,bathrooms,car_spaces,land_area_sqm,building_area_sqm,year_built,channel,status,headline,description,price_display,price_from,price_to,rent_pw,available_from,auction_at,listed_on,sold_price,sold_date,agent_emails,photo_urls';
+  /** A CSV row from named cells; everything else empty. */
+  const csvRow = (cells: Record<string, string>) =>
+    IMPORT_HEADER.split(',').map((h) => {
+      const v = cells[h] ?? '';
+      return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+    }).join(',');
+  /** No network: a pin per address, "NOWHERE" not found; photo links fetched and attached in memory. */
+  function importDeps(attached: { listingId: string; key: string }[] = []): ImportDeps {
+    return {
+      geocode: (async (_db: unknown, p: { street?: string | null; streetNumber?: string | null; suburb: string }) => {
+        if ((p.street ?? '').includes('NOWHERE')) return null;
+        const h = [...`${p.streetNumber} ${p.street} ${p.suburb}`].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 100000, 7);
+        return { latitude: -38 + h / 1e6, longitude: 145 + h / 1e6, placeId: `fake-${h}`, formatted: `${p.streetNumber} ${p.street}, ${p.suburb}`, kind: 'address' };
+      }) as never,
+      photos: {
+        fetchImage: async (url) => {
+          if (url.includes('broken')) throw new Error('fake 404');
+          return { bytes: new Uint8Array([1]), contentType: 'image/jpeg' };
+        },
+        store: async (listingId) => `listing/${listingId}/${randomUUID()}.jpg`,
+        attach: async (_db, listingId, key) => void attached.push({ listingId, key }),
+      },
+    };
+  }
+  async function driveImport(t: Db, actor: Actor, id: string, deps: ImportDeps, until: string[]) {
+    for (let i = 0; i < 200; i++) {
+      const r = await runImportChunk(t, actor, id, deps);
+      if (until.includes(r.status)) return r;
+    }
+    throw new Error('import did not finish');
+  }
+
+  /** The import fixture: an agency with one live listing at 1 Smoke Street (external id AG-OLD), and a 10-row file. */
+  async function importFixture(t: Db) {
+    const f = await contactFixture(t);
+    await t.execute(sql`update listing set external_id = 'AG-OLD' where agency_id = ${f.agencyId}`);
+    const a1Email = `a1.${f.tag}@smoke.test`;
+    const rows = [
+      csvRow({ external_id: 'AG-1', street_number: '14', street: 'Henry Street', suburb: 'Pakenham', state: 'VIC', postcode: '3810', property_type: 'house', bedrooms: '4', channel: 'sale', status: 'live', headline: 'Family home', price_display: 'Offers over $780,000', price_from: '780000', listed_on: '2026-09-20', agent_emails: a1Email, photo_urls: 'https://photos.example/a.jpg|https://photos.example/broken.jpg' }),
+      csvRow({ external_id: 'AG-2', unit: '2', street_number: '6E', street: 'Main Street', suburb: 'Officer', state: 'VIC', postcode: '3809', channel: 'rent', status: 'live', headline: 'Unit', rent_pw: '520' }),
+      csvRow({ external_id: 'AG-3', street_number: '3', street: 'Golden Wattle Court', suburb: 'Berwick', state: 'VIC', postcode: '3806', channel: 'sale', status: 'sold', headline: 'Sold home', price_display: 'Sold', sold_price: '925000', sold_date: '2026-01-18' }),
+      csvRow({ street_number: '5', street: 'Bad Price Rd', suburb: 'Pakenham', state: 'VIC', postcode: '3810', channel: 'sale', status: 'live', headline: 'x', price_from: '$1.2m' }),
+      csvRow({ street_number: '6', street: 'No Headline Rd', suburb: 'Pakenham', state: 'VIC', postcode: '3810', channel: 'sale', status: 'live', price_display: 'Contact agent' }),
+      csvRow({ street_number: '7', street: 'Date Rd', suburb: 'Pakenham', state: 'VIC', postcode: '3810', channel: 'sale', status: 'live', headline: 'x', price_display: 'Contact agent', listed_on: '03/04/2026' }),
+      csvRow({ street_number: '8', street: 'NOWHERE Rd', suburb: 'Pakenham', state: 'VIC', postcode: '3810', channel: 'sale', status: 'live', headline: 'x', price_display: 'Contact agent' }),
+      // The fixture's own live listing is at 1 Smoke Street, Pakenham.
+      csvRow({ street_number: '1', street: 'Smoke Street', suburb: 'Pakenham', state: 'VIC', postcode: '3810', channel: 'sale', status: 'live', headline: 'Updated from file', price_display: 'Contact agent' }),
+      csvRow({ external_id: 'AG-1B', street_number: '14', street: 'Henry Street', suburb: 'Pakenham', state: 'VIC', postcode: '3810', channel: 'sale', status: 'live', headline: 'Same as row 2', price_display: 'Contact agent' }),
+      csvRow({ external_id: 'AG-4', street_number: '9', street: 'Stranger St', suburb: 'Pakenham', state: 'VIC', postcode: '3810', channel: 'sale', status: 'live', headline: 'Unknown agent', price_display: 'Contact agent', agent_emails: 'nobody@nowhere.test' }),
+    ];
+    return { f, text: [IMPORT_HEADER, ...rows].join('\n'), a1Email };
+  }
+  const listingCount = (t: Db, agencyId: string) => count(t, sql`select count(*)::int as n from listing where agency_id = ${agencyId}`);
+
+  await check('dry run: every row checked with the form’s rules, every problem reported; nothing is written to listings', async () =>
+    inRollback(async (t) => {
+      const x = await importFixture(t);
+      const owner = x.f.actor('owner');
+      const before = await listingCount(t, x.f.agencyId);
+      const { id } = await createImport(t, owner, { fileName: 'listings.csv', text: x.text });
+      await startDryRun(t, owner, id);
+      await driveImport(t, owner, id, importDeps(), ['validated']);
+      const v = await getImport(t, owner, id);
+      assert(v.counts.valid === 4 && v.counts.error === 4 && v.counts.duplicate === 2, `counts: ${JSON.stringify(v.counts)}`);
+      const report = await importReport(t, owner, id, { onlyProblems: true });
+      const msg = (n: number) => JSON.stringify(report.find((r) => r.rowNumber === n));
+      assert(/whole dollars/.test(msg(5)) && /required/.test(msg(6)) && /YYYY-MM-DD/.test(msg(7)) && /could not find/.test(msg(8)), `errors: ${JSON.stringify(report.map((r) => [r.rowNumber, r.errors]))}`);
+      assert(/active listings/.test(msg(9)) && /row 2/.test(msg(10)), `duplicates: ${msg(9)} / ${msg(10)}`);
+      assert((await listingCount(t, x.f.agencyId)) === before, 'the dry run wrote listings');
+      return '4 valid, 4 errors (price, headline, date, address), 2 duplicates (active listing, same as row 2); 0 listings written';
+    }),
+  );
+
+  await check('owner import goes live: agents by email, unknown agent flagged, sold history, your id and listed-on date kept, photos fetched, duplicates skipped; a re-run imports nothing twice', async () =>
+    inRollback(async (t) => {
+      const x = await importFixture(t);
+      const owner = x.f.actor('owner');
+      const attached: { listingId: string; key: string }[] = [];
+      const deps = importDeps(attached);
+      const before = await listingCount(t, x.f.agencyId);
+      const { id } = await createImport(t, owner, { fileName: 'listings.csv', text: x.text, mode: 'live' });
+      await startDryRun(t, owner, id);
+      await driveImport(t, owner, id, deps, ['validated']);
+      await startImport(t, owner, id);
+      await driveImport(t, owner, id, deps, ['done']);
+      const v = await getImport(t, owner, id);
+      assert(v.counts.imported === 4 && v.counts.duplicate === 2 && v.counts.failed === 0, `counts: ${JSON.stringify(v.counts)}`);
+      assert((await listingCount(t, x.f.agencyId)) === before + 4, 'not 4 new listings');
+      const rows = await t.execute<{ external_id: string; status: string; channel: string; sold_price: string | null; published: string | null; agents: string[] }>(sql`
+        select l.external_id, l.status, l.channel, l.sold_price, to_char(l.published_at, 'YYYY-MM-DD') as published,
+               (select array_agg(u.email order by la.display_order) from listing_agent la join "user" u on u.id = la.user_id where la.listing_id = l.id) as agents
+        from listing l where l.agency_id = ${x.f.agencyId} and l.external_id like 'AG-%' and l.external_id <> 'AG-OLD' order by l.external_id`);
+      const by = Object.fromEntries(rows.map((r) => [r.external_id, r]));
+      assert(by['AG-1']?.status === 'live' && by['AG-1'].published === '2026-09-20' && JSON.stringify(by['AG-1'].agents) === JSON.stringify([x.a1Email]), `AG-1: ${JSON.stringify(by['AG-1'])}`);
+      assert(by['AG-2']?.channel === 'rent' && by['AG-2'].status === 'live', `AG-2: ${JSON.stringify(by['AG-2'])}`);
+      assert(by['AG-3']?.status === 'sold' && Number(by['AG-3'].sold_price) === 925000, `AG-3: ${JSON.stringify(by['AG-3'])}`);
+      assert(by['AG-4']?.agents?.[0] === `owner.${x.f.tag}@smoke.test`, `unknown agent: ${JSON.stringify(by['AG-4'])}`);
+      const rep = await importReport(t, owner, id);
+      assert(/Agent not found: nobody@nowhere.test/.test(JSON.stringify(rep.find((r) => r.rowNumber === 11)?.warnings)), 'the unknown agent is not flagged');
+      assert(v.counts.photosDone === 1 && v.counts.photosFailed === 1 && attached.length === 1, `photos: ${JSON.stringify(v.counts)} attached ${attached.length}`);
+      const [old] = await t.execute<{ headline: string }>(sql`select headline from listing where agency_id = ${x.f.agencyId} and external_id = 'AG-OLD'`);
+      assert(old?.headline !== 'Updated from file', 'a duplicate was written without Update from file');
+      // Running it again (a second tab, the cron) imports nothing more.
+      await runImportChunk(t, owner, id, deps);
+      assert((await listingCount(t, x.f.agencyId)) === before + 4, 'a re-run imported again');
+
+      // An agent email that belongs to ANOTHER agency's member is not attached: the row goes under the uploader, flagged.
+      const other = await contactFixture(t);
+      const strangerEmail = `a1.${other.tag}@smoke.test`;
+      const y = await createImport(t, owner, { fileName: 'other.csv', text: [IMPORT_HEADER, csvRow({ external_id: 'AG-X', street_number: '77', street: 'Border Road', suburb: 'Pakenham', state: 'VIC', postcode: '3810', channel: 'sale', status: 'live', headline: 'Other agency agent', price_display: 'Contact agent', agent_emails: strangerEmail })].join('\n') });
+      await startDryRun(t, owner, y.id);
+      await driveImport(t, owner, y.id, deps, ['validated']);
+      await startImport(t, owner, y.id);
+      await driveImport(t, owner, y.id, deps, ['done']);
+      const [ax] = await t.execute<{ agents: string[] }>(sql`select (select array_agg(u.email) from listing_agent la join "user" u on u.id = la.user_id where la.listing_id = l.id) as agents from listing l where l.agency_id = ${x.f.agencyId} and l.external_id = 'AG-X'`);
+      assert(JSON.stringify(ax?.agents) === JSON.stringify([`owner.${x.f.tag}@smoke.test`]), `another agency's agent was put on our listing: ${JSON.stringify(ax?.agents)}`);
+      return '4 live/rent/sold listings with agents, ids and dates; unknown agent → owner + flagged; 1 photo in, 1 broken link reported; duplicates skipped; re-run adds nothing; another agency’s agent email is not attached';
+    }),
+  );
+
+  await check('an agent’s import waits for approval; only an admin may “Update from file”; an admin’s update changes the matched listing, never adds one', async () =>
+    inRollback(async (t) => {
+      const x = await importFixture(t);
+      const a1 = x.f.actor('a1');
+      const deps = importDeps();
+      const { id } = await createImport(t, a1, { fileName: 'mine.csv', text: x.text, mode: 'live' });
+      assert((await getImport(t, a1, id)).mode === 'pending', 'an agent chose live');
+      await startDryRun(t, a1, id);
+      await driveImport(t, a1, id, deps, ['validated']);
+      const upd = await startImport(t, a1, id, { updateDuplicates: true }).then(() => 'started', (e: unknown) => (e as { code: string }).code);
+      assert(upd === 'forbidden', `an agent chose Update from file: ${upd}`);
+      await startImport(t, a1, id);
+      await driveImport(t, a1, id, deps, ['done']);
+      const statuses = await t.execute<{ status: string }>(sql`select l.status from listing l join listing_import_row r on r.listing_id = l.id where r.import_id = ${id}`);
+      assert(statuses.length === 4 && statuses.every((s) => s.status === 'pending'), `agent import statuses: ${statuses.map((s) => s.status)}`);
+      // Another agent and the read-only member cannot see or run it; the owner can see and cancel but not run.
+      for (const who of ['a2', 'viewer'] as const) {
+        assert((await getImport(t, x.f.actor(who), id).then(() => 'seen', (e: unknown) => (e as { code: string }).code)) === 'not_found', `${who} saw A1's import`);
+      }
+      assert((await runImportChunk(t, x.f.actor('owner'), id, deps).then(() => 'ran', (e: unknown) => (e as { code: string }).code)) === 'forbidden', 'the owner ran A1’s import');
+
+      // The owner, with Update from file: the duplicate at 1 Smoke Street updates that listing.
+      const owner = x.f.actor('owner');
+      const before = await listingCount(t, x.f.agencyId);
+      const b = await createImport(t, owner, { fileName: 'update.csv', text: [IMPORT_HEADER, csvRow({ street_number: '1', street: 'Smoke Street', suburb: 'Pakenham', state: 'VIC', postcode: '3810', channel: 'sale', status: 'live', headline: 'Updated from file', price_display: 'Contact agent' })].join('\n') });
+      await startDryRun(t, owner, b.id);
+      await driveImport(t, owner, b.id, deps, ['validated']);
+      await startImport(t, owner, b.id, { updateDuplicates: true });
+      await driveImport(t, owner, b.id, deps, ['done']);
+      const [old] = await t.execute<{ headline: string }>(sql`select headline from listing where agency_id = ${x.f.agencyId} and external_id = 'AG-OLD'`);
+      assert(old?.headline === 'Updated from file' && (await listingCount(t, x.f.agencyId)) === before, `update: ${old?.headline}, ${(await listingCount(t, x.f.agencyId)) - before} new`);
+
+      // An owner/admin who uploads "live" and is made an agent before pressing Import imports as
+      // pending: the mode is decided again, from who they are when the import starts.
+      const admin = owner;
+      const c = await createImport(t, admin, { fileName: 'demoted.csv', text: [IMPORT_HEADER, csvRow({ street_number: '40', street: 'Demoted Road', suburb: 'Pakenham', state: 'VIC', postcode: '3810', channel: 'sale', status: 'live', headline: 'Demoted', price_display: 'Contact agent' })].join('\n'), mode: 'live' });
+      await startDryRun(t, admin, c.id);
+      await driveImport(t, admin, c.id, deps, ['validated']);
+      const demoted: Actor = { ...admin, membershipRole: 'agent' };
+      await startImport(t, demoted, c.id);
+      await driveImport(t, demoted, c.id, deps, ['done']);
+      const [dem] = await t.execute<{ status: string }>(sql`select l.status from listing l join listing_import_row r on r.listing_id = l.id where r.import_id = ${c.id}`);
+      assert(dem?.status === 'pending', `a demoted owner's import went ${dem?.status}`);
+      return 'agent: live refused → pending, Update from file refused, 4 pending listings; others cannot see/run it; owner update changed the matched listing, 0 new; a demoted owner imports pending';
+    }),
+  );
+
+  await check('the cron carries an import on with nobody watching, stops it if the uploader left; files are cleared after 30 days', async () =>
+    inRollback(async (t) => {
+      const x = await importFixture(t);
+      const owner = x.f.actor('owner');
+      const deps = importDeps();
+      const { id } = await createImport(t, owner, { fileName: 'a.csv', text: x.text });
+      await startDryRun(t, owner, id);
+      // While a worker holds the lease (another tab, a tick), nobody else runs a chunk of it.
+      await t.execute(sql`update listing_import set claimed_at = now() where id = ${id}`);
+      const held = await runImportChunk(t, owner, id, deps);
+      const [stillPending] = await t.execute<{ n: number }>(sql`select count(*)::int as n from listing_import_row where import_id = ${id} and status = 'pending'`);
+      assert(held.busy === true && held.processed === 0 && stillPending?.n === 10, `a held import ran: ${JSON.stringify(held)}, ${stillPending?.n} pending`);
+      await t.execute(sql`update listing_import set claimed_at = now() - interval '3 minutes' where id = ${id}`);
+      for (let i = 0; i < 5; i++) await runImportTick(t, deps);
+      assert((await getImport(t, owner, id)).status === 'validated', 'the tick did not run the dry run');
+      const a1 = x.f.actor('a1');
+      const b = await createImport(t, a1, { fileName: 'b.csv', text: x.text });
+      await startDryRun(t, a1, b.id);
+      await t.execute(sql`update membership set status = 'suspended' where user_id = ${x.f.people.a1}`);
+      await runImportTick(t, deps);
+      const [st] = await t.execute<{ status: string; error: string }>(sql`select status, error from listing_import where id = ${b.id}`);
+      assert(st?.status === 'failed' && /no longer a member/.test(st.error), `left uploader: ${JSON.stringify(st)}`);
+      await cancelImport(t, owner, id);
+      await t.execute(sql`update listing_import set finished_at = now() - interval '31 days' where id = ${id}`);
+      await purgeImportFiles(t);
+      const [gone] = await t.execute<{ file: string | null; raws: number }>(sql`select file_text as file, (select count(*)::int from listing_import_row where import_id = ${id} and raw is not null) as raws from listing_import where id = ${id}`);
+      assert(gone?.file === null && gone.raws === 0, `after 30 days: ${JSON.stringify(gone)}`);
+      return 'a held lease blocks a second worker, a stale one does not; tick finished the dry run; a suspended uploader’s import failed with the reason; file and cells cleared after 30 days';
+    }),
+  );
 
   group('Console (HTTP, signed out)');
 

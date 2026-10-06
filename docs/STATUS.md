@@ -8,13 +8,22 @@
   0029 applied on dev (additive). Waiting for the user's walk-through of TEST-PLAN U and V.
   **Not started (by instruction): Phase D** (template email from picked contacts), then
   E (delayed run, needs the 5-min cron) and F (widgets hook).
+- **Phase 4 — CSV listing import (ADR 0029) committed.** Migration 0032 applied on dev
+  (listing.external_id unique per agency; listing_import, listing_import_row). Upload (≤ 5,000
+  rows, ≤ 10 MB) → match columns → dry run (form rules, geocoding outside transactions,
+  duplicates by address / own id / earlier row) → row report (+ CSV download, formula-safe) →
+  import in chunks of 100 under a 2-minute lease, driven by the open page and the cron tick
+  (as the uploader, re-checked) → photos from links (SSRF-guarded on the socket itself).
+  Owner/admin import live or draft; an agent's goes to approval; admin-only "Update from file";
+  unknown agent email → under the uploader, flagged; file and cells cleared 30 days after.
+  TEST-PLAN Y. Not measured: a 3,000-row run against the remote DB.
+  **Next: Phase 5 — Google reviews step 1 (ADR 0028).**
 - **Phase 3 — Dashboards (ADR 0027) committed.** Migrations 0030 (agency.time_zone, dashboard)
   and 0031 (proposed_action tool CHECK widened for create_dashboard — no row change) applied
   on dev. Six widgets, Sold value with undisclosed sales counted apart, viewer-scoped figures,
   /dashboards and /my-dashboards lists, full-screen /dashboards/<id> polling with 304s, the
   assistant's show_widget and create_dashboard card. TEST-PLAN X. Found by smoke while
   building: the New leads widget's GROUP BY on a parameterised expression (fixed).
-  **Next: Phase 4 — CSV listing import (ADR 0029).**
 - **Phase 2 — Assistant Phase D committed:** "send an approved template to contacts I pick" card
   (ADR 0025 as-built D, TEST-PLAN W). `prepareBatch` takes a contact-id list; the card is a
   frozen ADR 0022 batch; Approve = ADR 0022 Approve + send with every re-check; Reject/Cancel/

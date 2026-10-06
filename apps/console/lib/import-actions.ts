@@ -1,0 +1,118 @@
+'use server';
+
+import { revalidatePath } from 'next/cache';
+import {
+  cancelImport,
+  createImport,
+  getImport,
+  importReport,
+  ImportError,
+  MAX_IMPORT_ROWS,
+  runImportChunk,
+  setImportMapping,
+  startDryRun,
+  startImport,
+  type ImportMode,
+  type ImportReportRow,
+  type ImportView,
+} from '@repo/core/imports';
+import { getConsoleDb } from './db';
+import { loadListingActor } from './load-actor';
+import { requireActionUserId } from './auth-account';
+
+/**
+ * CSV listing import (docs/adr/0029). The actor comes from the session — with
+ * listing links, because an agent's import submits listings for approval — and
+ * every decision is core's.
+ */
+type R<T> = { ok: true } & T | { ok: false; error: string };
+
+async function actor() {
+  const a = await loadListingActor(await requireActionUserId());
+  if (!a) throw new ImportError('forbidden', 'Database is not configured.');
+  return a;
+}
+
+function fail(err: unknown): { ok: false; error: string } {
+  if (err instanceof ImportError) return { ok: false, error: err.message };
+  console.error('[import] action failed', err);
+  return { ok: false, error: 'That did not work. Please try again.' };
+}
+
+export async function uploadImportAction(form: FormData): Promise<R<{ id: string; sameFileAs: string | null }>> {
+  try {
+    const file = form.get('file');
+    if (!(file instanceof File) || !file.size) return { ok: false, error: 'Choose a CSV file first' };
+    if (file.size > 10 * 1024 * 1024) return { ok: false, error: 'That file is larger than 10 MB' };
+    const mode = form.get('mode') === 'draft' ? 'draft' : 'live';
+    const r = await createImport(getConsoleDb(), await actor(), { fileName: file.name, text: await file.text(), mode: mode as ImportMode });
+    return { ok: true, id: r.id, sameFileAs: r.sameFileAs ? r.sameFileAs.createdAt.toISOString() : null };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function getImportAction(id: string): Promise<R<{ view: ImportView; problems: ImportReportRow[] }>> {
+  try {
+    const a = await actor();
+    const view = await getImport(getConsoleDb(), a, id);
+    const problems = ['validated', 'importing', 'done', 'failed', 'cancelled'].includes(view.status)
+      ? await importReport(getConsoleDb(), a, id, { onlyProblems: true, limit: 500 })
+      : [];
+    return { ok: true, view, problems };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function setMappingAction(id: string, mapping: Record<string, number | null>): Promise<R<object>> {
+  try {
+    await setImportMapping(getConsoleDb(), await actor(), id, mapping);
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function startDryRunAction(id: string): Promise<R<object>> {
+  try {
+    await startDryRun(getConsoleDb(), await actor(), id);
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function startImportAction(id: string, updateDuplicates: boolean): Promise<R<object>> {
+  try {
+    await startImport(getConsoleDb(), await actor(), id, { updateDuplicates });
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** One chunk. The open page calls this in a loop; the cron tick does the same when nobody is watching. */
+export async function continueImportAction(id: string): Promise<R<{ status: string; processed: number; busy: boolean }>> {
+  try {
+    const r = await runImportChunk(getConsoleDb(), await actor(), id);
+    if (r.status === 'done') {
+      revalidatePath('/live-listings');
+      revalidatePath('/listings');
+    }
+    return { ok: true, status: r.status, processed: r.processed, busy: Boolean(r.busy) };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function cancelImportAction(id: string): Promise<R<object>> {
+  try {
+    await cancelImport(getConsoleDb(), await actor(), id);
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export { MAX_IMPORT_ROWS };

@@ -325,12 +325,20 @@ export function ListingTable({
           <h1 className={styles.title}>{title}</h1>
           <p className={styles.sub}>{subtitle}</p>
         </div>
-        <Link href={newHref} className={styles.add} prefetch>
-          <span className={styles.glyphSm} aria-hidden>
-            add_home
-          </span>
-          Add listing
-        </Link>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <Link href={newHref.replace(/\/new$/, '/import')} className={styles.add} prefetch={false}>
+            <span className={styles.glyphSm} aria-hidden>
+              upload_file
+            </span>
+            Import from CSV
+          </Link>
+          <Link href={newHref} className={styles.add} prefetch>
+            <span className={styles.glyphSm} aria-hidden>
+              add_home
+            </span>
+            Add listing
+          </Link>
+        </div>
       </div>
 
       <div className={styles.stats}>

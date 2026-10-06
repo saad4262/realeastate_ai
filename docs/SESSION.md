@@ -1,3 +1,22 @@
+## 2026-10-06 — Claude Code — Phase 4: CSV listing import (ADR 0029)
+
+- Done: migration 0032 applied on dev; `@repo/core/imports` (csv reader, column mapping,
+  dry run / import chunks with a lease, photo import with SSRF guard pinned to the socket,
+  report + formula-safe CSV, cron tick + 30-day purge); permissions listing_import:create|read|
+  run|cancel; console pages /live-listings/import and /listings/import (+ /<id>), report route,
+  "Import from CSV" beside Add listing; cron route runs the tick and the purge; TEST-PLAN Y; ADR
+  0029 as-built.
+- Checks: typecheck 10/10, lint 0 errors, unit 802 + 286 (+ photo/csv tests after), console
+  build OK; smoke Listing import 4/4, Tenant isolation 4/4. Break-tests in two parallel copies:
+  agent goes live, agent updates from file, mode not re-derived (demoted owner), duplicate check
+  skipped, update creates a second listing, lease ignored, cron acts as owner, agent emails of
+  another agency, import isolation (both layers), admin runs another's import, read/cancel by
+  any member, read-only imports, link-local range, redirects unchecked, DNS rebinding, any
+  scheme, non-image, formula cells, 5,000-row cap (both layers) — all red, restored green.
+  Two breaks were invalid at first (matched the contacts rule; the row cap has two layers) and
+  were redone properly.
+- Next exact step: Phase 5 (Reviews step 1) — check the Places terms first.
+
 ## 2026-10-06 — Claude Code — Phase 3: Dashboards (ADR 0027)
 
 - Goal (user): build all remaining phases in order (3 Dashboards → 4 CSV import → 5 Reviews
