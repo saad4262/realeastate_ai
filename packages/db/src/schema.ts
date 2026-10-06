@@ -931,17 +931,48 @@ export const appointment = pgTable(
     reminderMinutes: integer('reminder_minutes'),
     /** When an invitation email was sent to the contact, if one was. */
     invitationSentAt: timestamp('invitation_sent_at', { withTimezone: true }),
+    /**
+     * Google Calendar mirror (Phase 3b, migration 0027). Our row is the source
+     * of truth; the event is a copy in the assigned agent's own calendar.
+     */
     externalCalendarId: text('external_calendar_id'),
     externalCalendarProvider: varchar('external_calendar_provider', { length: 32 }),
+    /** The connection the event was written with — set null if it is disconnected. */
+    externalCalendarAccountId: uuid('external_calendar_account_id').references(() => integrationAccount.id, { onDelete: 'set null' }),
+    /** The event's ETag after OUR last write or check — a different one means it was changed in Google. */
+    externalCalendarEtag: text('external_calendar_etag'),
+    /** pending | synced | failed | conflict | removed; null = not mirrored (no calendar connected). */
+    calendarSyncState: varchar('calendar_sync_state', { length: 16 }),
+    calendarSyncedAt: timestamp('calendar_synced_at', { withTimezone: true }),
+    /** A sentence for the agent. Never a token or a provider body. */
+    calendarSyncError: text('calendar_sync_error'),
+    /** What Google shows when it differs from ours: { startsAt, endsAt, deleted, seenAt }. Flagged, never applied. */
+    calendarConflict: jsonb('calendar_conflict').$type<CalendarConflict>(),
+    /** When the read-back last looked at the event. */
+    calendarCheckedAt: timestamp('calendar_checked_at', { withTimezone: true }),
     zoomMeetingId: text('zoom_meeting_id'),
+    /** The host's connection (the agent's own Zoom, else the agency's) — needed to move or delete it. */
+    zoomAccountId: uuid('zoom_account_id').references(() => integrationAccount.id, { onDelete: 'set null' }),
+    /** pending | synced | failed | removed; null = not a Zoom meeting we created. */
+    zoomSyncState: varchar('zoom_sync_state', { length: 16 }),
+    zoomSyncedAt: timestamp('zoom_synced_at', { withTimezone: true }),
+    zoomSyncError: text('zoom_sync_error'),
+    /** A sync run holds this while it talks to Google / Zoom, so a double submit does not create twice. */
+    syncClaimedAt: timestamp('sync_claimed_at', { withTimezone: true }),
     ...timestamps,
   },
   (t) => [
     index('appointment_agency_starts_idx').on(t.agencyId, t.startsAt),
     index('appointment_contact_starts_idx').on(t.contactId, t.startsAt),
     index('appointment_agent_starts_idx').on(t.assignedAgentId, t.startsAt),
+    // The cron's read-back and retry sweep: only mirrored rows.
+    index('appointment_calendar_sync_idx')
+      .on(t.calendarSyncState, t.startsAt)
+      .where(sql`calendar_sync_state is not null`),
   ],
 );
+
+export type CalendarConflict = { startsAt: string | null; endsAt: string | null; deleted: boolean; seenAt: string };
 
 // ── Integrations (docs/adr/0020) ────────────────────────────────────────────
 

@@ -190,6 +190,13 @@
       "when": 1791206452398,
       "tag": "0026_template_email",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1791261857256,
+      "tag": "0027_appointment_sync",
+      "breakpoints": true
     }
   ]
 }
