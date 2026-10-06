@@ -5266,6 +5266,139 @@ async function main() {
     return summary;
   });
 
+  /** Phase D fixture: A1's own contacts with every marketing state, an approved template, and send deps with a fake transport. */
+  async function emailCardFixture(t: Db, limits = { perBatch: 20, perAgentDay: 50, perAgencyDay: 200, repeatDays: 7, sendDelayMs: 0 }) {
+    const f = await contactFixture(t);
+    const person = async (name: string, opts: { consent?: boolean; optedOut?: boolean; archived?: boolean } = {}) => {
+      const [r] = await t.execute<{ id: string }>(sql`
+        insert into contact (agency_id, name, email, assigned_to, marketing_consent_at, email_opt_out_at, archived_at)
+        values (${f.agencyId}, ${name}, ${`${name.toLowerCase()}.${f.tag}@smoke.test`}, ${f.people.a1},
+                ${opts.consent ? sql`now()` : null}, ${opts.optedOut ? sql`now()` : null}, ${opts.archived ? sql`now()` : null})
+        returning id`);
+      return r!.id;
+    };
+    const people = {
+      ready: await person('Ready', { consent: true }),
+      later: await person('Later', { consent: true }),
+      noConsent: await person('Noconsent'),
+      optedOut: await person('Optedout', { consent: true, optedOut: true }),
+      archived: await person('Archived', { consent: true, archived: true }),
+    };
+    const tpl = await createEmailTemplate(t, f.actor('a1'), { name: 'Open home Saturday', subject: 'Open home this Saturday, {{first_name}}', body: 'Hi {{first_name}}, come and see it on Saturday.' });
+    await submitEmailTemplate(t, f.actor('a1'), tpl.id);
+    await approveEmailTemplate(t, f.actor('owner'), tpl.id);
+    const transport = fakeTransport();
+    const deps: TemplateSendDeps = {
+      mail: { mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport }, config: null },
+      unsubscribe: { baseUrl: 'http://web.test', secret: 's'.repeat(32) },
+      limits,
+      env: { ...process.env, NODE_ENV: 'development', EMAIL_DEV_ALLOWLIST: '@smoke.test' },
+      sleep: async () => {},
+    };
+    const conv = await claimTurn(t, f.actor('a1'), { message: 'email them', surface: 'agent' });
+    const h: HandleMap = {};
+    // References exactly as the panel would issue them: the picked contacts (S…) and list_templates (T…).
+    await selectionHandles(t, f.actor('a1'), h, Object.values(people));
+    await runAssistantTool(toolCtx(t, f.actor('a1'), h), 'list_templates', {});
+    const ref = (id: string) => Object.entries(h).find(([, v]) => v.id === id)![0];
+    return { f, people, tpl, transport, deps, conv, h, ref };
+  }
+
+  await check('D: the email card is the frozen batch — every recipient and skip from the database; nothing is sent before Approve', async () =>
+    inRollback(async (t) => {
+      const x = await emailCardFixture(t);
+      const recipients = Object.values(x.people).map(x.ref);
+      const out = await runAssistantTool(proposeCtx(t, x.f.actor('a1'), x.h, x.conv.conversationId), 'send_template_email', { template: x.ref(x.tpl.id), recipients });
+      const id = cardId(out);
+      const card = await getProposedAction(t, x.f.actor('a1'), id);
+      const args = (await t.execute<{ args: { batchId: string } }>(sql`select args from proposed_action where id = ${id}`))[0]!.args;
+      const batch = await getEmailBatch(t, x.f.actor('a1'), args.batchId);
+      assert(batch.status === 'prepared' && batch.counts.toSend === 2 && batch.counts.skipped === 3, `batch: ${batch.status} ${JSON.stringify(batch.counts)}`);
+      const byName = Object.fromEntries((card.card.people ?? []).map((p) => [p.name, p]));
+      assert(byName.Ready?.willReceive && byName.Later?.willReceive, 'consenting people not on the card');
+      assert(/consent/i.test(byName.Noconsent?.reason ?? '') && /Opted out/.test(byName.Optedout?.reason ?? '') && /Archived/.test(byName.Archived?.reason ?? ''), `skips: ${JSON.stringify(card.card.people)}`);
+      assert(/Open home Saturday/.test(card.card.title) && /Open home this Saturday, (Later|Ready)/.test(card.card.lines.find((l) => l.label === 'Subject')!.value), `card: ${card.card.title} / ${JSON.stringify(card.card.lines)}`);
+      assert(x.transport.sent.length === 0, 'proposing sent an email');
+      assert((await count(t, sql`select count(*)::int as n from mail_message m join mail_thread th on th.id = m.thread_id where th.agency_id = ${x.f.agencyId}`)) === 0, 'proposing wrote a message');
+      const audits = await count(t, sql`select count(*)::int as n from activity where kind = 'assistant_proposed' and payload->>'actionId' = ${id}`);
+      assert(audits === 5, `audit lines on ${audits} of 5 recipients' timelines`);
+      return 'batch prepared and frozen (2 to send, 3 skipped with reasons, matched on the card); 0 emails; audit on all 5 timelines';
+    }),
+  );
+
+  await check('D: Approve sends once through ADR 0022 and re-checks at sending; others cannot approve; Reject cancels the batch', async () =>
+    inRollback(async (t) => {
+      const x = await emailCardFixture(t);
+      const ctxA1 = () => proposeCtx(t, x.f.actor('a1'), x.h, x.conv.conversationId);
+      const id = cardId(await runAssistantTool(ctxA1(), 'send_template_email', { template: x.ref(x.tpl.id), recipients: [x.ref(x.people.ready), x.ref(x.people.later)] }));
+      // Between the card and Approve, "Later" unsubscribes.
+      await optOutContact(t, x.people.later);
+      assert((await code(approveProposedAction(t, x.f.actor('a2'), id, { templateSend: x.deps }))) === 'not_found', 'A2 approved A1’s email');
+      assert((await code(approveProposedAction(t, x.f.actor('owner'), id, { templateSend: x.deps }))) === 'forbidden', 'the owner approved A1’s email');
+      const r1 = await approveProposedAction(t, x.f.actor('a1'), id, { templateSend: x.deps });
+      const r2 = await approveProposedAction(t, x.f.actor('a1'), id, { templateSend: x.deps });
+      assert(r1.outcome === 'done' && r2.outcome === 'already', `approve twice: ${r1.outcome} / ${r2.outcome}`);
+      assert(x.transport.sent.length === 1, `${x.transport.sent.length} emails sent (only Ready should get one)`);
+      const res = (await getProposedAction(t, x.f.actor('a1'), id)).result!;
+      assert(res.sent === 1 && res.skipped === 1, `result: ${JSON.stringify(res)}`);
+      const later = await t.execute<{ status: string; skip_reason: string }>(sql`select status, skip_reason from email_batch_recipient where contact_id = ${x.people.later}`);
+      assert(later[0]?.status === 'skipped' && later[0].skip_reason === 'opted_out', `the unsubscribed person: ${JSON.stringify(later)}`);
+      assert((await count(t, sql`select count(*)::int as n from activity where contact_id = ${x.people.ready} and kind = 'template_email_sent'`)) === 1, 'the send is not on the timeline');
+
+      // Reject: the card and its prepared batch both go. ("Ready" was just emailed, so the
+      // 7-day rule would leave nobody — a fresh consenting contact, picked like the others.)
+      const [fresh] = await t.execute<{ id: string }>(sql`
+        insert into contact (agency_id, name, email, assigned_to, marketing_consent_at)
+        values (${x.f.agencyId}, 'Fresh', ${`fresh.${x.f.tag}@smoke.test`}, ${x.f.people.a1}, now()) returning id`);
+      await selectionHandles(t, x.f.actor('a1'), x.h, [fresh!.id]);
+      const id2 = cardId(await runAssistantTool(ctxA1(), 'send_template_email', { template: x.ref(x.tpl.id), recipients: [x.ref(fresh!.id)] }));
+      const b2 = (await t.execute<{ args: { batchId: string } }>(sql`select args from proposed_action where id = ${id2}`))[0]!.args.batchId;
+      await rejectProposedAction(t, x.f.actor('a1'), id2);
+      const [st] = await t.execute<{ status: string }>(sql`select status from email_batch where id = ${b2}`);
+      assert(st?.status === 'cancelled', `a rejected card left its batch ${st?.status}`);
+      return 'A2 / owner refused; approve twice = 1 email; the person who unsubscribed after the card was skipped at sending; on the timeline; reject cancels the batch';
+    }),
+  );
+
+  await check('D: limits, unapproved templates, people you cannot see, and nobody-can-receive are all refused', async () =>
+    inRollback(async (t) => {
+      const x = await emailCardFixture(t, { perBatch: 20, perAgentDay: 1, perAgencyDay: 200, repeatDays: 7, sendDelayMs: 0 });
+      const ctxA1 = () => proposeCtx(t, x.f.actor('a1'), x.h, x.conv.conversationId);
+      // Today's limit (1) is crossed by a card for two people: Approve fails with the reason, nothing sent.
+      const id = cardId(await runAssistantTool(ctxA1(), 'send_template_email', { template: x.ref(x.tpl.id), recipients: [x.ref(x.people.ready), x.ref(x.people.later)] }));
+      const lim = await approveProposedAction(t, x.f.actor('a1'), id, { templateSend: x.deps });
+      assert(lim.outcome === 'failed' && x.transport.sent.length === 0, `over the limit: ${JSON.stringify(lim)}, ${x.transport.sent.length} sent`);
+      const limBatch = (await t.execute<{ status: string }>(sql`select b.status from email_batch b join proposed_action p on (p.args->>'batchId')::uuid = b.id where p.id = ${id}`))[0];
+      assert(limBatch?.status === 'cancelled', `the failed card left its batch ${limBatch?.status}`);
+      // No email set up on the server: refused before the batch is claimed.
+      const id0 = cardId(await runAssistantTool(ctxA1(), 'send_template_email', { template: x.ref(x.tpl.id), recipients: [x.ref(x.people.ready)] }));
+      const noMail = await approveProposedAction(t, x.f.actor('a1'), id0, { templateSend: null });
+      assert(noMail.outcome === 'failed', `no email set up: ${JSON.stringify(noMail)}`);
+      // A draft template, even with a reference to it: refused.
+      const draft = await createEmailTemplate(t, x.f.actor('a1'), { name: 'Draft', subject: 'x', body: 'x' });
+      issueHandle(x.h, 'T', draft.id);
+      const dref = Object.entries(x.h).find(([, v]) => v.id === draft.id)![0];
+      const d = await runAssistantTool(ctxA1(), 'send_template_email', { template: dref, recipients: [x.ref(x.people.ready)] });
+      assert(d.isError && /approved/.test(JSON.stringify(d.result)), `a draft template: ${JSON.stringify(d.result)}`);
+      // Nobody can receive it: no card, and no prepared batch left behind.
+      const before = await count(t, sql`select count(*)::int as n from email_batch where agency_id = ${x.f.agencyId} and status = 'prepared'`);
+      const none = await runAssistantTool(ctxA1(), 'send_template_email', { template: x.ref(x.tpl.id), recipients: [x.ref(x.people.noConsent), x.ref(x.people.optedOut)] });
+      const after = await count(t, sql`select count(*)::int as n from email_batch where agency_id = ${x.f.agencyId} and status = 'prepared'`);
+      assert(!none.frame && /Nobody/.test(JSON.stringify(none.result)) && after === before, `nobody can receive: ${JSON.stringify(none.result)}, prepared ${before}→${after}`);
+      // A2 handed A1's contacts as references: A2 may not see them — nothing to send to.
+      const a2conv = await claimTurn(t, x.f.actor('a2'), { message: 'x', surface: 'agent' });
+      const forged: HandleMap = {};
+      issueHandle(forged, 'S', x.people.ready);
+      issueHandle(forged, 'T', x.tpl.id);
+      const a2 = await runAssistantTool(proposeCtx(t, x.f.actor('a2'), forged, a2conv.conversationId), 'send_template_email', { template: 'T1', recipients: ['S1'] });
+      assert(a2.isError && !a2.frame, `A2 emailing A1's contact: ${JSON.stringify(a2.result)}`);
+      // And the selection itself never resolves a contact A2 cannot see.
+      const sel = await selectionHandles(t, x.f.actor('a2'), {}, [x.people.ready]);
+      assert(sel.length === 0, 'A2’s selection resolved A1’s contact');
+      return 'over the daily limit → failed, 0 sent; no mail setup → failed; draft template refused; nobody eligible → no card, no batch left; other agent’s contacts refused';
+    }),
+  );
+
   await check('the assistant route refuses a signed-out request', async () => {
     if (!(await reachable('http://localhost:3001/login'))) skip('console is not running');
     const res = await fetch('http://agents.lvh.me:3001/api/assistant', {

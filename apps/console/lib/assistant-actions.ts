@@ -14,6 +14,7 @@ import {
   type TurnView,
 } from '@repo/core/assistant';
 import { syncDepsFromEnv } from '@repo/core/appointments';
+import { templateSendDepsFromEnv } from '@repo/core/template-email';
 import { getConsoleDb } from './db';
 import { loadActor } from './load-actor';
 import { requireActionUserId } from './auth-account';
@@ -73,9 +74,15 @@ export async function getProposedActionAction(id: string): Promise<CardResult> {
 
 export async function approveProposedActionAction(id: string): Promise<CardResult> {
   try {
-    const r = await approveProposedAction(getConsoleDb(), await actor(), id, { sync: syncDepsFromEnv() });
+    const send = templateSendDepsFromEnv();
+    const r = await approveProposedAction(getConsoleDb(), await actor(), id, {
+      sync: syncDepsFromEnv(),
+      templateSend: send.ok ? send.deps : null,
+    });
     revalidatePath('/customers', 'layout');
     revalidatePath('/my-contacts', 'layout');
+    revalidatePath('/bulk-email', 'layout');
+    revalidatePath('/my-bulk-email', 'layout');
     const message =
       r.outcome === 'already' ? 'This card was already approved.' : r.outcome === 'failed' ? r.error : undefined;
     return await cardAfter(id, message);

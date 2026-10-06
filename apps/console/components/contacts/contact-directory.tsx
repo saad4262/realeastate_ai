@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { PickContact, PickedBar } from './pick-contact';
 import {
   CONTACT_ROLE_LABELS,
   CONTACT_ROLES,
@@ -136,6 +137,7 @@ export function ContactDirectory({
           <table className={styles.table}>
             <thead>
               <tr>
+                <th aria-label="Pick for the assistant" />
                 <th>Name</th>
                 <th>Contact</th>
                 <th>Roles</th>
@@ -147,6 +149,9 @@ export function ContactDirectory({
             <tbody>
               {page.rows.map((c) => (
                 <tr key={c.id}>
+                  <td>
+                    <PickContact id={c.id} name={c.name} />
+                  </td>
                   <td>
                     <Link href={`${basePath}/${c.id}`} className={styles.name}>{c.name}</Link>
                     {c.archived ? <> <span className={styles.chipInferred}>Archived</span></> : null}
@@ -175,6 +180,7 @@ export function ContactDirectory({
             </tbody>
           </table>
         )}
+        <PickedBar />
       </div>
 
       {page.total > 0 ? (

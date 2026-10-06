@@ -8,6 +8,11 @@
   0029 applied on dev (additive). Waiting for the user's walk-through of TEST-PLAN U and V.
   **Not started (by instruction): Phase D** (template email from picked contacts), then
   E (delayed run, needs the 5-min cron) and F (widgets hook).
+- **Phase 2 — Assistant Phase D committed:** "send an approved template to contacts I pick" card
+  (ADR 0025 as-built D, TEST-PLAN W). `prepareBatch` takes a contact-id list; the card is a
+  frozen ADR 0022 batch; Approve = ADR 0022 Approve + send with every re-check; Reject/Cancel/
+  failure cancel the batch; directory checkboxes + "Ask the assistant". Platform sender only.
+  **Next phase (not started): Dashboards (ADR 0027).**
 - **Phase 1 — tenant isolation tests (ADR 0030) committed.** Unit (`packages/core/src/isolation/`):
   every table classified (22 own-agency, 10 through a parent, 4 shared, 6 public-site user —
   a new table fails until classified); every `can()` action (read from permissions.ts) × all

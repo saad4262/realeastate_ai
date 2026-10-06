@@ -8,6 +8,10 @@ import { setNextAction } from '../contacts/write-contacts';
 import { AppointmentError, cancelAppointment, rescheduleAppointment, scheduleAppointment } from '../appointments/appointments';
 import { syncAppointment, type SyncDeps, type SyncOutcome } from '../appointments/sync';
 import { requireIntegrations } from '../integrations/accounts';
+import { approveBatch, cancelBatch } from '../template-email/batches';
+import { sendBatch, type TemplateSendDeps } from '../template-email/send';
+import { TemplateEmailError } from '../template-email/templates';
+import { emailLimitsFromEnv } from '../email/limits';
 import { PROVIDERS, type IntegrationProvider } from '../integrations/providers';
 import type { ActivityKind } from '../contacts/contact-schema';
 import { AssistantError } from './conversations';
@@ -47,7 +51,19 @@ export type FrozenArgs =
       requires: IntegrationProvider[];
     }
   | { tool: 'reschedule_appointment'; appointmentId: string; contactId: string; startsAt: string; endsAt: string; timezone: string; requires: IntegrationProvider[] }
-  | { tool: 'cancel_appointment'; appointmentId: string; contactId: string; reason: string | null; requires: IntegrationProvider[] };
+  | { tool: 'cancel_appointment'; appointmentId: string; contactId: string; reason: string | null; requires: IntegrationProvider[] }
+  /**
+   * Phase D: the ADR 0022 batch prepared (and frozen) when the card was made.
+   * `contactIds` = every recipient, for the audit on each of their timelines.
+   */
+  | { tool: 'send_template_email'; batchId: string; templateId: string; contactIds: string[] };
+
+/** The contacts whose timelines carry this action's audit lines. */
+function auditContacts(row: { contactId: string | null; args: unknown }): string[] {
+  const args = row.args as FrozenArgs;
+  if (args.tool === 'send_template_email') return args.contactIds;
+  return row.contactId ? [row.contactId] : [];
+}
 
 function actionResource(a: { id: string; agencyId: string; userId: string }) {
   return { type: 'proposed_action', id: a.id, agencyId: a.agencyId, ownerId: a.userId };
@@ -105,7 +121,9 @@ export async function propose(
       const [existing] = await tx.select({ id: proposedAction.id }).from(proposedAction).where(eq(proposedAction.idempotencyKey, key)).limit(1);
       return existing!.id;
     }
-    await recordActivity(tx, actor, agencyId, p.contactId, 'assistant_proposed', auditPayload(created.id, p.tool, p.args));
+    for (const contactId of auditContacts({ contactId: p.contactId, args: p.args })) {
+      await recordActivity(tx, actor, agencyId, contactId, 'assistant_proposed', auditPayload(created.id, p.tool, p.args));
+    }
     return created.id;
   });
   proposal.made.count += 1;
@@ -123,7 +141,9 @@ export async function propose(
 
 /** A domain refusal at run time — shown on the card as the reason; never a crash. */
 function runRefusal(err: unknown): string | null {
-  if (err instanceof ContactError || err instanceof AppointmentError || err instanceof AssistantError) return err.message;
+  if (err instanceof ContactError || err instanceof AppointmentError || err instanceof AssistantError || err instanceof TemplateEmailError) {
+    return err.message;
+  }
   return null;
 }
 
@@ -137,7 +157,15 @@ async function assertStillConnected(db: DbOrTx, actor: Actor, providers: Integra
 }
 
 /** Run one approved action AS the person, through the same core function a screen uses — which re-checks can(). */
-async function execute(tx: Db, actor: Actor, args: FrozenArgs, now: Date): Promise<{ result: Record<string, unknown>; appointmentId?: string }> {
+type RunDeps = { sync?: SyncDeps | null; templateSend?: TemplateSendDeps | null };
+
+async function execute(
+  tx: Db,
+  actor: Actor,
+  args: FrozenArgs,
+  now: Date,
+  deps: RunDeps,
+): Promise<{ result: Record<string, unknown>; appointmentId?: string; batchId?: string }> {
   switch (args.tool) {
     case 'add_note': {
       const { id } = await createNote(tx, actor, args.contactId, args.body, { isPrivate: args.private });
@@ -178,6 +206,13 @@ async function execute(tx: Db, actor: Actor, args: FrozenArgs, now: Date): Promi
       await cancelAppointment(tx, actor, args.appointmentId, { ...(args.reason ? { outcome: args.reason } : {}) });
       return { result: { appointmentId: args.appointmentId }, appointmentId: args.appointmentId };
     }
+    case 'send_template_email': {
+      // Refuse before claiming the batch: approving one that cannot be sent would strand it.
+      if (!deps.templateSend) throw new AssistantError('conflict', 'Email is not set up on this server, so nothing can be sent.');
+      // ADR 0022's own Approve: guarded (once), expiry and today's limits re-checked, as this person.
+      await approveBatch(tx, actor, args.batchId, deps.templateSend.limits ?? emailLimitsFromEnv(), now);
+      return { result: { batchId: args.batchId }, batchId: args.batchId };
+    }
   }
 }
 
@@ -212,7 +247,7 @@ export async function approveProposedAction(
   db: Db,
   actor: Actor,
   id: string,
-  deps: { sync?: SyncDeps | null } = {},
+  deps: RunDeps = {},
   now = new Date(),
 ): Promise<ApproveResult> {
   const row = await loadRow(db, actor, id);
@@ -235,12 +270,15 @@ export async function approveProposedAction(
       )
       .returning({ id: proposedAction.id });
     if (!claimed) return null;
-    const audit = (kind: ActivityKind, extra: Record<string, unknown> = {}) =>
-      row.contactId ? recordActivity(tx, actor, row.agencyId, row.contactId, kind, auditPayload(row.id, row.tool, args, extra)) : Promise.resolve();
+    const audit = async (kind: ActivityKind, extra: Record<string, unknown> = {}) => {
+      for (const contactId of auditContacts(row)) {
+        await recordActivity(tx, actor, row.agencyId, contactId, kind, auditPayload(row.id, row.tool, args, extra));
+      }
+    };
     await audit('assistant_approved');
     try {
       // A savepoint: a refusal undoes only the action, never the record of it.
-      const done = await tx.transaction((sp) => execute(sp as unknown as Db, actor, args, now));
+      const done = await tx.transaction((sp) => execute(sp as unknown as Db, actor, args, now, deps));
       await tx
         .update(proposedAction)
         .set({ status: 'done', result: done.result, finishedAt: now, updatedAt: sql`now()` })
@@ -253,6 +291,11 @@ export async function approveProposedAction(
         .update(proposedAction)
         .set({ status: 'failed', error: reason, finishedAt: now, updatedAt: sql`now()` })
         .where(eq(proposedAction.id, row.id));
+      // A failed email card takes its prepared batch with it, so the Bulk email screen
+      // never shows a batch still waiting for an Approve that the card refused.
+      if (args.tool === 'send_template_email') {
+        await tx.transaction((sp) => cancelBatch(sp as unknown as Db, actor, args.batchId)).catch(() => undefined);
+      }
       await audit('assistant_failed');
       return { ok: false as const, error: reason };
     }
@@ -270,6 +313,18 @@ export async function approveProposedAction(
   let sync: SyncOutcome | null = null;
   if (ran.appointmentId && deps.sync) {
     sync = await syncAppointment(db, deps.sync, ran.appointmentId).catch(() => null);
+  }
+  if (ran.batchId && deps.templateSend) {
+    // The send, after the commit (a network call never runs inside a transaction). sendBatch
+    // re-checks each recipient — consent, opt-out, archive, email changed, the 7-day rule, the
+    // dev allowlist, today's limits — and skips with the reason; it never adds anyone.
+    const report = await sendBatch(db, deps.templateSend, ran.batchId).catch((err: unknown) => {
+      console.error('[assistant] template send failed', err instanceof Error ? err.message : err);
+      return null;
+    });
+    const result = { ...ran.result, ...(report ?? { sendError: 'Sending stopped part-way; the bulk email page shows who was sent and lets you retry.' }) };
+    await db.update(proposedAction).set({ result, updatedAt: sql`now()` }).where(eq(proposedAction.id, row.id));
+    return { outcome: 'done', result, sync };
   }
   return { outcome: 'done', result: ran.result, sync };
 }
@@ -312,7 +367,14 @@ async function settle(
       const [cur] = await tx.select({ status: proposedAction.status }).from(proposedAction).where(eq(proposedAction.id, row.id)).limit(1);
       return { outcome: 'already' as const, status: (cur?.status ?? to) as ProposalStatus };
     }
-    if (row.contactId) await recordActivity(tx, actor, row.agencyId, row.contactId, kind, auditPayload(row.id, row.tool, row.args as FrozenArgs));
+    const args = row.args as FrozenArgs;
+    // A rejected or cancelled email card takes its prepared batch with it.
+    if (args.tool === 'send_template_email') {
+      await tx.transaction((sp) => cancelBatch(sp as unknown as Db, actor, args.batchId)).catch(() => undefined);
+    }
+    for (const contactId of auditContacts(row)) {
+      await recordActivity(tx, actor, row.agencyId, contactId, kind, auditPayload(row.id, row.tool, args));
+    }
     return { outcome: to, status: to };
   });
 }
@@ -334,7 +396,7 @@ export type ProposalView = {
   card: ProposalCard;
   error: string | null;
   /** Ids of what it made or changed — for links. Never model text. */
-  result: { noteId?: string; appointmentId?: string } | null;
+  result: { noteId?: string; appointmentId?: string; batchId?: string; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
   expiresAt: Date;
   /** Decided by can(): the panel draws its buttons from these. */
   mayDecide: boolean;

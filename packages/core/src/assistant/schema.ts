@@ -34,6 +34,9 @@ export const handleSchema = z
 /** A handle that must name an appointment. */
 export const appointmentHandleSchema = handleSchema.refine((h) => h.startsWith('A'), { message: 'Not an appointment reference' });
 
+/** A handle that must name an approved template (from list_templates). */
+export const templateHandleSchema = handleSchema.refine((h) => h.startsWith('T'), { message: 'Not a template reference' });
+
 /** A handle that must name a contact. */
 export const contactHandleSchema = handleSchema.refine((h) => h.startsWith('C') || h.startsWith('S'), {
   message: 'Not a contact reference',
@@ -163,8 +166,20 @@ export const cancelAppointmentInput = z
   })
   .strict();
 
+/**
+ * Phase D: send an approved template to contacts the person picked or found.
+ * Recipients are REFERENCES only (C… from a result, S… from the console
+ * selection) — there is no field for an address, a name or a filter.
+ */
+export const sendTemplateEmailInput = z
+  .object({
+    template: templateHandleSchema,
+    recipients: z.array(contactHandleSchema).min(1).max(20),
+  })
+  .strict();
+
 export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 
 /** Every tool. Read tools run at once; write tools only propose (ADR 0025 §8). */
@@ -179,6 +194,7 @@ export const ASSISTANT_TOOL_INPUTS = {
   schedule_appointment: scheduleAppointmentInput,
   reschedule_appointment: rescheduleAppointmentInput,
   cancel_appointment: cancelAppointmentInput,
+  send_template_email: sendTemplateEmailInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];
@@ -252,6 +268,8 @@ export type ProposalCard = {
   text?: { label: string; value: string };
   /** Plain-words notes under the card ("No invitation is emailed…"). */
   notes: string[];
+  /** For an email card: every recipient, from the frozen batch — who will receive it and who is skipped, with why. */
+  people?: { name: string; email: string | null; willReceive: boolean; reason: string | null }[];
 };
 
 /** The NDJSON frames of one turn, in order. */

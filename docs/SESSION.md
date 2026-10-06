@@ -1,3 +1,31 @@
+## 2026-10-06 — Claude Code — Phase 1 tenant isolation tests; Phase 2 assistant email card (D)
+
+- Goal (user): Phase 1 = ADR 0030's cross-agency suite (no features), fix what it finds in
+  its own commit; Phase 2 = ADR 0025 Phase D, the "send a template to contacts I pick" card,
+  plus TEST-PLAN W. No dev restart, no dev data, break-test every guard in a separate copy.
+- Phase 1: unit tests in packages/core/src/isolation (tables classified against schema.ts;
+  every can() action read from permissions.ts × all six roles × a B resource made to look
+  like theirs; every route/server action reaches a session check or is public with a named
+  guard; nobody reads user/agency from the request) + smoke "Tenant isolation" (two complete
+  agencies; 116 reads, 156 writes, tokens/sync, assistant caps).
+- **Finding, fixed in its own commit (64f79e4):** `listing:read` allowed any member of any
+  agency for `type: 'listing'`. No leak in practice (callers passed their own agency, SQL
+  filters by agency), but a latent hole. Also found while writing: the `assistant`
+  membership role was missing from my first role list (the type check caught it).
+- Phase 2: `prepareBatch` takes a contact-id list; `send_template_email` proposes by
+  preparing a frozen ADR 0022 batch (card = the batch: recipients + skip reasons + preview +
+  today's count); Approve = ADR 0022 Approve in the claimed transaction, send after commit
+  with every per-recipient re-check; Reject/Cancel/failed Approve cancel the batch; no card
+  when nobody is eligible; audit on every recipient. Directory checkboxes + "N selected — Ask
+  the assistant" bar; panel chip; prompt v4. Platform sender only.
+- Checks: typecheck 10/10, lint 0 errors, test 769 + 286, console build OK (throwaway dist).
+  Smoke groups: Tenant isolation 4/4, Console assistant 13/13, Template email 5/5, Database
+  health 25/25, Console loaders 1/1. Full smoke not run.
+- Break-tests: Phase 1 — 9 guards red (one needed both layers broken); Phase 2 — see the
+  Phase 2 commit / report.
+- Left unfinished (exact next step): the user walks TEST-PLAN W; next phase Dashboards only
+  when asked.
+
 ## 2026-10-06 — Claude Code — Decisions recorded in ADRs 0026–0030; CSV template
 
 - Goal (user): docs only. Record the user's four decisions and the client's six answers,

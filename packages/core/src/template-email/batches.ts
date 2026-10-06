@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   agency,
@@ -39,7 +39,8 @@ export type BatchStatus = 'prepared' | 'approved_sending' | 'sent' | 'expired' |
 export type RecipientStatus = 'queued' | 'sending' | 'sent' | 'failed' | 'skipped';
 
 export type TemplateSnapshot = { templateId: string; name: string; subject: string; body: string };
-export type FilterSnapshot = { filterId: string; name: string; query: unknown };
+/** `filterId` is null for a batch of picked contacts (ADR 0025 Phase D). */
+export type FilterSnapshot = { filterId: string | null; name: string; query: unknown };
 
 function batchResource(b: { id: string; agencyId: string; userId: string }): Resource {
   return { type: 'email_batch', id: b.id, agencyId: b.agencyId, ownerId: b.userId };
@@ -75,13 +76,27 @@ function classify(c: {
 const truthy = (v: unknown) => v === true || v === 't';
 
 /** Prepare: resolve, classify, freeze. Nothing is sent. */
+/**
+ * Who to prepare for: a saved directory filter (the Bulk email screen), or an
+ * explicit list of contact ids (the assistant's card, ADR 0025 Phase D — the
+ * contacts a person picked). Either way the people are resolved AS THE AGENT
+ * through the directory's own rule: an id this person may not see is simply
+ * not there (and is counted in `notFound`, never named).
+ */
+export type PrepareInput =
+  | { templateId: string; filterId: string }
+  | { templateId: string; contactIds: string[] };
+
+/** At most this many explicit contacts — the assistant's own cap, and well inside a batch. */
+export const MAX_PICKED_CONTACTS = 20;
+
 export async function prepareBatch(
   db: Db,
   actor: Actor,
-  input: { templateId: string; filterId: string },
+  input: PrepareInput,
   limits: TemplateLimits,
   now = new Date(),
-): Promise<{ id: string }> {
+): Promise<{ id: string; notFound: number }> {
   if (!actor.agencyId || !can(actor, 'email_batch:create', { type: 'email_batch', agencyId: actor.agencyId })) {
     throw new TemplateEmailError('forbidden', 'You cannot prepare bulk email');
   }
@@ -95,14 +110,26 @@ export async function prepareBatch(
   if (tpl.status !== 'approved') {
     throw new TemplateEmailError('not_approved', 'Only an approved template can be used — ask an owner or admin to approve it');
   }
-  const [filter] = await db
-    .select()
-    .from(contactFilter)
-    .where(and(eq(contactFilter.id, input.filterId), eq(contactFilter.agencyId, agencyId), eq(contactFilter.userId, actor.userId)))
-    .limit(1);
-  if (!filter) throw new TemplateEmailError('not_found', 'That saved filter was not found');
+  const picked = 'contactIds' in input ? [...new Set(input.contactIds)] : null;
+  let filter: { id: string; name: string; query: unknown } | null = null;
+  if (picked) {
+    if (!picked.length) throw new TemplateEmailError('invalid', 'Pick at least one contact');
+    if (picked.length > MAX_PICKED_CONTACTS) {
+      throw new TemplateEmailError('invalid', `Pick at most ${MAX_PICKED_CONTACTS} contacts at once`);
+    }
+    if (picked.some((id) => !/^[0-9a-f-]{36}$/i.test(id))) throw new TemplateEmailError('invalid', 'Those contacts were not found');
+  } else {
+    const filterId = (input as { filterId: string }).filterId;
+    const [row] = await db
+      .select()
+      .from(contactFilter)
+      .where(and(eq(contactFilter.id, filterId), eq(contactFilter.agencyId, agencyId), eq(contactFilter.userId, actor.userId)))
+      .limit(1);
+    if (!row) throw new TemplateEmailError('not_found', 'That saved filter was not found');
+    filter = row;
+  }
 
-  const query = contactListQuerySchema.parse(filter.query ?? {});
+  const query = filter ? contactListQuerySchema.parse(filter.query ?? {}) : {};
   const seesAll = can(actor, 'contact:read_all', { type: 'contact', agencyId });
   // Archived people are resolved too — so they can be SHOWN as skipped.
   const rows = await db
@@ -117,10 +144,18 @@ export async function prepareBatch(
       recently: recentlyEmailedSql(sql.raw('"contact"."id"'), limits.repeatDays),
     })
     .from(contact)
-    .where(and(...contactQueryFilters(actor, { ...query, archived: 'all' }, seesAll)))
+    .where(
+      and(
+        // The directory's own rule (who this person may see), plus the picked ids if any.
+        ...contactQueryFilters(actor, { ...query, archived: 'all' }, seesAll),
+        ...(picked ? [inArray(contact.id, picked)] : []),
+      ),
+    )
     .orderBy(asc(contact.name), asc(contact.id))
     .limit(2000);
-  if (!rows.length) throw new TemplateEmailError('invalid', 'Nobody matches that filter');
+  if (!rows.length) {
+    throw new TemplateEmailError('invalid', picked ? 'None of those contacts were found' : 'Nobody matches that filter');
+  }
 
   let toSend = 0;
   const recipients = rows.map((r) => {
@@ -145,9 +180,11 @@ export async function prepareBatch(
         agencyId,
         userId: actor.userId,
         templateId: tpl.id,
-        filterId: filter.id,
+        filterId: filter?.id ?? null,
         templateSnapshot: { templateId: tpl.id, name: tpl.name, subject: tpl.subject, body: tpl.body } satisfies TemplateSnapshot,
-        filterSnapshot: { filterId: filter.id, name: filter.name, query } satisfies FilterSnapshot,
+        filterSnapshot: (filter
+          ? { filterId: filter.id, name: filter.name, query }
+          : { filterId: null, name: `Picked contacts (${picked!.length})`, query: { contactIds: picked } }) satisfies FilterSnapshot,
         preparedAt: now,
         expiresAt: new Date(now.getTime() + BATCH_TTL_MS),
       })
@@ -156,7 +193,7 @@ export async function prepareBatch(
     for (let i = 0; i < recipients.length; i += 500) {
       await tx.insert(emailBatchRecipient).values(recipients.slice(i, i + 500).map((r) => ({ ...r, batchId: id })));
     }
-    return { id };
+    return { id, notFound: picked ? picked.length - rows.length : 0 };
   });
 }
 

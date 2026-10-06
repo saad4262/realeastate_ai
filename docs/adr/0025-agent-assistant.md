@@ -456,3 +456,24 @@ Build order A→F.
 - **No invitation is ever sent** by the assistant. The card and the prompt point to the
   contact's Calendar tab → Send invitation.
 - **Prompt** `assistant@v3`.
+
+## As built — Phase D (2026-10-06, no migration)
+
+- **`send_template_email`** (write, proposes only): a template reference (`T…`, from
+  `list_templates`) and 1–20 contact references (`S…` picked in the directory, or `C…` from a
+  lookup). There is no field for an address, a name, a subject, a body or a filter.
+- **`prepareBatch` takes an explicit contact-id list** (decided Q3) beside the saved filter,
+  resolved through the directory's own visibility rule. Ids this person may not see are dropped
+  and only counted, never named. At most 20.
+- **Proposing prepares and freezes a real ADR 0022 batch.** The card is built from it: every
+  recipient, every skip with its reason, the email rendered for the first person who will
+  receive it, today's count. If nobody can receive it, there is no card and the empty batch is
+  cancelled. The audit goes on every recipient's timeline.
+- **Approve** runs ADR 0022's own Approve in the claimed transaction (once; expiry and daily
+  limits re-checked), then ADR 0022's send after commit. That send re-checks each person
+  (consent, opt-out, archive, email changed, 7-day rule, dev allowlist, limits) and only ever
+  removes people. **Reject / Cancel / a failed Approve cancel the batch too.** Sent from the
+  platform address (Gmail later, ADR 0026).
+- **Picking:** checkboxes on the contact directory, a "N selected — Ask the assistant" bar, and
+  the panel's chip "Using N picked contacts". Only ids leave the browser.
+- **Prompt** `assistant@v4`.

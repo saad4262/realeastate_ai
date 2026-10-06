@@ -199,6 +199,7 @@ describe('write tools (Phases B and C) — schema and refusals before any databa
     schedule_appointment: { contact: 'C1', type: 'appraisal', title: 'Appraisal', date: '2026-10-09', time: '15:00' },
     reschedule_appointment: { appointment: 'A1', date: '2026-10-10', time: '09:30' },
     cancel_appointment: { appointment: 'A1', reason: 'Vendor asked' },
+    send_template_email: { template: 'T1', recipients: ['S1', 'C2'] },
   };
 
   it('accepts the documented shape for each', () => {
@@ -250,3 +251,41 @@ describe('write tools (Phases B and C) — schema and refusals before any databa
     expect(out.isError).toBe(true);
   });
 });
+
+describe('send_template_email (Phase D) — recipients are references, never text', () => {
+  const ok = { template: 'T1', recipients: ['S1', 'S2', 'C3'] };
+  it('accepts a template reference and contact references', () => {
+    expect(ASSISTANT_TOOL_INPUTS.send_template_email.safeParse(ok).success).toBe(true);
+  });
+  it('refuses an address, a name, an id, a lead or appointment reference, or a template where a person goes', () => {
+    for (const bad of ['ali@example.com', 'Ali Khan', contactId, 'L1', 'A1', 'T2']) {
+      expect(ASSISTANT_TOOL_INPUTS.send_template_email.safeParse({ ...ok, recipients: ['S1', bad] }).success, bad).toBe(false);
+    }
+    expect(ASSISTANT_TOOL_INPUTS.send_template_email.safeParse({ ...ok, template: 'C1' }).success).toBe(false);
+  });
+  it('refuses email text, extra recipients fields and more than 20 people', () => {
+    for (const extra of [{ subject: 'Hi' }, { body: 'Buy now' }, { to: 'x@y.z' }, { cc: ['x@y.z'] }, { filter: 'all' }]) {
+      expect(ASSISTANT_TOOL_INPUTS.send_template_email.safeParse({ ...ok, ...extra }).success, JSON.stringify(extra)).toBe(false);
+    }
+    expect(ASSISTANT_TOOL_INPUTS.send_template_email.safeParse({ ...ok, recipients: Array.from({ length: 21 }, (_, i) => `C${i + 1}`) }).success).toBe(false);
+    expect(ASSISTANT_TOOL_INPUTS.send_template_email.safeParse({ ...ok, recipients: [] }).success).toBe(false);
+  });
+  it('a template or recipient reference never issued is refused before the database', async () => {
+    const handles: HandleMap = {};
+    issueHandle(handles, 'S', contactId);
+    const noTemplate = await runAssistantTool(ctx(handles), 'send_template_email', { template: 'T1', recipients: ['S1'] });
+    expect(noTemplate.isError).toBe(true);
+    issueHandle(handles, 'T', '33333333-3333-3333-3333-333333333333');
+    const strangerRecipient = await runAssistantTool(ctx(handles), 'send_template_email', { template: 'T1', recipients: ['S1', 'C9'] });
+    expect(strangerRecipient.isError).toBe(true);
+    expect(JSON.stringify(strangerRecipient.result)).toMatch(/C9/);
+  });
+  it('a read-only member cannot propose it (refused before preparing anything)', async () => {
+    const handles: HandleMap = {};
+    issueHandle(handles, 'S', contactId);
+    issueHandle(handles, 'T', '33333333-3333-3333-3333-333333333333');
+    const out = await runAssistantTool(ctx(handles, 'read_only'), 'send_template_email', { template: 'T1', recipients: ['S1'] });
+    expect(out.isError).toBe(true);
+  });
+});
+

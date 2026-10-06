@@ -20,6 +20,7 @@ import {
   proposeCancelAppointment,
   proposeRescheduleAppointment,
   proposeScheduleAppointment,
+  proposeSendTemplateEmail,
   proposeSetNextAction,
 } from './write-tools';
 import {
@@ -76,6 +77,7 @@ const LABELS: Record<AssistantToolName, string> = {
   schedule_appointment: 'Preparing an appointment for you to approve…',
   reschedule_appointment: 'Preparing the new time for you to approve…',
   cancel_appointment: 'Preparing the cancellation for you to approve…',
+  send_template_email: 'Preparing the email for you to approve…',
 };
 
 const assignee = alias(user, 'assistant_assignee');
@@ -160,6 +162,8 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return proposeRescheduleAppointment(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.reschedule_appointment>, label);
     case 'cancel_appointment':
       return proposeCancelAppointment(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.cancel_appointment>, label);
+    case 'send_template_email':
+      return proposeSendTemplateEmail(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.send_template_email>, label);
   }
 }
 

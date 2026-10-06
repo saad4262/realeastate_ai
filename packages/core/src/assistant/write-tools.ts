@@ -9,7 +9,11 @@ import { formatInZone, localDateTimeToInstant } from '../time/local-input';
 import { propose, type FrozenArgs } from './actions';
 import { resolveHandle } from './handles';
 import type { ProposalCard } from './schema';
-import type { addNoteInput, cancelAppointmentInput, rescheduleAppointmentInput, scheduleAppointmentInput, setNextActionInput } from './schema';
+import type { addNoteInput, cancelAppointmentInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
+import { cancelBatch, getBatch, prepareBatch } from '../template-email/batches';
+import { TemplateEmailError } from '../template-email/templates';
+import { SKIP_REASON_LABELS } from '../template-email/schema';
+import { checkEmailLimits, emailLimitsFromEnv } from '../email/limits';
 import type { ToolContext, ToolOutcome } from './tools';
 import type { z } from 'zod';
 
@@ -287,4 +291,86 @@ export async function proposeCancelAppointment(
   };
   const args: FrozenArgs = { tool: 'cancel_appointment', appointmentId: a.id, contactId: a.contactId, reason: input.reason ?? null, requires };
   return propose(ctx, label, { tool: 'cancel_appointment', args, card, contactId: a.contactId });
+}
+
+/**
+ * Phase D (ADR 0025 §8, ADR 0022): send an APPROVED template to contacts the
+ * person picked (S…) or found (C…). Recipients come only from references the
+ * server issued — resolved to ids here, then re-scoped by `prepareBatch`
+ * through the directory's own rule. The card is the frozen ADR 0022 batch:
+ * every recipient, every skip with its reason, the email as the first person
+ * will get it. Approve runs ADR 0022's own Approve & Send, which checks every
+ * recipient again at the moment of sending. Sent from the platform address.
+ */
+export async function proposeSendTemplateEmail(
+  ctx: ToolContext,
+  input: z.infer<typeof sendTemplateEmailInput>,
+  label: string,
+): Promise<ToolOutcome> {
+  const templateId = resolveHandle(ctx.handles, input.template, 'template');
+  if (!templateId) return refused(UNKNOWN_REF, label);
+  const contactIds: string[] = [];
+  for (const ref of input.recipients) {
+    const id = resolveHandle(ctx.handles, ref, 'contact');
+    if (!id) return refused(`${ref}: ${UNKNOWN_REF}`, label);
+    contactIds.push(id);
+  }
+  const { actor, db } = ctx;
+  if (!actor.agencyId || !can(actor, 'email_batch:create', { type: 'email_batch', agencyId: actor.agencyId })) {
+    return refused('This person cannot send bulk email.', label);
+  }
+
+  const limits = emailLimitsFromEnv();
+  let prepared: { id: string; notFound: number };
+  try {
+    prepared = await prepareBatch(db, actor, { templateId, contactIds: [...new Set(contactIds)] }, limits, ctx.now);
+  } catch (err) {
+    if (err instanceof TemplateEmailError) return refused(err.message, label);
+    throw err;
+  }
+  const batch = await getBatch(db, actor, prepared.id, ctx.now);
+  const people = batch.recipients.map((r) => ({
+    name: r.name,
+    email: r.email,
+    willReceive: r.status === 'queued',
+    reason: r.skipReason ? SKIP_REASON_LABELS[r.skipReason] : null,
+  }));
+
+  // Nobody can receive it: no card — say why, and take the empty batch away.
+  if (batch.counts.toSend === 0) {
+    await cancelBatch(db, actor, batch.id).catch(() => undefined);
+    return {
+      label,
+      result: {
+        proposed: false,
+        tell_the_user: 'Nobody on that list can receive this email right now, so nothing was proposed.',
+        skipped: people.map((p) => ({ name: p.name, why: p.reason })),
+      },
+    };
+  }
+
+  const check = await checkEmailLimits(db, { agencyId: actor.agencyId, userId: actor.userId }, limits);
+  const first = batch.recipients.find((r) => r.status === 'queued')!;
+  const n = batch.counts.toSend;
+  const card: ProposalCard = {
+    title: `Send “${batch.template.name}” to ${n} ${n === 1 ? 'person' : 'people'}`,
+    contact: { id: first.contactId, name: first.name },
+    lines: [
+      { label: 'Template', value: `${batch.template.name} (approved)` },
+      // The batch's own preview: rendered for its first recipient who will receive it — `first` here.
+      { label: 'Subject', value: batch.preview?.subject ?? batch.template.subject },
+      { label: 'Recipients', value: `${n} will receive it${batch.counts.skipped ? ` · ${batch.counts.skipped} skipped (see below)` : ''}` },
+      { label: 'Sent from', value: 'The platform address, with your agency’s name and an unsubscribe link' },
+      { label: 'Today', value: `${check.agentUsed} of ${check.limits.perAgentDay} platform emails sent by you today` },
+    ],
+    text: { label: `Email to ${first.name} (each person gets their own name)`, value: batch.preview?.body ?? batch.template.body },
+    people,
+    notes: [
+      NOTHING_YET,
+      'At the moment of sending, consent, unsubscribes, archiving, the 7-day rule, today’s limits and the development allowlist are checked again — anyone who no longer qualifies is skipped and shown.',
+      ...(prepared.notFound ? [`${prepared.notFound} of the people asked for could not be found for you and are not on the list.`] : []),
+    ],
+  };
+  const args: FrozenArgs = { tool: 'send_template_email', batchId: batch.id, templateId, contactIds: batch.recipients.map((r) => r.contactId) };
+  return propose(ctx, label, { tool: 'send_template_email', args, card, contactId: first.contactId });
 }

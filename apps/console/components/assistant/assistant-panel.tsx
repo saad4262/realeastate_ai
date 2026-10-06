@@ -14,6 +14,7 @@ import {
   rejectProposedActionAction,
 } from '@/lib/assistant-actions';
 import type { ProposalView } from '@repo/core/assistant';
+import { clearPicks, usePicks } from './picks';
 import styles from './assistant-panel.module.css';
 
 /**
@@ -38,9 +39,9 @@ type Turn = {
   pending: boolean;
 };
 
-const PATHS: Record<Surface, { contact: string; leads: string; templates: string; integrations: string }> = {
-  agency: { contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', integrations: '/settings/integrations' },
-  agent: { contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', integrations: '/my-integrations' },
+const PATHS: Record<Surface, { contact: string; leads: string; templates: string; bulk: string; integrations: string }> = {
+  agency: { contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', bulk: '/bulk-email', integrations: '/settings/integrations' },
+  agent: { contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', bulk: '/my-bulk-email', integrations: '/my-integrations' },
 };
 
 const CONTACT_PAGE = /^\/(?:customers|my-contacts)\/([0-9a-f-]{36})(?:\/|$)/i;
@@ -56,6 +57,8 @@ function browserZone(): string {
 export function AssistantPanel({ surface }: { surface: Surface }) {
   const pathname = usePathname();
   const onContact = CONTACT_PAGE.exec(pathname ?? '')?.[1] ?? null;
+  // Contacts picked in the directory win over the page the panel was opened on.
+  const picks = usePicks();
 
   const [open, setOpen] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -69,6 +72,11 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
   const endRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => setUseSelection(true), [onContact]);
+  useEffect(() => {
+    const open = () => setOpen(true);
+    window.addEventListener('assistant:open', open);
+    return () => window.removeEventListener('assistant:open', open);
+  }, []);
   useEffect(() => endRef.current?.scrollIntoView({ block: 'end' }), [turns]);
 
   const update = (key: string, fn: (t: Turn) => Turn) => setTurns((all) => all.map((t) => (t.key === key ? fn(t) : t)));
@@ -91,7 +99,11 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
           ...(conversationId ? { conversationId } : {}),
           message,
           timeZone: browserZone(),
-          ...(onContact && useSelection ? { selection: { contactIds: [onContact] } } : {}),
+          ...(picks.length
+            ? { selection: { contactIds: picks.map((p) => p.id) } }
+            : onContact && useSelection
+              ? { selection: { contactIds: [onContact] } }
+              : {}),
         }),
       });
       if (!res.body || !(res.headers.get('content-type') ?? '').includes('ndjson')) {
@@ -129,7 +141,7 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
       setBusy(false);
       abortRef.current = null;
     }
-  }, [busy, conversationId, draft, onContact, useSelection]);
+  }, [busy, conversationId, draft, onContact, useSelection, picks]);
 
   const startNew = () => {
     abortRef.current?.abort();
@@ -217,6 +229,7 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
                 <li>“What’s on my calendar tomorrow?”</li>
                 <li>“Is my Google Calendar connected?”</li>
                 <li>“Book an appraisal with this contact tomorrow at 3pm.”</li>
+                <li>Pick contacts in the directory, then: “Send them the open home template.”</li>
               </ul>
             </div>
           ) : null}
@@ -245,7 +258,14 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
       )}
 
       <footer className={styles.foot}>
-        {onContact && useSelection ? (
+        {picks.length ? (
+          <div className={styles.chip}>
+            Using {picks.length} picked {picks.length === 1 ? 'contact' : 'contacts'}
+            <button type="button" onClick={clearPicks} aria-label="Clear the picked contacts">
+              ×
+            </button>
+          </div>
+        ) : onContact && useSelection ? (
           <div className={styles.chip}>
             Using this contact
             <button type="button" onClick={() => setUseSelection(false)} aria-label="Don’t use this contact">
@@ -433,9 +453,11 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
   const { card } = view;
   const contactHref = `${PATHS[surface].contact}/${card.contact.id}`;
   const doneHref =
-    view.status === 'done'
-      ? `${contactHref}?tab=${view.tool === 'add_note' ? 'notes' : view.tool === 'set_next_action' ? 'overview' : 'calendar'}`
-      : null;
+    view.status !== 'done'
+      ? null
+      : view.tool === 'send_template_email' && view.result?.batchId
+        ? `${PATHS[surface].bulk}/${view.result.batchId}`
+        : `${contactHref}?tab=${view.tool === 'add_note' ? 'notes' : view.tool === 'set_next_action' ? 'overview' : 'calendar'}`;
 
   return (
     <div className={`${styles.frame} ${styles.card}`} data-status={view.status}>
@@ -456,6 +478,23 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
           <div className={styles.label}>{card.text.label} — exactly as it will be saved</div>
           {card.text.value}
         </div>
+      ) : null}
+      {card.people?.length ? (
+        <ul className={styles.people}>
+          {card.people.map((p, i) => (
+            <li key={`${p.email ?? p.name}-${i}`} data-skipped={p.willReceive ? undefined : ''}>
+              <span>{p.name}</span>
+              <span className={styles.meta}>{p.willReceive ? p.email : `Skipped — ${p.reason ?? 'cannot receive it'}`}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {view.status === 'done' && view.tool === 'send_template_email' && view.result ? (
+        <p className={styles.cardNote}>
+          {view.result.sendError
+            ? view.result.sendError
+            : `Sent ${view.result.sent ?? 0}${view.result.skipped ? ` · ${view.result.skipped} skipped at sending` : ''}${view.result.failed ? ` · ${view.result.failed} failed` : ''}.`}
+        </p>
       ) : null}
       {card.notes.map((n) => (
         <p key={n} className={styles.cardNote}>
@@ -480,7 +519,7 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
             Cancel
           </button>
         ) : null}
-        {doneHref ? <Link href={doneHref}>Open {card.contact.name}</Link> : null}
+        {doneHref ? <Link href={doneHref}>{view.tool === 'send_template_email' ? 'Open the send report' : `Open ${card.contact.name}`}</Link> : null}
       </div>
     </div>
   );

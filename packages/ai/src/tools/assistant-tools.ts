@@ -167,4 +167,21 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
       required: ['appointment'],
     },
   },
+  {
+    name: 'send_template_email',
+    description: `Propose sending one of the agency's APPROVED email templates (from list_templates) to contacts — the ones the person selected (S1…) or ones you found (C…). The card lists every recipient: people without marketing consent, who unsubscribed, are archived, were emailed a template in the last 7 days or are over today's limits are shown as skipped with the reason, and are never sent to. If nobody can receive it, nothing is proposed — tell the person why. Sent from the platform address with an unsubscribe link. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        template: { type: 'string', description: 'A template reference from list_templates, e.g. T1.' },
+        recipients: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Contact references, e.g. ["S1", "S2"] or ["C3"]. 1 to 20. Never names or email addresses.',
+        },
+      },
+      required: ['template', 'recipients'],
+    },
+  },
 ]);

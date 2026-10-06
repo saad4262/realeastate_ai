@@ -1,0 +1,9 @@
+.box { width: 1rem; height: 1rem; cursor: pointer; }
+.bar {
+  position: sticky; bottom: 0; display: flex; align-items: center; gap: 0.75rem;
+  margin-top: 0.75rem; padding: 0.625rem 0.875rem; border: 1px solid var(--border-strong);
+  border-radius: 0.5rem; background: var(--surface-elevated); font-size: 0.875rem;
+  box-shadow: 0 -4px 12px rgb(15 23 42 / 0.06);
+}
+.ask { border: 0; border-radius: 0.375rem; padding: 0.375rem 0.75rem; background: var(--sapphire); color: #fff; font-weight: 600; cursor: pointer; }
+.clear { border: 1px solid var(--border-default); border-radius: 0.375rem; padding: 0.375rem 0.625rem; background: transparent; color: var(--text-secondary); cursor: pointer; }
