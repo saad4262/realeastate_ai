@@ -63,4 +63,4 @@ export {
   type LeadNoticeEmailInput,
 } from './team-notices';
 
-export { checkEmailLimits, devAllowlist, emailLimitsFromEnv, type EmailLimitCheck, type EmailLimits, type TemplateLimits } from './limits';
+export { checkEmailLimits, devAllowlist, devAllowlistProblem, DEV_ALLOWLIST_PROBLEM, emailLimitsFromEnv, type EmailLimitCheck, type EmailLimits, type TemplateLimits } from './limits';

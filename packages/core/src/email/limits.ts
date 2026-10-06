@@ -63,6 +63,19 @@ export function devAllowlist(env: NodeJS.ProcessEnv = process.env): ((email: str
   };
 }
 
+/**
+ * The one sentence every platform-composed email shows when the allowlist
+ * stops it (ADR 0022, extended to every `mail_message.kind` by ADR 0025 Q6).
+ */
+export const DEV_ALLOWLIST_PROBLEM =
+  'Not sent: this address is not on the development allowlist (EMAIL_DEV_ALLOWLIST) — nothing real is sent outside production.';
+
+/** Null when `email` may be sent to; the reason when the dev allowlist stops it. */
+export function devAllowlistProblem(email: string, env: NodeJS.ProcessEnv = process.env): string | null {
+  const allowed = devAllowlist(env);
+  return allowed && !allowed(email) ? DEV_ALLOWLIST_PROBLEM : null;
+}
+
 export type EmailLimitCheck = {
   ok: boolean;
   agentUsed: number;

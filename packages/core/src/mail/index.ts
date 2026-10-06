@@ -41,6 +41,7 @@ export {
 } from './threads';
 export {
   deliverOutbound,
+  recordOutbound,
   mailDepsFromEnv,
   retryFailedMessage,
   sendThreadReply,

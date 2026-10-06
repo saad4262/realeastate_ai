@@ -50,7 +50,7 @@ import {
 } from '@repo/core/leads';
 import { can, type Actor, type MembershipRole } from '@repo/core/permissions';
 import { agencyNotificationRecipients } from '@repo/core/agency';
-import { fakeTransport } from '@repo/core/email';
+import { DEV_ALLOWLIST_PROBLEM, fakeTransport } from '@repo/core/email';
 import {
   confirmEmailVerification,
   conversationLink,
@@ -62,6 +62,8 @@ import {
   listMailThreads,
   markThreadRead,
   sendThreadReply,
+  deliverOutbound,
+  recordOutbound,
   threadReplyAddress,
   type MailConfig,
 } from '@repo/core/mail';
@@ -3943,9 +3945,13 @@ async function main() {
         const t = tx as unknown as Db;
         const f = await contactFixture(t);
         const transport = fakeTransport();
+        // Outside production only the allowlist receives a platform email
+        // (ADR 0025 Q6). P1 is on it; P5 is not.
+        const env = { ...process.env, NODE_ENV: 'development', EMAIL_DEV_ALLOWLIST: `p1.${f.tag}@smoke.test` };
         const deps = {
           mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport },
           config: null,
+          env,
         };
         const limits = { perAgentDay: 2, perAgencyDay: 200 };
         // Through a function: an assert on `.length` would narrow it for TypeScript.
@@ -3955,7 +3961,7 @@ async function main() {
           title: 'Appraisal', type: 'appraisal', ...slot(2), location: '1 Smoke Street', notes: 'SECRET internal note',
         });
         assert(emails() === 0, 'booking emailed the contact by itself');
-        const preview = await previewInvitation(t, a1, id, limits);
+        const preview = await previewInvitation(t, a1, id, limits, env);
         assert(emails() === 0, 'the preview sent an email');
         assert(preview.problem === null && preview.to?.email === `p1.${f.tag}@smoke.test`, `preview: ${preview.problem ?? preview.to?.email}`);
         assert(!preview.body.includes('SECRET'), 'the invitation carries the internal notes');
@@ -3979,7 +3985,28 @@ async function main() {
         const third = await scheduleAppointment(t, a1, f.contacts.p1, { title: 'Third', type: 'meeting', ...slot(4) });
         const capped = await sendInvitation(t, deps, a1, third.id, limits).then(() => 'sent', (e: unknown) => (e as AppointmentError).code);
         assert(capped === 'limit' && emails() === 2, `over the cap got ${capped}, ${emails()} emails`);
-        summary = 'nothing on book or preview; one on Send; second Send refused; cap of 2 holds';
+
+        // The dev allowlist: P5 is not on it. The preview says why and Send is refused…
+        const off = await scheduleAppointment(t, a1, f.contacts.p5, { title: 'Off-list', type: 'meeting', ...slot(5) });
+        const offPreview = await previewInvitation(t, a1, off.id, { perAgentDay: 50, perAgencyDay: 200 }, env);
+        assert(offPreview.problem === DEV_ALLOWLIST_PROBLEM, `an address off the allowlist previewed as ${offPreview.problem}`);
+        const offSend = await sendInvitation(t, deps, a1, off.id, { perAgentDay: 50, perAgencyDay: 200 }).then(() => 'sent', (e: unknown) => (e as AppointmentError).message);
+        assert(offSend === DEV_ALLOWLIST_PROBLEM && emails() === 2, `an address off the allowlist got ${offSend}, ${emails()} emails`);
+        // …and the shared send path stops any platform email a caller forgot to check,
+        // while a person's own typed reply (no kind) is not its business.
+        const [th] = await t.execute<{ id: string }>(sql`
+          insert into mail_thread (agency_id, contact_id, subject, contact_email, contact_name)
+          values (${f.agencyId}, ${f.contacts.p5}, 'Backstop', ${`p5.${f.tag}@smoke.test`}, 'P5') returning id
+        `);
+        const queued = (kind?: string) => recordOutbound(t, deps, {
+          threadId: th!.id, agencyId: f.agencyId, subject: 'Backstop', to: `p5.${f.tag}@smoke.test`,
+          body: 'x', sentBy: f.people.a1, channel: 'console', ...(kind ? { kind } : {}),
+        });
+        const stopped = await deliverOutbound(t, deps, await queued('appointment_invitation'));
+        assert(stopped.status === 'failed' && stopped.error === DEV_ALLOWLIST_PROBLEM && emails() === 2, `the backstop let a platform email through: ${JSON.stringify(stopped)}`);
+        const typed = await deliverOutbound(t, deps, await queued());
+        assert(typed.status === 'sent' && emails() === 3, `a typed reply was stopped: ${JSON.stringify(typed)}`);
+        summary = 'nothing on book or preview; one on Send; second Send refused; cap of 2 holds; dev allowlist refuses in preview, send and the shared path';
         throw ROLLBACK;
       });
     } catch (err) {

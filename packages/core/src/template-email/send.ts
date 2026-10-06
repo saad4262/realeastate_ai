@@ -165,7 +165,8 @@ export async function sendBatch(db: Db, deps: TemplateSendDeps, batchId: string)
         threadId = created.threadId;
       }
 
-      const outcome = await deliverOutbound(db, deps.mail, messageId!, {
+      // The same environment the allowlist above was read from, for the shared backstop.
+      const outcome = await deliverOutbound(db, { ...deps.mail, env: deps.env ?? deps.mail.env }, messageId!, {
         unsubscribeUrl: contactUnsubscribeUrl(deps.unsubscribe.baseUrl, r.contact_id, deps.unsubscribe.secret),
       });
 

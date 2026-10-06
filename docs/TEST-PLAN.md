@@ -451,6 +451,13 @@ an email reply in their conversation.
 
 Owner in one browser, agent in another. Use a contact that has an email you can open.
 
+**Allowlist (since 2026-10-06, ADR 0025 Q6).** Outside production an invitation goes only to
+addresses on `EMAIL_DEV_ALLOWLIST` in `.env.local`, exactly like template email (section S):
+comma-separated addresses or `@domain`; **unset = nobody**. Before P4–P6 and P12, put the
+email of the contact you use there (your own test inbox, never a real client). Next reloads
+`.env.local` by itself; if it doesn't, restart `pnpm dev`. Your own typed replies in a
+conversation are not affected.
+
 | # | Case | Expected |
 |---|---|---|
 | P1 | Contact → Calendar tab | Upcoming / Past toggle, a **+ Schedule** button, and "Not connected" cards for Google Calendar and Zoom. |
@@ -465,6 +472,7 @@ Owner in one browser, agent in another. Use a contact that has an email you can 
 | P10 | Agent pastes the id of another agent's appointment into an action (or opens that contact's Calendar tab) | Not shown / "not found". |
 | P11 | Read-only member opens a contact's Calendar tab | No Schedule button; no Complete / Cancel / Reschedule. |
 | P12 | Set `EMAIL_LIMIT_PER_AGENT_DAY=1` in `.env.local`, restart, send two invitations | The second preview says the limit is reached and Send is disabled. (Put it back afterwards.) |
+| P13 | Preview an invitation for a contact whose email is NOT on the allowlist | The preview shows "Not sent: this address is not on the development allowlist (EMAIL_DEV_ALLOWLIST)…" and **Send is disabled**. No email, no new conversation. |
 
 ## Q — Integrations hub (ADR 0020, CRM Phase 4 — stub provider only)
 
@@ -542,6 +550,9 @@ email", with a note) and your allowlisted addresses; leave one without consent.
 run `cloudflared tunnel --url http://localhost:3001`, put its `https://…trycloudflare.com` address in
 `ZOOM_OAUTH_RETURN_BASE` and, with `/api/integrations/oauth/return` added, as the Zoom app's Redirect
 URL and in its OAuth allow list. Restart `pnpm dev` (you do this — the env file is read at start).
+If you send an invitation in this section (e.g. the Zoom join link), the contact's email must
+be on `EMAIL_DEV_ALLOWLIST` (see section P). Calendar events and Zoom meetings are not emails
+and are not affected.
 A provider with its id+secret set uses the real one; `INTEGRATIONS_STUB=1` still covers the others.
 Use a test Google account listed as a test user, and a Zoom account in your own Zoom account.
 Agent in one browser (agents.lvh.me:3001), owner in another (agency.lvh.me:3001).

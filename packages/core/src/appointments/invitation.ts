@@ -1,7 +1,7 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { agency, appointment, contact, mailThread, type Db } from '@repo/db';
 import type { Actor } from '../permissions';
-import { checkEmailLimits, emailLimitsFromEnv, type EmailLimitCheck, type EmailLimits } from '../email/limits';
+import { checkEmailLimits, devAllowlistProblem, emailLimitsFromEnv, type EmailLimitCheck, type EmailLimits } from '../email/limits';
 import { deliverOutbound, recordOutbound, type MailDeps } from '../mail/send';
 import { recordActivity } from '../contacts/write-contacts';
 import { formatInZone } from '../time/local-input';
@@ -74,13 +74,19 @@ async function facts(db: Db, actor: Actor, appointmentId: string) {
   return { a, c };
 }
 
-function problemWith(a: AppointmentView, c: { email: string | null } | undefined, limits: EmailLimitCheck): string | null {
+function problemWith(
+  a: AppointmentView,
+  c: { email: string | null } | undefined,
+  limits: EmailLimitCheck,
+  env: NodeJS.ProcessEnv,
+): string | null {
   if (!a.mayUpdate) return 'Only the agent this appointment is assigned to, or an admin, may send its invitation.';
   if (!ACTIVE_STATUSES.includes(a.status)) return `This appointment is ${a.status}.`;
   if (a.endsAt.getTime() < Date.now()) return 'This appointment is already over.';
   if (a.invitationSentAt) return 'An invitation for this time was already sent.';
   if (!c?.email) return 'This contact has no email address.';
-  return limits.reason;
+  // Outside production, only the dev allowlist (as template email, ADR 0022).
+  return devAllowlistProblem(c.email, env) ?? limits.reason;
 }
 
 export async function previewInvitation(
@@ -88,6 +94,7 @@ export async function previewInvitation(
   actor: Actor,
   appointmentId: string,
   limits: EmailLimits = emailLimitsFromEnv(),
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<InvitationPreview> {
   const { a, c } = await facts(db, actor, appointmentId);
   const check = await checkEmailLimits(db, { agencyId: a.agencyId, userId: actor.userId }, limits);
@@ -100,7 +107,7 @@ export async function previewInvitation(
     subject,
     body,
     limits: check,
-    problem: problemWith(a, c, check),
+    problem: problemWith(a, c, check, env),
   };
 }
 
@@ -119,7 +126,7 @@ export async function sendInvitation(
 ): Promise<{ status: 'sent' | 'failed'; threadId: string; error: string | null }> {
   const { a, c } = await facts(db, actor, appointmentId);
   const check = await checkEmailLimits(db, { agencyId: a.agencyId, userId: actor.userId }, limits);
-  const problem = problemWith(a, c, check);
+  const problem = problemWith(a, c, check, deps.env ?? process.env);
   if (problem) throw new AppointmentError(check.ok ? 'conflict' : 'limit', problem);
   const to = c!.email!;
   const { subject, body } = buildInvitation(a, {

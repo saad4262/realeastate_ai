@@ -10,6 +10,7 @@ import type { Actor } from '../permissions';
 import { threadReplyAddress, type MailConfig } from './address';
 import { conversationLink, verifySecretFromEnv } from './verify-email';
 import { noticeMailFromEnv } from '../email/resend-transport';
+import { devAllowlistProblem } from '../email/limits';
 import { mailConfigFromEnv } from './address';
 import { replyInputSchema } from './mail-schema';
 import {
@@ -41,6 +42,8 @@ export type MailDeps = {
    * Absent: the email simply has no such link.
    */
   site?: { webUrl: string; verifySecret: string | null };
+  /** For the development allowlist; defaults to process.env. A test seam. */
+  env?: NodeJS.ProcessEnv;
 };
 
 /**
@@ -174,6 +177,7 @@ export async function deliverOutbound(
       id: mailMessage.id,
       threadId: mailMessage.threadId,
       status: mailMessage.status,
+      kind: mailMessage.kind,
       text: mailMessage.text,
       subject: mailThread.subject,
       contactEmail: mailThread.contactEmail,
@@ -202,6 +206,20 @@ export async function deliverOutbound(
   // duplicate email in a buyer's inbox.
   if (m.status !== 'queued') {
     return { messageId, status: m.status === 'sent' ? 'sent' : 'failed', error: null };
+  }
+
+  // The shared guard for platform-composed email (a `kind`: template email,
+  // appointment invitation, anything the assistant sends): outside production
+  // only the dev allowlist receives it. Callers check first and show the
+  // reason; this is the backstop no new sender can forget. A person's own
+  // typed reply (no kind) is theirs to send and is not stopped here.
+  const blocked = m.kind ? devAllowlistProblem(m.contactEmail, deps.env ?? process.env) : null;
+  if (blocked) {
+    await db
+      .update(mailMessage)
+      .set({ status: 'failed', error: blocked, updatedAt: sql`now()` })
+      .where(and(eq(mailMessage.id, messageId), eq(mailMessage.status, 'queued')));
+    return { messageId, status: 'failed', error: blocked };
   }
 
   const { sender, transport } = deps.mailer;

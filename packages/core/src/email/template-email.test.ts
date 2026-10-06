@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildConversationEmail } from './conversation';
-import { devAllowlist, emailLimitsFromEnv } from './limits';
+import { DEV_ALLOWLIST_PROBLEM, devAllowlist, devAllowlistProblem, emailLimitsFromEnv } from './limits';
 import { signContactUnsubscribeToken, signUnsubscribeToken, verifyContactUnsubscribeToken, verifyUnsubscribeToken } from './unsubscribe';
 
 const secret = 'x'.repeat(32);
@@ -60,5 +60,13 @@ describe('limits and the dev allowlist', () => {
   });
   it('is ignored in production', () => {
     expect(devAllowlist({ NODE_ENV: 'production', EMAIL_DEV_ALLOWLIST: 'me@mine.test' } as NodeJS.ProcessEnv)).toBeNull();
+  });
+  it('gives every platform email (invitations too) the same reason to show', () => {
+    const dev = { NODE_ENV: 'development', EMAIL_DEV_ALLOWLIST: 'me@mine.test' } as NodeJS.ProcessEnv;
+    expect(devAllowlistProblem('client@gmail.com', dev)).toBe(DEV_ALLOWLIST_PROBLEM);
+    expect(DEV_ALLOWLIST_PROBLEM).toMatch(/development allowlist/);
+    expect(devAllowlistProblem('me@mine.test', dev)).toBeNull();
+    expect(devAllowlistProblem('client@gmail.com', { NODE_ENV: 'development' } as NodeJS.ProcessEnv)).toBe(DEV_ALLOWLIST_PROBLEM);
+    expect(devAllowlistProblem('client@gmail.com', { NODE_ENV: 'production' } as NodeJS.ProcessEnv)).toBeNull();
   });
 });
