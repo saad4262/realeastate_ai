@@ -15,6 +15,7 @@ import {
 } from '@/lib/assistant-actions';
 import type { ProposalView } from '@repo/core/assistant';
 import { clearPicks, usePicks } from './picks';
+import { Tile } from '../dashboards/tile';
 import styles from './assistant-panel.module.css';
 
 /**
@@ -230,6 +231,7 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
                 <li>“Is my Google Calendar connected?”</li>
                 <li>“Book an appraisal with this contact tomorrow at 3pm.”</li>
                 <li>Pick contacts in the directory, then: “Send them the open home template.”</li>
+                <li>“What’s our sold value this month?” (owners and admins)</li>
               </ul>
             </div>
           ) : null}
@@ -366,6 +368,8 @@ function FrameView({ frame, surface }: { frame: AssistantFrame; surface: Surface
       );
     case 'proposal':
       return <ProposalCardView id={frame.id} surface={surface} />;
+    case 'widget':
+      return <Tile tile={frame.tile} compact />;
     case 'connections':
       return (
         <FrameBox title="Connected accounts">
@@ -455,9 +459,15 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
   const doneHref =
     view.status !== 'done'
       ? null
-      : view.tool === 'send_template_email' && view.result?.batchId
-        ? `${PATHS[surface].bulk}/${view.result.batchId}`
-        : `${contactHref}?tab=${view.tool === 'add_note' ? 'notes' : view.tool === 'set_next_action' ? 'overview' : 'calendar'}`;
+      : view.tool === 'create_dashboard' && view.result?.dashboardId
+        ? `/dashboards/${view.result.dashboardId}`
+        : view.tool === 'send_template_email' && view.result?.batchId
+          ? `${PATHS[surface].bulk}/${view.result.batchId}`
+          : card.contact.id
+            ? `${contactHref}?tab=${view.tool === 'add_note' ? 'notes' : view.tool === 'set_next_action' ? 'overview' : 'calendar'}`
+            : null;
+  const doneLabel =
+    view.tool === 'create_dashboard' ? 'Open the dashboard' : view.tool === 'send_template_email' ? 'Open the send report' : `Open ${card.contact.name}`;
 
   return (
     <div className={`${styles.frame} ${styles.card}`} data-status={view.status}>
@@ -519,7 +529,7 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
             Cancel
           </button>
         ) : null}
-        {doneHref ? <Link href={doneHref}>{view.tool === 'send_template_email' ? 'Open the send report' : `Open ${card.contact.name}`}</Link> : null}
+        {doneHref ? <Link href={doneHref}>{doneLabel}</Link> : null}
       </div>
     </div>
   );

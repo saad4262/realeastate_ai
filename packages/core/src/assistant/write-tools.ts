@@ -9,11 +9,13 @@ import { formatInZone, localDateTimeToInstant } from '../time/local-input';
 import { propose, type FrozenArgs } from './actions';
 import { resolveHandle } from './handles';
 import type { ProposalCard } from './schema';
-import type { addNoteInput, cancelAppointmentInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
+import type { addNoteInput, cancelAppointmentInput, createDashboardInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
 import { cancelBatch, getBatch, prepareBatch } from '../template-email/batches';
 import { TemplateEmailError } from '../template-email/templates';
 import { SKIP_REASON_LABELS } from '../template-email/schema';
 import { checkEmailLimits, emailLimitsFromEnv } from '../email/limits';
+import { AUDIENCE_LABELS, createDashboardSchema } from '../dashboards';
+import { agencyTimeZone, renderWidget, WIDGETS, type WidgetData } from '../widgets/registry';
 import type { ToolContext, ToolOutcome } from './tools';
 import type { z } from 'zod';
 
@@ -374,3 +376,60 @@ export async function proposeSendTemplateEmail(
   const args: FrozenArgs = { tool: 'send_template_email', batchId: batch.id, templateId, contactIds: batch.recipients.map((r) => r.contactId) };
   return propose(ctx, label, { tool: 'send_template_email', args, card, contactId: first.contactId });
 }
+
+/** A figure in words, for a card's "as of" line — from SQL numbers, never the model's. */
+function figure(d: WidgetData): string {
+  const money = (n: number) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', maximumFractionDigits: 0 }).format(n);
+  switch (d.kind) {
+    case 'money':
+      return `${money(d.total)} from ${d.count} sale${d.count === 1 ? '' : 's'}${d.undisclosed ? ` · ${d.undisclosed} sold with no disclosed price (not counted as $0)` : ''}`;
+    case 'count':
+      return String(d.total);
+    case 'breakdown':
+      return String(d.total);
+    case 'status':
+      return `${d.active} (${d.rows.map((r) => `${r.value} ${r.label.toLowerCase()}`).join(', ')})`;
+  }
+}
+
+/**
+ * ADR 0027: save a dashboard, as a card. Owners/admins only. The card lists
+ * every widget in plain words with its figure as of now (SQL, as this person),
+ * and who will be able to open it. Approve saves it through createDashboard,
+ * which asks dashboard:create again; the card then shows its link.
+ */
+export async function proposeCreateDashboard(
+  ctx: ToolContext,
+  input: z.infer<typeof createDashboardInput>,
+  label: string,
+): Promise<ToolOutcome> {
+  const { actor, db } = ctx;
+  if (!actor.agencyId || !can(actor, 'dashboard:create', { type: 'dashboard', agencyId: actor.agencyId })) {
+    return refused('Only an owner or admin can save a dashboard. You can ask to see a figure here instead.', label);
+  }
+  const widgets = input.widgets.map((w) => ({ widget: w.widget, params: w.range ? { range: w.range } : {} }));
+  const parsed = createDashboardSchema.safeParse({ title: input.title, widgets, audience: input.audience });
+  if (!parsed.success) return refused(parsed.error.issues[0]?.message ?? 'That dashboard is not valid.', label);
+  const timeZone = await agencyTimeZone(db, actor.agencyId);
+  const lines: { label: string; value: string }[] = [];
+  const frozen: { widget: string; params: Record<string, unknown> }[] = [];
+  for (const w of parsed.data.widgets) {
+    const params = WIDGETS[w.widget].params.parse(w.params ?? {}) as Record<string, unknown>;
+    frozen.push({ widget: w.widget, params });
+    const tile = await renderWidget({ db, actor, now: ctx.now, timeZone }, { widget: w.widget, params });
+    lines.push({ label: tile.description, value: tile.state === 'ok' ? `${figure(tile.data)} (now)` : 'Not available' });
+  }
+  const card: ProposalCard = {
+    title: `Save the dashboard “${parsed.data.title}”`,
+    contact: { id: '', name: '' },
+    lines: [
+      ...lines,
+      { label: 'Who can open it', value: AUDIENCE_LABELS[parsed.data.audience] },
+      { label: 'Updates', value: 'Every 30–60 seconds while it is open' },
+    ],
+    notes: [NOTHING_YET, 'Only signed-in members of your agency can open its link; nobody else, ever.'],
+  };
+  const args: FrozenArgs = { tool: 'create_dashboard', title: parsed.data.title, widgets: frozen, audience: parsed.data.audience };
+  return propose(ctx, label, { tool: 'create_dashboard', args, card, contactId: null });
+}
+

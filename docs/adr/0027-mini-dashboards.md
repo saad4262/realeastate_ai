@@ -156,3 +156,29 @@ same note rather than refusing the whole dashboard.
   three rather than two, because "email replies" is a new widget rather than one of the eight.
 - Q3, Q5: **accepted as recommended** (30–60 s polling with 304s; add `agency.time_zone`,
   default Australia/Sydney, which also defines "this week").
+
+## As built (2026-10-06, migrations 0030 and 0031)
+
+- **Migration 0030:** `agency.time_zone` (default Australia/Sydney) and `dashboard` (agency,
+  created_by, title, widgets jsonb, audience CHECK private|admins|agency, archived_at). RLS on.
+  **0031** widens `proposed_action`'s tool CHECK to include `create_dashboard`. No row changes.
+- **Registry** `packages/core/src/widgets/registry.ts`, the six agreed widgets: `sold_value`,
+  `sold_count`, `new_leads`, `upcoming_appointments` (default "this week", Monday–Sunday on the
+  agency clock), `listings_by_status` ("Active" = live + under offer, agency-wide for
+  owners/admins, otherwise the viewer's own listings), `email_replies` (inbound messages on
+  threads the viewer may read). Each is one SQL statement through the screens' own scope
+  helpers, with a zod params schema, a permission and a refresh of 30–60 s. Ranges: today, 7d,
+  30d, 90d, this_week, this_month, last_month, this_year. Undisclosed sales are counted apart,
+  never as zero.
+- **Permissions** `dashboard:create` / `report:read_agency` (owner/admin), `dashboard:read`
+  (same agency + audience), `dashboard:manage` (creator or admin).
+- **Pages:** `/dashboards` (agency list) and `/my-dashboards` (agent list). The viewer at
+  `/dashboards/<id>` sits outside both consoles' chrome so it fills a TV, and polls
+  `/api/dashboards/<id>/data` with ETag/304, a 15 s per-viewer cache, and a pause while hidden.
+  Not found for anyone who may not open it.
+- **Assistant:** `show_widget` (read, a tile in the chat; the model is told only that it was
+  shown) and `create_dashboard` (a card listing each widget with its figure now and who can
+  open it; Approve saves through `createDashboard`, which asks `dashboard:create` again).
+  Prompt `assistant@v5`.
+- **Isolation:** `dashboard` is classified "own agency"; the smoke suite reads and archives
+  across agencies (refused).

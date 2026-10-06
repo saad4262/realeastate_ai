@@ -211,6 +211,20 @@
       "when": 1791273136691,
       "tag": "0029_proposed_action",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791292401215,
+      "tag": "0030_dashboards",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1791292628131,
+      "tag": "0031_proposed_action_dashboard_tool",
+      "breakpoints": true
     }
   ]
 }

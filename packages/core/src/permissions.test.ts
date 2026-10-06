@@ -756,3 +756,42 @@ describe('listing:read stays inside the agency (ADR 0030 matrix finding)', () =>
     expect(can({ userId: 'x' }, 'listing:read', { type: 'listing', id: listingA, agencyId: agencyA })).toBe(false);
   });
 });
+
+describe('dashboards (ADR 0027)', () => {
+  const m = (userId: string, membershipRole: Actor['membershipRole']): Actor => ({ userId, agencyId: agencyA, membershipRole });
+  const owner = m('owner', 'owner');
+  const admin = m('admin', 'admin');
+  const agent = m('agent', 'agent');
+  const viewer = m('viewer', 'read_only');
+  const rival: Actor = { userId: 'rival', agencyId: agencyB, membershipRole: 'owner' };
+  const d = (audience: 'private' | 'admins' | 'agency', ownerId = 'owner') => ({ type: 'dashboard', id: 'd1', agencyId: agencyA, ownerId, audience });
+
+  it('only owners and admins save dashboards and see agency-wide figures', () => {
+    for (const a of [owner, admin]) {
+      expect(can(a, 'dashboard:create', { type: 'dashboard', agencyId: agencyA })).toBe(true);
+      expect(can(a, 'report:read_agency', { type: 'report', agencyId: agencyA })).toBe(true);
+    }
+    for (const a of [agent, viewer, rival]) {
+      expect(can(a, 'dashboard:create', { type: 'dashboard', agencyId: agencyA })).toBe(false);
+      expect(can(a, 'report:read_agency', { type: 'report', agencyId: agencyA })).toBe(false);
+    }
+  });
+
+  it('who may open one follows its audience, and never another agency', () => {
+    expect(can(owner, 'dashboard:read', d('private'))).toBe(true);
+    expect(can(admin, 'dashboard:read', d('private'))).toBe(false);
+    expect(can(admin, 'dashboard:read', d('admins'))).toBe(true);
+    expect(can(agent, 'dashboard:read', d('admins'))).toBe(false);
+    expect(can(agent, 'dashboard:read', d('agency'))).toBe(true);
+    expect(can(viewer, 'dashboard:read', d('agency'))).toBe(true);
+    expect(can(rival, 'dashboard:read', { ...d('agency'), agencyId: agencyA })).toBe(false);
+    expect(can({ userId: 'x' }, 'dashboard:read', d('agency'))).toBe(false);
+  });
+
+  it('its creator or an admin manages it', () => {
+    expect(can(owner, 'dashboard:manage', d('agency'))).toBe(true);
+    expect(can(admin, 'dashboard:manage', d('agency'))).toBe(true);
+    expect(can(agent, 'dashboard:manage', d('agency'))).toBe(false);
+  });
+});
+

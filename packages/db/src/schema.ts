@@ -112,6 +112,11 @@ export const agency = pgTable('agency', {
   brandColor: varchar('brand_color', { length: 16 }),
   plan: varchar('plan', { length: 64 }).default('trial'),
   status: agencyStatusEnum('status').notNull().default('trial'),
+  /**
+   * The agency's own clock (ADR 0027): "today", "this week" and "this month"
+   * on a dashboard mean the same for everyone looking at one screen.
+   */
+  timeZone: text('time_zone').notNull().default('Australia/Sydney'),
   ...timestamps,
 });
 
@@ -1745,6 +1750,31 @@ export const proposedAction = pgTable(
   ],
 );
 
+/**
+ * A saved dashboard (ADR 0027): a list of widgets from the FIXED registry in
+ * packages/core/src/widgets — `{ widget, params }`, re-parsed on every read —
+ * never code, SQL or numbers. Saved by owners/admins only; opened by signed-in
+ * members of the same agency per `audience`; every figure computed AS THE
+ * VIEWER. No share link exists.
+ */
+export const dashboard = pgTable(
+  'dashboard',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
+    title: text('title').notNull(),
+    widgets: jsonb('widgets').notNull(),
+    /** `private` (its creator), `admins` (owners and admins), `agency` (every active member). */
+    audience: varchar('audience', { length: 16 }).notNull().default('admins'),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index('dashboard_agency_idx').on(t.agencyId, desc(t.createdAt))],
+);
+
 export type User = typeof user.$inferSelect;
 export type Agency = typeof agency.$inferSelect;
 export type Listing = typeof listing.$inferSelect;
@@ -1777,3 +1807,4 @@ export type ContactFilter = typeof contactFilter.$inferSelect;
 export type AssistantConversation = typeof assistantConversation.$inferSelect;
 export type AssistantTurn = typeof assistantTurn.$inferSelect;
 export type ProposedAction = typeof proposedAction.$inferSelect;
+export type Dashboard = typeof dashboard.$inferSelect;

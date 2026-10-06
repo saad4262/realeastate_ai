@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CONTACT_ROLES } from '../contacts/contact-schema';
 import { INTEGRATION_PROVIDERS, type IntegrationProvider } from '../integrations/providers';
+import { WIDGET_IDS, WIDGET_RANGES, type WidgetId, type WidgetTile } from '../widgets/registry';
 
 /**
  * The console assistant's contract (docs/adr/0025). Phase A: read tools only.
@@ -178,8 +179,24 @@ export const sendTemplateEmailInput = z
   })
   .strict();
 
-export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email'] as const;
+/**
+ * Dashboards (ADR 0027 / 0025 Phase F). A widget is an id from the fixed
+ * registry and, where it has one, a range — never code, SQL or a figure.
+ */
+const widgetChoice = z
+  .object({ widget: z.enum(WIDGET_IDS as [WidgetId, ...WidgetId[]]), range: z.enum(WIDGET_RANGES).optional() })
+  .strict();
+export const showWidgetInput = widgetChoice;
+export const createDashboardInput = z
+  .object({
+    title: z.string().trim().min(1).max(80),
+    widgets: z.array(widgetChoice).min(1).max(12),
+    audience: z.enum(['private', 'admins', 'agency']).default('admins'),
+  })
+  .strict();
+
+export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 
 /** Every tool. Read tools run at once; write tools only propose (ADR 0025 §8). */
@@ -189,12 +206,14 @@ export const ASSISTANT_TOOL_INPUTS = {
   find_appointments: findAppointmentsInput,
   list_templates: listTemplatesInput,
   check_connections: checkConnectionsInput,
+  show_widget: showWidgetInput,
   add_note: addNoteInput,
   set_next_action: setNextActionInput,
   schedule_appointment: scheduleAppointmentInput,
   reschedule_appointment: rescheduleAppointmentInput,
   cancel_appointment: cancelAppointmentInput,
   send_template_email: sendTemplateEmailInput,
+  create_dashboard: createDashboardInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];
@@ -250,6 +269,8 @@ export type AssistantFrame =
       kind: 'connections';
       rows: { provider: IntegrationProvider; label: string; state: string; whose: 'yours' | 'agency' | null; mayConnect: boolean }[];
     }
+  /** A widget tile shown in the chat, computed from SQL as the person asking (ADR 0027). */
+  | { kind: 'widget'; tile: WidgetTile }
   /** A card waiting for the person. The panel loads it by id — from the database, never from the stream's text. */
   | { kind: 'proposal'; id: string; tool: AssistantWriteTool };
 

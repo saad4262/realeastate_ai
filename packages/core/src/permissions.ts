@@ -247,6 +247,18 @@ export type Action =
   | 'proposed_action:decide'
   /** Cancel one not yet run: its author or an admin. */
   | 'proposed_action:cancel'
+  /** Save a dashboard (ADR 0027, decided Q4): owners and admins only. */
+  | 'dashboard:create'
+  /**
+   * Open a dashboard: same agency, signed in, and its `audience` —
+   * `private` its creator, `admins` any owner/admin, `agency` any active member.
+   * Every figure on it is then computed as the viewer.
+   */
+  | 'dashboard:read'
+  /** Rename, change audience, archive: its creator or an admin. */
+  | 'dashboard:manage'
+  /** Agency-wide money and performance figures (Sold value, sales). Owner/admin. */
+  | 'report:read_agency'
   | 'team:manage'
   | 'agency:billing'
   /** Agency OS host — owner|admin only */
@@ -292,6 +304,8 @@ export type Resource = {
   createdBy?: string | null;
   /** On an integration account: a person's (`user`) or the agency's. */
   integrationOwnerType?: 'user' | 'agency';
+  /** On a dashboard: who may open it. */
+  audience?: 'private' | 'admins' | 'agency';
 };
 
 const ADMIN_ROLES: MembershipRole[] = ['owner', 'admin'];
@@ -508,6 +522,21 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'assistant_conversation:read':
       return sameAgency(actor, resource) && Boolean(actor.membershipRole) &&
         Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'dashboard:create':
+    case 'report:read_agency':
+      return sameAgency(actor, resource) && isAgencyAdmin(actor);
+
+    case 'dashboard:read':
+      if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      if (resource.audience === 'agency') return true;
+      if (resource.audience === 'admins') return isAgencyAdmin(actor);
+      return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'dashboard:manage':
+      if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      if (isAgencyAdmin(actor)) return true;
+      return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
 
     case 'proposed_action:read':
       if (!sameAgency(actor, resource) || !actor.membershipRole) return false;

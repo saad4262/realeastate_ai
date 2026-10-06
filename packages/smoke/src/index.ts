@@ -190,6 +190,7 @@ import {
   type HandleMap,
 } from '@repo/core/assistant';
 import { assistantDeps, runAssistantTurn, type AssistantEvent } from '@repo/ai/assistant';
+import { archiveDashboard, createDashboard, getDashboardData, listDashboards, rangeWindow, renderWidget, WIDGET_IDS, WIDGET_RANGES } from '@repo/core/dashboards';
 import { assert, check, group, note, report, skip } from './runner';
 
 config({ path: resolve(process.cwd(), '../../.env.local') });
@@ -5428,7 +5429,7 @@ async function main() {
   const OWN_AGENCY_TABLES = [
     'office', 'team', 'membership', 'agent_invite', 'listing', 'lead', 'mail_thread', 'mail_message', 'contact', 'note',
     'activity', 'appointment', 'integration_account', 'ai_run', 'skill', 'agent_skill', 'skill_run', 'contact_filter',
-    'email_template', 'email_batch', 'assistant_conversation', 'proposed_action',
+    'email_template', 'email_batch', 'assistant_conversation', 'proposed_action', 'dashboard',
   ] as const;
   const CHILD_TABLES: [string, string, string][] = [
     ['team_member', 'team_id', 'team'],
@@ -5489,6 +5490,7 @@ async function main() {
         { contact: 'C1', body: `card ${f.tag}` },
       );
       const proposalId = (card.frame as { id: string }).id;
+      const dash = await createDashboard(t, f.actor('owner'), { title: `Agency ${f.tag}`, widgets: [{ widget: 'new_leads', params: {} }], audience: 'agency' });
       await t.execute(sql`insert into ai_run (feature, model, cost_usd, user_id, agency_id, prompt_version) values ('assistant', 'claude-sonnet-5-5', 0.5, ${f.people.a1}, ${f.agencyId}, 'smoke')`);
       const [ids] = await t.execute<{ listing: string; lead: string; thread: string; offer: string }>(sql`
         select (select id from listing where agency_id = ${f.agencyId} limit 1) as listing,
@@ -5510,6 +5512,7 @@ async function main() {
           accounts: [calendar, zoom],
           conversation: conv.conversationId,
           proposal: proposalId,
+          dashboard: dash.id,
           listing: ids!.listing,
           lead: ids!.lead,
           offer: ids!.offer,
@@ -5521,7 +5524,7 @@ async function main() {
     const B = await make();
     const bIds = [
       ...B.ids.contacts, ...B.ids.people, B.ids.appointment, ...B.ids.notes, B.ids.template, B.ids.filter, B.ids.batch,
-      B.ids.skill, ...B.ids.accounts, B.ids.conversation, B.ids.proposal, B.ids.listing, B.ids.lead, B.ids.offer, B.ids.thread, B.f.agencyId,
+      B.ids.skill, ...B.ids.accounts, B.ids.conversation, B.ids.proposal, B.ids.dashboard, B.ids.listing, B.ids.lead, B.ids.offer, B.ids.thread, B.f.agencyId,
     ].filter(Boolean);
     return { g, A, B, bIds };
   }
@@ -5568,6 +5571,9 @@ async function main() {
           ['getAssistantConversation(B)', getAssistantConversation(t, actor, B.ids.conversation)],
           ['getProposedAction(B)', getProposedAction(t, actor, B.ids.proposal)],
           ['selectionHandles(B)', selectionHandles(t, actor, {}, B.ids.contacts)],
+          ['listDashboards', listDashboards(t, actor)],
+          ['getDashboardData(B)', getDashboardData(t, actor, B.ids.dashboard)],
+          ['show_widget', runAssistantTool(ctx, 'show_widget', { widget: 'listings_by_status' })],
         ];
         for (const [name, p] of lists) {
           reads += 1;
@@ -5636,6 +5642,7 @@ async function main() {
           ['cancelProposedAction', () => cancelProposedAction(t, actor, B.ids.proposal)],
           ['updateListing', () => updateListing(t, actor, B.ids.listing, { property: {}, listing: {} })],
           ['setListingStatus', () => setListingStatus(t, actor, B.ids.listing, 'withdrawn')],
+          ['archiveDashboard', () => archiveDashboard(t, actor, B.ids.dashboard)],
           // Assistant write tools with forged references to B's rows.
           ['add_note (forged)', () => runAssistantTool(pctx({ ...forged }), 'add_note', { contact: 'C1', body: 'x' })],
           ['set_next_action (forged)', () => runAssistantTool(pctx({ ...forged }), 'set_next_action', { contact: 'C1', text: 'x' })],
@@ -5723,6 +5730,122 @@ async function main() {
       return 'agency caps per agency; conversations and cards stay in their agency';
     }),
   );
+
+  // ------------------------------------------------------------ dashboards --
+  group('Dashboards');
+
+  /** Two agencies; A has sold listings (two priced, one undisclosed, one older), B has one; plus leads and an appointment. */
+  async function dashboardFixture(t: Db) {
+    const A = await contactFixture(t);
+    const B = await contactFixture(t);
+    const sold = async (f: typeof A, price: number | null, daysAgo: number, agent?: string) => {
+      const [l] = await t.execute<{ id: string }>(sql`
+        insert into listing (property_id, agency_id, channel, status, sold_price, sold_date, headline)
+        values (${f.propertyId}, ${f.agencyId}, 'sale', 'sold', ${price}, now() - (${daysAgo} || ' days')::interval, 'Sold')
+        returning id`);
+      if (agent) {
+        await t.execute(sql`insert into listing_agent (listing_id, user_id, snapshot_name, snapshot_phone, snapshot_email) values (${l!.id}, ${agent}, 'A', '0400000000', 'a@x.test')`);
+      }
+      return l!.id;
+    };
+    await sold(A, 800000, 1, A.people.a1);
+    await sold(A, 650000, 3, A.people.a2);
+    await sold(A, null, 2, A.people.a1); // undisclosed
+    await sold(A, 999999, 40); // outside "the last 7 days"
+    await sold(B, 5000000, 1, B.people.a1);
+    return { A, B };
+  }
+
+  await check('Sold value is the agency’s own sold prices in the range; an undisclosed sale is counted apart, never as $0', async () =>
+    inRollback(async (t) => {
+      const { A } = await dashboardFixture(t);
+      const tz = 'Australia/Sydney';
+      const tile = await renderWidget({ db: t, actor: A.actor('owner'), now: new Date(), timeZone: tz }, { widget: 'sold_value', params: { range: '7d' } });
+      assert(tile.state === 'ok', `state ${tile.state}`);
+      const d = (tile as { data: { total: number; count: number; undisclosed: number } }).data;
+      // The same figure, the sum written by hand in SQL over the same window.
+      const { from, to } = rangeWindow('7d', new Date(), tz);
+      const [hand] = await t.execute<{ total: string; n: string; u: string }>(sql`
+        select coalesce(sum(sold_price), 0) as total, count(sold_price) as n, count(*) - count(sold_price) as u from listing
+        where agency_id = ${A.agencyId} and status = 'sold' and sold_date >= ${from.toISOString()} and sold_date < ${to.toISOString()}`);
+      assert(d.total === 1450000 && d.count === 2 && d.undisclosed === 1, `sold value: ${JSON.stringify(d)}`);
+      assert(Number(hand!.total) === d.total && Number(hand!.u) === d.undisclosed, `hand SQL says ${JSON.stringify(hand)}`);
+      const sales = await renderWidget({ db: t, actor: A.actor('owner'), now: new Date(), timeZone: tz }, { widget: 'sold_count', params: { range: '7d' } });
+      assert(sales.state === 'ok' && (sales as { data: { total: number } }).data.total === 3, `sales: ${JSON.stringify(sales)}`);
+      return '$1,450,000 from 2 priced sales + 1 undisclosed (not $0); B’s $5M and a 40-day-old sale excluded; 3 sales by agent';
+    }),
+  );
+
+  await check('figures follow the viewer: agents get no money figures, see only their own listings; others’ dashboards and B’s open nothing', async () =>
+    inRollback(async (t) => {
+      const { A, B } = await dashboardFixture(t);
+      const tz = 'Australia/Sydney';
+      const as = (who: 'a1' | 'owner') => ({ db: t, actor: A.actor(who), now: new Date(), timeZone: tz });
+      assert((await renderWidget(as('a1'), { widget: 'sold_value', params: {} })).state === 'no_access', 'an agent saw Sold value');
+      // Every widget runs against the real schema, every range, as an owner and as an agent.
+      for (const widget of WIDGET_IDS) {
+        for (const range of WIDGET_RANGES) {
+          const params = widget === 'listings_by_status' ? {} : { range };
+          for (const who of ['owner', 'a1'] as const) {
+            const tile = await renderWidget(as(who), { widget, params });
+            assert(tile.state === 'ok' || (tile.state === 'no_access' && who === 'a1'), `${widget} ${range} as ${who}: ${tile.state}`);
+          }
+        }
+      }
+      const [mine] = await t.execute<{ id: string }>(sql`
+        insert into listing (property_id, agency_id, channel, status, headline) values (${A.propertyId}, ${A.agencyId}, 'sale', 'live', 'Live') returning id`);
+      await t.execute(sql`insert into listing_agent (listing_id, user_id, snapshot_name, snapshot_phone, snapshot_email) values (${mine!.id}, ${A.people.a2}, 'A2', '0400000000', 'a2@x.test')`);
+      const ownerActive = (await renderWidget(as('owner'), { widget: 'listings_by_status', params: {} })) as { data: { active: number } };
+      const a1Active = (await renderWidget(as('a1'), { widget: 'listings_by_status', params: {} })) as { data: { active: number } };
+      assert(ownerActive.data.active > a1Active.data.active, `active: owner ${ownerActive.data.active}, a1 ${a1Active.data.active}`);
+
+      const priv = await createDashboard(t, A.actor('owner'), { title: 'Mine', widgets: [{ widget: 'sold_value', params: {} }], audience: 'private' });
+      const admins = await createDashboard(t, A.actor('owner'), { title: 'Admins', widgets: [{ widget: 'sold_value', params: {} }], audience: 'admins' });
+      const everyone = await createDashboard(t, A.actor('owner'), { title: 'All', widgets: [{ widget: 'sold_value', params: {} }, { widget: 'new_leads', params: {} }], audience: 'agency' });
+      const open = (who: Actor, id: string) => getDashboardData(t, who, id).then((d) => d, (e: unknown) => (e as { code: string }).code);
+      assert((await open(A.actor('a1'), priv.id)) === 'not_found' && (await open(A.actor('a1'), admins.id)) === 'not_found', 'an agent opened an owner-only dashboard');
+      const seen = (await open(A.actor('a1'), everyone.id)) as Awaited<ReturnType<typeof getDashboardData>>;
+      assert(seen.tiles[0]!.state === 'no_access' && seen.tiles[1]!.state === 'ok', `agent on the agency dashboard: ${seen.tiles.map((x) => x.state)}`);
+      for (const who of A_ROLES) assert((await open(B.actor(who as 'owner'), everyone.id)) === 'not_found', `B ${who} opened A's dashboard`);
+      const again = (await open(A.actor('owner'), everyone.id)) as { version: string };
+      const again2 = (await open(A.actor('owner'), everyone.id)) as { version: string };
+      assert(again.version === again2.version, 'the version changed with nothing changing (304s would never happen)');
+      assert((await createDashboard(t, A.actor('a1'), { title: 'x', widgets: [{ widget: 'new_leads', params: {} }] }).then(() => 'saved', (e: unknown) => (e as { code: string }).code)) === 'forbidden', 'an agent saved a dashboard');
+      return 'agent: no money tile, own listings only; private/admins hidden from agents; B opens nothing; stable version; agents cannot save';
+    }),
+  );
+
+  await check('the assistant’s dashboard card: admins only, saved once on Approve, figures never handed to the model', async () =>
+    inRollback(async (t) => {
+      const { A } = await dashboardFixture(t);
+      const conv = await claimTurn(t, A.actor('owner'), { message: 'x', surface: 'agency' });
+      const agentConv = await claimTurn(t, A.actor('a1'), { message: 'x', surface: 'agent' });
+      const refused = await runAssistantTool(proposeCtx(t, A.actor('a1'), {}, agentConv.conversationId), 'create_dashboard', { title: 'x', widgets: [{ widget: 'new_leads' }] });
+      assert(refused.isError && !refused.frame, 'an agent proposed a dashboard');
+      const out = await runAssistantTool(proposeCtx(t, A.actor('owner'), {}, conv.conversationId), 'create_dashboard', {
+        title: 'Sales this week', widgets: [{ widget: 'sold_value', range: '7d' }, { widget: 'new_leads' }], audience: 'agency',
+      });
+      const id = cardId(out);
+      const card = await getProposedAction(t, A.actor('owner'), id);
+      assert(/\$1,450,000/.test(JSON.stringify(card.card.lines)) && /Everyone in the agency/.test(JSON.stringify(card.card.lines)), `card: ${JSON.stringify(card.card.lines)}`);
+      assert(!/1,?450,?000/.test(JSON.stringify(out.result)), 'the model was told the figure');
+      const count0 = await count(t, sql`select count(*)::int as n from dashboard where agency_id = ${A.agencyId}`);
+      const r1 = await approveProposedAction(t, A.actor('owner'), id);
+      const r2 = await approveProposedAction(t, A.actor('owner'), id);
+      const count1 = await count(t, sql`select count(*)::int as n from dashboard where agency_id = ${A.agencyId}`);
+      assert(r1.outcome === 'done' && r2.outcome === 'already' && count1 === count0 + 1, `approve twice: ${r1.outcome}/${r2.outcome}, ${count1 - count0} saved`);
+      const shown = await runAssistantTool(toolCtx(t, A.actor('owner'), {}), 'show_widget', { widget: 'sold_value', range: '7d' });
+      assert(!/1,?450,?000/.test(JSON.stringify(shown.result)) && (shown.frame as { kind: string }).kind === 'widget', 'show_widget told the model the figure');
+      return 'agent refused; card shows $1,450,000 and who can open it; model never given the figure; approve twice = 1 dashboard';
+    }),
+  );
+
+  await check('the dashboard data route refuses a signed-out request', async () => {
+    if (!(await reachable('http://localhost:3001/login'))) skip('console is not running');
+    const res = await fetch(`http://agents.lvh.me:3001/api/dashboards/${randomUUID()}/data`, { redirect: 'manual', signal: AbortSignal.timeout(20_000) });
+    assert(res.status !== 200, `signed out got ${res.status}`);
+    return String(res.status);
+  });
 
   group('Console (HTTP, signed out)');
 

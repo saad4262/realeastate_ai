@@ -1,3 +1,22 @@
+## 2026-10-06 — Claude Code — Phase 3: Dashboards (ADR 0027)
+
+- Goal (user): build all remaining phases in order (3 Dashboards → 4 CSV import → 5 Reviews
+  step 1 → 6 Gmail send → 7 Assistant Phase E → 8 Offboarding), each its own commit, STATUS
+  and SESSION after each; final docs/TEST-ORDER.md and one report. No dev restart, no
+  .env.local, additive migrations only (applied after checking they are the only pending).
+- Done (Phase 3): migrations 0030/0031 applied on dev; `@repo/core/widgets` registry (6
+  widgets, one statement each, viewer-scoped), `@repo/core/dashboards`, permissions
+  dashboard:create|read|manage + report:read_agency, console pages + data route, panel tiles
+  and dashboard cards, prompt v5, TEST-PLAN X, ADR 0027 as-built.
+- Note: 0031 drops and re-adds a CHECK (widens the allowed tool list). Not strictly
+  "add a table/column"; changes no data. Flagged for the final report.
+- Checks: typecheck 10/10, lint 0 errors, test 786 + 286, console build OK; smoke Dashboards
+  4/4 (every widget × every range against the real DB), Tenant isolation 4/4 (128 reads, 160
+  writes, 32 tables). Break-tests (two parallel copies): 9 guards red, restored green.
+- Next exact step: Phase 4 CSV import — plan in this session's notes: dry run geocodes and
+  stores coordinates so the import's createListing never calls the network inside a
+  transaction; per-row savepoints; photos via signUpload/addListingPhoto with SSRF guard.
+
 ## 2026-10-06 — Claude Code — Phase 1 tenant isolation tests; Phase 2 assistant email card (D)
 
 - Goal (user): Phase 1 = ADR 0030's cross-agency suite (no features), fix what it finds in

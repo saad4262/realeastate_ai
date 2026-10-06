@@ -45,6 +45,8 @@
     "./skills": "./src/skills/index.ts",
     "./assistant": "./src/assistant/index.ts",
     "./assistant/schema": "./src/assistant/schema.ts",
+    "./dashboards": "./src/dashboards/index.ts",
+    "./widgets": "./src/widgets/registry.ts",
     "./skills/schema": "./src/skills/skill-schema.ts",
     "./template-email": "./src/template-email/index.ts",
     "./template-email/schema": "./src/template-email/schema.ts"

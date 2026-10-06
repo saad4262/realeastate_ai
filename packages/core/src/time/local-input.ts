@@ -75,3 +75,41 @@ export function formatInZone(instant: Date, timeZone: string): string {
 export function browserTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Australia/Sydney';
 }
+
+/** `YYYY-MM-DD` of `instant` on the wall clock of `timeZone`. */
+function localDate(instant: Date, timeZone: string): { y: number; m: number; d: number } {
+  const [y, m, d] = instantToLocalInput(instant, timeZone).slice(0, 10).split('-').map(Number) as [number, number, number];
+  return { y, m, d };
+}
+
+function midnight(y: number, m: number, d: number, timeZone: string): Date {
+  // Date.UTC normalises overflow (day 0, month 13…) before we name the calendar day.
+  const iso = new Date(Date.UTC(y, m - 1, d)).toISOString().slice(0, 10);
+  return localInputToInstant(`${iso}T00:00`, timeZone) as Date;
+}
+
+/** Midnight starting the local day `offsetDays` from the one `now` falls on, in `timeZone`. */
+export function startOfDayIn(now: Date, timeZone: string, offsetDays = 0): Date {
+  const { y, m, d } = localDate(now, timeZone);
+  return midnight(y, m, d + offsetDays, timeZone);
+}
+
+/** Midnight starting Monday of the local week `now` falls in (Australian weeks start on Monday). */
+export function startOfWeekIn(now: Date, timeZone: string, offsetWeeks = 0): Date {
+  const { y, m, d } = localDate(now, timeZone);
+  const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 = Sunday
+  const back = (weekday + 6) % 7;
+  return midnight(y, m, d - back + offsetWeeks * 7, timeZone);
+}
+
+/** Midnight starting the local month `offsetMonths` from `now`'s. */
+export function startOfMonthIn(now: Date, timeZone: string, offsetMonths = 0): Date {
+  const { y, m } = localDate(now, timeZone);
+  return midnight(y, m + offsetMonths, 1, timeZone);
+}
+
+/** Midnight starting the local year `now` falls in. */
+export function startOfYearIn(now: Date, timeZone: string): Date {
+  const { y } = localDate(now, timeZone);
+  return midnight(y, 1, 1, timeZone);
+}

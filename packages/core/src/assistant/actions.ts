@@ -12,6 +12,7 @@ import { approveBatch, cancelBatch } from '../template-email/batches';
 import { sendBatch, type TemplateSendDeps } from '../template-email/send';
 import { TemplateEmailError } from '../template-email/templates';
 import { emailLimitsFromEnv } from '../email/limits';
+import { createDashboard, DashboardError } from '../dashboards';
 import { PROVIDERS, type IntegrationProvider } from '../integrations/providers';
 import type { ActivityKind } from '../contacts/contact-schema';
 import { AssistantError } from './conversations';
@@ -56,7 +57,9 @@ export type FrozenArgs =
    * Phase D: the ADR 0022 batch prepared (and frozen) when the card was made.
    * `contactIds` = every recipient, for the audit on each of their timelines.
    */
-  | { tool: 'send_template_email'; batchId: string; templateId: string; contactIds: string[] };
+  | { tool: 'send_template_email'; batchId: string; templateId: string; contactIds: string[] }
+  /** ADR 0027: the dashboard as it will be saved — registry ids and parsed params only. */
+  | { tool: 'create_dashboard'; title: string; widgets: { widget: string; params: Record<string, unknown> }[]; audience: 'private' | 'admins' | 'agency' };
 
 /** The contacts whose timelines carry this action's audit lines. */
 function auditContacts(row: { contactId: string | null; args: unknown }): string[] {
@@ -83,7 +86,7 @@ function auditPayload(id: string, tool: string, args: FrozenArgs, extra: Record<
 export async function propose(
   ctx: ToolContext,
   label: string,
-  p: { tool: AssistantWriteTool; args: FrozenArgs; card: ProposalCard; contactId: string },
+  p: { tool: AssistantWriteTool; args: FrozenArgs; card: ProposalCard; contactId: string | null },
 ): Promise<ToolOutcome> {
   const { db, actor, proposal } = ctx;
   if (!proposal || !actor.agencyId) {
@@ -141,7 +144,7 @@ export async function propose(
 
 /** A domain refusal at run time — shown on the card as the reason; never a crash. */
 function runRefusal(err: unknown): string | null {
-  if (err instanceof ContactError || err instanceof AppointmentError || err instanceof AssistantError || err instanceof TemplateEmailError) {
+  if (err instanceof ContactError || err instanceof AppointmentError || err instanceof AssistantError || err instanceof TemplateEmailError || err instanceof DashboardError) {
     return err.message;
   }
   return null;
@@ -212,6 +215,11 @@ async function execute(
       // ADR 0022's own Approve: guarded (once), expiry and today's limits re-checked, as this person.
       await approveBatch(tx, actor, args.batchId, deps.templateSend.limits ?? emailLimitsFromEnv(), now);
       return { result: { batchId: args.batchId }, batchId: args.batchId };
+    }
+    case 'create_dashboard': {
+      // createDashboard asks dashboard:create (owner/admin) again and re-parses every widget.
+      const { id } = await createDashboard(tx, actor, { title: args.title, widgets: args.widgets as never, audience: args.audience });
+      return { result: { dashboardId: id } };
     }
   }
 }
@@ -396,7 +404,7 @@ export type ProposalView = {
   card: ProposalCard;
   error: string | null;
   /** Ids of what it made or changed — for links. Never model text. */
-  result: { noteId?: string; appointmentId?: string; batchId?: string; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
+  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
   expiresAt: Date;
   /** Decided by can(): the panel draws its buttons from these. */
   mayDecide: boolean;

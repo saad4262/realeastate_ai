@@ -1,5 +1,6 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { APPOINTMENT_RANGES, ASSISTANT_APPOINTMENT_TYPES, LEAD_SINCE, LEAD_STATUSES } from '@repo/core/assistant/schema';
+import { WIDGET_IDS, WIDGET_RANGES } from '@repo/core/widgets';
 import { CONTACT_ROLES } from '@repo/core/contacts/schema';
 import { INTEGRATION_PROVIDERS } from '@repo/core/integrations/providers';
 
@@ -78,6 +79,20 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
     name: 'list_templates',
     description: "The agency's approved email templates (name and subject). Only approved templates can ever be sent.",
     input_schema: { type: 'object', additionalProperties: false, properties: {} },
+  },
+  {
+    name: 'show_widget',
+    description:
+      'Show one figure from the agency’s fixed list of dashboard widgets beside your answer (Sold value, number of sales, new leads, appointments, active listings, email replies). It is worked out from the database for this person; some figures are for owners and admins only. You are NOT told the numbers — never state or estimate one; say what is shown.',
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        widget: { type: 'string', enum: [...WIDGET_IDS], description: 'Which widget.' },
+        range: { type: 'string', enum: [...WIDGET_RANGES], description: 'The period, on the agency’s clock. Omit for the widget’s default (active listings has none).' },
+      },
+      required: ['widget'],
+    },
   },
   {
     name: 'check_connections',
@@ -182,6 +197,32 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
         },
       },
       required: ['template', 'recipients'],
+    },
+  },
+  {
+    name: 'create_dashboard',
+    description: `Propose saving a dashboard: a page of widgets that stays up to date, opened by link — for owners and admins only. Only widgets from the fixed list. Who can open it: only the person ("private"), owners and admins ("admins", the default), or everyone in the agency ("agency" — each sees only the figures they may). Nobody outside the agency can ever open it. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        title: { type: 'string', description: 'A short title, e.g. "Sales this week".' },
+        widgets: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              widget: { type: 'string', enum: [...WIDGET_IDS] },
+              range: { type: 'string', enum: [...WIDGET_RANGES] },
+            },
+            required: ['widget'],
+          },
+          description: '1 to 12 widgets, in the order to show them.',
+        },
+        audience: { type: 'string', enum: ['private', 'admins', 'agency'], description: 'Who can open it. Default admins.' },
+      },
+      required: ['title', 'widgets'],
     },
   },
 ]);

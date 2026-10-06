@@ -36,6 +36,7 @@ const OWN_AGENCY = [
   'email_batch',
   'assistant_conversation',
   'proposed_action',
+  'dashboard',
 ] as const;
 
 /** Reaches an agency through a parent row: table → [foreign-key column, parent table]. */

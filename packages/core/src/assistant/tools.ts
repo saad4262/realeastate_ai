@@ -20,9 +20,11 @@ import {
   proposeCancelAppointment,
   proposeRescheduleAppointment,
   proposeScheduleAppointment,
+  proposeCreateDashboard,
   proposeSendTemplateEmail,
   proposeSetNextAction,
 } from './write-tools';
+import { agencyTimeZone, renderWidget } from '../widgets/registry';
 import {
   ASSISTANT_TOOL_INPUTS,
   type AppointmentRange,
@@ -72,12 +74,14 @@ const LABELS: Record<AssistantToolName, string> = {
   find_appointments: 'Checking the calendar…',
   list_templates: 'Reading the email templates…',
   check_connections: 'Checking connected accounts…',
+  show_widget: 'Working out the figures…',
   add_note: 'Preparing a note for you to approve…',
   set_next_action: 'Preparing a next action for you to approve…',
   schedule_appointment: 'Preparing an appointment for you to approve…',
   reschedule_appointment: 'Preparing the new time for you to approve…',
   cancel_appointment: 'Preparing the cancellation for you to approve…',
   send_template_email: 'Preparing the email for you to approve…',
+  create_dashboard: 'Preparing the dashboard for you to approve…',
 };
 
 const assignee = alias(user, 'assistant_assignee');
@@ -151,6 +155,8 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return listApprovedTemplates(ctx, label);
     case 'check_connections':
       return checkConnections(ctx, parsed.data as CheckConnections, label);
+    case 'show_widget':
+      return showWidget(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.show_widget>, label);
     // Write tools: each only PROPOSES (ADR 0025 §1).
     case 'add_note':
       return proposeAddNote(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.add_note>, label);
@@ -164,6 +170,8 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return proposeCancelAppointment(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.cancel_appointment>, label);
     case 'send_template_email':
       return proposeSendTemplateEmail(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.send_template_email>, label);
+    case 'create_dashboard':
+      return proposeCreateDashboard(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.create_dashboard>, label);
   }
 }
 
@@ -449,3 +457,27 @@ export async function selectionHandles(
     );
   return rows.map((r) => ({ ref: issueHandle(handles, 'S', r.id), name: r.name }));
 }
+
+/**
+ * One widget, inline in the chat (ADR 0027): computed from SQL as THIS person,
+ * drawn by the panel from the frame. The model is told only that it was shown
+ * — never a figure — so it cannot restate or compute one (#4).
+ */
+async function showWidget(ctx: ToolContext, input: z.infer<typeof ASSISTANT_TOOL_INPUTS.show_widget>, label: string): Promise<ToolOutcome> {
+  const timeZone = await agencyTimeZone(ctx.db, ctx.actor.agencyId as string);
+  const tile = await renderWidget(
+    { db: ctx.db, actor: ctx.actor, now: ctx.now, timeZone },
+    { widget: input.widget, params: input.range ? { range: input.range } : {} },
+  );
+  return {
+    label,
+    frame: { kind: 'widget', tile },
+    result: {
+      shown: tile.state === 'ok',
+      title: tile.description,
+      ...(tile.state === 'no_access' ? { tell_the_user: 'This figure is for owners and admins only.' } : {}),
+      note: 'The figures are on screen beside your answer. Do not state or estimate any number yourself.',
+    },
+  };
+}
+

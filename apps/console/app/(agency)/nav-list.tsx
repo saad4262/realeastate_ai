@@ -15,6 +15,7 @@ const NAV = [
   { href: '/calendar', label: 'Calendar', icon: 'calendar_today' },
   { href: '/marketing', label: 'Marketing & Reviews', icon: 'campaign' },
   { href: '/insights', label: 'Insights', icon: 'analytics' },
+  { href: '/dashboards', label: 'Dashboards', icon: 'monitoring' },
   { href: '/skills', label: 'Skills', icon: 'auto_awesome' },
   { href: '/bulk-email', label: 'Bulk email', icon: 'forward_to_inbox' },
   { href: '/ai', label: 'LocalAgent AI', icon: 'smart_toy', badge: '2030', badgeTone: 'blue' as const },
