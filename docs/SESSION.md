@@ -1,3 +1,34 @@
+## 2026-10-06 — Claude Code — OAuth return-loop fix; Agent Assistant design (ADR 0025)
+
+- Goal (user): (1) fix the "Too many redirects" on the real Google Calendar Connect,
+  commit it; (2) design the Agent Assistant, docs only.
+- Root cause: under `next dev`, `request.nextUrl` is built from the server's bind
+  address (always localhost:3001, `resolve-routes.js:105`), so on agents.lvh.me the
+  return route believed it was on localhost and redirected to itself forever. The
+  smoke check only tested the first (localhost) leg.
+- Done: `browserHost(headers)` (x-forwarded-host → Host); `returnHop` compares
+  normalised hosts and hops AT MOST ONCE (`hopped=1` marker); target still only from
+  NEXT_PUBLIC_AGENT_URL / _AGENCY_URL; a failed exchange says "Connect again" and the
+  code is never retried. New `oauth.test.ts` (seen red against the old behaviour: 6/12
+  failed), smoke follows the second leg. Commit 00c60a8. Typecheck 10/10, lint 0
+  errors, test 721 + 270. Full smoke NOT run (user's dev data). User confirmed real
+  Google Calendar connects on agents.lvh.me.
+- Answered (read-only): contact "Assigned to" is already admin-only (`contact:assign`);
+  agents can't reassign, the update schema has no assignedTo, and an agent's new contact is
+  always their own.
+- Design: `docs/adr/0025-agent-assistant.md` (PROPOSED). The model proposes, a person
+  approves on a server-rendered card; write tools only create `proposed_action`;
+  handles instead of ids/names; v1 read tools return no free text; delayed run via the
+  cron tick with run-time re-checks; per-person/per-agency caps; widgets hook.
+- Found: `EMAIL_DEV_ALLOWLIST` isn't applied to appointment invitations.
+- Files touched: packages/core/src/integrations/{oauth.ts,oauth.test.ts,index.ts},
+  apps/console/app/api/integrations/oauth/return/route.ts, packages/smoke/src/index.ts,
+  docs/adr/0025-agent-assistant.md, docs/STATUS.md, docs/SESSION.md.
+- Left unfinished (exact next step): wait for the user's answers to ADR 0025's open
+  questions; then build Phase A only. Docs (ADR/STATUS/SESSION) are not committed.
+- Risks / watch: delayed execution is meaningless on the daily Hobby cron, so it stays
+  behind ASSISTANT_SCHEDULING=1. The per-agency AI cap needs `ai_run.agency_id`.
+
 ## 2026-10-06 — Claude Code — CRM Phase 3b: real Google Calendar and Zoom
 
 - Goal (user): real OAuth for Google Calendar and Zoom on the existing hub

@@ -3,9 +3,18 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
-- **Now: CRM Phase 3b — real Google Calendar + Zoom (ADR 0020 "Phase 3b", migration
-  0027) built on `feat/crm`, waiting for review and for real credentials in
-  `.env.local`.** Tested with fakes only; TEST-PLAN T is the real-account walk-through.
+- **Now: Agent Assistant ACCEPTED — `docs/adr/0025-agent-assistant.md`
+  (all 8 recommendations accepted 2026-10-06). Next: dev-allowlist fix, then Phase A
+  only.** Phases A (read-only) → B (notes/next action) → C (appointments) →
+  D (template email from picked contacts) → E (delayed run, needs the 5-min cron) →
+  F (widgets hook). Amends ADR 0022 decision 2 ("approve now, run later").
+- **CRM Phase 3b — real Google Calendar + Zoom (ADR 0020 "Phase 3b", migration
+  0027) on `feat/crm`.** Real Google Calendar Connect verified end to end by the user
+  on agents.lvh.me (2026-10-06) after the OAuth return-loop fix (commit 00c60a8).
+  Zoom not yet tried with real credentials; TEST-PLAN T is the walk-through.
+- **Known gap (found 2026-10-06):** `EMAIL_DEV_ALLOWLIST` is enforced only in
+  `template-email/send.ts`; `sendInvitation` ignores it, so a dev appointment
+  invitation can reach a real address (ADR 0025 open question 6).
   Template email (ADR 0022, TEST-PLAN S) before it, also awaiting review.
   Not started (by instruction): Google Sheets, Google Reviews, Phase 6, Phase 7.
   Plan: `~/.claude/plans/pasted-content-id-f0ff-you-are-functional-frost.md`.
