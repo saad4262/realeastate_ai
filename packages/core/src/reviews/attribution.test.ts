@@ -30,9 +30,13 @@ describe('Google reviews are always shown with their attribution', () => {
   it('the component carries Google’s attribution, each author’s name, photo and link, each review’s link, and the notice', () => {
     expect(reviews).toMatch(/<GoogleAttribution \/>/);
     expect(src).toMatch(/Google Maps<\/strong>/);
-    expect(reviews).toMatch(/href=\{r\.author\.uri\}[\s\S]*\{r\.author\.name\}/);
-    expect(reviews).toMatch(/src=\{r\.author\.photoUri\}/);
-    expect(reviews).toMatch(/href=\{r\.mapsUri\}[\s\S]*View on Google Maps/);
+    // Each link is shown whenever Google gave one — gated on that value and nothing else.
+    expect(reviews).toMatch(/\{r\.author\.uri \? \(\s*<a href=\{r\.author\.uri\}[^>]*>\s*\{r\.author\.name\}/);
+    expect(reviews).toMatch(/\{r\.author\.photoUri \? \([\s\S]{0,200}?<img src=\{r\.author\.photoUri\}/);
+    expect(reviews).toMatch(/\{r\.mapsUri \? \(\s*<a href=\{r\.mapsUri\}[^>]*>\s*View on Google Maps/);
+    expect(reviews).toMatch(/\{place\.mapsUri \? \(\s*<a href=\{place\.mapsUri\}/);
+    // …and no other condition is wrapped around them (a `false ?` or `&& 0` would hide them).
+    expect(reviews).not.toMatch(/\{(false|0|null|undefined) (\?|&&)/);
     expect(reviews).toMatch(/chosen and ordered by Google/);
     // Never filtered: every review Google returned is rendered.
     expect(reviews).toMatch(/place\.reviews\.map\(/);
