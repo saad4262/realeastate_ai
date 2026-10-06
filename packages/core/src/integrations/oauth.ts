@@ -1,8 +1,11 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import type { Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { IntegrationError, integrationResource, saveConnection, type GrantedConnection } from './accounts';
-import type { TokenKeys } from './crypto';
+import { ProviderError, type Fetch } from './provider-http';
+import { stateKey, type TokenKeys } from './crypto';
+import { googleAdapter, googleClientFromEnv } from './google-oauth';
+import { zoomAdapter, zoomClientFromEnv } from './zoom-oauth';
 import {
   PROVIDERS,
   requiredScopes,
@@ -24,12 +27,31 @@ export const STUB_PATH = '/integrations/stub';
 
 export type Surface = 'agency' | 'agent';
 
-/** What a provider must do. Google and Zoom implement it in Phase 3b. */
+export type RefreshedTokens = { accessToken: string; refreshToken: string | null; expiresAt: Date | null };
+
+/** What a provider must do: the stub, Google (google-oauth.ts) and Zoom (zoom-oauth.ts). */
 export type OAuthAdapter = {
   kind: 'stub' | 'real';
-  authorizeUrl(p: { state: string; redirectUri: string; scopes: string[]; surface: Surface }): string;
-  exchange(p: { code: string; redirectUri: string }): Promise<GrantedConnection>;
+  authorizeUrl(p: { state: string; redirectUri: string; scopes: string[]; surface: Surface; codeChallenge: string }): string;
+  exchange(p: { code: string; redirectUri: string; codeVerifier: string }): Promise<GrantedConnection>;
+  /** A new access token. Throws ProviderError `revoked` when the refresh token is dead. */
+  refresh(refreshToken: string): Promise<RefreshedTokens>;
+  /** Tell the provider to forget the grant. Best effort; the caller deletes our copy either way. */
+  revoke(token: string): Promise<void>;
 };
+
+/**
+ * PKCE without storing anything: the verifier is an HMAC of the signed state
+ * under the server's state key, so only this server can compute it, and the
+ * return route recomputes it from the `state` it is handed.
+ */
+export function pkceVerifier(state: string, keys: TokenKeys): string {
+  return createHmac('sha256', stateKey(keys)).update(`pkce:${state}`).digest('base64url');
+}
+
+export function pkceChallenge(verifier: string): string {
+  return createHash('sha256').update(verifier).digest('base64url');
+}
 
 export function consoleUrl(surface: Surface, env: NodeJS.ProcessEnv = process.env): string {
   const raw =
@@ -39,9 +61,14 @@ export function consoleUrl(surface: Surface, env: NodeJS.ProcessEnv = process.en
   return raw.replace(/\/+$/, '');
 }
 
-/** The registered redirect URI: `INTEGRATION_OAUTH_RETURN_BASE` (dev: http://localhost:3001), else the agency console. */
-export function returnUri(env: NodeJS.ProcessEnv = process.env): string {
-  const base = env.INTEGRATION_OAUTH_RETURN_BASE?.trim() || consoleUrl('agency', env);
+/**
+ * The registered redirect URI: `INTEGRATION_OAUTH_RETURN_BASE` (dev:
+ * http://localhost:3001), else the agency console. Zoom may have its own base
+ * (`ZOOM_OAUTH_RETURN_BASE`, dev: an https tunnel) — Zoom refuses localhost.
+ */
+export function returnUri(env: NodeJS.ProcessEnv = process.env, provider?: IntegrationProvider): string {
+  const zoomBase = provider === 'zoom' ? env.ZOOM_OAUTH_RETURN_BASE?.trim() : undefined;
+  const base = zoomBase || env.INTEGRATION_OAUTH_RETURN_BASE?.trim() || consoleUrl('agency', env);
   return `${base.replace(/\/+$/, '')}${RETURN_PATH}`;
 }
 
@@ -79,13 +106,54 @@ export const stubAdapter = (env: NodeJS.ProcessEnv = process.env): OAuthAdapter 
       accountLabel: typeof body.label === 'string' ? body.label.slice(0, 200) : 'stub account',
     };
   },
+  async refresh(refreshToken) {
+    // The stub's own "revoked" refresh token, so expiry can be exercised without Google.
+    if (refreshToken.startsWith('stub-revoked')) throw new ProviderError('revoked', 'The stub says this connection was revoked');
+    return { accessToken: `stub-access-${randomBytes(16).toString('hex')}`, refreshToken: null, expiresAt: new Date(Date.now() + 3600_000) };
+  },
+  async revoke() {},
 });
 
-/** The adapter for a provider on this server, or null when it cannot be connected here yet. */
-export function adapterFor(_provider: IntegrationProvider, env: NodeJS.ProcessEnv = process.env): OAuthAdapter | null {
-  if (stubEnabled(env)) return stubAdapter(env);
-  // Real Google and Zoom adapters: Phase 3b.
+/** Tokens the stub handed out — they only ever go back to the stub. */
+export function isStubToken(token: string): boolean {
+  return token.startsWith('stub-');
+}
+
+/** The real adapter for a provider, when its client id and secret are set. Sheets and Reviews: not yet. */
+export function realAdapterFor(provider: IntegrationProvider, env: NodeJS.ProcessEnv = process.env, fetchImpl: Fetch = fetch): OAuthAdapter | null {
+  if (provider === 'google_calendar') {
+    const client = googleClientFromEnv(env);
+    return client ? googleAdapter(client, fetchImpl) : null;
+  }
+  if (provider === 'zoom') {
+    const client = zoomClientFromEnv(env);
+    return client ? zoomAdapter(client, fetchImpl) : null;
+  }
   return null;
+}
+
+/**
+ * The adapter for connecting a provider on this server: the real one when it
+ * is configured, else the dev stub when that is on, else null ("cannot be
+ * connected here yet").
+ */
+export function adapterFor(provider: IntegrationProvider, env: NodeJS.ProcessEnv = process.env, fetchImpl: Fetch = fetch): OAuthAdapter | null {
+  return realAdapterFor(provider, env, fetchImpl) ?? (stubEnabled(env) ? stubAdapter(env) : null);
+}
+
+/**
+ * The adapter that may renew or revoke an EXISTING connection: tokens the
+ * stub issued go back to the stub (and only outside production), anything
+ * else to the real provider.
+ */
+export function adapterForTokens(
+  provider: IntegrationProvider,
+  token: string,
+  env: NodeJS.ProcessEnv = process.env,
+  fetchImpl: Fetch = fetch,
+): OAuthAdapter | null {
+  if (isStubToken(token)) return stubEnabled(env) ? stubAdapter(env) : null;
+  return realAdapterFor(provider, env, fetchImpl);
 }
 
 /**
@@ -114,7 +182,13 @@ export function startConnect(
     { provider: p.provider, ownerType: p.ownerType, ownerId, agencyId: actor.agencyId, userId: actor.userId, surface: p.surface },
     keys,
   );
-  return adapter.authorizeUrl({ state, redirectUri: returnUri(env), scopes: requiredScopes(p.provider), surface: p.surface });
+  return adapter.authorizeUrl({
+    state,
+    redirectUri: returnUri(env, p.provider),
+    scopes: requiredScopes(p.provider),
+    surface: p.surface,
+    codeChallenge: pkceChallenge(pkceVerifier(state, keys)),
+  });
 }
 
 /**
@@ -151,6 +225,7 @@ export async function completeConnect(
   actor: Actor | null,
   query: URLSearchParams,
   env: NodeJS.ProcessEnv = process.env,
+  fetchImpl: Fetch = fetch,
 ): Promise<ReturnOutcome> {
   const state: OAuthState | null = verifyState(query.get('state'), keys);
   if (!state) return { ok: false, error: 'That connection link has expired. Start again from Integrations.', surface: null };
@@ -161,10 +236,14 @@ export async function completeConnect(
     return { ok: false, error: `${PROVIDERS[state.provider].label} was not connected — permission was declined.`, surface: state.surface };
   }
   const code = query.get('code');
-  const adapter = adapterFor(state.provider, env);
+  const adapter = adapterFor(state.provider, env, fetchImpl);
   if (!code || !adapter) return { ok: false, error: 'The provider did not send a code back.', surface: state.surface };
   try {
-    const granted = await adapter.exchange({ code, redirectUri: returnUri(env) });
+    const granted = await adapter.exchange({
+      code,
+      redirectUri: returnUri(env, state.provider),
+      codeVerifier: pkceVerifier(query.get('state')!, keys),
+    });
     const saved = await saveConnection(db, keys, actor, state, granted);
     return { ok: true, provider: state.provider, status: saved.status, missingScopes: saved.missingScopes, surface: state.surface };
   } catch (err) {

@@ -4114,6 +4114,11 @@ async function main() {
     const env = {
       ...process.env,
       INTEGRATIONS_STUB: '1',
+      // The stub is what is under test here, even once real clients are configured.
+      GOOGLE_OAUTH_CLIENT_ID: '',
+      GOOGLE_OAUTH_CLIENT_SECRET: '',
+      ZOOM_OAUTH_CLIENT_ID: '',
+      ZOOM_OAUTH_CLIENT_SECRET: '',
       NODE_ENV: 'development',
       NEXT_PUBLIC_AGENT_URL: AGENT,
       NEXT_PUBLIC_AGENCY_URL: AGENCY,

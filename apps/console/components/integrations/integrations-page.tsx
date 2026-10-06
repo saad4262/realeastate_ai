@@ -32,6 +32,7 @@ export async function IntegrationsPage({
   const connected = first(sp.connected);
   const missing = first(sp.missing);
   const disconnected = first(sp.disconnected);
+  const unrevoked = first(sp.unrevoked) === '1';
   const error = first(sp.error);
   const configured = tokenKeysFromEnv() !== null;
   // Agency accounts first on the agency console; your own first on the desk.
@@ -57,7 +58,8 @@ export async function IntegrationsPage({
         </p>
       ) : null}
       {disconnected && isIntegrationProvider(disconnected) ? (
-        <p className={styles.bannerOk} role="status">{PROVIDERS[disconnected].label} disconnected — its stored access was deleted.</p>
+        <p className={styles.bannerOk} role="status">{PROVIDERS[disconnected].label} disconnected — its stored access was deleted.
+          {unrevoked ? ` ${PROVIDERS[disconnected].label} did not confirm, so also remove this app under your ${disconnected === 'zoom' ? 'Zoom' : 'Google'} account's connected apps.` : ''}</p>
       ) : null}
       {error ? <p className={styles.bannerBad} role="alert">{error}</p> : null}
       {!configured ? (

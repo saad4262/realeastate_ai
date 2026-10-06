@@ -4,7 +4,7 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import {
-  disconnectIntegration,
+  disconnectAndRevoke,
   IntegrationError,
   isIntegrationProvider,
   startConnect,
@@ -58,15 +58,18 @@ export async function connectIntegrationAction(formData: FormData): Promise<void
   redirect(url);
 }
 
-/** Form action: delete the connection and every token it held. */
+/** Form action: tell the provider, then delete the connection and every token it held. */
 export async function disconnectIntegrationAction(formData: FormData): Promise<void> {
   const who = await actor();
   const { path } = await settingsPath();
   let message: string;
   try {
     const { provider, ownerType } = parse(formData);
-    const { removed } = await disconnectIntegration(getConsoleDb(), who, { provider, ownerType });
-    message = removed ? `disconnected=${provider}` : `error=${encodeURIComponent('It was already disconnected')}`;
+    // Google / Zoom are told first (best effort); our row and its tokens go either way.
+    const { removed, revoked } = await disconnectAndRevoke(getConsoleDb(), tokenKeysFromEnv(), who, { provider, ownerType });
+    message = removed
+      ? `disconnected=${provider}${revoked ? '' : '&unrevoked=1'}`
+      : `error=${encodeURIComponent('It was already disconnected')}`;
   } catch (err) {
     message = `error=${encodeURIComponent(err instanceof IntegrationError ? err.message : 'Could not disconnect')}`;
   }

@@ -18,7 +18,7 @@ import {
  */
 
 export class IntegrationError extends Error {
-  readonly code: 'forbidden' | 'not_found' | 'invalid' | 'unavailable';
+  readonly code: 'forbidden' | 'not_found' | 'invalid' | 'unavailable' | 'expired';
   constructor(code: IntegrationError['code'], message: string) {
     super(message);
     this.name = 'IntegrationError';
@@ -302,11 +302,11 @@ export async function saveConnection(
 }
 
 /**
- * Disconnect: the row goes, and with it every token. (Revoking the grant at
- * Google / Zoom as well arrives with the real adapters in Phase 3b.)
+ * Disconnect: the row goes, and with it every token. Telling Google / Zoom
+ * first is `disconnectAndRevoke` (tokens.ts), which ends here.
  */
 export async function disconnectIntegration(
-  db: Db,
+  db: DbOrTx,
   actor: Actor,
   slot: { provider: IntegrationProvider; ownerType: IntegrationOwnerType },
 ): Promise<{ removed: boolean }> {

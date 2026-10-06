@@ -17,6 +17,12 @@ export { decryptToken, encryptToken, tokenKeysFromEnv, TokenKeyError, type Token
 export { signState, verifyState, type OAuthState } from './state';
 export {
   adapterFor,
+  adapterForTokens,
+  isStubToken,
+  pkceChallenge,
+  pkceVerifier,
+  realAdapterFor,
+  type RefreshedTokens,
   completeConnect,
   consoleUrl,
   RETURN_PATH,
@@ -30,3 +36,7 @@ export {
   type Surface,
 } from './oauth';
 export * from './providers';
+export { googleAdapter, googleClientFromEnv, type GoogleClient } from './google-oauth';
+export { zoomAdapter, zoomClientFromEnv, type ZoomClient } from './zoom-oauth';
+export { ProviderError, type Fetch, type ProviderErrorKind } from './provider-http';
+export { disconnectAndRevoke, markExpired, markUsed, RENEW_EARLY_MS, withAccessToken, type ProviderDeps } from './tokens';
