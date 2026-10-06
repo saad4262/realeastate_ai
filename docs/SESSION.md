@@ -1,3 +1,29 @@
+## 2026-10-06 — Claude Code — Five design ADRs (0026–0030) and the go-live checklist
+
+- Goal (user): docs only, while they test U/V in the browser. Five ADRs with decisions,
+  data model, permissions through can(), "Connect X first", failure cases, tests incl.
+  break-tests, and up to 8 open questions each; a go-live checklist in DEPLOY.md; one commit.
+- Done: 0026 Gmail send-only (gmail.send only; own → agency → Resend; signed Reply-To kept;
+  `sent_via` on mail_message; bulk stays on Resend; no silent fallback). 0027 Mini dashboards
+  (fixed widget registry, "Sold value" = sold_price of sold listings with undisclosed counted
+  apart, computed as the VIEWER, same-agency signed-in only, no public links, 30–60 s polling
+  with 304s, create_dashboard as a proposed action). 0028 Google Reviews (search picker stores
+  only the place id; Places content cached briefly, never stored; linking only in step 2;
+  public pages show nothing when not set up). 0029 Sheets + CSV import (staged job, mapping
+  screen, dry run report, chunks of ~100 via page + cron, duplicates by address key / external
+  id, photos by URL or zip, drive.file + Picker with a short-lived access token; exact list of
+  what the client must send). 0030 Tenant isolation (schema-classified tables, two-agency
+  fixture, generated matrix over reads/writes/can()/routes/tokens/assistant tools/cron) and
+  offboarding (move calendar events while the token works → one transaction → revoke + delete
+  tokens; Needs-an-owner queue; restore within 30 days).
+- 0023 and 0024 marked superseded by 0028 and 0029, with their decisions carried over.
+- Facts checked in code while writing: email limits count queued + sent platform-composed
+  messages only; membership has invited/active/suspended and no removal code exists; the agency
+  table has no time zone; the table list in 0030 came from schema.ts.
+- No code, no migrations, no smoke run, dev untouched.
+- Left unfinished (exact next step): the user answers the open questions in 0026–0030; nothing
+  is built until then.
+
 ## 2026-10-06 — Claude Code — Assistant Phases B and C (proposals you approve)
 
 - Goal (user): commit Phase A; build B (add_note, set_next_action) and C (appointments) as

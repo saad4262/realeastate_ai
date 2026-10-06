@@ -1,5 +1,7 @@
 # 0023 — Google reviews: business-level, in two steps (PLANNED — not built)
 
+**Superseded by ADR 0028 (2026-10-06)** — its decisions stand and are carried there with the design.
+
 **Status:** decisions from the client/PM, 2026-10-05. Nothing built. Phase 6.
 
 **Context.** The client wants the agency's Google rating and reviews in the console, on

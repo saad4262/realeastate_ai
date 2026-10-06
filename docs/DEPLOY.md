@@ -32,6 +32,81 @@ discarded one — but graceful degradation is not the feature.
 `agents.*` and `agency.*` are the same app and the same Vercel project, with
 two domains pointed at it. Never fork them into two projects.
 
+## Go-live checklist (do every line; tick it in the PR that goes live)
+
+Nothing below is optional for production. Each line names what proves it is done.
+
+**Domain and hosting**
+- [ ] **Domain** bought and on Vercel: apex/`www` → `apps/web`; `agents.` and `agency.` →
+      `apps/console` (one project, two hosts). `NEXT_PUBLIC_AGENT_URL`, `NEXT_PUBLIC_AGENCY_URL`,
+      `COOKIE_DOMAIN=.<domain>` set; signing in on one host is signed in on the other.
+- [ ] **Vercel Pro** on both projects (console needs it; the web cron needs it). Proven by:
+      the plan page.
+- [ ] **5-minute cron**: `*/5 * * * *` on `/api/cron/alerts` (replaces the Hobby daily floor and
+      the GitHub Actions pinger), `CRON_SECRET` set. Proven by: the cron log shows a tick every
+      5 minutes with `ok: true`. Only then set `ASSISTANT_SCHEDULING=1` (ADR 0025 decision 8).
+- [ ] `INTEGRATION_OAUTH_RETURN_BASE` = the agency console's https URL (no localhost hop in
+      production) and `ZOOM_OAUTH_RETURN_BASE` unset (no tunnel).
+
+**Database**
+- [ ] A **separate Supabase project in Sydney** (`ap-southeast-2`) for production — never the
+      dev project (dev is Seoul and holds test data). PostGIS and pgvector enabled.
+- [ ] All migrations applied (`pnpm --filter @repo/db db:migrate` against the production
+      `DIRECT_URL`); the smoke "Database" group green against it (no grants, RLS on every
+      table).
+- [ ] Point-in-time recovery / backups on; the restore procedure tried once.
+
+**Email**
+- [ ] **Resend domain** verified for the production domain with **SPF, DKIM and DMARC** records
+      (DMARC at least `p=quarantine` once reports are clean). Sender identity and postal
+      address set (`ALERT_*`/sender variables).
+- [ ] **Inbound**: MX for `MAIL_INBOUND_DOMAIN` pointing at Resend Inbound, `MAIL_REPLY_SECRET`
+      set; a reply to a console email lands back in its thread.
+- [ ] `EMAIL_DEV_ALLOWLIST` is **ignored** in production (it is) — and `NODE_ENV=production`
+      is really set, which is what makes it ignored.
+
+**Secrets — all fresh for production**
+- [ ] **Every secret is newly generated for production**, never copied from `.env.local`:
+      `INTEGRATION_TOKEN_KEY`, `MAIL_REPLY_SECRET`, `ALERT_UNSUBSCRIBE_SECRET`, `CRON_SECRET`,
+      the verify-email secret, Supabase service key, Resend key, Anthropic key, Google and Zoom
+      client secrets.
+- [ ] **Any secret that has ever appeared in a screenshot, a chat, a log, a ticket or a commit
+      is rotated** — including in dev — before go-live. (Dev keys have been shown in chats
+      during development: rotate them.)
+- [ ] `ANTHROPIC_API_KEY` for production has a **spend limit set in the Anthropic console**
+      (the hard backstop behind `AI_DAILY_BUDGET_USD` and the assistant caps).
+- [ ] Production `INTEGRATION_TOKEN_KEY` stored in the password manager; losing it means every
+      agency reconnects every account.
+
+**Integrations**
+- [ ] **`INTEGRATIONS_STUB` is NOT set in production.** The console refuses to start if it is
+      (instrumentation check) — confirm by reading the production env list, not by assuming.
+- [ ] **Google OAuth verification** submitted and approved for the ONE Google app: homepage and
+      privacy policy on the real domain, authorised domains, the scopes in use with
+      justifications and a demo video (Calendar `calendar.events.owned`; Gmail `gmail.send` —
+      sensitive, ADR 0026; Sheets `drive.file`; Business Profile `business.manage`, which also
+      needs Google's separate API-access approval, ADR 0028). Until approved the app is in
+      Testing: test users only, tokens expire in ~7 days.
+- [ ] Google Cloud: production redirect URI (`https://agency.<domain>/api/integrations/oauth/return`)
+      registered; the dev `localhost` URI removed from the production client (use a separate
+      dev client).
+- [ ] **Zoom Marketplace**: the app published (or approved for the accounts that will use it),
+      production redirect URL and OAuth allow list on the real domain.
+- [ ] `GOOGLE_MAPS_API_KEY` restricted by IP / API; browser key restricted by HTTP referrer to
+      the production domains.
+
+**Legal and product pages**
+- [ ] **Privacy policy** and **terms of use** published on the domain (needed by Google
+      verification, Zoom publishing, the Spam Act sender requirements and APP 1), linked from
+      every page footer and the sign-up screens.
+- [ ] Unsubscribe link and sender postal address on every marketing email (already enforced in
+      code — confirm with one real send).
+
+**Last checks**
+- [ ] `pnpm smoke` green against production (read-only groups) and TEST-PLAN's go-live
+      sections walked once in a browser on the real domain.
+- [ ] Tenant isolation smoke group (ADR 0030) green before the second agency is let in.
+
 ## apps/web — project settings
 
 | Setting                          | Value                     |

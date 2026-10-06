@@ -8,6 +8,11 @@
   0029 applied on dev (additive). Waiting for the user's walk-through of TEST-PLAN U and V.
   **Not started (by instruction): Phase D** (template email from picked contacts), then
   E (delayed run, needs the 5-min cron) and F (widgets hook).
+- **Designed, not built (2026-10-06, docs only):** ADR 0026 Gmail send-only (phase 3c),
+  0027 Mini dashboards, 0028 Google Reviews (supersedes 0023), 0029 Google Sheets + bulk CSV
+  listing import (supersedes 0024; blocked on the client's sample CSV and photo format),
+  0030 Tenant isolation and offboarding. Each ends with open questions for the user.
+  DEPLOY.md now starts with a go-live checklist.
 - **Dev allowlist fix (ADR 0025 Q6) committed (6238739):** `EMAIL_DEV_ALLOWLIST` now gates
   every platform-composed email (`mail_message.kind` set: template email, appointment
   invitation) in the shared `deliverOutbound`. A person's own typed reply is not gated.

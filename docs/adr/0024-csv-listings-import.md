@@ -1,5 +1,7 @@
 # 0024 — CSV / Google Sheet listings import (PLANNED — not built)
 
+**Superseded by ADR 0029 (2026-10-06)** — its decisions stand and are carried there with the design.
+
 **Status:** decisions from the client/PM, 2026-10-05. Nothing built. Phase 7. Waiting for
 the client's **sample CSV** and the **photo format** (URLs in a column? a zip? a folder?).
 
