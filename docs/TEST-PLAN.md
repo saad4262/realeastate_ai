@@ -534,3 +534,35 @@ email", with a note) and your allowlisted addresses; leave one without consent.
 | S13 | Leave a prepared batch 48 h (or ask me to back-date one) | "Expired — prepare again"; no Approve button. |
 | S14 | Second agent opens the first agent's batch URL | "That batch was not found". The owner sees it in the agency's list but has no Approve button. |
 | S15 | Skills → Library | "Template email to contacts" shows **Open bulk email**, not "Add". |
+
+## T — Real Google Calendar and Zoom (Phase 3b, ADR 0020)
+
+**Setup, once.** In `.env.local`: `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET`, `ZOOM_OAUTH_CLIENT_ID` /
+`_SECRET`, `INTEGRATION_OAUTH_RETURN_BASE=http://localhost:3001`, and for Zoom a tunnel:
+run `cloudflared tunnel --url http://localhost:3001`, put its `https://…trycloudflare.com` address in
+`ZOOM_OAUTH_RETURN_BASE` and, with `/api/integrations/oauth/return` added, as the Zoom app's Redirect
+URL and in its OAuth allow list. Restart `pnpm dev` (you do this — the env file is read at start).
+A provider with its id+secret set uses the real one; `INTEGRATIONS_STUB=1` still covers the others.
+Use a test Google account listed as a test user, and a Zoom account in your own Zoom account.
+Agent in one browser (agents.lvh.me:3001), owner in another (agency.lvh.me:3001).
+
+| # | Case | Expected |
+|---|---|---|
+| T1 | Agent → **Integrations** → Google Calendar → **Connect** | Google's consent page lists only "see, create, change and delete events on calendars you own" (plus your email). Allow → back on Integrations: **Connected**, your Google address shown. |
+| T2 | Connect again but untick the calendar permission | Back with "connected without: …calendar.events.owned"; card **Permission missing**, Reconnect offered. Reconnect with it ticked → Connected. |
+| T3 | Agent → **Integrations** → Zoom → **Connect** (your own) | Zoom's page, then back through the tunnel to agents.lvh.me: **Connected**, your Zoom email shown. |
+| T4 | A contact → Calendar → **+ Schedule**, type Appraisal, tomorrow 10–11, Book | The card shows **Google Calendar · synced <time>**. In Google Calendar (web) the event is there at the right time, with "With: <contact>" in it, and NO guests. The contact received nothing from Google. |
+| T5 | **Reschedule** it to 2–3 pm | Card: synced again. Google shows ONE event, now at 2–3 pm (not two). |
+| T6 | Book a second one, then **Complete** it | Google's event title becomes "✓ <title>". |
+| T7 | **Cancel** the first one | Card: "Removed from Google Calendar"; the event is gone from Google. |
+| T8 | Book type **Zoom**, no link pasted | Panel says the meeting will be created on your Zoom. After Book: **Join Zoom ↗** on the card; the meeting is in zoom.us → Meetings at that time; the Google event has "Join: <link>". |
+| T9 | Reschedule the Zoom one, then Cancel it | The Zoom meeting moves, then is deleted in zoom.us; the calendar event follows. |
+| T10 | In Google Calendar, drag one of OUR events to another time; wait up to 5 min (or ask me to run the cron once) | Card: **⚠ Changed in Google Calendar: moved to …** — the appointment's own time is unchanged. **Keep ours** puts Google back; **Use Google's time** moves the appointment (and the timeline says so). |
+| T11 | Delete one of our events inside Google; wait for the cron | "⚠ … the event was deleted there", still Scheduled; **Put it back in Google** re-creates it. |
+| T12 | Google: myaccount.google.com → Security → Third-party connections → remove the app. Then reschedule an appointment | The card shows "⚠ Google Calendar — not synced. Google Calendar needs reconnecting…" with Retry; Integrations shows **Expired — reconnect**. Reconnect, then Retry → synced. |
+| T13 | Disconnect Zoom on Integrations, then book type Zoom | The panel shows **Connect Zoom first** with a link to Integrations and Book stays disabled; pasting your own link enables Book (no meeting created). |
+| T14 | Owner → agency Integrations → connect the **agency's** Zoom. Agent (with no own Zoom) books type Zoom | Created on the agency's Zoom (panel says "the agency's Zoom"); Join Zoom works. |
+| T15 | Second agent signs in; opens the first agent's appointment / contact | They never see the first agent's Join link or sync status (they cannot open the appointment at all). Their own bookings never appear in the first agent's Google Calendar. |
+| T16 | Owner books an appointment FOR the agent | It appears in the AGENT's Google Calendar, not the owner's. |
+| T17 | Double-click **Book** / **Retry** quickly | One event in Google, one Zoom meeting. |
+| T18 | Disconnect Google Calendar | "disconnected — its stored access was deleted" (and, if Google did not confirm the revoke, a note to remove the app in your Google account). The app no longer appears under Google's third-party connections. |

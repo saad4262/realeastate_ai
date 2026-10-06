@@ -48,7 +48,7 @@ import {
   notifyNewLead,
   updateLeadStatus,
 } from '@repo/core/leads';
-import { can, type MembershipRole } from '@repo/core/permissions';
+import { can, type Actor, type MembershipRole } from '@repo/core/permissions';
 import { agencyNotificationRecipients } from '@repo/core/agency';
 import { fakeTransport } from '@repo/core/email';
 import {
@@ -112,8 +112,12 @@ import {
   listAppointments,
   previewInvitation,
   rescheduleAppointment,
+  retryAppointmentSync,
   scheduleAppointment,
   sendInvitation,
+  syncAppointment,
+  checkCalendarEvent,
+  type SyncDeps,
 } from '@repo/core/appointments';
 import {
   completeConnect,
@@ -125,6 +129,8 @@ import {
   signState,
   tokenKeysFromEnv,
   tokensForUse,
+  eventIdFor,
+  type Fetch,
 } from '@repo/core/integrations';
 import {
   addSkillToMine,
@@ -4171,6 +4177,279 @@ async function main() {
     }
     return summary;
   });
+
+
+  // ------------------------------------------------ Google Calendar + Zoom --
+  group('Google Calendar and Zoom (fakes)');
+
+  /**
+   * A pretend Google and Zoom that remember what they were told: events and
+   * meetings by id, which tokens are valid, and every request. No network.
+   * `revokeRefresh` makes the token endpoints answer 400 invalid_grant.
+   */
+  function fakeProviders() {
+    const calls: { method: string; url: string; auth: string; body: string }[] = [];
+    const events = new Map<string, { start: string; end: string; summary: string; etag: string; cancelled: boolean }>();
+    const meetings = new Map<string, { start: string; duration: number; topic: string }>();
+    const state = { revokeRefresh: false, issued: 0, etags: 0, meetingSeq: 80000000000 };
+    const valid = new Set<string>();
+    const reply = (status: number, body?: unknown, etag?: string) =>
+      new Response(body === undefined ? null : JSON.stringify(body), { status, headers: etag ? { etag } : {} });
+    const fetchImpl: Fetch = async (input, init) => {
+      const url = new URL(String(input));
+      const method = init?.method ?? 'GET';
+      const headers = new Headers(init?.headers);
+      const auth = headers.get('authorization') ?? '';
+      const body = init?.body ? String(init.body) : '';
+      calls.push({ method, url: url.toString(), auth, body });
+      if (url.href === 'https://oauth2.googleapis.com/token' || url.href === 'https://zoom.us/oauth/token') {
+        if (state.revokeRefresh) return reply(400, { error: 'invalid_grant' });
+        const token = `renewed-${++state.issued}`;
+        valid.add(token);
+        return reply(200, { access_token: token, expires_in: 3600, ...(url.host === 'zoom.us' ? { refresh_token: `zrt-${state.issued}` } : {}) });
+      }
+      const bearer = auth.replace(/^Bearer /, '');
+      if (!valid.has(bearer)) return reply(401, { error: { status: 'UNAUTHENTICATED' } });
+      if (url.host === 'www.googleapis.com') {
+        const id = url.pathname.split('/events')[1]?.replace(/^\//, '') ?? '';
+        const etag = () => `"e${++state.etags}"`;
+        if (method === 'POST') {
+          const e = JSON.parse(body);
+          if (events.has(e.id)) return reply(409, { error: { status: 'ALREADY_EXISTS' } });
+          const v = { start: e.start.dateTime, end: e.end.dateTime, summary: e.summary, etag: etag(), cancelled: false };
+          events.set(e.id, v);
+          return reply(200, { id: e.id, etag: v.etag });
+        }
+        const ev = events.get(id);
+        if (!ev) return reply(404, { error: { status: 'NOT_FOUND' } });
+        if (method === 'PATCH') {
+          const e = JSON.parse(body);
+          Object.assign(ev, { ...(e.start ? { start: e.start.dateTime } : {}), ...(e.end ? { end: e.end.dateTime } : {}), ...(e.summary ? { summary: e.summary } : {}), cancelled: false, etag: etag() });
+          return reply(200, { id, etag: ev.etag });
+        }
+        if (method === 'DELETE') {
+          events.delete(id);
+          return reply(204);
+        }
+        if (headers.get('if-none-match') === ev.etag) return reply(304);
+        return reply(200, { id, etag: ev.etag, status: ev.cancelled ? 'cancelled' : 'confirmed', start: { dateTime: ev.start }, end: { dateTime: ev.end } });
+      }
+      if (url.host === 'api.zoom.us') {
+        if (method === 'POST') {
+          const m = JSON.parse(body);
+          const id = String(++state.meetingSeq);
+          meetings.set(id, { start: m.start_time, duration: m.duration, topic: m.topic });
+          return reply(201, { id: Number(id), join_url: `https://zoom.test/j/${id}?pwd=join`, start_url: `https://zoom.test/s/${id}?zak=HOST-SECRET`, password: 'P4SSWORD' });
+        }
+        const id = url.pathname.split('/meetings/')[1] ?? '';
+        if (!meetings.has(id)) return reply(404, { code: 3001 });
+        if (method === 'PATCH') {
+          const m = JSON.parse(body);
+          meetings.set(id, { start: m.start_time, duration: m.duration, topic: m.topic });
+          return reply(204);
+        }
+        if (method === 'DELETE') {
+          meetings.delete(id);
+          return reply(204);
+        }
+      }
+      return reply(500);
+    };
+    const deps: SyncDeps = {
+      keys: testKeys,
+      fetch: fetchImpl,
+      // Real adapters (for renewal), never the stub: these are not stub tokens.
+      env: { ...process.env, NODE_ENV: 'development', INTEGRATIONS_STUB: '', GOOGLE_OAUTH_CLIENT_ID: 'smoke', GOOGLE_OAUTH_CLIENT_SECRET: 'smoke', ZOOM_OAUTH_CLIENT_ID: 'smoke', ZOOM_OAUTH_CLIENT_SECRET: 'smoke' } as NodeJS.ProcessEnv,
+    };
+    /** Connect a provider for someone, with an access token the fake accepts. */
+    const connect = async (t: Db, who: Actor, provider: 'google_calendar' | 'zoom', ownerType: 'user' | 'agency', ownerId: string, agencyId: string) => {
+      const g = granted(ALL[provider]);
+      valid.add(g.accessToken);
+      return (await saveConnection(t, testKeys, who, { provider, ownerType, ownerId, agencyId }, g)).id;
+    };
+    return { fetchImpl, deps, calls, events, meetings, state, valid, connect };
+  }
+
+  async function inRollback(body: (t: Db) => Promise<string>): Promise<string> {
+    const ROLLBACK = new Error('smoke rollback');
+    let out = '';
+    try {
+      await db.transaction(async (tx) => {
+        out = await body(tx as unknown as Db);
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return out;
+  }
+
+  const apptRow = async (t: Db, id: string) =>
+    (await t.execute<Record<string, unknown>>(sql`select * from appointment where id = ${id}`))[0]!;
+
+  await check("booking, moving, completing and cancelling mirror into the agent's own Google Calendar — and Google emails nobody", () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const g = fakeProviders();
+      const acct = await g.connect(t, f.actor('a1'), 'google_calendar', 'user', f.people.a1, f.agencyId);
+      const { id } = await scheduleAppointment(t, f.actor('a1'), f.contacts.p1, { title: 'Appraisal', type: 'appraisal', ...slot(5) });
+      await syncAppointment(t, g.deps, id);
+      let row = await apptRow(t, id);
+      const ev = g.events.get(eventIdFor(id));
+      assert(ev && g.events.size === 1, `events after booking: ${g.events.size}`);
+      assert(row.calendar_sync_state === 'synced' && row.external_calendar_provider === 'google_calendar' && row.external_calendar_account_id === acct && row.external_calendar_id === eventIdFor(id), `row after booking: ${row.calendar_sync_state} ${row.external_calendar_provider}`);
+
+      const moved = slot(6);
+      await rescheduleAppointment(t, f.actor('a1'), id, moved);
+      await syncAppointment(t, g.deps, id);
+      assert(g.events.size === 1 && new Date(g.events.get(eventIdFor(id))!.start).toISOString() === moved.startsAt, 'the event did not move with the appointment');
+
+      const done = await scheduleAppointment(t, f.actor('a1'), f.contacts.p1, { title: 'Call', type: 'phone_call', ...slot(7) });
+      await syncAppointment(t, g.deps, done.id);
+      await completeAppointment(t, f.actor('a1'), done.id, { outcome: 'ok' });
+      await syncAppointment(t, g.deps, done.id);
+      assert(g.events.get(eventIdFor(done.id))?.summary === '✓ Call', 'a completed appointment was not marked done in Google');
+
+      await cancelAppointment(t, f.actor('a1'), id, { outcome: 'no' });
+      await syncAppointment(t, g.deps, id);
+      row = await apptRow(t, id);
+      assert(!g.events.has(eventIdFor(id)) && row.calendar_sync_state === 'removed', `after cancel: event ${g.events.has(eventIdFor(id))}, state ${row.calendar_sync_state}`);
+
+      const writes = g.calls.filter((c) => c.url.includes('/calendar/v3/') && c.method !== 'GET');
+      assert(writes.every((c) => c.url.includes('sendUpdates=none') && !/attendees/.test(c.body)), 'a calendar write could email someone');
+      return `${writes.length} calendar writes, all sendUpdates=none with no attendees; moved, marked done, deleted on cancel`;
+    }),
+  );
+
+  await check('double submit: two syncs at once make ONE event and ONE Zoom meeting; cancelling removes both; no host link or password is stored', () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const g = fakeProviders();
+      await g.connect(t, f.actor('a1'), 'google_calendar', 'user', f.people.a1, f.agencyId);
+      await g.connect(t, f.actor('a1'), 'zoom', 'user', f.people.a1, f.agencyId);
+      const { id } = await scheduleAppointment(t, f.actor('a1'), f.contacts.p1, { title: 'Video call', type: 'zoom', ...slot(5) });
+      const both = await Promise.all([syncAppointment(t, g.deps, id), syncAppointment(t, g.deps, id)]);
+      await syncAppointment(t, g.deps, id); // and a third, later (a Retry)
+      const creates = g.calls.filter((c) => c.method === 'POST' && c.url.endsWith('/users/me/meetings')).length;
+      assert(both.filter((o) => o.ran).length === 1, `both syncs ran: ${JSON.stringify(both)}`);
+      assert(creates === 1 && g.meetings.size === 1 && g.events.size === 1, `${creates} Zoom creates, ${g.meetings.size} meetings, ${g.events.size} events`);
+      const row = await apptRow(t, id);
+      const [meetingId] = [...g.meetings.keys()];
+      assert(row.zoom_meeting_id === meetingId && row.meeting_url === `https://zoom.test/j/${meetingId}?pwd=join` && row.zoom_sync_state === 'synced', `zoom on the row: ${row.zoom_meeting_id} ${row.meeting_url}`);
+      assert(!/HOST-SECRET|zak=|P4SSWORD/.test(JSON.stringify(row)), 'a host start link or a password was stored');
+      const view = JSON.stringify(await getAppointment(t, f.actor('a1'), id));
+      assert(!/HOST-SECRET|zak=|P4SSWORD/.test(view), 'a host start link or a password reached the screen');
+
+      await cancelAppointment(t, f.actor('a1'), id, {});
+      await syncAppointment(t, g.deps, id);
+      const after = await apptRow(t, id);
+      // Read the sizes afresh: the assert above narrowed them to 1 for the type checker.
+      const left = { meetings: g.meetings.size as number, events: g.events.size as number };
+      assert(left.meetings === 0 && left.events === 0 && after.zoom_sync_state === 'removed', `after cancel: ${left.meetings} meetings, ${left.events} events`);
+      return '2 syncs at once → 1 ran; 1 meeting + 1 event after 3 syncs; only the join link kept; cancel deleted both';
+    }),
+  );
+
+  await check('token renewal: a lapsed access token is renewed; a revoked refresh token marks the connection expired and the appointment says reconnect', () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const g = fakeProviders();
+      const acct = await g.connect(t, f.actor('a1'), 'google_calendar', 'user', f.people.a1, f.agencyId);
+      await t.execute(sql`update integration_account set token_expires_at = now() - interval '1 minute' where id = ${acct}`);
+      const [before] = await t.execute<{ a: string }>(sql`select access_token_enc as a from integration_account where id = ${acct}`);
+      const { id } = await scheduleAppointment(t, f.actor('a1'), f.contacts.p1, { title: 'Renew', type: 'meeting', ...slot(5) });
+      await syncAppointment(t, g.deps, id);
+      const [mid] = await t.execute<{ a: string; s: string }>(sql`select access_token_enc as a, status as s from integration_account where id = ${acct}`);
+      const insert = g.calls.find((c) => c.method === 'POST' && c.url.includes('/calendar/v3/'));
+      assert(g.state.issued === 1 && insert?.auth === 'Bearer renewed-1' && mid!.a !== before!.a && mid!.s === 'connected', `renewal: issued ${g.state.issued}, used ${insert?.auth}`);
+      assert(!mid!.a.includes('renewed-1'), 'the renewed token was stored readable');
+
+      g.state.revokeRefresh = true;
+      await t.execute(sql`update integration_account set token_expires_at = now() - interval '1 minute' where id = ${acct}`);
+      await rescheduleAppointment(t, f.actor('a1'), id, slot(6));
+      await syncAppointment(t, g.deps, id);
+      const [dead] = await t.execute<{ s: string; e: string | null }>(sql`select status as s, last_error as e from integration_account where id = ${acct}`);
+      const row = await apptRow(t, id);
+      const req = (await requireIntegrations(t, f.actor('a1'), ['google_calendar'])).results[0]!;
+      assert(dead!.s === 'expired' && req.state === 'expired', `revoked: account ${dead!.s}, requireIntegrations ${req.state}`);
+      assert(row.calendar_sync_state === 'failed' && /reconnect/i.test(String(row.calendar_sync_error)), `the appointment says: ${row.calendar_sync_state} / ${row.calendar_sync_error}`);
+      assert(!/renewed|zrt-|invalid_grant/.test(`${dead!.e} ${row.calendar_sync_error}`), 'an error text carries a token or a provider body');
+      return 'lapsed → renewed once, stored encrypted; revoked → account expired, appointment failed with "reconnect"';
+    }),
+  );
+
+  await check("nobody's connection is used for someone else; the agency Zoom is the fallback; Zoom without a Zoom is refused", () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const g = fakeProviders();
+      const a1Cal = await g.connect(t, f.actor('a1'), 'google_calendar', 'user', f.people.a1, f.agencyId);
+      const ownerCal = await g.connect(t, f.actor('owner'), 'google_calendar', 'user', f.people.owner, f.agencyId);
+      const a1Zoom = await g.connect(t, f.actor('a1'), 'zoom', 'user', f.people.a1, f.agencyId);
+
+      // A2 has no calendar: their appointment touches nobody's.
+      const a2Appt = await scheduleAppointment(t, f.actor('a2'), f.contacts.p2, { title: 'A2', type: 'meeting', ...slot(5) });
+      const callsBefore = g.calls.length;
+      await syncAppointment(t, g.deps, a2Appt.id);
+      const a2Row = await apptRow(t, a2Appt.id);
+      assert(g.calls.length === callsBefore && a2Row.calendar_sync_state === null, `A2's appointment made ${g.calls.length - callsBefore} calls, state ${a2Row.calendar_sync_state}`);
+
+      // The owner books FOR A1: it goes in A1's calendar, not the owner's.
+      const forA1 = await scheduleAppointment(t, f.actor('owner'), f.contacts.p1, { title: 'For A1', type: 'appraisal', ...slot(6), assignedAgentId: f.people.a1 });
+      await syncAppointment(t, g.deps, forA1.id);
+      const forA1Row = await apptRow(t, forA1.id);
+      assert(forA1Row.external_calendar_account_id === a1Cal && forA1Row.external_calendar_account_id !== ownerCal, 'an appointment for A1 went into the wrong calendar');
+
+      // Zoom: refused with nothing connected for A2; the agency Zoom once an admin connects it.
+      const refused = await scheduleAppointment(t, f.actor('a2'), f.contacts.p2, { title: 'Z', type: 'zoom', ...slot(7) }).then(() => 'booked', (e: unknown) => (e as { code?: string }).code);
+      assert(refused === 'integration', `a Zoom booking with no Zoom got ${refused}`);
+      const ownLink = await scheduleAppointment(t, f.actor('a2'), f.contacts.p2, { title: 'Z link', type: 'zoom', meetingUrl: 'https://example.com/my-room', ...slot(7) });
+      await syncAppointment(t, g.deps, ownLink.id);
+      assert((await apptRow(t, ownLink.id)).zoom_meeting_id === null, 'a meeting was created although a link was pasted');
+      const agencyZoom = await g.connect(t, f.actor('owner'), 'zoom', 'agency', f.agencyId, f.agencyId);
+      const a2Zoom = await scheduleAppointment(t, f.actor('a2'), f.contacts.p2, { title: 'Z2', type: 'zoom', ...slot(8) });
+      await syncAppointment(t, g.deps, a2Zoom.id);
+      const a1ZoomAppt = await scheduleAppointment(t, f.actor('a1'), f.contacts.p1, { title: 'Z1', type: 'zoom', ...slot(8) });
+      await syncAppointment(t, g.deps, a1ZoomAppt.id);
+      assert((await apptRow(t, a2Zoom.id)).zoom_account_id === agencyZoom, "A2's Zoom appointment did not use the agency's Zoom");
+      assert((await apptRow(t, a1ZoomAppt.id)).zoom_account_id === a1Zoom, "A1's Zoom appointment did not use A1's own Zoom");
+
+      // Retry is the appointment's own permission: A2 cannot push A1's.
+      const probe = await retryAppointmentSync(t, g.deps, f.actor('a2'), forA1.id).then(() => 'ran', (e: unknown) => (e as { code?: string }).code);
+      assert(probe === 'not_found', `A2 retrying A1's appointment got ${probe}`);
+      return "A2's appointment touched no calendar; owner's booking for A1 used A1's; Zoom refused, then agency fallback, A1's own first; A2 cannot retry A1's";
+    }),
+  );
+
+  await check('a change made inside Google is flagged as a conflict, never copied; Keep ours puts ours back', () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const g = fakeProviders();
+      await g.connect(t, f.actor('a1'), 'google_calendar', 'user', f.people.a1, f.agencyId);
+      const s5 = slot(5);
+      const { id } = await scheduleAppointment(t, f.actor('a1'), f.contacts.p1, { title: 'Watch', type: 'meeting', ...s5 });
+      await syncAppointment(t, g.deps, id);
+      assert((await checkCalendarEvent(t, g.deps, id)) === 'unchanged', 'an untouched event read as changed');
+
+      // The agent drags it two hours later inside Google.
+      const ev = g.events.get(eventIdFor(id))!;
+      Object.assign(ev, { start: new Date(Date.parse(ev.start) + 7_200_000).toISOString(), end: new Date(Date.parse(ev.end) + 7_200_000).toISOString(), etag: '"moved"' });
+      assert((await checkCalendarEvent(t, g.deps, id)) === 'conflict', 'a move in Google was not flagged');
+      let row = await apptRow(t, id);
+      const conflict = row.calendar_conflict as { startsAt: string; deleted: boolean };
+      assert(row.calendar_sync_state === 'conflict' && conflict.startsAt === ev.start && !conflict.deleted, `flag: ${JSON.stringify(row.calendar_conflict)}`);
+      assert(new Date(row.starts_at as string).toISOString() === s5.startsAt, 'our record took Google’s time');
+
+      await retryAppointmentSync(t, g.deps, f.actor('a1'), id); // Keep ours
+      row = await apptRow(t, id);
+      assert(row.calendar_sync_state === 'synced' && row.calendar_conflict === null && new Date(g.events.get(eventIdFor(id))!.start).toISOString() === s5.startsAt, 'Keep ours did not put our time back');
+
+      g.events.delete(eventIdFor(id)); // deleted inside Google
+      assert((await checkCalendarEvent(t, g.deps, id)) === 'conflict', 'a deletion in Google was not flagged');
+      row = await apptRow(t, id);
+      assert((row.calendar_conflict as { deleted: boolean }).deleted && row.status === 'scheduled', 'a deletion in Google changed our record');
+      return 'unchanged → 304; moved → conflict with Google’s time, ours kept; Keep ours restored; deleted → conflict, still scheduled';
+    }),
+  );
 
   // ------------------------------------------------------------ skills --
   group('Skills');

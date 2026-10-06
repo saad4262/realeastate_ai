@@ -186,8 +186,9 @@ path by design.
    From now on new tokens are written with the new key; old ones still decrypt
    with the previous key (each stored value names the key that wrote it).
 3. Let every connection be re-saved under the new key — a reconnect does it.
-   (Until a re-encrypt script exists, ask owners to reconnect, or wait until
-   tokens refresh in Phase 3b, which re-saves them.)
+   (Until a re-encrypt script exists, ask owners to reconnect. A token renewal
+   re-saves only the access token — and Zoom's rotated refresh token — so a
+   Google refresh token stays on the old key until its owner reconnects.)
 4. When no row is left on the old key, remove `INTEGRATION_TOKEN_KEY_PREVIOUS` and
    redeploy. If the old key leaked, do not wait: remove it at once and have
    everyone reconnect — a leaked key must not keep working.
@@ -195,6 +196,28 @@ path by design.
 The same key also signs the OAuth `state` (through a derived key), so a rotation
 also expires any Connect that is half-way through — the person simply presses
 Connect again.
+
+### Google Calendar and Zoom (console + web cron; docs/adr/0020 "Phase 3b")
+
+    GOOGLE_OAUTH_CLIENT_ID / _SECRET   Google Cloud → Credentials → OAuth client
+                                       (Web application). Console AND web (the
+                                       cron renews tokens when it reads back).
+    ZOOM_OAUTH_CLIENT_ID / _SECRET     Zoom Marketplace → General app. Same two projects.
+    ZOOM_OAUTH_RETURN_BASE             Leave UNSET in production (the console's https
+                                       host is accepted by Zoom). Dev only: a tunnel.
+
+Redirect URI to register at both providers in production:
+`https://agency.<domain>/api/integrations/oauth/return` (the agency console URL —
+the same single route; agent-side connections hop there and back by the signed
+state). Keep the dev URIs registered beside it while testing.
+
+Before real customers: Google app verification (needs the domain, a homepage and a
+privacy policy; until then Testing mode = test users only, tokens die after ~7 days)
+and, for Zoom accounts outside your own, publishing the app on the Zoom Marketplace.
+The read-back runs inside the existing 5-minute cron tick — nothing extra to schedule —
+which lives in the WEB project, so the web project needs `INTEGRATION_TOKEN_KEY` (the
+same value as the console) as well as the four client variables. Without them the tick
+skips the read-back and the console still syncs on every change.
 
 ### Template email to contacts (console + web; docs/adr/0022)
 

@@ -47,6 +47,9 @@ export async function check(
   name: string,
   fn: () => Promise<string | void> | string | void,
 ): Promise<void> {
+  // SMOKE_ONLY=<part of a group name>: run just that group (break-checks, a quick re-run).
+  const only = process.env.SMOKE_ONLY?.trim().toLowerCase();
+  if (only && !currentGroup.toLowerCase().includes(only)) return;
   try {
     const detail = await fn();
     results.push({
