@@ -82,6 +82,24 @@ export async function retryMessageAction(messageId: string): Promise<MailActionR
 }
 
 /**
+ * "Send from the platform address instead" on a message Gmail did not send
+ * (ADR 0026 §7): the person's own choice — the From never changes silently.
+ */
+export async function sendFromPlatformAction(messageId: string): Promise<MailActionResult> {
+  const who = await actor();
+  const deps = mailDeps();
+  if (!deps) return { ok: false, error: 'Email is not set up on this server yet, so nothing was sent.' };
+
+  try {
+    const outcome = await retryFailedMessage(getConsoleDb(), deps, who, messageId, { platformOnly: true });
+    refresh();
+    return { ok: true, status: outcome.status, error: outcome.error };
+  } catch (err) {
+    return failure(err, 'Could not send the message');
+  }
+}
+
+/**
  * "I have opened this." Called by the reader once it is on screen, never by a
  * page render: a prefetched link must not mark a thread read that nobody saw.
  */

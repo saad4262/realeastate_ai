@@ -119,9 +119,9 @@ export function isStubToken(token: string): boolean {
   return token.startsWith('stub-');
 }
 
-/** The real adapter for a provider, when its client id and secret are set. Sheets and Reviews: not yet. */
+/** The real adapter for a provider, when its client id and secret are set. Calendar and Gmail share the one Google app (ADR 0020). Sheets and Reviews: not yet. */
 export function realAdapterFor(provider: IntegrationProvider, env: NodeJS.ProcessEnv = process.env, fetchImpl: Fetch = fetch): OAuthAdapter | null {
-  if (provider === 'google_calendar') {
+  if (provider === 'google_calendar' || provider === 'gmail') {
     const client = googleClientFromEnv(env);
     return client ? googleAdapter(client, fetchImpl) : null;
   }

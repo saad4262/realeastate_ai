@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
+  integrationAccount,
   lead,
   listingAgent,
   mailMessage,
@@ -22,6 +23,7 @@ import {
 } from '../contacts/visibility';
 import type { LeadKind, LeadStatus } from '../leads/list-leads';
 import { snippet } from './body';
+import { resolveSender, senderLine, sentViaLabel } from './sender';
 import type { AttachmentNote, MailFolder } from './mail-schema';
 
 /**
@@ -319,6 +321,10 @@ export type MailMessageView = {
   authorName: string | null;
   attachments: AttachmentNote[];
   error: string | null;
+  /** Outbound only, once a send was tried: "Sent from their Gmail" / "…the agency’s Gmail" / "…LocalAgentHub". */
+  sentVia: string | null;
+  /** A failed Gmail send offers "Send from the platform address instead" (ADR 0026 §7). */
+  failedViaGmail: boolean;
   createdAt: Date;
 };
 
@@ -345,6 +351,8 @@ export type MailThreadView = {
   messages: MailMessageView[];
   /** Decided by can(); the composer is drawn from this, the action re-checks. */
   maySend: boolean;
+  /** The "Sent from" line over the composer (ADR 0026 §2), when this actor may send. */
+  sendFrom: string | null;
   /** Whether this actor may move the lead along / give it to someone. */
   mayUpdateLead: boolean;
   mayAssignLead: boolean;
@@ -423,10 +431,13 @@ export async function getMailThread(db: Db, actor: Actor, threadId: string): Pro
       authorEmail: author.email,
       attachments: mailMessage.attachments,
       error: mailMessage.error,
+      sentVia: mailMessage.sentVia,
+      senderOwnerType: integrationAccount.ownerType,
       createdAt: mailMessage.createdAt,
     })
     .from(mailMessage)
     .leftJoin(author, eq(author.id, mailMessage.sentBy))
+    .leftJoin(integrationAccount, eq(integrationAccount.id, mailMessage.senderAccountId))
     .where(eq(mailMessage.threadId, row.id))
     .orderBy(asc(mailMessage.createdAt), asc(mailMessage.id));
 
@@ -482,9 +493,12 @@ export async function getMailThread(db: Db, actor: Actor, threadId: string): Pro
       authorName: m.authorName || m.authorEmail || null,
       attachments: Array.isArray(m.attachments) ? (m.attachments as AttachmentNote[]) : [],
       error: m.error,
+      sentVia: m.direction === 'out' && m.sentVia ? sentViaLabel(m) : null,
+      failedViaGmail: m.direction === 'out' && m.status === 'failed' && m.sentVia === 'gmail',
       createdAt: new Date(m.createdAt),
     })),
     maySend: maySendOnThread(actor, facts),
+    sendFrom: maySendOnThread(actor, facts) ? senderLine(await resolveSender(db, actor)) : null,
     mayUpdateLead: leadResource ? can(actor, 'lead:update', leadResource) : false,
     mayAssignLead: leadResource ? can(actor, 'lead:assign', leadResource) : false,
   };

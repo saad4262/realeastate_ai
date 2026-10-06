@@ -332,6 +332,7 @@ export function ThreadReader({
         <Composer
           threadId={view.id}
           to={view.contactName ? `${view.contactName} <${view.contactEmail}>` : view.contactEmail}
+          sendFrom={view.sendFrom}
           replyNote={
             inboundOn
               ? `When ${contact} replies, it comes back to this conversation.`
@@ -466,9 +467,11 @@ function Message({
       {out && m.status === 'queued' ? <span className={styles.note}>Sending…</span> : null}
       {out && m.status === 'failed' ? (
         <span className={styles.noteError}>
-          Not delivered. <RetrySend messageId={m.id} />
+          Not delivered{m.error && m.failedViaGmail ? ` — ${m.error}` : ''}. <RetrySend messageId={m.id} />
+          {m.failedViaGmail ? <> · <RetrySend messageId={m.id} platform /></> : null}
         </span>
       ) : null}
+      {out && m.status === 'sent' && m.sentVia ? <span className={styles.note}>{m.sentVia}</span> : null}
       {!out && m.error ? <span className={styles.noteWarn}>{m.error}</span> : null}
     </MessageCard>
   );

@@ -1,4 +1,6 @@
 import { IntegrationError, listIntegrationSlots, stubEnabled, tokenKeysFromEnv, PROVIDERS, isIntegrationProvider } from '@repo/core/integrations';
+import { agencyGmailSharing } from '@repo/core/mail';
+import { setAgencyGmailSharingAction } from '../../lib/integration-actions';
 import contactStyles from '@/components/contacts/contacts.module.css';
 import { getConsoleDb } from '../../lib/db';
 import { requireConsoleAccess } from '../../lib/require-console-access';
@@ -35,6 +37,7 @@ export async function IntegrationsPage({
   const unrevoked = first(sp.unrevoked) === '1';
   const error = first(sp.error);
   const configured = tokenKeysFromEnv() !== null;
+  const sharing = await agencyGmailSharing(getConsoleDb(), session.actor);
   // Agency accounts first on the agency console; your own first on the desk.
   const ordered = [...slots].sort((a, b) =>
     a.ownerType === b.ownerType ? 0 : (a.ownerType === 'agency') === (surface === 'agency') ? -1 : 1,
@@ -78,6 +81,18 @@ export async function IntegrationsPage({
           <IntegrationCard key={`${slot.provider}-${slot.ownerType}`} slot={slot} />
         ))}
       </div>
+
+      {sharing.mayChange && surface === 'agency' ? (
+        <form action={setAgencyGmailSharingAction} className={contactStyles.card} style={{ padding: '1rem', marginTop: '1rem' }}>
+          <input type="hidden" name="on" value={sharing.on ? '0' : '1'} />
+          <p style={{ margin: '0 0 0.5rem' }}>
+            <strong>Members may send from the agency Gmail:</strong> {sharing.on ? 'On' : 'Off'}. When it is on, an agent
+            without their own Gmail connected sends one-to-one emails from the agency’s Gmail; when off, from the platform
+            address. Owners and admins may always use it. Bulk template email always goes from the platform address.
+          </p>
+          <button type="submit">{sharing.on ? 'Turn off' : 'Turn on'}</button>
+        </form>
+      ) : null}
     </div>
   );
 }

@@ -22,10 +22,13 @@ export function Composer({
   to,
   /** Shown under the box: where a reply to this email will land. */
   replyNote,
+  /** "Sent from your Gmail (…)" / "Sent from LocalAgentHub — connect your Gmail…" (ADR 0026 §2). */
+  sendFrom = null,
 }: {
   threadId: string;
   to: string;
   replyNote: string;
+  sendFrom?: string | null;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -104,7 +107,10 @@ export function Composer({
         <button type="submit" className={styles.send} disabled={pending}>
           {pending ? 'Sending…' : 'Send'}
         </button>
-        <span className={styles.note}>{replyNote}</span>
+        <span className={styles.note}>
+          {sendFrom ? <>{sendFrom}. </> : null}
+          {replyNote}
+        </span>
       </div>
     </form>
   );

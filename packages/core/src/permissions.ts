@@ -271,6 +271,14 @@ export type Action =
   | 'listing_import:run'
   /** Cancel it: its creator or an admin. */
   | 'listing_import:cancel'
+  /**
+   * Send a one-to-one email from the AGENCY's connected Gmail (ADR 0026):
+   * owners/admins always; other writing members unless an admin has switched
+   * "Members may send from the agency Gmail" off. On top of `integration:use`.
+   */
+  | 'gmail:send_as_agency'
+  /** Flip that switch: owner/admin. */
+  | 'gmail:configure_agency'
   /** Pick or change the agency's Google listing (ADR 0028): owner/admin. */
   | 'google_place:manage'
   /** See the agency's Google rating and reviews in the console: any active member. */
@@ -322,6 +330,8 @@ export type Resource = {
   integrationOwnerType?: 'user' | 'agency';
   /** On a dashboard: who may open it. */
   audience?: 'private' | 'admins' | 'agency';
+  /** On the agency, for `gmail:send_as_agency`: the admin switch (ADR 0026, decided Q3). */
+  membersMayUseAgencyGmail?: boolean;
 };
 
 const ADMIN_ROLES: MembershipRole[] = ['owner', 'admin'];
@@ -552,6 +562,13 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       if (action === 'listing_import:cancel' && !mayWrite(actor)) return false;
       if (isAgencyAdmin(actor)) return true;
       return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'gmail:send_as_agency':
+      if (!sameAgency(actor, resource) || !mayWrite(actor)) return false;
+      return isAgencyAdmin(actor) || resource.membersMayUseAgencyGmail !== false;
+
+    case 'gmail:configure_agency':
+      return sameAgency(actor, resource) && isAgencyAdmin(actor);
 
     case 'google_place:manage':
       return sameAgency(actor, resource) && isAgencyAdmin(actor);

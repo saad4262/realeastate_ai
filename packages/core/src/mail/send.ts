@@ -13,6 +13,14 @@ import { noticeMailFromEnv } from '../email/resend-transport';
 import { devAllowlistProblem } from '../email/limits';
 import { mailConfigFromEnv } from './address';
 import { replyInputSchema } from './mail-schema';
+import { resolveSender } from './sender';
+import { activeMemberActor } from '../team/member-actor';
+import { tokenKeysFromEnv, type TokenKeys } from '../integrations/crypto';
+import { withAccessToken } from '../integrations/tokens';
+import { IntegrationError } from '../integrations/accounts';
+import { isStubToken, stubEnabled } from '../integrations/oauth';
+import { ProviderError, type Fetch } from '../integrations/provider-http';
+import { buildMime, gmailApi, stubGmailApi, type GmailApi } from '../integrations/gmail';
 import {
   loadThreadAccess,
   MailError,
@@ -44,7 +52,19 @@ export type MailDeps = {
   site?: { webUrl: string; verifySecret: string | null };
   /** For the development allowlist; defaults to process.env. A test seam. */
   env?: NodeJS.ProcessEnv;
+  /**
+   * Sending through a connected Gmail (ADR 0026). Absent: every message goes
+   * from the platform sender. `api` is the test seam (a fake Gmail).
+   */
+  gmail?: { keys: TokenKeys; api?: GmailApi; fetch?: Fetch; now?: () => Date };
 };
+
+/**
+ * Which messages may leave through a person's Gmail (ADR 0026 §4): their own
+ * conversation reply typed in the console, and an appointment invitation —
+ * one-to-one mail. Bulk template email, and the inbound relay, never do.
+ */
+const GMAIL_KINDS = new Set<string | null>([null, 'appointment_invitation']);
 
 /**
  * Everything sending needs, from the environment: the mailer, inbound config
@@ -53,10 +73,17 @@ export type MailDeps = {
 export function mailDepsFromEnv(env: NodeJS.ProcessEnv = process.env): MailDeps | null {
   const notice = noticeMailFromEnv(env);
   if (!notice) return null;
+  let keys: TokenKeys | null = null;
+  try {
+    keys = tokenKeysFromEnv(env);
+  } catch {
+    keys = null; // a malformed key is refused at startup; here it means "platform sender only"
+  }
   return {
     mailer: notice.mailer,
     config: mailConfigFromEnv(env),
     site: { webUrl: notice.urls.webUrl, verifySecret: verifySecretFromEnv(env) },
+    ...(keys ? { gmail: { keys } } : {}),
   };
 }
 
@@ -170,7 +197,11 @@ export async function deliverOutbound(
   deps: MailDeps,
   messageId: string,
   /** Only for an approved template email (ADR 0022): makes it marketing, with the contact's unsubscribe link. */
-  opts: { unsubscribeUrl?: string } = {},
+  opts: {
+    unsubscribeUrl?: string;
+    /** The person pressed "Send from the platform address instead" (ADR 0026 §7): never Gmail. */
+    platformOnly?: boolean;
+  } = {},
 ): Promise<SendOutcome> {
   const [m] = await db
     .select({
@@ -178,6 +209,9 @@ export async function deliverOutbound(
       threadId: mailMessage.threadId,
       status: mailMessage.status,
       kind: mailMessage.kind,
+      channel: mailMessage.channel,
+      sentBy: mailMessage.sentBy,
+      agencyId: mailThread.agencyId,
       text: mailMessage.text,
       subject: mailThread.subject,
       contactEmail: mailThread.contactEmail,
@@ -232,11 +266,17 @@ export async function deliverOutbound(
       ? { email: m.authorEmail, name: author }
       : { email: sender.from.email, name: agencyName };
 
+  // Gmail or the platform, decided now, AFTER the transaction that recorded the row.
+  const gmail = await gmailRoute(db, deps, m, opts);
+
   let result: Awaited<ReturnType<EmailTransport['send']>>;
   try {
     const email = buildConversationEmail({
       to: { email: m.contactEmail, ...(m.contactName ? { name: headerSafe(m.contactName) } : {}) },
-      from: { email: sender.from.email, name: author === agencyName ? agencyName : `${author} · ${agencyName}` },
+      from: {
+        email: gmail ? gmail.choice.address : sender.from.email,
+        name: author === agencyName ? agencyName : `${author} · ${agencyName}`,
+      },
       replyTo,
       postalAddress: sender.postalAddress,
       subject: m.subject,
@@ -249,15 +289,21 @@ export async function deliverOutbound(
       ...(m.inReplyTo ? { threading: { inReplyTo: m.inReplyTo, references: [m.inReplyTo] } } : {}),
       ...(opts.unsubscribeUrl ? { unsubscribeUrl: opts.unsubscribeUrl } : {}),
     });
-    result = await transport.send(email);
+    result = gmail ? await sendViaGmail(db, deps, gmail, email) : await transport.send(email);
   } catch (err) {
     result = { ok: false, error: err instanceof Error ? err.message : 'Could not build the email', retryable: false };
   }
 
+  // How it left (or tried to): shown on the message, and what decides the
+  // "Send from the platform address instead" button. Never switched silently.
+  const via = gmail
+    ? { sentVia: 'gmail', senderAccountId: gmail.choice.accountId, fromEmail: gmail.choice.address }
+    : { sentVia: 'resend', senderAccountId: null, fromEmail: sender.from.email };
+
   if (result.ok) {
     await db
       .update(mailMessage)
-      .set({ status: 'sent', providerId: result.id, error: null, updatedAt: sql`now()` })
+      .set({ status: 'sent', providerId: result.id, error: null, ...via, updatedAt: sql`now()` })
       // Still queued: two deliveries racing on one row send once and record once.
       .where(and(eq(mailMessage.id, messageId), eq(mailMessage.status, 'queued')));
     return { messageId, status: 'sent', error: null };
@@ -267,9 +313,61 @@ export async function deliverOutbound(
   console.error(`[mail] message ${messageId} on thread ${m.threadId} not sent: ${result.error}`);
   await db
     .update(mailMessage)
-    .set({ status: 'failed', error: result.error.slice(0, 500), updatedAt: sql`now()` })
+    .set({ status: 'failed', error: result.error.slice(0, 500), ...via, updatedAt: sql`now()` })
     .where(and(eq(mailMessage.id, messageId), eq(mailMessage.status, 'queued')));
   return { messageId, status: 'failed', error: result.error };
+}
+
+type GmailRoute = { actor: Actor; choice: Extract<Awaited<ReturnType<typeof resolveSender>>, { via: 'gmail' }> };
+
+/**
+ * Whether this message goes through a Gmail, and whose — or null for the
+ * platform sender. Only one-to-one mail written by a person who is still an
+ * active member, and only when that person may use the account.
+ */
+async function gmailRoute(
+  db: Db,
+  deps: MailDeps,
+  m: { kind: string | null; channel: string | null; sentBy: string | null; agencyId: string },
+  opts: { unsubscribeUrl?: string; platformOnly?: boolean },
+): Promise<GmailRoute | null> {
+  if (!deps.gmail || opts.platformOnly || opts.unsubscribeUrl || !m.sentBy) return null;
+  if (m.channel !== 'console' || !GMAIL_KINDS.has(m.kind)) return null;
+  const actor = await activeMemberActor(db, m.sentBy, m.agencyId);
+  if (!actor) return null;
+  const choice = await resolveSender(db, actor);
+  return choice.via === 'gmail' ? { actor, choice } : null;
+}
+
+/** One send through Gmail, as the author; every failure becomes a sentence with what to do next. */
+async function sendViaGmail(
+  db: Db,
+  deps: MailDeps,
+  route: GmailRoute,
+  email: Parameters<EmailTransport['send']>[0],
+): Promise<Awaited<ReturnType<EmailTransport['send']>>> {
+  const g = deps.gmail!;
+  const env = deps.env ?? process.env;
+  const raw = buildMime(email);
+  try {
+    const sent = await withAccessToken(db, g.keys, route.actor, route.choice.accountId, { env, ...(g.fetch ? { fetch: g.fetch } : {}), ...(g.now ? { now: g.now } : {}) }, (token) => {
+      const api = g.api ?? (isStubToken(token) ? (stubEnabled(env) ? stubGmailApi() : null) : gmailApi(g.fetch ?? fetch));
+      if (!api) throw new ProviderError('failed', 'The pretend provider is off on this server');
+      return api.send(token, raw);
+    });
+    // Namespaced: provider_id is unique across both transports.
+    return { ok: true, id: `gmail:${sent.id}` };
+  } catch (err) {
+    const after = ' — retry, or send from the platform address instead';
+    if (err instanceof IntegrationError && err.code === 'expired') {
+      return { ok: false, error: 'Your Gmail connection expired — reconnect it, or send from the platform address', retryable: false };
+    }
+    if (err instanceof ProviderError && err.kind === 'rate_limited') {
+      return { ok: false, error: `Gmail's sending limit was reached${after}`, retryable: true };
+    }
+    const why = err instanceof ProviderError || err instanceof IntegrationError ? err.message : 'Gmail could not be reached';
+    return { ok: false, error: `Gmail did not send it (${why})${after}`, retryable: true };
+  }
 }
 
 /**
@@ -281,6 +379,8 @@ export async function retryFailedMessage(
   deps: MailDeps,
   actor: Actor,
   messageId: string,
+  /** "Send from the platform address instead" (ADR 0026 §7): the person's explicit choice. */
+  opts: { platformOnly?: boolean } = {},
 ): Promise<SendOutcome> {
   if (!/^[0-9a-f-]{36}$/i.test(messageId)) throw THREAD_NOT_FOUND();
   const [m] = await db
@@ -304,5 +404,5 @@ export async function retryFailedMessage(
     .returning({ id: mailMessage.id });
   if (reset.length === 0) throw new MailError('invalid', 'That message is not waiting to be sent again');
 
-  return deliverOutbound(db, deps, messageId);
+  return deliverOutbound(db, deps, messageId, opts.platformOnly ? { platformOnly: true } : {});
 }

@@ -142,3 +142,45 @@ listing, no deleting. Everything else about a conversation stays as ADR 0016 bui
 - Q1, Q2, Q4, Q5, Q6: **accepted as recommended** (bulk stays on the platform sender; no
   automatic fallback, a visible button instead; replies to the agent's Gmail accepted and
   documented; same "Sent from" label everywhere; no send-as aliases in v1).
+
+## As built (Phase 6, 2026-10-06)
+
+Built against fakes. Real Google calls need the user's account: TEST-PLAN AA.
+
+- **Provider `gmail`** (user or agency), scopes `gmail.send` + `openid email`, in the one
+  Google app (same client id/secret as Calendar, same `googleAdapter`; no
+  `include_granted_scopes`). Migration 0034 adds the enum value and **widens the owner-type
+  CHECK** (DROP + ADD, comparing as text). This is not strictly "add a column": it changes no
+  row, and every existing combination is allowed exactly as before. Flagged in the report, like
+  0031.
+- **`resolveSender(db, actor)`** (`packages/core/src/mail/sender.ts`) runs one statement:
+  own Gmail → agency Gmail (when `gmail:send_as_agency` allows: owners/admins always, other
+  writing members unless `agency.members_may_use_agency_gmail` is off) → platform. Only an
+  account that is `connected`, has every scope, passes `integration:use` and has a plain email
+  address counts. The admin switch is `gmail:configure_agency` (owner/admin), on Settings →
+  Integrations.
+- **What may go through Gmail:** a person's console reply (no kind) and an appointment
+  invitation (`appointment_invitation`), written by a member who is still active. Bulk
+  template email (it carries an unsubscribe URL) and the inbound relay (`channel = 'email'`)
+  never do. `buildMime` refuses a marketing message outright.
+- **`deliverOutbound`** picks the transport after the recording transaction. The dev
+  allowlist runs first, unchanged, before either transport. It records `sent_via`,
+  `sender_account_id` and the real `from_email`. A Gmail message id is stored as
+  `gmail:<id>` (`provider_id` is unique across transports). Failures are `failed` with a
+  sentence (expired → "reconnect it, or send from the platform address"; quota → "Gmail's
+  sending limit was reached"). **No fallback:** the console shows **Send from the platform
+  address instead**, which calls `retryFailedMessage(…, { platformOnly: true })`.
+- **MIME** is built by us from the same `EmailMessage` the platform sends. Names and subjects
+  have line breaks removed and non-ASCII encoded (RFC 2047). Addresses must be plain.
+  Bodies are base64. There is no Cc/Bcc. In-Reply-To/References are passed only when they
+  look like Message-IDs.
+- **Gmail errors:** 401 → renew once (shared `withAccessToken`); 429 or 403 with
+  `rateLimitExceeded`/`userRateLimitExceeded`/`dailyLimitExceeded`/`quotaExceeded` → quota;
+  403 insufficient permission → "reconnect".
+- **Screens:** the composer shows the "Sent from" line. A sent message shows "Sent from their
+  Gmail / the agency's Gmail / LocalAgentHub". The assistant's `check_connections` knows
+  `gmail` (answered through `resolveSender`, so it respects the switch). The template-email
+  card says template email never goes from a Gmail. No new assistant tool.
+- Dev: tokens issued by the stub provider send through a stub Gmail that records and never
+  sends.
+- Not built: send-as aliases (Q6); a Gmail path for bulk (Q1).

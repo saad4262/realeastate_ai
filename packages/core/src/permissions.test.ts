@@ -832,3 +832,22 @@ describe('Google reviews, step 1 (ADR 0028)', () => {
     expect(can({ userId: 'u' }, 'review:read', place)).toBe(false);
   });
 });
+
+describe('Gmail send (ADR 0026)', () => {
+  const m = (membershipRole: Actor['membershipRole']): Actor => ({ userId: 'u', agencyId: agencyA, membershipRole });
+  const ag = (membersMayUseAgencyGmail: boolean) => ({ type: 'agency', agencyId: agencyA, membersMayUseAgencyGmail });
+  it('members send from the agency Gmail unless an admin switched it off; admins always; read-only never', () => {
+    for (const r of ['agent', 'assistant', 'property_manager'] as const) {
+      expect(can(m(r), 'gmail:send_as_agency', ag(true)), r).toBe(true);
+      expect(can(m(r), 'gmail:send_as_agency', ag(false)), r).toBe(false);
+    }
+    for (const r of ['owner', 'admin'] as const) expect(can(m(r), 'gmail:send_as_agency', ag(false)), r).toBe(true);
+    expect(can(m('read_only'), 'gmail:send_as_agency', ag(true))).toBe(false);
+    expect(can({ userId: 'u', agencyId: agencyB, membershipRole: 'owner' }, 'gmail:send_as_agency', ag(true))).toBe(false);
+  });
+  it('only an owner or admin flips the switch', () => {
+    expect(can(m('owner'), 'gmail:configure_agency', ag(true))).toBe(true);
+    expect(can(m('admin'), 'gmail:configure_agency', ag(true))).toBe(true);
+    expect(can(m('agent'), 'gmail:configure_agency', ag(true))).toBe(false);
+  });
+});

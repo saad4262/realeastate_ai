@@ -71,6 +71,7 @@ import {
   deliverOutbound,
   recordOutbound,
   threadReplyAddress,
+  setAgencyGmailSharing,
   type MailConfig,
 } from '@repo/core/mail';
 import {
@@ -142,7 +143,10 @@ import {
   tokenKeysFromEnv,
   tokensForUse,
   eventIdFor,
+  IntegrationError,
+  ProviderError,
   type Fetch,
+  type GmailApi,
 } from '@repo/core/integrations';
 import {
   addSkillToMine,
@@ -6085,6 +6089,134 @@ async function main() {
       const [gone] = await t.execute<{ file: string | null; raws: number }>(sql`select file_text as file, (select count(*)::int from listing_import_row where import_id = ${id} and raw is not null) as raws from listing_import where id = ${id}`);
       assert(gone?.file === null && gone.raws === 0, `after 30 days: ${JSON.stringify(gone)}`);
       return 'a held lease blocks a second worker, a stale one does not; tick finished the dry run; a suspended uploader’s import failed with the reason; file and cells cleared after 30 days';
+    }),
+  );
+
+  group('Gmail send');
+
+  /**
+   * ADR 0026 with a fake Gmail: nothing leaves this machine. Who a message
+   * comes from is decided at send time — own Gmail → agency Gmail (if the admin
+   * switch allows) → platform — and a Gmail failure never switches silently.
+   */
+  const GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.send', 'openid', 'email'];
+  function fakeGmail(opts: { fail?: () => Error } = {}) {
+    const sent: { token: string; raw: string }[] = [];
+    const api: GmailApi = {
+      async send(token, raw) {
+        if (opts.fail) throw opts.fail();
+        sent.push({ token, raw });
+        return { id: `g-${sent.length}` };
+      },
+    };
+    return { api, sent };
+  }
+  async function gmailFixture(t: Db, gmail: ReturnType<typeof fakeGmail>) {
+    const f = await contactFixture(t);
+    const [th] = await t.execute<{ id: string }>(sql`
+      select id from mail_thread where lead_id = (select id from lead where contact_id = ${f.contacts.p2} and kind <> 'offer' limit 1)`);
+    const transport = fakeTransport();
+    const config: MailConfig = { inboundDomain: 'reply.smoke.invalid', replySecret: 'smoke-secret' };
+    const deps = {
+      mailer: { sender: { from: { email: 'platform@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport },
+      config,
+      env: { ...process.env, NODE_ENV: 'development', EMAIL_DEV_ALLOWLIST: '@smoke.test' } as NodeJS.ProcessEnv,
+      gmail: { keys: testKeys, api: gmail.api },
+    };
+    const connect = (who: 'owner' | 'a1' | 'a2', ownerType: 'user' | 'agency', label: string) =>
+      saveConnection(t, testKeys, f.actor(who), { provider: 'gmail', ownerType, ownerId: ownerType === 'user' ? f.people[who] : f.agencyId, agencyId: f.agencyId }, granted(GMAIL_SCOPES, label));
+    const row = async (messageId: string) =>
+      (await t.execute<{ status: string; sent_via: string | null; sender_account_id: string | null; provider_id: string | null; from_email: string; error: string | null }>(sql`
+        select status, sent_via, sender_account_id, provider_id, from_email, error from mail_message where id = ${messageId}`))[0]!;
+    return { f, thread: th!.id, transport, deps, connect, row, replyAddress: threadReplyAddress(th!.id, config) };
+  }
+  const headerOf = (raw: string, name: string) => raw.split('\r\n\r\n')[0]!.split('\r\n').find((h) => h.startsWith(`${name}: `)) ?? '';
+
+  await check('own Gmail first: From is the agent’s Gmail, Reply-To the signed thread address, recorded as gmail; the platform is not used', async () =>
+    inRollback(async (t) => {
+      const gmail = fakeGmail();
+      const x = await gmailFixture(t, gmail);
+      const own = await x.connect('a2', 'user', `a2.gmail.${x.f.tag}@gmail.com`);
+      await x.connect('owner', 'agency', `sales.${x.f.tag}@agency.example`);
+      const before = await getMailThread(t, x.f.actor('a2'), x.thread);
+      assert(before.sendFrom === `Sent from your Gmail (a2.gmail.${x.f.tag}@gmail.com)`, `composer line: ${before.sendFrom}`);
+      const out = await sendThreadReply(t, x.deps, x.f.actor('a2'), x.thread, { body: 'From my Gmail' });
+      const r = await x.row(out.messageId);
+      assert(out.status === 'sent' && r.sent_via === 'gmail' && r.sender_account_id === own.id && r.provider_id === 'gmail:g-1' && r.from_email === `a2.gmail.${x.f.tag}@gmail.com`, `row: ${JSON.stringify(r)}`);
+      assert(gmail.sent.length === 1 && x.transport.sent.length === 0, `gmail ${gmail.sent.length}, platform ${x.transport.sent.length}`);
+      const raw = gmail.sent[0]!.raw;
+      assert(headerOf(raw, 'From').endsWith(`<a2.gmail.${x.f.tag}@gmail.com>`) && headerOf(raw, 'Reply-To').endsWith(`<${x.replyAddress}>`), `headers: ${headerOf(raw, 'From')} / ${headerOf(raw, 'Reply-To')}`);
+      const after = await getMailThread(t, x.f.actor('a2'), x.thread);
+      assert(after.messages.find((m) => m.id === out.messageId)?.sentVia === 'Sent from their Gmail', 'no "Sent from" label on the message');
+      return 'a2’s Gmail used over the agency’s; From/Reply-To right; row says gmail + account; platform untouched';
+    }),
+  );
+
+  await check('then the agency Gmail — unless an admin switched members off it; then the platform; another agent’s Gmail is never used', async () =>
+    inRollback(async (t) => {
+      const gmail = fakeGmail();
+      const x = await gmailFixture(t, gmail);
+      await x.connect('a1', 'user', `a1.gmail.${x.f.tag}@gmail.com`);
+      const send = async (who: 'a2' | 'owner', body: string) => x.row((await sendThreadReply(t, x.deps, x.f.actor(who), x.thread, { body })).messageId);
+      const none = await send('a2', 'nobody connected for me');
+      assert(none.sent_via === 'resend' && none.from_email === 'platform@example.com', `with only a1's Gmail: ${JSON.stringify(none)}`);
+      const agencyAcct = await x.connect('owner', 'agency', `sales.${x.f.tag}@agency.example`);
+      const viaAgency = await send('a2', 'agency gmail');
+      assert(viaAgency.sent_via === 'gmail' && viaAgency.sender_account_id === agencyAcct.id, `agency: ${JSON.stringify(viaAgency)}`);
+      const refused = await setAgencyGmailSharing(t, x.f.actor('a2'), false).then(() => 'changed', (e: unknown) => (e as { code?: string }).code);
+      assert(refused === 'forbidden', `an agent flipped the switch: ${refused}`);
+      await setAgencyGmailSharing(t, x.f.actor('owner'), false);
+      const off = await send('a2', 'switch off');
+      assert(off.sent_via === 'resend', `switch off, agent: ${JSON.stringify(off)}`);
+      assert((await getMailThread(t, x.f.actor('a2'), x.thread)).sendFrom?.startsWith('Sent from LocalAgentHub'), 'composer still promised the agency Gmail');
+      const ownerOff = await send('owner', 'owner with switch off');
+      assert(ownerOff.sent_via === 'gmail' && ownerOff.sender_account_id === agencyAcct.id, `owner keeps the agency Gmail: ${JSON.stringify(ownerOff)}`);
+      assert(gmail.sent.every((g) => !g.raw.includes(`a1.gmail.${x.f.tag}`)), 'a1’s Gmail was used for someone else');
+      return 'platform → agency Gmail → switched off → platform for agents (owner still agency); a1’s Gmail never used; agents cannot flip it';
+    }),
+  );
+
+  await check('a Gmail failure is recorded with what to do; nothing switches to the platform until the person presses “Send from the platform address instead”', async () =>
+    inRollback(async (t) => {
+      const quota = fakeGmail({ fail: () => new ProviderError('rate_limited', "Gmail's sending limit was reached", 429) });
+      const x = await gmailFixture(t, quota);
+      await x.connect('a2', 'user', `a2.gmail.${x.f.tag}@gmail.com`);
+      const out = await sendThreadReply(t, x.deps, x.f.actor('a2'), x.thread, { body: 'quota' });
+      const r = await x.row(out.messageId);
+      assert(out.status === 'failed' && r.sent_via === 'gmail' && /sending limit/.test(r.error ?? '') && x.transport.sent.length === 0, `quota: ${JSON.stringify(r)}, platform ${x.transport.sent.length}`);
+      const view = await getMailThread(t, x.f.actor('a2'), x.thread);
+      assert(view.messages.find((m) => m.id === out.messageId)?.failedViaGmail === true, 'no "send from the platform" button');
+      const again = await retryFailedMessage(t, x.deps, x.f.actor('a2'), out.messageId, { platformOnly: true });
+      const r2 = await x.row(out.messageId);
+      assert(again.status === 'sent' && r2.sent_via === 'resend' && Number(x.transport.sent.length) === 1 && x.transport.sent[0]!.replyTo?.email === x.replyAddress, `platform: ${JSON.stringify(r2)}`);
+
+      const expired = fakeGmail({ fail: () => new IntegrationError('expired', 'Gmail needs reconnecting') });
+      const y = await gmailFixture(t, expired);
+      await y.connect('a2', 'user', `a2.gmail.${y.f.tag}@gmail.com`);
+      const e = await y.row((await sendThreadReply(t, y.deps, y.f.actor('a2'), y.thread, { body: 'expired' })).messageId);
+      assert(e.status === 'failed' && /expired — reconnect it, or send from the platform address/.test(e.error ?? '') && y.transport.sent.length === 0, `expired: ${JSON.stringify(e)}`);
+      return 'quota and expiry → failed with the reason, platform untouched; the explicit button sends from the platform with the same Reply-To';
+    }),
+  );
+
+  await check('bulk template email, the inbound relay and the dev allowlist never reach Gmail', async () =>
+    inRollback(async (t) => {
+      const gmail = fakeGmail();
+      const x = await gmailFixture(t, gmail);
+      await x.connect('a2', 'user', `a2.gmail.${x.f.tag}@gmail.com`);
+      const base = { threadId: x.thread, agencyId: x.f.agencyId, subject: 'x', to: `p2.${x.f.tag}@smoke.test`, body: 'x', sentBy: x.f.people.a2 };
+      const bulk = await recordOutbound(t, x.deps, { ...base, channel: 'console', kind: 'template_email' });
+      await deliverOutbound(t, x.deps, bulk, { unsubscribeUrl: 'https://example.com/u' });
+      const relay = await recordOutbound(t, x.deps, { ...base, channel: 'email' });
+      await deliverOutbound(t, x.deps, relay);
+      const outside = await recordOutbound(t, x.deps, { ...base, to: 'stranger@example.com', channel: 'console', kind: 'appointment_invitation' });
+      await t.execute(sql`update mail_thread set contact_email = 'stranger@example.com' where id = ${x.thread}`);
+      const blocked = await deliverOutbound(t, x.deps, outside);
+      const rows = await Promise.all([bulk, relay].map(x.row));
+      assert(gmail.sent.length === 0, `Gmail was used ${gmail.sent.length} time(s)`);
+      assert(rows.every((r) => r.sent_via === 'resend'), `bulk/relay: ${JSON.stringify(rows.map((r) => r.sent_via))}`);
+      assert(blocked.status === 'failed' && /allowlist|development/i.test(blocked.error ?? ''), `allowlist: ${JSON.stringify(blocked)}`);
+      return 'template email + relay on the platform; a platform-composed email outside the allowlist failed before any transport';
     }),
   );
 

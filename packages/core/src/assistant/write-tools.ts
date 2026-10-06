@@ -362,7 +362,7 @@ export async function proposeSendTemplateEmail(
       // The batch's own preview: rendered for its first recipient who will receive it — `first` here.
       { label: 'Subject', value: batch.preview?.subject ?? batch.template.subject },
       { label: 'Recipients', value: `${n} will receive it${batch.counts.skipped ? ` · ${batch.counts.skipped} skipped (see below)` : ''}` },
-      { label: 'Sent from', value: 'The platform address, with your agency’s name and an unsubscribe link' },
+      { label: 'Sent from', value: 'The platform address, with your agency’s name and an unsubscribe link — template email never goes from a Gmail (ADR 0026)' },
       { label: 'Today', value: `${check.agentUsed} of ${check.limits.perAgentDay} platform emails sent by you today` },
     ],
     text: { label: `Email to ${first.name} (each person gets their own name)`, value: batch.preview?.body ?? batch.template.body },

@@ -777,3 +777,39 @@ Each page view that shows reviews is one billed Google call.
 | Z11 | Owner → **Find a different listing** → pick another place | Every page now shows the new place. There is never more than one. |
 | Z12 | Owner → **Remove** → confirm | Console shows the "find your listing" box again. Listing pages show nothing. |
 | Z13 | (Optional) Temporarily remove `GOOGLE_MAPS_API_KEY` from the **web** app's environment (needs a restart, so do it at the end) | Listing pages show no reviews section, and no error. |
+
+## AA — Send from Gmail (ADR 0026)
+
+Emails written to a contact in the console (a reply, an appointment invitation) can go from the
+agent's **own Gmail**. If the agent has none connected, they go from the **agency's Gmail**,
+unless an admin has switched that off. Otherwise they go from the **platform address**. The
+contact's replies still come back into the console (Reply-To is the conversation's own
+address). We only ever *send*: nobody's mailbox is read. **Bulk template email always goes
+from the platform address.** If Gmail fails, the message says why and offers a button; it
+never silently switches to the platform address.
+
+**Setup.** Real Google account(s). `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` are
+the same Google app as Calendar. In Google Cloud → APIs: enable the **Gmail API**. On the OAuth
+consent screen, add the scope `https://www.googleapis.com/auth/gmail.send`. While the app is
+in **Testing**, add each Gmail you will use as a test user (tokens expire after about 7 days in
+Testing). `INTEGRATION_TOKEN_KEY` set. Two Gmail accounts help: one for agent A1, one as the
+"agency" mailbox. A contact whose email you can read (your own second address). In dev, that
+address must be on `EMAIL_DEV_ALLOWLIST` for invitations.
+
+| # | Case | Expected |
+|---|---|---|
+| AA1 | A1 → My integrations | A **Gmail (send only)** card for you and, on the agency console, one for the agency. The card explains it can only send, never read. |
+| AA2 | Before connecting: open a conversation with your test contact | Under the reply box: "Sent from LocalAgentHub — connect your Gmail to send as you". |
+| AA3 | A1 → Connect Gmail → Google's consent screen | Google asks **only** to "Send email on your behalf" (plus your email address). No read access. Approve. Back on the page: "Gmail (send only) connected", with your address. |
+| AA4 | Open the conversation again | "Sent from your Gmail (you@gmail.com)". |
+| AA5 | Send a reply | It arrives in the contact's inbox **From your Gmail**. It is also in your Gmail **Sent** folder. In the console, the message shows "Sent from their Gmail". |
+| AA6 | The contact presses **Reply** in their mail app and answers | The answer comes back into the console conversation (not only to your Gmail). |
+| AA7 | Owner → Settings → Integrations → connect the **agency** Gmail (the second account). Then A2 (no Gmail of their own) replies to a contact | It arrives From the agency mailbox. The console says "Sent from the agency's Gmail". |
+| AA8 | Owner → Integrations → **Members may send from the agency Gmail → Turn off**. A2 opens a conversation | The line now says "Sent from LocalAgentHub…". A2's next reply comes from the platform address. The owner's own replies still use the agency Gmail. |
+| AA9 | A2 looks for the switch | There is none on A2's pages (owner/admin only). |
+| AA10 | In your Google Account → Security → Third-party access, **remove** the app's access. Then A1 sends a reply | The message shows **Not delivered** — "Your Gmail connection expired — reconnect it, or send from the platform address", with **Send again** and **Send from the platform address instead**. Nothing was sent from the platform yet. |
+| AA11 | Press **Send from the platform address instead** | It arrives from the platform address, with the same conversation Reply-To. |
+| AA12 | Reconnect Gmail on My integrations, then **Send again** on another failed message (if any) | It goes from your Gmail. |
+| AA13 | Ask the assistant: "Is my Gmail connected?" (before connecting, then after) | Before: it says to connect Gmail first. After: connected. |
+| AA14 | Ask the assistant to send a template to a contact | The card's "Sent from" says the platform address (template email never goes from a Gmail). |
+| AA15 | Disconnect Gmail on My integrations | The card says disconnected and the stored access was deleted. Google's own "Third-party access" page no longer lists the app (or the page tells you to remove it there). |

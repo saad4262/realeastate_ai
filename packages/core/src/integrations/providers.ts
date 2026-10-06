@@ -5,11 +5,12 @@
  *
  * Google Calendar and Zoom scopes were checked against Google's and Zoom's
  * own documentation on 2026-10-06 (Phase 3b) and are the least each feature
- * needs. Sheets and Reviews are still PROVISIONAL until they are built.
+ * needs. Gmail's scope was checked on 2026-10-06 (Phase 6). Sheets and Reviews are still
+ * PROVISIONAL until they are built.
  * This file is the one place a scope changes.
  */
 
-export const INTEGRATION_PROVIDERS = ['google_calendar', 'zoom', 'google_sheets', 'google_reviews'] as const;
+export const INTEGRATION_PROVIDERS = ['google_calendar', 'zoom', 'google_sheets', 'google_reviews', 'gmail'] as const;
 export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];
 export type IntegrationOwnerType = 'user' | 'agency';
 export type IntegrationStatus = 'connected' | 'expired' | 'error' | 'permission_missing';
@@ -54,6 +55,17 @@ export const PROVIDERS: Record<IntegrationProvider, ProviderInfo> = {
     scopes: [
       { scope: 'https://www.googleapis.com/auth/spreadsheets.readonly', why: 'To read the sheet you pick for an import. Sheets are never changed.' },
       { scope: 'openid email', why: 'To show which Google account is connected.' },
+    ],
+  },
+  gmail: {
+    label: 'Gmail (send only)',
+    purpose: 'Emails you write to a contact here are sent from your Gmail and sit in its Sent folder. Your mailbox is never read.',
+    ownerTypes: ['user', 'agency'],
+    scopes: [
+      // gmail.send only (ADR 0026, checked 2026-10-06): send as the account, nothing else —
+      // no reading, listing, labels or deleting. A Google "sensitive" scope, not "restricted".
+      { scope: 'https://www.googleapis.com/auth/gmail.send', why: 'To send the emails you write here from your Gmail. It cannot read, list or delete anything in your mailbox.' },
+      { scope: 'openid email', why: 'To show which Google account is connected, and send from that address.' },
     ],
   },
   google_reviews: {

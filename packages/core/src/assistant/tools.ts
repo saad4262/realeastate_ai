@@ -10,6 +10,7 @@ import { appointmentScopeFilters } from '../appointments/appointments';
 import { ACTIVE_STATUSES } from '../appointments/appointment-schema';
 import { listTemplates } from '../template-email/templates';
 import { requireIntegrations } from '../integrations/accounts';
+import { resolveSender } from '../mail/sender';
 import { PROVIDERS } from '../integrations/providers';
 import { formatAddress } from '../listings/listing-schema';
 import { instantToLocalInput, localInputToInstant } from '../time/local-input';
@@ -410,7 +411,16 @@ async function checkConnections(
   label: string,
 ): Promise<ToolOutcome> {
   const check = await requireIntegrations(ctx.db, ctx.actor, input.providers, ctx.now);
-  const rows = check.results.map((r) => ({
+  // Gmail is usable only as `resolveSender` would use it — it knows the agency's
+  // "members may send from the agency Gmail" switch (ADR 0026), which a plain
+  // connection check does not.
+  const gmail = input.providers.includes('gmail') ? await resolveSender(ctx.db, ctx.actor) : null;
+  const results = check.results.map((r) =>
+    r.provider === 'gmail' && gmail
+      ? { ...r, state: gmail.via === 'gmail' ? ('connected' as const) : r.state === 'connected' ? ('not_connected' as const) : r.state, ownerType: gmail.via === 'gmail' ? gmail.ownerType : r.ownerType }
+      : r,
+  );
+  const rows = results.map((r) => ({
     provider: r.provider,
     label: PROVIDERS[r.provider].label,
     state: r.state,

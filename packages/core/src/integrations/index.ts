@@ -46,3 +46,4 @@ export { disconnectAndRevoke, markExpired, markUsed, RENEW_EARLY_MS, withAccessT
 export { CALENDAR_EVENTS_URL, eventIdFor, googleCalendarApi, stubCalendarApi, type CalendarApi, type CalendarEventInput, type CalendarEventSeen } from './google-calendar';
 export { stubZoomApi, zoomMeetingsApi, type ZoomApi, type ZoomMeetingInput, type ZoomMeetingRef } from './zoom-meetings';
 export { fakeFetch } from './fake-fetch';
+export { buildMime, gmailApi, gmailError, GMAIL_SEND_URL, stubGmailApi, stubGmailSent, type GmailApi } from './gmail';

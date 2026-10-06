@@ -117,6 +117,11 @@ export const agency = pgTable('agency', {
    * on a dashboard mean the same for everyone looking at one screen.
    */
   timeZone: text('time_zone').notNull().default('Australia/Sydney'),
+  /**
+   * ADR 0026, decided Q3: whether members other than owners/admins may send
+   * from the agency's connected Gmail. An owner/admin switch, on by default.
+   */
+  membersMayUseAgencyGmail: boolean('members_may_use_agency_gmail').notNull().default(true),
   ...timestamps,
 });
 
@@ -626,6 +631,14 @@ export const mailMessage = pgTable(
      * (`email/limits.ts`); a reply to a buyer never does.
      */
     kind: varchar('kind', { length: 32 }),
+    /**
+     * How it actually left (ADR 0026): `resend` (the platform sender) or
+     * `gmail` (a connected Gmail, send-only). Null until a send was tried,
+     * and on rows from before Gmail existed (all platform).
+     */
+    sentVia: varchar('sent_via', { length: 16 }),
+    /** The Gmail account it went (or tried to go) through. Gone with the connection. */
+    senderAccountId: uuid('sender_account_id').references(() => integrationAccount.id, { onDelete: 'set null' }),
     ...timestamps,
   },
   (t) => [
@@ -992,6 +1005,7 @@ export const integrationProviderEnum = pgEnum('integration_provider', [
   'zoom',
   'google_sheets',
   'google_reviews',
+  'gmail',
 ]);
 export const integrationOwnerTypeEnum = pgEnum('integration_owner_type', ['user', 'agency']);
 /** No row means "not connected". */

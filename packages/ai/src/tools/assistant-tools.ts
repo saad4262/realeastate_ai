@@ -97,7 +97,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   {
     name: 'check_connections',
     description:
-      'Whether Google Calendar, Zoom and the other accounts this person would need are connected. If one is not, tell them to connect it first — never suggest a way around it.',
+      'Whether Google Calendar, Zoom, Gmail and the other accounts this person would need are connected. If one is not, tell them to connect it first — never suggest a way around it. Check `gmail` when someone asks to send from their Gmail: template email always goes from the platform address, whatever is connected.',
     input_schema: {
       type: 'object',
       additionalProperties: false,

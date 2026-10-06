@@ -4,7 +4,7 @@ import { useEffect, useRef, useTransition } from 'react';
 import { useLinkStatus } from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/toast';
-import { markThreadReadAction, retryMessageAction, syncMailAction } from '@/lib/mail-actions';
+import { markThreadReadAction, retryMessageAction, sendFromPlatformAction, syncMailAction } from '@/lib/mail-actions';
 import styles from './inbox.module.css';
 
 /**
@@ -30,8 +30,8 @@ export function MarkRead({ threadId, unread }: { threadId: string; unread: boole
   return null;
 }
 
-/** "Send again" on a message the provider refused. */
-export function RetrySend({ messageId }: { messageId: string }) {
+/** "Send again" on a message the provider refused — or, after a Gmail failure, from the platform address. */
+export function RetrySend({ messageId, platform = false }: { messageId: string; platform?: boolean }) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
@@ -43,7 +43,7 @@ export function RetrySend({ messageId }: { messageId: string }) {
       disabled={pending}
       onClick={() =>
         startTransition(async () => {
-          const result = await retryMessageAction(messageId);
+          const result = platform ? await sendFromPlatformAction(messageId) : await retryMessageAction(messageId);
           if (!result.ok) {
             toast({ variant: 'error', title: 'Not sent', description: result.error });
             return;
@@ -57,7 +57,7 @@ export function RetrySend({ messageId }: { messageId: string }) {
         })
       }
     >
-      {pending ? 'Sending…' : 'Send again'}
+      {pending ? 'Sending…' : platform ? 'Send from the platform address instead' : 'Send again'}
     </button>
   );
 }

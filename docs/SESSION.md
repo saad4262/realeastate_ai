@@ -1,3 +1,20 @@
+## 2026-10-06 — Claude Code — Phase 6: Gmail send (ADR 0026)
+
+- Done: migration 0034 applied; provider `gmail` (gmail.send + openid email, the one Google
+  app); `resolveSender` / `senderLine` / admin switch (`gmail:send_as_agency`,
+  `gmail:configure_agency`); `buildMime` (header-injection-proof, refuses marketing) and the
+  Gmail API client (quota reasons parsed); `deliverOutbound` picks the transport after the
+  transaction and records sent_via / sender_account_id / real From; "Send from the platform
+  address instead" (`retryFailedMessage(..., { platformOnly: true })`); composer "Sent from"
+  line and per-message label; integrations-page switch; assistant check_connections knows
+  Gmail through resolveSender; email card says template email never uses Gmail; TEST-PLAN AA;
+  ADR 0026 as-built.
+- Checks: typecheck 10/10, unit green, smoke Gmail send 4/4. Break-tests: 14 guards red,
+  restored green. Several smoke breaks first ran while another smoke suite hit the dev DB and
+  failed on dropped connections (not assertions) — re-run one at a time, then validly red. One
+  layered guard (bulk via Gmail) needed two layers broken to go red.
+- Next exact step: Phase 7 (assistant Phase E).
+
 ## 2026-10-06 — Claude Code — Phase 5: Google reviews step 1 (ADR 0028)
 
 - Done: Places terms checked (policies page + service terms): place id storable, nothing
