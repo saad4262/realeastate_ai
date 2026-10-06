@@ -191,23 +191,52 @@ export function startConnect(
   });
 }
 
+/** Marks a return that has already been handed over once. Its presence means: never hop again. */
+export const HOP_PARAM = 'hopped';
+
+/**
+ * The host the BROWSER used. Not `request.nextUrl`: under `next dev` that is
+ * built from the server's bind address (always localhost:3001), so on
+ * agents.lvh.me the route thought it was still on localhost and redirected to
+ * itself forever. A forwarded host (a tunnel, Vercel) wins over Host.
+ */
+export function browserHost(headers: Headers): string {
+  const forwarded = headers.get('x-forwarded-host')?.split(',')[0]?.trim();
+  return forwarded || headers.get('host')?.trim() || '';
+}
+
+/** `host[:port]`, lower-cased, default port dropped — from a host or a full origin. */
+function normalHost(hostOrOrigin: string, protocol: string): string {
+  try {
+    const url = new URL(hostOrOrigin.includes('://') ? hostOrOrigin : `${protocol}//${hostOrOrigin}`);
+    return url.host.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Step one of the return route, before any session is looked at: should this
  * request be handed to another host? Only to the console host the SIGNED state
  * names (from the environment, never from the URL) — so it is not an open
- * redirect. Null when this is already the right host, or the state is not ours.
+ * redirect. Null when this is already the right host, the state is not ours,
+ * or this request was already handed over once: it hops AT MOST ONCE, so a
+ * host that is misreported can cost a readable error but never a loop.
  */
 export function returnHop(
-  requestOrigin: string,
+  requestHost: string,
   query: URLSearchParams,
   keys: TokenKeys,
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {
+  if (query.has(HOP_PARAM)) return null;
   const state = verifyState(query.get('state'), keys);
   if (!state) return null;
-  const target = consoleUrl(state.surface, env);
-  if (new URL(target).origin === new URL(requestOrigin).origin) return null;
-  return `${target}${RETURN_PATH}?${query.toString()}`;
+  const target = new URL(consoleUrl(state.surface, env));
+  if (normalHost(requestHost, target.protocol) === target.host.toLowerCase()) return null;
+  const forward = new URLSearchParams(query);
+  forward.set(HOP_PARAM, '1');
+  return `${target.origin}${RETURN_PATH}?${forward.toString()}`;
 }
 
 export type ReturnOutcome =
@@ -247,10 +276,9 @@ export async function completeConnect(
     const saved = await saveConnection(db, keys, actor, state, granted);
     return { ok: true, provider: state.provider, status: saved.status, missingScopes: saved.missingScopes, surface: state.surface };
   } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof IntegrationError ? err.message : `Could not connect ${PROVIDERS[state.provider].label}.`,
-      surface: state.surface,
-    };
+    // A provider's code is single-use: it is never retried here. A new one
+    // only comes from starting over, so say so.
+    const reason = err instanceof IntegrationError ? err.message : `Could not connect ${PROVIDERS[state.provider].label}`;
+    return { ok: false, error: `${reason.replace(/\.$/, '')}. Connect again.`, surface: state.surface };
   }
 }

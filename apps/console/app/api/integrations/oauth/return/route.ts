@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { completeConnect, consoleUrl, returnHop, tokenKeysFromEnv, type Surface } from '@repo/core/integrations';
+import { browserHost, completeConnect, consoleUrl, returnHop, tokenKeysFromEnv, type Surface } from '@repo/core/integrations';
 import { getConsoleDb } from '../../../../../lib/db';
 import { loadActor } from '../../../../../lib/load-actor';
 import { actionUserId } from '../../../../../lib/auth-account';
@@ -27,7 +27,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${consoleUrl(fallback)}${settingsPath(fallback)}?error=${encodeURIComponent('Integrations are not set up on this server (INTEGRATION_TOKEN_KEY).')}`);
   }
 
-  const hop = returnHop(request.nextUrl.origin, query, keys);
+  // The browser's host, not request.nextUrl: under next dev that is always localhost.
+  const hop = returnHop(browserHost(request.headers), query, keys);
   if (hop) return NextResponse.redirect(hop);
 
   const userId = await actionUserId();

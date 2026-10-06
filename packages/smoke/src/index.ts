@@ -4170,10 +4170,15 @@ async function main() {
       const res = await http(`http://localhost:3001/api/integrations/oauth/return?state=${encodeURIComponent(st)}&code=x`);
       const loc = res.headers.get('location') ?? '';
       assert(res.status >= 300 && res.status < 400 && loc.startsWith(`${AGENT}/api/integrations/oauth/return?`), `localhost answered ${res.status} → ${loc}`);
+      // The second leg, on the agent host itself. It used to hop to itself
+      // forever: next dev reports localhost in request.nextUrl on every host.
+      const landed = await http(loc);
+      const lloc = landed.headers.get('location') ?? '';
+      assert(!lloc.includes('/api/integrations/oauth/return'), `the agent host hopped again → ${lloc}`);
       const forged = await http(`http://localhost:3001/api/integrations/oauth/return?state=forged&code=x`);
       const floc = forged.headers.get('location') ?? '';
       assert(!floc.startsWith('http://localhost') && /error=/.test(floc), `a forged state went to ${floc}`);
-      summary += '; live route hops and refuses a forged state';
+      summary += '; live route hops once, not again on the agent host, and refuses a forged state';
     }
     return summary;
   });
