@@ -19,13 +19,31 @@ export type EmailLimits = {
   perAgencyDay: number;
   /** Most recipients one template batch may send to (ADR 0022). */
   perBatch?: number;
-  /** Days before the same person may get another template email. */
+  /**
+   * Days before the same person may get another template email (ADR 0022: 7).
+   * 0 switches the rule off — development only; production never goes below 7.
+   */
   repeatDays?: number;
   /** Pause between two messages of one batch, in ms. */
   sendDelayMs?: number;
 };
 
 export type TemplateLimits = Required<EmailLimits>;
+
+/** ADR 0022's floor for production: one template email per person per 7 days, at least. */
+export const MIN_PRODUCTION_REPEAT_DAYS = 7;
+
+/**
+ * EMAIL_REPEAT_DAYS: a whole number of days, 0 allowed to switch the rule off
+ * for testing. In production anything below 7 (0 included) is ignored and 7
+ * applies — the same way EMAIL_DEV_ALLOWLIST is ignored there.
+ */
+function repeatDaysFrom(env: NodeJS.ProcessEnv): number {
+  const raw = env.EMAIL_REPEAT_DAYS?.trim();
+  const n = Number(raw);
+  const days = raw && Number.isInteger(n) && n >= 0 ? n : MIN_PRODUCTION_REPEAT_DAYS;
+  return env.NODE_ENV === 'production' ? Math.max(days, MIN_PRODUCTION_REPEAT_DAYS) : days;
+}
 
 function positive(raw: string | undefined, fallback: number): number {
   const n = Number(raw);
@@ -37,7 +55,7 @@ export function emailLimitsFromEnv(env: NodeJS.ProcessEnv = process.env): Templa
     perAgentDay: positive(env.EMAIL_LIMIT_PER_AGENT_DAY, 50),
     perAgencyDay: positive(env.EMAIL_LIMIT_PER_AGENCY_DAY, 200),
     perBatch: positive(env.EMAIL_LIMIT_PER_BATCH, 20),
-    repeatDays: positive(env.EMAIL_REPEAT_DAYS, 7),
+    repeatDays: repeatDaysFrom(env),
     sendDelayMs: Number.isInteger(Number(env.EMAIL_SEND_DELAY_MS)) && Number(env.EMAIL_SEND_DELAY_MS) >= 0 && env.EMAIL_SEND_DELAY_MS !== undefined && env.EMAIL_SEND_DELAY_MS !== ''
       ? Number(env.EMAIL_SEND_DELAY_MS)
       : 500,

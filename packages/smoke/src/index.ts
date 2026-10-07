@@ -4781,6 +4781,32 @@ async function main() {
     }),
   );
 
+  await check('the 7-day rule: on at 7 (preview and send skip the person), off at 0 — development only; every other rule unchanged', () =>
+    rolledBack(async (t) => {
+      const x = await templateFixture(t);
+      const a1 = x.f.actor('a1');
+      const OFF = { ...LIMITS, repeatDays: 0 };
+      const first = await prepareEmailBatch(t, a1, { templateId: x.tpl.id, filterId: x.filter.id }, LIMITS);
+      await approveEmailBatch(t, a1, first.id, LIMITS);
+      const sent = (await sendEmailBatch(t, x.deps, first.id)).sent;
+      // Sent yesterday, not "this instant" in this transaction — so the rule, not the clock, decides.
+      await t.execute(sql`update mail_message set created_at = now() - interval '1 day' where agency_id = ${x.f.agencyId} and kind = 'template_email'`);
+      // At 7: the people just emailed are skipped in the preview.
+      const again = await getEmailBatch(t, a1, (await prepareEmailBatch(t, a1, { templateId: x.tpl.id, filterId: x.filter.id }, LIMITS)).id);
+      const recent7 = again.recipients.filter((r) => r.skipReason === 'recently_emailed').length;
+      // At 0: nobody is skipped for that reason, and the send goes out again — consent and the rest still apply.
+      const offBatch = await prepareEmailBatch(t, a1, { templateId: x.tpl.id, filterId: x.filter.id }, OFF);
+      const off = await getEmailBatch(t, a1, offBatch.id);
+      const recent0 = off.recipients.filter((r) => r.skipReason === 'recently_emailed').length;
+      const noConsentStill = off.recipients.some((r) => r.skipReason === 'no_consent');
+      await approveEmailBatch(t, a1, offBatch.id, OFF);
+      const resent = (await sendEmailBatch(t, { ...x.deps, limits: OFF }, offBatch.id)).sent;
+      assert(sent > 0 && recent7 === sent, `at 7: sent ${sent}, then ${recent7} skipped as recently emailed`);
+      assert(recent0 === 0 && resent === sent && noConsentStill, `at 0: ${recent0} recently-emailed skips, ${resent} re-sent of ${sent}, no-consent still skipped: ${noConsentStill}`);
+      return `sent ${sent}; at 7 all ${recent7} skipped; at 0 re-sent ${resent}, no-consent still skipped`;
+    }),
+  );
+
   await check('Approve twice, send twice: nobody gets two emails', () =>
     rolledBack(async (t) => {
       const x = await templateFixture(t);

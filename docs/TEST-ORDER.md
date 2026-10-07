@@ -108,7 +108,8 @@ The ones marked **new** were added in this round of work.
 | `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `ALERT_SENDER_ADDRESS`, `ALERT_SENDER_NAME`, `ALERT_EMAIL_FROM`, `ALERT_UNSUBSCRIBE_SECRET` | all platform email | as now |
 | `MAIL_INBOUND_DOMAIN`, `MAIL_REPLY_SECRET` | replies back into the console (also for AA's Reply-To) | as now |
 | `EMAIL_DEV_ALLOWLIST` | dev safety: only these addresses get platform-composed email | needed for S, W, AA, AB |
-| `EMAIL_LIMIT_PER_AGENT_DAY`, `EMAIL_LIMIT_PER_AGENCY_DAY`, `EMAIL_LIMIT_PER_BATCH`, `EMAIL_REPEAT_DAYS`, `EMAIL_SEND_DELAY_MS` | sending limits | optional |
+| `EMAIL_LIMIT_PER_AGENT_DAY`, `EMAIL_LIMIT_PER_AGENCY_DAY`, `EMAIL_LIMIT_PER_BATCH`, `EMAIL_SEND_DELAY_MS` | sending limits | optional |
+| `EMAIL_REPEAT_DAYS` | the same person not again within N days (default 7) | **testing: `0`** to re-send to your test addresses (S, W, AB); **never in production** — there below 7 is ignored |
 | `INTEGRATION_TOKEN_KEY` (+ `INTEGRATION_TOKEN_KEY_PREVIOUS` when rotating) | every connection; **Gmail** | required for Q, T, AA, AC |
 | `INTEGRATIONS_STUB` | the pretend provider | `1` in Block 2, off in Block 5 |
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | Calendar **and Gmail** (one app) | add the `gmail.send` scope + Gmail API |

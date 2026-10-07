@@ -524,6 +524,10 @@ addresses there — Next reloads `.env.local` by itself; if it does not, restart
 `ALERT_UNSUBSCRIBE_SECRET` must be set. Owner in one browser, agent in another. Give two or
 three of the agent's contacts marketing consent (Edit → "Has agreed to receive marketing
 email", with a note) and your allowlisted addresses; leave one without consent.
+**To send to the same test address more than once**, set `EMAIL_REPEAT_DAYS=0` in `.env.local`
+(development only — it switches off the "already sent a template email in the last 7 days"
+rule; every other rule still applies). **Never in production**: there anything below 7 is
+ignored and 7 applies.
 
 | # | Case | Expected |
 |---|---|---|

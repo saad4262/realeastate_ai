@@ -46,8 +46,12 @@ function batchResource(b: { id: string; agencyId: string; userId: string }): Res
   return { type: 'email_batch', id: b.id, agencyId: b.agencyId, ownerId: b.userId };
 }
 
-/** The repeat window: a template email to this contact in the last N days, queued or sent. */
+/**
+ * The repeat window: a template email to this contact in the last N days, queued or sent.
+ * N = 0 (development only, see emailLimitsFromEnv) means the rule is off: never "recently emailed".
+ */
 function recentlyEmailedSql(contactIdExpr: unknown, days: number, exceptMessageId?: string | null) {
+  if (days <= 0) return sql<boolean>`false`;
   return sql<boolean>`exists (
     select 1 from mail_message m join mail_thread t on t.id = m.thread_id
     where t.contact_id = ${contactIdExpr} and m.kind = 'template_email'

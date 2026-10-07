@@ -64,6 +64,9 @@ Nothing below is optional for production. Each line names what proves it is done
       set; a reply to a console email lands back in its thread.
 - [ ] `EMAIL_DEV_ALLOWLIST` is **ignored** in production (it is) — and `NODE_ENV=production`
       is really set, which is what makes it ignored.
+- [ ] `EMAIL_REPEAT_DAYS` is **7 or more** in production (or unset = 7). `0` is a testing
+      switch only; production ignores anything below 7 and uses 7 (ADR 0022) — still, do not
+      copy a dev `.env.local` that has it.
 
 **Secrets — all fresh for production**
 - [ ] **Every secret is newly generated for production**, never copied from `.env.local`:
@@ -302,7 +305,8 @@ skips the read-back and the console still syncs on every change.
     EMAIL_LIMIT_PER_BATCH      20   recipients per batch
     EMAIL_LIMIT_PER_AGENT_DAY  50   per agent per rolling 24 h (all platform-composed mail)
     EMAIL_LIMIT_PER_AGENCY_DAY 200  per agency per rolling 24 h
-    EMAIL_REPEAT_DAYS          7    the same person not again within N days
+    EMAIL_REPEAT_DAYS          7    the same person not again within N days. 0 = rule off,
+                               DEVELOPMENT ONLY; production uses at least 7.
     EMAIL_SEND_DELAY_MS        500  pause between two messages of a batch
     EMAIL_DEV_ALLOWLIST        DEVELOPMENT ONLY. Outside production, template emails
                                go only to these addresses / @domains; unset means

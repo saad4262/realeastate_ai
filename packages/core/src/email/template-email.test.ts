@@ -46,6 +46,19 @@ describe('a template email is marketing', () => {
 });
 
 describe('limits and the dev allowlist', () => {
+  it('EMAIL_REPEAT_DAYS=0 switches the 7-day rule off in development; production never goes below 7 (ADR 0022)', () => {
+    const days = (e: Record<string, string>) => emailLimitsFromEnv(e as NodeJS.ProcessEnv).repeatDays;
+    expect(days({ NODE_ENV: 'development', EMAIL_REPEAT_DAYS: '0' })).toBe(0);
+    expect(days({ NODE_ENV: 'development', EMAIL_REPEAT_DAYS: '3' })).toBe(3);
+    expect(days({ NODE_ENV: 'development' })).toBe(7);
+    expect(days({ NODE_ENV: 'development', EMAIL_REPEAT_DAYS: '-1' })).toBe(7);
+    expect(days({ NODE_ENV: 'development', EMAIL_REPEAT_DAYS: 'x' })).toBe(7);
+    expect(days({ NODE_ENV: 'production', EMAIL_REPEAT_DAYS: '0' })).toBe(7);
+    expect(days({ NODE_ENV: 'production', EMAIL_REPEAT_DAYS: '3' })).toBe(7);
+    expect(days({ NODE_ENV: 'production', EMAIL_REPEAT_DAYS: '14' })).toBe(14);
+    expect(days({ NODE_ENV: 'production' })).toBe(7);
+  });
+
   it('reads every limit from config, with the agreed defaults', () => {
     expect(emailLimitsFromEnv({} as NodeJS.ProcessEnv)).toEqual({ perAgentDay: 50, perAgencyDay: 200, perBatch: 20, repeatDays: 7, sendDelayMs: 500 });
     expect(emailLimitsFromEnv({ EMAIL_LIMIT_PER_BATCH: '5', EMAIL_SEND_DELAY_MS: '0' } as NodeJS.ProcessEnv)).toMatchObject({ perBatch: 5, sendDelayMs: 0 });
