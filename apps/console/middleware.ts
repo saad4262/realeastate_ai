@@ -75,7 +75,9 @@ export async function middleware(request: NextRequest) {
     // and refuses unless the signed-in user is the one who started it.
     pathname === '/api/integrations/oauth/return';
 
-  const uiPreview = process.env.NEXT_PUBLIC_UI_PREVIEW === '1';
+  // Never in production: there it would skip sign-in on every page. The server also
+  // refuses to start with it set (instrumentation-node.ts); this is the second line.
+  const uiPreview = process.env.NEXT_PUBLIC_UI_PREVIEW === '1' && process.env.NODE_ENV !== 'production';
 
   // Escape hatch for UI mocks only — keep off for real sessions
   if (uiPreview) {

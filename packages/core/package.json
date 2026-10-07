@@ -42,6 +42,7 @@
     "./integrations": "./src/integrations/index.ts",
     "./integrations/providers": "./src/integrations/providers.ts",
     "./integrations/startup": "./src/integrations/startup.ts",
+    "./startup/console-startup": "./src/startup/console-startup.ts",
     "./skills": "./src/skills/index.ts",
     "./assistant": "./src/assistant/index.ts",
     "./assistant/schema": "./src/assistant/schema.ts",
