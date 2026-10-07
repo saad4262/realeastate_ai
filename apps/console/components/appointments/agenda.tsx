@@ -293,6 +293,13 @@ function SyncStatus({ item: a, zone, active }: { item: AppointmentItem; zone: st
       </div>,
     );
   }
+  if (a.zoomLinkChanged && (a.status === 'scheduled' || a.status === 'rescheduled')) {
+    lines.push(
+      <div key="zl" className={styles.syncWarn} role="status">
+        <span>⚠ The Zoom link changed when this appointment moved to a new agent — send the invitation again so they have the new link.</span>
+      </div>,
+    );
+  }
   if (a.zoomMeeting && a.zoomSyncState === 'removed') lines.push(<div key="zr" className={styles.meta}>Zoom meeting deleted</div>);
 
   const c = a.calendarSyncState;

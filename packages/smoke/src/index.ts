@@ -6422,6 +6422,8 @@ async function main() {
       const x = await leaverFixture(t);
       const tokenOf = async (accountId: string) => (await tokensForUse(t, testKeys, x.a1, accountId)).accessToken;
       const a1Token = await tokenOf(x.a1Cal);
+      // A1 had already invited P1 with the old Zoom link.
+      await t.execute(sql`update appointment set invitation_sent_at = now() where id = ${x.apptId}`);
       const before = x.g.calls.length;
       const r = await removeMember(t, x.f.actor('owner'), x.f.people.a1, { receiver: x.f.people.a2 }, x.deps);
       const calls = x.g.calls.slice(before);
@@ -6432,6 +6434,15 @@ async function main() {
       const [ap] = await t.execute<{ assigned_agent_id: string; calendar_sync_state: string; meeting_url: string | null }>(sql`select assigned_agent_id, calendar_sync_state, meeting_url from appointment where id = ${x.apptId}`);
       assert(ap?.assigned_agent_id === x.f.people.a2 && ap.calendar_sync_state === 'synced' && ap.meeting_url, `appointment: ${JSON.stringify(ap)}`);
       assert((await count(t, sql`select count(*)::int as n from activity where contact_id = ${x.f.contacts.p1} and kind = 'zoom_link_changed'`)) === 1, 'no "resend the invitation" mark');
+      // The appointment itself says so until a new invitation goes out.
+      const seen = async () => (await getAppointment(t, x.f.actor('a2'), x.apptId)) as { zoomLinkChanged?: boolean };
+      assert((await seen()).zoomLinkChanged === true, `the appointment does not show the changed link: ${(await seen()).zoomLinkChanged}`);
+      const invite = await sendInvitation(t, {
+        mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport: fakeTransport() },
+        config: null,
+        env: { ...process.env, NODE_ENV: 'development', EMAIL_DEV_ALLOWLIST: '@smoke.test' } as NodeJS.ProcessEnv,
+      }, x.f.actor('a2'), x.apptId, { perAgentDay: 50, perAgencyDay: 200 });
+      assert(invite.status === 'sent' && (await seen()).zoomLinkChanged === false, `after resending: ${invite.status}, ${(await seen()).zoomLinkChanged}`);
       const [c] = await t.execute<{ assigned_to: string }>(sql`select assigned_to from contact where id = ${x.f.contacts.p6}`);
       // A1's private offer is not handed to an agent: it waits for an owner/admin.
       const [offer] = await t.execute<{ assigned_to: string | null; needs: string | null }>(sql`select assigned_to, needs_owner_at as needs from lead where agency_id = ${x.f.agencyId} and kind = 'offer'`);

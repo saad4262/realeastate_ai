@@ -316,7 +316,8 @@ export async function removeMember(db: Db, actor: Actor, userId: string, rawChoi
     if (clearedMeetings.length) {
       await tx
         .update(appointment)
-        .set({ zoomMeetingId: null, zoomAccountId: null, meetingUrl: null, zoomSyncState: receiverId ? 'pending' : null, zoomSyncError: null })
+        // The old invitation carried the old link: it no longer counts as sent, so a new one can go.
+        .set({ zoomMeetingId: null, zoomAccountId: null, meetingUrl: null, zoomSyncState: receiverId ? 'pending' : null, zoomSyncError: null, invitationSentAt: null })
         .where(inArray(appointment.id, clearedMeetings.map((m) => m.id)));
       await tx.insert(activity).values(
         clearedMeetings.map((m) => ({ agencyId, contactId: m.contactId, kind: 'zoom_link_changed', actorId: actor.userId, payload: { appointmentId: m.id }, occurredAt: now })),

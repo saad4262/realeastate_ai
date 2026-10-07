@@ -114,6 +114,11 @@ export type AppointmentView = {
   zoomMeeting: boolean;
   zoomSyncState: SyncState | null;
   zoomSyncError: string | null;
+  /**
+   * The Zoom link changed (the meeting moved when its agent left the agency)
+   * and no invitation has gone out since: "resend the invitation".
+   */
+  zoomLinkChanged: boolean;
   /** Decided by can(); the screen draws its buttons from this. */
   mayUpdate: boolean;
 };
@@ -154,6 +159,8 @@ const columns = {
   zoomMeetingId: appointment.zoomMeetingId,
   zoomSyncState: appointment.zoomSyncState,
   zoomSyncError: appointment.zoomSyncError,
+  /** The last time an offboarding moved this appointment's Zoom meeting (ADR 0030 §5.2). In the same statement. */
+  zoomLinkChangedAt: sql<string | null>`(select max(x.occurred_at) from activity x where x.kind = 'zoom_link_changed' and x.payload->>'appointmentId' = ${appointment.id}::text)`,
   externalCalendarId: appointment.externalCalendarId,
 };
 
@@ -199,6 +206,7 @@ function toView(actor: Actor, r: Row): AppointmentView {
     zoomMeeting: Boolean(r.zoomMeetingId),
     zoomSyncState: (r.zoomSyncState as SyncState | null) ?? null,
     zoomSyncError: (r.zoomSyncError as string | null) ?? null,
+    zoomLinkChanged: Boolean(r.zoomLinkChangedAt) && !r.invitationSentAt,
     mayUpdate: can(actor, 'appointment:update', appointmentResource({ ...r, agencyId: r.agencyId })),
   };
 }
