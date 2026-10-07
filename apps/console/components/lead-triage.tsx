@@ -132,6 +132,14 @@ export function LeadAssignControl({
             if (result.code === 'conflict') router.refresh();
             return;
           }
+          // Say plainly whether the lead's contact went with it (only when it was the previous
+          // agent's or nobody's — a third agent's contact stays theirs).
+          if (result.contactMoved !== undefined) {
+            toast({
+              title: next ? 'Lead reassigned' : 'Lead unassigned',
+              description: result.contactMoved ? 'Their contact moved with it.' : 'Their contact stays with the agent who has it.',
+            });
+          }
           router.refresh();
         });
       }}

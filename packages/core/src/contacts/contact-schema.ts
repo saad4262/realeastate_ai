@@ -59,6 +59,8 @@ export const ACTIVITY_KINDS = [
   'owner_left',
   'zoom_link_changed',
   'assistant_failed',
+  // The client's visibility rule (2026-10-07): an owner/admin gave a lead to someone else.
+  'lead_assigned',
 ] as const;
 export const activityKindSchema = z.enum(ACTIVITY_KINDS);
 export type ActivityKind = z.infer<typeof activityKindSchema>;
@@ -108,6 +110,7 @@ export const ACTIVITY_LABELS: Record<ActivityKind, string> = {
   assistant_rejected: 'Assistant change rejected',
   assistant_cancelled: 'Assistant change cancelled',
   assistant_failed: 'Assistant change could not be made',
+  lead_assigned: 'Lead reassigned',
 };
 
 export const CONTACT_SOURCE_LABELS: Record<ContactSource, string> = {

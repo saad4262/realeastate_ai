@@ -50,6 +50,7 @@ import {
   createPrivateOffer,
   LeadTriageError,
   listAgencyLeads,
+  listReassignedAway,
   notifyNewLead,
   updateLeadStatus,
   listLeadAssignees,
@@ -3648,6 +3649,79 @@ async function main() {
       await attachListingAgents(t, f.agencyId, l2!.id, [f.people.a2, f.people.a1]);
       assert((await holder(vendor!.id)) === f.people.a2, `vendor after the listing got agents: ${await holder(vendor!.id)}`);
       return 'linking: nobody’s → A1, read-only member’s untouched; new listing’s agents: the tied vendor → its primary agent (A2)';
+    }),
+  );
+
+  await check('AG: only an owner/admin reassigns a lead; it leaves the first agent’s list (they keep only a note), its contact follows if it was theirs or nobody’s, and the timeline says who, when, from and to', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const a1 = f.actor('a1');
+      const [lst] = await t.execute<{ id: string }>(sql`select listing_id as id from listing_agent where user_id = ${f.people.a1} limit 1`);
+      const enquire = async (email: string) => {
+        const { leadId } = await createEnquiry(t, lst!.id, { name: 'Moving Person', email, message: 'Can I see it Saturday?' });
+        const [r] = await t.execute<{ contact_id: string; thread: string | null }>(sql`
+          select l.contact_id, (select id from mail_thread where lead_id = l.id limit 1) as thread from lead l where l.id = ${leadId}`);
+        return { leadId, contactId: r!.contact_id, threadId: r!.thread };
+      };
+      const holder = async (table: 'lead' | 'contact', id: string) =>
+        (await t.execute<{ a: string | null }>(sql`select assigned_to as a from ${sql.raw(table)} where id = ${id}`))[0]!.a;
+
+      // A1's enquiry, A1's contact. An agent can neither reassign it nor is offered to.
+      const one = await enquire(`moving.${f.tag}@smoke.test`);
+      const agentTry = await assignLead(t, a1, one.leadId, f.people.a2).then(() => 'assigned', (e: unknown) => (e as { code?: string }).code);
+      assert(agentTry === 'forbidden' && (await holder('lead', one.leadId)) === f.people.a1, `an agent reassigned: ${agentTry}`);
+      assert((await listAgencyLeads(t, a1)).mayAssign === false, 'the agent’s lead list offers assigning');
+      assert(((await getContact(t, a1, one.contactId)) as { mayAssign: boolean }).mayAssign === false, 'the agent’s contact page offers assigning');
+      if (one.threadId) assert((await getMailThread(t, a1, one.threadId)).mayAssignLead === false, 'the agent’s conversation offers assigning');
+
+      // The owner gives it to A2: lead and contact move, a handover is kept, the timeline says so.
+      const moved = await assignLead(t, owner, one.leadId, f.people.a2);
+      assert(moved.assignedTo === f.people.a2 && (moved as { contactMoved?: boolean }).contactMoved === true, `result: ${JSON.stringify(moved)}`);
+      assert((await holder('lead', one.leadId)) === f.people.a2 && (await holder('contact', one.contactId)) === f.people.a2, 'lead or contact did not move');
+      const [ho] = await t.execute<{ from_user_id: string; to_user_id: string; by_user_id: string; contact_moved: boolean }>(sql`
+        select from_user_id, to_user_id, by_user_id, contact_moved from lead_handover where lead_id = ${one.leadId}`);
+      assert(ho?.from_user_id === f.people.a1 && ho.to_user_id === f.people.a2 && ho.by_user_id === f.people.owner && ho.contact_moved === true, `handover: ${JSON.stringify(ho)}`);
+      const entry = async (who: Actor) => {
+        const view = (await getContact(t, who, one.contactId)) as ContactView;
+        const tl = await listContactTimeline(t, who, view.ref);
+        return tl.items.find((i) => i.type === 'activity' && i.kind === 'lead_assigned') as { who: string | null; payload: Record<string, unknown> } | undefined;
+      };
+      for (const who of [owner, f.actor('a2')]) {
+        const e = await entry(who);
+        assert(e && e.payload.from === f.people.a1 && e.payload.to === f.people.a2 && e.payload.fromName === 'a1' && e.payload.toName === 'a2' && e.payload.contactMoved === true && e.who === 'owner', `${who.membershipRole}'s timeline: ${JSON.stringify(e)}`);
+      }
+
+      // A1: the lead, its thread and the contact are gone; only the note remains — no name, no detail.
+      const a1Leads = await listAgencyLeads(t, a1);
+      assert(!a1Leads.rows.some((r) => r.id === one.leadId), 'the lead is still in A1’s list');
+      const away = await listReassignedAway(t, a1);
+      assert(away.length === 1 && away[0]!.message === 'This lead has been reassigned from you to another agent.', `A1's notes: ${JSON.stringify(away)}`);
+      assert(JSON.stringify(Object.keys(away[0]!).sort()) === JSON.stringify(['at', 'id', 'message']), `A1's note carries more than a note: ${JSON.stringify(away[0])}`);
+      const leaked = JSON.stringify(away);
+      for (const secret of [f.people.a2, 'a2', one.leadId, one.contactId, 'Moving Person', `moving.${f.tag}@smoke.test`]) {
+        assert(!leaked.includes(secret), `A1's note gives away ${secret}`);
+      }
+      const opens = await getContact(t, a1, one.contactId).then(() => 'opened', (e: unknown) => (e as ContactError).code);
+      assert(opens === 'not_found', `A1 opened the contact: ${opens}`);
+      if (one.threadId) {
+        const thread = await getMailThread(t, a1, one.threadId).then(() => 'opened', (e: unknown) => (e as { code?: string }).code ?? 'refused');
+        assert(thread !== 'opened', 'A1 opened the conversation');
+      }
+      assert((await listReassignedAway(t, f.actor('a2'))).length === 0 && (await listReassignedAway(t, owner)).length === 0, 'someone else got the note');
+
+      // A third agent's contact stays with them; the timeline and the result say so.
+      const a3 = randomUUID();
+      await t.execute(sql`insert into "user" (id, email, name) values (${a3}, ${`a3.${f.tag}@smoke.test`}, 'a3')`);
+      await t.execute(sql`insert into membership (user_id, agency_id, role, status) values (${a3}, ${f.agencyId}, 'agent', 'active')`);
+      const [third] = await t.execute<{ id: string }>(sql`insert into contact (agency_id, name, email, assigned_to) values (${f.agencyId}, 'Third', ${`third.${f.tag}@smoke.test`}, ${a3}) returning id`);
+      const two = await enquire(`third.${f.tag}@smoke.test`);
+      assert(two.contactId === third!.id && (await holder('lead', two.leadId)) === f.people.a1 && (await holder('contact', third!.id)) === a3, 'third agent’s contact taken on enquiry');
+      const stayed = await assignLead(t, owner, two.leadId, f.people.a2);
+      assert((stayed as { contactMoved?: boolean }).contactMoved === false && (await holder('contact', third!.id)) === a3, `third agent’s contact moved: ${JSON.stringify(stayed)}`);
+      const [ho2] = await t.execute<{ contact_moved: boolean }>(sql`select contact_moved from lead_handover where lead_id = ${two.leadId}`);
+      assert(ho2?.contact_moved === false, 'handover says the contact moved');
+      return 'agent refused (server) and offered no assign control (list, contact, conversation); owner → A2: lead + contact moved, handover kept, timeline from/to/by on owner’s and A2’s; A1 keeps only the note, opens nothing; third agent’s contact stays, said so';
     }),
   );
 

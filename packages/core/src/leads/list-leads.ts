@@ -3,6 +3,7 @@ import { alias } from 'drizzle-orm/pg-core';
 import {
   agentProfile,
   lead,
+  leadHandover,
   listingAgent,
   mailThread,
   membership,
@@ -316,4 +317,38 @@ export async function listLeadAssignees(db: Db, actor: Actor): Promise<LeadAssig
       mayTakeOffers: can(them, 'lead:read_offer', resource),
     };
   });
+}
+
+/** The only thing an agent is told about a lead taken from them (the client's rule, 2026-10-07). */
+export const REASSIGNED_NOTE = 'This lead has been reassigned from you to another agent.';
+
+/**
+ * Leads an owner or admin gave away from this agent, as notes and nothing
+ * more: no lead, no contact, no name of who has it now — and they can open
+ * neither (`lead:read` is the assignee's). One note per lead, newest first;
+ * none for a lead that has since come back to them. Owners and admins see
+ * every lead, so they get none. One statement.
+ */
+export async function listReassignedAway(
+  db: Db,
+  actor: Actor,
+  limit = 20,
+): Promise<{ id: string; at: Date; message: string }[]> {
+  if (!actor.agencyId || can(actor, 'lead:read_all', { type: 'lead', agencyId: actor.agencyId })) return [];
+  const rows = await db
+    .selectDistinctOn([leadHandover.leadId], { id: leadHandover.id, at: leadHandover.createdAt })
+    .from(leadHandover)
+    .where(
+      and(
+        eq(leadHandover.agencyId, actor.agencyId),
+        eq(leadHandover.fromUserId, actor.userId),
+        sql`not exists (select 1 from lead l where l.id = ${leadHandover.leadId} and l.assigned_to = ${actor.userId})`,
+      ),
+    )
+    .orderBy(leadHandover.leadId, desc(leadHandover.createdAt))
+    .limit(200);
+  return rows
+    .sort((x, y) => new Date(y.at).getTime() - new Date(x.at).getTime())
+    .slice(0, limit)
+    .map((r) => ({ id: r.id, at: new Date(r.at), message: REASSIGNED_NOTE }));
 }

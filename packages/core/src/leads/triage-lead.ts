@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { lead, leadStatusEnum, membership, type DbOrTx } from '@repo/db';
+import { activity, agentProfile, contact, lead, leadHandover, leadStatusEnum, membership, user, type DbOrTx } from '@repo/db';
 import { can, type Actor, type MembershipRole, type Resource } from '../permissions';
 import type { LeadStatus } from './list-leads';
 
@@ -40,6 +40,7 @@ type Loaded = {
   kind: string;
   assignedTo: string | null;
   listingId: string | null;
+  contactId: string | null;
 };
 
 /** The lead, inside the actor's own agency or not at all. */
@@ -55,6 +56,7 @@ async function loadLead(db: DbOrTx, actor: Actor, leadId: string): Promise<Loade
       kind: lead.kind,
       assignedTo: lead.assignedTo,
       listingId: lead.listingId,
+      contactId: lead.contactId,
     })
     .from(lead)
     .where(and(eq(lead.id, leadId), eq(lead.agencyId, actor.agencyId)))
@@ -94,6 +96,12 @@ export type TriagedLead = {
   id: string;
   status: LeadStatus;
   assignedTo: string | null;
+  /**
+   * On a reassignment: whether the lead's contact went with it — only when it
+   * was the previous agent's or nobody's (the client's rule, 2026-10-07). The
+   * screen says so; a contact that is a third agent's stays theirs.
+   */
+  contactMoved?: boolean;
 };
 
 /**
@@ -213,7 +221,8 @@ export async function assignLead(
     }
   }
 
-  const [updated] = await db
+  return db.transaction(async (tx) => {
+  const [updated] = await tx
     .update(lead)
     .set({ assignedTo: assigneeUserId, updatedAt: sql`now()` })
     .where(
@@ -235,5 +244,59 @@ export async function assignLead(
   if (!updated) {
     throw new LeadTriageError('conflict', 'That person left the agency a moment ago — refresh and try again');
   }
-  return { id: updated.id, status: updated.status as LeadStatus, assignedTo: updated.assignedTo };
+  const from = row.assignedTo;
+  const to = updated.assignedTo;
+  if (from === to) return { id: updated.id, status: updated.status as LeadStatus, assignedTo: to };
+
+  // The client's rule (2026-10-07). The contact follows the lead when it was the previous
+  // agent's or nobody's — never a third agent's; offers never move a contact (they never
+  // show one either).
+  let contactMoved = false;
+  if (row.contactId && row.kind !== 'offer' && to) {
+    const moved = await tx
+      .update(contact)
+      .set({ assignedTo: to, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(contact.id, row.contactId),
+          eq(contact.agencyId, row.agencyId),
+          from ? sql`(${contact.assignedTo} is null or ${contact.assignedTo} = ${from})` : isNull(contact.assignedTo),
+        ),
+      )
+      .returning({ id: contact.id });
+    contactMoved = moved.length > 0;
+    if (contactMoved) {
+      await tx.insert(activity).values({
+        agencyId: row.agencyId,
+        contactId: row.contactId,
+        kind: 'contact_assigned',
+        actorType: 'user',
+        actorId: actor.userId,
+        payload: { from, to, via: 'lead' },
+      });
+    }
+  }
+  // The agent it was taken from keeps a note, and nothing else (`listReassignedAway`).
+  if (from) {
+    await tx.insert(leadHandover).values({ agencyId: row.agencyId, leadId: row.id, fromUserId: from, toUserId: to, byUserId: actor.userId, contactMoved });
+  }
+  if (row.contactId) {
+    const names = await tx
+      .select({ id: user.id, name: sql<string>`coalesce(${agentProfile.displayName}, ${user.name}, ${user.email})` })
+      .from(user)
+      .leftJoin(agentProfile, eq(agentProfile.userId, user.id))
+      .where(sql`${user.id} in (${sql.join([from, to].filter((x): x is string => Boolean(x)).map((x) => sql`${x}`), sql`, `)})`);
+    const nameOf = (id: string | null) => (id ? (names.find((n) => n.id === id)?.name ?? null) : null);
+    // Who, when, from and to — shown only to owners/admins and the lead's current assignee.
+    await tx.insert(activity).values({
+      agencyId: row.agencyId,
+      contactId: row.contactId,
+      kind: 'lead_assigned',
+      actorType: 'user',
+      actorId: actor.userId,
+      payload: { leadId: row.id, from, to, fromName: nameOf(from), toName: nameOf(to), contactMoved },
+    });
+  }
+  return { id: updated.id, status: updated.status as LeadStatus, assignedTo: to, contactMoved };
+  });
 }

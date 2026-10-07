@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   activity,
@@ -10,7 +10,7 @@ import {
   user,
   type Db,
 } from '@repo/db';
-import type { Actor } from '../permissions';
+import { can, type Actor } from '../permissions';
 import { leadScopeFilters, type LeadKind } from '../leads/list-leads';
 import { threadScopeFilters } from '../mail/threads';
 import { snippet } from '../mail/body';
@@ -99,6 +99,19 @@ type Row = {
 };
 
 const author = alias(user, 'author');
+
+/**
+ * A lead's reassignment names who had it and who has it now. Only owners and
+ * admins, and the lead's current assignee, read that entry — never an agent
+ * who lost the lead but still sees the contact through another lead (the
+ * client's rule, 2026-10-07: they are told only that it was reassigned).
+ */
+function leadReassignVisibleSql(actor: Actor): SQL {
+  const agencyId = actor.agencyId ?? '00000000-0000-0000-0000-000000000000';
+  if (can(actor, 'lead:read_all', { type: 'lead', agencyId })) return sql`true`;
+  return sql`(${activity.kind} <> 'lead_assigned' or exists (
+    select 1 from lead l where l.id::text = ${activity.payload}->>'leadId' and l.assigned_to = ${actor.userId}))`;
+}
 
 /** The same eleven columns in the same order, so the four parts can be unioned. */
 const nulls = {
@@ -199,7 +212,7 @@ export async function listContactTimeline(
     })
     .from(activity)
     .leftJoin(author, eq(author.id, activity.actorId))
-    .where(and(eq(activity.contactId, contact.id), eq(activity.agencyId, contact.agencyId), privateActivityVisibleSql(actor)));
+    .where(and(eq(activity.contactId, contact.id), eq(activity.agencyId, contact.agencyId), privateActivityVisibleSql(actor), leadReassignVisibleSql(actor)));
 
   const cursor = parseCursor(opts.before);
   const before = cursor ? sql`where (t.at, t.id) < (${cursor.at}::timestamptz, ${cursor.id}::uuid)` : sql``;

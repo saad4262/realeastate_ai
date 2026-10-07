@@ -326,6 +326,23 @@ function activityText(item: Extract<TimelineItem, { type: 'activity' }>): string
     case 'consent_recorded':
     case 'consent_withdrawn':
       return typeof p.note === 'string' ? p.note : null;
+    case 'contact_assigned':
+      // Given without anyone choosing (the client's rule, 2026-10-07), or with its lead.
+      return p.via === 'enquiry'
+        ? 'With their enquiry, to the listing’s agent'
+        : p.via === 'address'
+          ? 'Tied to the address of a listing, to its agent'
+          : p.via === 'listing'
+            ? 'Tied to the address of a new listing, to its agent'
+            : p.via === 'lead'
+              ? 'With their lead'
+              : p.via === 'backfill'
+                ? 'When agents began seeing only their own contacts, to the listing’s agent'
+                : null;
+    case 'lead_assigned':
+      return `${typeof p.fromName === 'string' ? p.fromName : 'Nobody'} → ${typeof p.toName === 'string' ? p.toName : 'Nobody'} · ${
+        p.contactMoved ? 'the contact moved with it' : 'the contact stayed with its agent'
+      }`;
     default:
       return null;
   }

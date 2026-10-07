@@ -8,6 +8,7 @@ export {
 } from './offer-schema';
 export {
   listAgencyLeads,
+  listReassignedAway,
   leadScopeFilters,
   listLeadAssignees,
   LeadError,

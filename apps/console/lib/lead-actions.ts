@@ -16,7 +16,7 @@ import { loadListingActor } from './load-actor';
 import { requireActionUserId } from './auth-account';
 
 export type TriageActionResult =
-  | { ok: true; status: LeadStatus; assignedTo: string | null }
+  | { ok: true; status: LeadStatus; assignedTo: string | null; contactMoved?: boolean }
   | { ok: false; error: string; code: TriageErrorCode | 'unknown' };
 
 /**
@@ -29,6 +29,7 @@ async function run(
   write: (actor: NonNullable<Awaited<ReturnType<typeof loadListingActor>>>) => Promise<{
     status: LeadStatus;
     assignedTo: string | null;
+    contactMoved?: boolean;
   }>,
 ): Promise<TriageActionResult> {
   // Outside the try: a missing session throws, and catching it would turn
@@ -50,7 +51,15 @@ async function run(
     // The conversation view shows the same status and assignee (ADR 0016).
     revalidatePath('/inbox');
     revalidatePath('/my-inbox');
-    return { ok: true, status: result.status, assignedTo: result.assignedTo };
+    // A reassignment can move the lead's contact too.
+    revalidatePath('/customers');
+    revalidatePath('/my-contacts');
+    return {
+      ok: true,
+      status: result.status,
+      assignedTo: result.assignedTo,
+      ...(result.contactMoved !== undefined ? { contactMoved: result.contactMoved } : {}),
+    };
   } catch (err) {
     if (err instanceof LeadTriageError) return { ok: false, error: err.message, code: err.code };
     return { ok: false, error: 'Could not update the lead', code: 'unknown' };

@@ -39,7 +39,15 @@ function fakeDb(opts: { reads?: unknown[][]; returns?: unknown[][] } = {}) {
   };
   chain.limit = () => Promise.resolve(reads.shift() ?? []);
   chain.returning = () => Promise.resolve(returns.shift() ?? []);
-  return { db: chain as unknown as DbOrTx, sets, wheres };
+  // A reassignment writes its handover and timeline in the same transaction; the fake is its own.
+  const inserts: Record<string, unknown>[] = [];
+  chain.transaction = (fn: (tx: unknown) => unknown) => fn(chain);
+  chain.insert = () => chain;
+  chain.values = (v: Record<string, unknown>) => {
+    inserts.push(v);
+    return Promise.resolve();
+  };
+  return { db: chain as unknown as DbOrTx, sets, wheres, inserts };
 }
 
 const enquiry = (assignedTo: string | null = null) => ({
