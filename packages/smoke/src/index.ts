@@ -5628,6 +5628,8 @@ async function main() {
       const proposalId = (card.frame as { id: string }).id;
       const dash = await createDashboard(t, f.actor('owner'), { title: `Agency ${f.tag}`, widgets: [{ widget: 'new_leads', params: {} }], audience: 'agency' });
       const imp = await createImport(t, f.actor('owner'), { fileName: `f-${f.tag}.csv`, text: `suburb,state,postcode,channel,status,headline\nPakenham,VIC,3810,sale,draft,${f.tag}` });
+      await t.execute(sql`insert into note (agency_id, contact_id, author_id, body) values (${f.agencyId}, ${f.contacts.p1}, ${f.people.owner}, 'isolation pool note')`);
+      await t.execute(sql`insert into note (agency_id, contact_id, author_id, body, is_private) values (${f.agencyId}, ${f.contacts.p1}, ${f.people.owner}, 'isolation pool private note', true)`);
       const placeId = `ChIJsmoke_${f.tag}_place`;
       await setAgencyGooglePlace(t, f.actor('owner'), placeId, { places: echoPlaces });
       await t.execute(sql`insert into ai_run (feature, model, cost_usd, user_id, agency_id, prompt_version) values ('assistant', 'claude-sonnet-5-5', 0.5, ${f.people.a1}, ${f.agencyId}, 'smoke')`);
@@ -5663,6 +5665,8 @@ async function main() {
     };
     const A = await make();
     const B = await make();
+    // Both agencies' notes in the search index, so the vector half is tested too.
+    await runEmbeddingTick(t, fakeEmbedder().embedder, { limit: 500 });
     const bIds = [
       ...B.ids.contacts, ...B.ids.people, B.ids.appointment, ...B.ids.notes, B.ids.template, B.ids.filter, B.ids.batch,
       B.ids.skill, ...B.ids.accounts, B.ids.conversation, B.ids.proposal, B.ids.dashboard, B.ids.importId, B.ids.placeId, B.ids.listing, B.ids.lead, B.ids.offer, B.ids.thread, B.f.agencyId,
@@ -5719,6 +5723,8 @@ async function main() {
           ['getImport(B)', getImport(t, actor, B.ids.importId)],
           ['agencyReviews', agencyReviews(t, actor, { places: echoPlaces }).catch((e: unknown) => (e as { code?: string }).code === 'forbidden' ? null : Promise.reject(e))],
           ['listNeedsOwner', listNeedsOwner(t, actor)],
+          ['search_notes_and_emails', runAssistantTool(ctx, 'search_notes_and_emails', { query: 'isolation pool note' })],
+          ['search_notes_and_emails (embeddings)', runAssistantTool({ ...ctx, search: { embedder: fakeEmbedder().embedder } }, 'search_notes_and_emails', { query: 'isolation pool note' })],
           ['offboardingPreview(B)', offboardingPreview(t, actor, B.f.people.a1)],
         ];
         // Handlers attached the moment each read starts: a refusal must never be an unhandled rejection.
@@ -6376,6 +6382,15 @@ async function main() {
       const x = await leaverFixture(t);
       const tokenOf = async (accountId: string) => (await tokensForUse(t, testKeys, x.a1, accountId)).accessToken;
       const a1Token = await tokenOf(x.a1Cal);
+      // Anything derived from A1's PRIVATE notes leaves the search index with them (ADR 0031 §11);
+      // an ordinary note's embedding is the agency's and stays.
+      const vec = `[${new Array(1024).fill(0).map((_, i) => (i === 0 ? 1 : 0)).join(',')}]`;
+      const [mine] = await t.execute<{ id: string }>(sql`insert into note (agency_id, contact_id, author_id, body, is_private) values (${x.f.agencyId}, ${x.f.contacts.p1}, ${x.f.people.a1}, 'A1 private thought', true) returning id`);
+      const [shared] = await t.execute<{ id: string }>(sql`insert into note (agency_id, contact_id, author_id, body) values (${x.f.agencyId}, ${x.f.contacts.p1}, ${x.f.people.a1}, 'A1 shared note') returning id`);
+      for (const n of [mine!, shared!]) {
+        await t.execute(sql`insert into search_embedding (agency_id, source_kind, source_id, contact_id, chunk_index, content_hash, model, embedding)
+          values (${x.f.agencyId}, 'note', ${n.id}, ${x.f.contacts.p1}, 0, 'h', 'fake-embed', ${vec}::vector)`);
+      }
       const before = x.g.calls.length;
       const r = await removeMember(t, x.f.actor('owner'), x.f.people.a1, { receiver: x.f.people.a2 }, x.deps);
       const calls = x.g.calls.slice(before);
@@ -6404,6 +6419,8 @@ async function main() {
       const [z] = await t.execute<{ connector_left_at: string | null }>(sql`select connector_left_at from integration_account where id = ${x.agencyZoom}`);
       assert(z?.connector_left_at, 'the agency Zoom A1 connected is not flagged');
       assert((await activeMemberActor(t, x.f.people.a1, x.f.agencyId)) === null, 'A1 is still an active member');
+      const left = async (id: string) => count(t, sql`select count(*)::int as n from search_embedding where source_id = ${id}`);
+      assert((await left(mine!.id)) === 0 && (await left(shared!.id)) === 1, `search index after removal: private ${await left(mine!.id)}, shared ${await left(shared!.id)}`);
       return `events ${r.calendar.removed} removed (A1’s token) → created for A2; Zoom moved + flagged; contact/listing → A2; 2 cards, import cancelled; conversation deleted; 2 tokens revoked+deleted; agency Zoom flagged; A1 inactive`;
     }),
   );

@@ -13,7 +13,9 @@ import {
   listingAgent,
   listingImport,
   membership,
+  note,
   proposedAction,
+  searchEmbedding,
   user,
   type Db,
 } from '@repo/db';
@@ -166,6 +168,8 @@ export type RemovalReport = {
   cancelled: { cards: number; batches: number; imports: number };
   skillsDisabled: number;
   conversationsDeleted: number;
+  /** Search-index rows derived from their private notes (ADR 0031 §11). */
+  privateSearchEmbeddingsDeleted: number;
   agencyAccountsFlagged: number;
   tokens: { deleted: number; revokeUnconfirmed: string[] };
   synced: number;
@@ -206,6 +210,7 @@ export async function removeMember(db: Db, actor: Actor, userId: string, rawChoi
     cancelled: { cards: 0, batches: 0, imports: 0 },
     skillsDisabled: 0,
     conversationsDeleted: 0,
+    privateSearchEmbeddingsDeleted: 0,
     agencyAccountsFlagged: 0,
     tokens: { deleted: 0, revokeUnconfirmed: [] },
     synced: 0,
@@ -375,6 +380,21 @@ export async function removeMember(db: Db, actor: Actor, userId: string, rawChoi
       .delete(assistantConversation)
       .where(and(eq(assistantConversation.agencyId, agencyId), eq(assistantConversation.userId, userId)))
       .returning({ id: assistantConversation.id });
+    // Their private notes stay with the agency (admins read them); nothing derived from them may
+    // stay in the search index (ADR 0031 §11) — none is made by policy, this keeps it that way.
+    const privateEmbeddings = await tx
+      .delete(searchEmbedding)
+      .where(
+        and(
+          eq(searchEmbedding.agencyId, agencyId),
+          eq(searchEmbedding.sourceKind, 'note'),
+          inArray(
+            searchEmbedding.sourceId,
+            tx.select({ id: note.id }).from(note).where(and(eq(note.agencyId, agencyId), eq(note.authorId, userId), eq(note.isPrivate, true))),
+          ),
+        ),
+      )
+      .returning({ id: searchEmbedding.id });
     const flagged = await tx
       .update(integrationAccount)
       .set({ connectorLeftAt: now, updatedAt: sql`now()` })
@@ -391,6 +411,7 @@ export async function removeMember(db: Db, actor: Actor, userId: string, rawChoi
     report.cancelled = { cards: cards.length, batches: batches.length, imports: imports.length };
     report.skillsDisabled = skills.length;
     report.conversationsDeleted = convs.length;
+    report.privateSearchEmbeddingsDeleted = privateEmbeddings.length;
     report.agencyAccountsFlagged = flagged.length;
     return receiverId ? upcomingIds : [];
   });
