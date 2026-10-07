@@ -123,20 +123,10 @@ export function leadScopeFilters(db: Db, actor: Actor): SQL[] {
   const resource = { type: 'lead', agencyId };
   const filters: SQL[] = [eq(lead.agencyId, agencyId)];
   if (!can(actor, 'lead:read_offer', resource)) filters.push(ne(lead.kind, 'offer'));
-  if (!can(actor, 'lead:read_all', resource)) {
-    filters.push(
-      or(
-        eq(lead.assignedTo, actor.userId),
-        inArray(
-          lead.listingId,
-          db
-            .select({ id: listingAgent.listingId })
-            .from(listingAgent)
-            .where(eq(listingAgent.userId, actor.userId)),
-        ),
-      )!,
-    );
-  }
+  // Not an admin: the leads assigned to them, and nothing else (the client's rule,
+  // 2026-10-07 — a listing they are named on no longer opens its leads).
+  if (!can(actor, 'lead:read_all', resource)) filters.push(eq(lead.assignedTo, actor.userId));
+  void db;
   return filters;
 }
 

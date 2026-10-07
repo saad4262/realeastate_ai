@@ -87,7 +87,6 @@ export function threadContactFacts(row: {
   contactId: string | null;
   contactAssignedTo: string | null;
   leadAssigneeIds: string[] | string | null;
-  listingAgentIds: string[] | string | null;
 }): ContactAccessFacts | null {
   if (!row.contactId) return null;
   return {
@@ -95,7 +94,6 @@ export function threadContactFacts(row: {
     agencyId: row.agencyId,
     assignedTo: row.contactAssignedTo,
     leadAssigneeIds: idArray(row.leadAssigneeIds),
-    listingAgentIds: idArray(row.listingAgentIds),
   };
 }
 
@@ -182,19 +180,8 @@ export function threadScopeFilters(db: DbOrTx, actor: Actor): SQL[] {
   if (!readAll) {
     filters.push(
       or(
-        and(
-          isNotNull(mailThread.leadId),
-          or(
-            eq(lead.assignedTo, actor.userId),
-            inArray(
-              lead.listingId,
-              db
-                .select({ id: listingAgent.listingId })
-                .from(listingAgent)
-                .where(eq(listingAgent.userId, actor.userId)),
-            ),
-          ),
-        ),
+        // A lead's conversation: its assignee's (the client's rule, 2026-10-07).
+        and(isNotNull(mailThread.leadId), eq(lead.assignedTo, actor.userId)),
         // Mail to the agency address from a contact this actor may see (ADR 0018).
         and(isNull(mailThread.leadId), sql`${mailThread.contactId} in (${visibleContactIdsSql(actor)})`),
       )!,

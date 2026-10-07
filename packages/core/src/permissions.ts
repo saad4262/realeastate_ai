@@ -110,12 +110,11 @@ export type Action =
    */
   | 'mail:read_own'
   /**
-   * See a contact (ADR 0018). The resource carries the contact's assignee as
-   * `ownerId`, the members assigned its non-offer leads as `leadAssigneeIds`,
-   * and the members named on the listings it is tied to (its non-offer leads'
-   * listings, and this agency's listings at properties linked to it) as
-   * `listingAgentIds`. Admins see every contact; anybody else a contact that
-   * is theirs, or that they meet through a lead they could already open. No
+   * See a contact (ADR 0018, narrowed by the client's rule of 2026-10-07). The
+   * resource carries the contact's assignee as `ownerId` and the members
+   * assigned its non-offer leads as `leadAssigneeIds`. Admins see every
+   * contact; anybody else a contact that is theirs, or one behind a lead
+   * assigned to them (read-only). A listing or an address opens nothing. No
    * id: "open the directory", which any active member may.
    *
    * Seeing a contact is not seeing all of it: inside a profile each lead and
@@ -324,8 +323,6 @@ export type Resource = {
   listingId?: string | null;
   /** On a contact: members assigned one of its non-offer leads. */
   leadAssigneeIds?: string[];
-  /** On a contact: members named on a listing it is tied to. See `contact:read`. */
-  listingAgentIds?: string[];
   /** On an appointment: who booked it. */
   createdBy?: string | null;
   /** On an integration account: a person's (`user`) or the agency's. */
@@ -427,10 +424,11 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       // Asked about the inbox as a whole (no lead id): yes — what is IN it is
       // narrowed by `lead:read_all` below.
       if (!resource.id || isAgencyAdmin(actor)) return true;
-      // One lead (ADR 0014): theirs if it is assigned to them, or if it came
-      // through a listing they are named on, assigned to anyone or no one.
-      if (actor.userId === resource.ownerId) return true;
-      return isListingAgent(actor, resource.listingId ?? undefined);
+      // One lead: the assignee's alone (the client's rule, 2026-10-07; was ADR 0014's
+      // "or their listing's"). A new enquiry is assigned to the listing's primary agent as
+      // it arrives, so being named on the listing opens nothing by itself — and a lead
+      // reassigned away is gone from the agent it was taken from.
+      return Boolean(actor.userId) && actor.userId === resource.ownerId;
     }
 
     case 'lead:read_all':
@@ -443,10 +441,8 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'mail:send':
       if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
       if (isAgencyAdmin(actor)) return true;
-      if (resource.ownerId) return Boolean(actor.userId) && actor.userId === resource.ownerId;
-      // Unassigned: the agent whose listing it came through may work it — they
-      // are the one the buyer asked. Once assigned, it is the assignee's.
-      return isListingAgent(actor, resource.listingId ?? undefined);
+      // The assignee's alone; an unassigned lead waits for an owner or admin.
+      return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
 
     case 'lead:assign':
       return sameAgency(actor, resource) && isAgencyAdmin(actor);
@@ -462,8 +458,9 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
       if (!resource.id || isAgencyAdmin(actor)) return true;
       if (resource.ownerId && actor.userId === resource.ownerId) return true;
-      if (resource.leadAssigneeIds?.includes(actor.userId)) return true;
-      return Boolean(resource.listingAgentIds?.includes(actor.userId));
+      // Behind a non-offer lead assigned to them: readable, not theirs to change
+      // (the client's rule, 2026-10-07 — a listing or an address no longer opens a contact).
+      return Boolean(resource.leadAssigneeIds?.includes(actor.userId));
     }
 
     case 'contact:read_all':
@@ -484,7 +481,11 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
 
     case 'note:create':
-      return mayWrite(actor) && can(actor, 'contact:read', resource);
+      // On the edit rule: the contact's assignee or an admin (the client's rule, 2026-10-07).
+      // A contact read only through a lead assigned to them is read-only.
+      if (!sameAgency(actor, resource) || !mayWrite(actor)) return false;
+      if (isAgencyAdmin(actor)) return true;
+      return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
 
     case 'note:read_private':
       if (!sameAgency(actor, resource) || !actor.membershipRole) return false;

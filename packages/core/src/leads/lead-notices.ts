@@ -187,20 +187,21 @@ export async function notifyNewLead(db: Db, deps: NoticeDeps, leadId: string): P
     role: membership.role,
   };
 
-  let people: Person[] = facts.listingId
+  // The lead's assignee — a new enquiry arrives assigned to the listing's primary agent (the
+  // client's rule, 2026-10-07). Unassigned, or its assignee no longer active: the owners and
+  // admins, whose queue it is. Never the listing's agents as such: they may not open it.
+  let people: Person[] = facts.assignedTo
     ? await db
         .select(personFields)
-        .from(listingAgent)
-        .innerJoin(user, eq(user.id, listingAgent.userId))
-        .innerJoin(
-          membership,
+        .from(membership)
+        .innerJoin(user, eq(user.id, membership.userId))
+        .where(
           and(
-            eq(membership.userId, listingAgent.userId),
+            eq(membership.userId, facts.assignedTo),
             eq(membership.agencyId, facts.agencyId),
             eq(membership.status, 'active'),
           ),
         )
-        .where(eq(listingAgent.listingId, facts.listingId))
     : [];
 
   if (people.length === 0) {

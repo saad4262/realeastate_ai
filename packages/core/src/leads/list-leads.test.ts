@@ -147,11 +147,9 @@ describe('the agency lead inbox', () => {
       const { db: agentDb, wheres: agentWheres } = fakeDb([row()]);
       await listAgencyLeads(agentDb, agent);
       const agentSql = agentWheres.join(' ');
+      // The client's rule (2026-10-07): the leads assigned to them, and nothing through a listing.
       expect(agentSql).toMatch(/"assigned_to" = \$/);
-      expect(agentSql).toMatch(/"lead"\."listing_id" in /);
-      // The subquery's own WHERE, which the fake records separately: the
-      // listings are the ones THIS agent is named on.
-      expect(agentSql).toMatch(/"listing_agent"\."user_id" = /);
+      expect(agentSql).not.toMatch(/listing_id" in |listing_agent/);
 
       const { db: ownerDb, wheres: ownerWheres } = fakeDb([row()]);
       await listAgencyLeads(ownerDb, owner);

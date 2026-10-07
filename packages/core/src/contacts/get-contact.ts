@@ -62,7 +62,6 @@ export async function loadContactHead(db: DbOrTx, actor: Actor, contactId: strin
     agencyId: row.agencyId,
     assignedTo: row.assignedTo,
     leadAssigneeIds: idArray(row.leadAssigneeIds),
-    listingAgentIds: idArray(row.listingAgentIds),
   };
   return { row, facts };
 }

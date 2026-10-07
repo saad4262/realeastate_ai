@@ -70,7 +70,6 @@ describe('tenant isolation — can() never lets agency A act on agency B', () =>
             ownerId: integrationOwnerType === 'agency' ? A : actor.userId,
             listingId: 'b-listing',
             leadAssigneeIds: [actor.userId],
-            listingAgentIds: [actor.userId],
             createdBy: actor.userId,
             integrationOwnerType,
           };

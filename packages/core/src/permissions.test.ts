@@ -267,9 +267,13 @@ describe('can()', () => {
       expect(can(named, 'lead:read', lead({ ownerId: 'agent-a', listingId: listingB }))).toBe(true);
     });
 
-    it("reads their own listing's lead, assigned to anyone or no one", () => {
-      expect(can(named, 'lead:read', lead({ listingId: listingA }))).toBe(true);
-      expect(can(named, 'lead:read', lead({ listingId: listingA, ownerId: 'agent-x' }))).toBe(true);
+    // The client's rule (2026-10-07): a lead is the assignee's alone. A new enquiry is assigned
+    // to the listing's primary agent when it arrives, so being named on the listing no longer
+    // opens a lead by itself — once reassigned, the listing agent loses it.
+    it("does not read their own listing's lead once it is someone else's, or while it is nobody's", () => {
+      expect(can(named, 'lead:read', lead({ listingId: listingA, ownerId: 'agent-x' }))).toBe(false);
+      expect(can(named, 'lead:read', lead({ listingId: listingA }))).toBe(false);
+      expect(can(named, 'mail:read', lead({ listingId: listingA, ownerId: 'agent-x' }))).toBe(false);
     });
 
     it("does not read another agent's lead, or one with no listing", () => {
@@ -278,9 +282,18 @@ describe('can()', () => {
       expect(can(named, 'lead:read', lead({ listingId: null }))).toBe(false);
     });
 
-    it('works an unassigned lead from their listing, but not one assigned to someone else', () => {
-      expect(can(named, 'lead:update', lead({ listingId: listingA }))).toBe(true);
+    it('works only a lead assigned to them — an unassigned one is for an admin', () => {
+      expect(can(named, 'lead:update', lead({ listingId: listingA, ownerId: 'agent-a' }))).toBe(true);
+      expect(can(named, 'mail:send', lead({ listingId: listingA, ownerId: 'agent-a' }))).toBe(true);
+      expect(can(named, 'lead:update', lead({ listingId: listingA }))).toBe(false);
+      expect(can(named, 'mail:send', lead({ listingId: listingA }))).toBe(false);
       expect(can(named, 'lead:update', lead({ listingId: listingA, ownerId: 'agent-x' }))).toBe(false);
+    });
+
+    it('never assigns or reassigns a lead — not even their own; owners and admins do', () => {
+      expect(can(named, 'lead:assign', lead({ listingId: listingA, ownerId: 'agent-a' }))).toBe(false);
+      const admin: Actor = { userId: 'admin-a', agencyId: agencyA, membershipRole: 'admin' };
+      expect(can(admin, 'lead:assign', lead({ listingId: listingA, ownerId: 'agent-a' }))).toBe(true);
     });
 
     it('never reads the whole agency, which admins do', () => {
@@ -452,12 +465,15 @@ describe('contacts', () => {
     expect(can(agent, 'note:create', theirs('agent'))).toBe(true);
   });
 
-  it('gives notes only on a contact met through a lead or a listing', () => {
-    for (const r of [viaLead('agent'), viaListing('agent')]) {
-      expect(can(agent, 'contact:read', r)).toBe(true);
-      expect(can(agent, 'note:create', r)).toBe(true);
-      expect(can(agent, 'contact:update', r)).toBe(false);
-    }
+  it('shows a contact met through a lead assigned to them — read-only: no edit, no notes', () => {
+    expect(can(agent, 'contact:read', viaLead('agent'))).toBe(true);
+    expect(can(agent, 'note:create', viaLead('agent'))).toBe(false);
+    expect(can(agent, 'contact:update', viaLead('agent'))).toBe(false);
+  });
+
+  it('no longer shows a contact only because the agent is on a listing it is tied to', () => {
+    expect(can(agent, 'contact:read', viaListing('agent'))).toBe(false);
+    expect(can(agent, 'note:create', viaListing('agent'))).toBe(false);
   });
 
   it("does not show an agent somebody else's contact, or nobody's", () => {
@@ -480,7 +496,8 @@ describe('contacts', () => {
       expect(can(a, 'contact:create', directory)).toBe(true);
       expect(can(a, 'contact:update', theirs(a.userId))).toBe(true);
       expect(can(a, 'contact:update', viaLead(a.userId))).toBe(false);
-      expect(can(a, 'note:create', viaLead(a.userId))).toBe(true);
+      expect(can(a, 'note:create', viaLead(a.userId))).toBe(false);
+      expect(can(a, 'note:create', theirs(a.userId))).toBe(true);
       expect(can(a, 'contact:read', nobodys)).toBe(false);
     }
   });

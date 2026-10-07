@@ -98,19 +98,14 @@ describe('updateLeadStatus', () => {
     }
   });
 
-  it("lets the listing's agent work an unassigned lead, but not one given to someone else", async () => {
+  it("being the listing's agent opens nothing: an unassigned lead, or one given to someone else, is not found", async () => {
+    // The client's rule (2026-10-07): a lead is its assignee's alone; unassigned ones are an admin's.
     const named: Actor = { ...agent, listingAgentOf: [listingId] };
-    const ok = fakeDb({
-      reads: [[{ ...enquiry(), listingId }]],
-      returns: [[{ id: leadId, status: 'contacted', assignedTo: null }]],
-    });
-    await expect(updateLeadStatus(ok.db, named, leadId, 'contacted')).resolves.toMatchObject({
-      status: 'contacted',
-    });
-
-    // They can still SEE it (their listing), so the answer is a refusal.
+    const unassigned = fakeDb({ reads: [[{ ...enquiry(), listingId }]] });
+    expect(await code(updateLeadStatus(unassigned.db, named, leadId, 'contacted'))).toBe('not_found');
+    expect(unassigned.sets).toEqual([]);
     const taken = fakeDb({ reads: [[{ ...enquiry(otherAgentId), listingId }]] });
-    expect(await code(updateLeadStatus(taken.db, named, leadId, 'closed'))).toBe('forbidden');
+    expect(await code(updateLeadStatus(taken.db, named, leadId, 'closed'))).toBe('not_found');
     expect(taken.sets).toEqual([]);
   });
 

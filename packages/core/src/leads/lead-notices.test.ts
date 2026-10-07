@@ -1,3 +1,4 @@
+import { getTableName } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import type { Db } from '@repo/db';
 import { fakeTransport, type TransactionalMessage } from '../email';
@@ -17,11 +18,16 @@ function fakeDb(reads: unknown[][]) {
     queries += 1;
     return Promise.resolve(queue.shift() ?? []);
   };
+  const tables: string[] = [];
   const chain: Record<string, unknown> = {};
-  for (const m of ['select', 'from', 'leftJoin', 'innerJoin', 'where']) chain[m] = () => chain;
+  for (const m of ['select', 'leftJoin', 'innerJoin', 'where']) chain[m] = () => chain;
+  chain.from = (t: Parameters<typeof getTableName>[0]) => {
+    tables.push(getTableName(t));
+    return chain;
+  };
   chain.limit = next;
   chain.then = (ok: (v: unknown) => unknown, bad: (e: unknown) => unknown) => next().then(ok, bad);
-  return { db: chain as unknown as Db, queries: () => queries };
+  return { db: chain as unknown as Db, queries: () => queries, tables };
 }
 
 function deps() {
@@ -48,7 +54,8 @@ const facts = (over: Record<string, unknown> = {}) => {
     leadId: id,
     agencyId: agencyA,
     leadListingId: lid,
-    assignedTo: null,
+    // A new enquiry arrives assigned to the listing's primary agent (the client's rule, 2026-10-07).
+    assignedTo: agentId,
     threadId: null,
     kind: 'enquiry',
     status: 'new',
@@ -108,6 +115,15 @@ describe('notifyNewLead', () => {
     expect(sent()[0]!.text).toContain('http://agency.test/leads');
   });
 
+  it('an unassigned enquiry goes to the owners and admins — the queue — never to the listing agent, who cannot open it', async () => {
+    // The client's rule (2026-10-07): a lead is its assignee's; an unassigned one waits for an owner or admin.
+    const { db, tables } = fakeDb([[facts({ assignedTo: null })], [admin]]);
+    const { d, sent } = deps();
+    expect(await notifyNewLead(db, d, leadId)).toEqual({ sent: 1, failed: 0 });
+    expect(sent().map((m) => m.to.email)).toEqual(['boss@example.com']);
+    expect(tables).not.toContain('listing_agent');
+  });
+
   it('sends nothing for a private offer — those go to owners and admins by their own notice', async () => {
     const { db, queries } = fakeDb([[facts({ kind: 'offer', listingId: null })]]);
     const { d, sent } = deps();
@@ -124,7 +140,7 @@ describe('notifyNewLead', () => {
   });
 
   it('counts a refused send as failed and carries on to the next person', async () => {
-    const { db } = fakeDb([[facts()], [agent, { ...agent, userId: adminId, email: 'co@example.com' }]]);
+    const { db } = fakeDb([[facts()], [agent, { ...admin, email: 'co@example.com' }]]);
     const transport = fakeTransport({ fail: { error: 'invalid address', retryable: false } });
     const { d } = deps();
     d.mailer.transport = transport;

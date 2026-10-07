@@ -231,15 +231,19 @@ describe('who may read and answer a conversation', () => {
     listingId: listingA,
   };
 
-  it('the agent on the listing reads and answers an unassigned enquiry; another agent does neither', () => {
-    expect(maySendOnThread(agentOnListing, enquiry)).toBe(true);
+  // The client's rule (2026-10-07): a lead's conversation is its assignee's; the listing opens nothing.
+  it('an unassigned enquiry is for owners and admins — not the listing agent, not another agent', () => {
+    expect(mayReadThread(agentOnListing, enquiry)).toBe(false);
+    expect(maySendOnThread(agentOnListing, enquiry)).toBe(false);
     expect(mayReadThread(otherAgent, enquiry)).toBe(false);
-    expect(maySendOnThread(otherAgent, enquiry)).toBe(false);
+    expect(maySendOnThread(owner, enquiry)).toBe(true);
   });
 
-  it('once assigned to someone else, the listing agent may still read it but not answer it', () => {
+  it('assigned: the assignee reads and answers; the listing agent it was not given to does neither', () => {
+    const mine = { ...enquiry, assignedTo: 'agent' };
+    expect(maySendOnThread(agentOnListing, mine)).toBe(true);
     const assigned = { ...enquiry, assignedTo: 'other' };
-    expect(mayReadThread(agentOnListing, assigned)).toBe(true);
+    expect(mayReadThread(agentOnListing, assigned)).toBe(false);
     expect(maySendOnThread(agentOnListing, assigned)).toBe(false);
     expect(maySendOnThread(otherAgent, assigned)).toBe(true);
   });
@@ -261,14 +265,14 @@ describe('who may read and answer a conversation', () => {
       id: 'contact-1',
       agencyId: agencyA,
       assignedTo: 'agent',
-      leadAssigneeIds: [],
-      listingAgentIds: ['other'],
+      // `other` meets the contact through a lead assigned to them (a listing no longer counts).
+      leadAssigneeIds: ['other'],
     };
     const general = { ...enquiry, leadId: null, leadKind: null, listingId: null, contact };
     // Assigned the contact: reads and answers.
     expect(mayReadThread(agentOnListing, general)).toBe(true);
     expect(maySendOnThread(agentOnListing, general)).toBe(true);
-    // Meets the contact through a listing: reads, does not answer.
+    // Meets the contact through a lead assigned to them: reads, does not answer.
     expect(mayReadThread(otherAgent, general)).toBe(true);
     expect(maySendOnThread(otherAgent, general)).toBe(false);
     // Read-only, even when it is theirs: reads, never answers.
@@ -276,7 +280,7 @@ describe('who may read and answer a conversation', () => {
     expect(mayReadThread(readOnly, theirs)).toBe(true);
     expect(maySendOnThread(readOnly, theirs)).toBe(false);
     // Nobody's contact: admins only, as before.
-    const nobodys = { ...general, contact: { ...contact, assignedTo: null, listingAgentIds: [] } };
+    const nobodys = { ...general, contact: { ...contact, assignedTo: null, leadAssigneeIds: [] } };
     expect(mayReadThread(agentOnListing, nobodys)).toBe(false);
     expect(maySendOnThread(owner, nobodys)).toBe(true);
     // And never across agencies.

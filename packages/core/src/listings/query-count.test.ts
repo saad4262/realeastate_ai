@@ -277,7 +277,7 @@ describe('reads cost a fixed number of queries', () => {
       nextActionAt: null, marketingConsentAt: null, marketingConsentNote: null,
       consentByName: null, consentByEmail: null, emailOptOutAt: null, mergedIntoId: null,
       createdAt: new Date(), updatedAt: new Date(), roles: null, inferredRoles: null,
-      leadAssigneeIds: null, listingAgentIds: null,
+      leadAssigneeIds: null,
     };
     const agentActor: Actor = { ...actor, userId: 'u-agent', membershipRole: 'agent' };
     const forAgent = countingDb([head]);

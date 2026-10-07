@@ -11,13 +11,14 @@ import { can, type Actor, type Resource } from '../permissions';
  * member and contact in the database, so changing the client's rule means
  * changing `can()` and this file, and the check goes red if only one moved.
  *
- * A member who is not an admin sees a contact that is:
- *   - assigned to them, or
- *   - behind a NON-OFFER lead assigned to them or come through a listing they
- *     are named on (exactly the leads `lead:read` lets them open), or
- *   - tied by `contact_property` to an address where their agency has a
- *     listing they are named on.
- * Offers never make a contact visible: `lead:read_offer` is admin-only.
+ * A member who is not an admin sees a contact that is (the client's rule,
+ * 2026-10-07):
+ *   - assigned to them — theirs in full, or
+ *   - behind a NON-OFFER lead assigned to them — read-only (exactly the leads
+ *     `lead:read` lets them open).
+ * Being named on a listing, or on a listing at an address the contact is tied
+ * to, no longer opens a contact. Offers never make a contact visible:
+ * `lead:read_offer` is admin-only.
  */
 
 /** `select id from contact …` — the live contacts this actor may see. */
@@ -41,16 +42,7 @@ export function narrowedContactIdsSql(userId: string, agencyExpr: SQL): SQL {
     c.assigned_to = ${me}
     or exists (
       select 1 from lead l
-      where l.contact_id = c.id and l.kind <> 'offer'
-        and (l.assigned_to = ${me}
-          or exists (select 1 from listing_agent la
-                     where la.listing_id = l.listing_id and la.user_id = ${me}))
-    )
-    or exists (
-      select 1 from contact_property cp
-      join listing li on li.property_id = cp.property_id and li.agency_id = c.agency_id
-      join listing_agent la on la.listing_id = li.id and la.user_id = ${me}
-      where cp.contact_id = c.id
+      where l.contact_id = c.id and l.kind <> 'offer' and l.assigned_to = ${me}
     )
   )`;
 }
@@ -61,7 +53,6 @@ export type ContactAccessFacts = {
   agencyId: string;
   assignedTo: string | null;
   leadAssigneeIds: string[];
-  listingAgentIds: string[];
 };
 
 /**
@@ -74,17 +65,6 @@ export function contactAccessColumns(idExpr: SQL | unknown, agencyExpr: SQL | un
     leadAssigneeIds: sql<string[] | string | null>`(
       select array_agg(distinct l.assigned_to) from lead l
       where l.contact_id = ${idExpr} and l.kind <> 'offer' and l.assigned_to is not null
-    )`,
-    listingAgentIds: sql<string[] | string | null>`(
-      select array_agg(distinct la.user_id) from listing_agent la
-      where la.listing_id in (
-        select l.listing_id from lead l
-        where l.contact_id = ${idExpr} and l.kind <> 'offer' and l.listing_id is not null
-        union
-        select li.id from contact_property cp
-        join listing li on li.property_id = cp.property_id and li.agency_id = ${agencyExpr}
-        where cp.contact_id = ${idExpr}
-      )
     )`,
   };
 }
@@ -107,7 +87,6 @@ export function contactResource(c: ContactAccessFacts): Resource {
     agencyId: c.agencyId,
     ...(c.assignedTo ? { ownerId: c.assignedTo } : {}),
     leadAssigneeIds: c.leadAssigneeIds,
-    listingAgentIds: c.listingAgentIds,
   };
 }
 
