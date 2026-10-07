@@ -13,12 +13,14 @@
     "./chat-request": "./src/schemas/chat-request.ts",
     "./tools": "./src/tools/index.ts",
     "./skills": "./src/pipelines/skills.ts",
-    "./assistant": "./src/pipelines/assistant.ts"
+    "./assistant": "./src/pipelines/assistant.ts",
+    "./search-embedder": "./src/search/voyage.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "echo \"no lint yet\""
+    "lint": "echo \"no lint yet\"",
+    "search:backfill": "tsx src/search/backfill-cli.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
@@ -29,6 +31,8 @@
   "devDependencies": {
     "typescript": "^5.7.2",
     "vitest": "^2.1.8",
-    "@repo/config": "workspace:*"
+    "@repo/config": "workspace:*",
+    "dotenv": "^16.4.7",
+    "tsx": "^4.19.2"
   }
 }

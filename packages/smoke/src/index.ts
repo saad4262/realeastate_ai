@@ -212,6 +212,7 @@ import {
 import { agencyReviews, clearAgencyGooglePlace, publicListingReviews, searchGooglePlaces, setAgencyGooglePlace, type PlaceDetails, type PlacesClient } from '@repo/core/reviews';
 import { archiveDashboard, createDashboard, getDashboardData, listDashboards, rangeWindow, renderWidget, WIDGET_IDS, WIDGET_RANGES } from '@repo/core/dashboards';
 import { activeMemberActor, assignNeedsOwner, claimAgentInvite, listNeedsOwner, offboardingPreview, removeMember, restoreMember } from '@repo/core/team';
+import { runEmbeddingTick, type Embedder } from '@repo/core/assistant-search';
 import { assert, check, group, note, report, skip } from './runner';
 
 config({ path: resolve(process.cwd(), '../../.env.local') });
@@ -6496,6 +6497,100 @@ async function main() {
       }).catch((e: unknown) => String((e as { message?: string }).message ?? e));
       assert(dup !== 'inserted', 'a second active membership was allowed');
       return `restored without tokens; 31 days → refused; invite to another agency → ${claim.reason}; the index refused a second active membership`;
+    }),
+  );
+
+  group('Assistant search');
+
+  /**
+   * ADR 0031. A fake embedder: a word-hash vector, deterministic, no network.
+   * Records every text it was handed, so a test can prove what was (and was
+   * not) sent to the provider.
+   */
+  function fakeEmbedder() {
+    const sent: string[] = [];
+    const vectorOf = (text: string) => {
+      const v = new Array(1024).fill(0) as number[];
+      for (const w of text.toLowerCase().match(/[a-z]+/g) ?? []) v[[...w].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 1024, 7)]! += 1;
+      const n = Math.hypot(...v) || 1;
+      return v.map((x) => x / n);
+    };
+    const embedder: Embedder = {
+      model: 'fake-embed',
+      async embed(texts) {
+        sent.push(...texts);
+        return texts.map(vectorOf);
+      },
+    };
+    return { embedder, sent, vectorOf };
+  }
+  const embedded = (t: Db, sourceId: string) => count(t, sql`select count(*)::int as n from search_embedding where source_id = ${sourceId}`);
+
+  await check('full-text is kept by Postgres; the tick embeds only what may leave the database, once, and re-embeds a changed note', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const fake = fakeEmbedder();
+      const tag = f.tag;
+      const addNote = async (contactId: string, body: string, isPrivate = false) =>
+        (await t.execute<{ id: string }>(sql`insert into note (agency_id, contact_id, author_id, body, is_private) values (${f.agencyId}, ${contactId}, ${f.people.a1}, ${body}, ${isPrivate}) returning id`))[0]!.id;
+      const open = await addNote(f.contacts.p1, `Wants a swimming pool ${tag}`);
+      const secret = await addNote(f.contacts.p1, `Private: divorce, must sell fast ${tag}`, true);
+      await t.execute(sql`update contact set archived_at = now() where id = ${f.contacts.p6}`);
+      const archived = await addNote(f.contacts.p6, `Archived person likes pools ${tag}`);
+      await t.execute(sql`update contact set email_opt_out_at = now() where id = ${f.contacts.p4}`);
+      const optedOut = await addNote(f.contacts.p4, `Opted out person pool ${tag}`);
+      const [tsv] = await t.execute<{ ok: boolean }>(sql`select search_tsv @@ websearch_to_tsquery('english', 'swimming pools') as ok from note where id = ${open}`);
+      assert(tsv?.ok === true, 'the note’s full-text did not match "swimming pools"');
+
+      const off = await runEmbeddingTick(t, null, { limit: 500 });
+      assert(off.enabled === false && (await embedded(t, open)) === 0, `with embeddings off: ${JSON.stringify(off)}`);
+
+      const r1 = await runEmbeddingTick(t, fake.embedder, { limit: 500 });
+      assert((await embedded(t, open)) === 1, `the open note was not embedded: ${JSON.stringify(r1)}`);
+      for (const [name, id] of [['private', secret], ['archived contact', archived], ['opted-out contact', optedOut]] as const) {
+        assert((await embedded(t, id)) === 0, `a ${name}'s note was embedded`);
+      }
+      assert(!fake.sent.some((x) => x.includes('divorce') || x.includes('Archived person') || x.includes('Opted out person')), 'excluded text was sent to the provider');
+      const before = fake.sent.length;
+      await runEmbeddingTick(t, fake.embedder, { limit: 500 });
+      assert(!fake.sent.slice(before).some((x) => x.includes(tag)), 'an unchanged note was embedded twice');
+
+      await t.execute(sql`update note set body = ${`Wants a pool and a garden ${tag}`} where id = ${open}`);
+      await runEmbeddingTick(t, fake.embedder, { limit: 500 });
+      assert(fake.sent.slice(before).some((x) => x.includes('garden')) && (await embedded(t, open)) === 1, 'the changed note was not re-embedded in place');
+
+      await t.execute(sql`update note set is_private = true where id = ${open}`);
+      await runEmbeddingTick(t, null);
+      assert((await embedded(t, open)) === 0, 'a note made private kept its embedding');
+
+      const enq = await t.execute<{ id: string }>(sql`select id from lead where contact_id = ${f.contacts.p2} and kind <> 'offer' limit 1`);
+      await t.execute(sql`update lead set message = ${`Looking for a pool home ${tag}`} where id = ${enq[0]!.id}`);
+      await runEmbeddingTick(t, fake.embedder, { limit: 500 });
+      assert((await embedded(t, enq[0]!.id)) === 1, 'the enquiry message was not embedded');
+      const offer = await t.execute<{ id: string }>(sql`select id from lead where contact_id = ${f.contacts.p3} and kind = 'offer' limit 1`);
+      await t.execute(sql`update lead set message = ${`Offer note pool ${tag}`} where id = ${offer[0]!.id}`);
+      await runEmbeddingTick(t, fake.embedder, { limit: 500 });
+      assert((await embedded(t, offer[0]!.id)) === 0, 'a private offer was embedded');
+
+      await t.execute(sql`delete from contact_property where contact_id = ${f.contacts.p2}`);
+      await t.execute(sql`update mail_thread set contact_id = null where contact_id = ${f.contacts.p2}`);
+      await t.execute(sql`update lead set contact_id = null where contact_id = ${f.contacts.p2}`);
+      await t.execute(sql`update search_embedding set contact_id = ${f.contacts.p2} where source_id = ${enq[0]!.id}`);
+      await t.execute(sql`delete from contact where id = ${f.contacts.p2}`);
+      assert((await embedded(t, enq[0]!.id)) === 0, 'deleting the contact left its embeddings');
+      return 'FTS matched "swimming pools"; off → nothing, no error; open note embedded once, re-embedded on edit, pruned when made private; private/archived/opted-out/offer never sent; contact delete cascades';
+    }),
+  );
+
+  await check('the indexing cap stops an agency’s embeddings for the day; the batch is metered to that agency', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const fake = fakeEmbedder();
+      await t.execute(sql`insert into note (agency_id, contact_id, author_id, body) values (${f.agencyId}, ${f.contacts.p1}, ${f.people.a1}, ${`Capped note ${f.tag}`})`);
+      await t.execute(sql`insert into ai_run (feature, model, cost_usd, agency_id, prompt_version) values ('search_embedding', 'voyage-4', 0.30, ${f.agencyId}, 'smoke')`);
+      const r = await runEmbeddingTick(t, fake.embedder, { limit: 500, env: { ...process.env, EMBEDDINGS_DAILY_BUDGET_USD_PER_AGENCY: '0.25' } as NodeJS.ProcessEnv });
+      assert(!fake.sent.some((x) => x.includes(f.tag)) && r.overBudget >= 1, `over its cap the agency was still embedded: ${JSON.stringify(r)}`);
+      return 'agency at $0.30 of a $0.25 cap: nothing embedded, counted as over budget';
     }),
   );
 

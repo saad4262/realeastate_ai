@@ -152,6 +152,12 @@ importers:
       '@repo/config':
         specifier: workspace:*
         version: link:../config
+      dotenv:
+        specifier: ^16.4.7
+        version: 16.6.1
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.14
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

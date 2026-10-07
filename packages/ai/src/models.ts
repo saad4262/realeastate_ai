@@ -17,6 +17,14 @@ type Price = {
 const PRICES: Readonly<Record<string, Price>> = Object.freeze({
   // Opus 5.5 and Sonnet 5.5: from the Claude API reference (cached 2026-09-25),
   // added 2026-10-05 for the skill tiers. Cache reads $0.20/MTok = 0.1x input.
+  // Voyage voyage-4 embeddings (ADR 0031), docs.voyageai.com/docs/pricing 2026-10-07:
+  // $0.06 per 1M tokens, input only (the first 200M tokens per account are free — not modelled).
+  'voyage-4': {
+    inputPerMTok: 0.06,
+    outputPerMTok: 0,
+    cacheWriteMultiplier: 1,
+    cacheReadMultiplier: 1,
+  },
   'claude-opus-5-5': {
     inputPerMTok: 4,
     outputPerMTok: 20,
