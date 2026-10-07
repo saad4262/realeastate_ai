@@ -5,7 +5,7 @@ import { can, type Actor } from '../permissions';
 import { recordActivity } from '../contacts/write-contacts';
 import { ContactError } from '../contacts/list-contacts';
 import { createNote } from '../contacts/notes';
-import { setNextAction } from '../contacts/write-contacts';
+import { assignContact, setNextAction } from '../contacts/write-contacts';
 import { AppointmentError, cancelAppointment, rescheduleAppointment, scheduleAppointment } from '../appointments/appointments';
 import { syncAppointment, type SyncDeps, type SyncOutcome } from '../appointments/sync';
 import { requireIntegrations } from '../integrations/accounts';
@@ -60,12 +60,14 @@ export type FrozenArgs =
    */
   | { tool: 'send_template_email'; batchId: string; templateId: string; contactIds: string[] }
   /** ADR 0027: the dashboard as it will be saved — registry ids and parsed params only. */
-  | { tool: 'create_dashboard'; title: string; widgets: { widget: string; params: Record<string, unknown> }[]; audience: 'private' | 'admins' | 'agency' };
+  | { tool: 'create_dashboard'; title: string; widgets: { widget: string; params: Record<string, unknown> }[]; audience: 'private' | 'admins' | 'agency' }
+  /** Owners/admins: give these contacts to `to`. `from` = who held each when the card was made. */
+  | { tool: 'assign_contacts'; to: string; contactIds: string[]; from: Record<string, string | null> };
 
 /** The contacts whose timelines carry this action's audit lines. */
 function auditContacts(row: { contactId: string | null; args: unknown }): string[] {
   const args = row.args as FrozenArgs;
-  if (args.tool === 'send_template_email') return args.contactIds;
+  if (args.tool === 'send_template_email' || args.tool === 'assign_contacts') return args.contactIds;
   return row.contactId ? [row.contactId] : [];
 }
 
@@ -236,6 +238,15 @@ async function execute(
       // createDashboard asks dashboard:create (owner/admin) again and re-parses every widget.
       const { id } = await createDashboard(tx, actor, { title: args.title, widgets: args.widgets as never, audience: args.audience });
       return { result: { dashboardId: id } };
+    }
+    case 'assign_contacts': {
+      // All or none (one savepoint). assignContact asks contact:assign again, checks the receiver
+      // is still an active member who may hold contacts, and refuses a contact someone else was
+      // given since the card showed who had it.
+      for (const contactId of args.contactIds) {
+        await assignContact(tx, actor, contactId, args.to, { via: 'assistant', expectedFrom: args.from[contactId] ?? null });
+      }
+      return { result: { assigned: args.contactIds.length } };
     }
   }
 }
@@ -570,7 +581,7 @@ export type ProposalView = {
   card: ProposalCard;
   error: string | null;
   /** Ids of what it made or changed — for links. Never model text. */
-  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
+  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
   expiresAt: Date;
   /** When a scheduled action will run (about; up to ~5 minutes later). */
   runAt: Date | null;

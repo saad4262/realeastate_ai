@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
-import { ASSISTANT_TOOLS } from '../tools/assistant-tools';
-import { ASSISTANT_SYSTEM } from '../prompts/assistant-v5';
+import { ASSISTANT_TOOLS, assistantToolsFor } from '../tools/assistant-tools';
+import { ASSISTANT_SYSTEM } from '../prompts/assistant-v7';
 import { contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
 /**
@@ -64,6 +64,7 @@ function fakeDeps(over: Partial<AssistantDeps> = {}) {
   const tracked: Parameters<AssistantDeps['track']>[0][] = [];
   const toolCalls: { name: string; input: unknown }[] = [];
   const deps: AssistantDeps = {
+    tools: ASSISTANT_TOOLS,
     claim: async () => ({ conversationId: 'conv-1', seq: 1, handles: {}, history: [] }),
     selection: async () => [],
     budget: async () => ({ allowed: true, message: null }),
@@ -231,9 +232,12 @@ describe('red team: a tricked model can read and propose, never act', () => {
     expect(names).toEqual([...ASSISTANT_TOOL_NAMES].sort());
     for (const n of names) {
       expect([...ASSISTANT_READ_TOOLS, ...ASSISTANT_WRITE_TOOLS] as string[]).toContain(n);
-      expect(n).not.toMatch(/approve|run|execute|delete|sql|assign/);
+      expect(n).not.toMatch(/approve|run|execute|delete|sql/);
       // One tool may mention email — and it only proposes an APPROVED template to references.
       if (/send|email/.test(n)) expect(n).toBe('send_template_email');
+      // One tool may mention assigning: it only proposes, owners/admins alone are shown it, and
+      // core refuses it for anyone else (the "tools by role" tests below and the core unit test).
+      if (/assign/.test(n)) expect(n).toBe('assign_contacts');
     }
     for (const t of ASSISTANT_TOOLS.filter((x) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(x.name))) {
       expect(t.description).toMatch(/only PROPOSES/);
@@ -336,10 +340,50 @@ describe('proposals (Phases B and C)', () => {
     const writeFields = ASSISTANT_TOOLS.filter((t) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(t.name)).flatMap((t) =>
       Object.keys((t.input_schema as { properties: Record<string, unknown> }).properties),
     );
-    for (const f of writeFields.filter((x) => x !== 'recipients')) expect(f).not.toMatch(/approve|status|proposal|action_id|user|agency|owner|to$|recipient|email/);
+    // Allowed by name, each because its schema takes only a server-issued reference:
+    // the email's `recipients` (C/S references) and the assignment's `to` (an M reference).
+    for (const f of writeFields.filter((x) => x !== 'recipients' && x !== 'to')) expect(f).not.toMatch(/approve|status|proposal|action_id|user|agency|owner|to$|recipient|email/);
+    expect(ASSISTANT_TOOLS.filter((t) => 'to' in (t.input_schema as { properties: Record<string, unknown> }).properties).map((t) => t.name)).toEqual(['assign_contacts']);
+    for (const to of ['sara@example.com', 'Sara', 'C1', '55555555-5555-4555-8555-555555555555']) {
+      expect(ASSISTANT_TOOL_INPUTS.assign_contacts.safeParse({ contacts: ['C1'], to }).success, to).toBe(false);
+    }
     // The email card takes a template reference and contact references — no subject, body, address or filter.
     const send = ASSISTANT_TOOLS.find((t) => t.name === 'send_template_email')!;
     expect(Object.keys((send.input_schema as { properties: Record<string, unknown> }).properties).sort()).toEqual(['recipients', 'template']);
     expect(ASSISTANT_SYSTEM).toMatch(/cannot approve/);
+  });
+});
+
+describe('tools by role: assigning contacts is offered to owners and admins only', () => {
+  const as = (membershipRole: 'owner' | 'admin' | 'agent' | 'assistant' | 'property_manager' | 'read_only') => ({ userId: 'u', agencyId: 'a', membershipRole });
+  const ADMIN_ONLY = ['assign_contacts', 'find_team_members'];
+
+  it('an agent, assistant, property manager or read-only member is never shown the assign tools', () => {
+    for (const role of ['agent', 'assistant', 'property_manager', 'read_only'] as const) {
+      const names = assistantToolsFor(as(role)).map((t) => t.name);
+      for (const n of ADMIN_ONLY) expect(names, role).not.toContain(n);
+    }
+    for (const role of ['owner', 'admin'] as const) {
+      const names = assistantToolsFor(as(role)).map((t) => t.name);
+      for (const n of ADMIN_ONLY) expect(names, role).toContain(n);
+    }
+  });
+
+  it('each list is frozen and the same object for every person of that kind (the cached prefix)', () => {
+    expect(assistantToolsFor(as('agent'))).toBe(assistantToolsFor(as('read_only')));
+    expect(assistantToolsFor(as('owner'))).toBe(assistantToolsFor(as('admin')));
+    expect(Object.isFrozen(assistantToolsFor(as('owner')))).toBe(true);
+  });
+
+  it('the loop sends the list it was given — an agent’s request carries no assign tool', async () => {
+    const agent = fakeClient([msg([text('a')], 'end_turn')]);
+    const owner = fakeClient([msg([text('b')], 'end_turn')]);
+    await run({ client: agent.client, deps: fakeDeps({ tools: assistantToolsFor(as('agent')) }).deps });
+    await run({ client: owner.client, deps: fakeDeps({ tools: assistantToolsFor(as('owner')) }).deps, surface: 'agency' });
+    const sent = (r: Record<string, unknown>) => (r.tools as { name: string }[]).map((t) => t.name);
+    for (const n of ADMIN_ONLY) {
+      expect(sent(agent.requests[0]!)).not.toContain(n);
+      expect(sent(owner.requests[0]!)).toContain(n);
+    }
   });
 });

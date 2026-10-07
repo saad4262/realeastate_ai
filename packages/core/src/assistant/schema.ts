@@ -23,6 +23,8 @@ export const HANDLE_KINDS = {
   T: 'template',
   /** A contact the person selected in the console (the page they are on). */
   S: 'contact',
+  /** A member of the agency who may be given contacts — issued only by find_team_members (owners/admins). */
+  M: 'member',
 } as const;
 export type HandlePrefix = keyof typeof HANDLE_KINDS;
 export type HandleKind = (typeof HANDLE_KINDS)[HandlePrefix];
@@ -30,7 +32,7 @@ export type HandleKind = (typeof HANDLE_KINDS)[HandlePrefix];
 export const handleSchema = z
   .string()
   .trim()
-  .regex(/^[CLATS][1-9][0-9]{0,2}$/, 'Not a reference the assistant was given');
+  .regex(/^[CLATSM][1-9][0-9]{0,2}$/, 'Not a reference the assistant was given');
 
 /** A handle that must name an appointment. */
 export const appointmentHandleSchema = handleSchema.refine((h) => h.startsWith('A'), { message: 'Not an appointment reference' });
@@ -42,6 +44,9 @@ export const templateHandleSchema = handleSchema.refine((h) => h.startsWith('T')
 export const contactHandleSchema = handleSchema.refine((h) => h.startsWith('C') || h.startsWith('S'), {
   message: 'Not a contact reference',
 });
+
+/** A handle that must name a team member (from find_team_members). */
+export const memberHandleSchema = handleSchema.refine((h) => h.startsWith('M'), { message: 'Not a team member reference' });
 
 /** Caps that hold however the model asks (ADR 0025 §4, §10; decided Q7). */
 export const ASSISTANT_LIMITS = {
@@ -61,6 +66,8 @@ export const ASSISTANT_LIMITS = {
   proposalsPerTurn: 3,
   /** Hours a proposal waits for Approve before it expires (as ADR 0022's batches). */
   proposalHours: 48,
+  /** Contacts one assign or consent card may change — never "all" or a filter. */
+  contactsPerCard: 20,
 } as const;
 
 const limit = z.number().int().min(1).max(ASSISTANT_LIMITS.rowsPerTool).default(10);
@@ -195,8 +202,25 @@ export const createDashboardInput = z
   })
   .strict();
 
-export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard'] as const;
+/**
+ * Assigning contacts (owners and admins only, `contact:assign`). The team
+ * list is a read tool that issues `M` references; the assignment is a card.
+ * Contacts are references the server issued — at most 20, never a filter.
+ */
+export const findTeamMembersInput = z.object({}).strict();
+
+const contactsOnOneCard = z.array(contactHandleSchema).min(1).max(ASSISTANT_LIMITS.contactsPerCard);
+
+export const assignContactsInput = z
+  .object({
+    contacts: contactsOnOneCard,
+    /** Who receives them: an M reference from find_team_members. */
+    to: memberHandleSchema,
+  })
+  .strict();
+
+export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'find_team_members'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 
 /** Every tool. Read tools run at once; write tools only propose (ADR 0025 §8). */
@@ -214,9 +238,17 @@ export const ASSISTANT_TOOL_INPUTS = {
   cancel_appointment: cancelAppointmentInput,
   send_template_email: sendTemplateEmailInput,
   create_dashboard: createDashboardInput,
+  find_team_members: findTeamMembersInput,
+  assign_contacts: assignContactsInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];
+
+/**
+ * Tools only an owner or admin is shown (the model's tool list is chosen per
+ * person) and may run (each asks can() again): `contact:assign`.
+ */
+export const ASSISTANT_ADMIN_TOOLS = ['find_team_members', 'assign_contacts'] as const satisfies readonly AssistantToolName[];
 
 function isTimeZone(tz: string): boolean {
   try {
@@ -291,6 +323,11 @@ export type ProposalCard = {
   notes: string[];
   /** For an email card: every recipient, from the frozen batch — who will receive it and who is skipped, with why. */
   people?: { name: string; email: string | null; willReceive: boolean; reason: string | null }[];
+  /**
+   * For a card that changes several contacts (assign, consent): each one, from
+   * the database — what it is now and what it will be, or why it is skipped.
+   */
+  changes?: { name: string; email: string | null; before: string; after: string; skipped: string | null }[];
 };
 
 /** The NDJSON frames of one turn, in order. */

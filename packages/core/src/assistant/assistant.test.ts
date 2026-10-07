@@ -289,3 +289,44 @@ describe('send_template_email (Phase D) — recipients are references, never tex
   });
 });
 
+
+describe('assign_contacts (owners and admins only) — contacts and the receiver are references', () => {
+  const ok = { contacts: ['C1', 'S2'], to: 'M1' };
+  it('accepts contact references and one member reference', () => {
+    expect(ASSISTANT_TOOL_INPUTS.assign_contacts.safeParse(ok).success).toBe(true);
+    expect(issueHandle({}, 'M', 'someone')).toBe('M1');
+  });
+  it('the receiver is a member reference — never a name, an email, an id or a contact', () => {
+    for (const to of ['Sara', 'sara@example.com', contactId, 'C1', 'S1', 'A1']) {
+      expect(ASSISTANT_TOOL_INPUTS.assign_contacts.safeParse({ ...ok, to }).success, to).toBe(false);
+    }
+    expect(ASSISTANT_TOOL_INPUTS.assign_contacts.safeParse({ ...ok, contacts: ['C1', 'M1'] }).success).toBe(false);
+  });
+  it('at most 20 contacts on one card, and never by filter or "all"', () => {
+    expect(ASSISTANT_TOOL_INPUTS.assign_contacts.safeParse({ ...ok, contacts: Array.from({ length: 21 }, (_, i) => `C${i + 1}`) }).success).toBe(false);
+    expect(ASSISTANT_TOOL_INPUTS.assign_contacts.safeParse({ ...ok, contacts: [] }).success).toBe(false);
+    for (const extra of [{ all: true }, { filter: 'buyers' }, { role: 'buyer' }, { lead: 'L1' }]) {
+      expect(ASSISTANT_TOOL_INPUTS.assign_contacts.safeParse({ ...ok, ...extra }).success, JSON.stringify(extra)).toBe(false);
+    }
+  });
+  it('an agent or a read-only member is refused before the database — to assign and to list the team', async () => {
+    const handles: HandleMap = {};
+    issueHandle(handles, 'C', contactId);
+    issueHandle(handles, 'S', '44444444-4444-4444-4444-444444444444');
+    issueHandle(handles, 'M', '55555555-5555-5555-5555-555555555555');
+    for (const role of ['agent', 'read_only'] as const) {
+      const assign = await runAssistantTool(ctx(handles, role), 'assign_contacts', ok);
+      expect(assign.isError, role).toBe(true);
+      expect(JSON.stringify(assign.result), role).toMatch(/owner or admin/);
+      const team = await runAssistantTool(ctx(handles, role), 'find_team_members', {});
+      expect(team.isError, role).toBe(true);
+    }
+  });
+  it('a receiver reference this conversation never issued is refused before the database', async () => {
+    const handles: HandleMap = {};
+    issueHandle(handles, 'C', contactId);
+    const out = await runAssistantTool(ctx(handles, 'owner'), 'assign_contacts', { contacts: ['C1'], to: 'M1' });
+    expect(out.isError).toBe(true);
+    expect(JSON.stringify(out.result)).toMatch(/not one you were given/);
+  });
+});

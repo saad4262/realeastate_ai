@@ -22,8 +22,8 @@ import {
   type ToolOutcome,
 } from '@repo/core/assistant';
 import { getModel, SERVER_FALLBACK_MODELS, type TokenUsage } from '../models';
-import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v5';
-import { ASSISTANT_TOOLS } from '../tools/assistant-tools';
+import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v7';
+import { assistantToolsFor } from '../tools/assistant-tools';
 import { trackAiRunQuietly } from '../usage';
 
 /**
@@ -42,6 +42,8 @@ import { trackAiRunQuietly } from '../usage';
  */
 
 export type AssistantDeps = {
+  /** The tools this person is shown (`assistantToolsFor`): owners/admins see the assign tools, nobody else does. */
+  tools: readonly Anthropic.Beta.BetaTool[];
   claim(): Promise<ClaimedTurn>;
   /** `S` references for what the person selected — visible contacts only. */
   selection(handles: HandleMap): Promise<{ ref: string; name: string }[]>;
@@ -198,7 +200,7 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
           // breakpoint caches the growing conversation behind them.
           cache_control: { type: 'ephemeral' },
           system: [{ type: 'text', text: ASSISTANT_SYSTEM }],
-          tools: [...ASSISTANT_TOOLS],
+          tools: [...deps.tools],
           ...(mustAnswer ? { tool_choice: { type: 'none' as const } } : {}),
           messages: [...history, ...turnMessages],
         },
@@ -327,6 +329,7 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
 /** The real deps: core's scoped functions as this person, and ai_run metering. */
 export function assistantDeps(db: Db, actor: Actor, request: AssistantTurnRequest, surface: AssistantSurface, now = new Date(), env: NodeJS.ProcessEnv = process.env): AssistantDeps {
   return {
+    tools: assistantToolsFor(actor),
     claim: () => claimTurn(db, actor, { ...(request.conversationId ? { conversationId: request.conversationId } : {}), message: request.message, surface }, now),
     selection: (handles) => selectionHandles(db, actor, handles, request.selection?.contactIds ?? []),
     budget: () => checkAssistantBudget(db, actor, { env }),

@@ -382,6 +382,7 @@ export function TimelineList({
                 <div className={styles.eventTitle}>
                   {ACTIVITY_LABELS[item.kind]}
                   {item.who ? <span className={styles.muted}> · {item.who}</span> : null}
+                  {item.payload.via === 'assistant' ? <span className={styles.muted}> · via the assistant</span> : null}
                 </div>
                 {activityText(item) ? <div className={styles.eventBody}>{activityText(item)}</div> : null}
               </>

@@ -193,6 +193,7 @@ import {
   runAssistantTool,
   selectionHandles,
   type HandleMap,
+  ASSISTANT_WRITE_TOOLS,
 } from '@repo/core/assistant';
 import { assistantDeps, runAssistantTurn, type AssistantEvent } from '@repo/ai/assistant';
 import {
@@ -5555,6 +5556,129 @@ async function main() {
       const res = (await getProposedAction(t, x.f.actor('a1'), id)).result!;
       assert(Number(x.transport.sent.length) === 1 && res.sent === 1 && res.skipped === 1, `at run: ${x.transport.sent.length} sent, ${JSON.stringify(res)}`);
       return 'past the batch’s life → refused; at its time: 1 sent, the person who unsubscribed in between skipped; two ticks, one send';
+    }),
+  );
+
+  // ------------------------------------------- AE: the assistant edits contacts --
+  /** A conversation of `actor`'s that has been shown every contact they may see (C…) and, for an admin, the team (M…). */
+  async function editFixture(t: Db) {
+    const f = await contactFixture(t);
+    // A1 is promoted to admin here, so "an admin" is not only the owner.
+    await t.execute(sql`update membership set role = 'admin' where user_id = ${f.people.a1} and agency_id = ${f.agencyId}`);
+    const as = (k: keyof typeof f.people, membershipRole: Actor['membershipRole']): Actor => ({ userId: f.people[k], agencyId: f.agencyId, membershipRole });
+    const owner = as('owner', 'owner');
+    const admin = as('a1', 'admin');
+    const agent = as('a2', 'agent');
+    const viewer = as('viewer', 'read_only');
+    const session = async (actor: Actor) => {
+      const conv = await claimTurn(t, actor, { message: 'x', surface: actor.membershipRole === 'agent' || actor.membershipRole === 'read_only' ? 'agent' : 'agency' });
+      const h: HandleMap = {};
+      await runAssistantTool(toolCtx(t, actor, h), 'find_contacts', { include_archived: true, limit: 20 });
+      const ref = (id: string) => Object.entries(h).find(([k, v]) => (k[0] === 'C' || k[0] === 'S') && v.id === id)?.[0] ?? issueHandle(h, 'C', id);
+      const ctx = (toolUseId?: string) => proposeCtx(t, actor, h, conv.conversationId, { count: 0 }, toolUseId);
+      return { conv, h, ref, ctx };
+    };
+    const assignee = async (id: string) => (await t.execute<{ a: string | null }>(sql`select assigned_to as a from contact where id = ${id}`))[0]!.a;
+    const status = async (id: string) => (await t.execute<{ status: string; error: string | null }>(sql`select status, error from proposed_action where id = ${id}`))[0]!;
+    return { f, owner, admin, agent, viewer, session, assignee, status };
+  }
+
+  await check('AE: the proposed_action tool CHECK allows every write tool the code can propose — and nothing else', async () => {
+    const [row] = await db.execute<{ def: string }>(sql`
+      select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'proposed_action_tool_check'`);
+    assert(row, 'no proposed_action_tool_check');
+    const allowed = [...row.def.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]!).sort();
+    const code = [...ASSISTANT_WRITE_TOOLS].sort();
+    assert(JSON.stringify(allowed) === JSON.stringify(code), `CHECK: ${allowed.join(', ')} · code: ${code.join(', ')}`);
+    return `${allowed.length} tools, same list`;
+  });
+
+  await check('AE: assign_contacts — owners/admins only, receiver by M reference, card shows who had each contact; nothing until Approve; timeline says "via the assistant"', async () =>
+    inRollback(async (t) => {
+      const x = await editFixture(t);
+      const s = await x.session(x.owner);
+      const team = await runAssistantTool(toolCtx(t, x.owner, s.h), 'find_team_members', {});
+      const members = (team.result as { members: { ref: string; name: string }[] }).members;
+      const names = members.map((m) => m.name).sort();
+      assert(JSON.stringify(names) === JSON.stringify(['a1', 'a2', 'owner']), `the team offered: ${names.join(', ')} (the read-only member must not be offered)`);
+      const a2Ref = members.find((m) => m.name === 'a2')!.ref;
+      assert(/^M\d+$/.test(a2Ref), `receiver reference: ${a2Ref}`);
+
+      // P4 is the read-only member's; P6 is nobody's.
+      const out = await runAssistantTool(s.ctx(), 'assign_contacts', { contacts: [s.ref(x.f.contacts.p4), s.ref(x.f.contacts.p6)], to: a2Ref });
+      const id = cardId(out);
+      assert((await x.assignee(x.f.contacts.p6)) === null && (await x.assignee(x.f.contacts.p4)) === x.f.people.viewer, 'proposing assigned something');
+      const card = (await getProposedAction(t, x.owner, id)).card;
+      const rows = card.changes ?? [];
+      const p4 = rows.find((r) => r.name === 'P4');
+      const p6 = rows.find((r) => r.name === 'P6');
+      assert(rows.length === 2 && p4 && p6, `card rows: ${JSON.stringify(rows)}`);
+      assert(p4.email === `p4.${x.f.tag}@smoke.test` && p4.before === 'viewer' && p4.after === 'a2', `P4 row: ${JSON.stringify(p4)}`);
+      assert(p6.before === 'Nobody' && p6.after === 'a2', `P6 row: ${JSON.stringify(p6)}`);
+      assert(card.lines.some((l) => l.label === 'Give them to' && l.value === 'a2'), `receiver line: ${JSON.stringify(card.lines)}`);
+
+      // Only the owner who asked may approve; then both move, once.
+      assert((await code(approveProposedAction(t, x.admin, id))) === 'forbidden', 'another admin approved the owner’s card');
+      const r = await approveProposedAction(t, x.owner, id);
+      assert(r.outcome === 'done', `approve: ${JSON.stringify(r)}`);
+      assert((await x.assignee(x.f.contacts.p4)) === x.f.people.a2 && (await x.assignee(x.f.contacts.p6)) === x.f.people.a2, 'not assigned on approve');
+      const acts = await t.execute<{ payload: { from: string | null; to: string; via?: string } }>(sql`
+        select payload from activity where contact_id = ${x.f.contacts.p4} and kind = 'contact_assigned'`);
+      assert(acts.length === 1 && acts[0]!.payload.via === 'assistant' && acts[0]!.payload.from === x.f.people.viewer && acts[0]!.payload.to === x.f.people.a2, `timeline: ${JSON.stringify(acts)}`);
+      return 'team = owner, a1, a2 (read-only left out); card: P4 viewer → a2, P6 Nobody → a2, with emails; another admin cannot approve; approve assigns both; timeline Assigned {from, to, via: assistant}';
+    }),
+  );
+
+  await check('AE: assign_contacts refuses an agent, a read-only member, a read-only or other-agency receiver, another agency’s contacts, and re-checks everything at run time (now and later)', async () =>
+    inRollback(async (t) => {
+      const x = await editFixture(t);
+      const other = await contactFixture(t);
+      const refusals: string[] = [];
+
+      // An agent and a read-only member: the tool is refused (and never offered — the ai unit test).
+      for (const who of [x.agent, x.viewer]) {
+        const s = await x.session(who);
+        issueHandle(s.h, 'M', x.f.people.a2);
+        const out = await runAssistantTool(s.ctx(), 'assign_contacts', { contacts: [s.ref(x.f.contacts.p6)], to: 'M1' });
+        assert(out.isError && /owner or admin/.test(JSON.stringify(out.result)), `${who.membershipRole} proposed an assignment: ${JSON.stringify(out.result)}`);
+        const team = await runAssistantTool(toolCtx(t, who, s.h), 'find_team_members', {});
+        assert(team.isError, `${who.membershipRole} listed the team`);
+      }
+      refusals.push('agent', 'read-only');
+
+      const s = await x.session(x.owner);
+      const to = (userId: string) => issueHandle(s.h, 'M', userId);
+      const cannotHold = await runAssistantTool(s.ctx(), 'assign_contacts', { contacts: [s.ref(x.f.contacts.p6)], to: to(x.f.people.viewer) });
+      assert(cannotHold.isError && /cannot be given contacts/.test(JSON.stringify(cannotHold.result)), `read-only receiver: ${JSON.stringify(cannotHold.result)}`);
+      const stranger = await runAssistantTool(s.ctx(), 'assign_contacts', { contacts: [s.ref(x.f.contacts.p6)], to: to(other.people.a1) });
+      assert(stranger.isError && /cannot be given contacts/.test(JSON.stringify(stranger.result)), `other-agency receiver: ${JSON.stringify(stranger.result)}`);
+      const theirs = await runAssistantTool(s.ctx(), 'assign_contacts', { contacts: [s.ref(x.f.contacts.p6), s.ref(other.contacts.p6)], to: to(x.f.people.a2) });
+      assert(theirs.isError && /not available/.test(JSON.stringify(theirs.result)), `other agency's contact: ${JSON.stringify(theirs.result)}`);
+      refusals.push('read-only receiver', 'other-agency receiver', 'other-agency contact');
+
+      // Run time, now: the receiver becomes read-only after the card was made.
+      const c1 = cardId(await runAssistantTool(s.ctx(), 'assign_contacts', { contacts: [s.ref(x.f.contacts.p6)], to: to(x.f.people.a2) }));
+      await t.execute(sql`update membership set role = 'read_only' where user_id = ${x.f.people.a2} and agency_id = ${x.f.agencyId}`);
+      const r1 = await approveProposedAction(t, x.owner, c1);
+      assert(r1.outcome === 'failed' && /cannot be given contacts/.test(r1.error) && (await x.assignee(x.f.contacts.p6)) === null, `receiver demoted: ${JSON.stringify(r1)}`);
+      await t.execute(sql`update membership set role = 'agent' where user_id = ${x.f.people.a2} and agency_id = ${x.f.agencyId}`);
+
+      // Run time, now: the admin who proposed it is no longer an admin.
+      const sa = await x.session(x.admin);
+      const c2 = cardId(await runAssistantTool(sa.ctx(), 'assign_contacts', { contacts: [sa.ref(x.f.contacts.p6)], to: issueHandle(sa.h, 'M', x.f.people.a2) }));
+      const r2 = await approveProposedAction(t, { ...x.admin, membershipRole: 'agent' }, c2);
+      assert(r2.outcome === 'failed' && /admin|not found/.test(r2.error) && (await x.assignee(x.f.contacts.p6)) === null, `approver demoted: ${JSON.stringify(r2)}`);
+
+      // Run later: approved as an admin, demoted before its time — the tick runs it as they are THEN.
+      const c3 = cardId(await runAssistantTool(sa.ctx(), 'assign_contacts', { contacts: [sa.ref(x.f.contacts.p6)], to: issueHandle(sa.h, 'M', x.f.people.a2) }));
+      const now = new Date();
+      const at = new Date(now.getTime() + 3_600_000);
+      assert((await approveProposedAction(t, x.admin, c3, { env: SCHEDULING_ON }, now, { runAt: at })).outcome === 'scheduled', 'not scheduled');
+      await t.execute(sql`update membership set role = 'agent' where user_id = ${x.f.people.a1} and agency_id = ${x.f.agencyId}`);
+      await runScheduledActions(t, {}, new Date(at.getTime() + 60_000));
+      const later = await x.status(c3);
+      assert(later.status === 'failed' && (await x.assignee(x.f.contacts.p6)) === null, `scheduled after demotion: ${JSON.stringify(later)}`);
+      return `refused at propose: ${refusals.join(', ')}; at run: receiver made read-only → failed; approver no longer admin → failed (now and scheduled)`;
     }),
   );
 

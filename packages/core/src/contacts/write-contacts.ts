@@ -106,9 +106,22 @@ export async function listContactAssignees(db: Db, actor: Actor): Promise<Contac
 
 /** Throws unless `userId` is in the assignee list `listContactAssignees` would draw. */
 async function assertAssignable(db: DbOrTx, actor: Actor, userId: string): Promise<void> {
+  if (!(await assignableMember(db, actor, userId))) throw new ContactError('invalid', 'That person cannot be given contacts');
+}
+
+/**
+ * The member `userId`, named as the assignee list names them, if they may be
+ * given contacts in the actor's agency now: active, and allowed to edit a
+ * contact of their own (so never read-only). Null otherwise — including
+ * anybody from another agency.
+ */
+export async function assignableMember(db: DbOrTx, actor: Actor, userId: string): Promise<ContactAssignee | null> {
+  if (!actor.agencyId || !/^[0-9a-f-]{36}$/i.test(userId)) return null;
   const [row] = await db
-    .select({ role: membership.role })
+    .select({ role: membership.role, name: user.name, email: user.email, displayName: agentProfile.displayName })
     .from(membership)
+    .innerJoin(user, eq(user.id, membership.userId))
+    .leftJoin(agentProfile, eq(agentProfile.userId, membership.userId))
     .where(
       and(
         eq(membership.agencyId, actor.agencyId as string),
@@ -117,11 +130,10 @@ async function assertAssignable(db: DbOrTx, actor: Actor, userId: string): Promi
       ),
     )
     .limit(1);
-  const them: Actor = { userId, agencyId: actor.agencyId, membershipRole: row?.role as MembershipRole };
-  const ok =
-    row &&
-    can(them, 'contact:update', { type: 'contact', id: 'probe', agencyId: actor.agencyId, ownerId: userId });
-  if (!ok) throw new ContactError('invalid', 'That person cannot be given contacts');
+  if (!row) return null;
+  const them: Actor = { userId, agencyId: actor.agencyId, membershipRole: row.role as MembershipRole };
+  if (!can(them, 'contact:update', { type: 'contact', id: 'probe', agencyId: actor.agencyId, ownerId: userId })) return null;
+  return { userId, name: row.displayName || row.name || row.email };
 }
 
 /**
@@ -308,12 +320,22 @@ export async function updateContact(
   }
 }
 
+/**
+ * How a change was made, on its timeline entry: by hand (absent), or by an
+ * assistant card the person approved (ADR 0025).
+ */
+export type ChangeOrigin = { via?: 'assistant' };
+
 /** Give a contact to a member, or to nobody. Admins only. */
 export async function assignContact(
   db: Db,
   actor: Actor,
   contactId: string,
   assignTo: string | null,
+  opts: ChangeOrigin & {
+    /** Refuse if the contact is no longer held by this person (a card shows who had it). */
+    expectedFrom?: string | null;
+  } = {},
 ): Promise<void> {
   const head = await loadContactHead(db, actor, contactId);
   if (!head || head.row.mergedIntoId) throw CONTACT_NOT_FOUND();
@@ -322,8 +344,11 @@ export async function assignContact(
   if (!can(actor, 'contact:assign', resource)) {
     throw new ContactError('forbidden', 'Only an admin may assign contacts');
   }
-  if (assignTo === head.row.assignedTo) return;
+  if (opts.expectedFrom !== undefined && opts.expectedFrom !== head.row.assignedTo) {
+    throw new ContactError('conflict', `${head.row.name} was given to someone else after this was proposed`);
+  }
   if (assignTo) await assertAssignable(db, actor, assignTo);
+  if (assignTo === head.row.assignedTo) return;
 
   await db.transaction(async (tx) => {
     await tx
@@ -333,6 +358,7 @@ export async function assignContact(
     await recordActivity(tx, actor, head.row.agencyId, head.row.id, 'contact_assigned', {
       from: head.row.assignedTo,
       to: assignTo,
+      ...(opts.via ? { via: opts.via } : {}),
     });
   });
 }

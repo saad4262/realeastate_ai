@@ -9,7 +9,8 @@ import { formatInZone, localDateTimeToInstant } from '../time/local-input';
 import { propose, type FrozenArgs } from './actions';
 import { resolveHandle } from './handles';
 import type { ProposalCard } from './schema';
-import type { addNoteInput, cancelAppointmentInput, createDashboardInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
+import { assignableMember } from '../contacts/write-contacts';
+import type { addNoteInput, assignContactsInput, cancelAppointmentInput, createDashboardInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
 import { cancelBatch, getBatch, prepareBatch } from '../template-email/batches';
 import { TemplateEmailError } from '../template-email/templates';
 import { SKIP_REASON_LABELS } from '../template-email/schema';
@@ -433,3 +434,73 @@ export async function proposeCreateDashboard(
   return propose(ctx, label, { tool: 'create_dashboard', args, card, contactId: null });
 }
 
+
+/** Every contact a multi-contact card names, each visible to this person now — or the first refusal. */
+async function visibleContacts(ctx: ToolContext, refs: string[]) {
+  const seen = new Set<string>();
+  const out: NonNullable<Extract<Awaited<ReturnType<typeof visibleContact>>, { head: unknown }>>[] = [];
+  for (const ref of refs) {
+    const c = await visibleContact(ctx, ref);
+    if ('error' in c) return { error: `${ref}: ${c.error}` } as const;
+    if (seen.has(c.head.row.id)) continue;
+    seen.add(c.head.row.id);
+    out.push(c);
+  }
+  return { contacts: out } as const;
+}
+
+/**
+ * Give contacts to a member (owners/admins only — `contact:assign`, asked at
+ * the door in runAssistantTool and again by assignContact when it runs). The
+ * receiver is an `M` reference from find_team_members and must be an active
+ * member who may hold contacts. The card lists every contact with its email,
+ * who has it now and who will — from the database. Leads are not touched.
+ */
+export async function proposeAssignContacts(ctx: ToolContext, input: z.infer<typeof assignContactsInput>, label: string): Promise<ToolOutcome> {
+  const to = resolveHandle(ctx.handles, input.to, 'member');
+  if (!to) return refused(UNKNOWN_REF, label);
+  const found = await visibleContacts(ctx, input.contacts);
+  if ('error' in found) return refused(found.error!, label);
+  for (const c of found.contacts) {
+    if (!can(ctx.actor, 'contact:assign', c.resource)) return refused('Only an owner or admin can assign contacts.', label);
+  }
+  const receiver = await assignableMember(ctx.db, ctx.actor, to);
+  if (!receiver) return refused('That person cannot be given contacts: they must be an active member of this agency who may work contacts (not read-only).', label);
+
+  const holder = (row: { assignedTo: string | null; assigneeName: string | null; assigneeEmail: string | null }) =>
+    row.assignedTo ? (row.assigneeName || row.assigneeEmail || 'A former member') : 'Nobody';
+  const changes = found.contacts.map(({ head: { row } }) => ({
+    name: row.name,
+    email: row.email,
+    before: holder(row),
+    after: receiver.name,
+    skipped: row.assignedTo === receiver.userId ? `Already ${receiver.name}’s` : null,
+  }));
+  const moving = found.contacts.filter(({ head: { row } }) => row.assignedTo !== receiver.userId);
+  if (!moving.length) {
+    return { label, result: { proposed: false, tell_the_user: `All of them are already ${receiver.name}’s, so nothing was proposed.` } };
+  }
+  const n = moving.length;
+  const first = moving[0]!.head.row;
+  const card: ProposalCard = {
+    title: `Give ${n} contact${n === 1 ? '' : 's'} to ${receiver.name}`,
+    contact: { id: first.id, name: first.name },
+    lines: [
+      { label: 'Give them to', value: receiver.name },
+      { label: 'Contacts', value: `${n} will move${changes.length > n ? ` · ${changes.length - n} already theirs` : ''}` },
+    ],
+    changes,
+    notes: [
+      NOTHING_YET,
+      'Only the contacts move. Their enquiries (leads), appointments and emails stay with whoever has them now.',
+      `${receiver.name} is not emailed about it; the contacts appear in their directory.`,
+    ],
+  };
+  const args: FrozenArgs = {
+    tool: 'assign_contacts',
+    to: receiver.userId,
+    contactIds: moving.map((c) => c.head.row.id),
+    from: Object.fromEntries(moving.map((c) => [c.head.row.id, c.head.row.assignedTo])),
+  };
+  return propose(ctx, label, { tool: 'assign_contacts', args, card, contactId: first.id });
+}

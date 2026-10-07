@@ -1,5 +1,6 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { APPOINTMENT_RANGES, ASSISTANT_APPOINTMENT_TYPES, LEAD_SINCE, LEAD_STATUSES } from '@repo/core/assistant/schema';
+import { APPOINTMENT_RANGES, ASSISTANT_ADMIN_TOOLS, ASSISTANT_APPOINTMENT_TYPES, LEAD_SINCE, LEAD_STATUSES } from '@repo/core/assistant/schema';
+import { can, type Actor } from '@repo/core/permissions';
 import { WIDGET_IDS, WIDGET_RANGES } from '@repo/core/widgets';
 import { CONTACT_ROLES } from '@repo/core/contacts/schema';
 import { INTEGRATION_PROVIDERS } from '@repo/core/integrations/providers';
@@ -27,6 +28,7 @@ const DATE = 'The day, as YYYY-MM-DD, in the person\'s own time zone (see consol
 const TIME = 'The local time, as HH:mm in 24-hour form, e.g. 15:00.';
 
 const REF = 'A reference you were given earlier in this conversation, e.g. C2 or S1. Never a name.';
+const CONTACTS = 'Contact references, e.g. ["C1", "S2"]. 1 to 20 — only the people the person named or asked you to look up. Never names, email addresses or "everyone".';
 
 export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze([
   {
@@ -225,4 +227,37 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
       required: ['title', 'widgets'],
     },
   },
+  {
+    name: 'find_team_members',
+    description:
+      'List the members of the agency contacts can be given to — active members who may work contacts (never read-only ones). Returns references (M1, M2…) and names. Owners and admins only.',
+    input_schema: { type: 'object', additionalProperties: false, properties: {} },
+  },
+  {
+    name: 'assign_contacts',
+    description: `Propose giving contacts to a team member — owners and admins only. The card lists every contact with their email, who has them now and who will. Leads are not assigned. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        contacts: { type: 'array', items: { type: 'string' }, description: CONTACTS },
+        to: { type: 'string', description: 'The team member to give them to: an M reference from find_team_members.' },
+      },
+      required: ['contacts', 'to'],
+    },
+  },
 ]);
+
+const ADMIN_ONLY = new Set<string>(ASSISTANT_ADMIN_TOOLS);
+/** What everyone else is shown: the same definitions, without the owner/admin tools. */
+const MEMBER_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze(ASSISTANT_TOOLS.filter((t) => !ADMIN_ONLY.has(t.name)));
+
+/**
+ * The tools this person's model is shown. Owners and admins (`contact:assign`)
+ * get every tool; everyone else never sees the assign tools at all — the
+ * tools are also refused in core if asked for by name. Two frozen lists, so
+ * each kind of person has one byte-identical cached prefix.
+ */
+export function assistantToolsFor(actor: Actor): readonly Anthropic.Beta.BetaTool[] {
+  return actor.agencyId && can(actor, 'contact:assign', { type: 'contact', agencyId: actor.agencyId }) ? ASSISTANT_TOOLS : MEMBER_TOOLS;
+}
