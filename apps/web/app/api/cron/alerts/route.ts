@@ -1,6 +1,6 @@
 import { after, NextResponse, type NextRequest } from 'next/server';
 import { runAppointmentSyncTick, syncDepsFromEnv } from '@repo/core/appointments';
-import { expireProposedActions, purgeAssistantConversations } from '@repo/core/assistant';
+import { expireProposedActions, purgeAssistantConversations, runScheduledActions } from '@repo/core/assistant';
 import { purgeImportFiles, runImportTick } from '@repo/core/imports';
 import { pullReceivedMail } from '@repo/core/mail';
 import { authoriseCronRequest, runScheduleTick } from '@repo/core/schedules';
@@ -121,9 +121,20 @@ async function handler(request: NextRequest) {
       .then(([tick, purged]) => ({ ...tick, purged }))
       .catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'import tick failed' }));
 
+    /**
+     * Assistant actions approved to run later (ADR 0025 Phase E): each runs
+     * once, as the person who approved it as they are NOW, with every check
+     * repeated. Offering a later time needs ASSISTANT_SCHEDULING=1 (with the
+     * 5-minute cron); ones already scheduled run even if it is switched off.
+     */
+    const scheduled = await (async () => {
+      const send = templateSendDepsFromEnv();
+      return runScheduledActions(getWebDb(), { sync: syncDepsFromEnv(), templateSend: send.ok ? send.deps : null });
+    })().catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'scheduled actions failed' }));
+
     // No ids, no addresses, no listing text — this is read from a cron log.
     return NextResponse.json(
-      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills, templateEmail, appointmentSync, assistant, imports },
+      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills, templateEmail, appointmentSync, assistant, imports, scheduled },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (err) {

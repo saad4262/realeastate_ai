@@ -813,3 +813,29 @@ address must be on `EMAIL_DEV_ALLOWLIST` for invitations.
 | AA13 | Ask the assistant: "Is my Gmail connected?" (before connecting, then after) | Before: it says to connect Gmail first. After: connected. |
 | AA14 | Ask the assistant to send a template to a contact | The card's "Sent from" says the platform address (template email never goes from a Gmail). |
 | AA15 | Disconnect Gmail on My integrations | The card says disconnected and the stored access was deleted. Google's own "Third-party access" page no longer lists the app (or the page tells you to remove it there). |
+
+## AB — Assistant: approve now, run later (ADR 0025 Phase E)
+
+A card from the assistant can be approved to run **later**, up to 48 hours ahead. The person
+picks the time on the card; the assistant cannot. It runs **about** then: up to ~5 minutes
+late, never early. When it runs, everything is checked again, as the person is at that moment.
+Until then it can be cancelled.
+
+**Setup.** `ASSISTANT_SCHEDULING=1` in the **console and web** environments. It is off by
+default; without it, cards only offer "Approve" (now). It needs the cron to call
+`/api/cron/alerts` every 5 minutes (Vercel Pro, or the pinger in dev). `ANTHROPIC_API_KEY` for
+the assistant. For the email case: `EMAIL_DEV_ALLOWLIST` covering your test contacts, and a
+consenting test contact.
+
+| # | Case | Expected |
+|---|---|---|
+| AB1 | Without `ASSISTANT_SCHEDULING=1`: ask the assistant to add a note to a contact | The card has Approve / Reject only, no "When" choice. |
+| AB2 | With it on: same request | The card shows **When: Now / In 10 minutes / In 1 hour / In 3 hours / At a time I choose…**. |
+| AB3 | Choose **In 10 minutes** → **Approve for later** | The card says **Scheduled** — "Runs at about <time> (up to 5 minutes later)…", with **Cancel**. The contact has no new note yet. |
+| AB4 | Wait until the time plus up to 5 minutes (the cron must be running) | The note appears on the contact. The card (reopen the conversation) says **Done**. |
+| AB5 | Schedule another note for 1 hour, then press **Cancel** | **Cancelled**; nothing is added later. |
+| AB6 | "At a time I choose…" more than 48 hours ahead | The picker doesn't allow it. If forced, the card says a change can run at most 48 hours from now. |
+| AB7 | Schedule a template email to two consenting contacts for 10 minutes ahead. Before it runs, unsubscribe one of them (the unsubscribe link in an earlier email, or the contact's page) | At run time, one email is sent. The other person is listed as skipped (opted out). The send report is linked from the card. |
+| AB8 | Schedule a note, then (as owner) **suspend** that agent before it runs | It does not run. The card says the person is no longer an active member. |
+| AB9 | Another agent tries to open the scheduled card's conversation (copy its link) | Not found. Only the person who approved it sees its card. |
+| AB10 | Schedule an appointment card for later, but book the slot to be in the past by then (e.g. schedule a "today 3 pm" appointment to run at 4 pm) | At run time: failed — "That time has already passed". |

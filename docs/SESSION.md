@@ -1,3 +1,24 @@
+## 2026-10-06 — Claude Code — Phase 7: assistant delayed execution (ADR 0025 Phase E)
+
+- Done: `approveProposedAction(..., { runAt })` (flag, 48 h, batch-life checks; guarded
+  proposed → scheduled; audit with the time); `runScheduledActions` (one per transaction,
+  SKIP LOCKED claim + run + settle together; approver re-loaded with `activeMemberActor`;
+  unexpected errors fail the row so it is not retried forever); approve logic refactored into
+  runClaimed / failRow / afterCommit shared by both paths; ProposalView.runAt/scheduling; card
+  "When" choice + "Runs at about … (up to 5 minutes later)"; cron route runs the tick;
+  TEST-PLAN AB; ADR 0025 as-built E. No prompt change (the model never sets a time).
+- Checks: typecheck, unit (the assistant's no-raw-SQL-write guard caught a first raw UPDATE —
+  rewritten with the query builder), smoke Console assistant 16/16.
+- Break-tests (one at a time, in a separate copy): the tick ignores run_at; it re-runs done
+  rows with an unguarded claim; it runs as an owner instead of the approver as they are now;
+  no 48-hour limit; scheduling while switched off; a cancelled action still runs; an email
+  scheduled past its prepared batch — all 7 red, restored green.
+- Environment note: on 2026-10-07 the dev DB's transaction-mode pooler (port 6543) started
+  closing long smoke transactions (CONNECTION_CLOSED on unchanged Phase 3 checks too). The
+  break run used the session pooler (DIRECT_URL, 5432) for that process only; .env.local
+  untouched.
+- Next exact step: Phase 8.
+
 ## 2026-10-06 — Claude Code — Phase 6: Gmail send (ADR 0026)
 
 - Done: migration 0034 applied; provider `gmail` (gmail.send + openid email, the one Google

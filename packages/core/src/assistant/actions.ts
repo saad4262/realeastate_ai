@@ -1,5 +1,6 @@
-import { and, eq, gt, inArray, lt, sql } from 'drizzle-orm';
-import { proposedAction, type Db, type DbOrTx } from '@repo/db';
+import { and, asc, eq, gt, inArray, lt, lte, sql } from 'drizzle-orm';
+import { emailBatch, proposedAction, type Db, type DbOrTx } from '@repo/db';
+import { activeMemberActor } from '../team/member-actor';
 import { can, type Actor } from '../permissions';
 import { recordActivity } from '../contacts/write-contacts';
 import { ContactError } from '../contacts/list-contacts';
@@ -160,7 +161,22 @@ async function assertStillConnected(db: DbOrTx, actor: Actor, providers: Integra
 }
 
 /** Run one approved action AS the person, through the same core function a screen uses — which re-checks can(). */
-type RunDeps = { sync?: SyncDeps | null; templateSend?: TemplateSendDeps | null };
+type RunDeps = { sync?: SyncDeps | null; templateSend?: TemplateSendDeps | null; env?: NodeJS.ProcessEnv };
+
+/**
+ * Delayed execution (ADR 0025 §6, Phase E) is offered only with
+ * ASSISTANT_SCHEDULING=1 — set once the 5-minute cron is real. Already
+ * scheduled actions still run if it is turned off later: they were approved.
+ */
+export function schedulingEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.ASSISTANT_SCHEDULING === '1';
+}
+/** At most this far after approval (ADR 0025 §6, decided Q4). */
+export const SCHEDULE_MAX_HOURS = 48;
+/** A run time within this of now is "now". */
+const NOW_SLACK_MS = 60_000;
+/** An email card must run this long before its prepared batch expires (the tick can be ~5 min late). */
+const BATCH_MARGIN_MS = 10 * 60_000;
 
 async function execute(
   tx: Db,
@@ -240,7 +256,79 @@ async function loadRow(db: DbOrTx, actor: Actor, id: string) {
 export type ApproveResult =
   | { outcome: 'done'; result: Record<string, unknown>; sync: SyncOutcome | null }
   | { outcome: 'failed'; error: string }
+  | { outcome: 'scheduled'; runAt: Date }
   | { outcome: 'already'; status: ProposalStatus };
+
+type RowT = typeof proposedAction.$inferSelect;
+type Ran = { ok: true; result: Record<string, unknown>; appointmentId?: string; batchId?: string } | { ok: false; error: string };
+
+/**
+ * Run a CLAIMED action inside the caller's transaction: audit, execute in a
+ * savepoint (a refusal undoes only the action, never the record of it), and
+ * settle the row `done` or `failed`. Shared by Approve-now and the scheduler,
+ * so a delayed action runs exactly the way an immediate one does.
+ */
+async function runClaimed(tx: Db, actor: Actor, row: RowT, deps: RunDeps, now: Date): Promise<Ran> {
+  const args = row.args as FrozenArgs;
+  const audit = async (kind: ActivityKind, extra: Record<string, unknown> = {}) => {
+    for (const contactId of auditContacts(row)) {
+      await recordActivity(tx, actor, row.agencyId, contactId, kind, auditPayload(row.id, row.tool, args, extra));
+    }
+  };
+  if (!row.runAt) await audit('assistant_approved');
+  try {
+    const done = await tx.transaction((sp) => execute(sp as unknown as Db, actor, args, now, deps));
+    await tx
+      .update(proposedAction)
+      .set({ status: 'done', result: done.result, finishedAt: now, updatedAt: sql`now()` })
+      .where(eq(proposedAction.id, row.id));
+    return { ok: true, ...done };
+  } catch (err) {
+    const reason = runRefusal(err);
+    if (!reason) throw err;
+    await failRow(tx, actor, row, reason, now);
+    return { ok: false, error: reason };
+  }
+}
+
+/** Mark it failed with the reason; an email card takes its prepared batch with it. */
+async function failRow(tx: Db, actor: Actor | null, row: RowT, reason: string, now: Date): Promise<void> {
+  const args = row.args as FrozenArgs;
+  await tx
+    .update(proposedAction)
+    .set({ status: 'failed', error: reason, finishedAt: now, updatedAt: sql`now()` })
+    .where(eq(proposedAction.id, row.id));
+  // A failed email card takes its prepared batch with it, so the Bulk email screen
+  // never shows a batch still waiting for an Approve that the card refused.
+  if (args.tool === 'send_template_email' && actor) {
+    await tx.transaction((sp) => cancelBatch(sp as unknown as Db, actor, args.batchId)).catch(() => undefined);
+  }
+  if (actor) {
+    for (const contactId of auditContacts(row)) {
+      await recordActivity(tx, actor, row.agencyId, contactId, 'assistant_failed', auditPayload(row.id, row.tool, args));
+    }
+  }
+}
+
+/** After the commit: Google/Zoom sync and the email send (network never runs inside a transaction). */
+async function afterCommit(db: Db, row: RowT, ran: Extract<Ran, { ok: true }>, deps: RunDeps): Promise<ApproveResult> {
+  let sync: SyncOutcome | null = null;
+  if (ran.appointmentId && deps.sync) {
+    sync = await syncAppointment(db, deps.sync, ran.appointmentId).catch(() => null);
+  }
+  if (ran.batchId && deps.templateSend) {
+    // sendBatch re-checks each recipient — consent, opt-out, archive, email changed, the 7-day
+    // rule, the dev allowlist, today's limits — and skips with the reason; it never adds anyone.
+    const report = await sendBatch(db, deps.templateSend, ran.batchId).catch((err: unknown) => {
+      console.error('[assistant] template send failed', err instanceof Error ? err.message : err);
+      return null;
+    });
+    const result = { ...ran.result, ...(report ?? { sendError: 'Sending stopped part-way; the bulk email page shows who was sent and lets you retry.' }) };
+    await db.update(proposedAction).set({ result, updatedAt: sql`now()` }).where(eq(proposedAction.id, row.id));
+    return { outcome: 'done', result, sync };
+  }
+  return { outcome: 'done', result: ran.result, sync };
+}
 
 /**
  * Approve: CLAIM and RUN in one transaction. The claim is a guarded update
@@ -250,6 +338,10 @@ export type ApproveResult =
  * again; a refusal (access lost, contact gone, appointment changed) marks the
  * card failed with the reason. Google Calendar / Zoom are synced AFTER the
  * transaction (a network call never runs inside one).
+ *
+ * With `runAt` (Phase E, only when ASSISTANT_SCHEDULING=1): the claim moves
+ * it to `scheduled` instead, and the cron tick runs it then — as the person
+ * as they are THEN, with every check repeated (`runScheduledActions`).
  */
 export async function approveProposedAction(
   db: Db,
@@ -257,12 +349,14 @@ export async function approveProposedAction(
   id: string,
   deps: RunDeps = {},
   now = new Date(),
+  opts: { runAt?: Date | null } = {},
 ): Promise<ApproveResult> {
   const row = await loadRow(db, actor, id);
   if (!can(actor, 'proposed_action:decide', actionResource(row))) {
     throw new AssistantError('forbidden', 'Only the person the assistant was working for can approve this.');
   }
-  const args = row.args as FrozenArgs;
+  const runAt = opts.runAt && opts.runAt.getTime() > now.getTime() + NOW_SLACK_MS ? opts.runAt : null;
+  if (runAt) return schedule(db, actor, row, runAt, deps, now);
 
   const ran = await db.transaction(async (tx) => {
     const [claimed] = await tx
@@ -278,63 +372,135 @@ export async function approveProposedAction(
       )
       .returning({ id: proposedAction.id });
     if (!claimed) return null;
-    const audit = async (kind: ActivityKind, extra: Record<string, unknown> = {}) => {
-      for (const contactId of auditContacts(row)) {
-        await recordActivity(tx, actor, row.agencyId, contactId, kind, auditPayload(row.id, row.tool, args, extra));
-      }
-    };
-    await audit('assistant_approved');
-    try {
-      // A savepoint: a refusal undoes only the action, never the record of it.
-      const done = await tx.transaction((sp) => execute(sp as unknown as Db, actor, args, now, deps));
-      await tx
-        .update(proposedAction)
-        .set({ status: 'done', result: done.result, finishedAt: now, updatedAt: sql`now()` })
-        .where(eq(proposedAction.id, row.id));
-      return { ok: true as const, ...done };
-    } catch (err) {
-      const reason = runRefusal(err);
-      if (!reason) throw err;
-      await tx
-        .update(proposedAction)
-        .set({ status: 'failed', error: reason, finishedAt: now, updatedAt: sql`now()` })
-        .where(eq(proposedAction.id, row.id));
-      // A failed email card takes its prepared batch with it, so the Bulk email screen
-      // never shows a batch still waiting for an Approve that the card refused.
-      if (args.tool === 'send_template_email') {
-        await tx.transaction((sp) => cancelBatch(sp as unknown as Db, actor, args.batchId)).catch(() => undefined);
-      }
-      await audit('assistant_failed');
-      return { ok: false as const, error: reason };
-    }
+    return runClaimed(tx as unknown as Db, actor, { ...row, runAt: null }, deps, now);
   });
 
-  if (!ran) {
-    const [now2] = await db.select({ status: proposedAction.status, expiresAt: proposedAction.expiresAt }).from(proposedAction).where(eq(proposedAction.id, row.id)).limit(1);
-    const status = (now2?.status ?? 'expired') as ProposalStatus;
-    if (status === 'proposed') throw new AssistantError('expired', 'This card has expired. Ask the assistant again.');
-    if (status === 'running' || status === 'done' || status === 'approved' || status === 'scheduled') return { outcome: 'already', status };
-    throw new AssistantError('conflict', status === 'expired' ? 'This card has expired. Ask the assistant again.' : `This card was already ${status}.`);
-  }
+  if (!ran) return notClaimed(db, row.id);
   if (!ran.ok) return { outcome: 'failed', error: ran.error };
+  return afterCommit(db, row, ran, deps);
+}
 
-  let sync: SyncOutcome | null = null;
-  if (ran.appointmentId && deps.sync) {
-    sync = await syncAppointment(db, deps.sync, ran.appointmentId).catch(() => null);
+async function notClaimed(db: Db, id: string): Promise<ApproveResult> {
+  const [cur] = await db.select({ status: proposedAction.status }).from(proposedAction).where(eq(proposedAction.id, id)).limit(1);
+  const status = (cur?.status ?? 'expired') as ProposalStatus;
+  if (status === 'proposed') throw new AssistantError('expired', 'This card has expired. Ask the assistant again.');
+  if (status === 'running' || status === 'done' || status === 'approved' || status === 'scheduled') return { outcome: 'already', status };
+  throw new AssistantError('conflict', status === 'expired' ? 'This card has expired. Ask the assistant again.' : `This card was already ${status}.`);
+}
+
+/** Approve for later: checks the time, then a guarded `proposed` → `scheduled`. Nothing runs now. */
+async function schedule(db: Db, actor: Actor, row: RowT, runAt: Date, deps: RunDeps, now: Date): Promise<ApproveResult> {
+  if (!schedulingEnabled(deps.env ?? process.env)) {
+    throw new AssistantError('conflict', 'Running a change later is not switched on here yet — approve it to run now.');
   }
-  if (ran.batchId && deps.templateSend) {
-    // The send, after the commit (a network call never runs inside a transaction). sendBatch
-    // re-checks each recipient — consent, opt-out, archive, email changed, the 7-day rule, the
-    // dev allowlist, today's limits — and skips with the reason; it never adds anyone.
-    const report = await sendBatch(db, deps.templateSend, ran.batchId).catch((err: unknown) => {
-      console.error('[assistant] template send failed', err instanceof Error ? err.message : err);
-      return null;
-    });
-    const result = { ...ran.result, ...(report ?? { sendError: 'Sending stopped part-way; the bulk email page shows who was sent and lets you retry.' }) };
-    await db.update(proposedAction).set({ result, updatedAt: sql`now()` }).where(eq(proposedAction.id, row.id));
-    return { outcome: 'done', result, sync };
+  if (Number.isNaN(runAt.getTime()) || runAt.getTime() > now.getTime() + SCHEDULE_MAX_HOURS * 3_600_000) {
+    throw new AssistantError('conflict', `A change can run at most ${SCHEDULE_MAX_HOURS} hours from now.`);
   }
-  return { outcome: 'done', result: ran.result, sync };
+  const args = row.args as FrozenArgs;
+  if (args.tool === 'send_template_email') {
+    // The prepared email (ADR 0022) has its own 48-hour life; the run must fall inside it.
+    const [b] = await db.select({ expiresAt: emailBatch.expiresAt }).from(emailBatch).where(eq(emailBatch.id, args.batchId)).limit(1);
+    const last = b ? new Date(b.expiresAt).getTime() - BATCH_MARGIN_MS : 0;
+    if (runAt.getTime() > last) {
+      throw new AssistantError('conflict', b ? `This email was prepared to be sent by ${new Date(last).toISOString()} — choose an earlier time.` : 'This email is no longer prepared. Ask the assistant again.');
+    }
+  }
+  const done = await db.transaction(async (tx) => {
+    const [claimed] = await tx
+      .update(proposedAction)
+      .set({ status: 'scheduled', runAt, decidedAt: now, decidedBy: actor.userId, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(proposedAction.id, row.id),
+          eq(proposedAction.userId, actor.userId),
+          eq(proposedAction.status, 'proposed'),
+          gt(proposedAction.expiresAt, now),
+        ),
+      )
+      .returning({ id: proposedAction.id });
+    if (!claimed) return false;
+    for (const contactId of auditContacts(row)) {
+      await recordActivity(tx, actor, row.agencyId, contactId, 'assistant_approved', auditPayload(row.id, row.tool, args, { runAt: runAt.toISOString() }));
+    }
+    return true;
+  });
+  if (!done) return notClaimed(db, row.id);
+  return { outcome: 'scheduled', runAt };
+}
+
+export type ScheduledRunReport = { ran: number; done: number; failed: number };
+
+/**
+ * The cron tick (Phase E): run every scheduled action that is due, one per
+ * transaction. The claim is `FOR UPDATE SKIP LOCKED` on a due `scheduled` row,
+ * inside the same transaction as the run and its `done`/`failed` — so two
+ * ticks never run one action, and a crash part-way leaves it `scheduled`, as
+ * if never started. It runs AS the person who approved it, as they are NOW:
+ * still an active member, still allowed to decide it, and through the same
+ * core function as Approve-now, which repeats every check (can(), contact
+ * visible and not archived, the appointment still ahead, integrations still
+ * connected; for email: consent, opt-out, the 7-day rule, today's limits and
+ * the dev allowlist, per recipient, at send).
+ */
+export async function runScheduledActions(db: Db, deps: RunDeps = {}, now = new Date(), limit = 10): Promise<ScheduledRunReport> {
+  const report: ScheduledRunReport = { ran: 0, done: 0, failed: 0 };
+  for (let i = 0; i < limit; i++) {
+    let row: RowT | null = null;
+    let outcome: { kind: 'done'; ran: Extract<Ran, { ok: true }> } | { kind: 'failed' } | null;
+    try {
+      outcome = await db.transaction(async (tx) => {
+        // Lock one due row (another tick skips it), then move it on — both in this transaction.
+        const [due] = await tx
+          .select({ id: proposedAction.id })
+          .from(proposedAction)
+          .where(and(eq(proposedAction.status, 'scheduled'), lte(proposedAction.runAt, now)))
+          .orderBy(asc(proposedAction.runAt))
+          .limit(1)
+          .for('update', { skipLocked: true });
+        if (!due) return null;
+        const [moved] = await tx
+          .update(proposedAction)
+          .set({ status: 'running', updatedAt: sql`now()` })
+          .where(and(eq(proposedAction.id, due.id), eq(proposedAction.status, 'scheduled')))
+          .returning({ id: proposedAction.id });
+        const claimedId = moved?.id;
+        if (!claimedId) return null;
+        const [r] = await tx.select().from(proposedAction).where(eq(proposedAction.id, claimedId)).limit(1);
+        row = r!;
+        const actor = await activeMemberActor(tx, row.userId, row.agencyId);
+        if (!actor || !can(actor, 'proposed_action:decide', actionResource(row))) {
+          await failRow(tx as unknown as Db, actor, row, 'The person who approved this is no longer an active member who may make this change, so it did not run.', now);
+          return { kind: 'failed' as const };
+        }
+        const ran = await runClaimed(tx as unknown as Db, actor, row, deps, now);
+        return ran.ok ? { kind: 'done' as const, ran } : { kind: 'failed' as const };
+      });
+    } catch (err) {
+      // Not a refusal: the transaction rolled back, nothing happened. Fail it (guarded) so it is
+      // not retried forever, with a reason the person can read.
+      console.error('[assistant] scheduled action failed', err instanceof Error ? err.message : err);
+      const failedId = (row as RowT | null)?.id;
+      if (failedId) {
+        await db
+          .update(proposedAction)
+          .set({ status: 'failed', error: 'It could not run because of an error on our side. Nothing was changed.', finishedAt: now, updatedAt: sql`now()` })
+          .where(and(eq(proposedAction.id, failedId), eq(proposedAction.status, 'scheduled')));
+        report.ran += 1;
+        report.failed += 1;
+        continue;
+      }
+      break;
+    }
+    if (!outcome) break;
+    report.ran += 1;
+    if (outcome.kind === 'failed') {
+      report.failed += 1;
+      continue;
+    }
+    report.done += 1;
+    await afterCommit(db, row!, outcome.ran, deps).catch((err: unknown) => console.error('[assistant] after-run step failed', err instanceof Error ? err.message : err));
+  }
+  return report;
 }
 
 /** Reject: only its author, only while it waits. A second click is harmless. */
@@ -406,6 +572,10 @@ export type ProposalView = {
   /** Ids of what it made or changed — for links. Never model text. */
   result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
   expiresAt: Date;
+  /** When a scheduled action will run (about; up to ~5 minutes later). */
+  runAt: Date | null;
+  /** Whether Approve may be given a later run time (ASSISTANT_SCHEDULING=1, Phase E). */
+  scheduling: boolean;
   /** Decided by can(): the panel draws its buttons from these. */
   mayDecide: boolean;
   mayCancel: boolean;
@@ -424,6 +594,8 @@ export async function getProposedAction(db: Db, actor: Actor, id: string, now = 
     error: row.error,
     result: (row.result as ProposalView['result']) ?? null,
     expiresAt: new Date(row.expiresAt),
+    runAt: row.runAt ? new Date(row.runAt) : null,
+    scheduling: schedulingEnabled(),
     mayDecide: waiting && can(actor, 'proposed_action:decide', actionResource(row)),
     mayCancel: (status === 'proposed' || status === 'scheduled') && can(actor, 'proposed_action:cancel', actionResource(row)),
   };

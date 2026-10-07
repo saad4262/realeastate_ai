@@ -72,19 +72,31 @@ export async function getProposedActionAction(id: string): Promise<CardResult> {
   }
 }
 
-export async function approveProposedActionAction(id: string): Promise<CardResult> {
+/**
+ * Approve — now, or (Phase E, when switched on) at `runAtIso`, which the
+ * person picked on the card. Core refuses a time more than 48 h ahead, past
+ * the prepared email's life, or any time at all while scheduling is off.
+ */
+export async function approveProposedActionAction(id: string, runAtIso?: string | null): Promise<CardResult> {
   try {
     const send = templateSendDepsFromEnv();
-    const r = await approveProposedAction(getConsoleDb(), await actor(), id, {
-      sync: syncDepsFromEnv(),
-      templateSend: send.ok ? send.deps : null,
-    });
+    const runAt = runAtIso ? new Date(runAtIso) : null;
+    if (runAt && Number.isNaN(runAt.getTime())) return { ok: false, error: 'That time is not valid.' };
+    const r = await approveProposedAction(
+      getConsoleDb(),
+      await actor(),
+      id,
+      { sync: syncDepsFromEnv(), templateSend: send.ok ? send.deps : null },
+      new Date(),
+      { runAt },
+    );
     revalidatePath('/customers', 'layout');
     revalidatePath('/my-contacts', 'layout');
     revalidatePath('/bulk-email', 'layout');
     revalidatePath('/my-bulk-email', 'layout');
     const message =
       r.outcome === 'already' ? 'This card was already approved.' : r.outcome === 'failed' ? r.error : undefined;
+    // (A scheduled card's own line says when it runs.)
     return await cardAfter(id, message);
   } catch (err) {
     return cardFailure(err);

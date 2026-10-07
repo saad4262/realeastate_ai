@@ -8,6 +8,14 @@
   0029 applied on dev (additive). Waiting for the user's walk-through of TEST-PLAN U and V.
   **Not started (by instruction): Phase D** (template email from picked contacts), then
   E (delayed run, needs the 5-min cron) and F (widgets hook).
+- **Phase 7 — Assistant Phase E, run later (ADR 0025) committed.** No migration (`run_at` and
+  `scheduled` already existed). Behind `ASSISTANT_SCHEDULING=1` (off by default; needs the
+  5-minute cron). The person picks the time on the card (≤ 48 h; an email card within its
+  prepared batch's life); approve → `scheduled`; the cron tick runs each due action once
+  (`FOR UPDATE SKIP LOCKED` claim and run in one transaction) as the approver as they are
+  then, through the same code as Approve-now, so every check repeats; cancel until it runs.
+  The card says "about … (up to 5 minutes later)". TEST-PLAN AB.
+  **Next: Phase 8 — offboarding (ADR 0030).**
 - **Phase 6 — Gmail send (ADR 0026) committed.** Migration 0034 applied on dev (provider
   `gmail` enum value; owner-type CHECK widened by DROP + ADD, no row change — flagged like 0031;
   agency.members_may_use_agency_gmail; mail_message.sent_via / sender_account_id). Sender per
@@ -15,7 +23,6 @@
   address; bulk template email and the relay never use Gmail; Gmail failure → failed with the
   reason and a "Send from the platform address instead" button (no silent fallback). Built
   against fakes; real Google needs the user's account: TEST-PLAN AA.
-  **Next: Phase 7 — assistant delayed execution (ADR 0025 Phase E).**
 - **Phase 5 — Google reviews step 1 (ADR 0028) committed.** Migration 0033 applied on dev
   (agency_google_place: the place id only). Google's Places terms were checked first: only a
   place id may be stored, and Places content may not be cached. So, unlike the ADR's 6-hour

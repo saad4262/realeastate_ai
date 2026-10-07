@@ -177,6 +177,7 @@ import {
 import { verifyContactUnsubscribeToken } from '@repo/core/email';
 import {
   approveProposedAction,
+  runScheduledActions,
   cancelProposedAction,
   expireProposedActions,
   getProposedAction,
@@ -5425,6 +5426,105 @@ async function main() {
       const sel = await selectionHandles(t, x.f.actor('a2'), {}, [x.people.ready]);
       assert(sel.length === 0, 'A2’s selection resolved A1’s contact');
       return 'over the daily limit → failed, 0 sent; no mail setup → failed; draft template refused; nobody eligible → no card, no batch left; other agent’s contacts refused';
+    }),
+  );
+
+  // ------------------------------------------------ Phase E: run it later --
+  const SCHEDULING_ON = { ...process.env, ASSISTANT_SCHEDULING: '1' } as NodeJS.ProcessEnv;
+  const SCHEDULING_OFF = { ...process.env, ASSISTANT_SCHEDULING: '' } as NodeJS.ProcessEnv;
+  async function noteCard(t: Db) {
+    const f = await contactFixture(t);
+    const a1 = f.actor('a1');
+    const conv = await claimTurn(t, a1, { message: 'note', surface: 'agent' });
+    const handles: HandleMap = {};
+    await runAssistantTool(toolCtx(t, a1, handles), 'find_contacts', { text: 'P1' });
+    const ref = Object.entries(handles).find(([, v]) => v.id === f.contacts.p1)![0];
+    const card = async (body: string) => cardId(await runAssistantTool(proposeCtx(t, a1, handles, conv.conversationId), 'add_note', { contact: ref, body }));
+    const notes = (body: string) => count(t, sql`select count(*)::int as n from note where contact_id = ${f.contacts.p1} and body = ${body}`);
+    const status = async (id: string) => (await t.execute<{ status: string; error: string | null }>(sql`select status, error from proposed_action where id = ${id}`))[0]!;
+    return { f, a1, card, notes, status };
+  }
+
+  await check('E: approved for later, it runs once at its time — not before, never twice; off unless switched on; at most 48 h ahead', async () =>
+    inRollback(async (t) => {
+      const x = await noteCard(t);
+      const now = new Date();
+      const inTwoHours = new Date(now.getTime() + 2 * 3_600_000);
+      const off = await x.card('off');
+      assert((await code(approveProposedAction(t, x.a1, off, { env: SCHEDULING_OFF }, now, { runAt: inTwoHours }))) === 'conflict', 'scheduled with scheduling off');
+      assert((await x.status(off)).status === 'proposed', 'a refused schedule changed the card');
+      assert((await code(approveProposedAction(t, x.a1, off, { env: SCHEDULING_ON }, now, { runAt: new Date(now.getTime() + 49 * 3_600_000) }))) === 'conflict', '49 h ahead accepted');
+
+      const id = await x.card('later note');
+      const r = await approveProposedAction(t, x.a1, id, { env: SCHEDULING_ON }, now, { runAt: inTwoHours });
+      assert(r.outcome === 'scheduled' && (await x.notes('later note')) === 0, `approve for later: ${JSON.stringify(r)}`);
+      const view = await getProposedAction(t, x.a1, id);
+      assert(view.status === 'scheduled' && view.runAt?.getTime() === inTwoHours.getTime() && view.mayCancel, `card: ${view.status} ${view.runAt?.toISOString()}`);
+      assert((await approveProposedAction(t, x.a1, id, { env: SCHEDULING_ON }, now)).outcome === 'already', 'approved twice');
+
+      const early = await runScheduledActions(t, {}, new Date(inTwoHours.getTime() - 60_000));
+      assert((await x.notes('later note')) === 0 && (await x.status(id)).status === 'scheduled', `ran early: ${JSON.stringify(early)}`);
+      await runScheduledActions(t, {}, new Date(inTwoHours.getTime() + 60_000));
+      await runScheduledActions(t, {}, new Date(inTwoHours.getTime() + 120_000));
+      assert((await x.notes('later note')) === 1 && (await x.status(id)).status === 'done', `at its time: ${await x.notes('later note')} notes, ${(await x.status(id)).status}`);
+      return 'off → refused; 49 h → refused; scheduled writes nothing; not run 1 min early; run once at its time (two ticks)';
+    }),
+  );
+
+  await check('E: cancelled before its time it never runs; at its time it runs as the person NOW — someone who left, or lost the contact, gets nothing done', async () =>
+    inRollback(async (t) => {
+      const x = await noteCard(t);
+      const now = new Date();
+      const at = new Date(now.getTime() + 3_600_000);
+      const tick = () => runScheduledActions(t, {}, new Date(at.getTime() + 60_000));
+
+      const at2 = new Date(at.getTime() + 3_600_000);
+      // Every card is made while A1 can still see P1.
+      const cancelled = await x.card('cancelled');
+      const leftId = await x.card('left');
+      const lostContact = await x.card('lost contact');
+      await approveProposedAction(t, x.a1, cancelled, { env: SCHEDULING_ON }, now, { runAt: at });
+      await approveProposedAction(t, x.a1, leftId, { env: SCHEDULING_ON }, now, { runAt: at });
+      await approveProposedAction(t, x.a1, lostContact, { env: SCHEDULING_ON }, now, { runAt: at2 });
+      assert((await code(cancelProposedAction(t, x.f.actor('a2'), cancelled))) === 'not_found', 'A2 cancelled A1’s scheduled card');
+      await cancelProposedAction(t, x.a1, cancelled);
+
+      // A1 is suspended before the first run time.
+      await t.execute(sql`update membership set status = 'suspended' where user_id = ${x.f.people.a1}`);
+      await tick();
+      const left = await x.status(leftId);
+      await t.execute(sql`update membership set status = 'active' where user_id = ${x.f.people.a1}`);
+
+      // A1 is taken off the listing that made P1 theirs: at the second run time they may not write on P1.
+      await t.execute(sql`delete from listing_agent where user_id = ${x.f.people.a1}`);
+      await t.execute(sql`delete from contact_property where contact_id = ${x.f.contacts.p1}`);
+      await runScheduledActions(t, {}, new Date(at2.getTime() + 60_000));
+      const lost = await x.status(lostContact);
+
+      assert((await x.status(cancelled)).status === 'cancelled' && (await x.notes('cancelled')) === 0, 'a cancelled scheduled card ran');
+      assert(lost.status === 'failed' && (await x.notes('lost contact')) === 0, `lost the contact: ${JSON.stringify(lost)}`);
+      assert(left.status === 'failed' && /no longer an active member/.test(left.error ?? '') && (await x.notes('left')) === 0, `left the agency: ${JSON.stringify(left)}`);
+      return 'cancelled → never ran (A2 could not cancel it); lost the contact → failed, no note; suspended → failed with the reason, no note';
+    }),
+  );
+
+  await check('E: a scheduled email sends at its time through ADR 0022 with every check repeated; it must fall inside the prepared email’s life', async () =>
+    inRollback(async (t) => {
+      const x = await emailCardFixture(t);
+      const ctxA1 = () => proposeCtx(t, x.f.actor('a1'), x.h, x.conv.conversationId);
+      const now = new Date();
+      const id = cardId(await runAssistantTool(ctxA1(), 'send_template_email', { template: x.ref(x.tpl.id), recipients: [x.ref(x.people.ready), x.ref(x.people.later)] }));
+      assert((await code(approveProposedAction(t, x.f.actor('a1'), id, { templateSend: x.deps, env: SCHEDULING_ON }, now, { runAt: new Date(now.getTime() + 47.95 * 3_600_000) }))) === 'conflict', 'scheduled past the prepared email’s life');
+      const at = new Date(now.getTime() + 3_600_000);
+      const r = await approveProposedAction(t, x.f.actor('a1'), id, { templateSend: x.deps, env: SCHEDULING_ON }, now, { runAt: at });
+      assert(r.outcome === 'scheduled' && x.transport.sent.length === 0, `scheduled: ${JSON.stringify(r)}, ${x.transport.sent.length} sent`);
+      // After approval, before it runs, "Later" unsubscribes.
+      await optOutContact(t, x.people.later);
+      await runScheduledActions(t, { templateSend: x.deps }, new Date(at.getTime() + 60_000));
+      await runScheduledActions(t, { templateSend: x.deps }, new Date(at.getTime() + 120_000));
+      const res = (await getProposedAction(t, x.f.actor('a1'), id)).result!;
+      assert(Number(x.transport.sent.length) === 1 && res.sent === 1 && res.skipped === 1, `at run: ${x.transport.sent.length} sent, ${JSON.stringify(res)}`);
+      return 'past the batch’s life → refused; at its time: 1 sent, the person who unsubscribed in between skipped; two ticks, one send';
     }),
   );
 

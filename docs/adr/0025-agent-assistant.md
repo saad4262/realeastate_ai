@@ -477,3 +477,29 @@ Build order A→F.
 - **Picking:** checkboxes on the contact directory, a "N selected — Ask the assistant" bar, and
   the panel's chip "Using N picked contacts". Only ids leave the browser.
 - **Prompt** `assistant@v4`.
+
+## As built — Phase E: delayed execution (2026-10-06)
+
+- **Offered only with `ASSISTANT_SCHEDULING=1`** (`schedulingEnabled`). Off by default. Turn
+  it on with the 5-minute cron. Actions already scheduled still run if it is later turned off.
+- **The person picks the time on the card** (Now / +10 min / +1 h / +3 h / a chosen time). The
+  model has no run-time input. An injected "send now" in text cannot change it.
+  `approveProposedAction(…, { runAt })` makes a guarded `proposed` → `scheduled` change, with
+  `run_at`, and records `assistant_approved` with the time. Within a minute of now means
+  "now". More than 48 h is refused. An email card must also run at least 10 minutes before its
+  prepared batch (ADR 0022) expires. The batch's 48-hour life is unchanged, so a run can
+  never fall after it.
+- **The tick** (`runScheduledActions`, in `/api/cron/alerts`) handles one action per
+  transaction. It locks one due `scheduled` row (`FOR UPDATE SKIP LOCKED`), moves it to
+  `running`, and runs it in the same transaction as its `done`/`failed`. Two ticks never run
+  one action, and a crash part-way leaves it `scheduled`. An unexpected error rolls back and
+  marks it `failed` ("nothing was changed"), so it is never retried forever.
+- **Run-time re-checks:** the approver must still be an active member
+  (`activeMemberActor`) who may decide it. Then the same `execute` as Approve-now runs, so
+  every core function asks `can()` again (contact still visible, appointment still ahead,
+  integrations still connected). For email, ADR 0022's Approve and send repeat consent,
+  opt-out, archive, the 7-day rule, today's limits and the dev allowlist per recipient. The
+  sync and the send happen after the commit, as for Approve-now.
+- **Cancel:** the existing `cancelProposedAction` (author or admin; `proposed` or
+  `scheduled`). An email card's batch is cancelled with it.
+- **Timing:** the card says "Runs at about <time> (up to 5 minutes later)".

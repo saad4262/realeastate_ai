@@ -428,6 +428,9 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
   const [view, setView] = useState<ProposalView | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  /** Phase E: '' = now; otherwise minutes from now, or 'pick' for a chosen time. */
+  const [when, setWhen] = useState('');
+  const [picked, setPicked] = useState('');
 
   useEffect(() => {
     let live = true;
@@ -446,6 +449,21 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
     setPending(true);
     setMessage(null);
     const r = await fn(id);
+    finish(r);
+  };
+  const runAtIso = (): string | null => {
+    if (!when) return null;
+    if (when === 'pick') return picked ? new Date(picked).toISOString() : null;
+    return new Date(Date.now() + Number(when) * 60_000).toISOString();
+  };
+  const approve = async () => {
+    if (pending) return;
+    if (when === 'pick' && !picked) return setMessage('Choose a date and time first.');
+    setPending(true);
+    setMessage(null);
+    finish(await approveProposedActionAction(id, runAtIso()));
+  };
+  const finish = (r: Awaited<ReturnType<typeof approveProposedActionAction>>) => {
     setPending(false);
     if (r.ok) {
       setView(r.card);
@@ -511,13 +529,44 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
           {n}
         </p>
       ))}
+      {view.status === 'scheduled' && view.runAt ? (
+        <p className={styles.cardNote}>
+          Runs at about {new Date(view.runAt).toLocaleString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}{' '}
+          (up to 5 minutes later). Everything is checked again when it runs. You can cancel it until then.
+        </p>
+      ) : null}
       {view.error ? <div className={styles.error}>{view.error}</div> : null}
       {message ? <div className={styles.error}>{message}</div> : null}
+      {view.mayDecide && view.scheduling ? (
+        <div className={styles.cardNote}>
+          <label>
+            When:{' '}
+            <select value={when} onChange={(e) => setWhen(e.target.value)} disabled={pending}>
+              <option value="">Now</option>
+              <option value="10">In 10 minutes</option>
+              <option value="60">In 1 hour</option>
+              <option value="180">In 3 hours</option>
+              <option value="pick">At a time I choose…</option>
+            </select>
+          </label>
+          {when === 'pick' ? (
+            <input
+              type="datetime-local"
+              value={picked}
+              onChange={(e) => setPicked(e.target.value)}
+              min={new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16)}
+              max={new Date(Date.now() + 48 * 3_600_000 - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16)}
+              style={{ marginLeft: '0.5rem' }}
+            />
+          ) : null}
+          {when ? <div>Runs at about that time — up to 5 minutes later, never earlier. At most 48 hours ahead.</div> : null}
+        </div>
+      ) : null}
       <div className={styles.cardActions}>
         {view.mayDecide ? (
           <>
-            <button type="button" className={styles.send} disabled={pending} onClick={() => press(approveProposedActionAction)}>
-              {pending ? 'Working…' : 'Approve'}
+            <button type="button" className={styles.send} disabled={pending} onClick={approve}>
+              {pending ? 'Working…' : when ? 'Approve for later' : 'Approve'}
             </button>
             <button type="button" className={styles.ghost} disabled={pending} onClick={() => press(rejectProposedActionAction)}>
               Reject
