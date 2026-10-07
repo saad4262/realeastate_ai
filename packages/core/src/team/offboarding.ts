@@ -16,6 +16,7 @@ import {
   proposedAction,
   user,
   type Db,
+  type DbOrTx,
 } from '@repo/db';
 import { can, type Actor, type MembershipRole } from '../permissions';
 import { ACTIVE_STATUSES } from '../appointments/appointment-schema';
@@ -561,4 +562,23 @@ export async function assignNeedsOwner(
     await attachListingAgents(tx, agencyId, l.id, [item.userId], { replace: true });
     await tx.update(listing).set({ needsOwnerAt: null, updatedAt: sql`now()` }).where(eq(listing.id, l.id));
   });
+}
+
+/**
+ * For a signed-in person with no active membership: the agency that removed
+ * them, and when (ADR 0030 §5.5) — so the console can say "You no longer have
+ * access to <agency>" instead of offering to register a new agency. Null for
+ * anyone who is an active member somewhere, or was never removed.
+ */
+export async function removedFromAgency(db: DbOrTx, userId: string): Promise<{ agencyName: string; removedAt: Date } | null> {
+  if (!z.string().uuid().safeParse(userId).success) return null;
+  const rows = await db.execute<{ name: string; removed_at: string }>(sql`
+    select a.name, m.removed_at
+    from membership m join agency a on a.id = m.agency_id
+    where m.user_id = ${userId} and m.status = 'suspended' and m.removed_at is not null
+      and not exists (select 1 from membership x where x.user_id = ${userId} and x.status = 'active')
+    order by m.removed_at desc
+    limit 1`);
+  const r = rows[0];
+  return r ? { agencyName: r.name, removedAt: new Date(r.removed_at) } : null;
 }

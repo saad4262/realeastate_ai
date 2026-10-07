@@ -47,6 +47,7 @@ export {
   offboardChoiceSchema,
   OffboardError,
   offboardingPreview,
+  removedFromAgency,
   removeMember,
   restoreMember,
   RESTORE_DAYS,

@@ -1,5 +1,5 @@
 import { cache } from 'react';
-import { eq, sql } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import { agency, listingAgent, membership, user } from '@repo/db/schema';
 import { can, type Actor, type MembershipRole } from '@repo/core/permissions';
 import { narrowedContactIdsSql } from '@repo/core/contacts';
@@ -116,6 +116,9 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
     .leftJoin(agency, eq(agency.id, membership.agencyId))
     .leftJoin(user, eq(user.id, membership.userId))
     .where(eq(membership.userId, userId))
+    // A person removed from one agency keeps that row (suspended, ADR 0030) and may since
+    // have joined another: the ACTIVE membership must win, never whichever row comes first.
+    .orderBy(sql`(${membership.status} = 'active') desc`, desc(membership.updatedAt))
     .limit(1);
 
   const empty = { members: 0, liveListings: 0, pendingInvites: 0, newOffers: 0, unreadMail: 0 };

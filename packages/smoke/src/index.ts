@@ -211,7 +211,7 @@ import {
 } from '@repo/core/imports';
 import { agencyReviews, clearAgencyGooglePlace, publicListingReviews, searchGooglePlaces, setAgencyGooglePlace, type PlaceDetails, type PlacesClient } from '@repo/core/reviews';
 import { archiveDashboard, createDashboard, getDashboardData, listDashboards, rangeWindow, renderWidget, WIDGET_IDS, WIDGET_RANGES } from '@repo/core/dashboards';
-import { activeMemberActor, assignNeedsOwner, claimAgentInvite, listNeedsOwner, offboardingPreview, removeMember, restoreMember } from '@repo/core/team';
+import { activeMemberActor, assignNeedsOwner, claimAgentInvite, listNeedsOwner, offboardingPreview, removedFromAgency, removeMember, restoreMember } from '@repo/core/team';
 import { assert, check, group, note, report, skip } from './runner';
 
 config({ path: resolve(process.cwd(), '../../.env.local') });
@@ -6456,6 +6456,11 @@ async function main() {
       await saveConnection(t, testKeys, x.f.actor('owner'), { provider: 'zoom', ownerType: 'agency', ownerId: x.f.agencyId, agencyId: x.f.agencyId }, granted(ALL.zoom));
       assert((await zoomCard())?.connectorLeft === false, 'reconnecting did not clear the flag');
       assert((await activeMemberActor(t, x.f.people.a1, x.f.agencyId)) === null, 'A1 is still an active member');
+      // What A1 sees on signing in: which agency removed them, and when — not a sign-up form.
+      const [ag] = await t.execute<{ name: string }>(sql`select name from agency where id = ${x.f.agencyId}`);
+      const gone = await removedFromAgency(t, x.f.people.a1);
+      assert(gone?.agencyName === ag!.name && gone.removedAt instanceof Date, `the removed member sees: ${JSON.stringify(gone)}`);
+      assert((await removedFromAgency(t, x.f.people.a2)) === null, 'an active member was told they were removed');
       return `events ${r.calendar.removed} removed (A1’s token) → created for A2; Zoom moved + flagged; contact/listing → A2; 2 cards, import cancelled; conversation deleted; 2 tokens revoked+deleted; agency Zoom flagged; A1 inactive`;
     }),
   );
@@ -6531,6 +6536,7 @@ async function main() {
       await removeMember(t, owner, x.f.people.a1, { receiver: x.f.people.a2 }, x.deps);
       await restoreMember(t, owner, x.f.people.a1);
       assert((await activeMemberActor(t, x.f.people.a1, x.f.agencyId)) !== null, 'restore did not bring A1 back');
+      assert((await removedFromAgency(t, x.f.people.a1)) === null, 'a restored member is still told they were removed');
       assert((await count(t, sql`select count(*)::int as n from integration_account where owner_type = 'user' and owner_id = ${x.f.people.a1}`)) === 0, 'tokens came back');
       await removeMember(t, owner, x.f.people.a1, { review: true }, x.deps);
       await t.execute(sql`update membership set removed_at = now() - interval '31 days' where user_id = ${x.f.people.a1} and agency_id = ${x.f.agencyId}`);
