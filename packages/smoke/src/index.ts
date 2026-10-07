@@ -5666,21 +5666,22 @@ async function main() {
       assert(r1.outcome === 'failed' && /cannot be given contacts/.test(r1.error) && (await x.assignee(x.f.contacts.p6)) === null, `receiver demoted: ${JSON.stringify(r1)}`);
       await t.execute(sql`update membership set role = 'agent' where user_id = ${x.f.people.a2} and agency_id = ${x.f.agencyId}`);
 
-      // Run time, now: the admin who proposed it is no longer an admin.
+      // Run time, now: the admin who proposed it is no longer an admin. P1 stays readable to
+      // them (their listing), so only the run-time contact:assign check stands in the way.
       const sa = await x.session(x.admin);
-      const c2 = cardId(await runAssistantTool(sa.ctx(), 'assign_contacts', { contacts: [sa.ref(x.f.contacts.p6)], to: issueHandle(sa.h, 'M', x.f.people.a2) }));
+      const c2 = cardId(await runAssistantTool(sa.ctx(), 'assign_contacts', { contacts: [sa.ref(x.f.contacts.p1)], to: issueHandle(sa.h, 'M', x.f.people.a2) }));
       const r2 = await approveProposedAction(t, { ...x.admin, membershipRole: 'agent' }, c2);
-      assert(r2.outcome === 'failed' && /admin|not found/.test(r2.error) && (await x.assignee(x.f.contacts.p6)) === null, `approver demoted: ${JSON.stringify(r2)}`);
+      assert(r2.outcome === 'failed' && /Only an admin may assign/.test(r2.error) && (await x.assignee(x.f.contacts.p1)) === null, `approver demoted: ${JSON.stringify(r2)}`);
 
       // Run later: approved as an admin, demoted before its time — the tick runs it as they are THEN.
-      const c3 = cardId(await runAssistantTool(sa.ctx(), 'assign_contacts', { contacts: [sa.ref(x.f.contacts.p6)], to: issueHandle(sa.h, 'M', x.f.people.a2) }));
+      const c3 = cardId(await runAssistantTool(sa.ctx(), 'assign_contacts', { contacts: [sa.ref(x.f.contacts.p1)], to: issueHandle(sa.h, 'M', x.f.people.a2) }));
       const now = new Date();
       const at = new Date(now.getTime() + 3_600_000);
       assert((await approveProposedAction(t, x.admin, c3, { env: SCHEDULING_ON }, now, { runAt: at })).outcome === 'scheduled', 'not scheduled');
       await t.execute(sql`update membership set role = 'agent' where user_id = ${x.f.people.a1} and agency_id = ${x.f.agencyId}`);
       await runScheduledActions(t, {}, new Date(at.getTime() + 60_000));
       const later = await x.status(c3);
-      assert(later.status === 'failed' && (await x.assignee(x.f.contacts.p6)) === null, `scheduled after demotion: ${JSON.stringify(later)}`);
+      assert(later.status === 'failed' && /Only an admin may assign/.test(later.error ?? '') && (await x.assignee(x.f.contacts.p1)) === null, `scheduled after demotion: ${JSON.stringify(later)}`);
       return `refused at propose: ${refusals.join(', ')}; at run: receiver made read-only → failed; approver no longer admin → failed (now and scheduled)`;
     }),
   );
@@ -5758,12 +5759,15 @@ async function main() {
       const so = await x.session(x.owner);
       cardId(await runAssistantTool(so.ctx(), 'record_marketing_consent', { contacts: [so.ref(p2)], how }));
 
-      // Run time: P6 is given to someone else before A2 approves.
-      const c1 = cardId(await runAssistantTool(s.ctx(), 'record_marketing_consent', { contacts: [s.ref(p6)], how }));
-      await t.execute(sql`update contact set assigned_to = ${x.f.people.owner} where id = ${p6}`);
+      // Run time: P2 is A2's when the card is made, the owner's when A2 approves. A2 still reads
+      // P2 (their lead), so only the run-time contact:update check stands in the way.
+      await t.execute(sql`update contact set assigned_to = ${x.f.people.a2} where id = ${p2}`);
+      const c1 = cardId(await runAssistantTool(s.ctx(), 'record_marketing_consent', { contacts: [s.ref(p2)], how }));
+      await t.execute(sql`update contact set assigned_to = ${x.f.people.owner} where id = ${p2}`);
       const r1 = await approveProposedAction(t, x.agent, c1);
-      const at = async () => (await t.execute<{ at: string | null }>(sql`select marketing_consent_at as at from contact where id = ${p6}`))[0]!.at;
-      assert(r1.outcome === 'failed' && (await at()) === null, `reassigned before approve: ${JSON.stringify(r1)}`);
+      const consentAt = async (id: string) => (await t.execute<{ at: string | null }>(sql`select marketing_consent_at as at from contact where id = ${id}`))[0]!.at;
+      assert(r1.outcome === 'failed' && /assigned to/.test(r1.error) && (await consentAt(p2)) === null, `reassigned before approve: ${JSON.stringify(r1)}`);
+      const at = () => consentAt(p6);
       // Run time: they unsubscribe before the owner approves.
       const c2 = cardId(await runAssistantTool(so.ctx(), 'record_marketing_consent', { contacts: [so.ref(p6)], how }));
       await t.execute(sql`update contact set email_opt_out_at = now() where id = ${p6}`);
@@ -5837,12 +5841,13 @@ async function main() {
       const so = await x.session(x.owner);
       cardId(await runAssistantTool(so.ctx(), 'update_contact', { contact: so.ref(p2), name: 'P2 by the owner' }));
 
-      // Run time: reassigned before A2 approves → failed, nothing changed.
-      const c1 = cardId(await runAssistantTool(s.ctx(), 'update_contact', { contact: s.ref(p6), name: 'Late' }));
-      await t.execute(sql`update contact set assigned_to = ${x.f.people.owner} where id = ${p6}`);
+      // Run time: P2 is A2's at the card, the owner's at Approve (A2 still reads it through their lead)
+      // → failed, nothing changed.
+      await t.execute(sql`update contact set assigned_to = ${x.f.people.a2} where id = ${p2}`);
+      const c1 = cardId(await runAssistantTool(s.ctx(), 'update_contact', { contact: s.ref(p2), name: 'Late' }));
+      await t.execute(sql`update contact set assigned_to = ${x.f.people.owner} where id = ${p2}`);
       const r1 = await approveProposedAction(t, x.agent, c1);
-      assert(r1.outcome === 'failed' && (await name(p6)) === 'P6', `reassigned: ${JSON.stringify(r1)}`);
-      await t.execute(sql`update contact set assigned_to = ${x.f.people.a2} where id = ${p6}`);
+      assert(r1.outcome === 'failed' && /assigned to/.test(r1.error) && (await name(p2)) === 'P2', `reassigned: ${JSON.stringify(r1)}`);
       // Run time: someone changed the name the card showed → failed, their change kept.
       const c2 = cardId(await runAssistantTool(s.ctx(), 'update_contact', { contact: s.ref(p6), name: 'From the card' }));
       await t.execute(sql`update contact set name = 'Changed by hand' where id = ${p6}`);
