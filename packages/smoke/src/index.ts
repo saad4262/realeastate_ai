@@ -5783,8 +5783,8 @@ async function main() {
       const { p2, p6 } = x.f.contacts;
       await t.execute(sql`update contact set assigned_to = ${x.f.people.a2}, marketing_consent_at = now(), marketing_consent_by = ${x.f.people.a2}, marketing_consent_note = 'Signed form' where id = ${p6}`);
       const row = async () =>
-        (await t.execute<{ name: string; email: string | null; phone: string | null; assigned_to: string | null; note: string | null; archived_at: string | null; roles: string[] | null }>(sql`
-          select name, email, phone, assigned_to, marketing_consent_note as note, archived_at,
+        (await t.execute<{ name: string; email: string | null; phone: string | null; assigned_to: string | null; note: string | null; consent_at: string | null; consent_by: string | null; archived_at: string | null; roles: string[] | null }>(sql`
+          select name, email, phone, assigned_to, marketing_consent_note as note, marketing_consent_at::text as consent_at, marketing_consent_by as consent_by, archived_at,
                  (select array_agg(role::text order by role) from contact_role where contact_id = c.id) as roles
           from contact c where id = ${p6}`))[0]!;
       const was = await row();
@@ -5798,7 +5798,10 @@ async function main() {
       assert((await approveProposedAction(t, x.agent, id)).outcome === 'done', 'approve failed');
       const now = await row();
       assert(now.name === 'Penny Six' && now.phone === '0412 345 678' && JSON.stringify(now.roles) === '["buyer"]', `after: ${JSON.stringify(now)}`);
-      assert(now.email === was.email && now.assigned_to === x.f.people.a2 && now.note === 'Signed form' && now.archived_at === null, `something else changed: ${JSON.stringify(now)}`);
+      assert(
+        now.email === was.email && now.assigned_to === x.f.people.a2 && now.note === 'Signed form' && now.consent_at === was.consent_at && now.consent_by === was.consent_by && now.archived_at === null,
+        `something else changed: ${JSON.stringify(now)}`,
+      );
       const acts = await t.execute<{ kind: string; payload: { fields?: string[]; role?: string; via?: string } }>(sql`
         select kind, payload from activity where contact_id = ${p6} and kind in ('contact_updated', 'role_added', 'contact_assigned', 'consent_recorded', 'consent_withdrawn') order by kind`);
       assert(
