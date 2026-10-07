@@ -55,6 +55,11 @@ export function LoginForm({
       const sync = await syncAccountAction({ inviteToken });
 
       if (sync.ok) {
+        if (sync.inviteRefused) {
+          setError('You already belong to another agency, so this invite cannot be accepted. An agent belongs to one agency at a time — ask your current agency to remove you first.');
+          setLoading(false);
+          return;
+        }
         if (!sync.hasMembership && sync.inviteExpired) {
           setError(
             'Your agent invite has expired. Ask your agency to send a new one from Agents & Team, then sign in again.',

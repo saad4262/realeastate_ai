@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, like, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, like, ne, sql } from 'drizzle-orm';
 import { randomBytes } from 'node:crypto';
 import {
   agency,
@@ -387,7 +387,7 @@ export type ClaimInviteResult = {
    * case — the signup screen has to say so instead of sending the agent
    * off to register an agency of their own.
    */
-  reason?: 'none' | 'expired';
+  reason?: 'none' | 'expired' | 'other_agency';
 };
 
 /**
@@ -433,6 +433,16 @@ export async function claimAgentInvite(
     await retire([invite.id]);
     return { claimed: false, reason: 'expired' };
   }
+
+  // One agency per person (ADR 0030, decided Q4): someone active in another
+  // agency cannot join this one. The unique index on active memberships is
+  // the backstop; this is the sentence the screen shows.
+  const [elsewhere] = await db
+    .select({ id: membership.id })
+    .from(membership)
+    .where(and(eq(membership.userId, opts.userId), eq(membership.status, 'active'), ne(membership.agencyId, invite.agencyId)))
+    .limit(1);
+  if (elsewhere) return { claimed: false, reason: 'other_agency' };
 
   const draft = inviteAgentDraftSchema.parse(invite.draft);
 

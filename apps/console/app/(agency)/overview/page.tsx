@@ -1,3 +1,5 @@
+import { NeedsOwner } from '@/components/offboarding/needs-owner';
+import { requireConsoleAccess } from '../../../lib/require-console-access';
 import styles from './overview.module.css';
 
 const KPIS = [
@@ -129,9 +131,11 @@ const PIPELINE = [
   },
 ];
 
-export default function AgencyOverviewPage() {
+export default async function AgencyOverviewPage() {
+  const session = await requireConsoleAccess('agency');
   return (
     <div className={styles.page}>
+      <NeedsOwner actor={session.actor} />
       <p className={styles.demoBanner} role="note">
         <strong>Demo data.</strong> Every figure, name and recommendation on this page is a
         sample for the design — none of it is your agency&apos;s. Live numbers are on Leads,

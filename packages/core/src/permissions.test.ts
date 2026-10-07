@@ -851,3 +851,16 @@ describe('Gmail send (ADR 0026)', () => {
     expect(can(m('agent'), 'gmail:configure_agency', ag(true))).toBe(false);
   });
 });
+
+describe('offboarding (ADR 0030)', () => {
+  const m = (membershipRole: Actor['membershipRole']): Actor => ({ userId: 'u', agencyId: agencyA, membershipRole });
+  const team = { type: 'team', agencyId: agencyA };
+  it('owners and admins remove members; only an owner removes an owner', () => {
+    expect(can(m('owner'), 'team:manage', team)).toBe(true);
+    expect(can(m('admin'), 'team:manage', team)).toBe(true);
+    expect(can(m('agent'), 'team:manage', team)).toBe(false);
+    expect(can(m('owner'), 'team:remove_owner', team)).toBe(true);
+    for (const r of ['admin', 'agent', 'assistant', 'property_manager', 'read_only'] as const) expect(can(m(r), 'team:remove_owner', team), r).toBe(false);
+    expect(can({ userId: 'u', agencyId: agencyB, membershipRole: 'owner' }, 'team:remove_owner', team)).toBe(false);
+  });
+});

@@ -211,6 +211,7 @@ import {
 } from '@repo/core/imports';
 import { agencyReviews, clearAgencyGooglePlace, publicListingReviews, searchGooglePlaces, setAgencyGooglePlace, type PlaceDetails, type PlacesClient } from '@repo/core/reviews';
 import { archiveDashboard, createDashboard, getDashboardData, listDashboards, rangeWindow, renderWidget, WIDGET_IDS, WIDGET_RANGES } from '@repo/core/dashboards';
+import { activeMemberActor, assignNeedsOwner, claimAgentInvite, listNeedsOwner, offboardingPreview, removeMember, restoreMember } from '@repo/core/team';
 import { assert, check, group, note, report, skip } from './runner';
 
 config({ path: resolve(process.cwd(), '../../.env.local') });
@@ -497,11 +498,14 @@ async function main() {
     // nobody can be contacted about. If this is ever non-zero, something wrote
     // outside a transaction.
     const rows = await db.execute<{ n: number }>(
+      // A listing an offboarding left without anyone is flagged (needs_owner_at) and waits in
+      // the "Needs an owner" queue (ADR 0030 §5) — expected; any other is a partial write.
       sql`select count(*)::int as n from listing l
-          where not exists (select 1 from listing_agent la where la.listing_id = l.id)`,
+          where not exists (select 1 from listing_agent la where la.listing_id = l.id)
+            and l.needs_owner_at is null`,
     );
     assert((rows[0]?.n ?? 0) === 0, `${rows[0]?.n} listing(s) have no agent — a partial write`);
-    return 'every listing has one';
+    return 'every listing has one (or waits in Needs an owner)';
   });
 
   await check('every sold listing says what it sold for and when', async () => {
@@ -5712,6 +5716,8 @@ async function main() {
           ['listImports', listImports(t, actor)],
           ['getImport(B)', getImport(t, actor, B.ids.importId)],
           ['agencyReviews', agencyReviews(t, actor, { places: echoPlaces }).catch((e: unknown) => (e as { code?: string }).code === 'forbidden' ? null : Promise.reject(e))],
+          ['listNeedsOwner', listNeedsOwner(t, actor)],
+          ['offboardingPreview(B)', offboardingPreview(t, actor, B.f.people.a1)],
         ];
         // Handlers attached the moment each read starts: a refusal must never be an unhandled rejection.
         const settled = lists.map(([name, p]) => [name, tolerate(p)] as const);
@@ -5786,6 +5792,10 @@ async function main() {
           ['cancelImport', () => cancelImport(t, actor, B.ids.importId)],
           ['runImportChunk', () => runImportChunk(t, actor, B.ids.importId)],
           ['setImportMapping', () => setImportMapping(t, actor, B.ids.importId, {})],
+          ['removeMember(B agent)', () => removeMember(t, actor, B.f.people.a1, { review: true })],
+          ['restoreMember(B agent)', () => restoreMember(t, actor, B.f.people.a1)],
+          ['assignNeedsOwner(B contact)', () => assignNeedsOwner(t, actor, { kind: 'contact', id: B.ids.contacts[0]!, userId: actor.userId })],
+          ['assignNeedsOwner(B listing)', () => assignNeedsOwner(t, actor, { kind: 'listing', id: B.ids.listing, userId: actor.userId })],
           // Assistant write tools with forged references to B's rows.
           ['add_note (forged)', () => runAssistantTool(pctx({ ...forged }), 'add_note', { contact: 'C1', body: 'x' })],
           ['set_next_action (forged)', () => runAssistantTool(pctx({ ...forged }), 'set_next_action', { contact: 'C1', text: 'x' })],
@@ -6317,6 +6327,175 @@ async function main() {
       assert(rows.every((r) => r.sent_via === 'resend'), `bulk/relay: ${JSON.stringify(rows.map((r) => r.sent_via))}`);
       assert(blocked.status === 'failed' && /allowlist|development/i.test(blocked.error ?? ''), `allowlist: ${JSON.stringify(blocked)}`);
       return 'template email + relay on the platform; a platform-composed email outside the allowlist failed before any transport';
+    }),
+  );
+
+  group('Offboarding');
+
+  /**
+   * ADR 0030 §5–8 with the fake Google/Zoom. A1 leaves with: an upcoming Zoom
+   * appointment (event in A1's calendar, meeting on A1's own Zoom), a contact,
+   * a lead, a listing only they are on, a waiting and a scheduled assistant
+   * card, a prepared bulk email, an import, a conversation, their own tokens,
+   * and an agency Zoom they connected.
+   */
+  async function leaverFixture(t: Db) {
+    const f = await contactFixture(t);
+    const g = fakeProviders();
+    const a1 = f.actor('a1');
+    const a1Cal = await g.connect(t, a1, 'google_calendar', 'user', f.people.a1, f.agencyId);
+    await g.connect(t, a1, 'zoom', 'user', f.people.a1, f.agencyId);
+    await g.connect(t, f.actor('a2'), 'google_calendar', 'user', f.people.a2, f.agencyId);
+    const agencyZoom = await g.connect(t, f.actor('owner'), 'zoom', 'agency', f.agencyId, f.agencyId);
+    await t.execute(sql`update integration_account set connected_by = ${f.people.a1} where id = ${agencyZoom}`);
+    const { id: apptId } = await scheduleAppointment(t, a1, f.contacts.p1, { title: 'Zoom catch-up', type: 'zoom', ...slot(3) });
+    await syncAppointment(t, g.deps, apptId);
+    await t.execute(sql`update contact set assigned_to = ${f.people.a1} where id = ${f.contacts.p6}`);
+    const conv = await claimTurn(t, a1, { message: 'x', surface: 'agent' });
+    const h: HandleMap = {};
+    await runAssistantTool(toolCtx(t, a1, h), 'find_contacts', { text: 'P1' });
+    const ref = Object.entries(h).find(([, v]) => v.id === f.contacts.p1)![0];
+    const waiting = cardId(await runAssistantTool(proposeCtx(t, a1, h, conv.conversationId), 'add_note', { contact: ref, body: 'waiting' }));
+    const later = cardId(await runAssistantTool(proposeCtx(t, a1, h, conv.conversationId), 'add_note', { contact: ref, body: 'later' }));
+    await approveProposedAction(t, a1, later, { env: { ...process.env, ASSISTANT_SCHEDULING: '1' } as NodeJS.ProcessEnv }, new Date(), { runAt: new Date(Date.now() + 3_600_000) });
+    const tpl = await createEmailTemplate(t, a1, { name: `Leaver ${f.tag}`, subject: 'x', body: 'x' });
+    const [batch] = await t.execute<{ id: string }>(sql`
+      insert into email_batch (agency_id, user_id, template_id, template_snapshot, filter_snapshot, status, expires_at)
+      values (${f.agencyId}, ${f.people.a1}, ${tpl.id}, '{}'::jsonb, '{}'::jsonb, 'prepared', now() + interval '1 day') returning id`);
+    const imp = await createImport(t, a1, { fileName: 'x.csv', text: 'suburb,state,postcode,channel,status,headline\nPakenham,VIC,3810,sale,draft,x' });
+    const [lst] = await t.execute<{ id: string }>(sql`select listing_id as id from listing_agent where user_id = ${f.people.a1} limit 1`);
+    const revoked: string[] = [];
+    const deps = { sync: g.deps, revoke: async (provider: string) => void revoked.push(provider) };
+    return { f, g, a1, a1Cal, agencyZoom, apptId, waiting, later, batchId: batch?.id ?? null, importId: imp.id, listingId: lst!.id, conversationId: conv.conversationId, revoked, deps };
+  }
+
+  await check('remove with a receiver: events leave A1’s calendar on A1’s token and arrive in A2’s; contacts, leads, the listing move; waiting work is cancelled; A1’s tokens revoked and deleted; A1 can do nothing', async () =>
+    inRollback(async (t) => {
+      const x = await leaverFixture(t);
+      const tokenOf = async (accountId: string) => (await tokensForUse(t, testKeys, x.a1, accountId)).accessToken;
+      const a1Token = await tokenOf(x.a1Cal);
+      const before = x.g.calls.length;
+      const r = await removeMember(t, x.f.actor('owner'), x.f.people.a1, { receiver: x.f.people.a2 }, x.deps);
+      const calls = x.g.calls.slice(before);
+      const del = calls.find((c) => c.method === 'DELETE' && c.url.includes('/calendars/'));
+      assert(del && del.auth === `Bearer ${a1Token}`, `A1's event was not deleted with A1's token: ${JSON.stringify(calls.map((c) => [c.method, c.url.slice(0, 60)]))}`);
+      assert(calls.some((c) => c.method === 'POST' && c.url.includes('/calendars/') && c.auth !== `Bearer ${a1Token}`), 'the event was not created in A2’s calendar');
+      assert(calls.some((c) => c.method === 'DELETE' && c.url.includes('/meetings/')) && calls.some((c) => c.method === 'POST' && c.url.includes('api.zoom.us')), 'the Zoom meeting did not move');
+      const [ap] = await t.execute<{ assigned_agent_id: string; calendar_sync_state: string; meeting_url: string | null }>(sql`select assigned_agent_id, calendar_sync_state, meeting_url from appointment where id = ${x.apptId}`);
+      assert(ap?.assigned_agent_id === x.f.people.a2 && ap.calendar_sync_state === 'synced' && ap.meeting_url, `appointment: ${JSON.stringify(ap)}`);
+      assert((await count(t, sql`select count(*)::int as n from activity where contact_id = ${x.f.contacts.p1} and kind = 'zoom_link_changed'`)) === 1, 'no "resend the invitation" mark');
+      const [c] = await t.execute<{ assigned_to: string }>(sql`select assigned_to from contact where id = ${x.f.contacts.p6}`);
+      // A1's private offer is not handed to an agent: it waits for an owner/admin.
+      const [offer] = await t.execute<{ assigned_to: string | null; needs: string | null }>(sql`select assigned_to, needs_owner_at as needs from lead where agency_id = ${x.f.agencyId} and kind = 'offer'`);
+      assert(offer && offer.assigned_to === null && offer.needs, `the offer went to an agent: ${JSON.stringify(offer)}`);
+      const [la] = await t.execute<{ users: string[] }>(sql`select array_agg(user_id) as users from listing_agent where listing_id = ${x.listingId}`);
+      assert(c?.assigned_to === x.f.people.a2 && JSON.stringify(la?.users) === JSON.stringify([x.f.people.a2]), `contact ${c?.assigned_to}, listing ${JSON.stringify(la?.users)}`);
+      const st = async (id: string) => (await t.execute<{ status: string }>(sql`select status from proposed_action where id = ${id}`))[0]!.status;
+      assert((await st(x.waiting)) === 'cancelled' && (await st(x.later)) === 'cancelled', 'cards not cancelled');
+      const [im] = await t.execute<{ status: string }>(sql`select status from listing_import where id = ${x.importId}`);
+      assert(im?.status === 'cancelled', `import ${im?.status}`);
+      const [bt] = await t.execute<{ status: string }>(sql`select status from email_batch where id = ${x.batchId}`);
+      assert(bt?.status === 'cancelled', `prepared batch ${bt?.status}`);
+      assert((await count(t, sql`select count(*)::int as n from assistant_conversation where id = ${x.conversationId}`)) === 0, 'conversation kept');
+      assert((await count(t, sql`select count(*)::int as n from integration_account where owner_type = 'user' and owner_id = ${x.f.people.a1}`)) === 0, 'A1’s tokens kept');
+      assert(x.revoked.length === 2 && r.tokens.deleted === 2, `revoked ${x.revoked.join(',')}, deleted ${r.tokens.deleted}`);
+      const [z] = await t.execute<{ connector_left_at: string | null }>(sql`select connector_left_at from integration_account where id = ${x.agencyZoom}`);
+      assert(z?.connector_left_at, 'the agency Zoom A1 connected is not flagged');
+      assert((await activeMemberActor(t, x.f.people.a1, x.f.agencyId)) === null, 'A1 is still an active member');
+      return `events ${r.calendar.removed} removed (A1’s token) → created for A2; Zoom moved + flagged; contact/listing → A2; 2 cards, import cancelled; conversation deleted; 2 tokens revoked+deleted; agency Zoom flagged; A1 inactive`;
+    }),
+  );
+
+  await check('remove “for review”: nothing is given away — every item waits in Needs an owner until an admin assigns it', async () =>
+    inRollback(async (t) => {
+      const x = await leaverFixture(t);
+      const r = await removeMember(t, x.f.actor('owner'), x.f.people.a1, { review: true }, x.deps);
+      const queue = await listNeedsOwner(t, x.f.actor('owner'));
+      const kinds = [...new Set(queue.map((q) => q.kind))].sort();
+      assert(kinds.includes('contact') && kinds.includes('appointment') && kinds.includes('listing'), `queue: ${JSON.stringify(kinds)} (report ${JSON.stringify(r.flagged)})`);
+      assert((await listNeedsOwner(t, x.f.actor('a2'))).length === 0, 'an agent sees the queue');
+      const [ap] = await t.execute<{ assigned_agent_id: string | null; external_calendar_id: string | null }>(sql`select assigned_agent_id, external_calendar_id from appointment where id = ${x.apptId}`);
+      assert(ap?.assigned_agent_id === null && ap.external_calendar_id === null, `appointment: ${JSON.stringify(ap)}`);
+      // A private offer can only go to an owner/admin (the lead rules hold in the queue too).
+      const offerIds = (await t.execute<{ id: string }>(sql`select id from lead where agency_id = ${x.f.agencyId} and kind = 'offer'`)).map((o) => o.id);
+      for (const item of queue) {
+        const to = item.kind === 'lead' && offerIds.includes(item.id) ? x.f.people.owner : x.f.people.a2;
+        await assignNeedsOwner(t, x.f.actor('owner'), { kind: item.kind, id: item.id, userId: to }, x.deps);
+      }
+      assert((await listNeedsOwner(t, x.f.actor('owner'))).length === 0, 'the queue did not empty');
+      const [ap2] = await t.execute<{ assigned_agent_id: string | null }>(sql`select assigned_agent_id from appointment where id = ${x.apptId}`);
+      assert(ap2?.assigned_agent_id === x.f.people.a2, 'appointment not assigned from the queue');
+      return `${queue.length} items flagged (${kinds.join(', ')}); agents cannot see the queue; assigning each empties it`;
+    }),
+  );
+
+  await check('refused: no choice, yourself, by an agent, an owner by an admin, the last owner, someone in another agency', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const other = await contactFixture(t);
+      const code = (p: Promise<unknown>) => p.then(() => 'ok', (e: unknown) => (e as { code?: string }).code ?? String(e));
+      const adminId = randomUUID();
+      await t.execute(sql`insert into "user" (id, email, name) values (${adminId}, ${`admin.${f.tag}@smoke.test`}, 'Admin')`);
+      await t.execute(sql`insert into membership (user_id, agency_id, role, status) values (${adminId}, ${f.agencyId}, 'admin', 'active')`);
+      const admin: Actor = { userId: adminId, agencyId: f.agencyId, membershipRole: 'admin' };
+      const owner = f.actor('owner');
+      const results = {
+        noChoice: await code(removeMember(t, owner, f.people.a1, {})),
+        self: await code(removeMember(t, owner, f.people.owner, { review: true })),
+        byAgent: await code(removeMember(t, f.actor('a2'), f.people.a1, { review: true })),
+        ownerByAdmin: await code(removeMember(t, admin, f.people.owner, { review: true })),
+        otherAgency: await code(removeMember(t, owner, other.people.a1, { review: true })),
+        toReadOnly: await code(removeMember(t, owner, f.people.a1, { receiver: f.people.viewer })),
+      };
+      const expected = { noChoice: 'invalid', self: 'forbidden', byAgent: 'forbidden', ownerByAdmin: 'forbidden', otherAgency: 'not_found', toReadOnly: 'invalid' };
+      assert(JSON.stringify(results) === JSON.stringify(expected), `got ${JSON.stringify(results)}`);
+      // The last owner: a second owner removes the first, then nobody can remove the second.
+      const owner2 = randomUUID();
+      await t.execute(sql`insert into "user" (id, email, name) values (${owner2}, ${`owner2.${f.tag}@smoke.test`}, 'Owner 2')`);
+      await t.execute(sql`insert into membership (user_id, agency_id, role, status) values (${owner2}, ${f.agencyId}, 'owner', 'active')`);
+      await removeMember(t, { userId: owner2, agencyId: f.agencyId, membershipRole: 'owner' }, f.people.owner, { review: true });
+      const last = await code(removeMember(t, { userId: owner2, agencyId: f.agencyId, membershipRole: 'owner' }, owner2, { review: true }));
+      const lastByOther = await code(removeMember(t, admin, owner2, { review: true }));
+      assert(last === 'forbidden' && lastByOther === 'forbidden', `the last owner: self ${last}, by admin ${lastByOther}`);
+      // An owner who is the last one cannot be removed even by another owner-level call (count guard).
+      const owner3 = randomUUID();
+      await t.execute(sql`insert into "user" (id, email, name) values (${owner3}, ${`owner3.${f.tag}@smoke.test`}, 'Owner 3')`);
+      await t.execute(sql`insert into membership (user_id, agency_id, role, status) values (${owner3}, ${f.agencyId}, 'owner', 'active')`);
+      await t.execute(sql`update membership set role = 'admin' where user_id = ${owner3} and agency_id = ${f.agencyId}`);
+      const lastByAnOwner = await code(removeMember(t, { userId: owner3, agencyId: f.agencyId, membershipRole: 'owner' }, owner2, { review: true }));
+      assert(lastByAnOwner === 'conflict', `the last owner removed: ${lastByAnOwner}`);
+      assert((await count(t, sql`select count(*)::int as n from membership where agency_id = ${f.agencyId} and role = 'owner' and status = 'active'`)) === 1, 'no owner left');
+      assert((await count(t, sql`select count(*)::int as n from membership where user_id = ${f.people.a1} and status = 'active'`)) === 1, 'a refused removal changed A1');
+      return 'no choice, self, agent, owner-by-admin, other agency, read-only receiver: all refused; one owner always remains';
+    }),
+  );
+
+  await check('undo within 30 days brings access back without tokens; not after; one agency per person (invite refused, index holds)', async () =>
+    inRollback(async (t) => {
+      const x = await leaverFixture(t);
+      const owner = x.f.actor('owner');
+      await removeMember(t, owner, x.f.people.a1, { receiver: x.f.people.a2 }, x.deps);
+      await restoreMember(t, owner, x.f.people.a1);
+      assert((await activeMemberActor(t, x.f.people.a1, x.f.agencyId)) !== null, 'restore did not bring A1 back');
+      assert((await count(t, sql`select count(*)::int as n from integration_account where owner_type = 'user' and owner_id = ${x.f.people.a1}`)) === 0, 'tokens came back');
+      await removeMember(t, owner, x.f.people.a1, { review: true }, x.deps);
+      await t.execute(sql`update membership set removed_at = now() - interval '31 days' where user_id = ${x.f.people.a1} and agency_id = ${x.f.agencyId}`);
+      const late = await restoreMember(t, owner, x.f.people.a1).then(() => 'ok', (e: unknown) => (e as { code?: string }).code);
+      assert(late === 'conflict', `restore after 31 days: ${late}`);
+
+      // One agency per person: an invite from agency B to someone active in agency A is refused.
+      const other = await contactFixture(t);
+      await t.execute(sql`insert into agent_invite (agency_id, email, token, status, expires_at, draft)
+        select ${other.agencyId}, lower(email), ${`smoke-${randomUUID()}`}, 'pending', now() + interval '1 day', '{}'::jsonb from "user" where id = ${x.f.people.a2}`);
+      const [a2] = await t.execute<{ email: string }>(sql`select email from "user" where id = ${x.f.people.a2}`);
+      const claim = await claimAgentInvite(t, { userId: x.f.people.a2, email: a2!.email });
+      assert(!claim.claimed && claim.reason === 'other_agency', `claim: ${JSON.stringify(claim)}`);
+      const dup = await t.transaction(async (sp) => {
+        await sp.execute(sql`insert into membership (user_id, agency_id, role, status) values (${x.f.people.a2}, ${other.agencyId}, 'agent', 'active')`);
+        return 'inserted';
+      }).catch((e: unknown) => String((e as { message?: string }).message ?? e));
+      assert(dup !== 'inserted', 'a second active membership was allowed');
+      return `restored without tokens; 31 days → refused; invite to another agency → ${claim.reason}; the index refused a second active membership`;
     }),
   );
 

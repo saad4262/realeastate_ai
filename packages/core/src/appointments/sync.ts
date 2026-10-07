@@ -535,3 +535,23 @@ export async function checkCalendarEvent(
     return 'failed';
   }
 }
+
+/**
+ * Offboarding (ADR 0030 §5.2): delete an event from, or a meeting on, the
+ * LEAVER's own account, with their token, while it still works — before their
+ * membership is suspended and their tokens deleted. Throws on failure; the
+ * caller counts what could not be removed.
+ */
+export async function removeProviderItemAs(
+  db: DbOrTx,
+  deps: SyncDeps,
+  actor: Actor,
+  item: { kind: 'calendar'; accountId: string; eventId: string } | { kind: 'zoom'; accountId: string; meetingId: string },
+): Promise<void> {
+  if (!deps.keys) throw new IntegrationError('unavailable', 'integrations are not set up on this server');
+  if (item.kind === 'calendar') {
+    await withAccessToken(db, deps.keys, actor, item.accountId, deps, (t) => calendarApiFor(deps, t).remove(t, item.eventId));
+  } else {
+    await withAccessToken(db, deps.keys, actor, item.accountId, deps, (t) => zoomApiFor(deps, t).remove(t, item.meetingId));
+  }
+}

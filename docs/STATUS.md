@@ -8,6 +8,16 @@
   0029 applied on dev (additive). Waiting for the user's walk-through of TEST-PLAN U and V.
   **Not started (by instruction): Phase D** (template email from picked contacts), then
   E (delayed run, needs the 5-min cron) and F (widgets hook).
+- **Phase 8 — Offboarding (ADR 0030) committed.** Migration 0035 applied on dev (additive:
+  membership.removed_at/by/report, needs_owner_at on contact/lead/appointment/listing,
+  integration_account.connector_left_at, one active membership per person). Remove from the
+  agency: the admin must choose a receiver or "leave for review"; the leaver's calendar
+  events and own-Zoom meetings are deleted with their token first; one transaction moves or
+  flags their work (private offers only ever to an owner/admin), cancels waiting/scheduled
+  cards, prepared emails and imports, disables skills, deletes conversations, flags agency
+  accounts they connected; then their tokens are revoked and deleted and moved appointments
+  sync to the receiver. Undo for 30 days; "Needs an owner" queue on Overview; invites refuse
+  a second agency. TEST-PLAN AC.
 - **Phase 7 — Assistant Phase E, run later (ADR 0025) committed.** No migration (`run_at` and
   `scheduled` already existed). Behind `ASSISTANT_SCHEDULING=1` (off by default; needs the
   5-minute cron). The person picks the time on the card (≤ 48 h; an email card within its
@@ -15,7 +25,6 @@
   (`FOR UPDATE SKIP LOCKED` claim and run in one transaction) as the approver as they are
   then, through the same code as Approve-now, so every check repeats; cancel until it runs.
   The card says "about … (up to 5 minutes later)". TEST-PLAN AB.
-  **Next: Phase 8 — offboarding (ADR 0030).**
 - **Phase 6 — Gmail send (ADR 0026) committed.** Migration 0034 applied on dev (provider
   `gmail` enum value; owner-type CHECK widened by DROP + ADD, no row change — flagged like 0031;
   agency.members_may_use_agency_gmail; mail_message.sent_via / sender_account_id). Sender per

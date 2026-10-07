@@ -597,6 +597,13 @@ export function TeamDirectory({
             )}
 
             <Dossier row={selected.row} />
+            {selected.status === 'active' ? (
+              <p style={{ marginTop: '1rem', fontSize: '0.8125rem' }}>
+                <Link href={`/team/remove/${selected.row.userId}`}>Remove from the agency…</Link>
+                {' · '}
+                <Link href="/team/removed">Removed members</Link>
+              </p>
+            ) : null}
           </div>
         </aside>
       ) : null}

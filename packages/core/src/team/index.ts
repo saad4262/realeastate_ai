@@ -40,3 +40,20 @@ export {
   type InviteEmailOutcome,
 } from './invite-email';
 export { activeMemberActor } from './member-actor';
+export {
+  assignNeedsOwner,
+  listNeedsOwner,
+  listRemovedMembers,
+  offboardChoiceSchema,
+  OffboardError,
+  offboardingPreview,
+  removeMember,
+  restoreMember,
+  RESTORE_DAYS,
+  type NeedsOwnerItem,
+  type OffboardChoice,
+  type OffboardDeps,
+  type OffboardPreview,
+  type RemovalReport,
+  type RemovedMember,
+} from './offboarding';

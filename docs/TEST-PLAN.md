@@ -839,3 +839,33 @@ consenting test contact.
 | AB8 | Schedule a note, then (as owner) **suspend** that agent before it runs | It does not run. The card says the person is no longer an active member. |
 | AB9 | Another agent tries to open the scheduled card's conversation (copy its link) | Not found. Only the person who approved it sees its card. |
 | AB10 | Schedule an appointment card for later, but book the slot to be in the past by then (e.g. schedule a "today 3 pm" appointment to run at 4 pm) | At run time: failed — "That time has already passed". |
+
+## AC — Removing someone from the agency (ADR 0030)
+
+An owner or admin can remove a member. Before removing, they **must** choose who gets the
+person's work, or leave it "for review". There is no default. The removed person loses access
+straight away. Their upcoming appointments leave their Google Calendar and arrive in the new
+person's. Their waiting assistant cards, prepared bulk emails and imports are cancelled. Their
+connected accounts are revoked and deleted. Everything they wrote stays, with their name. It
+can be undone for 30 days. One person can only belong to one agency.
+
+**Setup.** Owner, agent A1, agent A2, plus an admin if you have one. A1 should have some of
+everything: an upcoming appointment, ideally Zoom (Google Calendar and Zoom connected, so the
+event is in A1's calendar), a contact and a lead assigned to A1, a listing where A1 is the
+only agent, a waiting assistant card, and a bulk email prepared but not approved. A2 should
+have Google Calendar connected. Real Google/Zoom accounts are needed only for steps AC3–AC4.
+
+| # | Case | Expected |
+|---|---|---|
+| AC1 | Owner → Agents & Team → click A1 → **Remove from the agency…** | A page listing counts: upcoming appointments, contacts, leads, listings (and how many have no other agent), waiting cards, prepared emails, imports, dashboards, their own accounts, agency accounts they connected. |
+| AC2 | Don't choose anyone | **Remove** stays disabled. It also needs you to type REMOVE. |
+| AC3 | Choose **A2**, type REMOVE, Remove | A report: what moved, events removed from A1's calendar, cancelled items, accounts deleted. In **A1's Google Calendar**, the appointment's event is gone. In **A2's**, it appears. A Zoom appointment has a new link and the contact's timeline says "Zoom link changed — resend the invitation". |
+| AC4 | Check A2's work | The contact and lead are A2's. The listing shows A2 as its agent on the website. The appointment is A2's. |
+| AC5 | A1 (still signed in elsewhere) refreshes the console | No access to the agency (sent to sign-in or get-started). Their open assistant card can't be approved. |
+| AC6 | Owner → Integrations | If A1 had connected an agency account (e.g. the agency Zoom), it still works but is marked as needing reconnection. In A1's Google account → Third-party access, the app is gone (or the report said to remove it there). |
+| AC7 | Owner → Team → **Removed members** → **Undo removal** on A1 | A1 can sign in again. Their calendar and Zoom show "Not connected" (they must reconnect). The work given to A2 stays with A2. |
+| AC8 | Remove A1 again, choosing **Nobody yet — leave it for review** | Agency **Overview** shows **Needs an owner** with A1's contacts, leads, appointments and listings. A2 can't see this list. |
+| AC9 | Assign each item from the list | Each disappears from the list. An assigned appointment appears in the new agent's calendar. The list vanishes when empty. |
+| AC10 | An admin tries to remove an owner; anyone tries to remove themselves; the only owner tries to be removed | Each is refused with a reason. |
+| AC11 | After removing A1, invite A1's email to **another** agency and accept while A1 is still active in yours (restore A1 first) | "You already belong to another agency…" — the invite is not accepted. |
+| AC12 | A removal from more than 30 days ago | **Undo removal** is not offered. |

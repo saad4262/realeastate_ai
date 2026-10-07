@@ -176,9 +176,18 @@ export const membership = pgTable(
     status: membershipStatusEnum('status').notNull().default('active'),
     invitedBy: uuid('invited_by').references(() => user.id, { onDelete: 'set null' }),
     joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow(),
+    /** Offboarding (ADR 0030 §5): when and by whom they were removed. Restorable for 30 days. */
+    removedAt: timestamp('removed_at', { withTimezone: true }),
+    removedBy: uuid('removed_by').references(() => user.id, { onDelete: 'set null' }),
+    /** What the removal did (counts, where the work went, what could not be undone) — for the admin. */
+    removalReport: jsonb('removal_report'),
     ...timestamps,
   },
-  (t) => [uniqueIndex('membership_user_agency_idx').on(t.userId, t.agencyId)],
+  (t) => [
+    uniqueIndex('membership_user_agency_idx').on(t.userId, t.agencyId),
+    // ADR 0030, decided Q4: one ACTIVE agency per person.
+    uniqueIndex('membership_one_active_idx').on(t.userId).where(sql`status = 'active'`),
+  ],
 );
 
 export const agentInviteStatusEnum = pgEnum('agent_invite_status', [
@@ -382,6 +391,8 @@ export const listing = pgTable(
      * Unique per agency when set.
      */
     externalId: text('external_id'),
+    /** Flagged by an offboarding (ADR 0030 §5): its person left and it waits in the "Needs an owner" queue. */
+    needsOwnerAt: timestamp('needs_owner_at', { withTimezone: true }),
     auctionDate: timestamp('auction_date', { withTimezone: true }),
     publishedAt: timestamp('published_at', { withTimezone: true }),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
@@ -491,6 +502,8 @@ export const lead = pgTable(
      */
     offerAmount: numeric('offer_amount', { precision: 14, scale: 2 }),
     assignedTo: uuid('assigned_to').references(() => user.id, { onDelete: 'set null' }),
+    /** Flagged by an offboarding (ADR 0030 §5): its person left and it waits in the "Needs an owner" queue. */
+    needsOwnerAt: timestamp('needs_owner_at', { withTimezone: true }),
     /**
      * The person behind it (ADR 0018). Set by the `lead` insert trigger through
      * `public.contact_upsert`, matched on email; nullable only so the column
@@ -733,6 +746,8 @@ export const contact = pgTable(
     phoneKey: text('phone_key').generatedAlwaysAs(sql`public.au_phone_key(phone)`),
     /** The agent whose contact this is. They may edit it in full. */
     assignedTo: uuid('assigned_to').references(() => user.id, { onDelete: 'set null' }),
+    /** Flagged by an offboarding (ADR 0030 §5): its person left and it waits in the "Needs an owner" queue. */
+    needsOwnerAt: timestamp('needs_owner_at', { withTimezone: true }),
     /** Their website account, when an offer told us (offers need a sign-in). */
     userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
     source: contactSourceEnum('source').notNull().default('manual'),
@@ -938,6 +953,8 @@ export const appointment = pgTable(
     createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
     /** Whose appointment it is. They — and admins — may change it. */
     assignedAgentId: uuid('assigned_agent_id').references(() => user.id, { onDelete: 'set null' }),
+    /** Flagged by an offboarding (ADR 0030 §5): its person left and it waits in the "Needs an owner" queue. */
+    needsOwnerAt: timestamp('needs_owner_at', { withTimezone: true }),
     title: text('title').notNull(),
     type: appointmentTypeEnum('type').notNull(),
     startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
@@ -1044,6 +1061,12 @@ export const integrationAccount = pgTable(
     refreshTokenEnc: text('refresh_token_enc'),
     tokenExpiresAt: timestamp('token_expires_at', { withTimezone: true }),
     connectedBy: uuid('connected_by').references(() => user.id, { onDelete: 'set null' }),
+    /**
+     * An agency-level account whose connecting person has left (ADR 0030 §5.4,
+     * decided Q8): it keeps working, flagged for an admin to reconnect with an
+     * account the agency controls. Cleared by reconnecting.
+     */
+    connectorLeftAt: timestamp('connector_left_at', { withTimezone: true }),
     ...timestamps,
   },
   (t) => [

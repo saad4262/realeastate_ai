@@ -284,6 +284,8 @@ export type Action =
   /** See the agency's Google rating and reviews in the console: any active member. */
   | 'review:read'
   | 'team:manage'
+  /** Remove (or restore) another OWNER (ADR 0030): owners only. Never yourself, never the last owner — checked in core. */
+  | 'team:remove_owner'
   | 'agency:billing'
   /** Agency OS host — owner|admin only */
   | 'console:agency'
@@ -635,6 +637,9 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'contact_filter:manage':
       return sameAgency(actor, resource) && mayWrite(actor) &&
         (!resource.ownerId || actor.userId === resource.ownerId);
+
+    case 'team:remove_owner':
+      return sameAgency(actor, resource) && actor.membershipRole === 'owner';
 
     case 'team:manage':
     case 'agency:billing':

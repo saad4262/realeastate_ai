@@ -55,6 +55,9 @@ export const ACTIVITY_KINDS = [
   'assistant_approved',
   'assistant_rejected',
   'assistant_cancelled',
+  // Offboarding (ADR 0030): their person left the agency; the Zoom link changed with it.
+  'owner_left',
+  'zoom_link_changed',
   'assistant_failed',
 ] as const;
 export const activityKindSchema = z.enum(ACTIVITY_KINDS);
@@ -82,6 +85,8 @@ export const ACTIVITY_LABELS: Record<ActivityKind, string> = {
   contact_created: 'Contact added',
   contact_updated: 'Details changed',
   contact_assigned: 'Assigned',
+  owner_left: 'Their agent left the agency',
+  zoom_link_changed: 'Zoom link changed — resend the invitation',
   contact_merged: 'Merged with a duplicate',
   role_added: 'Role added',
   role_removed: 'Role removed',

@@ -15,6 +15,8 @@ export type SyncAccountResult =
       claimed: boolean;
       /** A pending invite for this email had already lapsed. */
       inviteExpired: boolean;
+      /** The invite was refused: this person already belongs to another agency (ADR 0030, decided Q4). */
+      inviteRefused: boolean;
     }
   | { ok: false; error: string };
 
@@ -56,6 +58,7 @@ export async function syncAccountAction(opts?: {
       hasMembership,
       claimed: claim.claimed,
       inviteExpired: claim.reason === 'expired',
+      inviteRefused: claim.reason === 'other_agency',
     };
   } catch (err) {
     return {

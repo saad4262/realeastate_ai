@@ -1,3 +1,27 @@
+## 2026-10-06 — Claude Code — Phase 8: offboarding (ADR 0030)
+
+- Done: migration 0035 (dev data checked for duplicate active memberships first: none);
+  `@repo/core/team` offboarding (preview, removeMember, restoreMember, listRemovedMembers,
+  listNeedsOwner, assignNeedsOwner), `team:remove_owner`, `removeProviderItemAs` in appointment
+  sync, activity kinds owner_left / zoom_link_changed, invite refusal for a second agency
+  (+ screens); console: "Remove from the agency…" in the member panel, /team/remove/<id>,
+  /team/removed (undo), Needs an owner on Overview; DB-health listing check excludes flagged
+  listings (as the ADR says); TEST-PLAN AC; ADR 0030 as-built.
+- **Found by the new smoke group and fixed before commit:** removing a member with an agent as
+  receiver handed that agent the leaver's private offer leads (the normal assign path forbids
+  it). Offers now go only to an owner/admin receiver, else wait in the queue.
+- Checks: typecheck 10/10, lint 0 errors, unit 823 + 286, console + web throwaway builds OK;
+  smoke Offboarding 4/4, Tenant isolation 4/4 (148 reads, 188 writes, 35 tables), Database
+  health 25/25 (1 data-dependent skip), Console assistant 16/16.
+- Break-tests (one at a time, in a separate copy, session pooler): a silent default with no
+  choice; removing yourself; an admin removing an owner; the last owner (both layers); events
+  not removed from the leaver's calendar; the leaver's tokens kept; scheduled actions not
+  cancelled; a private offer handed to an agent; a listing left with nobody; undo after 30
+  days; an invite joining a second agency; team:remove_owner widened to admins — all 13 red,
+  restored green (Offboarding 4/4, Console assistant 15/15 + 1 skip: console not running).
+- Next exact step: the final commit (docs/TEST-ORDER.md) and the report; then the user walks
+  TEST-PLAN N → AC in the order of docs/TEST-ORDER.md.
+
 ## 2026-10-06 — Claude Code — Phase 7: assistant delayed execution (ADR 0025 Phase E)
 
 - Done: `approveProposedAction(..., { runAt })` (flag, 48 h, batch-life checks; guarded

@@ -45,6 +45,11 @@ export function ClaimInvitePanel({
       setBusy(false);
       return;
     }
+    if (sync.inviteRefused) {
+      setError('You already belong to another agency, so this invite cannot be accepted. An agent belongs to one agency at a time — ask your current agency to remove you first.');
+      setBusy(false);
+      return;
+    }
     if (!sync.hasMembership) {
       setError(
         sync.inviteExpired

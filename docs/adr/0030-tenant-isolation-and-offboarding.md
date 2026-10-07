@@ -207,3 +207,42 @@ a change).
   restore; agency closure gets its own ADR before it happens; owners and admins see the
   "Needs an owner" queue; unit parts in `pnpm test`, the smoke group before every deploy;
   agency-level accounts connected by the leaver keep working, flagged for reconnection).
+
+## As built — offboarding (Phase 8, 2026-10-06)
+
+- **Migration 0035** (additive): `membership.removed_at / removed_by / removal_report`;
+  `needs_owner_at` on contact, lead, appointment and listing;
+  `integration_account.connector_left_at`; the unique partial index
+  `membership_one_active_idx` (one active membership per user — dev data checked first: no
+  violations).
+- **`removeMember(db, actor, userId, choice, deps)`** (`packages/core/src/team/offboarding.ts`):
+  `team:manage`; another owner needs **`team:remove_owner`** (owners only). Never yourself,
+  never the last owner (checked before and again inside the transaction). The choice is
+  required: `{ receiver }` (an active member who may write) or `{ review: true }`.
+  1. Network first, with the leaver's own token: upcoming appointments' Google events and
+     meetings on the leaver's **own** Zoom are deleted. A meeting on the agency's Zoom is
+     left alone. A failure (expired grant) is counted: "they may still see them".
+  2. One transaction: membership suspended; contacts, leads and upcoming appointments go to
+     the receiver or get `needs_owner_at` (contacts get an `owner_left` timeline row).
+     Removed events/meetings are cleared on the row, and a `zoom_link_changed` row is added
+     where the link will change. Their `listing_agent` rows go; a listing left with nobody
+     gets the receiver or is flagged. `proposed`/`scheduled` cards are cancelled (with
+     timeline rows), `prepared` batches cancelled, unfinished imports cancelled, skills
+     disabled, assistant conversations deleted, and agency accounts they connected get
+     `connector_left_at`.
+  3. Their user-level accounts: revoke at the provider (best effort, reported), then delete.
+  4. Moved appointments sync into the receiver's calendar/Zoom. The report is stored on the
+     membership.
+- **`restoreMember`**: within 30 days. Tokens do not come back; moved work stays moved. If
+  they joined another agency since, it is refused (the index).
+- **Needs an owner**: `listNeedsOwner` (owners/admins) on the agency Overview;
+  `assignNeedsOwner` assigns through each screen's own assign function (contacts, leads),
+  or `appointment:assign` + sync, or the listing-agent writer (`listing:publish`). An item
+  someone assigns elsewhere drops out of the queue by itself.
+- **One agency per person**: `claimAgentInvite` refuses (`other_agency`, with a sentence on
+  the sign-in and invite screens) before anything is written. The index is the backstop.
+- The DB-health smoke check "no listing is left without an agent" now excludes listings
+  flagged `needs_owner_at`, as this ADR specified.
+- Not built: the console banner "You no longer have access to <agency>". The removed
+  person's next request already has no agency (`loadActor` requires `active`) and lands on
+  sign-in / get-started.
