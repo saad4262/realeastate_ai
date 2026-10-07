@@ -363,6 +363,74 @@ export async function assignContact(
   });
 }
 
+/** Why consent is never recorded for someone who unsubscribed (ADR 0022): it is theirs to give back. */
+export const UNSUBSCRIBED_REASON = 'unsubscribed — only they can give permission again';
+
+/** The contact, if this person may edit it — the edit form's rule (`contact:update`). */
+async function editableHead(db: DbOrTx, actor: Actor, contactId: string, what: string) {
+  const head = await loadContactHead(db, actor, contactId);
+  if (!head || head.row.mergedIntoId) throw CONTACT_NOT_FOUND();
+  const resource = contactResource(head.facts);
+  if (!can(actor, 'contact:read', resource)) throw CONTACT_NOT_FOUND();
+  if (!can(actor, 'contact:update', resource)) {
+    throw new ContactError('forbidden', `Only the agent ${head.row.name} is assigned to, or an admin, may ${what}`);
+  }
+  return head;
+}
+
+/**
+ * Record that this person agreed to marketing email, and how — dated and
+ * attributed on the record and the timeline (the Spam Act asks who, when and
+ * how). Whoever may edit the contact may. Refused for someone who
+ * unsubscribed: only they can opt back in. Someone who already agreed keeps
+ * the consent they gave (nothing is overwritten).
+ */
+export async function recordMarketingConsent(
+  db: Db,
+  actor: Actor,
+  contactId: string,
+  how: string,
+  opts: ChangeOrigin = {},
+): Promise<'recorded' | 'already'> {
+  const head = await editableHead(db, actor, contactId, 'record their consent');
+  const note = how.trim();
+  if (!note) throw new ContactError('invalid', 'Say how they gave consent');
+  if (note.length > 300) throw new ContactError('invalid', 'Keep how they gave consent under 300 characters');
+  if (head.row.emailOptOutAt) throw new ContactError('conflict', `${head.row.name} ${UNSUBSCRIBED_REASON}`);
+  if (head.row.marketingConsentAt) return 'already';
+  await db.transaction(async (tx) => {
+    await tx
+      .update(contact)
+      .set({ marketingConsentAt: sql`now()`, marketingConsentBy: actor.userId, marketingConsentNote: note, updatedAt: sql`now()` })
+      .where(and(eq(contact.id, head.row.id), eq(contact.agencyId, head.row.agencyId)));
+    await recordActivity(tx, actor, head.row.agencyId, head.row.id, 'consent_recorded', { note, ...(opts.via ? { via: opts.via } : {}) });
+  });
+  return 'recorded';
+}
+
+/** Withdraw a recorded consent, with the reason on the timeline. Same permission as recording it. */
+export async function withdrawMarketingConsent(
+  db: Db,
+  actor: Actor,
+  contactId: string,
+  reason: string,
+  opts: ChangeOrigin = {},
+): Promise<'withdrawn' | 'none'> {
+  const head = await editableHead(db, actor, contactId, 'withdraw their consent');
+  const note = reason.trim();
+  if (!note) throw new ContactError('invalid', 'Say why consent is withdrawn');
+  if (note.length > 300) throw new ContactError('invalid', 'Keep the reason under 300 characters');
+  if (!head.row.marketingConsentAt) return 'none';
+  await db.transaction(async (tx) => {
+    await tx
+      .update(contact)
+      .set({ marketingConsentAt: null, marketingConsentBy: null, marketingConsentNote: null, updatedAt: sql`now()` })
+      .where(and(eq(contact.id, head.row.id), eq(contact.agencyId, head.row.agencyId)));
+    await recordActivity(tx, actor, head.row.agencyId, head.row.id, 'consent_withdrawn', { note, ...(opts.via ? { via: opts.via } : {}) });
+  });
+  return 'withdrawn';
+}
+
 /**
  * Archive a contact, or bring it back. Hides it from the directory's default
  * view; deletes nothing, changes nothing else. A new enquiry from them still

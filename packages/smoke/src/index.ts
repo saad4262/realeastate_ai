@@ -5682,6 +5682,94 @@ async function main() {
     }),
   );
 
+  await check('AE: record_marketing_consent — only contacts the person may edit; "how" required; the unsubscribed and those who already agreed are skipped with the reason; saved with date, who and how', async () =>
+    inRollback(async (t) => {
+      const x = await editFixture(t);
+      const { p2, p5, p6 } = x.f.contacts;
+      // A2's own contacts: P2 (no consent), P6 (already agreed), P5 (unsubscribed).
+      await t.execute(sql`update contact set assigned_to = ${x.f.people.a2} where id in (${p2}, ${p5}, ${p6})`);
+      await t.execute(sql`update contact set marketing_consent_at = now() - interval '3 days', marketing_consent_by = ${x.f.people.owner}, marketing_consent_note = 'Signed form' where id = ${p6}`);
+      await t.execute(sql`update contact set email_opt_out_at = now() where id = ${p5}`);
+      const consent = async (id: string) =>
+        (await t.execute<{ at: string | null; by: string | null; note: string | null }>(sql`
+          select marketing_consent_at as at, marketing_consent_by as by, marketing_consent_note as note from contact where id = ${id}`))[0]!;
+      const cards = () => count(t, sql`select count(*)::int as n from proposed_action where agency_id = ${x.f.agencyId}`);
+
+      const s = await x.session(x.agent);
+      const before = await cards();
+      const blank = await runAssistantTool(s.ctx(), 'record_marketing_consent', { contacts: [s.ref(p2)], how: '' });
+      assert(blank.isError && /Ask the person how/.test(JSON.stringify(blank.result)) && (await cards()) === before, `blank how: ${JSON.stringify(blank.result)}`);
+
+      const how = 'Said yes at the Saturday open home';
+      const id = cardId(await runAssistantTool(s.ctx(), 'record_marketing_consent', { contacts: [s.ref(p2), s.ref(p6), s.ref(p5)], how }));
+      assert((await consent(p2)).at === null, 'proposing recorded consent');
+      const card = (await getProposedAction(t, x.agent, id)).card;
+      const row = (name: string) => card.changes?.find((c) => c.name === name);
+      assert(row('P2')?.skipped === null && row('P2')?.after === 'Consent', `P2: ${JSON.stringify(row('P2'))}`);
+      assert(/already/i.test(row('P6')?.skipped ?? ''), `P6: ${JSON.stringify(row('P6'))}`);
+      assert(/unsubscribed/.test(row('P5')?.skipped ?? '') && /only they can give permission again/.test(row('P5')?.skipped ?? ''), `P5: ${JSON.stringify(row('P5'))}`);
+      assert(card.text?.value === how, `how on the card: ${JSON.stringify(card.text)}`);
+
+      const r = await approveProposedAction(t, x.agent, id);
+      assert(r.outcome === 'done', `approve: ${JSON.stringify(r)}`);
+      const p2c = await consent(p2);
+      assert(p2c.at && p2c.by === x.f.people.a2 && p2c.note === how, `P2 after: ${JSON.stringify(p2c)}`);
+      assert((await consent(p5)).at === null, 'consent recorded for someone who unsubscribed');
+      assert((await consent(p6)).note === 'Signed form', 'an existing consent was overwritten');
+      const acts = await t.execute<{ payload: { note: string; via?: string } }>(sql`select payload from activity where contact_id = ${p2} and kind = 'consent_recorded'`);
+      assert(acts.length === 1 && acts[0]!.payload.note === how && acts[0]!.payload.via === 'assistant', `timeline: ${JSON.stringify(acts)}`);
+
+      // Only the unsubscribed (and the already-agreed) on a card: nothing to propose.
+      const none = await runAssistantTool(s.ctx(), 'record_marketing_consent', { contacts: [s.ref(p5)], how });
+      assert(!none.frame && /nothing was proposed/.test(JSON.stringify(none.result)) && /only they can give permission again/.test(JSON.stringify(none.result)), `only unsubscribed: ${JSON.stringify(none.result)}`);
+
+      // Withdraw by card, with a reason.
+      const blankWhy = await runAssistantTool(s.ctx(), 'withdraw_marketing_consent', { contacts: [s.ref(p2)], reason: '' });
+      assert(blankWhy.isError, 'withdraw without a reason');
+      const w = cardId(await runAssistantTool(s.ctx(), 'withdraw_marketing_consent', { contacts: [s.ref(p2)], reason: 'Asked us to stop on the phone' }));
+      assert((await approveProposedAction(t, x.agent, w)).outcome === 'done' && (await consent(p2)).at === null, 'not withdrawn');
+      const wd = await t.execute<{ payload: { note: string; via?: string } }>(sql`select payload from activity where contact_id = ${p2} and kind = 'consent_withdrawn'`);
+      assert(wd[0]?.payload.note === 'Asked us to stop on the phone' && wd[0]?.payload.via === 'assistant', `withdraw timeline: ${JSON.stringify(wd)}`);
+      return 'blank how → refused, no card; card: P2 recorded, P6 already, P5 unsubscribed (skipped, reason); approve: P2 at/by A2/how, timeline via assistant; P5, P6 untouched; only-unsubscribed → nothing proposed; withdraw needs a reason, then clears it';
+    }),
+  );
+
+  await check('AE: consent refuses someone else’s contact, a read-only member, another agency’s contact, and re-checks at run time (reassigned, unsubscribed since)', async () =>
+    inRollback(async (t) => {
+      const x = await editFixture(t);
+      const other = await contactFixture(t);
+      const { p2, p4, p6 } = x.f.contacts;
+      const how = 'Ticked the box on the sign-in sheet';
+      // P2 is visible to A2 through their lead, but assigned to the owner: A2 may read it, not edit it.
+      await t.execute(sql`update contact set assigned_to = ${x.f.people.owner} where id = ${p2}`);
+      await t.execute(sql`update contact set assigned_to = ${x.f.people.a2} where id = ${p6}`);
+      const s = await x.session(x.agent);
+      const notMine = await runAssistantTool(s.ctx(), 'record_marketing_consent', { contacts: [s.ref(p6), s.ref(p2)], how });
+      assert(notMine.isError && /assigned to/.test(JSON.stringify(notMine.result)), `someone else's contact: ${JSON.stringify(notMine.result)}`);
+      const foreign = await runAssistantTool(s.ctx(), 'record_marketing_consent', { contacts: [s.ref(other.contacts.p6)], how });
+      assert(foreign.isError && /not available/.test(JSON.stringify(foreign.result)), `other agency: ${JSON.stringify(foreign.result)}`);
+      const v = await x.session(x.viewer);
+      const ro = await runAssistantTool(v.ctx(), 'record_marketing_consent', { contacts: [v.ref(p4)], how });
+      assert(ro.isError, `read-only member proposed consent: ${JSON.stringify(ro.result)}`);
+      // The owner may, on any contact of the agency.
+      const so = await x.session(x.owner);
+      cardId(await runAssistantTool(so.ctx(), 'record_marketing_consent', { contacts: [so.ref(p2)], how }));
+
+      // Run time: P6 is given to someone else before A2 approves.
+      const c1 = cardId(await runAssistantTool(s.ctx(), 'record_marketing_consent', { contacts: [s.ref(p6)], how }));
+      await t.execute(sql`update contact set assigned_to = ${x.f.people.owner} where id = ${p6}`);
+      const r1 = await approveProposedAction(t, x.agent, c1);
+      const at = async () => (await t.execute<{ at: string | null }>(sql`select marketing_consent_at as at from contact where id = ${p6}`))[0]!.at;
+      assert(r1.outcome === 'failed' && (await at()) === null, `reassigned before approve: ${JSON.stringify(r1)}`);
+      // Run time: they unsubscribe before the owner approves.
+      const c2 = cardId(await runAssistantTool(so.ctx(), 'record_marketing_consent', { contacts: [so.ref(p6)], how }));
+      await t.execute(sql`update contact set email_opt_out_at = now() where id = ${p6}`);
+      const r2 = await approveProposedAction(t, x.owner, c2);
+      assert(r2.outcome === 'failed' && /only they can give permission again/.test(r2.error) && (await at()) === null, `unsubscribed before approve: ${JSON.stringify(r2)}`);
+      return 'A2 on the owner’s contact → refused; other agency → refused; read-only → refused; owner may; at run: reassigned → failed, unsubscribed since → failed with the reason';
+    }),
+  );
+
   await check('the assistant route refuses a signed-out request', async () => {
     if (!(await reachable('http://localhost:3001/login'))) skip('console is not running');
     const res = await fetch('http://agents.lvh.me:3001/api/assistant', {

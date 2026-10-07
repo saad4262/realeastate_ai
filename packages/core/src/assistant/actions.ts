@@ -5,7 +5,7 @@ import { can, type Actor } from '../permissions';
 import { recordActivity } from '../contacts/write-contacts';
 import { ContactError } from '../contacts/list-contacts';
 import { createNote } from '../contacts/notes';
-import { assignContact, setNextAction } from '../contacts/write-contacts';
+import { assignContact, recordMarketingConsent, setNextAction, withdrawMarketingConsent } from '../contacts/write-contacts';
 import { AppointmentError, cancelAppointment, rescheduleAppointment, scheduleAppointment } from '../appointments/appointments';
 import { syncAppointment, type SyncDeps, type SyncOutcome } from '../appointments/sync';
 import { requireIntegrations } from '../integrations/accounts';
@@ -62,12 +62,15 @@ export type FrozenArgs =
   /** ADR 0027: the dashboard as it will be saved — registry ids and parsed params only. */
   | { tool: 'create_dashboard'; title: string; widgets: { widget: string; params: Record<string, unknown> }[]; audience: 'private' | 'admins' | 'agency' }
   /** Owners/admins: give these contacts to `to`. `from` = who held each when the card was made. */
-  | { tool: 'assign_contacts'; to: string; contactIds: string[]; from: Record<string, string | null> };
+  | { tool: 'assign_contacts'; to: string; contactIds: string[]; from: Record<string, string | null> }
+  /** Consent for these contacts, with the person's words for how they agreed. */
+  | { tool: 'record_marketing_consent'; contactIds: string[]; how: string }
+  | { tool: 'withdraw_marketing_consent'; contactIds: string[]; reason: string };
 
 /** The contacts whose timelines carry this action's audit lines. */
 function auditContacts(row: { contactId: string | null; args: unknown }): string[] {
   const args = row.args as FrozenArgs;
-  if (args.tool === 'send_template_email' || args.tool === 'assign_contacts') return args.contactIds;
+  if ('contactIds' in args) return args.contactIds;
   return row.contactId ? [row.contactId] : [];
 }
 
@@ -247,6 +250,21 @@ async function execute(
         await assignContact(tx, actor, contactId, args.to, { via: 'assistant', expectedFrom: args.from[contactId] ?? null });
       }
       return { result: { assigned: args.contactIds.length } };
+    }
+    case 'record_marketing_consent': {
+      // All or none. Each asks contact:update again, and refuses anyone who unsubscribed since the card.
+      let recorded = 0;
+      for (const contactId of args.contactIds) {
+        if ((await recordMarketingConsent(tx, actor, contactId, args.how, { via: 'assistant' })) === 'recorded') recorded += 1;
+      }
+      return { result: { recorded } };
+    }
+    case 'withdraw_marketing_consent': {
+      let withdrawn = 0;
+      for (const contactId of args.contactIds) {
+        if ((await withdrawMarketingConsent(tx, actor, contactId, args.reason, { via: 'assistant' })) === 'withdrawn') withdrawn += 1;
+      }
+      return { result: { withdrawn } };
     }
   }
 }
@@ -581,7 +599,7 @@ export type ProposalView = {
   card: ProposalCard;
   error: string | null;
   /** Ids of what it made or changed — for links. Never model text. */
-  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
+  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; recorded?: number; withdrawn?: number; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
   expiresAt: Date;
   /** When a scheduled action will run (about; up to ~5 minutes later). */
   runAt: Date | null;

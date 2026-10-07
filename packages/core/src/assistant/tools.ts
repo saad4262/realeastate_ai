@@ -21,6 +21,8 @@ import {
   proposeAddNote,
   proposeAssignContacts,
   proposeCancelAppointment,
+  proposeRecordConsent,
+  proposeWithdrawConsent,
   proposeRescheduleAppointment,
   proposeScheduleAppointment,
   proposeCreateDashboard,
@@ -88,7 +90,12 @@ const LABELS: Record<AssistantToolName, string> = {
   create_dashboard: 'Preparing the dashboard for you to approve…',
   find_team_members: 'Looking up the team…',
   assign_contacts: 'Preparing the assignment for you to approve…',
+  record_marketing_consent: 'Preparing the consent for you to approve…',
+  withdraw_marketing_consent: 'Preparing the withdrawal for you to approve…',
 };
+
+/** Tools that change a contact's own record: never for someone who may not edit a contact of their own (read-only). */
+const CONTACT_EDIT_TOOLS: readonly AssistantToolName[] = ['record_marketing_consent', 'withdraw_marketing_consent'];
 
 const assignee = alias(user, 'assistant_assignee');
 
@@ -153,6 +160,9 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
   if ((ASSISTANT_ADMIN_TOOLS as readonly string[]).includes(tool) && !can(actor, 'contact:assign', { type: 'contact', agencyId: actor.agencyId })) {
     return refused('Only an owner or admin can assign contacts. Tell the person to ask one of them.', label);
   }
+  if (CONTACT_EDIT_TOOLS.includes(tool) && !can(actor, 'contact:update', { type: 'contact', id: 'probe', agencyId: actor.agencyId, ownerId: actor.userId })) {
+    return refused('This person may view contacts but not change them.', label);
+  }
 
   switch (tool) {
     case 'find_contacts':
@@ -186,6 +196,10 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return findTeamMembers(ctx, label);
     case 'assign_contacts':
       return proposeAssignContacts(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.assign_contacts>, label);
+    case 'record_marketing_consent':
+      return proposeRecordConsent(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.record_marketing_consent>, label);
+    case 'withdraw_marketing_consent':
+      return proposeWithdrawConsent(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.withdraw_marketing_consent>, label);
   }
 }
 

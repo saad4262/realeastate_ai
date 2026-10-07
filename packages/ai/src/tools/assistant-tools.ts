@@ -246,6 +246,32 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
       required: ['contacts', 'to'],
     },
   },
+  {
+    name: 'record_marketing_consent',
+    description: `Propose recording that contacts agreed to receive marketing email — only contacts this person may edit (an agent: their own; an owner or admin: any in the agency). \`how\` is required: the person's own words for how and when each agreed. If they haven't said, ASK — never fill it in yourself. Anyone who unsubscribed is skipped (only they can opt back in), as is anyone who already agreed. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        contacts: { type: 'array', items: { type: 'string' }, description: CONTACTS },
+        how: { type: 'string', description: 'How they agreed, in the person\'s words, e.g. "Said yes on the phone, 7 Oct". Up to 300 characters.' },
+      },
+      required: ['contacts', 'how'],
+    },
+  },
+  {
+    name: 'withdraw_marketing_consent',
+    description: `Propose withdrawing contacts' marketing consent, with the reason. Only contacts this person may edit. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        contacts: { type: 'array', items: { type: 'string' }, description: CONTACTS },
+        reason: { type: 'string', description: 'Why, in the person\'s words. Up to 300 characters.' },
+      },
+      required: ['contacts', 'reason'],
+    },
+  },
 ]);
 
 const ADMIN_ONLY = new Set<string>(ASSISTANT_ADMIN_TOOLS);

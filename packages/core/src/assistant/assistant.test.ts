@@ -330,3 +330,44 @@ describe('assign_contacts (owners and admins only) — contacts and the receiver
     expect(JSON.stringify(out.result)).toMatch(/not one you were given/);
   });
 });
+
+describe('record / withdraw marketing consent — references only, a stated "how", never in bulk', () => {
+  const ok = { contacts: ['C1', 'S1'], how: 'Said yes on the phone, 7 Oct' };
+  it('accepts contact references and how they agreed', () => {
+    expect(ASSISTANT_TOOL_INPUTS.record_marketing_consent.safeParse(ok).success).toBe(true);
+    expect(ASSISTANT_TOOL_INPUTS.withdraw_marketing_consent.safeParse({ contacts: ['C1'], reason: 'Asked us to stop on the phone' }).success).toBe(true);
+  });
+  it('"how" is required — missing or blank is refused, with an instruction to ask', () => {
+    for (const how of [undefined, '', '   ']) {
+      const r = ASSISTANT_TOOL_INPUTS.record_marketing_consent.safeParse({ contacts: ['C1'], ...(how === undefined ? {} : { how }) });
+      expect(r.success, JSON.stringify(how)).toBe(false);
+    }
+    for (const reason of [undefined, '', '  ']) {
+      expect(ASSISTANT_TOOL_INPUTS.withdraw_marketing_consent.safeParse({ contacts: ['C1'], ...(reason === undefined ? {} : { reason }) }).success).toBe(false);
+    }
+  });
+  it('never "all", a filter, a name or more than 20 on a card', () => {
+    for (const extra of [{ all: true }, { filter: 'buyers' }, { role: 'buyer' }, { suburb: 'Pakenham' }]) {
+      expect(ASSISTANT_TOOL_INPUTS.record_marketing_consent.safeParse({ ...ok, ...extra }).success, JSON.stringify(extra)).toBe(false);
+    }
+    for (const c of ['Ali Khan', 'ali@example.com', contactId, 'M1', 'L1']) {
+      expect(ASSISTANT_TOOL_INPUTS.record_marketing_consent.safeParse({ ...ok, contacts: [c] }).success, c).toBe(false);
+    }
+    expect(ASSISTANT_TOOL_INPUTS.record_marketing_consent.safeParse({ ...ok, contacts: Array.from({ length: 21 }, (_, i) => `C${i + 1}`) }).success).toBe(false);
+  });
+  it('a blank "how" is refused before the database, and says to ask the person', async () => {
+    const handles: HandleMap = {};
+    issueHandle(handles, 'C', contactId);
+    const out = await runAssistantTool(ctx(handles), 'record_marketing_consent', { contacts: ['C1'], how: ' ' });
+    expect(out.isError).toBe(true);
+    expect(JSON.stringify(out.result)).toMatch(/Ask the person how/);
+  });
+  it('a read-only member is refused before the database', async () => {
+    const handles: HandleMap = {};
+    issueHandle(handles, 'C', contactId);
+    for (const [tool, input] of [['record_marketing_consent', ok], ['withdraw_marketing_consent', { contacts: ['C1'], reason: 'x' }]] as const) {
+      const out = await runAssistantTool(ctx(handles, 'read_only'), tool, { ...input, contacts: ['C1'] });
+      expect(out.isError, tool).toBe(true);
+    }
+  });
+});

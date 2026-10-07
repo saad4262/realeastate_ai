@@ -9,8 +9,8 @@ import { formatInZone, localDateTimeToInstant } from '../time/local-input';
 import { propose, type FrozenArgs } from './actions';
 import { resolveHandle } from './handles';
 import type { ProposalCard } from './schema';
-import { assignableMember } from '../contacts/write-contacts';
-import type { addNoteInput, assignContactsInput, cancelAppointmentInput, createDashboardInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
+import { assignableMember, UNSUBSCRIBED_REASON } from '../contacts/write-contacts';
+import type { addNoteInput, assignContactsInput, cancelAppointmentInput, recordMarketingConsentInput, withdrawMarketingConsentInput, createDashboardInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
 import { cancelBatch, getBatch, prepareBatch } from '../template-email/batches';
 import { TemplateEmailError } from '../template-email/templates';
 import { SKIP_REASON_LABELS } from '../template-email/schema';
@@ -503,4 +503,98 @@ export async function proposeAssignContacts(ctx: ToolContext, input: z.infer<typ
     from: Object.fromEntries(moving.map((c) => [c.head.row.id, c.head.row.assignedTo])),
   };
   return propose(ctx, label, { tool: 'assign_contacts', args, card, contactId: first.id });
+}
+
+/** Every contact on a card, each one this person may EDIT (the edit form's rule) — or the first refusal. */
+async function editableContacts(ctx: ToolContext, refs: string[], what: string) {
+  const found = await visibleContacts(ctx, refs);
+  if ('error' in found) return found;
+  for (const c of found.contacts) {
+    if (!can(ctx.actor, 'contact:update', c.resource)) {
+      const ref = refs.find((r) => resolveHandle(ctx.handles, r, 'contact') === c.head.row.id) ?? '';
+      return { error: `${ref}: only the agent ${c.head.row.name} is assigned to, or an admin, may ${what}. Nothing was proposed.` } as const;
+    }
+  }
+  return found;
+}
+
+function shortDay(d: Date | string, tz: string): string {
+  return new Intl.DateTimeFormat('en-AU', { timeZone: tz, day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(d));
+}
+
+const CONSENT_NOTE =
+  'Consent means they agreed to receive marketing email from the agency. Record it only if they did — the Spam Act asks who agreed, when and how, and this card saves all three.';
+
+/**
+ * Record marketing consent for contacts the person may edit (ADR 0022 stays:
+ * an enquiry is not consent; someone who unsubscribed can only opt back in
+ * themselves). `how` is the person's words, saved on each contact with the
+ * date and who recorded it. Skipped, with the reason on the card: anyone who
+ * unsubscribed, anyone who already agreed.
+ */
+export async function proposeRecordConsent(ctx: ToolContext, input: z.infer<typeof recordMarketingConsentInput>, label: string): Promise<ToolOutcome> {
+  const found = await editableContacts(ctx, input.contacts, 'record their consent');
+  if ('error' in found) return refused(found.error!, label);
+  const changes = found.contacts.map(({ head: { row } }) => ({
+    name: row.name,
+    email: row.email,
+    before: row.marketingConsentAt ? `Consent since ${shortDay(row.marketingConsentAt, ctx.timeZone)}` : 'No consent',
+    after: 'Consent',
+    skipped: row.emailOptOutAt
+      ? UNSUBSCRIBED_REASON
+      : row.marketingConsentAt
+        ? `already agreed on ${shortDay(row.marketingConsentAt, ctx.timeZone)}${row.marketingConsentNote ? ` (${row.marketingConsentNote})` : ''}`
+        : null,
+  }));
+  const recording = found.contacts.filter(({ head: { row } }) => !row.emailOptOutAt && !row.marketingConsentAt);
+  if (!recording.length) {
+    return {
+      label,
+      result: { proposed: false, tell_the_user: 'Nobody on that list can have consent recorded, so nothing was proposed.', skipped: changes.map((c) => ({ name: c.name, why: c.skipped })) },
+    };
+  }
+  const n = recording.length;
+  const first = recording[0]!.head.row;
+  const card: ProposalCard = {
+    title: `Record marketing consent for ${n} contact${n === 1 ? '' : 's'}`,
+    contact: { id: first.id, name: first.name },
+    lines: [
+      { label: 'Contacts', value: `${n} will be recorded${changes.length > n ? ` · ${changes.length - n} skipped (see below)` : ''}` },
+      { label: 'Recorded as', value: 'You, dated when you approve' },
+    ],
+    text: { label: 'How they agreed (saved on each contact)', value: input.how },
+    changes,
+    notes: [NOTHING_YET, CONSENT_NOTE],
+  };
+  const args: FrozenArgs = { tool: 'record_marketing_consent', contactIds: recording.map((c) => c.head.row.id), how: input.how };
+  return propose(ctx, label, { tool: 'record_marketing_consent', args, card, contactId: first.id });
+}
+
+/** Withdraw consent, by card, with the reason on each timeline. Contacts with none are skipped. */
+export async function proposeWithdrawConsent(ctx: ToolContext, input: z.infer<typeof withdrawMarketingConsentInput>, label: string): Promise<ToolOutcome> {
+  const found = await editableContacts(ctx, input.contacts, 'withdraw their consent');
+  if ('error' in found) return refused(found.error!, label);
+  const changes = found.contacts.map(({ head: { row } }) => ({
+    name: row.name,
+    email: row.email,
+    before: row.marketingConsentAt ? `Consent since ${shortDay(row.marketingConsentAt, ctx.timeZone)}` : 'No consent',
+    after: 'No consent',
+    skipped: row.marketingConsentAt ? null : 'has no consent to withdraw',
+  }));
+  const withdrawing = found.contacts.filter(({ head: { row } }) => row.marketingConsentAt);
+  if (!withdrawing.length) {
+    return { label, result: { proposed: false, tell_the_user: 'None of them has consent recorded, so nothing was proposed.' } };
+  }
+  const n = withdrawing.length;
+  const first = withdrawing[0]!.head.row;
+  const card: ProposalCard = {
+    title: `Withdraw marketing consent for ${n} contact${n === 1 ? '' : 's'}`,
+    contact: { id: first.id, name: first.name },
+    lines: [{ label: 'Contacts', value: `${n} will have consent withdrawn${changes.length > n ? ` · ${changes.length - n} skipped` : ''}` }],
+    text: { label: 'Reason (kept on each timeline)', value: input.reason },
+    changes,
+    notes: [NOTHING_YET, 'They stop receiving template email. Recording consent again later needs how they agreed.'],
+  };
+  const args: FrozenArgs = { tool: 'withdraw_marketing_consent', contactIds: withdrawing.map((c) => c.head.row.id), reason: input.reason };
+  return propose(ctx, label, { tool: 'withdraw_marketing_consent', args, card, contactId: first.id });
 }

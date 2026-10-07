@@ -324,6 +324,7 @@ function activityText(item: Extract<TimelineItem, { type: 'activity' }>): string
     case 'contact_merged':
       return typeof p.name === 'string' ? `Merged ${p.name}${typeof p.email === 'string' ? ` (${p.email})` : ''}` : null;
     case 'consent_recorded':
+    case 'consent_withdrawn':
       return typeof p.note === 'string' ? p.note : null;
     default:
       return null;

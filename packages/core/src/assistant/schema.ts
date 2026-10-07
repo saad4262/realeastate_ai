@@ -219,8 +219,36 @@ export const assignContactsInput = z
   })
   .strict();
 
+/**
+ * Marketing consent (ADR 0022 stays in force): recorded only for contacts the
+ * person may edit, by reference, never "all" or a filter — and only with the
+ * person's own words for how the contact agreed. No "how", no card: the model
+ * must ask.
+ */
+export const recordMarketingConsentInput = z
+  .object({
+    contacts: contactsOnOneCard,
+    how: z
+      .string({ required_error: 'Ask the person how these contacts agreed to marketing email; nothing was proposed.' })
+      .trim()
+      .min(1, 'Ask the person how these contacts agreed to marketing email; nothing was proposed.')
+      .max(300),
+  })
+  .strict();
+
+export const withdrawMarketingConsentInput = z
+  .object({
+    contacts: contactsOnOneCard,
+    reason: z
+      .string({ required_error: 'Ask the person why consent is withdrawn; nothing was proposed.' })
+      .trim()
+      .min(1, 'Ask the person why consent is withdrawn; nothing was proposed.')
+      .max(300),
+  })
+  .strict();
+
 export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'find_team_members'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 
 /** Every tool. Read tools run at once; write tools only propose (ADR 0025 §8). */
@@ -240,6 +268,8 @@ export const ASSISTANT_TOOL_INPUTS = {
   create_dashboard: createDashboardInput,
   find_team_members: findTeamMembersInput,
   assign_contacts: assignContactsInput,
+  record_marketing_consent: recordMarketingConsentInput,
+  withdraw_marketing_consent: withdrawMarketingConsentInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];
