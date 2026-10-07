@@ -351,6 +351,14 @@ settles a send that was interrupted, and resumes an approved batch left queued.
                       declared so a move back is a resolver change rather than a
                       schema change; they are not a deployment prerequisite.
 
+    EMBEDDINGS_PROVIDER                  Optional (ADR 0031). `voyage` turns on the
+                                         assistant's search by meaning; unset =
+                                         search by words only.
+    VOYAGE_API_KEY                       With the above. Note/email text goes to
+                                         Voyage (US): privacy policy + DPA first.
+    EMBEDDINGS_DAILY_BUDGET_USD_PER_AGENCY  Indexing cap per agency a day (default
+                                         0.25), inside AI_DAILY_BUDGET_USD.
+
     NEXT_PUBLIC_UI_PREVIEW, AGENT_INVITE_TTL_MINUTES
                       Console-only. No effect on apps/web.
 

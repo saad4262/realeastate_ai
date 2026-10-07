@@ -46,6 +46,16 @@ settings. Restart only if you changed something.
 | 10 | **W** — Assistant template email | Anthropic key; S's approved template; `EMAIL_DEV_ALLOWLIST` | 20 min |
 | 11 | **X** — Dashboards | Anthropic key; two sold listings with prices; a second agency's owner | 25 min |
 
+## Block 3b — assistant search (≈ 35 min)
+
+Settings: as Block 3 (`ANTHROPIC_API_KEY`). Embeddings are optional. For AD9 add
+`EMBEDDINGS_PROVIDER=voyage` and `VOYAGE_API_KEY` to console and web settings, restart, and run
+`pnpm --filter @repo/ai search:backfill` once. Without them, search works by words only.
+
+| Order | Section | Needs | Time |
+|---|---|---|---|
+| 11b | **AD** — Assistant search in notes, emails and enquiries | Anthropic key; notes/emails/enquiries mentioning a word; a second agency's owner; optional Voyage key (AD9) | 35 min |
+
 ## Block 4 — Google's public data (≈ 20 min)
 
 Settings: `GOOGLE_MAPS_API_KEY` with **Places API (New)** switched on in Google Cloud. That is
@@ -88,7 +98,7 @@ redone.
 |---|---|---|---|
 | 16 | **AC** — Removing someone from the agency | A1 with appointments (real Calendar/Zoom from T), contacts, a lead, an only-agent listing, a waiting assistant card, a prepared bulk email; A2 with Calendar connected; a second agency for AC11 | 45 min |
 
-**Total: about 6 hours 30 minutes**, best spread over two sittings: Blocks 1–4, then 5–7.
+**Total: about 7 hours**, best spread over two sittings: Blocks 1–4, then 5–7.
 
 ## Every setting, in one place
 
@@ -104,6 +114,8 @@ The ones marked **new** were added in this round of work.
 | `ANTHROPIC_API_KEY` (+ optional `ANTHROPIC_*_MODEL`) | assistant, skills, alerts | costs money per use |
 | `AI_DAILY_BUDGET_USD`, `AI_DAILY_BUDGET_USD_PER_USER`, `AI_CHAT_DAILY_TURN_CAP` | cost caps | as now |
 | `ASSISTANT_DAILY_BUDGET_USD_PER_USER`, `ASSISTANT_DAILY_BUDGET_USD_PER_AGENCY` | assistant caps | default $1 / $10 |
+| **`EMBEDDINGS_PROVIDER`**, **`VOYAGE_API_KEY`** | **AD9** (optional) | `voyage` + a Voyage key turns on search by meaning; unset = by words only, never an error. Note and email text is sent to Voyage — client question 1 in ADR 0031 |
+| **`EMBEDDINGS_DAILY_BUDGET_USD_PER_AGENCY`** | AD9 (optional) | Indexing cap per agency a day, default 0.25 (inside `AI_DAILY_BUDGET_USD`) |
 | **`ASSISTANT_SCHEDULING`** | **AB** | `1` turns on "run later"; leave off until the 5-minute cron is live |
 | `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `ALERT_SENDER_ADDRESS`, `ALERT_SENDER_NAME`, `ALERT_EMAIL_FROM`, `ALERT_UNSUBSCRIBE_SECRET` | all platform email | as now |
 | `MAIL_INBOUND_DOMAIN`, `MAIL_REPLY_SECRET` | replies back into the console (also for AA's Reply-To) | as now |

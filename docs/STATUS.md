@@ -3,6 +3,15 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
+- **Assistant search (ADR 0031) on branch `feat/crm-rag` (2026-10-07, not merged yet).** Migration
+  0036 applied on dev (generated full-text columns on note / mail_message / lead with GIN indexes;
+  `search_embedding` with pgvector 1024 + HNSW, RLS). New read tool `search_notes_and_emails`
+  (≤ 8 results, contact reference + kind + date + ≤ 200-char `untrusted_snippet`); permission in
+  the SQL via the screens' own rules; archived contacts only when named. Full-text always, no key;
+  embeddings only with EMBEDDINGS_PROVIDER=voyage + VOYAGE_API_KEY (cron tick + `pnpm --filter
+  @repo/ai search:backfill`), never for private notes, archived/opted-out contacts or offers.
+  Metered in ai_run (question inside the assistant caps; indexing cap 0.25/agency/day). Prompt
+  assistant@v6. TEST-PLAN AD; TEST-ORDER Block 3b. Client questions in ADR 0031.
 - **Now: every build phase is committed on `feat/crm` (2026-10-07)** — Phases 1–8: tenant
   isolation, assistant email card, dashboards, CSV import, Google reviews step 1, Gmail send,
   assistant run-later, offboarding. Migrations up to 0035 applied on dev. **Not built (by
