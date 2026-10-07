@@ -415,3 +415,35 @@ describe('update_contact / set_contact_archived — the edit form’s details on
     }
   });
 });
+
+describe('the contact tools, by role — who gets past the door (before any database work)', () => {
+  const inputs: Record<string, Record<string, unknown>> = {
+    find_team_members: {},
+    assign_contacts: { contacts: ['C1'], to: 'M1' },
+    record_marketing_consent: { contacts: ['C1'], how: 'Said yes on the phone' },
+    withdraw_marketing_consent: { contacts: ['C1'], reason: 'Asked to stop' },
+    update_contact: { contact: 'C1', name: 'New name' },
+    set_contact_archived: { contact: 'C1', archived: true },
+  };
+  // Allowed = reaches the database (where can() is asked again on the row); refused = never does.
+  const allowed: Record<string, string[]> = {
+    owner: Object.keys(inputs),
+    admin: Object.keys(inputs),
+    agent: ['record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived'],
+    assistant: ['record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived'],
+    property_manager: ['record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived'],
+    read_only: [],
+  };
+  for (const [role, tools] of Object.entries(allowed)) {
+    it(role, async () => {
+      for (const [tool, input] of Object.entries(inputs)) {
+        const handles: HandleMap = {};
+        issueHandle(handles, 'C', contactId);
+        issueHandle(handles, 'M', '55555555-5555-4555-8555-555555555555');
+        const c: ToolContext = { ...ctx(handles), actor: { userId: 'u1', agencyId, membershipRole: role as 'agent' } };
+        const reached = await runAssistantTool(c, tool, input).then(() => false, (e: Error) => /database was reached/.test(e.message));
+        expect(reached, `${role} ${tool}`).toBe(tools.includes(tool));
+      }
+    });
+  }
+});

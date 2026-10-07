@@ -113,6 +113,9 @@ import {
   updateContact,
   setNextAction,
   listContactAssignees,
+  recordMarketingConsent,
+  withdrawMarketingConsent,
+  editContactDetails,
   updateNote,
   visibleContactIdsSql,
   type ContactView,
@@ -6088,6 +6091,7 @@ async function main() {
           ['find_appointments', runAssistantTool(ctx, 'find_appointments', { range: 'upcoming', limit: 20 })],
           ['list_templates', runAssistantTool(ctx, 'list_templates', {})],
           ['check_connections', runAssistantTool(ctx, 'check_connections', { providers: ['google_calendar', 'zoom'] })],
+          ['find_team_members', runAssistantTool(ctx, 'find_team_members', {})],
           // Getters with B's ids: each must refuse (or return null), never B's row.
           ['getContact(B)', getContact(t, actor, B.ids.contacts[0]!)],
           ['getAppointment(B)', getAppointment(t, actor, B.ids.appointment)],
@@ -6116,6 +6120,10 @@ async function main() {
           const hit = bIds.find((id) => json.includes(id));
           if (hit) leaks.push(`${role} ${name} → ${hit}`);
         }
+        // References are minted from ids the reads saw: none may stand for a B row (or B person).
+        const minted = JSON.stringify(ctx.handles);
+        const hit = bIds.find((id) => minted.includes(id)) ?? B.ids.people.find((id) => minted.includes(id));
+        if (hit) leaks.push(`${role} references → ${hit}`);
       }
       // And B's own names never appear in A's lists (tags differ per agency).
       assert(leaks.length === 0, `leaks: ${leaks.join('; ')}`);
@@ -6141,6 +6149,9 @@ async function main() {
         const forged: HandleMap = {};
         issueHandle(forged, 'C', B.ids.contacts[0]!);
         issueHandle(forged, 'A', B.ids.appointment);
+        issueHandle(forged, 'M', B.ids.people[1]!);
+        // A's own contact as C2, with B's person as M1: giving A's contact to someone in B.
+        issueHandle(forged, 'C', A.ids.contacts[0]!);
         const bc = B.ids.contacts[0]!;
         const writes: [string, () => Promise<unknown>][] = [
           ['updateContact', () => updateContact(t, actor, bc, { name: 'Hijacked', roles: [] } as never)],
@@ -6191,6 +6202,17 @@ async function main() {
           ['schedule_appointment (forged)', () => runAssistantTool(pctx({ ...forged }), 'schedule_appointment', { contact: 'C1', type: 'meeting', title: 'x', date: '2099-01-01', time: '10:00' })],
           ['reschedule_appointment (forged)', () => runAssistantTool(pctx({ ...forged }), 'reschedule_appointment', { appointment: 'A1', date: '2099-01-01', time: '10:00' })],
           ['cancel_appointment (forged)', () => runAssistantTool(pctx({ ...forged }), 'cancel_appointment', { appointment: 'A1' })],
+          // The contact tools (ADR 0025 amendment): B's contact, or B's person as the receiver.
+          ['assign_contacts (forged B contact)', () => runAssistantTool(pctx({ ...forged }), 'assign_contacts', { contacts: ['C1'], to: 'M1' })],
+          ['assign_contacts (A contact → B person)', () => runAssistantTool(pctx({ ...forged }), 'assign_contacts', { contacts: ['C2'], to: 'M1' })],
+          ['record_marketing_consent (forged)', () => runAssistantTool(pctx({ ...forged }), 'record_marketing_consent', { contacts: ['C1'], how: 'x' })],
+          ['withdraw_marketing_consent (forged)', () => runAssistantTool(pctx({ ...forged }), 'withdraw_marketing_consent', { contacts: ['C1'], reason: 'x' })],
+          ['update_contact (forged)', () => runAssistantTool(pctx({ ...forged }), 'update_contact', { contact: 'C1', name: 'Hijacked' })],
+          ['set_contact_archived (forged)', () => runAssistantTool(pctx({ ...forged }), 'set_contact_archived', { contact: 'C1', archived: true })],
+          ['recordMarketingConsent', () => recordMarketingConsent(t, actor, bc, 'x')],
+          ['withdrawMarketingConsent', () => withdrawMarketingConsent(t, actor, bc, 'x')],
+          ['editContactDetails', () => editContactDetails(t, actor, bc, { name: 'Hijacked' })],
+          ['assignContact via assistant (A contact → B person)', () => assignContact(t, actor, A.ids.contacts[0]!, B.ids.people[1]!, { via: 'assistant' })],
         ];
         for (const [name, run] of writes) {
           attempts += 1;
@@ -6792,6 +6814,41 @@ async function main() {
       assert(z?.connector_left_at, 'the agency Zoom A1 connected is not flagged');
       assert((await activeMemberActor(t, x.f.people.a1, x.f.agencyId)) === null, 'A1 is still an active member');
       return `events ${r.calendar.removed} removed (A1’s token) → created for A2; Zoom moved + flagged; contact/listing → A2; 2 cards, import cancelled; conversation deleted; 2 tokens revoked+deleted; agency Zoom flagged; A1 inactive`;
+    }),
+  );
+
+  await check('AE: removing someone cancels their waiting and scheduled contact cards (assign, consent, details, archive); a card giving contacts to someone removed fails at run', async () =>
+    inRollback(async (t) => {
+      const x = await editFixture(t);
+      const { p2, p6 } = x.f.contacts;
+      await t.execute(sql`update contact set assigned_to = ${x.f.people.a1} where id in (${p2}, ${p6})`);
+      const s = await x.session(x.admin);
+      const m2 = issueHandle(s.h, 'M', x.f.people.a2);
+      const assignCard = cardId(await runAssistantTool(s.ctx(), 'assign_contacts', { contacts: [s.ref(p6)], to: m2 }));
+      const consentCard = cardId(await runAssistantTool(s.ctx(), 'record_marketing_consent', { contacts: [s.ref(p6)], how: 'Said yes' }));
+      const updateCard = cardId(await runAssistantTool(s.ctx(), 'update_contact', { contact: s.ref(p6), name: 'Renamed' }));
+      const archiveCard = cardId(await runAssistantTool(s.ctx(), 'set_contact_archived', { contact: s.ref(p2), archived: true }));
+      const at = new Date(Date.now() + 3_600_000);
+      assert((await approveProposedAction(t, x.admin, consentCard, { env: SCHEDULING_ON }, new Date(), { runAt: at })).outcome === 'scheduled', 'consent card not scheduled');
+
+      // The owner's own card gives P4 (the read-only member's) to A2 — later; A2 is removed first.
+      const so = await x.session(x.owner);
+      const toA2 = cardId(await runAssistantTool(so.ctx(), 'assign_contacts', { contacts: [so.ref(x.f.contacts.p4)], to: issueHandle(so.h, 'M', x.f.people.a2) }));
+      assert((await approveProposedAction(t, x.owner, toA2, { env: SCHEDULING_ON }, new Date(), { runAt: at })).outcome === 'scheduled', 'owner card not scheduled');
+
+      await removeMember(t, x.owner, x.f.people.a1, { review: true });
+      await removeMember(t, x.owner, x.f.people.a2, { review: true });
+      const statuses = Object.fromEntries(
+        await Promise.all(Object.entries({ assignCard, consentCard, updateCard, archiveCard }).map(async ([k, id]) => [k, (await x.status(id)).status] as const)),
+      );
+      assert(Object.values(statuses).every((st) => st === 'cancelled'), `A1's cards: ${JSON.stringify(statuses)}`);
+      await runScheduledActions(t, {}, new Date(at.getTime() + 60_000));
+      const owners = await x.status(toA2);
+      assert(owners.status === 'failed' && /cannot be given contacts/.test(owners.error ?? ''), `giving to someone removed: ${JSON.stringify(owners)}`);
+      const [c] = await t.execute<{ name: string; at: string | null; archived: string | null }>(sql`
+        select name, marketing_consent_at as at, (select archived_at from contact where id = ${p2}) as archived from contact where id = ${p6}`);
+      assert(c?.name === 'P6' && c.at === null && c.archived === null, `a cancelled card changed something: ${JSON.stringify(c)}`);
+      return `A1 removed → ${Object.keys(statuses).length} cards cancelled (one was scheduled); owner's scheduled card to A2 (removed) → failed with the reason; nothing changed`;
     }),
   );
 
