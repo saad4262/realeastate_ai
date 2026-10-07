@@ -60,6 +60,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "echo \"no lint yet\"",
     "test": "vitest run",
+    "visibility:backfill": "tsx src/contacts/visibility-backfill-cli.ts",
     "geo:backfill": "tsx src/geo/backfill.ts",
     "contacts:backfill": "tsx src/contacts/backfill-cli.ts"
   },

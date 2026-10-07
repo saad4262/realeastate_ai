@@ -23,7 +23,7 @@ export function primaryAgentSql(listingIdExpr: SQL | string): SQL {
 }
 
 /** Why a contact was given to someone without a person choosing: shown on its timeline. */
-export type AutoAssignVia = 'enquiry' | 'address' | 'listing';
+export type AutoAssignVia = 'enquiry' | 'address' | 'listing' | 'backfill';
 
 /**
  * Give contacts that are nobody's to `userId`, and say so on each timeline

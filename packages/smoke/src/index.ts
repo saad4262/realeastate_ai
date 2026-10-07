@@ -121,6 +121,8 @@ import {
   updateNote,
   visibleContactIdsSql,
   type ContactView,
+  planVisibilityBackfill,
+  applyVisibilityBackfill,
 } from '@repo/core/contacts';
 import {
   AppointmentError,
@@ -3722,6 +3724,39 @@ async function main() {
       const [ho2] = await t.execute<{ contact_moved: boolean }>(sql`select contact_moved from lead_handover where lead_id = ${two.leadId}`);
       assert(ho2?.contact_moved === false, 'handover says the contact moved');
       return 'agent refused (server) and offered no assign control (list, contact, conversation); owner → A2: lead + contact moved, handover kept, timeline from/to/by on owner’s and A2’s; A1 keeps only the note, opens nothing; third agent’s contact stays, said so';
+    }),
+  );
+
+  await check('AG: the backfill plans without writing, then gives old unassigned listing leads (and their nobody’s contacts, and address-tied ones) to the primary agent — never a third agent’s contact, never an offer’s', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const c = f.contacts;
+      // The world before the rule: nothing assigned through the listing or the address.
+      await t.execute(sql`update lead set assigned_to = null where contact_id = ${c.p1}`);
+      await t.execute(sql`update contact set assigned_to = null where id in (${c.p1}, ${c.p5})`);
+      const xEmail = `held.${f.tag}@smoke.test`;
+      const held = (await f.lead(xEmail, 'Held', { listing: true })).contact_id; // a listing lead, nobody's…
+      await t.execute(sql`update contact set assigned_to = ${f.people.a2} where id = ${held}`); // …but its contact is A2's
+      const state = async () =>
+        JSON.stringify(await t.execute(sql`select id, assigned_to from lead where agency_id = ${f.agencyId} union all select id, assigned_to from contact where agency_id = ${f.agencyId} order by 1`));
+      const before = await state();
+
+      const plan = await planVisibilityBackfill(t);
+      assert((await state()) === before, 'the dry run wrote something');
+      const mine = { leads: plan.leads.filter((l) => l.agencyId === f.agencyId), contacts: plan.contacts.filter((x) => x.agencyId === f.agencyId) };
+      const contactIds = mine.contacts.map((x) => x.contactId).sort();
+      assert(mine.leads.length === 2 && mine.leads.every((l) => l.agentId === f.people.a1), `planned leads: ${JSON.stringify(mine.leads)}`);
+      assert(JSON.stringify(contactIds) === JSON.stringify([c.p1, c.p5].sort()), `planned contacts: ${JSON.stringify(mine.contacts)} (never the offer's P3, never A2's)`);
+
+      await applyVisibilityBackfill(t);
+      const holder = async (id: string) => (await t.execute<{ a: string | null }>(sql`select assigned_to as a from contact where id = ${id}`))[0]!.a;
+      assert((await holder(c.p1)) === f.people.a1 && (await holder(c.p5)) === f.people.a1, 'P1/P5 not given to A1');
+      assert((await holder(held)) === f.people.a2 && (await holder(c.p3)) === null, 'a third agent’s or an offer’s contact moved');
+      const leadsNow = await t.execute<{ n: number }>(sql`select count(*)::int as n from lead where agency_id = ${f.agencyId} and kind <> 'offer' and listing_id is not null and assigned_to is null`);
+      assert(leadsNow[0]!.n === 0, `${leadsNow[0]!.n} listing lead(s) still unassigned`);
+      const via = await t.execute<{ n: number }>(sql`select count(*)::int as n from activity where contact_id in (${c.p1}, ${c.p5}) and kind = 'contact_assigned' and payload->>'via' = 'backfill'`);
+      assert(via[0]!.n === 2, `timeline entries: ${via[0]!.n}`);
+      return 'dry run writes nothing; plan: 2 listing leads → A1, contacts P1 (their lead) and P5 (their address) → A1; applied; A2’s contact and the offer’s untouched; timeline via backfill';
     }),
   );
 

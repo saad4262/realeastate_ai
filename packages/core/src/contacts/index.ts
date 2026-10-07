@@ -58,3 +58,4 @@ export {
 } from './visibility';
 export { auPhoneKey, PHONE_KEY_SAMPLES } from './phone';
 export * from './contact-schema';
+export { planVisibilityBackfill, applyVisibilityBackfill, type BackfillPlan } from './visibility-backfill';
