@@ -5,7 +5,16 @@ import { can, type Actor } from '../permissions';
 import { recordActivity } from '../contacts/write-contacts';
 import { ContactError } from '../contacts/list-contacts';
 import { createNote } from '../contacts/notes';
-import { setNextAction } from '../contacts/write-contacts';
+import {
+  assignContact,
+  editContactDetails,
+  recordMarketingConsent,
+  setContactArchived,
+  setNextAction,
+  withdrawMarketingConsent,
+  type ContactDetails,
+  type ContactDetailsPatch,
+} from '../contacts/write-contacts';
 import { AppointmentError, cancelAppointment, rescheduleAppointment, scheduleAppointment } from '../appointments/appointments';
 import { syncAppointment, type SyncDeps, type SyncOutcome } from '../appointments/sync';
 import { requireIntegrations } from '../integrations/accounts';
@@ -60,12 +69,20 @@ export type FrozenArgs =
    */
   | { tool: 'send_template_email'; batchId: string; templateId: string; contactIds: string[] }
   /** ADR 0027: the dashboard as it will be saved — registry ids and parsed params only. */
-  | { tool: 'create_dashboard'; title: string; widgets: { widget: string; params: Record<string, unknown> }[]; audience: 'private' | 'admins' | 'agency' };
+  | { tool: 'create_dashboard'; title: string; widgets: { widget: string; params: Record<string, unknown> }[]; audience: 'private' | 'admins' | 'agency' }
+  /** Owners/admins: give these contacts to `to`. `from` = who held each when the card was made. */
+  | { tool: 'assign_contacts'; to: string; contactIds: string[]; from: Record<string, string | null> }
+  /** Consent for these contacts, with the person's words for how they agreed. */
+  | { tool: 'record_marketing_consent'; contactIds: string[]; how: string }
+  | { tool: 'withdraw_marketing_consent'; contactIds: string[]; reason: string }
+  /** Only the fields the card showed; `before` = what it showed them as (refused if they changed since). */
+  | { tool: 'update_contact'; contactId: string; patch: ContactDetailsPatch; before: Partial<ContactDetails> }
+  | { tool: 'set_contact_archived'; contactId: string; archived: boolean };
 
 /** The contacts whose timelines carry this action's audit lines. */
 function auditContacts(row: { contactId: string | null; args: unknown }): string[] {
   const args = row.args as FrozenArgs;
-  if (args.tool === 'send_template_email') return args.contactIds;
+  if ('contactIds' in args) return args.contactIds;
   return row.contactId ? [row.contactId] : [];
 }
 
@@ -236,6 +253,40 @@ async function execute(
       // createDashboard asks dashboard:create (owner/admin) again and re-parses every widget.
       const { id } = await createDashboard(tx, actor, { title: args.title, widgets: args.widgets as never, audience: args.audience });
       return { result: { dashboardId: id } };
+    }
+    case 'assign_contacts': {
+      // All or none (one savepoint). assignContact asks contact:assign again, checks the receiver
+      // is still an active member who may hold contacts, and refuses a contact someone else was
+      // given since the card showed who had it.
+      for (const contactId of args.contactIds) {
+        await assignContact(tx, actor, contactId, args.to, { via: 'assistant', expectedFrom: args.from[contactId] ?? null });
+      }
+      return { result: { assigned: args.contactIds.length } };
+    }
+    case 'record_marketing_consent': {
+      // All or none. Each asks contact:update again, and refuses anyone who unsubscribed since the card.
+      let recorded = 0;
+      for (const contactId of args.contactIds) {
+        if ((await recordMarketingConsent(tx, actor, contactId, args.how, { via: 'assistant' })) === 'recorded') recorded += 1;
+      }
+      return { result: { recorded } };
+    }
+    case 'withdraw_marketing_consent': {
+      let withdrawn = 0;
+      for (const contactId of args.contactIds) {
+        if ((await withdrawMarketingConsent(tx, actor, contactId, args.reason, { via: 'assistant' })) === 'withdrawn') withdrawn += 1;
+      }
+      return { result: { withdrawn } };
+    }
+    case 'update_contact': {
+      // editContactDetails asks contact:update again, refuses if a field changed since the card,
+      // re-checks the email is nobody else's — and has no way to touch assignment or consent.
+      const { changed } = await editContactDetails(tx, actor, args.contactId, args.patch, { via: 'assistant', expected: args.before });
+      return { result: { changed } };
+    }
+    case 'set_contact_archived': {
+      await setContactArchived(tx, actor, args.contactId, args.archived, { via: 'assistant' });
+      return { result: {} };
     }
   }
 }
@@ -570,7 +621,7 @@ export type ProposalView = {
   card: ProposalCard;
   error: string | null;
   /** Ids of what it made or changed — for links. Never model text. */
-  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
+  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; recorded?: number; withdrawn?: number; changed?: string[]; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
   expiresAt: Date;
   /** When a scheduled action will run (about; up to ~5 minutes later). */
   runAt: Date | null;

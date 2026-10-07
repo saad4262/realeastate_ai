@@ -1,5 +1,6 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { APPOINTMENT_RANGES, ASSISTANT_APPOINTMENT_TYPES, LEAD_SINCE, LEAD_STATUSES } from '@repo/core/assistant/schema';
+import { APPOINTMENT_RANGES, ASSISTANT_ADMIN_TOOLS, ASSISTANT_APPOINTMENT_TYPES, LEAD_SINCE, LEAD_STATUSES } from '@repo/core/assistant/schema';
+import { can, type Actor } from '@repo/core/permissions';
 import { WIDGET_IDS, WIDGET_RANGES } from '@repo/core/widgets';
 import { CONTACT_ROLES } from '@repo/core/contacts/schema';
 import { INTEGRATION_PROVIDERS } from '@repo/core/integrations/providers';
@@ -27,6 +28,7 @@ const DATE = 'The day, as YYYY-MM-DD, in the person\'s own time zone (see consol
 const TIME = 'The local time, as HH:mm in 24-hour form, e.g. 15:00.';
 
 const REF = 'A reference you were given earlier in this conversation, e.g. C2 or S1. Never a name.';
+const CONTACTS = 'Contact references, e.g. ["C1", "S2"]. 1 to 20 — only the people the person named or asked you to look up. Never names, email addresses or "everyone".';
 
 export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze([
   {
@@ -241,4 +243,92 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
       required: ['title', 'widgets'],
     },
   },
+  {
+    name: 'find_team_members',
+    description:
+      'List the members of the agency contacts can be given to — active members who may work contacts (never read-only ones). Returns references (M1, M2…) and names. Owners and admins only.',
+    input_schema: { type: 'object', additionalProperties: false, properties: {} },
+  },
+  {
+    name: 'assign_contacts',
+    description: `Propose giving contacts to a team member — owners and admins only. The card lists every contact with their email, who has them now and who will. Leads are not assigned. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        contacts: { type: 'array', items: { type: 'string' }, description: CONTACTS },
+        to: { type: 'string', description: 'The team member to give them to: an M reference from find_team_members.' },
+      },
+      required: ['contacts', 'to'],
+    },
+  },
+  {
+    name: 'record_marketing_consent',
+    description: `Propose recording that contacts agreed to receive marketing email — only contacts this person may edit (an agent: their own; an owner or admin: any in the agency). \`how\` is required: the person's own words for how and when each agreed. If they haven't said, ASK — never fill it in yourself. Anyone who unsubscribed is skipped (only they can opt back in), as is anyone who already agreed. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        contacts: { type: 'array', items: { type: 'string' }, description: CONTACTS },
+        how: { type: 'string', description: 'How they agreed, in the person\'s words, e.g. "Said yes on the phone, 7 Oct". Up to 300 characters.' },
+      },
+      required: ['contacts', 'how'],
+    },
+  },
+  {
+    name: 'withdraw_marketing_consent',
+    description: `Propose withdrawing contacts' marketing consent, with the reason. Only contacts this person may edit. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        contacts: { type: 'array', items: { type: 'string' }, description: CONTACTS },
+        reason: { type: 'string', description: 'Why, in the person\'s words. Up to 300 characters.' },
+      },
+      required: ['contacts', 'reason'],
+    },
+  },
+  {
+    name: 'update_contact',
+    description: `Propose changing one contact's details — name, email, phone and roles, as on the edit form — for a contact this person may edit. Give only the fields to change. It cannot change who the contact is assigned to, marketing consent, the next action (set_next_action) or the archive (set_contact_archived), and nothing can delete a contact. An email another contact already has is refused — tell the person. The card shows each field before → after. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        contact: { type: 'string', description: REF },
+        name: { type: 'string', description: 'The new name.' },
+        email: { type: 'string', description: 'The new email address the person gave you, or "" to remove it. Nothing is sent to it.' },
+        phone: { type: 'string', description: 'The new phone number, or "" to remove it.' },
+        roles: { type: 'array', items: { type: 'string', enum: [...CONTACT_ROLES] }, description: 'The whole set of roles: any left out is removed.' },
+      },
+      required: ['contact'],
+    },
+  },
+  {
+    name: 'set_contact_archived',
+    description: `Propose archiving a contact (hidden from the directory, nothing deleted) or bringing one back. Only a contact this person may edit. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        contact: { type: 'string', description: REF },
+        archived: { type: 'boolean', description: 'true to archive, false to bring back.' },
+      },
+      required: ['contact', 'archived'],
+    },
+  },
 ]);
+
+const ADMIN_ONLY = new Set<string>(ASSISTANT_ADMIN_TOOLS);
+/** What everyone else is shown: the same definitions, without the owner/admin tools. */
+const MEMBER_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze(ASSISTANT_TOOLS.filter((t) => !ADMIN_ONLY.has(t.name)));
+
+/**
+ * The tools this person's model is shown. Owners and admins (`contact:assign`)
+ * get every tool; everyone else never sees the assign tools at all — the
+ * tools are also refused in core if asked for by name. Two frozen lists, so
+ * each kind of person has one byte-identical cached prefix.
+ */
+export function assistantToolsFor(actor: Actor): readonly Anthropic.Beta.BetaTool[] {
+  return actor.agencyId && can(actor, 'contact:assign', { type: 'contact', agencyId: actor.agencyId }) ? ASSISTANT_TOOLS : MEMBER_TOOLS;
+}

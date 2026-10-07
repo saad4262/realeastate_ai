@@ -324,6 +324,7 @@ function activityText(item: Extract<TimelineItem, { type: 'activity' }>): string
     case 'contact_merged':
       return typeof p.name === 'string' ? `Merged ${p.name}${typeof p.email === 'string' ? ` (${p.email})` : ''}` : null;
     case 'consent_recorded':
+    case 'consent_withdrawn':
       return typeof p.note === 'string' ? p.note : null;
     default:
       return null;
@@ -382,6 +383,7 @@ export function TimelineList({
                 <div className={styles.eventTitle}>
                   {ACTIVITY_LABELS[item.kind]}
                   {item.who ? <span className={styles.muted}> · {item.who}</span> : null}
+                  {item.payload.via === 'assistant' ? <span className={styles.muted}> · via the assistant</span> : null}
                 </div>
                 {activityText(item) ? <div className={styles.eventBody}>{activityText(item)}</div> : null}
               </>

@@ -1,3 +1,55 @@
+## 2026-10-07 — Claude Code — Assistant contact tools: migration 0037 applied, smoke and break-tests
+
+- Migration renamed 0036 → **0037_proposed_action_contact_tools** (journal idx 37, `when`
+  1791371957008 > rag's 0036 at 1791359092747; snapshot = rag's 0036 snapshot with prevId =
+  its id, since this CHECK is not in drizzle's snapshot — don't run drizzle-kit generate on this
+  branch before the merge). Rag's 0036 does not touch proposed_action and adds no write tool.
+  Applied on dev with the user's explicit permission: `__drizzle_migrations` 37 → 38 rows, the
+  new one created_at 1791371957008, hash 2f39e1313f8f (= the file); proposed_action rows 7
+  before and after, same md5. Final CHECK: add_note, set_next_action, schedule_appointment,
+  reschedule_appointment, cancel_appointment, send_template_email, create_dashboard,
+  assign_contacts, record_marketing_consent, withdraw_marketing_consent, update_contact,
+  set_contact_archived.
+- Smoke (DIRECT_URL): Console assistant 24/24 (all 8 AE, injection now with an owner card and
+  an agent card, both still `proposed`, contact unchanged), Tenant isolation 4/4, Offboarding 5/5.
+- DB-level break-tests (three parallel copies), each red: receiver read-only; receiver from
+  another agency; consent card ignoring unsubscribed; core recording consent for the
+  unsubscribed; an agent proposing an edit to another agent's contact; editContactDetails
+  clearing the assignee; editContactDetails re-dating consent; run-time contact:assign removed;
+  run-time contact:update removed (consent and details both red). Re-dating consent first
+  stayed GREEN: the fixture's consent used now(), which never moves inside one transaction —
+  fixture moved 3 days back (and the check now compares consent date and recorder too), then
+  red; restored 24/24.
+- Next exact step: the user's TEST-PLAN AE pass; merge only when the user says (order: polish
+  → rag → this).
+
+## 2026-10-07 — Claude Code — Assistant changes contacts (branch feat/crm-assistant-edit)
+
+- Done (worktree /Users/saadiii/Job/realestate_ai-assist, from feat/crm 1356053): three
+  capabilities, each test-first and its own commit — assign_contacts + find_team_members
+  (owners/admins, M references, per-role tool lists via `assistantToolsFor`), record/withdraw
+  marketing consent, update_contact + set_contact_archived; then isolation/offboarding/role-
+  matrix coverage; a smoke fix so run-time checks are break-sensitive; docs (ADR 0025
+  amendment, TEST-PLAN AE, TEST-ORDER Block 3b, this entry). New core functions in
+  core/contacts: assignableMember, recordMarketingConsent, withdrawMarketingConsent,
+  editContactDetails; assignContact/setContactArchived take `{ via }`. ContactError gains
+  `conflict`. Migration 0036 widens the tool CHECK for all five new write tools at once.
+- Checks: typecheck 10/10, lint clean, unit core 845 + ai 290. **Smoke not run for AE**: applying
+  0036 to the dev DB was blocked by the auto-mode classifier (shared resource), so the AE checks
+  (assign ×2, consent ×2, details ×2, injection, CHECK-list invariant, offboarding, isolation
+  additions) are written but unrun. Unit-level break-tests (separate copies, in parallel), all
+  red → green: assign gate removed at the door; assign tools shown to everyone; consent with
+  no "how"; update_contact accepting extra fields. Waiting for the migration (smoke): receiver
+  read-only / other agency, consent for an unsubscribed contact, editing another agent's
+  contact, assignee/consent changed by update_contact in core, run-time re-check removed.
+- Merge notes: rag also adds migration 0036 and prompt v6 → renumber this branch's to 0037
+  (file, journal idx/tag, snapshot id/prevId chain) and fold v6's search text into v7 (or make
+  v8). Polish touches docs (STATUS/SESSION/TEST-PLAN/TEST-ORDER) and contact-profile.tsx /
+  assistant-panel.tsx only in other places — textual conflicts in docs only expected.
+- Next exact step: the user applies 0036 on dev (or allows it); then run smoke (DIRECT_URL)
+  for Console assistant, Tenant isolation, Offboarding and the remaining break-tests; merge
+  only when the user says.
+
 ## 2026-10-07 — Claude Code — Assistant search, hybrid (ADR 0031), branch feat/crm-rag
 
 - Goal (user): a search tool over notes, emails and enquiry messages that scales; hybrid —

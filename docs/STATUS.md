@@ -20,6 +20,20 @@
   TEST-PLAN N → AC in the order of docs/TEST-ORDER.md.** Dev DB note: the transaction-mode
   pooler (6543) began closing long smoke transactions on 2026-10-07; run smoke with
   DATABASE_URL set to DIRECT_URL (session pooler) for that process if it recurs.
+- **Branch `feat/crm-assistant-edit` (2026-10-07, not merged; merge only when the user says):
+  the assistant changes contacts (ADR 0025 amendment).** Owners/admins: `find_team_members`
+  (M references) and `assign_contacts` (≤ 20 contacts, card shows each one's email and current
+  → new holder; agents are never shown the tools and core refuses them). Everyone who may edit
+  the contact: `record_marketing_consent` (needs "how"; unsubscribed and already-agreed are
+  skipped with the reason) and `withdraw_marketing_consent` (needs a reason); `update_contact`
+  (name/email/phone/roles only, before → after from the DB, duplicate email → no card, stale
+  card refused) and `set_contact_archived`. All "via the assistant" on the timeline; all re-
+  checked at run (now and scheduled); offboarding cancels them. Prompt `assistant@v7`.
+  **Migration 0037 (widens the proposed_action tool CHECK, no row change) applied on dev
+  2026-10-07** with the user's permission (renamed from 0036 and dated after the search
+  branch's 0036, so the two merge without renumbering). Smoke: Console assistant 24/24 (8 AE),
+  Tenant isolation 4/4, Offboarding 5/5. Break-tests: 13, all red → green. Merge order: polish
+  → rag → this; with rag, journal/docs/assistant files conflict textually (see SESSION).
 - **Phase 8 — Offboarding (ADR 0030) committed.** Migration 0035 applied on dev (additive:
   membership.removed_at/by/report, needs_owner_at on contact/lead/appointment/listing,
   integration_account.connector_left_at, one active membership per person). Remove from the

@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { z } from 'zod';
 import {
   activity,
   agentProfile,
@@ -11,6 +12,8 @@ import {
 } from '@repo/db';
 import { can, type Actor, type MembershipRole } from '../permissions';
 import {
+  CONTACT_ROLES,
+  contactFieldsSchema,
   createContactSchema,
   nextActionSchema,
   updateContactSchema,
@@ -18,6 +21,7 @@ import {
   type ActivityKind,
   type CreateContactInput,
   type UpdateContactInput,
+  type ContactRoleKind,
 } from './contact-schema';
 import { loadContactHead } from './get-contact';
 import { CONTACT_NOT_FOUND, ContactError, roleArray } from './list-contacts';
@@ -106,9 +110,22 @@ export async function listContactAssignees(db: Db, actor: Actor): Promise<Contac
 
 /** Throws unless `userId` is in the assignee list `listContactAssignees` would draw. */
 async function assertAssignable(db: DbOrTx, actor: Actor, userId: string): Promise<void> {
+  if (!(await assignableMember(db, actor, userId))) throw new ContactError('invalid', 'That person cannot be given contacts');
+}
+
+/**
+ * The member `userId`, named as the assignee list names them, if they may be
+ * given contacts in the actor's agency now: active, and allowed to edit a
+ * contact of their own (so never read-only). Null otherwise — including
+ * anybody from another agency.
+ */
+export async function assignableMember(db: DbOrTx, actor: Actor, userId: string): Promise<ContactAssignee | null> {
+  if (!actor.agencyId || !/^[0-9a-f-]{36}$/i.test(userId)) return null;
   const [row] = await db
-    .select({ role: membership.role })
+    .select({ role: membership.role, name: user.name, email: user.email, displayName: agentProfile.displayName })
     .from(membership)
+    .innerJoin(user, eq(user.id, membership.userId))
+    .leftJoin(agentProfile, eq(agentProfile.userId, membership.userId))
     .where(
       and(
         eq(membership.agencyId, actor.agencyId as string),
@@ -117,11 +134,10 @@ async function assertAssignable(db: DbOrTx, actor: Actor, userId: string): Promi
       ),
     )
     .limit(1);
-  const them: Actor = { userId, agencyId: actor.agencyId, membershipRole: row?.role as MembershipRole };
-  const ok =
-    row &&
-    can(them, 'contact:update', { type: 'contact', id: 'probe', agencyId: actor.agencyId, ownerId: userId });
-  if (!ok) throw new ContactError('invalid', 'That person cannot be given contacts');
+  if (!row) return null;
+  const them: Actor = { userId, agencyId: actor.agencyId, membershipRole: row.role as MembershipRole };
+  if (!can(them, 'contact:update', { type: 'contact', id: 'probe', agencyId: actor.agencyId, ownerId: userId })) return null;
+  return { userId, name: row.displayName || row.name || row.email };
 }
 
 /**
@@ -308,12 +324,22 @@ export async function updateContact(
   }
 }
 
+/**
+ * How a change was made, on its timeline entry: by hand (absent), or by an
+ * assistant card the person approved (ADR 0025).
+ */
+export type ChangeOrigin = { via?: 'assistant' };
+
 /** Give a contact to a member, or to nobody. Admins only. */
 export async function assignContact(
   db: Db,
   actor: Actor,
   contactId: string,
   assignTo: string | null,
+  opts: ChangeOrigin & {
+    /** Refuse if the contact is no longer held by this person (a card shows who had it). */
+    expectedFrom?: string | null;
+  } = {},
 ): Promise<void> {
   const head = await loadContactHead(db, actor, contactId);
   if (!head || head.row.mergedIntoId) throw CONTACT_NOT_FOUND();
@@ -322,8 +348,11 @@ export async function assignContact(
   if (!can(actor, 'contact:assign', resource)) {
     throw new ContactError('forbidden', 'Only an admin may assign contacts');
   }
-  if (assignTo === head.row.assignedTo) return;
+  if (opts.expectedFrom !== undefined && opts.expectedFrom !== head.row.assignedTo) {
+    throw new ContactError('conflict', `${head.row.name} was given to someone else after this was proposed`);
+  }
   if (assignTo) await assertAssignable(db, actor, assignTo);
+  if (assignTo === head.row.assignedTo) return;
 
   await db.transaction(async (tx) => {
     await tx
@@ -333,8 +362,171 @@ export async function assignContact(
     await recordActivity(tx, actor, head.row.agencyId, head.row.id, 'contact_assigned', {
       from: head.row.assignedTo,
       to: assignTo,
+      ...(opts.via ? { via: opts.via } : {}),
     });
   });
+}
+
+/** Why consent is never recorded for someone who unsubscribed (ADR 0022): it is theirs to give back. */
+export const UNSUBSCRIBED_REASON = 'unsubscribed — only they can give permission again';
+
+/** The contact, if this person may edit it — the edit form's rule (`contact:update`). */
+async function editableHead(db: DbOrTx, actor: Actor, contactId: string, what: string) {
+  const head = await loadContactHead(db, actor, contactId);
+  if (!head || head.row.mergedIntoId) throw CONTACT_NOT_FOUND();
+  const resource = contactResource(head.facts);
+  if (!can(actor, 'contact:read', resource)) throw CONTACT_NOT_FOUND();
+  if (!can(actor, 'contact:update', resource)) {
+    throw new ContactError('forbidden', `Only the agent ${head.row.name} is assigned to, or an admin, may ${what}`);
+  }
+  return head;
+}
+
+/**
+ * Record that this person agreed to marketing email, and how — dated and
+ * attributed on the record and the timeline (the Spam Act asks who, when and
+ * how). Whoever may edit the contact may. Refused for someone who
+ * unsubscribed: only they can opt back in. Someone who already agreed keeps
+ * the consent they gave (nothing is overwritten).
+ */
+export async function recordMarketingConsent(
+  db: Db,
+  actor: Actor,
+  contactId: string,
+  how: string,
+  opts: ChangeOrigin = {},
+): Promise<'recorded' | 'already'> {
+  const head = await editableHead(db, actor, contactId, 'record their consent');
+  const note = how.trim();
+  if (!note) throw new ContactError('invalid', 'Say how they gave consent');
+  if (note.length > 300) throw new ContactError('invalid', 'Keep how they gave consent under 300 characters');
+  if (head.row.emailOptOutAt) throw new ContactError('conflict', `${head.row.name} ${UNSUBSCRIBED_REASON}`);
+  if (head.row.marketingConsentAt) return 'already';
+  await db.transaction(async (tx) => {
+    await tx
+      .update(contact)
+      .set({ marketingConsentAt: sql`now()`, marketingConsentBy: actor.userId, marketingConsentNote: note, updatedAt: sql`now()` })
+      .where(and(eq(contact.id, head.row.id), eq(contact.agencyId, head.row.agencyId)));
+    await recordActivity(tx, actor, head.row.agencyId, head.row.id, 'consent_recorded', { note, ...(opts.via ? { via: opts.via } : {}) });
+  });
+  return 'recorded';
+}
+
+/** Withdraw a recorded consent, with the reason on the timeline. Same permission as recording it. */
+export async function withdrawMarketingConsent(
+  db: Db,
+  actor: Actor,
+  contactId: string,
+  reason: string,
+  opts: ChangeOrigin = {},
+): Promise<'withdrawn' | 'none'> {
+  const head = await editableHead(db, actor, contactId, 'withdraw their consent');
+  const note = reason.trim();
+  if (!note) throw new ContactError('invalid', 'Say why consent is withdrawn');
+  if (note.length > 300) throw new ContactError('invalid', 'Keep the reason under 300 characters');
+  if (!head.row.marketingConsentAt) return 'none';
+  await db.transaction(async (tx) => {
+    await tx
+      .update(contact)
+      .set({ marketingConsentAt: null, marketingConsentBy: null, marketingConsentNote: null, updatedAt: sql`now()` })
+      .where(and(eq(contact.id, head.row.id), eq(contact.agencyId, head.row.agencyId)));
+    await recordActivity(tx, actor, head.row.agencyId, head.row.id, 'consent_withdrawn', { note, ...(opts.via ? { via: opts.via } : {}) });
+  });
+  return 'withdrawn';
+}
+
+/** The edit form's own details — the only things `editContactDetails` can change. */
+export type ContactDetailsPatch = { name?: string; email?: string | null; phone?: string | null; roles?: ContactRoleKind[] };
+export type ContactDetails = { name: string; email: string | null; phone: string | null; roles: ContactRoleKind[] };
+
+const detailsPatchSchema = z
+  .object({
+    name: contactFieldsSchema.shape.name.optional(),
+    email: z.union([z.literal(null), z.string().trim().max(200).toLowerCase().pipe(z.string().email('That does not look like an email address'))]).optional(),
+    phone: z.union([z.literal(null), z.string().trim().min(1).max(40)]).optional(),
+    roles: z.array(z.enum(CONTACT_ROLES)).max(CONTACT_ROLES.length).optional(),
+  })
+  .strict();
+
+/** A contact's details as the edit form shows them — for a card's "before". */
+export function contactDetailsOf(row: { name: string; email: string | null; phone: string | null; roles: unknown }): ContactDetails {
+  return { name: row.name, email: row.email, phone: row.phone, roles: roleArray(row.roles) as ContactRoleKind[] };
+}
+
+const sameRoles = (a: readonly string[], b: readonly string[]) => [...a].sort().join(',') === [...b].sort().join(',');
+
+/**
+ * Change some of a contact's details — name, email, phone, roles (the whole
+ * set) — and nothing else: never who it is assigned to, consent, the next
+ * action or the archive. Whoever may edit the contact may. With `expected`
+ * (an assistant card's "before"), refused if any of those fields changed
+ * since — the person approved what they saw. An email another contact has is
+ * refused, never merged. Email or phone must remain.
+ */
+export async function editContactDetails(
+  db: Db,
+  actor: Actor,
+  contactId: string,
+  patch: ContactDetailsPatch,
+  opts: ChangeOrigin & { expected?: Partial<ContactDetails> } = {},
+): Promise<{ changed: (keyof ContactDetails)[] }> {
+  const head = await editableHead(db, actor, contactId, 'edit it');
+  const parsed = detailsPatchSchema.safeParse(patch);
+  if (!parsed.success) throw new ContactError('invalid', firstIssue(parsed.error));
+  const p = parsed.data;
+  const { row } = head;
+  const now = contactDetailsOf(row);
+
+  if (opts.expected) {
+    for (const [k, v] of Object.entries(opts.expected) as [keyof ContactDetails, ContactDetails[keyof ContactDetails]][]) {
+      const same = k === 'roles' ? sameRoles(now.roles, v as string[]) : now[k] === v;
+      if (!same) throw new ContactError('conflict', `${row.name}’s ${k} changed after this was proposed`);
+    }
+  }
+
+  const next: ContactDetails = {
+    name: p.name ?? now.name,
+    email: p.email === undefined ? now.email : p.email,
+    phone: p.phone === undefined ? now.phone : p.phone,
+    roles: p.roles ?? now.roles,
+  };
+  if (!next.email && !next.phone) throw new ContactError('invalid', 'Keep an email or a phone number, so they can be reached');
+  if (next.email && next.email !== now.email) {
+    const existing = await holderOf(db, row.agencyId, next.email);
+    if (existing && existing !== row.id) throw duplicate(existing);
+  }
+  const changed = (['name', 'email', 'phone'] as const).filter((k) => next[k] !== now[k]);
+  const added = next.roles.filter((r) => !now.roles.includes(r));
+  const removed = now.roles.filter((r) => !next.roles.includes(r));
+  if (!changed.length && !added.length && !removed.length) return { changed: [] };
+  const via = opts.via ? { via: opts.via } : {};
+
+  try {
+    await db.transaction(async (tx) => {
+      if (changed.length) {
+        await tx
+          .update(contact)
+          .set({ name: next.name, email: next.email, phone: next.phone, updatedAt: sql`now()` })
+          .where(and(eq(contact.id, row.id), eq(contact.agencyId, row.agencyId)));
+      }
+      if (removed.length) {
+        await tx.delete(contactRole).where(and(eq(contactRole.contactId, row.id), inArray(contactRole.role, removed)));
+      }
+      if (added.length) {
+        await tx
+          .insert(contactRole)
+          .values(added.map((role) => ({ contactId: row.id, role, source: 'manual' as const, createdBy: actor.userId })))
+          .onConflictDoNothing();
+      }
+      if (changed.length) await recordActivity(tx, actor, row.agencyId, row.id, 'contact_updated', { fields: changed, ...via });
+      for (const role of added) await recordActivity(tx, actor, row.agencyId, row.id, 'role_added', { role, ...via });
+      for (const role of removed) await recordActivity(tx, actor, row.agencyId, row.id, 'role_removed', { role, ...via });
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) throw duplicate(next.email ? await holderOf(db, row.agencyId, next.email) : undefined);
+    throw err;
+  }
+  return { changed: [...changed, ...(added.length || removed.length ? (['roles'] as const) : [])] };
 }
 
 /**
@@ -347,6 +539,7 @@ export async function setContactArchived(
   actor: Actor,
   contactId: string,
   archived: boolean,
+  opts: ChangeOrigin = {},
 ): Promise<void> {
   const head = await loadContactHead(db, actor, contactId);
   if (!head || head.row.mergedIntoId) throw CONTACT_NOT_FOUND();
@@ -365,7 +558,7 @@ export async function setContactArchived(
           : { archivedAt: null, archivedBy: null, updatedAt: sql`now()` },
       )
       .where(and(eq(contact.id, head.row.id), eq(contact.agencyId, head.row.agencyId)));
-    await recordActivity(tx, actor, head.row.agencyId, head.row.id, archived ? 'contact_archived' : 'contact_restored');
+    await recordActivity(tx, actor, head.row.agencyId, head.row.id, archived ? 'contact_archived' : 'contact_restored', opts.via ? { via: opts.via } : {});
   });
 }
 

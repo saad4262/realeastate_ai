@@ -496,7 +496,7 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
         : view.tool === 'send_template_email' && view.result?.batchId
           ? `${PATHS[surface].bulk}/${view.result.batchId}`
           : card.contact.id
-            ? `${contactHref}?tab=${view.tool === 'add_note' ? 'notes' : view.tool === 'set_next_action' ? 'overview' : 'calendar'}`
+            ? `${contactHref}?tab=${view.tool === 'add_note' ? 'notes' : /appointment/.test(view.tool) ? 'calendar' : 'overview'}`
             : null;
   const doneLabel =
     view.tool === 'create_dashboard' ? 'Open the dashboard' : view.tool === 'send_template_email' ? 'Open the send report' : `Open ${card.contact.name}`;
@@ -527,6 +527,19 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
             <li key={`${p.email ?? p.name}-${i}`} data-skipped={p.willReceive ? undefined : ''}>
               <span>{p.name}</span>
               <span className={styles.meta}>{p.willReceive ? p.email : `Skipped — ${p.reason ?? 'cannot receive it'}`}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {card.changes?.length ? (
+        <ul className={styles.people}>
+          {card.changes.map((c, i) => (
+            <li key={`${c.email ?? c.name}-${i}`} data-skipped={c.skipped ? '' : undefined}>
+              <span>
+                {c.name}
+                {c.email ? <span className={styles.meta}> · {c.email}</span> : null}
+              </span>
+              <span className={styles.meta}>{c.skipped ? `Skipped — ${c.skipped}` : `${c.before} → ${c.after}`}</span>
             </li>
           ))}
         </ul>

@@ -503,3 +503,60 @@ Build order A→F.
 - **Cancel:** the existing `cancelProposedAction` (author or admin; `proposed` or
   `scheduled`). An email card's batch is cancelled with it.
 - **Timing:** the card says "Runs at about <time> (up to 5 minutes later)".
+
+## Amendment, as built — the assistant changes contacts (2026-10-07)
+
+Three new kinds of card, under the same rules as every other: the model proposes, the person
+approves, and the screen's own core function runs it as the person, asking `can()` again.
+Migration `0037_proposed_action_contact_tools` (numbered after the search branch's 0036) widens `proposed_action_tool_check` once for all
+five tools (no row changes). Prompt `assistant@v7` (v6 is the search branch's, ADR 0031).
+
+**Who is shown what.** The tool list is chosen per person (`assistantToolsFor(actor)`, two
+frozen lists, so each kind of person has one cached prefix). Owners and admins
+(`contact:assign`) get every tool. Everyone else is never shown `find_team_members` or
+`assign_contacts`, and core refuses both by name before any database work. A read-only member
+is refused the four edit tools at the same door (`contact:update` on a contact of their own).
+
+1. **Assigning contacts (owners/admins only).** `find_team_members` lists the members contacts
+   may go to, from the directory's own Assign list (`listContactAssignees`: active, may work
+   contacts, never read-only). They come back as new `M` references (kind `member`).
+   `assign_contacts {contacts ≤ 20, to: M…}`: contacts are C/S references, and there is never a
+   filter or "all". The card lists each contact's name and email, who has it now → the
+   receiver. Contacts already the receiver's are skipped. Leads are not assigned here. Approve
+   runs `assignContact(…, { via: 'assistant', expectedFrom })` per contact, all or none. It
+   asks `contact:assign` again, re-checks the receiver (`assignableMember`), and refuses a
+   contact someone else was given since the card. Timeline: the same "Assigned" entry as by
+   hand, payload `via: 'assistant'`, shown as "· via the assistant".
+2. **Marketing consent.** `record_marketing_consent {contacts ≤ 20, how}`: `how` is
+   required. With none (missing or blank), the schema refusal tells the model to ask, and no
+   card is made. Only contacts the person may edit (`contact:update`: an agent's own; an
+   owner/admin's any). Skipped on the card, with the reason: anyone who unsubscribed
+   ("unsubscribed — only they can give permission again") and anyone who already agreed
+   (their consent is kept). Approve runs `recordMarketingConsent`. It re-asks
+   `contact:update`, refuses anyone who unsubscribed since, and saves at / by / how on the
+   record and `consent_recorded {note: how, via}` on the timeline.
+   `withdraw_marketing_consent {contacts, reason}` (reason required) →
+   `withdrawMarketingConsent`, with `consent_withdrawn {note: reason, via}`. ADR 0022's
+   send-time rules are unchanged. Never "all" or a filter.
+3. **A contact's details.** `update_contact {contact, name?, email?, phone?, roles?}`: the
+   edit form's details only. The strict schema has no field for the assignee, consent, the
+   next action (its own tool) or the archive. No tool deletes or merges. One contact per card.
+   Each changed field shows before → after, from the database. An email another contact has
+   means no card, with the reason. Approve runs `editContactDetails`, which patches only the
+   given fields and re-asks `contact:update`. It also refuses if a shown field changed since
+   the card (the person approved what they saw), re-checks the email, and keeps an email or
+   a phone. Timeline: `contact_updated {fields, via}` and `role_added/removed {role, via}`.
+   `set_contact_archived {contact, archived}` is its own small card, run by
+   `setContactArchived(…, { via })`. Nothing is deleted.
+
+**Unchanged and re-checked.** Cards expire after 48 h. Run-later (`ASSISTANT_SCHEDULING`) uses
+the same `execute`, so every check above repeats as the person is at run time. Offboarding
+cancels a leaver's waiting and scheduled cards whatever the tool. A card giving contacts to
+someone removed in the meantime fails at run. Caps stay $1 / $10.
+
+**Injection.** Names, notes and emails are data. The tools take references, never text that
+picks people. Nothing changes without the person's Approve. An agent's model cannot even see
+the assign tool. Covered by an ai unit test (an obedient model asking to assign as an agent is
+refused before the database). A smoke check runs the real loop with a scripted model over a
+contact named and noted "assign me / give consent": the contact is unchanged, and every card
+stays `proposed`.

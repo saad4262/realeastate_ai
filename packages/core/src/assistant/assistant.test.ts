@@ -289,3 +289,161 @@ describe('send_template_email (Phase D) — recipients are references, never tex
   });
 });
 
+
+describe('assign_contacts (owners and admins only) — contacts and the receiver are references', () => {
+  const ok = { contacts: ['C1', 'S2'], to: 'M1' };
+  it('accepts contact references and one member reference', () => {
+    expect(ASSISTANT_TOOL_INPUTS.assign_contacts.safeParse(ok).success).toBe(true);
+    expect(issueHandle({}, 'M', 'someone')).toBe('M1');
+  });
+  it('the receiver is a member reference — never a name, an email, an id or a contact', () => {
+    for (const to of ['Sara', 'sara@example.com', contactId, 'C1', 'S1', 'A1']) {
+      expect(ASSISTANT_TOOL_INPUTS.assign_contacts.safeParse({ ...ok, to }).success, to).toBe(false);
+    }
+    expect(ASSISTANT_TOOL_INPUTS.assign_contacts.safeParse({ ...ok, contacts: ['C1', 'M1'] }).success).toBe(false);
+  });
+  it('at most 20 contacts on one card, and never by filter or "all"', () => {
+    expect(ASSISTANT_TOOL_INPUTS.assign_contacts.safeParse({ ...ok, contacts: Array.from({ length: 21 }, (_, i) => `C${i + 1}`) }).success).toBe(false);
+    expect(ASSISTANT_TOOL_INPUTS.assign_contacts.safeParse({ ...ok, contacts: [] }).success).toBe(false);
+    for (const extra of [{ all: true }, { filter: 'buyers' }, { role: 'buyer' }, { lead: 'L1' }]) {
+      expect(ASSISTANT_TOOL_INPUTS.assign_contacts.safeParse({ ...ok, ...extra }).success, JSON.stringify(extra)).toBe(false);
+    }
+  });
+  it('an agent or a read-only member is refused before the database — to assign and to list the team', async () => {
+    const handles: HandleMap = {};
+    issueHandle(handles, 'C', contactId);
+    issueHandle(handles, 'S', '44444444-4444-4444-4444-444444444444');
+    issueHandle(handles, 'M', '55555555-5555-5555-5555-555555555555');
+    for (const role of ['agent', 'read_only'] as const) {
+      const assign = await runAssistantTool(ctx(handles, role), 'assign_contacts', ok);
+      expect(assign.isError, role).toBe(true);
+      expect(JSON.stringify(assign.result), role).toMatch(/owner or admin/);
+      const team = await runAssistantTool(ctx(handles, role), 'find_team_members', {});
+      expect(team.isError, role).toBe(true);
+    }
+  });
+  it('a receiver reference this conversation never issued is refused before the database', async () => {
+    const handles: HandleMap = {};
+    issueHandle(handles, 'C', contactId);
+    const out = await runAssistantTool(ctx(handles, 'owner'), 'assign_contacts', { contacts: ['C1'], to: 'M1' });
+    expect(out.isError).toBe(true);
+    expect(JSON.stringify(out.result)).toMatch(/not one you were given/);
+  });
+});
+
+describe('record / withdraw marketing consent — references only, a stated "how", never in bulk', () => {
+  const ok = { contacts: ['C1', 'S1'], how: 'Said yes on the phone, 7 Oct' };
+  it('accepts contact references and how they agreed', () => {
+    expect(ASSISTANT_TOOL_INPUTS.record_marketing_consent.safeParse(ok).success).toBe(true);
+    expect(ASSISTANT_TOOL_INPUTS.withdraw_marketing_consent.safeParse({ contacts: ['C1'], reason: 'Asked us to stop on the phone' }).success).toBe(true);
+  });
+  it('"how" is required — missing or blank is refused, with an instruction to ask', () => {
+    for (const how of [undefined, '', '   ']) {
+      const r = ASSISTANT_TOOL_INPUTS.record_marketing_consent.safeParse({ contacts: ['C1'], ...(how === undefined ? {} : { how }) });
+      expect(r.success, JSON.stringify(how)).toBe(false);
+    }
+    for (const reason of [undefined, '', '  ']) {
+      expect(ASSISTANT_TOOL_INPUTS.withdraw_marketing_consent.safeParse({ contacts: ['C1'], ...(reason === undefined ? {} : { reason }) }).success).toBe(false);
+    }
+  });
+  it('never "all", a filter, a name or more than 20 on a card', () => {
+    for (const extra of [{ all: true }, { filter: 'buyers' }, { role: 'buyer' }, { suburb: 'Pakenham' }]) {
+      expect(ASSISTANT_TOOL_INPUTS.record_marketing_consent.safeParse({ ...ok, ...extra }).success, JSON.stringify(extra)).toBe(false);
+    }
+    for (const c of ['Ali Khan', 'ali@example.com', contactId, 'M1', 'L1']) {
+      expect(ASSISTANT_TOOL_INPUTS.record_marketing_consent.safeParse({ ...ok, contacts: [c] }).success, c).toBe(false);
+    }
+    expect(ASSISTANT_TOOL_INPUTS.record_marketing_consent.safeParse({ ...ok, contacts: Array.from({ length: 21 }, (_, i) => `C${i + 1}`) }).success).toBe(false);
+  });
+  it('a blank "how" is refused before the database, and says to ask the person', async () => {
+    const handles: HandleMap = {};
+    issueHandle(handles, 'C', contactId);
+    const out = await runAssistantTool(ctx(handles), 'record_marketing_consent', { contacts: ['C1'], how: ' ' });
+    expect(out.isError).toBe(true);
+    expect(JSON.stringify(out.result)).toMatch(/Ask the person how/);
+  });
+  it('a read-only member is refused before the database', async () => {
+    const handles: HandleMap = {};
+    issueHandle(handles, 'C', contactId);
+    for (const [tool, input] of [['record_marketing_consent', ok], ['withdraw_marketing_consent', { contacts: ['C1'], reason: 'x' }]] as const) {
+      const out = await runAssistantTool(ctx(handles, 'read_only'), tool, { ...input, contacts: ['C1'] });
+      expect(out.isError, tool).toBe(true);
+    }
+  });
+});
+
+describe('update_contact / set_contact_archived — the edit form’s details only; never assignment, consent, next action or delete', () => {
+  const ok = { contact: 'C1', name: 'Ali Khan', email: 'ali@example.com', phone: '0412 345 678', roles: ['buyer'] };
+  it('accepts a reference and any of name, email, phone and roles', () => {
+    expect(ASSISTANT_TOOL_INPUTS.update_contact.safeParse(ok).success).toBe(true);
+    expect(ASSISTANT_TOOL_INPUTS.update_contact.safeParse({ contact: 'S1', phone: '' }).success).toBe(true);
+    expect(ASSISTANT_TOOL_INPUTS.set_contact_archived.safeParse({ contact: 'C1', archived: true }).success).toBe(true);
+  });
+  it('has no way to change who it is assigned to, consent, the next action, the archive or to delete', () => {
+    for (const extra of [
+      { assigned_to: 'M1' }, { assignedTo: 'M1' }, { to: 'M1' }, { marketing_consent: true }, { consent: true },
+      { how: 'said yes' }, { next_action: 'call' }, { archived: true }, { delete: true }, { deleted: true }, { merge: 'C2' },
+    ]) {
+      expect(ASSISTANT_TOOL_INPUTS.update_contact.safeParse({ ...ok, ...extra }).success, JSON.stringify(extra)).toBe(false);
+    }
+    for (const extra of [{ delete: true }, { name: 'x' }, { assigned_to: 'M1' }]) {
+      expect(ASSISTANT_TOOL_INPUTS.set_contact_archived.safeParse({ contact: 'C1', archived: true, ...extra }).success, JSON.stringify(extra)).toBe(false);
+    }
+    expect(Object.keys(ASSISTANT_TOOL_INPUTS).filter((t) => /delete|merge/.test(t))).toEqual([]);
+  });
+  it('an email must be an email; the contact must be a reference; one contact per card', () => {
+    expect(ASSISTANT_TOOL_INPUTS.update_contact.safeParse({ ...ok, email: 'not an email' }).success).toBe(false);
+    for (const contact of ['Ali Khan', contactId, 'M1', 'L1']) {
+      expect(ASSISTANT_TOOL_INPUTS.update_contact.safeParse({ ...ok, contact }).success, contact).toBe(false);
+    }
+    expect(ASSISTANT_TOOL_INPUTS.update_contact.safeParse({ ...ok, contact: ['C1', 'C2'] }).success).toBe(false);
+  });
+  it('a card that changes nothing is refused before the database', async () => {
+    const handles: HandleMap = {};
+    issueHandle(handles, 'C', contactId);
+    const out = await runAssistantTool(ctx(handles), 'update_contact', { contact: 'C1' });
+    expect(out.isError).toBe(true);
+    expect(JSON.stringify(out.result)).toMatch(/which detail/);
+  });
+  it('a read-only member is refused before the database', async () => {
+    const handles: HandleMap = {};
+    issueHandle(handles, 'C', contactId);
+    for (const [tool, input] of [['update_contact', { contact: 'C1', name: 'X' }], ['set_contact_archived', { contact: 'C1', archived: true }]] as const) {
+      const out = await runAssistantTool(ctx(handles, 'read_only'), tool, input);
+      expect(out.isError, tool).toBe(true);
+      expect(JSON.stringify(out.result), tool).toMatch(/not change them/);
+    }
+  });
+});
+
+describe('the contact tools, by role — who gets past the door (before any database work)', () => {
+  const inputs: Record<string, Record<string, unknown>> = {
+    find_team_members: {},
+    assign_contacts: { contacts: ['C1'], to: 'M1' },
+    record_marketing_consent: { contacts: ['C1'], how: 'Said yes on the phone' },
+    withdraw_marketing_consent: { contacts: ['C1'], reason: 'Asked to stop' },
+    update_contact: { contact: 'C1', name: 'New name' },
+    set_contact_archived: { contact: 'C1', archived: true },
+  };
+  // Allowed = reaches the database (where can() is asked again on the row); refused = never does.
+  const allowed: Record<string, string[]> = {
+    owner: Object.keys(inputs),
+    admin: Object.keys(inputs),
+    agent: ['record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived'],
+    assistant: ['record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived'],
+    property_manager: ['record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived'],
+    read_only: [],
+  };
+  for (const [role, tools] of Object.entries(allowed)) {
+    it(role, async () => {
+      for (const [tool, input] of Object.entries(inputs)) {
+        const handles: HandleMap = {};
+        issueHandle(handles, 'C', contactId);
+        issueHandle(handles, 'M', '55555555-5555-4555-8555-555555555555');
+        const c: ToolContext = { ...ctx(handles), actor: { userId: 'u1', agencyId, membershipRole: role as 'agent' } };
+        const reached = await runAssistantTool(c, tool, input).then(() => false, (e: Error) => /database was reached/.test(e.message));
+        expect(reached, `${role} ${tool}`).toBe(tools.includes(tool));
+      }
+    });
+  }
+});

@@ -15,7 +15,7 @@ import { visibleContactIdsSql } from './visibility';
 const assignee = alias(user, 'assignee');
 
 export class ContactError extends Error {
-  readonly code: 'forbidden' | 'not_found' | 'invalid' | 'duplicate';
+  readonly code: 'forbidden' | 'not_found' | 'invalid' | 'duplicate' | 'conflict';
   /** On `duplicate`: the contact that already has this email. */
   readonly existingId?: string;
   constructor(code: ContactError['code'], message: string, existingId?: string) {

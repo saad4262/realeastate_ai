@@ -4,6 +4,7 @@ import type { z } from 'zod';
 import { appointment, contact, lead, property, user, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { contactQueryFilters } from '../contacts/list-contacts';
+import { listContactAssignees } from '../contacts/write-contacts';
 import { visibleContactIdsSql } from '../contacts/visibility';
 import { leadScopeFilters } from '../leads/list-leads';
 import { appointmentScopeFilters } from '../appointments/appointments';
@@ -19,7 +20,12 @@ import { issueHandle, resolveHandle, type HandleMap } from './handles';
 import type { ProposalContext } from './actions';
 import {
   proposeAddNote,
+  proposeAssignContacts,
   proposeCancelAppointment,
+  proposeRecordConsent,
+  proposeSetArchived,
+  proposeUpdateContact,
+  proposeWithdrawConsent,
   proposeRescheduleAppointment,
   proposeScheduleAppointment,
   proposeCreateDashboard,
@@ -28,6 +34,7 @@ import {
 } from './write-tools';
 import { agencyTimeZone, renderWidget } from '../widgets/registry';
 import {
+  ASSISTANT_ADMIN_TOOLS,
   ASSISTANT_TOOL_INPUTS,
   type AppointmentRange,
   type AssistantFrame,
@@ -87,7 +94,16 @@ const LABELS: Record<AssistantToolName, string> = {
   cancel_appointment: 'Preparing the cancellation for you to approve…',
   send_template_email: 'Preparing the email for you to approve…',
   create_dashboard: 'Preparing the dashboard for you to approve…',
+  find_team_members: 'Looking up the team…',
+  assign_contacts: 'Preparing the assignment for you to approve…',
+  record_marketing_consent: 'Preparing the consent for you to approve…',
+  withdraw_marketing_consent: 'Preparing the withdrawal for you to approve…',
+  update_contact: 'Preparing the change for you to approve…',
+  set_contact_archived: 'Preparing the archive change for you to approve…',
 };
+
+/** Tools that change a contact's own record: never for someone who may not edit a contact of their own (read-only). */
+const CONTACT_EDIT_TOOLS: readonly AssistantToolName[] = ['record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived'];
 
 const assignee = alias(user, 'assistant_assignee');
 
@@ -148,6 +164,13 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
   if (!actor.agencyId || !can(actor, 'assistant:use', { type: 'assistant', agencyId: actor.agencyId })) {
     return refused('You do not have access to this.', label);
   }
+  // Owners and admins only — whatever the model asks (it is not shown these tools otherwise).
+  if ((ASSISTANT_ADMIN_TOOLS as readonly string[]).includes(tool) && !can(actor, 'contact:assign', { type: 'contact', agencyId: actor.agencyId })) {
+    return refused('Only an owner or admin can assign contacts. Tell the person to ask one of them.', label);
+  }
+  if (CONTACT_EDIT_TOOLS.includes(tool) && !can(actor, 'contact:update', { type: 'contact', id: 'probe', agencyId: actor.agencyId, ownerId: actor.userId })) {
+    return refused('This person may view contacts but not change them.', label);
+  }
 
   switch (tool) {
     case 'find_contacts':
@@ -179,7 +202,35 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return proposeSendTemplateEmail(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.send_template_email>, label);
     case 'create_dashboard':
       return proposeCreateDashboard(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.create_dashboard>, label);
+    case 'find_team_members':
+      return findTeamMembers(ctx, label);
+    case 'assign_contacts':
+      return proposeAssignContacts(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.assign_contacts>, label);
+    case 'record_marketing_consent':
+      return proposeRecordConsent(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.record_marketing_consent>, label);
+    case 'withdraw_marketing_consent':
+      return proposeWithdrawConsent(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.withdraw_marketing_consent>, label);
+    case 'update_contact':
+      return proposeUpdateContact(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.update_contact>, label);
+    case 'set_contact_archived':
+      return proposeSetArchived(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.set_contact_archived>, label);
   }
+}
+
+/**
+ * The members contacts may be given to (owners/admins only — checked above and
+ * again inside): active, and allowed to work a contact, so never read-only.
+ * The same list the directory's Assign menu draws. Names only, as `M` references.
+ */
+async function findTeamMembers(ctx: ToolContext, label: string): Promise<ToolOutcome> {
+  const members = await listContactAssignees(ctx.db, ctx.actor);
+  return {
+    label,
+    result: {
+      note: DATA_NOTE,
+      members: members.map((m) => ({ ref: issueHandle(ctx.handles, 'M', m.userId), name: m.name, ...(m.userId === ctx.actor.userId ? { you: true } : {}) })),
+    },
+  };
 }
 
 async function findContacts(

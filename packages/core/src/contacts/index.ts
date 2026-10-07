@@ -18,7 +18,14 @@ export {
   setContactArchived,
   setNextAction,
   listContactAssignees,
+  assignableMember,
+  recordMarketingConsent,
+  withdrawMarketingConsent,
+  editContactDetails,
+  UNSUBSCRIBED_REASON,
   type ContactAssignee,
+  type ContactDetails,
+  type ContactDetailsPatch,
 } from './write-contacts';
 export { mergeContacts } from './merge-contacts';
 export { backfillContacts, type BackfillReport } from './backfill';

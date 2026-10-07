@@ -1,4 +1,4 @@
-# Test order — TEST-PLAN sections N to AC
+# Test order — TEST-PLAN sections N to AE
 
 Walk the sections of `docs/TEST-PLAN.md` in this order. The order is chosen so that:
 - each section's data exists before a later section needs it;
@@ -56,6 +56,19 @@ Settings: as Block 3 (`ANTHROPIC_API_KEY`). Embeddings are optional. For AD9 add
 |---|---|---|---|
 | 11b | **AD** — Assistant search in notes, emails and enquiries | Anthropic key; notes/emails/enquiries mentioning a word; a second agency's owner; optional Voyage key (AD9) | 35 min |
 
+## Block 3c — the assistant changes contacts (≈ 1 h)
+
+Settings: as Block 3. **First apply migration 0037** (`pnpm --filter @repo/db db:migrate`; it
+only widens the list of card types). No restart needed for the migration. Uses N's contacts.
+One contact must have unsubscribed (S's unsubscribe link, or ask a developer).
+
+| Order | Section | Needs | Time |
+|---|---|---|---|
+| 11c | **AE** — Assistant: assign, consent, details | Anthropic key; owner, two agents and (if you have one) a read-only member; N's contacts; one unsubscribed contact. AE27 needs Block 6's `ASSISTANT_SCHEDULING=1` (do it there); AE28 is part of AC | 1 h |
+
+It sits after V–X and AD because it builds on V's cards. AE27 and AE28 are re-checked in
+Blocks 6 and 7.
+
 ## Block 4 — Google's public data (≈ 20 min)
 
 Settings: `GOOGLE_MAPS_API_KEY` with **Places API (New)** switched on in Google Cloud. That is
@@ -78,7 +91,7 @@ Restart. Anything connected through the stub must be reconnected for real.
 | 13 | **T** — Real Google Calendar and Zoom | Real Google + Zoom accounts | 40 min |
 | 14 | **AA** — Send from Gmail | Two real Gmail accounts (agent + "agency"); a contact inbox you can read; `EMAIL_DEV_ALLOWLIST` for invitations | 40 min |
 
-## Block 6 — run it later (≈ 30 min, mostly waiting)
+## Block 6 — run it later (≈ 45 min, mostly waiting)
 
 Settings: `ASSISTANT_SCHEDULING=1` in **both** the console and web settings. Restart. Something
 must call `/api/cron/alerts` every few minutes. On your machine that is a `curl` loop — the GitHub
@@ -100,6 +113,7 @@ something is due). Stop it with Ctrl+C when AB is done.
 | Order | Section | Needs | Time |
 |---|---|---|---|
 | 15 | **AB** — Assistant: approve now, run later | The flag + a cron caller; Anthropic key; for AB7, Block 2's email settings | 30 min |
+| 15b | **AE27** — an assign card run later, receiver suspended first | As AB | 15 min |
 
 ## Block 7 — removing a person (≈ 45 min)
 
@@ -109,9 +123,9 @@ redone.
 
 | Order | Section | Needs | Time |
 |---|---|---|---|
-| 16 | **AC** — Removing someone from the agency | A1 with appointments (real Calendar/Zoom from T), contacts, a lead, an only-agent listing, a waiting assistant card, a prepared bulk email; A2 with Calendar connected; a second agency for AC11 | 45 min |
+| 16 | **AC** — Removing someone from the agency | A1 with appointments (real Calendar/Zoom from T), contacts, a lead, an only-agent listing, a waiting assistant card, a prepared bulk email; A2 with Calendar connected; a second agency for AC11; for **AE28**, an admin with an assign card and a consent card waiting | 45 min |
 
-**Total: about 7 hours**, best spread over two sittings: Blocks 1–4, then 5–7.
+**Total: about 8 hours 20 minutes**, best spread over two sittings: Blocks 1–4 (with 3b and 3c), then 5–7.
 
 ## Every setting, in one place
 
