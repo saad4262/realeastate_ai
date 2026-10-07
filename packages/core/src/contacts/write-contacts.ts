@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { z } from 'zod';
 import {
   activity,
   agentProfile,
@@ -11,6 +12,8 @@ import {
 } from '@repo/db';
 import { can, type Actor, type MembershipRole } from '../permissions';
 import {
+  CONTACT_ROLES,
+  contactFieldsSchema,
   createContactSchema,
   nextActionSchema,
   updateContactSchema,
@@ -18,6 +21,7 @@ import {
   type ActivityKind,
   type CreateContactInput,
   type UpdateContactInput,
+  type ContactRoleKind,
 } from './contact-schema';
 import { loadContactHead } from './get-contact';
 import { CONTACT_NOT_FOUND, ContactError, roleArray } from './list-contacts';
@@ -431,6 +435,100 @@ export async function withdrawMarketingConsent(
   return 'withdrawn';
 }
 
+/** The edit form's own details — the only things `editContactDetails` can change. */
+export type ContactDetailsPatch = { name?: string; email?: string | null; phone?: string | null; roles?: ContactRoleKind[] };
+export type ContactDetails = { name: string; email: string | null; phone: string | null; roles: ContactRoleKind[] };
+
+const detailsPatchSchema = z
+  .object({
+    name: contactFieldsSchema.shape.name.optional(),
+    email: z.union([z.literal(null), z.string().trim().max(200).toLowerCase().pipe(z.string().email('That does not look like an email address'))]).optional(),
+    phone: z.union([z.literal(null), z.string().trim().min(1).max(40)]).optional(),
+    roles: z.array(z.enum(CONTACT_ROLES)).max(CONTACT_ROLES.length).optional(),
+  })
+  .strict();
+
+/** A contact's details as the edit form shows them — for a card's "before". */
+export function contactDetailsOf(row: { name: string; email: string | null; phone: string | null; roles: unknown }): ContactDetails {
+  return { name: row.name, email: row.email, phone: row.phone, roles: roleArray(row.roles) as ContactRoleKind[] };
+}
+
+const sameRoles = (a: readonly string[], b: readonly string[]) => [...a].sort().join(',') === [...b].sort().join(',');
+
+/**
+ * Change some of a contact's details — name, email, phone, roles (the whole
+ * set) — and nothing else: never who it is assigned to, consent, the next
+ * action or the archive. Whoever may edit the contact may. With `expected`
+ * (an assistant card's "before"), refused if any of those fields changed
+ * since — the person approved what they saw. An email another contact has is
+ * refused, never merged. Email or phone must remain.
+ */
+export async function editContactDetails(
+  db: Db,
+  actor: Actor,
+  contactId: string,
+  patch: ContactDetailsPatch,
+  opts: ChangeOrigin & { expected?: Partial<ContactDetails> } = {},
+): Promise<{ changed: (keyof ContactDetails)[] }> {
+  const head = await editableHead(db, actor, contactId, 'edit it');
+  const parsed = detailsPatchSchema.safeParse(patch);
+  if (!parsed.success) throw new ContactError('invalid', firstIssue(parsed.error));
+  const p = parsed.data;
+  const { row } = head;
+  const now = contactDetailsOf(row);
+
+  if (opts.expected) {
+    for (const [k, v] of Object.entries(opts.expected) as [keyof ContactDetails, ContactDetails[keyof ContactDetails]][]) {
+      const same = k === 'roles' ? sameRoles(now.roles, v as string[]) : now[k] === v;
+      if (!same) throw new ContactError('conflict', `${row.name}’s ${k} changed after this was proposed`);
+    }
+  }
+
+  const next: ContactDetails = {
+    name: p.name ?? now.name,
+    email: p.email === undefined ? now.email : p.email,
+    phone: p.phone === undefined ? now.phone : p.phone,
+    roles: p.roles ?? now.roles,
+  };
+  if (!next.email && !next.phone) throw new ContactError('invalid', 'Keep an email or a phone number, so they can be reached');
+  if (next.email && next.email !== now.email) {
+    const existing = await holderOf(db, row.agencyId, next.email);
+    if (existing && existing !== row.id) throw duplicate(existing);
+  }
+  const changed = (['name', 'email', 'phone'] as const).filter((k) => next[k] !== now[k]);
+  const added = next.roles.filter((r) => !now.roles.includes(r));
+  const removed = now.roles.filter((r) => !next.roles.includes(r));
+  if (!changed.length && !added.length && !removed.length) return { changed: [] };
+  const via = opts.via ? { via: opts.via } : {};
+
+  try {
+    await db.transaction(async (tx) => {
+      if (changed.length) {
+        await tx
+          .update(contact)
+          .set({ name: next.name, email: next.email, phone: next.phone, updatedAt: sql`now()` })
+          .where(and(eq(contact.id, row.id), eq(contact.agencyId, row.agencyId)));
+      }
+      if (removed.length) {
+        await tx.delete(contactRole).where(and(eq(contactRole.contactId, row.id), inArray(contactRole.role, removed)));
+      }
+      if (added.length) {
+        await tx
+          .insert(contactRole)
+          .values(added.map((role) => ({ contactId: row.id, role, source: 'manual' as const, createdBy: actor.userId })))
+          .onConflictDoNothing();
+      }
+      if (changed.length) await recordActivity(tx, actor, row.agencyId, row.id, 'contact_updated', { fields: changed, ...via });
+      for (const role of added) await recordActivity(tx, actor, row.agencyId, row.id, 'role_added', { role, ...via });
+      for (const role of removed) await recordActivity(tx, actor, row.agencyId, row.id, 'role_removed', { role, ...via });
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) throw duplicate(next.email ? await holderOf(db, row.agencyId, next.email) : undefined);
+    throw err;
+  }
+  return { changed: [...changed, ...(added.length || removed.length ? (['roles'] as const) : [])] };
+}
+
 /**
  * Archive a contact, or bring it back. Hides it from the directory's default
  * view; deletes nothing, changes nothing else. A new enquiry from them still
@@ -441,6 +539,7 @@ export async function setContactArchived(
   actor: Actor,
   contactId: string,
   archived: boolean,
+  opts: ChangeOrigin = {},
 ): Promise<void> {
   const head = await loadContactHead(db, actor, contactId);
   if (!head || head.row.mergedIntoId) throw CONTACT_NOT_FOUND();
@@ -459,7 +558,7 @@ export async function setContactArchived(
           : { archivedAt: null, archivedBy: null, updatedAt: sql`now()` },
       )
       .where(and(eq(contact.id, head.row.id), eq(contact.agencyId, head.row.agencyId)));
-    await recordActivity(tx, actor, head.row.agencyId, head.row.id, archived ? 'contact_archived' : 'contact_restored');
+    await recordActivity(tx, actor, head.row.agencyId, head.row.id, archived ? 'contact_archived' : 'contact_restored', opts.via ? { via: opts.via } : {});
   });
 }
 

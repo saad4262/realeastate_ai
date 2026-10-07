@@ -272,6 +272,35 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
       required: ['contacts', 'reason'],
     },
   },
+  {
+    name: 'update_contact',
+    description: `Propose changing one contact's details — name, email, phone and roles, as on the edit form — for a contact this person may edit. Give only the fields to change. It cannot change who the contact is assigned to, marketing consent, the next action (set_next_action) or the archive (set_contact_archived), and nothing can delete a contact. An email another contact already has is refused — tell the person. The card shows each field before → after. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        contact: { type: 'string', description: REF },
+        name: { type: 'string', description: 'The new name.' },
+        email: { type: 'string', description: 'The new email address the person gave you, or "" to remove it. Nothing is sent to it.' },
+        phone: { type: 'string', description: 'The new phone number, or "" to remove it.' },
+        roles: { type: 'array', items: { type: 'string', enum: [...CONTACT_ROLES] }, description: 'The whole set of roles: any left out is removed.' },
+      },
+      required: ['contact'],
+    },
+  },
+  {
+    name: 'set_contact_archived',
+    description: `Propose archiving a contact (hidden from the directory, nothing deleted) or bringing one back. Only a contact this person may edit. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        contact: { type: 'string', description: REF },
+        archived: { type: 'boolean', description: 'true to archive, false to bring back.' },
+      },
+      required: ['contact', 'archived'],
+    },
+  },
 ]);
 
 const ADMIN_ONLY = new Set<string>(ASSISTANT_ADMIN_TOOLS);

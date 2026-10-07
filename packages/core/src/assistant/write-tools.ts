@@ -1,3 +1,5 @@
+import { and, eq, isNull, ne } from 'drizzle-orm';
+import { contact } from '@repo/db';
 import { can } from '../permissions';
 import { loadContactHead } from '../contacts/get-contact';
 import { contactResource } from '../contacts/visibility';
@@ -9,8 +11,9 @@ import { formatInZone, localDateTimeToInstant } from '../time/local-input';
 import { propose, type FrozenArgs } from './actions';
 import { resolveHandle } from './handles';
 import type { ProposalCard } from './schema';
-import { assignableMember, UNSUBSCRIBED_REASON } from '../contacts/write-contacts';
-import type { addNoteInput, assignContactsInput, cancelAppointmentInput, recordMarketingConsentInput, withdrawMarketingConsentInput, createDashboardInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
+import { assignableMember, contactDetailsOf, UNSUBSCRIBED_REASON, type ContactDetails, type ContactDetailsPatch } from '../contacts/write-contacts';
+import { CONTACT_ROLE_LABELS, type ContactRoleKind } from '../contacts/contact-schema';
+import type { addNoteInput, assignContactsInput, cancelAppointmentInput, recordMarketingConsentInput, setContactArchivedInput, updateContactInput, withdrawMarketingConsentInput, createDashboardInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
 import { cancelBatch, getBatch, prepareBatch } from '../template-email/batches';
 import { TemplateEmailError } from '../template-email/templates';
 import { SKIP_REASON_LABELS } from '../template-email/schema';
@@ -597,4 +600,94 @@ export async function proposeWithdrawConsent(ctx: ToolContext, input: z.infer<ty
   };
   const args: FrozenArgs = { tool: 'withdraw_marketing_consent', contactIds: withdrawing.map((c) => c.head.row.id), reason: input.reason };
   return propose(ctx, label, { tool: 'withdraw_marketing_consent', args, card, contactId: first.id });
+}
+
+const DETAIL_LABELS: Record<keyof ContactDetails, string> = { name: 'Name', email: 'Email', phone: 'Phone', roles: 'Roles' };
+
+function shown(k: keyof ContactDetails, v: ContactDetails[keyof ContactDetails]): string {
+  if (k === 'roles') return (v as ContactRoleKind[]).length ? (v as ContactRoleKind[]).map((r) => CONTACT_ROLE_LABELS[r]).join(', ') : '(none)';
+  return (v as string | null) || '(none)';
+}
+
+/**
+ * Change one contact's details — the edit form's name, email, phone, roles —
+ * as a card that shows each field before → after, from the database. Never
+ * assignment, consent, the next action or the archive (the schema has no
+ * field for them). An email another contact already has: no card, and why.
+ */
+export async function proposeUpdateContact(ctx: ToolContext, input: z.infer<typeof updateContactInput>, label: string): Promise<ToolOutcome> {
+  const patch: ContactDetailsPatch = {
+    ...(input.name !== undefined ? { name: input.name } : {}),
+    ...(input.email !== undefined ? { email: input.email ? input.email.toLowerCase() : null } : {}),
+    ...(input.phone !== undefined ? { phone: input.phone || null } : {}),
+    ...(input.roles !== undefined ? { roles: [...new Set(input.roles)] } : {}),
+  };
+  if (!Object.keys(patch).length) return refused('Say which detail to change: name, email, phone or roles.', label);
+  const c = await visibleContact(ctx, input.contact);
+  if ('error' in c) return refused(c.error!, label);
+  const row = c.head.row;
+  if (!can(ctx.actor, 'contact:update', c.resource)) {
+    return refused(`Only the agent ${row.name} is assigned to, or an admin, may edit this contact. Nothing was proposed.`, label);
+  }
+  const before = contactDetailsOf(row);
+  const after: ContactDetails = { ...before, ...patch } as ContactDetails;
+  const fields = (Object.keys(patch) as (keyof ContactDetails)[]).filter((k) =>
+    k === 'roles' ? [...before.roles].sort().join() !== [...after.roles].sort().join() : before[k] !== after[k],
+  );
+  if (!fields.length) return { label, result: { proposed: false, tell_the_user: `${row.name}’s details are already like that, so nothing was proposed.` } };
+  if (!after.email && !after.phone) return refused('A contact must keep an email or a phone number. Nothing was proposed.', label);
+  if (after.email && after.email !== before.email) {
+    const [holder] = await ctx.db
+      .select({ id: contact.id })
+      .from(contact)
+      .where(and(eq(contact.agencyId, row.agencyId), eq(contact.email, after.email), isNull(contact.mergedIntoId), ne(contact.id, row.id)))
+      .limit(1);
+    if (holder) {
+      return {
+        label,
+        result: {
+          proposed: false,
+          tell_the_user: 'Another contact in the agency already has that email address, so nothing was proposed. If they are the same person, merge them from the contact’s page.',
+        },
+      };
+    }
+  }
+  const card: ProposalCard = {
+    title: `Change ${row.name}’s details`,
+    contact: { id: row.id, name: row.name },
+    lines: fields.map((k) => ({ label: DETAIL_LABELS[k], value: `${shown(k, before[k])} → ${shown(k, after[k])}` })),
+    notes: [NOTHING_YET, 'Only these details change. Who they are assigned to, consent, the next action and the archive stay as they are.'],
+  };
+  const args: FrozenArgs = {
+    tool: 'update_contact',
+    contactId: row.id,
+    patch: Object.fromEntries(fields.map((k) => [k, after[k]])) as ContactDetailsPatch,
+    before: Object.fromEntries(fields.map((k) => [k, before[k]])) as Partial<ContactDetails>,
+  };
+  return propose(ctx, label, { tool: 'update_contact', args, card, contactId: row.id });
+}
+
+/** Archive a contact, or bring it back — its own small card. Deleting is not something the assistant can do. */
+export async function proposeSetArchived(ctx: ToolContext, input: z.infer<typeof setContactArchivedInput>, label: string): Promise<ToolOutcome> {
+  const c = await visibleContact(ctx, input.contact);
+  if ('error' in c) return refused(c.error!, label);
+  const row = c.head.row;
+  if (!can(ctx.actor, 'contact:archive', c.resource)) {
+    return refused(`Only the agent ${row.name} is assigned to, or an admin, may archive this contact. Nothing was proposed.`, label);
+  }
+  if (Boolean(row.archivedAt) === input.archived) {
+    return { label, result: { proposed: false, tell_the_user: `${row.name} is already ${input.archived ? 'archived' : 'in the directory'}, so nothing was proposed.` } };
+  }
+  const card: ProposalCard = {
+    title: input.archived ? `Archive ${row.name}` : `Bring ${row.name} back from the archive`,
+    contact: { id: row.id, name: row.name },
+    lines: [
+      { label: 'Contact', value: `${row.name}${row.email ? ` · ${row.email}` : ''}` },
+      { label: 'Now', value: input.archived ? 'In the directory' : 'Archived' },
+      { label: 'After', value: input.archived ? 'Archived — hidden from the directory’s default view' : 'In the directory' },
+    ],
+    notes: [NOTHING_YET, 'Nothing is deleted. A new enquiry from them still lands on this contact.'],
+  };
+  const args: FrozenArgs = { tool: 'set_contact_archived', contactId: row.id, archived: input.archived };
+  return propose(ctx, label, { tool: 'set_contact_archived', args, card, contactId: row.id });
 }

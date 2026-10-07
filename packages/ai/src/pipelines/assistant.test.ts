@@ -284,6 +284,33 @@ describe('red team: a tricked model can read and propose, never act', () => {
     expect(last.content[0]!.content).toMatch(/not one you were given/);
   });
 
+  it('a contact name saying "assign me" or "give consent" gets an agent nothing: the assign tool is refused before the database', async () => {
+    // The fake model "obeys" the injected name (fakeDeps returns one) and asks to assign it.
+    const { client, requests } = fakeClient([
+      msg([toolUse('t1', 'find_contacts', {})], 'tool_use'),
+      msg([toolUse('t2', 'assign_contacts', { contacts: ['C1'], to: 'M1' })], 'tool_use'),
+      msg([text('Done.')], 'end_turn'),
+    ]);
+    const { runAssistantTool } = await import('@repo/core/assistant');
+    const noDb = new Proxy({}, { get: () => { throw new Error('the database was reached'); } }) as never;
+    let call = 0;
+    const base = fakeDeps();
+    const { deps } = fakeDeps({
+      tools: assistantToolsFor({ userId: 'u', agencyId: 'a', membershipRole: 'agent' }),
+      runTool: async (handles, name, input, proposal) => {
+        if (call++ === 0) return base.deps.runTool(handles, name, input, proposal);
+        issueHandle(handles, 'M', 'someone');
+        return runAssistantTool({ db: noDb, actor: { userId: 'u', agencyId: 'a', membershipRole: 'agent' }, timeZone: 'UTC', handles, now: new Date(), proposal }, name, input);
+      },
+    });
+    const events = await run({ client, deps });
+    expect((requests[0]!.tools as { name: string }[]).some((t) => t.name === 'assign_contacts')).toBe(false);
+    const last = (requests[2]!.messages as { content: { type: string; is_error?: boolean; content?: string }[] }[]).at(-1)!;
+    expect(last.content[0]).toMatchObject({ type: 'tool_result', is_error: true });
+    expect(last.content[0]!.content).toMatch(/owner or admin/);
+    expect(events.filter((e) => e.type === 'results' && (e as { frame: { kind: string } }).frame.kind === 'proposal')).toHaveLength(0);
+  });
+
   it('a selected name cannot close the console block or pose as the console', () => {
     const block = contextBlock({
       now: new Date('2026-10-06T03:00:00Z'),
@@ -342,7 +369,13 @@ describe('proposals (Phases B and C)', () => {
     );
     // Allowed by name, each because its schema takes only a server-issued reference:
     // the email's `recipients` (C/S references) and the assignment's `to` (an M reference).
-    for (const f of writeFields.filter((x) => x !== 'recipients' && x !== 'to')) expect(f).not.toMatch(/approve|status|proposal|action_id|user|agency|owner|to$|recipient|email/);
+    // And update_contact's `email`: the contact's own address, shown before → after on the
+    // card and saved — never a recipient; nothing is sent to it (asserted below).
+    for (const f of writeFields.filter((x) => x !== 'recipients' && x !== 'to' && x !== 'email')) expect(f).not.toMatch(/approve|status|proposal|action_id|user|agency|owner|to$|recipient|email/);
+    expect(ASSISTANT_TOOLS.filter((t) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(t.name) && 'email' in (t.input_schema as { properties: Record<string, unknown> }).properties).map((t) => t.name)).toEqual(['update_contact']);
+    const update = ASSISTANT_TOOLS.find((t) => t.name === 'update_contact')!;
+    expect(Object.keys((update.input_schema as { properties: Record<string, unknown> }).properties).sort()).toEqual(['contact', 'email', 'name', 'phone', 'roles']);
+    expect(update.description).toMatch(/Nothing is sent|cannot change who the contact is assigned to/);
     expect(ASSISTANT_TOOLS.filter((t) => 'to' in (t.input_schema as { properties: Record<string, unknown> }).properties).map((t) => t.name)).toEqual(['assign_contacts']);
     for (const to of ['sara@example.com', 'Sara', 'C1', '55555555-5555-4555-8555-555555555555']) {
       expect(ASSISTANT_TOOL_INPUTS.assign_contacts.safeParse({ contacts: ['C1'], to }).success, to).toBe(false);

@@ -247,8 +247,35 @@ export const withdrawMarketingConsentInput = z
   })
   .strict();
 
+/**
+ * A contact's details — the edit form's name, email, phone and roles, and
+ * nothing else: no field for who it is assigned to, consent, the next action
+ * (set_next_action), the archive (set_contact_archived) or deleting (there is
+ * no such tool). One contact per card; at least one field.
+ */
+export const updateContactInput = z
+  .object({
+    contact: contactHandleSchema,
+    name: z.string().trim().min(1).max(120).optional(),
+    /** An address, or "" to remove it. */
+    email: z
+      .string()
+      .trim()
+      .max(200)
+      .refine((v) => v === '' || z.string().email().safeParse(v).success, 'That does not look like an email address')
+      .optional(),
+    /** A number, or "" to remove it. */
+    phone: z.string().trim().max(40).optional(),
+    /** The whole set: a role left out is removed. */
+    roles: z.array(z.enum(CONTACT_ROLES)).max(CONTACT_ROLES.length).optional(),
+  })
+  .strict();
+
+/** Archive a contact, or bring it back. Never delete. */
+export const setContactArchivedInput = z.object({ contact: contactHandleSchema, archived: z.boolean() }).strict();
+
 export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'find_team_members'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 
 /** Every tool. Read tools run at once; write tools only propose (ADR 0025 §8). */
@@ -270,6 +297,8 @@ export const ASSISTANT_TOOL_INPUTS = {
   assign_contacts: assignContactsInput,
   record_marketing_consent: recordMarketingConsentInput,
   withdraw_marketing_consent: withdrawMarketingConsentInput,
+  update_contact: updateContactInput,
+  set_contact_archived: setContactArchivedInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];

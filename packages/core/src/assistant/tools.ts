@@ -22,6 +22,8 @@ import {
   proposeAssignContacts,
   proposeCancelAppointment,
   proposeRecordConsent,
+  proposeSetArchived,
+  proposeUpdateContact,
   proposeWithdrawConsent,
   proposeRescheduleAppointment,
   proposeScheduleAppointment,
@@ -92,10 +94,12 @@ const LABELS: Record<AssistantToolName, string> = {
   assign_contacts: 'Preparing the assignment for you to approve…',
   record_marketing_consent: 'Preparing the consent for you to approve…',
   withdraw_marketing_consent: 'Preparing the withdrawal for you to approve…',
+  update_contact: 'Preparing the change for you to approve…',
+  set_contact_archived: 'Preparing the archive change for you to approve…',
 };
 
 /** Tools that change a contact's own record: never for someone who may not edit a contact of their own (read-only). */
-const CONTACT_EDIT_TOOLS: readonly AssistantToolName[] = ['record_marketing_consent', 'withdraw_marketing_consent'];
+const CONTACT_EDIT_TOOLS: readonly AssistantToolName[] = ['record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived'];
 
 const assignee = alias(user, 'assistant_assignee');
 
@@ -200,6 +204,10 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return proposeRecordConsent(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.record_marketing_consent>, label);
     case 'withdraw_marketing_consent':
       return proposeWithdrawConsent(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.withdraw_marketing_consent>, label);
+    case 'update_contact':
+      return proposeUpdateContact(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.update_contact>, label);
+    case 'set_contact_archived':
+      return proposeSetArchived(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.set_contact_archived>, label);
   }
 }
 
