@@ -883,7 +883,7 @@ archiving it. As before, **nothing changes until you press Approve**. Each chang
 contact's Timeline with "· via the assistant".
 
 **Setup.** Apply the database change first: `pnpm --filter @repo/db db:migrate` (migration
-0036; it only widens the list of card types). `ANTHROPIC_API_KEY` (a cent or two per
+0037; it only widens the list of card types). `ANTHROPIC_API_KEY` (a cent or two per
 question). Owner in one browser, agent A1 in another, agent A2, and a read-only member if you
 have one. A1 needs two contacts **assigned to A1** (call them Ali and Bina). Another contact,
 Cara, has unsubscribed (use the unsubscribe link in a test email, or ask a developer to set

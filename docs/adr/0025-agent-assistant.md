@@ -508,7 +508,7 @@ Build order A→F.
 
 Three new kinds of card, under the same rules as every other: the model proposes, the person
 approves, and the screen's own core function runs it as the person, asking `can()` again.
-Migration `0036_proposed_action_contact_tools` widens `proposed_action_tool_check` once for all
+Migration `0037_proposed_action_contact_tools` (numbered after the search branch's 0036) widens `proposed_action_tool_check` once for all
 five tools (no row changes). Prompt `assistant@v7` (v6 is the search branch's, ADR 0031).
 
 **Who is shown what.** The tool list is chosen per person (`assistantToolsFor(actor)`, two

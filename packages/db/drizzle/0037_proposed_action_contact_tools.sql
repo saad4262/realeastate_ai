@@ -1,4 +1,7 @@
 -- Hand-written (ADR 0025 amendment, 2026-10-07: the assistant edits contacts).
+-- Numbered 0037 and dated after feat/crm-rag's 0036 (assistant search, which does
+-- not touch this table), so the two branches merge without renumbering. The list
+-- below is the whole set: every tool allowed today plus the five new ones.
 -- Widens the closed list of assistant tools that may be proposed to include the
 -- contact tools: assign_contacts (owners/admins), record_marketing_consent,
 -- withdraw_marketing_consent, update_contact and set_contact_archived. All five

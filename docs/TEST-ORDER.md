@@ -48,7 +48,7 @@ settings. Restart only if you changed something.
 
 ## Block 3b — the assistant changes contacts (≈ 1 h)
 
-Settings: as Block 3. **First apply migration 0036** (`pnpm --filter @repo/db db:migrate`; it
+Settings: as Block 3. **First apply migration 0037** (`pnpm --filter @repo/db db:migrate`; it
 only widens the list of card types). No restart needed for the migration. Uses N's contacts.
 One contact must have unsubscribed (S's unsubscribe link, or ask a developer).
 
