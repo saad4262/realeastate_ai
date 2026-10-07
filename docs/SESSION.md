@@ -1,3 +1,12 @@
+## 2026-10-07 — Claude Code — Wrap-up: TEST-ORDER and the final report
+
+- Done: docs/TEST-ORDER.md (sections N → AC in seven blocks by setting, with needs and times,
+  and every environment variable); STATUS "Now" rewritten for the finished build.
+- All eight phases committed (Phase 4 1d9f2dc, 5 a1a7e43 + d02e0ac, 6 7c7ea73, 7 67d0982,
+  8 d3ff1c7). Every break-test of Phases 4–8 went red and came back green; none needed a
+  guard fix. Two smoke checks were strengthened when a break first stayed green (Phase 5).
+- Next exact step: the user's manual pass in TEST-ORDER order; go-live items stay in DEPLOY.md.
+
 ## 2026-10-06 — Claude Code — Phase 8: offboarding (ADR 0030)
 
 - Done: migration 0035 (dev data checked for duplicate active memberships first: none);

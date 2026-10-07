@@ -3,11 +3,14 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
-- **Now: Agent Assistant Phases A, B, C committed on `feat/crm`** (7d6434c A read-only,
-  126f9ee B notes + next action, Phase C appointments in the commit after it). Migrations 0028 and
-  0029 applied on dev (additive). Waiting for the user's walk-through of TEST-PLAN U and V.
-  **Not started (by instruction): Phase D** (template email from picked contacts), then
-  E (delayed run, needs the 5-min cron) and F (widgets hook).
+- **Now: every build phase is committed on `feat/crm` (2026-10-07)** — Phases 1–8: tenant
+  isolation, assistant email card, dashboards, CSV import, Google reviews step 1, Gmail send,
+  assistant run-later, offboarding. Migrations up to 0035 applied on dev. **Not built (by
+  instruction): production / go-live** (domain, Vercel, Google verification, Zoom Marketplace,
+  legal text — docs/DEPLOY.md), Google Sheets import, Reviews step 2. **Next: the user walks
+  TEST-PLAN N → AC in the order of docs/TEST-ORDER.md.** Dev DB note: the transaction-mode
+  pooler (6543) began closing long smoke transactions on 2026-10-07; run smoke with
+  DATABASE_URL set to DIRECT_URL (session pooler) for that process if it recurs.
 - **Phase 8 — Offboarding (ADR 0030) committed.** Migration 0035 applied on dev (additive:
   membership.removed_at/by/report, needs_owner_at on contact/lead/appointment/listing,
   integration_account.connector_left_at, one active membership per person). Remove from the
