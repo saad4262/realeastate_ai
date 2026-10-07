@@ -78,6 +78,12 @@ export function IntegrationCard({ slot }: { slot: IntegrationSlot }) {
               <dd>{a.missingScopes.join(', ')} — reconnect and leave every box ticked.</dd>
             </>
           ) : null}
+          {a.connectorLeft ? (
+            <>
+              <dt>Reconnect</dt>
+              <dd>Connected by someone who has left the agency. It still works — reconnect it with an account the agency controls.</dd>
+            </>
+          ) : null}
           {a.lastError && !a.missingScopes.length ? (
             <>
               <dt>Problem</dt>

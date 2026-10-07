@@ -41,6 +41,12 @@ export type IntegrationAccountView = {
   lastSyncedAt: Date | null;
   lastError: string | null;
   connectedAt: Date;
+  /**
+   * An agency account whose connecting person has since left the agency
+   * (ADR 0030 §5.4): it still works; an admin should reconnect it with an
+   * account the agency controls. Reconnecting clears it.
+   */
+  connectorLeft: boolean;
 };
 
 const SAFE = {
@@ -55,6 +61,7 @@ const SAFE = {
   lastSyncedAt: integrationAccount.lastSyncedAt,
   lastError: integrationAccount.lastError,
   tokenExpiresAt: integrationAccount.tokenExpiresAt,
+  connectorLeftAt: integrationAccount.connectorLeftAt,
   /** Whether a refresh token is held — a boolean, computed in SQL; the token stays put. */
   canRenew: sql<boolean>`${integrationAccount.refreshTokenEnc} is not null`,
   createdAt: integrationAccount.createdAt,
@@ -72,6 +79,7 @@ type SafeRow = {
   lastSyncedAt: Date | null;
   lastError: string | null;
   tokenExpiresAt: Date | null;
+  connectorLeftAt: Date | null;
   canRenew: boolean | string;
   createdAt: Date;
 };
@@ -101,6 +109,7 @@ function toView(r: SafeRow, now: Date): IntegrationAccountView {
     missingScopes: missingScopes(provider, granted),
     lastSyncedAt: r.lastSyncedAt ? new Date(r.lastSyncedAt) : null,
     lastError: r.lastError,
+    connectorLeft: r.connectorLeftAt !== null,
     connectedAt: new Date(r.createdAt),
   };
 }
@@ -304,6 +313,8 @@ export async function saveConnection(
           lastError: missing.length ? `Not granted: ${missing.join(', ')}` : null,
           tokenExpiresAt: granted.expiresAt,
           connectedBy: actor.userId,
+          // Reconnected by someone in the agency now: the "connected by a person who left" flag goes.
+          connectorLeftAt: null,
           updatedAt: sql`now()`,
         },
       })

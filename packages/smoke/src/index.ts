@@ -6449,6 +6449,12 @@ async function main() {
       assert(x.revoked.length === 2 && r.tokens.deleted === 2, `revoked ${x.revoked.join(',')}, deleted ${r.tokens.deleted}`);
       const [z] = await t.execute<{ connector_left_at: string | null }>(sql`select connector_left_at from integration_account where id = ${x.agencyZoom}`);
       assert(z?.connector_left_at, 'the agency Zoom A1 connected is not flagged');
+      // The flag shows on the Integrations card, and reconnecting clears it.
+      const zoomCard = async () =>
+        (await listIntegrationSlots(t, x.f.actor('owner'))).find((sl) => sl.provider === 'zoom' && sl.ownerType === 'agency')?.account as { connectorLeft?: boolean } | null | undefined;
+      assert((await zoomCard())?.connectorLeft === true, `the card does not show the flag: ${JSON.stringify(await zoomCard())}`);
+      await saveConnection(t, testKeys, x.f.actor('owner'), { provider: 'zoom', ownerType: 'agency', ownerId: x.f.agencyId, agencyId: x.f.agencyId }, granted(ALL.zoom));
+      assert((await zoomCard())?.connectorLeft === false, 'reconnecting did not clear the flag');
       assert((await activeMemberActor(t, x.f.people.a1, x.f.agencyId)) === null, 'A1 is still an active member');
       return `events ${r.calendar.removed} removed (A1’s token) → created for A2; Zoom moved + flagged; contact/listing → A2; 2 cards, import cancelled; conversation deleted; 2 tokens revoked+deleted; agency Zoom flagged; A1 inactive`;
     }),
