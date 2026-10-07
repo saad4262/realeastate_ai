@@ -6716,6 +6716,28 @@ async function main() {
     }),
   );
 
+  await check('cost: every search is an ai_run row under the person’s assistant feature; over their cap no embedding is made, full-text still answers', async () =>
+    inRollback(async (t) => {
+      const x = await searchFixture(t);
+      const { f } = x;
+      const a1 = f.actor('a1');
+      const runs = () => count(t, sql`select count(*)::int as n from ai_run where user_id = ${f.people.a1} and feature = 'assistant' and model = 'postgres-fts'`);
+      // Through the real pipeline wiring (packages/ai), embeddings off: one full-text row, no cost.
+      const env = { ...process.env, EMBEDDINGS_PROVIDER: '' } as NodeJS.ProcessEnv;
+      const deps = assistantDeps(t, a1, { message: 'x', timeZone: 'Australia/Melbourne' }, 'agent', new Date(), env);
+      const before = await runs();
+      await deps.runTool({}, 'search_notes_and_emails', { query: `pool ${x.w}` }, { conversationId: randomUUID(), turnId: randomUUID(), toolUseId: randomUUID(), made: { count: 0 } });
+      assert((await runs()) === before + 1, `full-text search ai_run rows: ${before} → ${await runs()}`);
+      // A1 has spent today's $1: the question is not embedded, the answer is full-text.
+      await t.execute(sql`insert into ai_run (feature, model, cost_usd, user_id, agency_id, prompt_version) values ('assistant', 'claude-sonnet-5-5', 1.20, ${f.people.a1}, ${f.agencyId}, 'smoke')`);
+      let embedded = 0;
+      const counting: Embedder = { model: 'fake-embed', embed: async (texts) => ((embedded += texts.length), texts.map(() => new Array(1024).fill(0.03))) };
+      const r = await x.search(a1, { query: `pool ${x.w}` }, { search: { embedder: counting, env: process.env } });
+      assert(embedded === 0 && (r.out.result as { search?: string }).search === 'words only' && r.rows.length === 1, `over the cap: embedded ${embedded}, ${JSON.stringify(r.out.result).slice(0, 100)}`);
+      return 'one ai_run row per full-text search (pipeline wiring); over the $1 cap: no embedding, full-text answered';
+    }),
+  );
+
   await check('with embeddings on, the vector half obeys the same permission; the question is metered to the person under the assistant feature', async () =>
     inRollback(async (t) => {
       const x = await searchFixture(t);
