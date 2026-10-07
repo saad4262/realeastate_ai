@@ -1,4 +1,5 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { assignIfUnowned, primaryAgentSql } from '../contacts/auto-assign';
 import { agentProfile, listingAgent, membership, user, type DbOrTx } from '@repo/db';
 import { ListingError } from './listing-schema';
 
@@ -72,4 +73,18 @@ export async function attachListingAgents(
   }
 
   await tx.insert(listingAgent).values(rows);
+
+  // Contacts tied to this listing's address who are nobody's go to its primary agent (the
+  // client's rule, 2026-10-07): a vendor or owner must not drop out of sight just because the
+  // listing no longer opens them. Someone else's contact is left alone.
+  const [p] = await tx.execute<{ agent: string | null }>(sql`select ${primaryAgentSql(listingId)} as agent`);
+  if (p?.agent) {
+    await assignIfUnowned(
+      tx,
+      agencyId,
+      sql`select cp.contact_id from contact_property cp join listing li on li.property_id = cp.property_id where li.id = ${listingId} and li.agency_id = ${agencyId}`,
+      p.agent,
+      'listing',
+    );
+  }
 }

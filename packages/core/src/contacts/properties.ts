@@ -1,5 +1,6 @@
 import { and, eq, or, sql } from 'drizzle-orm';
-import { contactProperty, lead, property, type Db } from '@repo/db';
+import { contactProperty, lead, property, type Db, type DbOrTx } from '@repo/db';
+import { assignIfUnowned, primaryAgentSql } from './auto-assign';
 import { can, type Actor } from '../permissions';
 import { leadScopeFilters, type LeadKind } from '../leads/list-leads';
 import { formatAddress, type PropertyDraft } from '../listings/listing-schema';
@@ -224,7 +225,21 @@ export async function linkContactProperty(
         relation: v.relation,
       });
     }
+    await assignToListingAtAddress(tx, row.agencyId, row.id, v.propertyId);
   });
+}
+
+/**
+ * A contact that is nobody's, tied to an address where the agency has a
+ * listing, goes to that listing's primary agent (the client's rule,
+ * 2026-10-07) — the latest listing there. Someone else's contact is left alone.
+ */
+async function assignToListingAtAddress(tx: DbOrTx, agencyId: string, contactId: string, propertyId: string): Promise<void> {
+  const [l] = await tx.execute<{ agent: string | null }>(sql`
+    select ${primaryAgentSql(sql`li.id`)} as agent from listing li
+    where li.agency_id = ${agencyId} and li.property_id = ${propertyId}
+    order by li.created_at desc limit 1`);
+  if (l?.agent) await assignIfUnowned(tx, agencyId, [contactId], l.agent, 'address');
 }
 
 /** The address, if the agency has listed it or been asked about it. */
@@ -315,6 +330,7 @@ export async function linkContactNewAddress(
         relation,
       });
     }
+    await assignToListingAtAddress(tx, row.agencyId, row.id, id);
     return id;
   });
   return { propertyId };

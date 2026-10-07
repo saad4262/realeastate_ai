@@ -36,6 +36,7 @@ import {
   getListingForEdit,
   updateListing,
   type PublicSearchQuery,
+  attachListingAgents,
 } from '@repo/core/listings';
 import {
   isGeoProviderConfigured,
@@ -3590,6 +3591,63 @@ async function main() {
       const a2 = await ids(f.actor('a2'));
       assert(owner.contacts.length === 6 && JSON.stringify(a2.contacts) === JSON.stringify([c.p2]), `owner ${owner.contacts.length}, A2 ${JSON.stringify(a2.contacts)}`);
       return `A1 with nothing assigned: 0 contacts/leads/threads/tool/widget; with P1's lead: 1 each, P1 read-only (no edit, no note); P5 assigned: editable; owner 6; A2 only P2`;
+    }),
+  );
+
+  await check('AG: a new enquiry goes straight to the listing’s primary agent (role lead, first in order, active) — and so does its contact, unless the contact is already someone’s', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const [lst] = await t.execute<{ id: string }>(sql`select listing_id as id from listing_agent where user_id = ${f.people.a1} limit 1`);
+      const listingId = lst!.id;
+      const enquire = async (email: string) => {
+        const { leadId } = await createEnquiry(t, listingId, { name: 'Walk In', email, message: 'Is it still available?' });
+        return (await t.execute<{ lead_to: string | null; contact_id: string; contact_to: string | null }>(sql`
+          select l.assigned_to as lead_to, l.contact_id, c.assigned_to as contact_to from lead l join contact c on c.id = l.contact_id where l.id = ${leadId}`))[0]!;
+      };
+      // A new person: lead and contact both A1's; the timeline says how.
+      const fresh = await enquire(`walkin.${f.tag}@smoke.test`);
+      assert(fresh.lead_to === f.people.a1 && fresh.contact_to === f.people.a1, `new person: ${JSON.stringify(fresh)}`);
+      const how = await t.execute<{ payload: { to: string; via?: string } }>(sql`select payload from activity where contact_id = ${fresh.contact_id} and kind = 'contact_assigned'`);
+      assert(how.length === 1 && how[0]!.payload.to === f.people.a1 && how[0]!.payload.via === 'enquiry', `timeline: ${JSON.stringify(how)}`);
+      // Someone A2 already has: the lead is A1's, the contact stays A2's — A1 reads it, may not change it.
+      await t.execute(sql`update contact set assigned_to = ${f.people.a2} where id = ${f.contacts.p2}`);
+      const known = await enquire(`p2.${f.tag}@smoke.test`);
+      assert(known.contact_id === f.contacts.p2 && known.lead_to === f.people.a1 && known.contact_to === f.people.a2, `A2's contact: ${JSON.stringify(known)}`);
+      const seen = (await getContact(t, f.actor('a1'), f.contacts.p2)) as { mayUpdate: boolean };
+      assert(seen.mayUpdate === false, 'A1 may edit A2’s contact through the lead');
+      // Two lead agents: the first in order wins; a co-agent never does.
+      await t.execute(sql`insert into listing_agent (listing_id, user_id, role, display_order, snapshot_name, snapshot_phone, snapshot_email)
+        values (${listingId}, ${f.people.a2}, 'lead', 1, 'A2', '0400000001', 'a2@smoke.test')`);
+      assert((await enquire(`two.${f.tag}@smoke.test`)).lead_to === f.people.a1, 'order 0 did not win');
+      await t.execute(sql`update listing_agent set display_order = 5 where listing_id = ${listingId} and user_id = ${f.people.a1}`);
+      assert((await enquire(`swap.${f.tag}@smoke.test`)).lead_to === f.people.a2, 'the first in order did not win after a swap');
+      await t.execute(sql`update listing_agent set role = 'co' where listing_id = ${listingId} and user_id = ${f.people.a2}`);
+      await t.execute(sql`update membership set status = 'suspended' where user_id = ${f.people.a1} and agency_id = ${f.agencyId}`);
+      // The lead agent suspended, only a co-agent left: nobody's — the owner's queue.
+      const orphan = await enquire(`orphan.${f.tag}@smoke.test`);
+      assert(orphan.lead_to === null && orphan.contact_to === null, `no active lead agent: ${JSON.stringify(orphan)}`);
+      return 'new person → lead + contact A1 (timeline via enquiry); A2’s contact stays A2’s, A1 read-only; two lead agents → first in order; co-agent never; none active → unassigned';
+    }),
+  );
+
+  await check('AG: an unassigned contact tied to an address goes to the primary agent of the agency’s listing there — on linking, and when the listing gets its agents; someone else’s contact is left alone', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const holder = async (id: string) => (await t.execute<{ a: string | null }>(sql`select assigned_to as a from contact where id = ${id}`))[0]!.a;
+      // Linking to the address of A1's listing: P6 (nobody's) becomes A1's; P4 (the read-only member's) stays.
+      await linkContactProperty(t, owner, f.contacts.p6, { propertyId: f.propertyId, relation: 'vendor' });
+      await linkContactProperty(t, owner, f.contacts.p4, { propertyId: f.propertyId, relation: 'owner' });
+      assert((await holder(f.contacts.p6)) === f.people.a1 && (await holder(f.contacts.p4)) === f.people.viewer, `on linking: P6 ${await holder(f.contacts.p6)}, P4 ${await holder(f.contacts.p4)}`);
+      // A new listing at an address an unassigned contact is tied to: they go to its primary agent when it gets its agents.
+      const [prop] = await t.execute<{ id: string }>(sql`insert into property (street_number, street, suburb, state, postcode) values ('9', 'Later Street', 'Pakenham', 'VIC', '3810') returning id`);
+      const [vendor] = await t.execute<{ id: string }>(sql`insert into contact (agency_id, name, email) values (${f.agencyId}, 'Vendor', ${`vendor.${f.tag}@smoke.test`}) returning id`);
+      await t.execute(sql`insert into contact_property (contact_id, property_id, relation) values (${vendor!.id}, ${prop!.id}, 'vendor')`);
+      const [l2] = await t.execute<{ id: string }>(sql`insert into listing (property_id, agency_id, channel, status) values (${prop!.id}, ${f.agencyId}, 'sale', 'draft') returning id`);
+      assert((await holder(vendor!.id)) === null, 'assigned before the listing had agents');
+      await attachListingAgents(t, f.agencyId, l2!.id, [f.people.a2, f.people.a1]);
+      assert((await holder(vendor!.id)) === f.people.a2, `vendor after the listing got agents: ${await holder(vendor!.id)}`);
+      return 'linking: nobody’s → A1, read-only member’s untouched; new listing’s agents: the tied vendor → its primary agent (A2)';
     }),
   );
 

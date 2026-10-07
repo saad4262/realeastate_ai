@@ -23,9 +23,16 @@ function fakeDb(listingRows: unknown[]) {
     inserted.push(v);
     return chain;
   };
-  chain.returning = () => Promise.resolve([{ id: 'lead-1' }]);
+  chain.returning = () => Promise.resolve([{ id: 'lead-1', contactId: 'contact-1' }]);
+  // The insert and the contact's assignment run together; the fake is its own transaction.
+  const executed: unknown[] = [];
+  chain.transaction = (fn: (tx: unknown) => unknown) => fn(chain);
+  chain.execute = (q: unknown) => {
+    executed.push(q);
+    return Promise.resolve([]);
+  };
 
-  return { db: chain as unknown as DbOrTx, inserted };
+  return { db: chain as unknown as DbOrTx, inserted, executed };
 }
 
 const VALID = {
@@ -40,7 +47,7 @@ const VALID = {
  * anchored to the address, and an empty-row fake would let the column be
  * silently undefined while every assertion still passed.
  */
-const LIVE = [{ agencyId: 'agency-real', propertyId: 'property-real' }];
+const LIVE = [{ agencyId: 'agency-real', propertyId: 'property-real', agent: 'agent-primary' }];
 
 describe('a public enquiry', () => {
   it('records the enquiry against the listing', async () => {
@@ -110,8 +117,16 @@ describe('a public enquiry', () => {
 
     expect(inserted[0]?.status).toBe('new');
     expect(inserted[0]?.kind).toBe('enquiry');
-    expect(inserted[0]).not.toHaveProperty('assignedTo');
+    // Assigned by the server — the listing's primary agent (the client's rule, 2026-10-07) — never by the caller.
+    expect(inserted[0]?.assignedTo).toBe('agent-primary');
     expect(inserted[0]).not.toHaveProperty('aiSummary');
+  });
+
+  it('a listing with no active primary agent leaves the lead unassigned — the owners’ and admins’ queue', async () => {
+    const { db, inserted, executed } = fakeDb([{ ...LIVE[0], agent: null }]);
+    await createEnquiry(db, 'listing-1', VALID);
+    expect(inserted[0]?.assignedTo).toBeNull();
+    expect(executed).toHaveLength(0);
   });
 
   it('writes nothing when the input is invalid', async () => {

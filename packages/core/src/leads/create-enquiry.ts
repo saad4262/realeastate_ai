@@ -1,5 +1,6 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { lead, listing, type DbOrTx } from '@repo/db';
+import { assignIfUnowned, primaryAgentSql } from '../contacts/auto-assign';
 import { enquiryInputSchema, type EnquiryInput } from './lead-schema';
 
 /** Live only — the same status the public search and listing page use. */
@@ -47,16 +48,21 @@ export async function createEnquiry(
     /**
      * The property as well as the agency, because a lead is anchored to the
      * address and not to the ad (docs/adr/0012). Both come from the listing;
-     * neither is accepted from the browser.
+     * neither is accepted from the browser. So does who it goes to: the
+     * listing's primary agent (the client's rule, 2026-10-07).
      */
-    .select({ agencyId: listing.agencyId, propertyId: listing.propertyId })
+    .select({ agencyId: listing.agencyId, propertyId: listing.propertyId, agent: sql<string | null>`${primaryAgentSql(sql`${listing.id}`)}` })
     .from(listing)
     .where(and(eq(listing.id, listingId), eq(listing.status, PUBLIC_STATUS)))
     .limit(1);
 
   if (!target) throw new EnquiryError('That listing is no longer available');
 
-  const [row] = await db
+  // The lead and, if the person is nobody's yet, their contact go straight to the listing's
+  // primary agent — not to the agency's queue. Someone else's contact stays theirs; the new
+  // agent reads it through the lead. Nobody active on the listing: the owner/admin queue.
+  return db.transaction(async (tx) => {
+  const [row] = await tx
     .insert(lead)
     .values({
       propertyId: target.propertyId,
@@ -70,9 +76,12 @@ export async function createEnquiry(
       // own status could file a lead as already closed.
       kind: 'enquiry',
       status: 'new',
+      assignedTo: target.agent ?? null,
     })
-    .returning({ id: lead.id });
+    .returning({ id: lead.id, contactId: lead.contactId });
 
   if (!row) throw new EnquiryError('Could not record the enquiry');
+  if (target.agent && row.contactId) await assignIfUnowned(tx, target.agencyId, [row.contactId], target.agent, 'enquiry');
   return { leadId: row.id };
+  });
 }
