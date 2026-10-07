@@ -1767,6 +1767,34 @@ export const assistantTurn = pgTable(
 );
 
 /**
+ * A lead handed from one agent to another by an owner or admin (the client's
+ * visibility rule, 2026-10-07). The agent it was taken from keeps only this:
+ * the console shows them "This lead has been reassigned from you to another
+ * agent" — never who to, never the lead or its contact (their access to both
+ * ends with the handover). `contact_moved` records whether the lead's contact
+ * went with it (only when it was the old agent's or nobody's). The timeline
+ * entry on the contact names who, when, from and to — for those who may read it.
+ */
+export const leadHandover = pgTable(
+  'lead_handover',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    leadId: uuid('lead_id')
+      .notNull()
+      .references(() => lead.id, { onDelete: 'cascade' }),
+    fromUserId: uuid('from_user_id').references(() => user.id, { onDelete: 'set null' }),
+    toUserId: uuid('to_user_id').references(() => user.id, { onDelete: 'set null' }),
+    byUserId: uuid('by_user_id').references(() => user.id, { onDelete: 'set null' }),
+    contactMoved: boolean('contact_moved').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('lead_handover_from_idx').on(t.agencyId, t.fromUserId, desc(t.createdAt)), index('lead_handover_lead_idx').on(t.leadId)],
+);
+
+/**
  * An action the assistant PROPOSED and only a person may run (ADR 0025 §1, §7).
  *
  * `args` are frozen and RESOLVED — row ids, instants, the exact text — never

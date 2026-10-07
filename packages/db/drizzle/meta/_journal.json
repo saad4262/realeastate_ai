@@ -267,6 +267,13 @@
       "when": 1791371957008,
       "tag": "0037_proposed_action_contact_tools",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1791389236736,
+      "tag": "0038_lead_handover",
+      "breakpoints": true
     }
   ]
 }
