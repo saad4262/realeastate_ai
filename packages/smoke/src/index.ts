@@ -213,6 +213,7 @@ import { agencyReviews, clearAgencyGooglePlace, publicListingReviews, searchGoog
 import { archiveDashboard, createDashboard, getDashboardData, listDashboards, rangeWindow, renderWidget, WIDGET_IDS, WIDGET_RANGES } from '@repo/core/dashboards';
 import { activeMemberActor, assignNeedsOwner, claimAgentInvite, listNeedsOwner, offboardingPreview, removeMember, restoreMember } from '@repo/core/team';
 import { runEmbeddingTick, type Embedder } from '@repo/core/assistant-search';
+import type { ToolContext } from '@repo/core/assistant';
 import { assert, check, group, note, report, skip } from './runner';
 
 config({ path: resolve(process.cwd(), '../../.env.local') });
@@ -6591,6 +6592,98 @@ async function main() {
       const r = await runEmbeddingTick(t, fake.embedder, { limit: 500, env: { ...process.env, EMBEDDINGS_DAILY_BUDGET_USD_PER_AGENCY: '0.25' } as NodeJS.ProcessEnv });
       assert(!fake.sent.some((x) => x.includes(f.tag)) && r.overBudget >= 1, `over its cap the agency was still embedded: ${JSON.stringify(r)}`);
       return 'agency at $0.30 of a $0.25 cap: nothing embedded, counted as over budget';
+    }),
+  );
+
+  /** Notes, an email and enquiries across one agency, each with a unique word, for the search checks. */
+  async function searchFixture(t: Db) {
+    const f = await contactFixture(t);
+    const w = `zq${f.tag}`; // one word nobody else's data contains
+    const addNote = async (contactId: string, author: string, body: string, isPrivate = false) =>
+      (await t.execute<{ id: string }>(sql`insert into note (agency_id, contact_id, author_id, body, is_private) values (${f.agencyId}, ${contactId}, ${author}, ${body}, ${isPrivate}) returning id`))[0]!.id;
+    const ids = {
+      p1Open: await addNote(f.contacts.p1, f.people.a1, `Wants a swimming pool ${w}`),
+      p1OwnersPrivate: await addNote(f.contacts.p1, f.people.owner, `Private to the owner: pool budget ${w}`, true),
+      p6Nobodys: await addNote(f.contacts.p6, f.people.owner, `Nobody's contact asked about a pool ${w}`),
+    };
+    const [p2lead] = await t.execute<{ id: string }>(sql`select id from lead where contact_id = ${f.contacts.p2} and kind <> 'offer' limit 1`);
+    await t.execute(sql`update lead set message = ${`Enquiry: house with a pool ${w}`} where id = ${p2lead!.id}`);
+    const [p3offer] = await t.execute<{ id: string }>(sql`select id from lead where contact_id = ${f.contacts.p3} and kind = 'offer' limit 1`);
+    await t.execute(sql`update lead set message = ${`Offer for the pool house ${w}`} where id = ${p3offer!.id}`);
+    const [thread] = await t.execute<{ id: string }>(sql`select id from mail_thread where lead_id = ${p2lead!.id}`);
+    const [mail] = await t.execute<{ id: string }>(sql`insert into mail_message (thread_id, agency_id, direction, channel, status, from_email, to_emails, subject, text)
+      values (${thread!.id}, ${f.agencyId}, 'in', 'email', 'received', ${`p2.${f.tag}@smoke.test`}, ${sql`array[${'agency@smoke.test'}]`}, 'Re: the house', ${`Is the pool heated? ${w}`}) returning id`);
+    const search = async (who: Actor, input: Record<string, unknown>, extra: Partial<ToolContext> = {}) => {
+      const handles: HandleMap = {};
+      const out = await runAssistantTool({ ...toolCtx(t, who, handles), ...extra } as ToolContext, 'search_notes_and_emails', input);
+      const rows = ((out.frame as { rows?: { contactId: string; type: string; snippet: string }[] } | undefined)?.rows ?? []);
+      return { out, rows, handles, contacts: [...new Set(rows.map((r) => r.contactId))].sort(), kinds: rows.map((r) => `${r.type}:${r.contactId}`).sort() };
+    };
+    return { f, w, ids, p2lead: p2lead!.id, p3offer: p3offer!.id, mail: mail!.id, search };
+  }
+
+  await check('search sees exactly what each person may read: an agent their own contacts, private notes only their author and owners/admins, offers only owners/admins, archived only when named', async () =>
+    inRollback(async (t) => {
+      const x = await searchFixture(t);
+      const { f } = x;
+      const a1 = await x.search(f.actor('a1'), { query: `pool ${x.w}` });
+      const a2 = await x.search(f.actor('a2'), { query: `pool ${x.w}` });
+      const owner = await x.search(f.actor('owner'), { query: `pool ${x.w}` });
+      const viewer = await x.search(f.actor('viewer'), { query: `pool ${x.w}` });
+      assert(JSON.stringify(a1.contacts) === JSON.stringify([f.contacts.p1]) && a1.rows.length === 1, `A1 (P1 via listing) found: ${JSON.stringify(a1.kinds)}`);
+      assert(!JSON.stringify(a1.out.result).includes('Private to the owner'), 'A1 saw the owner’s private note');
+      assert(JSON.stringify(a2.contacts) === JSON.stringify([f.contacts.p2]) && a2.kinds.length === 2, `A2 (their lead's enquiry + email) found: ${JSON.stringify(a2.kinds)}`);
+      assert(!JSON.stringify(a2.out.result).includes('Offer for'), 'an agent saw a private offer');
+      const ownerKinds = owner.kinds.join(' ');
+      assert(owner.rows.length === 6 && ownerKinds.includes(`enquiry:${f.contacts.p3}`) && JSON.stringify(owner.out.result).includes('Private to the owner'), `the owner found: ${JSON.stringify(owner.kinds)}`);
+      assert(viewer.rows.every((r) => r.contactId === f.contacts.p4), `the read-only member found: ${JSON.stringify(viewer.kinds)}`);
+      // Archived: out of a general search, in when that contact is named.
+      await t.execute(sql`update contact set archived_at = now() where id = ${f.contacts.p6}`);
+      const general = await x.search(f.actor('owner'), { query: `pool ${x.w}` });
+      assert(!general.contacts.includes(f.contacts.p6), 'an archived contact came up in a general search');
+      const h: HandleMap = {};
+      const named = issueHandle(h, 'C', f.contacts.p6);
+      const one = await runAssistantTool(toolCtx(t, f.actor('owner'), h), 'search_notes_and_emails', { query: `pool ${x.w}`, contact: named });
+      const oneRows = ((one.frame as { rows?: { contactId: string }[] }).rows ?? []);
+      assert(oneRows.length === 1 && oneRows[0]!.contactId === f.contacts.p6, `naming the archived contact: ${JSON.stringify(oneRows)}`);
+      // A reference this conversation never issued is refused, not guessed.
+      const forged = await runAssistantTool(toolCtx(t, f.actor('a1')), 'search_notes_and_emails', { query: 'pool', contact: 'C9' });
+      assert(forged.isError === true, 'an unknown reference was accepted');
+      return `A1: 1 (P1), A2: enquiry+email (P2), owner: 6 incl. private note and offer, read-only: own only; archived only when named; forged reference refused`;
+    }),
+  );
+
+  await check('at most 8 results, snippets of at most 200 characters, a date range and a contact filter; every search is metered', async () =>
+    inRollback(async (t) => {
+      const x = await searchFixture(t);
+      const { f } = x;
+      for (let i = 0; i < 10; i++) await t.execute(sql`insert into note (agency_id, contact_id, author_id, body) values (${f.agencyId}, ${f.contacts.p1}, ${f.people.a1}, ${`Pool visit ${i} ${x.w} ${'long text '.repeat(60)}`})`);
+      await t.execute(sql`update note set created_at = now() - interval '200 days' where id = ${x.ids.p1Open}`);
+      let tracked = 0;
+      const r = await x.search(f.actor('owner'), { query: `pool ${x.w}` }, { search: { trackFullText: async () => void (tracked += 1) } });
+      assert(r.rows.length === 8 && r.rows.every((row) => row.snippet.length <= 200), `results ${r.rows.length}, longest snippet ${Math.max(...r.rows.map((row) => row.snippet.length))}`);
+      assert(tracked === 1, `a full-text search was metered ${tracked} times`);
+      const fmt = (d: Date) => d.toISOString().slice(0, 10);
+      const old = await x.search(f.actor('a1'), { query: `swimming ${x.w}`, to: fmt(new Date(Date.now() - 100 * 86_400_000)) });
+      const recent = await x.search(f.actor('a1'), { query: `swimming ${x.w}`, from: fmt(new Date(Date.now() - 100 * 86_400_000)) });
+      assert(old.rows.length === 1 && recent.rows.length === 0, `date range: before ${old.rows.length}, after ${recent.rows.length}`);
+      return '8 of 13, snippets ≤ 200 chars, date range respected, one ai_run per full-text search';
+    }),
+  );
+
+  await check('with embeddings on, the vector half obeys the same permission; the question is metered to the person under the assistant feature', async () =>
+    inRollback(async (t) => {
+      const x = await searchFixture(t);
+      const { f } = x;
+      const fake = fakeEmbedder();
+      const meters: { feature: string; userId?: string }[] = [];
+      const metered: Embedder = { model: 'fake-embed', embed: async (texts, type, meter) => (meters.push(meter), fake.embedder.embed(texts, type, meter)) };
+      await runEmbeddingTick(t, fake.embedder, { limit: 500 });
+      const a1 = await x.search(f.actor('a1'), { query: `swimming pool ${x.w}` }, { search: { embedder: metered } });
+      assert((a1.out.result as { search?: string }).search === 'words and meaning', `mode: ${JSON.stringify(a1.out.result).slice(0, 120)}`);
+      assert(a1.rows.every((r) => r.contactId === f.contacts.p1), `the vector half widened A1’s results: ${JSON.stringify(a1.kinds)}`);
+      assert(meters.some((m) => m.feature === 'assistant' && m.userId === f.people.a1), `the question was not metered to A1: ${JSON.stringify(meters)}`);
+      return 'hybrid: A1 still only P1; query embedding metered as assistant for A1';
     }),
   );
 

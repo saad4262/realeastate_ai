@@ -104,6 +104,19 @@ export const findAppointmentsInput = z
 
 export const listTemplatesInput = z.object({}).strict();
 
+/**
+ * Search what was WRITTEN — notes, emails, enquiry messages (ADR 0031).
+ * Returns references and short snippets only; the snippets are untrusted text.
+ */
+export const searchNotesAndEmailsInput = z
+  .object({
+    query: z.string().trim().min(2).max(200),
+    contact: z.string().trim().regex(/^[CS][1-9][0-9]{0,2}$/, 'Not a contact reference').optional(),
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A date as YYYY-MM-DD').optional(),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A date as YYYY-MM-DD').optional(),
+  })
+  .strict();
+
 export const checkConnectionsInput = z
   .object({
     providers: z.array(z.enum(INTEGRATION_PROVIDERS)).min(1).max(INTEGRATION_PROVIDERS.length),
@@ -195,7 +208,7 @@ export const createDashboardInput = z
   })
   .strict();
 
-export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget'] as const;
+export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails'] as const;
 export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 
@@ -207,6 +220,7 @@ export const ASSISTANT_TOOL_INPUTS = {
   list_templates: listTemplatesInput,
   check_connections: checkConnectionsInput,
   show_widget: showWidgetInput,
+  search_notes_and_emails: searchNotesAndEmailsInput,
   add_note: addNoteInput,
   set_next_action: setNextActionInput,
   schedule_appointment: scheduleAppointmentInput,
@@ -268,6 +282,12 @@ export type AssistantFrame =
   | {
       kind: 'connections';
       rows: { provider: IntegrationProvider; label: string; state: string; whose: 'yours' | 'agency' | null; mayConnect: boolean }[];
+    }
+  /** Search results (ADR 0031): who, what kind, when, and a short snippet — only rows this person may read. */
+  | {
+      kind: 'search';
+      mode: 'fulltext' | 'hybrid';
+      rows: { handle: string; contactId: string; contactName: string; type: 'note' | 'email' | 'enquiry'; when: string; snippet: string }[];
     }
   /** A widget tile shown in the chat, computed from SQL as the person asking (ADR 0027). */
   | { kind: 'widget'; tile: WidgetTile }

@@ -366,6 +366,20 @@ function FrameView({ frame, surface }: { frame: AssistantFrame; surface: Surface
           ))}
         </FrameBox>
       );
+    case 'search':
+      return (
+        <FrameBox title={frame.mode === 'hybrid' ? 'Found in notes and emails (words and meaning)' : 'Found in notes and emails'} shown={frame.rows.length}>
+          {frame.rows.map((r, i) => (
+            <li key={`${r.contactId}-${i}`}>
+              <Link href={`${p.contact}/${r.contactId}`}>{r.contactName}</Link>
+              <span className={styles.meta}>
+                {r.type === 'note' ? 'Note' : r.type === 'email' ? 'Email' : 'Enquiry'} · {r.when}
+              </span>
+              {r.snippet ? <q className={styles.meta}>{r.snippet}</q> : null}
+            </li>
+          ))}
+        </FrameBox>
+      );
     case 'proposal':
       return <ProposalCardView id={frame.id} surface={surface} />;
     case 'widget':
