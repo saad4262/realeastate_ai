@@ -1,3 +1,26 @@
+## 2026-10-07 — Claude Code — Assistant search, hybrid (ADR 0031), branch feat/crm-rag
+
+- Goal (user): a search tool over notes, emails and enquiry messages that scales; hybrid —
+  Postgres full-text always, pgvector embeddings when configured; permission inside the SQL;
+  injection-safe; offboarding/deletion rules; cost in ai_run within the caps. Separate worktree
+  (/Users/saadiii/Job/realestate_ai-rag), smoke through DIRECT_URL, no merge.
+- Done (one commit each): ADR 0031; migration 0036 (applied on dev after confirming it was the
+  only pending one); indexing (cron tick, prune, backfill CLI, Voyage client in packages/ai);
+  the tool + permission; injection rule (prompt v6) + test; offboarding deletes embeddings of
+  the leaver's private notes, contact delete cascades, isolation smoke covers the tool; cost
+  check; docs (TEST-PLAN AD, TEST-ORDER 3b, DEPLOY env).
+- Found by the new tests and fixed before commit: in a one-table select Drizzle renders
+  ${agency.id} as a bare "id", so the indexing cap's sub-select read ai_run.id and never
+  applied; and a DISTINCT ON without ORDER BY that would have taken arbitrary chunks instead of
+  the nearest (rewritten before running).
+- Checks: typecheck 10/10, lint 0 errors, unit 824 + 290; smoke Assistant search 7/7, Tenant
+  isolation 4/4 (156 reads, 36 tables), Offboarding 4/4. Break-tests in two parallel copies:
+  notes/emails/enquiries permission filters, private-note rule, other-agency filter (both
+  layers), injection label + notice, prompt rule, vector-half permission, private notes sent to
+  the provider, embedding over the cap, offboarding delete — 11 red, restored green.
+- Next exact step: the user walks TEST-PLAN AD; client answers ADR 0031's four questions before
+  any VOYAGE_API_KEY is set in production; merge when the user says.
+
 ## 2026-10-07 — Claude Code — Wrap-up: TEST-ORDER and the final report
 
 - Done: docs/TEST-ORDER.md (sections N → AC in seven blocks by setting, with needs and times,

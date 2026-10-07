@@ -2,6 +2,7 @@ import { desc, sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -14,7 +15,18 @@ import {
   uniqueIndex,
   uuid,
   varchar,
+  vector,
 } from 'drizzle-orm/pg-core';
+
+/**
+ * Postgres full-text search vector (ADR 0031). Only ever a GENERATED column:
+ * Postgres keeps it current on every insert and update; nothing writes it.
+ */
+const tsvector = customType<{ data: string }>({
+  dataType() {
+    return 'tsvector';
+  },
+});
 
 const timestamps = {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -513,9 +525,12 @@ export const lead = pgTable(
     aiSummary: text('ai_summary'),
     aiIntent: text('ai_intent'),
     aiQualification: jsonb('ai_qualification'),
+    /** Full-text of the enquiry message (ADR 0031). Generated; never written. */
+    searchTsv: tsvector('search_tsv').generatedAlwaysAs(sql`to_tsvector('english', coalesce(message, ''))`),
     ...timestamps,
   },
   (t) => [
+    index('lead_search_idx').using('gin', t.searchTsv),
     /** The agency inbox: their leads, newest first. There was no index at all. */
     index('lead_agency_created_idx').on(t.agencyId, desc(t.createdAt)),
     /** Every approach ever made about one address, which is the point of #1. */
@@ -652,10 +667,13 @@ export const mailMessage = pgTable(
     sentVia: varchar('sent_via', { length: 16 }),
     /** The Gmail account it went (or tried to go) through. Gone with the connection. */
     senderAccountId: uuid('sender_account_id').references(() => integrationAccount.id, { onDelete: 'set null' }),
+    /** Full-text of subject + body (ADR 0031). Generated; never written. */
+    searchTsv: tsvector('search_tsv').generatedAlwaysAs(sql`to_tsvector('english', coalesce(subject, '') || ' ' || coalesce(text, ''))`),
     ...timestamps,
   },
   (t) => [
     index('mail_message_thread_idx').on(t.threadId, t.createdAt),
+    index('mail_message_search_idx').using('gin', t.searchTsv),
   ],
 );
 
@@ -865,9 +883,11 @@ export const note = pgTable(
      */
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     deletedBy: uuid('deleted_by').references(() => user.id, { onDelete: 'set null' }),
+    /** Full-text of the note (ADR 0031). Generated; never written. */
+    searchTsv: tsvector('search_tsv').generatedAlwaysAs(sql`to_tsvector('english', coalesce(body, ''))`),
     ...timestamps,
   },
-  (t) => [index('note_contact_idx').on(t.contactId, desc(t.createdAt))],
+  (t) => [index('note_contact_idx').on(t.contactId, desc(t.createdAt)), index('note_search_idx').using('gin', t.searchTsv)],
 );
 
 /**
@@ -1915,6 +1935,40 @@ export const agencyGooglePlace = pgTable(
   (t) => [uniqueIndex('agency_google_place_agency_idx').on(t.agencyId)],
 );
 
+// ── Assistant search (docs/adr/0031) ────────────────────────────────────────
+
+/**
+ * Embeddings of note, email and enquiry text for the assistant's search, one
+ * row per chunk. Optional (EMBEDDINGS_PROVIDER); full-text works without it.
+ * Filled by the cron tick, never on a write path. Rows are pruned as soon as
+ * their source stops qualifying (private, deleted, archived or opted-out
+ * contact, private offer), and go with their contact (cascade).
+ */
+export const searchEmbedding = pgTable(
+  'search_embedding',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    /** `note` | `email` | `enquiry` — which table `source_id` points into. */
+    sourceKind: varchar('source_kind', { length: 16 }).notNull(),
+    sourceId: uuid('source_id').notNull(),
+    contactId: uuid('contact_id').references(() => contact.id, { onDelete: 'cascade' }),
+    chunkIndex: integer('chunk_index').notNull(),
+    /** md5 of the whole source text when embedded: unchanged text is never re-embedded. */
+    contentHash: text('content_hash').notNull(),
+    model: varchar('model', { length: 64 }).notNull(),
+    embedding: vector('embedding', { dimensions: 1024 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('search_embedding_source_idx').on(t.sourceKind, t.sourceId, t.chunkIndex),
+    index('search_embedding_agency_idx').on(t.agencyId),
+    index('search_embedding_vector_idx').using('hnsw', t.embedding.op('vector_cosine_ops')),
+  ],
+);
+
 export type ListingAgent = typeof listingAgent.$inferSelect;
 export type AgentProfile = typeof agentProfile.$inferSelect;
 export type SearchSchedule = typeof searchSchedule.$inferSelect;
@@ -1946,3 +2000,4 @@ export type Dashboard = typeof dashboard.$inferSelect;
 export type ListingImport = typeof listingImport.$inferSelect;
 export type ListingImportRow = typeof listingImportRow.$inferSelect;
 export type AgencyGooglePlace = typeof agencyGooglePlace.$inferSelect;
+export type SearchEmbedding = typeof searchEmbedding.$inferSelect;

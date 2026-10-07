@@ -22,7 +22,8 @@ import {
   type ToolOutcome,
 } from '@repo/core/assistant';
 import { getModel, SERVER_FALLBACK_MODELS, type TokenUsage } from '../models';
-import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v5';
+import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v6';
+import { embedderFromEnv } from '../search/voyage';
 import { ASSISTANT_TOOLS } from '../tools/assistant-tools';
 import { trackAiRunQuietly } from '../usage';
 
@@ -331,7 +332,34 @@ export function assistantDeps(db: Db, actor: Actor, request: AssistantTurnReques
     selection: (handles) => selectionHandles(db, actor, handles, request.selection?.contactIds ?? []),
     budget: () => checkAssistantBudget(db, actor, { env }),
     runTool: (handles, name, toolInput, proposal) =>
-      runAssistantTool({ db, actor, timeZone: request.timeZone, handles, now: new Date(), proposal }, name, toolInput),
+      runAssistantTool(
+        {
+          db,
+          actor,
+          timeZone: request.timeZone,
+          handles,
+          now: new Date(),
+          proposal,
+          // ADR 0031: embeddings when configured (metered inside the embedder); a full-text-only
+          // search is metered too, at no cost, under this person's assistant feature.
+          search: {
+            embedder: embedderFromEnv(db, env),
+            env,
+            trackFullText: () =>
+              trackAiRunQuietly(db, {
+                feature: ASSISTANT_FEATURE,
+                model: 'postgres-fts',
+                usage: { inputTokens: 0, outputTokens: 0 },
+                latencyMs: 0,
+                userId: actor.userId,
+                ...(actor.agencyId ? { agencyId: actor.agencyId } : {}),
+                promptVersion: 'search@v1',
+              }),
+          },
+        },
+        name,
+        toolInput,
+      ),
     track: (row) =>
       trackAiRunQuietly(db, {
         feature: ASSISTANT_FEATURE,

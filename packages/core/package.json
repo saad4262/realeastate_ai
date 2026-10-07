@@ -49,6 +49,7 @@
     "./dashboards": "./src/dashboards/index.ts",
     "./imports": "./src/imports/index.ts",
     "./reviews": "./src/reviews/index.ts",
+    "./assistant-search": "./src/assistant-search/index.ts",
     "./imports/columns-client": "./src/imports/columns-client.ts",
     "./widgets": "./src/widgets/registry.ts",
     "./skills/schema": "./src/skills/skill-schema.ts",

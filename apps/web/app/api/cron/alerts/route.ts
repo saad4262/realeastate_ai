@@ -2,6 +2,8 @@ import { after, NextResponse, type NextRequest } from 'next/server';
 import { runAppointmentSyncTick, syncDepsFromEnv } from '@repo/core/appointments';
 import { expireProposedActions, purgeAssistantConversations, runScheduledActions } from '@repo/core/assistant';
 import { purgeImportFiles, runImportTick } from '@repo/core/imports';
+import { runEmbeddingTick } from '@repo/core/assistant-search';
+import { embedderFromEnv } from '@repo/ai/search-embedder';
 import { pullReceivedMail } from '@repo/core/mail';
 import { authoriseCronRequest, runScheduleTick } from '@repo/core/schedules';
 import { runSkillTick } from '@repo/core/skills';
@@ -132,9 +134,19 @@ async function handler(request: NextRequest) {
       return runScheduledActions(getWebDb(), { sync: syncDepsFromEnv(), templateSend: send.ok ? send.deps : null });
     })().catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'scheduled actions failed' }));
 
+    /**
+     * The assistant's search index (ADR 0031): prune embeddings that no longer
+     * qualify, then embed a small metered batch of new or changed notes,
+     * emails and enquiries. Full-text needs nothing here (Postgres keeps it);
+     * with EMBEDDINGS_PROVIDER unset this only prunes.
+     */
+    const searchIndex = await runEmbeddingTick(getWebDb(), embedderFromEnv(getWebDb())).catch((err: unknown) => ({
+      error: err instanceof Error ? err.message : 'search index tick failed',
+    }));
+
     // No ids, no addresses, no listing text — this is read from a cron log.
     return NextResponse.json(
-      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills, templateEmail, appointmentSync, assistant, imports, scheduled },
+      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills, templateEmail, appointmentSync, assistant, imports, scheduled, searchIndex },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (err) {
