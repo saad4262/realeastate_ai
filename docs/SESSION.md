@@ -1,3 +1,19 @@
+## 2026-10-07 — Claude Code — Merged polish → search (rag) → assistant contact tools into feat/crm
+
+- polish rebased on 1356053 (clean; typecheck/lint 20/20, unit 827 + 286), then fast-forwarded;
+  rag merged (smoke file only: imports and two offboarding hunks — both sides kept; unit 828 +
+  290); assistant-edit merged by hand: journal keeps 0036 (rag, when 1791359092747) then 0037
+  (contact tools, 1791371957008) — no rename, no drizzle-kit generate; schema read tools = both
+  new ones; pipeline imports v7 + the embedder + assistantToolsFor; prompt v7 now carries v6's
+  two search lines; ai test keeps rag's email-name rule and the assign rule; docs keep both (AD
+  then AE; TEST-ORDER Block 3b search, Block 3c contact tools, numbering back to 12–16).
+- One semantic clash found by the unit run: the red-team "only assign_contacts has a `to`" check
+  looked at every tool, and the search tool's `to` is a date — narrowed to write tools (c056bf4).
+- Checks on the merged tree: typecheck/lint 20/20, unit 849 + 294; smoke (DIRECT_URL) Database
+  health 25 + 1 skip, Console assistant 24/24, Assistant search 7/7, Tenant isolation 4/4,
+  Offboarding 5/5. No migration applied (0036 and 0037 were already on dev).
+- Next exact step: the user runs `pnpm install` and restarts `pnpm dev`; then TEST-PLAN AD/AE.
+
 ## 2026-10-07 — Claude Code — Assistant contact tools: migration 0037 applied, smoke and break-tests
 
 - Migration renamed 0036 → **0037_proposed_action_contact_tools** (journal idx 37, `when`

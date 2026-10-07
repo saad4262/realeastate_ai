@@ -3,7 +3,7 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
-- **Assistant search (ADR 0031) on branch `feat/crm-rag` (2026-10-07, not merged yet).** Migration
+- **Assistant search (ADR 0031) — merged into `feat/crm` 2026-10-07.** Migration
   0036 applied on dev (generated full-text columns on note / mail_message / lead with GIN indexes;
   `search_embedding` with pgvector 1024 + HNSW, RLS). New read tool `search_notes_and_emails`
   (≤ 8 results, contact reference + kind + date + ≤ 200-char `untrusted_snippet`); permission in
@@ -12,7 +12,11 @@
   @repo/ai search:backfill`), never for private notes, archived/opted-out contacts or offers.
   Metered in ai_run (question inside the assistant caps; indexing cap 0.25/agency/day). Prompt
   assistant@v6. TEST-PLAN AD; TEST-ORDER Block 3b. Client questions in ADR 0031.
-- **Now: every build phase is committed on `feat/crm` (2026-10-07)** — Phases 1–8: tenant
+- **Merged 2026-10-07: polish → search (rag) → assistant contact tools, on `feat/crm`.** Migrations
+  0036 (search) and 0037 (contact tools) both already applied on dev; prompt `assistant@v7` carries
+  v6's search text. After pulling: `pnpm install` once, then restart `pnpm dev`. Next: TEST-PLAN
+  in TEST-ORDER's order (now with Blocks 3b AD and 3c AE).
+- **Every build phase is committed on `feat/crm` (2026-10-07)** — Phases 1–8: tenant
   isolation, assistant email card, dashboards, CSV import, Google reviews step 1, Gmail send,
   assistant run-later, offboarding. Migrations up to 0035 applied on dev. **Not built (by
   instruction): production / go-live** (domain, Vercel, Google verification, Zoom Marketplace,
@@ -20,8 +24,7 @@
   TEST-PLAN N → AC in the order of docs/TEST-ORDER.md.** Dev DB note: the transaction-mode
   pooler (6543) began closing long smoke transactions on 2026-10-07; run smoke with
   DATABASE_URL set to DIRECT_URL (session pooler) for that process if it recurs.
-- **Branch `feat/crm-assistant-edit` (2026-10-07, not merged; merge only when the user says):
-  the assistant changes contacts (ADR 0025 amendment).** Owners/admins: `find_team_members`
+- **The assistant changes contacts (ADR 0025 amendment) — merged into `feat/crm` 2026-10-07.** Owners/admins: `find_team_members`
   (M references) and `assign_contacts` (≤ 20 contacts, card shows each one's email and current
   → new holder; agents are never shown the tools and core refuses them). Everyone who may edit
   the contact: `record_marketing_consent` (needs "how"; unsubscribed and already-agreed are
@@ -108,7 +111,7 @@
   email card (0025 D), 3 dashboards (0027), 4 CSV import (0029), 5 reviews step 1 (0028), 6 Gmail
   send (0026), 7 assistant run-later (0025 E), 8 offboarding (0030). Each ADR ends with "As built".
   Not built: Google Sheets import, reviews step 2 (Business Profile, Link to contact), go-live.
-- **Polish branch `feat/crm-polish` (2026-10-07, not merged yet):** invitation preview names its
+- **Polish (`feat/crm-polish`) — rebased on 1356053 and merged into `feat/crm` 2026-10-07:** invitation preview names its
   sender; the buyer's website view shows how each reply was sent; agency accounts connected by a
   removed member are flagged on the Integrations card (cleared on reconnect); a removed member
   sees "You no longer have access to <agency>"; an appointment whose Zoom link moved says "send
