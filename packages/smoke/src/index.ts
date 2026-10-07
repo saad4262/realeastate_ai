@@ -5562,7 +5562,7 @@ async function main() {
     'office', 'team', 'membership', 'agent_invite', 'listing', 'lead', 'mail_thread', 'mail_message', 'contact', 'note',
     'activity', 'appointment', 'integration_account', 'ai_run', 'skill', 'agent_skill', 'skill_run', 'contact_filter',
     'email_template', 'email_batch', 'assistant_conversation', 'proposed_action', 'dashboard', 'listing_import',
-    'agency_google_place',
+    'agency_google_place', 'search_embedding',
   ] as const;
   const CHILD_TABLES: [string, string, string][] = [
     ['team_member', 'team_id', 'team'],
