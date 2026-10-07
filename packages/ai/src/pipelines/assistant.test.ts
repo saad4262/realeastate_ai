@@ -378,7 +378,10 @@ describe('proposals (Phases B and C)', () => {
     const update = ASSISTANT_TOOLS.find((t) => t.name === 'update_contact')!;
     expect(Object.keys((update.input_schema as { properties: Record<string, unknown> }).properties).sort()).toEqual(['contact', 'email', 'name', 'phone', 'roles']);
     expect(update.description).toMatch(/Nothing is sent|cannot change who the contact is assigned to/);
-    expect(ASSISTANT_TOOLS.filter((t) => 'to' in (t.input_schema as { properties: Record<string, unknown> }).properties).map((t) => t.name)).toEqual(['assign_contacts']);
+    // Among WRITE tools only (search_notes_and_emails, a read tool, has `to` as a date-range end).
+    expect(
+      ASSISTANT_TOOLS.filter((t) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(t.name) && 'to' in (t.input_schema as { properties: Record<string, unknown> }).properties).map((t) => t.name),
+    ).toEqual(['assign_contacts']);
     for (const to of ['sara@example.com', 'Sara', 'C1', '55555555-5555-4555-8555-555555555555']) {
       expect(ASSISTANT_TOOL_INPUTS.assign_contacts.safeParse({ contacts: ['C1'], to }).success, to).toBe(false);
     }
