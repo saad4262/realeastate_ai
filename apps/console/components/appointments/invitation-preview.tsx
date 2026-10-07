@@ -41,6 +41,8 @@ export function InvitationPreviewBox({ appointmentId, onDone }: { appointmentId:
         To: {preview.to ? `${preview.to.name} <${preview.to.email}>` : '—'}
         <br />
         Subject: {preview.subject}
+        <br />
+        {preview.sendFrom}
       </div>
       <pre className={styles.previewBody}>{preview.body}</pre>
       <div className={styles.previewMeta}>

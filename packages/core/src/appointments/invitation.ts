@@ -3,6 +3,7 @@ import { agency, appointment, contact, mailThread, type Db } from '@repo/db';
 import type { Actor } from '../permissions';
 import { checkEmailLimits, devAllowlistProblem, emailLimitsFromEnv, type EmailLimitCheck, type EmailLimits } from '../email/limits';
 import { deliverOutbound, recordOutbound, type MailDeps } from '../mail/send';
+import { resolveSender, senderLine } from '../mail/sender';
 import { recordActivity } from '../contacts/write-contacts';
 import { formatInZone } from '../time/local-input';
 import { ACTIVE_STATUSES, APPOINTMENT_TYPE_LABELS } from './appointment-schema';
@@ -31,6 +32,8 @@ export type InvitationPreview = {
   subject: string;
   body: string;
   limits: EmailLimitCheck;
+  /** Which address it will come from, decided as it would be at Send (ADR 0026 §2). */
+  sendFrom: string;
   /** Why it cannot be sent, if it cannot. Null when Send may be pressed. */
   problem: string | null;
 };
@@ -107,6 +110,7 @@ export async function previewInvitation(
     subject,
     body,
     limits: check,
+    sendFrom: senderLine(await resolveSender(db, actor)),
     problem: problemWith(a, c, check, env),
   };
 }

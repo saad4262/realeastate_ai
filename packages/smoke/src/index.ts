@@ -6288,6 +6288,20 @@ async function main() {
     }),
   );
 
+  await check('the invitation preview says which address it will come from, before anything is sent (ADR 0026 §2)', async () =>
+    inRollback(async (t) => {
+      const gmail = fakeGmail();
+      const x = await gmailFixture(t, gmail);
+      const { id } = await scheduleAppointment(t, x.f.actor('a2'), x.f.contacts.p2, { title: 'Appraisal', type: 'appraisal', ...slot(4) });
+      const before = await previewInvitation(t, x.f.actor('a2'), id);
+      assert(before.sendFrom?.startsWith('Sent from LocalAgentHub'), `without Gmail: ${before.sendFrom}`);
+      await x.connect('a2', 'user', `a2.gmail.${x.f.tag}@gmail.com`);
+      const after = await previewInvitation(t, x.f.actor('a2'), id);
+      assert(after.sendFrom === `Sent from your Gmail (a2.gmail.${x.f.tag}@gmail.com)`, `with Gmail: ${after.sendFrom}`);
+      return 'platform line → own Gmail line, same words as the composer';
+    }),
+  );
+
   await check('then the agency Gmail — unless an admin switched members off it; then the platform; another agent’s Gmail is never used', async () =>
     inRollback(async (t) => {
       const gmail = fakeGmail();
