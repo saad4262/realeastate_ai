@@ -1,3 +1,30 @@
+## 2026-10-07 — Claude Code — Assistant changes contacts (branch feat/crm-assistant-edit)
+
+- Done (worktree /Users/saadiii/Job/realestate_ai-assist, from feat/crm 1356053): three
+  capabilities, each test-first and its own commit — assign_contacts + find_team_members
+  (owners/admins, M references, per-role tool lists via `assistantToolsFor`), record/withdraw
+  marketing consent, update_contact + set_contact_archived; then isolation/offboarding/role-
+  matrix coverage; a smoke fix so run-time checks are break-sensitive; docs (ADR 0025
+  amendment, TEST-PLAN AE, TEST-ORDER Block 3b, this entry). New core functions in
+  core/contacts: assignableMember, recordMarketingConsent, withdrawMarketingConsent,
+  editContactDetails; assignContact/setContactArchived take `{ via }`. ContactError gains
+  `conflict`. Migration 0036 widens the tool CHECK for all five new write tools at once.
+- Checks: typecheck 10/10, lint clean, unit core 845 + ai 290. **Smoke not run for AE**: applying
+  0036 to the dev DB was blocked by the auto-mode classifier (shared resource), so the AE checks
+  (assign ×2, consent ×2, details ×2, injection, CHECK-list invariant, offboarding, isolation
+  additions) are written but unrun. Unit-level break-tests (separate copies, in parallel), all
+  red → green: assign gate removed at the door; assign tools shown to everyone; consent with
+  no "how"; update_contact accepting extra fields. Waiting for the migration (smoke): receiver
+  read-only / other agency, consent for an unsubscribed contact, editing another agent's
+  contact, assignee/consent changed by update_contact in core, run-time re-check removed.
+- Merge notes: rag also adds migration 0036 and prompt v6 → renumber this branch's to 0037
+  (file, journal idx/tag, snapshot id/prevId chain) and fold v6's search text into v7 (or make
+  v8). Polish touches docs (STATUS/SESSION/TEST-PLAN/TEST-ORDER) and contact-profile.tsx /
+  assistant-panel.tsx only in other places — textual conflicts in docs only expected.
+- Next exact step: the user applies 0036 on dev (or allows it); then run smoke (DIRECT_URL)
+  for Console assistant, Tenant isolation, Offboarding and the remaining break-tests; merge
+  only when the user says.
+
 ## 2026-10-07 — Claude Code — Wrap-up: TEST-ORDER and the final report
 
 - Done: docs/TEST-ORDER.md (sections N → AC in seven blocks by setting, with needs and times,
