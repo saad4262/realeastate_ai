@@ -5781,7 +5781,8 @@ async function main() {
     inRollback(async (t) => {
       const x = await editFixture(t);
       const { p2, p6 } = x.f.contacts;
-      await t.execute(sql`update contact set assigned_to = ${x.f.people.a2}, marketing_consent_at = now(), marketing_consent_by = ${x.f.people.a2}, marketing_consent_note = 'Signed form' where id = ${p6}`);
+      // Consent dated in the past: inside one transaction now() never moves, so a re-dated consent must differ.
+      await t.execute(sql`update contact set assigned_to = ${x.f.people.a2}, marketing_consent_at = now() - interval '3 days', marketing_consent_by = ${x.f.people.a2}, marketing_consent_note = 'Signed form' where id = ${p6}`);
       const row = async () =>
         (await t.execute<{ name: string; email: string | null; phone: string | null; assigned_to: string | null; note: string | null; consent_at: string | null; consent_by: string | null; archived_at: string | null; roles: string[] | null }>(sql`
           select name, email, phone, assigned_to, marketing_consent_note as note, marketing_consent_at::text as consent_at, marketing_consent_by as consent_by, archived_at,

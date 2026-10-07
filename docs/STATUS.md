@@ -20,12 +20,11 @@
   (name/email/phone/roles only, before → after from the DB, duplicate email → no card, stale
   card refused) and `set_contact_archived`. All "via the assistant" on the timeline; all re-
   checked at run (now and scheduled); offboarding cancels them. Prompt `assistant@v7`.
-  **Migration 0036 (widens the proposed_action tool CHECK, no row change) is NOT yet applied
-  on dev** — the auto-mode classifier blocked it; the user applies it
-  (`pnpm --filter @repo/db db:migrate` in the worktree) before the AE smoke checks and
-  TEST-PLAN AE can run. Unit tests, typecheck and lint are green; unit-level break-tests red →
-  green; smoke-level ones wait for the migration. Conflicts on merge with `feat/crm-rag`
-  (its 0036 + prompt v6) and `feat/crm-polish` (docs): see the SESSION entry.
+  **Migration 0037 (widens the proposed_action tool CHECK, no row change) applied on dev
+  2026-10-07** with the user's permission (renamed from 0036 and dated after the search
+  branch's 0036, so the two merge without renumbering). Smoke: Console assistant 24/24 (8 AE),
+  Tenant isolation 4/4, Offboarding 5/5. Break-tests: 13, all red → green. Merge order: polish
+  → rag → this; with rag, journal/docs/assistant files conflict textually (see SESSION).
 - **Phase 8 — Offboarding (ADR 0030) committed.** Migration 0035 applied on dev (additive:
   membership.removed_at/by/report, needs_owner_at on contact/lead/appointment/listing,
   integration_account.connector_left_at, one active membership per person). Remove from the

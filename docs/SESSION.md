@@ -1,3 +1,28 @@
+## 2026-10-07 — Claude Code — Assistant contact tools: migration 0037 applied, smoke and break-tests
+
+- Migration renamed 0036 → **0037_proposed_action_contact_tools** (journal idx 37, `when`
+  1791371957008 > rag's 0036 at 1791359092747; snapshot = rag's 0036 snapshot with prevId =
+  its id, since this CHECK is not in drizzle's snapshot — don't run drizzle-kit generate on this
+  branch before the merge). Rag's 0036 does not touch proposed_action and adds no write tool.
+  Applied on dev with the user's explicit permission: `__drizzle_migrations` 37 → 38 rows, the
+  new one created_at 1791371957008, hash 2f39e1313f8f (= the file); proposed_action rows 7
+  before and after, same md5. Final CHECK: add_note, set_next_action, schedule_appointment,
+  reschedule_appointment, cancel_appointment, send_template_email, create_dashboard,
+  assign_contacts, record_marketing_consent, withdraw_marketing_consent, update_contact,
+  set_contact_archived.
+- Smoke (DIRECT_URL): Console assistant 24/24 (all 8 AE, injection now with an owner card and
+  an agent card, both still `proposed`, contact unchanged), Tenant isolation 4/4, Offboarding 5/5.
+- DB-level break-tests (three parallel copies), each red: receiver read-only; receiver from
+  another agency; consent card ignoring unsubscribed; core recording consent for the
+  unsubscribed; an agent proposing an edit to another agent's contact; editContactDetails
+  clearing the assignee; editContactDetails re-dating consent; run-time contact:assign removed;
+  run-time contact:update removed (consent and details both red). Re-dating consent first
+  stayed GREEN: the fixture's consent used now(), which never moves inside one transaction —
+  fixture moved 3 days back (and the check now compares consent date and recorder too), then
+  red; restored 24/24.
+- Next exact step: the user's TEST-PLAN AE pass; merge only when the user says (order: polish
+  → rag → this).
+
 ## 2026-10-07 — Claude Code — Assistant changes contacts (branch feat/crm-assistant-edit)
 
 - Done (worktree /Users/saadiii/Job/realestate_ai-assist, from feat/crm 1356053): three
