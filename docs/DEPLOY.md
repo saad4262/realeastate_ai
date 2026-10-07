@@ -97,6 +97,11 @@ Nothing below is optional for production. Each line names what proves it is done
       production redirect URL and OAuth allow list on the real domain.
 - [ ] `GOOGLE_MAPS_API_KEY` restricted by IP / API; browser key restricted by HTTP referrer to
       the production domains.
+- [ ] **Places API (New)** enabled in the Google Cloud project of `GOOGLE_MAPS_API_KEY` (and
+      allowed in the key's API restrictions). Google reviews (ADR 0028) uses only it — Text
+      Search and Place Details with `reviews`, no fallback — while address suggestions fall
+      back to the old "Places API" and Geocoding API, so working suggestions do not prove it is
+      on. Place Details with reviews is a higher-priced SKU: set a billing alert.
 
 **Legal and product pages**
 - [ ] **Privacy policy** and **terms of use** published on the domain (needed by Google
@@ -185,7 +190,9 @@ Generate the two secrets with `openssl rand -hex 32`.
     AI_DAILY_BUDGET_USD_PER_USER         Default 0.25.
     GOOGLE_MAPS_API_KEY                  Server key, restrict by IP. Unset: the
                                          radius is lost; suburb search still
-                                         works.
+                                         works. Needs Places API (New) for
+                                         Google reviews and Geocoding API for
+                                         CSV import and pin addresses.
     NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY  A DIFFERENT key, restrict by HTTP
                                          referrer. Never interchangeable with the
                                          one above. Unset: maps show a "not

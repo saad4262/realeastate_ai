@@ -70,9 +70,22 @@ Restart. Anything connected through the stub must be reconnected for real.
 
 ## Block 6 — run it later (≈ 30 min, mostly waiting)
 
-Settings: `ASSISTANT_SCHEDULING=1` in **both** the console and web settings. Something must call
-`/api/cron/alerts` (with `CRON_SECRET`) every few minutes: the GitHub Actions pinger, or a
-`curl` loop in a terminal. Restart.
+Settings: `ASSISTANT_SCHEDULING=1` in **both** the console and web settings. Restart. Something
+must call `/api/cron/alerts` every few minutes. On your machine that is a `curl` loop — the GitHub
+Actions pinger calls the deployed site (`ALERTS_CRON_URL`), never localhost. In a separate
+terminal (use the same `CRON_SECRET` value as in `.env.local`; the cron route is on the website,
+port 3000):
+
+```sh
+export CRON_SECRET='…the value from .env.local…'
+while true; do
+  curl -s -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/alerts | head -c 300
+  echo; sleep 120
+done
+```
+
+Every two minutes it prints the tick's summary (`"ok":true`, and `"scheduled":{"ran":…}` once
+something is due). Stop it with Ctrl+C when AB is done.
 
 | Order | Section | Needs | Time |
 |---|---|---|---|

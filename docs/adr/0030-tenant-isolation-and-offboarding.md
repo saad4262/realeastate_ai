@@ -1,6 +1,6 @@
 # 0030 — Tenant isolation and offboarding
 
-**Status:** ACCEPTED, 2026-10-06. Not built. Decisions at the end ("Decided").
+**Status:** ACCEPTED, 2026-10-06. **Built**: isolation tests 2026-10-06 (Phase 1), offboarding 2026-10-07 (Phase 8, migration 0035) — see "As built" at the end. Decisions at the end ("Decided").
 
 **Context.** About 100 agencies on one database (two apps, one packages layer — #9), each with
 its own Zoom, Gmail, Google Sheets and Calendar connections, contacts, leads, conversations,

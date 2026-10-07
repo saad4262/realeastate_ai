@@ -1,6 +1,6 @@
 # 0028 — Google Reviews
 
-**Status:** ACCEPTED, 2026-10-06. Not built. **Supersedes ADR 0023** (its client decisions stand; this adds the design and settles where the place comes from). Decisions at the end ("Decided").
+**Status:** ACCEPTED, 2026-10-06. **Step 1 built** 2026-10-06 (Phase 5, migration 0033) — see "As built"; step 2 (Business Profile, Link to contact) not built. **Supersedes ADR 0023** (its client decisions stand; this adds the design and settles where the place comes from). Decisions at the end ("Decided").
 
 **Context.** The agency's Google rating and reviews should show in the console and on the
 public agency and agent profiles. Reviews belong to the business. Google offers two sources:

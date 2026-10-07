@@ -1,6 +1,6 @@
 # 0026 — Gmail send-only (CRM phase 3c)
 
-**Status:** ACCEPTED, 2026-10-06. Not built. Decisions at the end ("Decided").
+**Status:** ACCEPTED, 2026-10-06. **Built** 2026-10-06 (Phase 6, migration 0034) — see "As built" at the end. Decisions at the end ("Decided").
 
 **Context.** Agents want email to the people they work with to come *from them* — their own
 Gmail address, sitting in their Gmail "Sent" folder — not from the platform address. ADR 0016

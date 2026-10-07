@@ -81,29 +81,18 @@
   leak in practice — every caller passed its own agency id and the SQL filters by agency — but
   the rule would have opened other agencies' drafts to the first caller that passed the
   listing's real agency. Now same agency + a membership. Unit and smoke unchanged otherwise.
-- **Accepted, not built (2026-10-06):** ADR 0026 Gmail send-only, 0027 Mini dashboards,
-  0028 Google Reviews (supersedes 0023), 0029 Sheets + CSV import (supersedes 0024; template
-  in `docs/import/listings-template.csv`), 0030 Tenant isolation and offboarding. All open
-  questions answered (user + client); each ADR ends with "Decided".
-- **Remaining build phases, in order** (each waits for the user's go):
-  1. **Tenant-isolation tests** (0030 part 1): schema classification + two-agency matrix.
-     Depends on nothing; first, so every later table must pass it.
-  2. **Assistant Phase D** (0025): `send_template_email` card from picked contacts;
-     `prepareBatch` from contact ids; platform sender. Depends on Phase C (done), 0022 (done).
-  3. **Dashboards** (0027 / 0025 Phase F): six widgets incl. new `email_replies`,
-     `agency.time_zone`, `report:read_agency`, `create_dashboard` card. Depends on the proposal
-     flow (done).
-  4. **CSV listing import** (0029, CSV part): mapping, dry run, chunks, duplicates, photo links.
-     Depends on the listing approval flow and geocoding (exist). Sheets part later (needs
-     Google verification of `drive.file` + Picker).
-  5. **Reviews step 1** (0028): place picker + Places rating, cached. Depends on
-     `GOOGLE_MAPS_API_KEY` (exists) and a check of the Places terms. Step 2 waits for Google's
-     Business Profile API approval.
-  6. **Gmail send** (0026): own → agency (admin switch) → platform. Depends on the shared send
-     path (done); real users need Google OAuth verification (go-live list).
-  7. **Offboarding** (0030 part 2) + one-membership-per-user index. Depends on 1, and comes
-     after 2–6 so it covers every token, card, import and dashboard they add.
-  Not in this list: Phase E delayed runs (blocked on Vercel Pro), Sheets import, Reviews step 2.
+- **ADRs 0026–0030: built** (2026-10-06/07), in this order: 1 tenant-isolation tests, 2 assistant
+  email card (0025 D), 3 dashboards (0027), 4 CSV import (0029), 5 reviews step 1 (0028), 6 Gmail
+  send (0026), 7 assistant run-later (0025 E), 8 offboarding (0030). Each ADR ends with "As built".
+  Not built: Google Sheets import, reviews step 2 (Business Profile, Link to contact), go-live.
+- **Polish branch `feat/crm-polish` (2026-10-07, not merged yet):** invitation preview names its
+  sender; the buyer's website view shows how each reply was sent; agency accounts connected by a
+  removed member are flagged on the Integrations card (cleared on reconnect); a removed member
+  sees "You no longer have access to <agency>"; an appointment whose Zoom link moved says "send
+  the invitation again" (and a new invitation is allowed); the console refuses to start with
+  NEXT_PUBLIC_UI_PREVIEW=1 in production. Two bugs fixed on the way: loadActor could pick a
+  removed member's old suspended row over their new agency; offboarding blocked re-inviting
+  after a Zoom link change.
 - **Dev allowlist fix (ADR 0025 Q6) committed (6238739):** `EMAIL_DEV_ALLOWLIST` now gates
   every platform-composed email (`mail_message.kind` set: template email, appointment
   invitation) in the shared `deliverOutbound`. A person's own typed reply is not gated.

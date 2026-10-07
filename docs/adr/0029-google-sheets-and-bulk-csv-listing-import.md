@@ -1,6 +1,6 @@
 # 0029 — Google Sheets and bulk CSV listing import
 
-**Status:** ACCEPTED, 2026-10-06. Not built. **Supersedes ADR 0024** (its client decisions stand; this adds the design). The client asked us to define the CSV ourselves: the template is under "Decided".
+**Status:** ACCEPTED, 2026-10-06. **CSV import built** 2026-10-06 (Phase 4, migration 0032) — see "As built"; Google Sheets not built (deferred). **Supersedes ADR 0024** (its client decisions stand; this adds the design). The client asked us to define the CSV ourselves: the template is under "Decided".
 
 **Context.** An agency moving onto the platform brings 2,000–3,000 listings, as a CSV export
 or a Google Sheet. The rules: an owner/admin import goes live (or, by choice, draft); an

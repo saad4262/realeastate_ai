@@ -474,7 +474,7 @@ conversation are not affected.
 | P12 | Set `EMAIL_LIMIT_PER_AGENT_DAY=1` in `.env.local`, restart, send two invitations | The second preview says the limit is reached and Send is disabled. (Put it back afterwards.) |
 | P13 | Preview an invitation for a contact whose email is NOT on the allowlist | The preview shows "Not sent: this address is not on the development allowlist (EMAIL_DEV_ALLOWLIST)…" and **Send is disabled**. No email, no new conversation. |
 
-## Q — Integrations hub (ADR 0020, CRM Phase 4 — stub provider only)
+## Q — Integrations hub (ADR 0020, CRM Phase 4 — with the pretend provider)
 
 Needs in `.env.local`: `INTEGRATION_TOKEN_KEY` (`openssl rand -base64 32`),
 `INTEGRATION_OAUTH_RETURN_BASE=http://localhost:3001`, `INTEGRATIONS_STUB=1`; restart
@@ -482,7 +482,7 @@ Needs in `.env.local`: `INTEGRATION_TOKEN_KEY` (`openssl rand -base64 32`),
 
 | # | Case | Expected |
 |---|---|---|
-| Q1 | Owner → Settings → Integrations (`/settings/integrations`) | Cards: the agency's Zoom, Google Reviews, Google Sheets, and the owner's own Google Calendar, Zoom, Sheets — each "Not connected", with what it does and "Why we ask for each permission". A yellow note says the stub is on. |
+| Q1 | Owner → Settings → Integrations (`/settings/integrations`) | Cards: the agency's Zoom, **Gmail (send only)**, Google Reviews, Google Sheets, and the owner's own Google Calendar, Zoom, **Gmail (send only)**, Sheets — each "Not connected", with what it does and "Why we ask for each permission". A yellow note says the stub is on. Below the cards: **Members may send from the agency Gmail: On** with a Turn off button. (The "Google Reviews" card is step 2 of ADR 0028, not built; the agency's Google rating is picked under Settings → Google reviews, section Z.) |
 | Q2 | Connect on the agency's **Zoom** | A "Pretend Zoom — dev only" page lists two permissions, both ticked. Allow → the browser goes to `localhost:3001/...return` and straight on to `agency.lvh.me` (watch the address bar) → back on Integrations with "Zoom connected", the account label and the time. |
 | Q3 | Connect **Google Calendar**, untick `calendar.events.owned`, Allow | Back with "connected without: …calendar.events.owned"; the card says **Permission missing** and offers **Reconnect**. Reconnect with everything ticked → **Connected**. |
 | Q4 | Connect anything, press **Deny** | Back with "permission was declined"; nothing stored. |
@@ -492,6 +492,8 @@ Needs in `.env.local`: `INTEGRATION_TOKEN_KEY` (`openssl rand -base64 32`),
 | Q8 | Start a Connect as the agent, then (before Allow) sign in as the owner in that browser and press Allow | "That connection was started by a different account" — nothing stored for anyone. |
 | Q9 | Open `http://localhost:3001/api/integrations/oauth/return?state=forged&code=x` | Lands on an Integrations page with "That connection link has expired" — never on another site. |
 | Q10 | Read-only member opens `/my-integrations` | Statuses only; no Connect anywhere. |
+| Q11 | Owner → Connect **Gmail (send only)** (your own) | The pretend page lists `gmail.send`, `openid` and `email` — nothing that reads mail — and the account as `stub.gmail@example.test`. Allow → "Gmail (send only) connected". Open a conversation: under the reply box, "Sent from your Gmail (…)"; a reply sent now is recorded "Sent from their Gmail" (the pretend Gmail records it, nothing is emailed). Real Gmail is section AA. |
+| Q12 | Agent → `/my-integrations` | Their own Gmail card to connect; the agency's Gmail with status but no buttons; no "Members may send…" switch. |
 
 ## R — Skills (ADR 0021, CRM Phase 5)
 

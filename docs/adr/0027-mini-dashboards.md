@@ -1,6 +1,6 @@
 # 0027 — Mini dashboards
 
-**Status:** ACCEPTED, 2026-10-06. Not built. This is ADR 0025's Phase F ("widgets hook"), made concrete. Decisions at the end ("Decided").
+**Status:** ACCEPTED, 2026-10-06. **Built** 2026-10-06 (Phase 3, migrations 0030–0031) — see "As built". This is ADR 0025's Phase F ("widgets hook"), made concrete. Decisions at the end ("Decided").
 
 **Context.** An admin asks the assistant "last 7 days Sold value" and wants a link that opens
 a screen that stays up to date — something to leave open on an office TV or send to a
