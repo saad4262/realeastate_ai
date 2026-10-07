@@ -1,10 +1,11 @@
 import { and, asc, desc, eq, or, sql } from 'drizzle-orm';
 import { replyInputSchema } from './mail-schema';
-import { agency, lead, mailMessage, mailThread, type Db } from '@repo/db';
+import { agency, integrationAccount, lead, mailMessage, mailThread, type Db } from '@repo/db';
 import { can } from '../permissions';
 import { snippet, stripQuotedReply } from './body';
 import { MailError } from './threads';
 import { provenAddress } from './verify-email';
+import { sentViaLabel } from './sender';
 
 /**
  * A buyer's own conversations, on the website (docs/adr/0016).
@@ -129,6 +130,8 @@ export type CustomerMessage = {
   /** "You", or the agency's name — never an agent's address. */
   from: string;
   text: string;
+  /** On the agency's messages: how it left — the same words as in the console (ADR 0026, decided Q5). */
+  sentVia: string | null;
   createdAt: Date;
 };
 
@@ -171,10 +174,13 @@ export async function getCustomerThread(
       id: mailMessage.id,
       direction: mailMessage.direction,
       text: mailMessage.text,
+      sentVia: mailMessage.sentVia,
+      senderOwnerType: integrationAccount.ownerType,
       createdAt: mailMessage.createdAt,
     })
     .from(mailMessage)
     .innerJoin(mailThread, eq(mailThread.id, mailMessage.threadId))
+    .leftJoin(integrationAccount, eq(integrationAccount.id, mailMessage.senderAccountId))
     .where(and(eq(mailMessage.threadId, thread.id), visibleToContact))
     .orderBy(asc(mailMessage.createdAt), asc(mailMessage.id));
 
@@ -193,6 +199,7 @@ export async function getCustomerThread(
       // Their own replies come from a mail client with our message quoted
       // under them; show what they actually wrote.
       text: m.direction === 'in' ? stripQuotedReply(m.text) : m.text,
+      sentVia: m.direction === 'out' && m.sentVia ? sentViaLabel(m) : null,
       createdAt: new Date(m.createdAt),
     })),
   };

@@ -6284,7 +6284,15 @@ async function main() {
       assert(headerOf(raw, 'From').endsWith(`<a2.gmail.${x.f.tag}@gmail.com>`) && headerOf(raw, 'Reply-To').endsWith(`<${x.replyAddress}>`), `headers: ${headerOf(raw, 'From')} / ${headerOf(raw, 'Reply-To')}`);
       const after = await getMailThread(t, x.f.actor('a2'), x.thread);
       assert(after.messages.find((m) => m.id === out.messageId)?.sentVia === 'Sent from their Gmail', 'no "Sent from" label on the message');
-      return 'a2’s Gmail used over the agency’s; From/Reply-To right; row says gmail + account; platform untouched';
+      // The buyer's own view on the website carries the same words (ADR 0026, decided Q5).
+      const buyerEmail = `p2.${x.f.tag}@smoke.test`;
+      const [buyer] = await t.execute<{ id: string }>(sql`
+        insert into "user" (id, email, verified_email) values (${randomUUID()}, ${buyerEmail}, ${buyerEmail})
+        on conflict (email) do update set verified_email = excluded.verified_email returning id`);
+      const theirs = await getCustomerThread(t, { userId: buyer!.id, email: buyerEmail }, x.thread);
+      const label = (theirs.messages.find((m) => m.id === out.messageId) as { sentVia?: string | null } | undefined)?.sentVia;
+      assert(label === 'Sent from their Gmail', `the buyer's view says: ${label}`);
+      return 'a2’s Gmail used over the agency’s; From/Reply-To right; row says gmail + account; same label in the console and on the website; platform untouched';
     }),
   );
 

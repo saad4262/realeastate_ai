@@ -72,6 +72,7 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
                   <div className={styles.meta}>
                     <span className={styles.from}>{m.from}</span>
                     <time dateTime={m.createdAt.toISOString()}><LocalTime iso={m.createdAt.toISOString()} /></time>
+                    {m.sentVia ? <span>{m.sentVia}</span> : null}
                   </div>
                   <div className={styles.bubble}>{m.text}</div>
                 </article>
