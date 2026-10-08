@@ -25,3 +25,8 @@ moment it gets one.
 
 **Not done.** An agent editing a LIVE listing still changes the public ad without
 review; approving edits needs revisions, which is a separate piece of work.
+
+**Amended 2026-10-07 (the client's rule):** an agent's leads are the leads **assigned** to
+them. A listing they are named on no longer opens its leads. A new enquiry is assigned to the
+listing's primary agent as it arrives, and only owners/admins reassign. See ADR 0018's
+amendment.

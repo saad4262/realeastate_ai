@@ -1,3 +1,27 @@
+## 2026-10-08 — Claude Code — The client's visibility rule (branch feat/crm-visibility)
+
+- Read first, reported, then the user decided (2026-10-07): migration 0038, backfill as a
+  dry-run script, contact follows a new enquiry only if nobody's, follows a reassign only if
+  the old agent's or nobody's, primary agent = role lead + first display order, address-tied
+  unowned contacts go to the listing's agent.
+- Commits (test first each): 80592f9 migration 0038 lead_handover (applied on dev, id 39,
+  hash 4e1527e978b2; snapshot checked sound in a throwaway copy first); 771857f can() + SQL
+  rule (contacts, leads, threads, notes; notifyNewLead → assignee else admins, found by
+  smoke); 43e7dc7 enquiry/address/listing auto-assignment (smoke found an alias-shadowing bug
+  in the helper — fixed); 3b9e1de reassign (handover, contact move, timeline, note, UI);
+  7e1844e backfill script (dry run only); 2e4e964 email `not_yours` + assistant cards on own
+  contacts only; ba3a480 isolation cases.
+- Smoke fixture now models the new flow (P1/P5 A1's); checks that removed access by deleting
+  listing_agent now give P1 and its lead away. Pooler dropped connections twice (re-runs green).
+- Checks: typecheck/lint 20/20, unit 853 + 294; smoke green: Database health, Email
+  conversations, Contacts 17, Appointments, Calendar/Zoom fakes, Skills, Template email,
+  Console assistant 24, Tenant isolation, Offboarding, Assistant search, Listing import, Gmail.
+  Break-tests (3 parallel copies), all red: agent sees another's contact; reassigned lead stays
+  with the first agent; the note names the new agent; agent reassigns (server); agent offered
+  the picker (UI flag); leads cross agencies; backfill takes a third agent's contact; reassign
+  takes a third agent's contact; email at send / at Prepare to a non-own contact.
+- Next: user decides on `visibility:backfill -- --apply`; TEST-PLAN AG; merge when told.
+
 ## 2026-10-07 — Claude Code — Merged polish → search (rag) → assistant contact tools into feat/crm
 
 - polish rebased on 1356053 (clean; typecheck/lint 20/20, unit 827 + 286), then fast-forwarded;

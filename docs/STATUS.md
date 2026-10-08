@@ -12,6 +12,19 @@
   @repo/ai search:backfill`), never for private notes, archived/opted-out contacts or offers.
   Metered in ai_run (question inside the assistant caps; indexing cap 0.25/agency/day). Prompt
   assistant@v6. TEST-PLAN AD; TEST-ORDER Block 3b. Client questions in ADR 0031.
+- **Branch `feat/crm-visibility` (2026-10-08, not merged): the client's visibility rule (ADR
+  0018 amendment).** Agents see only their assigned contacts and leads; a contact behind a lead
+  assigned to them is read-only (no edit/consent/notes/archive/cards/template email — skip
+  `not_yours`); listing or address open nothing. A new enquiry goes straight to the listing's
+  primary agent (role lead, first in order, active), with its contact if nobody's; unowned
+  address-tied contacts go to that listing's agent (on linking and when a listing gets agents).
+  Only owners/admins reassign a lead: lead + contact (if the old agent's or nobody's) move, a
+  `lead_handover` row is kept, the timeline says who/when/from/to; the first agent keeps only
+  "This lead has been reassigned from you to another agent." **Migration 0038 (lead_handover)
+  applied on dev.** Backfill script written, **dry run only** (4 old listing leads would go to
+  their listing agents, 0 contacts) — `--apply` waits for the user. Pre-existing on feat/crm
+  too, not from this branch: no loading.tsx for /team/remove and /team/removed; one auth
+  account without a public.user row.
 - **Merged 2026-10-07: polish → search (rag) → assistant contact tools, on `feat/crm`.** Migrations
   0036 (search) and 0037 (contact tools) both already applied on dev; prompt `assistant@v7` carries
   v6's search text. After pulling: `pnpm install` once, then restart `pnpm dev`. Next: TEST-PLAN

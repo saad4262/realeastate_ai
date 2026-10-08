@@ -82,3 +82,56 @@ buyer/seller tables (one person, many roles). Reusing `event` (see 6).
 
 **Not done.** Last-activity column in the directory; `contact.user_id` (set only once
 an account proves the address); appointments (Phase 3).
+
+## Amendment, as built — the client's visibility rule (2026-10-07)
+
+The client decided that an agent sees what is **assigned** to them, not what their listings
+touch. This replaces "seen through what you could already open" for leads and contacts.
+Owners and admins still see everything in their agency.
+
+**Who sees what (non-admin).** `can()` and its SQL twins say the same thing
+(`narrowedContactIdsSql`, `leadScopeFilters`, `threadScopeFilters`). The directory, inbox,
+threads, counts, the assistant's tools, the search tool and the lead widget therefore all
+follow inside the SQL:
+
+- **A contact:** visible if it is assigned to them (theirs in full), or behind a non-offer
+  lead assigned to them (read-only).
+- **A lead and its conversation:** the assignee's alone. An unassigned lead belongs to the
+  owners' and admins' queue.
+- **What no longer opens anything:** being named on a listing, or on a listing at an address
+  the contact is tied to.
+- **Read-only contacts** (seen only through a lead): no edit, consent, notes, archive, or
+  assistant cards, and no template email (skip reason `not_yours`, checked at Prepare and
+  again at the moment of sending). Replying in the lead's own conversation stays with the
+  lead's assignee. Read-only members still write nothing.
+
+**Where work goes on its own.** "Primary agent" means the listing's `lead`-role agent who
+is first in display order, an active member and not read-only. A co-agent never counts.
+- A new enquiry goes to the listing's primary agent. With no primary agent it goes to the
+  owners' and admins' queue, and they get the new-lead email.
+- Its contact goes with it, if the contact was nobody's. A third agent's contact stays
+  theirs, and the new agent reads it through the lead.
+- A contact that is nobody's and is tied to an address goes to the primary agent of the
+  agency's latest listing there. This happens on linking, and when a listing gets its
+  agents (create, edit or import).
+- Each of these is an "Assigned" timeline entry made by the system, with `via`.
+
+**Reassigning a lead.** Only owners and admins can do this (`lead:assign`). Agents are never
+offered it, and the server refuses it. In one transaction:
+- The lead moves.
+- Its contact moves too, if it was the previous agent's or nobody's. Never a third agent's.
+  Offers never move a contact. The screen says which happened.
+- A `lead_handover` row is kept (migration 0038).
+- A "Lead reassigned" timeline entry records who did it, when, and from whom to whom (by
+  name). Only owners/admins and the lead's current assignee can read that entry.
+
+The agent it was taken from can no longer open the lead, its conversation, or a contact that
+moved. On My leads they see only "This lead has been reassigned from you to another agent."
+with a date: no lead, no contact, no new agent.
+
+**Existing data.** `pnpm --filter @repo/core visibility:backfill` does a dry run by default.
+With `-- --apply` it applies the same rule to old unassigned listing leads and to contacts
+that are nobody's. It has not been applied on dev; that waits for the user.
+
+**Unchanged.** Private notes, offers (admins only), tenant isolation, offboarding,
+read-only members.

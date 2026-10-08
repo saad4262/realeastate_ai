@@ -69,6 +69,19 @@ One contact must have unsubscribed (S's unsubscribe link, or ask a developer).
 It sits after V–X and AD because it builds on V's cards. AE27 and AE28 are re-checked in
 Blocks 6 and 7.
 
+## Block 3d — who sees what; reassigning a lead (≈ 50 min)
+
+Settings: as Block 3. **Migration 0038** must be on the database (one new table). Restart
+`pnpm dev` after pulling. Decide about the backfill (AG13) before testing with old data:
+the dry run is safe; `--apply` changes who holds old leads.
+
+| Order | Section | Needs | Time |
+|---|---|---|---|
+| 11d | **AG** — Who sees which lead and contact; reassigning | Owner, A1, A2 (a third agent or the owner for AG7–8); a live listing led by A1; `EMAIL_DEV_ALLOWLIST` for the enquiry email; a second agency for AG14 | 50 min |
+
+It sits after AE because AG10 uses the assistant's cards. Do it before AA/AC: they assume
+the new visibility.
+
 ## Block 4 — Google's public data (≈ 20 min)
 
 Settings: `GOOGLE_MAPS_API_KEY` with **Places API (New)** switched on in Google Cloud. That is
@@ -125,7 +138,7 @@ redone.
 |---|---|---|---|
 | 16 | **AC** — Removing someone from the agency | A1 with appointments (real Calendar/Zoom from T), contacts, a lead, an only-agent listing, a waiting assistant card, a prepared bulk email; A2 with Calendar connected; a second agency for AC11; for **AE28**, an admin with an assign card and a consent card waiting | 45 min |
 
-**Total: about 8 hours 20 minutes**, best spread over two sittings: Blocks 1–4 (with 3b and 3c), then 5–7.
+**Total: about 9 hours 10 minutes**, best spread over two sittings: Blocks 1–4 (with 3b, 3c and 3d), then 5–7.
 
 ## Every setting, in one place
 
