@@ -3584,6 +3584,22 @@ async function main() {
       assert(!p1.mayUpdate && !p1.mayAssign && !p1.mayNote && !p1.mayArchive, `P1 is not A1's contact, yet: ${JSON.stringify(p1)}`);
       const note = await createNote(t, a1, c.p1, 'x').then(() => 'written', (e: unknown) => (e as ContactError).code);
       assert(note === 'forbidden', `A1 wrote a note on a lead-only contact: ${note}`);
+      // The assistant's cards follow the same line: none on a contact A1 only reads.
+      const conv = await claimTurn(t, a1, { message: 'x', surface: 'agent' });
+      const ch: HandleMap = {};
+      issueHandle(ch, 'C', c.p1);
+      const pctx = () => ({ db: t, actor: a1, timeZone: 'Australia/Melbourne', handles: ch, now: new Date(), proposal: { conversationId: conv.conversationId, turnId: randomUUID(), toolUseId: randomUUID(), made: { count: 0 } } });
+      const inTwoDays = new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Melbourne', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(Date.now() + 2 * 86_400_000));
+      for (const [tool, input] of [
+        ['add_note', { contact: 'C1', body: 'x' }],
+        ['set_next_action', { contact: 'C1', text: 'x' }],
+        ['schedule_appointment', { contact: 'C1', type: 'meeting', title: 'x', date: inTwoDays, time: '10:00' }],
+        ['update_contact', { contact: 'C1', name: 'x' }],
+        ['record_marketing_consent', { contacts: ['C1'], how: 'x' }],
+      ] as const) {
+        const out = await runAssistantTool(pctx(), tool, input);
+        assert(out.isError && (out.frame as { kind?: string } | undefined)?.kind !== 'proposal', `a ${tool} card on a lead-only contact: ${JSON.stringify(out.result)}`);
+      }
 
       // P5 assigned to A1: theirs in full.
       await t.execute(sql`update contact set assigned_to = ${f.people.a1} where id = ${c.p5}`);
@@ -4962,6 +4978,30 @@ async function main() {
   }
 
   const codeOf = (p: Promise<unknown>) => p.then(() => 'ok', (e: unknown) => (e as { code?: string }).code ?? String(e));
+
+  await check('AG: an agent emails only contacts assigned to them — one read through a lead is "not yours", at Prepare and again at the moment of sending', () =>
+    rolledBack(async (t) => {
+      const x = await templateFixture(t);
+      const a2 = x.f.actor('a2');
+      // P2 is behind a lead assigned to A2 but is nobody's contact: A2 reads it, may not email it.
+      await t.execute(sql`update contact set marketing_consent_at = now() where id = ${x.f.contacts.p2}`);
+      const [own] = await t.execute<{ id: string }>(sql`
+        insert into contact (agency_id, name, email, assigned_to, marketing_consent_at)
+        values (${x.f.agencyId}, 'Own', ${`own.${x.f.tag}@smoke.test`}, ${x.f.people.a2}, now()) returning id`);
+      const { id } = await prepareEmailBatch(t, a2, { templateId: x.tpl.id, contactIds: [x.f.contacts.p2, own!.id] }, LIMITS);
+      const recips = (await getEmailBatch(t, a2, id)).recipients;
+      const p2 = recips.find((r) => r.contactId === x.f.contacts.p2);
+      const mine = recips.find((r) => r.contactId === own!.id);
+      assert(p2?.status === 'skipped' && p2.skipReason === 'not_yours' && mine?.status === 'queued', `prepared: ${JSON.stringify(recips.map((r) => [r.name, r.status, r.skipReason]))}`);
+      // Their own contact is given to someone else before sending: skipped at the moment of sending.
+      await approveEmailBatch(t, a2, id, LIMITS);
+      await t.execute(sql`update contact set assigned_to = ${x.f.people.owner} where id = ${own!.id}`);
+      const report = await sendEmailBatch(t, x.deps, id);
+      const atSend = (await getEmailBatch(t, a2, id)).recipients.find((r) => r.contactId === own!.id);
+      assert(report.sent === 0 && atSend?.skipReason === 'not_yours' && x.transport.sent.length === 0, `at send: ${JSON.stringify(report)} ${atSend?.skipReason}`);
+      return 'lead-only contact skipped "not yours" at Prepare; own contact reassigned before sending → skipped at send; 0 sent';
+    }),
+  );
 
   await check('an unapproved template cannot be used, and the frozen list does not change after contact edits', () =>
     rolledBack(async (t) => {

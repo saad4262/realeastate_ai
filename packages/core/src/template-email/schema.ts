@@ -63,6 +63,8 @@ export const SKIP_REASONS = [
   'dev_allowlist',
   'email_changed',
   'daily_limit',
+  // The client's rule (2026-10-07): an agent emails only their own contacts.
+  'not_yours',
 ] as const;
 export type SkipReason = (typeof SKIP_REASONS)[number];
 
@@ -76,6 +78,7 @@ export const SKIP_REASON_LABELS: Record<SkipReason, string> = {
   dev_allowlist: 'Not on the development allowlist (nothing real is sent in development)',
   email_changed: 'Their email address changed since Prepare',
   daily_limit: 'Daily sending limit reached',
+  not_yours: 'Not your contact — only the agent it is assigned to, or an admin, may email them',
 };
 
 export const BATCH_STATUS_LABELS = {

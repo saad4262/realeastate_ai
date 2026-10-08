@@ -6,9 +6,11 @@ import {
   emailBatchRecipient,
   mailMessage,
   mailThread,
+  membership,
   skill,
   type Db,
 } from '@repo/db';
+import { can, type MembershipRole } from '../permissions';
 import { checkEmailLimits, devAllowlist, emailLimitsFromEnv, type TemplateLimits } from '../email/limits';
 import { contactUnsubscribeUrl } from '../email/unsubscribe';
 import { deliverOutbound, mailDepsFromEnv, recordOutbound, type MailDeps } from '../mail/send';
@@ -85,6 +87,14 @@ export async function sendBatch(db: Db, deps: TemplateSendDeps, batchId: string)
   const tpl = batch.templateSnapshot as TemplateSnapshot;
   const values = await mergeValuesFor(db, batch);
   const allowed = devAllowlist(deps.env ?? process.env);
+  // Who is sending, as they are now: an owner/admin may email anyone in the agency; anybody
+  // else only contacts still assigned to them (the client's rule, 2026-10-07).
+  const [sender] = await db
+    .select({ role: membership.role })
+    .from(membership)
+    .where(and(eq(membership.userId, batch.userId), eq(membership.agencyId, batch.agencyId), eq(membership.status, 'active')))
+    .limit(1);
+  const sendsForAll = Boolean(sender) && can({ userId: batch.userId, agencyId: batch.agencyId, membershipRole: sender!.role as MembershipRole }, 'contact:read_all', { type: 'contact', agencyId: batch.agencyId });
   const sleep = deps.sleep ?? defaultSleep;
   let first = true;
 
@@ -100,6 +110,7 @@ export async function sendBatch(db: Db, deps: TemplateSendDeps, batchId: string)
         mergedIntoId: contact.mergedIntoId,
         optOutAt: contact.emailOptOutAt,
         consentAt: contact.marketingConsentAt,
+        assignedTo: contact.assignedTo,
         recently: recentlyEmailedSql(sql.raw('"contact"."id"'), deps.limits.repeatDays, r.mail_message_id),
       })
       .from(contact)
@@ -114,6 +125,7 @@ export async function sendBatch(db: Db, deps: TemplateSendDeps, batchId: string)
           email: now.email,
           recently: now.recently === true || (now.recently as unknown) === 't',
         });
+    if (!reason && !sendsForAll && now!.assignedTo !== batch.userId) reason = 'not_yours';
     if (!reason && (now?.email ?? '').toLowerCase() !== (r.email ?? '').toLowerCase()) reason = 'email_changed';
     if (!reason && allowed && !allowed(r.email ?? '')) reason = 'dev_allowlist';
     if (!reason) {

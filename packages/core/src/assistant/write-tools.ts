@@ -168,6 +168,11 @@ export async function proposeScheduleAppointment(
   if (!can(ctx.actor, 'appointment:create', { type: 'appointment', agencyId })) {
     return refused('This person can view appointments but not book them.', label);
   }
+  // The client's rule (2026-10-07): the assistant's cards are for the person's OWN contacts;
+  // one they only read through a lead assigned to them is read-only here.
+  if (!can(ctx.actor, 'contact:update', c.resource)) {
+    return refused(`${c.head.row.name} is not assigned to this person, so the assistant will not book with them. Nothing was proposed.`, label);
+  }
   // Always on the person's own calendar; a Zoom type needs a Zoom (theirs, else the agency's).
   const requires: IntegrationProvider[] = ['google_calendar', ...(input.type === 'zoom' ? (['zoom'] as const) : [])];
   const missing = await connectFirst(ctx, requires, label);

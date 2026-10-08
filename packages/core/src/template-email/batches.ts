@@ -144,6 +144,7 @@ export async function prepareBatch(
       archivedAt: contact.archivedAt,
       optOutAt: contact.emailOptOutAt,
       consentAt: contact.marketingConsentAt,
+      assignedTo: contact.assignedTo,
       // Qualified by hand: a single-table select renders its columns as a bare "id", which the subquery's own tables would make ambiguous.
       recently: recentlyEmailedSql(sql.raw('"contact"."id"'), limits.repeatDays),
     })
@@ -163,7 +164,10 @@ export async function prepareBatch(
 
   let toSend = 0;
   const recipients = rows.map((r) => {
-    let reason = classify({
+    // The client's rule (2026-10-07): an agent may read a contact through a lead assigned to
+    // them, but emails only contacts assigned to them. Owners and admins: anyone in the agency.
+    let reason: SkipReason | null = !seesAll && r.assignedTo !== actor.userId ? 'not_yours' : null;
+    reason ??= classify({
       archived: Boolean(r.archivedAt),
       optedOut: Boolean(r.optOutAt),
       consent: Boolean(r.consentAt),
