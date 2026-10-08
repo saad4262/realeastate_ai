@@ -6371,6 +6371,9 @@ async function main() {
           ['list_templates', runAssistantTool(ctx, 'list_templates', {})],
           ['check_connections', runAssistantTool(ctx, 'check_connections', { providers: ['google_calendar', 'zoom'] })],
           ['find_team_members', runAssistantTool(ctx, 'find_team_members', {})],
+          // A handover in B naming this A member as "from" (it cannot happen; the agency filter must hold anyway).
+          ['listReassignedAway', t.execute<{ id: string }>(sql`insert into lead_handover (agency_id, lead_id, from_user_id) values (${B.f.agencyId}, ${B.ids.lead}, ${actor.userId}) returning id`)
+            .then(async ([h]) => { bIds.push(h!.id); return listReassignedAway(t, actor); })],
           // Getters with B's ids: each must refuse (or return null), never B's row.
           ['getContact(B)', getContact(t, actor, B.ids.contacts[0]!)],
           ['getAppointment(B)', getAppointment(t, actor, B.ids.appointment)],
@@ -6453,6 +6456,7 @@ async function main() {
           ['updateLeadStatus', () => updateLeadStatus(t, actor, B.ids.lead, 'contacted')],
           ['assignLead', () => assignLead(t, actor, B.ids.lead, actor.userId)],
           ['assignLead(A lead → B person)', () => assignLead(t, actor, A.ids.lead, B.ids.people[1]!)],
+          ['assignLead(B lead → A person)', () => assignLead(t, actor, B.ids.lead, A.f.people.a2)],
           ['markThreadRead', () => markThreadRead(t, actor, B.ids.thread)],
           ['sendThreadReply', () => sendThreadReply(t, mailDeps, actor, B.ids.thread, { body: 'x' })],
           ['approveEmailTemplate', () => approveEmailTemplate(t, actor, B.ids.template)],
