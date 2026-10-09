@@ -1,4 +1,5 @@
 import type { WidgetData, WidgetTile } from '@repo/core/widgets';
+import { BarList, Columns, Donut, SplitBar } from './charts';
 import styles from './dashboards.module.css';
 
 /**
@@ -14,7 +15,7 @@ const NOT_OK = {
   error: 'Could not work this out just now — it will try again.',
 } as const;
 
-function Figures({ data, compact }: { data: WidgetData; compact: boolean }) {
+function Figures({ widget, data, compact }: { widget: string; data: WidgetData; compact: boolean }) {
   switch (data.kind) {
     case 'money':
       return (
@@ -22,35 +23,36 @@ function Figures({ data, compact }: { data: WidgetData; compact: boolean }) {
           <div className={styles.big}>{money(data.total)}</div>
           <div className={styles.sub}>
             {count(data.count)} sale{data.count === 1 ? '' : 's'} with a price
-            {data.undisclosed ? ` · ${count(data.undisclosed)} sold with no disclosed price (not counted as $0)` : ''}
           </div>
+          {data.undisclosed ? (
+            <SplitBar
+              parts={[
+                { label: 'With a price', value: data.count, color: 'var(--sapphire)' },
+                { label: 'No disclosed price (not counted as $0)', value: data.undisclosed, color: 'var(--border-strong)' },
+              ]}
+            />
+          ) : null}
         </>
       );
     case 'count':
       return <div className={styles.big}>{count(data.total)}</div>;
     case 'status':
-      return (
-        <>
-          <div className={styles.big}>{count(data.active)}</div>
-          <div className={styles.sub}>{data.rows.map((r) => `${count(r.value)} ${r.label.toLowerCase()}`).join(' · ')}</div>
-        </>
-      );
-    case 'breakdown':
+      return <Donut rows={data.rows} centre={data.active} caption="active" />;
+    case 'breakdown': {
+      const empty = data.rows.length === 0;
       return (
         <>
           <div className={styles.big}>{count(data.total)}</div>
-          {data.rows.length ? (
-            <ul className={styles.rows}>
-              {data.rows.slice(0, compact ? 4 : 10).map((r) => (
-                <li key={r.label}>
-                  <span>{r.label}</span>
-                  <span>{count(r.value)}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+          {empty ? (
+            <p className={styles.muted}>Nothing in this period yet.</p>
+          ) : widget === 'new_leads' && data.rows.length > 1 && !compact ? (
+            <Columns rows={data.rows} />
+          ) : (
+            <BarList rows={data.rows} total={data.total} limit={compact ? 4 : 8} />
+          )}
         </>
       );
+    }
   }
 }
 
@@ -58,7 +60,7 @@ export function Tile({ tile, compact = false }: { tile: WidgetTile; compact?: bo
   return (
     <div className={`${styles.tile} ${compact ? styles.compact : ''}`} data-state={tile.state}>
       <div className={styles.tileTitle}>{tile.description}</div>
-      {tile.state === 'ok' ? <Figures data={tile.data} compact={compact} /> : <p className={styles.muted}>{NOT_OK[tile.state]}</p>}
+      {tile.state === 'ok' ? <Figures widget={tile.widget} data={tile.data} compact={compact} /> : <p className={styles.muted}>{NOT_OK[tile.state]}</p>}
     </div>
   );
 }

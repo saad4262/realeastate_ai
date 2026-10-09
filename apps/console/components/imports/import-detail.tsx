@@ -27,6 +27,97 @@ const box: React.CSSProperties = { border: '1px solid var(--border-default)', bo
 const btn: React.CSSProperties = { padding: '0.5rem 1rem', borderRadius: '0.5rem', border: 0, background: 'var(--sapphire)', color: '#fff', fontWeight: 600, cursor: 'pointer' };
 const ghost: React.CSSProperties = { padding: '0.5rem 1rem', borderRadius: '0.5rem', border: '1px solid var(--border-default)', background: 'transparent', cursor: 'pointer' };
 
+function fmtDuration(totalSeconds: number): string {
+  const s = Math.max(0, Math.round(totalSeconds));
+  if (s < 60) return `${s} sec`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return r ? `${m} min ${r} sec` : `${m} min`;
+}
+
+type Phase = { label: string; done: number; total: number; unit: string };
+
+/** Where the running step is, in rows (and photos while importing). Counts only — nothing is guessed. */
+function phaseOf(view: ImportView): Phase | null {
+  const c = view.counts;
+  if (view.status === 'validating') {
+    return { label: 'Checking rows', done: view.totalRows - c.pending, total: view.totalRows, unit: 'rows' };
+  }
+  if (view.status === 'importing') {
+    const rowsDone = c.imported + c.updated + c.failed;
+    const rowsTotal = rowsDone + c.valid + (view.updateDuplicates ? c.duplicate : 0);
+    const photosTotal = c.photosDone + c.photosFailed + c.photosPending;
+    const photosDone = c.photosDone + c.photosFailed;
+    return { label: 'Importing listings and photos', done: rowsDone + photosDone, total: rowsTotal + photosTotal, unit: 'steps' };
+  }
+  return null;
+}
+
+/**
+ * Progress for a running check or import: a bar, "x of y", time so far and an
+ * estimate of the time left. The estimate is the pace so far, so it appears
+ * once something has finished and is only ever a guide.
+ */
+function RunProgress({ view }: { view: ImportView }) {
+  const phase = phaseOf(view);
+  const key = phase ? view.status : '';
+  const started = useRef<{ key: string; at: number; done: number; best: number }>({ key: '', at: 0, done: 0, best: 0 });
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!phase) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [phase]);
+
+  if (!phase) return null;
+  if (started.current.key !== key) started.current = { key, at: Date.now(), done: phase.done, best: 0 };
+  const st = started.current;
+
+  const pct = phase.total ? Math.min(100, Math.round((phase.done / phase.total) * 100)) : 0;
+  st.best = Math.max(st.best, pct); // never move backwards when photos are counted late
+  const elapsed = Math.max(0, (now - st.at) / 1000);
+  const doneHere = phase.done - st.done;
+  const left = phase.total - phase.done;
+  const eta = doneHere > 0 && elapsed >= 2 && left > 0 ? (left / doneHere) * elapsed : null;
+
+  return (
+    <div style={{ marginTop: '0.75rem' }} role="status" aria-live="polite">
+      <style>{`@keyframes import-stripes{from{background-position:0 0}to{background-position:2rem 0}}`}</style>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', fontWeight: 600 }}>
+        <span>{phase.label}…</span>
+        <span>{st.best}%</span>
+      </div>
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={st.best}
+        style={{ height: '0.625rem', borderRadius: '999px', background: 'var(--border-default)', overflow: 'hidden', marginTop: '0.375rem' }}
+      >
+        <div
+          style={{
+            width: `${Math.max(st.best, 3)}%`,
+            height: '100%',
+            borderRadius: '999px',
+            background: 'repeating-linear-gradient(45deg, var(--sapphire) 0 1rem, color-mix(in srgb, var(--sapphire) 78%, white) 1rem 2rem)',
+            backgroundSize: '2rem 100%',
+            animation: 'import-stripes 0.8s linear infinite',
+            transition: 'width 0.4s ease',
+          }}
+        />
+      </div>
+      <p style={{ margin: '0.375rem 0 0', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+        {phase.done.toLocaleString('en-AU')} of {phase.total.toLocaleString('en-AU')} {phase.unit} · {fmtDuration(elapsed)} so far
+        {eta !== null ? ` · about ${fmtDuration(eta)} left` : left > 0 ? ' · working out how long it will take…' : ''}
+      </p>
+      <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+        Keep this page open until it finishes. If you close it, nothing is lost: it carries on when the scheduler next runs, or when you open this import again.
+      </p>
+    </div>
+  );
+}
+
 /**
  * One import (docs/adr/0029): match columns → check → report → import →
  * photos. While it runs, this page asks the server for one chunk after
@@ -144,6 +235,7 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
           {c.imported} imported · {c.updated} updated · {c.failed} failed
           {c.photosDone + c.photosFailed + c.photosPending ? ` · photos: ${c.photosDone} in, ${c.photosFailed} failed, ${c.photosPending} to go` : ''}
         </p>
+        <RunProgress view={view} />
         {view.status === 'validated' && view.mayRun ? (
           <div style={{ marginTop: '0.75rem', display: 'grid', gap: '0.5rem', justifyItems: 'start' }}>
             {view.mayUpdateDuplicates && c.duplicate ? (

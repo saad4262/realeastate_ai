@@ -98,6 +98,11 @@ export {
   type PublicSuburbAgent,
 } from './search-sidebar';
 export {
+  approveListings,
+  APPROVE_BATCH_MAX,
+  type ApproveListingsResult,
+} from './approve-listings';
+export {
   setListingStatus,
   type PublishListingResult,
   type SettableStatus,

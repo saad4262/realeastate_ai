@@ -6,7 +6,8 @@ import { leadScopeFilters } from '../leads/list-leads';
 import { appointmentScopeFilters } from '../appointments/appointments';
 import { ACTIVE_STATUSES, APPOINTMENT_TYPE_LABELS, type AppointmentType } from '../appointments/appointment-schema';
 import { threadScopeFilters } from '../mail/threads';
-import { startOfDayIn, startOfMonthIn, startOfWeekIn, startOfYearIn } from '../time/local-input';
+import { RANGE_LABELS, rangeWindow, WIDGET_RANGES, type WidgetRange } from './ranges';
+import { appointmentsDetail, leadsDetail, listingsDetail, repliesDetail, salesDetail, type WidgetDetail } from './detail';
 
 /**
  * The FIXED widget library (ADR 0027). A dashboard — or the assistant — can
@@ -16,41 +17,7 @@ import { startOfDayIn, startOfMonthIn, startOfWeekIn, startOfYearIn } from '../t
  * comes from a model (#4). A new kind of widget is a code change, reviewed.
  */
 
-export const WIDGET_RANGES = ['today', '7d', '30d', '90d', 'this_week', 'this_month', 'last_month', 'this_year'] as const;
-export type WidgetRange = (typeof WIDGET_RANGES)[number];
-
-export const RANGE_LABELS: Record<WidgetRange, string> = {
-  today: 'today',
-  '7d': 'the last 7 days',
-  '30d': 'the last 30 days',
-  '90d': 'the last 90 days',
-  this_week: 'this week',
-  this_month: 'this month',
-  last_month: 'last month',
-  this_year: 'this year',
-};
-
-/** The time window a range means, on the agency's clock. `to` is exclusive. */
-export function rangeWindow(range: WidgetRange, now: Date, tz: string): { from: Date; to: Date } {
-  switch (range) {
-    case 'today':
-      return { from: startOfDayIn(now, tz), to: startOfDayIn(now, tz, 1) };
-    case '7d':
-      return { from: startOfDayIn(now, tz, -6), to: startOfDayIn(now, tz, 1) };
-    case '30d':
-      return { from: startOfDayIn(now, tz, -29), to: startOfDayIn(now, tz, 1) };
-    case '90d':
-      return { from: startOfDayIn(now, tz, -89), to: startOfDayIn(now, tz, 1) };
-    case 'this_week':
-      return { from: startOfWeekIn(now, tz), to: startOfWeekIn(now, tz, 1) };
-    case 'this_month':
-      return { from: startOfMonthIn(now, tz), to: startOfMonthIn(now, tz, 1) };
-    case 'last_month':
-      return { from: startOfMonthIn(now, tz, -1), to: startOfMonthIn(now, tz) };
-    case 'this_year':
-      return { from: startOfYearIn(now, tz), to: startOfDayIn(now, tz, 1) };
-  }
-}
+export { previousWindow, RANGE_LABELS, rangeWindow, WIDGET_RANGES, type WidgetRange } from './ranges';
 
 /** What a widget's query returns. Numbers from SQL only, already Number()-ed. */
 export type WidgetData =
@@ -71,6 +38,8 @@ type WidgetDef<P extends z.ZodTypeAny> = {
   /** Seconds between refreshes on an open dashboard: 30–60 (ADR 0027 §7). */
   refreshSeconds: number;
   query: (ctx: WidgetContext, params: z.infer<P>) => Promise<WidgetData>;
+  /** The full-page report (trend, figures, breakdowns): ONE more statement, same scope. Only the dashboard page asks. */
+  detail: (ctx: WidgetContext, params: z.infer<P>) => Promise<WidgetDetail>;
 };
 
 const rangeParams = (fallback: WidgetRange) => z.object({ range: z.enum(WIDGET_RANGES).default(fallback) }).strict();
@@ -107,6 +76,7 @@ export const WIDGETS = {
     params: rangeParams('7d'),
     permission: 'report:read_agency',
     refreshSeconds: 60,
+    detail: (ctx, p) => salesDetail(ctx, p.range, 'value'),
     query: async ({ db, actor, now, timeZone }, p) => {
       const { from, to } = rangeWindow(p.range, now, timeZone);
       const [r] = await db
@@ -127,6 +97,7 @@ export const WIDGETS = {
     params: rangeParams('30d'),
     permission: 'report:read_agency',
     refreshSeconds: 60,
+    detail: (ctx, p) => salesDetail(ctx, p.range, 'count'),
     query: async ({ db, actor, now, timeZone }, p) => {
       const { from, to } = rangeWindow(p.range, now, timeZone);
       // By lead agent; a sale with no agent row counts under "No agent".
@@ -153,6 +124,7 @@ export const WIDGETS = {
     params: rangeParams('7d'),
     permission: 'lead:read',
     refreshSeconds: 30,
+    detail: (ctx, p) => leadsDetail(ctx, p.range),
     query: async ({ db, actor, now, timeZone }, p) => {
       const { from, to } = rangeWindow(p.range, now, timeZone);
       const day = sql<string>`to_char(${lead.createdAt} at time zone ${timeZone}, 'Dy DD Mon')`;
@@ -175,6 +147,7 @@ export const WIDGETS = {
     params: rangeParams('this_week'),
     permission: 'appointment:read',
     refreshSeconds: 60,
+    detail: (ctx, p) => appointmentsDetail(ctx, p.range),
     query: async ({ db, actor, now, timeZone }, p) => {
       const { from, to } = rangeWindow(p.range, now, timeZone);
       const rows = await db
@@ -209,6 +182,7 @@ export const WIDGETS = {
     params: noParams,
     permission: 'listing:read',
     refreshSeconds: 60,
+    detail: (ctx) => listingsDetail(ctx),
     query: async ({ db, actor }) => {
       const mine = !can(actor, 'report:read_agency', { type: 'report', agencyId: agencyOf(actor) });
       const [r] = await db
@@ -239,6 +213,7 @@ export const WIDGETS = {
     params: rangeParams('7d'),
     permission: 'mail:read',
     refreshSeconds: 30,
+    detail: (ctx, p) => repliesDetail(ctx, p.range),
     query: async ({ db, actor, now, timeZone }, p) => {
       const { from, to } = rangeWindow(p.range, now, timeZone);
       const [r] = await db
@@ -259,6 +234,7 @@ export const WIDGETS = {
   } satisfies WidgetDef<ReturnType<typeof rangeParams>>,
 } as const;
 
+export type { DetailRow, DetailSeries, WidgetDetail, WidgetFormat } from './detail';
 export type WidgetId = keyof typeof WIDGETS;
 export const WIDGET_IDS = Object.keys(WIDGETS) as WidgetId[];
 
@@ -269,7 +245,7 @@ export const widgetRefSchema = z
 export type WidgetRef = z.infer<typeof widgetRefSchema>;
 
 export type WidgetTile =
-  | { widget: WidgetId; title: string; description: string; refreshSeconds: number; state: 'ok'; data: WidgetData }
+  | { widget: WidgetId; title: string; description: string; refreshSeconds: number; state: 'ok'; data: WidgetData; detail?: WidgetDetail }
   | { widget: string; title: string; description: string; refreshSeconds: number; state: 'no_access' | 'unavailable' | 'error' };
 
 /** The viewer's agency clock — one statement, read once per request. */
@@ -283,7 +259,11 @@ export async function agencyTimeZone(db: DbOrTx, agencyId: string): Promise<stri
  * code changed since it was saved) is "unavailable"; a widget the viewer may
  * not see is "no access" — the rest of the dashboard still renders.
  */
-export async function renderWidget(ctx: WidgetContext, ref: { widget: string; params?: unknown }): Promise<WidgetTile> {
+export async function renderWidget(
+  ctx: WidgetContext,
+  ref: { widget: string; params?: unknown },
+  opts: { detail?: boolean } = {},
+): Promise<WidgetTile> {
   const def = (WIDGETS as Record<string, WidgetDef<z.ZodTypeAny>>)[ref.widget];
   if (!def) return { widget: ref.widget, title: 'Widget', description: 'This widget is no longer available', refreshSeconds: 60, state: 'unavailable' };
   const parsed = def.params.safeParse(ref.params ?? {});
@@ -293,7 +273,15 @@ export async function renderWidget(ctx: WidgetContext, ref: { widget: string; pa
     return { ...base, state: 'no_access' };
   }
   try {
-    return { ...base, state: 'ok', data: await def.query(ctx, parsed.data) };
+    const data = await def.query(ctx, parsed.data);
+    if (!opts.detail) return { ...base, state: 'ok', data };
+    // The report around the headline is extra: if it fails, the headline still shows.
+    try {
+      return { ...base, state: 'ok', data, detail: await def.detail(ctx, parsed.data) };
+    } catch (err) {
+      console.error(`[widgets] ${ref.widget} detail failed`, err instanceof Error ? err.message : err);
+      return { ...base, state: 'ok', data };
+    }
   } catch (err) {
     console.error(`[widgets] ${ref.widget} failed`, err instanceof Error ? err.message : err);
     return { ...base, state: 'error' };

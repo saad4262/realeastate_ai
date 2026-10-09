@@ -4,6 +4,7 @@ import { can, type Actor } from '../permissions';
 import { createListing } from './create-listing';
 import { deleteListing } from './delete-listing';
 import { listAgencyListings, getAgencyListing } from './list-listings';
+import { approveListings } from './approve-listings';
 import { setListingStatus } from './publish-listing';
 import { updateListing } from './update-listing';
 import {
@@ -569,5 +570,49 @@ describe('a console row never carries NaN', () => {
       // And a real figure still survives the same path.
       expect(row?.priceFrom).toBe(800);
     });
+  });
+});
+
+describe('approveListings (bulk approval)', () => {
+  const a = { id: 'a1', agencyId: agencyA };
+  const b = { id: 'a2', agencyId: agencyA };
+
+  it('refuses an agent, a read-only member and someone with no agency, and writes nothing', async () => {
+    for (const who of [agent, readOnly, noAgency]) {
+      const { db, touched } = fakeDb([[a, b], [{ id: 'a1' }, { id: 'a2' }]]);
+      await expect(approveListings(db, who)).rejects.toSatisfy(
+        (e) => isListingError(e) && (e as { code: string }).code === 'forbidden',
+      );
+      expect(touched).not.toContain('update');
+    }
+  });
+
+  it('an owner approves every waiting listing with one select and one update', async () => {
+    const { db, touched, sets } = fakeDb([[a, b], [{ id: 'a1' }, { id: 'a2' }]]);
+    await expect(approveListings(db, owner)).resolves.toEqual({ approved: 2, skipped: 0, remaining: 0 });
+    expect(touched.filter((m) => m === 'update')).toHaveLength(1);
+    expect(sets[0]).toMatchObject({ status: 'live' });
+  });
+
+  it('counts a chosen listing that is no longer pending as skipped, not as approved', async () => {
+    // The select finds only a1 (a2 was sent back meanwhile); the guarded update moves a1.
+    const { db } = fakeDb([[a], [{ id: 'a1' }]]);
+    await expect(approveListings(db, owner, { ids: ['a1', 'a2'] })).resolves.toEqual({
+      approved: 1,
+      skipped: 1,
+      remaining: 0,
+    });
+  });
+
+  it('does nothing, and does not query, for an empty selection', async () => {
+    const { db, touched } = fakeDb([]);
+    await expect(approveListings(db, owner, { ids: [] })).resolves.toEqual({ approved: 0, skipped: 0, remaining: 0 });
+    expect(touched).toEqual([]);
+  });
+
+  it('refuses more than 500 at once', async () => {
+    const { db } = fakeDb([]);
+    const ids = Array.from({ length: 501 }, (_, i) => `00000000-0000-0000-0000-${String(i).padStart(12, '0')}`);
+    await expect(approveListings(db, owner, { ids })).rejects.toThrow(/at most 500/);
   });
 });

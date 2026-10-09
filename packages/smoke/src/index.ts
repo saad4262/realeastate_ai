@@ -6353,7 +6353,18 @@ async function main() {
       assert(Number(hand!.total) === d.total && Number(hand!.u) === d.undisclosed, `hand SQL says ${JSON.stringify(hand)}`);
       const sales = await renderWidget({ db: t, actor: A.actor('owner'), now: new Date(), timeZone: tz }, { widget: 'sold_count', params: { range: '7d' } });
       assert(sales.state === 'ok' && (sales as { data: { total: number } }).data.total === 3, `sales: ${JSON.stringify(sales)}`);
-      return '$1,450,000 from 2 priced sales + 1 undisclosed (not $0); B’s $5M and a 40-day-old sale excluded; 3 sales by agent';
+      // The report around it: same window, same agency, undisclosed kept apart; the trend and the by-agent split add up to the headline.
+      const full = await renderWidget({ db: t, actor: A.actor('owner'), now: new Date(), timeZone: tz }, { widget: 'sold_value', params: { range: '7d' } }, { detail: true });
+      const r = (full as { detail?: import('@repo/core/widgets').WidgetDetail }).detail;
+      assert(r, 'no report');
+      const kpi = (l: string) => r.kpis.find((k) => k.label === l)?.value;
+      const sum = (rows: { value: number }[]) => rows.reduce((a, b) => a + b.value, 0);
+      assert(kpi('Sales with a price') === 2 && kpi('No disclosed price') === 1 && kpi('Median sold price') === 725000 && kpi('Average sold price') === 725000, `kpis ${JSON.stringify(r.kpis)}`);
+      assert(sum(r.trend.rows) === 1450000 && r.trend.rows.length === 7, `trend ${JSON.stringify(r.trend.rows)}`);
+      assert(sum(r.breakdowns[0]!.rows) === 1450000, `by agent ${JSON.stringify(r.breakdowns[0])}`);
+      assert(sum(r.breakdowns.find((b) => b.title === 'Sales by price band')!.rows) === 2, 'price bands count only priced sales');
+      assert(r.compare?.previous === 0, `previous 7 days: ${JSON.stringify(r.compare)}`);
+      return '$1,450,000 from 2 priced sales + 1 undisclosed (not $0); B’s $5M and a 40-day-old sale excluded; 3 sales by agent; the report adds up to the headline';
     }),
   );
 
@@ -6368,8 +6379,10 @@ async function main() {
         for (const range of WIDGET_RANGES) {
           const params = widget === 'listings_by_status' ? {} : { range };
           for (const who of ['owner', 'a1'] as const) {
-            const tile = await renderWidget(as(who), { widget, params });
+            const tile = await renderWidget(as(who), { widget, params }, { detail: true });
             assert(tile.state === 'ok' || (tile.state === 'no_access' && who === 'a1'), `${widget} ${range} as ${who}: ${tile.state}`);
+            // The full-page report runs on the real schema too (a failed one is dropped silently, so check it is there).
+            assert(tile.state !== 'ok' || tile.detail, `${widget} ${range} as ${who}: no report`);
           }
         }
       }
@@ -6379,6 +6392,12 @@ async function main() {
       const ownerActive = (await renderWidget(as('owner'), { widget: 'listings_by_status', params: {} })) as { data: { active: number } };
       const a1Active = (await renderWidget(as('a1'), { widget: 'listings_by_status', params: {} })) as { data: { active: number } };
       assert(ownerActive.data.active > a1Active.data.active, `active: owner ${ownerActive.data.active}, a1 ${a1Active.data.active}`);
+      // The report follows the same viewer: its by-agent split adds up to that viewer's own headline.
+      for (const [who, head] of [['owner', ownerActive], ['a1', a1Active]] as const) {
+        const full = (await renderWidget(as(who), { widget: 'listings_by_status', params: {} }, { detail: true })) as { detail?: { breakdowns: { title: string; rows: { value: number }[] }[] } };
+        const byAgent = full.detail?.breakdowns.find((b) => b.title === 'By agent')?.rows.reduce((a, r) => a + r.value, 0);
+        assert(byAgent === head.data.active, `${who}: report says ${byAgent} active, headline ${head.data.active}`);
+      }
 
       const priv = await createDashboard(t, A.actor('owner'), { title: 'Mine', widgets: [{ widget: 'sold_value', params: {} }], audience: 'private' });
       const admins = await createDashboard(t, A.actor('owner'), { title: 'Admins', widgets: [{ widget: 'sold_value', params: {} }], audience: 'admins' });

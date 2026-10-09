@@ -135,13 +135,14 @@ export type DashboardData = {
 
 /**
  * Everything one viewer sees on one dashboard, now. One statement for the
- * dashboard and the agency clock, then one per widget — each AS THE VIEWER.
+ * dashboard and the agency clock, then two per widget (its headline and its
+ * report) — each AS THE VIEWER.
  */
 export async function getDashboardData(db: DbOrTx, actor: Actor, id: string, now = new Date()): Promise<DashboardData> {
   const row = await loadReadable(db, actor, id);
   const refs = (Array.isArray(row.widgets) ? row.widgets : []) as { widget: string; params?: unknown }[];
   const tiles: WidgetTile[] = [];
-  for (const ref of refs) tiles.push(await renderWidget({ db, actor, now, timeZone: row.timeZone }, ref));
+  for (const ref of refs) tiles.push(await renderWidget({ db, actor, now, timeZone: row.timeZone }, ref, { detail: true }));
   const refreshSeconds = Math.max(30, Math.min(...tiles.map((t) => t.refreshSeconds), 60));
   const version = createHash('sha1').update(JSON.stringify(tiles)).digest('hex').slice(0, 16);
   return {

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useOptimistic, useState, useTransition } from 'react';
 import type { ListingCounts, ListingRow, ListingStatus } from '@repo/core/listings';
-import { deleteListingAction, setListingStatusAction } from '@/lib/listing-actions';
+import { approveListingsAction, deleteListingAction, setListingStatusAction } from '@/lib/listing-actions';
 import { useToast } from '@/components/toast';
 import { MarkSoldDialog, type SoldDraft } from './mark-sold-dialog';
 import styles from './listing-table.module.css';
@@ -318,6 +318,48 @@ export function ListingTable({
     });
   }
 
+  /** Rows ticked for bulk approval. Only pending rows can be ticked. */
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  /** "Approve all" asks once more, like delete does. */
+  const [confirmAll, setConfirmAll] = useState(false);
+  const pendingOnPage = optimisticRows.filter((r) => r.status === 'pending');
+  const pickedHere = pendingOnPage.filter((r) => picked.has(r.id));
+  const allPageTicked = pendingOnPage.length > 0 && pickedHere.length === pendingOnPage.length;
+
+  function togglePick(id: string) {
+    setPicked((p) => {
+      const n = new Set(p);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
+
+  function approveMany(ids: string[] | undefined) {
+    setConfirmAll(false);
+    startTransition(async () => {
+      const result = await approveListingsAction(ids);
+      if (!result.ok) {
+        toast({ variant: 'error', title: 'Nothing was approved', description: result.error });
+        return;
+      }
+      setPicked(new Set());
+      toast({
+        variant: result.approved ? 'success' : 'warning',
+        title: result.approved === 1 ? '1 listing is live' : `${result.approved} listings are live`,
+        description:
+          [
+            result.approved ? 'They are now on the public site.' : 'None of them was still waiting for approval.',
+            result.skipped ? `${result.skipped} were skipped because they were no longer waiting.` : '',
+            result.remaining ? `More are still waiting — approve again to do the next batch.` : '',
+          ]
+            .filter(Boolean)
+            .join(' '),
+      });
+      router.refresh();
+    });
+  }
+
   return (
     <div className={styles.wrap}>
       <div className={styles.head}>
@@ -360,6 +402,46 @@ export function ListingTable({
         </div>
       </div>
 
+      {mayPublish && view.pending > 0 ? (
+        <div
+          role="region"
+          aria-label="Approve waiting listings"
+          style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem', margin: '0 0 0.75rem' }}
+        >
+          <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>
+            {view.pending} waiting for approval
+            {pickedHere.length ? ` · ${pickedHere.length} selected` : ''}
+          </span>
+          {pickedHere.length ? (
+            <button
+              type="button"
+              className={styles.btn}
+              disabled={isPending}
+              onClick={() => approveMany(pickedHere.map((r) => r.id))}
+            >
+              Approve selected ({pickedHere.length})
+            </button>
+          ) : null}
+          {confirmAll ? (
+            <>
+              <button type="button" className={`${styles.btn} ${styles.btnDanger}`} disabled={isPending} onClick={() => approveMany(undefined)}>
+                Yes, publish all {view.pending}
+              </button>
+              <button type="button" className={styles.btn} disabled={isPending} onClick={() => setConfirmAll(false)}>
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button type="button" className={styles.btn} disabled={isPending} onClick={() => setConfirmAll(true)}>
+              Approve all {view.pending}
+            </button>
+          )}
+          {confirmAll ? (
+            <span style={{ fontSize: '0.8125rem' }}>This puts every waiting listing, on every page, on the public site.</span>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className={styles.card}>
         {optimisticRows.length === 0 ? (
           <div className={styles.empty}>
@@ -370,6 +452,17 @@ export function ListingTable({
           <table className={styles.table}>
             <thead>
               <tr>
+                {mayPublish && view.pending > 0 ? (
+                  <th style={{ width: '2rem' }}>
+                    <input
+                      type="checkbox"
+                      aria-label="Select every waiting listing on this page"
+                      checked={allPageTicked}
+                      disabled={pendingOnPage.length === 0 || isPending}
+                      onChange={() => setPicked(allPageTicked ? new Set() : new Set(pendingOnPage.map((r) => r.id)))}
+                    />
+                  </th>
+                ) : null}
                 <th>Address</th>
                 <th>Specs</th>
                 <th>Price</th>
@@ -383,6 +476,19 @@ export function ListingTable({
                 const price = priceOf(row);
                 return (
                   <tr key={row.id}>
+                    {mayPublish && view.pending > 0 ? (
+                      <td>
+                        {row.status === 'pending' ? (
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${row.address}`}
+                            checked={picked.has(row.id)}
+                            disabled={isPending}
+                            onChange={() => togglePick(row.id)}
+                          />
+                        ) : null}
+                      </td>
+                    ) : null}
                     <td>
                       <div className={styles.addr}>{row.address}</div>
                       {row.headline ? <div className={styles.headline}>{row.headline}</div> : null}

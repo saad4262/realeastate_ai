@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Db } from '@repo/db';
-import { rangeWindow, renderWidget, WIDGET_IDS, WIDGETS } from './registry';
+import { previousWindow, rangeWindow, renderWidget, WIDGET_IDS, WIDGETS } from './registry';
 import { createDashboard, createDashboardSchema } from '../dashboards';
 import { runAssistantTool } from '../assistant/tools';
 import type { Actor } from '../permissions';
@@ -73,6 +73,59 @@ describe('the widget registry', () => {
     const { db } = countingDb([{ total: '2450000.00', count: '3', undisclosed: '2' }]);
     const tile = await renderWidget(ctx(db), { widget: 'sold_value', params: { range: '30d' } });
     expect(tile).toMatchObject({ state: 'ok', data: { kind: 'money', total: 2450000, count: 3, undisclosed: 2 } });
+  });
+
+  it('the full-page report is ONE more statement per widget, and only when asked for', async () => {
+    const detail = {
+      prev: '3', priced: '2', avg: '725000.00', median: null, trend: [{ label: 'Mon 05 Oct', value: '2' }],
+      agents: [{ label: 'A', value: '1450000.00' }], types: [1, 2, 3, 4, 5, 6, 7].map((n) => ({ label: `T${n}`, value: String(n) })),
+    };
+    const row = { total: '1', count: '1', undisclosed: '0', label: 'A', value: '1', type: 'appraisal', live: '1', underOffer: '0', detail };
+    for (const id of WIDGET_IDS) {
+      const plain = countingDb([row]);
+      expect((await renderWidget(ctx(plain.db), { widget: id, params: {} })).state, id).toBe('ok');
+      expect(plain.count(), `${id} without detail`).toBe(1);
+      const full = countingDb([row]);
+      const tile = (await renderWidget(ctx(full.db), { widget: id, params: {} }, { detail: true })) as { detail?: Record<string, unknown> };
+      expect(full.count(), `${id} with detail`).toBe(2);
+      const d = tile.detail as { kpis: { value: unknown }[]; trend: { rows: { value: unknown }[] }; breakdowns: { chart: string; rows: { value: unknown }[] }[] };
+      expect(d, id).toBeDefined();
+      for (const k of d.kpis) expect(k.value === null || typeof k.value === 'number', id).toBe(true);
+      for (const r of [...d.trend.rows, ...d.breakdowns.flatMap((b) => b.rows)]) expect(typeof r.value, id).toBe('number');
+      // A ring never has more than six slices.
+      for (const b of d.breakdowns) if (b.chart === 'donut') expect(b.rows.length, id).toBeLessThanOrEqual(6);
+    }
+  });
+
+  it('a median of nothing is "no figure", never 0', async () => {
+    const { db } = countingDb([{ total: '0', count: '0', undisclosed: '0', detail: { median: null, dom: null } }]);
+    const tile = (await renderWidget(ctx(db), { widget: 'sold_value', params: {} }, { detail: true })) as { detail: { kpis: { label: string; value: unknown }[] } };
+    expect(tile.detail.kpis.find((k) => k.label === 'Median sold price')?.value).toBeNull();
+  });
+
+  it('a report that fails still leaves the headline', async () => {
+    let n = 0;
+    const { db } = countingDb([{ total: '5', count: '5', undisclosed: '0' }]);
+    const failing = new Proxy(db as object, { get: (t, k) => (k === 'execute' ? () => (++n, Promise.reject(new Error('boom'))) : (t as Record<PropertyKey, unknown>)[k]) }) as Db;
+    const tile = await renderWidget(ctx(failing), { widget: 'sold_value', params: {} }, { detail: true });
+    expect(tile).toMatchObject({ state: 'ok', data: { total: 5 } });
+    expect((tile as { detail?: unknown }).detail).toBeUndefined();
+    expect(n).toBe(1);
+  });
+
+  it('a period still under way is compared with the same point in the one before', () => {
+    const now = new Date('2026-10-07T23:30:00Z'); // Thu 8 Oct, 10:30 Sydney
+    const tz = 'Australia/Sydney';
+    expect(previousWindow('7d', now, tz)).toMatchObject({ from: new Date('2026-09-24T14:00:00Z'), to: new Date('2026-10-01T14:00:00Z') });
+    const m = previousWindow('this_month', now, tz);
+    expect(m.from).toEqual(new Date('2026-08-31T14:00:00Z'));
+    expect(m.to.getTime() - m.from.getTime()).toBe(now.getTime() - rangeWindow('this_month', now, tz).from.getTime());
+    expect(previousWindow('last_month', now, tz)).toMatchObject({ from: new Date('2026-07-31T14:00:00Z'), to: new Date('2026-08-31T14:00:00Z') });
+    expect(previousWindow('this_year', now, tz).from).toEqual(new Date('2024-12-31T13:00:00Z'));
+    for (const r of ['today', '7d', '30d', '90d', 'this_week', 'this_month', 'last_month', 'this_year'] as const) {
+      const p = previousWindow(r, now, tz);
+      expect(p.to.getTime(), r).toBeLessThanOrEqual(rangeWindow(r, now, tz).from.getTime());
+    }
   });
 
   it('ranges are on the agency clock', () => {

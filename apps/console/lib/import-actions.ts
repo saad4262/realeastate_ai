@@ -7,7 +7,6 @@ import {
   getImport,
   importReport,
   ImportError,
-  MAX_IMPORT_ROWS,
   runImportChunk,
   setImportMapping,
   startDryRun,
@@ -114,5 +113,3 @@ export async function cancelImportAction(id: string): Promise<R<object>> {
     return fail(err);
   }
 }
-
-export { MAX_IMPORT_ROWS };

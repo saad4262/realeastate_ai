@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import {
+  approveListings,
   createListing,
   deleteListing,
   setListingStatus,
@@ -108,6 +109,37 @@ export async function setListingStatusAction(
     await revalidateWeb(listingId);
 
     return { ok: true, status: result.status };
+  } catch (err) {
+    const e = toListingError(err);
+    return { ok: false, error: e.message, code: e.code };
+  }
+}
+
+export type ApproveListingsActionResult =
+  | { ok: true; approved: number; skipped: number; remaining: number }
+  | { ok: false; error: string; code: ListingErrorCode };
+
+/**
+ * Approve waiting listings in bulk: the ones picked, or — with no ids — every
+ * one waiting. Same rule as approving one at a time (core asks can() for
+ * listing:publish per listing and only moves what is still pending).
+ */
+export async function approveListingsAction(ids?: string[]): Promise<ApproveListingsActionResult> {
+  const userId = await requireActionUserId();
+
+  try {
+    const actor = await loadListingActor(userId);
+    if (!actor) {
+      return { ok: false, error: 'Database is not configured.', code: 'unknown' };
+    }
+
+    const result = await approveListings(getConsoleDb(), actor, ids ? { ids } : {});
+
+    revalidatePath('/live-listings');
+    revalidatePath('/listings');
+    if (result.approved) await revalidateWeb();
+
+    return { ok: true, ...result };
   } catch (err) {
     const e = toListingError(err);
     return { ok: false, error: e.message, code: e.code };
