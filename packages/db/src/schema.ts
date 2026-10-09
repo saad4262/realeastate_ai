@@ -791,6 +791,16 @@ export const contact = pgTable(
      */
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     archivedBy: uuid('archived_by').references(() => user.id, { onDelete: 'set null' }),
+    /**
+     * Deleted by a person (ADR 0025 amendment, 2026-10-09): gone from every
+     * list, profile, search and send at once, and brought back by Restore for
+     * 7 days. After that the cron tick deletes the row for good (its notes,
+     * timeline, appointments and roles with it; its leads and emails stay,
+     * unlinked). A new enquiry from the same address within the 7 days brings
+     * it back (the `lead_contact` trigger).
+     */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    deletedBy: uuid('deleted_by').references(() => user.id, { onDelete: 'set null' }),
     /** Set on the losing side of a merge. Such a row is never listed. */
     mergedIntoId: uuid('merged_into_id').references((): AnyPgColumn => contact.id, {
       onDelete: 'set null',
@@ -810,6 +820,8 @@ export const contact = pgTable(
     index('contact_agency_phone_key_idx').on(t.agencyId, t.phoneKey),
     index('contact_agency_assigned_idx').on(t.agencyId, t.assignedTo),
     index('contact_agency_created_idx').on(t.agencyId, desc(t.createdAt)),
+    /** The purge's work list, and "Recently deleted". */
+    index('contact_deleted_idx').on(t.agencyId, t.deletedAt).where(sql`deleted_at is not null`),
   ],
 );
 
@@ -1602,6 +1614,8 @@ export const emailTemplate = pgTable(
     subject: text('subject').notNull(),
     /** Plain text with merge fields like {{first_name}}. */
     body: text('body').notNull(),
+    /** What it is for, in its author's words — shown to the owner/admin who approves it. */
+    purpose: text('purpose'),
     status: emailTemplateStatusEnum('status').notNull().default('draft'),
     createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
     approvedBy: uuid('approved_by').references(() => user.id, { onDelete: 'set null' }),

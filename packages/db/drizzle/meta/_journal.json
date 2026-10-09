@@ -274,6 +274,13 @@
       "when": 1791389236736,
       "tag": "0038_lead_handover",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1791520060364,
+      "tag": "0039_contact_delete_and_more_tools",
+      "breakpoints": true
     }
   ]
 }
