@@ -6199,6 +6199,114 @@ async function main() {
     }),
   );
 
+  // ADR 0025 amendment (2026-10-09): leads, email the person wrote, delete/restore, listings from a CSV.
+  group('Console assistant (AH)');
+
+  /** The lead behind a contact the fixture made (one each). */
+  const leadOf = async (t: Db, contactId: string) => (await t.execute<{ id: string }>(sql`select id from lead where contact_id = ${contactId} limit 1`))[0]!.id;
+  const leadHolder = async (t: Db, leadId: string) => (await t.execute<{ a: string | null }>(sql`select assigned_to as a from lead where id = ${leadId}`))[0]!.a;
+
+  await check('AH: assign_leads — owners/admins only; the card names each lead (who, property, day), who has it → who will, and whether its contact goes; Approve runs the screen’s reassignment (handover note, timeline via the assistant)', async () =>
+    inRollback(async (t) => {
+      const x = await editFixture(t);
+      const s = await x.session(x.owner);
+      // Q: A2's lead whose contact a third person (the owner) holds — it must stay with them.
+      const q = await x.f.lead(`q.${x.f.tag}@smoke.test`, 'Q', { assigned: x.f.people.a2 });
+      await t.execute(sql`update contact set assigned_to = ${x.f.people.owner} where id = ${q.contact_id}`);
+      // One transaction has one now(): make Q plainly the newest.
+      await t.execute(sql`update lead set created_at = now() + interval '1 minute' where id = ${q.id}`);
+      const p2Lead = await leadOf(t, x.f.contacts.p2); // A2's lead; its contact is nobody's — it moves.
+      const found = await runAssistantTool(s.ctx(), 'find_leads', { limit: 20 });
+      const leads = (found.result as { leads: { ref: string; name: string; property: string; received: string }[] }).leads;
+      const ref = (name: string) => leads.find((l) => l.name === name)!.ref;
+      assert(leads[0]!.name === 'Q' && leads.every((l) => /^L\d+$/.test(l.ref) && l.received && l.property), `find_leads, newest first with property and day: ${JSON.stringify(leads.slice(0, 3))}`);
+      const team = (await runAssistantTool(s.ctx(), 'find_team_members', {})).result as { members: { ref: string; name: string }[] };
+      const a1Ref = team.members.find((m) => m.name === 'a1')!.ref;
+
+      const id = cardId(await runAssistantTool(s.ctx(), 'assign_leads', { leads: [ref('P2'), ref('Q')], to: a1Ref }));
+      assert((await leadHolder(t, p2Lead)) === x.f.people.a2 && (await leadHolder(t, q.id)) === x.f.people.a2, 'proposing moved a lead');
+      const card = (await getProposedAction(t, x.owner, id)).card;
+      const rows = card.changes ?? [];
+      const p2Row = rows.find((r) => r.name.startsWith('P2 — '));
+      const qRow = rows.find((r) => r.name.startsWith('Q — '));
+      assert(p2Row && qRow && rows.length === 2, `card rows: ${JSON.stringify(rows)}`);
+      assert(/Smoke Street/.test(p2Row.name) && p2Row.before === 'a2' && p2Row.after === 'a1' && /^Received /.test(p2Row.detail ?? ''), `P2 row: ${JSON.stringify(p2Row)}`);
+      assert(/moves to a1 too \(it was nobody’s\)/.test(p2Row.detail ?? ''), `P2 contact line: ${p2Row.detail}`);
+      assert(/stays with owner — it is theirs/.test(qRow.detail ?? ''), `Q contact line: ${qRow.detail}`);
+      const proposedLines = await t.execute(sql`select 1 from activity where contact_id in (${x.f.contacts.p2}, ${q.contact_id}) and kind like 'assistant_%'`);
+      assert(proposedLines.length === 0, 'a lead card wrote on the contact’s open timeline');
+
+      assert((await code(approveProposedAction(t, x.admin, id))) === 'forbidden', 'another admin approved the owner’s card');
+      const r = await approveProposedAction(t, x.owner, id);
+      const res = r.outcome === 'done' ? (r.result as { assigned?: number; contactsMoved?: number }) : null;
+      assert(res?.assigned === 2 && res.contactsMoved === 1, `approve: ${JSON.stringify(r)}`);
+      assert((await leadHolder(t, p2Lead)) === x.f.people.a1 && (await leadHolder(t, q.id)) === x.f.people.a1, 'leads not moved');
+      assert((await x.assignee(x.f.contacts.p2)) === x.f.people.a1, 'P2’s contact (nobody’s) did not move with its lead');
+      assert((await x.assignee(q.contact_id)) === x.f.people.owner, 'Q’s contact (a third person’s) was taken');
+      const handovers = await t.execute<{ n: number }>(sql`select count(*)::int as n from lead_handover where from_user_id = ${x.f.people.a2} and to_user_id = ${x.f.people.a1} and by_user_id = ${x.f.people.owner}`);
+      assert(handovers[0]!.n === 2, `handover rows: ${handovers[0]!.n}`);
+      const line = await t.execute<{ payload: { via?: string; from: string; to: string; fromName: string; toName: string } }>(sql`
+        select payload from activity where contact_id = ${x.f.contacts.p2} and kind = 'lead_assigned'`);
+      assert(line.length === 1 && line[0]!.payload.via === 'assistant' && line[0]!.payload.fromName === 'a2' && line[0]!.payload.toName === 'a1', `timeline: ${JSON.stringify(line)}`);
+      const notes = await listReassignedAway(t, x.agent);
+      assert(notes.length === 2 && notes.every((n) => n.message === 'This lead has been reassigned from you to another agent.' && Object.keys(n).sort().join() === 'at,id,message'), `A2's notes: ${JSON.stringify(notes)}`);
+      return 'find_leads newest first (who, property, day); card: P2 a2 → a1 (contact moves, was nobody’s), Q a2 → a1 (contact stays with owner); nothing before Approve, no line on the open timeline; another admin cannot approve; approve: 2 leads, 1 contact, 2 handovers, timeline via assistant, A2 keeps two one-line notes';
+    }),
+  );
+
+  await check('AH: assign_leads refuses an agent, a read-only member, a read-only or other-agency receiver, another agency’s lead and a private offer — and re-checks at run time (lead moved since, receiver demoted, approver demoted; now and later)', async () =>
+    inRollback(async (t) => {
+      const x = await editFixture(t);
+      const other = await contactFixture(t);
+      const p2Lead = await leadOf(t, x.f.contacts.p2);
+      for (const who of [x.agent, x.viewer]) {
+        const s = await x.session(who);
+        issueHandle(s.h, 'L', p2Lead);
+        issueHandle(s.h, 'M', x.f.people.a1);
+        const out = await runAssistantTool(s.ctx(), 'assign_leads', { leads: ['L1'], to: 'M1' });
+        assert(out.isError && /only an owner or admin of the agency can assign leads/i.test(JSON.stringify(out.result)), `${who.membershipRole}: ${JSON.stringify(out.result)}`);
+      }
+      const s = await x.session(x.owner);
+      const L = (id: string) => issueHandle(s.h, 'L', id);
+      const M = (id: string) => issueHandle(s.h, 'M', id);
+      const readOnly = await runAssistantTool(s.ctx(), 'assign_leads', { leads: [L(p2Lead)], to: M(x.f.people.viewer) });
+      assert(readOnly.isError && /cannot be given leads/.test(JSON.stringify(readOnly.result)), `read-only receiver: ${JSON.stringify(readOnly.result)}`);
+      const stranger = await runAssistantTool(s.ctx(), 'assign_leads', { leads: [L(p2Lead)], to: M(other.people.a1) });
+      assert(stranger.isError && /cannot be given leads/.test(JSON.stringify(stranger.result)), `other-agency receiver: ${JSON.stringify(stranger.result)}`);
+      const theirs = await runAssistantTool(s.ctx(), 'assign_leads', { leads: [L(await leadOf(t, other.contacts.p2))], to: M(x.f.people.a1) });
+      assert(theirs.isError && /not available/.test(JSON.stringify(theirs.result)), `other agency's lead: ${JSON.stringify(theirs.result)}`);
+      const offer = await runAssistantTool(s.ctx(), 'assign_leads', { leads: [L(await leadOf(t, x.f.contacts.p3))], to: M(x.f.people.a1) });
+      assert(offer.isError && /private offer/.test(JSON.stringify(offer.result)), `offer: ${JSON.stringify(offer.result)}`);
+
+      // Run time: the lead was given to someone else on the screen after the card.
+      const c1 = cardId(await runAssistantTool(s.ctx(), 'assign_leads', { leads: [L(p2Lead)], to: M(x.f.people.a1) }));
+      await assignLead(t, x.owner, p2Lead, x.f.people.owner);
+      const r1 = await approveProposedAction(t, x.owner, c1);
+      assert(r1.outcome === 'failed' && /given to someone else/.test(r1.error) && (await leadHolder(t, p2Lead)) === x.f.people.owner, `moved since: ${JSON.stringify(r1)}`);
+      // Run time: the receiver became read-only.
+      const c2 = cardId(await runAssistantTool(s.ctx(), 'assign_leads', { leads: [L(p2Lead)], to: M(x.f.people.a2) }));
+      await t.execute(sql`update membership set role = 'read_only' where user_id = ${x.f.people.a2} and agency_id = ${x.f.agencyId}`);
+      const r2 = await approveProposedAction(t, x.owner, c2);
+      assert(r2.outcome === 'failed' && /can no longer be given leads/.test(r2.error) && (await leadHolder(t, p2Lead)) === x.f.people.owner, `receiver demoted: ${JSON.stringify(r2)}`);
+      await t.execute(sql`update membership set role = 'agent' where user_id = ${x.f.people.a2} and agency_id = ${x.f.agencyId}`);
+      // Run time: the admin who proposed it is an agent now (now, and scheduled).
+      const sa = await x.session(x.admin);
+      const c3 = cardId(await runAssistantTool(sa.ctx(), 'assign_leads', { leads: [issueHandle(sa.h, 'L', p2Lead)], to: issueHandle(sa.h, 'M', x.f.people.a2) }));
+      const r3 = await approveProposedAction(t, { ...x.admin, membershipRole: 'agent' }, c3);
+      // As an agent they may not even see the lead now (it is the owner's) — refused either way.
+      assert(r3.outcome === 'failed' && /Only an agency admin can assign leads|no longer exists/.test(r3.error) && (await leadHolder(t, p2Lead)) === x.f.people.owner, `approver demoted: ${JSON.stringify(r3)}`);
+      const c4 = cardId(await runAssistantTool(sa.ctx(), 'assign_leads', { leads: [issueHandle(sa.h, 'L', p2Lead)], to: issueHandle(sa.h, 'M', x.f.people.a2) }));
+      const now = new Date();
+      const at = new Date(now.getTime() + 3_600_000);
+      assert((await approveProposedAction(t, x.admin, c4, { env: SCHEDULING_ON }, now, { runAt: at })).outcome === 'scheduled', 'not scheduled');
+      await t.execute(sql`update membership set role = 'agent' where user_id = ${x.f.people.a1} and agency_id = ${x.f.agencyId}`);
+      await runScheduledActions(t, {}, new Date(at.getTime() + 60_000));
+      const later = await x.status(c4);
+      assert(later.status === 'failed' && (await leadHolder(t, p2Lead)) === x.f.people.owner, `scheduled after demotion: ${JSON.stringify(later)}`);
+      return 'refused at propose: agent, read-only, read-only receiver, other-agency receiver, other-agency lead, private offer; at run: lead moved since → failed, receiver read-only → failed, approver no longer admin → failed (now and scheduled)';
+    }),
+  );
+
   await check('the assistant route refuses a signed-out request', async () => {
     if (!(await reachable('http://localhost:3001/login'))) skip('console is not running');
     const res = await fetch('http://agents.lvh.me:3001/api/assistant', {

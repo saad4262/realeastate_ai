@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
 import { ASSISTANT_TOOLS, assistantToolsFor } from '../tools/assistant-tools';
-import { ASSISTANT_SYSTEM } from '../prompts/assistant-v7';
+import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v8';
 import { contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
 /**
@@ -239,7 +239,7 @@ describe('red team: a tricked model can read and propose, never act', () => {
       if (/email/.test(n) && n !== 'send_template_email') expect(ASSISTANT_READ_TOOLS as readonly string[]).toContain(n);
       // One tool may mention assigning: it only proposes, owners/admins alone are shown it, and
       // core refuses it for anyone else (the "tools by role" tests below and the core unit test).
-      if (/assign/.test(n)) expect(n).toBe('assign_contacts');
+      if (/assign/.test(n)) expect(['assign_contacts', 'assign_leads']).toContain(n);
     }
     for (const t of ASSISTANT_TOOLS.filter((x) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(x.name))) {
       expect(t.description).toMatch(/only PROPOSES/);
@@ -381,7 +381,7 @@ describe('proposals (Phases B and C)', () => {
     // Among WRITE tools only (search_notes_and_emails, a read tool, has `to` as a date-range end).
     expect(
       ASSISTANT_TOOLS.filter((t) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(t.name) && 'to' in (t.input_schema as { properties: Record<string, unknown> }).properties).map((t) => t.name),
-    ).toEqual(['assign_contacts']);
+    ).toEqual(['assign_contacts', 'assign_leads']);
     for (const to of ['sara@example.com', 'Sara', 'C1', '55555555-5555-4555-8555-555555555555']) {
       expect(ASSISTANT_TOOL_INPUTS.assign_contacts.safeParse({ contacts: ['C1'], to }).success, to).toBe(false);
     }
@@ -389,6 +389,14 @@ describe('proposals (Phases B and C)', () => {
     const send = ASSISTANT_TOOLS.find((t) => t.name === 'send_template_email')!;
     expect(Object.keys((send.input_schema as { properties: Record<string, unknown> }).properties).sort()).toEqual(['recipients', 'template']);
     expect(ASSISTANT_SYSTEM).toMatch(/cannot approve/);
+  });
+});
+
+describe('prompt v8 (2026-10-09 amendment)', () => {
+  it('is a new version, and tells the model not to guess which lead — list and ask — and what an agent is told', () => {
+    expect(ASSISTANT_PROMPT_VERSION).toBe('assistant@v8');
+    expect(ASSISTANT_SYSTEM).toMatch(/don't guess: show the newest few from find_leads by reference \(L1, L2…\) and ask which one/);
+    expect(ASSISTANT_SYSTEM).toMatch(/only an owner or admin of the agency can assign contacts or leads/);
   });
 });
 
@@ -401,7 +409,7 @@ describe('search snippets are data, never instructions (ADR 0031)', () => {
 
 describe('tools by role: assigning contacts is offered to owners and admins only', () => {
   const as = (membershipRole: 'owner' | 'admin' | 'agent' | 'assistant' | 'property_manager' | 'read_only') => ({ userId: 'u', agencyId: 'a', membershipRole });
-  const ADMIN_ONLY = ['assign_contacts', 'find_team_members'];
+  const ADMIN_ONLY = ['assign_contacts', 'assign_leads', 'find_team_members'];
 
   it('an agent, assistant, property manager or read-only member is never shown the assign tools', () => {
     for (const role of ['agent', 'assistant', 'property_manager', 'read_only'] as const) {

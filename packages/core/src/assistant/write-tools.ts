@@ -1,5 +1,5 @@
-import { and, eq, isNull, ne } from 'drizzle-orm';
-import { contact } from '@repo/db';
+import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { contact, lead, property } from '@repo/db';
 import { can } from '../permissions';
 import { loadContactHead } from '../contacts/get-contact';
 import { contactResource } from '../contacts/visibility';
@@ -13,7 +13,8 @@ import { resolveHandle } from './handles';
 import type { ProposalCard } from './schema';
 import { assignableMember, contactDetailsOf, UNSUBSCRIBED_REASON, type ContactDetails, type ContactDetailsPatch } from '../contacts/write-contacts';
 import { CONTACT_ROLE_LABELS, type ContactRoleKind } from '../contacts/contact-schema';
-import type { addNoteInput, assignContactsInput, cancelAppointmentInput, recordMarketingConsentInput, setContactArchivedInput, updateContactInput, withdrawMarketingConsentInput, createDashboardInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
+import { formatAddress } from '../listings/listing-schema';
+import type { addNoteInput, assignContactsInput, assignLeadsInput, cancelAppointmentInput, recordMarketingConsentInput, setContactArchivedInput, updateContactInput, withdrawMarketingConsentInput, createDashboardInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
 import { cancelBatch, getBatch, prepareBatch } from '../template-email/batches';
 import { TemplateEmailError } from '../template-email/templates';
 import { SKIP_REASON_LABELS } from '../template-email/schema';
@@ -695,4 +696,109 @@ export async function proposeSetArchived(ctx: ToolContext, input: z.infer<typeof
   };
   const args: FrozenArgs = { tool: 'set_contact_archived', contactId: row.id, archived: input.archived };
   return propose(ctx, label, { tool: 'set_contact_archived', args, card, contactId: row.id });
+}
+
+const PERSON_NAME = (id: unknown) =>
+  sql<string | null>`(select coalesce(ap.display_name, u.name, u.email) from "user" u left join agent_profile ap on ap.user_id = u.id where u.id = ${id})`;
+
+/**
+ * Reassign leads (owners/admins only — `lead:assign`, asked at the door and by
+ * assignLead when it runs). The card names each lead (who enquired, the
+ * property, the day it came in), who has it now → who will, and whether its
+ * contact goes too — the screen's own rule: only if the contact was the
+ * previous agent's or nobody's. Approve runs the screen's `assignLead`, so the
+ * first agent gets the same one-line note, the handover is recorded and the
+ * timeline says who, when, from and to. One statement for every lead.
+ */
+export async function proposeAssignLeads(ctx: ToolContext, input: z.infer<typeof assignLeadsInput>, label: string): Promise<ToolOutcome> {
+  const to = resolveHandle(ctx.handles, input.to, 'member');
+  if (!to) return refused(UNKNOWN_REF, label);
+  const ids: string[] = [];
+  for (const ref of input.leads) {
+    const id = resolveHandle(ctx.handles, ref, 'lead');
+    if (!id) return refused(`${ref}: ${UNKNOWN_REF}`, label);
+    if (!ids.includes(id)) ids.push(id);
+  }
+  const agencyId = ctx.actor.agencyId as string;
+  const rows = await ctx.db
+    .select({
+      id: lead.id,
+      agencyId: lead.agencyId,
+      kind: lead.kind,
+      name: lead.name,
+      email: lead.email,
+      createdAt: lead.createdAt,
+      assignedTo: lead.assignedTo,
+      holder: PERSON_NAME(lead.assignedTo),
+      contactId: lead.contactId,
+      contactHolderId: contact.assignedTo,
+      contactHolder: PERSON_NAME(contact.assignedTo),
+      unit: property.unit,
+      streetNumber: property.streetNumber,
+      street: property.street,
+      suburb: property.suburb,
+      state: property.state,
+      postcode: property.postcode,
+    })
+    .from(lead)
+    .innerJoin(property, eq(property.id, lead.propertyId))
+    .leftJoin(contact, eq(contact.id, lead.contactId))
+    .where(and(eq(lead.agencyId, agencyId), inArray(lead.id, ids)));
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  for (const [i, id] of ids.entries()) {
+    const r = byId.get(id);
+    if (!r || !can(ctx.actor, 'lead:assign', { type: 'lead', id, agencyId: r.agencyId, ...(r.assignedTo ? { ownerId: r.assignedTo } : {}) })) {
+      return refused(`${input.leads[i]}: that lead is not available to this person.`, label);
+    }
+    if (r.kind === 'offer') return refused(`${input.leads[i]} is a private offer; offers are assigned on the lead’s own page. Nothing was proposed.`, label);
+  }
+  const receiver = await assignableMember(ctx.db, ctx.actor, to);
+  if (!receiver) return refused('That person cannot be given leads: they must be an active member of this agency who may work contacts and leads (not read-only).', label);
+
+  const leads = ids.map((id) => byId.get(id)!);
+  const changes = leads.map((r) => {
+    const already = r.assignedTo === receiver.userId;
+    const moves = !already && Boolean(r.contactId) && (r.contactHolderId === null || r.contactHolderId === r.assignedTo);
+    const contactLine = !r.contactId
+      ? 'No contact'
+      : r.contactHolderId === receiver.userId
+        ? `Their contact is already ${receiver.name}’s`
+        : moves
+          ? `Their contact moves to ${receiver.name} too (it was ${r.contactHolderId ? `${r.contactHolder ?? 'a former member'}’s` : 'nobody’s'})`
+          : `Their contact stays with ${r.contactHolder ?? 'a former member'} — it is theirs`;
+    return {
+      name: `${r.name} — ${formatAddress(r)}`,
+      email: r.email,
+      before: r.assignedTo ? (r.holder ?? 'A former member') : 'Nobody (the owners’ and admins’ queue)',
+      after: receiver.name,
+      skipped: already ? `Already ${receiver.name}’s` : null,
+      detail: `Received ${shortDay(r.createdAt, ctx.timeZone)} · ${contactLine}`,
+    };
+  });
+  const moving = leads.filter((r) => r.assignedTo !== receiver.userId);
+  if (!moving.length) {
+    return { label, result: { proposed: false, tell_the_user: `${leads.length === 1 ? 'That lead is' : 'Those leads are'} already ${receiver.name}’s, so nothing was proposed.` } };
+  }
+  const n = moving.length;
+  const card: ProposalCard = {
+    title: n === 1 ? `Give ${moving[0]!.name}’s lead to ${receiver.name}` : `Give ${n} leads to ${receiver.name}`,
+    contact: { id: '', name: '' },
+    lines: [
+      { label: 'Give them to', value: receiver.name },
+      { label: 'Leads', value: `${n} will move${changes.length > n ? ` · ${changes.length - n} already theirs` : ''}` },
+    ],
+    changes,
+    notes: [
+      NOTHING_YET,
+      'A contact goes with its lead only if it was the previous agent’s or nobody’s; a contact another agent has stays with them.',
+      'The agent each lead is taken from sees only: “This lead has been reassigned from you to another agent.” The timeline records who, when, from and to.',
+    ],
+  };
+  const args: FrozenArgs = {
+    tool: 'assign_leads',
+    to: receiver.userId,
+    leadIds: moving.map((r) => r.id),
+    from: Object.fromEntries(moving.map((r) => [r.id, r.assignedTo])),
+  };
+  return propose(ctx, label, { tool: 'assign_leads', args, card, contactId: null });
 }

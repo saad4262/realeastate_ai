@@ -495,11 +495,19 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
         ? `/dashboards/${view.result.dashboardId}`
         : view.tool === 'send_template_email' && view.result?.batchId
           ? `${PATHS[surface].bulk}/${view.result.batchId}`
-          : card.contact.id
+          : view.tool === 'assign_leads'
+            ? PATHS[surface].leads
+            : card.contact.id
             ? `${contactHref}?tab=${view.tool === 'add_note' ? 'notes' : /appointment/.test(view.tool) ? 'calendar' : 'overview'}`
             : null;
   const doneLabel =
-    view.tool === 'create_dashboard' ? 'Open the dashboard' : view.tool === 'send_template_email' ? 'Open the send report' : `Open ${card.contact.name}`;
+    view.tool === 'create_dashboard'
+      ? 'Open the dashboard'
+      : view.tool === 'send_template_email'
+        ? 'Open the send report'
+        : view.tool === 'assign_leads'
+          ? 'Open the leads'
+          : `Open ${card.contact.name}`;
 
   return (
     <div className={`${styles.frame} ${styles.card}`} data-status={view.status}>
@@ -540,6 +548,7 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
                 {c.email ? <span className={styles.meta}> · {c.email}</span> : null}
               </span>
               <span className={styles.meta}>{c.skipped ? `Skipped — ${c.skipped}` : `${c.before} → ${c.after}`}</span>
+              {c.detail ? <span className={styles.meta}>{c.detail}</span> : null}
             </li>
           ))}
         </ul>
@@ -549,6 +558,11 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
           {view.result.sendError
             ? view.result.sendError
             : `Sent ${view.result.sent ?? 0}${view.result.skipped ? ` · ${view.result.skipped} skipped at sending` : ''}${view.result.failed ? ` · ${view.result.failed} failed` : ''}.`}
+        </p>
+      ) : null}
+      {view.status === 'done' && view.tool === 'assign_leads' && view.result ? (
+        <p className={styles.cardNote}>
+          {`Reassigned ${view.result.assigned ?? 0} lead${view.result.assigned === 1 ? '' : 's'}; ${view.result.contactsMoved ?? 0} contact${view.result.contactsMoved === 1 ? '' : 's'} moved with ${view.result.assigned === 1 ? 'it' : 'them'}.`}
         </p>
       ) : null}
       {card.notes.map((n) => (

@@ -175,11 +175,21 @@ export async function assignLead(
   actor: Actor,
   leadId: string,
   assigneeUserId: string | null,
+  /**
+   * From the console assistant's card (ADR 0025 amendment, 2026-10-09): the
+   * same reassignment, marked `via: 'assistant'` on the timeline, and refused
+   * if the lead changed hands since the card showed who had it (`expectedFrom`).
+   */
+  opts: { via?: 'assistant'; expectedFrom?: string | null } = {},
 ): Promise<TriagedLead> {
   const row = await loadLead(db, actor, leadId);
   if (!maySee(actor, row)) throw NOT_FOUND();
   if (!can(actor, 'lead:assign', resourceFor(row))) {
     throw new LeadTriageError('forbidden', 'Only an agency admin can assign leads');
+  }
+  const guarded = opts.expectedFrom !== undefined;
+  if (guarded && row.assignedTo !== opts.expectedFrom) {
+    throw new LeadTriageError('conflict', 'This lead was given to someone else after the card was made — nothing was changed. Ask again.');
   }
 
   if (assigneeUserId !== null) {
@@ -229,6 +239,7 @@ export async function assignLead(
       and(
         eq(lead.id, row.id),
         eq(lead.agencyId, row.agencyId),
+        ...(guarded ? [sql`${lead.assignedTo} is not distinct from ${opts.expectedFrom ?? null}`] : []),
         assigneeUserId === null
           ? sql`true`
           : sql`exists (
@@ -242,7 +253,10 @@ export async function assignLead(
     .returning({ id: lead.id, status: lead.status, assignedTo: lead.assignedTo });
 
   if (!updated) {
-    throw new LeadTriageError('conflict', 'That person left the agency a moment ago — refresh and try again');
+    throw new LeadTriageError(
+      'conflict',
+      guarded ? 'This lead changed after the card was made, or that person left the agency — nothing was changed. Ask again.' : 'That person left the agency a moment ago — refresh and try again',
+    );
   }
   const from = row.assignedTo;
   const to = updated.assignedTo;
@@ -272,7 +286,7 @@ export async function assignLead(
         kind: 'contact_assigned',
         actorType: 'user',
         actorId: actor.userId,
-        payload: { from, to, via: 'lead' },
+        payload: { from, to, via: 'lead', ...(opts.via ? { by: opts.via } : {}) },
       });
     }
   }
@@ -294,7 +308,7 @@ export async function assignLead(
       kind: 'lead_assigned',
       actorType: 'user',
       actorId: actor.userId,
-      payload: { leadId: row.id, from, to, fromName: nameOf(from), toName: nameOf(to), contactMoved },
+      payload: { leadId: row.id, from, to, fromName: nameOf(from), toName: nameOf(to), contactMoved, ...(opts.via ? { via: opts.via } : {}) },
     });
   }
   return { id: updated.id, status: updated.status as LeadStatus, assignedTo: to, contactMoved };

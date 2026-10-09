@@ -23,7 +23,7 @@ export const HANDLE_KINDS = {
   T: 'template',
   /** A contact the person selected in the console (the page they are on). */
   S: 'contact',
-  /** A member of the agency who may be given contacts — issued only by find_team_members (owners/admins). */
+  /** A member of the agency who may be given contacts or leads — issued only by find_team_members (owners/admins). */
   M: 'member',
 } as const;
 export type HandlePrefix = keyof typeof HANDLE_KINDS;
@@ -44,6 +44,9 @@ export const templateHandleSchema = handleSchema.refine((h) => h.startsWith('T')
 export const contactHandleSchema = handleSchema.refine((h) => h.startsWith('C') || h.startsWith('S'), {
   message: 'Not a contact reference',
 });
+
+/** A handle that must name a lead (from find_leads). */
+export const leadHandleSchema = handleSchema.refine((h) => h.startsWith('L'), { message: 'Not a lead reference' });
 
 /** A handle that must name a team member (from find_team_members). */
 export const memberHandleSchema = handleSchema.refine((h) => h.startsWith('M'), { message: 'Not a team member reference' });
@@ -233,6 +236,19 @@ export const assignContactsInput = z
   .strict();
 
 /**
+ * Reassigning leads (owners and admins only, `lead:assign`) — the screen's own
+ * reassignment (`assignLead`: handover note, timeline, and the contact moves
+ * only if it was the previous agent's or nobody's). Leads are L references
+ * from find_leads, at most 20; the receiver an M reference.
+ */
+export const assignLeadsInput = z
+  .object({
+    leads: z.array(leadHandleSchema).min(1).max(ASSISTANT_LIMITS.contactsPerCard),
+    to: memberHandleSchema,
+  })
+  .strict();
+
+/**
  * Marketing consent (ADR 0022 stays in force): recorded only for contacts the
  * person may edit, by reference, never "all" or a filter — and only with the
  * person's own words for how the contact agreed. No "how", no card: the model
@@ -288,7 +304,7 @@ export const updateContactInput = z
 export const setContactArchivedInput = z.object({ contact: contactHandleSchema, archived: z.boolean() }).strict();
 
 export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'assign_leads'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 
 /** Every tool. Read tools run at once; write tools only propose (ADR 0025 §8). */
@@ -313,15 +329,16 @@ export const ASSISTANT_TOOL_INPUTS = {
   withdraw_marketing_consent: withdrawMarketingConsentInput,
   update_contact: updateContactInput,
   set_contact_archived: setContactArchivedInput,
+  assign_leads: assignLeadsInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];
 
 /**
  * Tools only an owner or admin is shown (the model's tool list is chosen per
- * person) and may run (each asks can() again): `contact:assign`.
+ * person) and may run (each asks can() again): `contact:assign`, `lead:assign`.
  */
-export const ASSISTANT_ADMIN_TOOLS = ['find_team_members', 'assign_contacts'] as const satisfies readonly AssistantToolName[];
+export const ASSISTANT_ADMIN_TOOLS = ['find_team_members', 'assign_contacts', 'assign_leads'] as const satisfies readonly AssistantToolName[];
 
 function isTimeZone(tz: string): boolean {
   try {
@@ -406,7 +423,7 @@ export type ProposalCard = {
    * For a card that changes several contacts (assign, consent): each one, from
    * the database — what it is now and what it will be, or why it is skipped.
    */
-  changes?: { name: string; email: string | null; before: string; after: string; skipped: string | null }[];
+  changes?: { name: string; email: string | null; before: string; after: string; skipped: string | null; detail?: string }[];
 };
 
 /** The NDJSON frames of one turn, in order. */

@@ -246,7 +246,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   {
     name: 'find_team_members',
     description:
-      'List the members of the agency contacts can be given to — active members who may work contacts (never read-only ones). Returns references (M1, M2…) and names. Owners and admins only.',
+      'List the members of the agency contacts and leads can be given to — active members who may work contacts (never read-only ones). Returns references (M1, M2…) and names. Owners and admins only.',
     input_schema: { type: 'object', additionalProperties: false, properties: {} },
   },
   {
@@ -315,6 +315,19 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
         archived: { type: 'boolean', description: 'true to archive, false to bring back.' },
       },
       required: ['contact', 'archived'],
+    },
+  },
+  {
+    name: 'assign_leads',
+    description: `Propose reassigning leads (enquiries) to a team member — owners and admins only. Leads are L references from find_leads; if it is not certain which lead the person means, list the newest few and ASK instead of calling this. The card shows each lead (who enquired, the property, the day), who has it now and who will, and whether its contact moves too: only if the contact was the previous agent's or nobody's. The agent a lead is taken from keeps only a one-line note. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        leads: { type: 'array', items: { type: 'string' }, description: 'Lead references, e.g. ["L1"]. 1 to 20 — only the leads the person named or picked. Never names or "all".' },
+        to: { type: 'string', description: 'The team member to give them to: an M reference from find_team_members.' },
+      },
+      required: ['leads', 'to'],
     },
   },
 ]);

@@ -6,6 +6,7 @@ import { recordActivity } from '../contacts/write-contacts';
 import { ContactError } from '../contacts/list-contacts';
 import { createNote } from '../contacts/notes';
 import {
+  assignableMember,
   assignContact,
   editContactDetails,
   recordMarketingConsent,
@@ -16,6 +17,7 @@ import {
   type ContactDetailsPatch,
 } from '../contacts/write-contacts';
 import { AppointmentError, cancelAppointment, rescheduleAppointment, scheduleAppointment } from '../appointments/appointments';
+import { assignLead, LeadTriageError } from '../leads/triage-lead';
 import { syncAppointment, type SyncDeps, type SyncOutcome } from '../appointments/sync';
 import { requireIntegrations } from '../integrations/accounts';
 import { approveBatch, cancelBatch } from '../template-email/batches';
@@ -77,11 +79,16 @@ export type FrozenArgs =
   | { tool: 'withdraw_marketing_consent'; contactIds: string[]; reason: string }
   /** Only the fields the card showed; `before` = what it showed them as (refused if they changed since). */
   | { tool: 'update_contact'; contactId: string; patch: ContactDetailsPatch; before: Partial<ContactDetails> }
-  | { tool: 'set_contact_archived'; contactId: string; archived: boolean };
+  | { tool: 'set_contact_archived'; contactId: string; archived: boolean }
+  /** Owners/admins: give these leads to `to` through the screen's assignLead. `from` = who held each when the card was made. */
+  | { tool: 'assign_leads'; to: string; leadIds: string[]; from: Record<string, string | null> };
 
 /** The contacts whose timelines carry this action's audit lines. */
 function auditContacts(row: { contactId: string | null; args: unknown }): string[] {
   const args = row.args as FrozenArgs;
+  // A lead's reassignment is recorded by assignLead itself, on a line only admins and the
+  // lead's new holder see — never on the contact's open timeline (the client's rule).
+  if (args.tool === 'assign_leads') return [];
   if ('contactIds' in args) return args.contactIds;
   return row.contactId ? [row.contactId] : [];
 }
@@ -162,7 +169,7 @@ export async function propose(
 
 /** A domain refusal at run time — shown on the card as the reason; never a crash. */
 function runRefusal(err: unknown): string | null {
-  if (err instanceof ContactError || err instanceof AppointmentError || err instanceof AssistantError || err instanceof TemplateEmailError || err instanceof DashboardError) {
+  if (err instanceof ContactError || err instanceof AppointmentError || err instanceof AssistantError || err instanceof TemplateEmailError || err instanceof DashboardError || err instanceof LeadTriageError) {
     return err.message;
   }
   return null;
@@ -287,6 +294,21 @@ async function execute(
     case 'set_contact_archived': {
       await setContactArchived(tx, actor, args.contactId, args.archived, { via: 'assistant' });
       return { result: {} };
+    }
+    case 'assign_leads': {
+      // The receiver must still be an active member who may work leads (never read-only);
+      // then the screen's own assignLead for each, all or none: it asks lead:assign again,
+      // refuses a lead that changed hands since the card, moves the contact only by its rule,
+      // keeps the handover note and writes the timeline line.
+      if (!(await assignableMember(tx, actor, args.to))) {
+        throw new AssistantError('conflict', 'That person can no longer be given leads (they left, or became read-only). Nothing was changed.');
+      }
+      let contactsMoved = 0;
+      for (const leadId of args.leadIds) {
+        const r = await assignLead(tx, actor, leadId, args.to, { via: 'assistant', expectedFrom: args.from[leadId] ?? null });
+        if (r.contactMoved) contactsMoved += 1;
+      }
+      return { result: { assigned: args.leadIds.length, contactsMoved } };
     }
   }
 }
@@ -621,7 +643,7 @@ export type ProposalView = {
   card: ProposalCard;
   error: string | null;
   /** Ids of what it made or changed — for links. Never model text. */
-  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; recorded?: number; withdrawn?: number; changed?: string[]; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
+  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; contactsMoved?: number; recorded?: number; withdrawn?: number; changed?: string[]; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
   expiresAt: Date;
   /** When a scheduled action will run (about; up to ~5 minutes later). */
   runAt: Date | null;

@@ -416,10 +416,39 @@ describe('update_contact / set_contact_archived — the edit form’s details on
   });
 });
 
+describe('assign_leads (owners and admins only) — leads and the receiver are references', () => {
+  const input = ASSISTANT_TOOL_INPUTS.assign_leads;
+  it('accepts lead references and one member reference', () => {
+    expect(input.safeParse({ leads: ['L1', 'L2'], to: 'M1' }).success).toBe(true);
+  });
+  it('a lead is an L reference — never a contact, a name, an id or "all"; the receiver is an M reference', () => {
+    for (const leads of [['C1'], ['S1'], ['Saad'], ['33333333-3333-4333-8333-333333333333'], ['all'], []]) {
+      expect(input.safeParse({ leads, to: 'M1' }).success, JSON.stringify(leads)).toBe(false);
+    }
+    for (const to of ['Saad', 'saad@example.com', 'C1', 'L1', '55555555-5555-4555-8555-555555555555']) {
+      expect(input.safeParse({ leads: ['L1'], to }).success, to).toBe(false);
+    }
+  });
+  it('at most 20 leads on one card, and no extra fields (no status, no contact, no "from")', () => {
+    expect(input.safeParse({ leads: Array.from({ length: 21 }, (_, i) => `L${i + 1}`), to: 'M1' }).success).toBe(false);
+    expect(input.safeParse({ leads: ['L1'], to: 'M1', from: 'M2' }).success).toBe(false);
+    expect(input.safeParse({ leads: ['L1'], to: 'M1', move_contact: false }).success).toBe(false);
+  });
+  it('an agent is refused with "only an owner or admin" before the database', async () => {
+    const handles: HandleMap = {};
+    issueHandle(handles, 'L', '33333333-3333-4333-8333-333333333333');
+    issueHandle(handles, 'M', '55555555-5555-4555-8555-555555555555');
+    const out = await runAssistantTool(ctx(handles, 'agent'), 'assign_leads', { leads: ['L1'], to: 'M1' });
+    expect(out.isError).toBe(true);
+    expect(JSON.stringify(out.result)).toMatch(/only an owner or admin of the agency can assign leads/i);
+  });
+});
+
 describe('the contact tools, by role — who gets past the door (before any database work)', () => {
   const inputs: Record<string, Record<string, unknown>> = {
     find_team_members: {},
     assign_contacts: { contacts: ['C1'], to: 'M1' },
+    assign_leads: { leads: ['L1'], to: 'M1' },
     record_marketing_consent: { contacts: ['C1'], how: 'Said yes on the phone' },
     withdraw_marketing_consent: { contacts: ['C1'], reason: 'Asked to stop' },
     update_contact: { contact: 'C1', name: 'New name' },
@@ -439,6 +468,7 @@ describe('the contact tools, by role — who gets past the door (before any data
       for (const [tool, input] of Object.entries(inputs)) {
         const handles: HandleMap = {};
         issueHandle(handles, 'C', contactId);
+        issueHandle(handles, 'L', '33333333-3333-4333-8333-333333333333');
         issueHandle(handles, 'M', '55555555-5555-4555-8555-555555555555');
         const c: ToolContext = { ...ctx(handles), actor: { userId: 'u1', agencyId, membershipRole: role as 'agent' } };
         const reached = await runAssistantTool(c, tool, input).then(() => false, (e: Error) => /database was reached/.test(e.message));

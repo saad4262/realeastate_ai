@@ -193,6 +193,19 @@ describe('assignLead', () => {
     expect(b.sets[0]).toEqual(expect.objectContaining({ assignedTo: null }));
   });
 
+  it('from the assistant: refuses a lead that changed hands since the card showed who had it — and guards the write too', async () => {
+    const moved = fakeDb({ reads: [[enquiry(otherAgentId)], [{ role: 'agent' }]] });
+    expect(await code(assignLead(moved.db, owner, leadId, agentId, { via: 'assistant', expectedFrom: null }))).toBe('conflict');
+    expect(moved.sets).toEqual([]);
+
+    const same = fakeDb({
+      reads: [[enquiry(otherAgentId)], [{ role: 'agent' }]],
+      returns: [[{ id: leadId, status: 'new', assignedTo: otherAgentId }]],
+    });
+    await assignLead(same.db, owner, leadId, agentId, { via: 'assistant', expectedFrom: otherAgentId });
+    expect(same.wheres.at(-1)).toMatch(/"assigned_to" is not distinct from \$/);
+  });
+
   it('reports a member removed between the check and the write as a conflict', async () => {
     const { db } = fakeDb({ reads: [[enquiry()], [{ role: 'agent' }]], returns: [[]] });
     expect(await code(assignLead(db, owner, leadId, agentId))).toBe('conflict');

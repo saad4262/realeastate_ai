@@ -21,6 +21,7 @@ import type { ProposalContext } from './actions';
 import {
   proposeAddNote,
   proposeAssignContacts,
+  proposeAssignLeads,
   proposeCancelAppointment,
   proposeRecordConsent,
   proposeSetArchived,
@@ -100,6 +101,7 @@ const LABELS: Record<AssistantToolName, string> = {
   withdraw_marketing_consent: 'Preparing the withdrawal for you to approve…',
   update_contact: 'Preparing the change for you to approve…',
   set_contact_archived: 'Preparing the archive change for you to approve…',
+  assign_leads: 'Preparing the lead assignment for you to approve…',
 };
 
 /** Tools that change a contact's own record: never for someone who may not edit a contact of their own (read-only). */
@@ -165,6 +167,9 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
     return refused('You do not have access to this.', label);
   }
   // Owners and admins only — whatever the model asks (it is not shown these tools otherwise).
+  if (tool === 'assign_leads' && !can(actor, 'lead:assign', { type: 'lead', agencyId: actor.agencyId })) {
+    return refused('Only an owner or admin of the agency can assign leads. Tell the person to ask one of them. Nothing was proposed.', label);
+  }
   if ((ASSISTANT_ADMIN_TOOLS as readonly string[]).includes(tool) && !can(actor, 'contact:assign', { type: 'contact', agencyId: actor.agencyId })) {
     return refused('Only an owner or admin can assign contacts. Tell the person to ask one of them.', label);
   }
@@ -214,12 +219,14 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return proposeUpdateContact(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.update_contact>, label);
     case 'set_contact_archived':
       return proposeSetArchived(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.set_contact_archived>, label);
+    case 'assign_leads':
+      return proposeAssignLeads(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.assign_leads>, label);
   }
 }
 
 /**
- * The members contacts may be given to (owners/admins only — checked above and
- * again inside): active, and allowed to work a contact, so never read-only.
+ * The members contacts and leads may be given to (owners/admins only — checked
+ * above and again inside): active, and allowed to work a contact, so never read-only.
  * The same list the directory's Assign menu draws. Names only, as `M` references.
  */
 async function findTeamMembers(ctx: ToolContext, label: string): Promise<ToolOutcome> {
