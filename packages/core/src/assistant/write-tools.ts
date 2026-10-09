@@ -14,6 +14,9 @@ import type { ProposalCard } from './schema';
 import { assignableMember, contactDetailsOf, UNSUBSCRIBED_REASON, type ContactDetails, type ContactDetailsPatch } from '../contacts/write-contacts';
 import { CONTACT_ROLE_LABELS, type ContactRoleKind } from '../contacts/contact-schema';
 import { formatAddress } from '../listings/listing-schema';
+import { getImport, importReport, ImportError } from '../imports/imports';
+import { FIELD_LABELS, REQUIRED_FIELDS } from '../imports/columns';
+import type { importListingsInput } from './schema';
 import type { deleteContactInput, restoreContactInput, saveEmailTemplateInput, sendNewTemplateEmailInput } from './schema';
 import { deletionImpact, restorableContact, RESTORE_DAYS } from '../contacts/delete-contact';
 import { ContactError } from '../contacts/list-contacts';
@@ -992,4 +995,80 @@ export async function proposeRestoreContact(ctx: ToolContext, input: z.infer<typ
   };
   const args: FrozenArgs = { tool: 'restore_contact', contactId: c.id };
   return propose(ctx, label, { tool: 'restore_contact', args, card, contactId: c.id });
+}
+
+/**
+ * Listings from the CSV the person attached (ADR 0029's own job: the Import
+ * screen's parser, limits, geocoding and duplicate rules). The card is the
+ * checked report from the import tables — how many rows are ready, how many
+ * have errors or are duplicates, how many addresses Google found — and says
+ * what Approve does: an owner's/admin's rows arrive as DRAFTS, anyone else's
+ * submitted for an owner/admin to approve. Never live from here. Columns that
+ * could not be matched, or a check still running: no card — the Import screen.
+ */
+export async function proposeImportListings(ctx: ToolContext, input: z.infer<typeof importListingsInput>, label: string): Promise<ToolOutcome> {
+  const id = resolveHandle(ctx.handles, input.import, 'import');
+  if (!id) return refused(UNKNOWN_REF, label);
+  let v: Awaited<ReturnType<typeof getImport>>;
+  try {
+    v = await getImport(ctx.db, ctx.actor, id);
+  } catch (err) {
+    if (err instanceof ImportError) return refused('That file is not available to this person.', label);
+    throw err;
+  }
+  if (!v.mayRun) return refused('Only the person who attached this file can import it.', label);
+  const screen = 'the Import screen (Listings → Import)';
+  if (v.status === 'mapped') {
+    const missing = REQUIRED_FIELDS.filter((f) => v.mapping[f] === null || v.mapping[f] === undefined).map((f) => FIELD_LABELS[f]);
+    return {
+      label,
+      result: {
+        proposed: false,
+        tell_the_user: missing.length
+          ? `Some columns could not be matched automatically (${missing.join(', ')}). Match them on ${screen}; nothing was proposed.`
+          : `The file has not been checked yet. Open ${screen} to run the check; nothing was proposed.`,
+      },
+    };
+  }
+  if (v.status === 'validating') {
+    return { label, result: { proposed: false, tell_the_user: `The file is still being checked (${v.totalRows - v.counts.pending} of ${v.totalRows} rows). Ask again in a moment; nothing was proposed.` } };
+  }
+  if (v.status !== 'validated') {
+    return { label, result: { proposed: false, tell_the_user: `This file is already ${v.status === 'importing' ? 'being imported' : v.status}. See ${screen}; nothing was proposed.` } };
+  }
+  if (!v.counts.valid) {
+    return { label, result: { proposed: false, tell_the_user: `No row of ${v.fileName} is ready to import (${v.counts.error} with errors, ${v.counts.duplicate} duplicates). The report is on ${screen}; nothing was proposed.` } };
+  }
+  const problems = await importReport(ctx.db, ctx.actor, id, { onlyProblems: true, limit: 500 });
+  const notFound = problems.filter((p) => p.errors.some((e) => e.column === 'Address')).length;
+  const publisher = can(ctx.actor, 'listing:publish', { type: 'listing', agencyId: ctx.actor.agencyId as string });
+  const examples = problems
+    .filter((p) => p.errors.length)
+    .slice(0, 5)
+    .map((p) => `Row ${p.rowNumber}: ${p.errors.map((e) => `${e.column} — ${e.message}`).join('; ')}`);
+  const card: ProposalCard = {
+    title: `Import ${v.counts.valid} listing${v.counts.valid === 1 ? '' : 's'} from ${v.fileName}`,
+    contact: { id: '', name: '' },
+    lines: [
+      { label: 'File', value: `${v.fileName} · ${v.totalRows} row${v.totalRows === 1 ? '' : 's'}` },
+      { label: 'Ready to import', value: String(v.counts.valid) },
+      { label: 'With errors (not imported)', value: String(v.counts.error) },
+      { label: 'Duplicates (skipped)', value: String(v.counts.duplicate) },
+      { label: 'Address found on the map', value: `${v.counts.valid + v.counts.duplicate} row${v.counts.valid + v.counts.duplicate === 1 ? '' : 's'}${notFound ? ` · ${notFound} address${notFound === 1 ? '' : 'es'} Google could not find` : ''}` },
+      {
+        label: 'They arrive as',
+        value: publisher
+          ? 'Drafts — nothing goes live. Publish each from Live listings when it is ready.'
+          : 'Submitted for approval — an owner or admin approves each before it goes live.',
+      },
+    ],
+    notes: [
+      NOTHING_YET,
+      'Nothing imported from the assistant is ever live straight away.',
+      ...examples,
+      ...(v.counts.error > examples.length ? [`…and ${v.counts.error - examples.length} more on ${screen}, where the full report can be downloaded.`] : []),
+    ],
+  };
+  const args: FrozenArgs = { tool: 'import_listings', importId: id };
+  return propose(ctx, label, { tool: 'import_listings', args, card, contactId: null });
 }

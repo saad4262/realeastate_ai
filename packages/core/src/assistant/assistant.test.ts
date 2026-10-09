@@ -506,6 +506,29 @@ describe('delete_contact / restore_contact — one contact per card, by referenc
   });
 });
 
+describe('import_listings — a CSV attached in the panel, by reference; never live', () => {
+  const input = ASSISTANT_TOOL_INPUTS.import_listings;
+  it('takes the attached file’s reference (I1) and nothing else — no mode, no "live", no publish', () => {
+    expect(handleSchema.safeParse('I1').success).toBe(true);
+    expect(input.safeParse({ import: 'I1' }).success).toBe(true);
+    for (const bad of [{ import: 'C1' }, { import: '33333333-3333-4333-8333-333333333333' }, { import: 'listings.csv' }, { import: 'I1', mode: 'live' }, { import: 'I1', publish: true }, { import: 'I1', update_duplicates: true }, {}]) {
+      expect(input.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+    }
+  });
+  it('a turn may carry one attached import by id — never the file’s text', () => {
+    const base = { message: 'add these listings', timeZone: 'Australia/Melbourne' };
+    expect(assistantTurnRequestSchema.safeParse({ ...base, attachment: { importId: '33333333-3333-4333-8333-333333333333' } }).success).toBe(true);
+    expect(assistantTurnRequestSchema.safeParse({ ...base, attachment: { importId: 'x.csv' } }).success).toBe(false);
+    expect(assistantTurnRequestSchema.safeParse({ ...base, attachment: { importId: '33333333-3333-4333-8333-333333333333', text: 'a,b' } }).success).toBe(false);
+  });
+  it('a read-only member is refused before the database', async () => {
+    const handles: HandleMap = {};
+    issueHandle(handles, 'I', '33333333-3333-4333-8333-333333333333');
+    const out = await runAssistantTool(ctx(handles, 'read_only'), 'import_listings', { import: 'I1' });
+    expect(out.isError).toBe(true);
+  });
+});
+
 describe('the contact tools, by role — who gets past the door (before any database work)', () => {
   const inputs: Record<string, Record<string, unknown>> = {
     find_team_members: {},

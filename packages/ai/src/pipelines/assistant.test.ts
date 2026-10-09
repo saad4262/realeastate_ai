@@ -421,6 +421,15 @@ describe('prompt v8 (2026-10-09 amendment)', () => {
     expect(Object.keys((del.input_schema as { properties: Record<string, unknown> }).properties)).toEqual(['contact']);
   });
 
+  it('listings from a CSV: the attached file is named in the console block as a reference, its counts from the import job', () => {
+    const block = contextBlock({ now: new Date('2026-10-09T00:00:00Z'), timeZone: 'Australia/Melbourne', surface: 'agent', selected: [], attached: { ref: 'I1', fileName: 'stock.csv', status: 'validated', ready: 38, errors: 2, duplicates: 1 } });
+    expect(block).toMatch(/Attached file: I1 = "stock\.csv" — checked: 38 ready, 2 with errors, 1 duplicate/);
+    expect(ASSISTANT_SYSTEM).toMatch(/Listings from a CSV/);
+    expect(ASSISTANT_SYSTEM).toMatch(/never live/);
+    const imp = ASSISTANT_TOOLS.find((t) => t.name === 'import_listings')!;
+    expect(Object.keys((imp.input_schema as { properties: Record<string, unknown> }).properties)).toEqual(['import']);
+  });
+
   it('is a new version, and tells the model not to guess which lead — list and ask — and what an agent is told', () => {
     expect(ASSISTANT_PROMPT_VERSION).toBe('assistant@v8');
     expect(ASSISTANT_SYSTEM).toMatch(/don't guess: show the newest few from find_leads by reference \(L1, L2…\) and ask which one/);

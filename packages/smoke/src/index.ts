@@ -206,6 +206,7 @@ import {
   purgeAssistantConversations,
   runAssistantTool,
   selectionHandles,
+  attachmentHandle,
   type HandleMap,
   ASSISTANT_WRITE_TOOLS,
 } from '@repo/core/assistant';
@@ -7242,6 +7243,104 @@ async function main() {
       const [gone] = await t.execute<{ file: string | null; raws: number }>(sql`select file_text as file, (select count(*)::int from listing_import_row where import_id = ${id} and raw is not null) as raws from listing_import where id = ${id}`);
       assert(gone?.file === null && gone.raws === 0, `after 30 days: ${JSON.stringify(gone)}`);
       return 'a held lease blocks a second worker, a stale one does not; tick finished the dry run; a suspended uploader’s import failed with the reason; file and cells cleared after 30 days';
+    }),
+  );
+
+  // ADR 0025 amendment (2026-10-09): listings from a CSV attached in the assistant panel — this
+  // group's fixtures; TEST-PLAN AH.
+  /** The panel's attach: the Import screen's upload asking for drafts, the check driven to the end, then the I reference. */
+  async function attachToAssistant(t: Db, actor: Actor, text: string, fileName = 'stock.csv') {
+    const { id } = await createImport(t, actor, { fileName, text, mode: 'draft' });
+    await startDryRun(t, actor, id);
+    await driveImport(t, actor, id, importDeps(), ['validated']);
+    const conv = await claimTurn(t, actor, { message: 'add these listings', surface: actor.membershipRole === 'owner' || actor.membershipRole === 'admin' ? 'agency' : 'agent' });
+    const h: HandleMap = {};
+    const att = await attachmentHandle(t, actor, h, id);
+    const ctx = () => proposeCtx(t, actor, h, conv.conversationId, { count: 0 });
+    return { id, h, att, ctx };
+  }
+  /** The listings this import made, by status. */
+  const statuses = async (t: Db, importId: string) =>
+    (await t.execute<{ status: string }>(sql`
+      select l.status from listing l join listing_import_row r on r.listing_id = l.id where r.import_id = ${importId} order by l.status`)).map((r) => r.status);
+
+  await check('AH: import_listings — an agent’s attached CSV: the card is the Import screen’s check (ready, errors, duplicates, addresses found); Approve imports the ready rows submitted for approval — none live', async () =>
+    inRollback(async (t) => {
+      const x = await importFixture(t);
+      const agent = x.f.actor('a1');
+      const before = await listingCount(t, x.f.agencyId);
+      const a = await attachToAssistant(t, agent, x.text);
+      assert(a.att?.ref === 'I1' && a.att.status === 'validated' && a.att.ready === 4 && a.att.errors === 4 && a.att.duplicates === 2, `attached: ${JSON.stringify(a.att)}`);
+      const id = cardId(await runAssistantTool(a.ctx(), 'import_listings', { import: 'I1' }));
+      const card = (await getProposedAction(t, agent, id)).card;
+      const line = (l: string) => card.lines.find((r) => r.label === l)?.value ?? '';
+      assert(line('Ready to import') === '4' && line('With errors (not imported)') === '4' && line('Duplicates (skipped)') === '2', `card: ${JSON.stringify(card.lines)}`);
+      assert(/6 rows · 1 address Google could not find/.test(line('Address found on the map')), `addresses: ${line('Address found on the map')}`);
+      assert(/Submitted for approval/.test(line('They arrive as')) && card.notes.some((n) => /^Row \d+:/.test(n)), `mode / examples: ${line('They arrive as')} ${JSON.stringify(card.notes)}`);
+      assert((await listingCount(t, x.f.agencyId)) === before, 'proposing wrote listings');
+
+      const r = await approveProposedAction(t, agent, id);
+      assert(r.outcome === 'done', `approve: ${JSON.stringify(r)}`);
+      await driveImport(t, agent, a.id, importDeps(), ['done']);
+      const made = await statuses(t, a.id);
+      assert(made.length === 4 && made.every((st) => st === 'pending'), `the agent's listings: ${made.join(', ')}`);
+      return 'attached as I1 (4 ready, 4 errors, 2 duplicates); card: 4 / 4 / 2, 6 addresses found · 1 not, "submitted for approval", row-level examples; nothing before Approve; Approve → 4 listings, all pending for an owner/admin';
+    }),
+  );
+
+  await check('AH: import_listings never goes live — an owner’s file uploaded as live arrives as drafts; another person’s or agency’s file, unmatched columns, a check still running and a cancelled import give no card or fail at run', async () =>
+    inRollback(async (t) => {
+      const x = await importFixture(t);
+      const owner = x.f.actor('owner');
+      // Uploaded on the Import screen as LIVE, then handed to the assistant: still drafts.
+      const { id: liveId } = await createImport(t, owner, { fileName: 'live.csv', text: x.text, mode: 'live' });
+      await startDryRun(t, owner, liveId);
+      await driveImport(t, owner, liveId, importDeps(), ['validated']);
+      const conv = await claimTurn(t, owner, { message: 'import', surface: 'agency' });
+      const h: HandleMap = {};
+      await attachmentHandle(t, owner, h, liveId);
+      const c1 = cardId(await runAssistantTool(proposeCtx(t, owner, h, conv.conversationId, { count: 0 }), 'import_listings', { import: 'I1' }));
+      assert(/Drafts — nothing goes live/.test((await getProposedAction(t, owner, c1)).card.lines.find((l) => l.label === 'They arrive as')!.value), 'owner card does not say drafts');
+      assert((await approveProposedAction(t, owner, c1)).outcome === 'done', 'owner approve');
+      await driveImport(t, owner, liveId, importDeps(), ['done']);
+      const made = await statuses(t, liveId);
+      assert(made.length === 4 && made.every((st) => st === 'draft'), `the owner's listings: ${made.join(', ')}`);
+
+      // Someone else's file: A1 attaches A2's import → not theirs to run.
+      const theirs = await attachToAssistant(t, x.f.actor('a2'), x.text, 'a2.csv');
+      const a1 = x.f.actor('a1');
+      const conv2 = await claimTurn(t, a1, { message: 'import', surface: 'agent' });
+      const h2: HandleMap = {};
+      issueHandle(h2, 'I', theirs.id);
+      const notMine = await runAssistantTool(proposeCtx(t, a1, h2, conv2.conversationId, { count: 0 }), 'import_listings', { import: 'I1' });
+      assert(notMine.isError, `another member's file: ${JSON.stringify(notMine.result)}`);
+      assert((await attachmentHandle(t, a1, {}, theirs.id)) === null, 'another member’s file was attached');
+      // Another agency's file.
+      const other = await contactFixture(t);
+      const { id: otherId } = await createImport(t, other.actor('owner'), { fileName: 'b.csv', text: x.text });
+      assert((await attachmentHandle(t, a1, {}, otherId)) === null, 'another agency’s file was attached');
+      // A read-only member.
+      const ro = await runAssistantTool(proposeCtx(t, x.f.actor('viewer'), h2, conv2.conversationId, { count: 0 }), 'import_listings', { import: 'I1' });
+      assert(ro.isError, 'read-only proposed an import');
+      // Unmatched columns; a check not finished: no card.
+      const { id: oddId } = await createImport(t, a1, { fileName: 'odd.csv', text: 'Where,What\n1 Smoke St,House', mode: 'draft' });
+      const h3: HandleMap = {};
+      await attachmentHandle(t, a1, h3, oddId);
+      const odd = await runAssistantTool(proposeCtx(t, a1, h3, conv2.conversationId, { count: 0 }), 'import_listings', { import: 'I1' });
+      assert(!odd.isError && /could not be matched/.test(JSON.stringify(odd.result)), `unmatched: ${JSON.stringify(odd.result)}`);
+      const { id: slowId } = await createImport(t, a1, { fileName: 'slow.csv', text: x.text, mode: 'draft' });
+      await startDryRun(t, a1, slowId);
+      const h4: HandleMap = {};
+      await attachmentHandle(t, a1, h4, slowId);
+      const slow = await runAssistantTool(proposeCtx(t, a1, h4, conv2.conversationId, { count: 0 }), 'import_listings', { import: 'I1' });
+      assert(!slow.isError && /still being checked/.test(JSON.stringify(slow.result)), `checking: ${JSON.stringify(slow.result)}`);
+      // Run time: the import was cancelled after the card.
+      const mine = await attachToAssistant(t, a1, x.text, 'mine.csv');
+      const c2 = cardId(await runAssistantTool(mine.ctx(), 'import_listings', { import: 'I1' }));
+      await cancelImport(t, a1, mine.id);
+      const r2 = await approveProposedAction(t, a1, c2);
+      assert(r2.outcome === 'failed', `cancelled since: ${JSON.stringify(r2)}`);
+      return 'owner file uploaded as live → card says drafts → 4 drafts, none live; refused: another member’s file, another agency’s file, read-only; unmatched columns and a running check → no card; cancelled after the card → failed at run';
     }),
   );
 

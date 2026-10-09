@@ -19,6 +19,7 @@ import {
 import { AppointmentError, cancelAppointment, rescheduleAppointment, scheduleAppointment } from '../appointments/appointments';
 import { assignLead, LeadTriageError } from '../leads/triage-lead';
 import { deleteContact, restoreDeletedContact } from '../contacts/delete-contact';
+import { ImportError, startImport } from '../imports/imports';
 import { syncAppointment, type SyncDeps, type SyncOutcome } from '../appointments/sync';
 import { requireIntegrations } from '../integrations/accounts';
 import { approveBatch, cancelBatch, getBatch, prepareBatch } from '../template-email/batches';
@@ -89,7 +90,9 @@ export type FrozenArgs =
   | { tool: 'send_new_template_email'; name: string; purpose: string; subject: string; body: string; contactIds: string[] }
   /** Deleted (7 days to restore) / brought back — through the screen's own functions. */
   | { tool: 'delete_contact'; contactId: string }
-  | { tool: 'restore_contact'; contactId: string };
+  | { tool: 'restore_contact'; contactId: string }
+  /** The attached CSV's checked import job: import its ready rows, never live. */
+  | { tool: 'import_listings'; importId: string };
 
 /** The contacts whose timelines carry this action's audit lines. */
 function auditContacts(row: { contactId: string | null; args: unknown }): string[] {
@@ -177,7 +180,7 @@ export async function propose(
 
 /** A domain refusal at run time — shown on the card as the reason; never a crash. */
 function runRefusal(err: unknown): string | null {
-  if (err instanceof ContactError || err instanceof AppointmentError || err instanceof AssistantError || err instanceof TemplateEmailError || err instanceof DashboardError || err instanceof LeadTriageError) {
+  if (err instanceof ContactError || err instanceof AppointmentError || err instanceof AssistantError || err instanceof TemplateEmailError || err instanceof DashboardError || err instanceof LeadTriageError || err instanceof ImportError) {
     return err.message;
   }
   return null;
@@ -335,6 +338,13 @@ async function execute(
     case 'restore_contact': {
       await restoreDeletedContact(tx, actor, args.contactId, { via: 'assistant' }, now);
       return { result: {} };
+    }
+    case 'import_listings': {
+      // ADR 0029's own Import: asks listing_import:run again, needs the check done, and with
+      // neverLive an owner's/admin's rows arrive as drafts, anyone else's for approval. The
+      // rows are written chunk by chunk afterwards (the Import page, or the cron tick).
+      await startImport(tx, actor, args.importId, { neverLive: true });
+      return { result: { importId: args.importId } };
     }
     case 'assign_leads': {
       // The receiver must still be an active member who may work leads (never read-only);
@@ -684,7 +694,7 @@ export type ProposalView = {
   card: ProposalCard;
   error: string | null;
   /** Ids of what it made or changed — for links. Never model text. */
-  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; contactsMoved?: number; recorded?: number; withdrawn?: number; changed?: string[]; templateId?: string; waiting?: boolean; restoreUntil?: string; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
+  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; contactsMoved?: number; recorded?: number; withdrawn?: number; changed?: string[]; templateId?: string; waiting?: boolean; restoreUntil?: string; importId?: string; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
   expiresAt: Date;
   /** When a scheduled action will run (about; up to ~5 minutes later). */
   runAt: Date | null;

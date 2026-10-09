@@ -26,6 +26,8 @@ export const HANDLE_KINDS = {
   S: 'contact',
   /** A member of the agency who may be given contacts or leads — issued only by find_team_members (owners/admins). */
   M: 'member',
+  /** A CSV of listings the person attached in the panel — its import job (ADR 0029). */
+  I: 'import',
 } as const;
 export type HandlePrefix = keyof typeof HANDLE_KINDS;
 export type HandleKind = (typeof HANDLE_KINDS)[HandlePrefix];
@@ -33,7 +35,7 @@ export type HandleKind = (typeof HANDLE_KINDS)[HandlePrefix];
 export const handleSchema = z
   .string()
   .trim()
-  .regex(/^[CLATSM][1-9][0-9]{0,2}$/, 'Not a reference the assistant was given');
+  .regex(/^[CLATSMI][1-9][0-9]{0,2}$/, 'Not a reference the assistant was given');
 
 /** A handle that must name an appointment. */
 export const appointmentHandleSchema = handleSchema.refine((h) => h.startsWith('A'), { message: 'Not an appointment reference' });
@@ -48,6 +50,9 @@ export const contactHandleSchema = handleSchema.refine((h) => h.startsWith('C') 
 
 /** A handle that must name a lead (from find_leads). */
 export const leadHandleSchema = handleSchema.refine((h) => h.startsWith('L'), { message: 'Not a lead reference' });
+
+/** A handle that must name an attached CSV import. */
+export const importHandleSchema = handleSchema.refine((h) => h.startsWith('I'), { message: 'Not an attached file reference' });
 
 /** A handle that must name a team member (from find_team_members). */
 export const memberHandleSchema = handleSchema.refine((h) => h.startsWith('M'), { message: 'Not a team member reference' });
@@ -237,6 +242,15 @@ export const assignContactsInput = z
   .strict();
 
 /**
+ * Listings from a CSV the person attached in the panel (ADR 0025 amendment,
+ * 2026-10-09): the Import screen's own job (ADR 0029) — same parser, limits,
+ * geocoding, duplicate rules. The card is its checked report; Approve imports
+ * the ready rows as DRAFTS (owner/admin) or submitted for approval (anyone
+ * else). Nothing from the assistant is ever live. No mode, no publish switch.
+ */
+export const importListingsInput = z.object({ import: importHandleSchema }).strict();
+
+/**
  * Reassigning leads (owners and admins only, `lead:assign`) — the screen's own
  * reassignment (`assignLead`: handover note, timeline, and the contact moves
  * only if it was the previous agent's or nobody's). Leads are L references
@@ -345,7 +359,7 @@ export const restoreContactInput = z.object({ contact: contactHandleSchema }).st
 export const findDeletedContactsInput = z.object({}).strict();
 
 export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_deleted_contacts'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'assign_leads', 'send_new_template_email', 'save_email_template', 'delete_contact', 'restore_contact'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'assign_leads', 'send_new_template_email', 'save_email_template', 'delete_contact', 'restore_contact', 'import_listings'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 
 /** Every tool. Read tools run at once; write tools only propose (ADR 0025 §8). */
@@ -376,6 +390,7 @@ export const ASSISTANT_TOOL_INPUTS = {
   delete_contact: deleteContactInput,
   restore_contact: restoreContactInput,
   find_deleted_contacts: findDeletedContactsInput,
+  import_listings: importListingsInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];
@@ -408,6 +423,8 @@ export const assistantTurnRequestSchema = z
       .object({ contactIds: z.array(z.string().uuid()).max(ASSISTANT_LIMITS.selection) })
       .strict()
       .optional(),
+    /** A CSV the person attached in the panel: the id of the import job the Import screen's upload made. Never the file. */
+    attachment: z.object({ importId: z.string().uuid() }).strict().optional(),
   })
   .strict();
 export type AssistantTurnRequest = z.infer<typeof assistantTurnRequestSchema>;

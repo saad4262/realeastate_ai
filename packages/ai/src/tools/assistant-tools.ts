@@ -386,6 +386,16 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
       required: ['contact'],
     },
   },
+  {
+    name: 'import_listings',
+    description: `Propose importing listings from the CSV the person attached in the panel (its reference, e.g. I1, is in console_context). It goes through the Import screen's own check: the card shows how many rows are ready, how many have errors or are duplicates, and how many addresses were found. On Approve, an owner's or admin's rows arrive as DRAFTS and anyone else's are submitted for an owner or admin to approve — nothing is ever live from here. If columns could not be matched or the check is still running, it says so: pass that on with the Import screen as the place to finish. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { import: { type: 'string', description: 'The attached file\'s reference from console_context, e.g. I1.' } },
+      required: ['import'],
+    },
+  },
 ]);
 
 const ADMIN_ONLY = new Set<string>(ASSISTANT_ADMIN_TOOLS);

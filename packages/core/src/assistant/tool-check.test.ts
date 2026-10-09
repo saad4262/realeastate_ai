@@ -23,9 +23,8 @@ function newestToolCheck(): string[] {
 }
 
 describe('the proposed_action tool CHECK', () => {
-  it('allows every write tool the code can propose', () => {
-    const allowed = newestToolCheck();
-    expect(ASSISTANT_WRITE_TOOLS.filter((t) => !allowed.includes(t))).toEqual([]);
+  it('allows every write tool the code can propose — and nothing else', () => {
+    expect(newestToolCheck()).toEqual([...ASSISTANT_WRITE_TOOLS].sort());
   });
 
   it('0039 adds lead assignment, the two template tools, delete/restore and the listings import — and keeps the rest', () => {

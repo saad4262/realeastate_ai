@@ -15,6 +15,8 @@ import {
   type ImportMode,
   type ImportReportRow,
   type ImportView,
+  FIELD_LABELS,
+  REQUIRED_FIELDS,
 } from '@repo/core/imports';
 import { getConsoleDb } from './db';
 import { loadListingActor } from './load-actor';
@@ -47,6 +49,30 @@ export async function uploadImportAction(form: FormData): Promise<R<{ id: string
     const mode = form.get('mode') === 'draft' ? 'draft' : 'live';
     const r = await createImport(getConsoleDb(), await actor(), { fileName: file.name, text: await file.text(), mode: mode as ImportMode });
     return { ok: true, id: r.id, sameFileAs: r.sameFileAs ? r.sameFileAs.createdAt.toISOString() : null };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/**
+ * A CSV attached in the assistant panel (ADR 0025 amendment, 2026-10-09): the
+ * same upload as the Import screen — same parser, 10 MB and 5,000-row limits —
+ * asking for DRAFTS (an agent's is pending whatever is asked). When every
+ * required column was matched, the check starts at once; the panel drives its
+ * chunks like the Import page. Nothing is written to listings here.
+ */
+export async function attachListingsCsvAction(form: FormData): Promise<R<{ id: string; fileName: string; rows: number; missing: string[] }>> {
+  try {
+    const file = form.get('file');
+    if (!(file instanceof File) || !file.size) return { ok: false, error: 'Choose a CSV file first' };
+    if (file.size > 10 * 1024 * 1024) return { ok: false, error: 'That file is larger than 10 MB' };
+    const a = await actor();
+    const db = getConsoleDb();
+    const r = await createImport(db, a, { fileName: file.name, text: await file.text(), mode: 'draft' });
+    const view = await getImport(db, a, r.id);
+    const missing = REQUIRED_FIELDS.filter((f) => view.mapping[f] === null || view.mapping[f] === undefined).map((f) => FIELD_LABELS[f]);
+    if (!missing.length) await startDryRun(db, a, r.id);
+    return { ok: true, id: r.id, fileName: view.fileName, rows: r.rows, missing };
   } catch (err) {
     return fail(err);
   }

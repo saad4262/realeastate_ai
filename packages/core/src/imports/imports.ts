@@ -162,7 +162,17 @@ export async function startDryRun(db: Db, actor: Actor, id: string): Promise<voi
  * match an active listing update it instead of being skipped — is
  * owner/admin only (decided Q3).
  */
-export async function startImport(db: Db, actor: Actor, id: string, opts: { updateDuplicates?: boolean } = {}): Promise<void> {
+export async function startImport(
+  db: Db,
+  actor: Actor,
+  id: string,
+  /**
+   * `neverLive`: the assistant's card (ADR 0025 amendment, 2026-10-09) — an
+   * owner's/admin's rows arrive as drafts, anyone else's for approval;
+   * whatever mode the upload asked for, nothing goes live from here.
+   */
+  opts: { updateDuplicates?: boolean; neverLive?: boolean } = {},
+): Promise<void> {
   const imp = await loadImport(db, actor, id);
   requireRun(actor, imp);
   if (imp.status !== 'validated') throw new ImportError('conflict', 'Run the check first');
@@ -171,7 +181,7 @@ export async function startImport(db: Db, actor: Actor, id: string, opts: { upda
     throw new ImportError('forbidden', 'Only an owner or admin can update existing listings from a file');
   }
   // The mode is re-derived from the person NOW: someone demoted since uploading imports as pending.
-  const mode = imp.mode === 'pending' ? 'pending' : modeFor(actor, imp.mode as ImportMode);
+  const mode = imp.mode === 'pending' ? 'pending' : modeFor(actor, opts.neverLive ? 'draft' : (imp.mode as ImportMode));
   await db
     .update(listingImport)
     .set({ status: 'importing', mode, updateDuplicates: update, startedAt: sql`now()`, updatedAt: sql`now()` })

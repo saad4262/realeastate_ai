@@ -1,6 +1,6 @@
 export * from './schema';
 export { issueHandle, parseHandleMap, resolveHandle, type HandleMap } from './handles';
-export { runAssistantTool, selectionHandles, type ToolContext, type ToolOutcome } from './tools';
+export { attachmentHandle, runAssistantTool, selectionHandles, type AttachedImport, type ToolContext, type ToolOutcome } from './tools';
 export { ASSISTANT_FEATURE, checkAssistantBudget, type AssistantBudget } from './budget';
 export {
   AssistantError,

@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AssistantEvent, AssistantFrame } from '@repo/core/assistant/schema';
 import type { ConversationSummary } from '@repo/core/assistant';
+import { attachListingsCsvAction, continueImportAction, getImportAction } from '@/lib/import-actions';
 import {
   approveProposedActionAction,
   cancelProposedActionAction,
@@ -40,10 +41,13 @@ type Turn = {
   pending: boolean;
 };
 
-const PATHS: Record<Surface, { contact: string; leads: string; templates: string; bulk: string; integrations: string }> = {
-  agency: { contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', bulk: '/bulk-email', integrations: '/settings/integrations' },
-  agent: { contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', bulk: '/my-bulk-email', integrations: '/my-integrations' },
+const PATHS: Record<Surface, { contact: string; leads: string; templates: string; bulk: string; integrations: string; imports: string }> = {
+  agency: { contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', bulk: '/bulk-email', integrations: '/settings/integrations', imports: '/live-listings/import' },
+  agent: { contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', bulk: '/my-bulk-email', integrations: '/my-integrations', imports: '/listings/import' },
 };
+
+/** A CSV attached in the panel: the Import screen's job, checked here before the person asks. */
+type Attached = { id: string; fileName: string; state: 'checking' | 'ready' | 'columns' | 'failed'; note: string };
 
 const CONTACT_PAGE = /^\/(?:customers|my-contacts)\/([0-9a-f-]{36})(?:\/|$)/i;
 
@@ -69,6 +73,37 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
   const [busy, setBusy] = useState(false);
   const [useSelection, setUseSelection] = useState(true);
   const [history, setHistory] = useState<ConversationSummary[] | null>(null);
+  const [attached, setAttached] = useState<Attached | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  /** Upload through the Import screen's own action, then drive its check chunk by chunk, as the Import page does. */
+  const attach = async (file: File) => {
+    setAttached({ id: '', fileName: file.name, state: 'checking', note: 'Uploading…' });
+    const form = new FormData();
+    form.set('file', file);
+    const up = await attachListingsCsvAction(form);
+    if (!up.ok) return setAttached({ id: '', fileName: file.name, state: 'failed', note: up.error });
+    if (up.missing.length) {
+      return setAttached({ id: up.id, fileName: up.fileName, state: 'columns', note: `Columns not matched: ${up.missing.join(', ')} — match them on the Import screen` });
+    }
+    for (let i = 0; i < 200; i++) {
+      const step = await continueImportAction(up.id);
+      if (!step.ok) return setAttached({ id: up.id, fileName: up.fileName, state: 'failed', note: step.error });
+      if (step.status !== 'validating') break;
+      const v = await getImportAction(up.id);
+      if (v.ok) setAttached({ id: up.id, fileName: up.fileName, state: 'checking', note: `Checking ${v.view.totalRows - v.view.counts.pending} of ${v.view.totalRows} rows…` });
+      if (step.busy) await new Promise((r) => setTimeout(r, 1500));
+    }
+    const done = await getImportAction(up.id);
+    if (!done.ok) return setAttached({ id: up.id, fileName: up.fileName, state: 'failed', note: done.error });
+    const c = done.view.counts;
+    setAttached({
+      id: up.id,
+      fileName: up.fileName,
+      state: done.view.status === 'validated' ? 'ready' : 'failed',
+      note: done.view.status === 'validated' ? `Checked: ${c.valid} ready · ${c.error} with errors · ${c.duplicate} duplicates` : `Check ${done.view.status}`,
+    });
+  };
   const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
 
@@ -100,6 +135,7 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
           ...(conversationId ? { conversationId } : {}),
           message,
           timeZone: browserZone(),
+          ...(attached && attached.id && attached.state !== 'failed' ? { attachment: { importId: attached.id } } : {}),
           ...(picks.length
             ? { selection: { contactIds: picks.map((p) => p.id) } }
             : onContact && useSelection
@@ -142,7 +178,7 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
       setBusy(false);
       abortRef.current = null;
     }
-  }, [busy, conversationId, draft, onContact, useSelection, picks]);
+  }, [busy, conversationId, draft, onContact, useSelection, picks, attached]);
 
   const startNew = () => {
     abortRef.current?.abort();
@@ -275,6 +311,20 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
             </button>
           </div>
         ) : null}
+        {attached ? (
+          <div className={styles.chip}>
+            {attached.fileName} — {attached.note}
+            {attached.state === 'columns' && attached.id ? (
+              <>
+                {' '}
+                <Link href={`${PATHS[surface].imports}/${attached.id}`}>Open</Link>
+              </>
+            ) : null}
+            <button type="button" onClick={() => setAttached(null)} aria-label="Remove the file" disabled={attached.state === 'checking'}>
+              ×
+            </button>
+          </div>
+        ) : null}
         {full ? <p className={styles.muted}>This conversation is full — start a new one.</p> : null}
         <form
           className={styles.form}
@@ -298,6 +348,26 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
             }}
             disabled={full}
           />
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,text/csv"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) void attach(f);
+            }}
+          />
+          <button
+            type="button"
+            className={styles.ghost}
+            title="Attach a CSV of listings (UTF-8, up to 10 MB, 5,000 rows) — checked like the Import screen; nothing is added until you approve"
+            disabled={busy || attached?.state === 'checking'}
+            onClick={() => fileRef.current?.click()}
+          >
+            Attach CSV
+          </button>
           {busy ? (
             <button type="button" className={styles.send} onClick={() => abortRef.current?.abort()}>
               Stop
@@ -499,6 +569,8 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
             ? `${PATHS[surface].templates}/${view.result.templateId}`
           : view.tool === 'assign_leads'
             ? PATHS[surface].leads
+            : view.tool === 'import_listings' && view.result?.importId
+              ? `${PATHS[surface].imports}/${view.result.importId}`
             : card.contact.id
             ? `${contactHref}?tab=${view.tool === 'add_note' ? 'notes' : /appointment/.test(view.tool) ? 'calendar' : 'overview'}`
             : null;
@@ -513,6 +585,8 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
           ? 'Open the template'
           : view.tool === 'assign_leads'
             ? 'Open the leads'
+            : view.tool === 'import_listings'
+              ? 'Open the import (it carries on there)'
             : `Open ${card.contact.name}`;
 
   return (

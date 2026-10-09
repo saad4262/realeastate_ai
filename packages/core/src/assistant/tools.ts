@@ -6,6 +6,8 @@ import { can, type Actor } from '../permissions';
 import { contactQueryFilters } from '../contacts/list-contacts';
 import { listContactAssignees } from '../contacts/write-contacts';
 import { listDeletedContacts } from '../contacts/delete-contact';
+import { getImport, ImportError } from '../imports/imports';
+import { FIELD_LABELS, REQUIRED_FIELDS } from '../imports/columns';
 import { visibleContactIdsSql } from '../contacts/visibility';
 import { leadScopeFilters } from '../leads/list-leads';
 import { appointmentScopeFilters } from '../appointments/appointments';
@@ -24,6 +26,7 @@ import {
   proposeAssignContacts,
   proposeAssignLeads,
   proposeDeleteContact,
+  proposeImportListings,
   proposeRestoreContact,
   proposeSaveEmailTemplate,
   proposeSendNewTemplateEmail,
@@ -112,6 +115,7 @@ const LABELS: Record<AssistantToolName, string> = {
   delete_contact: 'Preparing the delete for you to approve…',
   restore_contact: 'Preparing the restore for you to approve…',
   find_deleted_contacts: 'Looking up recently deleted contacts…',
+  import_listings: 'Preparing the listings import for you to approve…',
 };
 
 /** Tools that change a contact's own record: never for someone who may not edit a contact of their own (read-only). */
@@ -183,6 +187,9 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
   if ((ASSISTANT_ADMIN_TOOLS as readonly string[]).includes(tool) && !can(actor, 'contact:assign', { type: 'contact', agencyId: actor.agencyId })) {
     return refused('Only an owner or admin can assign contacts. Tell the person to ask one of them.', label);
   }
+  if (tool === 'import_listings' && !can(actor, 'listing_import:create', { type: 'listing_import', agencyId: actor.agencyId })) {
+    return refused('This person cannot import listings.', label);
+  }
   if (CONTACT_EDIT_TOOLS.includes(tool) && !can(actor, 'contact:update', { type: 'contact', id: 'probe', agencyId: actor.agencyId, ownerId: actor.userId })) {
     return refused('This person may view contacts but not change them.', label);
   }
@@ -241,6 +248,8 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return proposeRestoreContact(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.restore_contact>, label);
     case 'find_deleted_contacts':
       return findDeletedContacts(ctx, label);
+    case 'import_listings':
+      return proposeImportListings(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.import_listings>, label);
   }
 }
 
@@ -650,3 +659,30 @@ async function showWidget(ctx: ToolContext, input: z.infer<typeof ASSISTANT_TOOL
   };
 }
 
+
+export type AttachedImport = { ref: string; fileName: string; status: string; ready: number; errors: number; duplicates: number; missingColumns: string[] };
+
+/**
+ * The CSV the person attached in the panel, as an `I` reference — only an
+ * import this person may read (the Import screen's rule); anything else is
+ * dropped without saying why. Its counts come from the import job.
+ */
+export async function attachmentHandle(db: Db, actor: Actor, handles: HandleMap, importId: string | undefined): Promise<AttachedImport | null> {
+  if (!importId || !actor.agencyId) return null;
+  try {
+    const v = await getImport(db, actor, importId);
+    const missingColumns = REQUIRED_FIELDS.filter((f) => v.mapping[f] === null || v.mapping[f] === undefined).map((f) => FIELD_LABELS[f]);
+    return {
+      ref: issueHandle(handles, 'I', v.id),
+      fileName: v.fileName,
+      status: v.status,
+      ready: v.counts.valid,
+      errors: v.counts.error,
+      duplicates: v.counts.duplicate,
+      missingColumns,
+    };
+  } catch (err) {
+    if (err instanceof ImportError) return null;
+    throw err;
+  }
+}
