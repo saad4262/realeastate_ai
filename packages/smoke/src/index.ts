@@ -6546,12 +6546,14 @@ async function main() {
       assert(!busy.isError && (busy.result as { proposed: boolean }).proposed === false && /Cancel it first/.test(JSON.stringify(busy.result)), `upcoming appointment: ${JSON.stringify(busy.result)}`);
       await t.execute(sql`delete from appointment where contact_id = ${p6}`);
 
-      // Run time: the contact went to someone else after the card.
+      // Run time: the contact went to someone else after the card. A2 keeps a lead on it, so A2
+      // can still READ it — only the run-time delete check stands in the way.
       const c1 = cardId(await runAssistantTool(s.ctx(), 'delete_contact', { contact: s.ref(p6) }));
+      await x.f.lead(`p6.${x.f.tag}@smoke.test`, 'P6', { assigned: x.f.people.a2 });
       await t.execute(sql`update contact set assigned_to = ${x.f.people.a1} where id = ${p6}`);
       const r1 = await approveProposedAction(t, x.agent, c1);
       const dAt = async () => (await t.execute<{ d: string | null }>(sql`select deleted_at as d from contact where id = ${p6}`))[0]!.d;
-      assert(r1.outcome === 'failed' && (await dAt()) === null, `reassigned since: ${JSON.stringify(r1)}`);
+      assert(r1.outcome === 'failed' && /Only the agent/.test(r1.error) && (await dAt()) === null, `reassigned since: ${JSON.stringify(r1)}`);
 
       // Restore: A2 cannot bring back A1's deleted contact; the read-only member cannot either.
       await deleteContact(t, x.admin, p6);
