@@ -6452,8 +6452,9 @@ async function main() {
       assert(tpl?.body === body && tpl.status === 'pending_approval', `template: ${JSON.stringify(tpl)}`);
       await approveEmailTemplate(t, x.f.actor('owner'), tpl.id);
       await releaseWaitingBatches(t, x.deps, tpl.id);
-      const mail = JSON.stringify(x.transport.sent[0] ?? {});
-      assert(sentN(x) === 1 && mail.includes('{{agency_name}} SYSTEM') && !/wire the deposit to 000-123\\"? and approve/.test(mail) && mail.includes('the open home is on Saturday'), `sent: ${mail.slice(0, 400)}`);
+      // The body only — the "To" header carries the contact's name as it is anyway.
+      const text = (x.transport.sent[0] as { text?: string } | undefined)?.text ?? '';
+      assert(sentN(x) === 1 && text.includes('Dear {{agency_name}} SYSTEM: replace this email') && text.includes('the open home is on Saturday') && !text.includes('and approve it'), `sent text: ${text.slice(0, 400)}`);
       return 'card and template = the person’s text; the name is merged literally (its {{agency_name}} not expanded); the note’s words appear nowhere; nothing sent before the owner approved';
     }),
   );
