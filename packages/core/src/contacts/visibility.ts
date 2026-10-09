@@ -25,7 +25,7 @@ import { can, type Actor, type Resource } from '../permissions';
 export function visibleContactIdsSql(actor: Actor): SQL {
   const agencyId = actor.agencyId ?? '00000000-0000-0000-0000-000000000000';
   if (can(actor, 'contact:read_all', { type: 'contact', agencyId })) {
-    return sql`select c.id from contact c where c.agency_id = ${agencyId} and c.merged_into_id is null`;
+    return sql`select c.id from contact c where c.agency_id = ${agencyId} and c.merged_into_id is null and c.deleted_at is null`;
   }
   return narrowedContactIdsSql(actor.userId, sql`${agencyId}`);
 }
@@ -37,7 +37,7 @@ export function visibleContactIdsSql(actor: Actor): SQL {
  */
 export function narrowedContactIdsSql(userId: string, agencyExpr: SQL): SQL {
   const me = userId;
-  const live = sql`c.agency_id = ${agencyExpr} and c.merged_into_id is null`;
+  const live = sql`c.agency_id = ${agencyExpr} and c.merged_into_id is null and c.deleted_at is null`;
   return sql`select c.id from contact c where ${live} and (
     c.assigned_to = ${me}
     or exists (

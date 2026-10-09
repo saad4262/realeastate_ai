@@ -333,8 +333,19 @@ export const updateContactInput = z
 /** Archive a contact, or bring it back. Never delete. */
 export const setContactArchivedInput = z.object({ contact: contactHandleSchema, archived: z.boolean() }).strict();
 
-export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'assign_leads', 'send_new_template_email', 'save_email_template'] as const;
+/**
+ * Delete one contact — restorable for 7 days, then gone for good by the cron
+ * tick (ADR 0025 amendment, 2026-10-09). One contact per card, by reference;
+ * there is no way to delete "all", by filter, or at once.
+ */
+export const deleteContactInput = z.object({ contact: contactHandleSchema }).strict();
+/** Bring back a contact deleted in the last 7 days (a reference from find_deleted_contacts). */
+export const restoreContactInput = z.object({ contact: contactHandleSchema }).strict();
+/** The contacts deleted in the last 7 days this person may bring back. */
+export const findDeletedContactsInput = z.object({}).strict();
+
+export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_deleted_contacts'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'assign_leads', 'send_new_template_email', 'save_email_template', 'delete_contact', 'restore_contact'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 
 /** Every tool. Read tools run at once; write tools only propose (ADR 0025 §8). */
@@ -362,6 +373,9 @@ export const ASSISTANT_TOOL_INPUTS = {
   assign_leads: assignLeadsInput,
   send_new_template_email: sendNewTemplateEmailInput,
   save_email_template: saveEmailTemplateInput,
+  delete_contact: deleteContactInput,
+  restore_contact: restoreContactInput,
+  find_deleted_contacts: findDeletedContactsInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];

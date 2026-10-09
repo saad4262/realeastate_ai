@@ -389,7 +389,9 @@ describe('update_contact / set_contact_archived — the edit form’s details on
     for (const extra of [{ delete: true }, { name: 'x' }, { assigned_to: 'M1' }]) {
       expect(ASSISTANT_TOOL_INPUTS.set_contact_archived.safeParse({ contact: 'C1', archived: true, ...extra }).success, JSON.stringify(extra)).toBe(false);
     }
-    expect(Object.keys(ASSISTANT_TOOL_INPUTS).filter((t) => /delete|merge/.test(t))).toEqual([]);
+    // Nothing merges. The one delete is its own card, one contact, restorable for 7 days (2026-10-09).
+    expect(Object.keys(ASSISTANT_TOOL_INPUTS).filter((t) => /merge/.test(t))).toEqual([]);
+    expect(Object.keys(ASSISTANT_TOOL_INPUTS).filter((t) => /delete/.test(t)).sort()).toEqual(['delete_contact', 'find_deleted_contacts']);
   });
   it('an email must be an email; the contact must be a reference; one contact per card', () => {
     expect(ASSISTANT_TOOL_INPUTS.update_contact.safeParse({ ...ok, email: 'not an email' }).success).toBe(false);
@@ -483,6 +485,27 @@ describe('email the person wrote — send_new_template_email / save_email_templa
   });
 });
 
+describe('delete_contact / restore_contact — one contact per card, by reference; deleting is restorable for 7 days', () => {
+  it('takes one contact reference and nothing else — no "all", no filter, no "now"/"permanent" switch', () => {
+    for (const tool of ['delete_contact', 'restore_contact'] as const) {
+      const input = ASSISTANT_TOOL_INPUTS[tool];
+      expect(input.safeParse({ contact: 'C1' }).success, tool).toBe(true);
+      for (const bad of [{ contact: 'Sara' }, { contact: 'L1' }, { contact: contactId }, { contacts: ['C1', 'C2'] }, { contact: 'C1', permanent: true }, { contact: 'C1', now: true }]) {
+        expect(input.safeParse(bad).success, `${tool} ${JSON.stringify(bad)}`).toBe(false);
+      }
+    }
+    expect(ASSISTANT_TOOL_INPUTS.find_deleted_contacts.safeParse({}).success).toBe(true);
+  });
+  it('a read-only member is refused before the database', async () => {
+    const handles: HandleMap = {};
+    issueHandle(handles, 'C', contactId);
+    for (const tool of ['delete_contact', 'restore_contact']) {
+      const out = await runAssistantTool(ctx(handles, 'read_only'), tool, { contact: 'C1' });
+      expect(out.isError, tool).toBe(true);
+    }
+  });
+});
+
 describe('the contact tools, by role — who gets past the door (before any database work)', () => {
   const inputs: Record<string, Record<string, unknown>> = {
     find_team_members: {},
@@ -492,14 +515,16 @@ describe('the contact tools, by role — who gets past the door (before any data
     withdraw_marketing_consent: { contacts: ['C1'], reason: 'Asked to stop' },
     update_contact: { contact: 'C1', name: 'New name' },
     set_contact_archived: { contact: 'C1', archived: true },
+    delete_contact: { contact: 'C1' },
+    restore_contact: { contact: 'C1' },
   };
   // Allowed = reaches the database (where can() is asked again on the row); refused = never does.
   const allowed: Record<string, string[]> = {
     owner: Object.keys(inputs),
     admin: Object.keys(inputs),
-    agent: ['record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived'],
-    assistant: ['record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived'],
-    property_manager: ['record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived'],
+    agent: ['record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'delete_contact', 'restore_contact'],
+    assistant: ['record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'delete_contact', 'restore_contact'],
+    property_manager: ['record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'delete_contact', 'restore_contact'],
     read_only: [],
   };
   for (const [role, tools] of Object.entries(allowed)) {

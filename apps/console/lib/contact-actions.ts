@@ -12,6 +12,7 @@ import {
   linkContactProperty,
   mergeContacts,
   notifyContactAssigned,
+  restoreDeletedContact,
   searchLinkableProperties,
   setContactArchived,
   setNextAction,
@@ -154,6 +155,20 @@ export async function setArchivedAction(contactId: string, archived: boolean): P
     return { ok: true };
   } catch (err) {
     return simpleFailure(err, archived ? 'Could not archive the contact' : 'Could not restore the contact');
+  }
+}
+
+/** Bring back a contact deleted in the last 7 days (ADR 0025 amendment, 2026-10-09). can() decides in core. */
+export async function restoreDeletedAction(contactId: string): Promise<SimpleResult> {
+  const who = await actor();
+  try {
+    await restoreDeletedContact(getConsoleDb(), who, contactId);
+    refresh(contactId);
+    revalidatePath('/customers/deleted');
+    revalidatePath('/my-contacts/deleted');
+    return { ok: true };
+  } catch (err) {
+    return simpleFailure(err, 'Could not restore the contact');
   }
 }
 

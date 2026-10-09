@@ -5,6 +5,7 @@ import { purgeImportFiles, runImportTick } from '@repo/core/imports';
 import { runEmbeddingTick } from '@repo/core/assistant-search';
 import { embedderFromEnv } from '@repo/ai/search-embedder';
 import { pullReceivedMail } from '@repo/core/mail';
+import { purgeDeletedContacts } from '@repo/core/contacts';
 import { authoriseCronRequest, runScheduleTick } from '@repo/core/schedules';
 import { runSkillTick } from '@repo/core/skills';
 import {
@@ -140,13 +141,21 @@ async function handler(request: NextRequest) {
      * emails and enquiries. Full-text needs nothing here (Postgres keeps it);
      * with EMBEDDINGS_PROVIDER unset this only prunes.
      */
+    /**
+     * Contacts deleted more than 7 days ago are deleted for good (ADR 0025
+     * amendment, 2026-10-09): until then Restore brings them back untouched.
+     */
+    const deletedContacts = await purgeDeletedContacts(getWebDb())
+      .then((purged) => ({ purged }))
+      .catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'contact purge failed' }));
+
     const searchIndex = await runEmbeddingTick(getWebDb(), embedderFromEnv(getWebDb())).catch((err: unknown) => ({
       error: err instanceof Error ? err.message : 'search index tick failed',
     }));
 
     // No ids, no addresses, no listing text — this is read from a cron log.
     return NextResponse.json(
-      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills, templateEmail, appointmentSync, assistant, imports, scheduled, searchIndex },
+      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills, templateEmail, appointmentSync, assistant, imports, scheduled, deletedContacts, searchIndex },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (err) {

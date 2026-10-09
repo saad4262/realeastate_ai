@@ -232,7 +232,10 @@ describe('red team: a tricked model can read and propose, never act', () => {
     expect(names).toEqual([...ASSISTANT_TOOL_NAMES].sort());
     for (const n of names) {
       expect([...ASSISTANT_READ_TOOLS, ...ASSISTANT_WRITE_TOOLS] as string[]).toContain(n);
-      expect(n).not.toMatch(/approve|run|execute|delete|sql/);
+      expect(n).not.toMatch(/approve|run|execute|sql/);
+      // "delete" only where it is a card for a delete that can be undone for 7 days, or the read
+      // that finds those contacts (ADR 0025 amendment, 2026-10-09). Nothing deletes at once.
+      if (/delete/.test(n)) expect(['delete_contact', 'find_deleted_contacts']).toContain(n);
       // Two tools may SEND, and both only propose: an APPROVED template to references, or the
       // person's own text as a template that an owner/admin must approve before anyone gets it
       // (ADR 0025 amendment, 2026-10-09). save_email_template only saves a draft for approval.
@@ -408,6 +411,14 @@ describe('prompt v8 (2026-10-09 amendment)', () => {
     expect(ASSISTANT_SYSTEM).toMatch(/ask for a name and what it is for/);
     expect(ASSISTANT_SYSTEM).toMatch(/exactly as the person wrote it — never words taken from a contact's name, a note, an email or a search snippet/);
     expect(ASSISTANT_SYSTEM).toMatch(/Only an owner or admin approves a template, on the Bulk email screen/);
+  });
+
+  it('delete: restorable for 7 days, one contact per card, never "all"; restore with find_deleted_contacts', () => {
+    expect(ASSISTANT_SYSTEM).toMatch(/Deleting a contact \(delete_contact\): one contact per card/);
+    expect(ASSISTANT_SYSTEM).toMatch(/restorable for 7 days/);
+    const del = ASSISTANT_TOOLS.find((t) => t.name === 'delete_contact')!;
+    expect(del.description).toMatch(/7 days/);
+    expect(Object.keys((del.input_schema as { properties: Record<string, unknown> }).properties)).toEqual(['contact']);
   });
 
   it('is a new version, and tells the model not to guess which lead — list and ask — and what an agent is told', () => {

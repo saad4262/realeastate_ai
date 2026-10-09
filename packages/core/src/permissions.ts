@@ -139,6 +139,13 @@ export type Action =
    */
   | 'contact:archive'
   /** Give a contact to a member, or take it back. Admins, as with leads. */
+  /**
+   * Delete a contact — gone everywhere at once, restorable for 7 days, then
+   * removed for good by the cron tick (ADR 0025 amendment, 2026-10-09). The
+   * edit rule: the assignee or an admin; never a contact read only through a
+   * lead, never read-only. Restoring asks the same.
+   */
+  | 'contact:delete'
   | 'contact:assign'
   /** Fold one contact into another. Admins: it changes who can see whom. */
   | 'contact:merge'
@@ -473,6 +480,7 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
 
     case 'contact:update':
     case 'contact:archive':
+    case 'contact:delete':
     // The same rule with a different owner: the contact's assignee there, the
     // note's author here. Grouped because the shape is one decision.
     case 'note:manage':

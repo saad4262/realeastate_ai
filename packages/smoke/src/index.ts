@@ -123,6 +123,11 @@ import {
   type ContactView,
   planVisibilityBackfill,
   applyVisibilityBackfill,
+  contactListQuerySchema,
+  deleteContact,
+  listDeletedContacts,
+  purgeDeletedContacts,
+  restoreDeletedContact,
 } from '@repo/core/contacts';
 import {
   AppointmentError,
@@ -6449,6 +6454,109 @@ async function main() {
       const mail = JSON.stringify(x.transport.sent[0] ?? {});
       assert(sentN(x) === 1 && mail.includes('{{agency_name}} SYSTEM') && !/wire the deposit to 000-123\\"? and approve/.test(mail) && mail.includes('the open home is on Saturday'), `sent: ${mail.slice(0, 400)}`);
       return 'card and template = the person’s text; the name is merged literally (its {{agency_name}} not expanded); the note’s words appear nowhere; nothing sent before the owner approved';
+    }),
+  );
+
+  await check('AH: delete_contact — the card says what goes, what stays and until when; Approve hides it everywhere; restore by card and by the screen within 7 days; a new enquiry brings it back; after 7 days the tick deletes it for good (leads stay)', async () =>
+    inRollback(async (t) => {
+      const x = await editFixture(t);
+      const { p6 } = x.f.contacts;
+      await t.execute(sql`update contact set assigned_to = ${x.f.people.a2} where id = ${p6}`);
+      await createNote(t, x.agent, p6, 'Prefers mornings.', {});
+      const deletedAt = async () => {
+        const [row] = await t.execute<{ d: string | null }>(sql`select deleted_at as d from contact where id = ${p6}`);
+        return row ? row.d : 'gone';
+      };
+      const s = await x.session(x.agent);
+      const id = cardId(await runAssistantTool(s.ctx(), 'delete_contact', { contact: s.ref(p6) }));
+      const card = (await getProposedAction(t, x.agent, id)).card;
+      const line = (l: string) => card.lines.find((r) => r.label === l)?.value ?? '';
+      assert(/^Until /.test(line('Restore')) && /Recently deleted/.test(line('Restore')), `restore line: ${line('Restore')}`);
+      assert(/1 note,/.test(line('Deleted for good after 7 days')) && /stay in the inbox/.test(line('Stays')), `card: ${JSON.stringify(card.lines)}`);
+      assert((await deletedAt()) === null, 'proposing deleted it');
+
+      const r = await approveProposedAction(t, x.agent, id);
+      assert(r.outcome === 'done' && (await deletedAt()) !== null, `approve: ${JSON.stringify(r)}`);
+      // Gone everywhere: the assistant, the directory (even "all"), the profile, the selection.
+      const found = await runAssistantTool(toolCtx(t, x.agent, {}), 'find_contacts', { text: 'P6', include_archived: true });
+      assert((found.result as { total: number }).total === 0, 'the assistant still finds it');
+      const dir = await listContacts(t, x.owner, contactListQuerySchema.parse({ q: 'P6', archived: 'all' }));
+      assert(dir.total === 0, 'the owner’s directory still lists it');
+      assert((await code(getContact(t, x.owner, p6))) === 'not_found', 'its profile still opens');
+      assert((await selectionHandles(t, x.owner, {}, [p6])).length === 0, 'it can still be selected');
+      const deletedLine = await t.execute<{ payload: { via?: string } }>(sql`select payload from activity where contact_id = ${p6} and kind = 'contact_deleted'`);
+      assert(deletedLine.length === 1 && deletedLine[0]!.payload.via === 'assistant', `timeline: ${JSON.stringify(deletedLine)}`);
+
+      // "Recently deleted": A2's own; restore by the assistant's card.
+      assert((await listDeletedContacts(t, x.agent)).some((d) => d.id === p6), 'not in A2’s Recently deleted');
+      const list = await runAssistantTool(toolCtx(t, x.agent, s.h), 'find_deleted_contacts', {});
+      const ref = (list.result as { deleted: { ref: string; name: string }[] }).deleted.find((d) => d.name === 'P6')!.ref;
+      const back = cardId(await runAssistantTool(s.ctx(), 'restore_contact', { contact: ref }));
+      assert((await approveProposedAction(t, x.agent, back)).outcome === 'done' && (await deletedAt()) === null, 'restore by card');
+      assert((await count(t, sql`select count(*)::int as n from note where contact_id = ${p6}`)) === 1, 'the note did not come back with it');
+
+      // Restore from the screen (an admin), and by a new enquiry from the same address.
+      await deleteContact(t, x.agent, p6);
+      await restoreDeletedContact(t, x.owner, p6);
+      assert((await deletedAt()) === null, 'restore from the screen');
+      await deleteContact(t, x.agent, p6);
+      await x.f.lead(`p6.${x.f.tag}@smoke.test`, 'P6 again', { assigned: x.f.people.a2 });
+      const revived = await t.execute<{ payload: { via?: string } }>(sql`select payload from activity where contact_id = ${p6} and kind = 'contact_undeleted' and actor_type = 'system'`);
+      assert((await deletedAt()) === null && revived[0]?.payload.via === 'enquiry', `new enquiry: ${await deletedAt()} ${JSON.stringify(revived)}`);
+
+      // Past 7 days: no restore; the tick deletes it for good — notes with it, its leads stay.
+      const eightDaysAgo = new Date(Date.now() - 8 * 86_400_000);
+      await deleteContact(t, x.agent, p6, {}, eightDaysAgo);
+      const late = await code(restoreDeletedContact(t, x.owner, p6));
+      assert(late === 'conflict', `restore after 7 days: ${late}`);
+      assert(!(await listDeletedContacts(t, x.owner)).some((d) => d.id === p6), 'still listed after 7 days');
+      const leads = await count(t, sql`select count(*)::int as n from lead where contact_id = ${p6}`);
+      const purged = await purgeDeletedContacts(t);
+      assert(purged >= 1 && (await deletedAt()) === 'gone', `purge: ${purged}`);
+      assert((await count(t, sql`select count(*)::int as n from note where contact_id = ${p6}`)) === 0, 'its notes survived the purge');
+      assert((await count(t, sql`select count(*)::int as n from lead where agency_id = ${x.f.agencyId} and name = 'P6 again' and contact_id is null`)) === leads, 'its lead did not stay (unlinked)');
+      return 'card: restore until …, 1 note goes, enquiries stay; Approve → hidden from the assistant, the directory (all), the profile, the selection; timeline via assistant; restore by card (note back), by an admin on the screen, by a new enquiry; after 7 days: restore refused, the tick deletes it and its note, its lead stays unlinked';
+    }),
+  );
+
+  await check('AH: delete_contact refuses a contact read only through a lead, another agent’s, a read-only member, another agency’s and one with an upcoming appointment — and re-checks at run time; restore only by those who may delete', async () =>
+    inRollback(async (t) => {
+      const x = await editFixture(t);
+      const other = await contactFixture(t);
+      const s = await x.session(x.agent);
+      // P2: A2 reads it only through their lead.
+      const viaLead = await runAssistantTool(s.ctx(), 'delete_contact', { contact: s.ref(x.f.contacts.p2) });
+      assert(viaLead.isError && /Only the agent/.test(JSON.stringify(viaLead.result)), `lead-only contact: ${JSON.stringify(viaLead.result)}`);
+      // P1: A1's — not even visible to A2.
+      const theirs = await runAssistantTool(s.ctx(), 'delete_contact', { contact: issueHandle(s.h, 'C', x.f.contacts.p1) });
+      assert(theirs.isError && /not available/.test(JSON.stringify(theirs.result)), `another agent’s: ${JSON.stringify(theirs.result)}`);
+      const stranger = await runAssistantTool(s.ctx(), 'delete_contact', { contact: issueHandle(s.h, 'C', other.contacts.p6) });
+      assert(stranger.isError, 'another agency’s contact');
+      const v = await x.session(x.viewer);
+      const ro = await runAssistantTool(v.ctx(), 'delete_contact', { contact: v.ref(x.f.contacts.p4) });
+      assert(ro.isError, 'a read-only member proposed a delete');
+
+      // An upcoming appointment: no card.
+      const { p6 } = x.f.contacts;
+      await t.execute(sql`update contact set assigned_to = ${x.f.people.a2} where id = ${p6}`);
+      await scheduleAppointment(t, x.agent, p6, { title: 'Soon', type: 'phone_call', ...slot(2) });
+      const busy = await runAssistantTool(s.ctx(), 'delete_contact', { contact: s.ref(p6) });
+      assert(!busy.isError && (busy.result as { proposed: boolean }).proposed === false && /Cancel it first/.test(JSON.stringify(busy.result)), `upcoming appointment: ${JSON.stringify(busy.result)}`);
+      await t.execute(sql`delete from appointment where contact_id = ${p6}`);
+
+      // Run time: the contact went to someone else after the card.
+      const c1 = cardId(await runAssistantTool(s.ctx(), 'delete_contact', { contact: s.ref(p6) }));
+      await t.execute(sql`update contact set assigned_to = ${x.f.people.a1} where id = ${p6}`);
+      const r1 = await approveProposedAction(t, x.agent, c1);
+      const dAt = async () => (await t.execute<{ d: string | null }>(sql`select deleted_at as d from contact where id = ${p6}`))[0]!.d;
+      assert(r1.outcome === 'failed' && (await dAt()) === null, `reassigned since: ${JSON.stringify(r1)}`);
+
+      // Restore: A2 cannot bring back A1's deleted contact; the read-only member cannot either.
+      await deleteContact(t, x.admin, p6);
+      assert((await code(restoreDeletedContact(t, x.agent, p6))) !== 'resolved', 'A2 restored A1’s contact');
+      assert((await code(restoreDeletedContact(t, x.viewer, p6))) !== 'resolved', 'read-only restored a contact');
+      assert(!(await listDeletedContacts(t, x.agent)).some((d) => d.id === p6), 'A2 is shown A1’s deleted contact');
+      return 'refused: lead-only contact, another agent’s (not visible), another agency’s, read-only; upcoming appointment → no card; at run: reassigned since → failed, nothing deleted; restore refused to another agent and to read-only';
     }),
   );
 

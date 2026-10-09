@@ -66,9 +66,14 @@ export function ContactDirectory({
           <p className={styles.sub}>{subtitle}</p>
         </div>
         {page.mayCreate ? (
-          <Link href={`${basePath}/new`} className={styles.btn}>
-            <span aria-hidden>+</span> New contact
-          </Link>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <Link href={`${basePath}/deleted`} className={styles.btnGhost}>
+              Recently deleted
+            </Link>
+            <Link href={`${basePath}/new`} className={styles.btn}>
+              <span aria-hidden>+</span> New contact
+            </Link>
+          </div>
         ) : null}
       </div>
 

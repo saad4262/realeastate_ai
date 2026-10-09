@@ -78,6 +78,8 @@ export function contactQueryFilters(actor: Actor, query: Partial<ContactListQuer
   const filters: SQL[] = [
     eq(contact.agencyId, actor.agencyId as string),
     isNull(contact.mergedIntoId),
+    // Deleted (restorable for 7 days): only "Recently deleted" lists it.
+    isNull(contact.deletedAt),
     sql`${contact.id} in (${visibleContactIdsSql(actor)})`,
   ];
 

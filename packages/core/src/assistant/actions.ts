@@ -18,6 +18,7 @@ import {
 } from '../contacts/write-contacts';
 import { AppointmentError, cancelAppointment, rescheduleAppointment, scheduleAppointment } from '../appointments/appointments';
 import { assignLead, LeadTriageError } from '../leads/triage-lead';
+import { deleteContact, restoreDeletedContact } from '../contacts/delete-contact';
 import { syncAppointment, type SyncDeps, type SyncOutcome } from '../appointments/sync';
 import { requireIntegrations } from '../integrations/accounts';
 import { approveBatch, cancelBatch, getBatch, prepareBatch } from '../template-email/batches';
@@ -85,7 +86,10 @@ export type FrozenArgs =
   /** The person's own text, saved as a template waiting for an owner/admin. */
   | { tool: 'save_email_template'; name: string; purpose: string; subject: string; body: string }
   /** The same, emailed to `contactIds` (those the card showed would receive it) once the template is approved. */
-  | { tool: 'send_new_template_email'; name: string; purpose: string; subject: string; body: string; contactIds: string[] };
+  | { tool: 'send_new_template_email'; name: string; purpose: string; subject: string; body: string; contactIds: string[] }
+  /** Deleted (7 days to restore) / brought back — through the screen's own functions. */
+  | { tool: 'delete_contact'; contactId: string }
+  | { tool: 'restore_contact'; contactId: string };
 
 /** The contacts whose timelines carry this action's audit lines. */
 function auditContacts(row: { contactId: string | null; args: unknown }): string[] {
@@ -321,6 +325,16 @@ async function execute(
       if (!approver) return { result: { templateId, batchId: prepared.id, waiting: true } };
       await approveBatch(tx, actor, prepared.id, limits, now);
       return { result: { templateId, batchId: prepared.id }, batchId: prepared.id };
+    }
+    case 'delete_contact': {
+      // deleteContact asks contact:delete again (an edit right, never a lead-only contact) and
+      // refuses a contact with an upcoming appointment; it is restorable for 7 days.
+      const { restoreUntil } = await deleteContact(tx, actor, args.contactId, { via: 'assistant' }, now);
+      return { result: { restoreUntil: restoreUntil.toISOString() } };
+    }
+    case 'restore_contact': {
+      await restoreDeletedContact(tx, actor, args.contactId, { via: 'assistant' }, now);
+      return { result: {} };
     }
     case 'assign_leads': {
       // The receiver must still be an active member who may work leads (never read-only);
@@ -670,7 +684,7 @@ export type ProposalView = {
   card: ProposalCard;
   error: string | null;
   /** Ids of what it made or changed — for links. Never model text. */
-  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; contactsMoved?: number; recorded?: number; withdrawn?: number; changed?: string[]; templateId?: string; waiting?: boolean; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
+  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; contactsMoved?: number; recorded?: number; withdrawn?: number; changed?: string[]; templateId?: string; waiting?: boolean; restoreUntil?: string; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
   expiresAt: Date;
   /** When a scheduled action will run (about; up to ~5 minutes later). */
   runAt: Date | null;

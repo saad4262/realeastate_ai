@@ -110,6 +110,7 @@ export async function sendBatch(db: Db, deps: TemplateSendDeps, batchId: string)
         email: contact.email,
         archivedAt: contact.archivedAt,
         mergedIntoId: contact.mergedIntoId,
+        deletedAt: contact.deletedAt,
         optOutAt: contact.emailOptOutAt,
         consentAt: contact.marketingConsentAt,
         assignedTo: contact.assignedTo,
@@ -121,7 +122,8 @@ export async function sendBatch(db: Db, deps: TemplateSendDeps, batchId: string)
     let reason: SkipReason | null = !now
       ? 'archived'
       : classify({
-          archived: Boolean(now.archivedAt || now.mergedIntoId),
+          // Deleted since Prepare (restorable for 7 days) counts as gone: never emailed.
+          archived: Boolean(now.archivedAt || now.mergedIntoId || now.deletedAt),
           optedOut: Boolean(now.optOutAt),
           consent: Boolean(now.consentAt),
           email: now.email,

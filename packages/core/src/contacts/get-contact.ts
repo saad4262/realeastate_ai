@@ -54,7 +54,8 @@ export async function loadContactHead(db: DbOrTx, actor: Actor, contactId: strin
     .from(contact)
     .leftJoin(assignee, eq(assignee.id, contact.assignedTo))
     .leftJoin(consentBy, eq(consentBy.id, contact.marketingConsentBy))
-    .where(and(eq(contact.id, contactId), eq(contact.agencyId, actor.agencyId)))
+    // A deleted contact is not found — by the profile, every edit and the assistant alike.
+    .where(and(eq(contact.id, contactId), eq(contact.agencyId, actor.agencyId), isNull(contact.deletedAt)))
     .limit(1);
   if (!row) return null;
   const facts: ContactAccessFacts = {
@@ -138,6 +139,7 @@ export async function getContact(
               eq(contact.phoneKey, row.phoneKey),
               ne(contact.id, row.id),
               isNull(contact.mergedIntoId),
+              isNull(contact.deletedAt),
             ),
           )
           .limit(10)

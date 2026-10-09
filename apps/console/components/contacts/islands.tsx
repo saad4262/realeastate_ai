@@ -16,6 +16,7 @@ import {
   linkPropertyAction,
   mergeContactsAction,
   searchPropertiesAction,
+  restoreDeletedAction,
   setArchivedAction,
   setNextActionAction,
   unlinkPropertyAction,
@@ -133,6 +134,16 @@ export function ArchiveButton({ contactId, archived }: { contactId: string; arch
       }}
     >
       {archived ? 'Restore' : 'Archive'}
+    </button>
+  );
+}
+
+/** "Recently deleted": bring one back, as it was. */
+export function RestoreDeletedButton({ contactId, name }: { contactId: string; name: string }) {
+  const { pending, run } = useRun();
+  return (
+    <button type="button" className={styles.btnGhost} disabled={pending} onClick={() => run(() => restoreDeletedAction(contactId), `${name} is back`)}>
+      Restore
     </button>
   );
 }

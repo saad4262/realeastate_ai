@@ -61,6 +61,9 @@ export const ACTIVITY_KINDS = [
   'assistant_failed',
   // The client's visibility rule (2026-10-07): an owner/admin gave a lead to someone else.
   'lead_assigned',
+  // Deleted, restorable for 7 days (ADR 0025 amendment, 2026-10-09) — and brought back.
+  'contact_deleted',
+  'contact_undeleted',
 ] as const;
 export const activityKindSchema = z.enum(ACTIVITY_KINDS);
 export type ActivityKind = z.infer<typeof activityKindSchema>;
@@ -96,6 +99,8 @@ export const ACTIVITY_LABELS: Record<ActivityKind, string> = {
   consent_withdrawn: 'Marketing consent withdrawn',
   contact_archived: 'Archived',
   contact_restored: 'Restored from the archive',
+  contact_deleted: 'Deleted — restorable for 7 days',
+  contact_undeleted: 'Brought back after being deleted',
   property_linked: 'Property linked',
   property_unlinked: 'Property unlinked',
   appointment_scheduled: 'Appointment booked',

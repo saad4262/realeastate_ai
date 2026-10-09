@@ -520,6 +520,17 @@ describe('contacts', () => {
     expect(can(rivalOwner, 'contact:archive', { ...nobodys })).toBe(false);
   });
 
+  it('deletes (7-day restore) on the edit rule: the assignee or an admin — never a contact read through a lead, never read-only, never another agency', () => {
+    expect(can(agent, 'contact:delete', theirs('agent'))).toBe(true);
+    expect(can(agent, 'contact:delete', viaLead('agent'))).toBe(false);
+    expect(can(agent, 'contact:delete', nobodys)).toBe(false);
+    expect(can(other, 'contact:delete', theirs('agent'))).toBe(false);
+    expect(can(owner, 'contact:delete', nobodys)).toBe(true);
+    expect(can(owner, 'contact:delete', theirs('agent'))).toBe(true);
+    expect(can(viewer, 'contact:delete', theirs('viewer'))).toBe(false);
+    expect(can(rivalOwner, 'contact:delete', { ...nobodys })).toBe(false);
+  });
+
   it('shows a private note to admins and its author only', () => {
     const privateNote = { type: 'note', id: 'n-p', agencyId: agencyA, ownerId: 'agent' };
     expect(can(owner, 'note:read_private', privateNote)).toBe(true);

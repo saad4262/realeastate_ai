@@ -14,7 +14,9 @@ import type { ProposalCard } from './schema';
 import { assignableMember, contactDetailsOf, UNSUBSCRIBED_REASON, type ContactDetails, type ContactDetailsPatch } from '../contacts/write-contacts';
 import { CONTACT_ROLE_LABELS, type ContactRoleKind } from '../contacts/contact-schema';
 import { formatAddress } from '../listings/listing-schema';
-import type { saveEmailTemplateInput, sendNewTemplateEmailInput } from './schema';
+import type { deleteContactInput, restoreContactInput, saveEmailTemplateInput, sendNewTemplateEmailInput } from './schema';
+import { deletionImpact, restorableContact, RESTORE_DAYS } from '../contacts/delete-contact';
+import { ContactError } from '../contacts/list-contacts';
 import type { addNoteInput, assignContactsInput, assignLeadsInput, cancelAppointmentInput, recordMarketingConsentInput, setContactArchivedInput, updateContactInput, withdrawMarketingConsentInput, createDashboardInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
 import { cancelBatch, getBatch, prepareBatch, previewPickedRecipients } from '../template-email/batches';
 import { TemplateEmailError } from '../template-email/templates';
@@ -919,4 +921,75 @@ export async function proposeSendNewTemplateEmail(ctx: ToolContext, input: z.inf
     contactIds: receiving.map((r) => r.contactId),
   };
   return propose(ctx, label, { tool: 'send_new_template_email', args, card, contactId: receiving[0]!.contactId });
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * Delete ONE contact the person may edit (the agent it is assigned to, or an
+ * owner/admin) — never one read only through a lead. The card says exactly
+ * what goes, what stays and until when it can be restored, with the numbers
+ * from SQL. A contact with an upcoming appointment: no card — cancel first.
+ */
+export async function proposeDeleteContact(ctx: ToolContext, input: z.infer<typeof deleteContactInput>, label: string): Promise<ToolOutcome> {
+  const c = await visibleContact(ctx, input.contact);
+  if ('error' in c) return refused(c.error!, label);
+  const row = c.head.row;
+  if (!can(ctx.actor, 'contact:delete', c.resource)) {
+    return refused(`Only the agent ${row.name} is assigned to, or an admin, may delete this contact. Nothing was proposed.`, label);
+  }
+  const impact = await deletionImpact(ctx.db, row.id, ctx.now);
+  if (impact.upcomingAppointments) {
+    return {
+      label,
+      result: { proposed: false, tell_the_user: `${row.name} has ${plural(impact.upcomingAppointments, 'upcoming appointment')}. Cancel ${impact.upcomingAppointments === 1 ? 'it' : 'them'} first; nothing was proposed.` },
+    };
+  }
+  const until = new Date(ctx.now.getTime() + RESTORE_DAYS * 86_400_000);
+  const card: ProposalCard = {
+    title: `Delete ${row.name}`,
+    contact: { id: row.id, name: row.name },
+    lines: [
+      { label: 'Contact', value: `${row.name}${row.email ? ` · ${row.email}` : ''}${row.phone ? ` · ${row.phone}` : ''}` },
+      { label: 'Assigned to', value: row.assignedTo ? (row.assigneeName || row.assigneeEmail || 'A former member') : 'Nobody' },
+      { label: 'Straight away', value: 'Gone from the directory, search, the assistant and bulk email for everyone.' },
+      { label: 'Restore', value: `Until ${shortDay(until, ctx.timeZone)} — from Contacts → Recently deleted, or ask the assistant to bring them back.` },
+      {
+        label: `Deleted for good after ${RESTORE_DAYS} days`,
+        value: `The contact, ${plural(impact.notes, 'note')}, ${plural(impact.timeline, 'timeline entry', 'timeline entries')}, ${plural(impact.appointments, 'past appointment')}, its roles and property links.`,
+      },
+      {
+        label: 'Stays',
+        value: `${plural(impact.leads, 'enquiry', 'enquiries')} (leads) and ${plural(impact.conversations, 'email conversation')} stay in the inbox with what was sent, no longer linked to a contact.`,
+      },
+    ],
+    notes: [NOTHING_YET, `A new enquiry from ${row.email ?? 'them'} within the ${RESTORE_DAYS} days brings the contact back.`],
+  };
+  const args: FrozenArgs = { tool: 'delete_contact', contactId: row.id };
+  return propose(ctx, label, { tool: 'delete_contact', args, card, contactId: row.id });
+}
+
+/** Bring back a contact deleted in the last 7 days — a card, like the delete. */
+export async function proposeRestoreContact(ctx: ToolContext, input: z.infer<typeof restoreContactInput>, label: string): Promise<ToolOutcome> {
+  const id = resolveHandle(ctx.handles, input.contact, 'contact');
+  if (!id) return refused(UNKNOWN_REF, label);
+  let c: Awaited<ReturnType<typeof restorableContact>>;
+  try {
+    c = await restorableContact(ctx.db, ctx.actor, id, ctx.now);
+  } catch (err) {
+    if (err instanceof ContactError) return refused(err.code === 'not_found' ? NO_CONTACT : `${err.message} Nothing was proposed.`, label);
+    throw err;
+  }
+  const card: ProposalCard = {
+    title: `Bring back ${c.name}`,
+    contact: { id: c.id, name: c.name },
+    lines: [
+      { label: 'Contact', value: `${c.name}${c.email ? ` · ${c.email}` : ''}` },
+      { label: 'Deleted', value: `${shortDay(c.deletedAt, ctx.timeZone)}${c.deletedByName ? ` by ${c.deletedByName}` : ''}` },
+      { label: 'After', value: 'Back in the directory as it was — notes, timeline, roles and who it is assigned to.' },
+    ],
+    notes: [NOTHING_YET],
+  };
+  const args: FrozenArgs = { tool: 'restore_contact', contactId: c.id };
+  return propose(ctx, label, { tool: 'restore_contact', args, card, contactId: c.id });
 }

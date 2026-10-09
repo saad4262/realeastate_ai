@@ -72,6 +72,7 @@ export async function gatherMorningBrief(db: Db, actor: Actor, timeZone: string,
           lt(contact.nextActionAt, now),
           isNull(contact.archivedAt),
           isNull(contact.mergedIntoId),
+          isNull(contact.deletedAt),
         ),
       )
       .orderBy(asc(contact.nextActionAt))

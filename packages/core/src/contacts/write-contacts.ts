@@ -64,12 +64,16 @@ export async function recordActivity(
 /** The contact that already holds this email in this agency, if one does. */
 async function holderOf(db: DbOrTx, agencyId: string, email: string): Promise<string | undefined> {
   const [row] = await db
-    .select({ id: contact.id })
+    .select({ id: contact.id, deletedAt: contact.deletedAt })
     .from(contact)
     .where(
       and(eq(contact.agencyId, agencyId), eq(contact.email, email), sql`${contact.mergedIntoId} is null`),
     )
     .limit(1);
+  // A contact deleted in the last 7 days still holds its address: restore it rather than make a second.
+  if (row?.deletedAt) {
+    throw new ContactError('duplicate', 'A contact with that email was deleted in the last 7 days — restore it from Contacts → Recently deleted instead of adding it again.');
+  }
   return row?.id;
 }
 

@@ -5,6 +5,7 @@ import { appointment, contact, lead, property, user, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { contactQueryFilters } from '../contacts/list-contacts';
 import { listContactAssignees } from '../contacts/write-contacts';
+import { listDeletedContacts } from '../contacts/delete-contact';
 import { visibleContactIdsSql } from '../contacts/visibility';
 import { leadScopeFilters } from '../leads/list-leads';
 import { appointmentScopeFilters } from '../appointments/appointments';
@@ -22,6 +23,8 @@ import {
   proposeAddNote,
   proposeAssignContacts,
   proposeAssignLeads,
+  proposeDeleteContact,
+  proposeRestoreContact,
   proposeSaveEmailTemplate,
   proposeSendNewTemplateEmail,
   proposeCancelAppointment,
@@ -106,10 +109,13 @@ const LABELS: Record<AssistantToolName, string> = {
   assign_leads: 'Preparing the lead assignment for you to approve…',
   send_new_template_email: 'Preparing your email for approval…',
   save_email_template: 'Preparing the template for approval…',
+  delete_contact: 'Preparing the delete for you to approve…',
+  restore_contact: 'Preparing the restore for you to approve…',
+  find_deleted_contacts: 'Looking up recently deleted contacts…',
 };
 
 /** Tools that change a contact's own record: never for someone who may not edit a contact of their own (read-only). */
-const CONTACT_EDIT_TOOLS: readonly AssistantToolName[] = ['record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived'];
+const CONTACT_EDIT_TOOLS: readonly AssistantToolName[] = ['record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'delete_contact', 'restore_contact', 'find_deleted_contacts'];
 
 const assignee = alias(user, 'assistant_assignee');
 
@@ -229,6 +235,12 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return proposeSendNewTemplateEmail(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.send_new_template_email>, label);
     case 'save_email_template':
       return proposeSaveEmailTemplate(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.save_email_template>, label);
+    case 'delete_contact':
+      return proposeDeleteContact(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.delete_contact>, label);
+    case 'restore_contact':
+      return proposeRestoreContact(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.restore_contact>, label);
+    case 'find_deleted_contacts':
+      return findDeletedContacts(ctx, label);
   }
 }
 
@@ -244,6 +256,29 @@ async function findTeamMembers(ctx: ToolContext, label: string): Promise<ToolOut
     result: {
       note: DATA_NOTE,
       members: members.map((m) => ({ ref: issueHandle(ctx.handles, 'M', m.userId), name: m.name, ...(m.userId === ctx.actor.userId ? { you: true } : {}) })),
+    },
+  };
+}
+
+/**
+ * Contacts deleted in the last 7 days that this person may bring back (the
+ * screen's "Recently deleted"), as C references for restore_contact. Names
+ * and dates only.
+ */
+async function findDeletedContacts(ctx: ToolContext, label: string): Promise<ToolOutcome> {
+  const rows = await listDeletedContacts(ctx.db, ctx.actor, ctx.now);
+  return {
+    label,
+    result: {
+      note: DATA_NOTE,
+      total: rows.length,
+      deleted: rows.slice(0, 20).map((r) => ({
+        ref: issueHandle(ctx.handles, 'C', r.id),
+        name: r.name,
+        deleted: shortDate(r.deletedAt, ctx.timeZone),
+        deleted_by: r.deletedByName,
+        restorable_until: shortDate(r.goneAt, ctx.timeZone),
+      })),
     },
   };
 }

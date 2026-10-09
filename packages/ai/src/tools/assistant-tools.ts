@@ -290,7 +290,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   },
   {
     name: 'update_contact',
-    description: `Propose changing one contact's details — name, email, phone and roles, as on the edit form — for a contact this person may edit. Give only the fields to change. It cannot change who the contact is assigned to, marketing consent, the next action (set_next_action) or the archive (set_contact_archived), and nothing can delete a contact. An email another contact already has is refused — tell the person. The card shows each field before → after. ${PROPOSES}`,
+    description: `Propose changing one contact's details — name, email, phone and roles, as on the edit form — for a contact this person may edit. Give only the fields to change. It cannot change who the contact is assigned to, marketing consent, the next action (set_next_action) or the archive (set_contact_archived); deleting is delete_contact. An email another contact already has is refused — tell the person. The card shows each field before → after. ${PROPOSES}`,
     input_schema: {
       type: 'object',
       additionalProperties: false,
@@ -359,6 +359,31 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
         body: { type: 'string', description: 'The email exactly as the person wrote it.' },
       },
       required: ['name', 'purpose', 'subject', 'body'],
+    },
+  },
+  {
+    name: 'delete_contact',
+    description: `Propose deleting ONE contact this person may edit (an agent: their own; an owner or admin: any in the agency) — never one they only read through a lead. It disappears everywhere at once and can be restored for 7 days (Contacts → Recently deleted, or restore_contact); after that it is deleted for good with its notes, timeline and past appointments, while its enquiries and email conversations stay in the inbox. A contact with an upcoming appointment cannot be deleted: say to cancel it first. One contact per card — never "all" or a filter. Suggest archiving (set_contact_archived) when they only want it out of the way. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { contact: { type: 'string', description: REF } },
+      required: ['contact'],
+    },
+  },
+  {
+    name: 'find_deleted_contacts',
+    description: 'List the contacts deleted in the last 7 days that this person may bring back, with when each was deleted, by whom, and until when it can be restored. Returns references (C…) for restore_contact.',
+    input_schema: { type: 'object', additionalProperties: false, properties: {} },
+  },
+  {
+    name: 'restore_contact',
+    description: `Propose bringing back a contact deleted in the last 7 days (a reference from find_deleted_contacts). It returns exactly as it was. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { contact: { type: 'string', description: 'A reference from find_deleted_contacts, e.g. C4.' } },
+      required: ['contact'],
     },
   },
 ]);

@@ -28,6 +28,18 @@ export {
   type ContactDetailsPatch,
 } from './write-contacts';
 export { mergeContacts } from './merge-contacts';
+export {
+  deleteContact,
+  deletableContact,
+  deletionImpact,
+  listDeletedContacts,
+  purgeDeletedContacts,
+  restorableContact,
+  restoreDeletedContact,
+  RESTORE_DAYS,
+  type DeletedContactView,
+  type DeletionImpact,
+} from './delete-contact';
 export { backfillContacts, type BackfillReport } from './backfill';
 export {
   listContactTimeline,
