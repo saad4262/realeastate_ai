@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { LocalTime } from '@repo/ui';
 import { listTemplates, TEMPLATE_STATUS_LABELS, TemplateEmailError } from '@repo/core/template-email';
 import { can } from '@repo/core/permissions';
 import contactStyles from '@/components/contacts/contacts.module.css';
@@ -35,6 +36,26 @@ export async function TemplatePage({ surface, id }: { surface: 'agency' | 'agent
         </div>
         {t ? <TemplateSteps id={t.id} maySubmit={t.maySubmit} mayApprove={t.mayApprove} mayRetire={mayRetire} /> : null}
       </div>
+      {t && (t.purpose || t.waiting.length) ? (
+        <div className={contactStyles.card}>
+          <div className={contactStyles.section} style={{ borderTop: 0 }}>
+            {t.purpose ? (
+              <p style={{ margin: 0 }}>
+                <span className={contactStyles.note}>What it is for: </span>
+                {t.purpose}
+              </p>
+            ) : null}
+            {t.waiting.map((w) => (
+              <p key={w.batchId} className={contactStyles.hint} style={{ margin: '0.5rem 0 0' }}>
+                Approving it also sends the email {w.agentName ?? 'an agent'} asked the assistant to send with it — to {w.recipients}{' '}
+                {w.recipients === 1 ? 'person' : 'people'} (<Link href={`${basePath}/${w.batchId}`}>see who</Link>), with consent, unsubscribes,
+                the 7-day rule and today’s limits checked again. If it is not approved by{' '}
+                <LocalTime iso={w.expiresAt.toISOString()} style="short" />, that email is not sent.
+              </p>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className={contactStyles.card}>
         {!t || t.mayEdit ? (
           <TemplateForm basePath={basePath} {...(t ? { templateId: t.id, initial: { name: t.name, subject: t.subject, body: t.body } } : {})} />

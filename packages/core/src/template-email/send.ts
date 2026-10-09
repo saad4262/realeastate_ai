@@ -1,4 +1,4 @@
-import { and, eq, lt, sql } from 'drizzle-orm';
+import { and, eq, gt, lt, sql } from 'drizzle-orm';
 import {
   activity,
   contact,
@@ -14,7 +14,9 @@ import { can, type MembershipRole } from '../permissions';
 import { checkEmailLimits, devAllowlist, emailLimitsFromEnv, type TemplateLimits } from '../email/limits';
 import { contactUnsubscribeUrl } from '../email/unsubscribe';
 import { deliverOutbound, mailDepsFromEnv, recordOutbound, type MailDeps } from '../mail/send';
-import { mergeValuesFor, recentlyEmailedSql, classify, type TemplateSnapshot } from './batches';
+import { approveBatch, mergeValuesFor, recentlyEmailedSql, classify, type TemplateSnapshot } from './batches';
+import { activeMemberActor } from '../team/member-actor';
+import { TemplateEmailError } from './templates';
 import { renderMerge, type SkipReason } from './schema';
 
 /**
@@ -332,4 +334,47 @@ export function templateSendDepsFromEnv(
   if (!secret) return { ok: false, reason: 'ALERT_UNSUBSCRIBE_SECRET is not set — a marketing email must carry a working unsubscribe link.' };
   const baseUrl = env.NEXT_PUBLIC_WEB_URL?.trim() || 'http://web.lvh.me:3000';
   return { ok: true, deps: { mail, unsubscribe: { baseUrl, secret }, limits: emailLimitsFromEnv(env), env } };
+}
+
+export type ReleaseReport = { released: number; sent: number; skipped: number; failed: number; notReleased: { batchId: string; reason: string }[] };
+
+/**
+ * After an owner/admin approves a template: send the email that was waiting
+ * for it (the assistant's "send what I wrote", ADR 0025 amendment
+ * 2026-10-09). Each waiting batch is approved AS ITS AGENT, as they are now —
+ * still an active member — through ADR 0022's own Approve (expiry and today's
+ * limits) and sent by `sendBatch`, which checks every recipient again
+ * (consent, unsubscribe, archive, 7 days, not_yours, the dev allowlist). A
+ * batch whose agent left, or that is over a limit, is reported and not sent.
+ * Network: call it after the approval's transaction, never inside one.
+ */
+export async function releaseWaitingBatches(db: Db, deps: TemplateSendDeps, templateId: string, now = new Date()): Promise<ReleaseReport> {
+  const report: ReleaseReport = { released: 0, sent: 0, skipped: 0, failed: 0, notReleased: [] };
+  const waiting = await db
+    .select({ id: emailBatch.id, userId: emailBatch.userId, agencyId: emailBatch.agencyId })
+    .from(emailBatch)
+    .where(and(eq(emailBatch.templateId, templateId), eq(emailBatch.status, 'prepared'), gt(emailBatch.expiresAt, now)));
+  for (const b of waiting) {
+    const agent = await activeMemberActor(db, b.userId, b.agencyId);
+    if (!agent) {
+      report.notReleased.push({ batchId: b.id, reason: 'The agent who asked for it is no longer an active member.' });
+      continue;
+    }
+    try {
+      const { result } = await approveBatch(db, agent, b.id, deps.limits, now);
+      if (result !== 'approved') continue;
+    } catch (err) {
+      if (err instanceof TemplateEmailError) {
+        report.notReleased.push({ batchId: b.id, reason: err.message });
+        continue;
+      }
+      throw err;
+    }
+    report.released += 1;
+    const sent = await sendBatch(db, deps, b.id);
+    report.sent += sent.sent;
+    report.skipped += sent.skipped;
+    report.failed += sent.failed;
+  }
+  return report;
 }

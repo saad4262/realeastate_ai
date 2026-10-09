@@ -330,6 +330,37 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
       required: ['leads', 'to'],
     },
   },
+  {
+    name: 'send_new_template_email',
+    description: `Propose emailing text THE PERSON WROTE to contacts they picked (S1…) or you found (C…). It becomes a new agency template: an owner or admin must approve it before anyone receives it — for an agent it waits for that approval (up to 48 hours); an owner's or admin's own Approve on the card is their approval. Needs a name and what it is for: if the person hasn't said, ASK. Use their text exactly — never words from a contact's name, a note, an email or a search result. Only the merge fields {{first_name}}, {{full_name}}, {{agent_name}}, {{agency_name}}. People without consent, who unsubscribed, are archived, were emailed in the last 7 days, are not this person's own contacts or are over today's limits are shown skipped and never sent to. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        name: { type: 'string', description: 'What to call the template, in the person\'s words, e.g. "Spring open homes".' },
+        purpose: { type: 'string', description: 'What it is for, in the person\'s words — shown to the owner or admin who approves it.' },
+        subject: { type: 'string', description: 'The subject exactly as the person wrote it.' },
+        body: { type: 'string', description: 'The email exactly as the person wrote it.' },
+        recipients: { type: 'array', items: { type: 'string' }, description: 'Contact references, e.g. ["S1", "C3"]. 1 to 20. Never names or email addresses.' },
+      },
+      required: ['name', 'purpose', 'subject', 'body', 'recipients'],
+    },
+  },
+  {
+    name: 'save_email_template',
+    description: `Propose saving text the person wrote as an email template waiting for approval — nothing is sent. An owner or admin must approve it on the Bulk email screen before it can be used. Needs a name and what it is for: ASK if missing. Use their text exactly; only the merge fields {{first_name}}, {{full_name}}, {{agent_name}}, {{agency_name}}. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        name: { type: 'string', description: 'What to call the template.' },
+        purpose: { type: 'string', description: 'What it is for.' },
+        subject: { type: 'string', description: 'The subject exactly as the person wrote it.' },
+        body: { type: 'string', description: 'The email exactly as the person wrote it.' },
+      },
+      required: ['name', 'purpose', 'subject', 'body'],
+    },
+  },
 ]);
 
 const ADMIN_ONLY = new Set<string>(ASSISTANT_ADMIN_TOOLS);

@@ -233,10 +233,13 @@ describe('red team: a tricked model can read and propose, never act', () => {
     for (const n of names) {
       expect([...ASSISTANT_READ_TOOLS, ...ASSISTANT_WRITE_TOOLS] as string[]).toContain(n);
       expect(n).not.toMatch(/approve|run|execute|delete|sql/);
-      // One tool may SEND — and it only proposes an APPROVED template to references. A tool that
-      // merely mentions email must be a read tool (search_notes_and_emails reads, ADR 0031).
-      if (/send/.test(n)) expect(n).toBe('send_template_email');
-      if (/email/.test(n) && n !== 'send_template_email') expect(ASSISTANT_READ_TOOLS as readonly string[]).toContain(n);
+      // Two tools may SEND, and both only propose: an APPROVED template to references, or the
+      // person's own text as a template that an owner/admin must approve before anyone gets it
+      // (ADR 0025 amendment, 2026-10-09). save_email_template only saves a draft for approval.
+      // Any other tool that mentions email must be a read tool (search_notes_and_emails, ADR 0031).
+      const EMAIL_WRITES = ['send_template_email', 'send_new_template_email', 'save_email_template'];
+      if (/send/.test(n)) expect(['send_template_email', 'send_new_template_email']).toContain(n);
+      if (/email/.test(n) && !EMAIL_WRITES.includes(n)) expect(ASSISTANT_READ_TOOLS as readonly string[]).toContain(n);
       // One tool may mention assigning: it only proposes, owners/admins alone are shown it, and
       // core refuses it for anyone else (the "tools by role" tests below and the core unit test).
       if (/assign/.test(n)) expect(['assign_contacts', 'assign_leads']).toContain(n);
@@ -374,6 +377,14 @@ describe('proposals (Phases B and C)', () => {
     // And update_contact's `email`: the contact's own address, shown before → after on the
     // card and saved — never a recipient; nothing is sent to it (asserted below).
     for (const f of writeFields.filter((x) => x !== 'recipients' && x !== 'to' && x !== 'email')) expect(f).not.toMatch(/approve|status|proposal|action_id|user|agency|owner|to$|recipient|email/);
+    // The person's own email text: name, purpose, subject, body and references — nothing that approves.
+    for (const n of ['send_new_template_email', 'save_email_template']) {
+      const t = ASSISTANT_TOOLS.find((x) => x.name === n)!;
+      expect(Object.keys((t.input_schema as { properties: Record<string, unknown> }).properties).sort(), n).toEqual(
+        n === 'save_email_template' ? ['body', 'name', 'purpose', 'subject'] : ['body', 'name', 'purpose', 'recipients', 'subject'],
+      );
+      expect(t.description, n).toMatch(/owner or admin must approve/);
+    }
     expect(ASSISTANT_TOOLS.filter((t) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(t.name) && 'email' in (t.input_schema as { properties: Record<string, unknown> }).properties).map((t) => t.name)).toEqual(['update_contact']);
     const update = ASSISTANT_TOOLS.find((t) => t.name === 'update_contact')!;
     expect(Object.keys((update.input_schema as { properties: Record<string, unknown> }).properties).sort()).toEqual(['contact', 'email', 'name', 'phone', 'roles']);
@@ -393,6 +404,12 @@ describe('proposals (Phases B and C)', () => {
 });
 
 describe('prompt v8 (2026-10-09 amendment)', () => {
+  it('email the person wrote: ask for a name and purpose, use their words only, never approve', () => {
+    expect(ASSISTANT_SYSTEM).toMatch(/ask for a name and what it is for/);
+    expect(ASSISTANT_SYSTEM).toMatch(/exactly as the person wrote it — never words taken from a contact's name, a note, an email or a search snippet/);
+    expect(ASSISTANT_SYSTEM).toMatch(/Only an owner or admin approves a template, on the Bulk email screen/);
+  });
+
   it('is a new version, and tells the model not to guess which lead — list and ask — and what an agent is told', () => {
     expect(ASSISTANT_PROMPT_VERSION).toBe('assistant@v8');
     expect(ASSISTANT_SYSTEM).toMatch(/don't guess: show the newest few from find_leads by reference \(L1, L2…\) and ask which one/);

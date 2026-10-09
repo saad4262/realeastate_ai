@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
-import { contactFilter, emailTemplate, user, type Db } from '@repo/db';
+import { contactFilter, emailBatch, emailTemplate, user, type Db } from '@repo/db';
 import { can, type Actor, type Resource } from '../permissions';
 import { contactListQuerySchema, type ContactListQuery } from '../contacts/contact-schema';
 import { templateInputSchema, type TemplateInput } from './schema';
@@ -32,6 +32,7 @@ export type TemplateView = {
   name: string;
   subject: string;
   body: string;
+  purpose: string | null;
   status: TemplateStatus;
   authorName: string | null;
   approvedByName: string | null;
@@ -40,6 +41,12 @@ export type TemplateView = {
   mayEdit: boolean;
   maySubmit: boolean;
   mayApprove: boolean;
+  /**
+   * Email waiting for this template's approval (the assistant's "send what I
+   * wrote", ADR 0025 amendment 2026-10-09): approving it sends these — shown
+   * to the approver so they see who will get it.
+   */
+  waiting: { batchId: string; agentName: string | null; recipients: number; expiresAt: Date }[];
 };
 
 function templateResource(t: { id: string; agencyId: string; createdBy: string | null }): Resource {
@@ -62,8 +69,18 @@ export async function listTemplates(db: Db, actor: Actor): Promise<{ templates: 
       name: emailTemplate.name,
       subject: emailTemplate.subject,
       body: emailTemplate.body,
+      purpose: emailTemplate.purpose,
       status: emailTemplate.status,
       createdBy: emailTemplate.createdBy,
+      waiting: sql<unknown>`(
+        select coalesce(json_agg(json_build_object(
+          'batchId', b.id,
+          'agentName', (select coalesce(u.name, u.email) from "user" u where u.id = b.user_id),
+          'recipients', (select count(*) from email_batch_recipient r where r.batch_id = b.id and r.status = 'queued'),
+          'expiresAt', b.expires_at) order by b.prepared_at), '[]'::json)
+        from email_batch b
+        where b.template_id = ${emailTemplate.id} and b.status = 'prepared' and b.expires_at > now()
+          and ${emailTemplate.approvedAt} is null)`,
       authorName: author.name,
       approvedByName: approver.name,
       approvedAt: emailTemplate.approvedAt,
@@ -88,6 +105,7 @@ export async function listTemplates(db: Db, actor: Actor): Promise<{ templates: 
         name: r.name,
         subject: r.subject,
         body: r.body,
+        purpose: r.purpose,
         status: r.status as TemplateStatus,
         authorName: r.authorName,
         approvedByName: r.approvedByName,
@@ -96,6 +114,12 @@ export async function listTemplates(db: Db, actor: Actor): Promise<{ templates: 
         mayEdit: r.status === 'draft' && can(actor, 'email_template:draft', res),
         maySubmit: r.status === 'draft' && can(actor, 'email_template:draft', res),
         mayApprove: r.status === 'pending_approval' && can(actor, 'email_template:approve', res),
+        waiting: ((typeof r.waiting === 'string' ? JSON.parse(r.waiting) : r.waiting) as { batchId: string; agentName: string | null; recipients: number | string; expiresAt: string }[] | null ?? []).map((w) => ({
+          batchId: w.batchId,
+          agentName: w.agentName,
+          recipients: Number(w.recipients),
+          expiresAt: new Date(w.expiresAt),
+        })),
       };
     }),
     mayDraft: can(actor, 'email_template:draft', { type: 'email_template', agencyId: actor.agencyId }),
@@ -126,7 +150,7 @@ export async function createTemplate(db: Db, actor: Actor, input: TemplateInput)
   const v = parseInput(input);
   const [row] = await db
     .insert(emailTemplate)
-    .values({ agencyId: actor.agencyId, name: v.name, subject: v.subject, body: v.body, createdBy: actor.userId })
+    .values({ agencyId: actor.agencyId, name: v.name, subject: v.subject, body: v.body, purpose: v.purpose || null, createdBy: actor.userId })
     .returning({ id: emailTemplate.id });
   return { id: row!.id };
 }
@@ -139,7 +163,7 @@ export async function updateTemplate(db: Db, actor: Actor, id: string, input: Te
   const v = parseInput(input);
   const done = await db
     .update(emailTemplate)
-    .set({ name: v.name, subject: v.subject, body: v.body, updatedAt: sql`now()` })
+    .set({ name: v.name, subject: v.subject, body: v.body, ...(v.purpose !== undefined ? { purpose: v.purpose || null } : {}), updatedAt: sql`now()` })
     .where(and(eq(emailTemplate.id, t.id), eq(emailTemplate.status, 'draft')))
     .returning({ id: emailTemplate.id });
   if (!done.length) throw new TemplateEmailError('conflict', 'This template changed — reload');
@@ -167,18 +191,32 @@ export async function approveTemplate(db: Db, actor: Actor, id: string): Promise
   await move(db, t.id, ['pending_approval'], { status: 'approved', approvedBy: actor.userId, approvedAt: sql`now()` as unknown as Date });
 }
 
+/**
+ * Email that was waiting for a template that will now never be approved as it
+ * stands (sent back or retired before approval) is cancelled — its frozen text
+ * was never approved, so it can never be sent.
+ */
+async function cancelWaiting(db: Db, templateId: string): Promise<void> {
+  await db
+    .update(emailBatch)
+    .set({ status: 'cancelled', cancelledAt: sql`now()`, updatedAt: sql`now()` })
+    .where(and(eq(emailBatch.templateId, templateId), eq(emailBatch.status, 'prepared'), sql`exists (select 1 from email_template t where t.id = ${templateId} and t.approved_at is null)`));
+}
+
 /** Back to its author as a draft. */
 export async function sendBackTemplate(db: Db, actor: Actor, id: string): Promise<void> {
   const t = await loadTemplate(db, actor, id);
   if (!can(actor, 'email_template:approve', templateResource(t))) throw new TemplateEmailError('forbidden', 'Only an owner or admin reviews templates');
   await move(db, t.id, ['pending_approval'], { status: 'draft' });
+  await cancelWaiting(db, t.id);
 }
 
-/** No longer usable for new batches. Batches already prepared keep their frozen copy. */
+/** No longer usable for new batches. Batches already prepared from an APPROVED template keep their frozen copy. */
 export async function retireTemplate(db: Db, actor: Actor, id: string): Promise<void> {
   const t = await loadTemplate(db, actor, id);
   if (!can(actor, 'email_template:approve', templateResource(t))) throw new TemplateEmailError('forbidden', 'Only an owner or admin retires templates');
   await move(db, t.id, ['approved', 'draft', 'pending_approval'], { status: 'retired', retiredAt: sql`now()` as unknown as Date });
+  await cancelWaiting(db, t.id);
 }
 
 // ── Saved directory filters ────────────────────────────────────────────────

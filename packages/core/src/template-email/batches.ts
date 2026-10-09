@@ -89,51 +89,31 @@ const truthy = (v: unknown) => v === true || v === 't';
  */
 export type PrepareInput =
   | { templateId: string; filterId: string }
-  | { templateId: string; contactIds: string[] };
+  /**
+   * `allowPendingTemplate`: only the assistant's "send what I wrote" card
+   * (ADR 0025 amendment, 2026-10-09) — a batch frozen against a template still
+   * WAITING for an owner/admin. It cannot be approved or sent until that
+   * template is approved (`approveBatch` refuses); approving the template
+   * releases it (`releaseWaitingBatches`).
+   */
+  | { templateId: string; contactIds: string[]; allowPendingTemplate?: boolean };
 
-/** At most this many explicit contacts — the assistant's own cap, and well inside a batch. */
-export const MAX_PICKED_CONTACTS = 20;
+export type PlannedRecipient = { contactId: string; name: string; email: string | null; status: RecipientStatus; skipReason: SkipReason | null };
 
-export async function prepareBatch(
-  db: Db,
+/**
+ * Who would receive it and who is skipped, and why — read only. The directory's
+ * own rule decides who the person may see; the first skip reason that applies
+ * is the one shown. Shared by Prepare and by the assistant's card for an email
+ * that has no template yet.
+ */
+async function planRecipients(
+  db: DbOrTx,
   actor: Actor,
-  input: PrepareInput,
+  agencyId: string,
+  query: Record<string, unknown>,
+  picked: string[] | null,
   limits: TemplateLimits,
-  now = new Date(),
-): Promise<{ id: string; notFound: number }> {
-  if (!actor.agencyId || !can(actor, 'email_batch:create', { type: 'email_batch', agencyId: actor.agencyId })) {
-    throw new TemplateEmailError('forbidden', 'You cannot prepare bulk email');
-  }
-  const agencyId = actor.agencyId;
-  const [tpl] = await db
-    .select()
-    .from(emailTemplate)
-    .where(and(eq(emailTemplate.id, input.templateId), eq(emailTemplate.agencyId, agencyId)))
-    .limit(1);
-  if (!tpl) throw new TemplateEmailError('not_found', 'That template was not found');
-  if (tpl.status !== 'approved') {
-    throw new TemplateEmailError('not_approved', 'Only an approved template can be used — ask an owner or admin to approve it');
-  }
-  const picked = 'contactIds' in input ? [...new Set(input.contactIds)] : null;
-  let filter: { id: string; name: string; query: unknown } | null = null;
-  if (picked) {
-    if (!picked.length) throw new TemplateEmailError('invalid', 'Pick at least one contact');
-    if (picked.length > MAX_PICKED_CONTACTS) {
-      throw new TemplateEmailError('invalid', `Pick at most ${MAX_PICKED_CONTACTS} contacts at once`);
-    }
-    if (picked.some((id) => !/^[0-9a-f-]{36}$/i.test(id))) throw new TemplateEmailError('invalid', 'Those contacts were not found');
-  } else {
-    const filterId = (input as { filterId: string }).filterId;
-    const [row] = await db
-      .select()
-      .from(contactFilter)
-      .where(and(eq(contactFilter.id, filterId), eq(contactFilter.agencyId, agencyId), eq(contactFilter.userId, actor.userId)))
-      .limit(1);
-    if (!row) throw new TemplateEmailError('not_found', 'That saved filter was not found');
-    filter = row;
-  }
-
-  const query = filter ? contactListQuerySchema.parse(filter.query ?? {}) : {};
+): Promise<PlannedRecipient[]> {
   const seesAll = can(actor, 'contact:read_all', { type: 'contact', agencyId });
   // Archived people are resolved too — so they can be SHOWN as skipped.
   const rows = await db
@@ -158,12 +138,9 @@ export async function prepareBatch(
     )
     .orderBy(asc(contact.name), asc(contact.id))
     .limit(2000);
-  if (!rows.length) {
-    throw new TemplateEmailError('invalid', picked ? 'None of those contacts were found' : 'Nobody matches that filter');
-  }
 
   let toSend = 0;
-  const recipients = rows.map((r) => {
+  return rows.map((r) => {
     // The client's rule (2026-10-07): an agent may read a contact through a lead assigned to
     // them, but emails only contacts assigned to them. Owners and admins: anyone in the agency.
     let reason: SkipReason | null = !seesAll && r.assignedTo !== actor.userId ? 'not_yours' : null;
@@ -180,6 +157,74 @@ export async function prepareBatch(
     }
     return { contactId: r.id, name: r.name, email: r.email, status: (reason ? 'skipped' : 'queued') as RecipientStatus, skipReason: reason };
   });
+}
+
+/** Picked contacts, classified as Prepare would — nothing is written. At most 20, ids only. */
+export async function previewPickedRecipients(
+  db: DbOrTx,
+  actor: Actor,
+  contactIds: string[],
+  limits: TemplateLimits,
+): Promise<{ recipients: PlannedRecipient[]; notFound: number }> {
+  if (!actor.agencyId || !can(actor, 'email_batch:create', { type: 'email_batch', agencyId: actor.agencyId })) {
+    throw new TemplateEmailError('forbidden', 'You cannot prepare bulk email');
+  }
+  const picked = [...new Set(contactIds)];
+  if (!picked.length || picked.length > MAX_PICKED_CONTACTS || picked.some((id) => !/^[0-9a-f-]{36}$/i.test(id))) {
+    throw new TemplateEmailError('invalid', `Pick between 1 and ${MAX_PICKED_CONTACTS} contacts`);
+  }
+  const recipients = await planRecipients(db, actor, actor.agencyId, {}, picked, limits);
+  return { recipients, notFound: picked.length - recipients.length };
+}
+
+/** At most this many explicit contacts — the assistant's own cap, and well inside a batch. */
+export const MAX_PICKED_CONTACTS = 20;
+
+export async function prepareBatch(
+  db: Db,
+  actor: Actor,
+  input: PrepareInput,
+  limits: TemplateLimits,
+  now = new Date(),
+): Promise<{ id: string; notFound: number }> {
+  if (!actor.agencyId || !can(actor, 'email_batch:create', { type: 'email_batch', agencyId: actor.agencyId })) {
+    throw new TemplateEmailError('forbidden', 'You cannot prepare bulk email');
+  }
+  const agencyId = actor.agencyId;
+  const [tpl] = await db
+    .select()
+    .from(emailTemplate)
+    .where(and(eq(emailTemplate.id, input.templateId), eq(emailTemplate.agencyId, agencyId)))
+    .limit(1);
+  if (!tpl) throw new TemplateEmailError('not_found', 'That template was not found');
+  const waitsForApproval = 'contactIds' in input && input.allowPendingTemplate === true && tpl.status === 'pending_approval';
+  if (tpl.status !== 'approved' && !waitsForApproval) {
+    throw new TemplateEmailError('not_approved', 'Only an approved template can be used — ask an owner or admin to approve it');
+  }
+  const picked = 'contactIds' in input ? [...new Set(input.contactIds)] : null;
+  let filter: { id: string; name: string; query: unknown } | null = null;
+  if (picked) {
+    if (!picked.length) throw new TemplateEmailError('invalid', 'Pick at least one contact');
+    if (picked.length > MAX_PICKED_CONTACTS) {
+      throw new TemplateEmailError('invalid', `Pick at most ${MAX_PICKED_CONTACTS} contacts at once`);
+    }
+    if (picked.some((id) => !/^[0-9a-f-]{36}$/i.test(id))) throw new TemplateEmailError('invalid', 'Those contacts were not found');
+  } else {
+    const filterId = (input as { filterId: string }).filterId;
+    const [row] = await db
+      .select()
+      .from(contactFilter)
+      .where(and(eq(contactFilter.id, filterId), eq(contactFilter.agencyId, agencyId), eq(contactFilter.userId, actor.userId)))
+      .limit(1);
+    if (!row) throw new TemplateEmailError('not_found', 'That saved filter was not found');
+    filter = row;
+  }
+
+  const query = filter ? contactListQuerySchema.parse(filter.query ?? {}) : {};
+  const recipients = await planRecipients(db, actor, agencyId, query, picked, limits);
+  if (!recipients.length) {
+    throw new TemplateEmailError('invalid', picked ? 'None of those contacts were found' : 'Nobody matches that filter');
+  }
 
   return db.transaction(async (tx) => {
     const [batch] = await tx
@@ -201,7 +246,7 @@ export async function prepareBatch(
     for (let i = 0; i < recipients.length; i += 500) {
       await tx.insert(emailBatchRecipient).values(recipients.slice(i, i + 500).map((r) => ({ ...r, batchId: id })));
     }
-    return { id, notFound: picked ? picked.length - rows.length : 0 };
+    return { id, notFound: picked ? picked.length - recipients.length : 0 };
   });
 }
 
@@ -233,6 +278,8 @@ export type BatchView = {
   finishedAt: Date | null;
   counts: BatchCounts;
   recipients: RecipientView[];
+  /** Frozen against a template an owner/admin has not approved yet: sent when they do. */
+  waitingForTemplate: boolean;
   /** The email as the first recipient would get it — from the frozen template. */
   preview: { to: string | null; subject: string; body: string } | null;
   mayApprove: boolean;
@@ -296,6 +343,7 @@ export async function getBatch(db: Db, actor: Actor, id: string, now = new Date(
       expiresAt: emailBatch.expiresAt,
       approvedAt: emailBatch.approvedAt,
       finishedAt: emailBatch.finishedAt,
+      templateApproved: sql<unknown>`(select t.approved_at is not null from email_template t where t.id = ${emailBatch.templateId})`,
       ...COUNTS,
     })
     .from(emailBatch)
@@ -343,7 +391,8 @@ export async function getBatch(db: Db, actor: Actor, id: string, now = new Date(
     preview: first
       ? { to: first.email, subject: renderMerge(tpl.subject, values(first.name)), body: renderMerge(tpl.body, values(first.name)) }
       : null,
-    mayApprove: status === 'prepared' && c.toSend > 0 && can(actor, 'email_batch:send', res),
+    waitingForTemplate: status === 'prepared' && !truthy(b.templateApproved),
+    mayApprove: status === 'prepared' && truthy(b.templateApproved) && c.toSend > 0 && can(actor, 'email_batch:send', res),
     mayCancel: status === 'prepared' && can(actor, 'email_batch:cancel', res),
     mayRetry: (status === 'sent' || status === 'approved_sending') && c.failed > 0 && can(actor, 'email_batch:send', res),
   };
@@ -427,6 +476,12 @@ export async function approveBatch(
       await db.update(emailBatch).set({ status: 'expired', updatedAt: sql`now()` }).where(and(eq(emailBatch.id, b.id), eq(emailBatch.status, 'prepared')));
     }
     throw new TemplateEmailError('expired', b.status === 'cancelled' ? 'This batch was cancelled' : 'This batch has expired — prepare it again');
+  }
+  // A batch frozen against a template still waiting for an owner/admin (the assistant's
+  // "send what I wrote") is released only by that approval — never by its agent.
+  const [tpl] = await db.select({ approvedAt: emailTemplate.approvedAt }).from(emailTemplate).where(eq(emailTemplate.id, b.templateId)).limit(1);
+  if (!tpl?.approvedAt) {
+    throw new TemplateEmailError('not_approved', 'This email waits for an owner or admin to approve its template. It is sent when they do. Nothing was sent.');
   }
   const [q] = await db
     .select({ n: sql<string>`count(*)` })

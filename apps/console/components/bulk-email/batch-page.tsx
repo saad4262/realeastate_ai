@@ -45,6 +45,11 @@ export async function BatchPage({ surface, id }: { surface: 'agency' | 'agent'; 
           {b.mayRetry ? <RetryFailedButton batchId={b.id} count={b.counts.failed} /> : null}
         </div>
       </div>
+      {b.waitingForTemplate ? (
+        <p className={contactStyles.hint}>
+          This email waits for an owner or admin to approve its template. It is sent when they do — nobody, including you, can send it before.
+        </p>
+      ) : null}
       {b.status === 'expired' ? (
         <p className={contactStyles.error} role="alert">This batch expired 48 hours after it was prepared. Prepare it again to send.</p>
       ) : null}

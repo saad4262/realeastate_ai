@@ -493,8 +493,10 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
       ? null
       : view.tool === 'create_dashboard' && view.result?.dashboardId
         ? `/dashboards/${view.result.dashboardId}`
-        : view.tool === 'send_template_email' && view.result?.batchId
+        : (view.tool === 'send_template_email' || view.tool === 'send_new_template_email') && view.result?.batchId
           ? `${PATHS[surface].bulk}/${view.result.batchId}`
+          : view.tool === 'save_email_template' && view.result?.templateId
+            ? `${PATHS[surface].templates}/${view.result.templateId}`
           : view.tool === 'assign_leads'
             ? PATHS[surface].leads
             : card.contact.id
@@ -503,11 +505,15 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
   const doneLabel =
     view.tool === 'create_dashboard'
       ? 'Open the dashboard'
-      : view.tool === 'send_template_email'
-        ? 'Open the send report'
-        : view.tool === 'assign_leads'
-          ? 'Open the leads'
-          : `Open ${card.contact.name}`;
+      : view.tool === 'send_template_email' || view.tool === 'send_new_template_email'
+        ? view.result?.waiting
+          ? 'Open the waiting email'
+          : 'Open the send report'
+        : view.tool === 'save_email_template'
+          ? 'Open the template'
+          : view.tool === 'assign_leads'
+            ? 'Open the leads'
+            : `Open ${card.contact.name}`;
 
   return (
     <div className={`${styles.frame} ${styles.card}`} data-status={view.status}>
@@ -553,7 +559,13 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
           ))}
         </ul>
       ) : null}
-      {view.status === 'done' && view.tool === 'send_template_email' && view.result ? (
+      {view.status === 'done' && (view.tool === 'send_new_template_email' || view.tool === 'save_email_template') && view.result?.waiting ? (
+        <p className={styles.cardNote}>
+          Saved and sent to an owner or admin for approval. Nothing has been emailed
+          {view.tool === 'send_new_template_email' ? ' — it goes to these people when they approve it (within 48 hours).' : '.'}
+        </p>
+      ) : null}
+      {view.status === 'done' && (view.tool === 'send_template_email' || (view.tool === 'send_new_template_email' && !view.result?.waiting)) && view.result ? (
         <p className={styles.cardNote}>
           {view.result.sendError
             ? view.result.sendError

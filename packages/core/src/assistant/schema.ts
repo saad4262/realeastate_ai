@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CONTACT_ROLES } from '../contacts/contact-schema';
+import { unknownMergeFields, MERGE_FIELDS } from '../template-email/schema';
 import { INTEGRATION_PROVIDERS, type IntegrationProvider } from '../integrations/providers';
 import { WIDGET_IDS, WIDGET_RANGES, type WidgetId, type WidgetTile } from '../widgets/registry';
 
@@ -249,6 +250,35 @@ export const assignLeadsInput = z
   .strict();
 
 /**
+ * Email the person wrote themselves (ADR 0025 amendment, 2026-10-09). It
+ * becomes a template that an owner/admin approves (ADR 0022) — the assistant
+ * and an agent never approve one. The text is the person's; the model may not
+ * write it from data. A name and a purpose are required: without them the
+ * model must ask. Only the merge fields that exist.
+ */
+const ASK_NAME = 'Ask the person what to call this template and what it is for; nothing was proposed.';
+const mergeOnly = (max: number, what: string) =>
+  z
+    .string({ required_error: `Ask the person for the email's ${what}; nothing was proposed.` })
+    .trim()
+    .min(1, `Ask the person for the email's ${what}; nothing was proposed.`)
+    .max(max)
+    .superRefine((v, ctx) => {
+      const bad = unknownMergeFields(v);
+      if (bad.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Unknown merge field: ${bad.join(', ')}. Only ${MERGE_FIELDS.map((f) => `{{${f}}}`).join(', ')} exist.` });
+    });
+const templateText = {
+  name: z.string({ required_error: ASK_NAME }).trim().min(2, ASK_NAME).max(80),
+  purpose: z.string({ required_error: ASK_NAME }).trim().min(3, ASK_NAME).max(300),
+  subject: mergeOnly(160, 'subject'),
+  body: mergeOnly(8000, 'text'),
+};
+export const saveEmailTemplateInput = z.object(templateText).strict();
+export const sendNewTemplateEmailInput = z
+  .object({ ...templateText, recipients: z.array(contactHandleSchema).min(1).max(ASSISTANT_LIMITS.contactsPerCard) })
+  .strict();
+
+/**
  * Marketing consent (ADR 0022 stays in force): recorded only for contacts the
  * person may edit, by reference, never "all" or a filter — and only with the
  * person's own words for how the contact agreed. No "how", no card: the model
@@ -304,7 +334,7 @@ export const updateContactInput = z
 export const setContactArchivedInput = z.object({ contact: contactHandleSchema, archived: z.boolean() }).strict();
 
 export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'assign_leads'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'assign_leads', 'send_new_template_email', 'save_email_template'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 
 /** Every tool. Read tools run at once; write tools only propose (ADR 0025 §8). */
@@ -330,6 +360,8 @@ export const ASSISTANT_TOOL_INPUTS = {
   update_contact: updateContactInput,
   set_contact_archived: setContactArchivedInput,
   assign_leads: assignLeadsInput,
+  send_new_template_email: sendNewTemplateEmailInput,
+  save_email_template: saveEmailTemplateInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];

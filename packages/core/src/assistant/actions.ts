@@ -20,9 +20,9 @@ import { AppointmentError, cancelAppointment, rescheduleAppointment, scheduleApp
 import { assignLead, LeadTriageError } from '../leads/triage-lead';
 import { syncAppointment, type SyncDeps, type SyncOutcome } from '../appointments/sync';
 import { requireIntegrations } from '../integrations/accounts';
-import { approveBatch, cancelBatch } from '../template-email/batches';
+import { approveBatch, cancelBatch, getBatch, prepareBatch } from '../template-email/batches';
 import { sendBatch, type TemplateSendDeps } from '../template-email/send';
-import { TemplateEmailError } from '../template-email/templates';
+import { approveTemplate, createTemplate, submitTemplate, TemplateEmailError } from '../template-email/templates';
 import { emailLimitsFromEnv } from '../email/limits';
 import { createDashboard, DashboardError } from '../dashboards';
 import { PROVIDERS, type IntegrationProvider } from '../integrations/providers';
@@ -81,7 +81,11 @@ export type FrozenArgs =
   | { tool: 'update_contact'; contactId: string; patch: ContactDetailsPatch; before: Partial<ContactDetails> }
   | { tool: 'set_contact_archived'; contactId: string; archived: boolean }
   /** Owners/admins: give these leads to `to` through the screen's assignLead. `from` = who held each when the card was made. */
-  | { tool: 'assign_leads'; to: string; leadIds: string[]; from: Record<string, string | null> };
+  | { tool: 'assign_leads'; to: string; leadIds: string[]; from: Record<string, string | null> }
+  /** The person's own text, saved as a template waiting for an owner/admin. */
+  | { tool: 'save_email_template'; name: string; purpose: string; subject: string; body: string }
+  /** The same, emailed to `contactIds` (those the card showed would receive it) once the template is approved. */
+  | { tool: 'send_new_template_email'; name: string; purpose: string; subject: string; body: string; contactIds: string[] };
 
 /** The contacts whose timelines carry this action's audit lines. */
 function auditContacts(row: { contactId: string | null; args: unknown }): string[] {
@@ -294,6 +298,29 @@ async function execute(
     case 'set_contact_archived': {
       await setContactArchived(tx, actor, args.contactId, args.archived, { via: 'assistant' });
       return { result: {} };
+    }
+    case 'save_email_template': {
+      // ADR 0022's own functions: createTemplate and submitTemplate ask email_template:draft again.
+      // Never approved here — not even for an owner: they approve it on the Bulk email screen.
+      const { id } = await createTemplate(tx, actor, { name: args.name, subject: args.subject, body: args.body, purpose: args.purpose });
+      await submitTemplate(tx, actor, id);
+      return { result: { templateId: id, waiting: true } };
+    }
+    case 'send_new_template_email': {
+      if (!deps.templateSend) throw new AssistantError('conflict', 'Email is not set up on this server, so nothing can be sent.');
+      const limits = deps.templateSend.limits ?? emailLimitsFromEnv();
+      const { id: templateId } = await createTemplate(tx, actor, { name: args.name, subject: args.subject, body: args.body, purpose: args.purpose });
+      await submitTemplate(tx, actor, templateId);
+      // An owner's or admin's Approve on this card is their approval of their own text (the card says so).
+      const approver = can(actor, 'email_template:approve', { type: 'email_template', agencyId: actor.agencyId as string });
+      if (approver) await approveTemplate(tx, actor, templateId);
+      // Prepare re-resolves every person as this person NOW (the directory's rule, consent, not_yours…).
+      const prepared = await prepareBatch(tx, actor, { templateId, contactIds: args.contactIds, allowPendingTemplate: !approver }, limits, now);
+      const batch = await getBatch(tx, actor, prepared.id, now);
+      if (!batch.counts.toSend) throw new AssistantError('conflict', 'Nobody on the list can receive this email any more, so nothing was saved or sent.');
+      if (!approver) return { result: { templateId, batchId: prepared.id, waiting: true } };
+      await approveBatch(tx, actor, prepared.id, limits, now);
+      return { result: { templateId, batchId: prepared.id }, batchId: prepared.id };
     }
     case 'assign_leads': {
       // The receiver must still be an active member who may work leads (never read-only);
@@ -643,7 +670,7 @@ export type ProposalView = {
   card: ProposalCard;
   error: string | null;
   /** Ids of what it made or changed — for links. Never model text. */
-  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; contactsMoved?: number; recorded?: number; withdrawn?: number; changed?: string[]; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
+  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; contactsMoved?: number; recorded?: number; withdrawn?: number; changed?: string[]; templateId?: string; waiting?: boolean; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
   expiresAt: Date;
   /** When a scheduled action will run (about; up to ~5 minutes later). */
   runAt: Date | null;

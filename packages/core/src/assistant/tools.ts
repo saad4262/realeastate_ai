@@ -22,6 +22,8 @@ import {
   proposeAddNote,
   proposeAssignContacts,
   proposeAssignLeads,
+  proposeSaveEmailTemplate,
+  proposeSendNewTemplateEmail,
   proposeCancelAppointment,
   proposeRecordConsent,
   proposeSetArchived,
@@ -102,6 +104,8 @@ const LABELS: Record<AssistantToolName, string> = {
   update_contact: 'Preparing the change for you to approve…',
   set_contact_archived: 'Preparing the archive change for you to approve…',
   assign_leads: 'Preparing the lead assignment for you to approve…',
+  send_new_template_email: 'Preparing your email for approval…',
+  save_email_template: 'Preparing the template for approval…',
 };
 
 /** Tools that change a contact's own record: never for someone who may not edit a contact of their own (read-only). */
@@ -221,6 +225,10 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return proposeSetArchived(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.set_contact_archived>, label);
     case 'assign_leads':
       return proposeAssignLeads(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.assign_leads>, label);
+    case 'send_new_template_email':
+      return proposeSendNewTemplateEmail(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.send_new_template_email>, label);
+    case 'save_email_template':
+      return proposeSaveEmailTemplate(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.save_email_template>, label);
   }
 }
 

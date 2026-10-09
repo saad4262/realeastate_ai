@@ -8,6 +8,7 @@ import {
   cancelBatch,
   createTemplate,
   prepareBatch,
+  releaseWaitingBatches,
   retireTemplate,
   retryFailed,
   saveContactFilter,
@@ -74,7 +75,20 @@ export async function templateStepAction(id: string, step: 'submit' | 'approve' 
   const who = await actor();
   const db = getConsoleDb();
   const fn = { submit: submitTemplate, approve: approveTemplate, send_back: sendBackTemplate, retire: retireTemplate }[step];
-  return run(async () => (await fn(db, who, id), { ok: true, id }), 'Could not update the template');
+  return run(async () => {
+    await fn(db, who, id);
+    if (step !== 'approve') return { ok: true, id };
+    // Email the assistant prepared against this template, waiting for this approval, goes now —
+    // as its agent, with every ADR 0022 check repeated (after the response: it is network).
+    const sendDeps = templateSendDepsFromEnv();
+    if (!sendDeps.ok) return { ok: true, id, note: `Approved. Email waiting for it was not sent: ${sendDeps.reason}` };
+    after(() =>
+      releaseWaitingBatches(getConsoleDb(), sendDeps.deps, id).catch((err: unknown) =>
+        console.error(`[template-email] waiting email for template ${id} failed`, err instanceof Error ? err.message : err),
+      ),
+    );
+    return { ok: true, id, note: 'Approved' };
+  }, 'Could not update the template');
 }
 
 export async function saveFilterAction(name: string, query: Record<string, string | undefined>): Promise<TemplateEmailResult> {

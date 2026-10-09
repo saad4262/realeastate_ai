@@ -42,6 +42,8 @@ export const templateInputSchema = z.object({
   name: z.string().trim().min(2, 'Give the template a name').max(80),
   subject: mergeChecked(160, 'subject'),
   body: mergeChecked(8000, 'email'),
+  /** What it is for — shown to the owner/admin who approves it. */
+  purpose: z.string().trim().max(300).optional(),
 });
 export type TemplateInput = z.input<typeof templateInputSchema>;
 

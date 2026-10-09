@@ -444,6 +444,45 @@ describe('assign_leads (owners and admins only) — leads and the receiver are r
   });
 });
 
+describe('email the person wrote — send_new_template_email / save_email_template (a template draft for an owner/admin)', () => {
+  const send = ASSISTANT_TOOL_INPUTS.send_new_template_email;
+  const save = ASSISTANT_TOOL_INPUTS.save_email_template;
+  const text = { name: 'Spring open homes', purpose: 'Invite buyers to the spring open homes', subject: 'Open homes, {{first_name}}', body: 'Hi {{first_name}}, …' };
+  it('accepts the person’s own text and contact references', () => {
+    expect(send.safeParse({ ...text, recipients: ['S1', 'C2'] }).success).toBe(true);
+    expect(save.safeParse(text).success).toBe(true);
+  });
+  it('a name and a purpose are required — missing, the model is told to ask; nothing is proposed', () => {
+    for (const missing of ['name', 'purpose'] as const) {
+      const { [missing]: _gone, ...rest } = text;
+      const r = save.safeParse(rest);
+      expect(r.success, missing).toBe(false);
+      expect(JSON.stringify(r.error?.issues), missing).toMatch(/Ask the person/);
+    }
+  });
+  it('only the merge fields that exist; recipients are references only (never an address, a name or a filter), at most 20', () => {
+    expect(save.safeParse({ ...text, body: 'Hi {{suburb}}' }).success).toBe(false);
+    for (const r of [['sara@example.com'], ['Sara'], ['L1'], ['33333333-3333-4333-8333-333333333333'], []]) {
+      expect(send.safeParse({ ...text, recipients: r }).success, JSON.stringify(r)).toBe(false);
+    }
+    expect(send.safeParse({ ...text, recipients: Array.from({ length: 21 }, (_, i) => `C${i + 1}`) }).success).toBe(false);
+  });
+  it('has no way to approve, choose a status or send without a card', () => {
+    for (const extra of [{ approve: true }, { status: 'approved' }, { approved_by: 'M1' }, { send_now: true }, { template: 'T1' }]) {
+      expect(send.safeParse({ ...text, recipients: ['C1'], ...extra }).success, JSON.stringify(extra)).toBe(false);
+      expect(save.safeParse({ ...text, ...extra }).success, JSON.stringify(extra)).toBe(false);
+    }
+  });
+  it('a read-only member is refused before the database', async () => {
+    const handles: HandleMap = {};
+    issueHandle(handles, 'C', contactId);
+    for (const [tool, input] of [['send_new_template_email', { ...text, recipients: ['C1'] }], ['save_email_template', text]] as const) {
+      const out = await runAssistantTool(ctx(handles, 'read_only'), tool, input);
+      expect(out.isError, tool).toBe(true);
+    }
+  });
+});
+
 describe('the contact tools, by role — who gets past the door (before any database work)', () => {
   const inputs: Record<string, Record<string, unknown>> = {
     find_team_members: {},

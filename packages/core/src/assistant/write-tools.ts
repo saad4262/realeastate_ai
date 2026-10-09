@@ -14,8 +14,9 @@ import type { ProposalCard } from './schema';
 import { assignableMember, contactDetailsOf, UNSUBSCRIBED_REASON, type ContactDetails, type ContactDetailsPatch } from '../contacts/write-contacts';
 import { CONTACT_ROLE_LABELS, type ContactRoleKind } from '../contacts/contact-schema';
 import { formatAddress } from '../listings/listing-schema';
+import type { saveEmailTemplateInput, sendNewTemplateEmailInput } from './schema';
 import type { addNoteInput, assignContactsInput, assignLeadsInput, cancelAppointmentInput, recordMarketingConsentInput, setContactArchivedInput, updateContactInput, withdrawMarketingConsentInput, createDashboardInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
-import { cancelBatch, getBatch, prepareBatch } from '../template-email/batches';
+import { cancelBatch, getBatch, prepareBatch, previewPickedRecipients } from '../template-email/batches';
 import { TemplateEmailError } from '../template-email/templates';
 import { SKIP_REASON_LABELS } from '../template-email/schema';
 import { checkEmailLimits, emailLimitsFromEnv } from '../email/limits';
@@ -801,4 +802,121 @@ export async function proposeAssignLeads(ctx: ToolContext, input: z.infer<typeof
     from: Object.fromEntries(moving.map((r) => [r.id, r.assignedTo])),
   };
   return propose(ctx, label, { tool: 'assign_leads', args, card, contactId: null });
+}
+
+const TEMPLATE_NOTE = 'Merge fields such as {{first_name}} are filled in for each person from the CRM when it is sent.';
+
+/**
+ * The person's own words, saved as a template WAITING for an owner/admin
+ * (ADR 0022) — nothing is sent. Approve saves and submits it; even an owner's
+ * card only submits it: they approve it on the Bulk email screen like any other.
+ */
+export async function proposeSaveEmailTemplate(ctx: ToolContext, input: z.infer<typeof saveEmailTemplateInput>, label: string): Promise<ToolOutcome> {
+  const { actor } = ctx;
+  if (!actor.agencyId || !can(actor, 'email_template:draft', { type: 'email_template', agencyId: actor.agencyId })) {
+    return refused('This person cannot write email templates.', label);
+  }
+  const card: ProposalCard = {
+    title: `Save “${input.name}” as a template for approval`,
+    contact: { id: '', name: '' },
+    lines: [
+      { label: 'Template', value: input.name },
+      { label: 'What it is for', value: input.purpose },
+      { label: 'Subject', value: input.subject },
+      { label: 'After you approve', value: 'Saved and sent to an owner or admin for approval. Nothing is emailed to anyone.' },
+    ],
+    text: { label: 'Email', value: input.body },
+    notes: [NOTHING_YET, 'Only an owner or admin approves a template, on the Bulk email screen. Until then it cannot be sent.', TEMPLATE_NOTE],
+  };
+  const args: FrozenArgs = { tool: 'save_email_template', name: input.name, purpose: input.purpose, subject: input.subject, body: input.body };
+  return propose(ctx, label, { tool: 'save_email_template', args, card, contactId: null });
+}
+
+/**
+ * Email the person wrote, to contacts they picked (ADR 0025 amendment,
+ * 2026-10-09). The card shows the name, purpose, subject, the text exactly as
+ * written and every recipient with every skip and its reason — from the
+ * database, nothing written yet. Approve saves the text as a template:
+ *   - an agent's goes to an owner/admin for approval, and the email to these
+ *     people is prepared and WAITS: sent only when the template is approved
+ *     (within the 48-hour life of a prepared email), with every check repeated;
+ *   - an owner's or admin's card is their approval of their own text: the
+ *     template is saved approved by them, and the email goes as an approved
+ *     template's would (ADR 0022's Approve & Send).
+ * The assistant never approves anything.
+ */
+export async function proposeSendNewTemplateEmail(ctx: ToolContext, input: z.infer<typeof sendNewTemplateEmailInput>, label: string): Promise<ToolOutcome> {
+  const { actor, db } = ctx;
+  if (
+    !actor.agencyId ||
+    !can(actor, 'email_template:draft', { type: 'email_template', agencyId: actor.agencyId }) ||
+    !can(actor, 'email_batch:create', { type: 'email_batch', agencyId: actor.agencyId })
+  ) {
+    return refused('This person cannot send bulk email.', label);
+  }
+  const contactIds: string[] = [];
+  for (const ref of input.recipients) {
+    const id = resolveHandle(ctx.handles, ref, 'contact');
+    if (!id) return refused(`${ref}: ${UNKNOWN_REF}`, label);
+    contactIds.push(id);
+  }
+  const limits = emailLimitsFromEnv();
+  let plan: Awaited<ReturnType<typeof previewPickedRecipients>>;
+  try {
+    plan = await previewPickedRecipients(db, actor, contactIds, limits);
+  } catch (err) {
+    if (err instanceof TemplateEmailError) return refused(err.message, label);
+    throw err;
+  }
+  const people = plan.recipients.map((r) => ({
+    name: r.name,
+    email: r.email,
+    willReceive: r.status === 'queued',
+    reason: r.skipReason ? SKIP_REASON_LABELS[r.skipReason] : null,
+  }));
+  const receiving = plan.recipients.filter((r) => r.status === 'queued');
+  if (!receiving.length) {
+    return {
+      label,
+      result: { proposed: false, tell_the_user: 'Nobody on that list can receive this email right now, so nothing was proposed.', skipped: people.map((p) => ({ name: p.name, why: p.reason })) },
+    };
+  }
+  const approver = can(actor, 'email_template:approve', { type: 'email_template', agencyId: actor.agencyId });
+  const n = receiving.length;
+  const check = await checkEmailLimits(db, { agencyId: actor.agencyId, userId: actor.userId }, limits);
+  const card: ProposalCard = {
+    title: `Email “${input.name}” to ${n} ${n === 1 ? 'person' : 'people'}${approver ? '' : ' — after an owner or admin approves it'}`,
+    contact: { id: receiving[0]!.contactId, name: receiving[0]!.name },
+    lines: [
+      { label: 'Template', value: `${input.name} (new — written by you)` },
+      { label: 'What it is for', value: input.purpose },
+      { label: 'Subject', value: input.subject },
+      { label: 'Recipients', value: `${n} will receive it${people.length > n ? ` · ${people.length - n} skipped (see below)` : ''}` },
+      {
+        label: 'After you approve',
+        value: approver
+          ? 'You approve this text as an agency template (approved by you), and it is sent now.'
+          : 'It goes to an owner or admin for approval. Nothing is emailed until they approve it; then it goes to these people. Not approved within 48 hours: nothing is sent.',
+      },
+      { label: 'Sent from', value: 'The platform address, with your agency’s name and an unsubscribe link — template email never goes from a Gmail (ADR 0026)' },
+      { label: 'Today', value: `${check.agentUsed} of ${check.limits.perAgentDay} platform emails sent by you today` },
+    ],
+    text: { label: 'Email', value: input.body },
+    people,
+    notes: [
+      NOTHING_YET,
+      TEMPLATE_NOTE,
+      'At the moment of sending, consent, unsubscribes, archiving, the 7-day rule, today’s limits and the development allowlist are checked again — anyone who no longer qualifies is skipped.',
+      ...(plan.notFound ? [`${plan.notFound} of the people asked for could not be found for you and are not on the list.`] : []),
+    ],
+  };
+  const args: FrozenArgs = {
+    tool: 'send_new_template_email',
+    name: input.name,
+    purpose: input.purpose,
+    subject: input.subject,
+    body: input.body,
+    contactIds: receiving.map((r) => r.contactId),
+  };
+  return propose(ctx, label, { tool: 'send_new_template_email', args, card, contactId: receiving[0]!.contactId });
 }
