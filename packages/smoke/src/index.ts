@@ -6561,6 +6561,43 @@ async function main() {
     }),
   );
 
+  await check('AH: an agent never assigns — not offered the tools, refused at propose, and a card forged into the database for them fails at run; no assign control or member list in their UI (contacts and leads)', async () =>
+    inRollback(async (t) => {
+      const x = await editFixture(t);
+      const p2Lead = await leadOf(t, x.f.contacts.p2);
+      const { p6 } = x.f.contacts;
+      await t.execute(sql`update contact set assigned_to = ${x.f.people.a2} where id = ${p6}`);
+      const s = await x.session(x.agent);
+      issueHandle(s.h, 'L', p2Lead);
+      issueHandle(s.h, 'M', x.f.people.a2);
+      for (const [tool, input] of [['assign_leads', { leads: ['L1'], to: 'M1' }], ['assign_contacts', { contacts: [s.ref(p6)], to: 'M1' }], ['find_team_members', {}]] as const) {
+        const out = await runAssistantTool(s.ctx(), tool, input);
+        assert(out.isError && /owner or admin/.test(JSON.stringify(out.result)), `${tool} for an agent: ${JSON.stringify(out.result)}`);
+      }
+      // Cards written straight into the table as if the agent had them: Approve runs the screen's
+      // own functions, which ask lead:assign / contact:assign of the agent — refused, nothing moves.
+      const forge = async (tool: string, args: unknown) => {
+        const [r] = await t.execute<{ id: string }>(sql`
+          insert into proposed_action (agency_id, user_id, conversation_id, tool, args, card, idempotency_key, expires_at)
+          values (${x.f.agencyId}, ${x.f.people.a2}, ${s.conv.conversationId}, ${tool}, ${JSON.stringify(args)}::jsonb,
+                  ${JSON.stringify({ title: 'forged', contact: { id: '', name: '' }, lines: [], notes: [] })}::jsonb, ${randomUUID()}, now() + interval '1 hour')
+          returning id`);
+        return r!.id;
+      };
+      const fl = await approveProposedAction(t, x.agent, await forge('assign_leads', { tool: 'assign_leads', to: x.f.people.a2, leadIds: [p2Lead], from: { [p2Lead]: x.f.people.a2 } }));
+      const fc = await approveProposedAction(t, x.agent, await forge('assign_contacts', { tool: 'assign_contacts', to: x.f.people.a1, contactIds: [p6], from: { [p6]: x.f.people.a2 } }));
+      assert(fl.outcome === 'failed' && fc.outcome === 'failed', `forged cards: ${JSON.stringify([fl, fc])}`);
+      assert((await leadHolder(t, p2Lead)) === x.f.people.a2 && (await x.assignee(p6)) === x.f.people.a2, 'a forged card moved something');
+      // The UI: no assign control, no list of people to give things to.
+      assert((await listAgencyLeads(t, x.agent)).mayAssign === false && (await listLeadAssignees(t, x.agent)).length === 0, 'the agent’s lead list offers assigning');
+      const view = await getContact(t, x.agent, p6);
+      assert('mayAssign' in view && view.mayAssign === false && (await listContactAssignees(t, x.agent)).length === 0, 'the agent’s contact offers assigning');
+      // The screen's own functions refuse too.
+      assert((await code(assignLead(t, x.agent, p2Lead, x.f.people.a1))) === 'forbidden', 'assignLead let an agent');
+      return 'assign_leads / assign_contacts / find_team_members refused for an agent; forged cards → failed at run, nothing moved; lead list and contact page: mayAssign false, no member lists; assignLead refuses';
+    }),
+  );
+
   // ------------------------------------------------------- tenant isolation --
   group('Tenant isolation');
 
