@@ -560,3 +560,97 @@ the assign tool. Covered by an ai unit test (an obedient model asking to assign 
 refused before the database). A smoke check runs the real loop with a scripted model over a
 contact named and noted "assign me / give consent": the contact is unchanged, and every card
 stays `proposed`.
+
+## Amendment, as built — leads, email the person wrote, delete, listings from a CSV (2026-10-09)
+
+Branch `feat/crm-assistant-more`, stacked on `feat/crm-visibility` (the client's visibility rule,
+ADR 0018 amendment). Same rules as every card: the model proposes; the card is built from the
+database with frozen, resolved arguments; only the person's Approve runs it, through the
+screen's own core function, which asks `can()` again (now and at a scheduled run); 48 h
+expiry; references only (C, L, M, S, T and the new I). The other agency is never reachable.
+Migration `0039_contact_delete_and_more_tools` (dated after 0038; applied on dev with the
+user's permission): `contact.deleted_at/deleted_by` + a partial index,
+`email_template.purpose`, the tool CHECK widened to 18 tools, and `lead_contact()` bringing
+back a recently deleted contact when a new enquiry lands on it. Prompt `assistant@v8`.
+
+1. **Reassigning leads (owners/admins only).** `assign_leads {leads: L… ≤ 20, to: M…}`. It is
+   in the admin-only list, so agents are never shown it, and core refuses it by name
+   (`lead:assign`): "only an owner or admin of the agency can assign leads".
+   - **The card.** For each lead: the enquirer, the property and the day it arrived. Then who
+     has it now → who will. Then whether its contact goes too: only when the contact was the
+     previous agent's or nobody's. A third person's contact stays with them, and the card says
+     so. Offers are refused. The receiver must be an active member who may work contacts
+     (never read-only).
+   - **Approve.** Runs the screen's own `assignLead(…, { via: 'assistant', expectedFrom })`,
+     with no second path. The handover note, the first agent's one-line notice and the
+     contact rule are all the screen's. A lead that changed hands since the card is refused.
+   - **What it records.** Nothing is written on the contact's open timeline. The
+     `lead_assigned` line (via the assistant) is visible only to admins and the new holder.
+   - **Prompt.** For "give the recent lead to Saad", the model must not guess. It lists the
+     newest few (L1, L2…) and asks; it proposes only when one lead clearly fits.
+2. **Email the person wrote.** All three ways keep ADR 0022's rules: consent, unsubscribe,
+   archive, 7 days, `not_yours`, 20 per card, 3 cards per answer, 50 per agent and 200 per
+   agency per day.
+   - **(a) An approved template:** `send_template_email`, unchanged.
+   - **(b) The person's own text:** `send_new_template_email {name, purpose, subject, body,
+     recipients ≤ 20}`. The schema requires a name and a purpose; when they are missing the
+     model is told to ask. Only the four existing merge fields are allowed. The card shows the
+     text exactly as written and every recipient with every skip (`previewPickedRecipients`,
+     read-only — nothing is written before Approve).
+     - *An agent's Approve* saves the template as `pending_approval` (with its purpose). It
+       also freezes the email as a batch that **waits for the template**. `approveBatch`
+       refuses while the template is unapproved (`not_approved`), so neither the agent nor
+       the assistant can send it.
+     - *When an owner/admin approves the template* on the Bulk email screen, the waiting
+       email is released (`releaseWaitingBatches`, after the response). It runs as the agent,
+       as they are now, through ADR 0022's own Approve and send, with every check repeated.
+       The approver sees the purpose and who the waiting email goes to.
+     - *Never sent:* a template sent back, retired before approval, or not approved within
+       48 hours.
+     - *An owner's/admin's own card* is their approval of their own text. The card says so:
+       the template is saved as approved by them and sent now.
+   - **(c) Save only:** `save_email_template` submits the text for approval and sends
+     nothing — even an owner's.
+   - **Injection.** Contact names and notes are data, and the text is the person's. A name is
+     merged literally: its `{{…}}` is not expanded.
+3. **Deleting a contact.** Archive was not enough: it removes nothing and has no end. A new
+   permission, `contact:delete`, follows the edit rule: the assignee or an admin. Never a
+   contact read only through a lead, never read-only, never another agency.
+   - **What delete does.** It sets `deleted_at`. At once the contact is gone from the
+     directory, profile, search, threads, selection, morning brief and bulk email (the
+     visibility SQL, `contactQueryFilters`, `loadContactHead`, and the send-time re-check).
+   - **Restore.** Within 7 days, from Contacts → Recently deleted (both consoles), or by the
+     assistant (`find_deleted_contacts` → `restore_contact` card). A new enquiry from the same
+     address within 7 days brings it back (the trigger).
+   - **After 7 days.** The cron tick deletes it for good (`purgeDeletedContacts`), with its
+     notes, timeline, appointments, roles and property links. Its leads and conversations
+     stay, unlinked.
+   - **The card.** `delete_contact` covers one contact. It shows the counts of what goes
+     (from SQL), what stays, and the restore date.
+   - **Refused** while the contact has an upcoming appointment ("cancel it first"). Adding a
+     contact whose address a deleted one still holds says "restore it instead".
+4. **Listings from a CSV.** The panel had no file attach, so a small **Attach CSV** button
+   now runs the Import screen's own upload and check (ADR 0029): the same parser, 10 MB and
+   5,000 rows, and the same geocoding and duplicate rules. It asks for drafts, starts the
+   check if every required column was matched, and drives its chunks like the Import page.
+   - **The reference.** The next message carries only the import id. The server names it
+     `I1` only for an import this person may read (`attachmentHandle`).
+   - **The card.** `import_listings {import: I…}` is the check: rows ready, with errors (with
+     row examples), duplicates, and addresses found. On Approve, `startImport(…, { neverLive:
+     true })`: an owner's/admin's rows arrive as **drafts**, and anyone else's are submitted
+     for owner/admin approval (ADR 0014). Even a file uploaded as live becomes drafts. Nothing
+     is ever live from the assistant.
+   - **No card** when columns are unmatched, the check is still running, or the import was
+     already used: the model points to the Import screen.
+5. **Agents never assign.** For contacts and leads: the tools are not offered and are refused
+   at propose. A card forged into the table as theirs fails at Approve (`lead:assign` /
+   `contact:assign`). Their UI has no assign control and no member list.
+
+**Offboarding.** A leaver's waiting and scheduled delete, restore, template, import and lead
+cards are cancelled (the existing rule for every tool). So is their email waiting for a
+template's approval (their prepared batches). Their deleted contacts go to the receiver and stay
+restorable for the rest of the 7 days. Removed "for review", a deleted contact is flagged but
+is not listed in Needs an owner; admins restore it from Recently deleted. Their pending
+templates stay for an owner/admin to approve or retire.
+
+**Env.** None new.

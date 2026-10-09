@@ -82,6 +82,19 @@ the dry run is safe; `--apply` changes who holds old leads.
 It sits after AE because AG10 uses the assistant's cards. Do it before AA/AC: they assume
 the new visibility.
 
+## Block 3e — the assistant: leads, email you wrote, delete, CSV listings (≈ 1 h 10 min)
+
+Settings: as Block 3. **Migration 0039** must be on the database (columns and a wider card
+list, no row changes). Restart `pnpm dev` after pulling. A CSV from
+`docs/import/listings-template.csv`, with a few bad rows.
+
+| Order | Section | Needs | Time |
+|---|---|---|---|
+| 11e | **AH** — Assistant: reassign leads, email you wrote, delete/restore, CSV listings | Anthropic key; owner, A1, A2, a read-only member; enquiries; contacts with consent in `EMAIL_DEV_ALLOWLIST`; `GOOGLE_MAPS_API_KEY` for the CSV check (AH14–16); a second agency for AH17. AH18 is part of AC | 1 h 10 min |
+
+It sits after AG because AH builds on the new visibility (an agent's own contacts and leads).
+AH18 is re-checked in Block 7 with AC.
+
 ## Block 4 — Google's public data (≈ 20 min)
 
 Settings: `GOOGLE_MAPS_API_KEY` with **Places API (New)** switched on in Google Cloud. That is
@@ -136,9 +149,9 @@ redone.
 
 | Order | Section | Needs | Time |
 |---|---|---|---|
-| 16 | **AC** — Removing someone from the agency | A1 with appointments (real Calendar/Zoom from T), contacts, a lead, an only-agent listing, a waiting assistant card, a prepared bulk email; A2 with Calendar connected; a second agency for AC11; for **AE28**, an admin with an assign card and a consent card waiting | 45 min |
+| 16 | **AC** — Removing someone from the agency | A1 with appointments (real Calendar/Zoom from T), contacts, a lead, an only-agent listing, a waiting assistant card, a prepared bulk email; A2 with Calendar connected; a second agency for AC11; for **AE28**, an admin with an assign card and a consent card waiting; for **AH18**, a delete card, an email waiting for approval and a deleted contact | 50 min |
 
-**Total: about 9 hours 10 minutes**, best spread over two sittings: Blocks 1–4 (with 3b, 3c and 3d), then 5–7.
+**Total: about 10 hours 20 minutes**, best spread over two sittings: Blocks 1–4 (with 3b–3e), then 5–7.
 
 ## Every setting, in one place
 

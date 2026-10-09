@@ -1,3 +1,56 @@
+## 2026-10-09 — Claude Code — More assistant cards (branch feat/crm-assistant-more, stacked on feat/crm-visibility)
+
+- Read first and reported:
+  - there was no contact delete, only archive;
+  - templates: agents draft, owners/admins approve, only an approved one sends;
+  - CSV import: upload → check → import; agents' imports are pending, owners' live or draft;
+  - the panel had no file attach.
+  Then built, test first, one commit each.
+- Commits:
+  - 41bc633 migration 0039. Applied on dev with the user's permission: id 40, created_at
+    1791520060364, hash 80bad05c3e7d; 18 tools in the CHECK.
+  - 8166be0 assign_leads, through assignLead with `expectedFrom` and `via`.
+  - 9933b25 the person's own email: a template waiting for owner/admin approval, then
+    releaseWaitingBatches; save_email_template.
+  - 89fc82d contact delete with a 7-day restore. Purge in the cron tick; the trigger revives a
+    contact on a new enquiry; Recently deleted pages.
+  - 4da32d6 CSV listings via the panel's Attach CSV and import_listings (neverLive).
+  - 89c080f an agent never assigns.
+  - 8040e47 isolation and offboarding (Needs an owner skips deleted contacts).
+  - 4676033 and f211c27: two tests sharpened after break-tests showed them green.
+  - Docs.
+- Decisions taken here:
+  - **An owner's own "send what I wrote" card approves their own text.** The card says so.
+    An agent's waits for an owner/admin.
+  - **save_email_template only submits**, even for an owner.
+  - **Delete is refused while an upcoming appointment exists.**
+  - **A deleted contact is revived by a new enquiry within 7 days.**
+  - **For the CSV, an Attach button in the panel.** It uses the Import screen's own upload and
+    check, not a new parser.
+- Checks:
+  - typecheck/lint 20/20; unit 875 + 298;
+  - full smoke (DIRECT_URL): 193 passed, 55 skipped (console not running / live AI off).
+    Includes Console assistant 23 + AH 8, Contacts 17, Template email 7, Tenant isolation 5,
+    Offboarding 6, Listing import 6, Assistant search 7, Database health 25.
+  - 2 failed, both pre-existing on feat/crm: no loading.tsx for /team/remove and
+    /team/removed; one auth account without a public.user row.
+  - Break-tests, 13, all red:
+    - an agent proposes a lead assignment;
+    - assignLead's run-time check;
+    - a waiting email sent before approval;
+    - the agent's card approves its own template;
+    - any agent deletes any contact;
+    - a read-only contact emailed;
+    - a lead-only contact editable/deletable;
+    - restore after 7 days;
+    - the import goes live;
+    - the run-time delete re-check;
+    - a lead moved since the card;
+    - a name merged as a template (injection);
+    - a deleted contact still listed.
+- Next: merge feat/crm-visibility first, then this branch (never both at once). `pnpm dev`
+  restart after pulling. TEST-PLAN AH.
+
 ## 2026-10-08 — Claude Code — The client's visibility rule (branch feat/crm-visibility)
 
 - Read first, reported, then the user decided (2026-10-07): migration 0038, backfill as a

@@ -12,6 +12,18 @@
   @repo/ai search:backfill`), never for private notes, archived/opted-out contacts or offers.
   Metered in ai_run (question inside the assistant caps; indexing cap 0.25/agency/day). Prompt
   assistant@v6. TEST-PLAN AD; TEST-ORDER Block 3b. Client questions in ADR 0031.
+- **Branch `feat/crm-assistant-more` (2026-10-09, not merged; stacked on `feat/crm-visibility` —
+  merge that first): more assistant cards (ADR 0025 amendment 2026-10-09).** Owners/admins
+  reassign leads by card (`assign_leads`, the screen's own `assignLead`: handover note, contact
+  rule, timeline; the model lists and asks when a lead is ambiguous). Email the person wrote:
+  `send_new_template_email` saves it as a template an owner/admin must approve — an agent's
+  email waits for that approval and is then sent with every ADR 0022 check;
+  `save_email_template` only submits. Contacts can be **deleted**: gone everywhere at once,
+  restorable 7 days (Contacts → Recently deleted, or the assistant), then purged by the cron
+  tick; a new enquiry within the 7 days brings one back. Listings from a CSV via the panel's
+  **Attach CSV** (the Import screen's own job): drafts for owners/admins, pending for agents,
+  never live. Agents never assign (tools refused; forged cards fail at run). **Migration 0039
+  applied on dev** (2026-10-09, with the user's permission). Prompt `assistant@v8`. No new env.
 - **Branch `feat/crm-visibility` (2026-10-08, not merged): the client's visibility rule (ADR
   0018 amendment).** Agents see only their assigned contacts and leads; a contact behind a lead
   assigned to them is read-only (no edit/consent/notes/archive/cards/template email — skip

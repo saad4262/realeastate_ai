@@ -1003,3 +1003,38 @@ For existing data, see AG13 before applying anything.
 | AG13 | **Existing data (do not apply without deciding):** run `pnpm --filter @repo/core visibility:backfill` | A dry run. It lists which old unassigned listing leads and nobody's contacts would go to which agent, and **changes nothing**. Only `-- --apply` writes. After applying, those leads appear in their agents' My leads. |
 | AG14 | Second agency's owner tries any of the above links | Nothing from the first agency, ever. |
 | AG15 | Read-only member | Sees their own contacts and their assigned leads; can change nothing. |
+
+## AH — The assistant: leads, email you wrote, delete, listings from a CSV (ADR 0025 amendment, 2026-10-09)
+
+Every change below is a card. Nothing happens until the person presses **Approve**. Agents see
+only their own (AG).
+
+**Setup.** Apply migration 0039 if it isn't on this database
+(`pnpm --filter @repo/db db:migrate`; it adds columns and widens a check). Then restart
+`pnpm dev`. You need:
+- an owner, agents **A1** and **A2**, and a read-only member;
+- two or three enquiries;
+- contacts with marketing consent and emails in `EMAIL_DEV_ALLOWLIST`;
+- a CSV made from `docs/import/listings-template.csv`.
+
+| # | Case | Expected |
+|---|---|---|
+| AH1 | Owner: "Give the recent lead to A2" | The assistant lists the newest few leads (L1, L2…) with the person, the property and the day, and asks which one. No card yet. |
+| AH2 | Owner picks one ("L1") | Card: the lead (who, property, day) · A1 → A2 · "Their contact moves to A2 too" (or "stays with … — it is theirs"). Approve → A2 has it. A1's My leads shows only "This lead has been reassigned from you to another agent." The contact's timeline says Lead reassigned · via the assistant. |
+| AH3 | A1 (agent): "Give my lead to A2" | "Only an owner or admin of the agency can assign leads." No card. |
+| AH4 | A1: "Send this to S1 and S2: subject … text …" with no name | The assistant asks what to call it and what it is for. |
+| AH5 | A1 gives the name and purpose | Card: name, purpose, subject, the text exactly as typed, and every recipient. Anyone without consent or not A1's own is shown as skipped, with the reason. Approve → "Saved and sent to an owner or admin for approval. Nothing has been emailed." Bulk email shows the email waiting. A1 has no Approve & Send button. |
+| AH6 | Owner opens the template (Bulk email → Templates) | Shows "What it is for" and "Approving it also sends the email A1 asked the assistant to send — to N people (see who)". Approve → the email goes out (dev allowlist), and the send report shows it. |
+| AH7 | Owner: "Send this to S1: …" (own text) | The card says Approve approves the text as a template (by you) and sends now. Approve → sent. |
+| AH8 | A1: "Save this as a template: …" | Card → Approve → the template waits for approval; nothing is sent. The same happens for an owner (they approve it on the screen). |
+| AH9 | Owner sends a waiting template back, or approves it after 48 hours | The waiting email is never sent. |
+| AH10 | A1: "Delete P (their own contact)" | Card: what goes after 7 days (notes, timeline, past appointments), what stays (enquiries, conversations), and "Restore until …". Approve → the contact is gone from contacts, search and the assistant. |
+| AH11 | A1: delete a contact they only see through a lead; A1: delete A2's contact; read-only member: delete | Refused. No card. |
+| AH12 | Contacts → **Recently deleted** → Restore; or "Bring P back" to the assistant | It is back exactly as it was (notes included). A new enquiry from P's email within 7 days also brings it back. |
+| AH13 | Contact with an upcoming appointment: "Delete it" | "Cancel it first". No card. |
+| AH14 | A1: **Attach CSV** in the panel (the template file, some bad rows) → "add these listings" | While attaching, the chip shows "Checking n of m rows…", then "Checked: x ready · y with errors · z duplicates". Card: the same counts, addresses found, row examples, "Submitted for approval". Approve → the listings are **pending** in the owner's approvals. None are live. |
+| AH15 | Owner does AH14 | The card says "Drafts — nothing goes live". Approve → the listings are **drafts**. |
+| AH16 | Attach a CSV whose columns don't match | The chip says which columns are not matched, with Open (Import screen). The assistant proposes nothing. |
+| AH17 | Second agency's owner tries any of the above on the first agency's rows | Refused. Nothing changes. |
+| AH18 | Remove A1 (Team) while A1 has waiting cards and an email waiting for approval | The cards and the waiting email are cancelled. A1's deleted contacts go to the receiver and are restorable by them. |
+
