@@ -6800,6 +6800,45 @@ async function main() {
     }),
   );
 
+  await check('AH: the 2026-10-09 tools across agencies — A’s every role cannot reassign, delete, restore, list deleted, email, attach or import anything of B’s; B unchanged', async () =>
+    inRollback(async (t) => {
+      const { A, B } = await isolationFixture(t);
+      // One of B's contacts deleted by B (restorable for B only).
+      await deleteContact(t, B.f.actor('owner'), B.f.contacts.p5);
+      const before = await agencySnapshot(t, B.f.agencyId);
+      const tried: string[] = [];
+      for (const k of A_ROLES) {
+        const a = A.f.actor(k);
+        const conv = await claimTurn(t, a, { message: 'x', surface: k === 'owner' ? 'agency' : 'agent' });
+        const h: HandleMap = {};
+        const ctx = () => proposeCtx(t, a, h, conv.conversationId, { count: 0 });
+        const L = issueHandle(h, 'L', B.ids.lead);
+        const C = issueHandle(h, 'C', B.f.contacts.p1);
+        const D = issueHandle(h, 'C', B.f.contacts.p5);
+        const I = issueHandle(h, 'I', B.ids.importId);
+        const M = issueHandle(h, 'M', A.f.people.a2);
+        const outs = [
+          await runAssistantTool(ctx(), 'assign_leads', { leads: [L], to: M }),
+          await runAssistantTool(ctx(), 'delete_contact', { contact: C }),
+          await runAssistantTool(ctx(), 'restore_contact', { contact: D }),
+          await runAssistantTool(ctx(), 'import_listings', { import: I }),
+          await runAssistantTool(ctx(), 'send_new_template_email', { name: 'x y', purpose: 'xyz', subject: 'Hi', body: 'Hi', recipients: [C] }),
+        ];
+        const proposed = outs.filter((o) => !o.isError && (o.result as { proposed?: boolean }).proposed !== false);
+        assert(!proposed.length, `${k}: a card on B's rows: ${JSON.stringify(proposed.map((o) => o.result))}`);
+        assert((await code(deleteContact(t, a, B.f.contacts.p1))) !== 'resolved', `${k} deleted B's contact`);
+        assert((await code(restoreDeletedContact(t, a, B.f.contacts.p5))) !== 'resolved', `${k} restored B's contact`);
+        assert(!(await listDeletedContacts(t, a)).some((d) => d.id === B.f.contacts.p5), `${k} sees B's deleted contact`);
+        assert((await attachmentHandle(t, a, {}, B.ids.importId)) === null, `${k} attached B's import`);
+        tried.push(k);
+      }
+      const after = await agencySnapshot(t, B.f.agencyId);
+      const changed = Object.keys(after).filter((key) => after[key] !== before[key]);
+      assert(!changed.length, `B changed: ${changed.join(', ')}`);
+      return `${tried.join(', ')}: assign_leads, delete/restore (card and core), Recently deleted, email to B's contact, attaching / importing B's file — all refused; B unchanged`;
+    }),
+  );
+
   await check('writes: every role of A, aimed at B’s rows, is refused and changes nothing in B', async () =>
     inRollback(async (t) => {
       const { g, A, B } = await isolationFixture(t);
@@ -7672,6 +7711,43 @@ async function main() {
         select name, marketing_consent_at as at, (select archived_at from contact where id = ${p2}) as archived from contact where id = ${p6}`);
       assert(c?.name === 'P6' && c.at === null && c.archived === null, `a cancelled card changed something: ${JSON.stringify(c)}`);
       return `A1 removed → ${Object.keys(statuses).length} cards cancelled (one was scheduled); owner's scheduled card to A2 (removed) → failed with the reason; nothing changed`;
+    }),
+  );
+
+  await check('AH: removing someone cancels their waiting delete/restore/template cards and the email waiting for a template; their deleted contacts go to the receiver, restorable for the rest of the 7 days — and never wait in Needs an owner', async () =>
+    inRollback(async (t) => {
+      const x = await editFixture(t);
+      await t.execute(sql`update membership set role = 'agent' where user_id = ${x.f.people.a1} and agency_id = ${x.f.agencyId}`);
+      const a1 = { ...x.admin, membershipRole: 'agent' as const };
+      const { p6 } = x.f.contacts;
+      await t.execute(sql`update contact set assigned_to = ${x.f.people.a2}, marketing_consent_at = now() where id = ${p6}`);
+      const [gone] = await t.execute<{ id: string }>(sql`insert into contact (agency_id, name, email, assigned_to) values (${x.f.agencyId}, 'Gone', ${`gone.${x.f.tag}@smoke.test`}, ${x.f.people.a2}) returning id`);
+      const s = await x.session(x.agent);
+      const delCard = cardId(await runAssistantTool(s.ctx(), 'delete_contact', { contact: s.ref(p6) }));
+      const saveCard = cardId(await runAssistantTool(s.ctx(), 'save_email_template', { name: 'Leaver draft', purpose: 'Testing', subject: 'Hi {{first_name}}', body: 'Hello' }));
+      const text = { name: 'Leaver email', purpose: 'Testing', subject: 'Hi {{first_name}}', body: 'Hello there' };
+      const sendCard = cardId(await runAssistantTool(s.ctx(), 'send_new_template_email', { ...text, recipients: [s.ref(p6)] }));
+      const deps: TemplateSendDeps = { mail: { mailer: null, config: null } as never, unsubscribe: { baseUrl: 'http://web.test', secret: 's'.repeat(32) }, limits: { perBatch: 20, perAgentDay: 50, perAgencyDay: 200, repeatDays: 7, sendDelayMs: 0 }, sleep: async () => {} };
+      const sent = await approveProposedAction(t, x.agent, sendCard, { templateSend: deps });
+      const waitingBatch = (sent as unknown as { result: { batchId: string } }).result.batchId;
+      await deleteContact(t, x.agent, gone!.id);
+      const restoreCard = cardId(await runAssistantTool(s.ctx(), 'restore_contact', { contact: issueHandle(s.h, 'C', gone!.id) }));
+
+      await removeMember(t, x.owner, x.f.people.a2, { receiver: x.f.people.a1 });
+      const st = Object.fromEntries(await Promise.all(Object.entries({ delCard, saveCard, restoreCard }).map(async ([k, id]) => [k, (await x.status(id)).status] as const)));
+      assert(Object.values(st).every((v) => v === 'cancelled'), `the leaver's cards: ${JSON.stringify(st)}`);
+      const [b] = await t.execute<{ status: string }>(sql`select status from email_batch where id = ${waitingBatch}`);
+      assert(b?.status === 'cancelled', `the email waiting for approval: ${b?.status}`);
+      // Their deleted contact is the receiver's now — still deleted, restorable by them.
+      assert((await listDeletedContacts(t, a1)).some((d) => d.id === gone!.id), 'the receiver does not see the deleted contact');
+      await restoreDeletedContact(t, a1, gone!.id);
+      await deleteContact(t, a1, gone!.id);
+      // "For review": flagged, but a deleted contact never waits in Needs an owner — admins restore it from Recently deleted.
+      await removeMember(t, x.owner, x.f.people.a1, { review: true });
+      const queue = await listNeedsOwner(t, x.owner);
+      assert(!queue.some((q) => q.id === gone!.id), 'a deleted contact waits in Needs an owner');
+      assert((await listDeletedContacts(t, x.owner)).some((d) => d.id === gone!.id), 'the owner cannot restore it');
+      return 'A2 removed → delete, restore and template cards cancelled, the email waiting for approval cancelled; A2’s deleted contact → receiver A1, restorable by them; A1 removed for review → the deleted contact is not in Needs an owner, the owner can restore it';
     }),
   );
 

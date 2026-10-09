@@ -516,7 +516,8 @@ export async function listNeedsOwner(db: Db, actor: Actor): Promise<NeedsOwnerIt
   const a = actor.agencyId;
   const rows = await db.execute<{ kind: NeedsOwnerItem['kind']; id: string; label: string; since: string }>(sql`
     select 'contact' as kind, id, name as label, needs_owner_at as since from contact
-      where agency_id = ${a} and needs_owner_at is not null and assigned_to is null
+      -- A deleted contact (7 days to restore) waits in Recently deleted, not here.
+      where agency_id = ${a} and needs_owner_at is not null and assigned_to is null and deleted_at is null
     union all
     select 'lead', id, coalesce(name, email, 'Enquiry'), needs_owner_at from lead
       where agency_id = ${a} and needs_owner_at is not null and assigned_to is null
