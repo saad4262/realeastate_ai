@@ -3,8 +3,8 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
-- **Meetings end to end (ADR 0032) — built 2026-10-10 on `feat/meetings` (from main), NOT
-  committed yet.** Migration **0039 applied on dev** (btree_gist; EXCLUDE
+- **Meetings end to end (ADR 0032) — built 2026-10-10; committed 79f2f10 on `feat/meetings`,
+  merged with team edit (ADR 0033) and on `main` at c9fd9b7.** Migration **0039 applied on dev** (btree_gist; EXCLUDE
   `appointment_agent_no_overlap` on (assigned_agent_id, tstzrange) for active rows;
   `appointment.reminder_sent_at`; table `notification`, RLS on). What it does: the assistant's
   booking card can also email the invitation (`send_invitation`; approve → book → Zoom sync →
@@ -20,8 +20,8 @@
   assistant C's old "Calendar required" rule), and two were already failing before this work
   (no loading.tsx for team/remove and team/removed; the smoke reads
   .github/workflows/alerts-cron.yml, which d1d804d deleted). TEST-PLAN **AF**.
-  **Next:** the user commits and merges, then walks AF. The Vercel console needs this code
-  before it shares a DB with 0039: older code shows a raw error on an overlapping booking.
+  **Next:** deploy console + web from main, then walk AF. Dev DB has 0039 and 0040; a
+  deployment of code older than c9fd9b7 shows a raw error on an overlapping booking.
 - **Assistant search (ADR 0031) — merged into `feat/crm` 2026-10-07.** Migration
   0036 applied on dev (generated full-text columns on note / mail_message / lead with GIN indexes;
   `search_embedding` with pgvector 1024 + HNSW, RLS). New read tool `search_notes_and_emails`
