@@ -78,7 +78,11 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
     window.addEventListener('assistant:open', open);
     return () => window.removeEventListener('assistant:open', open);
   }, []);
-  useEffect(() => endRef.current?.scrollIntoView({ block: 'end' }), [turns]);
+  // A block body on purpose: Chrome's scrollIntoView() now returns a Promise, and an effect that
+  // returns anything but a function makes production React throw "x is not a function" on cleanup.
+  useEffect(() => {
+    void endRef.current?.scrollIntoView({ block: 'end' });
+  }, [turns]);
 
   const update = (key: string, fn: (t: Turn) => Turn) => setTurns((all) => all.map((t) => (t.key === key ? fn(t) : t)));
 
