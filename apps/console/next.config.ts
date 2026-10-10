@@ -21,6 +21,11 @@ const nextConfig: NextConfig = {
    * own changes are never the thing going stale. What can lag by up to two
    * minutes is a change made by SOMEONE ELSE in the agency.
    */
+  /** Temporary: DEBUG_NO_MINIFY=1 keeps real function names in the browser bundle (see components/debug-boundary.tsx). */
+  webpack: (config) => {
+    if (process.env.DEBUG_NO_MINIFY === '1') config.optimization.minimize = false;
+    return config;
+  },
   experimental: {
     staleTimes: {
       dynamic: 120,
