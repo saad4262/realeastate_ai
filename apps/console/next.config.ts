@@ -9,6 +9,8 @@ const nextConfig: NextConfig = {
    */
   distDir: process.env.NEXT_DIST_DIR || '.next',
   transpilePackages: ['@repo/ui', '@repo/auth', '@repo/core', '@repo/db', '@repo/config', '@repo/ai'],
+  /** Temporary: readable browser stack traces while debugging the Vercel-only "u is not a function". Remove after. */
+  productionBrowserSourceMaps: true,
   /**
    * How long a visited segment stays usable in the client router cache.
    *
