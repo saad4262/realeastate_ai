@@ -3,6 +3,15 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
+- **Agents widget (ADR 0034) — built 2026-10-10 on `feat/agent-activity-widget`, not committed.**
+  No migration. Owners/admins ask the assistant "create a dashboard with all agents' names and the
+  emails they received today" → a create_dashboard card with the new `agent_activity` widget → on
+  Approve, a link to `/dashboards/<id>`: every active member (0s kept) with emails received / sent /
+  failed, waiting for a reply, new leads, appointments, active listings, contacts, latest email; the
+  full page lists each person's emails (subject, from/to, snippet, link to the inbox). Received =
+  the lead's agent, else the contact's agent; sent = `sent_by`. Prompt `assistant@v10`. Checks:
+  typecheck/lint 10/10 (0 errors), unit 898 + 296, smoke Dashboards 4/4 (+1 skip, console not
+  running); 4 break-tests red. TEST-PLAN **AH**. **Next:** the user reviews and commits, then walks AH.
 - **Meetings end to end (ADR 0032) — built 2026-10-10; committed 79f2f10 on `feat/meetings`,
   merged with team edit (ADR 0033) and on `main` at c9fd9b7.** Migration **0039 applied on dev** (btree_gist; EXCLUDE
   `appointment_agent_no_overlap` on (assigned_agent_id, tstzrange) for active rows;

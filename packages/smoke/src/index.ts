@@ -6641,6 +6641,68 @@ async function main() {
     }),
   );
 
+  await check('Agents widget: each person’s emails today by whose conversation it is, quiet people at 0, B’s and older mail left out, rows add up, agents refused', async () =>
+    inRollback(async (t) => {
+      const { A, B } = await dashboardFixture(t);
+      const tz = 'Australia/Sydney';
+      const now = new Date();
+      const { from } = rangeWindow('today', now, tz);
+      const at = (minutes: number) => new Date(from.getTime() + minutes * 60_000).toISOString();
+      const threadOf = async (leadId: string) => (await t.execute<{ id: string }>(sql`select id from mail_thread where lead_id = ${leadId}`))[0]!.id;
+      const mail = (thread: string, agencyId: string, dir: 'in' | 'out', when: string, o: { status?: string; by?: string; subject?: string } = {}) =>
+        t.execute(sql`insert into mail_message (thread_id, agency_id, direction, channel, status, from_email, to_emails, subject, text, sent_by, created_at)
+          values (${thread}, ${agencyId}, ${dir}::mail_direction, ${dir === 'out' ? 'console' : 'email'}::mail_channel,
+                  ${o.status ?? (dir === 'in' ? 'received' : 'sent')}::mail_status, ${'someone@smoke.test'}, ${sql`array[${'buyer@smoke.test'}]`},
+                  ${o.subject ?? 'Re: the house'}, ${'Hello   there\n\nagain'}, ${o.by ?? null}, ${when}::timestamptz)`);
+      // A2's lead (opened at the start of today): 2 in, 1 sent and 1 failed by A2, 1 sent by the owner; 1 in three days ago.
+      const q2 = await A.lead(`q2.${A.tag}@smoke.test`, 'Q2', { assigned: A.people.a2 });
+      await t.execute(sql`update lead set created_at = ${at(0)}::timestamptz where id = ${q2.id}`);
+      const t2 = await threadOf(q2.id);
+      await mail(t2, A.agencyId, 'in', at(1), { subject: 'first in' });
+      await mail(t2, A.agencyId, 'in', at(2), { subject: 'second in' });
+      await mail(t2, A.agencyId, 'out', at(3), { by: A.people.a2, subject: 'a2 answer' });
+      await mail(t2, A.agencyId, 'out', at(4), { by: A.people.a2, status: 'failed', subject: 'a2 failed' });
+      await mail(t2, A.agencyId, 'out', at(5), { by: A.people.owner, subject: 'owner answer' });
+      await mail(t2, A.agencyId, 'in', new Date(from.getTime() - 3 * 86_400_000).toISOString(), { subject: 'old' });
+      // Nobody's lead: 1 in → the "No agent" row.
+      const t3 = await threadOf((await A.lead(`q3.${A.tag}@smoke.test`, 'Q3')).id);
+      await mail(t3, A.agencyId, 'in', at(6));
+      // The agency address, from P4 (the read-only member's contact): 1 in → the viewer.
+      const [ta] = await t.execute<{ id: string }>(sql`insert into mail_thread (agency_id, subject, contact_email, contact_id)
+        values (${A.agencyId}, 'Hello agency', ${`p4.${A.tag}@smoke.test`}, ${A.contacts.p4}) returning id`);
+      await mail(ta!.id, A.agencyId, 'in', at(7));
+      // B: 1 in, never in A's figures.
+      const tb = await threadOf((await B.lead(`qb.${B.tag}@smoke.test`, 'QB', { assigned: B.people.a1 })).id);
+      await mail(tb, B.agencyId, 'in', at(1));
+
+      const as = (f: typeof A, who: 'owner' | 'a1') => ({ db: t, actor: f.actor(who), now, timeZone: tz });
+      assert((await renderWidget(as(A, 'a1'), { widget: 'agent_activity', params: {} })).state === 'no_access', 'an agent saw the Agents widget');
+      const tile = await renderWidget(as(A, 'owner'), { widget: 'agent_activity', params: { range: 'today' } }, { detail: true });
+      assert(tile.state === 'ok' && tile.data.kind === 'agents', `state ${tile.state}`);
+      const d = tile.data as Extract<typeof tile.data, { kind: 'agents' }>;
+      const row = (id: string | null) => d.rows.find((r) => r.userId === id);
+      const [hand] = await t.execute<{ n: string }>(sql`select count(*) as n from mail_message
+        where agency_id = ${A.agencyId} and direction = 'in' and created_at >= ${from.toISOString()}::timestamptz and created_at < ${rangeWindow('today', now, tz).to.toISOString()}::timestamptz`);
+      assert(d.received === 4 && Number(hand!.n) === 4 && d.sent === 2 && d.failed === 1 && d.people === 4, `totals ${JSON.stringify({ ...d, rows: undefined })}, hand ${hand!.n}`);
+      assert(row(A.people.a2)?.received === 2 && row(A.people.a2)?.sent === 1 && row(A.people.a2)?.failed === 1, `a2 ${JSON.stringify(row(A.people.a2))}`);
+      assert(row(A.people.owner)?.received === 0 && row(A.people.owner)?.sent === 1, `owner ${JSON.stringify(row(A.people.owner))}`);
+      assert(row(A.people.viewer)?.received === 1 && row(null)?.received === 1, `viewer ${JSON.stringify(row(A.people.viewer))}, no agent ${JSON.stringify(row(null))}`);
+      assert(row(A.people.a1)?.received === 0 && row(A.people.a1)?.sent === 0, 'the quiet agent is missing or not at 0');
+      // New leads: A2's fixture lead + Q2 (offers never counted); waiting: A2's fixture lead has no answer, Q2 was answered.
+      assert(row(A.people.a2)?.newLeads === 2 && row(A.people.a2)?.awaitingReply === 1, `a2 leads/waiting ${JSON.stringify(row(A.people.a2))}`);
+      assert(d.rows.reduce((s, r) => s + r.received, 0) === d.received && d.rows.reduce((s, r) => s + r.sent, 0) === d.sent, 'the rows do not add up to the totals');
+      // The full page: A2's emails newest first, as text, with the conversation to open.
+      const a2mail = tile.detail?.people?.find((p) => p.userId === A.people.a2);
+      assert(a2mail?.total === 4 && a2mail.messages.map((m) => m.subject).join('|') === 'a2 failed|a2 answer|second in|first in', `a2 list ${JSON.stringify(a2mail)}`);
+      assert(a2mail.messages.every((m) => m.threadId === t2) && a2mail.messages[1]!.snippet === 'Hello there again', `a2 rows ${JSON.stringify(a2mail.messages[1])}`);
+      const donut = tile.detail?.breakdowns.find((b) => b.chart === 'donut')?.rows;
+      assert(donut?.[0]?.value === 4 && donut[1]?.value === 2, `donut ${JSON.stringify(donut)}`);
+      const bTile = await renderWidget(as(B, 'owner'), { widget: 'agent_activity', params: { range: 'today' } });
+      assert(bTile.state === 'ok' && (bTile.data as { received: number }).received === 1, `B ${JSON.stringify(bTile)}`);
+      return 'A: 4 in / 2 sent / 1 failed over 4 people + "No agent"; A2 2 in, 1 sent, 1 failed, 2 new leads, 1 waiting; quiet A1 at 0; B 1 in; older mail out; agent refused';
+    }),
+  );
+
   await check('the dashboard data route refuses a signed-out request', async () => {
     if (!(await reachable('http://localhost:3001/login'))) skip('console is not running');
     const res = await fetch(`http://agents.lvh.me:3001/api/dashboards/${randomUUID()}/data`, { redirect: 'manual', signal: AbortSignal.timeout(20_000) });

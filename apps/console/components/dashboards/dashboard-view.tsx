@@ -11,7 +11,7 @@ import styles from './dashboards.module.css';
  * last version it saw — an unchanged one comes back 304 — and pauses while the
  * tab is hidden. No browser database connection: the server is the only door.
  */
-export function DashboardView({ initial }: { initial: DashboardData }) {
+export function DashboardView({ initial, inboxPath }: { initial: DashboardData; inboxPath: string }) {
   const [data, setData] = useState(initial);
   const [updatedAt, setUpdatedAt] = useState(() => new Date());
   const [lost, setLost] = useState<string | null>(null);
@@ -72,7 +72,7 @@ export function DashboardView({ initial }: { initial: DashboardData }) {
         </section>
       ) : null}
       {data.tiles.map((t, i) =>
-        hasReport(t) ? <Report key={`${t.widget}-${i}`} tile={t} /> : many ? null : <Tile key={`${t.widget}-${i}`} tile={t} />,
+        hasReport(t) ? <Report key={`${t.widget}-${i}`} tile={t} timeZone={data.timeZone} inboxPath={inboxPath} /> : many ? null : <Tile key={`${t.widget}-${i}`} tile={t} />,
       )}
     </main>
   );

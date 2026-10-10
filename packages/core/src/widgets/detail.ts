@@ -28,15 +28,35 @@ export type WidgetDetail = {
   kpis: { label: string; value: number | null; format: WidgetFormat }[];
   trend: DetailSeries;
   breakdowns: (DetailSeries & { chart: 'bars' | 'donut' | 'columns' })[];
+  /** The Agents widget only (ADR 0034): each person's emails in the range, newest first. */
+  people?: AgentMessages[];
 };
 
-const iso = (d: Date) => d.toISOString();
-const num = (v: unknown) => {
+/** One email on a person's list (ADR 0034). Other people's words: drawn as text, never handed to a model. */
+export type AgentMessage = {
+  id: string;
+  threadId: string;
+  direction: 'in' | 'out';
+  status: string;
+  /** ISO instant. */
+  at: string;
+  subject: string;
+  /** Who wrote it (in) or who it went to (out). */
+  other: string;
+  snippet: string;
+  /** The conversation's kind: enquiry, inspection, appraisal, offer — or `agency` for the agency address. */
+  kind: string;
+};
+/** `userId` null is the "No agent" row. `total` counts every message in the range; `messages` holds the newest. */
+export type AgentMessages = { userId: string | null; total: number; messages: AgentMessage[] };
+
+export const iso = (d: Date) => d.toISOString();
+export const num = (v: unknown) => {
   const n = typeof v === 'number' ? v : Number(v ?? 0);
   return Number.isFinite(n) ? n : 0;
 };
 const maybe = (v: unknown) => (v === null || v === undefined ? null : num(v));
-const rowsOf = (v: unknown, relabel: (l: string) => string = (l) => l): DetailRow[] =>
+export const rowsOf = (v: unknown, relabel: (l: string) => string = (l) => l): DetailRow[] =>
   (Array.isArray(v) ? v : []).map((r: { label?: unknown; value?: unknown }) => ({ label: relabel(String(r?.label ?? '')), value: num(r?.value) }));
 
 /** A ring has at most six slices: the rest fold into "Other". */
@@ -47,10 +67,10 @@ function fold(rows: DetailRow[], keep = 5): DetailRow[] {
 }
 
 /** postgres-js hands json back parsed; a string is parsed here so the shape never depends on the driver. */
-async function one(ctx: WidgetContext, query: SQL): Promise<Record<string, unknown>> {
+export async function one(ctx: WidgetContext, query: SQL, column = 'detail'): Promise<Record<string, unknown>> {
   const res = (await ctx.db.execute(query)) as unknown;
-  const first = (Array.isArray(res) ? res[0] : (res as { rows?: unknown[] })?.rows?.[0]) as { detail?: unknown } | undefined;
-  const d = first?.detail;
+  const first = (Array.isArray(res) ? res[0] : (res as { rows?: unknown[] })?.rows?.[0]) as Record<string, unknown> | undefined;
+  const d = first?.[column];
   if (typeof d === 'string') return JSON.parse(d) as Record<string, unknown>;
   return (d && typeof d === 'object' ? d : {}) as Record<string, unknown>;
 }
@@ -58,7 +78,7 @@ async function one(ctx: WidgetContext, query: SQL): Promise<Record<string, unkno
 // ── SQL pieces. Every `sql.raw` below takes a constant written in this file, never input. ──
 
 /** A value per step of the window, every step present (a quiet day is a 0, not a gap). */
-function trendSql(cte: string, col: string, value: string, w: { from: Date; to: Date }, tz: string): SQL {
+export function trendSql(cte: string, col: string, value: string, w: { from: Date; to: Date }, tz: string): SQL {
   const { unit, format } = bucketFor(w.from, w.to);
   return sql`(select coalesce(json_agg(json_build_object('label', to_char(g.b, ${format}::text), 'value', coalesce(x.v, 0)) order by g.b), '[]'::json)
     from generate_series(
@@ -70,7 +90,7 @@ function trendSql(cte: string, col: string, value: string, w: { from: Date; to: 
 }
 
 /** The largest groups first, at most `limit`. */
-function topSql(cte: string, label: string, value: string, where = 'true', limit = 20): SQL {
+export function topSql(cte: string, label: string, value: string, where = 'true', limit = 20): SQL {
   return sql`(select coalesce(json_agg(json_build_object('label', t.l, 'value', t.v) order by t.v desc, t.l), '[]'::json)
     from (select ${sql.raw(label)} as l, ${sql.raw(value)} as v from ${sql.raw(cte)} where ${sql.raw(where)}
           group by 1 order by 2 desc, 1 limit ${limit}) t)`;
@@ -87,7 +107,7 @@ function bandsSql(cte: string, col: string): SQL {
 }
 
 /** Monday to Sunday on the agency's clock, every day present. */
-function weekdaySql(cte: string, col: string, where: string, tz: string): SQL {
+export function weekdaySql(cte: string, col: string, where: string, tz: string): SQL {
   return sql`(select json_agg(json_build_object('label', w.l, 'value',
       (select count(*) from ${sql.raw(cte)} where ${sql.raw(where)} and extract(isodow from ${sql.raw(col)} at time zone ${tz}::text) = w.n)) order by w.n)
     from (values (1, 'Mon'), (2, 'Tue'), (3, 'Wed'), (4, 'Thu'), (5, 'Fri'), (6, 'Sat'), (7, 'Sun')) as w(n, l))`;
@@ -102,9 +122,9 @@ const LEAD_AGENT = `left join lateral (select la.user_id from listing_agent la w
 
 const agencyOf = (actor: Actor) => actor.agencyId ?? '00000000-0000-0000-0000-000000000000';
 /** The trend stops at the end of today: future days of "this month" are not zeros yet. */
-const untilToday = (to: Date, now: Date, tz: string) => new Date(Math.min(to.getTime(), startOfDayIn(now, tz, 1).getTime()));
+export const untilToday = (to: Date, now: Date, tz: string) => new Date(Math.min(to.getTime(), startOfDayIn(now, tz, 1).getTime()));
 /** Days of the window that have begun, for a per-day average. */
-const daysElapsed = (w: { from: Date; to: Date }, now: Date) =>
+export const daysElapsed = (w: { from: Date; to: Date }, now: Date) =>
   Math.max(1, Math.ceil((Math.min(now.getTime(), w.to.getTime()) - w.from.getTime()) / 86_400_000));
 
 // ── Sales (Sold value / Number of sales): the agency's own sold listings, as the headline. ──
@@ -174,8 +194,8 @@ export async function salesDetail(ctx: WidgetContext, range: WidgetRange, metric
 
 // ── New leads: the inbox's own scope, never offers (as the headline). ──
 
-const LEAD_KIND_LABELS: Record<string, string> = { enquiry: 'Enquiry', inspection: 'Inspection request', appraisal: 'Appraisal request' };
-const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+export const LEAD_KIND_LABELS: Record<string, string> = { enquiry: 'Enquiry', inspection: 'Inspection request', appraisal: 'Appraisal request' };
+export const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export async function leadsDetail(ctx: WidgetContext, range: WidgetRange): Promise<WidgetDetail> {
   const { db, actor, now, timeZone: tz } = ctx;

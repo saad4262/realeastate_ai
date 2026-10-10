@@ -3,6 +3,7 @@ import { DashboardError, getDashboardData } from '@repo/core/dashboards';
 import { DashboardView } from '@/components/dashboards/dashboard-view';
 import { getConsoleDb } from '../../../lib/db';
 import { requireConsoleAccess } from '../../../lib/require-console-access';
+import { currentSurface } from '../../../lib/surface';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,9 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const session = await requireConsoleAccess('agent');
   try {
     const data = await getDashboardData(getConsoleDb(), session.actor, id);
-    return <DashboardView initial={data} />;
+    // "Open the conversation" goes to this console's own inbox (#12: the surface comes from middleware).
+    const inboxPath = (await currentSurface()) === 'agent' ? '/my-inbox' : '/inbox';
+    return <DashboardView initial={data} inboxPath={inboxPath} />;
   } catch (err) {
     if (err instanceof DashboardError) notFound();
     throw err;

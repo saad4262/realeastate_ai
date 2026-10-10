@@ -1,3 +1,20 @@
+## 2026-10-10 — Claude Code — Agents widget: every person's emails and work on a dashboard (ADR 0034)
+
+- Asked (Roman Urdu): a mini dashboard, like the others, with every agent — how many emails they
+  received and which, how many they sent and which, their name and details, and their other data.
+  Earlier the same session: answered the client question "can the assistant return a dashboard
+  link for all agents' emails today?" — No (no per-person widget); this builds it.
+- Branch `feat/agent-activity-widget` from main (1bbb8f4). ADR 0034 first. No migration.
+- Core: widgets/agents.ts (headline + detail, one statement each), registry entry
+  `agent_activity` (report:read_agency, default today), WidgetData `agents`, WidgetDetail
+  `people`; detail.ts helpers exported; write-tools `figure()` for the card line.
+- AI: assistant-v10 (v9 + the widget line), tool description; pipeline and its test point at v10.
+- Console: components/dashboards/agents.tsx, tile/report/view wiring, CSS; page passes the
+  surface's inbox path.
+- Tests: 4 unit (registry.test), 1 smoke check (Dashboards). Break-tests red: viewer scope,
+  contact fallback, quiet members, failed-as-sent.
+- Next exact step: the user reviews the diff, commits, runs the console and walks TEST-PLAN AH.
+
 ## 2026-10-10 — Claude Code — Team members: edit and remove, by screen and by assistant (branch feat/team-edit)
 
 - Worktree /Users/saadiii/Job/realestate_ai-team, from 74a060c (the meetings work was uncommitted then;

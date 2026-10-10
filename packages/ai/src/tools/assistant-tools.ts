@@ -85,7 +85,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   {
     name: 'show_widget',
     description:
-      'Show one figure from the agency’s fixed list of dashboard widgets beside your answer (Sold value, number of sales, new leads, appointments, active listings, email replies). It is worked out from the database for this person; some figures are for owners and admins only. You are NOT told the numbers — never state or estimate one; say what is shown.',
+      'Show one figure from the agency’s fixed list of dashboard widgets beside your answer (Sold value, number of sales, new leads, appointments, active listings, email replies, agents — every person’s emails received and sent and their work). It is worked out from the database for this person; some figures are for owners and admins only. You are NOT told the numbers — never state or estimate one; say what is shown.',
     input_schema: {
       type: 'object',
       additionalProperties: false,

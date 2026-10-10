@@ -1,4 +1,5 @@
 import type { WidgetData, WidgetTile } from '@repo/core/widgets';
+import { AgentsFigures } from './agents';
 import { BarList, Columns, Donut, SplitBar } from './charts';
 import styles from './dashboards.module.css';
 
@@ -38,6 +39,8 @@ function Figures({ widget, data, compact }: { widget: string; data: WidgetData; 
       return <div className={styles.big}>{count(data.total)}</div>;
     case 'status':
       return <Donut rows={data.rows} centre={data.active} caption="active" />;
+    case 'agents':
+      return <AgentsFigures data={data} compact={compact} />;
     case 'breakdown': {
       const empty = data.rows.length === 0;
       return (

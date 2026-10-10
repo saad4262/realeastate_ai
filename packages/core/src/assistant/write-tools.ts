@@ -442,6 +442,8 @@ function figure(d: WidgetData): string {
       return String(d.total);
     case 'status':
       return `${d.active} (${d.rows.map((r) => `${r.value} ${r.label.toLowerCase()}`).join(', ')})`;
+    case 'agents':
+      return `${d.received} received · ${d.sent} sent · ${d.people} ${d.people === 1 ? 'person' : 'people'}`;
   }
 }
 

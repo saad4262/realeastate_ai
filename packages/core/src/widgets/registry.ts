@@ -8,6 +8,7 @@ import { ACTIVE_STATUSES, APPOINTMENT_TYPE_LABELS, type AppointmentType } from '
 import { threadScopeFilters } from '../mail/threads';
 import { RANGE_LABELS, rangeWindow, WIDGET_RANGES, type WidgetRange } from './ranges';
 import { appointmentsDetail, leadsDetail, listingsDetail, repliesDetail, salesDetail, type WidgetDetail } from './detail';
+import { agentActivity, agentsDetail, type AgentActivityRow } from './agents';
 
 /**
  * The FIXED widget library (ADR 0027). A dashboard — or the assistant — can
@@ -24,7 +25,9 @@ export type WidgetData =
   | { kind: 'money'; total: number; count: number; undisclosed: number }
   | { kind: 'count'; total: number }
   | { kind: 'breakdown'; total: number; rows: { label: string; value: number }[] }
-  | { kind: 'status'; active: number; rows: { label: string; value: number }[] };
+  | { kind: 'status'; active: number; rows: { label: string; value: number }[] }
+  /** The Agents widget (ADR 0034): totals, how many people are in the agency, and one row per person. */
+  | { kind: 'agents'; received: number; sent: number; failed: number; people: number; rows: AgentActivityRow[] };
 
 export type WidgetContext = { db: DbOrTx; actor: Actor; now: Date; timeZone: string };
 
@@ -232,9 +235,26 @@ export const WIDGETS = {
       return { kind: 'count', total: num(r?.total) };
     },
   } satisfies WidgetDef<ReturnType<typeof rangeParams>>,
+
+  /**
+   * Agents (ADR 0034): every person in the agency — emails received, sent and
+   * failed, conversations waiting for a reply, new leads, appointments,
+   * listings and contacts. Owners and admins: it is a per-person view. The
+   * full page adds each person's emails in the range.
+   */
+  agent_activity: {
+    title: 'Agents',
+    describe: (p: { range: WidgetRange }) => `Agents and their emails — ${RANGE_LABELS[p.range]}`,
+    params: rangeParams('today'),
+    permission: 'report:read_agency',
+    refreshSeconds: 30,
+    detail: (ctx, p) => agentsDetail(ctx, p.range),
+    query: (ctx, p) => agentActivity(ctx, p.range),
+  } satisfies WidgetDef<ReturnType<typeof rangeParams>>,
 } as const;
 
-export type { DetailRow, DetailSeries, WidgetDetail, WidgetFormat } from './detail';
+export type { AgentMessage, AgentMessages, DetailRow, DetailSeries, WidgetDetail, WidgetFormat } from './detail';
+export type { AgentActivityRow } from './agents';
 export type WidgetId = keyof typeof WIDGETS;
 export const WIDGET_IDS = Object.keys(WIDGETS) as WidgetId[];
 

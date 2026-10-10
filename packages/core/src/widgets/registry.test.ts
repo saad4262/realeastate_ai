@@ -34,7 +34,7 @@ const ctx = (db: Db, actor: Actor = owner) => ({ db, actor, now: new Date('2026-
 
 describe('the widget registry', () => {
   it('every widget is complete: params schema, permission, refresh 30–60 s, a description', () => {
-    expect(WIDGET_IDS.sort()).toEqual(['email_replies', 'listings_by_status', 'new_leads', 'sold_count', 'sold_value', 'upcoming_appointments']);
+    expect(WIDGET_IDS.sort()).toEqual(['agent_activity', 'email_replies', 'listings_by_status', 'new_leads', 'sold_count', 'sold_value', 'upcoming_appointments']);
     for (const id of WIDGET_IDS) {
       const w = WIDGETS[id];
       expect(w.refreshSeconds, id).toBeGreaterThanOrEqual(30);
@@ -45,7 +45,7 @@ describe('the widget registry', () => {
   });
 
   it('money and sales figures are owner/admin only: an agent gets "no access" and nothing is queried', async () => {
-    for (const id of ['sold_value', 'sold_count'] as const) {
+    for (const id of ['sold_value', 'sold_count', 'agent_activity'] as const) {
       const tile = await renderWidget(ctx(noDb, agent), { widget: id, params: {} });
       expect(tile.state, id).toBe('no_access');
     }
@@ -133,6 +133,72 @@ describe('the widget registry', () => {
     expect(rangeWindow('today', now, 'Australia/Sydney')).toEqual({ from: new Date('2026-10-07T13:00:00Z'), to: new Date('2026-10-08T13:00:00Z') });
     expect(rangeWindow('this_week', now, 'Australia/Sydney').from).toEqual(new Date('2026-10-04T13:00:00Z'));
     expect(rangeWindow('last_month', now, 'Australia/Sydney')).toEqual({ from: new Date('2026-08-31T14:00:00Z'), to: new Date('2026-09-30T14:00:00Z') });
+  });
+});
+
+describe('the Agents widget (ADR 0034)', () => {
+  const data = {
+    received: '5', sent: '3', failed: '1', people: '2',
+    rows: [
+      { user_id: 'u-a', name: 'Ava Agent', email: 'ava@x.au', phone: '0400 000 000', role: 'agent', current: true, received: '3', sent: '2', failed: '1',
+        awaiting_reply: '2', new_leads: '4', appointments: '1', active_listings: '6', contacts: '9', last_email_at: '2026-10-07T22:00:00+00:00' },
+      { user_id: 'u-owner', name: 'Olly Owner', email: 'o@x.au', phone: null, role: 'owner', current: true, received: '0', sent: '1', failed: '0',
+        awaiting_reply: '0', new_leads: '0', appointments: '0', active_listings: '0', contacts: '0', last_email_at: null },
+      { user_id: null, name: 'No agent', email: null, phone: null, role: null, current: true, received: '2', sent: '0', failed: '0',
+        awaiting_reply: '1', new_leads: '1', appointments: '0', active_listings: '0', contacts: '0', last_email_at: '2026-10-07T21:00:00+00:00' },
+    ],
+  };
+
+  it('is one statement, every person a row with numbers, a quiet person kept with 0s, and the rows add up to the totals', async () => {
+    const { db, count } = countingDb([{ data }]);
+    const tile = await renderWidget(ctx(db), { widget: 'agent_activity', params: { range: 'today' } });
+    expect(count()).toBe(1);
+    if (tile.state !== 'ok' || tile.data.kind !== 'agents') throw new Error('expected the agents data');
+    expect(tile.data).toMatchObject({ received: 5, sent: 3, failed: 1, people: 2 });
+    expect(tile.data.rows[0]).toEqual({
+      userId: 'u-a', name: 'Ava Agent', email: 'ava@x.au', phone: '0400 000 000', role: 'agent', current: true, received: 3, sent: 2, failed: 1,
+      awaitingReply: 2, newLeads: 4, appointments: 1, activeListings: 6, contacts: 9, lastEmailAt: '2026-10-07T22:00:00+00:00',
+    });
+    expect(tile.data.rows[1]).toMatchObject({ name: 'Olly Owner', received: 0, sent: 1, lastEmailAt: null });
+    expect(tile.data.rows[2]).toMatchObject({ userId: null, name: 'No agent', received: 2 });
+    expect(tile.data.rows.reduce((s, r) => s + r.received, 0)).toBe(tile.data.received);
+    expect(tile.data.rows.reduce((s, r) => s + r.sent, 0)).toBe(tile.data.sent);
+  });
+
+  it('defaults to today, and the description says so', () => {
+    expect(WIDGETS.agent_activity.params.parse({})).toEqual({ range: 'today' });
+    expect(WIDGETS.agent_activity.describe({ range: 'today' })).toBe('Agents and their emails — today');
+  });
+
+  it('the full page lists each person’s emails as text, in one more statement', async () => {
+    const detail = {
+      prev: '1', received: '2', sent: '1', failed: '0', threads: '2', agents_n: '1', per_day: '2',
+      trend: [{ label: '09:00', value: '2' }], in_by_agent: [{ label: 'Ava Agent', value: '2' }], out_by_agent: [], kinds: [], weekdays: [],
+      people: [
+        { user_id: 'u-a', total: '40', messages: [
+          { id: 'm1', thread_id: 't1', dir: 'in', status: 'received', at: '2026-10-07T22:00:00+00:00', subject: 'Re: 4 Smith St', other: 'Bea Buyer', snippet: 'Is it still available?', kind: 'enquiry' },
+          { id: 'm2', thread_id: 't1', dir: 'out', status: 'failed', at: '2026-10-07T21:00:00+00:00', subject: 'Re: 4 Smith St', other: 'Bea Buyer', snippet: 'Yes', kind: 'enquiry' },
+        ] },
+        { user_id: null, total: '1', messages: [] },
+      ],
+    };
+    const { db, count } = countingDb([{ data, detail }]);
+    const tile = await renderWidget(ctx(db), { widget: 'agent_activity', params: { range: 'today' } }, { detail: true });
+    expect(count()).toBe(2);
+    if (tile.state !== 'ok') throw new Error('expected ok');
+    const people = tile.detail?.people ?? [];
+    expect(people[0]).toMatchObject({ userId: 'u-a', total: 40 });
+    expect(people[0]!.messages.map((m) => [m.direction, m.status, m.threadId])).toEqual([['in', 'received', 't1'], ['out', 'failed', 't1']]);
+    expect(people[1]).toEqual({ userId: null, total: 1, messages: [] });
+    expect(tile.detail?.breakdowns.find((b) => b.chart === 'donut')?.rows).toEqual([{ label: 'Received', value: 2 }, { label: 'Sent', value: 1 }]);
+  });
+
+  it('show_widget hands the model no name, email, subject or figure', async () => {
+    const { db } = countingDb([{ tz: 'Australia/Sydney', data }]);
+    const out = await runAssistantTool({ db, actor: owner, timeZone: 'UTC', handles: {}, now: new Date() }, 'show_widget', { widget: 'agent_activity', range: 'today' });
+    expect((out.frame as { kind: string }).kind).toBe('widget');
+    const forModel = JSON.stringify(out.result);
+    for (const s of ['Ava', 'ava@x.au', '0400', 'Olly', '"5"', ':5', ':3']) expect(forModel).not.toContain(s);
   });
 });
 

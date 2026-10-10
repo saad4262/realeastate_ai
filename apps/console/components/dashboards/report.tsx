@@ -1,4 +1,5 @@
 import type { WidgetDetail, WidgetFormat, WidgetTile } from '@repo/core/widgets';
+import { AgentsSection } from './agents';
 import { BarList, Columns, Donut } from './charts';
 import { formatValue } from './format';
 import { TrendChart } from './trend-chart';
@@ -19,6 +20,8 @@ function headline(tile: OkTile): { value: number; format: WidgetFormat } {
       return { value: d.total, format: 'money' };
     case 'status':
       return { value: d.active, format: 'count' };
+    case 'agents':
+      return { value: d.received, format: 'count' };
     default:
       return { value: d.total, format: 'count' };
   }
@@ -54,7 +57,7 @@ function Breakdown({ b }: { b: WidgetDetail['breakdowns'][number] }) {
   return <BarList rows={b.rows} limit={7} format={b.format} />;
 }
 
-export function Report({ tile }: { tile: OkTile & { detail: WidgetDetail } }) {
+export function Report({ tile, timeZone, inboxPath }: { tile: OkTile & { detail: WidgetDetail }; timeZone: string; inboxPath: string }) {
   const { detail } = tile;
   const head = headline(tile);
   const donut = detail.breakdowns.find((b) => b.chart === 'donut');
@@ -93,6 +96,11 @@ export function Report({ tile }: { tile: OkTile & { detail: WidgetDetail } }) {
           </Card>
         ))}
       </div>
+      {tile.data.kind === 'agents' ? (
+        <div className={styles.agents}>
+          <AgentsSection data={tile.data} people={detail.people ?? []} timeZone={timeZone} inboxPath={inboxPath} />
+        </div>
+      ) : null}
     </section>
   );
 }
