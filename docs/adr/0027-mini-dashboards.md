@@ -182,3 +182,17 @@ same note rather than refusing the whole dashboard.
   Prompt `assistant@v5`.
 - **Isolation:** `dashboard` is classified "own agency"; the smoke suite reads and archives
   across agencies (refused).
+
+## Amendment (2026-10-09) — a widget is a report on the full page
+
+Asked by the client: one widget on its own must still read as a designed page. Each widget
+now has a `detail` beside its headline (`packages/core/src/widgets/detail.ts`): a comparison
+with the period before (a period under way is compared with the same point in the one before),
+4–5 figures, a trend with every step present (a quiet day is 0, not a gap) and four breakdowns
+(bars, a ring of ≤ 6 slices, columns). It is **one more statement per widget**, run as the
+viewer through the same scope as the headline, so the dashboard page is now 1 + 2 per widget.
+Only the full page asks for it (`renderWidget(…, { detail: true })`); the assistant's inline
+widget and card are unchanged, and the model still never sees a figure. If the report's
+statement fails, the headline still shows. Medians of nothing are "—", never 0. Drawn with
+plain SVG in `apps/console/components/dashboards/` (no chart library). Smoke "Dashboards"
+checks that the report adds up to the headline and follows the viewer; both break-tested red.

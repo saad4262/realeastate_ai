@@ -76,8 +76,8 @@ function topSql(cte: string, label: string, value: string, where = 'true', limit
           group by 1 order by 2 desc, 1 limit ${limit}) t)`;
 }
 
-const PRICE_BANDS = `(1, 'Under $500k', 0::numeric, 500000::numeric), (2, '$500k–750k', 500000, 750000),
-  (3, '$750k–1M', 750000, 1000000), (4, '$1M–1.5M', 1000000, 1500000), (5, '$1.5M–2M', 1500000, 2000000), (6, '$2M+', 2000000, null)`;
+const PRICE_BANDS = `(1, '<$500k', 0::numeric, 500000::numeric), (2, '$500–750k', 500000, 750000),
+  (3, '$750k–1M', 750000, 1000000), (4, '$1–1.5M', 1000000, 1500000), (5, '$1.5–2M', 1500000, 2000000), (6, '$2M+', 2000000, null)`;
 
 /** How many rows fall in each price band, in band order (a row with no price is in none). */
 function bandsSql(cte: string, col: string): SQL {
@@ -153,11 +153,11 @@ export async function salesDetail(ctx: WidgetContext, range: WidgetRange, metric
           { label: 'Average sold price', value: maybe(d.avg), format: 'money' },
           { label: 'Median sold price', value: maybe(d.median), format: 'money' },
           { label: 'Median days on market', value: maybe(d.dom), format: 'days' },
-          { label: 'No disclosed price', value: num(d.undisclosed), format: 'count' },
+          { label: 'No disclosed price (not $0)', value: num(d.undisclosed), format: 'count' },
         ]
       : [
           { label: 'With a price', value: num(d.priced), format: 'count' },
-          { label: 'No disclosed price', value: num(d.undisclosed), format: 'count' },
+          { label: 'No disclosed price (not $0)', value: num(d.undisclosed), format: 'count' },
           { label: 'Median sold price', value: maybe(d.median), format: 'money' },
           { label: 'Median days on market', value: maybe(d.dom), format: 'days' },
           { label: 'Agents with a sale', value: num(d.agents_n), format: 'count' },

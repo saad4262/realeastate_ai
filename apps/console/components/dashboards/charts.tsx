@@ -19,7 +19,7 @@ export function niceMax(max: number, steps = 4): number {
   if (max <= steps) return Math.max(steps, Math.ceil(max));
   const raw = max / steps;
   const pow = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 2.5, 5, 10].map((m) => m * pow).find((s) => s >= raw) ?? pow * 10;
+  const step = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].map((m) => m * pow).find((s) => s >= raw) ?? pow * 10;
   return step * steps;
 }
 

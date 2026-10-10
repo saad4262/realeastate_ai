@@ -46,7 +46,7 @@ function Figures({ widget, data, compact }: { widget: string; data: WidgetData; 
           {empty ? (
             <p className={styles.muted}>Nothing in this period yet.</p>
           ) : widget === 'new_leads' && data.rows.length > 1 && !compact ? (
-            <Columns rows={data.rows} />
+            <Columns rows={data.rows} shortLabel={(l) => l.replace(/^\w{3} /, '')} emphasiseLast />
           ) : (
             <BarList rows={data.rows} total={data.total} limit={compact ? 4 : 8} />
           )}

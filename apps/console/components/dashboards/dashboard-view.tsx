@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { DashboardData } from '@repo/core/dashboards';
+import { hasReport, Report } from './report';
 import { Tile } from './tile';
 import styles from './dashboards.module.css';
 
@@ -49,19 +50,30 @@ export function DashboardView({ initial }: { initial: DashboardData }) {
     };
   }, [initial.id, data.refreshSeconds]);
 
+  const many = data.tiles.length > 1;
   return (
     <main className={styles.page}>
       <header className={styles.head}>
-        <h1 className={styles.title}>{data.title}</h1>
-        <div className={styles.updated}>
-          {lost ?? `Updated ${updatedAt.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', second: '2-digit' })} · refreshes about every ${data.refreshSeconds} seconds · times on the agency's clock (${data.timeZone})`}
+        <div>
+          <div className={styles.eyebrow}>Dashboard</div>
+          <h1 className={styles.title}>{data.title}</h1>
+          <div className={styles.updated}>Times on the agency’s clock ({data.timeZone}) · every figure is worked out for you, from the agency’s records</div>
+        </div>
+        <div className={`${styles.live} ${lost ? styles.liveLost : ''}`} role="status" suppressHydrationWarning>
+          <span className={styles.liveDot} aria-hidden />
+          {lost ?? `Live · updated ${updatedAt.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', second: '2-digit' })} · every ${data.refreshSeconds}s`}
         </div>
       </header>
-      <section className={styles.grid}>
-        {data.tiles.map((t, i) => (
-          <Tile key={`${t.widget}-${i}`} tile={t} />
-        ))}
-      </section>
+      {many ? (
+        <section className={styles.grid} aria-label="At a glance">
+          {data.tiles.map((t, i) => (
+            <Tile key={`${t.widget}-${i}`} tile={t} />
+          ))}
+        </section>
+      ) : null}
+      {data.tiles.map((t, i) =>
+        hasReport(t) ? <Report key={`${t.widget}-${i}`} tile={t} /> : many ? null : <Tile key={`${t.widget}-${i}`} tile={t} />,
+      )}
     </main>
   );
 }

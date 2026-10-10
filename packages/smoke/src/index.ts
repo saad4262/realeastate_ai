@@ -6359,7 +6359,7 @@ async function main() {
       assert(r, 'no report');
       const kpi = (l: string) => r.kpis.find((k) => k.label === l)?.value;
       const sum = (rows: { value: number }[]) => rows.reduce((a, b) => a + b.value, 0);
-      assert(kpi('Sales with a price') === 2 && kpi('No disclosed price') === 1 && kpi('Median sold price') === 725000 && kpi('Average sold price') === 725000, `kpis ${JSON.stringify(r.kpis)}`);
+      assert(kpi('Sales with a price') === 2 && kpi('No disclosed price (not $0)') === 1 && kpi('Median sold price') === 725000 && kpi('Average sold price') === 725000, `kpis ${JSON.stringify(r.kpis)}`);
       assert(sum(r.trend.rows) === 1450000 && r.trend.rows.length === 7, `trend ${JSON.stringify(r.trend.rows)}`);
       assert(sum(r.breakdowns[0]!.rows) === 1450000, `by agent ${JSON.stringify(r.breakdowns[0])}`);
       assert(sum(r.breakdowns.find((b) => b.title === 'Sales by price band')!.rows) === 2, 'price bands count only priced sales');
