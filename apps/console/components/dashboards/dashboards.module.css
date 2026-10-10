@@ -17,7 +17,11 @@
 .muted { margin: 0.25rem 0 0; font-size: 0.8125rem; color: var(--text-muted); }
 .list { display: grid; gap: 0.5rem; }
 .listRow { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.75rem 1rem; border: 1px solid var(--border-default); border-radius: 0.5rem; background: var(--surface-card); }
-.listRow a { color: var(--sapphire); font-weight: 600; text-decoration: none; }
+.listRow a { display: inline-flex; align-items: baseline; gap: 0.3rem; color: var(--sapphire); font-weight: 600; text-decoration: none; }
+.listRow a:hover { text-decoration: underline; }
+/* Quieter than the title it follows — it is a note about where the link goes,
+   not part of the dashboard's name. */
+.newTab { font-size: 0.8em; opacity: 0.6; }
 
 /* Charts (charts.tsx) */
 .svg { display: block; width: 100%; height: auto; margin-top: 0.75rem; }

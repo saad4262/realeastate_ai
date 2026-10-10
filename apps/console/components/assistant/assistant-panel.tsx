@@ -504,6 +504,14 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
             : null;
   const doneLabel =
     view.tool === 'create_dashboard' ? 'Open the dashboard' : view.tool === 'send_template_email' ? 'Open the send report' : `Open ${card.contact.name}`;
+  /**
+   * A dashboard opens in a new tab; the other two destinations do not.
+   *
+   * Same reason as the Dashboards list: a dashboard is left up and refreshes itself, and
+   * taking the panel's place would mean going Back to say anything else to the assistant.
+   * A contact or a send report is somewhere you go next, so those still navigate.
+   */
+  const doneNewTab = view.tool === 'create_dashboard';
 
   return (
     <div className={`${styles.frame} ${styles.card}`} data-status={view.status}>
@@ -609,7 +617,11 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
             Cancel
           </button>
         ) : null}
-        {doneHref ? <Link href={doneHref}>{doneLabel}</Link> : null}
+        {doneHref ? (
+          <Link href={doneHref} {...(doneNewTab ? { target: '_blank', rel: 'noopener' } : {})}>
+            {doneLabel}{doneNewTab ? <span className="sr-only"> (opens in a new tab)</span> : null}
+          </Link>
+        ) : null}
       </div>
     </div>
   );

@@ -32,7 +32,26 @@ export async function DashboardsPage({ surface }: { surface: 'agency' | 'agent' 
           {rows.map((d) => (
             <div key={d.id} className={styles.listRow}>
               <div>
-                <Link href={`/dashboards/${d.id}`}>{d.title}</Link>
+                {/*
+                  A dashboard opens in its own tab.
+
+                  It is a thing you leave up — on a second screen, on the wall
+                  — and it refreshes itself about every minute. Replacing the
+                  console with it meant going Back to do anything else, which
+                  closed the dashboard you had just opened.
+
+                  The arrow is not decoration: a link that steals a new tab
+                  with no warning is the small rudeness this marks. Screen
+                  readers get the same fact in words, because they cannot see
+                  the arrow.
+                */}
+                <Link href={`/dashboards/${d.id}`} target="_blank" rel="noopener">
+                  {d.title}
+                  <span className={styles.newTab} aria-hidden>
+                    ↗
+                  </span>
+                  <span className="sr-only">(opens in a new tab)</span>
+                </Link>
                 <div className={styles.sub}>
                   {d.widgetCount} widget{d.widgetCount === 1 ? '' : 's'} · {AUDIENCE_LABELS[d.audience]}
                 </div>
