@@ -385,26 +385,17 @@ the first deploy, and after any deploy whose diff touches `drizzle/`.
 
 ## The scheduler tick
 
-`vercel.json` declares a daily `0 3 * * *`. That is a floor, not the cadence —
-Vercel Hobby **fails the deployment** for any expression that would run more
-than once a day. The real 5-minute tick comes from
-`.github/workflows/alerts-cron.yml`. Full reasoning in `apps/web/CRON.md`.
+One Vercel cron on the web project: `*/5 * * * *` on `/api/cron/alerts`
+(`apps/web/vercel.json`, Vercel Pro). It runs every scheduled thing for every
+surface — saved-search alerts, agents' skills, template-email batches, the
+assistant's scheduled actions, appointment sync. Full reasoning in
+`apps/web/CRON.md`. Needs `CRON_SECRET` on the web project (Production);
+Vercel sends it as `Authorization: Bearer`.
 
-Two repository secrets, at Settings → Secrets and variables → Actions:
-
-    ALERTS_CRON_URL   https://<project>.vercel.app/api/cron/alerts
-    CRON_SECRET       the same value set on Vercel
-
-The workflow exits 1 when either is missing, so a forgotten secret is a red
-run rather than alerts that quietly never fire.
-
-### On Vercel Pro (CRM skills, docs/adr/0021)
-
-The same tick now also runs agents' skills. On Pro, replace the daily floor and the
-GitHub Actions pinger with one Vercel cron: `*/5 * * * *` on `/api/cron/alerts`
-(set `maxDuration` to what Pro allows if many skills are due at once). Every 5
-minutes means a 07:00 skill starts by 07:05; skill intervals are at least an hour.
-Every minute is allowed on Pro and buys nothing a person would notice.
+The shortest gap anywhere is 10 minutes — saved searches
+(`MIN_INTERVAL_MINUTES`) and skills (`MIN_SKILL_INTERVAL_MINUTES`, migration
+0038) alike — against the 5-minute tick: 2:1, so a backlog drains. Change the
+tick and the floor together or not at all.
 
 ## After the first deploy — verify, do not assume
 
@@ -418,7 +409,7 @@ Every minute is allowed on Pro and buys nothing a person would notice.
       -H "x-cron-secret: $CRON_SECRET" | jq
     # expect { ok: true, claimed, delivered, ... }
 
-    # 3. Then run the workflow by hand: Actions → "alerts cron" → Run workflow.
+    # 3. Then watch the web project's logs: a GET /api/cron/alerts every 5 minutes.
 
 Also worth a look on day one: `/` renders listings (the build reached the
 database), `/search` returns results, `/listing/[id]` opens, and `/chat`

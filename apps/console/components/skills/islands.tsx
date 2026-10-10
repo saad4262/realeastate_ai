@@ -96,6 +96,12 @@ export function RunNowButton({ id, basePath, disabledReason }: { id: string; bas
 
 const WEEKDAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+/** The gaps offered, shortest first. A saved value not in the list (set from a skill's Markdown) is kept. */
+const INTERVAL_MINUTES = [10, 15, 20, 30, 45, 60, 120, 180, 240, 360, 480, 720, 1440];
+function intervalChoices(current: number): number[] {
+  return INTERVAL_MINUTES.includes(current) || !Number.isFinite(current) ? INTERVAL_MINUTES : [...INTERVAL_MINUTES, current].sort((a, b) => a - b);
+}
+
 export function ScheduleForm({
   id,
   cadence,
@@ -118,7 +124,7 @@ export function ScheduleForm({
   const [c, setC] = useState(cadence);
   const [time, setTime] = useState(`${pad(Math.floor(sendAtMinute / 60))}:${pad(sendAtMinute % 60)}`);
   const [day, setDay] = useState(String(sendOnWeekday ?? 1));
-  const [hours, setHours] = useState(String((intervalMinutes ?? 120) / 60));
+  const [minutes, setMinutes] = useState(String(intervalMinutes ?? 120));
   const [mail, setMail] = useState(emailMe);
   const [zone, setZone] = useState(timezone);
   const [error, setError] = useState<string | null>(null);
@@ -130,7 +136,7 @@ export function ScheduleForm({
       style={{ padding: 0 }}
       onSubmit={(e) => {
         e.preventDefault();
-        const schedule = { cadence: c, time, timezone: zone, ...(c === 'weekly' ? { sendOnWeekday: Number(day) } : {}), ...(c === 'interval' ? { intervalHours: Number(hours) } : {}) };
+        const schedule = { cadence: c, time, timezone: zone, ...(c === 'weekly' ? { sendOnWeekday: Number(day) } : {}), ...(c === 'interval' ? { intervalMinutes: Number(minutes) } : {}) };
         const check = skillScheduleSchema.safeParse(schedule);
         if (!check.success) {
           setError(check.error.issues[0]?.message ?? 'Check the schedule');
@@ -145,7 +151,7 @@ export function ScheduleForm({
         <select className={contactStyles.select} value={c} onChange={(e) => setC(e.target.value as typeof c)} aria-label="How often">
           <option value="daily">Every day</option>
           <option value="weekly">Every week</option>
-          <option value="interval">Every few hours</option>
+          <option value="interval">Every few minutes or hours</option>
         </select>
         {c === 'weekly' ? (
           <select className={contactStyles.select} value={day} onChange={(e) => setDay(e.target.value)} aria-label="Day">
@@ -155,9 +161,9 @@ export function ScheduleForm({
           </select>
         ) : null}
         {c === 'interval' ? (
-          <select className={contactStyles.select} value={hours} onChange={(e) => setHours(e.target.value)} aria-label="Every">
-            {[1, 2, 3, 4, 6, 8, 12, 24].map((h) => (
-              <option key={h} value={h}>every {h} h</option>
+          <select className={contactStyles.select} value={minutes} onChange={(e) => setMinutes(e.target.value)} aria-label="Every">
+            {intervalChoices(Number(minutes)).map((m) => (
+              <option key={m} value={m}>every {m < 60 ? `${m} min` : `${m / 60} h`}</option>
             ))}
           </select>
         ) : (

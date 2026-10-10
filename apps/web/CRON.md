@@ -20,41 +20,23 @@ at all (503) is an error status.
 
 ## In production
 
-The tick runs from **GitHub Actions**, not from Vercel Cron, and the reason is
-a hard platform limit rather than a preference.
+The tick is a **Vercel Cron** on the web project: `*/5 * * * *` in
+`apps/web/vercel.json`. The team is on Vercel Pro, which allows it (Hobby
+refuses any cron that runs more than once a day and fails the deployment).
+It used to be driven from a GitHub Actions workflow for that reason; the
+workflow was removed when the team moved to Pro (2026-10-10).
 
-**Vercel Hobby refuses any cron expression that would run more than once a
-day, and it fails the DEPLOYMENT** — `0 * * * *` does not get quietly
-downgraded to daily, it breaks the build with *"Hobby accounts are limited to
-daily cron jobs."* Hobby scheduling precision is also per-hour (a `0 3 * * *`
-job fires somewhere between 3:00 and 3:59), which on its own would miss every
-promise the section below makes.
+One tick runs everything that is scheduled, for every surface: saved-search
+alerts (web), skills (agent and agency consoles), template-email batches,
+the assistant's scheduled actions (`ASSISTANT_SCHEDULING=1` on the console
+projects), appointment sync and received mail.
 
-So there are two callers, doing two different jobs:
-
-- `.github/workflows/alerts-cron.yml` runs `*/5 * * * *` and is the real
-  cadence. Five minutes is GitHub's minimum and its `schedule` is best-effort,
-  so a tick can arrive late. Late costs latency, never correctness —
-  `next_run_at <= now()` does not expire, so the next tick claims the backlog.
-- `apps/web/vercel.json` declares a daily `0 3 * * *` as a floor. It exists
-  because GitHub **disables scheduled workflows on a repository with no
-  activity for 60 days**. On a quiet repo the 5-minute tick stops silently;
-  the daily one does not.
-
-Nothing about the endpoint depends on either. It authorises a shared secret
-and ignores who is calling, so cron-job.org or any other pinger works
-identically — and moving to Pro is deleting the workflow and putting `*/5`
-back in `vercel.json`, with no code change.
-
-Two secrets, set in **Settings → Secrets and variables → Actions**:
-
-    ALERTS_CRON_URL   https://<deployment>/api/cron/alerts
-    CRON_SECRET       the same value set on the Vercel deployment
-
-Vercel Cron issues a **GET** with `Authorization: Bearer $CRON_SECRET` and
-cannot be told to send a custom header. The workflow POSTs with
-`x-cron-secret`. The guard accepts both; both are headers, because a secret in
-a query string lands in access logs and in a Referer.
+Vercel Cron issues a **GET** with `Authorization: Bearer $CRON_SECRET`, so
+`CRON_SECRET` must be set on the web project's Production environment.
+Crons run only on the production deployment. Anything else that calls the
+endpoint (cron-job.org, a manual curl) uses `x-cron-secret`; the guard
+accepts both, and both are headers because a secret in a query string lands
+in access logs and in a Referer.
 
 ## Why 5 minutes
 

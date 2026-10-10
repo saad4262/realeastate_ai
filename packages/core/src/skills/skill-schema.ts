@@ -55,7 +55,27 @@ function parseTime(v: string): number | null {
   return h <= 23 && mi <= 59 ? h * 60 + mi : null;
 }
 
-/** `daily 07:00`, `weekly mon 07:00`, `every 2h`. */
+/**
+ * The longest gap an interval skill may have: a day. Anything longer is a
+ * daily or weekly schedule. The shortest is MIN_INTERVAL_MINUTES, shared with
+ * saved-search schedules because both are claimed by the same 5-minute tick
+ * and catch up one slot per tick (apps/web/CRON.md, "Catch-up").
+ */
+export const MAX_SKILL_INTERVAL_MINUTES = 24 * 60;
+
+/**
+ * Must equal schedules' MIN_INTERVAL_MINUTES (skill-schema.test.ts checks).
+ * Not imported from there: this file reaches the browser through the schedule
+ * form, and that one would bring the listing search schema with it.
+ */
+export const MIN_SKILL_INTERVAL_MINUTES = 10;
+const MIN_INTERVAL_MINUTES = MIN_SKILL_INTERVAL_MINUTES;
+
+function intervalOk(minutes: number): boolean {
+  return Number.isInteger(minutes) && minutes >= MIN_INTERVAL_MINUTES && minutes <= MAX_SKILL_INTERVAL_MINUTES;
+}
+
+/** `daily 07:00`, `weekly mon 07:00`, `every 2h`, `every 30m`. */
 export function parseScheduleLine(v: string): SkillSchedule | null {
   const s = v.trim().toLowerCase();
   let m = /^daily\s+(\S+)$/.exec(s);
@@ -68,10 +88,10 @@ export function parseScheduleLine(v: string): SkillSchedule | null {
     const t = parseTime(m[2]!);
     return t === null ? null : { cadence: 'weekly', sendAtMinute: t, sendOnWeekday: WEEKDAYS.indexOf(m[1]!) };
   }
-  m = /^every\s+(\d{1,2})h$/.exec(s);
+  m = /^every\s+(\d{1,4})\s*(h|m|min)$/.exec(s);
   if (m) {
-    const hours = Number(m[1]);
-    return hours >= 1 && hours <= 24 ? { cadence: 'interval', intervalMinutes: hours * 60, sendAtMinute: 0 } : null;
+    const minutes = m[2] === 'h' ? Number(m[1]) * 60 : Number(m[1]);
+    return intervalOk(minutes) ? { cadence: 'interval', intervalMinutes: minutes, sendAtMinute: 0 } : null;
   }
   return null;
 }
@@ -108,7 +128,7 @@ export function parseSkillMarkdown(md: string): ParsedSkillMarkdown {
     } else if (key === 'schedule') {
       const sched = parseScheduleLine(value);
       if (sched) out.schedule = sched;
-      else out.errors.push('schedule must look like "daily 07:00", "weekly mon 07:00" or "every 2h"');
+      else out.errors.push(`schedule must look like "daily 07:00", "weekly mon 07:00", "every 2h" or "every 30m" (every ${MIN_INTERVAL_MINUTES}m at least)`);
     } else {
       out.errors.push(`Unknown front-matter key: "${key}"`);
     }
@@ -124,11 +144,16 @@ export const skillScheduleSchema = z
     /** `HH:MM`, on the agent's clock. */
     time: z.string().regex(/^\d{2}:\d{2}$/, 'Pick a time'),
     sendOnWeekday: z.coerce.number().int().min(0).max(6).optional(),
-    intervalHours: z.coerce.number().int().min(1, 'At least every hour').max(24).optional(),
+    intervalMinutes: z.coerce
+      .number()
+      .int()
+      .min(MIN_INTERVAL_MINUTES, `At most every ${MIN_INTERVAL_MINUTES} minutes`)
+      .max(MAX_SKILL_INTERVAL_MINUTES, 'At least once a day')
+      .optional(),
     timezone: z.string().refine(isValidTimeZone, 'Unknown timezone'),
   })
   .refine((v) => v.cadence !== 'weekly' || v.sendOnWeekday !== undefined, { message: 'Pick a day', path: ['sendOnWeekday'] })
-  .refine((v) => v.cadence !== 'interval' || v.intervalHours !== undefined, { message: 'Pick how often', path: ['intervalHours'] });
+  .refine((v) => v.cadence !== 'interval' || v.intervalMinutes !== undefined, { message: 'Pick how often', path: ['intervalMinutes'] });
 export type SkillScheduleInput = z.input<typeof skillScheduleSchema>;
 
 export function scheduleFromInput(v: z.output<typeof skillScheduleSchema>): {
@@ -142,7 +167,7 @@ export function scheduleFromInput(v: z.output<typeof skillScheduleSchema>): {
     cadence: v.cadence,
     sendAtMinute: Math.min(1439, h * 60 + m),
     sendOnWeekday: v.cadence === 'weekly' ? (v.sendOnWeekday ?? 1) : null,
-    intervalMinutes: v.cadence === 'interval' ? (v.intervalHours ?? 1) * 60 : null,
+    intervalMinutes: v.cadence === 'interval' ? (v.intervalMinutes ?? 60) : null,
   };
 }
 
