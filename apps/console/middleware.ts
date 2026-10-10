@@ -3,7 +3,13 @@ import { updateSession } from '@repo/auth/middleware';
 
 export type ConsoleSurface = 'agent' | 'agency';
 
-export function resolveSurface(host: string): ConsoleSurface {
+export function resolveSurface(
+  host: string,
+  override: string | undefined = process.env.CONSOLE_SURFACE_OVERRIDE,
+): ConsoleSurface {
+  // For deployments with no agents./agency. subdomains (e.g. two *.vercel.app
+  // projects from this one app). Set per deployment; unset means host decides.
+  if (override === 'agency' || override === 'agent') return override;
   const hostname = host.split(':')[0]?.toLowerCase() ?? '';
   if (hostname.startsWith('agency.') || hostname === 'agency.lvh.me') {
     return 'agency';
