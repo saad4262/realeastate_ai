@@ -16,7 +16,6 @@ import {
 import { syncDepsFromEnv } from '@repo/core/appointments';
 import { templateSendDepsFromEnv } from '@repo/core/template-email';
 import { mailDepsFromEnv } from '@repo/core/mail';
-import { mailDepsFromEnv } from '@repo/core/mail';
 import { noticeMailFromEnv } from '@repo/core/email';
 import { getConsoleDb } from './db';
 import { loadActor } from './load-actor';
