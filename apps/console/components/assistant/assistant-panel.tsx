@@ -499,11 +499,19 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
         ? `/dashboards/${view.result.dashboardId}`
         : view.tool === 'send_template_email' && view.result?.batchId
           ? `${PATHS[surface].bulk}/${view.result.batchId}`
-          : card.contact.id
+          : view.tool === 'update_agent' || view.tool === 'remove_agent'
+            ? '/team'
+            : card.contact.id
             ? `${contactHref}?tab=${view.tool === 'add_note' ? 'notes' : /appointment/.test(view.tool) ? 'calendar' : 'overview'}`
             : null;
   const doneLabel =
-    view.tool === 'create_dashboard' ? 'Open the dashboard' : view.tool === 'send_template_email' ? 'Open the send report' : `Open ${card.contact.name}`;
+    view.tool === 'create_dashboard'
+      ? 'Open the dashboard'
+      : view.tool === 'send_template_email'
+        ? 'Open the send report'
+        : view.tool === 'update_agent' || view.tool === 'remove_agent'
+          ? 'Open Agents & Team'
+          : `Open ${card.contact.name}`;
   /**
    * A dashboard opens in a new tab; the other two destinations do not.
    *
@@ -566,6 +574,13 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
       {view.status === 'done' && view.tool === 'schedule_appointment' && view.result && (view.result.invited || view.result.invitationError) ? (
         <p className={view.result.invited ? styles.cardNote : styles.error}>
           {view.result.invited ? 'Booked, and the invitation was emailed.' : `Booked. ${view.result.invitationError}`}
+        </p>
+      ) : null}
+      {view.status === 'done' && view.tool === 'update_agent' && view.result?.claimPath ? (
+        <p className={styles.cardNote}>
+          {view.result.emailed
+            ? 'The new invite link was emailed to the new address.'
+            : 'The new invite link was not emailed — copy it from Agents & Team → Pending invites.'}
         </p>
       ) : null}
       {card.notes.map((n) => (

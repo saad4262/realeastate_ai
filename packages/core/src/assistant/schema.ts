@@ -25,6 +25,8 @@ export const HANDLE_KINDS = {
   S: 'contact',
   /** A member of the agency who may be given contacts — issued only by find_team_members (owners/admins). */
   M: 'member',
+  /** A pending agent invite — issued only by find_agents (owners/admins, ADR 0033). */
+  I: 'invite',
 } as const;
 export type HandlePrefix = keyof typeof HANDLE_KINDS;
 export type HandleKind = (typeof HANDLE_KINDS)[HandlePrefix];
@@ -32,7 +34,7 @@ export type HandleKind = (typeof HANDLE_KINDS)[HandlePrefix];
 export const handleSchema = z
   .string()
   .trim()
-  .regex(/^[CLATSM][1-9][0-9]{0,2}$/, 'Not a reference the assistant was given');
+  .regex(/^[CLATSMI][1-9][0-9]{0,2}$/, 'Not a reference the assistant was given');
 
 /** A handle that must name an appointment. */
 export const appointmentHandleSchema = handleSchema.refine((h) => h.startsWith('A'), { message: 'Not an appointment reference' });
@@ -47,6 +49,9 @@ export const contactHandleSchema = handleSchema.refine((h) => h.startsWith('C') 
 
 /** A handle that must name a team member (from find_team_members). */
 export const memberHandleSchema = handleSchema.refine((h) => h.startsWith('M'), { message: 'Not a team member reference' });
+
+/** A handle that must name a team member or a pending invite (from find_agents). */
+export const agentHandleSchema = handleSchema.refine((h) => h.startsWith('M') || h.startsWith('I'), { message: 'Not a team member or invite reference' });
 
 /** Caps that hold however the model asks (ADR 0025 §4, §10; decided Q7). */
 export const ASSISTANT_LIMITS = {
@@ -288,8 +293,51 @@ export const updateContactInput = z
 /** Archive a contact, or bring it back. Never delete. */
 export const setContactArchivedInput = z.object({ contact: contactHandleSchema, archived: z.boolean() }).strict();
 
-export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived'] as const;
+/**
+ * The team (ADR 0033, owners/admins — `team:manage`). find_agents issues `M`
+ * references for members and `I` references for pending invites, with what
+ * tells two people of one name apart. update_agent and remove_agent only
+ * propose; the card runs the screen's own core function.
+ */
+export const findAgentsInput = z
+  .object({
+    /** Part of a name, email, phone or licence number. Omit for the whole team. */
+    text: text.optional(),
+  })
+  .strict();
+
+const ASSISTANT_OPERATIONAL_ROLES = ['senior', 'principal', 'pm', 'cadet', 'custom'] as const;
+
+export const updateAgentInput = z
+  .object({
+    agent: agentHandleSchema,
+    first_name: z.string().trim().min(1).max(80).optional(),
+    last_name: z.string().trim().min(1).max(80).optional(),
+    display_name: z.string().trim().min(1).max(160).optional(),
+    /** Only for a pending invite; an active member's email is their sign-in (refused in core). */
+    email: z.string().trim().email('That does not look like an email address').max(320).optional(),
+    phone: z.string().trim().min(1).max(32).optional(),
+    licence_number: z.string().trim().min(1).max(64).optional(),
+    /** YYYY-MM-DD, or "" to clear it. */
+    licence_expiry: z.union([dateString, z.literal('')]).optional(),
+    /** The whole territory: suburbs left out are removed. */
+    territory_suburbs: z.array(z.string().trim().min(1).max(80)).min(1).max(20).optional(),
+    role: z.enum(ASSISTANT_OPERATIONAL_ROLES).optional(),
+  })
+  .strict();
+
+export const removeAgentInput = z
+  .object({
+    agent: agentHandleSchema,
+    /** For an active member: who receives their contacts, leads, appointments and listings (an M reference). */
+    receiver: memberHandleSchema.optional(),
+    /** For an active member: leave their work unassigned in the "Needs an owner" queue instead. */
+    leave_for_review: z.boolean().optional(),
+  })
+  .strict();
+
+export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 
 /** Every tool. Read tools run at once; write tools only propose (ADR 0025 §8). */
@@ -314,6 +362,9 @@ export const ASSISTANT_TOOL_INPUTS = {
   withdraw_marketing_consent: withdrawMarketingConsentInput,
   update_contact: updateContactInput,
   set_contact_archived: setContactArchivedInput,
+  find_agents: findAgentsInput,
+  update_agent: updateAgentInput,
+  remove_agent: removeAgentInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];
@@ -323,6 +374,9 @@ export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as Assist
  * person) and may run (each asks can() again): `contact:assign`.
  */
 export const ASSISTANT_ADMIN_TOOLS = ['find_team_members', 'assign_contacts'] as const satisfies readonly AssistantToolName[];
+
+/** Team tools (ADR 0033): owners and admins only, by `team:manage` — shown to nobody else, refused in core. */
+export const ASSISTANT_TEAM_TOOLS = ['find_agents', 'update_agent', 'remove_agent'] as const satisfies readonly AssistantToolName[];
 
 function isTimeZone(tz: string): boolean {
   try {

@@ -13,7 +13,7 @@ import { resolveHandle } from './handles';
 import type { ProposalCard } from './schema';
 import { assignableMember, contactDetailsOf, UNSUBSCRIBED_REASON, type ContactDetails, type ContactDetailsPatch } from '../contacts/write-contacts';
 import { CONTACT_ROLE_LABELS, type ContactRoleKind } from '../contacts/contact-schema';
-import type { addNoteInput, assignContactsInput, cancelAppointmentInput, recordMarketingConsentInput, setContactArchivedInput, updateContactInput, withdrawMarketingConsentInput, createDashboardInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
+import type { addNoteInput, assignContactsInput, removeAgentInput, updateAgentInput, cancelAppointmentInput, recordMarketingConsentInput, setContactArchivedInput, updateContactInput, withdrawMarketingConsentInput, createDashboardInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
 import { cancelBatch, getBatch, prepareBatch } from '../template-email/batches';
 import { TemplateEmailError } from '../template-email/templates';
 import { SKIP_REASON_LABELS } from '../template-email/schema';
@@ -22,6 +22,19 @@ import { clashMessage, findClash } from '../appointments/clash';
 import { AUDIENCE_LABELS, createDashboardSchema } from '../dashboards';
 import { agencyTimeZone, renderWidget, WIDGETS, type WidgetData } from '../widgets/registry';
 import type { ToolContext, ToolOutcome } from './tools';
+import {
+  changedFields,
+  checkTeamEdit,
+  loadTeamTarget,
+  OPERATIONAL_ROLE_LABELS,
+  TEAM_FIELD_LABELS,
+  TeamEditError,
+  teamMemberPatchSchema,
+  type TeamEditField,
+  type TeamMemberDetails,
+  type TeamTarget,
+} from '../team/edit-member';
+import { offboardingPreview, OffboardError } from '../team/offboarding';
 import type { z } from 'zod';
 
 /**
@@ -726,4 +739,160 @@ export async function proposeSetArchived(ctx: ToolContext, input: z.infer<typeof
   };
   const args: FrozenArgs = { tool: 'set_contact_archived', contactId: row.id, archived: input.archived };
   return propose(ctx, label, { tool: 'set_contact_archived', args, card, contactId: row.id });
+}
+
+/** The member or invite behind an M/I reference from find_agents. */
+function teamTarget(ctx: ToolContext, ref: string): TeamTarget | null {
+  if (ref.startsWith('I')) {
+    const inviteId = resolveHandle(ctx.handles, ref, 'invite');
+    return inviteId ? { kind: 'invite', inviteId } : null;
+  }
+  const userId = resolveHandle(ctx.handles, ref, 'member');
+  return userId ? { kind: 'member', userId } : null;
+}
+
+function teamValue(k: TeamEditField, v: TeamMemberDetails[TeamEditField], tz: string): string {
+  if (v === null || v === undefined || v === '') return '(none)';
+  if (k === 'territorySuburbs') return (v as string[]).join(', ') || '(none)';
+  if (k === 'operationalRole') return OPERATIONAL_ROLE_LABELS[v as keyof typeof OPERATIONAL_ROLE_LABELS] ?? String(v);
+  if (k === 'licenceExpiry') return shortDay(`${v as string}T00:00:00.000Z`, 'UTC');
+  void tz;
+  return String(v);
+}
+
+/**
+ * Change a team member's or a pending invite's details (ADR 0033; owners/admins,
+ * asked at the door and again by editTeamMember when it runs). The card shows
+ * each field before → after from the database; every refusal editTeamMember
+ * would give (an active member's email, your own role, an owner's role, an
+ * email someone has) is given here first, so no card is made that cannot run.
+ */
+export async function proposeUpdateAgent(ctx: ToolContext, input: z.infer<typeof updateAgentInput>, label: string): Promise<ToolOutcome> {
+  const target = teamTarget(ctx, input.agent);
+  if (!target) return refused(UNKNOWN_REF, label);
+  const parsed = teamMemberPatchSchema.safeParse({
+    ...(input.first_name !== undefined ? { firstName: input.first_name } : {}),
+    ...(input.last_name !== undefined ? { lastName: input.last_name } : {}),
+    ...(input.display_name !== undefined ? { displayName: input.display_name } : {}),
+    ...(input.email !== undefined ? { email: input.email.toLowerCase() } : {}),
+    ...(input.phone !== undefined ? { phone: input.phone } : {}),
+    ...(input.licence_number !== undefined ? { licenceNumber: input.licence_number } : {}),
+    ...(input.licence_expiry !== undefined ? { licenceExpiry: input.licence_expiry || null } : {}),
+    ...(input.territory_suburbs !== undefined ? { territorySuburbs: input.territory_suburbs } : {}),
+    ...(input.role !== undefined ? { operationalRole: input.role } : {}),
+  });
+  if (!parsed.success) return refused(`${parsed.error.issues[0]?.message ?? 'Those details are not valid'}. Nothing was proposed.`, label);
+  const patch = parsed.data;
+  try {
+    const t = await loadTeamTarget(ctx.db, ctx.actor, target);
+    const fields = changedFields(t.details, patch);
+    if (!fields.length) return { label, result: { proposed: false, tell_the_user: `${t.name}’s details are already like that, so nothing was proposed.` } };
+    await checkTeamEdit(ctx.db, ctx.actor, t, fields, patch);
+    const after = { ...t.details, ...patch } as TeamMemberDetails;
+    const notes = [NOTHING_YET];
+    if (target.kind === 'invite' && fields.includes('email')) {
+      notes.push('The invite link already sent stops working. A new link goes to the new address, and is on the Agents & Team screen too.');
+    }
+    if (fields.includes('operationalRole')) {
+      notes.push(
+        after.operationalRole === 'principal'
+          ? 'Principal makes them an admin: they can run the agency console, manage the team and see every contact and lead.'
+          : 'The role decides what they may do in the console from the moment you approve.',
+      );
+    }
+    const card: ProposalCard = {
+      title: target.kind === 'invite' ? `Change ${t.name}’s invite` : `Change ${t.name}’s details`,
+      contact: { id: '', name: '' },
+      lines: [
+        { label: 'Who', value: `${t.name} · ${t.details.email}${t.status === 'invited' ? ' (invited, not joined yet)' : ''}` },
+        ...fields.map((k) => ({ label: TEAM_FIELD_LABELS[k], value: `${teamValue(k, t.details[k], ctx.timeZone)} → ${teamValue(k, after[k], ctx.timeZone)}` })),
+      ],
+      notes,
+    };
+    const args: FrozenArgs = {
+      tool: 'update_agent',
+      target,
+      patch: Object.fromEntries(fields.map((k) => [k, after[k]])),
+      before: Object.fromEntries(fields.map((k) => [k, t.details[k]])) as Partial<TeamMemberDetails>,
+    };
+    return propose(ctx, label, { tool: 'update_agent', args, card, contactId: null });
+  } catch (err) {
+    if (err instanceof TeamEditError) return refused(`${err.message}. Nothing was proposed.`, label);
+    throw err;
+  }
+}
+
+const ASK_RECEIVER =
+  'Removing an active member needs a decision first: ask the person who should receive their contacts, leads, appointments and listings (a team member — find_agents gives M references), or whether to leave that work unassigned in the "Needs an owner" queue. Nothing was proposed.';
+
+/**
+ * "Delete" an agent (ADR 0033, decided: offboarding). A pending invite is
+ * withdrawn. An active member goes through ADR 0030's removal, which needs a
+ * receiver or "leave for review" — without one, no card: the model asks. The
+ * card's counts are SQL (offboardingPreview), never the model's.
+ */
+export async function proposeRemoveAgent(ctx: ToolContext, input: z.infer<typeof removeAgentInput>, label: string): Promise<ToolOutcome> {
+  const target = teamTarget(ctx, input.agent);
+  if (!target) return refused(UNKNOWN_REF, label);
+
+  if (target.kind === 'invite') {
+    try {
+      const t = await loadTeamTarget(ctx.db, ctx.actor, target);
+      const card: ProposalCard = {
+        title: `Withdraw ${t.name}’s invite`,
+        contact: { id: '', name: '' },
+        lines: [
+          { label: 'Who', value: `${t.name} · ${t.details.email}` },
+          { label: 'Now', value: 'Invited, has not joined yet' },
+          { label: 'After', value: 'The invite link says “This invite was withdrawn”' },
+        ],
+        notes: [NOTHING_YET, 'Nothing else exists for them yet, so nothing else changes. You can invite them again later.'],
+      };
+      return propose(ctx, label, { tool: 'remove_agent', args: { tool: 'remove_agent', target, choice: null }, card, contactId: null });
+    } catch (err) {
+      if (err instanceof TeamEditError) return refused(`${err.message}. Nothing was proposed.`, label);
+      throw err;
+    }
+  }
+
+  if (input.receiver && input.leave_for_review) {
+    return refused('Choose a receiver or leave their work for review — not both. Ask the person which. Nothing was proposed.', label);
+  }
+  if (!input.receiver && !input.leave_for_review) {
+    return { label, result: { proposed: false, tell_the_user: ASK_RECEIVER } };
+  }
+  const receiverId = input.receiver ? resolveHandle(ctx.handles, input.receiver, 'member') : null;
+  if (input.receiver && !receiverId) return refused(`${input.receiver}: ${UNKNOWN_REF}`, label);
+  try {
+    const preview = await offboardingPreview(ctx.db, ctx.actor, target.userId, ctx.now);
+    const receiver = receiverId ? preview.receivers.find((r) => r.userId === receiverId) : null;
+    if (receiverId && !receiver) {
+      return refused('That person cannot receive their work: they must be another active member of this agency who may work contacts (not read-only). Nothing was proposed.', label);
+    }
+    const name = preview.member.name || preview.member.email;
+    const c = preview.counts;
+    const card: ProposalCard = {
+      title: `Remove ${name} from the agency`,
+      contact: { id: '', name: '' },
+      lines: [
+        { label: 'Who', value: `${name} · ${preview.member.email}` },
+        { label: 'Their work goes to', value: receiver ? receiver.name : 'Nobody yet — the “Needs an owner” queue on Overview' },
+        { label: 'Contacts', value: String(c.contacts) },
+        { label: 'Leads', value: String(c.leads) },
+        { label: 'Upcoming appointments', value: String(c.upcomingAppointments) },
+        { label: 'Listings', value: `${c.listings}${c.onlyAgentListings ? ` (${c.onlyAgentListings} with no other agent)` : ''}` },
+        { label: 'Their connected accounts', value: `${c.ownAccounts} disconnected and revoked` },
+      ],
+      notes: [
+        NOTHING_YET,
+        'They lose access to the console as soon as it runs. Their upcoming calendar events and their own Zoom meetings are deleted; waiting cards, prepared emails and imports of theirs are cancelled.',
+        `Nothing is deleted from the agency’s records. An owner or admin can restore them for 30 days from Agents & Team → Removed members.`,
+      ],
+    };
+    const args: FrozenArgs = { tool: 'remove_agent', target, choice: receiver ? { receiver: receiver.userId } : { review: true } };
+    return propose(ctx, label, { tool: 'remove_agent', args, card, contactId: null });
+  } catch (err) {
+    if (err instanceof OffboardError) return refused(`${err.message}. Nothing was proposed.`, label);
+    throw err;
+  }
 }

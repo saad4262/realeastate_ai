@@ -4,6 +4,7 @@ import type { AgencyAgentRow } from '@repo/core/team';
 import { mediaUrl } from '@repo/core/media/url';
 import { AgentPhoto } from '@/components/photo-uploader';
 import { LinkPending } from './link-pending';
+import { MemberEdit } from './member-edit';
 import styles from './team.module.css';
 
 /**
@@ -597,6 +598,29 @@ export function TeamDirectory({
             )}
 
             <Dossier row={selected.row} />
+            {selected.status === 'active' || selected.status === 'invited' ? (
+              <MemberEdit
+                key={selected.row.userId}
+                // A pending invite's row carries the invite's id as its user id (listAgencyAgents).
+                target={
+                  selected.status === 'invited' && selected.row.userId === selected.row.membershipId
+                    ? { kind: 'invite', inviteId: selected.row.userId }
+                    : { kind: 'member', userId: selected.row.userId }
+                }
+                isOwner={selected.row.role === 'owner'}
+                initial={{
+                  firstName: selected.row.firstName ?? '',
+                  lastName: selected.row.lastName ?? '',
+                  displayName: selected.row.displayName ?? selected.row.name,
+                  email: selected.row.email,
+                  phone: selected.row.phone ?? '',
+                  licenceNumber: selected.row.licenceNumber ?? '',
+                  licenceExpiry: selected.row.licenceExpiry ? selected.row.licenceExpiry.slice(0, 10) : '',
+                  territory: (selected.row.territorySuburbs ?? []).join(', '),
+                  operationalRole: selected.row.operationalRole ?? '',
+                }}
+              />
+            ) : null}
             {selected.status === 'active' ? (
               <p style={{ marginTop: '1rem', fontSize: '0.8125rem' }}>
                 <Link href={`/team/remove/${selected.row.userId}`}>Remove from the agency…</Link>

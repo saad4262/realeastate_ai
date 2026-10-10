@@ -1,5 +1,5 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { APPOINTMENT_RANGES, ASSISTANT_ADMIN_TOOLS, ASSISTANT_APPOINTMENT_TYPES, LEAD_SINCE, LEAD_STATUSES } from '@repo/core/assistant/schema';
+import { APPOINTMENT_RANGES, ASSISTANT_ADMIN_TOOLS, ASSISTANT_TEAM_TOOLS, ASSISTANT_APPOINTMENT_TYPES, LEAD_SINCE, LEAD_STATUSES } from '@repo/core/assistant/schema';
 import { can, type Actor } from '@repo/core/permissions';
 import { WIDGET_IDS, WIDGET_RANGES } from '@repo/core/widgets';
 import { CONTACT_ROLES } from '@repo/core/contacts/schema';
@@ -318,15 +318,63 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
       required: ['contact', 'archived'],
     },
   },
+  {
+    name: 'find_agents',
+    description:
+      'Look up the agency\'s team as the Agents & Team screen shows it — owners and admins only. Returns references (M1… for members, I1… for invites not yet accepted), each with name, status, email, phone, licence number and expiry, territory and role. Use it before changing or removing anyone. If more than one person matches a name, do not choose: list them with their licence number and email and ask which one.',
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        text: { type: 'string', description: 'Part of a name, email, phone or licence number. Omit to list the whole team.' },
+      },
+    },
+  },
+  {
+    name: 'update_agent',
+    description: `Propose changing one team member's details, or a pending invite's — owners and admins only. Give only the fields to change, with values the person gave you. An active member's email cannot be changed here (it is their sign-in; they change it themselves); a pending invite's email can, and its old link stops working. Nobody can change their own role, or an owner's. The card shows each field before → after. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        agent: { type: 'string', description: 'The member or invite: an M or I reference from find_agents.' },
+        first_name: { type: 'string', description: 'Legal first name.' },
+        last_name: { type: 'string', description: 'Legal last name.' },
+        display_name: { type: 'string', description: 'The name shown in the console and on listings.' },
+        email: { type: 'string', description: 'A pending invite\'s new address, as the person gave it. The new invite link is emailed to it once they approve.' },
+        phone: { type: 'string', description: 'Mobile number, e.g. 0418 920 441.' },
+        licence_number: { type: 'string', description: 'Real estate licence number.' },
+        licence_expiry: { type: 'string', description: 'Licence expiry as YYYY-MM-DD, or "" to clear it.' },
+        territory_suburbs: { type: 'array', items: { type: 'string' }, description: 'The whole territory, 1 to 20 suburbs: any left out are removed.' },
+        role: { type: 'string', enum: ['senior', 'principal', 'pm', 'cadet', 'custom'], description: 'senior = agent; principal = admin (runs the agency console); pm = property manager; cadet = assistant; custom = agent.' },
+      },
+      required: ['agent'],
+    },
+  },
+  {
+    name: 'remove_agent',
+    description: `Propose removing a team member from the agency, or withdrawing an invite not yet accepted — owners and admins only. Nothing is deleted: a member's access ends, their work goes to the person chosen (or to the "Needs an owner" queue), and they can be restored for 30 days. For a member you MUST first ask who receives their contacts, leads, appointments and listings — pass receiver (an M reference) or leave_for_review: true, never both. An invite needs neither. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        agent: { type: 'string', description: 'The member or invite: an M or I reference from find_agents.' },
+        receiver: { type: 'string', description: 'Who receives their work: an M reference from find_agents, as the person chose.' },
+        leave_for_review: { type: 'boolean', description: 'true when the person chose to leave their work unassigned for review.' },
+      },
+      required: ['agent'],
+    },
+  },
 ]);
 
-const ADMIN_ONLY = new Set<string>(ASSISTANT_ADMIN_TOOLS);
+const ADMIN_ONLY = new Set<string>([...ASSISTANT_ADMIN_TOOLS, ...ASSISTANT_TEAM_TOOLS]);
 /** What everyone else is shown: the same definitions, without the owner/admin tools. */
 const MEMBER_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze(ASSISTANT_TOOLS.filter((t) => !ADMIN_ONLY.has(t.name)));
 
 /**
- * The tools this person's model is shown. Owners and admins (`contact:assign`)
- * get every tool; everyone else never sees the assign tools at all — the
+ * The tools this person's model is shown. Owners and admins (`contact:assign`,
+ * the same people as `team:manage`) get every tool; everyone else never sees
+ * the assign or team tools at all — the
  * tools are also refused in core if asked for by name. Two frozen lists, so
  * each kind of person has one byte-identical cached prefix.
  */

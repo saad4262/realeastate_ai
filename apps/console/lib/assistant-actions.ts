@@ -16,6 +16,8 @@ import {
 import { syncDepsFromEnv } from '@repo/core/appointments';
 import { templateSendDepsFromEnv } from '@repo/core/template-email';
 import { mailDepsFromEnv } from '@repo/core/mail';
+import { mailDepsFromEnv } from '@repo/core/mail';
+import { noticeMailFromEnv } from '@repo/core/email';
 import { getConsoleDb } from './db';
 import { loadActor } from './load-actor';
 import { requireActionUserId } from './auth-account';
@@ -81,13 +83,22 @@ export async function getProposedActionAction(id: string): Promise<CardResult> {
 export async function approveProposedActionAction(id: string, runAtIso?: string | null): Promise<CardResult> {
   try {
     const send = templateSendDepsFromEnv();
+    const mail = noticeMailFromEnv();
     const runAt = runAtIso ? new Date(runAtIso) : null;
     if (runAt && Number.isNaN(runAt.getTime())) return { ok: false, error: 'That time is not valid.' };
     const r = await approveProposedAction(
       getConsoleDb(),
       await actor(),
       id,
-      { sync: syncDepsFromEnv(), templateSend: send.ok ? send.deps : null, mail: mailDepsFromEnv() },
+      {
+        sync: syncDepsFromEnv(),
+        templateSend: send.ok ? send.deps : null,
+        mail: mailDepsFromEnv(),
+        // A team card (ADR 0033): a removal deletes calendar events like the Remove screen; a changed
+        // invite's new link is emailed like Resend.
+        offboard: { sync: syncDepsFromEnv() },
+        inviteMail: mail ? { mailer: mail.mailer, agentUrl: mail.urls.agentUrl } : null,
+      },
       new Date(),
       { runAt },
     );
@@ -99,6 +110,7 @@ export async function approveProposedActionAction(id: string, runAtIso?: string 
     revalidatePath('/my-calendar');
     revalidatePath('/inbox');
     revalidatePath('/my-inbox');
+    revalidatePath('/team', 'layout');
     const message =
       r.outcome === 'already' ? 'This card was already approved.' : r.outcome === 'failed' ? r.error : undefined;
     // (A scheduled card's own line says when it runs.)

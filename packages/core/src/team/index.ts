@@ -41,6 +41,24 @@ export {
 } from './invite-email';
 export { activeMemberActor } from './member-actor';
 export {
+  changedFields,
+  checkTeamEdit,
+  editTeamMember,
+  loadTeamTarget,
+  OPERATIONAL_ROLE_LABELS,
+  TEAM_EDIT_FIELDS,
+  TEAM_FIELD_LABELS,
+  TeamEditError,
+  teamMemberPatchSchema,
+  withdrawInvite,
+  type LoadedTeamTarget,
+  type TeamEditField,
+  type TeamEditResult,
+  type TeamMemberDetails,
+  type TeamMemberPatch,
+  type TeamTarget,
+} from './edit-member';
+export {
   assignNeedsOwner,
   listNeedsOwner,
   listRemovedMembers,

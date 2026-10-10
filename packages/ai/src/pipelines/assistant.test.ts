@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
 import { ASSISTANT_TOOLS, assistantToolsFor } from '../tools/assistant-tools';
-import { ASSISTANT_SYSTEM } from '../prompts/assistant-v8';
+import { ASSISTANT_SYSTEM } from '../prompts/assistant-v9';
 import { contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
 /**
@@ -374,7 +374,10 @@ describe('proposals (Phases B and C)', () => {
     // And update_contact's `email`: the contact's own address, shown before → after on the
     // card and saved — never a recipient; nothing is sent to it (asserted below).
     for (const f of writeFields.filter((x) => x !== 'recipients' && x !== 'to' && x !== 'email')) expect(f).not.toMatch(/approve|status|proposal|action_id|user|agency|owner|to$|recipient|email/);
-    expect(ASSISTANT_TOOLS.filter((t) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(t.name) && 'email' in (t.input_schema as { properties: Record<string, unknown> }).properties).map((t) => t.name)).toEqual(['update_contact']);
+    // update_agent's `email` (ADR 0033): only a PENDING invite's address — core refuses an active
+    // member's — shown before → after on an owner/admin's card; the new invite link goes to it
+    // only after they approve, exactly as if they had typed it on the Agents & Team screen.
+    expect(ASSISTANT_TOOLS.filter((t) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(t.name) && 'email' in (t.input_schema as { properties: Record<string, unknown> }).properties).map((t) => t.name)).toEqual(['update_contact', 'update_agent']);
     const update = ASSISTANT_TOOLS.find((t) => t.name === 'update_contact')!;
     expect(Object.keys((update.input_schema as { properties: Record<string, unknown> }).properties).sort()).toEqual(['contact', 'email', 'name', 'phone', 'roles']);
     expect(update.description).toMatch(/Nothing is sent|cannot change who the contact is assigned to/);
@@ -417,7 +420,7 @@ describe('a booking card may carry the invitation (ADR 0032)', () => {
 
 describe('tools by role: assigning contacts is offered to owners and admins only', () => {
   const as = (membershipRole: 'owner' | 'admin' | 'agent' | 'assistant' | 'property_manager' | 'read_only') => ({ userId: 'u', agencyId: 'a', membershipRole });
-  const ADMIN_ONLY = ['assign_contacts', 'find_team_members'];
+  const ADMIN_ONLY = ['assign_contacts', 'find_team_members', 'find_agents', 'update_agent', 'remove_agent'];
 
   it('an agent, assistant, property manager or read-only member is never shown the assign tools', () => {
     for (const role of ['agent', 'assistant', 'property_manager', 'read_only'] as const) {
