@@ -26,6 +26,9 @@ import { createDashboard, DashboardError } from '../dashboards';
 import { PROVIDERS, type IntegrationProvider } from '../integrations/providers';
 import type { ActivityKind } from '../contacts/contact-schema';
 import { AssistantError } from './conversations';
+import { editTeamMember, TeamEditError, withdrawInvite, type TeamMemberDetails, type TeamTarget } from '../team/edit-member';
+import { offboardingPreview, OffboardError, removeMember, type OffboardChoice, type OffboardDeps } from '../team/offboarding';
+import { emailAgentInvite, type InviteEmailDeps } from '../team/invite-email';
 import { ASSISTANT_LIMITS, type AssistantWriteTool, type ProposalCard, type ProposalStatus } from './schema';
 import type { ToolContext, ToolOutcome } from './tools';
 
@@ -77,7 +80,11 @@ export type FrozenArgs =
   | { tool: 'withdraw_marketing_consent'; contactIds: string[]; reason: string }
   /** Only the fields the card showed; `before` = what it showed them as (refused if they changed since). */
   | { tool: 'update_contact'; contactId: string; patch: ContactDetailsPatch; before: Partial<ContactDetails> }
-  | { tool: 'set_contact_archived'; contactId: string; archived: boolean };
+  | { tool: 'set_contact_archived'; contactId: string; archived: boolean }
+  /** ADR 0033: only the fields the card showed; `before` = what it showed (refused if they changed since). */
+  | { tool: 'update_agent'; target: TeamTarget; patch: Partial<TeamMemberDetails>; before: Partial<TeamMemberDetails> }
+  /** ADR 0033: an invite is withdrawn (`choice` null); a member is removed as ADR 0030, with this choice. */
+  | { tool: 'remove_agent'; target: TeamTarget; choice: OffboardChoice | null };
 
 /** The contacts whose timelines carry this action's audit lines. */
 function auditContacts(row: { contactId: string | null; args: unknown }): string[] {
@@ -162,7 +169,15 @@ export async function propose(
 
 /** A domain refusal at run time — shown on the card as the reason; never a crash. */
 function runRefusal(err: unknown): string | null {
-  if (err instanceof ContactError || err instanceof AppointmentError || err instanceof AssistantError || err instanceof TemplateEmailError || err instanceof DashboardError) {
+  if (
+    err instanceof ContactError ||
+    err instanceof AppointmentError ||
+    err instanceof AssistantError ||
+    err instanceof TemplateEmailError ||
+    err instanceof DashboardError ||
+    err instanceof TeamEditError ||
+    err instanceof OffboardError
+  ) {
     return err.message;
   }
   return null;
@@ -178,7 +193,25 @@ async function assertStillConnected(db: DbOrTx, actor: Actor, providers: Integra
 }
 
 /** Run one approved action AS the person, through the same core function a screen uses — which re-checks can(). */
-type RunDeps = { sync?: SyncDeps | null; templateSend?: TemplateSendDeps | null; env?: NodeJS.ProcessEnv };
+type RunDeps = {
+  sync?: SyncDeps | null;
+  templateSend?: TemplateSendDeps | null;
+  env?: NodeJS.ProcessEnv;
+  /** Removing a member (ADR 0030): calendar/Zoom keys and the token revoke. */
+  offboard?: OffboardDeps | null;
+  /** Emailing a changed invite's new link (ADR 0033). Without it, the link is on the card and the team screen. */
+  inviteMail?: InviteEmailDeps | null;
+};
+
+type Executed = {
+  result: Record<string, unknown>;
+  appointmentId?: string;
+  batchId?: string;
+  /** A member removal, run after the commit: it deletes calendar events and Zoom meetings over the network. */
+  offboard?: { userId: string; choice: OffboardChoice };
+  /** An invite whose email changed: its new link, emailed after the commit. */
+  inviteClaim?: { inviteId: string; claimPath: string; expiresAt: Date };
+};
 
 /**
  * Delayed execution (ADR 0025 §6, Phase E) is offered only with
@@ -201,7 +234,7 @@ async function execute(
   args: FrozenArgs,
   now: Date,
   deps: RunDeps,
-): Promise<{ result: Record<string, unknown>; appointmentId?: string; batchId?: string }> {
+): Promise<Executed> {
   switch (args.tool) {
     case 'add_note': {
       const { id } = await createNote(tx, actor, args.contactId, args.body, { isPrivate: args.private });
@@ -288,6 +321,26 @@ async function execute(
       await setContactArchived(tx, actor, args.contactId, args.archived, { via: 'assistant' });
       return { result: {} };
     }
+    case 'update_agent': {
+      // editTeamMember asks team:manage again, refuses a field changed since the card, and
+      // repeats every rule (an active member's email, your own role, an owner's role).
+      const r = await editTeamMember(tx, actor, args.target, args.patch, { expected: args.before });
+      return {
+        result: { changed: r.changed, ...(r.claim ? { claimPath: r.claim.claimPath } : {}) },
+        ...(r.claim ? { inviteClaim: { inviteId: r.claim.inviteId, claimPath: r.claim.claimPath, expiresAt: r.claim.expiresAt } } : {}),
+      };
+    }
+    case 'remove_agent': {
+      if (args.target.kind === 'invite') {
+        await withdrawInvite(tx, actor, args.target.inviteId);
+        return { result: { withdrawn: 1 } };
+      }
+      if (!args.choice) throw new AssistantError('conflict', 'Who receives their work was not chosen. Ask the assistant again.');
+      // Every check removeMember makes, made now (team:manage, still active, not you, an owner
+      // only by an owner, never the last owner); the removal itself runs after the commit.
+      await offboardingPreview(tx, actor, args.target.userId, now);
+      return { result: {}, offboard: { userId: args.target.userId, choice: args.choice } };
+    }
   }
 }
 
@@ -311,7 +364,7 @@ export type ApproveResult =
   | { outcome: 'already'; status: ProposalStatus };
 
 type RowT = typeof proposedAction.$inferSelect;
-type Ran = { ok: true; result: Record<string, unknown>; appointmentId?: string; batchId?: string } | { ok: false; error: string };
+type Ran = ({ ok: true } & Executed) | { ok: false; error: string };
 
 /**
  * Run a CLAIMED action inside the caller's transaction: audit, execute in a
@@ -361,8 +414,47 @@ async function failRow(tx: Db, actor: Actor | null, row: RowT, reason: string, n
   }
 }
 
-/** After the commit: Google/Zoom sync and the email send (network never runs inside a transaction). */
-async function afterCommit(db: Db, row: RowT, ran: Extract<Ran, { ok: true }>, deps: RunDeps): Promise<ApproveResult> {
+/**
+ * A member removal, after the claim committed. removeMember opens its own
+ * transactions and makes network calls, so it cannot run inside the claim's.
+ * A refusal now (they were removed meanwhile, the receiver left) turns the
+ * card failed with the reason.
+ */
+async function runOffboard(db: Db, actor: Actor, row: RowT, ran: Extract<Ran, { ok: true }>, deps: RunDeps): Promise<ApproveResult> {
+  const { userId, choice } = ran.offboard!;
+  try {
+    const report = await removeMember(db, actor, userId, choice, deps.offboard ?? {});
+    const result = { removed: true, moved: report.moved, flagged: report.flagged };
+    await db.update(proposedAction).set({ result, updatedAt: sql`now()` }).where(eq(proposedAction.id, row.id));
+    return { outcome: 'done', result, sync: null };
+  } catch (err) {
+    const reason = err instanceof OffboardError ? err.message : 'The removal stopped because of an error on our side. Check Agents & Team before trying again.';
+    if (!(err instanceof OffboardError)) console.error('[assistant] removal failed', err instanceof Error ? err.message : err);
+    await db
+      .update(proposedAction)
+      .set({ status: 'failed', error: reason, updatedAt: sql`now()` })
+      .where(eq(proposedAction.id, row.id));
+    return { outcome: 'failed', error: reason };
+  }
+}
+
+/** After the commit: Google/Zoom sync, the email send, a removal (network never runs inside a transaction). */
+async function afterCommit(db: Db, actor: Actor, row: RowT, ran: Extract<Ran, { ok: true }>, deps: RunDeps): Promise<ApproveResult> {
+  if (ran.offboard) return runOffboard(db, actor, row, ran, deps);
+  if (ran.inviteClaim) {
+    let emailed = false;
+    if (deps.inviteMail) {
+      emailed = await emailAgentInvite(db, deps.inviteMail, actor, ran.inviteClaim)
+        .then((o) => o.emailed)
+        .catch((err: unknown) => {
+          console.error('[assistant] invite email failed', err instanceof Error ? err.message : err);
+          return false;
+        });
+    }
+    const result = { ...ran.result, emailed };
+    await db.update(proposedAction).set({ result, updatedAt: sql`now()` }).where(eq(proposedAction.id, row.id));
+    return { outcome: 'done', result, sync: null };
+  }
   let sync: SyncOutcome | null = null;
   if (ran.appointmentId && deps.sync) {
     sync = await syncAppointment(db, deps.sync, ran.appointmentId).catch(() => null);
@@ -428,7 +520,7 @@ export async function approveProposedAction(
 
   if (!ran) return notClaimed(db, row.id);
   if (!ran.ok) return { outcome: 'failed', error: ran.error };
-  return afterCommit(db, row, ran, deps);
+  return afterCommit(db, actor, row, ran, deps);
 }
 
 async function notClaimed(db: Db, id: string): Promise<ApproveResult> {
@@ -448,6 +540,11 @@ async function schedule(db: Db, actor: Actor, row: RowT, runAt: Date, deps: RunD
     throw new AssistantError('conflict', `A change can run at most ${SCHEDULE_MAX_HOURS} hours from now.`);
   }
   const args = row.args as FrozenArgs;
+  // A team change (ADR 0033) runs when approved: the cron has no calendar keys for a removal,
+  // and a role or invite change waiting for hours is a change nobody is watching.
+  if (args.tool === 'update_agent' || args.tool === 'remove_agent') {
+    throw new AssistantError('conflict', 'A team change runs when you approve it — it cannot be set for later.');
+  }
   if (args.tool === 'send_template_email') {
     // The prepared email (ADR 0022) has its own 48-hour life; the run must fall inside it.
     const [b] = await db.select({ expiresAt: emailBatch.expiresAt }).from(emailBatch).where(eq(emailBatch.id, args.batchId)).limit(1);
@@ -497,7 +594,7 @@ export async function runScheduledActions(db: Db, deps: RunDeps = {}, now = new 
   const report: ScheduledRunReport = { ran: 0, done: 0, failed: 0 };
   for (let i = 0; i < limit; i++) {
     let row: RowT | null = null;
-    let outcome: { kind: 'done'; ran: Extract<Ran, { ok: true }> } | { kind: 'failed' } | null;
+    let outcome: { kind: 'done'; ran: Extract<Ran, { ok: true }>; actor: Actor } | { kind: 'failed' } | null;
     try {
       outcome = await db.transaction(async (tx) => {
         // Lock one due row (another tick skips it), then move it on — both in this transaction.
@@ -524,7 +621,7 @@ export async function runScheduledActions(db: Db, deps: RunDeps = {}, now = new 
           return { kind: 'failed' as const };
         }
         const ran = await runClaimed(tx as unknown as Db, actor, row, deps, now);
-        return ran.ok ? { kind: 'done' as const, ran } : { kind: 'failed' as const };
+        return ran.ok ? { kind: 'done' as const, ran, actor } : { kind: 'failed' as const };
       });
     } catch (err) {
       // Not a refusal: the transaction rolled back, nothing happened. Fail it (guarded) so it is
@@ -549,7 +646,7 @@ export async function runScheduledActions(db: Db, deps: RunDeps = {}, now = new 
       continue;
     }
     report.done += 1;
-    await afterCommit(db, row!, outcome.ran, deps).catch((err: unknown) => console.error('[assistant] after-run step failed', err instanceof Error ? err.message : err));
+    await afterCommit(db, outcome.actor, row!, outcome.ran, deps).catch((err: unknown) => console.error('[assistant] after-run step failed', err instanceof Error ? err.message : err));
   }
   return report;
 }
@@ -621,7 +718,7 @@ export type ProposalView = {
   card: ProposalCard;
   error: string | null;
   /** Ids of what it made or changed — for links. Never model text. */
-  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; recorded?: number; withdrawn?: number; changed?: string[]; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
+  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; recorded?: number; withdrawn?: number; changed?: string[]; claimPath?: string; emailed?: boolean; removed?: boolean; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
   expiresAt: Date;
   /** When a scheduled action will run (about; up to ~5 minutes later). */
   runAt: Date | null;
@@ -646,7 +743,8 @@ export async function getProposedAction(db: Db, actor: Actor, id: string, now = 
     result: (row.result as ProposalView['result']) ?? null,
     expiresAt: new Date(row.expiresAt),
     runAt: row.runAt ? new Date(row.runAt) : null,
-    scheduling: schedulingEnabled(),
+    // A team change runs when approved, never later (schedule() refuses it), so the card offers no time.
+    scheduling: schedulingEnabled() && row.tool !== 'update_agent' && row.tool !== 'remove_agent',
     mayDecide: waiting && can(actor, 'proposed_action:decide', actionResource(row)),
     mayCancel: (status === 'proposed' || status === 'scheduled') && can(actor, 'proposed_action:cancel', actionResource(row)),
   };

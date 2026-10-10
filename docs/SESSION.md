@@ -1,3 +1,27 @@
+## 2026-10-10 — Claude Code — Team members: edit and remove, by screen and by assistant (branch feat/team-edit)
+
+- Worktree /Users/saadiii/Job/realestate_ai-team, from feat/meetings 74a060c (its uncommitted
+  meetings WIP is NOT in this branch). ADR 0033. Not committed (waiting for the user).
+- Core: `team/edit-member.ts` — editTeamMember (member or pending invite; names, phone, licence
+  number/expiry, territory, operational role → membership.role; an invite's email rotates its
+  token), withdrawInvite; refusals: an active member's email, your own role, an owner's role,
+  an email a member or another live invite has, a field changed since the card.
+- Assistant: `I` handles (invites); read tool find_agents; write tools update_agent and
+  remove_agent (member → ADR 0030 removeMember after the claim commits, needs receiver or
+  leave_for_review, else no card; invite → withdraw). Team tools gated by team:manage at the
+  door, never scheduled. Prompt assistant@v9 (v8 belongs to feat/meetings).
+- Console: Edit details / Withdraw invite in the dossier (member-edit.tsx); actions in team/actions.ts;
+  approve wiring passes offboard + invite-mail deps; panel links team cards to /team.
+- Migration 0040_proposed_action_team_tools written, NOT applied (.env.local's database is the one
+  production uses). Journal idx 40, when 1791631583818 > meetings' 0039. 0040_snapshot is 0038's with
+  prevId = meetings' 0039 id — at the merge replace it with 0039's snapshot (new id) before any generate.
+- Checks: unit 885 + 294, typecheck/lint 20/20. Break-tests red: active-email guard, team:manage in
+  edit/withdraw, the team-tools door. Smoke NOT run (it writes to that same database).
+- Merge notes (meetings first): journal keeps 0039 then 0040; prompt — fold v8's meeting lines into v9
+  (or both into v10) and point the pipeline + test at it; assistant schema/actions/panel conflict only
+  textually.
+- Next: the user decides — apply 0039 + 0040, run smoke, TEST-PLAN AF, commit/merge.
+
 ## 2026-10-07 — Claude Code — Merged polish → search (rag) → assistant contact tools into feat/crm
 
 - polish rebased on 1356053 (clean; typecheck/lint 20/20, unit 827 + 286), then fast-forwarded;

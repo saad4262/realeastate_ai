@@ -5,6 +5,9 @@ import { appointment, contact, lead, property, user, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { contactQueryFilters } from '../contacts/list-contacts';
 import { listContactAssignees } from '../contacts/write-contacts';
+import { listAgencyAgents } from '../team/list-agents';
+import { OPERATIONAL_ROLE_LABELS } from '../team/edit-member';
+import type { OperationalRole } from '../team/invite-schema';
 import { visibleContactIdsSql } from '../contacts/visibility';
 import { leadScopeFilters } from '../leads/list-leads';
 import { appointmentScopeFilters } from '../appointments/appointments';
@@ -31,10 +34,13 @@ import {
   proposeCreateDashboard,
   proposeSendTemplateEmail,
   proposeSetNextAction,
+  proposeUpdateAgent,
+  proposeRemoveAgent,
 } from './write-tools';
 import { agencyTimeZone, renderWidget } from '../widgets/registry';
 import {
   ASSISTANT_ADMIN_TOOLS,
+  ASSISTANT_TEAM_TOOLS,
   ASSISTANT_TOOL_INPUTS,
   type AppointmentRange,
   type AssistantFrame,
@@ -100,6 +106,9 @@ const LABELS: Record<AssistantToolName, string> = {
   withdraw_marketing_consent: 'Preparing the withdrawal for you to approve…',
   update_contact: 'Preparing the change for you to approve…',
   set_contact_archived: 'Preparing the archive change for you to approve…',
+  find_agents: 'Looking up the team…',
+  update_agent: 'Preparing the change for you to approve…',
+  remove_agent: 'Preparing the removal for you to approve…',
 };
 
 /** Tools that change a contact's own record: never for someone who may not edit a contact of their own (read-only). */
@@ -168,6 +177,9 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
   if ((ASSISTANT_ADMIN_TOOLS as readonly string[]).includes(tool) && !can(actor, 'contact:assign', { type: 'contact', agencyId: actor.agencyId })) {
     return refused('Only an owner or admin can assign contacts. Tell the person to ask one of them.', label);
   }
+  if ((ASSISTANT_TEAM_TOOLS as readonly string[]).includes(tool) && !can(actor, 'team:manage', { type: 'team', agencyId: actor.agencyId })) {
+    return refused('Only an owner or admin can look up or change the team. Tell the person to ask one of them.', label);
+  }
   if (CONTACT_EDIT_TOOLS.includes(tool) && !can(actor, 'contact:update', { type: 'contact', id: 'probe', agencyId: actor.agencyId, ownerId: actor.userId })) {
     return refused('This person may view contacts but not change them.', label);
   }
@@ -214,7 +226,61 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return proposeUpdateContact(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.update_contact>, label);
     case 'set_contact_archived':
       return proposeSetArchived(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.set_contact_archived>, label);
+    case 'find_agents':
+      return findAgents(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.find_agents>, label);
+    case 'update_agent':
+      return proposeUpdateAgent(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.update_agent>, label);
+    case 'remove_agent':
+      return proposeRemoveAgent(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.remove_agent>, label);
   }
+}
+
+function dayOf(iso: string | null): string | null {
+  return iso ? new Intl.DateTimeFormat('en-AU', { timeZone: 'UTC', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso)) : null;
+}
+
+/**
+ * The team, for owners/admins (ADR 0033): the Agents & Team roster — active
+ * members as `M`, pending invites as `I` — with what tells two people of one
+ * name apart (email, phone, licence number). Removed members are left out.
+ */
+async function findAgents(ctx: ToolContext, input: z.infer<typeof ASSISTANT_TOOL_INPUTS.find_agents>, label: string): Promise<ToolOutcome> {
+  const rows = await listAgencyAgents(ctx.db, ctx.actor);
+  const q = input.text?.toLowerCase();
+  const digits = input.text?.replace(/\D/g, '') ?? '';
+  const matches = rows
+    .filter((r) => r.status === 'active' || r.status === 'invited')
+    .filter((r) => {
+      if (!q) return true;
+      const hay = [r.name, r.firstName, r.lastName, r.email, r.licenceNumber].filter(Boolean).join(' ').toLowerCase();
+      if (hay.includes(q)) return true;
+      return digits.length >= 4 && [r.phone, r.licenceNumber].some((v) => v?.replace(/\D/g, '').includes(digits));
+    });
+  const shown = matches.slice(0, 20);
+  return {
+    label,
+    result: {
+      note: DATA_NOTE,
+      total: matches.length,
+      agents: shown.map((r) => {
+        // A pending invite's row carries the invite's id as its user id (listAgencyAgents).
+        const isInvite = r.status === 'invited' && r.userId === r.membershipId;
+        const role = r.operationalRole as OperationalRole | null;
+        return {
+          ref: issueHandle(ctx.handles, isInvite ? 'I' : 'M', r.userId),
+          name: r.name,
+          status: isInvite ? 'invited (has not joined yet)' : r.status,
+          email: r.email,
+          phone: r.phone,
+          licence_number: r.licenceNumber,
+          licence_expiry: dayOf(r.licenceExpiry),
+          territory: r.territorySuburbs?.join(', ') || null,
+          role: r.role === 'owner' ? 'Owner' : role && role in OPERATIONAL_ROLE_LABELS ? OPERATIONAL_ROLE_LABELS[role] : r.role,
+          ...(r.userId === ctx.actor.userId ? { you: true } : {}),
+        };
+      }),
+    },
+  };
 }
 
 /**

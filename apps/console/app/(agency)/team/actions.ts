@@ -2,8 +2,11 @@
 
 import { revalidatePath } from 'next/cache';
 import {
+  editTeamMember,
   emailAgentInvite,
   inviteAgent,
+  TeamEditError,
+  withdrawInvite,
   listAgencyAgents,
   resendAgentInvite,
   toInviteAgentError,
@@ -137,5 +140,47 @@ export async function resendInviteAction(
   } catch (err) {
     const inviteError = toInviteAgentError(err);
     return { ok: false, error: inviteError.message, code: inviteError.code };
+  }
+}
+
+
+export type TeamEditActionResult =
+  | { ok: true; changed: string[]; claimPath: string | null; emailed: boolean }
+  | { ok: false; error: string };
+
+/**
+ * Correct a member's or a pending invite's details (ADR 0033). Core asks
+ * team:manage and makes every rule — this only carries the session and the
+ * form. A new invite email rotates the link; the new one is emailed and
+ * returned so the screen can show it.
+ */
+export async function editTeamMemberAction(
+  target: { kind: 'member'; userId: string } | { kind: 'invite'; inviteId: string },
+  patch: unknown,
+): Promise<TeamEditActionResult> {
+  const session = await requireConsoleAccess('agency');
+  try {
+    const result = await editTeamMember(getConsoleDb(), session.actor, target, patch);
+    revalidatePath('/team');
+    const emailed = result.claim ? await emailInvite(session.actor, result.claim) : false;
+    return { ok: true, changed: result.changed, claimPath: result.claim?.claimPath ?? null, emailed };
+  } catch (err) {
+    if (err instanceof TeamEditError) return { ok: false, error: err.message };
+    console.error('[team] edit failed', err);
+    return { ok: false, error: 'That did not save. Please try again.' };
+  }
+}
+
+/** Take back an invite that was not accepted yet. Its link then says it was withdrawn. */
+export async function withdrawInviteAction(inviteId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await requireConsoleAccess('agency');
+  try {
+    await withdrawInvite(getConsoleDb(), session.actor, inviteId);
+    revalidatePath('/team');
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof TeamEditError) return { ok: false, error: err.message };
+    console.error('[team] withdraw failed', err);
+    return { ok: false, error: 'That did not work. Please try again.' };
   }
 }

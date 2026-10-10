@@ -274,6 +274,13 @@
       "when": 1791618350061,
       "tag": "0038_skill_interval_floor",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791631583818,
+      "tag": "0040_proposed_action_team_tools",
+      "breakpoints": true
     }
   ]
 }

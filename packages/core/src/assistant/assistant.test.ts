@@ -424,6 +424,9 @@ describe('the contact tools, by role — who gets past the door (before any data
     withdraw_marketing_consent: { contacts: ['C1'], reason: 'Asked to stop' },
     update_contact: { contact: 'C1', name: 'New name' },
     set_contact_archived: { contact: 'C1', archived: true },
+    find_agents: { text: 'Ali' },
+    update_agent: { agent: 'M1', licence_number: '123456' },
+    remove_agent: { agent: 'M1', leave_for_review: true },
   };
   // Allowed = reaches the database (where can() is asked again on the row); refused = never does.
   const allowed: Record<string, string[]> = {
@@ -446,4 +449,73 @@ describe('the contact tools, by role — who gets past the door (before any data
       }
     });
   }
+});
+
+describe('the team tools (ADR 0033) — owners and admins only, references only, a removal needs a decision', () => {
+  const memberId = '55555555-5555-4555-8555-555555555555';
+  const inviteId = '66666666-6666-4666-8666-666666666666';
+  function teamHandles(): HandleMap {
+    const h: HandleMap = {};
+    issueHandle(h, 'M', memberId);
+    issueHandle(h, 'I', inviteId);
+    return h;
+  }
+
+  it('an agent is never a team member or invite reference by name, email, id or contact', () => {
+    for (const agent of ['Ali Asad', 'ali@x.com', memberId, 'C1', 'S1']) {
+      expect(ASSISTANT_TOOL_INPUTS.update_agent.safeParse({ agent, phone: '0418 920 441' }).success, agent).toBe(false);
+      expect(ASSISTANT_TOOL_INPUTS.remove_agent.safeParse({ agent, leave_for_review: true }).success, agent).toBe(false);
+    }
+    expect(ASSISTANT_TOOL_INPUTS.update_agent.safeParse({ agent: 'I1', email: 'new@agency.com.au' }).success).toBe(true);
+    expect(ASSISTANT_TOOL_INPUTS.remove_agent.safeParse({ agent: 'M1', receiver: 'M2' }).success).toBe(true);
+    // The receiver is a member, never an invite.
+    expect(ASSISTANT_TOOL_INPUTS.remove_agent.safeParse({ agent: 'M1', receiver: 'I1' }).success).toBe(false);
+  });
+
+  it('no field for commission, permissions, the public profile, membership role or status', () => {
+    for (const extra of [{ commission_split_agent: 90 }, { permission_flags: {} }, { public: true }, { membership_role: 'owner' }, { status: 'active' }, { role: 'owner' }]) {
+      expect(ASSISTANT_TOOL_INPUTS.update_agent.safeParse({ agent: 'M1', ...extra }).success, JSON.stringify(extra)).toBe(false);
+    }
+  });
+
+  it('an agent or a read-only member is refused all three before the database', async () => {
+    for (const role of ['agent', 'read_only'] as const) {
+      for (const [tool, input] of [
+        ['find_agents', {}],
+        ['update_agent', { agent: 'M1', phone: '0418 920 441' }],
+        ['remove_agent', { agent: 'I1' }],
+      ] as const) {
+        const out = await runAssistantTool(ctx(teamHandles(), role), tool, input);
+        expect(out.isError, `${role} ${tool}`).toBe(true);
+        expect(JSON.stringify(out.result)).toMatch(/owner or admin/);
+      }
+    }
+  });
+
+  it('removing a member without saying who gets their work: no card, and the model is told to ask', async () => {
+    const out = await runAssistantTool(ctx(teamHandles(), 'owner'), 'remove_agent', { agent: 'M1' });
+    expect(out.frame).toBeUndefined();
+    expect(JSON.stringify(out.result)).toMatch(/ask the person who should receive/);
+    const both = await runAssistantTool(ctx(teamHandles(), 'owner'), 'remove_agent', { agent: 'M1', receiver: 'M1', leave_for_review: true });
+    expect(both.isError).toBe(true);
+  });
+
+  it('a member or invite reference this conversation never issued is refused before the database', async () => {
+    for (const [tool, input] of [
+      ['update_agent', { agent: 'M7', phone: '0418 920 441' }],
+      ['remove_agent', { agent: 'I9' }],
+      ['remove_agent', { agent: 'M1', receiver: 'M9' }],
+    ] as const) {
+      const out = await runAssistantTool(ctx(teamHandles(), 'owner'), tool, input);
+      expect(out.isError, tool).toBe(true);
+      expect(JSON.stringify(out.result)).toMatch(/not one you were given/);
+    }
+  });
+
+  it('a member reference is not an invite reference, even with the same id', () => {
+    const h: HandleMap = {};
+    issueHandle(h, 'M', memberId);
+    expect(resolveHandle(h, 'M1', 'invite')).toBeNull();
+    expect(parseHandleMap({ I1: { k: 'member', id: memberId } })).toEqual({});
+  });
 });
