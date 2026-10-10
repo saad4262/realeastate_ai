@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import type { ConsoleChrome } from '../../lib/require-console-access';
 import { AssistantPanel } from '@/components/assistant/assistant-panel';
+import { NotificationBell } from '@/components/notifications/notification-bell';
 import { AgentNav } from './agent-nav';
 import styles from './agent-shell.module.css';
 
@@ -38,6 +39,7 @@ export function AgentShell({ children, userLabel, chrome }: AgentShellProps) {
           <NavWithCounts chrome={chrome} />
         </Suspense>
         <div className={styles.foot}>
+          <NotificationBell placement="sidebar" />
           <span className={styles.user}>{userLabel}</span>
           <Link href="/sign-out" className={styles.signOut}>
             Sign out

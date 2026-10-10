@@ -40,6 +40,7 @@ const OWN_AGENCY = [
   'listing_import',
   'agency_google_place',
   'search_embedding',
+  'notification',
 ] as const;
 
 /** Reaches an agency through a parent row: table → [foreign-key column, parent table]. */

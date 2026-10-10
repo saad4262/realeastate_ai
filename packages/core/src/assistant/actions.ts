@@ -17,6 +17,9 @@ import {
 } from '../contacts/write-contacts';
 import { AppointmentError, cancelAppointment, rescheduleAppointment, scheduleAppointment } from '../appointments/appointments';
 import { syncAppointment, type SyncDeps, type SyncOutcome } from '../appointments/sync';
+import { sendInvitation } from '../appointments/invitation';
+import { getAppointment } from '../appointments/appointments';
+import type { MailDeps } from '../mail/send';
 import { requireIntegrations } from '../integrations/accounts';
 import { approveBatch, cancelBatch } from '../template-email/batches';
 import { sendBatch, type TemplateSendDeps } from '../template-email/send';
@@ -60,6 +63,11 @@ export type FrozenArgs =
       location: string | null;
       /** Providers that must still be connected when it runs. */
       requires: IntegrationProvider[];
+      /**
+       * Email the ADR 0019 invitation once it is booked and synced (ADR 0032 §1).
+       * Absent on cards made before it existed: no invitation.
+       */
+      sendInvitation?: boolean;
     }
   | { tool: 'reschedule_appointment'; appointmentId: string; contactId: string; startsAt: string; endsAt: string; timezone: string; requires: IntegrationProvider[] }
   | { tool: 'cancel_appointment'; appointmentId: string; contactId: string; reason: string | null; requires: IntegrationProvider[] }
@@ -178,7 +186,13 @@ async function assertStillConnected(db: DbOrTx, actor: Actor, providers: Integra
 }
 
 /** Run one approved action AS the person, through the same core function a screen uses — which re-checks can(). */
-type RunDeps = { sync?: SyncDeps | null; templateSend?: TemplateSendDeps | null; env?: NodeJS.ProcessEnv };
+type RunDeps = {
+  sync?: SyncDeps | null;
+  templateSend?: TemplateSendDeps | null;
+  /** For an appointment card's invitation (ADR 0032 §1). Falls back to templateSend's. */
+  mail?: MailDeps | null;
+  env?: NodeJS.ProcessEnv;
+};
 
 /**
  * Delayed execution (ADR 0025 §6, Phase E) is offered only with
@@ -367,6 +381,13 @@ async function afterCommit(db: Db, row: RowT, ran: Extract<Ran, { ok: true }>, d
   if (ran.appointmentId && deps.sync) {
     sync = await syncAppointment(db, deps.sync, ran.appointmentId).catch(() => null);
   }
+  const args = row.args as FrozenArgs;
+  if (ran.appointmentId && args.tool === 'schedule_appointment' && args.sendInvitation) {
+    const invitation = await inviteAfterBooking(db, row, ran.appointmentId, deps);
+    const result = { ...ran.result, ...invitation };
+    await db.update(proposedAction).set({ result, updatedAt: sql`now()` }).where(eq(proposedAction.id, row.id));
+    return { outcome: 'done', result, sync };
+  }
   if (ran.batchId && deps.templateSend) {
     // sendBatch re-checks each recipient — consent, opt-out, archive, email changed, the 7-day
     // rule, the dev allowlist, today's limits — and skips with the reason; it never adds anyone.
@@ -379,6 +400,37 @@ async function afterCommit(db: Db, row: RowT, ran: Extract<Ran, { ok: true }>, d
     return { outcome: 'done', result, sync };
   }
   return { outcome: 'done', result: ran.result, sync };
+}
+
+/**
+ * The invitation a booking card asked for (ADR 0032 §1), after the booking and
+ * its sync: sent as the person who approved it, as they are now, through
+ * ADR 0019's own `sendInvitation` (which repeats every check). A Zoom meeting
+ * whose link was not created is not invited — the email would have no link.
+ * Never throws: the booking stands either way, and the card says what happened.
+ */
+async function inviteAfterBooking(
+  db: Db,
+  row: RowT,
+  appointmentId: string,
+  deps: RunDeps,
+): Promise<{ invited: true; threadId: string } | { invitationError: string }> {
+  const mail = deps.mail ?? deps.templateSend?.mail ?? null;
+  if (!mail) return { invitationError: 'Email is not set up on this server, so the invitation was not sent. Send it from the contact’s Calendar tab later.' };
+  try {
+    const actor = await activeMemberActor(db, row.userId, row.agencyId);
+    if (!actor) return { invitationError: 'You are no longer an active member, so the invitation was not sent.' };
+    const a = await getAppointment(db, actor, appointmentId);
+    if (a.type === 'zoom' && !a.meetingUrl) {
+      return { invitationError: 'The Zoom meeting was not created, so the invitation was not sent. Press Retry on the appointment, then Send invitation from the contact’s Calendar tab.' };
+    }
+    const sent = await sendInvitation(db, mail, actor, appointmentId);
+    return sent.status === 'sent'
+      ? { invited: true, threadId: sent.threadId }
+      : { invitationError: `The invitation could not be delivered${sent.error ? `: ${sent.error}` : ''}. It has a Retry in the conversation.` };
+  } catch (err) {
+    return { invitationError: err instanceof Error ? err.message : 'The invitation was not sent.' };
+  }
 }
 
 /**
@@ -621,7 +673,7 @@ export type ProposalView = {
   card: ProposalCard;
   error: string | null;
   /** Ids of what it made or changed — for links. Never model text. */
-  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; recorded?: number; withdrawn?: number; changed?: string[]; sent?: number; skipped?: number; failed?: number; sendError?: string } | null;
+  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; recorded?: number; withdrawn?: number; changed?: string[]; sent?: number; skipped?: number; failed?: number; sendError?: string; invited?: boolean; invitationError?: string } | null;
   expiresAt: Date;
   /** When a scheduled action will run (about; up to ~5 minutes later). */
   runAt: Date | null;

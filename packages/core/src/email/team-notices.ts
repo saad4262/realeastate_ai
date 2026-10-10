@@ -395,3 +395,72 @@ export function buildSkillResultEmail(input: SkillResultEmailInput): Transaction
     .join('\n');
   return { kind: 'transactional', to: input.to, from: input.from, subject: heading, html, text, tags: { kind: 'skill-result' } };
 }
+
+// ── Meeting reminder (to the agent and whoever booked it, ADR 0032 §4) ───────
+
+export type MeetingReminderEmailInput = {
+  to: { email: string; name?: string };
+  from: { email: string; name: string };
+  postalAddress: string;
+  title: string;
+  contactName: string;
+  /** "Fri 10 Oct 2026, 8:00 pm AEDT – 9:00 pm", in the zone it was booked in. */
+  when: string;
+  /** "in 15 minutes", "now". */
+  startsIn: string;
+  location: string | null;
+  /** The Zoom (or pasted) join link, if it has one. */
+  joinUrl: string | null;
+  /** The console calendar on the person's own surface. */
+  calendarUrl: string;
+};
+
+export function buildMeetingReminderEmail(input: MeetingReminderEmailInput): TransactionalMessage {
+  requireSenderFooter(input.from, input.postalAddress, 'meeting reminder');
+  const heading = `${input.title} — ${input.startsIn}`;
+  const intro = `Your meeting with ${input.contactName}.`;
+  const footer: Footer = {
+    from: input.from,
+    postalAddress: input.postalAddress,
+    why: 'Sent because this meeting is on your calendar with a reminder.',
+  };
+  const lines = [
+    `When: ${escapeHtml(input.when)}`,
+    input.location ? `Where: ${escapeHtml(input.location)}` : null,
+    input.joinUrl ? `Join: <a href="${escapeHtml(input.joinUrl)}" style="color:#0b3d2e;">${escapeHtml(input.joinUrl)}</a>` : null,
+  ].filter(Boolean);
+  const html = layout({
+    heading,
+    intro,
+    body: `
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:18px;">
+            <tr><td style="padding:16px 0 0;border-top:1px solid #ece7dd;font:400 15px/1.6 ${FONT};color:#1a1a1a;">
+              ${lines.join('<br>')}
+            </td></tr>
+          </table>`,
+    button: input.joinUrl ? { label: 'Join the meeting', url: input.joinUrl } : { label: 'Open your calendar', url: input.calendarUrl },
+    footer,
+  });
+  const text = [
+    heading,
+    intro,
+    '',
+    `When: ${input.when}`,
+    input.location ? `Where: ${input.location}` : null,
+    input.joinUrl ? `Join: ${input.joinUrl}` : null,
+    `Your calendar: ${input.calendarUrl}`,
+    '',
+    ...textFooter(footer),
+  ]
+    .filter((line) => line !== null)
+    .join('\n');
+  return {
+    kind: 'transactional',
+    to: input.to,
+    from: input.from,
+    subject: heading,
+    html,
+    text,
+    tags: { kind: 'meeting-reminder' },
+  };
+}

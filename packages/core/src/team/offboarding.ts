@@ -23,6 +23,7 @@ import {
 import { can, type Actor, type MembershipRole } from '../permissions';
 import { ACTIVE_STATUSES } from '../appointments/appointment-schema';
 import { removeProviderItemAs, syncAppointment, type SyncDeps } from '../appointments/sync';
+import { clashingIds, isOverlapViolation } from '../appointments/clash';
 import { attachListingAgents } from '../listings/listing-agents';
 import { decryptToken } from '../integrations/crypto';
 import { adapterForTokens } from '../integrations/oauth';
@@ -305,12 +306,22 @@ export async function removeMember(db: Db, actor: Actor, userId: string, rawChoi
           .returning({ id: lead.id })
       : [];
 
+    // One that would overlap a meeting the receiver already has (ADR 0032 §3) goes to the
+    // "Needs an owner" queue instead — the no-overlap constraint would refuse the move.
     const upcomingIds = upcoming.map((a) => a.id);
-    if (upcomingIds.length) {
+    const busy = receiverId ? new Set(await clashingIds(tx as unknown as Db, receiverId, upcomingIds)) : new Set<string>();
+    const moving = upcomingIds.filter((id) => !busy.has(id));
+    if (moving.length) {
       await tx
         .update(appointment)
         .set({ assignedAgentId: receiverId, needsOwnerAt: flag, updatedAt: sql`now()` })
-        .where(inArray(appointment.id, upcomingIds));
+        .where(inArray(appointment.id, moving));
+    }
+    if (busy.size) {
+      await tx
+        .update(appointment)
+        .set({ assignedAgentId: null, needsOwnerAt: now, updatedAt: sql`now()` })
+        .where(inArray(appointment.id, [...busy]));
     }
     if (clearedEvents.length) {
       await tx
@@ -407,7 +418,8 @@ export async function removeMember(db: Db, actor: Actor, userId: string, rawChoi
     report[key].contacts = contacts.length;
     report[key].leads = leads.length;
     report.flagged.leads += offersHeld.length;
-    report[key].appointments = upcomingIds.length;
+    report[key].appointments = receiverId ? moving.length : upcomingIds.length;
+    report.flagged.appointments += busy.size;
     report[key].listings = orphanIds.length;
     report.zoom.linkChanged = clearedMeetings.length;
     report.cancelled = { cards: cards.length, batches: batches.length, imports: imports.length };
@@ -415,7 +427,7 @@ export async function removeMember(db: Db, actor: Actor, userId: string, rawChoi
     report.conversationsDeleted = convs.length;
     report.privateSearchEmbeddingsDeleted = privateEmbeddings.length;
     report.agencyAccountsFlagged = flagged.length;
-    return receiverId ? upcomingIds : [];
+    return receiverId ? moving : [];
   });
 
   // ── 4. Their own integration tokens: revoke (best effort), then delete.
@@ -572,7 +584,11 @@ export async function assignNeedsOwner(
       .update(appointment)
       .set({ assignedAgentId: item.userId, needsOwnerAt: null, calendarSyncState: 'pending', updatedAt: sql`now()` })
       .where(and(eq(appointment.id, item.id), eq(appointment.agencyId, agencyId), isNull(appointment.assignedAgentId), gte(appointment.startsAt, new Date(0))))
-      .returning({ id: appointment.id });
+      .returning({ id: appointment.id })
+      .catch((err: unknown) => {
+        if (isOverlapViolation(err)) throw new OffboardError('conflict', 'That person already has a meeting at that time. Pick someone else, or move one of them first.');
+        throw err;
+      });
     if (!done.length) throw NOT_FOUND();
     if (deps.sync) await syncAppointment(db, deps.sync, item.id).catch(() => null);
     return;

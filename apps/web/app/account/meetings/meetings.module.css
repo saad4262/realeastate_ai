@@ -1,0 +1,21 @@
+/* Meetings & notifications (ADR 0032 §5). Shares the messages page's look; only the meeting row is new. */
+
+.meeting { display: grid; gap: 0.35rem; padding: 0.9rem 1.1rem; }
+.meetingTop { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 0.75rem; }
+.meetingTitle { font-weight: 600; color: var(--color-ink, #1a1a1a); overflow-wrap: anywhere; }
+.meetingWhen { font-size: 0.875rem; color: var(--color-ink, #1a1a1a); font-variant-numeric: tabular-nums; }
+.meetingMeta { font-size: 0.8125rem; color: var(--color-muted, #5c5c5c); overflow-wrap: anywhere; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin-top: 0.25rem; }
+.join { display: inline-block; padding: 0.45rem 0.95rem; border-radius: 9999px; background: var(--shell-accent, #0b3d2e); color: var(--color-accent-fg, #f7f4ef); font-size: 0.875rem; font-weight: 600; text-decoration: none; }
+.join:hover { filter: brightness(1.1); }
+.badge { padding: 0.15rem 0.55rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+.live { background: #fde8e8; color: #b42318; }
+.soon { background: #fff4e0; color: #8a4b00; }
+.off { background: color-mix(in srgb, var(--color-border, #d9d2c5) 45%, #fff); color: var(--color-muted, #5c5c5c); }
+.cancelled .meetingTitle { text-decoration: line-through; color: var(--color-muted, #5c5c5c); }
+.banner { display: grid; gap: 0.5rem; margin: 0 0 1rem; padding: 1rem 1.15rem; border-radius: 1rem; border: 1px solid color-mix(in srgb, var(--shell-accent, #0b3d2e) 35%, transparent); background: color-mix(in srgb, var(--shell-accent, #0b3d2e) 7%, #fff); }
+.bannerTitle { margin: 0; font-weight: 700; color: var(--color-ink, #1a1a1a); }
+.section { margin-top: 1.75rem; }
+.sectionHead { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.6rem; }
+.sectionTitle { margin: 0; font-size: 1.0625rem; font-weight: 600; color: var(--color-ink, #1a1a1a); }
+.more { font-size: 0.875rem; font-weight: 600; color: var(--shell-accent, #0b3d2e); }

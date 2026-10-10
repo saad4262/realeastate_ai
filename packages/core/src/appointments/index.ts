@@ -32,4 +32,15 @@ export {
   type SyncOutcome,
   type SyncState,
 } from './sync';
+export { clashingIds, clashMessage, findClash, isOverlapViolation, OVERLAP_CONSTRAINT, OVERLAP_MESSAGE, type Clash } from './clash';
+export {
+  buildContactReminder,
+  NOTIFICATION_KIND_REMINDER,
+  REMINDER_KIND,
+  runReminderTick,
+  startsIn,
+  type ReminderDeps,
+  type ReminderReport,
+} from './reminders';
+export { listCustomerMeetings, type CustomerMeeting } from './customer-meetings';
 export * from './appointment-schema';

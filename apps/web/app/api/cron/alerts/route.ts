@@ -1,10 +1,11 @@
 import { after, NextResponse, type NextRequest } from 'next/server';
-import { runAppointmentSyncTick, syncDepsFromEnv } from '@repo/core/appointments';
+import { runAppointmentSyncTick, runReminderTick, syncDepsFromEnv } from '@repo/core/appointments';
+import { noticeMailFromEnv } from '@repo/core/email';
 import { expireProposedActions, purgeAssistantConversations, runScheduledActions } from '@repo/core/assistant';
 import { purgeImportFiles, runImportTick } from '@repo/core/imports';
 import { runEmbeddingTick } from '@repo/core/assistant-search';
 import { embedderFromEnv } from '@repo/ai/search-embedder';
-import { pullReceivedMail } from '@repo/core/mail';
+import { mailDepsFromEnv, pullReceivedMail } from '@repo/core/mail';
 import { authoriseCronRequest, runScheduleTick } from '@repo/core/schedules';
 import { runSkillTick } from '@repo/core/skills';
 import {
@@ -106,6 +107,15 @@ async function handler(request: NextRequest) {
     }));
 
     /**
+     * Meeting reminders (ADR 0032 §4): each due appointment is claimed once and
+     * its agent and booker get a bell notification and an email; an invited
+     * contact gets an email. Late by up to one tick — 10 to 15 minutes ahead.
+     */
+    const reminders = await runReminderTick(getWebDb(), { notice: noticeMailFromEnv(), mail: mailDepsFromEnv() }).catch((err: unknown) => ({
+      error: err instanceof Error ? err.message : 'reminder tick failed',
+    }));
+
+    /**
      * Console assistant conversations are kept 30 days after their last turn,
      * then deleted with their turns (ADR 0025, decided Q5). Cost rows stay.
      */
@@ -131,7 +141,7 @@ async function handler(request: NextRequest) {
      */
     const scheduled = await (async () => {
       const send = templateSendDepsFromEnv();
-      return runScheduledActions(getWebDb(), { sync: syncDepsFromEnv(), templateSend: send.ok ? send.deps : null });
+      return runScheduledActions(getWebDb(), { sync: syncDepsFromEnv(), templateSend: send.ok ? send.deps : null, mail: mailDepsFromEnv() });
     })().catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'scheduled actions failed' }));
 
     /**
@@ -146,7 +156,7 @@ async function handler(request: NextRequest) {
 
     // No ids, no addresses, no listing text — this is read from a cron log.
     return NextResponse.json(
-      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills, templateEmail, appointmentSync, assistant, imports, scheduled, searchIndex },
+      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills, templateEmail, appointmentSync, reminders, assistant, imports, scheduled, searchIndex },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (err) {

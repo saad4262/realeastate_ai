@@ -156,7 +156,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   },
   {
     name: 'schedule_appointment',
-    description: `Propose booking an appointment with a contact on the person's own calendar. It needs Google Calendar connected (and Zoom for a Zoom type) — if not, it says "Connect … first" and proposes nothing; tell the person that. No invitation email is sent: tell the person to use the contact's Calendar tab for that. ${PROPOSES}`,
+    description: `Propose booking an appointment with a contact on the person's own calendar. A Zoom type needs a Zoom connected (theirs or the agency's) — if not, it says "Connect … first" and proposes nothing; tell the person that. Google Calendar is used if connected and not needed. With send_invitation, the contact is emailed the invitation (a fixed template with the time and the join link) right after the booking — only when the person asked for the contact to be emailed or invited. If the person already has a meeting then, it refuses and says which. ${PROPOSES}`,
     input_schema: {
       type: 'object',
       additionalProperties: false,
@@ -168,6 +168,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
         time: { type: 'string', description: `Start. ${TIME}` },
         duration_minutes: { type: 'integer', description: '15 to 480. Default 60 (30 for a phone call).' },
         location: { type: 'string', description: 'An address, if it has one.' },
+        send_invitation: { type: 'boolean', description: 'true when the person asked to email, invite or send the link to the contact.' },
       },
       required: ['contact', 'type', 'title', 'date', 'time'],
     },

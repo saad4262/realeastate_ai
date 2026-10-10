@@ -1020,9 +1020,17 @@ export const appointment = pgTable(
     zoomSyncError: text('zoom_sync_error'),
     /** A sync run holds this while it talks to Google / Zoom, so a double submit does not create twice. */
     syncClaimedAt: timestamp('sync_claimed_at', { withTimezone: true }),
+    /**
+     * The reminder tick claimed this appointment's reminder (ADR 0032 §4) —
+     * set once, cleared by a reschedule so the new time is reminded too.
+     */
+    reminderSentAt: timestamp('reminder_sent_at', { withTimezone: true }),
     ...timestamps,
   },
   (t) => [
+    // One agent is never booked twice at once (ADR 0032 §3): an EXCLUDE
+    // constraint on (assigned_agent_id, tstzrange(starts_at, ends_at)) for
+    // active rows — hand-written in 0039, not expressible here.
     index('appointment_agency_starts_idx').on(t.agencyId, t.startsAt),
     index('appointment_contact_starts_idx').on(t.contactId, t.startsAt),
     index('appointment_agent_starts_idx').on(t.assignedAgentId, t.startsAt),
@@ -1034,6 +1042,41 @@ export const appointment = pgTable(
 );
 
 export type CalendarConflict = { startsAt: string | null; endsAt: string | null; deleted: boolean; seenAt: string };
+
+/**
+ * Something a member should see in the console bell (ADR 0032 §4) — today only
+ * "your meeting starts soon". Server-only (RLS on, no grants, ADR 0017); a
+ * member reads only their own rows. `dedupeKey` makes the tick idempotent: the
+ * same reminder for the same start time is written once, however many ticks
+ * see it.
+ */
+export const notification = pgTable(
+  'notification',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    kind: varchar('kind', { length: 32 }).notNull(),
+    appointmentId: uuid('appointment_id').references(() => appointment.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    body: text('body'),
+    /** A console path (no host) — the surface decides the host. */
+    href: text('href'),
+    /** A link that opens outside the console, e.g. the Zoom join link. */
+    joinUrl: text('join_url'),
+    dedupeKey: text('dedupe_key').notNull(),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('notification_user_dedupe_key').on(t.userId, t.dedupeKey),
+    index('notification_user_created_idx').on(t.userId, t.createdAt),
+  ],
+);
 
 // ── Integrations (docs/adr/0020) ────────────────────────────────────────────
 
@@ -1985,6 +2028,7 @@ export type ContactProperty = typeof contactProperty.$inferSelect;
 export type Note = typeof note.$inferSelect;
 export type Activity = typeof activity.$inferSelect;
 export type Appointment = typeof appointment.$inferSelect;
+export type Notification = typeof notification.$inferSelect;
 export type IntegrationAccount = typeof integrationAccount.$inferSelect;
 export type Skill = typeof skill.$inferSelect;
 export type AgentSkill = typeof agentSkill.$inferSelect;

@@ -57,6 +57,8 @@ export {
   buildLeadNoticeEmail,
   buildContactAssignedEmail,
   buildSkillResultEmail,
+  buildMeetingReminderEmail,
+  type MeetingReminderEmailInput,
   type SkillResultEmailInput,
   type ContactAssignedEmailInput,
   type AgentInviteEmailInput,

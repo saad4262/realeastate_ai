@@ -732,6 +732,28 @@ describe('assistant (ADR 0025)', () => {
     expect(can(agent, 'assistant_conversation:read', { type: 'assistant_conversation', agencyId: agencyA })).toBe(false);
   });
 
+  it("a buyer's meetings on the website: their own account only, never an agency role (ADR 0032)", () => {
+    const meetings = (ownerId: string) => ({ type: 'meeting', ownerId });
+    expect(can({ userId: 'bea' }, 'meeting:read_own', meetings('bea'))).toBe(true);
+    expect(can({ userId: 'bea' }, 'meeting:read_own', meetings('sam'))).toBe(false);
+    expect(can(owner, 'meeting:read_own', { ...meetings('bea'), agencyId: agencyA })).toBe(false);
+    expect(can({ userId: '' }, 'meeting:read_own', meetings(''))).toBe(false);
+  });
+
+  it('a notification: only the person it is for, read-only too — not an admin, not another agency (ADR 0032)', () => {
+    const note = (ownerId: string, agencyId = agencyA) => ({ type: 'notification', id: 'n-1', agencyId, ownerId });
+    for (const action of ['notification:read', 'notification:update'] as const) {
+      expect(can(agent, action, note('agent'))).toBe(true);
+      expect(can(viewer, action, note('viewer'))).toBe(true);
+      expect(can(owner, action, note('agent'))).toBe(false);
+      expect(can(other, action, note('agent'))).toBe(false);
+      expect(can(rival, action, note('rival'))).toBe(false);
+      expect(can({ ...agent, agencyId: agencyB }, action, note('agent'))).toBe(false);
+      expect(can(agent, action, { type: 'notification', agencyId: agencyA })).toBe(false);
+      expect(can({ userId: 'agent' }, action, note('agent'))).toBe(false);
+    }
+  });
+
   it('a proposed action: its author approves; an admin may see and cancel it but never approve it; read-only never decides', () => {
     const action = (ownerId: string) => ({ type: 'proposed_action', id: 'p-1', agencyId: agencyA, ownerId });
     expect(can(agent, 'proposed_action:decide', action('agent'))).toBe(true);

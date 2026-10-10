@@ -32,7 +32,11 @@ export const APPOINTMENT_STATUS_LABELS: Record<AppointmentStatus, string> = {
   rescheduled: 'Rescheduled',
 };
 
-/** Reminder choices, in minutes before the start. Stored now; sent by a later phase. */
+/**
+ * Reminder choices, in minutes before the start. Sent by the cron tick to the
+ * person who booked it, the agent it is assigned to and — once invited — the
+ * contact (ADR 0032 §4).
+ */
 export const REMINDER_CHOICES = [
   { minutes: null, label: 'No reminder' },
   { minutes: 15, label: '15 minutes before' },
@@ -40,6 +44,8 @@ export const REMINDER_CHOICES = [
   { minutes: 1440, label: '1 day before' },
 ] as const;
 const REMINDER_MINUTES = [15, 60, 1440] as const;
+/** What a booking gets when it does not say (the assistant never does). "No reminder" is an explicit null. */
+export const DEFAULT_REMINDER_MINUTES = 15;
 
 /** Blank → undefined, so "" never reaches a nullable column. */
 const optionalText = (max: number) =>
@@ -117,7 +123,7 @@ export const scheduleAppointmentSchema = z
       .int()
       .refine((m) => (REMINDER_MINUTES as readonly number[]).includes(m), 'Pick one of the reminder choices')
       .nullable()
-      .default(null),
+      .default(DEFAULT_REMINDER_MINUTES),
     /** An admin may book it for somebody else; anybody else books for themselves. */
     assignedAgentId: z.string().uuid().optional(),
   })

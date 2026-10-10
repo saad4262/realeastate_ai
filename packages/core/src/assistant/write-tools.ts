@@ -17,7 +17,8 @@ import type { addNoteInput, assignContactsInput, cancelAppointmentInput, recordM
 import { cancelBatch, getBatch, prepareBatch } from '../template-email/batches';
 import { TemplateEmailError } from '../template-email/templates';
 import { SKIP_REASON_LABELS } from '../template-email/schema';
-import { checkEmailLimits, emailLimitsFromEnv } from '../email/limits';
+import { checkEmailLimits, devAllowlistProblem, emailLimitsFromEnv } from '../email/limits';
+import { clashMessage, findClash } from '../appointments/clash';
 import { AUDIENCE_LABELS, createDashboardSchema } from '../dashboards';
 import { agencyTimeZone, renderWidget, WIDGETS, type WidgetData } from '../widgets/registry';
 import type { ToolContext, ToolOutcome } from './tools';
@@ -31,8 +32,10 @@ import type { z } from 'zod';
  * arguments. The same core function a screen uses runs it later — only when
  * the person presses Approve — and asks can() again.
  *
- * Invitations are never sent from here (decided for Phase C): the card says
- * which screen sends one.
+ * An appointment's invitation may ride on its booking card (ADR 0032 §1):
+ * the card names the recipient, and on Approve the meeting is booked, synced
+ * (the Zoom link) and THEN the ADR 0019 template is sent — every check
+ * repeated. It is still a template the person approved, never model text.
  */
 
 const UNKNOWN_REF = 'That reference is not one you were given in this conversation. Use a reference from an earlier result.';
@@ -168,8 +171,9 @@ export async function proposeScheduleAppointment(
   if (!can(ctx.actor, 'appointment:create', { type: 'appointment', agencyId })) {
     return refused('This person can view appointments but not book them.', label);
   }
-  // Always on the person's own calendar; a Zoom type needs a Zoom (theirs, else the agency's).
-  const requires: IntegrationProvider[] = ['google_calendar', ...(input.type === 'zoom' ? (['zoom'] as const) : [])];
+  // On the person's own calendar. Only a Zoom type NEEDS an account (theirs, else the
+  // agency's); Google Calendar is used when connected and skipped when not (ADR 0032 §2).
+  const requires: IntegrationProvider[] = input.type === 'zoom' ? ['zoom'] : [];
   const missing = await connectFirst(ctx, requires, label);
   if (missing) return missing;
 
@@ -177,24 +181,38 @@ export async function proposeScheduleAppointment(
   const s = slot(input.date, input.time, minutes, ctx.timeZone);
   if (!s) return refused('That date or time is not valid.', label);
   if (s.start.getTime() <= ctx.now.getTime()) return refused('That time has already passed.', label);
+  const clash = await findClash(ctx.db, ctx.actor.userId, s.start, s.end);
+  if (clash) return refused(clashMessage(clash, true), label);
 
-  const accounts = await requireIntegrations(ctx.db, ctx.actor, requires, ctx.now);
+  const accounts = await requireIntegrations(ctx.db, ctx.actor, ['google_calendar', 'zoom'], ctx.now);
   const calendar = accounts.results.find((r) => r.provider === 'google_calendar')!;
-  const zoom = accounts.results.find((r) => r.provider === 'zoom');
+  const zoom = input.type === 'zoom' ? accounts.results.find((r) => r.provider === 'zoom') : undefined;
   const name = c.head.row.name;
   const typeLabel = APPOINTMENT_TYPE_LABELS[input.type];
+
+  // The invitation, checked now as Send would check it — and again when it runs.
+  const invite = input.send_invitation ? await invitationProblem(ctx, c.head.row.email) : null;
+  const sendInvitation = Boolean(input.send_invitation) && invite === null;
+  const inviteLine = !input.send_invitation
+    ? 'Not sent — say so if you want it emailed'
+    : invite
+      ? `Not sent — ${invite}`
+      : `Emailed to ${name} (${c.head.row.email})${input.type === 'zoom' ? ' with the Zoom link' : ''}, right after the meeting is booked`;
+
   const card: ProposalCard = {
-    title: `Book ${typeLabel.toLowerCase()} with ${name}`,
+    title: `Book ${typeLabel.toLowerCase()} with ${name}${sendInvitation ? ' and invite them' : ''}`,
     contact: { id: c.head.row.id, name },
     lines: [
       { label: 'With', value: name },
       { label: 'What', value: `${input.title} (${typeLabel})` },
       { label: 'When', value: `${when(s.start, ctx.timeZone)} – ${untilTime(s.end, ctx.timeZone)}` },
-      { label: 'Google Calendar', value: accountLine(calendar, 'calendar') },
+      { label: 'Google Calendar', value: calendar.state === 'connected' ? accountLine(calendar, 'calendar') : 'Not connected — not added to a calendar' },
       { label: 'Zoom', value: zoom ? `${accountLine(zoom, 'Zoom')} — the meeting is created when you approve` : 'Not used' },
       ...(input.location ? [{ label: 'Where', value: input.location }] : []),
+      { label: 'Invitation', value: inviteLine },
+      { label: 'Reminder', value: '15 minutes before — to you, and to them once invited' },
     ],
-    notes: [NOTHING_YET, NO_INVITE],
+    notes: [NOTHING_YET, ...(sendInvitation ? [] : [NO_INVITE])],
   };
   const args: FrozenArgs = {
     tool: 'schedule_appointment',
@@ -206,8 +224,22 @@ export async function proposeScheduleAppointment(
     timezone: ctx.timeZone,
     location: input.location ?? null,
     requires,
+    sendInvitation,
   };
-  return propose(ctx, label, { tool: 'schedule_appointment', args, card, contactId: c.head.row.id });
+  const outcome = await propose(ctx, label, { tool: 'schedule_appointment', args, card, contactId: c.head.row.id });
+  // Tell the model plainly when the invitation it was asked for will not go.
+  if (input.send_invitation && invite && outcome.result && typeof outcome.result === 'object') {
+    outcome.result = { ...(outcome.result as Record<string, unknown>), invitation_not_sent: invite };
+  }
+  return outcome;
+}
+
+/** Why an invitation to this address could not be sent today, or null. Sends nothing. */
+async function invitationProblem(ctx: ToolContext, email: string | null): Promise<string | null> {
+  if (!email) return 'this contact has no email address';
+  if (devAllowlistProblem(email)) return 'outside production only addresses on EMAIL_DEV_ALLOWLIST are emailed';
+  const limits = await checkEmailLimits(ctx.db, { agencyId: ctx.actor.agencyId!, userId: ctx.actor.userId }, emailLimitsFromEnv());
+  return limits.ok ? null : (limits.reason ?? 'today’s email limit is reached');
 }
 
 /** The appointment behind a reference, if this person may change it now. */
@@ -248,6 +280,10 @@ export async function proposeRescheduleAppointment(
   const s = slot(input.date, input.time, minutes, ctx.timeZone);
   if (!s) return refused('That date or time is not valid.', label);
   if (s.start.getTime() <= ctx.now.getTime()) return refused('That time has already passed.', label);
+  if (a.assignedAgentId) {
+    const clash = await findClash(ctx.db, a.assignedAgentId, s.start, s.end, a.id);
+    if (clash) return refused(clashMessage(clash, a.assignedAgentId === ctx.actor.userId), label);
+  }
   const card: ProposalCard = {
     title: `Move “${a.title}” with ${a.contactName}`,
     contact: { id: a.contactId, name: a.contactName },

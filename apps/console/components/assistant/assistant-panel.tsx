@@ -563,6 +563,11 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
             : `Sent ${view.result.sent ?? 0}${view.result.skipped ? ` · ${view.result.skipped} skipped at sending` : ''}${view.result.failed ? ` · ${view.result.failed} failed` : ''}.`}
         </p>
       ) : null}
+      {view.status === 'done' && view.tool === 'schedule_appointment' && view.result && (view.result.invited || view.result.invitationError) ? (
+        <p className={view.result.invited ? styles.cardNote : styles.error}>
+          {view.result.invited ? 'Booked, and the invitation was emailed.' : `Booked. ${view.result.invitationError}`}
+        </p>
+      ) : null}
       {card.notes.map((n) => (
         <p key={n} className={styles.cardNote}>
           {n}

@@ -1,4 +1,6 @@
+import { Suspense } from 'react';
 import { NeedsOwner } from '@/components/offboarding/needs-owner';
+import { UpcomingMeetings } from '@/components/appointments/upcoming-meetings';
 import { requireConsoleAccess } from '../../../lib/require-console-access';
 import styles from './overview.module.css';
 
@@ -136,6 +138,9 @@ export default async function AgencyOverviewPage() {
   return (
     <div className={styles.page}>
       <NeedsOwner actor={session.actor} />
+      <Suspense fallback={null}>
+        <UpcomingMeetings actor={session.actor} surface="agency" />
+      </Suspense>
       <p className={styles.demoBanner} role="note">
         <strong>Demo data.</strong> Every figure, name and recommendation on this page is a
         sample for the design — none of it is your agency&apos;s. Live numbers are on Leads,

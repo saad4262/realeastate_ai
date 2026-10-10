@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   APPOINTMENT_TYPE_LABELS,
   APPOINTMENT_TYPES,
+  DEFAULT_REMINDER_MINUTES,
   MAX_ATTENDEES,
   REMINDER_CHOICES,
   scheduleAppointmentSchema,
@@ -63,7 +64,7 @@ export function SchedulePanel({
   const [end, setEnd] = useState('11:00');
   const [location, setLocation] = useState('');
   const [meetingUrl, setMeetingUrl] = useState('');
-  const [reminder, setReminder] = useState<string>('');
+  const [reminder, setReminder] = useState<string>(String(DEFAULT_REMINDER_MINUTES));
   const [propertyId, setPropertyId] = useState('');
   const [notes, setNotes] = useState('');
   const [assignee, setAssignee] = useState('');
@@ -86,7 +87,7 @@ export function SchedulePanel({
     setEnd('11:00');
     setLocation('');
     setMeetingUrl('');
-    setReminder('');
+    setReminder(String(DEFAULT_REMINDER_MINUTES));
     setPropertyId('');
     setNotes('');
     setAssignee('');
@@ -268,7 +269,7 @@ export function SchedulePanel({
                   <option key={r.label} value={r.minutes ?? ''}>{r.label}</option>
                 ))}
               </select>
-              <span className={contactStyles.hint}>Saved now; reminders start being sent in a later phase.</span>
+              <span className={contactStyles.hint}>You, the agent and — once invited — the contact get a reminder.</span>
             </label>
 
             {assignees.length ? (

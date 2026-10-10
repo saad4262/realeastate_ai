@@ -304,6 +304,16 @@ which lives in the WEB project, so the web project needs `INTEGRATION_TOKEN_KEY`
 same value as the console) as well as the four client variables. Without them the tick
 skips the read-back and the console still syncs on every change.
 
+### Meeting reminders (web cron; docs/adr/0032)
+
+The same 5-minute tick sends meeting reminders: a bell notification and an email to the
+agent and whoever booked it, and an email to an invited contact. Nothing extra to schedule.
+The WEB project needs the mail variables (as for alerts) and `NEXT_PUBLIC_AGENT_URL` /
+`NEXT_PUBLIC_AGENCY_URL`, so the reminder email's "Open your calendar" link points at the
+console. Without mail, the bell still works. Migration 0039 (btree_gist, the no-overlap
+constraint, `notification`) must be applied before this code goes up: the console reads
+`notification` on every page through the bell.
+
 ### Template email to contacts (console + web; docs/adr/0022)
 
     ALERT_UNSUBSCRIBE_SECRET   REQUIRED for it — every template email carries a

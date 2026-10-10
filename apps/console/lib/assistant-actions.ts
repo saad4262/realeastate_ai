@@ -15,6 +15,7 @@ import {
 } from '@repo/core/assistant';
 import { syncDepsFromEnv } from '@repo/core/appointments';
 import { templateSendDepsFromEnv } from '@repo/core/template-email';
+import { mailDepsFromEnv } from '@repo/core/mail';
 import { getConsoleDb } from './db';
 import { loadActor } from './load-actor';
 import { requireActionUserId } from './auth-account';
@@ -86,7 +87,7 @@ export async function approveProposedActionAction(id: string, runAtIso?: string 
       getConsoleDb(),
       await actor(),
       id,
-      { sync: syncDepsFromEnv(), templateSend: send.ok ? send.deps : null },
+      { sync: syncDepsFromEnv(), templateSend: send.ok ? send.deps : null, mail: mailDepsFromEnv() },
       new Date(),
       { runAt },
     );
@@ -94,6 +95,10 @@ export async function approveProposedActionAction(id: string, runAtIso?: string 
     revalidatePath('/my-contacts', 'layout');
     revalidatePath('/bulk-email', 'layout');
     revalidatePath('/my-bulk-email', 'layout');
+    revalidatePath('/calendar');
+    revalidatePath('/my-calendar');
+    revalidatePath('/inbox');
+    revalidatePath('/my-inbox');
     const message =
       r.outcome === 'already' ? 'This card was already approved.' : r.outcome === 'failed' ? r.error : undefined;
     // (A scheduled card's own line says when it runs.)

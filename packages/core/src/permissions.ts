@@ -110,6 +110,12 @@ export type Action =
    */
   | 'mail:read_own'
   /**
+   * A buyer seeing their own meetings on the website (ADR 0032 §5): the ones
+   * an agency sent them an invitation for, at an address they proved.
+   * `ownerId` is their account; no agency role reaches this.
+   */
+  | 'meeting:read_own'
+  /**
    * See a contact (ADR 0018). The resource carries the contact's assignee as
    * `ownerId`, the members assigned its non-offer leads as `leadAssigneeIds`,
    * and the members named on the listings it is tied to (its non-offer leads'
@@ -245,6 +251,14 @@ export type Action =
   | 'proposed_action:read'
   /** Approve or reject it: its author only, never read-only (ADR 0025 §7). */
   | 'proposed_action:decide'
+  /**
+   * See one console notification, or mark it read (ADR 0032 §4): only the
+   * person it is for (`ownerId`), in the agency it belongs to. Not admins — a
+   * reminder is personal, and the meeting itself is already on their calendar.
+   * Read-only members see their own reminders too.
+   */
+  | 'notification:read'
+  | 'notification:update'
   /** Cancel one not yet run: its author or an admin. */
   | 'proposed_action:cancel'
   /** Save a dashboard (ADR 0027, decided Q4): owners and admins only. */
@@ -597,6 +611,11 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       if (isAgencyAdmin(actor)) return true;
       return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
 
+    case 'notification:read':
+    case 'notification:update':
+      return sameAgency(actor, resource) && Boolean(actor.membershipRole) &&
+        Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
     case 'proposed_action:decide':
       return sameAgency(actor, resource) && mayWrite(actor) &&
         Boolean(resource.ownerId) && actor.userId === resource.ownerId;
@@ -659,6 +678,7 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       return Boolean(actor.userId);
 
     case 'mail:read_own':
+    case 'meeting:read_own':
     case 'chat:read':
     case 'chat:write':
     case 'schedule:read':

@@ -133,8 +133,11 @@ import {
   sendInvitation,
   syncAppointment,
   checkCalendarEvent,
+  listCustomerMeetings,
+  runReminderTick,
   type SyncDeps,
 } from '@repo/core/appointments';
+import { listNotifications, markNotificationsRead } from '@repo/core/notifications';
 import {
   completeConnect,
   disconnectIntegration,
@@ -4086,6 +4089,177 @@ async function main() {
     return summary;
   });
 
+  // ---------------------------------------------- meetings (ADR 0032) --
+
+  await check('one agent is never booked twice at once — the check names the clash, the constraint stops what skips it', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const a1 = f.actor('a1');
+        // 10:00–11:00 UTC, nine days out: away from every other check's slots.
+        const day = new Date(Date.now() + 9 * 86_400_000);
+        day.setUTCHours(10, 0, 0, 0);
+        const at = (fromMin: number, toMin: number) => ({
+          startsAt: new Date(day.getTime() + fromMin * 60_000).toISOString(),
+          endsAt: new Date(day.getTime() + toMin * 60_000).toISOString(),
+          timezone: 'Australia/Melbourne',
+        });
+        const first = await scheduleAppointment(t, a1, f.contacts.p1, { title: 'Clash anchor', type: 'meeting', ...at(0, 60) });
+        const overlap = await scheduleAppointment(t, a1, f.contacts.p1, { title: 'Overlap', type: 'meeting', ...at(30, 90) })
+          .then(() => 'booked', (e: unknown) => `${(e as AppointmentError).code}: ${(e as Error).message}`);
+        assert(overlap.startsWith('conflict') && overlap.includes('Clash anchor'), `an overlapping booking got ${overlap}`);
+        // An admin booking it FOR a1 is refused the same way, naming the agent.
+        const forA1 = await scheduleAppointment(t, f.actor('owner'), f.contacts.p1, { title: 'For A1', type: 'meeting', ...at(15, 45), assignedAgentId: f.people.a1 })
+          .then(() => 'booked', (e: unknown) => (e as Error).message);
+        assert(forA1.startsWith('That agent already has'), `an admin double-booking A1 got ${forA1}`);
+        await scheduleAppointment(t, f.actor('a2'), f.contacts.p2, { title: 'A2 same time', type: 'meeting', ...at(0, 60) });
+        await scheduleAppointment(t, a1, f.contacts.p1, { title: 'Back to back', type: 'meeting', ...at(60, 120) });
+
+        // Straight into the table, past the check: the constraint is what holds.
+        const raw = await t.transaction(async (sp) => {
+          await sp.execute(sql`
+            insert into appointment (agency_id, contact_id, assigned_agent_id, title, type, starts_at, ends_at, timezone)
+            values (${f.agencyId}, ${f.contacts.p1}, ${f.people.a1}, 'Raw', 'meeting', ${at(20, 40).startsAt}, ${at(20, 40).endsAt}, 'UTC')
+          `);
+        }).then(() => 'inserted', (e: unknown) => {
+          const err = e as { code?: string; cause?: { code?: string } };
+          return err.code ?? err.cause?.code ?? String(e);
+        });
+        assert(raw === '23P01', `a raw overlapping insert got ${raw}`);
+
+        // Moving into the clash is refused; cancelling frees the time.
+        const later = await scheduleAppointment(t, a1, f.contacts.p1, { title: 'Later', type: 'meeting', ...at(180, 240) });
+        const moved = await rescheduleAppointment(t, a1, later.id, at(30, 90)).then(() => 'moved', (e: unknown) => (e as AppointmentError).code);
+        assert(moved === 'conflict', `moving into a clash got ${moved}`);
+        await cancelAppointment(t, a1, first.id, {});
+        await scheduleAppointment(t, a1, f.contacts.p1, { title: 'After cancel', type: 'meeting', ...at(0, 60) });
+        summary = 'overlap refused (own and admin-for-agent), named; other agent and back-to-back fine; raw insert 23P01; move refused; cancel frees';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check('reminders: claimed once; a bell row for the agent and the booker; the invited contact emailed; nothing twice', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const staff = fakeTransport();
+        const contactMail = fakeTransport();
+        const env = { ...process.env, NODE_ENV: 'development', EMAIL_DEV_ALLOWLIST: `p1.${f.tag}@smoke.test` };
+        const sender = { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' };
+        const mail = { mailer: { sender, transport: contactMail }, config: null, env };
+        const notice = { mailer: { sender, transport: staff }, urls: { agentUrl: 'https://agents.smoke', agencyUrl: 'https://agency.smoke' } };
+        const soon = (min: number, len = 60) => {
+          const start = new Date(Date.now() + min * 60_000);
+          return { startsAt: start.toISOString(), endsAt: new Date(start.getTime() + len * 60_000).toISOString(), timezone: 'Australia/Melbourne' };
+        };
+        // The owner books a Zoom (pasted link) for A1 in 10 minutes: due, with the default 15-minute reminder.
+        const due = await scheduleAppointment(t, f.actor('owner'), f.contacts.p1, {
+          title: 'Reminder smoke', type: 'zoom', meetingUrl: 'https://zoom.us/j/999', ...soon(10), assignedAgentId: f.people.a1,
+        });
+        await sendInvitation(t, mail, f.actor('owner'), due.id, { perAgentDay: 50, perAgencyDay: 200 });
+        const invitations = contactMail.sent.length;
+        // Not due: in three hours; and one in 10 minutes with "No reminder".
+        await scheduleAppointment(t, f.actor('a1'), f.contacts.p1, { title: 'Not yet', type: 'meeting', ...soon(180) });
+        await scheduleAppointment(t, f.actor('a2'), f.contacts.p2, { title: 'No reminder', type: 'meeting', ...soon(10), reminderMinutes: null });
+
+        const first = await runReminderTick(t, { notice, mail });
+        const rows = await t.execute<{ user_id: string; title: string; join_url: string | null; href: string | null }>(sql`
+          select n.user_id, n.title, n.join_url, n.href from notification n join appointment a on a.id = n.appointment_id
+          where a.agency_id = ${f.agencyId} order by n.user_id
+        `);
+        const who = rows.map((r) => r.user_id).sort();
+        assert(who.join() === [f.people.a1, f.people.owner].sort().join(), `bell rows for ${JSON.stringify(rows)}`);
+        assert(rows.every((r) => r.title === 'Starts soon: Reminder smoke' && r.join_url === 'https://zoom.us/j/999'), `bell rows ${JSON.stringify(rows)}`);
+        assert(rows.find((r) => r.user_id === f.people.a1)?.href === '/my-calendar' && rows.find((r) => r.user_id === f.people.owner)?.href === '/calendar', 'the bell links to the wrong calendar');
+        const staffTo = staff.sent.map((m) => (Array.isArray(m.to) ? m.to[0] : m.to)).map((to) => (typeof to === 'string' ? to : to?.email)).sort();
+        assert(staffTo.join() === [`a1.${f.tag}@smoke.test`, `owner.${f.tag}@smoke.test`].sort().join(), `staff emailed: ${staffTo.join()}`);
+        const [reminderMsg] = await t.execute<{ n: number }>(sql`
+          select count(*)::int as n from mail_message m join mail_thread th on th.id = m.thread_id
+          where th.agency_id = ${f.agencyId} and m.kind = 'appointment_reminder' and m.status = 'sent'
+        `);
+        assert(reminderMsg?.n === 1 && contactMail.sent.length === invitations + 1, `contact reminders: ${reminderMsg?.n}, sent ${contactMail.sent.length - invitations}`);
+        assert(first.claimed >= 1, `claimed ${first.claimed}`);
+
+        // A second tick reminds nobody again.
+        await runReminderTick(t, { notice, mail });
+        const [after] = await t.execute<{ n: number }>(sql`
+          select count(*)::int as n from notification n join appointment a on a.id = n.appointment_id where a.agency_id = ${f.agencyId}
+        `);
+        assert(after?.n === 2 && staff.sent.length === 2 && contactMail.sent.length === invitations + 1, `second tick: ${after?.n} rows, ${staff.sent.length} staff emails`);
+
+        // The bell: each person their own; another member cannot mark yours read.
+        const bell = await listNotifications(t, f.actor('a1'));
+        assert(bell.unread === 1 && bell.rows.length === 1, `A1's bell: ${JSON.stringify(bell)}`);
+        assert((await listNotifications(t, f.actor('a2'))).rows.length === 0, "A2 sees someone else's reminder");
+        assert((await markNotificationsRead(t, f.actor('a2'), [bell.rows[0]!.id])) === 0, "A2 marked A1's reminder read");
+        assert((await markNotificationsRead(t, f.actor('a1'), [bell.rows[0]!.id])) === 1, 'A1 could not mark their own read');
+        assert((await listNotifications(t, f.actor('a1'))).unread === 0, 'still unread after marking');
+
+        // A reschedule clears the claim, so the new time is reminded too.
+        await rescheduleAppointment(t, f.actor('owner'), due.id, soon(12));
+        const [cleared] = await t.execute<{ sent: string | null }>(sql`select reminder_sent_at as sent from appointment where id = ${due.id}`);
+        assert(cleared?.sent === null, 'a reschedule kept the old reminder claim');
+        summary = 'agent + booker belled and emailed, invited contact emailed once; second tick silent; bell is per person; reschedule re-arms';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check('a buyer sees on the website only meetings they were invited to, and only at a proved address', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const transport = fakeTransport();
+        const env = { ...process.env, NODE_ENV: 'development', EMAIL_DEV_ALLOWLIST: `p1.${f.tag}@smoke.test` };
+        const mail = { mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport }, config: null, env };
+        const at = (days: number) => {
+          const start = new Date(Date.now() + days * 86_400_000);
+          start.setUTCHours(3, 0, 0, 0);
+          return { startsAt: start.toISOString(), endsAt: new Date(start.getTime() + 3_600_000).toISOString(), timezone: 'Australia/Melbourne' };
+        };
+        const invited = await scheduleAppointment(t, f.actor('a1'), f.contacts.p1, { title: 'Invited', type: 'zoom', meetingUrl: 'https://zoom.us/j/1', ...at(11) });
+        await sendInvitation(t, mail, f.actor('a1'), invited.id, { perAgentDay: 50, perAgencyDay: 200 });
+        await scheduleAppointment(t, f.actor('a1'), f.contacts.p1, { title: 'Not invited', type: 'meeting', ...at(12) });
+
+        const email = `p1.${f.tag}@smoke.test`;
+        const [proved] = await t.execute<{ id: string }>(sql`
+          insert into "user" (id, email, verified_email) values (${randomUUID()}, ${email}, ${email}) returning id
+        `);
+        const mine = await listCustomerMeetings(t, { userId: proved!.id, email });
+        assert(mine.addressProved && mine.rows.length === 1 && mine.rows[0]!.title === 'Invited' && mine.rows[0]!.meetingUrl === 'https://zoom.us/j/1', `proved buyer sees ${JSON.stringify(mine.rows.map((r) => r.title))}`);
+        assert(!('notes' in mine.rows[0]!) && !('outcome' in mine.rows[0]!), 'internal fields reached the buyer');
+
+        // Registered with the same address but never proved it: nothing.
+        const other = `p1-unproved.${f.tag}@smoke.test`;
+        const [unproved] = await t.execute<{ id: string }>(sql`insert into "user" (id, email) values (${randomUUID()}, ${other}) returning id`);
+        await t.execute(sql`update contact set email = ${other} where id = ${f.contacts.p2}`);
+        const none = await listCustomerMeetings(t, { userId: unproved!.id, email: other });
+        assert(!none.addressProved && none.rows.length === 0, `an unproved account saw ${none.rows.length}`);
+        summary = 'proved buyer: the invited one only, with its link, no internal fields; unproved: nothing';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
   // ------------------------------------------------------- integrations --
   group('Integrations');
 
@@ -5224,7 +5398,7 @@ async function main() {
     return summary;
   });
 
-  await check('C: appointments — "Connect X first" proposes nothing; the card names the calendar and Zoom; Approve books once and syncs; move and cancel', async () =>
+  await check('C: appointments — a Zoom booking without Zoom proposes nothing, Google Calendar is optional (ADR 0032); the card names the calendar and Zoom; Approve books once and syncs; the invitation rides on the card; move and cancel', async () =>
     inRollback(async (t) => {
       const f = await contactFixture(t);
       const g = fakeProviders();
@@ -5234,15 +5408,17 @@ async function main() {
       const ref = issueHandle(h, 'C', f.contacts.p1);
       const cards = () => count(t, sql`select count(*)::int as n from proposed_action where user_id = ${f.people.a1}`);
       const appts = () => count(t, sql`select count(*)::int as n from appointment where contact_id = ${f.contacts.p1}`);
-      const book = (type: string, time = '15:00') =>
-        runAssistantTool(proposeCtx(t, a1, h, conv.conversationId), 'schedule_appointment', { contact: ref, type, title: 'Appraisal', date: tomorrowLocal(), time });
+      const book = (type: string, time = '15:00', extra: Record<string, unknown> = {}) =>
+        runAssistantTool(proposeCtx(t, a1, h, conv.conversationId), 'schedule_appointment', { contact: ref, type, title: 'Appraisal', date: tomorrowLocal(), time, ...extra });
 
-      // Nothing connected: Connect Google Calendar first, and no card.
-      const none = await book('appraisal');
-      assert(!none.isError && /Connect Google Calendar first/.test(JSON.stringify(none.result)) && (await cards()) === 0, `unconnected: ${JSON.stringify(none.result)}`);
-      await g.connect(t, a1, 'google_calendar', 'user', f.people.a1, f.agencyId);
+      // Nothing connected: a Zoom booking says "Connect Zoom first" with no card…
       const noZoom = await book('zoom');
-      assert(/Connect Zoom first/.test(JSON.stringify(noZoom.result)) && (await cards()) === 0, `no Zoom: ${JSON.stringify(noZoom.result)}`);
+      assert(!noZoom.isError && /Connect Zoom first/.test(JSON.stringify(noZoom.result)) && !/Google Calendar/.test(JSON.stringify(noZoom.result)) && (await cards()) === 0, `no Zoom: ${JSON.stringify(noZoom.result)}`);
+      // …and any other booking needs no calendar: a card that says it will not be on one.
+      const noCal = await getProposedAction(t, a1, cardId(await book('appraisal', '10:00')));
+      assert(/Not connected/.test(noCal.card.lines.find((x) => x.label === 'Google Calendar')?.value ?? ''), `no calendar card: ${JSON.stringify(noCal.card.lines)}`);
+      await rejectProposedAction(t, a1, noCal.id);
+      await g.connect(t, a1, 'google_calendar', 'user', f.people.a1, f.agencyId);
       await g.connect(t, f.actor('owner'), 'zoom', 'agency', f.agencyId, f.agencyId);
 
       const id = cardId(await book('zoom'));
@@ -5260,6 +5436,31 @@ async function main() {
       assert(g.events.size === 1 && g.meetings.size === 1, `synced ${g.events.size} events, ${g.meetings.size} meetings`);
       const apptId = String((r1 as { result: Record<string, unknown> }).result.appointmentId);
       assert((await count(t, sql`select count(*)::int as n from mail_message m join mail_thread th on th.id = m.thread_id where th.contact_id = ${f.contacts.p1}`)) === 0, 'an email was sent');
+
+      // ADR 0032 §1: "…and email them the link" — one card books, syncs, THEN sends the invitation with the Zoom link.
+      const savedAllow = process.env.EMAIL_DEV_ALLOWLIST;
+      process.env.EMAIL_DEV_ALLOWLIST = `p1.${f.tag}@smoke.test`;
+      try {
+        const clashes = await book('zoom', '15:30', { send_invitation: true });
+        assert(clashes.isError && /already have/.test(JSON.stringify(clashes.result)), `a booking over the 15:00 one was proposed: ${JSON.stringify(clashes.result)}`);
+        const inv = await getProposedAction(t, a1, cardId(await book('zoom', '18:00', { send_invitation: true })));
+        const invLine = inv.card.lines.find((x) => x.label === 'Invitation')?.value ?? '';
+        assert(invLine.startsWith(`Emailed to P1 (p1.${f.tag}@smoke.test) with the Zoom link`), `invitation line: ${invLine}`);
+        const transport = fakeTransport();
+        const mail = { mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport }, config: null, env: { ...process.env, NODE_ENV: 'development' } as NodeJS.ProcessEnv };
+        const done = await approveProposedAction(t, a1, inv.id, { sync: g.deps, mail });
+        const res = (done as { result: Record<string, unknown> }).result;
+        assert(done.outcome === 'done' && res.invited === true, `approve with invitation: ${JSON.stringify(done)}`);
+        const sent = transport.sent[0] as { text?: string } | undefined;
+        assert(transport.sent.length === 1 && /Join: https:\/\//.test(sent?.text ?? ''), `the invitation: ${transport.sent.length} sent, ${sent?.text?.slice(0, 120)}`);
+        // Without email set up, the booking stands and the card says the invitation did not go.
+        const noMail = await getProposedAction(t, a1, cardId(await book('zoom', '20:00', { send_invitation: true })));
+        const nm = await approveProposedAction(t, a1, noMail.id, { sync: g.deps });
+        assert(nm.outcome === 'done' && /not set up/.test(String((nm as { result: Record<string, unknown> }).result.invitationError)), `no mail: ${JSON.stringify(nm)}`);
+      } finally {
+        if (savedAllow === undefined) delete process.env.EMAIL_DEV_ALLOWLIST;
+        else process.env.EMAIL_DEV_ALLOWLIST = savedAllow;
+      }
 
       // Move it: the appointment and its event move together.
       const ah: HandleMap = { ...h };
@@ -5290,7 +5491,7 @@ async function main() {
       issueHandle(forged, 'A', apptId);
       const a2cancel = await runAssistantTool(proposeCtx(t, f.actor('a2'), forged, a2conv.conversationId), 'cancel_appointment', { appointment: 'A1' });
       assert(a2cancel.isError, 'A2 proposed cancelling A1’s appointment');
-      return 'connect-first ×2 with no card; card names your calendar + agency Zoom; approve twice = 1 booking, 1 event, 1 meeting, 0 emails; moved with its event; calendar lost → failed; A2 and the past refused';
+      return 'Zoom connect-first with no card; no calendar → card says so; card names your calendar + agency Zoom; approve twice = 1 booking, 1 event, 1 meeting, 0 emails; overlap refused; invite card → booked + 1 email with the Zoom link; no mail → booked, says so; moved with its event; calendar lost → failed; A2 and the past refused';
     }),
   );
 
@@ -6837,6 +7038,29 @@ async function main() {
     const deps = { sync: g.deps, revoke: async (provider: string) => void revoked.push(provider) };
     return { f, g, a1, a1Cal, agencyZoom, apptId, waiting, later, batchId: batch?.id ?? null, importId: imp.id, listingId: lst!.id, conversationId: conv.conversationId, revoked, deps };
   }
+
+  await check('remove with a receiver who is busy then: that appointment waits in "Needs an owner", the rest move, nothing fails (ADR 0032)', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const day = new Date(Date.now() + 13 * 86_400_000);
+      day.setUTCHours(1, 0, 0, 0);
+      const at = (h: number) => ({ startsAt: new Date(day.getTime() + h * 3_600_000).toISOString(), endsAt: new Date(day.getTime() + (h + 1) * 3_600_000).toISOString(), timezone: 'Australia/Melbourne' });
+      const clash = await scheduleAppointment(t, f.actor('a1'), f.contacts.p1, { title: 'A1 at nine', type: 'meeting', ...at(0) });
+      const free = await scheduleAppointment(t, f.actor('a1'), f.contacts.p1, { title: 'A1 at eleven', type: 'meeting', ...at(2) });
+      await scheduleAppointment(t, f.actor('a2'), f.contacts.p2, { title: 'A2 at nine', type: 'meeting', ...at(0) });
+      const r = await removeMember(t, f.actor('owner'), f.people.a1, { receiver: f.people.a2 });
+      const rows = await t.execute<{ id: string; assigned_agent_id: string | null; needs_owner_at: string | null }>(sql`
+        select id, assigned_agent_id, needs_owner_at from appointment where id in (${clash.id}, ${free.id})`);
+      const byId = Object.fromEntries(rows.map((x) => [x.id, x]));
+      assert(byId[free.id]?.assigned_agent_id === f.people.a2 && !byId[free.id]?.needs_owner_at, `the free one: ${JSON.stringify(byId[free.id])}`);
+      assert(byId[clash.id]?.assigned_agent_id === null && byId[clash.id]?.needs_owner_at, `the clashing one: ${JSON.stringify(byId[clash.id])}`);
+      assert(r.moved.appointments === 1 && r.flagged.appointments === 1, `report: ${JSON.stringify({ moved: r.moved.appointments, flagged: r.flagged.appointments })}`);
+      const busy = await t.transaction((sp) => assignNeedsOwner(sp as unknown as Db, f.actor('owner'), { kind: 'appointment', id: clash.id, userId: f.people.a2 }))
+        .then(() => 'assigned', (e: unknown) => (e as Error).message);
+      assert(busy.startsWith('That person already has a meeting at that time'), `giving it to the busy agent: ${busy}`);
+      await assignNeedsOwner(t, f.actor('owner'), { kind: 'appointment', id: clash.id, userId: f.people.owner });
+      return 'free one moved, clashing one queued, report 1 + 1; queue refuses the busy agent in words and gives it to the owner';
+    }));
 
   await check('remove with a receiver: events leave A1’s calendar on A1’s token and arrive in A2’s; contacts, leads, the listing move; waiting work is cancelled; A1’s tokens revoked and deleted; A1 can do nothing', async () =>
     inRollback(async (t) => {

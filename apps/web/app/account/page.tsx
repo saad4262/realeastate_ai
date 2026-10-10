@@ -123,6 +123,14 @@ export default async function AccountPage() {
         </section>
 
         <section className={styles.card}>
+          <h2 className={styles.cardLabel}>Meetings and notifications</h2>
+          <p className={styles.body}>Meetings agencies invited you to, with a Join button, and their latest emails.</p>
+          <Link href="/account/meetings" className={styles.secondary}>
+            Open meetings
+          </Link>
+        </section>
+
+        <section className={styles.card}>
           <h2 className={styles.cardLabel}>Saved searches</h2>
           <p className={styles.body}>
             {schedules.length === 0

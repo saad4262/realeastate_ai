@@ -3,6 +3,25 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
+- **Meetings end to end (ADR 0032) — built 2026-10-10 on `feat/meetings` (from main), NOT
+  committed yet.** Migration **0039 applied on dev** (btree_gist; EXCLUDE
+  `appointment_agent_no_overlap` on (assigned_agent_id, tstzrange) for active rows;
+  `appointment.reminder_sent_at`; table `notification`, RLS on). What it does: the assistant's
+  booking card can also email the invitation (`send_invitation`; approve → book → Zoom sync →
+  ADR 0019 template with the join link); Google Calendar is optional for booking; one agent
+  can't be double-booked (core names the clash, the constraint stops races; offboarding queues a
+  clashing appointment instead of failing); reminders 15 min before by default (cron tick):
+  console bell + email to the assigned agent and the booker, email to the contact if invited;
+  "Upcoming meetings" on /overview and the agent's /listings; website `/account/meetings`
+  (invited meetings with Join, starting-soon banner, latest emails). Prompt `assistant@v8`.
+  Checks: typecheck 10/10, lint 0 errors, unit 871 + 296, console + web production builds OK;
+  smoke Appointments 6/6, Offboarding 6/6, Console assistant 23/23 (+1 skip). Full smoke:
+  155 pass, 4 fail, 76 skip; of the 4, two are fixed and re-run green (reminder Date binding,
+  assistant C's old "Calendar required" rule), and two were already failing before this work
+  (no loading.tsx for team/remove and team/removed; the smoke reads
+  .github/workflows/alerts-cron.yml, which d1d804d deleted). TEST-PLAN **AF**.
+  **Next:** the user commits and merges, then walks AF. The Vercel console needs this code
+  before it shares a DB with 0039: older code shows a raw error on an overlapping booking.
 - **Assistant search (ADR 0031) — merged into `feat/crm` 2026-10-07.** Migration
   0036 applied on dev (generated full-text columns on note / mail_message / lead with GIN indexes;
   `search_embedding` with pgvector 1024 + HNSW, RLS). New read tool `search_notes_and_emails`

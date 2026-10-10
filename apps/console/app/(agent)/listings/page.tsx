@@ -5,7 +5,9 @@ import {
   listAgencyListingsPage,
   type ListingPage,
 } from '@repo/core/listings';
+import { Suspense } from 'react';
 import { ListingTable } from '@/components/listing-table';
+import { UpcomingMeetings } from '@/components/appointments/upcoming-meetings';
 import { getConsoleDb } from '../../../lib/db';
 import { requireConsoleAccess } from '../../../lib/require-console-access';
 
@@ -56,7 +58,12 @@ export default async function AgentListingsPage({
   });
 
   return (
-    <ListingTable
+    <>
+      {/* The agent's home: their next meetings first, streamed so the table never waits on them. */}
+      <Suspense fallback={null}>
+        <UpcomingMeetings actor={session.actor} surface="agent" />
+      </Suspense>
+      <ListingTable
       title="My Listings"
       subtitle="Listings you are named on. Submit a draft for approval and an owner or admin publishes it."
       newHref="/listings/new"
@@ -73,6 +80,7 @@ export default async function AgentListingsPage({
         createdAt: r.createdAt.toISOString(),
         soldDate: r.soldDate?.toISOString() ?? null,
       }))}
-    />
+      />
+    </>
   );
 }

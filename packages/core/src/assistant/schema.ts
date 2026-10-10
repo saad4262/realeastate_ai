@@ -168,6 +168,7 @@ export const scheduleAppointmentInput = z
     time: timeString,
     duration_minutes: z.number().int().min(15).max(480).optional(),
     location: z.string().trim().max(300).optional(),
+    send_invitation: z.boolean().optional(),
   })
   .strict();
 

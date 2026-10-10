@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Suspense, type ReactNode } from 'react';
 import type { ConsoleChrome } from '../../lib/require-console-access';
 import { AssistantPanel } from '@/components/assistant/assistant-panel';
+import { NotificationBell } from '@/components/notifications/notification-bell';
 import { NavList } from './nav-list';
 import styles from './agency-shell.module.css';
 
@@ -139,12 +140,7 @@ export function AgencyShell({ children, userLabel, chrome }: AgencyShellProps) {
           </div>
 
           <div className={styles.topActions}>
-            <button type="button" className={styles.iconBtn} aria-label="Notifications">
-              <span className={styles.glyph} aria-hidden>
-                notifications
-              </span>
-              <span className={styles.ping} />
-            </button>
+            <NotificationBell className={styles.iconBtn} glyphClassName={styles.glyph} />
             <button type="button" className={styles.iconBtn} aria-label="Filters">
               <span className={styles.glyph} aria-hidden>
                 tune

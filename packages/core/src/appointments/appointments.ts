@@ -22,6 +22,7 @@ import type { ActivityKind } from '../contacts/contact-schema';
 import { resolveIntegration } from '../integrations/accounts';
 import type { CalendarConflict } from '@repo/db';
 import { pendingSyncFields, syncAppointment, type SyncDeps, type SyncOutcome, type SyncState } from './sync';
+import { clashMessage, findClash, isOverlapViolation, OVERLAP_MESSAGE } from './clash';
 import {
   ACTIVE_STATUSES,
   finishAppointmentSchema,
@@ -368,8 +369,10 @@ export async function scheduleAppointment(
   const assigneeActor = assignee !== actor.userId ? await assertAssignable(db, actor, assignee) : actor;
   if (v.propertyId) await assertContactProperty(db, head.row.id, agencyId, v.propertyId);
   if (v.type === 'zoom' && !v.meetingUrl) await assertZoomUsable(db, assigneeActor, assignee === actor.userId);
+  const clash = await findClash(db, assignee, v.startsAt, v.endsAt);
+  if (clash) throw new AppointmentError('conflict', clashMessage(clash, assignee === actor.userId));
 
-  return db.transaction(async (tx) => {
+  return overlapGuard(() => db.transaction(async (tx) => {
     const [row] = await tx
       .insert(appointment)
       .values({
@@ -394,7 +397,17 @@ export async function scheduleAppointment(
     const id = row!.id;
     await recordActivity(tx, actor, agencyId, head.row.id, 'appointment_scheduled', activityPayload({ id, ...v }));
     return { id };
-  });
+  }));
+}
+
+/** The no-overlap constraint beat the check (two tabs, one slot): the same refusal, in words. */
+async function overlapGuard<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    if (isOverlapViolation(err)) throw new AppointmentError('conflict', OVERLAP_MESSAGE);
+    throw err;
+  }
 }
 
 /** Load for a change: visible, changeable, and still on. */
@@ -451,7 +464,11 @@ export async function rescheduleAppointment(
   if (!parsed.success) throw new AppointmentError('invalid', firstIssue(parsed.error));
   const v = parsed.data;
   const a = await loadChangeable(db, actor, id);
-  await db.transaction(async (tx) => {
+  if (a.assignedAgentId) {
+    const clash = await findClash(db, a.assignedAgentId, v.startsAt, v.endsAt, a.id);
+    if (clash) throw new AppointmentError('conflict', clashMessage(clash, a.assignedAgentId === actor.userId));
+  }
+  await overlapGuard(() => db.transaction(async (tx) => {
     const done = await tx
       .update(appointment)
       .set({
@@ -462,6 +479,8 @@ export async function rescheduleAppointment(
         outcome: v.outcome ?? a.outcome,
         // A moved appointment's invitation names the old time.
         invitationSentAt: null,
+        // …and its reminder is for the new time.
+        reminderSentAt: null,
         updatedAt: sql`now()`,
         ...pendingSyncFields(a, 'rescheduled'),
       })
@@ -479,7 +498,7 @@ export async function rescheduleAppointment(
         { fromStartsAt: a.startsAt.toISOString(), outcome: v.outcome ?? null },
       ),
     );
-  });
+  }));
 }
 
 /**
