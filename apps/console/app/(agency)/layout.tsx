@@ -1,6 +1,5 @@
 import { Suspense } from 'react';
 import { PageSkeleton } from '@/components/page-skeleton';
-import { DebugBoundary } from '@/components/debug-boundary';
 import { AgencyShell } from './agency-shell';
 import {
   loadConsoleChrome,
@@ -24,15 +23,11 @@ export default async function AgencyLayout({ children }: { children: React.React
   const chrome = loadConsoleChrome(session.userId);
 
   return (
-    <DebugBoundary label="agency-shell">
-      <AgencyShell userLabel={session.label} chrome={chrome}>
-        <DebugBoundary label="page">
-          <Suspense fallback={<PageSkeleton />}>
-            <AgencyGate>{children}</AgencyGate>
-          </Suspense>
-        </DebugBoundary>
-      </AgencyShell>
-    </DebugBoundary>
+    <AgencyShell userLabel={session.label} chrome={chrome}>
+      <Suspense fallback={<PageSkeleton />}>
+        <AgencyGate>{children}</AgencyGate>
+      </Suspense>
+    </AgencyShell>
   );
 }
 

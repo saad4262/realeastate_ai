@@ -2,7 +2,6 @@ import Link from 'next/link';
 import { Suspense, type ReactNode } from 'react';
 import type { ConsoleChrome } from '../../lib/require-console-access';
 import { AssistantPanel } from '@/components/assistant/assistant-panel';
-import { DebugBoundary } from '@/components/debug-boundary';
 import { NavList } from './nav-list';
 import styles from './agency-shell.module.css';
 
@@ -77,11 +76,9 @@ export function AgencyShell({ children, userLabel, chrome }: AgencyShellProps) {
             the database to draw the sidebar would undo the whole reason the
             chrome is a Server Component.
           */}
-          <DebugBoundary label="nav">
-            <Suspense fallback={<NavList />}>
-              <NavWithOffers chrome={chrome} />
-            </Suspense>
-          </DebugBoundary>
+          <Suspense fallback={<NavList />}>
+            <NavWithOffers chrome={chrome} />
+          </Suspense>
         </div>
 
         <div className={styles.sidebarFoot}>
@@ -164,9 +161,7 @@ export function AgencyShell({ children, userLabel, chrome }: AgencyShellProps) {
 
         <div className={styles.content}>{children}</div>
       </div>
-      <DebugBoundary label="assistant-panel">
-        <AssistantPanel surface="agency" />
-      </DebugBoundary>
+      <AssistantPanel surface="agency" />
     </div>
   );
 }
