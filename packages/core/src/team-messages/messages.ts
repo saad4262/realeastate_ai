@@ -172,13 +172,16 @@ async function loadHead(db: DbOrTx, actor: Actor, threadId: string) {
       id: teamThread.id,
       agencyId: teamThread.agencyId,
       subject: teamThread.subject,
+      // `team_thread.id`, written out: in a select with no join Drizzle renders
+      // `${teamThread.id}` as a bare "id", which inside this subquery is
+      // "user".id — the thread then had nobody on it and never opened.
       people: sql<{ userId: string; name: string | null; email: string; active: boolean }[] | null>`(
         select json_agg(json_build_object(
           'userId', u.id, 'name', u.name, 'email', u.email,
-          'active', exists (select 1 from membership ms where ms.user_id = u.id and ms.agency_id = ${teamThread.agencyId} and ms.status = 'active')
+          'active', exists (select 1 from membership ms where ms.user_id = u.id and ms.agency_id = team_thread.agency_id and ms.status = 'active')
         ) order by lower(coalesce(nullif(u.name, ''), u.email)))
         from team_thread_member p join "user" u on u.id = p.user_id
-        where p.thread_id = ${teamThread.id}
+        where p.thread_id = team_thread.id
       )`,
     })
     .from(teamThread)

@@ -76,9 +76,11 @@ export async function listSkillLibrary(db: Db, actor: Actor): Promise<SkillLibra
       requires: skill.requires,
       modelTier: skill.modelTier,
       bodyMd: skill.bodyMd,
+      // `skill.id`, written out: with no join Drizzle renders `${skill.id}` as a
+      // bare "id", which inside this subquery is a.id.
       myCopyId: sql<string | null>`(
         select a.id from agent_skill a
-        where a.skill_id = ${skill.id} and a.user_id = ${actor.userId} and a.archived_at is null
+        where a.skill_id = skill.id and a.user_id = ${actor.userId} and a.archived_at is null
         limit 1
       )`,
     })
