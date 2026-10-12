@@ -1100,3 +1100,19 @@ listing_id having count(*) > 1;` (note the listings it names), then **apply migr
 | AJ5 | Agent opens a dashboard with **Active listings** | Only listings they are named on; the owner sees the whole agency. Same as before Phase 0. |
 | AJ6 | Owner opens every dashboard they have | Every tile shows as before (AH11 is the one figure that changes on purpose). |
 | AJ7 | Smoke | Dashboards group green, including "a sale counts once, under its lead agent" and "figures read with a 3 s timeout"; the index list includes `listing_agent_lead_idx`, `listing_agency_status_sold_idx`, `mail_message_agency_created_idx`. |
+
+## AK — Zoom deauthorization endpoint and the legal pages (ADR 0037)
+
+**Setup.** Migration 0043 applied. Zoom only sends a real deauthorization for a **published**
+app, so before publishing you can test the URL check (AK3), not the event itself (AK5). The
+endpoint lives on the WEB app; for AK3 it must be reachable over https (the deployed web
+project, or a tunnel to port 3000) with `ZOOM_WEBHOOK_SECRET_TOKEN` set there.
+
+| # | Case | Expected |
+|---|---|---|
+| AK1 | Open `/privacy-policy` and `/terms-of-service` on the website | Both pages in the site's chrome, readable on a phone. Every `[bracketed]` value is still a placeholder: fill `apps/web/app/(legal)/legal.ts` before submitting to Zoom. |
+| AK2 | Agent → Integrations → connect Zoom (TEST-PLAN T3), then in the SQL editor: `select external_account_id from integration_account where provider = 'zoom'` | Your Zoom user id (not null). A Zoom row connected before 0043 shows null: reconnect it. |
+| AK3 | Zoom app → App listing → Links & Support → Deauthorization Notification Endpoint URL `https://<web host>/api/zoom/webhook` → **Validate** | Validated (green). With `ZOOM_WEBHOOK_SECRET_TOKEN` unset or wrong: validation fails (the endpoint answered 503 / 401). |
+| AK4 | `curl -i -X POST https://<web host>/api/zoom/webhook -d '{"event":"app_deauthorized","payload":{"user_id":"x"}}'` | **401** — an unsigned request deletes nothing. |
+| AK5 | After publishing: zoom.us → App Marketplace → Manage → Added Apps → remove the app | Within a minute, Integrations shows Zoom **Not connected** (own and, if it was the same Zoom user, the agency's). Other people's Zoom stays connected. |
+| AK6 | Smoke | Integrations group: "Zoom's deauthorization deletes every connection to that Zoom user, and nothing else" green. |

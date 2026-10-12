@@ -51,6 +51,10 @@ const PUBLIC_ROUTES: Record<string, { why: string; guard: RegExp }> = {
   },
   'apps/web/app/api/cron/alerts/route.ts': { why: 'the scheduler tick', guard: /authoriseCronRequest/ },
   'apps/web/app/api/mail/inbound/route.ts': { why: 'Resend inbound webhook, signed', guard: /svix/i },
+  'apps/web/app/api/zoom/webhook/route.ts': {
+    why: 'Zoom event notifications (ADR 0037): the URL check and a deauthorization, signed with the Secret Token',
+    guard: /handleZoomWebhook\(/,
+  },
   'apps/web/app/api/revalidate/route.ts': { why: 'cache revalidation from the console, shared secret', guard: /REVALIDATE_SECRET/ },
   'apps/web/app/unsubscribe/route.ts': { why: 'one-click unsubscribe from an email, signed token', guard: /verify(Contact)?UnsubscribeToken\(/ },
 };

@@ -302,6 +302,13 @@
       "when": 1791784001260,
       "tag": "0042_lead_agent_unique_and_figure_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1791792310731,
+      "tag": "0043_zoom_external_account_id",
+      "breakpoints": true
     }
   ]
 }

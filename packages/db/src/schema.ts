@@ -1207,6 +1207,12 @@ export const integrationAccount = pgTable(
     ownerId: uuid('owner_id').notNull(),
     /** What the provider says the account is — usually its email. */
     externalAccountLabel: text('external_account_label'),
+    /**
+     * The provider's own id for the account (Zoom: the user id). Zoom's
+     * deauthorization notice names only this, so it is how that notice finds
+     * the rows to delete (ADR 0037). Null for rows connected before it existed.
+     */
+    externalAccountId: text('external_account_id'),
     grantedScopes: text('granted_scopes').array().notNull().default(sql`'{}'::text[]`),
     status: integrationStatusEnum('status').notNull(),
     lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
@@ -1227,6 +1233,7 @@ export const integrationAccount = pgTable(
   (t) => [
     uniqueIndex('integration_account_owner_idx').on(t.provider, t.ownerType, t.ownerId),
     index('integration_account_agency_idx').on(t.agencyId),
+    index('integration_account_external_idx').on(t.provider, t.externalAccountId),
   ],
 );
 

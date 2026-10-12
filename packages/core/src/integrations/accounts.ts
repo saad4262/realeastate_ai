@@ -262,6 +262,8 @@ export type GrantedConnection = {
   expiresAt: Date | null;
   grantedScopes: string[];
   accountLabel: string | null;
+  /** The provider's id for the account, when it gives one (Zoom's user id — ADR 0037). */
+  externalAccountId?: string | null;
 };
 
 /**
@@ -298,6 +300,7 @@ export async function saveConnection(
         ownerType: target.ownerType,
         ownerId: target.ownerId,
         externalAccountLabel: granted.accountLabel,
+        externalAccountId: granted.externalAccountId ?? null,
         grantedScopes: granted.grantedScopes,
         status,
         lastError: missing.length ? `Not granted: ${missing.join(', ')}` : null,
@@ -308,6 +311,7 @@ export async function saveConnection(
         target: [integrationAccount.provider, integrationAccount.ownerType, integrationAccount.ownerId],
         set: {
           externalAccountLabel: granted.accountLabel,
+          externalAccountId: granted.externalAccountId ?? null,
           grantedScopes: granted.grantedScopes,
           status,
           lastError: missing.length ? `Not granted: ${missing.join(', ')}` : null,

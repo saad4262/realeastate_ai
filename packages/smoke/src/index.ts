@@ -1,5 +1,5 @@
 import { config } from 'dotenv';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { and, eq, sql } from 'drizzle-orm';
@@ -153,6 +153,7 @@ import { listNotifications, markNotificationsRead } from '@repo/core/notificatio
 import {
   completeConnect,
   disconnectIntegration,
+  handleZoomWebhook,
   listIntegrationSlots,
   requireIntegrations,
   returnHop,
@@ -4394,6 +4395,49 @@ async function main() {
         s1 = await state();
         assert(s1.google_calendar === 'expired/user', `a lapsed token with no refresh reads ${s1.google_calendar}`);
         summary = 'not_connected → agency Zoom fallback → permission_missing → expired, each reported';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check("Zoom's deauthorization deletes every connection to that Zoom user, and nothing else (ADR 0037)", async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    const secret = `smoke-${randomUUID()}`;
+    const zoomEnv = { ZOOM_WEBHOOK_SECRET_TOKEN: secret } as NodeJS.ProcessEnv;
+    const sign = (body: object) => {
+      const rawBody = JSON.stringify(body);
+      const timestamp = String(Math.floor(Date.now() / 1000));
+      const signature = `v0=${createHmac('sha256', secret).update(`v0:${timestamp}:${rawBody}`).digest('hex')}`;
+      return { rawBody, headers: { signature, timestamp } };
+    };
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const leaving = `smoke-zoom-${randomUUID()}`;
+        const staying = `smoke-zoom-${randomUUID()}`;
+        const withId = (id: string) => ({ ...granted(ALL.zoom), externalAccountId: id });
+        // The same Zoom user connected as A1's own Zoom AND as the agency's; A2 is another Zoom user.
+        const own = await saveConnection(t, testKeys, f.actor('a1'), { provider: 'zoom', ownerType: 'user', ownerId: f.people.a1, agencyId: f.agencyId }, withId(leaving));
+        const agencyRow = await saveConnection(t, testKeys, f.actor('owner'), { provider: 'zoom', ownerType: 'agency', ownerId: f.agencyId, agencyId: f.agencyId }, withId(leaving));
+        const other = await saveConnection(t, testKeys, f.actor('a2'), { provider: 'zoom', ownerType: 'user', ownerId: f.people.a2, agencyId: f.agencyId }, withId(staying));
+        const [stored] = await t.execute<{ x: string | null }>(sql`select external_account_id as x from integration_account where id = ${own.id}`);
+        assert(stored?.x === leaving, `the Zoom user id was not stored: ${stored?.x}`);
+
+        const forged = await handleZoomWebhook({ db: () => t, rawBody: JSON.stringify({ event: 'app_deauthorized', payload: { user_id: staying } }), headers: { signature: 'v0=00', timestamp: String(Math.floor(Date.now() / 1000)) }, env: zoomEnv });
+        assert(forged.status === 401, `an unsigned deauthorization got ${forged.status}`);
+
+        const res = await handleZoomWebhook({ db: () => t, ...sign({ event: 'app_deauthorized', payload: { user_id: leaving, account_id: 'acc' } }), env: zoomEnv });
+        assert(res.status === 200 && res.body.deleted === 2, `deauthorization answered ${res.status} ${JSON.stringify(res.body)}`);
+        const left = await t.execute<{ id: string }>(sql`
+          select id from integration_account where id in (${own.id}, ${agencyRow.id}, ${other.id})
+        `);
+        assert(left.length === 1 && left[0]!.id === other.id, `rows left: ${JSON.stringify(left)}`);
+        summary = "own + agency rows of that Zoom user deleted (2), another user's kept; unsigned → 401";
         throw ROLLBACK;
       });
     } catch (err) {

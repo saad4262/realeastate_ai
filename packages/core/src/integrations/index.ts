@@ -41,6 +41,14 @@ export {
 export * from './providers';
 export { googleAdapter, googleClientFromEnv, type GoogleClient } from './google-oauth';
 export { zoomAdapter, zoomClientFromEnv, type ZoomClient } from './zoom-oauth';
+export {
+  deleteZoomConnections,
+  handleZoomWebhook,
+  verifyZoomSignature,
+  ZOOM_WEBHOOK_MAX_SKEW_MS,
+  zoomWebhookSecretFromEnv,
+  type ZoomWebhookResponse,
+} from './zoom-webhook';
 export { ProviderError, type Fetch, type ProviderErrorKind } from './provider-http';
 export { disconnectAndRevoke, markExpired, markUsed, RENEW_EARLY_MS, withAccessToken, type ProviderDeps } from './tokens';
 export { CALENDAR_EVENTS_URL, eventIdFor, googleCalendarApi, stubCalendarApi, type CalendarApi, type CalendarEventInput, type CalendarEventSeen } from './google-calendar';

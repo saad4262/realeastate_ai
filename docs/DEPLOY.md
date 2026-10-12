@@ -95,6 +95,11 @@ Nothing below is optional for production. Each line names what proves it is done
       dev client).
 - [ ] **Zoom Marketplace**: the app published (or approved for the accounts that will use it),
       production redirect URL and OAuth allow list on the real domain.
+      Deauthorization Notification Endpoint URL `https://<domain>/api/zoom/webhook` (App listing →
+      Links & Support) and `ZOOM_WEBHOOK_SECRET_TOKEN` (the production app's Secret Token) on the
+      **web** project; Privacy policy `https://<domain>/privacy-policy`, Terms
+      `https://<domain>/terms-of-service`, with the placeholders in `apps/web/app/(legal)/legal.ts`
+      filled and the text reviewed (ADR 0037). Proven by: "Validate" on the endpoint goes green.
 - [ ] `GOOGLE_MAPS_API_KEY` restricted by IP / API; browser key restricted by HTTP referrer to
       the production domains.
 - [ ] **Places API (New)** enabled in the Google Cloud project of `GOOGLE_MAPS_API_KEY` (and

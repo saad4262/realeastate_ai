@@ -1,0 +1,2 @@
+ALTER TABLE "integration_account" ADD COLUMN "external_account_id" text;--> statement-breakpoint
+CREATE INDEX "integration_account_external_idx" ON "integration_account" USING btree ("provider","external_account_id");

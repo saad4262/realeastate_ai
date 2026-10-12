@@ -1,3 +1,21 @@
+## 2026-10-12 — Claude Code — Zoom deauthorization endpoint and legal pages (ADR 0037)
+
+- Asked (Roman Urdu): what is left for Zoom after the Development setup; then build the
+  deauthorization (data compliance) endpoint and Privacy/Terms pages for the Marketplace review;
+  then apply 0043, unit-test, commit, push, merge to main, no live tests.
+- Found: we stored only the Zoom email, but the deauthorization notice names only the Zoom user
+  id → migration 0043 `external_account_id` (+ index), set from `/users/me` `id` on connect.
+- Core `integrations/zoom-webhook.ts` (`verifyZoomSignature`, `handleZoomWebhook`,
+  `deleteZoomConnections`) + 7 unit tests; route `apps/web/app/api/zoom/webhook`; listed in
+  entrypoints PUBLIC_ROUTES (guard `handleZoomWebhook(`); smoke check in Integrations (not run).
+- Zoom facts (checked 2026-10-12, docs + devforum): signature `v0=`HMAC-SHA256(secret,
+  `v0:<ts>:<body>`); url_validation → {plainToken, encryptedToken}; answer in 3 s; retries only
+  on 5xx; deauth notices only for PUBLISHED apps; URL field is App listing → Links & Support.
+- Legal pages: `apps/web/app/(legal)/` (privacy-policy, terms-of-service, legal.ts placeholders).
+- Break-tests red: provider filter, signature skip, timestamp skew, route guard.
+- Next exact step: the user — Secret Token into web env, endpoint Validate, fill legal.ts,
+  TEST-PLAN AK, `pnpm smoke` Integrations.
+
 ## 2026-10-12 — Claude Code — Dashboards semantic layer: ADR 0036 and Phase 0
 
 - Asked (Roman Urdu, then English): how should the assistant build mini dashboards for any request

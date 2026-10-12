@@ -3,6 +3,19 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
+- **Zoom deauthorization + legal pages (ADR 0037) — on `main` 2026-10-12. Migration 0043 applied
+  on dev** (`integration_account.external_account_id` = Zoom user id from `/users/me`, + index).
+  `POST /api/zoom/webhook` on apps/web: `x-zm-signature` (Secret Token `ZOOM_WEBHOOK_SECRET_TOKEN`,
+  web project) → URL validation answered; `app_deauthorized` deletes every Zoom row of that Zoom
+  user (own + agency); unsigned 401, no secret 503. `/privacy-policy` and `/terms-of-service` on
+  apps/web with bracketed placeholders in `app/(legal)/legal.ts` (draft text, needs a lawyer).
+  Checks: typecheck 10/10, unit 929 + 296, web build OK, 4 break-tests red. Smoke check written
+  (Integrations group), NOT run — the user runs live tests. Zoom Development rows connected
+  before 0043 have no id: reconnect. Dev `ZOOM_OAUTH_RETURN_BASE` points at the Vercel console,
+  which breaks connecting from local dev (use a tunnel). **Next:** user fills legal.ts, sets the
+  Secret Token, validates the endpoint in Zoom, walks TEST-PLAN AK, submits the Zoom app.
+- **Note:** ADR 0035 and 0036 are committed on main (4bf0828, bd02f18) and 0041 + 0042 are
+  applied on dev; the two bullets below predate that.
 - **New email + team messages + assistant writing (ADR 0035) — built 2026-10-12 on
   `feat/compose-email`, NOT committed. Migration 0041 written, NOT applied (user: "abhi nahi").**
   Agents/owners write a NEW email to a contact (`/inbox/new`, `/my-inbox/new`, contact Emails tab;

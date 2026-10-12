@@ -57,7 +57,8 @@ export function zoomAdapter(client: ZoomClient, fetchImpl: Fetch = fetch): OAuth
       );
       const accessToken = str(json?.access_token);
       if (!json || !accessToken) throw new IntegrationError('invalid', 'Zoom sent back something unexpected');
-      // Which account it is, for the card. Not worth failing the connection over.
+      // Which account it is: the email for the card, the id for Zoom's deauthorization
+      // notice (ADR 0037). Not worth failing the connection over.
       const me = await call(fetchImpl, 'Zoom', `${ZOOM_API}/users/me`, { headers: { authorization: `Bearer ${accessToken}` } }).catch(() => null);
       return {
         accessToken,
@@ -65,6 +66,7 @@ export function zoomAdapter(client: ZoomClient, fetchImpl: Fetch = fetch): OAuth
         expiresAt: expiresAtFrom(json),
         grantedScopes: scopeList(json.scope),
         accountLabel: str(me?.json?.email)?.slice(0, 200) ?? null,
+        externalAccountId: str(me?.json?.id)?.slice(0, 200) ?? null,
       };
     },
     async refresh(refreshToken) {
