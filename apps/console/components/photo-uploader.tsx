@@ -1,8 +1,10 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, useTransition, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, useTransition, type ChangeEvent } from 'react';
 import { mediaUrl } from '@repo/core/media/url';
+// The key module, not the barrel: the barrel reaches the database client.
+import { MAX_LISTING_PHOTOS, MAX_MEDIA_BYTES, MEDIA_MIME_TYPES } from '@repo/core/media/key';
 import type { ListingPhoto } from '@repo/core/media';
 import {
   attachAgentPhotoAction,
@@ -54,6 +56,35 @@ function initials(name: string): string {
 
 /* ------------------------------------------------------- listing photos -- */
 
+/**
+ * One file, all three steps, against a listing that already exists.
+ *
+ * Shared by the edit panel and the create form so the order — sign, PUT,
+ * attach — lives in one place. Returns the refusal rather than throwing, so a
+ * caller looping over a batch can stop at the first one and say why.
+ */
+export async function uploadListingPhoto(
+  listingId: string,
+  file: File,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const signed = await signListingPhotoUploadAction(listingId, {
+      type: file.type,
+      size: file.size,
+    });
+    if (!signed.ok) return signed;
+
+    const dimensions = await imageDimensions(file);
+    await putSignedUpload(signed, file);
+
+    const attached = await attachListingPhotoAction(listingId, signed.key, dimensions);
+    if (!attached.ok) return attached;
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'That image could not be uploaded.' };
+  }
+}
+
 export function ListingPhotos({
   listingId,
   photos,
@@ -87,29 +118,11 @@ export function ListingPhotos({
     start(async () => {
       for (const file of batch) {
         setUploading((n) => n + 1);
-        try {
-          const signed = await signListingPhotoUploadAction(listingId, {
-            type: file.type,
-            size: file.size,
-          });
-          if (!signed.ok) {
-            setError(signed.error);
-            break;
-          }
-
-          const dimensions = await imageDimensions(file);
-          await putSignedUpload(signed, file);
-
-          const attached = await attachListingPhotoAction(listingId, signed.key, dimensions);
-          if (!attached.ok) {
-            setError(attached.error);
-            break;
-          }
-        } catch (err) {
-          setError(err instanceof Error ? err.message : 'That image could not be uploaded.');
+        const result = await uploadListingPhoto(listingId, file);
+        setUploading((n) => n - 1);
+        if (!result.ok) {
+          setError(result.error);
           break;
-        } finally {
-          setUploading((n) => n - 1);
         }
       }
       router.refresh();
@@ -202,6 +215,158 @@ export function ListingPhotos({
               </li>
             );
           })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------- photos for a new listing -- */
+
+/** A file picked on the create form, held in the browser until the listing exists. */
+export type PendingPhoto = { id: string; file: File; previewUrl: string };
+
+/**
+ * Photos chosen before there is a listing to attach them to.
+ *
+ * Nothing is uploaded here. A storage key is built from the listing id, and
+ * the sign action asks can() about that listing — neither exists until the
+ * draft is saved. So the files wait in the browser and the form runs the same
+ * sign → PUT → attach steps (`uploadListingPhoto`) once the create returns its
+ * id. No second upload path, and no orphaned objects in the bucket for a form
+ * that was abandoned.
+ *
+ * Order is upload order, and the first upload becomes the cover
+ * (addListingPhoto marks the first row main) — so "Cover" here just moves a
+ * photo to the front.
+ */
+export function PendingListingPhotos({
+  photos,
+  onChange,
+  disabled,
+}: {
+  photos: PendingPhoto[];
+  onChange: (next: PendingPhoto[]) => void;
+  disabled?: boolean;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const full = photos.length >= MAX_LISTING_PHOTOS;
+
+  // The previews are object URLs; release them when the form goes away.
+  const latest = useRef(photos);
+  useEffect(() => {
+    latest.current = photos;
+  });
+  useEffect(() => () => latest.current.forEach((p) => URL.revokeObjectURL(p.previewUrl)), []);
+
+  function onPick(event: ChangeEvent<HTMLInputElement>) {
+    const files = [...(event.target.files ?? [])];
+    event.target.value = '';
+    if (!files.length) return;
+
+    // The same checks the sign action makes, here so a bad file is refused
+    // now rather than after the listing has already been saved.
+    const refused: string[] = [];
+    const ok = files.filter((file) => {
+      if (!MEDIA_MIME_TYPES[file.type.toLowerCase()]) {
+        refused.push(`${file.name}: images only — JPEG, PNG, WebP or AVIF`);
+        return false;
+      }
+      if (file.size <= 0 || file.size > MAX_MEDIA_BYTES) {
+        refused.push(`${file.name}: images must be 10 MB or smaller`);
+        return false;
+      }
+      return true;
+    });
+
+    const room = MAX_LISTING_PHOTOS - photos.length;
+    if (ok.length > room) {
+      refused.push(`Only ${room} more ${room === 1 ? 'photo' : 'photos'} will fit on this listing.`);
+    }
+    setError(refused.length ? refused.join(' ') : null);
+
+    const added = ok.slice(0, room).map((file) => ({
+      id: crypto.randomUUID(),
+      file,
+      previewUrl: URL.createObjectURL(file),
+    }));
+    if (added.length) onChange([...photos, ...added]);
+  }
+
+  function onRemove(id: string) {
+    const gone = photos.find((p) => p.id === id);
+    if (gone) URL.revokeObjectURL(gone.previewUrl);
+    onChange(photos.filter((p) => p.id !== id));
+  }
+
+  function onCover(id: string) {
+    const pick = photos.find((p) => p.id === id);
+    if (pick) onChange([pick, ...photos.filter((p) => p.id !== id)]);
+  }
+
+  return (
+    <div className={styles.wrap}>
+      <div className={styles.head}>
+        <div>
+          <span className={styles.label}>Selected photos</span>
+          <p className={styles.hint}>
+            {photos.length} of {MAX_LISTING_PHOTOS}. They upload when you save. The first one is
+            the cover — it is what shows on search results and in the chat.
+          </p>
+        </div>
+
+        <label className={styles.pick} aria-disabled={disabled || full}>
+          <input
+            type="file"
+            className={styles.file}
+            accept={ACCEPT}
+            multiple
+            disabled={disabled || full}
+            onChange={onPick}
+          />
+          {full ? 'Full' : 'Add photos'}
+        </label>
+      </div>
+
+      {error ? <p className={styles.error}>{error}</p> : null}
+
+      {photos.length === 0 ? (
+        <p className={styles.empty}>
+          No photos yet. You can also add them later from Edit.
+        </p>
+      ) : (
+        <ul className={styles.grid}>
+          {photos.map((photo, i) => (
+            <li
+              key={photo.id}
+              className={i === 0 ? `${styles.tile} ${styles.coverTile}` : styles.tile}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element -- a local
+                  blob: preview; next/image has nothing to optimise here. */}
+              <img src={photo.previewUrl} alt="" width={160} height={120} />
+              {i === 0 ? <span className={styles.badge}>Cover</span> : null}
+              <div className={styles.tileActions}>
+                {i !== 0 ? (
+                  <button
+                    type="button"
+                    className={styles.tileButton}
+                    disabled={disabled}
+                    onClick={() => onCover(photo.id)}
+                  >
+                    Cover
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className={`${styles.tileButton} ${styles.danger}`}
+                  disabled={disabled}
+                  onClick={() => onRemove(photo.id)}
+                >
+                  Remove
+                </button>
+              </div>
+            </li>
+          ))}
         </ul>
       )}
     </div>

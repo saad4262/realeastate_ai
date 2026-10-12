@@ -19,6 +19,11 @@ import type { ResolvedPlace } from '@repo/core/geo/schema';
 import { createListingAction, updateListingAction } from '@/lib/listing-actions';
 import { AddressAutocomplete } from '@/components/address-autocomplete';
 import { PinField } from '@/components/pin-field';
+import {
+  PendingListingPhotos,
+  uploadListingPhoto,
+  type PendingPhoto,
+} from '@/components/photo-uploader';
 import { useToast } from '@/components/toast';
 import styles from './listing-form.module.css';
 
@@ -125,6 +130,12 @@ export function ListingForm({
    * re-enabling for the gap in between and inviting a second submit.
    */
   const [busy, startSaving] = useTransition();
+  /**
+   * Photos picked on a NEW listing, uploaded once the draft has an id. An edit
+   * has its own panel under the form, which talks to the saved listing directly.
+   */
+  const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([]);
+  const [photoProgress, setPhotoProgress] = useState<{ done: number; total: number } | null>(null);
 
   function invalid(key: string) {
     return errors[key] ? `${styles.input} ${styles.invalid}` : styles.input;
@@ -337,6 +348,37 @@ export function ListingForm({
           description: result.error,
         });
         return;
+      }
+
+      // The listing exists now, so its photos have somewhere to go. One at a
+      // time, in the order shown: the first upload becomes the cover.
+      if (!editing && 'listingId' in result && pendingPhotos.length > 0) {
+        const total = pendingPhotos.length;
+        let failure: string | null = null;
+        let done = 0;
+        setPhotoProgress({ done, total });
+        for (const photo of pendingPhotos) {
+          const uploaded = await uploadListingPhoto(result.listingId, photo.file);
+          if (!uploaded.ok) {
+            failure = uploaded.error;
+            break;
+          }
+          done += 1;
+          setPhotoProgress({ done, total });
+        }
+
+        if (failure) {
+          // The draft is saved; only photos are missing. Land on the edit page,
+          // where the photo panel shows what made it and can take the rest.
+          toast({
+            variant: 'warning',
+            title: 'Listing saved — some photos did not upload',
+            description: `${done} of ${total} uploaded. ${failure} Add the rest from this page.`,
+          });
+          router.push(`${backHref}/${result.listingId}/edit`);
+          router.refresh();
+          return;
+        }
       }
 
       toast({
@@ -690,12 +732,28 @@ export function ListingForm({
         </div>
       </section>
 
+      {editing ? null : (
+        <section className={styles.section}>
+          <h2 className={styles.sectionTitle}>Photos</h2>
+          <p className={styles.sectionHint}>
+            Optional. Pick them now and they upload with the draft, or add them later from Edit.
+          </p>
+          <PendingListingPhotos photos={pendingPhotos} onChange={setPendingPhotos} disabled={busy} />
+        </section>
+      )}
+
       <div className={styles.footer}>
         <button type="submit" className={styles.submit} disabled={busy}>
           <span className={styles.glyph} aria-hidden>
             save
           </span>
-          {busy ? 'Saving…' : editing ? 'Save changes' : 'Save as draft'}
+          {busy
+            ? photoProgress
+              ? `Uploading photos ${Math.min(photoProgress.done + 1, photoProgress.total)} of ${photoProgress.total}…`
+              : 'Saving…'
+            : editing
+              ? 'Save changes'
+              : 'Save as draft'}
         </button>
         <button type="button" className={styles.ghost} onClick={() => router.push(backHref)}>
           Cancel

@@ -25,6 +25,7 @@
     "./markdown": "./src/markdown.ts",
     "./media": "./src/media/index.ts",
     "./media/url": "./src/media/media-url.ts",
+    "./media/key": "./src/media/storage-key.ts",
     "./media/storage": "./src/media/storage-client.ts",
     "./listings/url": "./src/listings/search-url.ts",
     "./email": "./src/email/index.ts",

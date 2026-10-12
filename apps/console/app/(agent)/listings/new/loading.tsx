@@ -14,7 +14,7 @@ export default function Loading() {
   return (
     <div style={{ display: 'grid', gap: '1rem' }}>
       <ListingFormHeadingSkeleton width={420} />
-      <ListingFormSkeleton />
+      <ListingFormSkeleton photos />
     </div>
   );
 }

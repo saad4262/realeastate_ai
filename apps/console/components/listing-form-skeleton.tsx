@@ -44,7 +44,8 @@ function Section({ hintLines = 1, children }: { hintLines?: number; children?: R
   );
 }
 
-export function ListingFormSkeleton() {
+/** `photos`: the create form carries a Photos section above the footer; the edit form does not. */
+export function ListingFormSkeleton({ photos = false }: { photos?: boolean } = {}) {
   return (
     <div className={formStyles.form} aria-busy="true" aria-live="polite">
       <span className="sr-only">Loading the listing</span>
@@ -81,6 +82,12 @@ export function ListingFormSkeleton() {
           <SkeletonBar height={120} radius="0.5rem" />
         </div>
       </Section>
+
+      {photos ? (
+        <Section>
+          <ListingPhotosSkeleton />
+        </Section>
+      ) : null}
 
       <div className={formStyles.footer}>
         <SkeletonBar height={38} width={148} radius="0.5rem" />
