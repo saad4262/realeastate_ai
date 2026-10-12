@@ -49,10 +49,27 @@ export function ConnectButton({
   );
 }
 
-export function IntegrationCard({ slot }: { slot: IntegrationSlot }) {
+/**
+ * `compact`: a slot this person can only look at — the agency's accounts on
+ * the agent desk. Name, status and which account; the permission list and the
+ * "who may change it" line belong to whoever manages it, and the section
+ * heading above already says it is the agency's.
+ */
+export function IntegrationCard({ slot, compact = false }: { slot: IntegrationSlot; compact?: boolean }) {
   const info = PROVIDERS[slot.provider];
   const a = slot.account;
   const state: IntegrationState = a ? a.state : 'not_connected';
+  if (compact) {
+    return (
+      <article className={`${styles.card} ${styles.compact}`}>
+        <div className={styles.cardHead}>
+          <span className={styles.name}>{info.label}</span>
+          <StatusPill state={state} />
+        </div>
+        {a?.accountLabel ? <p className={styles.note}>{a.accountLabel}</p> : null}
+      </article>
+    );
+  }
   return (
     <article className={styles.card}>
       <div className={styles.cardHead}>

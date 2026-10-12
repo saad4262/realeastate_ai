@@ -38,10 +38,32 @@ export async function IntegrationsPage({
   const error = first(sp.error);
   const configured = tokenKeysFromEnv() !== null;
   const sharing = await agencyGmailSharing(getConsoleDb(), session.actor);
-  // Agency accounts first on the agency console; your own first on the desk.
-  const ordered = [...slots].sort((a, b) =>
-    a.ownerType === b.ownerType ? 0 : (a.ownerType === 'agency') === (surface === 'agency') ? -1 : 1,
-  );
+  // Zoom, Sheets and Gmail can each be connected twice — the person's own and
+  // the agency's — so the two kinds are separate sections, never one grid
+  // where the same app appears twice with nothing to say why. Agency accounts
+  // first on the agency console; your own first on the desk.
+  const own = slots.filter((s) => s.ownerType === 'user');
+  const agency = slots.filter((s) => s.ownerType === 'agency');
+  const agencyManaged = agency.some((s) => s.mayManage);
+  const sections = [
+    {
+      key: 'user',
+      title: 'Your accounts',
+      hint: 'Connected by you and used for what you do. Where both exist, your own account is used before the agency’s.',
+      slots: own,
+    },
+    {
+      key: 'agency',
+      title: 'The agency’s accounts',
+      hint: agencyManaged
+        ? 'Shared by everyone in the agency. Used when a member has not connected their own.'
+        : `Shared by everyone in the agency, used when you have not connected your own${
+            sharing.on ? '' : ' (except Gmail — the agency has not shared it with members)'
+          }. Only an owner or admin connects these.`,
+      slots: agency,
+    },
+  ].filter((section) => section.slots.length > 0);
+  if (surface === 'agency') sections.reverse();
 
   return (
     <div className={contactStyles.wrap}>
@@ -76,11 +98,23 @@ export async function IntegrationsPage({
       ) : null}
       {loadError ? <p className={styles.bannerBad} role="alert">{loadError}</p> : null}
 
-      <div className={styles.grid}>
-        {ordered.map((slot) => (
-          <IntegrationCard key={`${slot.provider}-${slot.ownerType}`} slot={slot} />
-        ))}
-      </div>
+      {sections.map((section) => (
+        <section key={section.key} className={styles.section}>
+          <div>
+            <h2 className={styles.sectionTitle}>{section.title}</h2>
+            <p className={styles.note}>{section.hint}</p>
+          </div>
+          <div className={styles.grid}>
+            {section.slots.map((slot) => (
+              <IntegrationCard
+                key={`${slot.provider}-${slot.ownerType}`}
+                slot={slot}
+                compact={slot.ownerType === 'agency' && !slot.mayManage}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
 
       {sharing.mayChange && surface === 'agency' ? (
         <form action={setAgencyGmailSharingAction} className={contactStyles.card} style={{ padding: '1rem', marginTop: '1rem' }}>
