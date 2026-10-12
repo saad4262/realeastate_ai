@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gte, inArray, lt, or, sql, type SQL } from 'drizzle
 import { alias } from 'drizzle-orm/pg-core';
 import {
   appointment,
+  appointmentParticipant,
   contact,
   contactProperty,
   lead,
@@ -22,18 +23,21 @@ import type { ActivityKind } from '../contacts/contact-schema';
 import { resolveIntegration } from '../integrations/accounts';
 import type { CalendarConflict } from '@repo/db';
 import { pendingSyncFields, syncAppointment, type SyncDeps, type SyncOutcome, type SyncState } from './sync';
-import { clashMessage, findClash, isOverlapViolation, OVERLAP_MESSAGE } from './clash';
+import { clashMessage, findClash, findFirstClash, isOverlapViolation, OVERLAP_MESSAGE, teamClashMessage } from './clash';
 import {
   ACTIVE_STATUSES,
   finishAppointmentSchema,
   rescheduleAppointmentSchema,
   scheduleAppointmentSchema,
+  scheduleTeamMeetingSchema,
+  type AppointmentKind,
   type AppointmentListQuery,
   type AppointmentStatus,
   type AppointmentType,
   type FinishAppointmentInput,
   type RescheduleAppointmentInput,
   type ScheduleAppointmentInput,
+  type ScheduleTeamMeetingInput,
 } from './appointment-schema';
 
 /**
@@ -43,8 +47,10 @@ import {
  *
  * Who sees what is `appointment:read` in permissions.ts and its SQL twin
  * below: admins the agency's whole calendar; anybody else what is assigned to
- * them or what they booked. Every change writes an `activity` row on the
- * contact in the same transaction, so it is on their timeline.
+ * them, what they booked, and the team meetings they are on (ADR 0038). Every
+ * change to a CLIENT appointment writes an `activity` row on the contact in
+ * the same transaction, so it is on their timeline; a team meeting has no
+ * contact and no timeline.
  */
 
 export class AppointmentError extends Error {
@@ -65,7 +71,13 @@ export function appointmentScopeFilters(actor: Actor): SQL[] {
   const agencyId = actor.agencyId ?? '00000000-0000-0000-0000-000000000000';
   const filters: SQL[] = [eq(appointment.agencyId, agencyId)];
   if (!can(actor, 'appointment:read_all', { type: 'appointment', agencyId })) {
-    filters.push(or(eq(appointment.assignedAgentId, actor.userId), eq(appointment.createdBy, actor.userId))!);
+    filters.push(
+      or(
+        eq(appointment.assignedAgentId, actor.userId),
+        eq(appointment.createdBy, actor.userId),
+        sql`exists (select 1 from ${appointmentParticipant} ap where ap.appointment_id = ${appointment.id} and ap.user_id = ${actor.userId})`,
+      )!,
+    );
   }
   return filters;
 }
@@ -75,6 +87,7 @@ export function appointmentResource(a: {
   agencyId: string;
   assignedAgentId: string | null;
   createdBy: string | null;
+  participantIds?: string[];
 }): Resource {
   return {
     type: 'appointment',
@@ -82,13 +95,22 @@ export function appointmentResource(a: {
     agencyId: a.agencyId,
     ...(a.assignedAgentId ? { ownerId: a.assignedAgentId } : {}),
     createdBy: a.createdBy,
+    ...(a.participantIds?.length ? { participantIds: a.participantIds } : {}),
   };
 }
 
+/** A colleague on a team meeting, besides its host. */
+export type TeamParticipantView = { userId: string; name: string; declined: boolean };
+
 export type AppointmentView = {
   id: string;
-  contactId: string;
-  contactName: string;
+  /** `team`: an internal meeting between members, with no contact (ADR 0038). */
+  kind: AppointmentKind;
+  /** Null exactly when `kind` is `team`. */
+  contactId: string | null;
+  contactName: string | null;
+  /** A team meeting's colleagues besides the host (empty for a client appointment). */
+  participants: TeamParticipantView[];
   title: string;
   type: AppointmentType;
   status: AppointmentStatus;
@@ -122,13 +144,23 @@ export type AppointmentView = {
   zoomLinkChanged: boolean;
   /** Decided by can(); the screen draws its buttons from this. */
   mayUpdate: boolean;
+  /** A participant of a team meeting who has not declined it yet. */
+  mayDecline: boolean;
 };
 
 const columns = {
   id: appointment.id,
   agencyId: appointment.agencyId,
+  kind: appointment.kind,
   contactId: appointment.contactId,
   contactName: contact.name,
+  // Written out as `appointment.id` (see single-table-subquery.test.ts) though this query joins.
+  participants: sql<{ userId: string; name: string | null; email: string; declined: boolean }[] | null>`(
+    select json_agg(json_build_object('userId', u.id, 'name', u.name, 'email', u.email, 'declined', ap.declined_at is not null)
+      order by lower(coalesce(nullif(u.name, ''), u.email)))
+    from appointment_participant ap join "user" u on u.id = ap.user_id
+    where ap.appointment_id = appointment.id
+  )`,
   title: appointment.title,
   type: appointment.type,
   status: appointment.status,
@@ -167,13 +199,30 @@ const columns = {
 
 type Row = {
   [K in keyof typeof columns]: unknown;
-} & { id: string; agencyId: string; contactId: string; assignedAgentId: string | null; createdBy: string | null };
+} & { id: string; agencyId: string; contactId: string | null; assignedAgentId: string | null; createdBy: string | null };
+
+type ParticipantJson = { userId: string; name: string | null; email: string; declined: boolean };
+
+/** The json_agg column, whether the driver parsed it or handed back the text. */
+function participantsOf(r: Row): ParticipantJson[] {
+  const raw = typeof r.participants === 'string' ? (JSON.parse(r.participants) as unknown) : r.participants;
+  return Array.isArray(raw) ? (raw as ParticipantJson[]) : [];
+}
+
+function rowResource(r: Row) {
+  return appointmentResource({ ...r, participantIds: participantsOf(r).map((p) => p.userId) });
+}
 
 function toView(actor: Actor, r: Row): AppointmentView {
+  const people = participantsOf(r);
+  const resource = rowResource(r);
+  const me = people.find((p) => p.userId === actor.userId);
   return {
     id: r.id,
+    kind: (r.kind as AppointmentKind | null) ?? 'client',
     contactId: r.contactId,
-    contactName: r.contactName as string,
+    contactName: (r.contactName as string | null) ?? null,
+    participants: people.map((p) => ({ userId: p.userId, name: p.name?.trim() || p.email, declined: Boolean(p.declined) })),
     title: r.title as string,
     type: r.type as AppointmentType,
     status: r.status as AppointmentStatus,
@@ -208,7 +257,8 @@ function toView(actor: Actor, r: Row): AppointmentView {
     zoomSyncState: (r.zoomSyncState as SyncState | null) ?? null,
     zoomSyncError: (r.zoomSyncError as string | null) ?? null,
     zoomLinkChanged: Boolean(r.zoomLinkChangedAt) && !r.invitationSentAt,
-    mayUpdate: can(actor, 'appointment:update', appointmentResource({ ...r, agencyId: r.agencyId })),
+    mayUpdate: can(actor, 'appointment:update', resource),
+    mayDecline: Boolean(me && !me.declined) && can(actor, 'appointment:respond', resource),
   };
 }
 
@@ -216,7 +266,8 @@ function baseQuery(db: DbOrTx) {
   return db
     .select(columns)
     .from(appointment)
-    .innerJoin(contact, eq(contact.id, appointment.contactId))
+    // Left: a team meeting has no contact (ADR 0038).
+    .leftJoin(contact, eq(contact.id, appointment.contactId))
     .leftJoin(agentUser, eq(agentUser.id, appointment.assignedAgentId))
     .leftJoin(property, eq(property.id, appointment.propertyId));
 }
@@ -267,7 +318,7 @@ export async function getAppointment(db: DbOrTx, actor: Actor, id: string): Prom
     .limit(1);
   if (!r) throw APPOINTMENT_NOT_FOUND();
   const row = r as Row;
-  if (!can(actor, 'appointment:read', appointmentResource(row))) throw APPOINTMENT_NOT_FOUND();
+  if (!can(actor, 'appointment:read', rowResource(row))) throw APPOINTMENT_NOT_FOUND();
   return { ...toView(actor, row), agencyId: row.agencyId, createdBy: row.createdBy };
 }
 
@@ -410,6 +461,116 @@ async function overlapGuard<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Serialise bookings that involve the same people (ADR 0038 §4): the EXCLUDE
+ * constraint covers a host, not a team meeting's colleagues, so two bookings
+ * racing for one colleague's slot are put in a queue — per person, in id
+ * order so two of them never wait on each other — and the second re-checks.
+ */
+async function lockPeople(tx: DbOrTx, userIds: readonly (string | null)[]): Promise<void> {
+  const ids = [...new Set(userIds.filter((x): x is string => Boolean(x)))].sort();
+  for (const id of ids) await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`appointment-person:${id}`}, 0))`);
+}
+
+/** Active members of this agency, by id, with a display name — the people a team meeting may have on it. */
+async function activeMembers(db: DbOrTx, agencyId: string, ids: readonly string[]) {
+  if (!ids.length) return [];
+  return db
+    .select({ userId: user.id, name: user.name, email: user.email })
+    .from(membership)
+    .innerJoin(user, eq(user.id, membership.userId))
+    .where(and(eq(membership.agencyId, agencyId), eq(membership.status, 'active'), inArray(membership.userId, [...ids])));
+}
+
+const displayName = (p: { name: string | null; email: string }) => p.name?.trim() || p.email;
+
+/**
+ * Book a team meeting (ADR 0038): the host (yourself; an admin may name
+ * another member) and 1–10 colleagues, all ACTIVE members of your agency, none
+ * of them busy then. Nobody is told here — the caller runs the Zoom sync and
+ * then `notifyTeamMeeting`, so the email carries the join link.
+ */
+export async function scheduleTeamMeeting(db: Db, actor: Actor, input: ScheduleTeamMeetingInput): Promise<{ id: string }> {
+  if (!actor.agencyId) throw new AppointmentError('forbidden', 'You can view appointments but not book them');
+  const agencyId = actor.agencyId;
+  const calendar = { type: 'appointment', agencyId };
+  if (!can(actor, 'appointment:create', calendar)) {
+    throw new AppointmentError('forbidden', 'You can view appointments but not book them');
+  }
+  const parsed = scheduleTeamMeetingSchema.safeParse(input);
+  if (!parsed.success) throw new AppointmentError('invalid', firstIssue(parsed.error));
+  const v = parsed.data;
+
+  const host = can(actor, 'appointment:assign', calendar) ? (v.hostId ?? actor.userId) : actor.userId;
+  const hostActor = host !== actor.userId ? await assertAssignable(db, actor, host) : actor;
+  const others = v.participantIds.filter((id) => id !== host);
+  if (!others.length) throw new AppointmentError('invalid', 'Pick at least one colleague besides the host');
+  const members = await activeMembers(db, agencyId, others);
+  if (members.length !== others.length) throw new AppointmentError('invalid', 'Everyone on a team meeting must be an active member of your agency');
+  const nameOf = new Map(members.map((m) => [m.userId, displayName(m)]));
+
+  if (v.type === 'zoom' && !v.meetingUrl) await assertZoomUsable(db, hostActor, host === actor.userId);
+  const hostClash = await findClash(db, host, v.startsAt, v.endsAt);
+  if (hostClash) throw new AppointmentError('conflict', clashMessage(hostClash, host === actor.userId));
+  const hit = await findFirstClash(db, others, v.startsAt, v.endsAt);
+  if (hit) throw new AppointmentError('conflict', teamClashMessage(hit.clash, nameOf.get(hit.userId)!));
+
+  return overlapGuard(() => db.transaction(async (tx) => {
+    await lockPeople(tx, [host, ...others]);
+    const late = await findFirstClash(tx, others, v.startsAt, v.endsAt);
+    if (late) throw new AppointmentError('conflict', teamClashMessage(late.clash, nameOf.get(late.userId)!));
+    const [row] = await tx
+      .insert(appointment)
+      .values({
+        agencyId,
+        kind: 'team',
+        contactId: null,
+        createdBy: actor.userId,
+        assignedAgentId: host,
+        title: v.title,
+        type: v.type,
+        startsAt: v.startsAt,
+        endsAt: v.endsAt,
+        timezone: v.timezone,
+        location: v.location ?? null,
+        meetingUrl: v.meetingUrl ?? null,
+        notes: v.notes ?? null,
+        reminderMinutes: v.reminderMinutes,
+        ...pendingSyncFields({ type: v.type, meetingUrl: v.meetingUrl ?? null, zoomMeeting: false }, 'scheduled'),
+      })
+      .returning({ id: appointment.id });
+    const id = row!.id;
+    await tx.insert(appointmentParticipant).values(others.map((userId) => ({ appointmentId: id, userId, agencyId })));
+    return { id };
+  }));
+}
+
+/**
+ * "I can't make it": a colleague on a team meeting declines it for themselves.
+ * They stay on the list (the host sees who declined) and get no reminder.
+ * Returns whether this call changed anything, so the caller tells the host once.
+ */
+export async function declineTeamMeeting(db: DbOrTx, actor: Actor, id: string): Promise<{ declined: boolean }> {
+  const a = await getAppointment(db, actor, id);
+  if (!a.mayDecline) {
+    if (a.participants.some((p) => p.userId === actor.userId && p.declined)) return { declined: false };
+    throw new AppointmentError('forbidden', 'Only a colleague invited to this meeting can decline it');
+  }
+  if (!ACTIVE_STATUSES.includes(a.status)) throw new AppointmentError('conflict', `This meeting is already ${a.status}`);
+  const done = await db
+    .update(appointmentParticipant)
+    .set({ declinedAt: sql`now()` })
+    .where(
+      and(
+        eq(appointmentParticipant.appointmentId, a.id),
+        eq(appointmentParticipant.userId, actor.userId),
+        sql`${appointmentParticipant.declinedAt} is null`,
+      ),
+    )
+    .returning({ id: appointmentParticipant.appointmentId });
+  return { declined: done.length > 0 };
+}
+
 /** Load for a change: visible, changeable, and still on. */
 async function loadChangeable(db: DbOrTx, actor: Actor, id: string) {
   const a = await getAppointment(db, actor, id);
@@ -428,7 +589,7 @@ async function finish(
   id: string,
   input: FinishAppointmentInput,
   status: 'completed' | 'cancelled',
-): Promise<void> {
+): Promise<{ kind: AppointmentKind }> {
   const parsed = finishAppointmentSchema.safeParse(input);
   if (!parsed.success) throw new AppointmentError('invalid', firstIssue(parsed.error));
   const a = await loadChangeable(db, actor, id);
@@ -441,8 +602,9 @@ async function finish(
       .where(and(eq(appointment.id, a.id), inArray(appointment.status, [...ACTIVE_STATUSES])))
       .returning({ id: appointment.id });
     if (!done.length) throw new AppointmentError('conflict', 'This appointment was changed by somebody else — reload');
-    await recordActivity(tx, actor, a.agencyId, a.contactId, kind, activityPayload(a, { outcome: parsed.data.outcome ?? null }));
+    if (a.contactId) await recordActivity(tx, actor, a.agencyId, a.contactId, kind, activityPayload(a, { outcome: parsed.data.outcome ?? null }));
   });
+  return { kind: a.kind };
 }
 
 export function completeAppointment(db: Db, actor: Actor, id: string, input: FinishAppointmentInput) {
@@ -453,13 +615,16 @@ export function cancelAppointment(db: Db, actor: Actor, id: string, input: Finis
   return finish(db, actor, id, input, 'cancelled');
 }
 
-/** Move it. Status becomes `rescheduled`; the timeline records from → to. */
+/**
+ * Move it. Status becomes `rescheduled`; the timeline records from → to.
+ * Returns the time it was, for a team meeting's "moved" notice (ADR 0038 §5).
+ */
 export async function rescheduleAppointment(
   db: Db,
   actor: Actor,
   id: string,
   input: RescheduleAppointmentInput,
-): Promise<void> {
+): Promise<{ kind: AppointmentKind; was: { startsAt: Date; endsAt: Date } }> {
   const parsed = rescheduleAppointmentSchema.safeParse(input);
   if (!parsed.success) throw new AppointmentError('invalid', firstIssue(parsed.error));
   const v = parsed.data;
@@ -468,7 +633,18 @@ export async function rescheduleAppointment(
     const clash = await findClash(db, a.assignedAgentId, v.startsAt, v.endsAt, a.id);
     if (clash) throw new AppointmentError('conflict', clashMessage(clash, a.assignedAgentId === actor.userId));
   }
+  // A team meeting moves for everyone still coming (ADR 0038 §4).
+  const coming = a.participants.filter((p) => !p.declined);
+  if (coming.length) {
+    const hit = await findFirstClash(db, coming.map((p) => p.userId), v.startsAt, v.endsAt, a.id);
+    if (hit) throw new AppointmentError('conflict', teamClashMessage(hit.clash, coming.find((p) => p.userId === hit.userId)!.name));
+  }
   await overlapGuard(() => db.transaction(async (tx) => {
+    await lockPeople(tx, [a.assignedAgentId, ...coming.map((p) => p.userId)]);
+    if (coming.length) {
+      const late = await findFirstClash(tx, coming.map((p) => p.userId), v.startsAt, v.endsAt, a.id);
+      if (late) throw new AppointmentError('conflict', teamClashMessage(late.clash, coming.find((p) => p.userId === late.userId)!.name));
+    }
     const done = await tx
       .update(appointment)
       .set({
@@ -487,6 +663,7 @@ export async function rescheduleAppointment(
       .where(and(eq(appointment.id, a.id), inArray(appointment.status, [...ACTIVE_STATUSES])))
       .returning({ id: appointment.id });
     if (!done.length) throw new AppointmentError('conflict', 'This appointment was changed by somebody else — reload');
+    if (!a.contactId) return;
     await recordActivity(
       tx,
       actor,
@@ -499,6 +676,7 @@ export async function rescheduleAppointment(
       ),
     );
   }));
+  return { kind: a.kind, was: { startsAt: a.startsAt, endsAt: a.endsAt } };
 }
 
 /**

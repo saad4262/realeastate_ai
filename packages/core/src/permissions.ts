@@ -183,6 +183,7 @@ export type Action =
    * See one appointment (ADR 0019). Admins see the agency's whole calendar; any
    * other member sees appointments assigned to them (`ownerId`) or that they
    * booked (`createdBy`) — never another agent's, even with the same contact.
+   * A team meeting (ADR 0038) also to the colleagues on it (`participantIds`).
    * No id: "open my calendar", which any active member may.
    */
   | 'appointment:read'
@@ -197,6 +198,11 @@ export type Action =
   | 'appointment:update'
   /** Book one for somebody else, or hand it over. Admins, as with leads and contacts. */
   | 'appointment:assign'
+  /**
+   * Decline a team meeting you are on (ADR 0038 §3): only a participant, for
+   * themselves — the host and admins change it with `appointment:update`.
+   */
+  | 'appointment:respond'
   /**
    * See a connected account's STATUS (ADR 0020) — never its tokens. Your own
    * user-level accounts; your agency's agency-level ones (an agent must be able
@@ -368,7 +374,7 @@ export type Resource = {
   audience?: 'private' | 'admins' | 'agency';
   /** On the agency, for `gmail:send_as_agency`: the admin switch (ADR 0026, decided Q3). */
   membersMayUseAgencyGmail?: boolean;
-  /** On a team conversation: the people on it (ADR 0035 §3). */
+  /** On a team conversation (ADR 0035 §3), or a team meeting's colleagues besides its host (ADR 0038). */
   participantIds?: string[];
 };
 
@@ -546,12 +552,17 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
       if (!resource.id || isAgencyAdmin(actor)) return true;
       if (resource.ownerId && actor.userId === resource.ownerId) return true;
+      if (resource.participantIds?.includes(actor.userId)) return true;
       return Boolean(resource.createdBy) && actor.userId === resource.createdBy;
     }
 
     case 'appointment:read_all':
     case 'appointment:assign':
       return sameAgency(actor, resource) && isAgencyAdmin(actor);
+
+    case 'appointment:respond':
+      if (!sameAgency(actor, resource) || !actor.membershipRole || !resource.id) return false;
+      return Boolean(resource.participantIds?.includes(actor.userId));
 
     case 'appointment:create':
       return sameAgency(actor, resource) && mayWrite(actor);

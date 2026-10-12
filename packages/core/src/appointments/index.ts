@@ -5,14 +5,29 @@ export {
   appointmentScopeFilters,
   cancelAppointment,
   completeAppointment,
+  declineTeamMeeting,
   getAppointment,
   listAppointments,
   rescheduleAppointment,
   retryAppointmentSync,
   scheduleAppointment,
+  scheduleTeamMeeting,
   type AppointmentPage,
   type AppointmentView,
+  type TeamParticipantView,
 } from './appointments';
+export {
+  bookTeamMeeting,
+  NOTIFICATION_KIND_TEAM_MEETING,
+  notifyTeamMeeting,
+  teamMeetingDepsFromEnv,
+  tellIfUntold,
+  tellTeamMeeting,
+  type TeamMeetingBooking,
+  type TeamMeetingDeps,
+  type TeamMeetingNotice,
+} from './team-meetings';
+export { buildMeetingIcs, icsSequence } from './ics';
 export {
   buildInvitation,
   INVITATION_KIND,
@@ -32,7 +47,7 @@ export {
   type SyncOutcome,
   type SyncState,
 } from './sync';
-export { clashingIds, clashMessage, findClash, isOverlapViolation, OVERLAP_CONSTRAINT, OVERLAP_MESSAGE, type Clash } from './clash';
+export { clashingIds, clashMessage, findClash, findFirstClash, isOverlapViolation, OVERLAP_CONSTRAINT, OVERLAP_MESSAGE, teamClashMessage, type Clash } from './clash';
 export {
   buildContactReminder,
   NOTIFICATION_KIND_REMINDER,

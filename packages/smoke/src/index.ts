@@ -147,6 +147,9 @@ import {
   checkCalendarEvent,
   listCustomerMeetings,
   runReminderTick,
+  scheduleTeamMeeting,
+  declineTeamMeeting,
+  notifyTeamMeeting,
   type SyncDeps,
 } from '@repo/core/appointments';
 import { listNotifications, markNotificationsRead } from '@repo/core/notifications';
@@ -4269,6 +4272,146 @@ async function main() {
         const none = await listCustomerMeetings(t, { userId: unproved!.id, email: other });
         assert(!none.addressProved && none.rows.length === 0, `an unproved account saw ${none.rows.length}`);
         summary = 'proved buyer: the invited one only, with its link, no internal fields; unproved: nothing';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  // ------------------------------------------------------ team meetings --
+  group('Team meetings');
+
+  await check('a team meeting is seen by its host, its colleagues and admins only; colleagues may decline, not change it (ADR 0038)', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const { id } = await scheduleTeamMeeting(t, f.actor('a1'), { title: 'Sync', type: 'meeting', ...slot(2), participantIds: [f.people.viewer] });
+        const [row] = await t.execute<{ kind: string; contact_id: string | null; n: number }>(sql`
+          select a.kind::text as kind, a.contact_id, (select count(*)::int from appointment_participant p where p.appointment_id = a.id) as n
+          from appointment a where a.id = ${id}
+        `);
+        assert(row?.kind === 'team' && row.contact_id === null && row.n === 1, `stored as ${JSON.stringify(row)}`);
+
+        const sees = async (who: 'a1' | 'a2' | 'owner' | 'viewer') =>
+          (await listAppointments(t, f.actor(who), { when: 'upcoming' })).rows.some((r) => r.id === id);
+        assert(await sees('a1'), 'the host does not see it');
+        assert(await sees('viewer'), 'the colleague on it does not see it');
+        assert(await sees('owner'), 'the owner does not see it');
+        assert(!(await sees('a2')), 'an agent not on it sees it');
+        const probe = await getAppointment(t, f.actor('a2'), id).then(() => 'opened', (e: unknown) => (e as AppointmentError).code);
+        assert(probe === 'not_found', `A2 opening it by id got ${probe}`);
+
+        const v = await getAppointment(t, f.actor('viewer'), id);
+        assert(v.mayDecline && !v.mayUpdate, `the colleague: mayDecline ${v.mayDecline}, mayUpdate ${v.mayUpdate}`);
+        const change = await cancelAppointment(t, f.actor('viewer'), id, {}).then(() => 'cancelled', (e: unknown) => (e as AppointmentError).code);
+        assert(change === 'forbidden', `the colleague cancelling got ${change}`);
+        const hostDecline = await declineTeamMeeting(t, f.actor('a1'), id).then(() => 'declined', (e: unknown) => (e as AppointmentError).code);
+        assert(hostDecline === 'forbidden', `the host declining got ${hostDecline}`);
+        assert((await declineTeamMeeting(t, f.actor('viewer'), id)).declined, 'the colleague could not decline');
+        assert(!(await declineTeamMeeting(t, f.actor('viewer'), id)).declined, 'declining twice changed it twice');
+        assert((await getAppointment(t, f.actor('a1'), id)).participants[0]?.declined === true, 'the host does not see the decline');
+
+        const contactless = await t.execute(sql`update appointment set kind = 'client' where id = ${id}`).then(() => 'saved', () => 'refused');
+        assert(contactless === 'refused', 'a client appointment without a contact was allowed (appointment_kind_contact_check)');
+        summary = 'host, colleague and owner see it; A2 not, even by id; the colleague declines once, cannot cancel; CHECK holds';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check('nobody on a team meeting is double-booked: colleagues are checked, and a decline frees the time', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const at = slot(3);
+        await scheduleAppointment(t, f.actor('a2'), f.contacts.p2, { title: 'A2 inspection', type: 'inspection', ...at });
+        const busy = await scheduleTeamMeeting(t, f.actor('a1'), { title: 'Sync', type: 'meeting', ...at, participantIds: [f.people.a2] })
+          .then(() => 'booked', (e: unknown) => `${(e as AppointmentError).code}: ${(e as Error).message}`);
+        assert(busy.startsWith('conflict') && busy.includes('A2 inspection'), `a colleague's clash got ${busy}`);
+
+        const later = slot(4);
+        const { id } = await scheduleTeamMeeting(t, f.actor('a1'), { title: 'Sync', type: 'meeting', ...later, participantIds: [f.people.a2] });
+        const clientOnTop = await scheduleAppointment(t, f.actor('a2'), f.contacts.p2, { title: 'Call', type: 'phone_call', ...later })
+          .then(() => 'booked', (e: unknown) => (e as AppointmentError).code);
+        assert(clientOnTop === 'conflict', `booking a colleague's client call over their team meeting got ${clientOnTop}`);
+        await declineTeamMeeting(t, f.actor('a2'), id);
+        const freed = await scheduleAppointment(t, f.actor('a2'), f.contacts.p2, { title: 'Call', type: 'phone_call', ...later })
+          .then(() => 'booked', (e: unknown) => (e as AppointmentError).code);
+        assert(freed === 'booked', `after declining, booking that time got ${freed}`);
+        summary = "a colleague's clash names their meeting; a team meeting blocks their client booking; a decline frees it";
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check('everyone on it is told by template with an .ics, except the person who booked; reminders reach every colleague still coming', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        const transport = fakeTransport();
+        const deps = { mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport }, urls: { agentUrl: 'https://agents.example', agencyUrl: 'https://agency.example' } };
+        const soon = new Date(Date.now() + 10 * 60_000);
+        soon.setUTCSeconds(0, 0);
+        const { id } = await scheduleTeamMeeting(t, f.actor('a1'), {
+          title: 'Standup', type: 'meeting', startsAt: soon.toISOString(), endsAt: new Date(soon.getTime() + 15 * 60_000).toISOString(),
+          timezone: 'Australia/Sydney', participantIds: [f.people.a2, f.people.viewer], reminderMinutes: 15,
+        });
+        const told = await notifyTeamMeeting(t, deps, id, 'booked', { actorId: f.people.a1 });
+        assert(told.notified === 2 && told.emailed === 2, `booked: ${JSON.stringify(told)}`);
+        const bells = await t.execute<{ user_id: string }>(sql`select user_id from notification where appointment_id = ${id} and kind = 'team_meeting'`);
+        assert(!bells.some((b) => b.user_id === f.people.a1) && bells.length === 2, `bells went to ${JSON.stringify(bells)}`);
+        const ics = transport.sent[0]?.attachments?.[0];
+        assert(ics?.filename === 'meeting.ics' && Buffer.from(ics.contentBase64, 'base64').toString().includes(`UID:appointment-${id}@`), 'no .ics with the meeting UID');
+        const again = await notifyTeamMeeting(t, deps, id, 'booked', { actorId: f.people.a1 });
+        const bells2 = await t.execute<{ n: number }>(sql`select count(*)::int as n from notification where appointment_id = ${id} and kind = 'team_meeting'`);
+        assert(again.notified === 2 && bells2[0]?.n === 2, 'telling twice made a second bell');
+
+        await declineTeamMeeting(t, f.actor('viewer'), id);
+        await runReminderTick(t, { notice: { mailer: deps.mailer, urls: deps.urls } });
+        const reminded = await t.execute<{ user_id: string }>(sql`select user_id from notification where appointment_id = ${id} and kind = 'meeting_reminder'`);
+        const who = reminded.map((r) => r.user_id).sort();
+        assert(who.includes(f.people.a1) && who.includes(f.people.a2) && !who.includes(f.people.viewer), `reminded ${JSON.stringify(who)} (viewer declined)`);
+        summary = '2 told (not the booker), .ics carries the UID, no second bell; reminder to host + colleague, not the one who declined';
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+
+  await check('client figures leave team meetings out (ADR 0038, decided Q4)', async () => {
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        // One fixed Sydney day (10 June 2030, UTC+10), so "today" holds both whatever day smoke runs.
+        const zone = 'Australia/Sydney';
+        await scheduleTeamMeeting(t, f.actor('owner'), { title: 'Sync', type: 'meeting', startsAt: '2030-06-10T01:00:00.000Z', endsAt: '2030-06-10T02:00:00.000Z', timezone: zone, participantIds: [f.people.a1] });
+        await scheduleAppointment(t, f.actor('owner'), f.contacts.p1, { title: 'Appraisal', type: 'appraisal', startsAt: '2030-06-10T03:00:00.000Z', endsAt: '2030-06-10T04:00:00.000Z', timezone: zone });
+        const tile = await renderWidget({ db: t, actor: f.actor('owner'), now: new Date('2030-06-09T23:00:00.000Z'), timeZone: zone }, { widget: 'upcoming_appointments', params: { range: 'today' } });
+        const total = (tile as { data?: { total?: number } }).data?.total;
+        assert(total === 1, `the widget counted ${JSON.stringify(tile)}`);
+        summary = 'upcoming_appointments counts the appraisal, not the team meeting';
         throw ROLLBACK;
       });
     } catch (err) {

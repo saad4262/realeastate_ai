@@ -17,7 +17,8 @@ import type { CitableRecord } from './citations';
  */
 
 export type RecordLink =
-  | { type: 'appointment'; id: string; contactId: string }
+  /** `contactId` null: a team meeting (ADR 0038). */
+  | { type: 'appointment'; id: string; contactId: string | null }
   | { type: 'contact'; id: string }
   | { type: 'thread'; id: string }
   | { type: 'lead'; id: string; threadId: string | null };
@@ -86,15 +87,18 @@ export async function gatherMorningBrief(db: Db, actor: Actor, timeZone: string,
     .slice(0, 10);
 
   return {
-    appointments: today.map((a, i) => ({
+    appointments: today.map((a, i) => {
+      const withWhom = a.contactName ?? `colleagues (${[a.assignedAgentName, ...a.participants.filter((p) => !p.declined).map((p) => p.name)].filter(Boolean).join(', ')})`;
+      return {
       ref: `A${i + 1}`,
-      kind: 'appointment',
-      text: `${APPOINTMENT_TYPE_LABELS[a.type]} with ${a.contactName}: ${a.title}`,
+      kind: 'appointment' as const,
+      text: `${APPOINTMENT_TYPE_LABELS[a.type]} with ${withWhom}: ${a.title}`,
       title: a.title,
-      detail: `${APPOINTMENT_TYPE_LABELS[a.type]} with ${a.contactName}${a.location ? ` · ${a.location}` : ''}`,
+      detail: `${APPOINTMENT_TYPE_LABELS[a.type]} with ${withWhom}${a.location ? ` · ${a.location}` : ''}`,
       at: a.startsAt.toISOString(),
-      link: { type: 'appointment', id: a.id, contactId: a.contactId },
-    })),
+      link: { type: 'appointment' as const, id: a.id, contactId: a.contactId },
+      };
+    }),
     nextActions: overdue.map((c, i) => ({
       ref: `C${i + 1}`,
       kind: 'next_action',

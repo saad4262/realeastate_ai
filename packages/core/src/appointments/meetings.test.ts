@@ -87,7 +87,7 @@ describe('reminders', () => {
       from,
       postalAddress: '1 George St, Sydney NSW 2000',
       title: 'Chat <b>',
-      contactName: 'Bea',
+      withWhom: 'Bea',
       when: 'Sat 10 Oct 2026, 8:00 pm AEDT – 9:00 pm',
       startsIn: 'in 15 minutes',
       location: null,
@@ -100,7 +100,7 @@ describe('reminders', () => {
     expect(msg.html).toContain('Chat &lt;b&gt;');
     expect(msg.text).toContain('Join: https://zoom.us/j/123');
     expect(msg.text).toContain('1 George St, Sydney NSW 2000');
-    const noLink = buildMeetingReminderEmail({ ...{ to: { email: 's@e.com' }, from, postalAddress: 'x', title: 't', contactName: 'c', when: 'w', startsIn: 'now', location: 'Office', joinUrl: null, calendarUrl: 'https://a/my-calendar' } });
+    const noLink = buildMeetingReminderEmail({ ...{ to: { email: 's@e.com' }, from, postalAddress: 'x', title: 't', withWhom: 'c', when: 'w', startsIn: 'now', location: 'Office', joinUrl: null, calendarUrl: 'https://a/my-calendar' } });
     expect(noLink.html).toContain('Open your calendar');
   });
 });

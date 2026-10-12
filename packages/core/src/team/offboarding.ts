@@ -4,6 +4,7 @@ import {
   activity,
   agentSkill,
   appointment,
+  appointmentParticipant,
   assistantConversation,
   contact,
   emailBatch,
@@ -14,6 +15,7 @@ import {
   listingImport,
   membership,
   note,
+  notification,
   proposedAction,
   searchEmbedding,
   user,
@@ -243,7 +245,7 @@ export async function removeMember(db: Db, actor: Actor, userId: string, rawChoi
       ),
     );
   const clearedEvents: string[] = [];
-  const clearedMeetings: { id: string; contactId: string }[] = [];
+  const clearedMeetings: { id: string; contactId: string | null }[] = [];
   for (const a of upcoming) {
     if (a.eventId && a.calendarAccountId && a.calendarState !== 'removed') {
       try {
@@ -316,6 +318,53 @@ export async function removeMember(db: Db, actor: Actor, userId: string, rawChoi
         .update(appointment)
         .set({ assignedAgentId: receiverId, needsOwnerAt: flag, updatedAt: sql`now()` })
         .where(inArray(appointment.id, moving));
+      // The receiver now hosts a team meeting they were a colleague on: once is enough (ADR 0038 §9).
+      if (receiverId) {
+        await tx
+          .delete(appointmentParticipant)
+          .where(and(inArray(appointmentParticipant.appointmentId, moving), eq(appointmentParticipant.userId, receiverId)));
+      }
+    }
+
+    // Team meetings they were only a colleague on: they come off them, and the host is told (ADR 0038 §9).
+    const leftMeetings = await tx
+      .delete(appointmentParticipant)
+      .where(
+        and(
+          eq(appointmentParticipant.userId, userId),
+          eq(appointmentParticipant.agencyId, agencyId),
+          inArray(
+            appointmentParticipant.appointmentId,
+            tx
+              .select({ id: appointment.id })
+              .from(appointment)
+              .where(and(eq(appointment.agencyId, agencyId), inArray(appointment.status, [...ACTIVE_STATUSES]), gt(appointment.endsAt, now))),
+          ),
+        ),
+      )
+      .returning({ appointmentId: appointmentParticipant.appointmentId });
+    if (leftMeetings.length) {
+      const hosts = await tx
+        .select({ id: appointment.id, title: appointment.title, hostId: appointment.assignedAgentId })
+        .from(appointment)
+        .where(inArray(appointment.id, leftMeetings.map((m) => m.appointmentId)));
+      const told = hosts.filter((h): h is typeof h & { hostId: string } => Boolean(h.hostId) && h.hostId !== userId);
+      if (told.length) {
+        await tx
+          .insert(notification)
+          .values(
+            told.map((h) => ({
+              userId: h.hostId,
+              agencyId,
+              kind: 'team_meeting_left',
+              appointmentId: h.id,
+              title: `${t.name?.trim() || t.email} left the agency`.slice(0, 200),
+              body: `They were taken off “${h.title}”.`.slice(0, 300),
+              dedupeKey: `team_meeting_left:${h.id}:${userId}`,
+            })),
+          )
+          .onConflictDoNothing();
+      }
     }
     if (busy.size) {
       await tx
@@ -335,9 +384,13 @@ export async function removeMember(db: Db, actor: Actor, userId: string, rawChoi
         // The old invitation carried the old link: it no longer counts as sent, so a new one can go.
         .set({ zoomMeetingId: null, zoomAccountId: null, meetingUrl: null, zoomSyncState: receiverId ? 'pending' : null, zoomSyncError: null, invitationSentAt: null })
         .where(inArray(appointment.id, clearedMeetings.map((m) => m.id)));
-      await tx.insert(activity).values(
-        clearedMeetings.map((m) => ({ agencyId, contactId: m.contactId, kind: 'zoom_link_changed', actorId: actor.userId, payload: { appointmentId: m.id }, occurredAt: now })),
-      );
+      // A client appointment's timeline says so; a team meeting has no contact (its people get the new link when it syncs).
+      const onTimeline = clearedMeetings.filter((m): m is { id: string; contactId: string } => m.contactId !== null);
+      if (onTimeline.length) {
+        await tx.insert(activity).values(
+          onTimeline.map((m) => ({ agencyId, contactId: m.contactId, kind: 'zoom_link_changed', actorId: actor.userId, payload: { appointmentId: m.id }, occurredAt: now })),
+        );
+      }
     }
 
     // Listings: their listing_agent rows go; a listing left with nobody gets the receiver, or is flagged.

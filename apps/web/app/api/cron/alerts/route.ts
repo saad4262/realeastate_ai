@@ -1,5 +1,5 @@
 import { after, NextResponse, type NextRequest } from 'next/server';
-import { runAppointmentSyncTick, runReminderTick, syncDepsFromEnv } from '@repo/core/appointments';
+import { runAppointmentSyncTick, runReminderTick, syncDepsFromEnv, teamMeetingDepsFromEnv } from '@repo/core/appointments';
 import { noticeMailFromEnv } from '@repo/core/email';
 import { expireProposedActions, purgeAssistantConversations, runScheduledActions } from '@repo/core/assistant';
 import { purgeImportFiles, runImportTick } from '@repo/core/imports';
@@ -142,7 +142,7 @@ async function handler(request: NextRequest) {
      */
     const scheduled = await (async () => {
       const send = templateSendDepsFromEnv();
-      return runScheduledActions(getWebDb(), { sync: syncDepsFromEnv(), templateSend: send.ok ? send.deps : null, mail: mailDepsFromEnv(), teamMessages: teamMessageDepsFromEnv() });
+      return runScheduledActions(getWebDb(), { sync: syncDepsFromEnv(), templateSend: send.ok ? send.deps : null, mail: mailDepsFromEnv(), teamMessages: teamMessageDepsFromEnv(), teamMeetings: teamMeetingDepsFromEnv() });
     })().catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'scheduled actions failed' }));
 
     /**

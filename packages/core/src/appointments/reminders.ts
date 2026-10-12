@@ -1,6 +1,6 @@
 import { and, eq, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
-import { agency, appointment, contact, mailThread, membership, notification, user, type Db } from '@repo/db';
+import { agency, appointment, appointmentParticipant, contact, mailThread, membership, notification, user, type Db } from '@repo/db';
 import { can, type Actor, type MembershipRole } from '../permissions';
 import { buildMeetingReminderEmail } from '../email/team-notices';
 import type { EmailTransport } from '../email/transport';
@@ -22,6 +22,8 @@ import { ACTIVE_STATUSES, APPOINTMENT_TYPE_LABELS, type AppointmentType } from '
  *  - the agent it is assigned to and whoever booked it (one row each, the
  *    same person once), while they are ACTIVE members of the agency: a bell
  *    notification, and an email if mail is set up;
+ *  - on a team meeting (ADR 0038 §6), also every colleague on it who has not
+ *    declined, the same way;
  *  - the contact, by email, only if they were sent the invitation — a
  *    reminder about a meeting nobody told them of would be the first they
  *    heard of it. It goes through the conversation pipeline (ADR 0016), so the
@@ -144,7 +146,8 @@ export async function runReminderTick(db: Db, deps: ReminderDeps = {}): Promise<
         bookerRole: bookerM.role,
       })
       .from(appointment)
-      .innerJoin(contact, eq(contact.id, appointment.contactId))
+      // Left: a team meeting has no contact (ADR 0038).
+      .leftJoin(contact, eq(contact.id, appointment.contactId))
       .innerJoin(agency, eq(agency.id, appointment.agencyId))
       .leftJoin(assignee, eq(assignee.id, appointment.assignedAgentId))
       .leftJoin(assigneeM, and(eq(assigneeM.userId, appointment.assignedAgentId), eq(assigneeM.agencyId, appointment.agencyId), eq(assigneeM.status, 'active')))
@@ -152,11 +155,25 @@ export async function runReminderTick(db: Db, deps: ReminderDeps = {}): Promise<
       .leftJoin(bookerM, and(eq(bookerM.userId, appointment.createdBy), eq(bookerM.agencyId, appointment.agencyId), eq(bookerM.status, 'active')))
       .where(inArray(appointment.id, ids.map((r) => r.id)));
 
+    // A team meeting's colleagues who are still coming and still members. One statement for the batch.
+    const colleagues = await tx
+      .select({ appointmentId: appointmentParticipant.appointmentId, userId: user.id, email: user.email, name: user.name, role: membership.role })
+      .from(appointmentParticipant)
+      .innerJoin(user, eq(user.id, appointmentParticipant.userId))
+      .innerJoin(membership, and(eq(membership.userId, appointmentParticipant.userId), eq(membership.agencyId, appointmentParticipant.agencyId), eq(membership.status, 'active')))
+      .where(and(inArray(appointmentParticipant.appointmentId, ids.map((r) => r.id)), isNull(appointmentParticipant.declinedAt)));
+
     const out = rows.map((r) => {
       const people: Person[] = [];
       if (r.assigneeId && r.assigneeRole && r.assigneeEmail) people.push({ userId: r.assigneeId, email: r.assigneeEmail, name: r.assigneeName, role: r.assigneeRole as MembershipRole });
       if (r.bookerId && r.bookerRole && r.bookerEmail && r.bookerId !== r.assigneeId) people.push({ userId: r.bookerId, email: r.bookerEmail, name: r.bookerName, role: r.bookerRole as MembershipRole });
-      return { ...r, people };
+      const mine = colleagues.filter((c) => c.appointmentId === r.id);
+      for (const c of mine) {
+        if (!people.some((p) => p.userId === c.userId)) people.push({ userId: c.userId, email: c.email, name: c.name, role: c.role as MembershipRole });
+      }
+      // Who it is with, for the reminder: the contact, or the team meeting's people.
+      const team = [r.assigneeName || r.assigneeEmail, ...mine.map((c) => c.name?.trim() || c.email)].filter((n): n is string => Boolean(n));
+      return { ...r, people, withWhom: r.contactName ?? `your colleagues (${team.join(', ')})` };
     });
 
     const values = out.flatMap((r) =>
@@ -166,7 +183,7 @@ export async function runReminderTick(db: Db, deps: ReminderDeps = {}): Promise<
         kind: NOTIFICATION_KIND_REMINDER,
         appointmentId: r.id,
         title: `Starts soon: ${r.title}`,
-        body: `${formatInZone(r.startsAt, r.timezone)} · with ${r.contactName}`,
+        body: `${formatInZone(r.startsAt, r.timezone)} · with ${r.withWhom}`,
         href: calendarPath(p, r.agencyId),
         joinUrl: r.meetingUrl,
         // The same start time is reminded once, whatever happens to the claim.
@@ -194,7 +211,7 @@ export async function runReminderTick(db: Db, deps: ReminderDeps = {}): Promise<
               from: deps.notice.mailer.sender.from,
               postalAddress: deps.notice.mailer.sender.postalAddress,
               title: r.title,
-              contactName: r.contactName,
+              withWhom: r.withWhom,
               when,
               startsIn: startsIn(r.startsAt, now),
               location: r.location,
@@ -211,14 +228,17 @@ export async function runReminderTick(db: Db, deps: ReminderDeps = {}): Promise<
     }
 
     const sentBy = r.assigneeId ?? r.bookerId;
-    if (deps.mail && r.invitationSentAt && r.contactEmail && sentBy) {
+    // A client appointment only: a team meeting has no contact and no invitation.
+    const contactId = r.contactId;
+    const contactName = r.contactName;
+    if (deps.mail && r.invitationSentAt && contactId && contactName && r.contactEmail && sentBy) {
       try {
         const agentName = r.assigneeName || r.bookerName || 'your agent';
-        const { subject, body } = buildContactReminder({ ...r, type: r.type as AppointmentType }, { agentName, agencyName: r.agencyName }, now);
+        const { subject, body } = buildContactReminder({ ...r, contactName, type: r.type as AppointmentType }, { agentName, agencyName: r.agencyName }, now);
         const messageId = await db.transaction(async (tx) => {
           const [thread] = await tx
             .insert(mailThread)
-            .values({ agencyId: r.agencyId, contactId: r.contactId, subject, contactEmail: r.contactEmail!, contactName: r.contactName })
+            .values({ agencyId: r.agencyId, contactId, subject, contactEmail: r.contactEmail!, contactName })
             .returning({ id: mailThread.id });
           return recordOutbound(tx as unknown as Db, deps.mail!, {
             threadId: thread!.id,

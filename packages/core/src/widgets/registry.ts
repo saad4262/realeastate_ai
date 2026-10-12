@@ -157,6 +157,8 @@ export const WIDGETS = {
         .where(
           and(
             ...appointmentScopeFilters(actor),
+            // Client meetings only: a team meeting is not business with a customer (ADR 0038, decided Q4).
+            eq(appointment.kind, 'client'),
             inArray(appointment.status, [...ACTIVE_STATUSES]),
             gte(appointment.startsAt, from),
             lt(appointment.startsAt, to),

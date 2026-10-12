@@ -11,6 +11,9 @@ import { isValidTimeZone } from '../time/local-input';
 export const APPOINTMENT_TYPES = ['appraisal', 'phone_call', 'zoom', 'inspection', 'meeting'] as const;
 export type AppointmentType = (typeof APPOINTMENT_TYPES)[number];
 
+export const APPOINTMENT_KINDS = ['client', 'team'] as const;
+export type AppointmentKind = (typeof APPOINTMENT_KINDS)[number];
+
 export const APPOINTMENT_STATUSES = ['scheduled', 'completed', 'cancelled', 'rescheduled'] as const;
 export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number];
 
@@ -129,6 +132,39 @@ export const scheduleAppointmentSchema = z
   })
   .refine(endsAfterStarts, ENDS_MESSAGE);
 export type ScheduleAppointmentInput = z.input<typeof scheduleAppointmentSchema>;
+
+/**
+ * A team meeting (ADR 0038): colleagues instead of a contact. No property, no
+ * free-text attendees — the people are members, picked by id. `notes` is the
+ * agenda, and unlike a client appointment's notes it IS shown to everyone on
+ * the meeting (they are all members).
+ */
+export const TEAM_MEETING_TYPES = ['zoom', 'phone_call', 'meeting'] as const;
+export const MAX_TEAM_PARTICIPANTS = 10;
+
+export const scheduleTeamMeetingSchema = z
+  .object({
+    title: z.string().trim().min(1, 'Give it a title').max(160),
+    type: z.enum(TEAM_MEETING_TYPES),
+    ...timeFields,
+    ...placeFields,
+    notes: optionalText(2000),
+    participantIds: z
+      .array(z.string().uuid())
+      .min(1, 'Pick at least one colleague')
+      .max(MAX_TEAM_PARTICIPANTS, `At most ${MAX_TEAM_PARTICIPANTS} colleagues`)
+      .refine((ids) => new Set(ids).size === ids.length, 'A colleague is picked twice'),
+    reminderMinutes: z
+      .number()
+      .int()
+      .refine((m) => (REMINDER_MINUTES as readonly number[]).includes(m), 'Pick one of the reminder choices')
+      .nullable()
+      .default(DEFAULT_REMINDER_MINUTES),
+    /** The host — whose Zoom it is on. An admin may name somebody; anybody else hosts their own. */
+    hostId: z.string().uuid().optional(),
+  })
+  .refine(endsAfterStarts, ENDS_MESSAGE);
+export type ScheduleTeamMeetingInput = z.input<typeof scheduleTeamMeetingSchema>;
 
 export const rescheduleAppointmentSchema = z
   .object({ ...timeFields, outcome: optionalText(1000) })

@@ -40,7 +40,14 @@ type EmailBase = {
    * set from `kind`, in one place, in the transport.
    */
   threading?: { inReplyTo: string; references: string[] };
+  /**
+   * Files sent with it — today only a meeting's `.ics` (ADR 0038 §5). Small
+   * and generated here: never a file somebody uploaded.
+   */
+  attachments?: EmailAttachment[];
 };
+
+export type EmailAttachment = { filename: string; contentType: string; /** Base64. */ contentBase64: string };
 
 /**
  * Bulk mail somebody asked to receive and can stop receiving.

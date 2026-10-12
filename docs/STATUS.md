@@ -3,6 +3,18 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
+- **Team meetings (ADR 0038) — built 2026-10-12, merged to `main`. Migration
+  0044 applied on dev 2026-10-12.** Internal meetings between members, no contact: Calendar →
+  **+ Team meeting** (1–10 colleagues, Zoom / phone / in person, agenda, reminder; admins pick a
+  host) and the assistant's `schedule_team_meeting` (prompt `assistant@v12`). Book → Zoom → every
+  colleague gets a bell + email with the join link and an `.ics`; moves and cancels tell them too;
+  a colleague may decline ("Can't make it", host told); reminders reach every colleague still
+  coming; nobody on it can be double-booked (advisory locks + check); admins see them in full;
+  client widgets leave them out. Also fixed on the way: the team thread / skills subquery bug
+  (`87dc7b1`, on main). Checks: typecheck 10/10, lint 0 errors, unit 943 + 296, console + web
+  builds OK; permission break-tests red. Smoke group "Team meetings" (4) written, NOT run.
+  TEST-PLAN **AL**. **Next (the user):** `SMOKE_ONLY="Team meetings" pnpm smoke` (+ Appointments,
+  Offboarding, Console assistant), deploy, walk AL.
 - **Zoom deauthorization + legal pages (ADR 0037) — on `main` 2026-10-12. Migration 0043 applied
   on dev** (`integration_account.external_account_id` = Zoom user id from `/users/me`, + index).
   `POST /api/zoom/webhook` on apps/web: `x-zm-signature` (Secret Token `ZOOM_WEBHOOK_SECRET_TOKEN`,

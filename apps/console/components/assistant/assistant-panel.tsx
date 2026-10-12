@@ -592,6 +592,13 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
       {view.status === 'done' && view.tool === 'message_colleagues' ? (
         <p className={styles.cardNote}>{view.result?.emailed === false ? 'Sent — it is in their Team messages (the email copy did not go out).' : 'Sent — in their Team messages and by email.'}</p>
       ) : null}
+      {view.status === 'done' && view.tool === 'schedule_team_meeting' && view.result ? (
+        <p className={view.result.told ? styles.cardNote : styles.error}>
+          {view.result.told
+            ? 'Booked — everyone on it was notified and emailed the details.'
+            : `Booked. ${view.result.zoomError ?? 'Nobody was emailed yet — press Retry on the Calendar page.'}`}
+        </p>
+      ) : null}
       {view.status === 'done' && view.tool === 'schedule_appointment' && view.result && (view.result.invited || view.result.invitationError) ? (
         <p className={view.result.invited ? styles.cardNote : styles.error}>
           {view.result.invited ? 'Booked, and the invitation was emailed.' : `Booked. ${view.result.invitationError}`}

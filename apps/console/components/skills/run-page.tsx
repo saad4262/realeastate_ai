@@ -14,8 +14,8 @@ export async function SkillRunPage({ surface, id, runId }: { surface: 'agency' |
   const session = await requireConsoleAccess(surface);
   const basePath = surface === 'agency' ? '/skills' : '/my-skills';
   const paths = surface === 'agency'
-    ? { contact: '/customers', inbox: '/inbox', leads: '/leads' }
-    : { contact: '/my-contacts', inbox: '/my-inbox', leads: '/my-leads' };
+    ? { contact: '/customers', inbox: '/inbox', leads: '/leads', calendar: '/calendar' }
+    : { contact: '/my-contacts', inbox: '/my-inbox', leads: '/my-leads', calendar: '/my-calendar' };
   const db = getConsoleDb();
   let data: [Awaited<ReturnType<typeof getMySkill>>, Awaited<ReturnType<typeof getSkillRun>>];
   try {
@@ -28,7 +28,8 @@ export async function SkillRunPage({ surface, id, runId }: { surface: 'agency' |
 
   const hrefFor = (l: RecordLink): string => {
     switch (l.type) {
-      case 'appointment': return `${paths.contact}/${l.contactId}?tab=calendar`;
+      // A team meeting (no contact, ADR 0038) lives on the calendar.
+      case 'appointment': return l.contactId ? `${paths.contact}/${l.contactId}?tab=calendar` : paths.calendar;
       case 'contact': return `${paths.contact}/${l.id}`;
       case 'thread': return `${paths.inbox}?thread=${l.id}`;
       case 'lead': return l.threadId ? `${paths.inbox}?thread=${l.threadId}` : paths.leads;

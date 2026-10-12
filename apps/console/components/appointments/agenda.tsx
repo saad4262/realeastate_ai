@@ -13,6 +13,7 @@ import { useToast } from '@/components/toast';
 import {
   cancelAppointmentAction,
   completeAppointmentAction,
+  declineTeamMeetingAction,
   rescheduleAppointmentAction,
   retryAppointmentSyncAction,
 } from '@/lib/appointment-actions';
@@ -27,7 +28,9 @@ import styles from './appointments.module.css';
  * here, after mount, because the server cannot know the viewer's zone; until
  * then the list is one block in UTC order, which is already the right order.
  *
- * Every button comes from `mayUpdate`, decided by can() on the server.
+ * Every button comes from `mayUpdate` / `mayDecline`, decided by can() on
+ * the server. A team meeting (ADR 0038) names its host and colleagues instead
+ * of a contact; its people are told of every change by the server.
  */
 export function Agenda({
   items,
@@ -107,6 +110,20 @@ function AppointmentCard({
   const active = a.status === 'scheduled' || a.status === 'rescheduled';
   const over = new Date(a.endsAt).getTime() < Date.now();
   const reminder = REMINDER_CHOICES.find((r) => r.minutes === a.reminderMinutes);
+  const team = a.kind === 'team';
+
+  function decline() {
+    if (!window.confirm(`Tell ${a.assignedAgentName ?? 'the host'} you can’t make “${a.title}”?`)) return;
+    startTransition(async () => {
+      const r = await declineTeamMeetingAction(a.id);
+      if (!r.ok) {
+        toast({ title: 'Not saved', description: r.error, variant: 'error' });
+        return;
+      }
+      toast({ title: 'Declined', description: 'The host was told.', variant: 'success' });
+      router.refresh();
+    });
+  }
 
   function openReschedule() {
     const tz = zone ?? browserTimeZone();
@@ -143,7 +160,11 @@ function AppointmentCard({
         toast({ title: 'Not saved', description: r.error, variant: 'error' });
         return;
       }
-      toast({ title: mode === 'complete' ? 'Completed' : mode === 'cancel' ? 'Cancelled' : 'Moved', variant: 'success' });
+      toast({
+        title: mode === 'complete' ? 'Completed' : mode === 'cancel' ? 'Cancelled' : 'Moved',
+        ...(team && mode !== 'complete' ? { description: 'Everyone on it was told.' } : {}),
+        variant: 'success',
+      });
       setMode(null);
       router.refresh();
     });
@@ -158,19 +179,35 @@ function AppointmentCard({
       <div>
         <div className={styles.title}>
           {a.title}
+          {team ? <span className={`${styles.badge} ${styles.badgeTeam}`}>Team meeting</span> : null}
           <span className={`${styles.badge} ${BADGE[a.status] ?? ''}`}>{APPOINTMENT_STATUS_LABELS[a.status]}</span>
         </div>
-        <div className={styles.meta}>
-          {APPOINTMENT_TYPE_LABELS[a.type]}
-          {showContact ? (
-            <>
-              {' with '}
-              <Link href={`${contactBasePath}/${a.contactId}?tab=calendar`}>{a.contactName}</Link>
-            </>
-          ) : null}
-          {a.assignedAgentName ? ` · ${a.assignedAgentName}` : ''}
-          {a.propertyAddress ? ` · ${a.propertyAddress}` : ''}
-        </div>
+        {team ? (
+          <div className={styles.meta}>
+            {a.type === 'meeting' ? 'In person' : APPOINTMENT_TYPE_LABELS[a.type]}
+            {` · Host: ${a.assignedAgentName ?? 'nobody'}`}
+            {a.participants.length ? ' · With: ' : ''}
+            {a.participants.map((p, i) => (
+              <span key={p.userId}>
+                {i ? ', ' : ''}
+                <span className={p.declined ? styles.declined : undefined} title={p.declined ? 'Declined' : undefined}>{p.name}</span>
+                {p.declined ? ' (declined)' : ''}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <div className={styles.meta}>
+            {APPOINTMENT_TYPE_LABELS[a.type]}
+            {showContact && a.contactId ? (
+              <>
+                {' with '}
+                <Link href={`${contactBasePath}/${a.contactId}?tab=calendar`}>{a.contactName}</Link>
+              </>
+            ) : null}
+            {a.assignedAgentName ? ` · ${a.assignedAgentName}` : ''}
+            {a.propertyAddress ? ` · ${a.propertyAddress}` : ''}
+          </div>
+        )}
         {a.location || (a.meetingUrl && !a.zoomMeeting) ? (
           <div className={styles.meta}>
             {a.location ? a.location : null}
@@ -191,9 +228,19 @@ function AppointmentCard({
         ) : null}
         <div className={styles.meta}>
           {reminder && reminder.minutes ? `Reminder: ${reminder.label.toLowerCase()} · ` : ''}
-          {a.invitationSentAt ? 'Invitation emailed' : active ? 'No invitation sent' : ''}
+          {team
+            ? a.invitationSentAt
+              ? 'Everyone was emailed the details'
+              : active
+                ? 'Nobody emailed yet — waiting for the Zoom link'
+                : ''
+            : a.invitationSentAt
+              ? 'Invitation emailed'
+              : active
+                ? 'No invitation sent'
+                : ''}
         </div>
-        {a.notes ? <div className={styles.outcome}>Notes: {a.notes}</div> : null}
+        {a.notes ? <div className={styles.outcome}>{team ? 'Agenda' : 'Notes'}: {a.notes}</div> : null}
         {a.outcome ? <div className={styles.outcome}>Outcome: {a.outcome}</div> : null}
 
         {a.mayUpdate && active && mode === null ? (
@@ -201,9 +248,17 @@ function AppointmentCard({
             <button type="button" className={contactStyles.btnSmall} onClick={() => { setOutcome(''); setMode('complete'); }}>Complete</button>
             <button type="button" className={contactStyles.btnSmall} onClick={openReschedule}>Reschedule</button>
             <button type="button" className={contactStyles.btnSmall} onClick={() => { setOutcome(''); setMode('cancel'); }}>Cancel</button>
-            {!a.invitationSentAt && !over ? (
+            {!team && !a.invitationSentAt && !over ? (
               <button type="button" className={contactStyles.btnSmall} onClick={() => setMode('invite')}>Email invitation…</button>
             ) : null}
+          </div>
+        ) : null}
+
+        {a.mayDecline && active && !over && mode === null ? (
+          <div className={styles.actions}>
+            <button type="button" className={contactStyles.btnSmall} onClick={decline} disabled={pending}>
+              {pending ? 'Saving…' : 'Can’t make it'}
+            </button>
           </div>
         ) : null}
 
@@ -237,7 +292,13 @@ function AppointmentCard({
             />
             <div className={contactStyles.actions}>
               <button type="submit" className={contactStyles.btn} disabled={pending}>
-                {pending ? 'Saving…' : mode === 'complete' ? 'Mark completed' : mode === 'cancel' ? 'Cancel appointment' : 'Move it'}
+                {pending
+                  ? 'Saving…'
+                  : mode === 'complete'
+                    ? 'Mark completed'
+                    : mode === 'cancel'
+                      ? team ? 'Cancel and tell everyone' : 'Cancel appointment'
+                      : team ? 'Move it and tell everyone' : 'Move it'}
               </button>
               <button type="button" className={contactStyles.btnGhost} onClick={() => setMode(null)} disabled={pending}>Back</button>
             </div>

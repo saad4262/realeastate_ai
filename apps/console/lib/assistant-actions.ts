@@ -13,7 +13,7 @@ import {
   type ProposalView,
   type TurnView,
 } from '@repo/core/assistant';
-import { syncDepsFromEnv } from '@repo/core/appointments';
+import { syncDepsFromEnv, teamMeetingDepsFromEnv } from '@repo/core/appointments';
 import { templateSendDepsFromEnv } from '@repo/core/template-email';
 import { mailDepsFromEnv } from '@repo/core/mail';
 import { noticeMailFromEnv } from '@repo/core/email';
@@ -100,6 +100,8 @@ export async function approveProposedActionAction(id: string, runAtIso?: string 
         inviteMail: mail ? { mailer: mail.mailer, agentUrl: mail.urls.agentUrl } : null,
         // A message to colleagues (ADR 0035): their bell and an email each.
         teamMessages: teamMessageDepsFromEnv(),
+        // A team meeting (ADR 0038): everyone on it told, with the link.
+        teamMeetings: teamMeetingDepsFromEnv(),
       },
       new Date(),
       { runAt },

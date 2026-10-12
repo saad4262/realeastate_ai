@@ -112,7 +112,9 @@ export function syncErrorMessage(provider: 'Google Calendar' | 'Zoom', err: unkn
 type Loaded = {
   id: string;
   agencyId: string;
-  contactName: string;
+  /** Null for a team meeting (ADR 0038); `teamNames` then says who is on it. */
+  contactName: string | null;
+  teamNames: string | null;
   title: string;
   type: AppointmentType;
   status: AppointmentStatus;
@@ -140,6 +142,12 @@ async function load(db: DbOrTx, id: string): Promise<Loaded | null> {
       id: appointment.id,
       agencyId: appointment.agencyId,
       contactName: contact.name,
+      // A team meeting's colleagues, for the host's calendar event. Written out (single-table-subquery.test.ts).
+      teamNames: sql<string | null>`(
+        select string_agg(coalesce(nullif(u.name, ''), u.email), ', ' order by lower(coalesce(nullif(u.name, ''), u.email)))
+        from appointment_participant ap join "user" u on u.id = ap.user_id
+        where ap.appointment_id = appointment.id and ap.declined_at is null
+      )`,
       title: appointment.title,
       type: appointment.type,
       status: appointment.status,
@@ -165,7 +173,8 @@ async function load(db: DbOrTx, id: string): Promise<Loaded | null> {
       updatedAtText: sql<string>`${appointment.updatedAt}::text`,
     })
     .from(appointment)
-    .innerJoin(contact, eq(contact.id, appointment.contactId))
+    // Left: a team meeting has no contact (ADR 0038).
+    .leftJoin(contact, eq(contact.id, appointment.contactId))
     .leftJoin(property, eq(property.id, appointment.propertyId))
     // The agent's CURRENT membership: a member who left has no connection to act through.
     .leftJoin(
@@ -196,9 +205,9 @@ function agentActor(a: Loaded): Actor | null {
 
 const active = (a: Loaded) => (ACTIVE_STATUSES as readonly string[]).includes(a.status);
 
-export function calendarDescription(a: Pick<Loaded, 'contactName' | 'type' | 'propertyAddress' | 'meetingUrl'>): string {
+export function calendarDescription(a: Pick<Loaded, 'contactName' | 'type' | 'propertyAddress' | 'meetingUrl'> & { teamNames?: string | null }): string {
   return [
-    `With: ${a.contactName}`,
+    a.contactName ? `With: ${a.contactName}` : `Team meeting with: ${a.teamNames ?? 'colleagues'}`,
     `Type: ${APPOINTMENT_TYPE_LABELS[a.type]}`,
     ...(a.propertyAddress ? [`Property: ${a.propertyAddress}`] : []),
     ...(a.meetingUrl ? [`Join: ${a.meetingUrl}`] : []),

@@ -403,7 +403,8 @@ export type MeetingReminderEmailInput = {
   from: { email: string; name: string };
   postalAddress: string;
   title: string;
-  contactName: string;
+  /** Who it is with: the contact's name, or a team meeting's colleagues (ADR 0038). */
+  withWhom: string;
   /** "Fri 10 Oct 2026, 8:00 pm AEDT – 9:00 pm", in the zone it was booked in. */
   when: string;
   /** "in 15 minutes", "now". */
@@ -418,7 +419,7 @@ export type MeetingReminderEmailInput = {
 export function buildMeetingReminderEmail(input: MeetingReminderEmailInput): TransactionalMessage {
   requireSenderFooter(input.from, input.postalAddress, 'meeting reminder');
   const heading = `${input.title} — ${input.startsIn}`;
-  const intro = `Your meeting with ${input.contactName}.`;
+  const intro = `Your meeting with ${input.withWhom}.`;
   const footer: Footer = {
     from: input.from,
     postalAddress: input.postalAddress,
@@ -462,6 +463,119 @@ export function buildMeetingReminderEmail(input: MeetingReminderEmailInput): Tra
     html,
     text,
     tags: { kind: 'meeting-reminder' },
+  };
+}
+
+// ── Team meeting (ADR 0038 §5) ─────────────────────────────────────────────
+
+export type TeamMeetingEvent = 'booked' | 'moved' | 'cancelled' | 'declined';
+
+export type TeamMeetingEmailInput = {
+  to: { email: string; name?: string };
+  from: { email: string; name: string };
+  postalAddress: string;
+  agencyName: string;
+  event: TeamMeetingEvent;
+  title: string;
+  /** "Tue 13 Oct 2026, 3:00 pm AEDT – 3:30 pm", in the zone it was booked in. */
+  when: string;
+  /** For `moved`: the time it was. */
+  was: string | null;
+  /** Who made the change — "Sara Khan". For `declined`, who declined. */
+  by: string;
+  host: string;
+  /** Everyone on it besides the host who has not declined, by name. */
+  people: string[];
+  agenda: string | null;
+  location: string | null;
+  joinUrl: string | null;
+  calendarUrl: string;
+  /** The meeting as an .ics file — attached to every event but a decline. */
+  ics: string | null;
+};
+
+const TEAM_MEETING_HEADINGS: Record<TeamMeetingEvent, (i: TeamMeetingEmailInput) => string> = {
+  booked: (i) => `${i.by} invited you: ${i.title}`,
+  moved: (i) => `Moved: ${i.title}`,
+  cancelled: (i) => `Cancelled: ${i.title}`,
+  declined: (i) => `${i.by} can’t make it: ${i.title}`,
+};
+
+const TEAM_MEETING_INTROS: Record<TeamMeetingEvent, (i: TeamMeetingEmailInput) => string> = {
+  booked: (i) => `A team meeting at ${i.agencyName}.`,
+  moved: (i) => `${i.by} moved this team meeting.`,
+  cancelled: (i) => `${i.by} cancelled this team meeting.`,
+  declined: (i) => `${i.by} declined this team meeting.`,
+};
+
+/** A team meeting booked, moved, cancelled or declined — every line a template filled from rows. */
+export function buildTeamMeetingEmail(input: TeamMeetingEmailInput): TransactionalMessage {
+  requireSenderFooter(input.from, input.postalAddress, 'team meeting');
+  const heading = TEAM_MEETING_HEADINGS[input.event](input);
+  const intro = TEAM_MEETING_INTROS[input.event](input);
+  const live = input.event !== 'cancelled';
+  const footer: Footer = {
+    from: input.from,
+    postalAddress: input.postalAddress,
+    why: `Sent because you are on this team meeting at ${input.agencyName}.`,
+  };
+  const facts: [string, string | null][] = [
+    ['When', input.event === 'cancelled' ? `${input.when} (cancelled)` : input.when],
+    ['Was', input.event === 'moved' ? input.was : null],
+    ['Host', input.host],
+    ['With', input.people.length ? input.people.join(', ') : null],
+    ['Where', input.location],
+    ['Join', live ? input.joinUrl : null],
+  ];
+  const shown = facts.filter((f): f is [string, string] => Boolean(f[1]));
+  const html = layout({
+    heading,
+    intro,
+    body: `
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:18px;">
+            <tr><td style="padding:16px 0 0;border-top:1px solid #ece7dd;font:400 15px/1.6 ${FONT};color:#1a1a1a;">
+              ${shown
+                .map(([k, v]) =>
+                  k === 'Join'
+                    ? `Join: <a href="${escapeHtml(v)}" style="color:#0b3d2e;">${escapeHtml(v)}</a>`
+                    : `${k}: ${escapeHtml(v)}`,
+                )
+                .join('<br>')}
+            </td></tr>
+            ${
+              input.agenda && live
+                ? `<tr><td style="padding:14px 0 0;font:400 14px/1.6 ${FONT};color:#1a1a1a;white-space:pre-wrap;">${escapeHtml(input.agenda)}</td></tr>`
+                : ''
+            }
+          </table>`,
+    button: live && input.joinUrl ? { label: 'Join the meeting', url: input.joinUrl } : { label: 'Open your calendar', url: input.calendarUrl },
+    ...(input.ics && input.event !== 'declined'
+      ? { after: input.event === 'cancelled' ? 'The attached file removes it from your calendar.' : 'Add it to your calendar with the attached file.' }
+      : {}),
+    footer,
+  });
+  const text = [
+    heading,
+    intro,
+    '',
+    ...shown.map(([k, v]) => `${k}: ${v}`),
+    ...(input.agenda && live ? ['', input.agenda] : []),
+    '',
+    `Your calendar: ${input.calendarUrl}`,
+    '',
+    ...textFooter(footer),
+  ].join('\n');
+  return {
+    kind: 'transactional',
+    to: input.to,
+    from: input.from,
+    subject: heading,
+    html,
+    text,
+    tags: { kind: `team-meeting-${input.event}` },
+    ...(input.ics && input.event !== 'declined'
+      ? { attachments: [{ filename: 'meeting.ics', contentType: 'text/calendar; charset=utf-8; method=PUBLISH', contentBase64: Buffer.from(input.ics, 'utf8').toString('base64') }] }
+      : {}),
   };
 }
 

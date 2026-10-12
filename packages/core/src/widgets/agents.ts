@@ -1,4 +1,4 @@
-import { and, inArray, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { appointment, listing } from '@repo/db';
 import type { Actor } from '../permissions';
 import { leadScopeFilters } from '../leads/list-leads';
@@ -92,7 +92,7 @@ export async function agentActivity(ctx: WidgetContext, range: WidgetRange) {
       ),
       appts as (
         select appointment.assigned_agent_id as agent_id, count(*) as n from appointment
-        where ${and(...appointmentScopeFilters(actor), inArray(appointment.status, [...ACTIVE_STATUSES]))}
+        where ${and(...appointmentScopeFilters(actor), eq(appointment.kind, 'client'), inArray(appointment.status, [...ACTIVE_STATUSES]))}
           and appointment.starts_at >= ${iso(from)}::timestamptz and appointment.starts_at < ${iso(to)}::timestamptz
         group by 1
       ),

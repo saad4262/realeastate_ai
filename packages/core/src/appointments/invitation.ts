@@ -43,7 +43,7 @@ function firstName(name: string): string {
 }
 
 export function buildInvitation(
-  a: Pick<AppointmentView, 'title' | 'type' | 'startsAt' | 'endsAt' | 'timezone' | 'location' | 'meetingUrl' | 'propertyAddress' | 'contactName'>,
+  a: Pick<AppointmentView, 'title' | 'type' | 'startsAt' | 'endsAt' | 'timezone' | 'location' | 'meetingUrl' | 'propertyAddress'> & { contactName: string },
   from: { agentName: string; agencyName: string },
 ): { subject: string; body: string } {
   const when = formatInZone(a.startsAt, a.timezone);
@@ -66,15 +66,18 @@ export function buildInvitation(
   return { subject, body: lines.join('\n') };
 }
 
+/** A client appointment's invitation goes to its contact. A team meeting has none: its people are told by notifyTeamMeeting (ADR 0038). */
 async function facts(db: Db, actor: Actor, appointmentId: string) {
   const a = await getAppointment(db, actor, appointmentId);
+  if (!a.contactId) throw new AppointmentError('invalid', 'A team meeting has no contact to invite — everyone on it was already told');
+  const contactId = a.contactId;
   const [c] = await db
     .select({ email: contact.email, name: contact.name, agencyName: agency.name })
     .from(contact)
     .innerJoin(agency, eq(agency.id, contact.agencyId))
-    .where(eq(contact.id, a.contactId))
+    .where(eq(contact.id, contactId))
     .limit(1);
-  return { a, c };
+  return { a: { ...a, contactId, contactName: a.contactName ?? '' }, c };
 }
 
 function problemWith(

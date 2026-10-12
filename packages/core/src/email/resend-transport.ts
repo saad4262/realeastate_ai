@@ -70,6 +70,10 @@ export function resendTransport(opts: {
         ...(message.tags
           ? { tags: Object.entries(message.tags).map(([name, value]) => ({ name, value })) }
           : {}),
+        // Resend: base64 `content`, with the type given rather than guessed from the name.
+        ...(message.attachments?.length
+          ? { attachments: message.attachments.map((a) => ({ filename: a.filename, content: a.contentBase64, content_type: a.contentType })) }
+          : {}),
       };
 
       let response: Response;

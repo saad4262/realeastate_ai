@@ -366,7 +366,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
     },
   },  {
     name: 'find_colleagues',
-    description: 'Look up the other active members of the agency — to write to them with message_colleagues. Returns M references with each person\'s name, role and email. Anyone may use it.',
+    description: 'Look up the other active members of the agency — to write to them with message_colleagues or meet them with schedule_team_meeting. Returns M references with each person\'s name, role and email. Anyone may use it.',
     input_schema: {
       type: 'object',
       additionalProperties: false,
@@ -401,6 +401,25 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
         body: { type: 'string', description: 'The message, plain text, up to 5000 characters.' },
       },
       required: ['to', 'subject', 'body'],
+    },
+  },
+  {
+    name: 'schedule_team_meeting',
+    description: `Propose a team meeting with one or more colleagues (1 to 10) — not a contact — hosted by the person on their own calendar. Use find_colleagues first for the M references. A zoom type needs a Zoom connected (theirs or the agency's); if not, it says "Connect … first" and proposes nothing. On approval everyone on it is notified and emailed the time, the join link and a calendar file. If the person or a colleague already has a meeting then, it refuses and says who. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        colleagues: { type: 'array', items: { type: 'string' }, description: 'M references from find_colleagues, 1 to 10.' },
+        type: { type: 'string', enum: ['zoom', 'phone_call', 'meeting'], description: 'zoom creates a Zoom meeting on approval; meeting = in person.' },
+        title: { type: 'string', description: 'A short title, e.g. "Weekly listings sync".' },
+        date: { type: 'string', description: DATE },
+        time: { type: 'string', description: `Start. ${TIME}` },
+        duration_minutes: { type: 'integer', description: '15 to 480. Default 30.' },
+        location: { type: 'string', description: 'Where, for an in-person meeting.' },
+        agenda: { type: 'string', description: 'Only what the person said it is about; shown to everyone on it. Omit if they said nothing.' },
+      },
+      required: ['colleagues', 'type', 'title', 'date', 'time'],
     },
   },
 ]);

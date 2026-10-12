@@ -38,6 +38,7 @@ import {
   proposeRemoveAgent,
   proposeSendEmail,
   proposeMessageColleagues,
+  proposeScheduleTeamMeeting,
 } from './write-tools';
 import { listColleagues } from '../team-messages/messages';
 import { agencyTimeZone, renderWidget } from '../widgets/registry';
@@ -115,6 +116,7 @@ const LABELS: Record<AssistantToolName, string> = {
   find_colleagues: 'Looking up your colleagues…',
   send_email: 'Writing the email for you to check…',
   message_colleagues: 'Writing the message for you to check…',
+  schedule_team_meeting: 'Preparing the team meeting for you to approve…',
 };
 
 /** Tools that change a contact's own record: never for someone who may not edit a contact of their own (read-only). */
@@ -244,6 +246,8 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return proposeSendEmail(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.send_email>, label);
     case 'message_colleagues':
       return proposeMessageColleagues(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.message_colleagues>, label);
+    case 'schedule_team_meeting':
+      return proposeScheduleTeamMeeting(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.schedule_team_meeting>, label);
   }
 }
 
@@ -506,23 +510,30 @@ async function findAppointments(
       contactId: appointment.contactId,
       contactName: contact.name,
       contactVisible: sql<boolean>`${appointment.contactId} in (${visibleContactIdsSql(actor)})`,
+      // A team meeting's colleagues (ADR 0038), host first. Written out as `appointment.id` (single-table-subquery.test.ts).
+      team: sql<string | null>`case when appointment.kind = 'team' then (
+        select string_agg(coalesce(nullif(u.name, ''), u.email), ', ' order by p.ord, lower(coalesce(nullif(u.name, ''), u.email)))
+        from (select appointment.assigned_agent_id as user_id, 0 as ord
+              union all select ap.user_id, 1 from appointment_participant ap where ap.appointment_id = appointment.id and ap.declined_at is null) p
+        join "user" u on u.id = p.user_id
+      ) end`,
       total: sql<number>`count(*) over()`,
     })
     .from(appointment)
-    .innerJoin(contact, eq(contact.id, appointment.contactId))
+    .leftJoin(contact, eq(contact.id, appointment.contactId))
     .where(and(...filters))
     .orderBy(past ? desc(appointment.startsAt) : asc(appointment.startsAt), asc(appointment.id))
     .limit(input.limit);
 
   const total = Number(rows[0]?.total ?? 0);
   const shown = rows.map((r) => {
-    const visible = r.contactVisible === true || (r.contactVisible as unknown) === 't';
+    const visible = r.contactId !== null && (r.contactVisible === true || (r.contactVisible as unknown) === 't');
     return {
       handle: issueHandle(ctx.handles, 'A', r.id),
       id: r.id,
-      contactHandle: visible ? issueHandle(ctx.handles, 'C', r.contactId) : null,
+      contactHandle: visible && r.contactId ? issueHandle(ctx.handles, 'C', r.contactId) : null,
       contactId: r.contactId,
-      contactName: r.contactName,
+      contactName: r.contactName ?? `Team meeting: ${r.team ?? 'colleagues'}`,
       title: r.title,
       type: r.type,
       when: shortDateTime(new Date(r.startsAt), ctx.timeZone),

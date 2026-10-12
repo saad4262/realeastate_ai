@@ -369,8 +369,29 @@ export const messageColleaguesInput = z
   })
   .strict();
 
+/**
+ * A team meeting (ADR 0038): colleagues by `M` reference from find_colleagues,
+ * never a contact. Booked on the person's own calendar; on Approve everyone
+ * on it is told, by template, with the link.
+ */
+export const ASSISTANT_TEAM_MEETING_TYPES = ['zoom', 'phone_call', 'meeting'] as const;
+
+export const scheduleTeamMeetingInput = z
+  .object({
+    colleagues: z.array(memberHandleSchema).min(1).max(10),
+    type: z.enum(ASSISTANT_TEAM_MEETING_TYPES),
+    title: z.string().trim().min(1).max(160),
+    date: dateString,
+    time: timeString,
+    duration_minutes: z.number().int().min(15).max(480).optional(),
+    location: z.string().trim().max(300).optional(),
+    /** Shown to everyone on it — only what the person said. */
+    agenda: z.string().trim().max(2000).optional(),
+  })
+  .strict();
+
 export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 
 /** Every tool. Read tools run at once; write tools only propose (ADR 0025 §8). */
@@ -401,6 +422,7 @@ export const ASSISTANT_TOOL_INPUTS = {
   find_colleagues: findColleaguesInput,
   send_email: sendEmailInput,
   message_colleagues: messageColleaguesInput,
+  schedule_team_meeting: scheduleTeamMeetingInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];
@@ -458,7 +480,8 @@ export type AssistantFrame =
   | {
       kind: 'appointments';
       total: number;
-      rows: { handle: string; id: string; contactId: string; contactName: string; title: string; type: string; when: string; status: string }[];
+      /** `contactId` null: a team meeting (ADR 0038); `contactName` then names the colleagues. */
+      rows: { handle: string; id: string; contactId: string | null; contactName: string; title: string; type: string; when: string; status: string }[];
     }
   | { kind: 'templates'; total: number; rows: { handle: string; id: string; name: string; subject: string }[] }
   | {

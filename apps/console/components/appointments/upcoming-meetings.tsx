@@ -10,14 +10,16 @@ const SOON_MS = 30 * 60_000;
 /**
  * The next few meetings, at the top of the person's home screen (ADR 0032):
  * the agency's for an owner/admin, their own for anyone else — that is
- * `listAppointments`' rule, not this file's. One statement; streams behind the
+ * `listAppointments`' rule, not this file's — team meetings they are on
+ * included (ADR 0038), except one they declined. One statement; streams behind the
  * caller's Suspense, so the page never waits on it. Nothing booked → nothing
  * drawn.
  */
 export async function UpcomingMeetings({ actor, surface }: { actor: Actor; surface: 'agency' | 'agent' }) {
   const now = new Date();
-  const page = await listAppointments(getConsoleDb(), actor, { when: 'upcoming', limit: 5, now }).catch(() => null);
-  if (!page?.rows.length) return null;
+  const page = await listAppointments(getConsoleDb(), actor, { when: 'upcoming', limit: 6, now }).catch(() => null);
+  const rows = (page?.rows ?? []).filter((a) => !a.participants.some((p) => p.userId === actor.userId && p.declined)).slice(0, 5);
+  if (!page || !rows.length) return null;
   const calendar = surface === 'agency' ? '/calendar' : '/my-calendar';
   const contacts = surface === 'agency' ? '/customers' : '/my-contacts';
 
@@ -32,7 +34,7 @@ export async function UpcomingMeetings({ actor, surface }: { actor: Actor; surfa
         </Link>
       </div>
       <ul className={styles.list}>
-        {page.rows.map((a) => {
+        {rows.map((a) => {
           const live = a.startsAt.getTime() <= now.getTime();
           const soon = !live && a.startsAt.getTime() - now.getTime() <= SOON_MS;
           return (
@@ -42,11 +44,20 @@ export async function UpcomingMeetings({ actor, surface }: { actor: Actor; surfa
               </time>
               <div className={styles.what}>
                 <span className={styles.name}>{a.title}</span>
-                <span className={styles.meta}>
-                  {APPOINTMENT_TYPE_LABELS[a.type]} · with{' '}
-                  <Link href={`${contacts}/${a.contactId}`}>{a.contactName}</Link>
-                  {page.seesAll && a.assignedAgentName ? ` · ${a.assignedAgentName}` : ''}
-                </span>
+                {a.contactId ? (
+                  <span className={styles.meta}>
+                    {APPOINTMENT_TYPE_LABELS[a.type]} · with{' '}
+                    <Link href={`${contacts}/${a.contactId}`}>{a.contactName}</Link>
+                    {page.seesAll && a.assignedAgentName ? ` · ${a.assignedAgentName}` : ''}
+                  </span>
+                ) : (
+                  <span className={styles.meta}>
+                    Team meeting · with{' '}
+                    {[a.assignedAgentName, ...a.participants.filter((p) => !p.declined).map((p) => p.name)]
+                      .filter((n): n is string => Boolean(n))
+                      .join(', ')}
+                  </span>
+                )}
               </div>
               <div className={styles.side}>
                 {live ? <span className={styles.now}>Now</span> : soon ? <span className={styles.soon}>Starting soon</span> : null}

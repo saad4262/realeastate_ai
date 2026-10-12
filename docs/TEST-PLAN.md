@@ -1116,3 +1116,28 @@ project, or a tunnel to port 3000) with `ZOOM_WEBHOOK_SECRET_TOKEN` set there.
 | AK4 | `curl -i -X POST https://<web host>/api/zoom/webhook -d '{"event":"app_deauthorized","payload":{"user_id":"x"}}'` | **401** — an unsigned request deletes nothing. |
 | AK5 | After publishing: zoom.us → App Marketplace → Manage → Added Apps → remove the app | Within a minute, Integrations shows Zoom **Not connected** (own and, if it was the same Zoom user, the agency's). Other people's Zoom stays connected. |
 | AK6 | Smoke | Integrations group: "Zoom's deauthorization deletes every connection to that Zoom user, and nothing else" green. |
+
+## AL — Team meetings: internal Zoom meetings with colleagues (ADR 0038)
+
+**Setup.** Migration 0044 applied. Owner (A) in one browser, agent Saad (S) in another, a second
+agent (B) in a third. Zoom connected with `meeting:write:meeting` and `user:read:user` (yours or the
+agency's). Members' emails are NOT limited by `EMAIL_DEV_ALLOWLIST` (they are staff notices), so use
+addresses you can read.
+
+| # | Case | Expected |
+|---|---|---|
+| AL1 | A → Calendar → **+ Team meeting**: title "Sync", tick S, type Zoom, tomorrow 3:00–3:30, agenda "Offers", Book | Toast "Team meeting booked — everyone on it was sent the details and the link". The card shows **Team meeting**, Host: A, With: S, Agenda: Offers, **Join Zoom ↗**, "Everyone was emailed the details". The meeting is in zoom.us. |
+| AL2 | S's inbox | "A invited you: Sync" with When / Host / Join / the agenda, a **Join the meeting** button, and **meeting.ics** attached; opening it adds the event (Google/Outlook/Apple). S's bell shows it too. A gets no email about their own booking. |
+| AL3 | S → My calendar, and Overview → Upcoming meetings | The meeting with Join. S sees **Can't make it**, no Reschedule/Cancel. B does not see it at all (calendar, Overview). |
+| AL4 | Open both Join links (A signed in to the host Zoom) | One Zoom meeting, A as host, S joins it (waiting room / join-before-host per the Zoom account's settings). |
+| AL5 | A → Reschedule it to 4:00–4:30 | "Moved — everyone on it was told". S gets "Moved: Sync" with **Was:** the old time and a new .ics (same event updates). Zoom moves; same link. |
+| AL6 | B books a client appointment at 4:00 tomorrow, then A books a team meeting with B at 4:00 | Refused: "B already has "…" at that time (…). Pick another time." |
+| AL7 | S → **Can't make it** → OK | S's card shows nothing to do; A's card shows S struck through "(declined)"; A gets "S can't make it: Sync" (bell + email). S gets no reminder. |
+| AL8 | A → Cancel it | S (if not declined) gets "Cancelled: Sync", no Join link, an .ics with STATUS:CANCELLED. The Zoom meeting is deleted. |
+| AL9 | Book one for ~20 minutes from now with a 15-minute reminder; wait for the cron tick | A and S each get "Starts soon: …" (bell + email) "with your colleagues (…)". |
+| AL10 | Assistant (A): "Book a Zoom meeting with Saad tomorrow at 3pm about offers" | It finds Saad (find_colleagues) and shows a **Team meeting with Saad** card: With, When, Host You, Zoom account, "Everyone is told…", Agenda text marked as written by the assistant. Approve → "Booked — everyone on it was notified and emailed the details." It never proposes schedule_appointment or message_colleagues for this. |
+| AL11 | Assistant: "Move the Sync meeting to Friday" | It refuses: a team meeting is moved on the Calendar page. |
+| AL12 | Disconnect Zoom (yours and the agency's), then + Team meeting type Zoom with no link | The panel says **Connect Zoom first** and Book stays disabled. |
+| AL13 | Dashboards → Appointments widget for the range with AL1 in it | Counts client appointments only; the team meeting is not in it. |
+| AL14 | Offboard S (Team → Remove) while S is on an upcoming team meeting | S is gone from its With list; A's bell says "S left the agency — They were taken off "Sync"". |
+| AL15 | Smoke | `SMOKE_ONLY="Team meetings" pnpm smoke`: 4 checks green. |

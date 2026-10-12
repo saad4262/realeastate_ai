@@ -44,6 +44,8 @@ const OWN_AGENCY = [
   // ADR 0035: members' conversations with each other; read only by the people on them.
   'team_thread',
   'team_message',
+  // ADR 0038: the colleagues on a team meeting; carries its own agency_id like notification.
+  'appointment_participant',
 ] as const;
 
 /** Reaches an agency through a parent row: table → [foreign-key column, parent table]. */

@@ -1,4 +1,4 @@
-import { and, inArray, ne, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, ne, sql, type SQL } from 'drizzle-orm';
 import { appointment, lead } from '@repo/db';
 import { leadScopeFilters } from '../leads/list-leads';
 import { appointmentScopeFilters } from '../appointments/appointments';
@@ -268,7 +268,7 @@ export async function appointmentsDetail(ctx: WidgetContext, range: WidgetRange)
                ${appointment.startsAt} >= ${iso(cur.from)}::timestamptz as is_cur
         from ${appointment}
         left join "user" u on u.id = ${appointment.assignedAgentId}
-        where ${and(...appointmentScopeFilters(actor))}
+        where ${and(...appointmentScopeFilters(actor), eq(appointment.kind, 'client'))}
           and ((${appointment.startsAt} >= ${iso(cur.from)}::timestamptz and ${appointment.startsAt} < ${iso(cur.to)}::timestamptz)
             or (${appointment.startsAt} >= ${iso(prev.from)}::timestamptz and ${appointment.startsAt} < ${iso(prev.to)}::timestamptz))
       ),

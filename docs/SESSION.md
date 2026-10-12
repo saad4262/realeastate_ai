@@ -1,3 +1,21 @@
+## 2026-10-12 — Claude Code — Team meetings (ADR 0038)
+
+- Asked (Roman Urdu): Zoom meetings with team members, with email, join link and reminders for
+  everyone. Diagnosed first: the "Zoom with Saad" request sent a team message because every
+  appointment needed a contact; and team threads never opened (Drizzle renders a select-list
+  column bare in a single-table select — fixed + guard test, `87dc7b1` on main).
+- ADR 0038 written, user answered Q1–Q4 (admins see in full; `.ics` not per-person sync; any
+  writing member books; client widgets exclude them). Built on `feat/team-meetings` from main.
+- DB 0044 (kind enum, contact_id nullable + CHECK, appointment_participant, tool CHECK). Core:
+  scheduleTeamMeeting / declineTeamMeeting, clash counts participation, team-meetings.ts
+  (notify / tell / book / tellIfUntold), ics.ts, email attachments, reminders fan-out,
+  left-joins on contact, widgets kind filter, offboarding, assistant tool + prompt v12. Console:
+  team meeting panel, agenda, upcoming meetings, card result, actions tell on move/cancel/retry.
+- Tests: ics, team-meetings (permissions, contract, email), isolation classification; break-tests
+  on participant read and respond went red. Smoke "Team meetings" written, not run (needs 0044).
+- 0044 applied on dev; merged to main. Next exact step (the user): smoke (Team meetings,
+  Appointments, Offboarding, Console assistant) → deploy → TEST-PLAN AL.
+
 ## 2026-10-12 — Claude Code — Zoom deauthorization endpoint and legal pages (ADR 0037)
 
 - Asked (Roman Urdu): what is left for Zoom after the Development setup; then build the

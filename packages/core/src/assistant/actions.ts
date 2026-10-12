@@ -15,9 +15,10 @@ import {
   type ContactDetails,
   type ContactDetailsPatch,
 } from '../contacts/write-contacts';
-import { AppointmentError, cancelAppointment, rescheduleAppointment, scheduleAppointment } from '../appointments/appointments';
+import { AppointmentError, cancelAppointment, rescheduleAppointment, scheduleAppointment, scheduleTeamMeeting } from '../appointments/appointments';
 import { syncAppointment, type SyncDeps, type SyncOutcome } from '../appointments/sync';
 import { sendInvitation } from '../appointments/invitation';
+import { tellIfUntold, type TeamMeetingDeps } from '../appointments/team-meetings';
 import { getAppointment } from '../appointments/appointments';
 import { deliverOutbound, type MailDeps } from '../mail/send';
 import { recordContactEmail } from '../mail/compose';
@@ -99,7 +100,20 @@ export type FrozenArgs =
   /** ADR 0035: the exact words the card showed — what was approved is what is sent. */
   | { tool: 'send_email'; contactId: string; subject: string; body: string }
   /** ADR 0035: colleagues' user ids (from `M` references), and the exact words. */
-  | { tool: 'message_colleagues'; to: string[]; subject: string; body: string };
+  | { tool: 'message_colleagues'; to: string[]; subject: string; body: string }
+  /** ADR 0038: colleagues' user ids (from `M` references); the host is the person who approves. */
+  | {
+      tool: 'schedule_team_meeting';
+      participantIds: string[];
+      title: string;
+      type: 'zoom' | 'phone_call' | 'meeting';
+      startsAt: string;
+      endsAt: string;
+      timezone: string;
+      location: string | null;
+      agenda: string | null;
+      requires: IntegrationProvider[];
+    };
 
 /** The contacts whose timelines carry this action's audit lines. */
 function auditContacts(row: { contactId: string | null; args: unknown }): string[] {
@@ -222,6 +236,8 @@ type RunDeps = {
   inviteMail?: InviteEmailDeps | null;
   /** A team message's emails (ADR 0035). Without it, the bell only. */
   teamMessages?: TeamMessageDeps | null;
+  /** A team meeting's emails (ADR 0038). Without it, the bell only. */
+  teamMeetings?: TeamMeetingDeps | null;
 };
 
 type Executed = {
@@ -362,6 +378,22 @@ async function execute(
       // allowlist, today's limits, the unsubscribe link. Recorded queued; sent after the commit.
       const r = await recordContactEmail(tx, mail, actor, args.contactId, { subject: args.subject, body: args.body }, { via: 'assistant', ...(deps.env ? { env: deps.env } : {}) });
       return { result: { threadId: r.threadId }, mailMessageId: r.messageId };
+    }
+    case 'schedule_team_meeting': {
+      if (new Date(args.startsAt).getTime() <= now.getTime()) throw new AssistantError('conflict', 'That time has already passed. Ask again with a new time.');
+      await assertStillConnected(tx, actor, args.requires, now);
+      // appointment:create again, every colleague still an active member, nobody busy then.
+      const { id } = await scheduleTeamMeeting(tx, actor, {
+        title: args.title,
+        type: args.type,
+        startsAt: args.startsAt,
+        endsAt: args.endsAt,
+        timezone: args.timezone,
+        participantIds: args.participantIds,
+        ...(args.location ? { location: args.location } : {}),
+        ...(args.agenda ? { notes: args.agenda } : {}),
+      });
+      return { result: { appointmentId: id }, appointmentId: id };
     }
     case 'message_colleagues': {
       // team_message:send again, and every recipient still an active member.
@@ -516,6 +548,20 @@ async function afterCommit(db: Db, actor: Actor, row: RowT, ran: Extract<Ran, { 
     sync = await syncAppointment(db, deps.sync, ran.appointmentId).catch(() => null);
   }
   const args = row.args as FrozenArgs;
+  if (ran.appointmentId && args.tool === 'schedule_team_meeting') {
+    // Everyone on it is told now that it has its link — or, if Zoom failed, once Retry works.
+    const told = await tellIfUntold(db, deps.teamMeetings ?? null, ran.appointmentId, row.userId).catch((err: unknown) => {
+      console.error('[assistant] team meeting notice failed', err instanceof Error ? err.message : err);
+      return null;
+    });
+    const result = {
+      ...ran.result,
+      told: Boolean(told?.told),
+      ...(told && !told.told && told.zoomError ? { zoomError: `${told.zoomError} Nobody was emailed yet — press Retry on the Calendar page.` } : {}),
+    };
+    await db.update(proposedAction).set({ result, updatedAt: sql`now()` }).where(eq(proposedAction.id, row.id));
+    return { outcome: 'done', result, sync };
+  }
   if (ran.appointmentId && args.tool === 'schedule_appointment' && args.sendInvitation) {
     const invitation = await inviteAfterBooking(db, row, ran.appointmentId, deps);
     const result = { ...ran.result, ...invitation };
@@ -812,7 +858,7 @@ export type ProposalView = {
   card: ProposalCard;
   error: string | null;
   /** Ids of what it made or changed — for links. Never model text. */
-  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; recorded?: number; withdrawn?: number; changed?: string[]; claimPath?: string; emailed?: boolean; removed?: boolean; sent?: number; skipped?: number; failed?: number; sendError?: string; invited?: boolean; invitationError?: string; threadId?: string; teamThreadId?: string; emailStatus?: 'sent' | 'failed'; emailError?: string } | null;
+  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; recorded?: number; withdrawn?: number; changed?: string[]; claimPath?: string; emailed?: boolean; removed?: boolean; sent?: number; skipped?: number; failed?: number; sendError?: string; invited?: boolean; invitationError?: string; threadId?: string; teamThreadId?: string; told?: boolean; zoomError?: string; emailStatus?: 'sent' | 'failed'; emailError?: string } | null;
   expiresAt: Date;
   /** When a scheduled action will run (about; up to ~5 minutes later). */
   runAt: Date | null;

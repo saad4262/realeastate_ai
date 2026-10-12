@@ -1017,6 +1017,13 @@ export const activity = pgTable(
 
 // ── Appointments (docs/adr/0019) ────────────────────────────────────────────
 
+/**
+ * `client`: with a contact (ADR 0019). `team`: an internal meeting between
+ * members, with no contact (ADR 0038). A CHECK in 0044 ties the two together:
+ * a client appointment has a contact, a team meeting never does.
+ */
+export const appointmentKindEnum = pgEnum('appointment_kind', ['client', 'team']);
+
 export const appointmentTypeEnum = pgEnum('appointment_type', [
   'appraisal',
   'phone_call',
@@ -1057,9 +1064,9 @@ export const appointment = pgTable(
     agencyId: uuid('agency_id')
       .notNull()
       .references(() => agency.id, { onDelete: 'cascade' }),
-    contactId: uuid('contact_id')
-      .notNull()
-      .references(() => contact.id, { onDelete: 'cascade' }),
+    kind: appointmentKindEnum('kind').notNull().default('client'),
+    /** The contact it is with. Null for a team meeting, and only then (CHECK in 0044). */
+    contactId: uuid('contact_id').references(() => contact.id, { onDelete: 'cascade' }),
     /** The address it is about, if any. `restrict`: a property outlives everything (#1). */
     propertyId: uuid('property_id').references(() => property.id, { onDelete: 'restrict' }),
     createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
@@ -1130,6 +1137,34 @@ export const appointment = pgTable(
     index('appointment_calendar_sync_idx')
       .on(t.calendarSyncState, t.startsAt)
       .where(sql`calendar_sync_state is not null`),
+  ],
+);
+
+/**
+ * The colleagues on a team meeting (ADR 0038), besides its host
+ * (`appointment.assigned_agent_id`). They see it, are told about it and are
+ * reminded of it; they may decline, nothing else. Server-only like every
+ * table here (RLS on, no browser grants — ADR 0017).
+ */
+export const appointmentParticipant = pgTable(
+  'appointment_participant',
+  {
+    appointmentId: uuid('appointment_id')
+      .notNull()
+      .references(() => appointment.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow(),
+    /** "I can't make it." Still on the list, so the host sees who declined; no reminders after it. */
+    declinedAt: timestamp('declined_at', { withTimezone: true }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.appointmentId, t.userId] }),
+    index('appointment_participant_user_idx').on(t.userId, t.appointmentId),
   ],
 );
 

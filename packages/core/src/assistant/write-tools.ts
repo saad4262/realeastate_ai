@@ -17,13 +17,13 @@ import { loadComposeTarget } from '../mail/compose';
 import { MailError } from '../mail/threads';
 import { resolveSender, senderLine } from '../mail/sender';
 import { listColleagues } from '../team-messages/messages';
-import type { messageColleaguesInput, sendEmailInput } from './schema';
+import type { messageColleaguesInput, scheduleTeamMeetingInput, sendEmailInput } from './schema';
 import type { addNoteInput, assignContactsInput, removeAgentInput, updateAgentInput, cancelAppointmentInput, recordMarketingConsentInput, setContactArchivedInput, updateContactInput, withdrawMarketingConsentInput, createDashboardInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
 import { cancelBatch, getBatch, prepareBatch } from '../template-email/batches';
 import { TemplateEmailError } from '../template-email/templates';
 import { SKIP_REASON_LABELS } from '../template-email/schema';
 import { checkEmailLimits, devAllowlistProblem, emailLimitsFromEnv } from '../email/limits';
-import { clashMessage, findClash } from '../appointments/clash';
+import { clashMessage, findClash, findFirstClash, teamClashMessage } from '../appointments/clash';
 import { AUDIENCE_LABELS, createDashboardSchema } from '../dashboards';
 import { agencyTimeZone, renderWidget, WIDGETS, type WidgetData } from '../widgets/registry';
 import type { ToolContext, ToolOutcome } from './tools';
@@ -268,7 +268,9 @@ async function changeableAppointment(ctx: ToolContext, ref: string) {
     const a = await getAppointment(ctx.db, ctx.actor, id);
     if (!a.mayUpdate) return { error: 'Only the agent this appointment is assigned to, or an admin, may change it.' } as const;
     if (!ACTIVE_STATUSES.includes(a.status)) return { error: `That appointment is already ${a.status}.` } as const;
-    return { a } as const;
+    // A team meeting (ADR 0038) is moved or cancelled on the Calendar page, where everyone on it is told.
+    if (!a.contactId) return { error: 'That is a team meeting — move or cancel it on the Calendar page, so everyone on it is told.' } as const;
+    return { a: { ...a, contactId: a.contactId, contactName: a.contactName ?? '' } } as const;
   } catch (err) {
     if (err instanceof AppointmentError) return { error: 'That appointment is not available to this person.' } as const;
     throw err;
@@ -991,4 +993,82 @@ export async function proposeMessageColleagues(ctx: ToolContext, input: z.infer<
   };
   const args: FrozenArgs = { tool: 'message_colleagues', to: ids, subject: input.subject, body: input.body };
   return propose(ctx, label, { tool: 'message_colleagues', args, card, contactId: null });
+}
+
+/**
+ * A team meeting with colleagues (ADR 0038): on the person's own calendar,
+ * colleagues by `M` reference only. On Approve it is booked, its Zoom meeting
+ * made, and everyone on it told by template — the agenda (if any) is the one
+ * piece the model wrote, shown on the card for the person to read.
+ */
+export async function proposeScheduleTeamMeeting(
+  ctx: ToolContext,
+  input: z.infer<typeof scheduleTeamMeetingInput>,
+  label: string,
+): Promise<ToolOutcome> {
+  if (!ctx.actor.agencyId || !can(ctx.actor, 'appointment:create', { type: 'appointment', agencyId: ctx.actor.agencyId })) {
+    return refused('This person can view appointments but not book them.', label);
+  }
+  const ids: string[] = [];
+  for (const ref of input.colleagues) {
+    const id = resolveHandle(ctx.handles, ref, 'member');
+    if (!id) return refused(`${ref}: ${UNKNOWN_REF} Use find_colleagues first.`, label);
+    if (id !== ctx.actor.userId && !ids.includes(id)) ids.push(id);
+  }
+  if (!ids.length) return refused('Choose at least one colleague — not the person themselves. Nothing was proposed.', label);
+  const colleagues = await listColleagues(ctx.db, ctx.actor);
+  const people = ids.map((id) => colleagues.find((c) => c.userId === id));
+  if (people.some((p) => !p)) return refused('Someone you chose is no longer an active member of the agency. Nothing was proposed.', label);
+  const on = people as NonNullable<(typeof people)[number]>[];
+
+  const requires: IntegrationProvider[] = input.type === 'zoom' ? ['zoom'] : [];
+  const missing = await connectFirst(ctx, requires, label);
+  if (missing) return missing;
+
+  const s = slot(input.date, input.time, input.duration_minutes ?? 30, ctx.timeZone);
+  if (!s) return refused('That date or time is not valid.', label);
+  if (s.start.getTime() <= ctx.now.getTime()) return refused('That time has already passed.', label);
+  const mine = await findClash(ctx.db, ctx.actor.userId, s.start, s.end);
+  if (mine) return refused(clashMessage(mine, true), label);
+  const theirs = await findFirstClash(ctx.db, ids, s.start, s.end);
+  if (theirs) return refused(teamClashMessage(theirs.clash, on.find((p) => p.userId === theirs.userId)!.name), label);
+
+  const accounts = await requireIntegrations(ctx.db, ctx.actor, ['google_calendar', 'zoom'], ctx.now);
+  const calendar = accounts.results.find((r) => r.provider === 'google_calendar')!;
+  const zoom = input.type === 'zoom' ? accounts.results.find((r) => r.provider === 'zoom') : undefined;
+  const names = on.map((p) => p.name).join(', ');
+  const typeLabel = input.type === 'meeting' ? 'In person' : APPOINTMENT_TYPE_LABELS[input.type];
+  const figures = input.agenda ? figuresIn(input.agenda) : [];
+
+  const card: ProposalCard = {
+    title: `Team meeting with ${names}`,
+    contact: { id: '', name: '' },
+    lines: [
+      { label: 'With', value: on.map((p) => `${p.name} (${p.roleLabel})`).join(', ') },
+      { label: 'What', value: `${input.title} (${typeLabel})` },
+      { label: 'When', value: `${when(s.start, ctx.timeZone)} – ${untilTime(s.end, ctx.timeZone)}` },
+      { label: 'Host', value: 'You' },
+      { label: 'Zoom', value: zoom ? `${accountLine(zoom, 'Zoom')} — the meeting is created when you approve` : 'Not used' },
+      ...(input.location ? [{ label: 'Where', value: input.location }] : []),
+      { label: 'Google Calendar', value: calendar.state === 'connected' ? `${accountLine(calendar, 'calendar')} — yours` : 'Not connected — not added to your calendar' },
+      { label: 'Everyone is told', value: `Right after it is booked: a notification and an email to each of them with the time${input.type === 'zoom' ? ', the Zoom link' : ''} and a calendar file` },
+      { label: 'Reminder', value: '15 minutes before — to everyone on it' },
+    ],
+    ...(input.agenda ? { text: { label: 'Agenda (shown to everyone on it)', value: input.agenda } } : {}),
+    ...(figures.length ? { figures } : {}),
+    notes: [NOTHING_YET, ...(input.agenda ? [WRITTEN_BY_ASSISTANT] : []), 'To move or cancel it later, use the Calendar page — everyone on it is told.'],
+  };
+  const args: FrozenArgs = {
+    tool: 'schedule_team_meeting',
+    participantIds: ids,
+    title: input.title,
+    type: input.type,
+    startsAt: s.start.toISOString(),
+    endsAt: s.end.toISOString(),
+    timezone: ctx.timeZone,
+    location: input.location ?? null,
+    agenda: input.agenda ?? null,
+    requires,
+  };
+  return propose(ctx, label, { tool: 'schedule_team_meeting', args, card, contactId: null });
 }

@@ -7,12 +7,15 @@ import {
 } from '@repo/core/appointments';
 import { listContactAssignees, type ContactAssignee } from '@repo/core/contacts';
 import { requireIntegrations, type IntegrationCheck } from '@repo/core/integrations';
+import { can } from '@repo/core/permissions';
+import { listColleagues, type Colleague } from '@repo/core/team-messages';
 import { ConnectFirst } from '@/components/integrations/integration-ui';
 import contactStyles from '@/components/contacts/contacts.module.css';
 import { getConsoleDb } from '../../lib/db';
 import { requireConsoleAccess } from '../../lib/require-console-access';
 import { Agenda } from './agenda';
 import { toItem } from './item';
+import { TeamMeetingPanel } from './team-meeting-panel';
 
 /**
  * The calendar page, shared by the agency's `/calendar` and the agent's
@@ -21,8 +24,8 @@ import { toItem } from './item';
  * own (assigned or booked by them) for anybody else. A list grouped by day in
  * the viewer's own timezone — no calendar library.
  *
- * Booking starts from a contact (their Calendar tab), because every
- * appointment is with somebody.
+ * A client appointment is booked from a contact (their Calendar tab). A team
+ * meeting — colleagues, no contact (ADR 0038) — is booked here.
  */
 export async function CalendarPage({
   surface,
@@ -41,12 +44,16 @@ export async function CalendarPage({
   let page: AppointmentPage | null = null;
   let agents: ContactAssignee[] = [];
   let integrations: IntegrationCheck | null = null;
+  let colleagues: Colleague[] = [];
   let loadError: string | null = null;
+  const calendar = { type: 'appointment', agencyId: session.actor.agencyId ?? undefined };
+  const mayBook = can(session.actor, 'appointment:create', calendar);
   try {
-    [page, agents, integrations] = await Promise.all([
+    [page, agents, integrations, colleagues] = await Promise.all([
       listAppointments(getConsoleDb(), session.actor, query),
       listContactAssignees(getConsoleDb(), session.actor),
-      requireIntegrations(getConsoleDb(), session.actor, ['google_calendar']),
+      requireIntegrations(getConsoleDb(), session.actor, ['google_calendar', 'zoom']),
+      mayBook ? listColleagues(getConsoleDb(), session.actor) : Promise.resolve([]),
     ]);
   } catch (err) {
     loadError = err instanceof AppointmentError ? err.message : 'Failed to load the calendar';
@@ -58,6 +65,9 @@ export async function CalendarPage({
       </p>
     );
   }
+
+  const zoomCheck = integrations?.results.find((r) => r.provider === 'zoom');
+  const calendarCheck = integrations?.results.find((r) => r.provider === 'google_calendar');
 
   const href = (when: string, agent?: string) => {
     const p = new URLSearchParams();
@@ -74,10 +84,22 @@ export async function CalendarPage({
           <h1 className={contactStyles.title}>{surface === 'agency' ? 'Calendar' : 'My calendar'}</h1>
           <p className={contactStyles.sub}>
             {page.seesAll
-              ? "Every appointment in the agency. Book one from a contact's Calendar tab."
-              : "Your appointments. Book one from a contact's Calendar tab."}
+              ? "Every appointment and team meeting in the agency. Book a client appointment from a contact's Calendar tab."
+              : "Your appointments and the team meetings you are on. Book a client appointment from a contact's Calendar tab."}
           </p>
         </div>
+        {mayBook ? (
+          <TeamMeetingPanel
+            colleagues={colleagues.map((c) => ({ userId: c.userId, name: c.name, roleLabel: c.roleLabel }))}
+            hosts={can(session.actor, 'appointment:assign', calendar) ? agents.filter((a) => a.userId !== session.actor.userId).map((a) => ({ userId: a.userId, name: a.name })) : []}
+            zoom={{
+              state: zoomCheck?.state ?? 'not_connected',
+              ownerType: zoomCheck?.ownerType ?? null,
+              accountLabel: zoomCheck?.accountLabel ?? null,
+              integrationsPath: surface === 'agency' ? '/settings/integrations' : '/my-integrations',
+            }}
+          />
+        ) : null}
       </div>
       <div className={contactStyles.inlineForm} style={{ justifyContent: 'space-between' }}>
         <nav className={contactStyles.inlineForm} aria-label="Which appointments">
@@ -103,8 +125,8 @@ export async function CalendarPage({
         contactBasePath={contactBase}
         emptyText={query.when === 'upcoming' ? 'Nothing booked yet.' : 'No past appointments.'}
       />
-      {integrations?.results[0] ? (
-        <ConnectFirst requirement={integrations.results[0]} purpose="Appointments assigned to you are added to your Google Calendar, and moved or removed with them." />
+      {calendarCheck ? (
+        <ConnectFirst requirement={calendarCheck} purpose="Appointments assigned to you are added to your Google Calendar, and moved or removed with them." />
       ) : null}
     </div>
   );
