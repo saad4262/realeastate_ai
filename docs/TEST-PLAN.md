@@ -1053,6 +1053,7 @@ console, one mail to the agency address from a contact assigned to agent 2.
 | AH8 | Agent opens a saved Agents dashboard with audience "Everyone in the agency" | That tile reads "This figure is for owners and admins." |
 | AH9 | Phone width (≈ 390 px) | The table scrolls sideways inside its card; the page itself does not. |
 | AH10 | "Same for the last 7 days" | A dashboard card with range "the last 7 days"; times in the lists show the day. |
+| AH11 | **Changed on purpose (ADR 0036 P3, a bug fix):** open a dashboard with **Email replies** → its full page → **Replies by agent** | The agency-address mail from AH5 is under **agent 2** — the same person as on the Agents widget — not under "Agency address". Mail with nobody's conversation is **No agent** (was "Unassigned"). Person by person, these bars equal the Agents widget's "received" column for the same range. "Agency address" still appears under **Replies by kind of conversation** — that is the kind, not a person. |
 
 ## AI — New email, team messages, and both through the assistant (ADR 0035)
 
@@ -1083,3 +1084,19 @@ A website account for that contact's address (AI6–AI8). `ANTHROPIC_API_KEY` fo
 | AI18 | "Email <contact> the price" (no price given) | The assistant asks for the figure instead of inventing one. |
 | AI19 | Read-only member → Team messages | Can read conversations they are on; no New message, no reply box. |
 | AI20 | Phone width (≈ 390 px) | New email and Team messages fit; the colleague list stacks. |
+
+## AJ — Dashboards Phase 0: one lead agent, one email owner, scope helpers, read timeout (ADR 0036)
+
+Before: **dry run** — `select listing_id, count(*) from listing_agent where display_order = 0 group by
+listing_id having count(*) > 1;` (note the listings it names), then **apply migration 0042**
+(`pnpm --filter @repo/db db:migrate`; it needs 0041 first). Then `pnpm smoke`.
+
+| # | Case | Expected |
+|---|---|---|
+| AJ1 | Re-run the dry-run query after 0042 | No rows. A listing it named before shows its oldest agent first on the public ad and in the console; the others follow, now as co-agents (role `co`). |
+| AJ2 | Edit a listing's agents (two agents, change the order) and save | Saves; the first agent is the lead. No "duplicate key" error. |
+| AJ3 | A sold listing with a lead and a co-agent → owner's **Number of sales** full page | The sale is counted once, under the lead; "Sales by agent" adds up to the headline. |
+| AJ4 | Remove (offboard) the lead agent of a sold listing that has a co-agent, then reload AJ3 | The sale moves under the co-agent, not "No agent". |
+| AJ5 | Agent opens a dashboard with **Active listings** | Only listings they are named on; the owner sees the whole agency. Same as before Phase 0. |
+| AJ6 | Owner opens every dashboard they have | Every tile shows as before (AH11 is the one figure that changes on purpose). |
+| AJ7 | Smoke | Dashboards group green, including "a sale counts once, under its lead agent" and "figures read with a 3 s timeout"; the index list includes `listing_agent_lead_idx`, `listing_agency_status_sold_idx`, `mail_message_agency_created_idx`. |

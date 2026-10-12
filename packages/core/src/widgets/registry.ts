@@ -1,11 +1,13 @@
 import { and, eq, gte, inArray, isNull, lt, ne, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
-import { agency, appointment, lead, listing, listingAgent, mailMessage, mailThread, user, type DbOrTx } from '@repo/db';
+import { agency, appointment, lead, listing, mailMessage, mailThread, user, type DbOrTx } from '@repo/db';
 import { can, type Action, type Actor } from '../permissions';
 import { leadScopeFilters } from '../leads/list-leads';
 import { appointmentScopeFilters } from '../appointments/appointments';
 import { ACTIVE_STATUSES, APPOINTMENT_TYPE_LABELS, type AppointmentType } from '../appointments/appointment-schema';
 import { threadScopeFilters } from '../mail/threads';
+import { ACTIVE_LISTING_STATUSES, leadAgentIdSql, listingScopeFilters } from '../listings/scope';
+import { isReadTimeout, withReadTimeout } from './read-timeout';
 import { RANGE_LABELS, rangeWindow, WIDGET_RANGES, type WidgetRange } from './ranges';
 import { appointmentsDetail, leadsDetail, listingsDetail, repliesDetail, salesDetail, type WidgetDetail } from './detail';
 import { agentActivity, agentsDetail, type AgentActivityRow } from './agents';
@@ -18,6 +20,7 @@ import { agentActivity, agentsDetail, type AgentActivityRow } from './agents';
  * comes from a model (#4). A new kind of widget is a code change, reviewed.
  */
 
+export { isReadTimeout, READ_TIMEOUT, withReadTimeout } from './read-timeout';
 export { previousWindow, RANGE_LABELS, rangeWindow, WIDGET_RANGES, type WidgetRange } from './ranges';
 
 /** What a widget's query returns. Numbers from SQL only, already Number()-ed. */
@@ -53,14 +56,10 @@ const num = (v: unknown) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-function agencyOf(actor: Actor): string {
-  return actor.agencyId ?? '00000000-0000-0000-0000-000000000000';
-}
-
-/** Sold in the window: the agency's own listings with status sold and a sold_date inside it. */
+/** Sold in the window: the listings the actor's figures cover, with status sold and a sold_date inside it. */
 function soldInWindow(actor: Actor, from: Date, to: Date): SQL {
   return and(
-    eq(listing.agencyId, agencyOf(actor)),
+    ...listingScopeFilters(actor),
     eq(listing.status, 'sold'),
     gte(listing.soldDate, from),
     lt(listing.soldDate, to),
@@ -103,7 +102,7 @@ export const WIDGETS = {
     detail: (ctx, p) => salesDetail(ctx, p.range, 'count'),
     query: async ({ db, actor, now, timeZone }, p) => {
       const { from, to } = rangeWindow(p.range, now, timeZone);
-      // By lead agent; a sale with no agent row counts under "No agent".
+      // By lead agent (one per listing, `leadAgentIdSql`); a sale with no agent row counts under "No agent".
       const rows = await db
         .select({
           label: sql<string>`coalesce(${user.name}, ${user.email}, 'No agent')`,
@@ -111,8 +110,7 @@ export const WIDGETS = {
           total: sql<string>`sum(count(distinct ${listing.id})) over()`,
         })
         .from(listing)
-        .leftJoin(listingAgent, and(eq(listingAgent.listingId, listing.id), eq(listingAgent.displayOrder, 0)))
-        .leftJoin(user, eq(user.id, listingAgent.userId))
+        .leftJoin(user, eq(user.id, leadAgentIdSql(listing.id)))
         .where(soldInWindow(actor, from, to))
         .groupBy(sql`1`)
         .orderBy(sql`2 desc`, sql`1`);
@@ -176,8 +174,8 @@ export const WIDGETS = {
 
   /**
    * "Active listings" (client): live + under offer right now, with the split.
-   * Agency-wide for those with `report:read_agency`; otherwise only listings
-   * the viewer is named on.
+   * Agency-wide for those with `listing:read_all`; otherwise only listings the
+   * viewer is named on (`listingScopeFilters`).
    */
   listings_by_status: {
     title: 'Active listings',
@@ -187,22 +185,13 @@ export const WIDGETS = {
     refreshSeconds: 60,
     detail: (ctx) => listingsDetail(ctx),
     query: async ({ db, actor }) => {
-      const mine = !can(actor, 'report:read_agency', { type: 'report', agencyId: agencyOf(actor) });
       const [r] = await db
         .select({
           live: sql<string>`count(*) filter (where ${listing.status} = 'live')`,
           underOffer: sql<string>`count(*) filter (where ${listing.status} = 'under_offer')`,
         })
         .from(listing)
-        .where(
-          and(
-            eq(listing.agencyId, agencyOf(actor)),
-            inArray(listing.status, ['live', 'under_offer']),
-            ...(mine
-              ? [sql`${listing.id} in (select ${listingAgent.listingId} from ${listingAgent} where ${listingAgent.userId} = ${actor.userId})`]
-              : []),
-          ),
-        );
+        .where(and(...listingScopeFilters(actor), inArray(listing.status, [...ACTIVE_LISTING_STATUSES])));
       const live = num(r?.live);
       const underOffer = num(r?.underOffer);
       return { kind: 'status', active: live + underOffer, rows: [{ label: 'Live', value: live }, { label: 'Under offer', value: underOffer }] };
@@ -266,7 +255,8 @@ export type WidgetRef = z.infer<typeof widgetRefSchema>;
 
 export type WidgetTile =
   | { widget: WidgetId; title: string; description: string; refreshSeconds: number; state: 'ok'; data: WidgetData; detail?: WidgetDetail }
-  | { widget: string; title: string; description: string; refreshSeconds: number; state: 'no_access' | 'unavailable' | 'error' };
+  /** `too_slow`: a statement ran past the read timeout (ADR 0036 P6) — "try a shorter range". */
+  | { widget: string; title: string; description: string; refreshSeconds: number; state: 'no_access' | 'unavailable' | 'error' | 'too_slow' };
 
 /** The viewer's agency clock — one statement, read once per request. */
 export async function agencyTimeZone(db: DbOrTx, agencyId: string): Promise<string> {
@@ -293,18 +283,22 @@ export async function renderWidget(
     return { ...base, state: 'no_access' };
   }
   try {
-    const data = await def.query(ctx, parsed.data);
-    if (!opts.detail) return { ...base, state: 'ok', data };
-    // The report around the headline is extra: if it fails, the headline still shows.
-    try {
-      return { ...base, state: 'ok', data, detail: await def.detail(ctx, parsed.data) };
-    } catch (err) {
-      console.error(`[widgets] ${ref.widget} detail failed`, err instanceof Error ? err.message : err);
-      return { ...base, state: 'ok', data };
-    }
+    // The headline and its report share one read-only transaction with a statement timeout (ADR 0036 P6).
+    return await withReadTimeout(ctx.db, async (db): Promise<WidgetTile> => {
+      const c = { ...ctx, db };
+      const data = await def.query(c, parsed.data);
+      if (!opts.detail) return { ...base, state: 'ok', data };
+      // The report around the headline is extra: if it fails, the headline still shows.
+      try {
+        return { ...base, state: 'ok', data, detail: await def.detail(c, parsed.data) };
+      } catch (err) {
+        console.error(`[widgets] ${ref.widget} detail failed`, err instanceof Error ? err.message : err);
+        return { ...base, state: 'ok', data };
+      }
+    });
   } catch (err) {
     console.error(`[widgets] ${ref.widget} failed`, err instanceof Error ? err.message : err);
-    return { ...base, state: 'error' };
+    return { ...base, state: isReadTimeout(err) ? 'too_slow' : 'error' };
   }
 }
 

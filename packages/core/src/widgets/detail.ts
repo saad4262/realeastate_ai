@@ -1,11 +1,11 @@
 import { and, inArray, ne, sql, type SQL } from 'drizzle-orm';
 import { appointment, lead } from '@repo/db';
-import type { Actor } from '../permissions';
-import { can } from '../permissions';
 import { leadScopeFilters } from '../leads/list-leads';
 import { appointmentScopeFilters } from '../appointments/appointments';
 import { ACTIVE_STATUSES, APPOINTMENT_TYPE_LABELS, type AppointmentType } from '../appointments/appointment-schema';
 import { threadScopeFilters } from '../mail/threads';
+import { ACTIVE_LISTING_STATUSES, leadAgentIdSql, listingScopeFilters } from '../listings/scope';
+import { emailOwnerSql } from '../mail/owner';
 import { startOfDayIn, startOfWeekIn } from '../time/local-input';
 import { bucketFor, previousWindow, rangeWindow, type WidgetRange } from './ranges';
 import type { WidgetContext } from './registry';
@@ -49,6 +49,9 @@ export type AgentMessage = {
 };
 /** `userId` null is the "No agent" row. `total` counts every message in the range; `messages` holds the newest. */
 export type AgentMessages = { userId: string | null; total: number; messages: AgentMessage[] };
+
+/** The row for figures nobody is assigned to, so the rows add up to the total (ADR 0034). */
+export const NO_AGENT = 'No agent';
 
 export const iso = (d: Date) => d.toISOString();
 export const num = (v: unknown) => {
@@ -116,11 +119,11 @@ export function weekdaySql(cte: string, col: string, where: string, tz: string):
 const medianSql = (cte: string, expr: string, where = 'true') =>
   sql.raw(`(select round(percentile_cont(0.5) within group (order by ${expr})::numeric) from ${cte} where ${where})`);
 
-/** The lead agent of a listing, as the headline widgets count it (display order 0). */
-const LEAD_AGENT = `left join lateral (select la.user_id from listing_agent la where la.listing_id = l.id and la.display_order = 0 order by la.user_id limit 1) la on true
-  left join "user" u on u.id = la.user_id`;
+/** The lead agent of a listing, as the headline widgets count it (`leadAgentIdSql`, ADR 0036 P4). */
+const LEAD_AGENT = sql`left join "user" u on u.id = ${leadAgentIdSql(sql`listing.id`)}`;
 
-const agencyOf = (actor: Actor) => actor.agencyId ?? '00000000-0000-0000-0000-000000000000';
+/** The active statuses as an SQL list, for the CTEs below that hold `status` as text. */
+const ACTIVE_LIST = sql.join(ACTIVE_LISTING_STATUSES.map((s) => sql`${s}`), sql`, `);
 /** The trend stops at the end of today: future days of "this month" are not zeros yet. */
 export const untilToday = (to: Date, now: Date, tz: string) => new Date(Math.min(to.getTime(), startOfDayIn(now, tz, 1).getTime()));
 /** Days of the window that have begun, for a per-day average. */
@@ -137,16 +140,16 @@ export async function salesDetail(ctx: WidgetContext, range: WidgetRange, metric
   const d = await one(
     ctx,
     sql`with base as (
-        select l.sold_price as price, l.sold_date as d, l.published_at as pub, p.suburb,
+        select listing.sold_price as price, listing.sold_date as d, listing.published_at as pub, p.suburb,
                coalesce(nullif(p.property_type, ''), 'Not stated') as ptype,
                coalesce(u.name, u.email, 'No agent') as agent,
-               l.sold_date >= ${iso(cur.from)}::timestamptz as is_cur
-        from listing l
-        join property p on p.id = l.property_id
-        ${sql.raw(LEAD_AGENT)}
-        where l.agency_id = ${agencyOf(ctx.actor)} and l.status = 'sold'
-          and ((l.sold_date >= ${iso(cur.from)}::timestamptz and l.sold_date < ${iso(cur.to)}::timestamptz)
-            or (l.sold_date >= ${iso(prev.from)}::timestamptz and l.sold_date < ${iso(prev.to)}::timestamptz))
+               listing.sold_date >= ${iso(cur.from)}::timestamptz as is_cur
+        from listing
+        join property p on p.id = listing.property_id
+        ${LEAD_AGENT}
+        where ${and(...listingScopeFilters(ctx.actor))} and listing.status = 'sold'
+          and ((listing.sold_date >= ${iso(cur.from)}::timestamptz and listing.sold_date < ${iso(cur.to)}::timestamptz)
+            or (listing.sold_date >= ${iso(prev.from)}::timestamptz and listing.sold_date < ${iso(prev.to)}::timestamptz))
       ),
       cur as (select * from base where is_cur)
       select json_build_object(
@@ -302,26 +305,23 @@ export async function appointmentsDetail(ctx: WidgetContext, range: WidgetRange)
   };
 }
 
-// ── Active listings: now, no range. Agency-wide for owners/admins; otherwise the viewer's own, as the headline. ──
+// ── Active listings: now, no range. `listingScopeFilters`: agency-wide with `listing:read_all`, otherwise the viewer's own, as the headline. ──
 
 export async function listingsDetail(ctx: WidgetContext): Promise<WidgetDetail> {
   const { actor, now, timeZone: tz } = ctx;
-  const agencyId = agencyOf(actor);
-  const mine = !can(actor, 'report:read_agency', { type: 'report', agencyId });
   const weeks = { from: startOfWeekIn(now, tz, -11), to: startOfWeekIn(now, tz, 1) };
   const d = await one(
     ctx,
     sql`with base as (
-        select l.status::text as status, l.channel::text as channel, l.price_from as price, l.published_at as pub, p.suburb,
+        select listing.status::text as status, listing.channel::text as channel, listing.price_from as price, listing.published_at as pub, p.suburb,
                coalesce(nullif(p.property_type, ''), 'Not stated') as ptype,
                coalesce(u.name, u.email, 'No agent') as agent
-        from listing l
-        join property p on p.id = l.property_id
-        ${sql.raw(LEAD_AGENT)}
-        where l.agency_id = ${agencyId}
-          ${mine ? sql`and l.id in (select listing_id from listing_agent where user_id = ${actor.userId})` : sql``}
+        from listing
+        join property p on p.id = listing.property_id
+        ${LEAD_AGENT}
+        where ${and(...listingScopeFilters(actor))}
       ),
-      active as (select * from base where status in ('live', 'under_offer')),
+      active as (select * from base where status in (${ACTIVE_LIST})),
       published as (select * from base where pub >= ${iso(weeks.from)}::timestamptz and pub < ${iso(weeks.to)}::timestamptz)
       select json_build_object(
         'pending', (select count(*) from base where status = 'pending'),
@@ -354,7 +354,7 @@ export async function listingsDetail(ctx: WidgetContext): Promise<WidgetDetail> 
   };
 }
 
-// ── Email replies: conversations the viewer may read (the inbox's scope). ──
+// ── Email replies: conversations the viewer may read (the inbox's scope); each email on its owner (`emailOwnerSql`, ADR 0036 P3), as the Agents widget. ──
 
 export async function repliesDetail(ctx: WidgetContext, range: WidgetRange): Promise<WidgetDetail> {
   const { db, actor, now, timeZone: tz } = ctx;
@@ -364,13 +364,14 @@ export async function repliesDetail(ctx: WidgetContext, range: WidgetRange): Pro
     ctx,
     sql`with base as (
         select mail_message.created_at as d, mail_message.direction::text as dir, mail_message.thread_id as thread,
-               case when mail_thread.lead_id is null then 'Agency address' else coalesce(u.name, u.email, 'Unassigned') end as agent,
+               coalesce(nullif(u.name, ''), u.email, ${NO_AGENT}) as agent,
                coalesce(lead.kind::text, 'agency') as kind,
                mail_message.created_at >= ${iso(cur.from)}::timestamptz as is_cur
         from mail_message
         join mail_thread on mail_thread.id = mail_message.thread_id
         left join lead on lead.id = mail_thread.lead_id
-        left join "user" u on u.id = lead.assigned_to
+        left join contact on contact.id = mail_thread.contact_id
+        left join "user" u on u.id = ${emailOwnerSql}
         where ${and(...threadScopeFilters(db, actor))}
           and (mail_message.direction = 'in' or mail_message.status = 'sent')
           and ((mail_message.created_at >= ${iso(cur.from)}::timestamptz and mail_message.created_at < ${iso(cur.to)}::timestamptz)

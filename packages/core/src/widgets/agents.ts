@@ -1,12 +1,15 @@
 import { and, inArray, sql, type SQL } from 'drizzle-orm';
-import { appointment } from '@repo/db';
+import { appointment, listing } from '@repo/db';
 import type { Actor } from '../permissions';
 import { leadScopeFilters } from '../leads/list-leads';
 import { appointmentScopeFilters } from '../appointments/appointments';
 import { ACTIVE_STATUSES } from '../appointments/appointment-schema';
 import { threadScopeFilters } from '../mail/threads';
+import { ACTIVE_LISTING_STATUSES, listingScopeFilters } from '../listings/scope';
+import { contactScopeFilters } from '../contacts/visibility';
+import { conversationOwnerSql, emailOwnerSql } from '../mail/owner';
 import { previousWindow, rangeWindow, type WidgetRange } from './ranges';
-import { capital, daysElapsed, iso, LEAD_KIND_LABELS, num, one, rowsOf, topSql, trendSql, untilToday, weekdaySql } from './detail';
+import { capital, daysElapsed, iso, LEAD_KIND_LABELS, NO_AGENT, num, one, rowsOf, topSql, trendSql, untilToday, weekdaySql } from './detail';
 import type { AgentMessage, AgentMessages, WidgetDetail } from './detail';
 import type { WidgetContext } from './registry';
 
@@ -42,27 +45,28 @@ export type AgentActivityRow = {
   lastEmailAt: string | null;
 };
 
-export const NO_AGENT = 'No agent';
+export { NO_AGENT } from './detail';
 
 const agencyOf = (actor: Actor) => actor.agencyId ?? '00000000-0000-0000-0000-000000000000';
 
 /**
  * The messages in a window that this viewer may read, each with whose it is
- * (ADR 0034 §3): one we SENT belongs to its sender (`sent_by`); one we RECEIVED
- * to the conversation's agent — the lead's assignee, else the contact's (mail
- * to the agency address). Queued sends are in flight and left out.
- * `lead` and `mail_thread` keep their table names: the scope filters name them.
+ * (`emailOwnerSql`, ADR 0036 P3): one we SENT belongs to its sender; one we
+ * RECEIVED to the conversation's agent — the lead's assignee, else the
+ * contact's (mail to the agency address). Queued sends are in flight and left
+ * out. `lead`, `contact` and `mail_thread` keep their table names: the scope
+ * filters and the owner expression name them.
  */
 function messagesSql(ctx: WidgetContext, windows: { from: Date; to: Date }[], extra: SQL = sql``): SQL {
   const inWindow = windows.map((w) => sql`(mail_message.created_at >= ${iso(w.from)}::timestamptz and mail_message.created_at < ${iso(w.to)}::timestamptz)`);
   return sql`select mail_message.id, mail_message.thread_id, mail_message.direction::text as dir, mail_message.status::text as status,
            mail_message.created_at as at,
-           case when mail_message.direction = 'out' then mail_message.sent_by else coalesce(lead.assigned_to, c.assigned_to) end as agent_id
+           ${emailOwnerSql} as agent_id
            ${extra}
     from mail_message
     join mail_thread on mail_thread.id = mail_message.thread_id
     left join lead on lead.id = mail_thread.lead_id
-    left join contact c on c.id = mail_thread.contact_id
+    left join contact on contact.id = mail_thread.contact_id
     where ${and(...threadScopeFilters(ctx.db, ctx.actor))}
       and (mail_message.direction = 'in' or mail_message.status in ('sent', 'failed'))
       and (${sql.join(inWindow, sql` or `)})`;
@@ -93,14 +97,14 @@ export async function agentActivity(ctx: WidgetContext, range: WidgetRange) {
         group by 1
       ),
       listings_held as (
-        select la.user_id as agent_id, count(distinct l.id) as n
-        from listing l join listing_agent la on la.listing_id = l.id
-        where l.agency_id = ${agencyId} and l.status in ('live', 'under_offer')
+        select la.user_id as agent_id, count(distinct listing.id) as n
+        from listing join listing_agent la on la.listing_id = listing.id
+        where ${and(...listingScopeFilters(actor), inArray(listing.status, [...ACTIVE_LISTING_STATUSES]))}
         group by 1
       ),
       contacts_held as (
-        select k.assigned_to as agent_id, count(*) as n from contact k
-        where k.agency_id = ${agencyId} and k.assigned_to is not null and k.archived_at is null and k.merged_into_id is null
+        select contact.assigned_to as agent_id, count(*) as n from contact
+        where ${and(...contactScopeFilters(actor))} and contact.assigned_to is not null and contact.archived_at is null
         group by 1
       ),
       -- Waiting for an emailed answer: the last word in (a message, or the enquiry that opened it) is newer than our last sent one.
@@ -112,10 +116,10 @@ export async function agentActivity(ctx: WidgetContext, range: WidgetRange) {
         group by 1
       ),
       waiting as (
-        select coalesce(lead.assigned_to, c.assigned_to) as agent_id, count(*) as n
+        select ${conversationOwnerSql} as agent_id, count(*) as n
         from mail_thread
         left join lead on lead.id = mail_thread.lead_id
-        left join contact c on c.id = mail_thread.contact_id
+        left join contact on contact.id = mail_thread.contact_id
         left join last_words w on w.thread_id = mail_thread.id
         where ${and(...threadScopeFilters(db, actor))}
           and (lead.id is null or lead.status <> 'closed')

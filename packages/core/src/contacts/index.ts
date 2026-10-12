@@ -50,6 +50,7 @@ export { notifyContactAssigned } from './contact-notices';
 export {
   visibleContactIdsSql,
   narrowedContactIdsSql,
+  contactScopeFilters,
   contactAccessColumns,
   contactResource,
   mayReadContact,

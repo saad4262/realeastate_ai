@@ -104,3 +104,4 @@ export {
   setAgencyGmailSharing,
   type SenderChoice,
 } from './sender';
+export { conversationOwnerSql, emailOwnerSql } from './owner';

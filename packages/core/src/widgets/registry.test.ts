@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { sql, type SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import type { Db } from '@repo/db';
-import { previousWindow, rangeWindow, renderWidget, WIDGET_IDS, WIDGETS } from './registry';
+import { previousWindow, rangeWindow, renderWidget, withReadTimeout, WIDGET_IDS, WIDGETS } from './registry';
 import { createDashboard, createDashboardSchema } from '../dashboards';
 import { runAssistantTool } from '../assistant/tools';
 import type { Actor } from '../permissions';
@@ -15,18 +17,32 @@ const agencyId = '11111111-1111-1111-1111-111111111111';
 const owner: Actor = { userId: 'u-owner', agencyId, membershipRole: 'owner' };
 const agent: Actor = { userId: 'u-agent', agencyId, membershipRole: 'agent' };
 
-/** A db that answers every statement with `rows` and counts statements. */
+const dialect = new PgDialect();
+const text = (q: unknown) => (q && typeof q === 'object' && 'queryChunks' in q ? dialect.sqlToQuery(q as SQL).sql : '');
+/** The read guard's own statement (ADR 0036 P6), told apart from a widget's. */
+const isGuard = (q: unknown) => text(q).includes('statement_timeout');
+
+/**
+ * A db that answers every statement with `rows` and counts statements. The
+ * read guard is counted apart (`guards`), so `count` stays the widget's own;
+ * a transaction hands over the same db (a Proxy around it included).
+ */
 function countingDb(rows: Record<string, unknown>[]) {
   let queries = 0;
+  let guards = 0;
   const chain: Record<string, unknown> = {};
   for (const m of ['select', 'from', 'innerJoin', 'leftJoin', 'where', 'orderBy', 'groupBy', 'limit', 'offset']) chain[m] = () => chain;
-  const terminal = () => {
-    queries += 1;
+  const terminal = (q?: unknown) => {
+    if (isGuard(q)) guards += 1;
+    else queries += 1;
     return Promise.resolve(rows);
   };
   chain.execute = terminal;
   chain.then = (res: (v: unknown) => unknown) => terminal().then(res);
-  return { db: chain as unknown as Db, count: () => queries };
+  chain.transaction = function (this: unknown, fn: (tx: unknown) => Promise<unknown>) {
+    return fn(this);
+  };
+  return { db: chain as unknown as Db, count: () => queries, guards: () => guards };
 }
 
 const noDb = new Proxy({}, { get: () => { throw new Error('the database was reached'); } }) as unknown as Db;
@@ -106,11 +122,66 @@ describe('the widget registry', () => {
   it('a report that fails still leaves the headline', async () => {
     let n = 0;
     const { db } = countingDb([{ total: '5', count: '5', undisclosed: '0' }]);
-    const failing = new Proxy(db as object, { get: (t, k) => (k === 'execute' ? () => (++n, Promise.reject(new Error('boom'))) : (t as Record<PropertyKey, unknown>)[k]) }) as Db;
+    const execute = (db as unknown as { execute: (q: unknown) => Promise<unknown> }).execute;
+    const failing = new Proxy(db as object, {
+      get: (t, k) => (k === 'execute' ? (q: unknown) => (isGuard(q) ? execute(q) : (++n, Promise.reject(new Error('boom')))) : (t as Record<PropertyKey, unknown>)[k]),
+    }) as Db;
     const tile = await renderWidget(ctx(failing), { widget: 'sold_value', params: {} }, { detail: true });
     expect(tile).toMatchObject({ state: 'ok', data: { total: 5 } });
     expect((tile as { detail?: unknown }).detail).toBeUndefined();
     expect(n).toBe(1);
+  });
+
+  it('every widget reads inside the read guard: a statement timeout and read-only, first (ADR 0036 P6)', async () => {
+    const row = { total: '1', count: '1', undisclosed: '0', label: 'A', value: '1', type: 'appraisal', live: '1', underOffer: '0' };
+    for (const id of WIDGET_IDS) {
+      const { db, count, guards } = countingDb([row]);
+      expect((await renderWidget(ctx(db), { widget: id, params: {} })).state, id).toBe('ok');
+      expect(guards(), id).toBe(1);
+      expect(count(), id).toBe(1);
+    }
+  });
+
+  it('a statement cancelled by the timeout is a "too slow" tile, not a crash', async () => {
+    const { db } = countingDb([]);
+    const execute = (db as unknown as { execute: (q: unknown) => Promise<unknown> }).execute;
+    const slow = new Proxy(db as object, {
+      get: (t, k) =>
+        k === 'execute'
+          ? (q: unknown) => (isGuard(q) ? execute(q) : Promise.reject(Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' })))
+          : (t as Record<PropertyKey, unknown>)[k],
+    }) as Db;
+    expect((await renderWidget(ctx(slow), { widget: 'agent_activity', params: {} })).state).toBe('too_slow');
+    const broken = new Proxy(db as object, {
+      get: (t, k) => (k === 'execute' ? (q: unknown) => (isGuard(q) ? execute(q) : Promise.reject(new Error('boom'))) : (t as Record<PropertyKey, unknown>)[k]),
+    }) as Db;
+    expect((await renderWidget(ctx(broken), { widget: 'agent_activity', params: {} })).state).toBe('error');
+  });
+
+  it('the read guard sets a 3 s timeout and read-only with SET LOCAL, returns the value, and never commits', async () => {
+    const seen: string[] = [];
+    let rolledBack = false;
+    const tx = { execute: (q: unknown) => (seen.push(text(q)), Promise.resolve([])) };
+    const db = {
+      transaction: async (fn: (t: unknown) => Promise<unknown>) => {
+        try {
+          return await fn(tx);
+        } catch (err) {
+          rolledBack = true;
+          throw err;
+        }
+      },
+    } as unknown as Db;
+    const value = await withReadTimeout(db, async (t) => {
+      await t.execute(sql`select 1`);
+      return 42;
+    });
+    expect(value).toBe(42);
+    expect(rolledBack).toBe(true);
+    expect(seen[0]).toMatch(/set_config\('statement_timeout', \$1, true\), set_config\('transaction_read_only', 'on', true\)/);
+    expect(seen).toHaveLength(2);
+    // A real error inside still comes out as itself.
+    await expect(withReadTimeout(db, async () => { throw new Error('boom'); })).rejects.toThrow('boom');
   });
 
   it('a period still under way is compared with the same point in the one before', () => {

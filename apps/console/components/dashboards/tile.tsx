@@ -14,6 +14,7 @@ const NOT_OK = {
   no_access: 'This figure is for owners and admins.',
   unavailable: 'This widget is no longer available.',
   error: 'Could not work this out just now — it will try again.',
+  too_slow: 'Taking too long — try a shorter range.',
 } as const;
 
 function Figures({ widget, data, compact }: { widget: string; data: WidgetData; compact: boolean }) {

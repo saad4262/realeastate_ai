@@ -230,6 +230,7 @@ import {
 } from '@repo/core/imports';
 import { agencyReviews, clearAgencyGooglePlace, publicListingReviews, searchGooglePlaces, setAgencyGooglePlace, type PlaceDetails, type PlacesClient } from '@repo/core/reviews';
 import { archiveDashboard, createDashboard, getDashboardData, listDashboards, rangeWindow, renderWidget, WIDGET_IDS, WIDGET_RANGES } from '@repo/core/dashboards';
+import { isReadTimeout, withReadTimeout } from '@repo/core/widgets';
 import { activeMemberActor, assignNeedsOwner, claimAgentInvite, listNeedsOwner, offboardingPreview, removedFromAgency, removeMember, restoreMember } from '@repo/core/team';
 import { runEmbeddingTick, type Embedder } from '@repo/core/assistant-search';
 import type { ToolContext } from '@repo/core/assistant';
@@ -466,6 +467,9 @@ async function main() {
       ['property_postcode_idx', 'postcode search'],
       ['listing_status_channel_idx', 'every public search narrows on these first'],
       ['place_cache_lookup_key_idx', 'geocode cache lookups'],
+      ['listing_agent_lead_idx', 'one lead agent per listing (ADR 0036 P4, migration 0042)'],
+      ['listing_agency_status_sold_idx', 'figures over sales and active listings (ADR 0036 P7)'],
+      ['mail_message_agency_created_idx', 'figures over an agency’s mail in a range (ADR 0036 P7)'],
     ] as const;
 
     const rows = await db.execute<{ indexname: string }>(
@@ -6755,6 +6759,64 @@ async function main() {
     }),
   );
 
+  await check('a sale counts once, under its lead agent — the lowest display order, also when nobody is at 0 (ADR 0036 P4)', async () =>
+    inRollback(async (t) => {
+      const { A } = await dashboardFixture(t);
+      const tz = 'Australia/Sydney';
+      // A lead (0) and a co-agent (1) on one sale; and a sale whose lead left, its co-agent still at 1.
+      const sale = async (agents: [string, number][]) => {
+        const [l] = await t.execute<{ id: string }>(sql`
+          insert into listing (property_id, agency_id, channel, status, sold_price, sold_date, headline)
+          values (${A.propertyId}, ${A.agencyId}, 'sale', 'sold', 500000, now() - interval '1 day', 'Sold') returning id`);
+        for (const [who, order] of agents) {
+          await t.execute(sql`insert into listing_agent (listing_id, user_id, display_order, snapshot_name, snapshot_phone, snapshot_email)
+            values (${l!.id}, ${who}, ${order}, 'A', '0400000000', 'a@x.test')`);
+        }
+      };
+      await sale([[A.people.a1, 0], [A.people.a2, 1]]);
+      await sale([[A.people.a2, 1]]);
+      const tile = await renderWidget({ db: t, actor: A.actor('owner'), now: new Date(), timeZone: tz }, { widget: 'sold_count', params: { range: '7d' } });
+      assert(tile.state === 'ok', `state ${tile.state}`);
+      const d = (tile as { data: { total: number; rows: { label: string; value: number }[] } }).data;
+      // The fixture's 3 sales in 7 days, plus these 2 — each once.
+      assert(d.total === 5, `total ${d.total}: a sale was counted twice or lost`);
+      assert(d.rows.reduce((a, b) => a + b.value, 0) === d.total, `rows ${JSON.stringify(d.rows)} do not add up to ${d.total}`);
+      assert(!d.rows.some((r) => r.label === 'No agent'), `a sale with a co-agent fell to "No agent": ${JSON.stringify(d.rows)}`);
+      const full = await renderWidget({ db: t, actor: A.actor('owner'), now: new Date(), timeZone: tz }, { widget: 'sold_count', params: { range: '7d' } }, { detail: true });
+      const byAgent = (full as { detail?: import('@repo/core/widgets').WidgetDetail }).detail?.breakdowns[0]?.rows ?? [];
+      assert(byAgent.reduce((a, b) => a + b.value, 0) === 5, `report by agent ${JSON.stringify(byAgent)}`);
+      return `5 sales, rows add up, a lead + co-agent sale once, a lead-less sale under its co-agent; the report agrees`;
+    }),
+  );
+
+  await check('figures read with a 3 s timeout and read-only; a slow one is cancelled; the caller’s transaction carries on (ADR 0036 P6)', async () =>
+    inRollback(async (t) => {
+      const setting = async (db: typeof t | Parameters<Parameters<typeof withReadTimeout>[1]>[0]) =>
+        (await db.execute<{ s: string; ro: string }>(sql`select current_setting('statement_timeout') as s, current_setting('transaction_read_only') as ro`))[0]!;
+      const before = await setting(t);
+      const inside = await withReadTimeout(t, (tx) => setting(tx));
+      assert(inside.s === '3s' && inside.ro === 'on', `inside the guard: ${JSON.stringify(inside)}`);
+      let refused = false;
+      try {
+        await withReadTimeout(t, (tx) => tx.execute(sql`update agency set name = name where false`));
+      } catch {
+        refused = true;
+      }
+      assert(refused, 'a write ran inside the read guard');
+      let cancelled = false;
+      try {
+        await withReadTimeout(t, (tx) => tx.execute(sql`select pg_sleep(4)`));
+      } catch (err) {
+        cancelled = isReadTimeout(err);
+      }
+      assert(cancelled, 'a 4 s statement was not cancelled by the 3 s timeout');
+      const after = await setting(t);
+      assert(after.s === before.s && after.ro === before.ro, `the caller's transaction changed: ${JSON.stringify(before)} → ${JSON.stringify(after)}`);
+      await t.execute(sql`update agency set name = name where false`);
+      return `3s + read-only inside; a write refused; pg_sleep(4) cancelled; outside still ${before.s} / read-only ${before.ro}`;
+    }),
+  );
+
   await check('figures follow the viewer: agents get no money figures, see only their own listings; others’ dashboards and B’s open nothing', async () =>
     inRollback(async (t) => {
       const { A, B } = await dashboardFixture(t);
@@ -6885,7 +6947,14 @@ async function main() {
       assert(donut?.[0]?.value === 4 && donut[1]?.value === 2, `donut ${JSON.stringify(donut)}`);
       const bTile = await renderWidget(as(B, 'owner'), { widget: 'agent_activity', params: { range: 'today' } });
       assert(bTile.state === 'ok' && (bTile.data as { received: number }).received === 1, `B ${JSON.stringify(bTile)}`);
-      return 'A: 4 in / 2 sent / 1 failed over 4 people + "No agent"; A2 2 in, 1 sent, 1 failed, 2 new leads, 1 waiting; quiet A1 at 0; B 1 in; older mail out; agent refused';
+      // One email owner (ADR 0036 P3): Email replies' "Replies by agent" puts each received email on the
+      // same person as this widget — the agency-address email on the contact's agent, never "Agency address".
+      const replies = await renderWidget(as(A, 'owner'), { widget: 'email_replies', params: { range: 'today' } }, { detail: true });
+      const byAgent = (replies.state === 'ok' ? replies.detail?.breakdowns.find((b) => b.title === 'Replies by agent')?.rows : undefined) ?? [];
+      const got = byAgent.map((r) => `${r.label}:${r.value}`).sort().join(' | ');
+      const want = d.rows.filter((r) => r.received > 0).map((r) => `${r.name}:${r.received}`).sort().join(' | ');
+      assert(got === want, `Replies by agent [${got}] ≠ Agents [${want}]`);
+      return 'A: 4 in / 2 sent / 1 failed over 4 people + "No agent"; A2 2 in, 1 sent, 1 failed, 2 new leads, 1 waiting; quiet A1 at 0; B 1 in; older mail out; agent refused; Replies by agent agrees person by person';
     }),
   );
 

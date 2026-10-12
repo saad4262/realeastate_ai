@@ -17,6 +17,16 @@
   messages"), NOT run — they need 0041. TEST-PLAN **AI**. **Next:** apply 0041
   (`pnpm --filter @repo/db db:migrate`), run `SMOKE_ONLY="New email and team messages" pnpm smoke`
   and the "Console assistant" group (its AE tool-CHECK check needs 0041), then commit and walk AI.
+- **Dashboards semantic layer (ADR 0036) — ACCEPTED 2026-10-12; Phase 0 built on `feat/compose-email`
+  (on top of ADR 0035's uncommitted work), not committed.** Migration **0042 written, NOT applied**
+  (repair duplicate lead agents → `listing_agent_lead_idx`; indexes `listing_agency_status_sold_idx`,
+  `mail_message_agency_created_idx`; needs 0041 first). Built: `listingScopeFilters` + `listing:read_all`,
+  `contactScopeFilters`, one email owner (`mail/owner.ts`; "Replies by agent" changes on purpose —
+  TEST-PLAN AH11), `leadAgentIdSql` (lowest display order), `ACTIVE_LISTING_STATUSES`,
+  `withReadTimeout` (3 s + read-only, rolled back; new tile state `too_slow`). Checks: typecheck
+  10/10, lint 0 errors, unit 922 + 296, break-tests red; repair tested on PGlite. Smoke written, not
+  run. **Next:** dry-run query in TEST-PLAN AJ → apply 0041 + 0042 → `pnpm smoke` → walk AH11 + AJ →
+  commit; then Phase 1 (compiler + four datasets, presets with a parity check).
 - **Agents widget (ADR 0034) — committed 59cfc03, on `main` and pushed.**
   No migration. Owners/admins ask the assistant "create a dashboard with all agents' names and the
   emails they received today" → a create_dashboard card with the new `agent_activity` widget → on

@@ -1,4 +1,5 @@
-import { sql, type SQL } from 'drizzle-orm';
+import { eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { contact } from '@repo/db';
 import { can, type Actor, type Resource } from '../permissions';
 
 /**
@@ -53,6 +54,23 @@ export function narrowedContactIdsSql(userId: string, agencyExpr: SQL): SQL {
       where cp.contact_id = c.id
     )
   )`;
+}
+
+/**
+ * The same rule as predicates on the `contact` table (ADR 0036 P2), for a
+ * figure or a list that counts contacts: the agency first (no agency is the
+ * zero UUID, so nothing), never a merged-away row, and — for anyone without
+ * `contact:read_all` — only the contacts `visibleContactIdsSql` lets them see.
+ * Archived contacts are the caller's choice. The predicates name the
+ * `contact` table, so the query must have it in its FROM under that name.
+ */
+export function contactScopeFilters(actor: Actor): SQL[] {
+  const agencyId = actor.agencyId ?? '00000000-0000-0000-0000-000000000000';
+  const filters: SQL[] = [eq(contact.agencyId, agencyId), isNull(contact.mergedIntoId)];
+  if (!can(actor, 'contact:read_all', { type: 'contact', agencyId })) {
+    filters.push(sql`${contact.id} in (${narrowedContactIdsSql(actor.userId, sql`${agencyId}`)})`);
+  }
+  return filters;
 }
 
 /** The facts `can()` needs about one contact. */

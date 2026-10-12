@@ -779,6 +779,20 @@ describe('listing:read stays inside the agency (ADR 0030 matrix finding)', () =>
   });
 });
 
+describe('listing:read_all (ADR 0036 P1)', () => {
+  it('owners and admins see every listing of their agency as rows; agents, viewers and other agencies do not', () => {
+    const all = { type: 'listing', agencyId: agencyA };
+    for (const r of ['owner', 'admin'] as const) {
+      expect(can({ userId: r, agencyId: agencyA, membershipRole: r }, 'listing:read_all', all)).toBe(true);
+    }
+    for (const r of ['agent', 'read_only'] as const) {
+      expect(can({ userId: r, agencyId: agencyA, membershipRole: r }, 'listing:read_all', all)).toBe(false);
+    }
+    expect(can({ userId: 'rival', agencyId: agencyB, membershipRole: 'owner' }, 'listing:read_all', all)).toBe(false);
+    expect(can({ userId: 'x' }, 'listing:read_all', all)).toBe(false);
+  });
+});
+
 describe('dashboards (ADR 0027)', () => {
   const m = (userId: string, membershipRole: Actor['membershipRole']): Actor => ({ userId, agencyId: agencyA, membershipRole });
   const owner = m('owner', 'owner');

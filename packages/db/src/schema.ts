@@ -420,6 +420,8 @@ export const listing = pgTable(
      * It was a sequential scan of the whole table each time.
      */
     index('listing_property_idx').on(t.propertyId),
+    /** Figures over an agency's listings by status and sale date (ADR 0036 P7): sales in a range, active now. */
+    index('listing_agency_status_sold_idx').on(t.agencyId, t.status, t.soldDate),
   ],
 );
 
@@ -439,7 +441,16 @@ export const listingAgent = pgTable(
     snapshotEmail: text('snapshot_email').notNull(),
     ...timestamps,
   },
-  (t) => [primaryKey({ columns: [t.listingId, t.userId] })],
+  (t) => [
+    primaryKey({ columns: [t.listingId, t.userId] }),
+    /**
+     * One lead agent per listing (ADR 0036 P4): at most one row at display
+     * order 0. Migration 0042 renumbers existing duplicates (oldest keeps 0)
+     * before creating it. Figures read the lead agent as the LOWEST order
+     * (`leadAgentIdSql`), since offboarding can leave nobody at 0.
+     */
+    uniqueIndex('listing_agent_lead_idx').on(t.listingId).where(sql`display_order = 0`),
+  ],
 );
 
 export const media = pgTable('media', {
@@ -674,6 +685,8 @@ export const mailMessage = pgTable(
   (t) => [
     index('mail_message_thread_idx').on(t.threadId, t.createdAt),
     index('mail_message_search_idx').using('gin', t.searchTsv),
+    /** Figures over an agency's mail in a range (ADR 0036 P7). */
+    index('mail_message_agency_created_idx').on(t.agencyId, t.createdAt),
   ],
 );
 

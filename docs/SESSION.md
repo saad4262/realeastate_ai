@@ -1,3 +1,26 @@
+## 2026-10-12 — Claude Code — Dashboards semantic layer: ADR 0036 and Phase 0
+
+- Asked (Roman Urdu, then English): how should the assistant build mini dashboards for any request
+  without a widget per request? Answered with a semantic layer (datasets/measures/dimensions in
+  code, the model writes a JSON spec, a compiler is the only lock since the server bypasses RLS).
+  Reviewed the widgets (definitions diverging: email owner, lead agent; missing listing/contact
+  scope helpers; no timeout; missing indexes). ADR 0036 written, then ACCEPTED with the user's
+  answers (P3 is a bug fix; repair duplicates before the index, oldest keeps 0; gap log = its own
+  table `dashboard_gap_log`, Phase 3).
+- Same branch as ADR 0035 (`feat/compose-email`, uncommitted) — 0042 follows 0041's journal entry.
+- Core: listings/scope.ts (`listingScopeFilters`, `leadAgentIdSql`, `ACTIVE_LISTING_STATUSES`),
+  permissions `listing:read_all`, contacts/visibility.ts `contactScopeFilters`, mail/owner.ts,
+  widgets/read-timeout.ts (`withReadTimeout`, `isReadTimeout`); registry/detail/agents use them;
+  tile state `too_slow` (+ console tile text). DB: schema indexes + 0042 (hand-written repair first).
+- Tests: scope.test.ts, owner.test.ts, permissions, registry (guard, too slow; fakes gained
+  `.transaction`). Break-tests red: narrowing, listing:read_all, guard statement, repair (PGlite in
+  the scratchpad — no local Postgres). Smoke: 2 new checks + P3 assertion + 3 indexes, NOT run.
+- Note: offboarding deletes a leaving lead agent's row and can leave nobody at display_order 0 —
+  hence "lead agent = lowest order". The repair sets role `co` on every row it moves off 0
+  (the user's decision); rows already at 1, 2… keep their role.
+- Next exact step: the user runs the dry-run query (TEST-PLAN AJ), applies 0041 + 0042, runs
+  `pnpm smoke`, walks AH11 + AJ, commits. Then Phase 1.
+
 ## 2026-10-12 — Claude Code — New email to contacts, team messages, and both by assistant (ADR 0035)
 
 - Asked (Roman Urdu): agency ↔ agent email, also via the assistant; agents/agency send a NEW email

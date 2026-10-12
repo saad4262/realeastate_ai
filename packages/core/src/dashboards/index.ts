@@ -135,8 +135,9 @@ export type DashboardData = {
 
 /**
  * Everything one viewer sees on one dashboard, now. One statement for the
- * dashboard and the agency clock, then two per widget (its headline and its
- * report) — each AS THE VIEWER.
+ * dashboard and the agency clock, then three per widget — the read guard
+ * (timeout + read-only, ADR 0036 P6), its headline and its report — each AS
+ * THE VIEWER.
  */
 export async function getDashboardData(db: DbOrTx, actor: Actor, id: string, now = new Date()): Promise<DashboardData> {
   const row = await loadReadable(db, actor, id);

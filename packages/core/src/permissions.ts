@@ -20,6 +20,12 @@ export type Actor = {
 
 export type Action =
   | 'listing:read'
+  /**
+   * Every listing in the agency as ROWS in a figure or a list (ADR 0036 P1).
+   * Owner/admin. Without it, `listingScopeFilters` narrows to the listings the
+   * actor is named on. `listing:read` still opens any one listing of the agency.
+   */
+  | 'listing:read_all'
   | 'listing:create'
   | 'listing:edit'
   /**
@@ -496,6 +502,7 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       return Boolean(resource.listingAgentIds?.includes(actor.userId));
     }
 
+    case 'listing:read_all':
     case 'contact:read_all':
     case 'contact:assign':
     case 'contact:merge':
