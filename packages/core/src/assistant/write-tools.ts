@@ -11,6 +11,7 @@ import { formatInZone, localDateTimeToInstant } from '../time/local-input';
 import { propose, type FrozenArgs } from './actions';
 import { resolveHandle } from './handles';
 import type { ProposalCard } from './schema';
+import { widgetChoiceParams } from './schema';
 import { assignableMember, contactDetailsOf, UNSUBSCRIBED_REASON, type ContactDetails, type ContactDetailsPatch } from '../contacts/write-contacts';
 import { CONTACT_ROLE_LABELS, type ContactRoleKind } from '../contacts/contact-schema';
 import { loadComposeTarget } from '../mail/compose';
@@ -451,6 +452,16 @@ function figure(d: WidgetData): string {
       return `${d.active} (${d.rows.map((r) => `${r.value} ${r.label.toLowerCase()}`).join(', ')})`;
     case 'agents':
       return `${d.received} received · ${d.sent} sent · ${d.people} ${d.people === 1 ? 'person' : 'people'}`;
+    case 'custom': {
+      const shown = d.measures.map((m, i) => {
+        const v = d.total[i];
+        const text = v === null || v === undefined ? '—' : m.format === 'money' ? money(v) : String(v);
+        return `${m.label}: ${text}`;
+      });
+      const groups = d.dimensions.length ? ` · ${d.groups} ${d.groups === 1 ? 'row' : 'rows'}` : '';
+      const notes = d.notes.filter((n) => n.value > 0).map((n) => ` · ${n.label}: ${n.value}`).join('');
+      return `${shown.join(' · ')}${groups}${notes}`;
+    }
   }
 }
 
@@ -469,7 +480,7 @@ export async function proposeCreateDashboard(
   if (!actor.agencyId || !can(actor, 'dashboard:create', { type: 'dashboard', agencyId: actor.agencyId })) {
     return refused('Only an owner or admin can save a dashboard. You can ask to see a figure here instead.', label);
   }
-  const widgets = input.widgets.map((w) => ({ widget: w.widget, params: w.range ? { range: w.range } : {} }));
+  const widgets = input.widgets.map((w) => ({ widget: w.widget, params: widgetChoiceParams(w) }));
   const parsed = createDashboardSchema.safeParse({ title: input.title, widgets, audience: input.audience });
   if (!parsed.success) return refused(parsed.error.issues[0]?.message ?? 'That dashboard is not valid.', label);
   const timeZone = await agencyTimeZone(db, actor.agencyId);

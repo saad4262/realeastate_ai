@@ -22,6 +22,8 @@ function headline(tile: OkTile): { value: number; format: WidgetFormat } {
       return { value: d.active, format: 'count' };
     case 'agents':
       return { value: d.received, format: 'count' };
+    case 'custom':
+      return { value: d.total[0] ?? 0, format: d.measures[0]?.format ?? 'count' };
     default:
       return { value: d.total, format: 'count' };
   }
@@ -80,9 +82,12 @@ export function Report({ tile, timeZone, inboxPath }: { tile: OkTile & { detail:
         ))}
       </div>
       <div className={styles.row2}>
-        <Card title={detail.trend.title} wide>
-          <TrendChart rows={detail.trend.rows} format={detail.trend.format} />
-        </Card>
+        {/* A snapshot (the state now) has no trend: its breakdowns are the report. */}
+        {detail.trend.rows.length ? (
+          <Card title={detail.trend.title} wide>
+            <TrendChart rows={detail.trend.rows} format={detail.trend.format} />
+          </Card>
+        ) : null}
         {donut ? (
           <Card title={donut.title}>
             <Breakdown b={donut} />

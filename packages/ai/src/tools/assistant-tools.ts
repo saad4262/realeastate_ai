@@ -2,6 +2,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { APPOINTMENT_RANGES, ASSISTANT_ADMIN_TOOLS, ASSISTANT_TEAM_TOOLS, ASSISTANT_APPOINTMENT_TYPES, LEAD_SINCE, LEAD_STATUSES } from '@repo/core/assistant/schema';
 import { can, type Actor } from '@repo/core/permissions';
 import { WIDGET_IDS, WIDGET_RANGES } from '@repo/core/widgets';
+import { DATASET_IDS, DATASETS, SPEC_RANGES, TIME_UNITS, VIZ } from '@repo/core/semantic';
 import { CONTACT_ROLES } from '@repo/core/contacts/schema';
 import { INTEGRATION_PROVIDERS } from '@repo/core/integrations/providers';
 
@@ -28,6 +29,43 @@ const DATE = 'The day, as YYYY-MM-DD, in the person\'s own time zone (see consol
 const TIME = 'The local time, as HH:mm in 24-hour form, e.g. 15:00.';
 
 const REF = 'A reference you were given earlier in this conversation, e.g. C2 or S1. Never a name.';
+
+/** Every measure and dimension id in the semantic catalog (ADR 0036). Which belong to which dataset is in the system prompt; core refuses a wrong pairing and names the valid ones. */
+const MEASURE_IDS = [...new Set(DATASET_IDS.flatMap((d) => Object.keys(DATASETS[d].measures)))];
+const DIMENSION_IDS = [...new Set(DATASET_IDS.flatMap((d) => Object.keys(DATASETS[d].dimensions)))];
+/** A custom tile (ADR 0036 Phase 3): ids from the catalog only — never SQL, code or a number. */
+const SPEC = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'Only with widget "custom": one tile made from the catalog in your instructions. Use only ids listed for the chosen dataset.',
+  properties: {
+    dataset: { type: 'string', enum: [...DATASET_IDS], description: 'Exactly one dataset.' },
+    measures: { type: 'array', items: { type: 'string', enum: MEASURE_IDS }, description: '1 to 4 measures of that dataset.' },
+    groupBy: {
+      type: 'array',
+      items: { type: 'string', enum: [...DIMENSION_IDS, ...TIME_UNITS] },
+      description: '0 to 2 dimensions of that dataset; a time step (hour, day, week, month) counts as one. Event datasets only for time steps.',
+    },
+    filters: {
+      type: 'array',
+      description: 'Up to 5. Values from the dimension’s list where it has one, else the person’s own words (a suburb, an agent’s name).',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          dimension: { type: 'string', enum: DIMENSION_IDS },
+          op: { type: 'string', enum: ['eq', 'in', 'not_in'], description: 'eq takes one value.' },
+          values: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['dimension', 'op', 'values'],
+      },
+    },
+    range: { type: 'string', enum: [...SPEC_RANGES], description: 'The period on the agency’s clock. Omit for snapshot datasets (listings).' },
+    viz: { type: 'string', enum: [...VIZ], description: 'How to draw it. Omit to let it choose.' },
+    limit: { type: 'integer', description: 'How many groups to show, up to 50. Default 20.' },
+  },
+  required: ['dataset', 'measures'],
+} as const;
 const CONTACTS = 'Contact references, e.g. ["C1", "S2"]. 1 to 20 — only the people the person named or asked you to look up. Never names, email addresses or "everyone".';
 
 export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze([
@@ -85,15 +123,31 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   {
     name: 'show_widget',
     description:
-      'Show one figure from the agency’s fixed list of dashboard widgets beside your answer (Sold value, number of sales, new leads, appointments, active listings, email replies, agents — every person’s emails received and sent and their work). It is worked out from the database for this person; some figures are for owners and admins only. You are NOT told the numbers — never state or estimate one; say what is shown.',
+      'Show one figure beside your answer: a fixed widget (Sold value, number of sales, new leads, appointments, active listings, email replies, agents — every person’s emails received and sent and their work), or "custom" with a spec built from the catalog. It is worked out from the database for this person; some figures are for owners and admins only. You are NOT told the numbers — never state or estimate one; say what is shown.',
     input_schema: {
       type: 'object',
       additionalProperties: false,
       properties: {
-        widget: { type: 'string', enum: [...WIDGET_IDS], description: 'Which widget.' },
+        widget: { type: 'string', enum: [...WIDGET_IDS], description: 'Which widget. "custom" for a tile made from the catalog (then give spec, not range).' },
         range: { type: 'string', enum: [...WIDGET_RANGES], description: 'The period, on the agency’s clock. Omit for the widget’s default (active listings has none).' },
+        spec: SPEC,
       },
       required: ['widget'],
+    },
+  },
+  {
+    name: 'report_missing_data',
+    description:
+      'When the person asks for a figure the catalog cannot make (no dataset, measure or dimension for it), record it here instead of estimating or approximating it. Then tell the person it is not in the system yet and offer the nearest figure that is, if any. This changes nothing for them.',
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        request: { type: 'string', description: 'The person’s request, in their own words, short.' },
+        nearest_dataset: { type: 'string', enum: [...DATASET_IDS], description: 'The closest dataset, if one is close.' },
+        wanted: { type: 'string', description: 'What is missing, plainly, e.g. "commission per agent" or "time to first reply".' },
+      },
+      required: ['request', 'wanted'],
     },
   },
   {
@@ -220,7 +274,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   },
   {
     name: 'create_dashboard',
-    description: `Propose saving a dashboard: a page of widgets that stays up to date, opened by link — for owners and admins only. Only widgets from the fixed list. Who can open it: only the person ("private"), owners and admins ("admins", the default), or everyone in the agency ("agency" — each sees only the figures they may). Nobody outside the agency can ever open it. ${PROPOSES}`,
+    description: `Propose saving a dashboard: a page of widgets that stays up to date, opened by link — for owners and admins only. Fixed widgets, or "custom" tiles built from the catalog (each with its spec). Who can open it: only the person ("private"), owners and admins ("admins", the default), or everyone in the agency ("agency" — each sees only the figures they may). Nobody outside the agency can ever open it. ${PROPOSES}`,
     input_schema: {
       type: 'object',
       additionalProperties: false,
@@ -234,6 +288,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
             properties: {
               widget: { type: 'string', enum: [...WIDGET_IDS] },
               range: { type: 'string', enum: [...WIDGET_RANGES] },
+              spec: SPEC,
             },
             required: ['widget'],
           },

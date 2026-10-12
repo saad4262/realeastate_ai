@@ -2015,6 +2015,29 @@ export const dashboard = pgTable(
   (t) => [index('dashboard_agency_idx').on(t.agencyId, desc(t.createdAt))],
 );
 
+/**
+ * The dashboard gap log (ADR 0036, decided Q2): a figure somebody asked the
+ * assistant for that the semantic catalog cannot make — so it becomes a
+ * backlog, not an approximation. Read by the platform team, never shown to
+ * the model. `request` is the person's own words, trimmed; the nearest
+ * dataset / measure are what the model thought was closest, if any.
+ */
+export const dashboardGapLog = pgTable(
+  'dashboard_gap_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
+    request: text('request').notNull(),
+    nearestDataset: varchar('nearest_dataset', { length: 40 }),
+    wanted: text('wanted'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('dashboard_gap_log_dataset_idx').on(t.nearestDataset, desc(t.createdAt))],
+);
+
 // ── Listing import (docs/adr/0029) ──────────────────────────────────────────
 
 /**

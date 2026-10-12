@@ -46,12 +46,14 @@ function countingDb(rows: Record<string, unknown>[]) {
 }
 
 const noDb = new Proxy({}, { get: () => { throw new Error('the database was reached'); } }) as unknown as Db;
+/** The fixed widgets; `custom` takes a spec and has its own tests (semantic.test.ts). */
+const FIXED = WIDGET_IDS.filter((id) => id !== 'custom');
 const ctx = (db: Db, actor: Actor = owner) => ({ db, actor, now: new Date('2026-10-07T23:30:00Z'), timeZone: 'Australia/Sydney' });
 
 describe('the widget registry', () => {
   it('every widget is complete: params schema, permission, refresh 30–60 s, a description', () => {
-    expect(WIDGET_IDS.sort()).toEqual(['agent_activity', 'email_replies', 'listings_by_status', 'new_leads', 'sold_count', 'sold_value', 'upcoming_appointments']);
-    for (const id of WIDGET_IDS) {
+    expect([...WIDGET_IDS].sort()).toEqual(['agent_activity', 'custom', 'email_replies', 'listings_by_status', 'new_leads', 'sold_count', 'sold_value', 'upcoming_appointments']);
+    for (const id of FIXED) {
       const w = WIDGETS[id];
       expect(w.refreshSeconds, id).toBeGreaterThanOrEqual(30);
       expect(w.refreshSeconds, id).toBeLessThanOrEqual(60);
@@ -75,7 +77,7 @@ describe('the widget registry', () => {
 
   it('each widget is one statement, and every figure is a number (Postgres sends strings)', async () => {
     const row = { total: '2450000.00', count: '3', undisclosed: '1', label: 'A', value: '2', type: 'appraisal', live: '4', underOffer: '1', first: 'x' };
-    for (const id of WIDGET_IDS) {
+    for (const id of FIXED) {
       const { db, count } = countingDb([row]);
       const tile = await renderWidget(ctx(db), { widget: id, params: {} });
       expect(tile.state, id).toBe('ok');
@@ -86,7 +88,8 @@ describe('the widget registry', () => {
   });
 
   it('Sold value keeps undisclosed sales apart — counted, never added as $0', async () => {
-    const { db } = countingDb([{ total: '2450000.00', count: '3', undisclosed: '2' }]);
+    // A preset now (ADR 0036 Phase 2): the compiled tile's json — the total, the priced count, the companion.
+    const { db } = countingDb([{ data: { rows: [], groups: 0, total: ['2450000.00', '3'], notes: ['2'] } }]);
     const tile = await renderWidget(ctx(db), { widget: 'sold_value', params: { range: '30d' } });
     expect(tile).toMatchObject({ state: 'ok', data: { kind: 'money', total: 2450000, count: 3, undisclosed: 2 } });
   });
@@ -97,7 +100,7 @@ describe('the widget registry', () => {
       agents: [{ label: 'A', value: '1450000.00' }], types: [1, 2, 3, 4, 5, 6, 7].map((n) => ({ label: `T${n}`, value: String(n) })),
     };
     const row = { total: '1', count: '1', undisclosed: '0', label: 'A', value: '1', type: 'appraisal', live: '1', underOffer: '0', detail };
-    for (const id of WIDGET_IDS) {
+    for (const id of FIXED) {
       const plain = countingDb([row]);
       expect((await renderWidget(ctx(plain.db), { widget: id, params: {} })).state, id).toBe('ok');
       expect(plain.count(), `${id} without detail`).toBe(1);
@@ -121,10 +124,11 @@ describe('the widget registry', () => {
 
   it('a report that fails still leaves the headline', async () => {
     let n = 0;
-    const { db } = countingDb([{ total: '5', count: '5', undisclosed: '0' }]);
+    const { db } = countingDb([{ data: { rows: [], groups: 0, total: ['5', '5'], notes: ['0'] } }]);
     const execute = (db as unknown as { execute: (q: unknown) => Promise<unknown> }).execute;
+    // Only the report's statement fails; the headline's (and the guard's) answer.
     const failing = new Proxy(db as object, {
-      get: (t, k) => (k === 'execute' ? (q: unknown) => (isGuard(q) ? execute(q) : (++n, Promise.reject(new Error('boom')))) : (t as Record<PropertyKey, unknown>)[k]),
+      get: (t, k) => (k === 'execute' ? (q: unknown) => (!text(q).includes('as detail') ? execute(q) : (++n, Promise.reject(new Error('boom')))) : (t as Record<PropertyKey, unknown>)[k]),
     }) as Db;
     const tile = await renderWidget(ctx(failing), { widget: 'sold_value', params: {} }, { detail: true });
     expect(tile).toMatchObject({ state: 'ok', data: { total: 5 } });
@@ -134,7 +138,7 @@ describe('the widget registry', () => {
 
   it('every widget reads inside the read guard: a statement timeout and read-only, first (ADR 0036 P6)', async () => {
     const row = { total: '1', count: '1', undisclosed: '0', label: 'A', value: '1', type: 'appraisal', live: '1', underOffer: '0' };
-    for (const id of WIDGET_IDS) {
+    for (const id of FIXED) {
       const { db, count, guards } = countingDb([row]);
       expect((await renderWidget(ctx(db), { widget: id, params: {} })).state, id).toBe('ok');
       expect(guards(), id).toBe(1);

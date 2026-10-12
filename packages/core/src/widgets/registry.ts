@@ -1,16 +1,13 @@
-import { and, eq, gte, inArray, isNull, lt, ne, sql, type SQL } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { agency, appointment, lead, listing, mailMessage, mailThread, user, type DbOrTx } from '@repo/db';
+import { agency, type DbOrTx } from '@repo/db';
 import { can, type Action, type Actor } from '../permissions';
-import { leadScopeFilters } from '../leads/list-leads';
-import { appointmentScopeFilters } from '../appointments/appointments';
-import { ACTIVE_STATUSES, APPOINTMENT_TYPE_LABELS, type AppointmentType } from '../appointments/appointment-schema';
-import { threadScopeFilters } from '../mail/threads';
-import { ACTIVE_LISTING_STATUSES, leadAgentIdSql, listingScopeFilters } from '../listings/scope';
+import { ACTIVE_STATUSES } from '../appointments/appointment-schema';
 import { isReadTimeout, withReadTimeout } from './read-timeout';
-import { RANGE_LABELS, rangeWindow, WIDGET_RANGES, type WidgetRange } from './ranges';
+import { RANGE_LABELS, WIDGET_RANGES, type WidgetRange } from './ranges';
 import { appointmentsDetail, leadsDetail, listingsDetail, repliesDetail, salesDetail, type WidgetDetail } from './detail';
 import { agentActivity, agentsDetail, type AgentActivityRow } from './agents';
+import { describeSpec, mayViewSpec, runTile, standardReport, tileSpecSchema, type CustomTileData, type TileSpec } from '../semantic';
 
 /**
  * The FIXED widget library (ADR 0027). A dashboard — or the assistant — can
@@ -30,7 +27,9 @@ export type WidgetData =
   | { kind: 'breakdown'; total: number; rows: { label: string; value: number }[] }
   | { kind: 'status'; active: number; rows: { label: string; value: number }[] }
   /** The Agents widget (ADR 0034): totals, how many people are in the agency, and one row per person. */
-  | { kind: 'agents'; received: number; sent: number; failed: number; people: number; rows: AgentActivityRow[] };
+  | { kind: 'agents'; received: number; sent: number; failed: number; people: number; rows: AgentActivityRow[] }
+  /** A tile made of a spec (ADR 0036): any dataset × measures × dimensions from the semantic catalog. */
+  | CustomTileData;
 
 export type WidgetContext = { db: DbOrTx; actor: Actor; now: Date; timeZone: string };
 
@@ -41,30 +40,32 @@ type WidgetDef<P extends z.ZodTypeAny> = {
   params: P;
   /** Asked of the VIEWER before the query runs; refused → a "no access" tile. */
   permission: Action;
+  /** When the permission depends on the parameters (a spec: its dataset, measures, dimensions) — asked instead of `permission`. */
+  permits?: (actor: Actor, params: z.infer<P>) => boolean;
   /** Seconds between refreshes on an open dashboard: 30–60 (ADR 0027 §7). */
   refreshSeconds: number;
   query: (ctx: WidgetContext, params: z.infer<P>) => Promise<WidgetData>;
   /** The full-page report (trend, figures, breakdowns): ONE more statement, same scope. Only the dashboard page asks. */
-  detail: (ctx: WidgetContext, params: z.infer<P>) => Promise<WidgetDetail>;
+  detail?: (ctx: WidgetContext, params: z.infer<P>) => Promise<WidgetDetail>;
 };
+
+/**
+ * A preset (ADR 0036 Phase 1): a fixed widget whose figure is a named spec in
+ * code, compiled like any custom tile. Written here, so it may use steps the
+ * model's specs may not (a day-by-day trend over a year).
+ */
+async function runPreset(ctx: WidgetContext, spec: TileSpec): Promise<CustomTileData> {
+  return runTile(ctx, spec);
+}
+const presetSpec = (s: Omit<TileSpec, 'filters' | 'limit' | 'groupBy'> & Partial<Pick<TileSpec, 'filters' | 'limit' | 'groupBy'>>): TileSpec => ({
+  groupBy: [],
+  filters: [],
+  limit: 500,
+  ...s,
+});
 
 const rangeParams = (fallback: WidgetRange) => z.object({ range: z.enum(WIDGET_RANGES).default(fallback) }).strict();
 const noParams = z.object({}).strict();
-
-const num = (v: unknown) => {
-  const n = typeof v === 'number' ? v : Number(v ?? 0);
-  return Number.isFinite(n) ? n : 0;
-};
-
-/** Sold in the window: the listings the actor's figures cover, with status sold and a sold_date inside it. */
-function soldInWindow(actor: Actor, from: Date, to: Date): SQL {
-  return and(
-    ...listingScopeFilters(actor),
-    eq(listing.status, 'sold'),
-    gte(listing.soldDate, from),
-    lt(listing.soldDate, to),
-  )!;
-}
 
 export const WIDGETS = {
   /**
@@ -79,17 +80,10 @@ export const WIDGETS = {
     permission: 'report:read_agency',
     refreshSeconds: 60,
     detail: (ctx, p) => salesDetail(ctx, p.range, 'value'),
-    query: async ({ db, actor, now, timeZone }, p) => {
-      const { from, to } = rangeWindow(p.range, now, timeZone);
-      const [r] = await db
-        .select({
-          total: sql<string>`coalesce(sum(${listing.soldPrice}) filter (where ${listing.soldPrice} is not null), 0)`,
-          count: sql<string>`count(*) filter (where ${listing.soldPrice} is not null)`,
-          undisclosed: sql<string>`count(*) filter (where ${listing.soldPrice} is null)`,
-        })
-        .from(listing)
-        .where(soldInWindow(actor, from, to));
-      return { kind: 'money', total: num(r?.total), count: num(r?.count), undisclosed: num(r?.undisclosed) };
+    // A preset (ADR 0036 Phase 2): the measure carries its rule — the sales without a disclosed price come with it, never as $0.
+    query: async (ctx, p) => {
+      const d = await runPreset(ctx, presetSpec({ dataset: 'sales', measures: ['sold_value', 'priced'], range: p.range }));
+      return { kind: 'money', total: d.total[0] ?? 0, count: d.total[1] ?? 0, undisclosed: d.notes[0]?.value ?? 0 };
     },
   } satisfies WidgetDef<ReturnType<typeof rangeParams>>,
 
@@ -100,21 +94,10 @@ export const WIDGETS = {
     permission: 'report:read_agency',
     refreshSeconds: 60,
     detail: (ctx, p) => salesDetail(ctx, p.range, 'count'),
-    query: async ({ db, actor, now, timeZone }, p) => {
-      const { from, to } = rangeWindow(p.range, now, timeZone);
-      // By lead agent (one per listing, `leadAgentIdSql`); a sale with no agent row counts under "No agent".
-      const rows = await db
-        .select({
-          label: sql<string>`coalesce(${user.name}, ${user.email}, 'No agent')`,
-          value: sql<string>`count(distinct ${listing.id})`,
-          total: sql<string>`sum(count(distinct ${listing.id})) over()`,
-        })
-        .from(listing)
-        .leftJoin(user, eq(user.id, leadAgentIdSql(listing.id)))
-        .where(soldInWindow(actor, from, to))
-        .groupBy(sql`1`)
-        .orderBy(sql`2 desc`, sql`1`);
-      return { kind: 'breakdown', total: num(rows[0]?.total), rows: rows.map((r) => ({ label: r.label, value: num(r.value) })) };
+    // A preset: sales, counted by lead agent (`leadAgentIdSql`); a sale with no agent row is "No agent".
+    query: async (ctx, p) => {
+      const d = await runPreset(ctx, presetSpec({ dataset: 'sales', measures: ['count'], groupBy: ['agent'], range: p.range }));
+      return { kind: 'breakdown', total: d.total[0] ?? 0, rows: d.rows.map((r) => ({ label: r.labels[0]!, value: r.values[0] ?? 0 })) };
     },
   } satisfies WidgetDef<ReturnType<typeof rangeParams>>,
 
@@ -126,18 +109,10 @@ export const WIDGETS = {
     permission: 'lead:read',
     refreshSeconds: 30,
     detail: (ctx, p) => leadsDetail(ctx, p.range),
-    query: async ({ db, actor, now, timeZone }, p) => {
-      const { from, to } = rangeWindow(p.range, now, timeZone);
-      const day = sql<string>`to_char(${lead.createdAt} at time zone ${timeZone}, 'Dy DD Mon')`;
-      const rows = await db
-        .select({ label: day, value: sql<string>`count(*)`, total: sql<string>`sum(count(*)) over()`, first: sql<string>`min(${lead.createdAt})` })
-        .from(lead)
-        .where(and(...leadScopeFilters(db as never, actor), ne(lead.kind, 'offer'), gte(lead.createdAt, from), lt(lead.createdAt, to)))
-        // By position: the day expression carries the zone as a parameter, so Postgres
-        // would not see the SELECT and GROUP BY copies as the same expression.
-        .groupBy(sql`1`)
-        .orderBy(sql`4`);
-      return { kind: 'breakdown', total: num(rows[0]?.total), rows: rows.map((r) => ({ label: r.label, value: num(r.value) })) };
+    // A preset: leads by day. The tile lists only days with a lead, oldest first (as before the preset).
+    query: async (ctx, p) => {
+      const d = await runPreset(ctx, presetSpec({ dataset: 'leads', measures: ['count'], groupBy: ['day'], range: p.range }));
+      return { kind: 'breakdown', total: d.total[0] ?? 0, rows: d.rows.filter((r) => (r.values[0] ?? 0) > 0).map((r) => ({ label: r.labels[0]!, value: r.values[0]! })) };
     },
   } satisfies WidgetDef<ReturnType<typeof rangeParams>>,
 
@@ -149,28 +124,22 @@ export const WIDGETS = {
     permission: 'appointment:read',
     refreshSeconds: 60,
     detail: (ctx, p) => appointmentsDetail(ctx, p.range),
-    query: async ({ db, actor, now, timeZone }, p) => {
-      const { from, to } = rangeWindow(p.range, now, timeZone);
-      const rows = await db
-        .select({ type: appointment.type, value: sql<string>`count(*)`, total: sql<string>`sum(count(*)) over()` })
-        .from(appointment)
-        .where(
-          and(
-            ...appointmentScopeFilters(actor),
-            // Client meetings only: a team meeting is not business with a customer (ADR 0038, decided Q4).
-            eq(appointment.kind, 'client'),
-            inArray(appointment.status, [...ACTIVE_STATUSES]),
-            gte(appointment.startsAt, from),
-            lt(appointment.startsAt, to),
-          ),
-        )
-        .groupBy(appointment.type)
-        .orderBy(sql`2 desc`);
-      return {
-        kind: 'breakdown',
-        total: num(rows[0]?.total),
-        rows: rows.map((r) => ({ label: APPOINTMENT_TYPE_LABELS[r.type as AppointmentType] ?? r.type, value: num(r.value) })),
-      };
+    // A preset: client appointments still on, by type (a team meeting is not business with a customer — ADR 0038 Q4).
+    query: async (ctx, p) => {
+      const d = await runPreset(
+        ctx,
+        presetSpec({
+          dataset: 'appointments',
+          measures: ['count'],
+          groupBy: ['type'],
+          range: p.range,
+          filters: [
+            { dimension: 'status', op: 'in', values: [...ACTIVE_STATUSES] },
+            { dimension: 'meeting_with', op: 'eq', values: ['client'] },
+          ],
+        }),
+      );
+      return { kind: 'breakdown', total: d.total[0] ?? 0, rows: d.rows.map((r) => ({ label: r.labels[0]!, value: r.values[0] ?? 0 })) };
     },
   } satisfies WidgetDef<ReturnType<typeof rangeParams>>,
 
@@ -186,17 +155,10 @@ export const WIDGETS = {
     permission: 'listing:read',
     refreshSeconds: 60,
     detail: (ctx) => listingsDetail(ctx),
-    query: async ({ db, actor }) => {
-      const [r] = await db
-        .select({
-          live: sql<string>`count(*) filter (where ${listing.status} = 'live')`,
-          underOffer: sql<string>`count(*) filter (where ${listing.status} = 'under_offer')`,
-        })
-        .from(listing)
-        .where(and(...listingScopeFilters(actor), inArray(listing.status, [...ACTIVE_LISTING_STATUSES])));
-      const live = num(r?.live);
-      const underOffer = num(r?.underOffer);
-      return { kind: 'status', active: live + underOffer, rows: [{ label: 'Live', value: live }, { label: 'Under offer', value: underOffer }] };
+    // A preset (ADR 0036 Phase 2): the listings snapshot's "active" measure, which always carries its split.
+    query: async (ctx) => {
+      const d = await runPreset(ctx, presetSpec({ dataset: 'listings', measures: ['active'] }));
+      return { kind: 'status', active: d.total[0] ?? 0, rows: d.notes.map((n) => ({ label: n.label, value: n.value })) };
     },
   } satisfies WidgetDef<typeof noParams>,
 
@@ -208,22 +170,10 @@ export const WIDGETS = {
     permission: 'mail:read',
     refreshSeconds: 30,
     detail: (ctx, p) => repliesDetail(ctx, p.range),
-    query: async ({ db, actor, now, timeZone }, p) => {
-      const { from, to } = rangeWindow(p.range, now, timeZone);
-      const [r] = await db
-        .select({ total: sql<string>`count(*)` })
-        .from(mailMessage)
-        .innerJoin(mailThread, eq(mailThread.id, mailMessage.threadId))
-        .leftJoin(lead, eq(lead.id, mailThread.leadId))
-        .where(
-          and(
-            ...threadScopeFilters(db, actor),
-            eq(mailMessage.direction, 'in'),
-            gte(mailMessage.createdAt, from),
-            lt(mailMessage.createdAt, to),
-          ),
-        );
-      return { kind: 'count', total: num(r?.total) };
+    // A preset: emails received, on conversations the viewer may read.
+    query: async (ctx, p) => {
+      const d = await runPreset(ctx, presetSpec({ dataset: 'emails', measures: ['received'], range: p.range }));
+      return { kind: 'count', total: d.total[0] ?? 0 };
     },
   } satisfies WidgetDef<ReturnType<typeof rangeParams>>,
 
@@ -242,6 +192,23 @@ export const WIDGETS = {
     detail: (ctx, p) => agentsDetail(ctx, p.range),
     query: (ctx, p) => agentActivity(ctx, p.range),
   } satisfies WidgetDef<ReturnType<typeof rangeParams>>,
+
+  /**
+   * Any tile from the semantic catalog (ADR 0036): `params` is a tile spec,
+   * re-parsed on every read. Its permission is the dataset's, each measure's
+   * and each dimension's, asked of the viewer on every render (I3).
+   */
+  custom: {
+    title: 'Custom',
+    describe: (spec: TileSpec) => describeSpec(spec),
+    params: tileSpecSchema,
+    permission: 'dashboard:read',
+    permits: (actor: Actor, spec: TileSpec) => mayViewSpec(actor, spec),
+    refreshSeconds: 60,
+    query: (ctx, spec) => runTile(ctx, spec),
+    // The standard report (ADR 0036 Phase 4), generated from the dataset's definition.
+    detail: (ctx, spec) => standardReport(ctx, spec),
+  } satisfies WidgetDef<typeof tileSpecSchema>,
 } as const;
 
 export type { AgentMessage, AgentMessages, DetailRow, DetailSeries, WidgetDetail, WidgetFormat } from './detail';
@@ -281,7 +248,10 @@ export async function renderWidget(
   const parsed = def.params.safeParse(ref.params ?? {});
   if (!parsed.success) return { widget: ref.widget, title: def.title, description: 'This widget is no longer available', refreshSeconds: def.refreshSeconds, state: 'unavailable' };
   const base = { widget: ref.widget as WidgetId, title: def.title, description: def.describe(parsed.data), refreshSeconds: def.refreshSeconds };
-  if (!ctx.actor.agencyId || !can(ctx.actor, def.permission, { type: def.permission.split(':')[0]!, agencyId: ctx.actor.agencyId })) {
+  const allowed = def.permits
+    ? def.permits(ctx.actor, parsed.data)
+    : can(ctx.actor, def.permission, { type: def.permission.split(':')[0]!, agencyId: ctx.actor.agencyId ?? '' });
+  if (!ctx.actor.agencyId || !allowed) {
     return { ...base, state: 'no_access' };
   }
   try {
@@ -289,7 +259,7 @@ export async function renderWidget(
     return await withReadTimeout(ctx.db, async (db): Promise<WidgetTile> => {
       const c = { ...ctx, db };
       const data = await def.query(c, parsed.data);
-      if (!opts.detail) return { ...base, state: 'ok', data };
+      if (!opts.detail || !def.detail) return { ...base, state: 'ok', data };
       // The report around the headline is extra: if it fails, the headline still shows.
       try {
         return { ...base, state: 'ok', data, detail: await def.detail(c, parsed.data) };

@@ -1,3 +1,27 @@
+## 2026-10-12 — Claude Code — Dashboards from any request: ADR 0036 Phases 1–4 (branch feat/semantic-layer)
+
+- Asked (Roman Urdu): "do all the phases properly — I want a fully smart assistant that can do everything".
+  Earlier the same session: walked TEST-PLAN AH with the user on dev; inserted labelled test data into
+  agency Alpha (Test Buyer (AH), Test Contact (AH), @example.test, 4 messages) with their permission — ids in
+  the session scratchpad; remove when no longer wanted.
+- Core `semantic/`: catalog.ts, spec.ts, compile.ts, report.ts, catalog-text.ts, gap-log.ts; registry: `custom`
+  widget (`permits`), six presets via `runPreset`, `detail` optional. Assistant: widgetChoice with `spec`,
+  `report_missing_data` (through `recordDataGap`), card line for custom. AI: SPEC JSON schema, tool, prompt
+  v13 (catalog embedded, hash-pinned), evals. Console: custom.tsx, report skips an empty trend.
+- DB: `dashboard_gap_log` + migration 0045 (RLS on), classified own-agency. Applied on dev with the user's
+  permission after checking 0000–0044 were already there (45 → 46 rows).
+- Tests: semantic.test.ts (24: I1 every combination × agent/admin, I2 injection + no sql.raw, I3, I6, I8,
+  gap log, report); registry/assistant tests adjusted; evals test. Smoke: presets parity (80 figures, green),
+  I9 generated specs over two agencies + I4, the assistant's custom card/approve/gap log, a live eval in
+  smoke:ai. Break-tests red then restored: scope dropped, filter value via sql.raw, dimension permission skipped.
+- Found on the way: the read-only compiler run on dev (61 specs, 6 datasets) and the report (every range ×
+  owner/agent) both ran clean; Mac DNS sometimes fails getaddrinfo for the pooler host — the scratchpad
+  dnsfix.cjs works around it for local runs.
+- Smoke Dashboards 9/9. The I9 break-test first went red for the wrong reason (a listings tile hit the 3 s
+  guard once on the remote DB) — the check now asks a too-slow tile again and lists every changed figure;
+  re-run red for the right reason ("datasets: contacts"), then restored.
+- Next exact step: merge feat/semantic-layer into main and push (the user decides); then TEST-PLAN AK.
+
 ## 2026-10-12 — Claude Code — Team meetings (ADR 0038)
 
 - Asked (Roman Urdu): Zoom meetings with team members, with email, join link and reminders for

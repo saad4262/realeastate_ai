@@ -42,10 +42,12 @@ import {
 } from './write-tools';
 import { listColleagues } from '../team-messages/messages';
 import { agencyTimeZone, renderWidget } from '../widgets/registry';
+import { recordDataGap } from '../semantic';
 import {
   ASSISTANT_ADMIN_TOOLS,
   ASSISTANT_TEAM_TOOLS,
   ASSISTANT_TOOL_INPUTS,
+  widgetChoiceParams,
   type AppointmentRange,
   type AssistantFrame,
   type AssistantToolName,
@@ -96,6 +98,7 @@ const LABELS: Record<AssistantToolName, string> = {
   list_templates: 'Reading the email templates…',
   check_connections: 'Checking connected accounts…',
   show_widget: 'Working out the figures…',
+  report_missing_data: 'Noting what is missing…',
   search_notes_and_emails: 'Searching notes and emails…',
   add_note: 'Preparing a note for you to approve…',
   set_next_action: 'Preparing a next action for you to approve…',
@@ -205,6 +208,8 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return checkConnections(ctx, parsed.data as CheckConnections, label);
     case 'show_widget':
       return showWidget(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.show_widget>, label);
+    case 'report_missing_data':
+      return reportMissingData(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.report_missing_data>, label);
     case 'search_notes_and_emails':
       return searchWritten(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.search_notes_and_emails>, label);
     // Write tools: each only PROPOSES (ADR 0025 §1).
@@ -695,7 +700,7 @@ async function showWidget(ctx: ToolContext, input: z.infer<typeof ASSISTANT_TOOL
   const timeZone = await agencyTimeZone(ctx.db, ctx.actor.agencyId as string);
   const tile = await renderWidget(
     { db: ctx.db, actor: ctx.actor, now: ctx.now, timeZone },
-    { widget: input.widget, params: input.range ? { range: input.range } : {} },
+    { widget: input.widget, params: widgetChoiceParams(input) },
   );
   return {
     label,
@@ -704,7 +709,24 @@ async function showWidget(ctx: ToolContext, input: z.infer<typeof ASSISTANT_TOOL
       shown: tile.state === 'ok',
       title: tile.description,
       ...(tile.state === 'no_access' ? { tell_the_user: 'This figure is for owners and admins only.' } : {}),
+      ...(tile.state === 'too_slow' ? { tell_the_user: 'That took too long to work out — suggest a shorter period.' } : {}),
       note: 'The figures are on screen beside your answer. Do not state or estimate any number yourself.',
+    },
+  };
+}
+
+/**
+ * The gap log (ADR 0036 Q2): one row for a figure the catalog cannot make.
+ * Written as the person, in their agency; the model is told only that it was
+ * noted. Never an approximation, never shown back.
+ */
+async function reportMissingData(ctx: ToolContext, input: z.infer<typeof ASSISTANT_TOOL_INPUTS.report_missing_data>, label: string): Promise<ToolOutcome> {
+  await recordDataGap(ctx.db, ctx.actor, { request: input.request, wanted: input.wanted, nearestDataset: input.nearest_dataset ?? null });
+  return {
+    label,
+    result: {
+      noted: true,
+      tell_the_user: 'That figure is not in the system yet. It has been noted for the team; nothing was estimated.',
     },
   };
 }

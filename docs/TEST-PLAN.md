@@ -1141,3 +1141,21 @@ addresses you can read.
 | AL13 | Dashboards → Appointments widget for the range with AL1 in it | Counts client appointments only; the team meeting is not in it. |
 | AL14 | Offboard S (Team → Remove) while S is on an upcoming team meeting | S is gone from its With list; A's bell says "S left the agency — They were taken off "Sync"". |
 | AL15 | Smoke | `SMOKE_ONLY="Team meetings" pnpm smoke`: 4 checks green. |
+
+## AK — Dashboards from any request: custom tiles, the gap log, the standard report (ADR 0036 Phases 1–4)
+
+Before: apply migration **0045** (`pnpm --filter @repo/db db:migrate`), restart `pnpm dev`, sign in as an
+**owner**. The fixed dashboards from AH/AJ should look exactly as before (the six fixed widgets are presets now).
+
+| # | Case | Expected |
+|---|---|---|
+| AK1 | Assistant: "Show me sales by suburb last month" | A tile **Sales — Sold value and Sales by suburb — last month** (bars or a table) beside the answer. The answer names what is shown and never says a number. |
+| AK2 | "Leads per week this year" | A line tile, one point per week, quiet weeks at 0. |
+| AK3 | "How many active listings does each agent have?" | Bars by agent, **now** (no period). |
+| AK4 | "Enquiries about Pakenham this month by status" (type the suburb in any case) | The suburb filter shows in the title; case does not matter. |
+| AK5 | "Make a dashboard with leads per agent and emails per agent for the last 30 days" | **One card, two tiles** (one per dataset). Approve → Open → each tile has its full report: change vs the period before, figures, trend, breakdowns. |
+| AK6 | "Commission earned by each agent this quarter" | It says that figure isn't in the system yet and offers the nearest (sold value by agent). **No tile with a made-up figure.** One row in `dashboard_gap_log`. |
+| AK7 | "Sales" (nothing else) | It asks one short question: number of sales or their value? (A missing period alone is not asked about.) |
+| AK8 | As an **agent**: "leads by agent this month" | The tile reads "This figure is for owners and admins." An agent's "my leads this month" works and shows only their own. |
+| AK9 | Open the AK5 dashboard as an agent (save it with audience "Everyone in the agency") | The by-agent tiles say "for owners and admins"; any other tile shows the agent's own figures. |
+| AK10 | Phone width | Tables scroll inside their card; nothing else scrolls sideways. |
