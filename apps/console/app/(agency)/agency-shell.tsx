@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Suspense, type ReactNode } from 'react';
 import type { ConsoleChrome } from '../../lib/require-console-access';
 import { AssistantPanel } from '@/components/assistant/assistant-panel';
+import { LiveRefresh } from '@/components/live-refresh';
 import { NotificationBell } from '@/components/notifications/notification-bell';
 import { NavList } from './nav-list';
 import styles from './agency-shell.module.css';
@@ -157,6 +158,8 @@ export function AgencyShell({ children, userLabel, chrome }: AgencyShellProps) {
 
         <div className={styles.content}>{children}</div>
       </div>
+      {/* New mail, team messages and the bell show up without a reload (ADR 0035). */}
+      <LiveRefresh />
       <AssistantPanel surface="agency" />
     </div>
   );

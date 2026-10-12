@@ -294,7 +294,8 @@ export async function startTeamThread(
   ]);
   const [message] = await tx
     .insert(teamMessage)
-    .values({ threadId: thread!.id, agencyId: actor.agencyId, senderId: actor.userId, text: parsed.data.body })
+    // clock_timestamp(), not now(): two messages written in one transaction must still sort in order.
+    .values({ threadId: thread!.id, agencyId: actor.agencyId, senderId: actor.userId, text: parsed.data.body, createdAt: sql`clock_timestamp()` })
     .returning({ id: teamMessage.id });
   return { threadId: thread!.id, messageId: message!.id };
 }
@@ -318,6 +319,7 @@ export async function replyTeamThread(
     .values({
       threadId: head.row.id,
       agencyId: head.row.agencyId,
+      createdAt: sql`clock_timestamp()`,
       senderId: actor.userId,
       text: parsed.data.body,
       channel: opts.channel ?? 'console',

@@ -65,3 +65,22 @@ have no way to write to each other in the app.
 - Migration 0041 written, NOT applied (the user's decision, 2026-10-12). The 0040 snapshot was
   replaced with 0039's (as the 0040 notes asked) so 0041 holds only this work.
 - Tests: 11 unit (5 guards broken and seen red); 4 smoke checks written, NOT run (need 0041).
+
+## Amendment — instant delivery (2026-10-12)
+Asked: replies must reach the app the moment they arrive, and timed email must leave on time.
+- **Inbound by webhook.** Resend `email.received` → `POST /api/mail/inbound` on the website
+  (signed, Svix; the handler existed since ADR 0016). `RESEND_WEBHOOK_SECRET` set on the Vercel
+  projects. The pull (cron and open inbox) stays as the backstop for a missed delivery — once a
+  minute instead of every 10 s when the webhook is configured. Duplicates are harmless
+  (`provider_id` unique).
+- **Open screens refresh themselves.** The inbox used to refresh only when its OWN pull stored
+  mail, which a webhook makes never happen. `LiveRefresh` (both console shells) asks every 5 s
+  while the tab is visible for a stamp — newest activity on the conversations the person may see
+  (the inbox's scope), the team conversations they are on, and their bell — and refreshes when it
+  changes. The buyer's messages page does the same with `customerMailStamp`. No browser table
+  access (ADR 0017): a server action returns a stamp, never data.
+- **Timed sends every minute.** `/api/cron/minute` (`* * * * *`, Vercel Pro) runs assistant
+  actions approved for later and meeting reminders — at most a minute late instead of five. The
+  rest stays on the 5-minute tick. Sending "now" was always immediate.
+- Not done: to-the-second scheduling (needs a queue such as QStash); push instead of a 5-second
+  poll (needs a realtime channel through the server).

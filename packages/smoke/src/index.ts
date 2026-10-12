@@ -81,6 +81,8 @@ import {
   threadReplyAddress,
   setAgencyGmailSharing,
   sendContactEmail,
+  consoleLiveStamp,
+  customerMailStamp,
   listCustomerThreads,
   markCustomerThreadRead,
   teamReplyAddress,
@@ -6488,6 +6490,42 @@ async function main() {
     }),
   );
 
+  await check('instant: the live stamp changes the moment mail is stored for you — not for mail you cannot see, nor another agency’s', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const g = await contactFixture(t);
+      const d = composeDeps();
+      const [own] = await t.execute<{ id: string; email: string }>(sql`
+        insert into contact (agency_id, name, email, assigned_to) values (${f.agencyId}, 'Bea', ${`bea.${f.tag}@smoke.test`}, ${f.people.a1}) returning id, email`);
+      const sent = await sendContactEmail(t, d.mail, f.actor('a1'), own!.id, { subject: 'Hello', body: 'Hi Bea.' });
+      const a1Before = await consoleLiveStamp(t, f.actor('a1'));
+      const a2Before = await consoleLiveStamp(t, f.actor('a2'));
+      const otherBefore = await consoleLiveStamp(t, g.actor('owner'));
+      // Bea answers by email: what the webhook does.
+      const r = await ingestReceivedEmail(t, { ...d.mail, config: mailCfg }, {
+        id: `smoke-live-${randomUUID()}`, from: own!.email, to: [threadReplyAddress(sent.threadId, mailCfg)], cc: [], received_for: [], subject: 'Re: Hello', text: 'Thanks!',
+      } as never);
+      assert(r.kind === 'stored', `ingest: ${r.kind}`);
+      assert((await consoleLiveStamp(t, f.actor('a1'))) !== a1Before, 'A1’s stamp did not change when their contact replied');
+      assert((await consoleLiveStamp(t, f.actor('a2'))) === a2Before, 'A2’s stamp changed for a conversation A2 cannot see');
+      assert((await consoleLiveStamp(t, g.actor('owner'))) === otherBefore, 'another agency’s stamp changed');
+      // A team message changes the recipient's stamp, not a bystander's.
+      const ownerBefore = await consoleLiveStamp(t, f.actor('owner'));
+      const a2b = await consoleLiveStamp(t, f.actor('a2'));
+      await startTeamThread(t, f.actor('a1'), { to: [f.people.a2], subject: 'x', body: 'y' });
+      assert((await consoleLiveStamp(t, f.actor('a2'))) !== a2b, 'A2’s stamp did not change for a team message to A2');
+      const ownerAfter = await consoleLiveStamp(t, f.actor('owner'));
+      assert(ownerAfter.split('|')[1] === ownerBefore.split('|')[1], 'the owner’s team part changed for a conversation they are not on');
+      // The buyer's page: their stamp changes when the agency writes.
+      const [buyer] = await t.execute<{ id: string }>(sql`insert into "user" (id, email, verified_email) values (${randomUUID()}, ${own!.email}, ${own!.email}) returning id`);
+      const who = { userId: buyer!.id, email: own!.email };
+      const b1 = await customerMailStamp(t, who);
+      await sendThreadReply(t, d.mail, f.actor('a1'), sent.threadId, { body: 'You are welcome.' });
+      assert((await customerMailStamp(t, who)) !== b1, 'the buyer’s stamp did not change when the agency replied');
+      return 'A1 changes on the reply; A2 and another agency do not; team message changes A2 only; buyer stamp changes on the agency’s reply';
+    }),
+  );
+
   await check('the assistant writes: send_email and message_colleagues show the exact words and figures; nothing goes before Approve; Approve sends once', async () =>
     inRollback(async (t) => {
       const f = await contactFixture(t);
@@ -6497,6 +6535,10 @@ async function main() {
       const [own] = await t.execute<{ id: string }>(sql`
         insert into contact (agency_id, name, email, assigned_to) values (${f.agencyId}, 'Bea', ${`bea.${f.tag}@smoke.test`}, ${f.people.a1}) returning id`);
       const a1 = f.actor('a1');
+      // The card checks the development allowlist as sending would; smoke addresses are on it here.
+      const allowBefore = process.env.EMAIL_DEV_ALLOWLIST;
+      process.env.EMAIL_DEV_ALLOWLIST = '@smoke.test';
+      try {
       const conv = await claimTurn(t, a1, { message: 'email Bea', surface: 'agent' });
       const h: HandleMap = {};
       await selectionHandles(t, a1, h, [own!.id]);
@@ -6525,6 +6567,10 @@ async function main() {
       const bad = await runAssistantTool(proposeCtx(t, a1, h, conv.conversationId), 'message_colleagues', { to: ['M9'], subject: 's', body: 'b' });
       assert(bad.isError && !bad.frame, 'an invented reference made a card');
       return 'card = exact words + figures; 0 written/sent before Approve; owner refused; approve twice = 1 email; colleague card → conversation + 1 email; invented M refused';
+      } finally {
+        if (allowBefore === undefined) delete process.env.EMAIL_DEV_ALLOWLIST;
+        else process.env.EMAIL_DEV_ALLOWLIST = allowBefore;
+      }
     }),
   );
 
@@ -9153,6 +9199,9 @@ async function main() {
       anonymous.status === 401 || anonymous.status === 503,
       `answered ${anonymous.status}, expected 401 or 503`,
     );
+    // The every-minute tick (ADR 0035) is the same door.
+    const minute = await http(`${WEB}/api/cron/minute`);
+    assert(minute.status === 401 || minute.status === 503, `/api/cron/minute answered ${minute.status}, expected 401 or 503`);
 
     const secret = process.env.CRON_SECRET?.trim();
     if (!secret) return `${anonymous.status} with no secret (CRON_SECRET not set here)`;

@@ -157,7 +157,10 @@ const LAST_PULL = ((globalThis as { __mailPull?: { at: number } }).__mailPull ??
 
 export async function syncMailAction(): Promise<{ stored: number; configured: boolean }> {
   await requireActionUserId();
-  if (Date.now() - LAST_PULL.at < 10_000) return { stored: 0, configured: true };
+  // With the webhook set up (ADR 0035) mail is stored the moment it arrives and
+  // LiveRefresh shows it; this pull is then only the backstop for a missed delivery.
+  const gap = process.env.RESEND_WEBHOOK_SECRET?.trim() ? 60_000 : 10_000;
+  if (Date.now() - LAST_PULL.at < gap) return { stored: 0, configured: true };
   LAST_PULL.at = Date.now();
 
   const result = await pullReceivedMail({ db: getConsoleDb });

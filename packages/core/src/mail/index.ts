@@ -72,8 +72,10 @@ export {
   type IngestOutcome,
 } from './inbound';
 export { notifyThreadReply, type ThreadNoticeDeps } from './notices';
+export { consoleLiveStamp } from './live';
 export {
   getCustomerThread,
+  customerMailStamp,
   listCustomerThreads,
   markCustomerThreadRead,
   replyAsCustomer,

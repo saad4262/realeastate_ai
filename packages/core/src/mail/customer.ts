@@ -307,3 +307,35 @@ export async function markCustomerThreadRead(db: Db, who: CustomerIdentity, thre
     .values({ threadId: thread.id, userId: who.userId, lastReadAt: sql`clock_timestamp()` })
     .onConflictDoUpdate({ target: [mailCustomerRead.threadId, mailCustomerRead.userId], set: { lastReadAt: sql`clock_timestamp()` } });
 }
+
+/**
+ * "Has an agency written to me?" — a stamp for the buyer's open messages page
+ * to refresh itself when the webhook stores something (ADR 0035, instant
+ * delivery). The newest message they could see, on threads that are theirs,
+ * and how many threads. Two statements: the proof, then the stamp.
+ */
+export async function customerMailStamp(db: Db, who: CustomerIdentity): Promise<string> {
+  assertOwner(who);
+  const proved = await provenAddress(db, who);
+  const [row] = await db
+    .select({
+      last: sql<string | null>`max((
+        select max(m.created_at) from mail_message m
+        where m.thread_id = ${mailThread.id}
+          and ((m.direction = 'out' and m.status = 'sent')
+            or (m.direction = 'in' and m.from_email = ${mailThread.contactEmail}))
+      ))::text`,
+      threads: sql<number>`count(*)::int`,
+      // The count too: two messages stored in one transaction share a timestamp.
+      messages: sql<number>`coalesce(sum((
+        select count(*) from mail_message m
+        where m.thread_id = ${mailThread.id}
+          and ((m.direction = 'out' and m.status = 'sent')
+            or (m.direction = 'in' and m.from_email = ${mailThread.contactEmail}))
+      )), 0)::int`,
+    })
+    .from(mailThread)
+    .leftJoin(lead, eq(lead.id, mailThread.leadId))
+    .where(mine(who, proved));
+  return `${proved ? 1 : 0}|${row?.last ?? ''}|${row?.threads ?? 0}|${row?.messages ?? 0}`;
+}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { markReadAction, replyAction, syncMailAction } from './actions';
 import styles from './messages.module.css';
@@ -86,24 +86,35 @@ export function ReplyBox({ threadId, agencyName }: { threadId: string; agencyNam
   );
 }
 
-/** Pulls new mail while the page is open, refreshing only when something arrived. */
+/**
+ * Keeps the page current while it is open: every 5 s (tab visible) the server
+ * says what is stored for this buyer — refreshed when that changes, which is
+ * the moment the webhook stores an agency's email (ADR 0035) — and pulls from
+ * Resend as a backstop. Renders nothing.
+ */
 export function MailSync() {
   const router = useRouter();
+  const last = useRef<string | null>(null);
   useEffect(() => {
     let stopped = false;
     const pull = () => {
       if (document.visibilityState !== 'visible') return;
       void syncMailAction()
         .then((r) => {
-          if (!stopped && r.stored > 0) router.refresh();
+          if (stopped) return;
+          const changed = last.current !== null && r.stamp !== '' && r.stamp !== last.current;
+          if (r.stamp) last.current = r.stamp;
+          if (r.stored > 0 || changed) router.refresh();
         })
         .catch(() => {});
     };
     pull();
-    const timer = setInterval(pull, 20_000);
+    const timer = setInterval(pull, 5_000);
+    document.addEventListener('visibilitychange', pull);
     return () => {
       stopped = true;
       clearInterval(timer);
+      document.removeEventListener('visibilitychange', pull);
     };
   }, [router]);
   return null;

@@ -6,6 +6,7 @@ import { after } from 'next/server';
 import { mailerFromEnv, noticeMailFromEnv } from '@repo/core/email';
 import {
   confirmEmailVerification,
+  customerMailStamp,
   MailError,
   markCustomerThreadRead,
   mailDepsFromEnv,
@@ -138,15 +139,21 @@ export async function replyAction(threadId: string, body: string): Promise<Reply
 /** Pull new mail while a buyer's messages are open — the console's sync, same throttle idea. */
 const LAST_PULL = ((globalThis as { __webMailPull?: { at: number } }).__webMailPull ??= { at: 0 });
 
-export async function syncMailAction(): Promise<{ stored: number }> {
+export async function syncMailAction(): Promise<{ stored: number; stamp: string }> {
   const who = await ensureConsumerAccount();
-  if (!who) return { stored: 0 };
-  if (Date.now() - LAST_PULL.at < 10_000) return { stored: 0 };
+  if (!who) return { stored: 0, stamp: '' };
+  // What they can already see — the webhook may have stored a reply since the
+  // last look (ADR 0035, instant delivery). Changes → the page refreshes.
+  const stamp = await customerMailStamp(getWebDb(), { userId: who.id, email: who.email ?? '' }).catch(() => '');
+  // The pull from Resend is the backstop for a missed webhook: once a minute
+  // with the webhook set up, every 10 s without it.
+  const gap = process.env.RESEND_WEBHOOK_SECRET?.trim() ? 60_000 : 10_000;
+  if (Date.now() - LAST_PULL.at < gap) return { stored: 0, stamp };
   LAST_PULL.at = Date.now();
   const result = await pullReceivedMail({ db: getWebDb });
-  if (!result.ok) return { stored: 0 };
+  if (!result.ok) return { stored: 0, stamp };
   if (result.followUp) after(result.followUp);
-  return { stored: result.stored };
+  return { stored: result.stored, stamp };
 }
 
 /**

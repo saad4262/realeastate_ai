@@ -1,0 +1,54 @@
+import { NextResponse, type NextRequest } from 'next/server';
+import { runReminderTick, syncDepsFromEnv, teamMeetingDepsFromEnv } from '@repo/core/appointments';
+import { noticeMailFromEnv } from '@repo/core/email';
+import { runScheduledActions } from '@repo/core/assistant';
+import { mailDepsFromEnv } from '@repo/core/mail';
+import { teamMessageDepsFromEnv } from '@repo/core/team-messages';
+import { authoriseCronRequest } from '@repo/core/schedules';
+import { templateSendDepsFromEnv } from '@repo/core/template-email';
+import { getWebDb } from '../../../../lib/db';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
+/**
+ * The every-minute tick (ADR 0035, instant delivery): only the work whose
+ * whole point is its TIME — an assistant action approved to run at 9:00, and
+ * a meeting's reminder. On the 5-minute tick (/api/cron/alerts) they could be
+ * up to five minutes late; here they are at most a minute late. Everything
+ * else stays on the 5-minute tick.
+ *
+ * Same door as the other tick: `CRON_SECRET`, nothing read from the request.
+ * Both jobs claim each row once (`FOR UPDATE SKIP LOCKED` / a guarded update),
+ * so an overlapping run, a retry or a manual curl never sends twice. Never a
+ * 5xx for one failure — a retry would re-run the whole tick.
+ */
+async function handler(request: NextRequest) {
+  const auth = authoriseCronRequest(request.headers);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  try {
+    const scheduled = await (async () => {
+      const send = templateSendDepsFromEnv();
+      return runScheduledActions(getWebDb(), {
+        sync: syncDepsFromEnv(),
+        templateSend: send.ok ? send.deps : null,
+        mail: mailDepsFromEnv(),
+        teamMessages: teamMessageDepsFromEnv(),
+        teamMeetings: teamMeetingDepsFromEnv(),
+      });
+    })().catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'scheduled actions failed' }));
+
+    const reminders = await runReminderTick(getWebDb(), { notice: noticeMailFromEnv(), mail: mailDepsFromEnv() }).catch((err: unknown) => ({
+      error: err instanceof Error ? err.message : 'reminder tick failed',
+    }));
+
+    // Counts only — this is read from a cron log.
+    return NextResponse.json({ ok: true, scheduled, reminders }, { headers: { 'cache-control': 'no-store' } });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : 'tick failed' }, { status: 503 });
+  }
+}
+
+export { handler as GET, handler as POST };

@@ -1,12 +1,10 @@
 import { after, NextResponse, type NextRequest } from 'next/server';
-import { runAppointmentSyncTick, runReminderTick, syncDepsFromEnv, teamMeetingDepsFromEnv } from '@repo/core/appointments';
-import { noticeMailFromEnv } from '@repo/core/email';
-import { expireProposedActions, purgeAssistantConversations, runScheduledActions } from '@repo/core/assistant';
+import { runAppointmentSyncTick, syncDepsFromEnv } from '@repo/core/appointments';
+import { expireProposedActions, purgeAssistantConversations } from '@repo/core/assistant';
 import { purgeImportFiles, runImportTick } from '@repo/core/imports';
 import { runEmbeddingTick } from '@repo/core/assistant-search';
 import { embedderFromEnv } from '@repo/ai/search-embedder';
-import { mailDepsFromEnv, pullReceivedMail } from '@repo/core/mail';
-import { teamMessageDepsFromEnv } from '@repo/core/team-messages';
+import { pullReceivedMail } from '@repo/core/mail';
 import { authoriseCronRequest, runScheduleTick } from '@repo/core/schedules';
 import { runSkillTick } from '@repo/core/skills';
 import {
@@ -107,14 +105,8 @@ async function handler(request: NextRequest) {
       error: err instanceof Error ? err.message : 'appointment sync tick failed',
     }));
 
-    /**
-     * Meeting reminders (ADR 0032 §4): each due appointment is claimed once and
-     * its agent and booker get a bell notification and an email; an invited
-     * contact gets an email. Late by up to one tick — 10 to 15 minutes ahead.
-     */
-    const reminders = await runReminderTick(getWebDb(), { notice: noticeMailFromEnv(), mail: mailDepsFromEnv() }).catch((err: unknown) => ({
-      error: err instanceof Error ? err.message : 'reminder tick failed',
-    }));
+    // Meeting reminders and assistant actions approved for later run on the
+    // every-minute tick (/api/cron/minute, ADR 0035) — their point is their time.
 
     /**
      * Console assistant conversations are kept 30 days after their last turn,
@@ -135,17 +127,6 @@ async function handler(request: NextRequest) {
       .catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'import tick failed' }));
 
     /**
-     * Assistant actions approved to run later (ADR 0025 Phase E): each runs
-     * once, as the person who approved it as they are NOW, with every check
-     * repeated. Offering a later time needs ASSISTANT_SCHEDULING=1 (with the
-     * 5-minute cron); ones already scheduled run even if it is switched off.
-     */
-    const scheduled = await (async () => {
-      const send = templateSendDepsFromEnv();
-      return runScheduledActions(getWebDb(), { sync: syncDepsFromEnv(), templateSend: send.ok ? send.deps : null, mail: mailDepsFromEnv(), teamMessages: teamMessageDepsFromEnv(), teamMeetings: teamMeetingDepsFromEnv() });
-    })().catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'scheduled actions failed' }));
-
-    /**
      * The assistant's search index (ADR 0031): prune embeddings that no longer
      * qualify, then embed a small metered batch of new or changed notes,
      * emails and enquiries. Full-text needs nothing here (Postgres keeps it);
@@ -157,7 +138,7 @@ async function handler(request: NextRequest) {
 
     // No ids, no addresses, no listing text — this is read from a cron log.
     return NextResponse.json(
-      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills, templateEmail, appointmentSync, reminders, assistant, imports, scheduled, searchIndex },
+      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills, templateEmail, appointmentSync, assistant, imports, searchIndex },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (err) {
