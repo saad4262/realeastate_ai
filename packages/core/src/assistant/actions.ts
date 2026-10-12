@@ -19,7 +19,10 @@ import { AppointmentError, cancelAppointment, rescheduleAppointment, scheduleApp
 import { syncAppointment, type SyncDeps, type SyncOutcome } from '../appointments/sync';
 import { sendInvitation } from '../appointments/invitation';
 import { getAppointment } from '../appointments/appointments';
-import type { MailDeps } from '../mail/send';
+import { deliverOutbound, type MailDeps } from '../mail/send';
+import { recordContactEmail } from '../mail/compose';
+import { MailError } from '../mail/threads';
+import { deliverTeamMessage, startTeamThread, TeamMessageError, type TeamMessageDeps } from '../team-messages/messages';
 import { requireIntegrations } from '../integrations/accounts';
 import { approveBatch, cancelBatch } from '../template-email/batches';
 import { sendBatch, type TemplateSendDeps } from '../template-email/send';
@@ -92,7 +95,11 @@ export type FrozenArgs =
   /** ADR 0033: only the fields the card showed; `before` = what it showed (refused if they changed since). */
   | { tool: 'update_agent'; target: TeamTarget; patch: Partial<TeamMemberDetails>; before: Partial<TeamMemberDetails> }
   /** ADR 0033: an invite is withdrawn (`choice` null); a member is removed as ADR 0030, with this choice. */
-  | { tool: 'remove_agent'; target: TeamTarget; choice: OffboardChoice | null };
+  | { tool: 'remove_agent'; target: TeamTarget; choice: OffboardChoice | null }
+  /** ADR 0035: the exact words the card showed — what was approved is what is sent. */
+  | { tool: 'send_email'; contactId: string; subject: string; body: string }
+  /** ADR 0035: colleagues' user ids (from `M` references), and the exact words. */
+  | { tool: 'message_colleagues'; to: string[]; subject: string; body: string };
 
 /** The contacts whose timelines carry this action's audit lines. */
 function auditContacts(row: { contactId: string | null; args: unknown }): string[] {
@@ -184,7 +191,9 @@ function runRefusal(err: unknown): string | null {
     err instanceof TemplateEmailError ||
     err instanceof DashboardError ||
     err instanceof TeamEditError ||
-    err instanceof OffboardError
+    err instanceof OffboardError ||
+    err instanceof MailError ||
+    err instanceof TeamMessageError
   ) {
     return err.message;
   }
@@ -211,6 +220,8 @@ type RunDeps = {
   offboard?: OffboardDeps | null;
   /** Emailing a changed invite's new link (ADR 0033). Without it, the link is on the card and the team screen. */
   inviteMail?: InviteEmailDeps | null;
+  /** A team message's emails (ADR 0035). Without it, the bell only. */
+  teamMessages?: TeamMessageDeps | null;
 };
 
 type Executed = {
@@ -221,6 +232,10 @@ type Executed = {
   offboard?: { userId: string; choice: OffboardChoice };
   /** An invite whose email changed: its new link, emailed after the commit. */
   inviteClaim?: { inviteId: string; claimPath: string; expiresAt: Date };
+  /** A new email to a contact, recorded queued: sent after the commit (ADR 0035). */
+  mailMessageId?: string;
+  /** A team message, recorded: its emails and bell after the commit. */
+  teamMessageId?: string;
 };
 
 /**
@@ -339,6 +354,19 @@ async function execute(
         result: { changed: r.changed, ...(r.claim ? { claimPath: r.claim.claimPath } : {}) },
         ...(r.claim ? { inviteClaim: { inviteId: r.claim.inviteId, claimPath: r.claim.claimPath, expiresAt: r.claim.expiresAt } } : {}),
       };
+    }
+    case 'send_email': {
+      const mail = deps.mail ?? deps.templateSend?.mail ?? null;
+      if (!mail) throw new AssistantError('conflict', 'Email is not set up on this server, so nothing can be sent.');
+      // Every check again, as this person now: mail:compose, archived, unsubscribed, the dev
+      // allowlist, today's limits, the unsubscribe link. Recorded queued; sent after the commit.
+      const r = await recordContactEmail(tx, mail, actor, args.contactId, { subject: args.subject, body: args.body }, { via: 'assistant', ...(deps.env ? { env: deps.env } : {}) });
+      return { result: { threadId: r.threadId }, mailMessageId: r.messageId };
+    }
+    case 'message_colleagues': {
+      // team_message:send again, and every recipient still an active member.
+      const r = await startTeamThread(tx, actor, { to: args.to, subject: args.subject, body: args.body });
+      return { result: { teamThreadId: r.threadId }, teamMessageId: r.messageId };
     }
     case 'remove_agent': {
       if (args.target.kind === 'invite') {
@@ -462,6 +490,24 @@ async function afterCommit(db: Db, actor: Actor, row: RowT, ran: Extract<Ran, { 
         });
     }
     const result = { ...ran.result, emailed };
+    await db.update(proposedAction).set({ result, updatedAt: sql`now()` }).where(eq(proposedAction.id, row.id));
+    return { outcome: 'done', result, sync: null };
+  }
+  if (ran.mailMessageId) {
+    const mail = deps.mail ?? deps.templateSend?.mail ?? null;
+    const sent = mail
+      ? await deliverOutbound(db, mail, ran.mailMessageId).catch((err: unknown) => ({ status: 'failed' as const, error: err instanceof Error ? err.message : 'Could not send' }))
+      : { status: 'failed' as const, error: 'Email is not set up on this server.' };
+    const result = { ...ran.result, emailStatus: sent.status, ...(sent.status === 'failed' ? { emailError: `${sent.error ?? 'It was not delivered'}. It has a Retry in the conversation.` } : {}) };
+    await db.update(proposedAction).set({ result, updatedAt: sql`now()` }).where(eq(proposedAction.id, row.id));
+    return { outcome: 'done', result, sync: null };
+  }
+  if (ran.teamMessageId) {
+    const told = await deliverTeamMessage(db, deps.teamMessages ?? null, ran.teamMessageId).catch((err: unknown) => {
+      console.error('[assistant] team message delivery failed', err instanceof Error ? err.message : err);
+      return null;
+    });
+    const result = { ...ran.result, ...(told ? { emailed: told.emailed > 0 } : {}) };
     await db.update(proposedAction).set({ result, updatedAt: sql`now()` }).where(eq(proposedAction.id, row.id));
     return { outcome: 'done', result, sync: null };
   }
@@ -766,7 +812,7 @@ export type ProposalView = {
   card: ProposalCard;
   error: string | null;
   /** Ids of what it made or changed — for links. Never model text. */
-  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; recorded?: number; withdrawn?: number; changed?: string[]; claimPath?: string; emailed?: boolean; removed?: boolean; sent?: number; skipped?: number; failed?: number; sendError?: string; invited?: boolean; invitationError?: string } | null;
+  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; recorded?: number; withdrawn?: number; changed?: string[]; claimPath?: string; emailed?: boolean; removed?: boolean; sent?: number; skipped?: number; failed?: number; sendError?: string; invited?: boolean; invitationError?: string; threadId?: string; teamThreadId?: string; emailStatus?: 'sent' | 'failed'; emailError?: string } | null;
   expiresAt: Date;
   /** When a scheduled action will run (about; up to ~5 minutes later). */
   runAt: Date | null;

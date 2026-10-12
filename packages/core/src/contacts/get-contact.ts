@@ -106,6 +106,8 @@ export type ContactView = {
   mayAssign: boolean;
   mayMerge: boolean;
   mayNote: boolean;
+  /** A new email to them (ADR 0035): `mail:compose`. Whether it can be SENT (address, opt-out) is the compose screen's. */
+  mayEmail: boolean;
   /** For the profile's other reads. See `ReadableContact`. */
   ref: ReadableContact;
 };
@@ -173,6 +175,7 @@ export async function getContact(
     mayAssign: can(actor, 'contact:assign', resource),
     mayMerge,
     mayNote: can(actor, 'note:create', resource),
+    mayEmail: can(actor, 'mail:compose', resource),
     ref: { id: row.id, agencyId: row.agencyId } as ReadableContact,
   };
 }

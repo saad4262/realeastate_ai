@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
 import { ASSISTANT_TOOLS, assistantToolsFor } from '../tools/assistant-tools';
-import { ASSISTANT_SYSTEM } from '../prompts/assistant-v10';
+import { ASSISTANT_SYSTEM } from '../prompts/assistant-v11';
 import { contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
 /**
@@ -233,10 +233,11 @@ describe('red team: a tricked model can read and propose, never act', () => {
     for (const n of names) {
       expect([...ASSISTANT_READ_TOOLS, ...ASSISTANT_WRITE_TOOLS] as string[]).toContain(n);
       expect(n).not.toMatch(/approve|run|execute|delete|sql/);
-      // One tool may SEND — and it only proposes an APPROVED template to references. A tool that
-      // merely mentions email must be a read tool (search_notes_and_emails reads, ADR 0031).
-      if (/send/.test(n)) expect(n).toBe('send_template_email');
-      if (/email/.test(n) && n !== 'send_template_email') expect(ASSISTANT_READ_TOOLS as readonly string[]).toContain(n);
+      // Two tools may SEND, and both only propose: an APPROVED template to references, and
+      // (ADR 0035) one email to ONE contact reference whose exact text the person approves. Any
+      // other tool that mentions email must be a read tool (search_notes_and_emails, ADR 0031).
+      if (/send/.test(n)) expect(['send_template_email', 'send_email']).toContain(n);
+      if (/email/.test(n) && !['send_template_email', 'send_email'].includes(n)) expect(ASSISTANT_READ_TOOLS as readonly string[]).toContain(n);
       // One tool may mention assigning: it only proposes, owners/admins alone are shown it, and
       // core refuses it for anyone else (the "tools by role" tests below and the core unit test).
       if (/assign/.test(n)) expect(n).toBe('assign_contacts');
@@ -248,7 +249,7 @@ describe('red team: a tricked model can read and propose, never act', () => {
 
   it('whatever tool name a tricked model invents goes to core, which refuses it', async () => {
     const { client } = fakeClient([
-      msg([toolUse('t1', 'send_email', { to: 'everyone' }), toolUse('t2', 'approve_action', { id: 'P1' })], 'tool_use'),
+      msg([toolUse('t1', 'send_raw_email', { to: 'everyone' }), toolUse('t2', 'approve_action', { id: 'P1' })], 'tool_use'),
       msg([text('I cannot do that.')], 'end_turn'),
     ]);
     const { runAssistantTool } = await import('@repo/core/assistant');
@@ -260,7 +261,7 @@ describe('red team: a tricked model can read and propose, never act', () => {
       },
     });
     const events = await run({ client, deps });
-    expect(seen).toEqual(['send_email', 'approve_action']);
+    expect(seen).toEqual(['send_raw_email', 'approve_action']);
     expect(events.filter((e) => e.type === 'results')).toHaveLength(0);
   });
 
@@ -382,13 +383,23 @@ describe('proposals (Phases B and C)', () => {
     expect(Object.keys((update.input_schema as { properties: Record<string, unknown> }).properties).sort()).toEqual(['contact', 'email', 'name', 'phone', 'roles']);
     expect(update.description).toMatch(/Nothing is sent|cannot change who the contact is assigned to/);
     // Among WRITE tools only (search_notes_and_emails, a read tool, has `to` as a date-range end).
+    // message_colleagues' `to` (ADR 0035) is M references from find_colleagues — never an address.
     expect(
       ASSISTANT_TOOLS.filter((t) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(t.name) && 'to' in (t.input_schema as { properties: Record<string, unknown> }).properties).map((t) => t.name),
-    ).toEqual(['assign_contacts']);
+    ).toEqual(['assign_contacts', 'message_colleagues']);
     for (const to of ['sara@example.com', 'Sara', 'C1', '55555555-5555-4555-8555-555555555555']) {
       expect(ASSISTANT_TOOL_INPUTS.assign_contacts.safeParse({ contacts: ['C1'], to }).success, to).toBe(false);
+      expect(ASSISTANT_TOOL_INPUTS.message_colleagues.safeParse({ to: [to], subject: 's', body: 'b' }).success, to).toBe(false);
     }
-    // The email card takes a template reference and contact references — no subject, body, address or filter.
+    // send_email (ADR 0035): one contact REFERENCE and the words — no address, recipient list or filter.
+    const direct = ASSISTANT_TOOLS.find((t) => t.name === 'send_email')!;
+    expect(Object.keys((direct.input_schema as { properties: Record<string, unknown> }).properties).sort()).toEqual(['body', 'contact', 'subject']);
+    for (const contact of ['sara@example.com', 'Sara', 'M1', '55555555-5555-4555-8555-555555555555']) {
+      expect(ASSISTANT_TOOL_INPUTS.send_email.safeParse({ contact, subject: 's', body: 'b' }).success, contact).toBe(false);
+    }
+    expect(ASSISTANT_TOOL_INPUTS.send_email.safeParse({ contact: 'C1', subject: 's', body: 'b', to: 'x@example.com' }).success).toBe(false);
+    expect(direct.description).toMatch(/never invent a price, date, time or any figure/);
+    // The template email card takes a template reference and contact references — no subject, body, address or filter.
     const send = ASSISTANT_TOOLS.find((t) => t.name === 'send_template_email')!;
     expect(Object.keys((send.input_schema as { properties: Record<string, unknown> }).properties).sort()).toEqual(['recipients', 'template']);
     expect(ASSISTANT_SYSTEM).toMatch(/cannot approve/);

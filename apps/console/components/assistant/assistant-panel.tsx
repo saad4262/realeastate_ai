@@ -40,9 +40,9 @@ type Turn = {
   pending: boolean;
 };
 
-const PATHS: Record<Surface, { contact: string; leads: string; templates: string; bulk: string; integrations: string }> = {
-  agency: { contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', bulk: '/bulk-email', integrations: '/settings/integrations' },
-  agent: { contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', bulk: '/my-bulk-email', integrations: '/my-integrations' },
+const PATHS: Record<Surface, { contact: string; leads: string; templates: string; bulk: string; integrations: string; inbox: string; messages: string }> = {
+  agency: { contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', bulk: '/bulk-email', integrations: '/settings/integrations', inbox: '/inbox', messages: '/messages' },
+  agent: { contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', bulk: '/my-bulk-email', integrations: '/my-integrations', inbox: '/my-inbox', messages: '/my-messages' },
 };
 
 const CONTACT_PAGE = /^\/(?:customers|my-contacts)\/([0-9a-f-]{36})(?:\/|$)/i;
@@ -499,6 +499,10 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
         ? `/dashboards/${view.result.dashboardId}`
         : view.tool === 'send_template_email' && view.result?.batchId
           ? `${PATHS[surface].bulk}/${view.result.batchId}`
+          : view.tool === 'send_email' && view.result?.threadId
+            ? `${PATHS[surface].inbox}?thread=${view.result.threadId}`
+            : view.tool === 'message_colleagues' && view.result?.teamThreadId
+              ? `${PATHS[surface].messages}?thread=${view.result.teamThreadId}`
           : view.tool === 'update_agent' || view.tool === 'remove_agent'
             ? '/team'
             : card.contact.id
@@ -509,6 +513,8 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
       ? 'Open the dashboard'
       : view.tool === 'send_template_email'
         ? 'Open the send report'
+        : view.tool === 'send_email' || view.tool === 'message_colleagues'
+          ? 'Open the conversation'
         : view.tool === 'update_agent' || view.tool === 'remove_agent'
           ? 'Open Agents & Team'
           : `Open ${card.contact.name}`;
@@ -537,9 +543,16 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
       </dl>
       {card.text ? (
         <div className={styles.cardText}>
-          <div className={styles.label}>{card.text.label} — exactly as it will be saved</div>
+          <div className={styles.label}>
+            {card.text.label} — exactly as it will be {view.tool === 'send_email' || view.tool === 'message_colleagues' ? 'sent' : 'saved'}
+          </div>
           {card.text.value}
         </div>
+      ) : null}
+      {card.figures?.length ? (
+        <p className={styles.cardNote}>
+          <strong>Check these figures:</strong> {card.figures.join(' · ')}
+        </p>
       ) : null}
       {card.people?.length ? (
         <ul className={styles.people}>
@@ -570,6 +583,14 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
             ? view.result.sendError
             : `Sent ${view.result.sent ?? 0}${view.result.skipped ? ` · ${view.result.skipped} skipped at sending` : ''}${view.result.failed ? ` · ${view.result.failed} failed` : ''}.`}
         </p>
+      ) : null}
+      {view.status === 'done' && view.tool === 'send_email' && view.result?.emailStatus ? (
+        <p className={view.result.emailStatus === 'sent' ? styles.cardNote : styles.error}>
+          {view.result.emailStatus === 'sent' ? 'Sent. Their reply comes back to the inbox.' : `Not delivered: ${view.result.emailError}`}
+        </p>
+      ) : null}
+      {view.status === 'done' && view.tool === 'message_colleagues' ? (
+        <p className={styles.cardNote}>{view.result?.emailed === false ? 'Sent — it is in their Team messages (the email copy did not go out).' : 'Sent — in their Team messages and by email.'}</p>
       ) : null}
       {view.status === 'done' && view.tool === 'schedule_appointment' && view.result && (view.result.invited || view.result.invitationError) ? (
         <p className={view.result.invited ? styles.cardNote : styles.error}>

@@ -24,6 +24,30 @@ export const replyInputSchema = z.object({
 
 export type ReplyInput = z.infer<typeof replyInputSchema>;
 
+/** Longest subject a new email or team message may have. */
+export const MAX_SUBJECT_LENGTH = 200;
+
+const subjectSchema = z
+  .string()
+  .transform((value) => value.replace(/\s+/g, ' ').trim())
+  .pipe(z.string().min(1, 'Write a subject').max(MAX_SUBJECT_LENGTH, `Keep the subject under ${MAX_SUBJECT_LENGTH} characters`));
+
+/** A NEW email to a contact (ADR 0035 §1): a subject and the reply box's body. */
+export const composeInputSchema = z.object({ subject: subjectSchema, body: replyInputSchema.shape.body });
+export type ComposeInput = z.infer<typeof composeInputSchema>;
+
+/** A new team conversation (ADR 0035 §3): who, a subject, the first message. */
+export const MAX_TEAM_RECIPIENTS = 10;
+export const teamMessageStartSchema = z.object({
+  to: z
+    .array(z.string().uuid())
+    .min(1, 'Choose who to write to')
+    .max(MAX_TEAM_RECIPIENTS, `At most ${MAX_TEAM_RECIPIENTS} people on one conversation`),
+  subject: subjectSchema,
+  body: replyInputSchema.shape.body,
+});
+export type TeamMessageStart = z.infer<typeof teamMessageStartSchema>;
+
 /** The inbox folders. In the URL as `?folder=`; anything else is `all`. */
 export const MAIL_FOLDERS = ['all', 'unread', 'mine', 'offers', 'general'] as const;
 export type MailFolder = (typeof MAIL_FOLDERS)[number];

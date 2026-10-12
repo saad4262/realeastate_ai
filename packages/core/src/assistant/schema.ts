@@ -23,7 +23,7 @@ export const HANDLE_KINDS = {
   T: 'template',
   /** A contact the person selected in the console (the page they are on). */
   S: 'contact',
-  /** A member of the agency who may be given contacts — issued only by find_team_members (owners/admins). */
+  /** A member of the agency — issued by find_team_members (owners/admins) and find_colleagues (everyone). */
   M: 'member',
   /** A pending agent invite — issued only by find_agents (owners/admins, ADR 0033). */
   I: 'invite',
@@ -336,8 +336,41 @@ export const removeAgentInput = z
   })
   .strict();
 
-export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent'] as const;
+/**
+ * Writing (ADR 0035). find_colleagues issues `M` references for the other
+ * active members — anyone may look them up, to write to them. The two write
+ * tools only propose: the card shows the exact words, and nothing is sent
+ * until the person approves THAT text. No field takes an address or a name.
+ */
+export const findColleaguesInput = z
+  .object({
+    /** Part of a name or email. Omit for everyone. */
+    text: text.optional(),
+  })
+  .strict();
+
+const emailSubject = z.string().trim().min(1).max(200);
+const emailBody = z.string().trim().min(1).max(5000);
+
+export const sendEmailInput = z
+  .object({
+    contact: contactHandleSchema,
+    subject: emailSubject,
+    /** Plain text, signed off by the platform — no sign-off needed. */
+    body: emailBody,
+  })
+  .strict();
+
+export const messageColleaguesInput = z
+  .object({
+    to: z.array(memberHandleSchema).min(1).max(10),
+    subject: emailSubject,
+    body: emailBody,
+  })
+  .strict();
+
+export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 
 /** Every tool. Read tools run at once; write tools only propose (ADR 0025 §8). */
@@ -365,6 +398,9 @@ export const ASSISTANT_TOOL_INPUTS = {
   find_agents: findAgentsInput,
   update_agent: updateAgentInput,
   remove_agent: removeAgentInput,
+  find_colleagues: findColleaguesInput,
+  send_email: sendEmailInput,
+  message_colleagues: messageColleaguesInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];
@@ -462,6 +498,11 @@ export type ProposalCard = {
    * the database — what it is now and what it will be, or why it is skipped.
    */
   changes?: { name: string; email: string | null; before: string; after: string; skipped: string | null }[];
+  /**
+   * For a card whose text the assistant WROTE and that someone else will read
+   * (ADR 0035 §4): every figure in it, so the person checks each one.
+   */
+  figures?: string[];
 };
 
 /** The NDJSON frames of one turn, in order. */

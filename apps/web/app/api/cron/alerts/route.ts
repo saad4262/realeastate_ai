@@ -6,6 +6,7 @@ import { purgeImportFiles, runImportTick } from '@repo/core/imports';
 import { runEmbeddingTick } from '@repo/core/assistant-search';
 import { embedderFromEnv } from '@repo/ai/search-embedder';
 import { mailDepsFromEnv, pullReceivedMail } from '@repo/core/mail';
+import { teamMessageDepsFromEnv } from '@repo/core/team-messages';
 import { authoriseCronRequest, runScheduleTick } from '@repo/core/schedules';
 import { runSkillTick } from '@repo/core/skills';
 import {
@@ -141,7 +142,7 @@ async function handler(request: NextRequest) {
      */
     const scheduled = await (async () => {
       const send = templateSendDepsFromEnv();
-      return runScheduledActions(getWebDb(), { sync: syncDepsFromEnv(), templateSend: send.ok ? send.deps : null, mail: mailDepsFromEnv() });
+      return runScheduledActions(getWebDb(), { sync: syncDepsFromEnv(), templateSend: send.ok ? send.deps : null, mail: mailDepsFromEnv(), teamMessages: teamMessageDepsFromEnv() });
     })().catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'scheduled actions failed' }));
 
     /**

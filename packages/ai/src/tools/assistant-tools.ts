@@ -364,6 +364,44 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
       },
       required: ['agent'],
     },
+  },  {
+    name: 'find_colleagues',
+    description: 'Look up the other active members of the agency — to write to them with message_colleagues. Returns M references with each person\'s name, role and email. Anyone may use it.',
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        text: { type: 'string', description: 'Part of a name, email or role, e.g. "Sarah" or "admin". Omit for everyone.' },
+      },
+    },
+  },
+  {
+    name: 'send_email',
+    description: `Propose a NEW email to one contact, written by you from what the person asked. Write it as the person, in plain text, short and polite; no sign-off (their name and the agency's are added). Use ONLY facts the person gave you or a tool returned — never invent a price, date, time or any figure; if one is needed and you were not given it, ask. The card shows the exact words and lists every figure for the person to check. A contact who unsubscribed, is archived or has no email cannot be emailed — say so. To answer an existing conversation, the person replies in the inbox instead. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        contact: { type: 'string', description: REF },
+        subject: { type: 'string', description: 'The subject line, up to 200 characters.' },
+        body: { type: 'string', description: 'The email itself, plain text, up to 5000 characters. Paragraphs separated by a blank line.' },
+      },
+      required: ['contact', 'subject', 'body'],
+    },
+  },
+  {
+    name: 'message_colleagues',
+    description: `Propose a message to one or more colleagues (1 to 10) — it appears in their Team messages and is emailed to them. Use find_colleagues first for the M references. Write it as the person, in plain text; use ONLY facts the person gave you or a tool returned, never an invented figure. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        to: { type: 'array', items: { type: 'string' }, description: 'M references from find_colleagues, 1 to 10.' },
+        subject: { type: 'string', description: 'The subject line, up to 200 characters.' },
+        body: { type: 'string', description: 'The message, plain text, up to 5000 characters.' },
+      },
+      required: ['to', 'subject', 'body'],
+    },
   },
 ]);
 

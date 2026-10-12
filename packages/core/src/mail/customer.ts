@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, or, sql } from 'drizzle-orm';
 import { replyInputSchema } from './mail-schema';
-import { agency, integrationAccount, lead, mailMessage, mailThread, type Db } from '@repo/db';
+import { agency, integrationAccount, lead, mailCustomerRead, mailMessage, mailThread, type Db } from '@repo/db';
 import { can } from '../permissions';
 import { snippet, stripQuotedReply } from './body';
 import { MailError } from './threads';
@@ -49,6 +49,8 @@ export type CustomerThreadRow = {
   /** How many times the agency has written back. */
   replies: number;
   lastActivityAt: Date;
+  /** The agency wrote since they last opened it (ADR 0035 §2). */
+  unread: boolean;
 };
 
 function assertOwner(who: CustomerIdentity) {
@@ -62,7 +64,16 @@ export type CustomerThreadList = {
   rows: CustomerThreadRow[];
   /** False until they open the link sent to their address; the page offers it. */
   addressProved: boolean;
+  /** Conversations with something new from the agency. */
+  unread: number;
 };
+
+/** "The agency wrote since you last looked": a sent message newer than their read mark. */
+const customerUnread = sql<boolean>`exists (
+  select 1 from mail_message u
+  where u.thread_id = ${mailThread.id} and u.direction = 'out' and u.status = 'sent'
+    and u.created_at > coalesce(${mailCustomerRead.lastReadAt}, '-infinity'::timestamptz)
+)`;
 
 /** Their conversations, newest activity first. Two statements: the proof, then the list. */
 export async function listCustomerThreads(
@@ -100,10 +111,13 @@ export async function listCustomerThreads(
         select count(*) from mail_message m
         where m.thread_id = ${mailThread.id} and m.direction = 'out' and m.status = 'sent'
       )`,
+      unread: customerUnread,
+      unreadCount: sql<number>`count(*) filter (where ${customerUnread}) over()`,
     })
     .from(mailThread)
     .innerJoin(agency, eq(agency.id, mailThread.agencyId))
     .leftJoin(lead, eq(lead.id, mailThread.leadId))
+    .leftJoin(mailCustomerRead, and(eq(mailCustomerRead.threadId, mailThread.id), eq(mailCustomerRead.userId, who.userId)))
     .where(mine(who, proved))
     // Their own last visible activity, not the agency's internal clock — a
     // refused relay must not float a thread to the top of the buyer's list.
@@ -112,6 +126,7 @@ export async function listCustomerThreads(
 
   return {
     addressProved: proved !== null,
+    unread: Number(rows[0]?.unreadCount ?? 0),
     rows: rows.map((r) => ({
       id: r.id,
       subject: r.subject,
@@ -119,6 +134,7 @@ export async function listCustomerThreads(
       preview: snippet(r.latest ?? r.leadMessage ?? ''),
       replies: Number(r.replies ?? 0),
       lastActivityAt: new Date(r.lastAt ?? r.createdAt),
+      unread: r.unread === true || (r.unread as unknown) === 't',
     })),
   };
 }
@@ -269,4 +285,25 @@ export async function replyAsCustomer(
     return row!.id;
   });
   return { threadId: thread.id, messageId };
+}
+
+/**
+ * "I have read this" — the buyer opened one of their conversations (ADR 0035
+ * §2). Only on a thread `getCustomerThread` would show them; upserted.
+ */
+export async function markCustomerThreadRead(db: Db, who: CustomerIdentity, threadId: string): Promise<void> {
+  assertOwner(who);
+  if (!/^[0-9a-f-]{36}$/i.test(threadId)) return;
+  const proved = await provenAddress(db, who);
+  const [thread] = await db
+    .select({ id: mailThread.id })
+    .from(mailThread)
+    .leftJoin(lead, eq(lead.id, mailThread.leadId))
+    .where(and(eq(mailThread.id, threadId), mine(who, proved)))
+    .limit(1);
+  if (!thread) return;
+  await db
+    .insert(mailCustomerRead)
+    .values({ threadId: thread.id, userId: who.userId, lastReadAt: sql`clock_timestamp()` })
+    .onConflictDoUpdate({ target: [mailCustomerRead.threadId, mailCustomerRead.userId], set: { lastReadAt: sql`clock_timestamp()` } });
 }

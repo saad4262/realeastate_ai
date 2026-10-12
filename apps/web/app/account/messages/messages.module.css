@@ -63,3 +63,11 @@
 .composerNote { font-size: 0.8125rem; color: var(--color-muted, #5c5c5c); }
 .composerError { font-size: 0.8125rem; color: #b42318; }
 .button:disabled { opacity: 0.6; cursor: default; }
+
+/* Something new from the agency since you last opened it (ADR 0035 §2). */
+.rowNew .subject { font-weight: 700; }
+.newPill {
+  flex: none; padding: 0.05rem 0.45rem; border-radius: 999px;
+  background: var(--shell-accent, #0b3d2e); color: #fff;
+  font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.02em;
+}

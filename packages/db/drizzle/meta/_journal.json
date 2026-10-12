@@ -288,6 +288,13 @@
       "when": 1791631583818,
       "tag": "0040_proposed_action_team_tools",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791780341912,
+      "tag": "0041_compose_email_team_messages",
+      "breakpoints": true
     }
   ]
 }

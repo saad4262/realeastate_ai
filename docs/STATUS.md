@@ -3,7 +3,21 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
-- **Agents widget (ADR 0034) — built 2026-10-10 on `feat/agent-activity-widget`, not committed.**
+- **New email + team messages + assistant writing (ADR 0035) — built 2026-10-12 on
+  `feat/compose-email`, NOT committed. Migration 0041 written, NOT applied (user: "abhi nahi").**
+  Agents/owners write a NEW email to a contact (`/inbox/new`, `/my-inbox/new`, contact Emails tab;
+  `mail:compose` = contact:update; refused if unsubscribed/archived/no email/limits/dev allowlist;
+  carries the contact's unsubscribe link; own Gmail when connected). Team messages between members
+  (`/messages`, `/my-messages`, nav badge, bell + email to the others, reply-by-email via signed
+  `m+` address with DMARC; only the people on it read it, not admins; read-only reads only).
+  Buyers: `/account/messages` shows a New pill until opened. Assistant: `find_colleagues`,
+  `send_email`, `message_colleagues` (card = exact words + "Check these figures"; prompt
+  `assistant@v11`). Checks: typecheck 10/10, lint 0 errors, unit 909 + 296, console + web
+  production builds OK; 5 unit guards broken → red. 4 smoke checks written ("New email and team
+  messages"), NOT run — they need 0041. TEST-PLAN **AI**. **Next:** apply 0041
+  (`pnpm --filter @repo/db db:migrate`), run `SMOKE_ONLY="New email and team messages" pnpm smoke`
+  and the "Console assistant" group (its AE tool-CHECK check needs 0041), then commit and walk AI.
+- **Agents widget (ADR 0034) — committed 59cfc03, on `main` and pushed.**
   No migration. Owners/admins ask the assistant "create a dashboard with all agents' names and the
   emails they received today" → a create_dashboard card with the new `agent_activity` widget → on
   Approve, a link to `/dashboards/<id>`: every active member (0s kept) with emails received / sent /
@@ -11,7 +25,7 @@
   full page lists each person's emails (subject, from/to, snippet, link to the inbox). Received =
   the lead's agent, else the contact's agent; sent = `sent_by`. Prompt `assistant@v10`. Checks:
   typecheck/lint 10/10 (0 errors), unit 898 + 296, smoke Dashboards 4/4 (+1 skip, console not
-  running); 4 break-tests red. TEST-PLAN **AH**. **Next:** the user reviews and commits, then walks AH.
+  running); 4 break-tests red. TEST-PLAN **AH**. **Next:** walk AH.
 - **Meetings end to end (ADR 0032) — built 2026-10-10; committed 79f2f10 on `feat/meetings`,
   merged with team edit (ADR 0033) and on `main` at c9fd9b7.** Migration **0039 applied on dev** (btree_gist; EXCLUDE
   `appointment_agent_no_overlap` on (assigned_agent_id, tstzrange) for active rows;
@@ -161,7 +175,7 @@
   Plan: `~/.claude/plans/pasted-content-id-f0ff-you-are-functional-frost.md`.
 - Build order (locked): Agency UI → Agent UI → Consumer web
 - Last tool: Claude Code
-- Last updated: 2026-10-06
+- Last updated: 2026-10-12
 - Deploying: `apps/web` only, Vercel Hobby. `apps/console` waits for a real
   domain — see `docs/DEPLOY.md`. **Nothing is deployed yet.**
 

@@ -49,6 +49,8 @@ export const ACTIVITY_KINDS = [
   'appointment_cancelled',
   'appointment_invitation_sent',
   'template_email_sent',
+  // ADR 0035: a new email written to them (by a person, or approved on an assistant card).
+  'email_sent',
   'contact_opted_out',
   // The console assistant (ADR 0025): a card proposed, and what became of it.
   'assistant_proposed',
@@ -102,6 +104,7 @@ export const ACTIVITY_LABELS: Record<ActivityKind, string> = {
   appointment_cancelled: 'Appointment cancelled',
   appointment_invitation_sent: 'Invitation emailed',
   template_email_sent: 'Template email sent',
+  email_sent: 'Email sent',
   contact_opted_out: 'Unsubscribed from marketing email',
   assistant_proposed: 'Assistant suggested a change',
   assistant_approved: 'Assistant change approved',

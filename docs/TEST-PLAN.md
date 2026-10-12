@@ -1053,3 +1053,33 @@ console, one mail to the agency address from a contact assigned to agent 2.
 | AH8 | Agent opens a saved Agents dashboard with audience "Everyone in the agency" | That tile reads "This figure is for owners and admins." |
 | AH9 | Phone width (≈ 390 px) | The table scrolls sideways inside its card; the page itself does not. |
 | AH10 | "Same for the last 7 days" | A dashboard card with range "the last 7 days"; times in the lists show the day. |
+
+## AI — New email, team messages, and both through the assistant (ADR 0035)
+
+Before: **apply migration 0041** (`pnpm --filter @repo/db db:migrate`). An agency with an owner,
+two agents and (if you have one) a read-only member; a contact assigned to agent 1 whose address
+is in `EMAIL_DEV_ALLOWLIST`; `ALERT_UNSUBSCRIBE_SECRET` set; inbound mail set up for AI9/AI14.
+A website account for that contact's address (AI6–AI8). `ANTHROPIC_API_KEY` for AI15–AI18.
+
+| # | Case | Expected |
+|---|---|---|
+| AI1 | Agent 1 → **Inbox** → **New email** | A contact picker listing only agent 1's own contacts (search works). A contact without an email or archived shows "—", not "Write". |
+| AI2 | Pick the contact → write a subject and message → **Send** | "Sent" toast; the conversation opens in the inbox with the message, subject without "Re:". The contact's timeline has **Email sent**. |
+| AI3 | The received email | From agent 1 (their Gmail if connected, else the platform), signed with their name and the agency; footer has **Unsubscribe**; replying goes back into the same conversation. |
+| AI4 | Contact page → **Emails** tab | A **New email to <name>** button (agent 1 and the owner); none for agent 2 or read-only. |
+| AI5 | Agent 2 opens `/my-inbox/new?contact=<agent 1's contact id>` | "Only the agent this contact is assigned to, or an admin, may email them." No form. |
+| AI6 | Contact opens the email's **View this conversation on the website** link, then `/account/messages` | The conversation is listed with a **New** pill, subject in bold. |
+| AI7 | Open it | The message is there; back on the list the New pill is gone. |
+| AI8 | Reply on the website | It appears in the console conversation; agent 1 gets the "replied" notice. |
+| AI9 | Unsubscribe from the email's link, then try AI2 again | "They unsubscribed…" banner instead of the form. (Replying on the existing conversation still works.) |
+| AI10 | Agent 1 → **Team messages** → **New message** → tick the owner and agent 2, subject, message → Send | The conversation opens; both colleagues get an email and a bell notification; the nav shows a badge for them. |
+| AI11 | Owner opens the bell → the notification | Opens `/messages?thread=…`; the badge clears once opened. |
+| AI12 | Agent 2 replies in the console | Agent 1 and the owner get it (bell + email). |
+| AI13 | A second owner/admin who is NOT on it opens `/messages?thread=<id>` | "That conversation was not found." Their list does not show it. |
+| AI14 | The owner replies to the team email from Gmail | The answer appears in the conversation marked "replied by email" (quoted text cut). A reply from an address not on it is not shown. |
+| AI15 | Agent 1, assistant: "Email <contact> that the open home moved to Saturday at 10:30am" | A card **Email <name>**: To, From, Subject, the exact text, **Check these figures: 10:30am**, and the "Written by the assistant" note. Nothing sent. |
+| AI16 | Approve | "Sent. Their reply comes back to the inbox." + **Open the conversation**. Approve again → "already approved", one email only. |
+| AI17 | "Tell Sarah the Smith contract is signed" | The assistant looks up colleagues, then a card **Message Sarah** with the text. Approve → Sarah sees it in Team messages and by email. |
+| AI18 | "Email <contact> the price" (no price given) | The assistant asks for the figure instead of inventing one. |
+| AI19 | Read-only member → Team messages | Can read conversations they are on; no New message, no reply box. |
+| AI20 | Phone width (≈ 390 px) | New email and Team messages fit; the colleague list stacks. |

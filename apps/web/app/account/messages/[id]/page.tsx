@@ -6,7 +6,7 @@ import { WebShell } from '../../../../components/web-shell';
 import { ensureConsumerAccount } from '../../../../lib/account';
 import { getWebDb } from '../../../../lib/db';
 import { requireWebUser } from '../../../../lib/session';
-import { MailSync, ReplyBox } from '../islands';
+import { MailSync, MarkSeen, ReplyBox } from '../islands';
 import styles from '../messages.module.css';
 
 export const dynamic = 'force-dynamic';
@@ -51,6 +51,7 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
           </p>
         ) : (
           <>
+            <MarkSeen threadId={view.id} />
             <h1 className={styles.title}>{view.subject}</h1>
             <p className={styles.sub}>With {view.agencyName}</p>
 

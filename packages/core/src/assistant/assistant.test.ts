@@ -82,7 +82,7 @@ describe('schemas', () => {
 
 describe('runAssistantTool refuses before reaching the database', () => {
   it('a tool that does not exist (nothing writes, nothing approves)', async () => {
-    for (const name of ['send_email', 'approve_action', 'create_appointment', 'run_sql']) {
+    for (const name of ['send_raw_email', 'approve_action', 'create_appointment', 'run_sql']) {
       const out = await runAssistantTool(ctx(), name, {});
       expect(out.isError).toBe(true);
       expect(JSON.stringify(out.result)).toMatch(/no tool called/);

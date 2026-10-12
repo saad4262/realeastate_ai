@@ -464,3 +464,56 @@ export function buildMeetingReminderEmail(input: MeetingReminderEmailInput): Tra
     tags: { kind: 'meeting-reminder' },
   };
 }
+
+// ── Team message (ADR 0035 §3) ─────────────────────────────────────────────
+
+export type TeamMessageEmailInput = {
+  to: { email: string; name?: string };
+  from: { email: string; name: string };
+  /** The signed `m+…` address: answering the email answers the conversation. Null while inbound is off. */
+  replyTo: { email: string; name: string } | null;
+  postalAddress: string;
+  agencyName: string;
+  /** Who wrote it — "Sara Khan". */
+  writer: string;
+  subject: string;
+  /** Exactly what they wrote. */
+  body: string;
+  /** Everyone else on the conversation, by name. */
+  others: string[];
+  threadUrl: string;
+};
+
+/** "Sara Khan wrote to you" — a colleague's message, in full, with the way back to it. */
+export function buildTeamMessageEmail(input: TeamMessageEmailInput): TransactionalMessage {
+  requireSenderFooter(input.from, input.postalAddress, 'team message');
+
+  const heading = `${input.writer} wrote to you`;
+  const intro = input.others.length ? `${input.subject} · also to ${input.others.join(', ')}` : input.subject;
+  const after = input.replyTo
+    ? 'Reply to this email and your answer is added to the conversation, or open it in the console.'
+    : 'Open the conversation in the console to answer.';
+  const footer: Footer = {
+    from: input.from,
+    postalAddress: input.postalAddress,
+    why: `Sent because a colleague at ${input.agencyName} wrote to you in the console.`,
+  };
+  const paragraphs = input.body
+    .split(/\n{2,}/)
+    .map((block) => `<p style="font:400 15px/1.6 ${FONT};color:#1a1a1a;margin:18px 0 0;">${escapeHtml(block).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+
+  const html = layout({ heading, intro, body: paragraphs, button: { label: 'Open the conversation', url: input.threadUrl }, after, footer });
+  const text = [heading, intro, '', input.body, '', `Open the conversation: ${input.threadUrl}`, after, '', ...textFooter(footer)].join('\n');
+
+  return {
+    kind: 'transactional',
+    to: input.to,
+    from: { email: input.from.email, name: `${input.writer} · ${input.agencyName}` },
+    ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+    subject: input.subject,
+    html,
+    text,
+    tags: { kind: 'team-message' },
+  };
+}

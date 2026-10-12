@@ -1,3 +1,28 @@
+## 2026-10-12 — Claude Code — New email to contacts, team messages, and both by assistant (ADR 0035)
+
+- Asked (Roman Urdu): agency ↔ agent email, also via the assistant; agents/agency send a NEW email
+  to a contact (not only reply), also via the assistant; a proper buyer side to receive and reply.
+  Earlier the same session: status walkthrough; buyers see meetings from anyone who invited them;
+  Zoom needs Marketplace (Unlisted) review for other agents' accounts — the user is handling Zoom.
+- Branch `feat/compose-email` from main (59cfc03). ADR 0035 first. Migration 0041 (mail_customer_read,
+  team_thread, team_thread_member, team_message; RLS; proposed_action tool CHECK + send_email,
+  message_colleagues). Fixed the 0040 snapshot (now 0039's with 0040's id) so 0041 is clean.
+- Core: mail/compose.ts; send.ts DIRECT_EMAIL_KIND + opt-out link + Gmail allowed; conversation
+  email `opening`; team-messages/messages.ts; address.ts m+ signing; inbound/webhook/sync route
+  team replies; customer.ts unread + markCustomerThreadRead; permissions mail:compose,
+  team_message:read|send; get-contact mayEmail; activity email_sent; email builder
+  buildTeamMessageEmail. Assistant: schema/tools/write-tools/actions (figuresIn); ai tool defs;
+  prompt assistant-v11. Two ai red-team tests updated to the new rule (send_email, message_colleagues
+  `to` = M refs only), not loosened.
+- Console: compose-page/compose-form, inbox New email, contact Emails tab button, team-messages
+  page + islands + actions, nav items + unread badge (one subquery in load-actor), assistant card
+  figures/results. Web: New pill + MarkSeen. Cron passes teamMessages deps.
+- Checks: typecheck 10/10, lint 0 errors, unit 909 + 296, both production builds OK. Break-tests
+  (unit): participants-only, read-only writes, compose = contact:update, team signature domain,
+  opt-out line — all red. Smoke: 4 checks written, NOT run (0041 not applied by the user's choice).
+- Next exact step: the user applies 0041, runs the smoke group "New email and team messages" and
+  "Console assistant", commits, walks TEST-PLAN AI.
+
 ## 2026-10-10 — Claude Code — Agents widget: every person's emails and work on a dashboard (ADR 0034)
 
 - Asked (Roman Urdu): a mini dashboard, like the others, with every agent — how many emails they

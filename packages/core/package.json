@@ -11,6 +11,7 @@
     "./agency": "./src/agency/index.ts",
     "./identity": "./src/identity/index.ts",
     "./team/schema": "./src/team/invite-schema.ts",
+    "./team-messages": "./src/team-messages/index.ts",
     "./leads": "./src/leads/index.ts",
     "./leads/schema": "./src/leads/lead-schema.ts",
     "./mail": "./src/mail/index.ts",

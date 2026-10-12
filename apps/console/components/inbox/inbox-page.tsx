@@ -8,6 +8,7 @@ import {
   parseMailFolder,
   type MailThreadPage,
 } from '@repo/core/mail';
+import { can } from '@repo/core/permissions';
 import { getConsoleDb } from '../../lib/db';
 import { loadActorContext, loadListingActor } from '../../lib/load-actor';
 import { requireConsoleAccess } from '../../lib/require-console-access';
@@ -102,6 +103,8 @@ export async function InboxPage({
       agencyAddress={surface === 'agency' && config && slug ? agencyMailAddress(slug, config) : null}
       inboundOn={config !== null}
       webUrl={process.env.NEXT_PUBLIC_WEB_URL ?? 'http://web.lvh.me:3000'}
+      // A contact of their own would pass: the question is whether they may write at all.
+      mayCompose={can(who, 'mail:compose', { type: 'contact', agencyId: who.agencyId ?? undefined, ownerId: who.userId })}
     />
   );
 }

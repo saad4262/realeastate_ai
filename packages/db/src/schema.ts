@@ -692,6 +692,85 @@ export const mailRead = pgTable(
   (t) => [primaryKey({ columns: [t.threadId, t.userId] })],
 );
 
+/**
+ * When a BUYER last opened one of their conversations on the website
+ * (ADR 0035 §2). Separate from `mail_read`, which is the agency's members.
+ */
+export const mailCustomerRead = pgTable(
+  'mail_customer_read',
+  {
+    threadId: uuid('thread_id')
+      .notNull()
+      .references(() => mailThread.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    lastReadAt: timestamp('last_read_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.threadId, t.userId] })],
+);
+
+// ── Team messages (docs/adr/0035) ───────────────────────────────────────────
+
+/**
+ * A conversation between members of one agency. Never a `mail_thread`: an
+ * internal message must not be able to reach the buyer portal or the contact
+ * inbox, so it does not share their tables.
+ */
+export const teamThread = pgTable(
+  'team_thread',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    subject: text('subject').notNull(),
+    createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
+    lastMessageAt: timestamp('last_message_at', { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps,
+  },
+  (t) => [index('team_thread_agency_idx').on(t.agencyId, desc(t.lastMessageAt))],
+);
+
+/** Who is on a team conversation — the only people who may read it — and when each last opened it. */
+export const teamThreadMember = pgTable(
+  'team_thread_member',
+  {
+    threadId: uuid('thread_id')
+      .notNull()
+      .references(() => teamThread.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    lastReadAt: timestamp('last_read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.threadId, t.userId] }), index('team_thread_member_user_idx').on(t.userId)],
+);
+
+/** One message on a team conversation. Plain text, written in the console or answered from a mail client. */
+export const teamMessage = pgTable(
+  'team_message',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    threadId: uuid('thread_id')
+      .notNull()
+      .references(() => teamThread.id, { onDelete: 'cascade' }),
+    /** Denormalised, like mail_message, so tenancy is readable without a join. */
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    senderId: uuid('sender_id').references(() => user.id, { onDelete: 'set null' }),
+    /** `console`, or `email` when answered from a mail client. */
+    channel: varchar('channel', { length: 16 }).notNull().default('console'),
+    text: text('text').notNull(),
+    /** A received email's id: a webhook delivered twice stores once. */
+    providerId: text('provider_id').unique(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('team_message_thread_idx').on(t.threadId, t.createdAt)],
+);
+
 // ── Contacts (docs/adr/0018) ────────────────────────────────────────────────
 
 /** How the agency first met this person. */

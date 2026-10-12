@@ -7,14 +7,20 @@ export {
   bareAddress,
   mailConfigFromEnv,
   parseAgencyMailAddress,
+  parseTeamReplyAddress,
   parseThreadReplyAddress,
+  teamReplyAddress,
   threadReplyAddress,
   type MailConfig,
 } from './address';
 export { htmlToText, snippet, stripQuotedReply } from './body';
 export {
+  composeInputSchema,
   MAIL_FOLDERS,
   MAX_REPLY_LENGTH,
+  MAX_SUBJECT_LENGTH,
+  MAX_TEAM_RECIPIENTS,
+  teamMessageStartSchema,
   parseMailFolder,
   receivedEventSchema,
   receivedEmailSchema,
@@ -22,8 +28,18 @@ export {
   type AttachmentNote,
   type MailFolder,
   type ReceivedEmail,
+  type ComposeInput,
   type ReplyInput,
+  type TeamMessageStart,
 } from './mail-schema';
+export {
+  loadComposeTarget,
+  previewContactEmail,
+  recordContactEmail,
+  sendContactEmail,
+  type ComposePreview,
+  type ComposeTarget,
+} from './compose';
 export {
   getMailThread,
   listMailThreads,
@@ -41,6 +57,7 @@ export {
 } from './threads';
 export {
   deliverOutbound,
+  DIRECT_EMAIL_KIND,
   recordOutbound,
   mailDepsFromEnv,
   retryFailedMessage,
@@ -58,6 +75,7 @@ export { notifyThreadReply, type ThreadNoticeDeps } from './notices';
 export {
   getCustomerThread,
   listCustomerThreads,
+  markCustomerThreadRead,
   replyAsCustomer,
   type CustomerIdentity,
   type CustomerMessage,

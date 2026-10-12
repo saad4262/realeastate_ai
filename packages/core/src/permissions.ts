@@ -110,6 +110,20 @@ export type Action =
    */
   | 'mail:read_own'
   /**
+   * Write a NEW email to a contact (ADR 0035 §1): `contact:update`'s rule —
+   * the contact's assignee or an owner/admin, never a read-only member. The
+   * same person who may answer that contact's mail to the agency address.
+   */
+  | 'mail:compose'
+  /**
+   * A team conversation (ADR 0035 §3). With an id: only the people on it
+   * (`participantIds`) — not admins. Without one: the Team messages page,
+   * any active member.
+   */
+  | 'team_message:read'
+  /** Start one, or write on one you are on. Read-only members read only. */
+  | 'team_message:send'
+  /**
    * A buyer seeing their own meetings on the website (ADR 0032 §5): the ones
    * an agency sent them an invitation for, at an address they proved.
    * `ownerId` is their account; no agency role reaches this.
@@ -348,6 +362,8 @@ export type Resource = {
   audience?: 'private' | 'admins' | 'agency';
   /** On the agency, for `gmail:send_as_agency`: the admin switch (ADR 0026, decided Q3). */
   membersMayUseAgencyGmail?: boolean;
+  /** On a team conversation: the people on it (ADR 0035 §3). */
+  participantIds?: string[];
 };
 
 const ADMIN_ROLES: MembershipRole[] = ['owner', 'admin'];
@@ -499,6 +515,20 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
 
     case 'note:create':
       return mayWrite(actor) && can(actor, 'contact:read', resource);
+
+    case 'mail:compose':
+      return can(actor, 'contact:update', resource);
+
+    case 'team_message:read':
+    case 'team_message:send': {
+      if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      if (action === 'team_message:send' && !mayWrite(actor)) return false;
+      // The page as a whole, or starting a new one.
+      if (!resource.id) return true;
+      // Deliberately NOT `|| isAgencyAdmin(actor)`: a conversation between two
+      // people is theirs, as an assistant conversation is its author's.
+      return Boolean(resource.participantIds?.includes(actor.userId));
+    }
 
     case 'note:read_private':
       if (!sameAgency(actor, resource) || !actor.membershipRole) return false;

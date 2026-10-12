@@ -55,6 +55,13 @@ export type ConversationEmailInput = {
    * the subject as written (no "Re:"), and a footer that says why they get it.
    */
   unsubscribeUrl?: string;
+  /**
+   * The FIRST message of a conversation the agency started (ADR 0035 §1): the
+   * subject as written (no "Re:"), a footer that does not claim they enquired,
+   * and the contact's own unsubscribe link. Still one-to-one, so still
+   * transactional — it may leave through the author's Gmail.
+   */
+  opening?: { optOutUrl: string };
 };
 
 /**
@@ -71,9 +78,12 @@ export function buildConversationEmail(input: ConversationEmailInput): EmailMess
 
   const marketing = Boolean(input.unsubscribeUrl);
   const signOff = `${input.authorName}\n${input.agencyName}`;
+  const optOut = input.unsubscribeUrl ?? input.opening?.optOutUrl ?? null;
   const why = marketing
     ? `You are receiving this because you agreed to hear from ${input.agencyName}. Reply to this email to answer them.`
-    : `Sent by ${input.agencyName} in reply to your enquiry. Reply to this email to answer them.`;
+    : input.opening
+      ? `Sent to you by ${input.agencyName}. Reply to this email to answer them.`
+      : `Sent by ${input.agencyName} in reply to your enquiry. Reply to this email to answer them.`;
 
   const html = `<!doctype html>
 <html lang="en">
@@ -89,7 +99,7 @@ export function buildConversationEmail(input: ConversationEmailInput): EmailMess
     <p style="font:400 12px/1.6 ${FONT};color:#8c8577;margin:28px 0 0;border-top:1px solid #ece7dd;padding-top:12px;">
       ${escapeHtml(why)}<br>
       ${escapeHtml(input.from.name)}, ${escapeHtml(input.postalAddress)}
-      ${marketing ? `<br><a href="${escapeHtml(input.unsubscribeUrl!)}" style="color:#8c8577;">Unsubscribe</a> — no more marketing email from ${escapeHtml(input.agencyName)}.` : ''}
+      ${optOut ? `<br><a href="${escapeHtml(optOut)}" style="color:#8c8577;">Unsubscribe</a> — no more marketing email from ${escapeHtml(input.agencyName)}.` : ''}
     </p>
   </div>
 </body>
@@ -104,7 +114,7 @@ export function buildConversationEmail(input: ConversationEmailInput): EmailMess
     '---',
     why,
     `${input.from.name}, ${input.postalAddress}`,
-    ...(marketing ? [`Unsubscribe: ${input.unsubscribeUrl}`] : []),
+    ...(optOut ? [`Unsubscribe: ${optOut}`] : []),
   ].join('\n');
 
   if (marketing) {
@@ -126,10 +136,10 @@ export function buildConversationEmail(input: ConversationEmailInput): EmailMess
     to: input.to,
     from: input.from,
     replyTo: input.replyTo,
-    subject: replySubject(input.subject),
+    subject: input.opening ? input.subject.trim() : replySubject(input.subject),
     html,
     text,
-    tags: { kind: 'conversation' },
+    tags: { kind: input.opening ? 'direct-email' : 'conversation' },
     ...(input.threading ? { threading: input.threading } : {}),
   };
 }

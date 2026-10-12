@@ -41,6 +41,9 @@ const OWN_AGENCY = [
   'agency_google_place',
   'search_embedding',
   'notification',
+  // ADR 0035: members' conversations with each other; read only by the people on them.
+  'team_thread',
+  'team_message',
 ] as const;
 
 /** Reaches an agency through a parent row: table → [foreign-key column, parent table]. */
@@ -50,6 +53,9 @@ const THROUGH_PARENT: Record<string, [string, string]> = {
   media: ['listing_id', 'listing'],
   inspection: ['listing_id', 'listing'],
   mail_read: ['thread_id', 'mail_thread'],
+  // A buyer's read mark on a conversation of theirs (ADR 0035 §2).
+  mail_customer_read: ['thread_id', 'mail_thread'],
+  team_thread_member: ['thread_id', 'team_thread'],
   contact_role: ['contact_id', 'contact'],
   contact_property: ['contact_id', 'contact'],
   email_batch_recipient: ['batch_id', 'email_batch'],

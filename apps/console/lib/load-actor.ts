@@ -48,6 +48,8 @@ export type ActorContext = {
      * decision stays in permissions.ts.
      */
     unreadMail: number;
+    /** Team conversations (ADR 0035) with a message this person has not opened — only ones they are on. */
+    unreadTeam: number;
   };
 };
 
@@ -111,6 +113,16 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
           )
           and t.last_inbound_at > coalesce(r.last_read_at, '-infinity'::timestamptz)
       )`,
+      unreadTeam: sql<number>`(
+        select count(*) from team_thread_member me
+        join team_thread tt on tt.id = me.thread_id and tt.agency_id = ${membership.agencyId}
+        where me.user_id = ${userId}
+          and exists (
+            select 1 from team_message x
+            where x.thread_id = tt.id and x.sender_id is distinct from ${userId}
+              and x.created_at > coalesce(me.last_read_at, '-infinity'::timestamptz)
+          )
+      )`,
     })
     .from(membership)
     .leftJoin(agency, eq(agency.id, membership.agencyId))
@@ -121,7 +133,7 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
     .orderBy(sql`(${membership.status} = 'active') desc`, desc(membership.updatedAt))
     .limit(1);
 
-  const empty = { members: 0, liveListings: 0, pendingInvites: 0, newOffers: 0, unreadMail: 0 };
+  const empty = { members: 0, liveListings: 0, pendingInvites: 0, newOffers: 0, unreadMail: 0, unreadTeam: 0 };
 
   if (!mem || mem.status !== 'active') {
     return {
@@ -163,6 +175,7 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
       pendingInvites: Number(mem.pendingInvites ?? 0),
       newOffers: maySeeOffers ? Number(mem.newOffers ?? 0) : 0,
       unreadMail: Number((seesAllMail ? mem.unreadMailAll : mem.unreadMailMine) ?? 0),
+      unreadTeam: Number(mem.unreadTeam ?? 0),
     },
   };
 }

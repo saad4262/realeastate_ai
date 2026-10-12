@@ -10,6 +10,7 @@ const NAV = [
   { href: '/live-listings', label: 'Listings', icon: 'real_estate_agent' },
   { href: '/leads', label: 'Leads', icon: 'filter_alt' },
   { href: '/inbox', label: 'Inbox', icon: 'mail' },
+  { href: '/messages', label: 'Team messages', icon: 'forum' },
   { href: '/team', label: 'Agents & Team', icon: 'groups' },
   { href: '/customers', label: 'Customers', icon: 'contacts' },
   { href: '/calendar', label: 'Calendar', icon: 'calendar_today' },
@@ -55,10 +56,13 @@ function isNavActive(pathname: string, href: string) {
 export function NavList({
   newOffers = 0,
   unreadMail = 0,
+  unreadTeam = 0,
 }: {
   newOffers?: number;
   /** Unopened conversations, narrowed by can() in load-actor.ts. */
   unreadMail?: number;
+  /** Team conversations you are on with something new (ADR 0035). */
+  unreadTeam?: number;
 }) {
   const pathname = usePathname();
 
@@ -95,6 +99,11 @@ export function NavList({
             {item.href === '/inbox' && unreadMail > 0 ? (
               <span className={`${styles.navBadge} ${styles.navBadgeBlue}`} aria-label={`${unreadMail} unread`}>
                 {unreadMail}
+              </span>
+            ) : null}
+            {item.href === '/messages' && unreadTeam > 0 ? (
+              <span className={`${styles.navBadge} ${styles.navBadgeBlue}`} aria-label={`${unreadTeam} unread`}>
+                {unreadTeam}
               </span>
             ) : null}
             {item.badge ? (

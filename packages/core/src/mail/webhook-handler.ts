@@ -5,6 +5,7 @@ import { mailConfigFromEnv } from './address';
 import { fetchReceivedEmail, ingestReceivedEmail, type IngestOutcome } from './inbound';
 import { receivedEventSchema } from './mail-schema';
 import { notifyThreadReply } from './notices';
+import { deliverTeamMessage } from '../team-messages/messages';
 import { deliverOutbound } from './send';
 import { verifyResendWebhook, type WebhookHeaders } from './webhook';
 
@@ -91,6 +92,10 @@ export async function handleInboundWebhook(opts: {
     if (outcome.kind === 'relay') {
       followUp = async () => {
         await deliverOutbound(db, deps, outcome.messageId);
+      };
+    } else if (outcome.kind === 'team') {
+      followUp = async () => {
+        await deliverTeamMessage(db, { mailer: deps.mailer, config, urls: notice.urls }, outcome.messageId);
       };
     } else if (outcome.kind === 'stored' && outcome.notify) {
       followUp = async () => {

@@ -36,7 +36,10 @@ import {
   proposeSetNextAction,
   proposeUpdateAgent,
   proposeRemoveAgent,
+  proposeSendEmail,
+  proposeMessageColleagues,
 } from './write-tools';
+import { listColleagues } from '../team-messages/messages';
 import { agencyTimeZone, renderWidget } from '../widgets/registry';
 import {
   ASSISTANT_ADMIN_TOOLS,
@@ -109,6 +112,9 @@ const LABELS: Record<AssistantToolName, string> = {
   find_agents: 'Looking up the team…',
   update_agent: 'Preparing the change for you to approve…',
   remove_agent: 'Preparing the removal for you to approve…',
+  find_colleagues: 'Looking up your colleagues…',
+  send_email: 'Writing the email for you to check…',
+  message_colleagues: 'Writing the message for you to check…',
 };
 
 /** Tools that change a contact's own record: never for someone who may not edit a contact of their own (read-only). */
@@ -232,7 +238,33 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return proposeUpdateAgent(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.update_agent>, label);
     case 'remove_agent':
       return proposeRemoveAgent(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.remove_agent>, label);
+    case 'find_colleagues':
+      return findColleagues(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.find_colleagues>, label);
+    case 'send_email':
+      return proposeSendEmail(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.send_email>, label);
+    case 'message_colleagues':
+      return proposeMessageColleagues(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.message_colleagues>, label);
   }
+}
+
+/**
+ * The other active members of the agency, for writing to them (ADR 0035 §4).
+ * Everyone may ask: it is the Team messages picker. Names, roles and emails —
+ * never an id; `M` references the write tool resolves.
+ */
+async function findColleagues(ctx: ToolContext, input: z.infer<typeof ASSISTANT_TOOL_INPUTS.find_colleagues>, label: string): Promise<ToolOutcome> {
+  const all = await listColleagues(ctx.db, ctx.actor);
+  const q = input.text?.toLowerCase();
+  const matches = q ? all.filter((c) => `${c.name} ${c.email} ${c.roleLabel}`.toLowerCase().includes(q)) : all;
+  const shown = matches.slice(0, 20);
+  return {
+    label,
+    result: {
+      note: DATA_NOTE,
+      total: matches.length,
+      colleagues: shown.map((c) => ({ ref: issueHandle(ctx.handles, 'M', c.userId), name: c.name, role: c.roleLabel, email: c.email })),
+    },
+  };
 }
 
 function dayOf(iso: string | null): string | null {

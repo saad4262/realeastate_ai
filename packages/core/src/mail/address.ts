@@ -3,7 +3,10 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 /**
  * The addresses mail comes back to. See docs/adr/0016.
  *
- * Two kinds, both on MAIL_INBOUND_DOMAIN:
+ * Three kinds, all on MAIL_INBOUND_DOMAIN (the third from ADR 0035):
+ *  - `m+<teamThreadId>.<sig>@domain` — the Reply-To on a team message's email:
+ *    a colleague answering it from their mail. Signed over a different string
+ *    from a conversation's, so one can never be turned into the other.
  *  - `t+<threadId>.<sig>@domain` — the Reply-To on everything a conversation
  *    sends. Signed, because a thread id alone would let anybody who learned one
  *    write into somebody else's conversation from any address.
@@ -47,11 +50,34 @@ function signature(threadId: string, secret: string): string {
   return createHmac('sha256', secret).update(`thread:${threadId}`).digest('hex').slice(0, 20);
 }
 
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+
+function teamSignature(threadId: string, secret: string): string {
+  return createHmac('sha256', secret).update(`team:${threadId}`).digest('hex').slice(0, 20);
+}
+
+export function teamReplyAddress(threadId: string, config: MailConfig): string {
+  return `m+${threadId.toLowerCase()}.${teamSignature(threadId.toLowerCase(), config.replySecret)}@${config.inboundDomain}`;
+}
+
+const TEAM_RE = new RegExp(`^m\\+(${UUID})\\.([0-9a-f]{20})@(.+)$`);
+
+/** The team conversation a reply address names, or null when it is not one of ours or the signature is wrong. */
+export function parseTeamReplyAddress(address: string, config: MailConfig): string | null {
+  const match = TEAM_RE.exec(bareAddress(address));
+  if (!match) return null;
+  const [, threadId, offered, domain] = match as unknown as [string, string, string, string];
+  if (domain !== config.inboundDomain) return null;
+  const a = Buffer.from(offered, 'utf8');
+  const b = Buffer.from(teamSignature(threadId, config.replySecret), 'utf8');
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  return threadId;
+}
+
 export function threadReplyAddress(threadId: string, config: MailConfig): string {
   return `t+${threadId.toLowerCase()}.${signature(threadId.toLowerCase(), config.replySecret)}@${config.inboundDomain}`;
 }
 
-const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const REPLY_RE = new RegExp(`^t\\+(${UUID})\\.([0-9a-f]{20})@(.+)$`);
 
 /** The thread a reply address names, or null when it is not one of ours or the signature is wrong. */

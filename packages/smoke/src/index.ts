@@ -57,6 +57,14 @@ import { can, type Actor, type MembershipRole } from '@repo/core/permissions';
 import { agencyNotificationRecipients } from '@repo/core/agency';
 import { DEV_ALLOWLIST_PROBLEM, fakeTransport } from '@repo/core/email';
 import {
+  deliverTeamMessage,
+  getTeamThread,
+  listTeamThreads,
+  replyTeamThread,
+  startTeamThread,
+  type TeamMessageDeps,
+} from '@repo/core/team-messages';
+import {
   confirmEmailVerification,
   conversationLink,
   getCustomerThread,
@@ -72,6 +80,10 @@ import {
   recordOutbound,
   threadReplyAddress,
   setAgencyGmailSharing,
+  sendContactEmail,
+  listCustomerThreads,
+  markCustomerThreadRead,
+  teamReplyAddress,
   type MailConfig,
 } from '@repo/core/mail';
 import {
@@ -6151,6 +6163,180 @@ async function main() {
   });
 
   // ------------------------------------------------------- tenant isolation --
+  // ------------------------------------------- new email and team messages --
+  group('New email and team messages');
+
+  /**
+   * ADR 0035. A new email to a contact: only its assignee or an owner/admin,
+   * never to someone unsubscribed, carrying their unsubscribe link, and seen
+   * by the buyer on the website at a proved address. Team messages: only the
+   * people on a conversation read it — not the owner — and a reply by email is
+   * taken only from a member on it whose mail passed DMARC. Both through the
+   * assistant: a card with the exact words, sent only on Approve.
+   */
+  /** How many went out — a call, so an earlier assert does not narrow it to a literal. */
+  const sentN = (x: { transport: { sent: readonly unknown[] } }): number => x.transport.sent.length;
+  const mailCfg: MailConfig = { inboundDomain: 'reply.smoke.test', replySecret: 'smoke-reply-secret' };
+  function composeDeps(transport = fakeTransport()) {
+    return {
+      transport,
+      mail: {
+        mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport },
+        config: mailCfg,
+        unsubscribe: { baseUrl: 'http://web.test', secret: 's'.repeat(32) },
+        env: { ...process.env, NODE_ENV: 'development', EMAIL_DEV_ALLOWLIST: '@smoke.test' },
+      },
+    };
+  }
+
+  await check('new email: assignee and owner may, another agent and read-only may not; unsubscribed refused; the opt-out link rides; the buyer sees it, New until opened', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const d = composeDeps();
+      // P1 reached A1 through a listing (A1 may see but not edit); give A1 a contact of their own.
+      const [own] = await t.execute<{ id: string; email: string }>(sql`
+        insert into contact (agency_id, name, email, assigned_to) values (${f.agencyId}, 'Bea', ${`bea.${f.tag}@smoke.test`}, ${f.people.a1}) returning id, email`);
+      const input = { subject: 'Saturday inspection', body: 'Hi Bea,\n\nThe inspection moved to Saturday.' };
+      const refusedFor = async (who: Parameters<typeof f.actor>[0], contactId: string) =>
+        sendContactEmail(t, d.mail, f.actor(who), contactId, input).then(() => 'sent', (e: { message?: string }) => e.message ?? 'refused');
+      assert((await refusedFor('a2', own!.id)) !== 'sent', 'A2 emailed A1’s contact');
+      assert((await refusedFor('viewer', f.contacts.p4)) !== 'sent', 'a read-only member emailed their own contact');
+      assert(sentN(d) === 0, 'a refused email went out');
+
+      const sent = await sendContactEmail(t, d.mail, f.actor('a1'), own!.id, input);
+      assert(sent.status === 'sent' && sentN(d) === 1, `A1 → own contact: ${JSON.stringify(sent)}`);
+      const email = d.transport.sent[0]!;
+      assert(email.kind === 'transactional' && email.subject === 'Saturday inspection', `email: ${email.kind} "${email.subject}"`);
+      assert(/Unsubscribe: http:\/\/web\.test\/unsubscribe\?t=/.test(email.text) && /^t\+/.test(email.replyTo?.email ?? ''), 'no opt-out link, or no signed Reply-To');
+      const [m] = await t.execute<{ kind: string; status: string; subject: string }>(sql`
+        select m.kind, m.status, m.subject from mail_message m where m.thread_id = ${sent.threadId}`);
+      assert(m?.kind === 'direct_email' && m.status === 'sent' && m.subject === 'Saturday inspection', `row: ${JSON.stringify(m)}`);
+      assert((await count(t, sql`select count(*)::int as n from activity where contact_id = ${own!.id} and kind = 'email_sent'`)) === 1, 'not on the timeline');
+      const ownerSent = await sendContactEmail(t, d.mail, f.actor('owner'), own!.id, { subject: 'From the owner', body: 'Hello.' });
+      assert(ownerSent.status === 'sent', 'the owner could not email the contact');
+
+      // The buyer, with that address proved, sees both on the website — New until opened.
+      const [buyer] = await t.execute<{ id: string }>(sql`
+        insert into "user" (id, email, verified_email) values (${randomUUID()}, ${own!.email}, ${own!.email}) returning id`);
+      const who = { userId: buyer!.id, email: own!.email };
+      const before = await listCustomerThreads(t, who);
+      const row = before.rows.find((r) => r.id === sent.threadId);
+      assert(row?.unread === true && before.unread === 2, `buyer list: ${JSON.stringify(before.rows.map((r) => [r.subject, r.unread]))}`);
+      await markCustomerThreadRead(t, who, sent.threadId);
+      const after = await listCustomerThreads(t, who);
+      assert(after.rows.find((r) => r.id === sent.threadId)?.unread === false && after.unread === 1, 'opening it did not clear New');
+
+      // Unsubscribed: no new email (a reply on their own conversation is a different door).
+      await optOutContact(t, own!.id);
+      assert((await refusedFor('a1', own!.id)) !== 'sent' && sentN(d) === 2, 'an unsubscribed contact got a new email');
+      return 'A2 / read-only refused; A1 and owner sent (direct_email, opt-out link, signed Reply-To, on the timeline); buyer sees both, New clears on open; unsubscribed refused';
+    }),
+  );
+
+  await check('team messages: only the people on it read it — not the owner, not another agency; the bell and an email go to the others', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const g = await contactFixture(t); // another agency
+      const transport = fakeTransport();
+      const deps: TeamMessageDeps = { mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport }, config: mailCfg, urls: { agentUrl: 'http://agents.test', agencyUrl: 'http://agency.test' } };
+      const { threadId, messageId } = await startTeamThread(t, f.actor('a1'), { to: [f.people.a2], subject: 'Smith contract', body: 'Signed today.' });
+      const told = await deliverTeamMessage(t, deps, messageId);
+      assert(told.notified === 1 && told.emailed === 1 && transport.sent[0]?.to.email === `a2.${f.tag}@smoke.test`, `delivery: ${JSON.stringify(told)} → ${transport.sent[0]?.to.email}`);
+      assert(/^m\+/.test(transport.sent[0]?.replyTo?.email ?? '') && transport.sent[0]?.replyTo?.email === teamReplyAddress(threadId, mailCfg), 'no signed team Reply-To');
+      assert((await count(t, sql`select count(*)::int as n from notification where user_id = ${f.people.a2} and kind = 'team_message'`)) === 1, 'no bell for A2');
+      assert((await listTeamThreads(t, f.actor('a2'))).unread === 1, 'A2 does not see it unread');
+      const notFound = (p: Promise<unknown>) => p.then(() => 'read', (e: { code?: string }) => e.code ?? 'error');
+      assert((await notFound(getTeamThread(t, f.actor('owner'), threadId))) === 'not_found', 'the owner read a conversation they are not on');
+      assert((await notFound(getTeamThread(t, g.actor('owner'), threadId))) === 'not_found', 'another agency read it');
+      assert((await listTeamThreads(t, f.actor('owner'))).rows.length === 0, 'the owner’s list shows it');
+      // The read-only member cannot start one; nobody can add another agency's person.
+      assert((await notFound(startTeamThread(t, f.actor('viewer'), { to: [f.people.a1], subject: 's', body: 'b' }))) === 'forbidden', 'read-only wrote');
+      assert((await notFound(startTeamThread(t, f.actor('a1'), { to: [g.people.a1], subject: 's', body: 'b' }))) === 'invalid', 'wrote to another agency’s member');
+      // A2 answers in the console: A1 hears.
+      const { messageId: reply } = await replyTeamThread(t, f.actor('a2'), threadId, { body: 'Great news.' });
+      await deliverTeamMessage(t, deps, reply);
+      assert(transport.sent.at(-1)?.to.email === `a1.${f.tag}@smoke.test`, 'A1 was not emailed the reply');
+      return 'A2 belled + emailed (signed m+ Reply-To); owner and another agency: not found; read-only and cross-agency refused; replies reach the other side';
+    }),
+  );
+
+  await check('team messages: an email reply is taken only from a member on it whose mail passed DMARC', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const d = composeDeps();
+      const { threadId } = await startTeamThread(t, f.actor('a1'), { to: [f.people.a2], subject: 'Keys', body: 'Who has the keys?' });
+      const mail = (from: string, dmarc: string, id = `smoke-team-${randomUUID()}`) => ({
+        id,
+        from,
+        to: [teamReplyAddress(threadId, mailCfg)],
+        cc: [],
+        received_for: [],
+        subject: 'Re: Keys',
+        text: 'I have them.\n\nOn Mon, someone wrote:\n> Who has the keys?',
+        authentication: { dmarc },
+      });
+      const ingest = (e: ReturnType<typeof mail>) => ingestReceivedEmail(t, { ...d.mail, config: mailCfg }, e as never);
+      const ok = mail(`a2.${f.tag}@smoke.test`, 'pass');
+      const r1 = await ingest(ok);
+      assert(r1.kind === 'team', `A2 by email: ${r1.kind}`);
+      assert((await ingest(ok)).kind === 'duplicate', 'the same email stored twice');
+      for (const [from, dmarc, why] of [
+        [`a2.${f.tag}@smoke.test`, 'fail', 'DMARC failed'],
+        [`owner.${f.tag}@smoke.test`, 'pass', 'the owner is not on it'],
+        ['stranger@example.com', 'pass', 'a stranger'],
+      ] as const) {
+        const r = await ingest(mail(from, dmarc));
+        assert(r.kind === 'dropped', `${why}: ${r.kind}`);
+      }
+      const texts = (await getTeamThread(t, f.actor('a1'), threadId)).messages.map((m) => m.text);
+      assert(texts.length === 2 && texts[1] === 'I have them.', `stored: ${JSON.stringify(texts)}`);
+      // A forged signature routes nowhere.
+      const forged = { ...mail(`a2.${f.tag}@smoke.test`, 'pass'), to: [`m+${threadId}.00000000000000000000@reply.smoke.test`] };
+      assert((await ingest(forged)).kind === 'unrouted', 'a forged team address was routed');
+      return 'A2 (DMARC pass) stored once, quote cut; DMARC fail, owner not on it, stranger: dropped; forged signature: unrouted';
+    }),
+  );
+
+  await check('the assistant writes: send_email and message_colleagues show the exact words and figures; nothing goes before Approve; Approve sends once', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const d = composeDeps();
+      const teamTransport = fakeTransport();
+      const teamDeps: TeamMessageDeps = { mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport: teamTransport }, config: mailCfg, urls: { agentUrl: 'http://agents.test', agencyUrl: 'http://agency.test' } };
+      const [own] = await t.execute<{ id: string }>(sql`
+        insert into contact (agency_id, name, email, assigned_to) values (${f.agencyId}, 'Bea', ${`bea.${f.tag}@smoke.test`}, ${f.people.a1}) returning id`);
+      const a1 = f.actor('a1');
+      const conv = await claimTurn(t, a1, { message: 'email Bea', surface: 'agent' });
+      const h: HandleMap = {};
+      await selectionHandles(t, a1, h, [own!.id]);
+      const sRef = Object.entries(h).find(([, v]) => v.id === own!.id)![0];
+      const body = 'Hi Bea, the price guide is $950,000 and the open home is Saturday at 10:30am.';
+      const id = cardId(await runAssistantTool(proposeCtx(t, a1, h, conv.conversationId), 'send_email', { contact: sRef, subject: 'Open home', body }));
+      const card = (await getProposedAction(t, a1, id)).card;
+      assert(card.text?.value === body && JSON.stringify(card.figures) === JSON.stringify(['$950,000', '10:30am']), `card: ${JSON.stringify({ text: card.text, figures: card.figures })}`);
+      assert(sentN(d) === 0 && (await count(t, sql`select count(*)::int as n from mail_message m join mail_thread th on th.id = m.thread_id where th.contact_id = ${own!.id}`)) === 0, 'proposing wrote or sent');
+      assert((await code(approveProposedAction(t, f.actor('owner'), id, { mail: d.mail }))) === 'forbidden', 'the owner approved A1’s email');
+      const r1 = await approveProposedAction(t, a1, id, { mail: d.mail });
+      const r2 = await approveProposedAction(t, a1, id, { mail: d.mail });
+      assert(r1.outcome === 'done' && r2.outcome === 'already' && sentN(d) === 1, `approve twice: ${r1.outcome}/${r2.outcome}, ${sentN(d)} sent`);
+      assert(d.transport.sent[0]!.text.startsWith(body), 'the email is not the card’s words');
+
+      // To a colleague: find_colleagues issues M references; the card names them; Approve starts the conversation.
+      const found = await runAssistantTool(toolCtx(t, a1, h), 'find_colleagues', { text: 'a2' });
+      const mRef = (found.result as { colleagues: { ref: string; name: string }[] }).colleagues.find((c) => c.name === 'a2')!.ref;
+      const id2 = cardId(await runAssistantTool(proposeCtx(t, a1, h, conv.conversationId), 'message_colleagues', { to: [mRef], subject: 'Bea', body: 'Bea is coming Saturday.' }));
+      assert((await count(t, sql`select count(*)::int as n from team_thread where agency_id = ${f.agencyId}`)) === 0, 'proposing started a conversation');
+      const r3 = await approveProposedAction(t, a1, id2, { teamMessages: teamDeps });
+      const teamThreadId = (await getProposedAction(t, a1, id2)).result?.teamThreadId;
+      assert(r3.outcome === 'done' && teamThreadId && teamTransport.sent.length === 1, `team card: ${JSON.stringify(r3)}`);
+      assert((await getTeamThread(t, f.actor('a2'), teamThreadId!)).messages[0]?.text === 'Bea is coming Saturday.', 'A2 does not see it');
+      // A reference A1 was never given resolves nothing.
+      const bad = await runAssistantTool(proposeCtx(t, a1, h, conv.conversationId), 'message_colleagues', { to: ['M9'], subject: 's', body: 'b' });
+      assert(bad.isError && !bad.frame, 'an invented reference made a card');
+      return 'card = exact words + figures; 0 written/sent before Approve; owner refused; approve twice = 1 email; colleague card → conversation + 1 email; invented M refused';
+    }),
+  );
+
   group('Tenant isolation');
 
   /**

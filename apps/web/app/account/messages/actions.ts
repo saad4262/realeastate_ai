@@ -7,6 +7,7 @@ import { mailerFromEnv, noticeMailFromEnv } from '@repo/core/email';
 import {
   confirmEmailVerification,
   MailError,
+  markCustomerThreadRead,
   mailDepsFromEnv,
   notifyThreadReply,
   pullReceivedMail,
@@ -146,4 +147,21 @@ export async function syncMailAction(): Promise<{ stored: number }> {
   if (!result.ok) return { stored: 0 };
   if (result.followUp) after(result.followUp);
   return { stored: result.stored };
+}
+
+/**
+ * "I have read this" (ADR 0035 §2) — called once the conversation is on
+ * screen, never by the render (a prefetch must not mark it read). Only on a
+ * thread of theirs; anything else is silently nothing.
+ */
+export async function markReadAction(threadId: string): Promise<void> {
+  const who = await ensureConsumerAccount();
+  if (!who) return;
+  try {
+    await markCustomerThreadRead(getWebDb(), { userId: who.id, email: who.email ?? '' }, threadId);
+    revalidatePath('/account/messages');
+  } catch (err) {
+    // A "New" mark that stays is the whole cost of failing here.
+    console.error('[mail] mark read failed', err instanceof Error ? err.message : err);
+  }
 }

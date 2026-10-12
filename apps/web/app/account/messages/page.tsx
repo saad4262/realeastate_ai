@@ -61,7 +61,7 @@ export default async function MessagesPage({
           ← Your account
         </Link>
         <h1 className={styles.title}>Messages</h1>
-        <p className={styles.sub}>Your enquiries, and every reply the agency sent you.</p>
+        <p className={styles.sub}>Your enquiries, and every email an agency sent you — reply here or from your own email.</p>
 
         {notice ? (
           <p className={notice.bad ? styles.noticeBad : styles.notice} role="status">
@@ -97,9 +97,10 @@ export default async function MessagesPage({
           <ul className={styles.list}>
             {threads.map((t) => (
               <li key={t.id} className={styles.item}>
-                <Link href={`/account/messages/${t.id}`} className={styles.row}>
+                <Link href={`/account/messages/${t.id}`} className={`${styles.row} ${t.unread ? styles.rowNew : ''}`}>
                   <span className={styles.rowTop}>
                     <span className={styles.agency}>{t.agencyName}</span>
+                    {t.unread ? <span className={styles.newPill}>New</span> : null}
                     <time className={styles.when} dateTime={t.lastActivityAt.toISOString()}>
                       <LocalTime iso={t.lastActivityAt.toISOString()} style="date" />
                     </time>

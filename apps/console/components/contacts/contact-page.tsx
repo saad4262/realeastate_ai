@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import {
   contactCounts,
@@ -145,6 +146,13 @@ export async function ContactPage({
       body = (
         <section className={inboxStyles.card} aria-label="Conversations">
           <MailSync />
+          {opened === null && c.mayEmail ? (
+            <div className={inboxStyles.toolbar} style={{ justifyContent: 'flex-end' }}>
+              <Link href={`${surface === 'agency' ? '/inbox' : '/my-inbox'}/new?contact=${c.id}`} className={inboxStyles.newButton}>
+                New email to {c.name}
+              </Link>
+            </div>
+          ) : null}
           {opened === null ? (
             <ThreadList
               rows={list.rows}

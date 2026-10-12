@@ -8,6 +8,7 @@ import {
   mailDepsFromEnv,
   pullReceivedMail,
   retryFailedMessage,
+  sendContactEmail,
   sendThreadReply,
   type MailDeps,
 } from '@repo/core/mail';
@@ -63,6 +64,33 @@ export async function sendReplyAction(threadId: string, body: string): Promise<M
     return { ok: true, status: outcome.status, error: outcome.error };
   } catch (err) {
     return failure(err, 'Could not send the message');
+  }
+}
+
+export type NewEmailResult =
+  | { ok: true; threadId: string; status: 'sent' | 'failed'; error: string | null }
+  | { ok: false; error: string };
+
+/**
+ * A NEW email to a contact (ADR 0035 §1). Core decides who may, and refuses
+ * an archived, unsubscribed or address-less contact and an over-limit day; the
+ * conversation it opens holds the message either way — sent, or failed with a
+ * Retry.
+ */
+export async function sendNewEmailAction(contactId: string, subject: string, body: string): Promise<NewEmailResult> {
+  const who = await actor();
+  const deps = mailDeps();
+  if (!deps) return { ok: false, error: 'Email is not set up on this server yet, so nothing was sent.' };
+  try {
+    const outcome = await sendContactEmail(getConsoleDb(), deps, who, contactId, { subject, body });
+    refresh();
+    revalidatePath('/customers', 'layout');
+    revalidatePath('/my-contacts', 'layout');
+    return { ok: true, threadId: outcome.threadId, status: outcome.status, error: outcome.error };
+  } catch (err) {
+    if (err instanceof MailError) return { ok: false, error: err.message };
+    console.error('[mail] new email failed', err);
+    return { ok: false, error: 'Could not send the email' };
   }
 }
 

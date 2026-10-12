@@ -15,9 +15,11 @@ import {
   bareAddress,
   displayName,
   parseAgencyMailAddress,
+  parseTeamReplyAddress,
   parseThreadReplyAddress,
   type MailConfig,
 } from './address';
+import { ingestTeamReply } from '../team-messages/messages';
 import { decodeHtmlField, htmlToText, stripQuotedReply } from './body';
 import { receivedEmailSchema, type AttachmentNote, type ReceivedEmail } from './mail-schema';
 import { recordOutbound, type MailDeps } from './send';
@@ -57,7 +59,11 @@ export type IngestOutcome =
   | { kind: 'duplicate' }
   | { kind: 'unrouted' }
   | { kind: 'stored'; threadId: string; messageId: string; notify: boolean }
-  | { kind: 'relay'; threadId: string; messageId: string };
+  | { kind: 'relay'; threadId: string; messageId: string }
+  /** A colleague answering a team message from their mail (ADR 0035 §3): tell the others. */
+  | { kind: 'team'; threadId: string; messageId: string }
+  /** Mail to a team address that was not accepted — never stored. */
+  | { kind: 'dropped' };
 
 const RESEND_RECEIVING = 'https://api.resend.com/emails/receiving';
 
@@ -89,10 +95,14 @@ function recipientsOf(email: ReceivedEmail): string[] {
 export function routeRecipients(
   recipients: string[],
   config: MailConfig,
-): { threadId: string } | { agencySlug: string } | null {
+): { threadId: string } | { teamThreadId: string } | { agencySlug: string } | null {
   for (const address of recipients) {
     const threadId = parseThreadReplyAddress(address, config);
     if (threadId) return { threadId };
+  }
+  for (const address of recipients) {
+    const teamThreadId = parseTeamReplyAddress(address, config);
+    if (teamThreadId) return { teamThreadId };
   }
   for (const address of recipients) {
     const agencySlug = parseAgencyMailAddress(address, config);
@@ -287,6 +297,19 @@ export async function ingestReceivedEmail(
   const from = bareAddress(email.from);
   const fromName = displayName(email.from);
   const subject = (email.subject ?? '').trim();
+
+  // A team conversation (ADR 0035 §3): its own tables, its own rules.
+  if ('teamThreadId' in route) {
+    const html = decodeHtmlField(email.html);
+    const text = email.text?.trim() ? email.text : html ? htmlToText(html) : '';
+    const outcome = await ingestTeamReply(db, { id: email.id, from, text, dmarcPass: senderVerified(email) }, route.teamThreadId);
+    if (outcome.kind === 'dropped') {
+      // The email id and the reason only — never an address; this reaches logs.
+      console.warn(`[mail] team reply ${email.id} dropped: ${outcome.reason}`);
+      return { kind: 'dropped' };
+    }
+    return outcome;
+  }
 
   const thread =
     'threadId' in route

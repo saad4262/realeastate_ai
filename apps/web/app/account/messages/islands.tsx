@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { replyAction, syncMailAction } from './actions';
+import { markReadAction, replyAction, syncMailAction } from './actions';
 import styles from './messages.module.css';
 
 /**
@@ -106,5 +106,13 @@ export function MailSync() {
       clearInterval(timer);
     };
   }, [router]);
+  return null;
+}
+
+/** Marks the open conversation read once it is on screen (ADR 0035 §2). Renders nothing. */
+export function MarkSeen({ threadId }: { threadId: string }) {
+  useEffect(() => {
+    void markReadAction(threadId);
+  }, [threadId]);
   return null;
 }

@@ -13,6 +13,11 @@ import { resolveHandle } from './handles';
 import type { ProposalCard } from './schema';
 import { assignableMember, contactDetailsOf, UNSUBSCRIBED_REASON, type ContactDetails, type ContactDetailsPatch } from '../contacts/write-contacts';
 import { CONTACT_ROLE_LABELS, type ContactRoleKind } from '../contacts/contact-schema';
+import { loadComposeTarget } from '../mail/compose';
+import { MailError } from '../mail/threads';
+import { resolveSender, senderLine } from '../mail/sender';
+import { listColleagues } from '../team-messages/messages';
+import type { messageColleaguesInput, sendEmailInput } from './schema';
 import type { addNoteInput, assignContactsInput, removeAgentInput, updateAgentInput, cancelAppointmentInput, recordMarketingConsentInput, setContactArchivedInput, updateContactInput, withdrawMarketingConsentInput, createDashboardInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
 import { cancelBatch, getBatch, prepareBatch } from '../template-email/batches';
 import { TemplateEmailError } from '../template-email/templates';
@@ -897,4 +902,93 @@ export async function proposeRemoveAgent(ctx: ToolContext, input: z.infer<typeof
     if (err instanceof OffboardError) return refused(`${err.message}. Nothing was proposed.`, label);
     throw err;
   }
+}
+
+// ── Writing (ADR 0035 §4) ─────────────────────────────────────────────────
+
+const WRITTEN_BY_ASSISTANT = 'Written by the assistant. Read every word — names, dates and figures — before you approve; what you approve is what is sent.';
+
+/**
+ * Every figure in a text the assistant wrote — "$950,000", "14", "10:30am",
+ * "3.5%" — listed on the card so the person checks each one. The model never
+ * produces a number the person did not give it (CLAUDE.md #4); this is how a
+ * wrong one is caught before it reaches anybody.
+ */
+export function figuresIn(text: string): string[] {
+  const found = text.match(/\$?\d[\d,.:/]*(?:\s?(?:%|k\b|m\b|am\b|pm\b))?/gi) ?? [];
+  return [...new Set(found.map((f) => f.trim().replace(/[.,:/]+$/, '')))].filter(Boolean).slice(0, 20);
+}
+
+/** A new email to one contact: the exact subject and body on the card; sent only on Approve. */
+export async function proposeSendEmail(ctx: ToolContext, input: z.infer<typeof sendEmailInput>, label: string): Promise<ToolOutcome> {
+  const c = await visibleContact(ctx, input.contact);
+  if ('error' in c) return refused(c.error!, label);
+  let target;
+  try {
+    target = await loadComposeTarget(ctx.db, ctx.actor, c.head.row.id);
+  } catch (err) {
+    if (err instanceof MailError) return refused(NO_CONTACT, label);
+    throw err;
+  }
+  if (target.problem) return refused(`${target.problem} Nothing was proposed.`, label);
+  const limits = await checkEmailLimits(ctx.db, { agencyId: target.contact.agencyId, userId: ctx.actor.userId }, emailLimitsFromEnv());
+  if (!limits.ok) return refused(`${limits.reason ?? 'Today’s email limit has been reached.'} Nothing was proposed.`, label);
+
+  const name = target.contact.name;
+  const figures = figuresIn(`${input.subject}\n${input.body}`);
+  const card: ProposalCard = {
+    title: `Email ${name}`,
+    contact: { id: target.contact.id, name },
+    lines: [
+      { label: 'To', value: `${name} · ${target.contact.email}` },
+      { label: 'From', value: senderLine(await resolveSender(ctx.db, ctx.actor)) },
+      { label: 'Subject', value: input.subject },
+    ],
+    text: { label: 'Email', value: input.body },
+    ...(figures.length ? { figures } : {}),
+    notes: [
+      'Nothing is sent until you press Approve.',
+      WRITTEN_BY_ASSISTANT,
+      'It is signed with your name and the agency’s, and carries an unsubscribe link. Their reply comes back to the inbox.',
+    ],
+  };
+  const args: FrozenArgs = { tool: 'send_email', contactId: target.contact.id, subject: input.subject, body: input.body };
+  return propose(ctx, label, { tool: 'send_email', args, card, contactId: target.contact.id });
+}
+
+/** A message to colleagues: in Team messages and by email to each. Sent only on Approve. */
+export async function proposeMessageColleagues(ctx: ToolContext, input: z.infer<typeof messageColleaguesInput>, label: string): Promise<ToolOutcome> {
+  if (!can(ctx.actor, 'team_message:send', { type: 'team_thread', agencyId: ctx.actor.agencyId ?? undefined })) {
+    return refused('This person may read team messages but not write them.', label);
+  }
+  const ids: string[] = [];
+  for (const ref of input.to) {
+    const id = resolveHandle(ctx.handles, ref, 'member');
+    if (!id) return refused(`${ref}: ${UNKNOWN_REF} Use find_colleagues first.`, label);
+    if (id !== ctx.actor.userId && !ids.includes(id)) ids.push(id);
+  }
+  if (!ids.length) return refused('Choose at least one colleague — not the person themselves. Nothing was proposed.', label);
+  const colleagues = await listColleagues(ctx.db, ctx.actor);
+  const to = ids.map((id) => colleagues.find((c) => c.userId === id));
+  if (to.some((c) => !c)) return refused('Someone you chose is no longer an active member of the agency. Nothing was proposed.', label);
+
+  const people = to as NonNullable<(typeof to)[number]>[];
+  const figures = figuresIn(`${input.subject}\n${input.body}`);
+  const card: ProposalCard = {
+    title: `Message ${people.map((p) => p.name).join(', ')}`,
+    contact: { id: '', name: '' },
+    lines: [
+      { label: 'To', value: people.map((p) => `${p.name} (${p.roleLabel})`).join(', ') },
+      { label: 'Subject', value: input.subject },
+    ],
+    text: { label: 'Message', value: input.body },
+    ...(figures.length ? { figures } : {}),
+    notes: [
+      'Nothing is sent until you press Approve.',
+      WRITTEN_BY_ASSISTANT,
+      'Only the people on it can read it — in Team messages, and by email.',
+    ],
+  };
+  const args: FrozenArgs = { tool: 'message_colleagues', to: ids, subject: input.subject, body: input.body };
+  return propose(ctx, label, { tool: 'message_colleagues', args, card, contactId: null });
 }

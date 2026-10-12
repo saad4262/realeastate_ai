@@ -55,6 +55,8 @@ export type InboxViewProps = {
   inboundOn: boolean;
   /** The consumer site's origin, for the property link. */
   webUrl: string;
+  /** May write a new email to a contact of their own (`mail:compose`, ADR 0035) — draws "New email". */
+  mayCompose?: boolean;
 };
 
 function hrefFor(basePath: string, folder: MailFolder, threadId?: string): string {
@@ -89,11 +91,18 @@ export function InboxView(props: InboxViewProps) {
             other mail app land here too.
           </p>
         </div>
-        {props.agencyAddress ? (
-          <p className={styles.sub}>
-            Your agency address: <span className={styles.address}>{props.agencyAddress}</span>
-          </p>
-        ) : null}
+        <div style={{ display: 'grid', justifyItems: 'end', gap: '0.4rem' }}>
+          {props.mayCompose ? (
+            <Link href={`${basePath}/new`} className={styles.newButton}>
+              New email
+            </Link>
+          ) : null}
+          {props.agencyAddress ? (
+            <p className={styles.sub}>
+              Your agency address: <span className={styles.address}>{props.agencyAddress}</span>
+            </p>
+          ) : null}
+        </div>
       </div>
 
       {!props.inboundOn ? (

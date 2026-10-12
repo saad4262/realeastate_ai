@@ -17,6 +17,7 @@ import { syncDepsFromEnv } from '@repo/core/appointments';
 import { templateSendDepsFromEnv } from '@repo/core/template-email';
 import { mailDepsFromEnv } from '@repo/core/mail';
 import { noticeMailFromEnv } from '@repo/core/email';
+import { teamMessageDepsFromEnv } from '@repo/core/team-messages';
 import { getConsoleDb } from './db';
 import { loadActor } from './load-actor';
 import { requireActionUserId } from './auth-account';
@@ -97,6 +98,8 @@ export async function approveProposedActionAction(id: string, runAtIso?: string 
         // invite's new link is emailed like Resend.
         offboard: { sync: syncDepsFromEnv() },
         inviteMail: mail ? { mailer: mail.mailer, agentUrl: mail.urls.agentUrl } : null,
+        // A message to colleagues (ADR 0035): their bell and an email each.
+        teamMessages: teamMessageDepsFromEnv(),
       },
       new Date(),
       { runAt },
@@ -110,6 +113,8 @@ export async function approveProposedActionAction(id: string, runAtIso?: string 
     revalidatePath('/inbox');
     revalidatePath('/my-inbox');
     revalidatePath('/team', 'layout');
+    revalidatePath('/messages');
+    revalidatePath('/my-messages');
     const message =
       r.outcome === 'already' ? 'This card was already approved.' : r.outcome === 'failed' ? r.error : undefined;
     // (A scheduled card's own line says when it runs.)

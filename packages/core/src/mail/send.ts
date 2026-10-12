@@ -10,6 +10,7 @@ import type { Actor } from '../permissions';
 import { threadReplyAddress, type MailConfig } from './address';
 import { conversationLink, verifySecretFromEnv } from './verify-email';
 import { noticeMailFromEnv } from '../email/resend-transport';
+import { contactUnsubscribeUrl } from '../email/unsubscribe';
 import { devAllowlistProblem } from '../email/limits';
 import { mailConfigFromEnv } from './address';
 import { replyInputSchema } from './mail-schema';
@@ -57,14 +58,22 @@ export type MailDeps = {
    * from the platform sender. `api` is the test seam (a fake Gmail).
    */
   gmail?: { keys: TokenKeys; api?: GmailApi; fetch?: Fetch; now?: () => Date };
+  /**
+   * The public site and the unsubscribe secret, for the opt-out link a NEW
+   * email to a contact carries (ADR 0035 §1). Absent: such an email is not sent.
+   */
+  unsubscribe?: { baseUrl: string; secret: string };
 };
+
+/** A new email to a contact, written by a person or approved on an assistant card (ADR 0035 §1). */
+export const DIRECT_EMAIL_KIND = 'direct_email';
 
 /**
  * Which messages may leave through a person's Gmail (ADR 0026 §4): their own
  * conversation reply typed in the console, and an appointment invitation —
  * one-to-one mail. Bulk template email, and the inbound relay, never do.
  */
-const GMAIL_KINDS = new Set<string | null>([null, 'appointment_invitation']);
+const GMAIL_KINDS = new Set<string | null>([null, 'appointment_invitation', DIRECT_EMAIL_KIND]);
 
 /**
  * Everything sending needs, from the environment: the mailer, inbound config
@@ -79,11 +88,13 @@ export function mailDepsFromEnv(env: NodeJS.ProcessEnv = process.env): MailDeps 
   } catch {
     keys = null; // a malformed key is refused at startup; here it means "platform sender only"
   }
+  const unsubscribeSecret = env.ALERT_UNSUBSCRIBE_SECRET?.trim();
   return {
     mailer: notice.mailer,
     config: mailConfigFromEnv(env),
     site: { webUrl: notice.urls.webUrl, verifySecret: verifySecretFromEnv(env) },
     ...(keys ? { gmail: { keys } } : {}),
+    ...(unsubscribeSecret ? { unsubscribe: { baseUrl: notice.urls.webUrl, secret: unsubscribeSecret } } : {}),
   };
 }
 
@@ -153,6 +164,8 @@ export async function recordOutbound(
     rfcMessageId?: string | null;
     /** A platform-composed email's kind (`mail_message.kind`); counts against the sending limits. */
     kind?: string;
+    /** The first message of a conversation we started: its subject as written, no "Re:". */
+    opening?: boolean;
   },
 ): Promise<string> {
   return db.transaction(async (tx) => {
@@ -166,7 +179,7 @@ export async function recordOutbound(
         status: 'queued',
         fromEmail: deps.mailer.sender.from.email,
         toEmails: [m.to],
-        subject: replySubject(m.subject),
+        subject: m.opening ? m.subject.trim() : replySubject(m.subject),
         text: m.body,
         sentBy: m.sentBy,
         ...(m.providerId ? { providerId: m.providerId } : {}),
@@ -216,6 +229,7 @@ export async function deliverOutbound(
       subject: mailThread.subject,
       contactEmail: mailThread.contactEmail,
       contactName: mailThread.contactName,
+      contactId: mailThread.contactId,
       agencyName: agency.name,
       authorName: user.name,
       authorEmail: user.email,
@@ -256,6 +270,21 @@ export async function deliverOutbound(
     return { messageId, status: 'failed', error: blocked };
   }
 
+  // A new email to a contact carries their opt-out link (ADR 0035 §1). No
+  // secret, no link — and then it is not sent, rather than sent without one.
+  const opening = m.kind === DIRECT_EMAIL_KIND;
+  const optOutUrl = opening && deps.unsubscribe && m.contactId
+    ? contactUnsubscribeUrl(deps.unsubscribe.baseUrl, m.contactId, deps.unsubscribe.secret)
+    : null;
+  if (opening && !optOutUrl) {
+    const reason = 'Not sent: a new email must carry an unsubscribe link, and ALERT_UNSUBSCRIBE_SECRET is not set on this server.';
+    await db
+      .update(mailMessage)
+      .set({ status: 'failed', error: reason, updatedAt: sql`now()` })
+      .where(and(eq(mailMessage.id, messageId), eq(mailMessage.status, 'queued')));
+    return { messageId, status: 'failed', error: reason };
+  }
+
   const { sender, transport } = deps.mailer;
   const author = headerSafe(m.authorDisplay || m.authorName || m.agencyName);
   const agencyName = headerSafe(m.agencyName);
@@ -288,6 +317,7 @@ export async function deliverOutbound(
         : {}),
       ...(m.inReplyTo ? { threading: { inReplyTo: m.inReplyTo, references: [m.inReplyTo] } } : {}),
       ...(opts.unsubscribeUrl ? { unsubscribeUrl: opts.unsubscribeUrl } : {}),
+      ...(optOutUrl ? { opening: { optOutUrl } } : {}),
     });
     result = gmail ? await sendViaGmail(db, deps, gmail, email) : await transport.send(email);
   } catch (err) {

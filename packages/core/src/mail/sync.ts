@@ -1,9 +1,10 @@
 import { inArray } from 'drizzle-orm';
-import { mailMessage, type Db } from '@repo/db';
+import { mailMessage, teamMessage, type Db } from '@repo/db';
 import { noticeMailFromEnv } from '../email/resend-transport';
 import { verifySecretFromEnv } from './verify-email';
 import { mailConfigFromEnv, type MailConfig } from './address';
 import { notifyThreadReply } from './notices';
+import { deliverTeamMessage } from '../team-messages/messages';
 import { deliverOutbound } from './send';
 import { fetchReceivedEmail, ingestReceivedEmail, routeRecipients, type IngestOutcome } from './inbound';
 import type { MailDeps } from './send';
@@ -91,7 +92,11 @@ export async function syncReceivedEmails(
     .select({ id: mailMessage.providerId })
     .from(mailMessage)
     .where(inArray(mailMessage.providerId, candidates));
-  const known = new Set(seen.map((s) => s.id));
+  const seenTeam = await db
+    .select({ id: teamMessage.providerId })
+    .from(teamMessage)
+    .where(inArray(teamMessage.providerId, candidates));
+  const known = new Set([...seen, ...seenTeam].map((s) => s.id));
 
   const outcomes: IngestOutcome[] = [];
   // Oldest first, so a thread's messages are stored in the order they arrived.
@@ -137,12 +142,13 @@ export async function pullReceivedMail(opts: {
     const { outcomes } = await syncReceivedEmails(db, deps, apiKey, {
       ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
     });
-    const stored = outcomes.filter((o) => o.kind === 'stored' || o.kind === 'relay');
+    const stored = outcomes.filter((o) => o.kind === 'stored' || o.kind === 'relay' || o.kind === 'team');
     const followUp = stored.length
       ? async () => {
           for (const o of stored) {
             try {
               if (o.kind === 'relay') await deliverOutbound(db, deps, o.messageId);
+              else if (o.kind === 'team') await deliverTeamMessage(db, { mailer: deps.mailer, config, urls: notice.urls }, o.messageId);
               else if (o.kind === 'stored' && o.notify) {
                 await notifyThreadReply(db, { ...deps, urls: notice.urls }, o.threadId, o.messageId);
               }

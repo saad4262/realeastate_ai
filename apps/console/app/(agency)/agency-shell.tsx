@@ -217,7 +217,7 @@ async function ProfileRole({ chrome }: { chrome: Promise<ConsoleChrome> }) {
  */
 async function NavWithOffers({ chrome }: { chrome: Promise<ConsoleChrome> }) {
   const { summary } = await chrome;
-  return <NavList newOffers={summary.newOffers} unreadMail={summary.unreadMail} />;
+  return <NavList newOffers={summary.newOffers} unreadMail={summary.unreadMail} unreadTeam={summary.unreadTeam} />;
 }
 
 async function Ticker({ chrome }: { chrome: Promise<ConsoleChrome> }) {

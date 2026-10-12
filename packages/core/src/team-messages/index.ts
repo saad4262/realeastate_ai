@@ -1,0 +1,22 @@
+/** Team messages: members of one agency writing to each other. See docs/adr/0035. */
+export {
+  countUnreadTeamThreads,
+  deliverTeamMessage,
+  getTeamThread,
+  ingestTeamReply,
+  listColleagues,
+  listTeamThreads,
+  markTeamThreadRead,
+  replyTeamThread,
+  startTeamThread,
+  teamMessageDepsFromEnv,
+  teamMessagesPath,
+  TeamMessageError,
+  type Colleague,
+  type TeamInboundOutcome,
+  type TeamMessageDeps,
+  type TeamMessageView,
+  type TeamThreadPage,
+  type TeamThreadRow,
+  type TeamThreadView,
+} from './messages';

@@ -55,7 +55,7 @@ export function AgentShell({ children, userLabel, chrome }: AgentShellProps) {
 /** The nav, once the unread count is known. It draws the number; can() chose it. */
 async function NavWithCounts({ chrome }: { chrome: Promise<ConsoleChrome> }) {
   const { summary } = await chrome;
-  return <AgentNav unreadMail={summary.unreadMail} />;
+  return <AgentNav unreadMail={summary.unreadMail} unreadTeam={summary.unreadTeam} />;
 }
 
 /**
