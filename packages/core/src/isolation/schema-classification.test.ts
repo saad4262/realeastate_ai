@@ -48,6 +48,8 @@ const OWN_AGENCY = [
   'appointment_participant',
   // ADR 0036 Q2: figures the catalog could not make; written by the assistant, read by the platform team.
   'dashboard_gap_log',
+  // ADR 0040: an assistant task — its steps are proposed_action rows, which carry agency_id too.
+  'assistant_task',
 ] as const;
 
 /** Reaches an agency through a parent row: table → [foreign-key column, parent table]. */

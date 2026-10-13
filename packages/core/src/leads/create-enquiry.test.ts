@@ -98,7 +98,7 @@ describe('a public enquiry', () => {
     expect(inserted).toHaveLength(0);
   });
 
-  it('never lets the caller choose status, kind or assignment', async () => {
+  it('never lets the caller choose status, kind or assignment (it goes to the listing’s lead agent)', async () => {
     const { db, inserted } = fakeDb(LIVE);
     await createEnquiry(db, 'listing-1', {
       ...VALID,
@@ -110,7 +110,9 @@ describe('a public enquiry', () => {
 
     expect(inserted[0]?.status).toBe('new');
     expect(inserted[0]?.kind).toBe('enquiry');
-    expect(inserted[0]).not.toHaveProperty('assignedTo');
+    // ADR 0039 C3: assigned to the listing's lead agent — worked out in SQL from the listing, never the caller's 'someone'.
+    expect(inserted[0]?.assignedTo).not.toBe('someone');
+    expect(JSON.stringify(inserted[0]?.assignedTo)).not.toContain('someone');
     expect(inserted[0]).not.toHaveProperty('aiSummary');
   });
 

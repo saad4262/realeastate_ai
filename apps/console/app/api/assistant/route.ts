@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { can } from '@repo/core/permissions';
 import { assistantDeps, assistantTurnRequestSchema, runAssistantTurn, type AssistantEvent } from '@repo/ai/assistant';
 import { getConsoleDb } from '../../../lib/db';
-import { loadActor } from '../../../lib/load-actor';
+import { loadListingActor } from '../../../lib/load-actor';
 import { actionUserId } from '../../../lib/auth-account';
 
 /**
@@ -30,7 +30,8 @@ function oneFrame(e: AssistantEvent, status = 200) {
 
 export async function POST(request: NextRequest) {
   const userId = await actionUserId();
-  const actor = userId ? await loadActor(userId) : null;
+  // With its listing links, as the leads and mail screens do (ADR 0040): a lead on their listing is theirs to read.
+  const actor = userId ? await loadListingActor(userId) : null;
   if (!actor?.agencyId || !can(actor, 'assistant:use', { type: 'assistant', agencyId: actor.agencyId })) {
     return oneFrame({ type: 'error', code: 'forbidden', message: 'Sign in to an agency to use the assistant.' }, 403);
   }

@@ -28,7 +28,20 @@
   Secret Token, validates the endpoint in Zoom, walks TEST-PLAN AK, submits the Zoom app.
 - **Note:** ADR 0035 and 0036 are committed on main (4bf0828, bd02f18) and 0041 + 0042 are
   applied on dev; the two bullets below predate that.
-- **Assistant Phase 1 (ADR 0039) — built 2026-10-13 on `feat/assistant-phase1`, committed, not pushed.** `main`
+- **Assistant Phase 2, part 1 (ADR 0040) — built 2026-10-13 on `feat/assistant-tasks`, committed, not pushed.**
+  **Migration 0047 applied** (dev = production database — verified 2026-10-13 by comparing hosts). Tasks:
+  plan_task (≤ 10 steps, 30 days, approved once on one plan card with exact third-party text), steps as
+  `blocked` proposed_action rows run by the minute tick as the approver, stop on failure, read-back after
+  each step; create_reminder (bell; own email only if asked); cancel_task. CRM: find_listings, set_lead_status,
+  assign_lead (admins), create_lead (manual, own listings), create_contact. Website enquiries auto-assigned
+  to the listing's lead agent; a reassigned agent is told "This lead is now with another agent…". Fixed:
+  background actor lacked listing links. Prompt `assistant@v15`. Checks: typecheck/lint 10/10 (0 errors),
+  unit 974 + 301, console build OK; smoke Console assistant 29/29 (+1 skip), Database health 23, Contacts 12,
+  Tenant isolation 4, Offboarding 6, Listing import 4, Template email 6; break-tests red (stop-on-failure,
+  release-one-step, plan-reject ends task; read-back unit). Still failing, pre-existing: Email conversations
+  "agent's inbox holds only their own leads' conversations" (live-data assumption). TEST-PLAN **AM**.
+  **Next:** push + deploy (user's go), then Phase 2 part 2.
+- **Assistant Phase 1 (ADR 0039) — on main and deployed 2026-10-13 (22c6524).** `main`
   locally = merge of `feat/semantic-layer` + origin/main (1801a1b), not pushed. Migration **0046 applied on dev**
   (proposed_action.reported_at, mail_message.send_started_at / send_attempt). The model is told how its cards
   ended (`<card_updates>` + `check_cards`, prompt `assistant@v14`); one email once (claim before send, Resend

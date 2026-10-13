@@ -523,6 +523,14 @@ describe('contacts', () => {
     expect(can(rivalOwner, 'note:manage', note)).toBe(false);
   });
 
+  it('lets every member who may write record a lead by hand (ADR 0040) — never a read-only member, never in another agency', () => {
+    const inbox = { type: 'lead', agencyId: agencyA };
+    for (const a of [owner, agent, assistant, pm]) expect(can(a, 'lead:create', inbox)).toBe(true);
+    expect(can(viewer, 'lead:create', inbox)).toBe(false);
+    expect(can(rivalOwner, 'lead:create', inbox)).toBe(false);
+    expect(can({ userId: 'x' }, 'lead:create', inbox)).toBe(false);
+  });
+
   it('refuses an actor with no membership, and an id-less resource with no owner', () => {
     const outsider: Actor = { userId: 'x' };
     expect(can(outsider, 'contact:read', directory)).toBe(false);

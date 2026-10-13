@@ -631,3 +631,38 @@ export function buildTeamMessageEmail(input: TeamMessageEmailInput): Transaction
     tags: { kind: 'team-message' },
   };
 }
+
+// ── A reminder the person set for themselves (ADR 0040) ──────────────────────
+
+export type ReminderEmailInput = {
+  to: { email: string; name?: string };
+  from: { email: string; name: string };
+  postalAddress: string;
+  /** The person's own words for the reminder, as they approved it. */
+  text: string;
+  consoleUrl: string;
+};
+
+/**
+ * A reminder, to the person who set it — and only when they asked for an
+ * email (decided Q3); the bell always has it. Transactional: it tells a
+ * person what they asked to be told.
+ */
+export function buildReminderEmail(input: ReminderEmailInput): TransactionalMessage {
+  requireSenderFooter(input.from, input.postalAddress, 'reminder');
+  const heading = 'Your reminder';
+  const footer: Footer = {
+    from: input.from,
+    postalAddress: input.postalAddress,
+    why: 'Sent because you asked the assistant to remind you by email.',
+  };
+  const html = layout({
+    heading,
+    intro: 'You asked to be reminded:',
+    body: `<p style="font:400 15px/1.6 ${FONT};color:#1a1a1a;margin:12px 0 0;">${escapeHtml(input.text)}</p>`,
+    button: { label: 'Open the console', url: input.consoleUrl },
+    footer,
+  });
+  const text = [heading, '', 'You asked to be reminded:', input.text, '', `Open the console: ${input.consoleUrl}`, '', ...textFooter(footer)].join('\n');
+  return { kind: 'transactional', to: input.to, from: input.from, subject: `Reminder: ${input.text.slice(0, 80)}`, html, text, tags: { kind: 'reminder' } };
+}

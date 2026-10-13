@@ -111,6 +111,9 @@ export type TriagedLead = {
  * matches while `assigned_to` is still what the decision was made on, and a
  * miss is a conflict the UI answers by refreshing.
  */
+/** What an agent is told about a lead the agency has given to someone else (ADR 0039 C3). */
+export const LEAD_NOW_WITH_ANOTHER = 'This lead is now with another agent. You can no longer change it — contact your agency for more information.';
+
 export async function updateLeadStatus(
   db: DbOrTx,
   actor: Actor,
@@ -125,6 +128,8 @@ export async function updateLeadStatus(
   // them, a lead that does not exist.
   if (!maySee(actor, row)) throw NOT_FOUND();
   if (!can(actor, 'lead:update', resourceFor(row))) {
+    // ADR 0039 C3: they still see it (it came through their listing) but it is someone else's now.
+    if (row.assignedTo && row.assignedTo !== actor.userId) throw new LeadTriageError('forbidden', LEAD_NOW_WITH_ANOTHER);
     throw new LeadTriageError('forbidden', 'Only an admin or the person this lead is assigned to can update it');
   }
 

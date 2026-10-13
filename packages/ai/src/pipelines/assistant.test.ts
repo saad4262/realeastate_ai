@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
 import { ASSISTANT_TOOLS, assistantToolsFor } from '../tools/assistant-tools';
-import { ASSISTANT_SYSTEM } from '../prompts/assistant-v14';
+import { ASSISTANT_SYSTEM } from '../prompts/assistant-v15';
 import { contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
 /**
@@ -240,9 +240,9 @@ describe('red team: a tricked model can read and propose, never act', () => {
       // other tool that mentions email must be a read tool (search_notes_and_emails, ADR 0031).
       if (/send/.test(n)) expect(['send_template_email', 'send_email']).toContain(n);
       if (/email/.test(n) && !['send_template_email', 'send_email'].includes(n)) expect(ASSISTANT_READ_TOOLS as readonly string[]).toContain(n);
-      // One tool may mention assigning: it only proposes, owners/admins alone are shown it, and
-      // core refuses it for anyone else (the "tools by role" tests below and the core unit test).
-      if (/assign/.test(n)) expect(n).toBe('assign_contacts');
+      // Two tools may mention assigning (contacts, and leads — ADR 0040): each only proposes, owners/admins
+      // alone are shown them, and core refuses them for anyone else (the "tools by role" tests below).
+      if (/assign/.test(n)) expect(['assign_contacts', 'assign_lead']).toContain(n);
     }
     for (const t of ASSISTANT_TOOLS.filter((x) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(x.name))) {
       expect(t.description).toMatch(/only PROPOSES/);
@@ -382,15 +382,17 @@ describe('proposals (Phases B and C)', () => {
     // update_agent's `email` (ADR 0033): only a PENDING invite's address — core refuses an active
     // member's — shown before → after on an owner/admin's card; the new invite link goes to it
     // only after they approve, exactly as if they had typed it on the Agents & Team screen.
-    expect(ASSISTANT_TOOLS.filter((t) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(t.name) && 'email' in (t.input_schema as { properties: Record<string, unknown> }).properties).map((t) => t.name)).toEqual(['update_contact', 'update_agent']);
+    // create_contact's `email` (ADR 0040): the NEW contact's own address, shown on the card and saved;
+    // nothing is sent to it, and a contact already holding it means no card at all.
+    expect(ASSISTANT_TOOLS.filter((t) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(t.name) && 'email' in (t.input_schema as { properties: Record<string, unknown> }).properties).map((t) => t.name).sort()).toEqual(['create_contact', 'update_agent', 'update_contact']);
     const update = ASSISTANT_TOOLS.find((t) => t.name === 'update_contact')!;
     expect(Object.keys((update.input_schema as { properties: Record<string, unknown> }).properties).sort()).toEqual(['contact', 'email', 'name', 'phone', 'roles']);
     expect(update.description).toMatch(/Nothing is sent|cannot change who the contact is assigned to/);
     // Among WRITE tools only (search_notes_and_emails, a read tool, has `to` as a date-range end).
     // message_colleagues' `to` (ADR 0035) is M references from find_colleagues — never an address.
     expect(
-      ASSISTANT_TOOLS.filter((t) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(t.name) && 'to' in (t.input_schema as { properties: Record<string, unknown> }).properties).map((t) => t.name),
-    ).toEqual(['assign_contacts', 'message_colleagues']);
+      ASSISTANT_TOOLS.filter((t) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(t.name) && 'to' in (t.input_schema as { properties: Record<string, unknown> }).properties).map((t) => t.name).sort(),
+    ).toEqual(['assign_contacts', 'assign_lead', 'message_colleagues']);
     for (const to of ['sara@example.com', 'Sara', 'C1', '55555555-5555-4555-8555-555555555555']) {
       expect(ASSISTANT_TOOL_INPUTS.assign_contacts.safeParse({ contacts: ['C1'], to }).success, to).toBe(false);
       expect(ASSISTANT_TOOL_INPUTS.message_colleagues.safeParse({ to: [to], subject: 's', body: 'b' }).success, to).toBe(false);

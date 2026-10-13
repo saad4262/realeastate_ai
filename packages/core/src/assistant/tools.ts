@@ -44,6 +44,9 @@ import { listColleagues } from '../team-messages/messages';
 import { agencyTimeZone, renderWidget } from '../widgets/registry';
 import { recordDataGap } from '../semantic';
 import { listConversationCards } from './card-updates';
+import { findListings, proposeAssignLead, proposeCancelTask, proposeCreateContact, proposeCreateLead, proposeCreateReminder, proposeSetLeadStatus } from './crm-tools';
+import { proposePlanTask } from './plan-task';
+import type { FrozenArgs } from './actions';
 import {
   ASSISTANT_ADMIN_TOOLS,
   ASSISTANT_TEAM_TOOLS,
@@ -52,6 +55,8 @@ import {
   type AppointmentRange,
   type AssistantFrame,
   type AssistantToolName,
+  type AssistantWriteTool,
+  type ProposalCard,
 } from './schema';
 
 /**
@@ -78,6 +83,11 @@ export type ToolContext = {
   now: Date;
   /** Present inside a conversation turn: where a write tool's proposal comes from. */
   proposal?: ProposalContext;
+  /**
+   * Planning a task (ADR 0040): a write tool's `propose` hands its resolved
+   * step here instead of storing a card. Set only by plan_task.
+   */
+  plan?: { collect: (step: { tool: AssistantWriteTool | 'remind'; args: FrozenArgs; card: ProposalCard; contactId: string | null }) => void };
   /** The search tool's optional embedder and its ai_run metering, from packages/ai (ADR 0031). */
   search?: SearchDeps;
 };
@@ -122,6 +132,14 @@ const LABELS: Record<AssistantToolName, string> = {
   send_email: 'Writing the email for you to check…',
   message_colleagues: 'Writing the message for you to check…',
   schedule_team_meeting: 'Preparing the team meeting for you to approve…',
+  find_listings: 'Looking up listings…',
+  set_lead_status: 'Preparing the lead change for you to approve…',
+  assign_lead: 'Preparing the assignment for you to approve…',
+  create_lead: 'Preparing the new lead for you to approve…',
+  create_contact: 'Preparing the new contact for you to approve…',
+  create_reminder: 'Preparing the reminder for you to approve…',
+  plan_task: 'Preparing the plan for you to approve…',
+  cancel_task: 'Preparing to stop the task…',
 };
 
 /** Tools that change a contact's own record: never for someone who may not edit a contact of their own (read-only). */
@@ -212,6 +230,23 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return showWidget(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.show_widget>, label);
     case 'check_cards':
       return checkCards(ctx, label);
+    case 'find_listings':
+      return findListings(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.find_listings>, label);
+    case 'set_lead_status':
+      return proposeSetLeadStatus(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.set_lead_status>, label);
+    case 'assign_lead':
+      return proposeAssignLead(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.assign_lead>, label);
+    case 'create_lead':
+      return proposeCreateLead(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.create_lead>, label);
+    case 'create_contact':
+      return proposeCreateContact(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.create_contact>, label);
+    case 'create_reminder':
+      return proposeCreateReminder(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.create_reminder>, label);
+    case 'plan_task':
+      if (ctx.plan) return refused('A plan cannot contain another plan.', label);
+      return proposePlanTask(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.plan_task>, label);
+    case 'cancel_task':
+      return proposeCancelTask(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.cancel_task>, label);
     case 'report_missing_data':
       return reportMissingData(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.report_missing_data>, label);
     case 'search_notes_and_emails':

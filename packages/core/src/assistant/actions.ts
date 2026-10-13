@@ -1,5 +1,6 @@
 import { and, asc, eq, gt, inArray, lt, lte, sql } from 'drizzle-orm';
-import { emailBatch, proposedAction, type Db, type DbOrTx } from '@repo/db';
+import { assistantTask, emailBatch, proposedAction, user, type Db, type DbOrTx } from '@repo/db';
+import { notifyMyself } from '../notifications';
 import { activeMemberActor } from '../team/member-actor';
 import { can, type Actor } from '../permissions';
 import { recordActivity } from '../contacts/write-contacts';
@@ -37,6 +38,11 @@ import { editTeamMember, TeamEditError, withdrawInvite, type TeamMemberDetails, 
 import { offboardingPreview, OffboardError, removeMember, type OffboardChoice, type OffboardDeps } from '../team/offboarding';
 import { emailAgentInvite, type InviteEmailDeps } from '../team/invite-email';
 import { ASSISTANT_LIMITS, type AssistantWriteTool, type ProposalCard, type ProposalStatus } from './schema';
+import { activateTask, advanceTask, endTask, taskAllowsRun, verifyExecuted } from './task-state';
+import { assignLead, LeadTriageError, updateLeadStatus } from '../leads/triage-lead';
+import { createManualLead } from '../leads/create-manual-lead';
+import { createContact } from '../contacts/write-contacts';
+import { buildReminderEmail } from '../email/team-notices';
 import type { ToolContext, ToolOutcome } from './tools';
 
 /**
@@ -113,7 +119,19 @@ export type FrozenArgs =
       location: string | null;
       agenda: string | null;
       requires: IntegrationProvider[];
-    };
+    }
+  /** ADR 0040: a lead's status, as the card showed it before (`before`). "Delete" a lead = closed. */
+  | { tool: 'set_lead_status'; leadId: string; status: 'new' | 'contacted' | 'qualified' | 'closed'; before: string }
+  /** ADR 0040, owners/admins: give a lead to a member. */
+  | { tool: 'assign_lead'; leadId: string; to: string; from: string | null }
+  /** ADR 0040: a lead recorded by hand — the person's own, source `manual`. */
+  | { tool: 'create_lead'; contactId: string; listingId: string; kind: 'enquiry' | 'inspection' | 'appraisal'; message: string | null }
+  | { tool: 'create_contact'; name: string; email: string | null; phone: string | null; roles: string[] }
+  /** ADR 0040: a reminder to the person themselves — the bell, and their own email only when asked. */
+  | { tool: 'remind'; text: string; email: boolean }
+  /** ADR 0040: approving the plan starts its task. */
+  | { tool: 'plan_task'; taskId: string }
+  | { tool: 'cancel_task'; taskId: string };
 
 /** The contacts whose timelines carry this action's audit lines. */
 function auditContacts(row: { contactId: string | null; args: unknown }): string[] {
@@ -143,6 +161,12 @@ export async function propose(
   p: { tool: AssistantWriteTool; args: FrozenArgs; card: ProposalCard; contactId: string | null },
 ): Promise<ToolOutcome> {
   const { db, actor, proposal } = ctx;
+  // Planning a task (ADR 0040): the step is checked and resolved exactly as a card would be, then
+  // handed to the plan instead of being stored on its own.
+  if (ctx.plan) {
+    ctx.plan.collect({ tool: p.tool, args: p.args, card: p.card, contactId: p.contactId });
+    return { label, result: { planned: true } };
+  }
   if (!proposal || !actor.agencyId) {
     return { label, isError: true, result: { error: 'Changes can only be proposed inside a conversation.' } };
   }
@@ -207,7 +231,8 @@ function runRefusal(err: unknown): string | null {
     err instanceof TeamEditError ||
     err instanceof OffboardError ||
     err instanceof MailError ||
-    err instanceof TeamMessageError
+    err instanceof TeamMessageError ||
+    err instanceof LeadTriageError
   ) {
     return err.message;
   }
@@ -252,6 +277,10 @@ type Executed = {
   mailMessageId?: string;
   /** A team message, recorded: its emails and bell after the commit. */
   teamMessageId?: string;
+  /** A reminder the person asked to have emailed to themselves (ADR 0040): sent after the commit. */
+  reminderEmail?: { text: string };
+  /** An approved plan (ADR 0040): run its steps that are due now, after the commit. */
+  taskId?: string;
 };
 
 /**
@@ -275,8 +304,55 @@ async function execute(
   args: FrozenArgs,
   now: Date,
   deps: RunDeps,
+  rowId: string,
 ): Promise<Executed> {
   switch (args.tool) {
+    case 'set_lead_status': {
+      // lead:update again — an agent the lead was taken from is told it is now another agent's (ADR 0039 C3).
+      await updateLeadStatus(tx, actor, args.leadId, args.status);
+      return { result: { leadId: args.leadId, status: args.status } };
+    }
+    case 'assign_lead': {
+      await assignLead(tx, actor, args.leadId, args.to);
+      return { result: { leadId: args.leadId, assigned: 1 } };
+    }
+    case 'create_lead': {
+      const { leadId } = await createManualLead(tx, actor, { contactId: args.contactId, listingId: args.listingId, kind: args.kind, message: args.message });
+      return { result: { leadId } };
+    }
+    case 'create_contact': {
+      const { id } = await createContact(tx, actor, {
+        name: args.name,
+        ...(args.email ? { email: args.email } : {}),
+        ...(args.phone ? { phone: args.phone } : {}),
+        roles: args.roles as never,
+      });
+      return { result: { contactId: id } };
+    }
+    case 'remind': {
+      if (!actor.agencyId) throw new AssistantError('forbidden', 'You are not in an agency.');
+      const n = await notifyMyself(tx, actor, args.text, `reminder:${rowId}`);
+      if (!n) throw new AssistantError('conflict', 'This reminder was already given.');
+      return { result: { notificationId: n.id }, ...(args.email ? { reminderEmail: { text: args.text } } : {}) };
+    }
+    case 'plan_task': {
+      const { steps } = await activateTask(tx, args.taskId, actor.userId, now);
+      return { result: { taskId: args.taskId, steps }, taskId: args.taskId };
+    }
+    case 'cancel_task': {
+      const [t] = await tx
+        .select({ userId: assistantTask.userId, agencyId: assistantTask.agencyId, status: assistantTask.status })
+        .from(assistantTask)
+        .where(eq(assistantTask.id, args.taskId))
+        .limit(1);
+      if (!t || t.agencyId !== actor.agencyId) throw new AssistantError('not_found', 'That task was not found.');
+      if (t.userId !== actor.userId && !can(actor, 'proposed_action:cancel', { type: 'proposed_action', agencyId: t.agencyId, ownerId: t.userId })) {
+        throw new AssistantError('forbidden', 'Only the person who planned it, or an admin, can cancel this task.');
+      }
+      if (t.status !== 'active' && t.status !== 'proposed') throw new AssistantError('conflict', `This task is already ${t.status}.`);
+      const cancelled = await endTask(tx, args.taskId, 'cancelled', now);
+      return { result: { cancelled } };
+    }
     case 'add_note': {
       const { id } = await createNote(tx, actor, args.contactId, args.body, { isPrivate: args.private });
       return { result: { noteId: id } };
@@ -451,11 +527,20 @@ async function runClaimed(tx: Db, actor: Actor, row: RowT, deps: RunDeps, now: D
   };
   if (!row.runAt) await audit('assistant_approved');
   try {
-    const done = await tx.transaction((sp) => execute(sp as unknown as Db, actor, args, now, deps));
+    // A task step (ADR 0040) runs only while its task is active and within its 30 days.
+    const stop = row.taskId ? await taskAllowsRun(tx, row.taskId, now) : null;
+    if (stop) throw new AssistantError('conflict', stop);
+    const done = await tx.transaction(async (sp) => {
+      const out = await execute(sp as unknown as Db, actor, args, now, deps, row.id);
+      // The read-back (ADR 0040 §4): what the step says it made is really there, or it is undone.
+      await verifyExecuted(sp as unknown as Db, args as never, out.result);
+      return out;
+    });
     await tx
       .update(proposedAction)
       .set({ status: 'done', result: done.result, finishedAt: now, updatedAt: sql`now()` })
       .where(eq(proposedAction.id, row.id));
+    if (row.taskId) await advanceTask(tx, row.taskId, { ok: true }, now);
     return { ok: true, ...done };
   } catch (err) {
     const reason = runRefusal(err);
@@ -472,6 +557,8 @@ async function failRow(tx: Db, actor: Actor | null, row: RowT, reason: string, n
     .update(proposedAction)
     .set({ status: 'failed', error: reason, finishedAt: now, updatedAt: sql`now()` })
     .where(eq(proposedAction.id, row.id));
+  // A failed step stops its task (ADR 0040): nothing after it runs.
+  if (row.taskId) await advanceTask(tx, row.taskId, { ok: false, error: `Step ${row.taskSeq ?? '?'}: ${reason}` }, now);
   // A failed email card takes its prepared batch with it, so the Bulk email screen
   // never shows a batch still waiting for an Approve that the card refused.
   if (args.tool === 'send_template_email' && actor) {
@@ -508,9 +595,47 @@ async function runOffboard(db: Db, actor: Actor, row: RowT, ran: Extract<Ran, { 
   }
 }
 
+/** A reminder, to the person's own sign-in address — through the team-notice mailer, so it has the console's link. */
+async function emailReminder(db: Db, actor: Actor, text: string, deps: RunDeps): Promise<boolean> {
+  const n = deps.teamMessages;
+  if (!n) return false;
+  const [me] = await db.select({ email: user.email, name: user.name }).from(user).where(eq(user.id, actor.userId)).limit(1);
+  if (!me?.email) return false;
+  const admin = can(actor, 'console:agency', { type: 'console', agencyId: actor.agencyId ?? '' });
+  const email = buildReminderEmail({
+    to: { email: me.email, ...(me.name ? { name: me.name } : {}) },
+    from: n.mailer.sender.from,
+    postalAddress: n.mailer.sender.postalAddress,
+    text,
+    consoleUrl: admin ? n.urls.agencyUrl : n.urls.agentUrl,
+  });
+  const sent = await n.mailer.transport.send(email);
+  return sent.ok;
+}
+
 /** After the commit: Google/Zoom sync, the email send, a removal (network never runs inside a transaction). */
 async function afterCommit(db: Db, actor: Actor, row: RowT, ran: Extract<Ran, { ok: true }>, deps: RunDeps): Promise<ApproveResult> {
   if (ran.offboard) return runOffboard(db, actor, row, ran, deps);
+  if (ran.reminderEmail) {
+    // To the person themselves, only because they asked (ADR 0040 Q3). The bell already has it.
+    const emailed = await emailReminder(db, actor, ran.reminderEmail.text, deps).catch((err: unknown) => {
+      console.error('[assistant] reminder email failed', err instanceof Error ? err.message : err);
+      return false;
+    });
+    const result = { ...ran.result, emailed };
+    await db.update(proposedAction).set({ result, updatedAt: sql`now()` }).where(eq(proposedAction.id, row.id));
+    return { outcome: 'done', result, sync: null };
+  }
+  if (ran.taskId) {
+    // The plan is approved: run its steps that are due now (the rest wait for the minute tick).
+    const report = await runScheduledActions(db, deps, new Date(), 10, { taskId: ran.taskId }).catch((err: unknown) => {
+      console.error('[assistant] task start failed', err instanceof Error ? err.message : err);
+      return null;
+    });
+    const result = { ...ran.result, ...(report ? { ranNow: report.done, failedNow: report.failed } : {}) };
+    await db.update(proposedAction).set({ result, updatedAt: sql`now()` }).where(eq(proposedAction.id, row.id));
+    return { outcome: 'done', result, sync: null };
+  }
   if (ran.inviteClaim) {
     let emailed = false;
     if (deps.inviteMail) {
@@ -730,7 +855,14 @@ export type ScheduledRunReport = { ran: number; done: number; failed: number };
  * connected; for email: consent, opt-out, the 7-day rule, today's limits and
  * the dev allowlist, per recipient, at send).
  */
-export async function runScheduledActions(db: Db, deps: RunDeps = {}, now = new Date(), limit = 10): Promise<ScheduledRunReport> {
+export async function runScheduledActions(
+  db: Db,
+  deps: RunDeps = {},
+  now = new Date(),
+  limit = 10,
+  /** Only this task's steps (ADR 0040: right after its plan is approved). */
+  opts: { taskId?: string } = {},
+): Promise<ScheduledRunReport> {
   const report: ScheduledRunReport = { ran: 0, done: 0, failed: 0 };
   for (let i = 0; i < limit; i++) {
     let row: RowT | null = null;
@@ -741,7 +873,7 @@ export async function runScheduledActions(db: Db, deps: RunDeps = {}, now = new 
         const [due] = await tx
           .select({ id: proposedAction.id })
           .from(proposedAction)
-          .where(and(eq(proposedAction.status, 'scheduled'), lte(proposedAction.runAt, now)))
+          .where(and(eq(proposedAction.status, 'scheduled'), lte(proposedAction.runAt, now), ...(opts.taskId ? [eq(proposedAction.taskId, opts.taskId)] : [])))
           .orderBy(asc(proposedAction.runAt))
           .limit(1)
           .for('update', { skipLocked: true });
@@ -769,10 +901,16 @@ export async function runScheduledActions(db: Db, deps: RunDeps = {}, now = new 
       console.error('[assistant] scheduled action failed', err instanceof Error ? err.message : err);
       const failedId = (row as RowT | null)?.id;
       if (failedId) {
-        await db
-          .update(proposedAction)
-          .set({ status: 'failed', error: 'It could not run because of an error on our side. Nothing was changed.', finishedAt: now, updatedAt: sql`now()` })
-          .where(and(eq(proposedAction.id, failedId), eq(proposedAction.status, 'scheduled')));
+        const reason = 'It could not run because of an error on our side. Nothing was changed.';
+        await db.transaction(async (tx) => {
+          const [f] = await tx
+            .update(proposedAction)
+            .set({ status: 'failed', error: reason, finishedAt: now, updatedAt: sql`now()` })
+            .where(and(eq(proposedAction.id, failedId), eq(proposedAction.status, 'scheduled')))
+            .returning({ taskId: proposedAction.taskId, taskSeq: proposedAction.taskSeq });
+          // A task stops at a step that could not run (ADR 0040).
+          if (f?.taskId) await advanceTask(tx, f.taskId, { ok: false, error: `Step ${f.taskSeq ?? '?'}: ${reason}` }, now);
+        });
         report.ran += 1;
         report.failed += 1;
         continue;
@@ -830,6 +968,8 @@ async function settle(
       return { outcome: 'already' as const, status: (cur?.status ?? to) as ProposalStatus };
     }
     const args = row.args as FrozenArgs;
+    // A rejected or cancelled plan takes its task with it (ADR 0040): none of its steps will run.
+    if (args.tool === 'plan_task') await endTask(tx, args.taskId, 'cancelled', new Date());
     // A rejected or cancelled email card takes its prepared batch with it.
     if (args.tool === 'send_template_email') {
       await tx.transaction((sp) => cancelBatch(sp as unknown as Db, actor, args.batchId)).catch(() => undefined);
@@ -843,12 +983,19 @@ async function settle(
 
 /** The cron tick: proposals nobody decided within 48 h expire. The row keeps the record. */
 export async function expireProposedActions(db: Db, now = new Date()): Promise<number> {
-  const gone = await db
-    .update(proposedAction)
-    .set({ status: 'expired', updatedAt: sql`now()` })
-    .where(and(eq(proposedAction.status, 'proposed'), lt(proposedAction.expiresAt, now)))
-    .returning({ id: proposedAction.id });
-  return gone.length;
+  return db.transaction(async (tx) => {
+    const gone = await tx
+      .update(proposedAction)
+      .set({ status: 'expired', updatedAt: sql`now()` })
+      .where(and(eq(proposedAction.status, 'proposed'), lt(proposedAction.expiresAt, now)))
+      .returning({ id: proposedAction.id, args: proposedAction.args });
+    // An unapproved plan that expired takes its task with it (ADR 0040).
+    for (const g of gone) {
+      const a = g.args as FrozenArgs;
+      if (a.tool === 'plan_task') await endTask(tx, a.taskId, 'expired', now);
+    }
+    return gone.length;
+  });
 }
 
 export type ProposalView = {

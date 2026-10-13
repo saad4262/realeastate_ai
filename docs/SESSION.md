@@ -1,3 +1,17 @@
+## 2026-10-13 — Claude Code — Assistant Phase 2 part 1: tasks, reminders, CRM tools (ADR 0040, branch feat/assistant-tasks)
+
+- Phase 1 merged to main and pushed (22c6524); all three Vercel production projects READY.
+- Production DB = dev DB (compared hosts/user/db from a pulled production env in the scratchpad,
+  printed nothing, deleted it) — so 0045/0046 were already in production; 0047 applied with the
+  user's permission (47 → 48 rows). The AH test rows (example.test) are therefore in production data.
+- ADR 0040 accepted with the user's five answers. Built as in its "As built".
+- Red-team guards kept strict: renamed fields (`stage`, `mail_me`) rather than loosen them; extended the
+  assign/email/to allow-lists with written reasons.
+- Smoke smells found: a moved check carried toolCtx below its use (fixed in Phase 1); the background actor
+  had no listing links (fixed here).
+- Next exact step: the user approves pushing feat/assistant-tasks to main (deploys); then Phase 2 part 2
+  (listings write tools, invite_agent, saved-filter bulk email, connect shape + panel button).
+
 ## 2026-10-13 — Claude Code — Assistant audit, decisions (ADR 0039) and Phase 1 (branch feat/assistant-phase1)
 
 - Read-only audit of the assistant (stage B with parts of C). The user set the direction: social scraping to

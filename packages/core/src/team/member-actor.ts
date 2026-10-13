@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { membership, type DbOrTx } from '@repo/db';
+import { listing, listingAgent, membership, type DbOrTx } from '@repo/db';
 import type { Actor, MembershipRole } from '../permissions';
 
 /**
@@ -15,5 +15,13 @@ export async function activeMemberActor(db: DbOrTx, userId: string, agencyId: st
     .where(and(eq(membership.userId, userId), eq(membership.agencyId, agencyId)))
     .limit(1);
   if (!m || m.status !== 'active') return null;
-  return { userId, agencyId, membershipRole: m.role as MembershipRole };
+  // The listings they are named on, as the console's own actor carries them (apps/console
+  // lib/load-actor.ts): without them, work run later judged "a lead on my listing" more
+  // narrowly than the screen does (found by ADR 0040's task smoke).
+  const links = await db
+    .select({ listingId: listingAgent.listingId })
+    .from(listingAgent)
+    .innerJoin(listing, eq(listing.id, listingAgent.listingId))
+    .where(and(eq(listingAgent.userId, userId), eq(listing.agencyId, agencyId)));
+  return { userId, agencyId, membershipRole: m.role as MembershipRole, listingAgentOf: links.map((l) => l.listingId) };
 }

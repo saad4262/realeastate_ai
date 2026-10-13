@@ -24,6 +24,7 @@ export {
   updateLeadStatus,
   leadStatusSchema,
   LeadTriageError,
+  LEAD_NOW_WITH_ANOTHER,
   type TriageErrorCode,
   type TriagedLead,
 } from './triage-lead';
@@ -34,3 +35,4 @@ export {
   type NoticeOutcome,
 } from './lead-notices';
 export { loadLeadContext, type LeadContext } from './lead-context';
+export { createManualLead, MANUAL_LEAD_KINDS, type ManualLeadKind } from './create-manual-lead';

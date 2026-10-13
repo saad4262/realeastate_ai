@@ -1173,3 +1173,22 @@ Before: migration 0046 applied, `pnpm dev` restarted (prompt `assistant@v14`).
 | AL5 | "What happened to my cards?" | It lists this conversation's cards with their status (check_cards). |
 | AL6 | Send a new email to a contact from the assistant and press Approve twice quickly (two tabs) | One email arrives. The second tab shows the card already done. |
 | AL7 | Inbox: a failed message → Retry | It is sent once more (a new try); the conversation shows one sent copy. |
+
+## AM — Tasks of several steps, reminders, and the CRM tools (ADR 0040)
+
+Before: migration 0047 applied; `pnpm dev` restarted (prompt `assistant@v15`).
+
+| # | Case | Expected |
+|---|---|---|
+| AM1 | Assistant: "Add a note to <contact> that we spoke, remind me tomorrow at 9 to call them, then set their next action to 'book inspection'" | **One** card **Plan: …** with Step 1 (now), Step 2 (tomorrow 9:00, "Remind you…", bell only), Step 3 (right after). Nothing happens yet. |
+| AM2 | Approve the plan | The note is added at once. Next message: it says step 1 is done and the reminder waits. |
+| AM3 | Tomorrow at 9 (or ask a developer to move the time) | The bell rings with the reminder; the next action is set right after. |
+| AM4 | "Remind me in 10 minutes to call Ali, and email it to me too" | A plan with one step; "By email: Yes, to your own address". After its time: the bell, and an email to your own address only. |
+| AM5 | A plan whose second step names a contact you cannot see | No card: it says which step could not be planned and why. |
+| AM6 | Approve a plan with a later step; then "stop that task" | A card "Stop the task …"; after Approve, the later step never runs. |
+| AM7 | Agent: "close the lead from <name>" (theirs) | A card "Close the lead …" with Status → Closed. Approve → the lead is closed (still there, can be reopened). |
+| AM8 | Owner gives that agent's lead to another agent; the first agent asks to change it | It says: "This lead is now with another agent. You can no longer change it — contact your agency for more information." The lead stays in their list, read only. |
+| AM9 | Owner: "give the lead from <name> to <agent>" | A card with From → To. Agents never see this tool. |
+| AM10 | Agent: "record a lead from <contact> on <my listing>, they want an appraisal" | The assistant looks up the listing, then a card "Record a lead …" — assigned to you, source manual. On another agent's listing: refused. |
+| AM11 | "Add a contact Ali Raza, ali@example.com" | A card; Approve → the contact is yours. With an email that already exists: no card, it says so. |
+| AM12 | A new enquiry from the website on Saad's listing | It arrives already assigned to Saad. |

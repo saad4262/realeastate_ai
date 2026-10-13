@@ -1,5 +1,5 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { APPOINTMENT_RANGES, ASSISTANT_ADMIN_TOOLS, ASSISTANT_TEAM_TOOLS, ASSISTANT_APPOINTMENT_TYPES, LEAD_SINCE, LEAD_STATUSES } from '@repo/core/assistant/schema';
+import { APPOINTMENT_RANGES, ASSISTANT_ADMIN_TOOLS, ASSISTANT_TEAM_TOOLS, ASSISTANT_APPOINTMENT_TYPES, LEAD_SINCE, LEAD_STATUSES, LISTING_STATUSES_FOR_FIND, PLANNABLE_TOOLS, TASK_LIMITS } from '@repo/core/assistant/schema';
 import { can, type Actor } from '@repo/core/permissions';
 import { WIDGET_IDS, WIDGET_RANGES } from '@repo/core/widgets';
 import { DATASET_IDS, DATASETS, SPEC_RANGES, TIME_UNITS, VIZ } from '@repo/core/semantic';
@@ -134,6 +134,115 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
       },
       required: ['widget'],
     },
+  },
+  {
+    name: 'find_listings',
+    description: 'The listings this person works on (an agent: their own; an owner or admin: the agency’s), newest first, with a P reference each — use a P reference to record a lead on a listing.',
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        text: { type: 'string', description: 'Part of the address or the suburb.' },
+        status: { type: 'string', enum: [...LISTING_STATUSES_FOR_FIND] },
+        limit: { type: 'integer', description: 'How many, up to 20. Default 10.' },
+      },
+    },
+  },
+  {
+    name: 'set_lead_status',
+    description: `Propose changing a lead's status. To "delete" a lead, close it — nothing is ever deleted. Only the agent the lead is assigned to, or an owner/admin, may change it. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { lead: { type: 'string', description: 'An L reference from find_leads.' }, stage: { type: 'string', enum: [...LEAD_STATUSES], description: 'The lead’s new status.' } },
+      required: ['lead', 'stage'],
+    },
+  },
+  {
+    name: 'assign_lead',
+    description: `Owners and admins: propose giving a lead to a team member (an M reference from find_team_members). The agent it is taken from still sees it, read only. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { lead: { type: 'string', description: 'An L reference.' }, to: { type: 'string', description: 'An M reference.' } },
+      required: ['lead', 'to'],
+    },
+  },
+  {
+    name: 'create_lead',
+    description: `Propose recording a lead by hand: a contact's interest in a listing (P reference from find_listings). It is assigned to this person and marked manual. Never an offer. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        contact: { type: 'string', description: REF },
+        listing: { type: 'string', description: 'A P reference from find_listings.' },
+        kind: { type: 'string', enum: ['enquiry', 'inspection', 'appraisal'] },
+        message: { type: 'string', description: 'What they asked, in the person’s words. Optional.' },
+      },
+      required: ['contact', 'listing'],
+    },
+  },
+  {
+    name: 'create_contact',
+    description: `Propose adding a new contact, assigned to this person. Use only details the person gave you; an email or a phone is needed. Adding someone is never marketing consent. If a contact with that email exists, nothing is proposed. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        name: { type: 'string' },
+        email: { type: 'string' },
+        phone: { type: 'string' },
+        roles: { type: 'array', items: { type: 'string', enum: [...CONTACT_ROLES] } },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'create_reminder',
+    description: `Propose a reminder for this person at a time: it rings their bell, and is emailed to their own address only if they asked. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        text: { type: 'string', description: 'What to remind them of, in their words.' },
+        date: { type: 'string', description: DATE },
+        time: { type: 'string', description: TIME },
+        mail_me: { type: 'boolean', description: 'Also email it to their own address — only if they asked.' },
+      },
+      required: ['text', 'date', 'time'],
+    },
+  },
+  {
+    name: 'plan_task',
+    description: `Propose a task of several steps that run in order — some now, some later (up to ${TASK_LIMITS.days} days): e.g. "remind me tomorrow at 9, then email Ali". Each step is one of the write tools listed (or remind), with that tool's own input; give a date and time only when a step must wait. The person approves the whole plan once, on one card that shows every step and the exact words of anything sent to someone. If a step cannot be done when it runs, the rest stop and you are told. Up to ${TASK_LIMITS.steps} steps. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        title: { type: 'string', description: 'A short name for the task.' },
+        steps: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              tool: { type: 'string', enum: [...PLANNABLE_TOOLS] },
+              input: { type: 'object', description: 'Exactly the input that tool takes on its own. For remind: { "text": "...", "mail_me": false }.' },
+              date: { type: 'string', description: `${DATE} Omit to run right after the step before.` },
+              time: { type: 'string', description: TIME },
+            },
+            required: ['tool', 'input'],
+          },
+        },
+      },
+      required: ['title', 'steps'],
+    },
+  },
+  {
+    name: 'cancel_task',
+    description: `Propose stopping one of this person's tasks (a K reference). Steps already done stay done. ${PROPOSES}`,
+    input_schema: { type: 'object', additionalProperties: false, properties: { task: { type: 'string', description: 'A K reference from plan_task.' } }, required: ['task'] },
   },
   {
     name: 'check_cards',

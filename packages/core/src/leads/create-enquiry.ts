@@ -1,5 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { lead, listing, type DbOrTx } from '@repo/db';
+import { sql } from 'drizzle-orm';
+import { leadAgentIdSql } from '../listings/scope';
 import { enquiryInputSchema, type EnquiryInput } from './lead-schema';
 
 /** Live only — the same status the public search and listing page use. */
@@ -26,8 +28,9 @@ export class EnquiryError extends Error {
  * enquiry against a draft would confirm to anyone guessing ids that a draft
  * with that id exists, which is an agency's unpublished work.
  *
- * Returns the new lead's id. Everything the console needs to triage it —
- * status, assignment, the AI summary — is set by the console, not here.
+ * Returns the new lead's id. It is assigned to the listing's lead agent
+ * straight away (ADR 0039 C3); status changes and reassignment are the
+ * console's.
  */
 export async function createEnquiry(
   db: DbOrTx,
@@ -70,6 +73,8 @@ export async function createEnquiry(
       // own status could file a lead as already closed.
       kind: 'enquiry',
       status: 'new',
+      // ADR 0039 C3: the listing's lead agent has it from the start; the agency may move it later.
+      assignedTo: leadAgentIdSql(sql`${listingId}::uuid`),
     })
     .returning({ id: lead.id });
 

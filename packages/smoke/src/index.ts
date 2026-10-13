@@ -46,6 +46,8 @@ import {
 import {
   assignLead,
   createEnquiry,
+  createManualLead,
+  LEAD_NOW_WITH_ANOTHER,
   createPrivateOffer,
   LeadTriageError,
   listAgencyLeads,
@@ -218,7 +220,7 @@ import {
   runAssistantTool,
   selectionHandles,
   type HandleMap,
-  ASSISTANT_WRITE_TOOLS,
+  PROPOSED_ACTION_TOOLS,
   takeCardUpdates,
   unreportCards,
   cardUpdatesBlock,
@@ -5459,6 +5461,151 @@ async function main() {
   const code = (p: Promise<unknown>) => p.then(() => 'ok', (e: unknown) => (e as AssistantError).code ?? String(e));
   const count = async (t: Db, q: ReturnType<typeof sql>) => Number((await t.execute<{ n: number }>(q))[0]?.n ?? 0);
 
+  /** A task's rows, by step: tool and status, in order. */
+  const taskRows = async (t: Db, taskId: string) =>
+    (await t.execute<{ seq: number; tool: string; status: string; error: string | null }>(sql`
+      select task_seq as seq, tool, status, error from proposed_action where task_id = ${taskId} order by task_seq`)).map((r) => `${r.seq}:${r.tool}:${r.status}`);
+  const taskStatus = async (t: Db, taskId: string) => (await t.execute<{ status: string; error: string | null }>(sql`select status, error from assistant_task where id = ${taskId}`))[0]!;
+  const planOf = (out: { frame?: unknown; result: unknown }) => {
+    const id = cardId(out);
+    return { cardId: id };
+  };
+  const taskIdOf = async (t: Db, planCardId: string) => ((await t.execute<{ id: string }>(sql`select args->>'taskId' as id from proposed_action where id = ${planCardId}`))[0]!.id);
+
+  await check('a task runs step by step (ADR 0040): approved once; now-steps run on Approve, later ones at their time; a reminder rings the bell', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const conv = await claimTurn(t, owner, { message: 'x', surface: 'agency' });
+      const handles: HandleMap = {};
+      const c = issueHandle(handles, 'C', f.contacts.p2);
+      const tomorrow = new Date(Date.now() + 26 * 3_600_000);
+      const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Melbourne' }).format(tomorrow);
+      const out = await runAssistantTool(proposeCtx(t, owner, handles, conv.conversationId), 'plan_task', {
+        title: 'Follow up P2',
+        steps: [
+          { tool: 'add_note', input: { contact: c, body: 'Called — wants Saturday.' } },
+          { tool: 'remind', input: { text: 'Call P2 back about Saturday', mail_me: false }, date: day, time: '09:00' },
+          { tool: 'set_next_action', input: { contact: c, text: 'Book the Saturday inspection' } },
+        ],
+      });
+      const plan = planOf(out);
+      const taskId = await taskIdOf(t, plan.cardId);
+      const card = await getProposedAction(t, owner, plan.cardId);
+      assert(card.card.title === 'Plan: Follow up P2' && card.card.lines.some((l) => /Step 2 ·/.test(l.label) && /Remind you/.test(l.value)), `plan card: ${JSON.stringify(card.card.lines.slice(0, 4))}`);
+      assert((await taskRows(t, taskId)).join() === '1:add_note:blocked,2:remind:blocked,3:set_next_action:blocked', `before approve: ${await taskRows(t, taskId)}`);
+      // Nothing of the plan is its own card, and nothing ran yet.
+      assert((await count(t, sql`select count(*)::int as n from note where contact_id = ${f.contacts.p2} and body like 'Called%'`)) === 0, 'a step ran before Approve');
+
+      const approved = await approveProposedAction(t, owner, plan.cardId);
+      assert(approved.outcome === 'done', `approve: ${JSON.stringify(approved)}`);
+      assert((await taskRows(t, taskId)).join() === '1:add_note:done,2:remind:scheduled,3:set_next_action:blocked', `after approve: ${await taskRows(t, taskId)}`);
+      assert((await count(t, sql`select count(*)::int as n from note where contact_id = ${f.contacts.p2} and body like 'Called%'`)) === 1, 'step 1 did not add its note');
+
+      // The minute tick before the reminder's time: nothing. At its time: the bell, then step 3 right after.
+      await runScheduledActions(t, {}, new Date());
+      assert((await taskRows(t, taskId))[1] === '2:remind:scheduled', 'the reminder ran early');
+      await runScheduledActions(t, {}, new Date(tomorrow.getTime() + 3_600_000));
+      assert((await taskRows(t, taskId)).join() === '1:add_note:done,2:remind:done,3:set_next_action:done', `after its time: ${await taskRows(t, taskId)}`);
+      assert((await taskStatus(t, taskId)).status === 'done', 'the task did not finish');
+      assert((await count(t, sql`select count(*)::int as n from notification where user_id = ${f.people.owner} and kind = 'reminder'`)) === 1, 'no bell');
+      return 'plan card with 3 steps; Approve ran step 1; the reminder waited for its time and rang the bell; step 3 followed; task done';
+    }),
+  );
+
+  await check('a task stops at a step that can no longer be done (ADR 0040): the reason is kept, the rest are cancelled; a bad step refuses the whole plan', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const a1 = f.actor('a1');
+      const conv = await claimTurn(t, a1, { message: 'x', surface: 'agent' });
+      const handles: HandleMap = {};
+      const mine = await f.lead(`own.${f.tag}@smoke.test`, 'Own', { assigned: f.people.a1, listing: true });
+      const l = issueHandle(handles, 'L', mine.id);
+      const c = issueHandle(handles, 'C', mine.contact_id);
+      const later = new Date(Date.now() + 3 * 3_600_000);
+      const [day, time] = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Australia/Melbourne', dateStyle: 'short', timeStyle: 'short' }).format(later).split(' ');
+      // A bad step refuses the whole plan — named — and makes nothing.
+      const before = await count(t, sql`select count(*)::int as n from assistant_task where user_id = ${f.people.a1}`);
+      const bad = await runAssistantTool(proposeCtx(t, a1, handles, conv.conversationId), 'plan_task', {
+        title: 'Bad', steps: [{ tool: 'add_note', input: { contact: c, body: 'x' } }, { tool: 'add_note', input: { contact: 'C9', body: 'y' } }],
+      });
+      assert(bad.isError && /^Step 2 \(add_note\): That reference/.test((bad.result as { error: string }).error), `bad plan: ${JSON.stringify(bad.result)}`);
+      assert((await count(t, sql`select count(*)::int as n from assistant_task where user_id = ${f.people.a1}`)) === before, 'a refused plan left a task');
+
+      const out = await runAssistantTool(proposeCtx(t, a1, handles, conv.conversationId), 'plan_task', {
+        title: 'Close later', steps: [{ tool: 'set_lead_status', input: { lead: l, stage: 'contacted' }, date: day, time }, { tool: 'add_note', input: { contact: c, body: 'Closed it.' } }],
+      });
+      const plan = planOf(out);
+      const taskId = await taskIdOf(t, plan.cardId);
+      await approveProposedAction(t, a1, plan.cardId);
+      // Meanwhile the agency gives the lead to A2: A1 may no longer change it.
+      await assignLead(t, f.actor('owner'), mine.id, f.people.a2);
+      await runScheduledActions(t, {}, new Date(later.getTime() + 60_000));
+      const rows = await taskRows(t, taskId);
+      const task = await taskStatus(t, taskId);
+      assert(rows.join() === '1:set_lead_status:failed,2:add_note:cancelled' && task.status === 'failed' && task.error?.includes(LEAD_NOW_WITH_ANOTHER), `after the lead moved: ${rows} / ${JSON.stringify(task)}`);
+      // And straight away, as a card: the same words.
+      const now = await runAssistantTool(proposeCtx(t, a1, handles, conv.conversationId), 'set_lead_status', { lead: l, stage: 'closed' });
+      assert(now.isError && (now.result as { error: string }).error === LEAD_NOW_WITH_ANOTHER, `card: ${JSON.stringify(now.result)}`);
+      return 'a bad step refused the plan (named, nothing made); the step failed with "now with another agent", the rest cancelled, the task failed';
+    }),
+  );
+
+  await check('a plan rejected or cancelled takes its task with it; only its author approves (ADR 0040)', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const conv = await claimTurn(t, owner, { message: 'x', surface: 'agency' });
+      const handles: HandleMap = {};
+      const c = issueHandle(handles, 'C', f.contacts.p2);
+      const mk = async () => {
+        const o = await runAssistantTool(proposeCtx(t, owner, handles, conv.conversationId), 'plan_task', { title: 'T', steps: [{ tool: 'add_note', input: { contact: c, body: 'x' } }] });
+        const p = planOf(o);
+        return { ...p, taskId: await taskIdOf(t, p.cardId), ref: (o.result as { task: string }).task };
+      };
+      const r = await mk();
+      assert((await code(approveProposedAction(t, f.actor('a1'), r.cardId))) !== 'ok', 'another member approved the plan');
+      await rejectProposedAction(t, owner, r.cardId);
+      assert((await taskStatus(t, r.taskId)).status === 'cancelled' && (await taskRows(t, r.taskId)).join() === '1:add_note:cancelled', 'a rejected plan left its task');
+      // Cancel a running task with a far step: the step never runs.
+      const conv2 = await claimTurn(t, owner, { message: 'y', surface: 'agency' });
+      const h2: HandleMap = {};
+      const c2 = issueHandle(h2, 'C', f.contacts.p2);
+      const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Melbourne' }).format(new Date(Date.now() + 5 * 86_400_000));
+      const o2 = await runAssistantTool(proposeCtx(t, owner, h2, conv2.conversationId), 'plan_task', { title: 'Later', steps: [{ tool: 'add_note', input: { contact: c2, body: 'later' }, date: day, time: '10:00' }] });
+      const p2 = planOf(o2);
+      const task2 = await taskIdOf(t, p2.cardId);
+      await approveProposedAction(t, owner, p2.cardId);
+      const stop = cardId(await runAssistantTool(proposeCtx(t, owner, h2, conv2.conversationId), 'cancel_task', { task: (o2.result as { task: string }).task }));
+      await approveProposedAction(t, owner, stop);
+      await runScheduledActions(t, {}, new Date(Date.now() + 6 * 86_400_000));
+      assert((await taskStatus(t, task2)).status === 'cancelled' && (await taskRows(t, task2)).join() === '1:add_note:cancelled', `cancelled task: ${await taskRows(t, task2)}`);
+      return 'another member cannot approve; rejecting the plan cancelled its task; cancel_task stopped a waiting step';
+    }),
+  );
+
+  await check('leads (ADR 0039 C3, ADR 0040): a website enquiry goes to the listing’s lead agent; a lead recorded by hand is its recorder’s, source manual, on their own listings only', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const [lst] = await t.execute<{ id: string }>(sql`select listing_id as id from listing_agent where user_id = ${f.people.a1} limit 1`);
+      const { leadId } = await createEnquiry(t, lst!.id, { name: 'Web Buyer', email: `web.${f.tag}@smoke.test`, message: 'Is it available?' }).catch(async () => {
+        // The fixture's listing may not be live: make it live for the public form.
+        await t.execute(sql`update listing set status = 'live' where id = ${lst!.id}`);
+        return createEnquiry(t, lst!.id, { name: 'Web Buyer', email: `web.${f.tag}@smoke.test`, message: 'Is it available?' });
+      });
+      const [web] = await t.execute<{ assigned_to: string | null; source: string }>(sql`select assigned_to, source from lead where id = ${leadId}`);
+      assert(web!.assigned_to === f.people.a1 && web!.source === 'website', `enquiry: ${JSON.stringify(web)}`);
+      const man = await createManualLead(t, f.actor('a1'), { contactId: f.contacts.p2, listingId: lst!.id, kind: 'appraisal', message: 'Wants an appraisal' });
+      const [m] = await t.execute<{ assigned_to: string; source: string; kind: string }>(sql`select assigned_to, source, kind from lead where id = ${man.leadId}`);
+      assert(m!.assigned_to === f.people.a1 && m!.source === 'manual' && m!.kind === 'appraisal', `manual: ${JSON.stringify(m)}`);
+      // A2 is not on that listing: refused.
+      const a2 = await createManualLead(t, f.actor('a2'), { contactId: f.contacts.p2, listingId: lst!.id, kind: 'enquiry', message: null }).then(() => 'made', (e: unknown) => (e as Error).message);
+      assert(/not one you can record leads on/.test(a2), `A2 on A1's listing: ${a2}`);
+      return 'enquiry → A1 (the listing’s lead agent), source website; A1’s own manual lead → A1, source manual; A2 refused on A1’s listing';
+    }),
+  );
+
+
   await check('the model is told how its cards ended (ADR 0039 Phase 1): approved, rejected, expired — each once; a failed turn is told again', async () =>
     inRollback(async (t) => {
       const f = await contactFixture(t);
@@ -6092,7 +6239,7 @@ async function main() {
       select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'proposed_action_tool_check'`);
     assert(row, 'no proposed_action_tool_check');
     const allowed = [...row.def.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]!).sort();
-    const code = [...ASSISTANT_WRITE_TOOLS].sort();
+    const code = [...PROPOSED_ACTION_TOOLS].sort();
     assert(JSON.stringify(allowed) === JSON.stringify(code), `CHECK: ${allowed.join(', ')} · code: ${code.join(', ')}`);
     return `${allowed.length} tools, same list`;
   });

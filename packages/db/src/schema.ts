@@ -515,6 +515,12 @@ export const lead = pgTable(
     kind: leadKindEnum('kind').notNull().default('enquiry'),
     status: leadStatusEnum('status').notNull().default('new'),
     /**
+     * Where it came from (ADR 0040): `website` (an enquiry or offer from the
+     * public site — every lead before this column) or `manual` (recorded by a
+     * member in the console or through the assistant).
+     */
+    source: varchar('source', { length: 16 }).notNull().default('website'),
+    /**
      * What the visitor offered, on a lead that is an offer.
      *
      * Their own figure, stored as they typed it — never computed, estimated or
@@ -1953,6 +1959,36 @@ export const assistantTurn = pgTable(
 );
 
 /**
+ * An assistant task (ADR 0040): a plan of up to 10 steps the person approved
+ * once, on one card. Its steps are `proposed_action` rows (`task_id`,
+ * `task_seq`) run in order by the minute tick, as the approver as they are
+ * then; one that fails stops the task. Lives up to 30 days.
+ */
+export const assistantTask = pgTable(
+  'assistant_task',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    conversationId: uuid('conversation_id').references(() => assistantConversation.id, { onDelete: 'set null' }),
+    title: text('title').notNull(),
+    /** proposed → active → done | failed | cancelled | expired. */
+    status: varchar('status', { length: 16 }).notNull().default('proposed'),
+    /** The step that stopped it, and why — for the card and the model. */
+    error: text('error'),
+    /** No step runs after this (30 days from when it was planned). */
+    endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index('assistant_task_user_idx').on(t.userId, t.status)],
+);
+
+/**
  * An action the assistant PROPOSED and only a person may run (ADR 0025 §1, §7).
  *
  * `args` are frozen and RESOLVED — row ids, instants, the exact text — never
@@ -1993,6 +2029,14 @@ export const proposedAction = pgTable(
      * (a failed turn is never replayed, so the model would not have seen it).
      */
     reportedAt: timestamp('reported_at', { withTimezone: true }),
+    /**
+     * A step of an assistant task (ADR 0040): the task it belongs to and its
+     * place in it. A step is a card like any other — frozen args, the same
+     * execute(), the same re-checks — that waits (`blocked`) until the step
+     * before it is done, then runs at its time.
+     */
+    taskId: uuid('task_id').references((): AnyPgColumn => assistantTask.id, { onDelete: 'cascade' }),
+    taskSeq: integer('task_seq'),
     /** Per-step state for multi-step tools, so a resumed run skips what is done. */
     steps: jsonb('steps').notNull().default({}),
     result: jsonb('result'),

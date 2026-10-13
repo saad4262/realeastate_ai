@@ -1,7 +1,6 @@
 # 0040 — Assistant Phase 2: multi-step tasks, full CRM tools, lists for bulk email
 
-**Status:** PROPOSED, 2026-10-13. Phase 2 of ADR 0039. Nothing here is built until the user
-accepts it; open questions at the end (recommended answer first).
+**Status:** ACCEPTED, 2026-10-13 (the user: every recommendation, see "Decided"). Phase 2 of ADR 0039.
 
 ## Context
 
@@ -143,3 +142,39 @@ step claim, the stop-on-failure, the read-back, the permission re-check.
 Task engine + plan card + reminders + read-back: 70–100 h. CRM tools (incl. auto-assignment
 and the new `create_lead`): 40–60 h. Saved-filter bulk email: 10–15 h. Connection shape +
 panel button: 6–10 h. **About 125–185 h**, each part with its smoke checks and break-tests.
+
+## Decided (2026-10-13, the user)
+
+1. An email to a contact inside a task is **approved once, as exact text on the plan card**;
+   consent, opt-out and limits are checked automatically when it sends.
+2. A task spans at most **30 days**.
+3. A reminder always rings the **bell**; it is emailed (to the person themselves) only when asked.
+4. A lead an agent records by hand is **assigned to that agent**, source **`manual`**.
+5. Email limits **unchanged**: 20 per batch, 50 per agent per day, 200 per agency per day.
+
+## As built — Phase 2, part 1 (2026-10-13, branch `feat/assistant-tasks`; migration 0047 applied — dev and production are one database)
+
+- **Migration 0047:** `assistant_task` (RLS on, status CHECK); `lead.source` (`website` | `manual`,
+  existing rows `website`); `proposed_action.task_id` / `task_seq` + index; status CHECK adds
+  `blocked`; tool CHECK = `PROPOSED_ACTION_TOOLS` (every write tool but `create_reminder`, plus
+  `remind`).
+- **Tasks:** `plan-task.ts` `proposePlanTask` resolves each step through that tool's own path in
+  plan mode (`ToolContext.plan`, collected by `propose()`); any refusal names the step and makes
+  nothing. `task-state.ts`: `activateTask` (Approve), `advanceTask` (done → next released at
+  `max(its time, now)`; failed → the rest cancelled, task failed with "Step n: reason"),
+  `endTask` (plan rejected/cancelled/expired, `cancel_task`), `taskAllowsRun` (active, within
+  30 days), `verifyExecuted` (the read-back, inside the step's savepoint). Steps run through
+  `runScheduledActions` (now with a `taskId` filter; Approve runs the plan's due steps at once).
+  Reminders: `notifyMyself` (bell, deduped per step) and `buildReminderEmail` to the person's own
+  address only when asked (`mail_me`). Offboarding cancels `blocked` steps and the person's tasks.
+- **CRM tools** (`crm-tools.ts`): `find_listings` (P references), `set_lead_status` (field
+  `stage`), `assign_lead` (owners/admins), `create_lead` (→ `createManualLead`, assigned to the
+  recorder, `source = manual`, own listings only), `create_contact`, `create_reminder` (a one-step
+  plan), `cancel_task`. `lead:create` permission (+ test). `createEnquiry` assigns the listing's
+  lead agent (`leadAgentIdSql`). `LEAD_NOW_WITH_ANOTHER` from `updateLeadStatus` and the card.
+- **Found and fixed:** `activeMemberActor` (scheduled cards, task steps, imports) carried no
+  `listingAgentOf`, so work run later judged "a lead on my listing" more narrowly than the screen
+  ("That lead no longer exists"); it now loads them. The assistant route and its card actions
+  use `loadListingActor`, as the leads and mail screens do.
+- Prompt **`assistant@v15`**. Not yet (Phase 2, part 2): listing draft/edit/withdraw, invite agent,
+  bulk email on a saved filter, the shared "connect X first" shape with a Connect button.

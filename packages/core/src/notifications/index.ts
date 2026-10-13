@@ -72,3 +72,20 @@ export async function markNotificationsRead(db: DbOrTx, actor: Actor, ids: strin
     .returning({ id: notification.id });
   return done.length;
 }
+
+/**
+ * A reminder the person set for themselves (ADR 0040): one line on their own
+ * bell. `dedupeKey` makes a step that runs twice ring once. Returns the row,
+ * or null when that key already rang.
+ */
+export async function notifyMyself(db: DbOrTx, actor: Actor, title: string, dedupeKey: string): Promise<{ id: string } | null> {
+  if (!actor.agencyId || !can(actor, 'notification:read', { type: 'notification', agencyId: actor.agencyId, ownerId: actor.userId })) {
+    throw new Error('You cannot receive notifications here');
+  }
+  const [n] = await db
+    .insert(notification)
+    .values({ userId: actor.userId, agencyId: actor.agencyId, kind: 'reminder', title: title.slice(0, 300), dedupeKey })
+    .onConflictDoNothing()
+    .returning({ id: notification.id });
+  return n ?? null;
+}

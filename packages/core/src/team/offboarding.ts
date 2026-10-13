@@ -17,6 +17,7 @@ import {
   note,
   notification,
   proposedAction,
+  assistantTask,
   searchEmbedding,
   user,
   type Db,
@@ -419,8 +420,14 @@ export async function removeMember(db: Db, actor: Actor, userId: string, rawChoi
     const cards = await tx
       .update(proposedAction)
       .set({ status: 'cancelled', error: 'The person was removed from the agency', decidedAt: now, decidedBy: actor.userId, updatedAt: sql`now()` })
-      .where(and(eq(proposedAction.agencyId, agencyId), eq(proposedAction.userId, userId), inArray(proposedAction.status, ['proposed', 'scheduled'])))
+      // `blocked`: a step of one of their tasks still waiting its turn (ADR 0040).
+      .where(and(eq(proposedAction.agencyId, agencyId), eq(proposedAction.userId, userId), inArray(proposedAction.status, ['proposed', 'scheduled', 'blocked'])))
       .returning({ id: proposedAction.id, contactId: proposedAction.contactId, tool: proposedAction.tool });
+    // Their tasks stop with them (ADR 0040).
+    await tx
+      .update(assistantTask)
+      .set({ status: 'cancelled', error: 'The person was removed from the agency', finishedAt: now, updatedAt: sql`now()` })
+      .where(and(eq(assistantTask.agencyId, agencyId), eq(assistantTask.userId, userId), inArray(assistantTask.status, ['proposed', 'active'])));
     const cardContacts = cards.filter((c) => c.contactId);
     if (cardContacts.length) {
       await tx.insert(activity).values(

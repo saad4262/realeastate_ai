@@ -28,6 +28,10 @@ export const HANDLE_KINDS = {
   M: 'member',
   /** A pending agent invite — issued only by find_agents (owners/admins, ADR 0033). */
   I: 'invite',
+  /** A listing — issued by find_listings (ADR 0040). */
+  P: 'listing',
+  /** An assistant task — issued by plan_task (ADR 0040). */
+  K: 'task',
 } as const;
 export type HandlePrefix = keyof typeof HANDLE_KINDS;
 export type HandleKind = (typeof HANDLE_KINDS)[HandlePrefix];
@@ -35,7 +39,7 @@ export type HandleKind = (typeof HANDLE_KINDS)[HandlePrefix];
 export const handleSchema = z
   .string()
   .trim()
-  .regex(/^[CLATSMI][1-9][0-9]{0,2}$/, 'Not a reference the assistant was given');
+  .regex(/^[CLATSMIPK][1-9][0-9]{0,2}$/, 'Not a reference the assistant was given');
 
 /** A handle that must name an appointment. */
 export const appointmentHandleSchema = handleSchema.refine((h) => h.startsWith('A'), { message: 'Not an appointment reference' });
@@ -49,6 +53,9 @@ export const contactHandleSchema = handleSchema.refine((h) => h.startsWith('C') 
 });
 
 /** A handle that must name a team member (from find_team_members). */
+export const leadHandleSchema = handleSchema.refine((h) => h.startsWith('L'), { message: 'Not a lead reference' });
+export const listingHandleSchema = handleSchema.refine((h) => h.startsWith('P'), { message: 'Not a listing reference' });
+export const taskHandleSchema = handleSchema.refine((h) => h.startsWith('K'), { message: 'Not a task reference' });
 export const memberHandleSchema = handleSchema.refine((h) => h.startsWith('M'), { message: 'Not a team member reference' });
 
 /** A handle that must name a team member or a pending invite (from find_agents). */
@@ -245,6 +252,94 @@ export const showWidgetInput = widgetChoice;
  * model records the person's request and what it found nearest; nothing is
  * approximated, and nothing is shown to anyone but the platform team.
  */
+// ── ADR 0040: CRM tools and tasks ─────────────────────────────────────────────
+
+export const LISTING_STATUSES_FOR_FIND = ['draft', 'pending', 'live', 'under_offer', 'sold', 'withdrawn'] as const;
+/** The listings this person's figures cover (an agent: theirs; an owner/admin: the agency's). Read only. */
+export const findListingsInput = z
+  .object({
+    /** Part of the address or suburb. */
+    text: text.optional(),
+    status: z.enum(LISTING_STATUSES_FOR_FIND).optional(),
+    limit,
+  })
+  .strict();
+
+/** `stage`, not `status`: no write tool has a field that could read as a card's own status. */
+export const setLeadStatusInput = z.object({ lead: leadHandleSchema, stage: z.enum(LEAD_STATUSES) }).strict();
+/** Owners/admins (`lead:assign`): give a lead to a member found with find_team_members. */
+export const assignLeadInput = z.object({ lead: leadHandleSchema, to: memberHandleSchema }).strict();
+export const createLeadInput = z
+  .object({
+    contact: contactHandleSchema,
+    listing: listingHandleSchema,
+    kind: z.enum(['enquiry', 'inspection', 'appraisal']).default('enquiry'),
+    /** What they asked, in the person's words. */
+    message: z.string().trim().max(2000).optional(),
+  })
+  .strict();
+export const createContactInput = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    email: z.string().trim().email().max(200).optional(),
+    phone: z.string().trim().min(6).max(40).optional(),
+    roles: z.array(z.enum(CONTACT_ROLES)).max(CONTACT_ROLES.length).default([]),
+  })
+  .strict()
+  .refine((v) => v.email || v.phone, { message: 'Give an email or a phone number', path: ['email'] });
+
+/** A reminder to the person themselves (ADR 0040 decided Q3): the bell always, email only when asked. */
+/** `mail_me`, not `email`: it only ever means the person's OWN address. */
+export const remindStepInput = z.object({ text: z.string().trim().min(1).max(300), mail_me: z.boolean().default(false) }).strict();
+export const createReminderInput = z
+  .object({ text: z.string().trim().min(1).max(300), date: dateString, time: timeString, mail_me: z.boolean().default(false) })
+  .strict();
+
+/** The write tools a task step may be (ADR 0040). Not the bulk template email (its batch lives 48 h), not a dashboard, not a team change. */
+export const PLANNABLE_TOOLS = [
+  'add_note',
+  'set_next_action',
+  'schedule_appointment',
+  'reschedule_appointment',
+  'cancel_appointment',
+  'send_email',
+  'message_colleagues',
+  'schedule_team_meeting',
+  'record_marketing_consent',
+  'withdraw_marketing_consent',
+  'update_contact',
+  'set_contact_archived',
+  'assign_contacts',
+  'set_lead_status',
+  'assign_lead',
+  'create_lead',
+  'create_contact',
+  'remind',
+] as const;
+export type PlannableTool = (typeof PLANNABLE_TOOLS)[number];
+export const TASK_LIMITS = { steps: 10, days: 30, activePerPerson: 5 } as const;
+export const planTaskInput = z
+  .object({
+    title: z.string().trim().min(1).max(80),
+    steps: z
+      .array(
+        z
+          .object({
+            tool: z.enum(PLANNABLE_TOOLS),
+            /** The tool's own input, as you would give it to the tool. For remind: { text, email }. */
+            input: z.record(z.unknown()).default({}),
+            /** When the step may run, on the person's clock. Omit: right after the step before it. */
+            date: dateString.optional(),
+            time: timeString.optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(TASK_LIMITS.steps),
+  })
+  .strict();
+export const cancelTaskInput = z.object({ task: taskHandleSchema }).strict();
+
 /** The cards of this conversation and how each ended (ADR 0039 Phase 1). No input. */
 export const checkCardsInput = z.object({}).strict();
 
@@ -432,9 +527,15 @@ export const scheduleTeamMeetingInput = z
   })
   .strict();
 
-export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting'] as const;
+export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
+/**
+ * What a `proposed_action` row's `tool` may be — the database CHECK (migration 0047) holds exactly
+ * this list: every write tool except create_reminder (it stores a one-step plan_task), plus
+ * `remind`, a task step that is never a tool of its own (ADR 0040).
+ */
+export const PROPOSED_ACTION_TOOLS = [...ASSISTANT_WRITE_TOOLS.filter((t) => t !== 'create_reminder'), 'remind'] as const;
 
 /** Every tool. Read tools run at once; write tools only propose (ADR 0025 §8). */
 export const ASSISTANT_TOOL_INPUTS = {
@@ -467,6 +568,14 @@ export const ASSISTANT_TOOL_INPUTS = {
   send_email: sendEmailInput,
   message_colleagues: messageColleaguesInput,
   schedule_team_meeting: scheduleTeamMeetingInput,
+  find_listings: findListingsInput,
+  set_lead_status: setLeadStatusInput,
+  assign_lead: assignLeadInput,
+  create_lead: createLeadInput,
+  create_contact: createContactInput,
+  create_reminder: createReminderInput,
+  plan_task: planTaskInput,
+  cancel_task: cancelTaskInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];
@@ -475,7 +584,7 @@ export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as Assist
  * Tools only an owner or admin is shown (the model's tool list is chosen per
  * person) and may run (each asks can() again): `contact:assign`.
  */
-export const ASSISTANT_ADMIN_TOOLS = ['find_team_members', 'assign_contacts'] as const satisfies readonly AssistantToolName[];
+export const ASSISTANT_ADMIN_TOOLS = ['find_team_members', 'assign_contacts', 'assign_lead'] as const satisfies readonly AssistantToolName[];
 
 /** Team tools (ADR 0033): owners and admins only, by `team:manage` — shown to nobody else, refused in core. */
 export const ASSISTANT_TEAM_TOOLS = ['find_agents', 'update_agent', 'remove_agent'] as const satisfies readonly AssistantToolName[];

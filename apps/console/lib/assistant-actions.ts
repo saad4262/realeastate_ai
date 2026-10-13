@@ -19,7 +19,7 @@ import { mailDepsFromEnv } from '@repo/core/mail';
 import { noticeMailFromEnv } from '@repo/core/email';
 import { teamMessageDepsFromEnv } from '@repo/core/team-messages';
 import { getConsoleDb } from './db';
-import { loadActor } from './load-actor';
+import { loadListingActor } from './load-actor';
 import { requireActionUserId } from './auth-account';
 
 /**
@@ -28,7 +28,7 @@ import { requireActionUserId } from './auth-account';
  */
 
 async function actor() {
-  const loaded = await loadActor(await requireActionUserId());
+  const loaded = await loadListingActor(await requireActionUserId());
   if (!loaded) throw new AssistantError('forbidden', 'Database is not configured.');
   return loaded;
 }

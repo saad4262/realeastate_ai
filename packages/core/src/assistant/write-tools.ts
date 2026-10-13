@@ -57,15 +57,15 @@ import type { z } from 'zod';
  * repeated. It is still a template the person approved, never model text.
  */
 
-const UNKNOWN_REF = 'That reference is not one you were given in this conversation. Use a reference from an earlier result.';
+export const UNKNOWN_REF = 'That reference is not one you were given in this conversation. Use a reference from an earlier result.';
 const NO_CONTACT = 'That contact is not available to this person.';
 
-function refused(message: string, label: string): ToolOutcome {
+export function refused(message: string, label: string): ToolOutcome {
   return { result: { error: message }, isError: true, label };
 }
 
 /** The contact behind a reference, if this person may see it now. */
-async function visibleContact(ctx: ToolContext, ref: string) {
+export async function visibleContact(ctx: ToolContext, ref: string) {
   const id = resolveHandle(ctx.handles, ref, 'contact');
   if (!id) return { error: UNKNOWN_REF } as const;
   const head = await loadContactHead(ctx.db, ctx.actor, id);
@@ -75,7 +75,7 @@ async function visibleContact(ctx: ToolContext, ref: string) {
   return { head, resource } as const;
 }
 
-function when(instant: Date, tz: string): string {
+export function when(instant: Date, tz: string): string {
   return formatInZone(instant, tz);
 }
 
@@ -83,7 +83,7 @@ function untilTime(instant: Date, tz: string): string {
   return new Intl.DateTimeFormat('en-AU', { timeZone: tz, hour: 'numeric', minute: '2-digit' }).format(instant);
 }
 
-const NOTHING_YET = 'Nothing happens until you press Approve.';
+export const NOTHING_YET = 'Nothing happens until you press Approve.';
 const NO_INVITE = 'No invitation is emailed. To send one, open the contact’s Calendar tab and press Send invitation.';
 
 export async function proposeAddNote(ctx: ToolContext, input: z.infer<typeof addNoteInput>, label: string): Promise<ToolOutcome> {

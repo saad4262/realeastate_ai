@@ -88,6 +88,12 @@ export type Action =
    * On an offer the caller must ALSO pass `lead:read_offer`: you cannot triage
    * a row you are not allowed to see.
    */
+  /**
+   * Record a lead by hand (ADR 0040): any member who may write, on a listing
+   * their figures cover (`listingScopeFilters` — an agent's own listings, an
+   * admin's agency) — checked in SQL by `createManualLead`. It is theirs.
+   */
+  | 'lead:create'
   | 'lead:update'
   /**
    * Give a lead to a member, or take it back.
@@ -515,6 +521,7 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       return sameAgency(actor, resource) && isAgencyAdmin(actor);
 
     case 'contact:create':
+    case 'lead:create':
       return sameAgency(actor, resource) && mayWrite(actor);
 
     case 'contact:update':

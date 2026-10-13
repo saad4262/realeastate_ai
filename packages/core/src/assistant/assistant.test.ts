@@ -117,7 +117,7 @@ describe('the assistant module writes nothing but its own tables — every other
     for (const file of readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))) {
       const src = readFileSync(join(dir, file), 'utf8');
       for (const m of src.matchAll(/\.(insert|update|delete)\(\s*([A-Za-z]+)/g)) {
-        if (!['assistantConversation', 'assistantTurn', 'proposedAction'].includes(m[2]!)) offenders.push(`${file}: .${m[1]}(${m[2]})`);
+        if (!['assistantConversation', 'assistantTurn', 'proposedAction', 'assistantTask'].includes(m[2]!)) offenders.push(`${file}: .${m[1]}(${m[2]})`);
       }
       if (/\b(insert into|update \w+ set|delete from)\b/i.test(src.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''))) offenders.push(`${file}: raw SQL write`);
     }
