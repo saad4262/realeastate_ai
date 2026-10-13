@@ -585,8 +585,12 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
         </p>
       ) : null}
       {view.status === 'done' && view.tool === 'send_email' && view.result?.emailStatus ? (
-        <p className={view.result.emailStatus === 'sent' ? styles.cardNote : styles.error}>
-          {view.result.emailStatus === 'sent' ? 'Sent. Their reply comes back to the inbox.' : `Not delivered: ${view.result.emailError}`}
+        <p className={view.result.emailStatus === 'failed' ? styles.error : styles.cardNote}>
+          {view.result.emailStatus === 'sent'
+            ? 'Sent. Their reply comes back to the inbox.'
+            : view.result.emailStatus === 'sending'
+              ? 'Being sent — the conversation shows when it has gone.'
+              : `Not delivered: ${view.result.emailError}`}
         </p>
       ) : null}
       {view.status === 'done' && view.tool === 'message_colleagues' ? (

@@ -43,6 +43,7 @@ import {
 import { listColleagues } from '../team-messages/messages';
 import { agencyTimeZone, renderWidget } from '../widgets/registry';
 import { recordDataGap } from '../semantic';
+import { listConversationCards } from './card-updates';
 import {
   ASSISTANT_ADMIN_TOOLS,
   ASSISTANT_TEAM_TOOLS,
@@ -99,6 +100,7 @@ const LABELS: Record<AssistantToolName, string> = {
   check_connections: 'Checking connected accounts…',
   show_widget: 'Working out the figures…',
   report_missing_data: 'Noting what is missing…',
+  check_cards: 'Checking your cards…',
   search_notes_and_emails: 'Searching notes and emails…',
   add_note: 'Preparing a note for you to approve…',
   set_next_action: 'Preparing a next action for you to approve…',
@@ -208,6 +210,8 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return checkConnections(ctx, parsed.data as CheckConnections, label);
     case 'show_widget':
       return showWidget(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.show_widget>, label);
+    case 'check_cards':
+      return checkCards(ctx, label);
     case 'report_missing_data':
       return reportMissingData(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.report_missing_data>, label);
     case 'search_notes_and_emails':
@@ -711,6 +715,25 @@ async function showWidget(ctx: ToolContext, input: z.infer<typeof ASSISTANT_TOOL
       ...(tile.state === 'no_access' ? { tell_the_user: 'This figure is for owners and admins only.' } : {}),
       ...(tile.state === 'too_slow' ? { tell_the_user: 'That took too long to work out — suggest a shorter period.' } : {}),
       note: 'The figures are on screen beside your answer. Do not state or estimate any number yourself.',
+    },
+  };
+}
+
+/**
+ * How this conversation's cards stand (ADR 0039 Phase 1): the console's own
+ * record of each — approved and done, failed with its reason, rejected,
+ * expired, scheduled, or still waiting. Nothing is marked; the turn's
+ * <card_updates> block is what reports each ending once.
+ */
+async function checkCards(ctx: ToolContext, label: string): Promise<ToolOutcome> {
+  const conversationId = ctx.proposal?.conversationId;
+  if (!conversationId) return refused('Cards can only be checked inside a conversation.', label);
+  const cards = await listConversationCards(ctx.db, ctx.actor, conversationId, ctx.now);
+  return {
+    label,
+    result: {
+      note: `${DATA_NOTE} Statuses are the console's record; only the person approves or rejects.`,
+      cards: cards.map((c) => ({ title: c.title, tool: c.tool, status: c.status, ...(c.reason ? { reason: c.reason } : {}), ...(c.notes.length ? { notes: c.notes } : {}), ...(c.runAt ? { runs_at: new Intl.DateTimeFormat('en-AU', { timeZone: ctx.timeZone, dateStyle: 'medium', timeStyle: 'short' }).format(c.runAt) } : {}) })),
     },
   };
 }

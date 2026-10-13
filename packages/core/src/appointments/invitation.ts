@@ -130,7 +130,7 @@ export async function sendInvitation(
   actor: Actor,
   appointmentId: string,
   limits: EmailLimits = emailLimitsFromEnv(),
-): Promise<{ status: 'sent' | 'failed'; threadId: string; error: string | null }> {
+): Promise<{ status: 'sent' | 'failed' | 'sending'; threadId: string; error: string | null }> {
   const { a, c } = await facts(db, actor, appointmentId);
   const check = await checkEmailLimits(db, { agencyId: a.agencyId, userId: actor.userId }, limits);
   const problem = problemWith(a, c, check, deps.env ?? process.env);
@@ -182,11 +182,12 @@ export async function sendInvitation(
         startsAt: a.startsAt.toISOString(),
         threadId,
       });
-    } else {
+    } else if (outcome.status === 'failed') {
       // Not delivered: the appointment is not "invited". The failed message
       // stays in the conversation with a Retry.
       await tx.update(appointment).set({ invitationSentAt: null }).where(eq(appointment.id, a.id));
     }
+    // `sending`: another delivery holds it and records the outcome (ADR 0039 Phase 1).
   });
   return { status: outcome.status, threadId, error: outcome.error };
 }

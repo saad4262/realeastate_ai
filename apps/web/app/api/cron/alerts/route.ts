@@ -4,7 +4,7 @@ import { expireProposedActions, purgeAssistantConversations } from '@repo/core/a
 import { purgeImportFiles, runImportTick } from '@repo/core/imports';
 import { runEmbeddingTick } from '@repo/core/assistant-search';
 import { embedderFromEnv } from '@repo/ai/search-embedder';
-import { pullReceivedMail } from '@repo/core/mail';
+import { mailDepsFromEnv, pullReceivedMail, resendStuckMessages } from '@repo/core/mail';
 import { authoriseCronRequest, runScheduleTick } from '@repo/core/schedules';
 import { runSkillTick } from '@repo/core/skills';
 import {
@@ -74,6 +74,17 @@ async function handler(request: NextRequest) {
     if (mail.followUp) after(mail.followUp);
 
     /**
+     * One email at most (ADR 0039 Phase 1): a message left `queued` by a request
+     * that died after its commit is delivered here, through the same claim and
+     * provider key — never a second copy. Cannot fail the tick.
+     */
+    const stuckMail = await (async () => {
+      const deps = mailDepsFromEnv();
+      if (!deps) return { skipped: 'email is not set up' };
+      return resendStuckMessages(getWebDb(), deps);
+    })().catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'stuck mail sweep failed' }));
+
+    /**
      * Agents' skills (docs/adr/0021), in the same tick. A skill that fails is
      * recorded on its own run; nothing here can fail the alerts above.
      */
@@ -138,7 +149,7 @@ async function handler(request: NextRequest) {
 
     // No ids, no addresses, no listing text — this is read from a cron log.
     return NextResponse.json(
-      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, skills, templateEmail, appointmentSync, assistant, imports, searchIndex },
+      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, stuckMail, skills, templateEmail, appointmentSync, assistant, imports, searchIndex },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (err) {

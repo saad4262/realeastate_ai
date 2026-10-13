@@ -83,6 +83,8 @@ export function resendTransport(opts: {
           headers: {
             authorization: `Bearer ${opts.apiKey}`,
             'content-type': 'application/json',
+            // Resend keeps a key 24 hours: the same key and body are sent once (ADR 0039 Phase 1).
+            ...(message.idempotencyKey ? { 'Idempotency-Key': message.idempotencyKey } : {}),
           },
           body: JSON.stringify(body),
           // A hung provider must not hold a cron tick open until the platform

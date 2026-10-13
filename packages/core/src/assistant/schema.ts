@@ -245,6 +245,9 @@ export const showWidgetInput = widgetChoice;
  * model records the person's request and what it found nearest; nothing is
  * approximated, and nothing is shown to anyone but the platform team.
  */
+/** The cards of this conversation and how each ended (ADR 0039 Phase 1). No input. */
+export const checkCardsInput = z.object({}).strict();
+
 export const reportMissingDataInput = z
   .object({
     request: z.string().trim().min(1).max(300),
@@ -429,7 +432,7 @@ export const scheduleTeamMeetingInput = z
   })
   .strict();
 
-export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data'] as const;
+export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards'] as const;
 export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 
@@ -442,6 +445,7 @@ export const ASSISTANT_TOOL_INPUTS = {
   check_connections: checkConnectionsInput,
   show_widget: showWidgetInput,
   report_missing_data: reportMissingDataInput,
+  check_cards: checkCardsInput,
   search_notes_and_emails: searchNotesAndEmailsInput,
   add_note: addNoteInput,
   set_next_action: setNextActionInput,

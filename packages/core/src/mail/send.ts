@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, lt, or, sql } from 'drizzle-orm';
 import { agency, agentProfile, mailMessage, mailThread, user, type Db } from '@repo/db';
 import {
   buildConversationEmail,
@@ -98,7 +98,14 @@ export function mailDepsFromEnv(env: NodeJS.ProcessEnv = process.env): MailDeps 
   };
 }
 
-export type SendOutcome = { messageId: string; status: 'sent' | 'failed'; error: string | null };
+/**
+ * `sending`: another delivery holds this message right now (ADR 0039 Phase 1) — nothing was
+ * done here, and that delivery records how it went. Never a second email.
+ */
+export type SendOutcome = { messageId: string; status: 'sent' | 'failed' | 'sending'; error: string | null };
+
+/** A claim older than this belongs to a delivery that died (the provider call times out after 15 s). */
+export const SEND_CLAIM_STALE_MINUTES = 10;
 
 /** A display name that cannot break the From header it is put in. */
 function headerSafe(name: string): string {
@@ -221,6 +228,9 @@ export async function deliverOutbound(
       id: mailMessage.id,
       threadId: mailMessage.threadId,
       status: mailMessage.status,
+      sendStartedAt: mailMessage.sendStartedAt,
+      sentVia: mailMessage.sentVia,
+      sendAttempt: mailMessage.sendAttempt,
       kind: mailMessage.kind,
       channel: mailMessage.channel,
       sentBy: mailMessage.sentBy,
@@ -298,6 +308,37 @@ export async function deliverOutbound(
   // Gmail or the platform, decided now, AFTER the transaction that recorded the row.
   const gmail = await gmailRoute(db, deps, m, opts);
 
+  /*
+   * The claim (ADR 0039 Phase 1): one delivery at a time per message, taken
+   * BEFORE the provider is called. A second delivery (a double click, the
+   * sweeper, a webhook delivered twice) finds it taken and sends nothing. A
+   * claim left by a delivery that died is taken over after the stale window —
+   * through the platform with the SAME idempotency key, so Resend sends it at
+   * most once; Gmail has no such key, so a message that may already have left
+   * through Gmail is never sent again: it is marked failed, saying so.
+   */
+  const crashed = m.sendStartedAt !== null;
+  if (crashed && m.sentVia === 'gmail') {
+    const reason = 'This may already have been sent from Gmail (the send was interrupted). Check the Sent folder before sending it again.';
+    await db
+      .update(mailMessage)
+      .set({ status: 'failed', error: reason, updatedAt: sql`now()` })
+      .where(and(eq(mailMessage.id, messageId), eq(mailMessage.status, 'queued'), lt(mailMessage.sendStartedAt, sql`now() - make_interval(mins => ${SEND_CLAIM_STALE_MINUTES})`)));
+    return { messageId, status: 'failed', error: reason };
+  }
+  const [claimed] = await db
+    .update(mailMessage)
+    .set({ sendStartedAt: sql`now()`, sentVia: gmail ? 'gmail' : 'resend', updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(mailMessage.id, messageId),
+        eq(mailMessage.status, 'queued'),
+        or(isNull(mailMessage.sendStartedAt), lt(mailMessage.sendStartedAt, sql`now() - make_interval(mins => ${SEND_CLAIM_STALE_MINUTES})`)),
+      ),
+    )
+    .returning({ id: mailMessage.id });
+  if (!claimed) return { messageId, status: 'sending', error: null };
+
   let result: Awaited<ReturnType<EmailTransport['send']>>;
   try {
     const email = buildConversationEmail({
@@ -319,7 +360,8 @@ export async function deliverOutbound(
       ...(opts.unsubscribeUrl ? { unsubscribeUrl: opts.unsubscribeUrl } : {}),
       ...(optOutUrl ? { opening: { optOutUrl } } : {}),
     });
-    result = gmail ? await sendViaGmail(db, deps, gmail, email) : await transport.send(email);
+    // One key per message and try: a crash recovery reuses it (sent at most once); a person's Retry is a new try.
+    result = gmail ? await sendViaGmail(db, deps, gmail, email) : await transport.send({ ...email, idempotencyKey: `mail-message-${m.id}-${m.sendAttempt}` });
   } catch (err) {
     result = { ok: false, error: err instanceof Error ? err.message : 'Could not build the email', retryable: false };
   }
@@ -339,6 +381,11 @@ export async function deliverOutbound(
     return { messageId, status: 'sent', error: null };
   }
 
+  // Resend refuses a key it has already seen with a different body (409 invalid_idempotent_request):
+  // an earlier try with this key was accepted, so the email may well have gone. Say so; never resend blind.
+  if (result.error.includes('invalid_idempotent_request')) {
+    result = { ...result, error: 'This may already have been sent (an earlier try was accepted). Check the conversation before sending it again.' };
+  }
   // The thread id, never an address: this reaches logs.
   console.error(`[mail] message ${messageId} on thread ${m.threadId} not sent: ${result.error}`);
   await db
@@ -429,10 +476,48 @@ export async function retryFailedMessage(
 
   const reset = await db
     .update(mailMessage)
-    .set({ status: 'queued', error: null, updatedAt: sql`now()` })
+    // A new try: its own claim and its own idempotency key (the failed one's would return the failure).
+    .set({ status: 'queued', error: null, sendStartedAt: null, sendAttempt: sql`${mailMessage.sendAttempt} + 1`, updatedAt: sql`now()` })
     .where(and(eq(mailMessage.id, messageId), eq(mailMessage.status, 'failed')))
     .returning({ id: mailMessage.id });
   if (reset.length === 0) throw new MailError('invalid', 'That message is not waiting to be sent again');
 
   return deliverOutbound(db, deps, messageId, opts.platformOnly ? { platformOnly: true } : {});
+}
+
+/**
+ * The sweeper (ADR 0039 Phase 1): an outbound message still `queued` well
+ * after it was recorded was left by a request that died between the commit
+ * and the send. Deliver it now — through the same claim, so a delivery still
+ * running is never doubled, and with the same idempotency key, so one that
+ * reached the provider before the crash is not sent twice. Template email has
+ * its own recovery (ADR 0022) and is left to it. At most `limit` per tick.
+ */
+export async function resendStuckMessages(db: Db, deps: MailDeps, opts: { limit?: number } = {}): Promise<{ tried: number; sent: number; failed: number }> {
+  const rows = await db
+    .select({ id: mailMessage.id })
+    .from(mailMessage)
+    .where(
+      and(
+        eq(mailMessage.direction, 'out'),
+        eq(mailMessage.status, 'queued'),
+        sql`${mailMessage.kind} is distinct from 'template_email'`,
+        // A fresh row is being delivered by the request that recorded it.
+        lt(mailMessage.createdAt, sql`now() - interval '2 minutes'`),
+        or(isNull(mailMessage.sendStartedAt), lt(mailMessage.sendStartedAt, sql`now() - make_interval(mins => ${SEND_CLAIM_STALE_MINUTES})`)),
+      ),
+    )
+    .orderBy(mailMessage.createdAt)
+    .limit(opts.limit ?? 20);
+  const report = { tried: 0, sent: 0, failed: 0 };
+  for (const r of rows) {
+    const out = await deliverOutbound(db, deps, r.id).catch((err: unknown) => {
+      console.error('[mail] sweeper could not deliver', r.id, err instanceof Error ? err.message : err);
+      return null;
+    });
+    report.tried += 1;
+    if (out?.status === 'sent') report.sent += 1;
+    else if (out?.status === 'failed') report.failed += 1;
+  }
+  return report;
 }

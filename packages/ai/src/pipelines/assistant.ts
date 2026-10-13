@@ -5,12 +5,15 @@ import {
   ASSISTANT_FEATURE,
   ASSISTANT_LIMITS,
   AssistantError,
+  cardUpdatesBlock,
   checkAssistantBudget,
   claimTurn,
   finishTurn,
   releaseTurn,
   runAssistantTool,
   selectionHandles,
+  takeCardUpdates,
+  unreportCards,
   type AssistantEvent,
   type AssistantFrame,
   type AssistantSurface,
@@ -22,7 +25,7 @@ import {
   type ToolOutcome,
 } from '@repo/core/assistant';
 import { getModel, SERVER_FALLBACK_MODELS, type TokenUsage } from '../models';
-import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v13';
+import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v14';
 import { embedderFromEnv } from '../search/voyage';
 import { assistantToolsFor } from '../tools/assistant-tools';
 import { trackAiRunQuietly } from '../usage';
@@ -48,6 +51,13 @@ export type AssistantDeps = {
   claim(): Promise<ClaimedTurn>;
   /** `S` references for what the person selected — visible contacts only. */
   selection(handles: HandleMap): Promise<{ ref: string; name: string }[]>;
+  /**
+   * What happened to this conversation's cards since the model was last told
+   * (ADR 0039 Phase 1): the block for this turn and the cards it marked as told.
+   */
+  cardUpdates(conversationId: string): Promise<{ block: string; ids: string[] }>;
+  /** This turn failed and will not be replayed: the model did not see these — tell the next turn again. */
+  unreport(ids: string[]): Promise<void>;
   budget(): Promise<{ allowed: boolean; message: string | null }>;
   /** `proposal` lets a write tool store its card against this turn; read tools ignore it. */
   runTool(handles: HandleMap, name: string, input: unknown, proposal: ProposalContext): Promise<ToolOutcome>;
@@ -149,15 +159,20 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
   let status: 'done' | 'failed' = 'done';
   let error: string | null = null;
   let finished = false;
+  let reported: string[] = [];
 
   try {
     const selected = await deps.selection(handles);
+    const cards = await deps.cardUpdates(claim.conversationId);
+    reported = cards.ids;
     // This turn's messages, exactly as sent — stored for the next turn's replay.
     const turnMessages: Anthropic.Beta.BetaMessageParam[] = [
       {
         role: 'user',
         content: [
           { type: 'text', text: contextBlock({ now, timeZone: request.timeZone, surface: input.surface, selected }) },
+          // How the person decided the cards — the console's record, written by the server, never the model.
+          ...(cards.block ? [{ type: 'text' as const, text: cards.block }] : []),
           { type: 'text', text: request.message },
         ],
       },
@@ -300,6 +315,7 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
     });
     finished = true;
   } catch (err) {
+    status = 'failed';
     if (!signal?.aborted) {
       console.error('[assistant] turn failed', err);
       yield { type: 'error', code: 'upstream', message: 'Something went wrong reaching the assistant. Please try again.' };
@@ -323,6 +339,8 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
     }
   } finally {
     if (!finished) await deps.release(claim.conversationId).catch(() => undefined);
+    // A turn that is not replayed never told the model: the next turn tells it again.
+    if (status !== 'done' || !finished) await deps.unreport(reported).catch(() => undefined);
   }
   yield { type: 'done' };
 }
@@ -333,6 +351,11 @@ export function assistantDeps(db: Db, actor: Actor, request: AssistantTurnReques
     tools: assistantToolsFor(actor),
     claim: () => claimTurn(db, actor, { ...(request.conversationId ? { conversationId: request.conversationId } : {}), message: request.message, surface }, now),
     selection: (handles) => selectionHandles(db, actor, handles, request.selection?.contactIds ?? []),
+    cardUpdates: async (conversationId) => {
+      const u = await takeCardUpdates(db, actor, conversationId, now);
+      return { block: cardUpdatesBlock(u, request.timeZone), ids: u.ended.map((c) => c.id) };
+    },
+    unreport: (ids) => unreportCards(db, ids),
     budget: () => checkAssistantBudget(db, actor, { env }),
     runTool: (handles, name, toolInput, proposal) =>
       runAssistantTool(

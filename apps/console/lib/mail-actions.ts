@@ -17,7 +17,7 @@ import { loadListingActor } from './load-actor';
 import { requireActionUserId } from './auth-account';
 
 export type MailActionResult =
-  | { ok: true; status: 'sent' | 'failed'; error: string | null }
+  | { ok: true; status: 'sent' | 'failed' | 'sending'; error: string | null }
   | { ok: false; error: string };
 
 /**
@@ -68,7 +68,7 @@ export async function sendReplyAction(threadId: string, body: string): Promise<M
 }
 
 export type NewEmailResult =
-  | { ok: true; threadId: string; status: 'sent' | 'failed'; error: string | null }
+  | { ok: true; threadId: string; status: 'sent' | 'failed' | 'sending'; error: string | null }
   | { ok: false; error: string };
 
 /**

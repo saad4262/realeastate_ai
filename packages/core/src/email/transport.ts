@@ -30,6 +30,12 @@ type EmailBase = {
   /** Correlation only. Never a person's details — these reach the provider's logs. */
   tags?: Record<string, string>;
   /**
+   * The provider's idempotency key (ADR 0039 Phase 1): the same key and the
+   * same message within 24 hours are sent once — a retry gets the first
+   * answer back. Ids only, never a person's details.
+   */
+  idempotencyKey?: string;
+  /**
    * Where a reply goes. A conversation's signed address (docs/adr/0016), so an
    * answer from any mail client lands back in the thread. Absent: the From.
    */
@@ -134,6 +140,7 @@ export type FakeTransport = EmailTransport & {
  */
 export function fakeTransport(opts: { fail?: { error: string; retryable: boolean } } = {}): FakeTransport {
   const sent: EmailMessage[] = [];
+  const seen = new Map<string, string>();
 
   return {
     sent,
@@ -141,8 +148,12 @@ export function fakeTransport(opts: { fail?: { error: string; retryable: boolean
       if (opts.fail) {
         return { ok: false, error: opts.fail.error, retryable: opts.fail.retryable };
       }
+      // As the provider does: a key it has seen gets the first answer back, and nothing is sent.
+      if (message.idempotencyKey && seen.has(message.idempotencyKey)) return { ok: true, id: seen.get(message.idempotencyKey)! };
       sent.push(message);
-      return { ok: true, id: `fake-${sent.length}` };
+      const id = `fake-${sent.length}`;
+      if (message.idempotencyKey) seen.set(message.idempotencyKey, id);
+      return { ok: true, id };
     },
   };
 }

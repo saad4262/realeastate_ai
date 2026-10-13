@@ -78,6 +78,7 @@ import {
   retryFailedMessage,
   deliverOutbound,
   recordOutbound,
+  resendStuckMessages,
   threadReplyAddress,
   setAgencyGmailSharing,
   sendContactEmail,
@@ -218,6 +219,9 @@ import {
   selectionHandles,
   type HandleMap,
   ASSISTANT_WRITE_TOOLS,
+  takeCardUpdates,
+  unreportCards,
+  cardUpdatesBlock,
 } from '@repo/core/assistant';
 import { assistantDeps, runAssistantTurn, type AssistantEvent } from '@repo/ai/assistant';
 import { DASHBOARD_EVALS } from '@repo/ai/evals/dashboard-phrases';
@@ -5454,6 +5458,93 @@ async function main() {
   };
   const code = (p: Promise<unknown>) => p.then(() => 'ok', (e: unknown) => (e as AssistantError).code ?? String(e));
   const count = async (t: Db, q: ReturnType<typeof sql>) => Number((await t.execute<{ n: number }>(q))[0]?.n ?? 0);
+
+  await check('the model is told how its cards ended (ADR 0039 Phase 1): approved, rejected, expired — each once; a failed turn is told again', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const conv = await claimTurn(t, owner, { message: 'x', surface: 'agency' });
+      const handles: HandleMap = {};
+      const ref = issueHandle(handles, 'C', f.contacts.p2);
+      const card = async (body: string) => {
+        const out = await runAssistantTool(proposeCtx(t, owner, handles, conv.conversationId), 'add_note', { contact: ref, body });
+        return (out.frame as { id: string }).id;
+      };
+      const [a, b, c, d] = [await card('first'), await card('second'), await card('third'), await card('fourth')];
+      await approveProposedAction(t, owner, a);
+      await rejectProposedAction(t, owner, b);
+      await t.execute(sql`update proposed_action set expires_at = now() - interval '1 minute' where id = ${c}`);
+      // d still waits.
+      const first = await takeCardUpdates(t, owner, conv.conversationId);
+      const status = Object.fromEntries(first.ended.map((e) => [e.id, e.status]));
+      assert(status[a] === 'done' && status[b] === 'rejected' && status[c] === 'expired' && !(d in status) && first.waiting === 1, `first: ${JSON.stringify(status)} waiting ${first.waiting}`);
+      const block = cardUpdatesBlock(first, 'Australia/Sydney');
+      assert(block.includes('approved by the person and done') && !block.includes(a), `block: ${block}`);
+      // Each ending is told once…
+      const second = await takeCardUpdates(t, owner, conv.conversationId);
+      assert(second.ended.length === 0 && second.waiting === 1, `told twice: ${JSON.stringify(second.ended.map((e) => e.status))}`);
+      // …unless the turn that carried it failed: then it is told again.
+      await unreportCards(t, first.ended.map((e) => e.id));
+      const again = await takeCardUpdates(t, owner, conv.conversationId);
+      assert(again.ended.length === 3, `after a failed turn: ${again.ended.length}`);
+      // Nobody else's conversation: another member asking about this one learns nothing.
+      const other = await takeCardUpdates(t, f.actor('a1'), conv.conversationId);
+      assert(other.ended.length === 0 && other.waiting === 0, 'another member read the owner’s cards');
+      return 'done / rejected / expired told once each; 1 still waiting; told again after a failed turn; nobody else sees them';
+    }),
+  );
+
+  await check('an email is sent once (ADR 0039 Phase 1): two deliveries at once, a crashed one taken over, Gmail never resent, Retry a new try, the sweeper', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const transport = fakeTransport();
+      const emails = () => transport.sent.length;
+      const deps = { mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport }, config: null };
+      const [th] = await t.execute<{ id: string }>(sql`
+        insert into mail_thread (agency_id, contact_id, subject, contact_email, contact_name)
+        values (${f.agencyId}, ${f.contacts.p2}, 'Once', ${`p2.${f.tag}@smoke.test`}, 'P2') returning id`);
+      const queued = () => recordOutbound(t, deps, { threadId: th!.id, agencyId: f.agencyId, subject: 'Once', to: `p2.${f.tag}@smoke.test`, body: 'x', sentBy: f.people.a1, channel: 'console' });
+      const row = async (id: string) => (await t.execute<{ status: string; attempt: number; error: string | null }>(sql`select status, send_attempt as attempt, error from mail_message where id = ${id}`))[0]!;
+
+      // Two deliveries of one message at the same moment: one email.
+      const one = await queued();
+      const both = await Promise.all([deliverOutbound(t, deps, one), deliverOutbound(t, deps, one)]);
+      assert(emails() === 1 && both.map((o) => o.status).sort().join() === 'sending,sent', `two at once: ${both.map((o) => o.status)}, ${emails()} emails`);
+
+      // A delivery that died after reaching the provider: the take-over reuses its key — still one email.
+      const two = await queued();
+      await deliverOutbound(t, deps, two);
+      await t.execute(sql`update mail_message set status = 'queued', send_started_at = now() - interval '11 minutes' where id = ${two}`);
+      const taken = await deliverOutbound(t, deps, two);
+      assert(taken.status === 'sent' && emails() === 2, `a crashed send taken over sent again: ${emails()} emails`);
+      // A claim that is still fresh is never taken over.
+      const three = await queued();
+      await t.execute(sql`update mail_message set send_started_at = now() where id = ${three}`);
+      assert((await deliverOutbound(t, deps, three)).status === 'sending' && emails() === 2, 'a fresh claim was taken over');
+
+      // A crashed Gmail send is never sent again: failed, saying to check Sent.
+      const four = await queued();
+      await t.execute(sql`update mail_message set send_started_at = now() - interval '11 minutes', sent_via = 'gmail' where id = ${four}`);
+      const gmail = await deliverOutbound(t, deps, four);
+      assert(gmail.status === 'failed' && /Sent folder/.test(gmail.error ?? '') && emails() === 2, `crashed gmail: ${JSON.stringify(gmail)}`);
+
+      // A person's Retry is a new try: a new key, so the provider sends it.
+      const retried = await retryFailedMessage(t, deps, f.actor('owner'), four);
+      assert(retried.status === 'sent' && (await row(four)).attempt === 1 && emails() === 3, `retry: ${JSON.stringify(retried)}`);
+      const keys = transport.sent.map((m) => m.idempotencyKey);
+      assert(keys.every((k) => k?.startsWith('mail-message-')) && new Set(keys).size === 3, `keys: ${keys.join(', ')}`);
+
+      // The sweeper: a message left queued by a request that died is sent once, and only once.
+      const five = await queued();
+      await t.execute(sql`update mail_message set created_at = now() - interval '5 minutes' where id = ${five}`);
+      const swept = await resendStuckMessages(t, deps);
+      const sweptAgain = await resendStuckMessages(t, deps);
+      assert((await row(five)).status === 'sent' && swept.sent >= 1 && sweptAgain.tried === 0 && emails() === 4, `sweeper: ${JSON.stringify(swept)} then ${JSON.stringify(sweptAgain)}, ${emails()} emails`);
+      return '2 at once → 1 email; crashed send taken over with its key → no duplicate; fresh claim left alone; crashed Gmail → failed, not resent; Retry → new key; sweeper sends once';
+    }),
+  );
+
+
   const tomorrowLocal = () => {
     const d = new Date(Date.now() + 2 * 86_400_000);
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Melbourne', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);

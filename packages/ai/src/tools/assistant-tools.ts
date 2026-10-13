@@ -136,6 +136,12 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
     },
   },
   {
+    name: 'check_cards',
+    description:
+      'How the cards you proposed in this conversation stand, from the console’s records: approved and done (with what happened), failed (with the reason), rejected, cancelled, expired, scheduled, or still waiting. Use it before continuing a task that depended on an earlier card. You cannot approve or reject anything.',
+    input_schema: { type: 'object', additionalProperties: false, properties: {} },
+  },
+  {
     name: 'report_missing_data',
     description:
       'When the person asks for a figure the catalog cannot make (no dataset, measure or dimension for it), record it here instead of estimating or approximating it. Then tell the person it is not in the system yet and offer the nearest figure that is, if any. This changes nothing for them.',

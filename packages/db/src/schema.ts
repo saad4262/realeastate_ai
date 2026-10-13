@@ -678,6 +678,15 @@ export const mailMessage = pgTable(
     sentVia: varchar('sent_via', { length: 16 }),
     /** The Gmail account it went (or tried to go) through. Gone with the connection. */
     senderAccountId: uuid('sender_account_id').references(() => integrationAccount.id, { onDelete: 'set null' }),
+    /**
+     * A delivery's claim (ADR 0039 Phase 1): set, guarded, before the provider is
+     * called, so two deliveries of one queued row never both send. A claim older
+     * than the stale window belongs to a delivery that died; the next one may
+     * take it, reusing the same provider idempotency key.
+     */
+    sendStartedAt: timestamp('send_started_at', { withTimezone: true }),
+    /** Which try this is: a person's Retry is a new try (a new idempotency key); a crash recovery is not. */
+    sendAttempt: integer('send_attempt').notNull().default(0),
     /** Full-text of subject + body (ADR 0031). Generated; never written. */
     searchTsv: tsvector('search_tsv').generatedAlwaysAs(sql`to_tsvector('english', coalesce(subject, '') || ' ' || coalesce(text, ''))`),
     ...timestamps,
@@ -1978,6 +1987,12 @@ export const proposedAction = pgTable(
     decidedAt: timestamp('decided_at', { withTimezone: true }),
     decidedBy: uuid('decided_by').references(() => user.id, { onDelete: 'set null' }),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
+    /**
+     * When the model was told how this card ended (ADR 0039 Phase 1): set as the
+     * outcome goes into a turn's <card_updates>, cleared again if that turn fails
+     * (a failed turn is never replayed, so the model would not have seen it).
+     */
+    reportedAt: timestamp('reported_at', { withTimezone: true }),
     /** Per-step state for multi-step tools, so a resumed run skips what is done. */
     steps: jsonb('steps').notNull().default({}),
     result: jsonb('result'),

@@ -155,7 +155,7 @@ export async function previewInvitationAction(
 /** The explicit Send. Every check is repeated in core; the preview is not a token. */
 export async function sendInvitationAction(
   id: string,
-): Promise<{ ok: true; status: 'sent' | 'failed'; error: string | null } | { ok: false; error: string }> {
+): Promise<{ ok: true; status: 'sent' | 'failed' | 'sending'; error: string | null } | { ok: false; error: string }> {
   const who = await actor();
   const deps = mailDepsFromEnv();
   if (!deps) return { ok: false, error: 'Email is not set up on this server yet, so nothing was sent.' };

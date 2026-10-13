@@ -1,3 +1,25 @@
+## 2026-10-13 — Claude Code — Assistant audit, decisions (ADR 0039) and Phase 1 (branch feat/assistant-phase1)
+
+- Read-only audit of the assistant (stage B with parts of C). The user set the direction: social scraping to
+  V2; cost caps raised by them; Phase 1 card feedback + email race; Phase 2 CRM + tasks; Phase 3 Sheets;
+  Phase 4 dynamic skills. Decisions A–D (Roman Urdu) recorded in ADR 0039.
+- Merged feat/semantic-layer + origin/main (de33e2e) into local main (1801a1b): clean, unit green. Not pushed.
+- Card feedback: core/src/assistant/card-updates.ts (takeCardUpdates, unreportCards, listConversationCards,
+  cardUpdatesBlock); pipeline deps cardUpdates/unreport (unreport on any non-done turn — the catch path now
+  sets status failed); read tool check_cards; prompt v14.
+- Email once: mail/send.ts claim (send_started_at, 10-min stale window), SendOutcome 'sending', Resend
+  Idempotency-Key mail-message-<id>-<attempt> (Resend docs checked), crashed Gmail → failed "check Sent",
+  409 invalid_idempotent_request → "may already have been sent", retry = attempt+1, resendStuckMessages in
+  /api/cron/alerts. Template sender and invitation handle 'sending'; assistant card shows "Being sent".
+- Migration 0046 applied on dev with the user's permission (46 → 47 rows).
+- Smoke: two new Console assistant checks (25/25). A smoke move had carried `toolCtx`'s definition below
+  its first use (TDZ) — fixed by restoring it right after the group line. Break-tests red: no claim, no
+  reported mark, no idempotency key (smoke); no unreport (unit).
+- Pre-existing failure found: Email conversations "an agent's inbox holds only their own leads'
+  conversations" (fails on main without these changes; stale assumption over live dev data).
+- Next exact step: the user approves pushing main + feat/assistant-phase1; then Phase 2 starts with the
+  task ADR.
+
 ## 2026-10-12 — Claude Code — Dashboards from any request: ADR 0036 Phases 1–4 (branch feat/semantic-layer)
 
 - Asked (Roman Urdu): "do all the phases properly — I want a fully smart assistant that can do everything".

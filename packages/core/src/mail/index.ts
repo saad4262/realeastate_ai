@@ -61,6 +61,7 @@ export {
   recordOutbound,
   mailDepsFromEnv,
   retryFailedMessage,
+  resendStuckMessages,
   sendThreadReply,
   type MailDeps,
   type SendOutcome,

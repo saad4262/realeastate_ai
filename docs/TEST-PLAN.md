@@ -1159,3 +1159,17 @@ Before: apply migration **0045** (`pnpm --filter @repo/db db:migrate`), restart 
 | AK8 | As an **agent**: "leads by agent this month" | The tile reads "This figure is for owners and admins." An agent's "my leads this month" works and shows only their own. |
 | AK9 | Open the AK5 dashboard as an agent (save it with audience "Everyone in the agency") | The by-agent tiles say "for owners and admins"; any other tile shows the agent's own figures. |
 | AK10 | Phone width | Tables scroll inside their card; nothing else scrolls sideways. |
+
+## AL — The assistant knows how its cards ended; an email goes once (ADR 0039 Phase 1)
+
+Before: migration 0046 applied, `pnpm dev` restarted (prompt `assistant@v14`).
+
+| # | Case | Expected |
+|---|---|---|
+| AL1 | Assistant: "Add a note to <contact>: call back Friday". Approve the card. Then write "done?" | It says the note was added — it knows the card was approved and done. |
+| AL2 | Ask for two notes; **Reject** one, approve the other; then "carry on" | It says one was added and one rejected, and does not propose the rejected one again unless you ask. |
+| AL3 | Propose a meeting at a time the agent already has one; approve | The card fails with the clash; next message, it explains the reason and offers another time. |
+| AL4 | Leave a card for 48 h (or ask a developer to expire it), then write anything | It says the card expired and nothing was changed. |
+| AL5 | "What happened to my cards?" | It lists this conversation's cards with their status (check_cards). |
+| AL6 | Send a new email to a contact from the assistant and press Approve twice quickly (two tabs) | One email arrives. The second tab shows the card already done. |
+| AL7 | Inbox: a failed message → Retry | It is sent once more (a new try); the conversation shows one sent copy. |

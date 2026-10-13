@@ -146,7 +146,7 @@ export async function sendContactEmail(
   contactId: string,
   input: unknown,
   opts: { limits?: EmailLimits } = {},
-): Promise<{ threadId: string; status: 'sent' | 'failed'; error: string | null }> {
+): Promise<{ threadId: string; status: 'sent' | 'failed' | 'sending'; error: string | null }> {
   const { threadId, messageId } = await db.transaction((tx) => recordContactEmail(tx, deps, actor, contactId, input, opts));
   const outcome = await deliverOutbound(db, deps, messageId);
   return { threadId, status: outcome.status, error: outcome.error };

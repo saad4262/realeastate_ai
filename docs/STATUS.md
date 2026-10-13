@@ -28,8 +28,19 @@
   Secret Token, validates the endpoint in Zoom, walks TEST-PLAN AK, submits the Zoom app.
 - **Note:** ADR 0035 and 0036 are committed on main (4bf0828, bd02f18) and 0041 + 0042 are
   applied on dev; the two bullets below predate that.
-- **Dashboards from any request — ADR 0036 Phases 1–4 built 2026-10-12, committed on `feat/semantic-layer`
-  (not merged).** Migration **0045 (`dashboard_gap_log`) applied on dev with the user's permission (46 rows).** Semantic layer in
+- **Assistant Phase 1 (ADR 0039) — built 2026-10-13 on `feat/assistant-phase1`, committed, not pushed.** `main`
+  locally = merge of `feat/semantic-layer` + origin/main (1801a1b), not pushed. Migration **0046 applied on dev**
+  (proposed_action.reported_at, mail_message.send_started_at / send_attempt). The model is told how its cards
+  ended (`<card_updates>` + `check_cards`, prompt `assistant@v14`); one email once (claim before send, Resend
+  Idempotency-Key, Gmail never resent after a crash, Retry = new try, sweeper in the 5-minute tick). Decisions
+  A–D recorded in ADR 0039 (no hard deletes; whole-app Google + uploads; lead visibility and auto-assign;
+  agents' own powers). Checks: typecheck/lint 10/10 (0 errors), unit 970 + 301, console build OK; smoke Console
+  assistant 25/25 (+1 skip), Template email 6/6, Appointments 6/6; break-tests red (claim, reported mark,
+  idempotency key, unreport). **Known, not from this work:** smoke "an agent's inbox holds only their own
+  leads' conversations" fails on merged main too — it reads live dev data and counts only lead threads, but
+  the inbox now also holds contact (lead-less) threads (ADR 0018/0035). TEST-PLAN **AL**. **Next:** push main +
+  this branch (deploys), then Phase 2 (task ADR first).
+- **Dashboards from any request — ADR 0036 Phases 1–4 built 2026-10-12; merged into local `main` 2026-10-13.** Migration **0045 (`dashboard_gap_log`) applied on dev with the user's permission (46 rows).** Semantic layer in
   `packages/core/src/semantic/`: catalog (sales, listings, leads, appointments, emails, contacts), strict
   spec, one-statement compiler (scope first, ids from the catalog, values as parameters, no `sql.raw`),
   standard full-page report. The six fixed widgets are presets now (parity with the old SQL: smoke, 80

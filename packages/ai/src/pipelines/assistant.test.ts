@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
 import { ASSISTANT_TOOLS, assistantToolsFor } from '../tools/assistant-tools';
-import { ASSISTANT_SYSTEM } from '../prompts/assistant-v13';
+import { ASSISTANT_SYSTEM } from '../prompts/assistant-v14';
 import { contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
 /**
@@ -67,6 +67,8 @@ function fakeDeps(over: Partial<AssistantDeps> = {}) {
     tools: ASSISTANT_TOOLS,
     claim: async () => ({ conversationId: 'conv-1', seq: 1, handles: {}, history: [] }),
     selection: async () => [],
+    cardUpdates: async () => ({ block: '', ids: [] }),
+    unreport: async () => undefined,
     budget: async () => ({ allowed: true, message: null }),
     runTool: async (handles: HandleMap, name: string, input: unknown): Promise<ToolOutcome> => {
       toolCalls.push({ name, input });
@@ -462,5 +464,37 @@ describe('tools by role: assigning contacts is offered to owners and admins only
       expect(sent(agent.requests[0]!)).not.toContain(n);
       expect(sent(owner.requests[0]!)).toContain(n);
     }
+  });
+});
+
+describe('what happened to the cards (ADR 0039 Phase 1)', () => {
+  const BLOCK = '<card_updates>\n- "Add a note to Ali" (add_note): approved by the person and done.\n</card_updates>';
+
+  it('puts the console’s block between the context and the person’s words, and stores it for replay', async () => {
+    const { client, requests } = fakeClient([msg([text('Done — the note is on Ali.')], 'end_turn')]);
+    const { deps, finished } = fakeDeps({ cardUpdates: async () => ({ block: BLOCK, ids: ['card-1'] }) });
+    await run({ client, deps });
+    const first = (requests[0]!.messages as { content: { type: string; text: string }[] }[])[0]!.content;
+    expect(first.map((c) => c.text.slice(0, 15))).toEqual(['<console_contex', '<card_updates>\n', 'Who are my buye']);
+    expect(JSON.stringify(finished[0]!.apiMessages)).toContain('card_updates');
+  });
+
+  it('a turn that fails tells the next turn again (the cards are un-reported); a good turn does not', async () => {
+    const unreport = vi.fn(async () => undefined);
+    const failing = { beta: { messages: { stream: () => { throw new Error('network down'); } } } } as unknown as Anthropic;
+    await run({ client: failing, deps: fakeDeps({ cardUpdates: async () => ({ block: BLOCK, ids: ['card-1', 'card-2'] }), unreport }).deps });
+    expect(unreport).toHaveBeenCalledWith(['card-1', 'card-2']);
+
+    const fine = vi.fn(async () => undefined);
+    const { client } = fakeClient([msg([text('Ok.')], 'end_turn')]);
+    await run({ client, deps: fakeDeps({ cardUpdates: async () => ({ block: BLOCK, ids: ['card-1'] }), unreport: fine }).deps });
+    expect(fine).not.toHaveBeenCalledWith(['card-1']);
+  });
+
+  it('a refused budget is a failed turn too: the outcome is told again next time', async () => {
+    const unreport = vi.fn(async () => undefined);
+    const { client } = fakeClient([msg([text('x')], 'end_turn')]);
+    await run({ client, deps: fakeDeps({ budget: async () => ({ allowed: false, message: 'Limit.' }), cardUpdates: async () => ({ block: BLOCK, ids: ['c'] }), unreport }).deps });
+    expect(unreport).toHaveBeenCalledWith(['c']);
   });
 });

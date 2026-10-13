@@ -186,6 +186,9 @@ export async function sendBatch(db: Db, deps: TemplateSendDeps, batchId: string)
           });
         });
         report.sent += 1;
+      } else if (outcome.status === 'sending') {
+        // Another delivery holds this message (ADR 0039 Phase 1): leave the recipient as it is —
+        // the stuck-recipient recovery picks it up, and the provider key keeps it to one email.
       } else {
         await db
           .update(emailBatchRecipient)
