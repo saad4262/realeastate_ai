@@ -4,6 +4,13 @@ import { revalidatePath } from 'next/cache';
 import {
   cancelImport,
   createImport,
+  createImportFromSheet,
+  pickerSession,
+  reimportSheet,
+  sheetsDepsFromEnv,
+  sheetTabs,
+  type PickerSession,
+  type SheetTab,
   getImport,
   importReport,
   ImportError,
@@ -15,6 +22,7 @@ import {
   type ImportReportRow,
   type ImportView,
 } from '@repo/core/imports';
+import { tokenKeysFromEnv } from '@repo/core/integrations';
 import { getConsoleDb } from './db';
 import { loadListingActor } from './load-actor';
 import { requireActionUserId } from './auth-account';
@@ -109,6 +117,61 @@ export async function cancelImportAction(id: string): Promise<R<object>> {
   try {
     await cancelImport(getConsoleDb(), await actor(), id);
     return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ── Google Sheets by the Picker (ADR 0029 amendment) ─────────────────────────
+
+function sheetsDeps() {
+  return sheetsDepsFromEnv(tokenKeysFromEnv());
+}
+
+/**
+ * What the browser's Google Picker needs: a short-lived access token for this person's Sheets
+ * connection, the browser key and the project number. Never the refresh token. Core decides who
+ * may have one (they may import, and may use that connection).
+ */
+export async function sheetPickerAction(): Promise<PickerSession> {
+  try {
+    return await pickerSession(getConsoleDb(), await actor(), sheetsDeps());
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** The picked file's title and tabs. */
+export async function sheetTabsAction(spreadsheetId: string): Promise<R<{ title: string; tabs: SheetTab[] }>> {
+  try {
+    const deps = sheetsDeps();
+    if (!deps) return { ok: false, error: 'Google Sheets import is not set up on this server yet.' };
+    const r = await sheetTabs(getConsoleDb(), await actor(), String(spreadsheetId), deps);
+    return { ok: true, ...r };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Read the chosen tab and start an import from it — then the same screens as a CSV. */
+export async function importSheetAction(input: { spreadsheetId: string; tab: string; mode: 'live' | 'draft' }): Promise<R<{ id: string; sameFileAs: string | null }>> {
+  try {
+    const deps = sheetsDeps();
+    if (!deps) return { ok: false, error: 'Google Sheets import is not set up on this server yet.' };
+    const r = await createImportFromSheet(getConsoleDb(), await actor(), { spreadsheetId: String(input.spreadsheetId), tab: String(input.tab), mode: input.mode === 'draft' ? 'draft' : 'live' }, deps);
+    return { ok: true, id: r.id, sameFileAs: r.sameFileAs ? r.sameFileAs.createdAt.toISOString() : null };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Read the same sheet and tab again, as a new import. */
+export async function reimportSheetAction(id: string): Promise<R<{ id: string }>> {
+  try {
+    const deps = sheetsDeps();
+    if (!deps) return { ok: false, error: 'Google Sheets import is not set up on this server yet.' };
+    const r = await reimportSheet(getConsoleDb(), await actor(), id, deps);
+    return { ok: true, id: r.id };
   } catch (err) {
     return fail(err);
   }

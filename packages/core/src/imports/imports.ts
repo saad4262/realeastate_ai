@@ -11,7 +11,7 @@ import { addressKey } from '../listings/address-key';
 import { geocodeAddress } from '../geo/places';
 import { activeMemberActor } from '../team/member-actor';
 import { agencyTimeZone } from '../widgets/registry';
-import { CsvError, csvCell, parseCsv } from './csv';
+import { CsvError, csvCell, parseCsv, tableToCsv, type ImportTable } from './csv';
 import { autoMap, FIELD_LABELS, importMappingSchema, normalizeRow, REQUIRED_FIELDS, type ImportMapping, type NormalizedRow } from './columns';
 import { importPhoto, PhotoError, type PhotoDeps } from './photos';
 
@@ -62,15 +62,18 @@ function modeFor(actor: Actor, requested: ImportMode | undefined): ImportMode {
   return requested === 'draft' ? 'draft' : 'live';
 }
 
+export type ImportSource = 'csv' | 'xlsx' | 'sheet';
+/** A Google Sheet's place, so Re-import reads the same file and tab (ADR 0029 amendment). */
+export type SheetRef = { spreadsheetId: string; tab: string; title: string };
+export type CreatedImport = { id: string; rows: number; sameFileAs: { id: string; createdAt: Date } | null };
+
 /** Upload: parse, store the file and every row, guess the mapping. Nothing is checked yet. */
 export async function createImport(
   db: Db,
   actor: Actor,
   input: { fileName: string; text: string; mode?: ImportMode },
-): Promise<{ id: string; rows: number; sameFileAs: { id: string; createdAt: Date } | null }> {
-  if (!actor.agencyId || !can(actor, 'listing_import:create', { type: 'listing_import', agencyId: actor.agencyId })) {
-    throw new ImportError('forbidden', 'You cannot import listings');
-  }
+): Promise<CreatedImport> {
+  assertMayImport(actor);
   let parsed: ReturnType<typeof parseCsv>;
   try {
     parsed = parseCsv(input.text);
@@ -78,6 +81,34 @@ export async function createImport(
     if (err instanceof CsvError) throw new ImportError('invalid', err.message);
     throw err;
   }
+  return storeImport(db, actor, { fileName: input.fileName, text: input.text, table: parsed, mode: input.mode, source: 'csv', sourceRef: null });
+}
+
+function assertMayImport(actor: Actor): asserts actor is Actor & { agencyId: string } {
+  if (!actor.agencyId || !can(actor, 'listing_import:create', { type: 'listing_import', agencyId: actor.agencyId })) {
+    throw new ImportError('forbidden', 'You cannot import listings');
+  }
+}
+
+/**
+ * A table that came from an Excel file or a Google Sheet (ADR 0029 amendment), already read —
+ * the network is behind us. From here it is exactly a CSV upload: the table is kept as CSV text.
+ */
+export async function createImportFromTable(
+  db: Db,
+  actor: Actor,
+  input: { fileName: string; table: ImportTable; mode?: ImportMode; source: Exclude<ImportSource, 'csv'>; sourceRef?: SheetRef | null },
+): Promise<CreatedImport> {
+  assertMayImport(actor);
+  return storeImport(db, actor, { fileName: input.fileName, text: tableToCsv(input.table), table: input.table, mode: input.mode, source: input.source, sourceRef: input.sourceRef ?? null });
+}
+
+async function storeImport(
+  db: Db,
+  actor: Actor & { agencyId: string },
+  input: { fileName: string; text: string; table: ImportTable; mode: ImportMode | undefined; source: ImportSource; sourceRef: SheetRef | null },
+): Promise<CreatedImport> {
+  const parsed = input.table;
   const agencyId = actor.agencyId;
   const fileHash = createHash('sha256').update(input.text).digest('hex');
   const [same] = await db
@@ -95,6 +126,8 @@ export async function createImport(
         fileName: input.fileName.slice(0, 200) || 'import.csv',
         fileHash,
         fileText: input.text,
+        source: input.source,
+        sourceRef: input.sourceRef,
         headers: parsed.headers,
         mapping: autoMap(parsed.headers),
         status: 'mapped',
@@ -467,6 +500,9 @@ export type ImportCounts = Record<'pending' | 'valid' | 'error' | 'duplicate' | 
 export type ImportView = {
   id: string;
   fileName: string;
+  /** Where the rows came from; a sheet's file and tab, for Re-import (ADR 0029 amendment). */
+  source: ImportSource;
+  sheet: SheetRef | null;
   status: ImportStatus;
   mode: ImportMode;
   updateDuplicates: boolean;
@@ -508,6 +544,8 @@ export async function getImport(db: Db, actor: Actor, id: string): Promise<Impor
   return {
     id: imp.id,
     fileName: imp.fileName,
+    source: imp.source as ImportSource,
+    sheet: imp.source === 'sheet' ? (imp.sourceRef as SheetRef | null) : null,
     status: imp.status as ImportStatus,
     mode: imp.mode as ImportMode,
     updateDuplicates: imp.updateDuplicates,

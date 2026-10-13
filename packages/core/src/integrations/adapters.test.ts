@@ -5,7 +5,7 @@ import { googleAdapter, GOOGLE_TOKEN_URL } from './google-oauth';
 import { adapterFor, adapterForTokens, pkceChallenge, pkceVerifier, returnUri, startConnect } from './oauth';
 import { fakeFetch } from './fake-fetch';
 import { ProviderError } from './provider-http';
-import { missingScopes } from './providers';
+import { missingScopes, requiredScopes } from './providers';
 import { zoomAdapter, ZOOM_TOKEN_URL } from './zoom-oauth';
 
 const client = { clientId: 'cid', clientSecret: 'csecret' };
@@ -88,7 +88,14 @@ describe('choosing an adapter', () => {
     expect(adapterFor('google_calendar', real)?.kind).toBe('real');
     expect(adapterFor('zoom', real)?.kind).toBe('stub');
     expect(adapterFor('zoom', { NODE_ENV: 'production', INTEGRATIONS_STUB: '1' } as NodeJS.ProcessEnv)).toBeNull();
-    expect(adapterFor('google_sheets', real)?.kind).toBe('stub');
+    // Sheets uses the one Google app (ADR 0029 amendment); Reviews is not built yet.
+    expect(adapterFor('google_sheets', real)?.kind).toBe('real');
+    expect(adapterFor('google_reviews', real)?.kind).toBe('stub');
+  });
+
+  it('Sheets asks for drive.file only — the files the person picks — never every sheet or all of Drive', () => {
+    expect(requiredScopes('google_sheets').sort()).toEqual(['email', 'https://www.googleapis.com/auth/drive.file', 'openid']);
+    expect(requiredScopes('google_sheets').join(' ')).not.toMatch(/spreadsheets|drive\.readonly|auth\/drive( |$)/);
   });
 
   it('a stub-issued token is only ever renewed by the stub', () => {

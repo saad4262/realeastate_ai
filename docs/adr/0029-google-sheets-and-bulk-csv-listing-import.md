@@ -262,3 +262,33 @@ the text above:
 - **Not measured:** a full 3,000-row import against the remote dev database. The smoke suite
   proves the chunking, the lease and resumption on 10-row files. Real timing goes in the
   TEST-PLAN (Y9).
+
+## Amendment — Phase 3 of ADR 0039: Sheets by the Picker now, a pasted link later (2026-10-13)
+
+Decided by the user, 2026-10-13: build the **Google Picker** route now; the **pasted-link** route of
+ADR 0039 B (any sheet the person can open, `spreadsheets.readonly` / `drive.readonly`, a Google
+sensitive/restricted scope needing verification) is **pending** until the domain, the privacy
+policy and Google's review are done.
+
+1. **Scope `drive.file` only** (+ `openid email`), as §10 said; `providers.ts` changes from the
+   provisional `spreadsheets.readonly`. The app can open only files the person picks in the
+   Picker. Sheets connects through the one Google app (same client as Calendar and Gmail, its own
+   connection and token). Personal account first, then the agency's (ADR 0020 order).
+2. **The Picker token.** The browser's Picker needs an access token: a server action mints it with
+   `withAccessToken` from the stored grant and returns ONLY the short-lived access token (never the
+   refresh token), to a person allowed `integration:use` on that account. A `drive.file` token
+   reaches only picked files. Config: `GOOGLE_PICKER_API_KEY` (a browser key restricted to our
+   console domains and `https://docs.google.com/*`, API restriction: Google Picker API) and
+   `GOOGLE_CLOUD_PROJECT_NUMBER` (the Picker's `setAppId`, so a pick grants the file to our app).
+   Both are read on the server and handed to the page; neither is a secret.
+3. **Reading.** After the pick, the server lists the file's tabs (Sheets API `spreadsheets.get`,
+   titles only) and reads the chosen tab (`values.get`, formatted values) — network, before any
+   transaction — then the job is exactly a CSV import: the cells become headers + rows, stored as
+   the import's file text. Same limits (5,000 rows, 10 MB). `listing_import.source`
+   (`csv` | `xlsx` | `sheet`) and `source_ref` (`{ spreadsheetId, tab, title }`) — migration 0049 —
+   so **Re-import** reads the same file and tab again as a new import.
+4. **Excel.** An `.xlsx` upload is read on the server (first sheet, or the one chosen) into the
+   same headers + rows. Formulas count as their cached values; dates as the cell shows them.
+5. **Contacts import** — its own job on the same pattern (upload / sheet → map → dry run → import),
+   designed in its own section before it is built.
+6. Everything else in this ADR stands: dry run, duplicates, modes, chunks, cron, 30-day purge.

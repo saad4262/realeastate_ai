@@ -11,7 +11,9 @@ import {
   setMappingAction,
   startDryRunAction,
   startImportAction,
+  reimportSheetAction,
 } from '@/lib/import-actions';
+import { useRouter } from 'next/navigation';
 
 const STATUS: Record<string, string> = {
   mapped: 'Match the columns, then check the file',
@@ -124,6 +126,7 @@ function RunProgress({ view }: { view: ImportView }) {
  * another; closing it is fine — the cron tick carries on.
  */
 export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: string }) {
+  const router = useRouter();
   const [view, setView] = useState<ImportView | null>(null);
   const [problems, setProblems] = useState<ImportReportRow[]>([]);
   const [mapping, setMapping] = useState<Record<string, number | null>>({});
@@ -256,6 +259,20 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
         ) : null}
         <p style={{ marginTop: '0.75rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
           <a href={`/api/imports/${id}/report`}>Download the full row report (CSV)</a>
+          {view.source === 'sheet' && view.sheet && view.mayRun && ['done', 'failed', 'cancelled', 'validated', 'mapped'].includes(view.status) ? (
+            <button
+              type="button"
+              style={ghost}
+              onClick={async () => {
+                setError(null);
+                const r = await reimportSheetAction(id);
+                if (!r.ok) setError(r.error);
+                else router.push(`${listingsHref}/import/${r.id}`);
+              }}
+            >
+              Read “{view.sheet.tab}” again as a new import
+            </button>
+          ) : null}
           {view.mayCancel && ['mapped', 'validating', 'validated', 'importing'].includes(view.status) ? (
             <button type="button" style={ghost} onClick={() => confirm('Cancel this import? Rows already imported stay.') && act(() => cancelImportAction(id))}>
               Cancel import

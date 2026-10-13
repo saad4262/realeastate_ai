@@ -81,3 +81,37 @@ export function parseCsv(text: string, maxRows = MAX_IMPORT_ROWS): { headers: st
   if (!rows.length) throw new CsvError('The file has a header row but no listings');
   return { headers: headers!.map((h) => h.trim()), rows };
 }
+
+/** Rows as a table: the first row its headers. What a Google Sheet or an Excel file becomes (ADR 0029 amendment). */
+export type ImportTable = { headers: string[]; rows: string[][] };
+
+/**
+ * A table read from a sheet or a workbook, made to look exactly like a parsed CSV: every cell a
+ * string, rows as wide as the headers, blank rows dropped, and the CSV's own limits and messages.
+ */
+export function tableFromCells(cells: unknown[][], maxRows = MAX_IMPORT_ROWS): ImportTable {
+  const text = (v: unknown) => (v === null || v === undefined ? '' : String(v));
+  const records = cells.map((r) => (Array.isArray(r) ? r.map(text) : [])).filter((r) => r.some((c) => c.trim() !== ''));
+  if (!records.length) throw new CsvError('The sheet is empty');
+  const [head, ...body] = records;
+  // A trailing run of empty header cells is not a column.
+  let width = head!.length;
+  while (width > 0 && head![width - 1]!.trim() === '' && body.every((r) => (r[width - 1] ?? '').trim() === '')) width -= 1;
+  if (!width) throw new CsvError('The first row has no column names');
+  if (!body.length) throw new CsvError('The sheet has a header row but no listings');
+  if (body.length > maxRows) throw new CsvError(`At most ${maxRows.toLocaleString('en-AU')} rows in one file — split it into smaller files`);
+  const rows = body.map((r) => Array.from({ length: width }, (_, i) => r[i] ?? ''));
+  const table = { headers: head!.slice(0, width).map((h) => h.trim()), rows };
+  if (Buffer.byteLength(tableToCsv(table), 'utf8') > MAX_IMPORT_BYTES) throw new CsvError('That sheet is larger than 10 MB');
+  return table;
+}
+
+/**
+ * The table as RFC 4180 text — kept as the import's file (30 days, like an upload) and hashed to
+ * spot the same file twice. Cells are quoted as they are: this text is read back by `parseCsv`,
+ * never opened in a spreadsheet (that is `csvCell`'s job, with its formula guard).
+ */
+export function tableToCsv(t: ImportTable): string {
+  const q = (v: string) => (/[",\r\n]/.test(v) || v !== v.trim() ? `"${v.replace(/"/g, '""')}"` : v);
+  return [t.headers, ...t.rows].map((r) => r.map(q).join(',')).join('\n');
+}

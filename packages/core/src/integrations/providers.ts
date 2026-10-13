@@ -5,8 +5,8 @@
  *
  * Google Calendar and Zoom scopes were checked against Google's and Zoom's
  * own documentation on 2026-10-06 (Phase 3b) and are the least each feature
- * needs. Gmail's scope was checked on 2026-10-06 (Phase 6). Sheets and Reviews are still
- * PROVISIONAL until they are built.
+ * needs. Gmail's scope was checked on 2026-10-06 (Phase 6). Sheets' on 2026-10-13 (ADR 0029
+ * amendment: `drive.file`, the Picker). Reviews is still PROVISIONAL until it is built.
  * This file is the one place a scope changes.
  */
 
@@ -50,10 +50,13 @@ export const PROVIDERS: Record<IntegrationProvider, ProviderInfo> = {
   },
   google_sheets: {
     label: 'Google Sheets',
-    purpose: 'Import listings from a sheet you choose. Your sheets are only read, never changed.',
+    purpose: 'Import from a sheet you pick in Google’s own file picker. Only the files you pick can be opened, and they are only read.',
     ownerTypes: ['user', 'agency'],
     scopes: [
-      { scope: 'https://www.googleapis.com/auth/spreadsheets.readonly', why: 'To read the sheet you pick for an import. Sheets are never changed.' },
+      // drive.file (ADR 0029 amendment, 2026-10-13): only files the person picks in the Picker —
+      // never their other sheets or files. Google's "non-sensitive" class. The pasted-link route
+      // (any sheet, spreadsheets.readonly) is pending Google's verification.
+      { scope: 'https://www.googleapis.com/auth/drive.file', why: 'To open only the sheets you pick in Google’s file picker, to import them. Nothing else in your Drive can be seen, and nothing is changed.' },
       { scope: 'openid email', why: 'To show which Google account is connected.' },
     ],
   },

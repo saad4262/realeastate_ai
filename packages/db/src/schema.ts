@@ -2116,6 +2116,10 @@ export const listingImport = pgTable(
     fileName: text('file_name').notNull(),
     fileHash: varchar('file_hash', { length: 64 }).notNull(),
     fileText: text('file_text'),
+    /** Where the rows came from (ADR 0029 amendment): an uploaded `csv` or `xlsx`, or a Google `sheet`. */
+    source: varchar('source', { length: 16 }).notNull().default('csv'),
+    /** A sheet's `{ spreadsheetId, tab, title }`, so Re-import reads the same file and tab. Null for an upload. */
+    sourceRef: jsonb('source_ref'),
     headers: jsonb('headers').notNull().default([]),
     /** Our field → the file's column index (or null). */
     mapping: jsonb('mapping').notNull().default({}),
