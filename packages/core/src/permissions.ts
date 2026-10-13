@@ -311,6 +311,8 @@ export type Action =
    * `listing:publish` may import live or as draft.
    */
   | 'listing_import:create'
+  /** Import contacts from a file or a sheet (ADR 0029 amendment): whoever may add contacts. */
+  | 'contact_import:create'
   /** See an import and its row report: its creator, or an admin. */
   | 'listing_import:read'
   /** Map, dry-run and run it: its creator only. */
@@ -525,6 +527,8 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
 
     case 'contact:create':
     case 'lead:create':
+    // Importing contacts is adding them, many at once: the same rule, asked again for each row.
+    case 'contact_import:create':
       return sameAgency(actor, resource) && mayWrite(actor);
 
     case 'contact:update':

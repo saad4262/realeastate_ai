@@ -4,3 +4,4 @@ export { CsvError, MAX_IMPORT_ROWS, parseCsv, tableFromCells, tableToCsv, type I
 export * from './sheets';
 export { createImportFromXlsx, tableFromXlsx } from './xlsx';
 export { assertPublicUrl, fetchPublicImage, isPrivateAddress, PhotoError, type PhotoDeps } from './photos';
+export { CONTACT_FIELD_LABELS, CONTACT_IMPORT_FIELDS, contactAutoMap, contactMappingProblem, normalizeContactRow, type ContactImportField, type NormalizedContact } from './contact-columns';

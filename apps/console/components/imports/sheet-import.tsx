@@ -64,7 +64,7 @@ function loadPicker(): Promise<PickerApi> {
 const btn: React.CSSProperties = { justifySelf: 'start', padding: '0.5rem 1rem', borderRadius: '0.5rem', border: 0, background: 'var(--sapphire)', color: '#fff', fontWeight: 600, cursor: 'pointer' };
 const ghost: React.CSSProperties = { padding: '0.5rem 1rem', borderRadius: '0.5rem', border: '1px solid var(--border-default)', background: 'transparent', cursor: 'pointer' };
 
-export function SheetImport({ base, mayPublish, integrationsHref }: { base: string; mayPublish: boolean; integrationsHref: string }) {
+export function SheetImport({ base, mayPublish, integrationsHref, kind = 'listings' }: { base: string; mayPublish: boolean; integrationsHref: string; kind?: 'listings' | 'contacts' }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [needsConnection, setNeedsConnection] = useState(false);
@@ -120,7 +120,7 @@ export function SheetImport({ base, mayPublish, integrationsHref }: { base: stri
     if (!file || !tab) return;
     setError(null);
     start(async () => {
-      const r = await importSheetAction({ spreadsheetId: file.id, tab, mode });
+      const r = await importSheetAction({ spreadsheetId: file.id, tab, mode, kind });
       if (!r.ok) return setError(r.error);
       if (r.sameFileAs) alert(`You imported this same sheet on ${new Date(r.sameFileAs).toLocaleDateString('en-AU')}. The check will show its rows as duplicates.`);
       router.push(`${base}/${r.id}`);

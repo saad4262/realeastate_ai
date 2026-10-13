@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { uploadImportAction } from '@/lib/import-actions';
 
-export function UploadForm({ base, mayPublish }: { base: string; mayPublish: boolean }) {
+export function UploadForm({ base, mayPublish, kind = 'listings' }: { base: string; mayPublish: boolean; kind?: 'listings' | 'contacts' }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -31,6 +31,7 @@ export function UploadForm({ base, mayPublish }: { base: string; mayPublish: boo
       }}
       style={{ display: 'grid', gap: '0.75rem', maxWidth: '32rem' }}
     >
+      <input type="hidden" name="kind" value={kind} />
       <label>
         CSV (UTF-8) or Excel (.xlsx) file, up to 4 MB
         <input

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { fakeFetch } from '../integrations/fake-fetch';
 import { ProviderError } from '../integrations/provider-http';
 import { CsvError, parseCsv, tableFromCells, tableToCsv } from './csv';
-import { googleSheetsApi, pickerSession, sheetsDepsFromEnv } from './sheets';
+import { createImportFromSheet, googleSheetsApi, pickerSession, sheetsDepsFromEnv } from './sheets';
 
 /** ADR 0029 amendment: a picked Google Sheet (or a workbook) becomes exactly a CSV upload. */
 
@@ -84,7 +84,7 @@ describe('who may have a Picker token (pickerSession)', () => {
   const deps = { keys: { current: Buffer.alloc(32) } as never, picker: { apiKey: 'k', appId: '1' } };
   it('a read-only member gets none — refused before the database or Google is asked', async () => {
     const out = await pickerSession(db, { userId: 'u', agencyId: 'a', membershipRole: 'read_only' }, deps);
-    expect(out).toEqual({ ok: false, error: 'You cannot import listings.' });
+    expect(out).toEqual({ ok: false, error: 'You cannot import here.' });
   });
   it('without the Picker settings, nobody gets one — and the reason names them', async () => {
     const out = await pickerSession(db, { userId: 'u', agencyId: 'a', membershipRole: 'agent' }, { ...deps, picker: null });
@@ -93,5 +93,16 @@ describe('who may have a Picker token (pickerSession)', () => {
   });
   it('someone outside any agency gets none', async () => {
     expect((await pickerSession(db, { userId: 'u' }, deps)).ok).toBe(false);
+  });
+});
+
+describe('createImportFromSheet asks who may import BEFORE Google is asked', () => {
+  const db = new Proxy({}, { get: () => { throw new Error('the database was asked'); } }) as never;
+  const deps = { keys: { current: Buffer.alloc(32) } as never, picker: null };
+  const api = { file: () => { throw new Error('Google was asked'); }, values: () => { throw new Error('Google was asked'); } };
+  it('a read-only member: refused for the kind they asked, Google and the database never touched', async () => {
+    const ro = { userId: 'u', agencyId: 'a', membershipRole: 'read_only' as const };
+    await expect(createImportFromSheet(db, ro, { spreadsheetId: 'abcDEF123_-xyz', tab: 'Sale', kind: 'contacts' }, deps, api)).rejects.toThrow(/cannot import contacts/);
+    await expect(createImportFromSheet(db, ro, { spreadsheetId: 'abcDEF123_-xyz', tab: 'Sale' }, deps, api)).rejects.toThrow(/cannot import listings/);
   });
 });

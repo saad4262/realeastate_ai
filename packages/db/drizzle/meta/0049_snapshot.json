@@ -1,5 +1,5 @@
 {
-  "id": "09ec8444-8277-40cb-b53e-f0814727239c",
+  "id": "96926e76-4196-4f64-a626-fa1cbd63e1de",
   "prevId": "b1a58ddb-1b93-492f-9c17-a07dd9761ef7",
   "version": "7",
   "dialect": "postgresql",
@@ -4786,6 +4786,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'listings'"
+        },
         "source": {
           "name": "source",
           "type": "varchar(16)",
@@ -5011,6 +5018,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "photos": {
           "name": "photos",
           "type": "jsonb",
@@ -5110,6 +5123,19 @@
           "tableTo": "listing",
           "columnsFrom": [
             "listing_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "listing_import_row_contact_id_contact_id_fk": {
+          "name": "listing_import_row_contact_id_contact_id_fk",
+          "tableFrom": "listing_import_row",
+          "tableTo": "contact",
+          "columnsFrom": [
+            "contact_id"
           ],
           "columnsTo": [
             "id"

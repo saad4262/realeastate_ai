@@ -44,5 +44,8 @@ describe('createImportFromXlsx', () => {
   const db = new Proxy({}, { get: () => { throw new Error('the database was asked'); } }) as never;
   it('a read-only member is refused before the file is opened or the database asked', async () => {
     await expect(createImportFromXlsx(db, { userId: 'u', agencyId: 'a', membershipRole: 'read_only' }, { fileName: 'x.xlsx', bytes: fixture() })).rejects.toThrow(/cannot import/);
+    // Not a workbook at all: refused for who they are, never told what the file is — it was not opened.
+    const notXlsx = new TextEncoder().encode('hello').buffer as ArrayBuffer;
+    await expect(createImportFromXlsx(db, { userId: 'u', agencyId: 'a', membershipRole: 'read_only' }, { fileName: 'x.xlsx', bytes: notXlsx, kind: 'contacts' })).rejects.toThrow(/cannot import contacts/);
   });
 });

@@ -1,0 +1,4 @@
+first_name,last_name,email,phone,roles,assigned_email,note,next_action,next_action_date
+Jane,Citizen,jane.citizen@example.com,0412 345 678,buyer,sam.agent@example.com,"Looking for 3 bedrooms near the station, budget agreed with her broker.",Call about Saturday's open home,2026-11-14
+Sam,Smith,,0423 456 789,seller;landlord,,Owns 14 Henry Street and a unit on Main Street.,,
+Priya,Patel,priya.patel@example.com,,investor,,,,

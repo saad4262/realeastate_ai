@@ -2116,6 +2116,8 @@ export const listingImport = pgTable(
     fileName: text('file_name').notNull(),
     fileHash: varchar('file_hash', { length: 64 }).notNull(),
     fileText: text('file_text'),
+    /** What is imported (ADR 0029 amendment): `listings`, or `contacts` — the same job, its own columns and steps. */
+    kind: varchar('kind', { length: 16 }).notNull().default('listings'),
     /** Where the rows came from (ADR 0029 amendment): an uploaded `csv` or `xlsx`, or a Google `sheet`. */
     source: varchar('source', { length: 16 }).notNull().default('csv'),
     /** A sheet's `{ spreadsheetId, tab, title }`, so Re-import reads the same file and tab. Null for an upload. */
@@ -2159,6 +2161,8 @@ export const listingImportRow = pgTable(
     warnings: jsonb('warnings').notNull().default([]),
     duplicateOfListingId: uuid('duplicate_of_listing_id').references(() => listing.id, { onDelete: 'set null' }),
     listingId: uuid('listing_id').references(() => listing.id, { onDelete: 'set null' }),
+    /** A contacts import's row: the contact it made (ADR 0029 amendment). */
+    contactId: uuid('contact_id').references(() => contact.id, { onDelete: 'set null' }),
     /** Per photo link: pending | done | failed (with why). */
     photos: jsonb('photos').notNull().default([]),
     ...timestamps,

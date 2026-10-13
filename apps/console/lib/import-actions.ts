@@ -60,9 +60,10 @@ export async function uploadImportAction(form: FormData): Promise<R<{ id: string
     // An Excel workbook (ADR 0029 amendment) is read into the same rows a CSV would give.
     const isXlsx = /\.xlsx$/i.test(file.name) || file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     const sheet = String(form.get('sheet') ?? '').trim().slice(0, 100) || null;
+    const kind = form.get('kind') === 'contacts' ? 'contacts' : 'listings';
     const r = isXlsx
-      ? await createImportFromXlsx(getConsoleDb(), await actor(), { fileName: file.name, bytes: await file.arrayBuffer(), sheet, mode: mode as ImportMode })
-      : await createImport(getConsoleDb(), await actor(), { fileName: file.name, text: await file.text(), mode: mode as ImportMode });
+      ? await createImportFromXlsx(getConsoleDb(), await actor(), { fileName: file.name, bytes: await file.arrayBuffer(), sheet, mode: mode as ImportMode, kind })
+      : await createImport(getConsoleDb(), await actor(), { fileName: file.name, text: await file.text(), mode: mode as ImportMode, kind });
     return { ok: true, id: r.id, sameFileAs: r.sameFileAs ? r.sameFileAs.createdAt.toISOString() : null };
   } catch (err) {
     return fail(err);
@@ -164,11 +165,11 @@ export async function sheetTabsAction(spreadsheetId: string): Promise<R<{ title:
 }
 
 /** Read the chosen tab and start an import from it — then the same screens as a CSV. */
-export async function importSheetAction(input: { spreadsheetId: string; tab: string; mode: 'live' | 'draft' }): Promise<R<{ id: string; sameFileAs: string | null }>> {
+export async function importSheetAction(input: { spreadsheetId: string; tab: string; mode: 'live' | 'draft'; kind?: 'listings' | 'contacts' }): Promise<R<{ id: string; sameFileAs: string | null }>> {
   try {
     const deps = sheetsDeps();
     if (!deps) return { ok: false, error: 'Google Sheets import is not set up on this server yet.' };
-    const r = await createImportFromSheet(getConsoleDb(), await actor(), { spreadsheetId: String(input.spreadsheetId), tab: String(input.tab), mode: input.mode === 'draft' ? 'draft' : 'live' }, deps);
+    const r = await createImportFromSheet(getConsoleDb(), await actor(), { spreadsheetId: String(input.spreadsheetId), tab: String(input.tab), mode: input.mode === 'draft' ? 'draft' : 'live', kind: input.kind === 'contacts' ? 'contacts' : 'listings' }, deps);
     return { ok: true, id: r.id, sameFileAs: r.sameFileAs ? r.sameFileAs.createdAt.toISOString() : null };
   } catch (err) {
     return fail(err);

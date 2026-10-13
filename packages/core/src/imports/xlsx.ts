@@ -1,8 +1,8 @@
 import readXlsxFile from 'read-excel-file/universal';
 import type { Db } from '@repo/db';
-import { can, type Actor } from '../permissions';
+import type { Actor } from '../permissions';
 import { CsvError, MAX_IMPORT_BYTES, tableFromCells, type ImportTable } from './csv';
-import { createImportFromTable, ImportError, type CreatedImport, type ImportMode } from './imports';
+import { assertMayImport, createImportFromTable, ImportError, type CreatedImport, type ImportKind, type ImportMode } from './imports';
 
 /**
  * An Excel workbook (.xlsx) as an import table (ADR 0029 amendment). Read on the server with
@@ -55,12 +55,11 @@ export async function tableFromXlsx(bytes: ArrayBuffer, sheet?: string | null): 
 export async function createImportFromXlsx(
   db: Db,
   actor: Actor,
-  input: { fileName: string; bytes: ArrayBuffer; sheet?: string | null; mode?: ImportMode },
+  input: { fileName: string; bytes: ArrayBuffer; sheet?: string | null; mode?: ImportMode; kind?: ImportKind },
 ): Promise<CreatedImport> {
+  const kind = input.kind ?? 'listings';
   // Who may import is asked before the file is opened.
-  if (!actor.agencyId || !can(actor, 'listing_import:create', { type: 'listing_import', agencyId: actor.agencyId })) {
-    throw new ImportError('forbidden', 'You cannot import listings');
-  }
+  assertMayImport(actor, kind);
   let read: Awaited<ReturnType<typeof tableFromXlsx>>;
   try {
     read = await tableFromXlsx(input.bytes, input.sheet);
@@ -74,5 +73,6 @@ export async function createImportFromXlsx(
     table: read.table,
     ...(input.mode ? { mode: input.mode } : {}),
     source: 'xlsx',
+    kind,
   });
 }

@@ -292,3 +292,27 @@ policy and Google's review are done.
 5. **Contacts import** — its own job on the same pattern (upload / sheet → map → dry run → import),
    designed in its own section before it is built.
 6. Everything else in this ADR stands: dry run, duplicates, modes, chunks, cron, 30-day purge.
+
+### Contacts import (2026-10-13, before code)
+
+The same job, not a second engine: `listing_import.kind` (`listings` | `contacts`, migration 0049)
+picks the columns, the dry run and the import step; upload (CSV / Excel / Google Sheet), the
+mapping screen, chunks, lease, cron, report and the 30-day purge are shared.
+
+- **Who:** `contact_import:create` = may add contacts (`contact:create`: any member who may write).
+  Reading, running and cancelling are the import's own rules (its uploader, or an admin).
+- **Columns:** name — or first and last name —, email, phone (one of the two needed on each row),
+  roles (buyer, seller, landlord, tenant, investor; several split by `,` or `;`), assigned agent's
+  email (owners/admins only; an agent's imports are their own), a note, a next action and its date
+  (`YYYY-MM-DD`).
+- **Never imported:** marketing consent. An imported list is not consent (ADR 0022, Spam Act —
+  who agreed, when and how); it is recorded per contact afterwards, as today.
+- **Duplicates (dry run):** an email any contact of the agency already has → duplicate, skipped
+  (said without naming that contact — an agent may not be able to see them); the same email earlier
+  in the file → duplicate. Same phone as an existing contact → a warning only ("may be the same
+  person — merge from the contact's page"), never a skip.
+- **Import:** each row its own savepoint through `createContact` (source `import`), its roles,
+  assignment (`contact:assign` again for an admin's column) and note; one bad row is marked failed
+  with its reason. Nobody is emailed.
+- **Screens:** Contacts → Import (`/customers/import`, `/my-contacts/import`), the same detail
+  screen with the contact columns.

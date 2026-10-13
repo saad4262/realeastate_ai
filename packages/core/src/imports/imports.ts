@@ -14,6 +14,8 @@ import { agencyTimeZone } from '../widgets/registry';
 import { CsvError, csvCell, parseCsv, tableToCsv, type ImportTable } from './csv';
 import { autoMap, FIELD_LABELS, importMappingSchema, normalizeRow, REQUIRED_FIELDS, type ImportMapping, type NormalizedRow } from './columns';
 import { importPhoto, PhotoError, type PhotoDeps } from './photos';
+import { importContactChunk, validateContactChunk } from './contacts';
+import { contactAutoMap, contactMappingProblem, contactMappingSchema, type ContactImportMapping, type NormalizedContact } from './contact-columns';
 
 /**
  * CSV listing import (ADR 0029): upload → map columns → dry run (every row
@@ -63,6 +65,8 @@ function modeFor(actor: Actor, requested: ImportMode | undefined): ImportMode {
 }
 
 export type ImportSource = 'csv' | 'xlsx' | 'sheet';
+/** What an import makes (ADR 0029 amendment): listings, or contacts — one job, its own columns and steps. */
+export type ImportKind = 'listings' | 'contacts';
 /** A Google Sheet's place, so Re-import reads the same file and tab (ADR 0029 amendment). */
 export type SheetRef = { spreadsheetId: string; tab: string; title: string };
 export type CreatedImport = { id: string; rows: number; sameFileAs: { id: string; createdAt: Date } | null };
@@ -71,9 +75,10 @@ export type CreatedImport = { id: string; rows: number; sameFileAs: { id: string
 export async function createImport(
   db: Db,
   actor: Actor,
-  input: { fileName: string; text: string; mode?: ImportMode },
+  input: { fileName: string; text: string; mode?: ImportMode; kind?: ImportKind },
 ): Promise<CreatedImport> {
-  assertMayImport(actor);
+  const kind = input.kind ?? 'listings';
+  assertMayImport(actor, kind);
   let parsed: ReturnType<typeof parseCsv>;
   try {
     parsed = parseCsv(input.text);
@@ -81,13 +86,19 @@ export async function createImport(
     if (err instanceof CsvError) throw new ImportError('invalid', err.message);
     throw err;
   }
-  return storeImport(db, actor, { fileName: input.fileName, text: input.text, table: parsed, mode: input.mode, source: 'csv', sourceRef: null });
+  return storeImport(db, actor, { fileName: input.fileName, text: input.text, table: parsed, mode: input.mode, source: 'csv', sourceRef: null, kind });
 }
 
-function assertMayImport(actor: Actor): asserts actor is Actor & { agencyId: string } {
-  if (!actor.agencyId || !can(actor, 'listing_import:create', { type: 'listing_import', agencyId: actor.agencyId })) {
-    throw new ImportError('forbidden', 'You cannot import listings');
-  }
+/** May this person start an import of this kind? Listings: `listing_import:create`; contacts: `contact_import:create`. */
+export function mayCreateImport(actor: Actor, kind: ImportKind): boolean {
+  if (!actor.agencyId) return false;
+  return kind === 'contacts'
+    ? can(actor, 'contact_import:create', { type: 'contact', agencyId: actor.agencyId })
+    : can(actor, 'listing_import:create', { type: 'listing_import', agencyId: actor.agencyId });
+}
+
+export function assertMayImport(actor: Actor, kind: ImportKind = 'listings'): asserts actor is Actor & { agencyId: string } {
+  if (!mayCreateImport(actor, kind)) throw new ImportError('forbidden', kind === 'contacts' ? 'You cannot import contacts' : 'You cannot import listings');
 }
 
 /**
@@ -97,16 +108,17 @@ function assertMayImport(actor: Actor): asserts actor is Actor & { agencyId: str
 export async function createImportFromTable(
   db: Db,
   actor: Actor,
-  input: { fileName: string; table: ImportTable; mode?: ImportMode; source: Exclude<ImportSource, 'csv'>; sourceRef?: SheetRef | null },
+  input: { fileName: string; table: ImportTable; mode?: ImportMode; source: Exclude<ImportSource, 'csv'>; sourceRef?: SheetRef | null; kind?: ImportKind },
 ): Promise<CreatedImport> {
-  assertMayImport(actor);
-  return storeImport(db, actor, { fileName: input.fileName, text: tableToCsv(input.table), table: input.table, mode: input.mode, source: input.source, sourceRef: input.sourceRef ?? null });
+  const kind = input.kind ?? 'listings';
+  assertMayImport(actor, kind);
+  return storeImport(db, actor, { fileName: input.fileName, text: tableToCsv(input.table), table: input.table, mode: input.mode, source: input.source, sourceRef: input.sourceRef ?? null, kind });
 }
 
 async function storeImport(
   db: Db,
   actor: Actor & { agencyId: string },
-  input: { fileName: string; text: string; table: ImportTable; mode: ImportMode | undefined; source: ImportSource; sourceRef: SheetRef | null },
+  input: { fileName: string; text: string; table: ImportTable; mode: ImportMode | undefined; source: ImportSource; sourceRef: SheetRef | null; kind: ImportKind },
 ): Promise<CreatedImport> {
   const parsed = input.table;
   const agencyId = actor.agencyId;
@@ -114,7 +126,7 @@ async function storeImport(
   const [same] = await db
     .select({ id: listingImport.id, createdAt: listingImport.createdAt })
     .from(listingImport)
-    .where(and(eq(listingImport.agencyId, agencyId), eq(listingImport.fileHash, fileHash)))
+    .where(and(eq(listingImport.agencyId, agencyId), eq(listingImport.fileHash, fileHash), eq(listingImport.kind, input.kind)))
     .orderBy(desc(listingImport.createdAt))
     .limit(1);
   const id = await db.transaction(async (tx) => {
@@ -129,9 +141,11 @@ async function storeImport(
         source: input.source,
         sourceRef: input.sourceRef,
         headers: parsed.headers,
-        mapping: autoMap(parsed.headers),
+        kind: input.kind,
+        mapping: input.kind === 'contacts' ? contactAutoMap(parsed.headers) : autoMap(parsed.headers),
         status: 'mapped',
-        mode: modeFor(actor, input.mode),
+        // A contacts import has no live/draft: contacts are never public.
+        mode: input.kind === 'contacts' ? 'live' : modeFor(actor, input.mode),
         totalRows: parsed.rows.length,
       })
       .returning({ id: listingImport.id });
@@ -165,7 +179,7 @@ export async function setImportMapping(db: Db, actor: Actor, id: string, mapping
   const imp = await loadImport(db, actor, id);
   requireRun(actor, imp);
   if (imp.status !== 'mapped' && imp.status !== 'validated') throw new ImportError('conflict', 'This import has already started');
-  const parsed = importMappingSchema.safeParse(mapping);
+  const parsed = (imp.kind === 'contacts' ? contactMappingSchema : importMappingSchema).safeParse(mapping);
   if (!parsed.success) throw new ImportError('invalid', 'That column mapping is not valid');
   const width = (imp.headers as unknown[]).length;
   if (Object.values(parsed.data).some((v) => v !== null && v !== undefined && v >= width)) throw new ImportError('invalid', 'That column is not in the file');
@@ -183,9 +197,14 @@ export async function startDryRun(db: Db, actor: Actor, id: string): Promise<voi
   const imp = await loadImport(db, actor, id);
   requireRun(actor, imp);
   if (imp.status !== 'mapped') throw new ImportError('conflict', 'Map the columns first');
-  const mapping = imp.mapping as ImportMapping;
-  const missing = REQUIRED_FIELDS.filter((f) => mapping[f] === null || mapping[f] === undefined);
-  if (missing.length) throw new ImportError('invalid', `Choose a column for: ${missing.map((f) => FIELD_LABELS[f]).join(', ')}`);
+  if (imp.kind === 'contacts') {
+    const problem = contactMappingProblem(imp.mapping as ContactImportMapping);
+    if (problem) throw new ImportError('invalid', problem);
+  } else {
+    const mapping = imp.mapping as ImportMapping;
+    const missing = REQUIRED_FIELDS.filter((f) => mapping[f] === null || mapping[f] === undefined);
+    if (missing.length) throw new ImportError('invalid', `Choose a column for: ${missing.map((f) => FIELD_LABELS[f]).join(', ')}`);
+  }
   await db.update(listingImport).set({ status: 'validating', updatedAt: sql`now()` }).where(and(eq(listingImport.id, imp.id), eq(listingImport.status, 'mapped')));
 }
 
@@ -200,11 +219,13 @@ export async function startImport(db: Db, actor: Actor, id: string, opts: { upda
   requireRun(actor, imp);
   if (imp.status !== 'validated') throw new ImportError('conflict', 'Run the check first');
   const update = Boolean(opts.updateDuplicates);
+  // A contact already in the agency is never changed from a file: duplicates are skipped.
+  if (update && imp.kind === 'contacts') throw new ImportError('invalid', 'Contacts already in your agency are skipped, never updated from a file');
   if (update && !can(actor, 'listing:publish', { type: 'listing', agencyId: imp.agencyId })) {
     throw new ImportError('forbidden', 'Only an owner or admin can update existing listings from a file');
   }
   // The mode is re-derived from the person NOW: someone demoted since uploading imports as pending.
-  const mode = imp.mode === 'pending' ? 'pending' : modeFor(actor, imp.mode as ImportMode);
+  const mode = imp.kind === 'contacts' ? 'live' : imp.mode === 'pending' ? 'pending' : modeFor(actor, imp.mode as ImportMode);
   await db
     .update(listingImport)
     .set({ status: 'importing', mode, updateDuplicates: update, startedAt: sql`now()`, updatedAt: sql`now()` })
@@ -253,6 +274,11 @@ export async function runImportChunk(db: Db, actor: Actor, id: string, deps: Imp
   const claimed = await claim(db, imp.id, now);
   if (!claimed) return { status: imp.status as ImportStatus, processed: 0, busy: imp.status === 'validating' || imp.status === 'importing' };
   try {
+    if (claimed.kind === 'contacts') {
+      // The uploader may still add contacts, asked again each chunk (and by createContact, per row).
+      assertMayImport(actor, 'contacts');
+      return claimed.status === 'validating' ? await validateContactChunk(db, claimed) : await importContactChunk(db, actor, claimed);
+    }
     if (claimed.status === 'validating') return await validateChunk(db, actor, claimed, deps);
     return await importChunk(db, actor, claimed, deps);
   } finally {
@@ -499,6 +525,7 @@ export type ImportCounts = Record<'pending' | 'valid' | 'error' | 'duplicate' | 
 
 export type ImportView = {
   id: string;
+  kind: ImportKind;
   fileName: string;
   /** Where the rows came from; a sheet's file and tab, for Re-import (ADR 0029 amendment). */
   source: ImportSource;
@@ -543,6 +570,7 @@ export async function getImport(db: Db, actor: Actor, id: string): Promise<Impor
   const n = (v: unknown) => Number(v ?? 0);
   return {
     id: imp.id,
+    kind: imp.kind as ImportKind,
     fileName: imp.fileName,
     source: imp.source as ImportSource,
     sheet: imp.source === 'sheet' ? (imp.sourceRef as SheetRef | null) : null,
@@ -562,7 +590,7 @@ export async function getImport(db: Db, actor: Actor, id: string): Promise<Impor
     sample: (Array.isArray(c?.sample) ? c!.sample : []) as string[][],
     mayRun: can(actor, 'listing_import:run', resource(imp)),
     mayCancel: can(actor, 'listing_import:cancel', resource(imp)),
-    mayUpdateDuplicates: can(actor, 'listing:publish', { type: 'listing', agencyId: imp.agencyId }),
+    mayUpdateDuplicates: imp.kind !== 'contacts' && can(actor, 'listing:publish', { type: 'listing', agencyId: imp.agencyId }),
   };
 }
 
@@ -572,7 +600,10 @@ export type ImportReportRow = {
   errors: { column: string; message: string }[];
   warnings: { column: string; message: string }[];
   listingId: string | null;
+  /** A contacts import: the contact the row made. */
+  contactId: string | null;
   photos: { url: string; status: string; error?: string }[];
+  /** The listing's address, or the contact's name. */
   address: string | null;
 };
 
@@ -593,14 +624,16 @@ export async function importReport(db: Db, actor: Actor, id: string, opts: { onl
     .offset(opts.offset ?? 0);
   return rows.map((r) => {
     const n = r.normalized as (NormalizedRow & { property: { formattedAddress?: string } }) | null;
+    const c = imp.kind === 'contacts' ? (r.normalized as NormalizedContact | null) : null;
     return {
       rowNumber: r.rowNumber,
       status: r.status,
       errors: (r.errors as ImportReportRow['errors']) ?? [],
       warnings: (r.warnings as ImportReportRow['warnings']) ?? [],
       listingId: r.listingId ?? r.duplicateOfListingId,
+      contactId: r.contactId ?? null,
       photos: (r.photos as ImportReportRow['photos']) ?? [],
-      address: n?.property?.formattedAddress ?? null,
+      address: c ? c.name : n?.property?.formattedAddress ?? null,
     };
   });
 }
@@ -626,13 +659,13 @@ export async function importReportCsv(db: Db, actor: Actor, id: string): Promise
 
 export type ImportSummary = { id: string; fileName: string; status: ImportStatus; totalRows: number; createdAt: Date; mine: boolean };
 
-/** This person's imports — every import of the agency for an admin. One statement. */
-export async function listImports(db: Db, actor: Actor): Promise<ImportSummary[]> {
+/** This person's imports of one kind — every one of the agency for an admin. One statement. */
+export async function listImports(db: Db, actor: Actor, kind: ImportKind = 'listings'): Promise<ImportSummary[]> {
   if (!actor.agencyId) return [];
   const rows = await db
     .select({ id: listingImport.id, agencyId: listingImport.agencyId, createdBy: listingImport.createdBy, fileName: listingImport.fileName, status: listingImport.status, totalRows: listingImport.totalRows, createdAt: listingImport.createdAt })
     .from(listingImport)
-    .where(eq(listingImport.agencyId, actor.agencyId))
+    .where(and(eq(listingImport.agencyId, actor.agencyId), eq(listingImport.kind, kind)))
     .orderBy(desc(listingImport.createdAt))
     .limit(50);
   return rows

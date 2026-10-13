@@ -149,6 +149,8 @@ export async function createContact(
   db: Db,
   actor: Actor,
   input: CreateContactInput,
+  /** `import`: a row of a contacts import (ADR 0029 amendment); the timeline says so. */
+  opts: { source?: 'manual' | 'import' } = {},
 ): Promise<{ id: string }> {
   if (!actor.agencyId) throw new ContactError('forbidden', 'You cannot add contacts');
   const agencyId = actor.agencyId;
@@ -178,7 +180,7 @@ export async function createContact(
           name: v.name,
           email: v.email ?? null,
           phone: v.phone ?? null,
-          source: 'manual',
+          source: opts.source ?? 'manual',
           assignedTo,
           nextAction: v.nextAction ?? null,
           nextActionAt: v.nextActionAt ?? null,
@@ -199,7 +201,7 @@ export async function createContact(
           .values(v.roles.map((role) => ({ contactId: id, role, source: 'manual' as const, createdBy: actor.userId })))
           .onConflictDoNothing();
       }
-      await recordActivity(tx, actor, agencyId, id, 'contact_created', { roles: v.roles });
+      await recordActivity(tx, actor, agencyId, id, 'contact_created', { roles: v.roles, ...(opts.source === 'import' ? { via: 'import' } : {}) });
       if (v.marketingConsent) {
         await recordActivity(tx, actor, agencyId, id, 'consent_recorded', {
           note: v.marketingConsentNote ?? null,

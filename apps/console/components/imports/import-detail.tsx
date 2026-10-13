@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FIELD_LABELS, IMPORT_FIELDS, REQUIRED_FIELDS } from '@repo/core/imports/columns-client';
+import { CONTACT_FIELD_LABELS, CONTACT_IMPORT_FIELDS, FIELD_LABELS, IMPORT_FIELDS, REQUIRED_FIELDS } from '@repo/core/imports/columns-client';
 import type { ImportReportRow, ImportView } from '@repo/core/imports';
 import {
   cancelImportAction,
@@ -50,7 +50,7 @@ function phaseOf(view: ImportView): Phase | null {
     const rowsTotal = rowsDone + c.valid + (view.updateDuplicates ? c.duplicate : 0);
     const photosTotal = c.photosDone + c.photosFailed + c.photosPending;
     const photosDone = c.photosDone + c.photosFailed;
-    return { label: 'Importing listings and photos', done: rowsDone + photosDone, total: rowsTotal + photosTotal, unit: 'steps' };
+    return { label: view.kind === 'contacts' ? 'Adding contacts' : 'Importing listings and photos', done: rowsDone + photosDone, total: rowsTotal + photosTotal, unit: 'steps' };
   }
   return null;
 }
@@ -125,6 +125,7 @@ function RunProgress({ view }: { view: ImportView }) {
  * photos. While it runs, this page asks the server for one chunk after
  * another; closing it is fine — the cron tick carries on.
  */
+/** `listingsHref` is where "done" leads — the listings page, or the contacts directory for a contacts import. */
 export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: string }) {
   const router = useRouter();
   const [view, setView] = useState<ImportView | null>(null);
@@ -182,20 +183,28 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
     <div style={{ padding: '1.5rem', maxWidth: '72rem' }}>
       <h1 style={{ margin: 0, font: '700 1.375rem/1.2 var(--font-display)' }}>{view.fileName}</h1>
       <p style={{ color: 'var(--text-secondary)' }}>
-        {view.totalRows.toLocaleString('en-AU')} rows · {STATUS[view.status]} · imported as{' '}
-        {view.mode === 'pending' ? 'waiting for approval' : view.mode === 'draft' ? 'drafts' : 'in the file (live, sold…)'}
+        {view.totalRows.toLocaleString('en-AU')} rows · {STATUS[view.status]}
+        {view.kind === 'contacts'
+          ? ' · contacts (no marketing consent is imported)'
+          : ` · imported as ${view.mode === 'pending' ? 'waiting for approval' : view.mode === 'draft' ? 'drafts' : 'in the file (live, sold…)'}`}
       </p>
       {error ? <p role="alert" style={{ color: 'var(--rose)' }}>{error}</p> : null}
 
       {view.status === 'mapped' && view.mayRun ? (
         <section style={box}>
           <h2 style={{ marginTop: 0, fontSize: '1rem' }}>Match the columns</h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>For each of our fields, pick the column in your file. Fields marked * are required.</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+            For each of our fields, pick the column in your file.{' '}
+            {view.kind === 'contacts' ? 'A name (full, or first and last) and an email or a phone are needed.' : 'Fields marked * are required.'}
+          </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(16rem, 1fr))', gap: '0.5rem' }}>
-            {IMPORT_FIELDS.map((f) => (
+            {(view.kind === 'contacts'
+              ? CONTACT_IMPORT_FIELDS.map((f) => ({ f: f as string, label: CONTACT_FIELD_LABELS[f], required: false }))
+              : IMPORT_FIELDS.map((f) => ({ f: f as string, label: FIELD_LABELS[f], required: REQUIRED_FIELDS.includes(f) }))
+            ).map(({ f, label, required }) => (
               <label key={f} style={{ display: 'grid', fontSize: '0.8125rem' }}>
-                {FIELD_LABELS[f]}
-                {REQUIRED_FIELDS.includes(f) ? ' *' : ''}
+                {label}
+                {required ? ' *' : ''}
                 <select value={mapping[f] ?? ''} onChange={(e) => setMapping({ ...mapping, [f]: e.target.value === '' ? null : Number(e.target.value) })}>
                   <option value="">— not in my file —</option>
                   {view.headers.map((h, i) => (
@@ -247,14 +256,16 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
               </label>
             ) : null}
             <button type="button" style={btn} disabled={!c.valid && !(update && c.duplicate)} onClick={() => act(() => startImportAction(id, update))}>
-              Import {c.valid} {c.valid === 1 ? 'listing' : 'listings'}{update && c.duplicate ? ` and update ${c.duplicate}` : ''}
+              {view.kind === 'contacts'
+                ? `Add ${c.valid} ${c.valid === 1 ? 'contact' : 'contacts'}`
+                : `Import ${c.valid} ${c.valid === 1 ? 'listing' : 'listings'}${update && c.duplicate ? ` and update ${c.duplicate}` : ''}`}
             </button>
           </div>
         ) : null}
         {view.status === 'done' ? (
           <p style={{ marginTop: '0.75rem' }}>
-            Finished. <Link href={listingsHref}>Open your listings</Link>
-            {view.mode === 'pending' ? ' — they are waiting for an owner or admin to approve them.' : '.'}
+            Finished. <Link href={listingsHref}>{view.kind === 'contacts' ? 'Open your contacts' : 'Open your listings'}</Link>
+            {view.kind !== 'contacts' && view.mode === 'pending' ? ' — they are waiting for an owner or admin to approve them.' : '.'}
           </p>
         ) : null}
         <p style={{ marginTop: '0.75rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>

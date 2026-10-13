@@ -66,9 +66,15 @@ export function ContactDirectory({
           <p className={styles.sub}>{subtitle}</p>
         </div>
         {page.mayCreate ? (
-          <Link href={`${basePath}/new`} className={styles.btn}>
-            <span aria-hidden>+</span> New contact
-          </Link>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {/* Whoever may add a contact may import them (contact_import:create, the same rule). */}
+            <Link href={`${basePath}/import`} className={styles.btn}>
+              Import
+            </Link>
+            <Link href={`${basePath}/new`} className={styles.btn}>
+              <span aria-hidden>+</span> New contact
+            </Link>
+          </div>
         ) : null}
       </div>
 

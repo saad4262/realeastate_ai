@@ -1,11 +1,11 @@
 import type { Db } from '@repo/db';
-import { can, type Actor } from '../permissions';
+import type { Actor } from '../permissions';
 import { IntegrationError, resolveIntegration } from '../integrations/accounts';
 import type { TokenKeys } from '../integrations/crypto';
 import { call, ProviderError, type Fetch } from '../integrations/provider-http';
 import { withAccessToken, markUsed, type ProviderDeps } from '../integrations/tokens';
 import { CsvError, tableFromCells, type ImportTable } from './csv';
-import { createImportFromTable, getImport, ImportError, type CreatedImport, type ImportMode, type SheetRef } from './imports';
+import { createImportFromTable, getImport, ImportError, mayCreateImport, type CreatedImport, type ImportKind, type ImportMode, type SheetRef } from './imports';
 
 /**
  * Google Sheets by the Picker (ADR 0029 amendment, 2026-10-13). The person picks a sheet in
@@ -87,8 +87,9 @@ async function connection(db: Db, actor: Actor): Promise<{ accountId: string } |
   };
 }
 
+/** May import anything (listings or contacts): what opening the Picker and listing tabs need. The import itself asks for its kind. */
 function mayImport(actor: Actor): boolean {
-  return Boolean(actor.agencyId) && can(actor, 'listing_import:create', { type: 'listing_import', agencyId: actor.agencyId as string });
+  return mayCreateImport(actor, 'listings') || mayCreateImport(actor, 'contacts');
 }
 
 /** A refusal from Google, in words a person can act on. A 404/403 on a drive.file token means the file was not picked with us. */
@@ -124,7 +125,7 @@ export type PickerSession =
  * may import gets one.
  */
 export async function pickerSession(db: Db, actor: Actor, deps: SheetsDeps | null): Promise<PickerSession> {
-  if (!mayImport(actor)) return { ok: false, error: 'You cannot import listings.' };
+  if (!mayImport(actor)) return { ok: false, error: 'You cannot import here.' };
   if (!deps?.picker) return { ok: false, error: 'Google Sheets import is not set up on this server yet (GOOGLE_PICKER_API_KEY, GOOGLE_CLOUD_PROJECT_NUMBER).' };
   const c = await connection(db, actor);
   if ('needsConnection' in c) return { ok: false, needsConnection: true, error: c.needsConnection };
@@ -144,7 +145,7 @@ function checkId(spreadsheetId: string): void {
 
 /** The picked file's title and tabs, for the person to choose one. Titles and row counts only. */
 export async function sheetTabs(db: Db, actor: Actor, spreadsheetId: string, deps: SheetsDeps, api: SheetsApi = googleSheetsApi(deps.fetch)): Promise<{ title: string; tabs: SheetTab[] }> {
-  if (!mayImport(actor)) throw new ImportError('forbidden', 'You cannot import listings');
+  if (!mayImport(actor)) throw new ImportError('forbidden', 'You cannot import here');
   checkId(spreadsheetId);
   const file = await withSheets(db, actor, deps, (t) => api.file(t, spreadsheetId));
   if (!file.tabs.length) throw new ImportError('invalid', 'That sheet has no tabs to import.');
@@ -171,11 +172,13 @@ async function readTab(db: Db, actor: Actor, ref: { spreadsheetId: string; tab: 
 export async function createImportFromSheet(
   db: Db,
   actor: Actor,
-  input: { spreadsheetId: string; tab: string; mode?: ImportMode },
+  input: { spreadsheetId: string; tab: string; mode?: ImportMode; kind?: ImportKind },
   deps: SheetsDeps,
   api: SheetsApi = googleSheetsApi(deps.fetch),
 ): Promise<CreatedImport> {
-  if (!mayImport(actor)) throw new ImportError('forbidden', 'You cannot import listings');
+  const kind = input.kind ?? 'listings';
+  // Asked before Google is: never a read of someone's sheet for an import they may not make.
+  if (!mayCreateImport(actor, kind)) throw new ImportError('forbidden', kind === 'contacts' ? 'You cannot import contacts' : 'You cannot import listings');
   const tab = input.tab.trim().slice(0, 100);
   if (!tab) throw new ImportError('invalid', 'Choose a tab of the sheet.');
   const { title, table } = await readTab(db, actor, { spreadsheetId: input.spreadsheetId, tab }, deps, api);
@@ -185,6 +188,7 @@ export async function createImportFromSheet(
     ...(input.mode ? { mode: input.mode } : {}),
     source: 'sheet',
     sourceRef: { spreadsheetId: input.spreadsheetId, tab, title },
+    kind,
   });
 }
 
@@ -192,5 +196,5 @@ export async function createImportFromSheet(
 export async function reimportSheet(db: Db, actor: Actor, importId: string, deps: SheetsDeps, api: SheetsApi = googleSheetsApi(deps.fetch)): Promise<CreatedImport> {
   const before = await getImport(db, actor, importId);
   if (before.source !== 'sheet' || !before.sheet) throw new ImportError('invalid', 'Only an import from a Google Sheet can be read again.');
-  return createImportFromSheet(db, actor, { spreadsheetId: before.sheet.spreadsheetId, tab: before.sheet.tab, mode: before.mode }, deps, api);
+  return createImportFromSheet(db, actor, { spreadsheetId: before.sheet.spreadsheetId, tab: before.sheet.tab, mode: before.mode, kind: before.kind }, deps, api);
 }
