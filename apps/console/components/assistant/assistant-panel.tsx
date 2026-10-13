@@ -16,6 +16,8 @@ import {
 import type { ProposalView } from '@repo/core/assistant';
 import { clearPicks, usePicks } from './picks';
 import { Tile } from '../dashboards/tile';
+import { UploadForm } from '../imports/upload-form';
+import { SheetImport } from '../imports/sheet-import';
 import styles from './assistant-panel.module.css';
 
 /**
@@ -40,9 +42,9 @@ type Turn = {
   pending: boolean;
 };
 
-const PATHS: Record<Surface, { contact: string; leads: string; templates: string; bulk: string; integrations: string; inbox: string; messages: string; listings: string }> = {
-  agency: { contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', bulk: '/bulk-email', integrations: '/settings/integrations', inbox: '/inbox', messages: '/messages', listings: '/live-listings' },
-  agent: { contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', bulk: '/my-bulk-email', integrations: '/my-integrations', inbox: '/my-inbox', messages: '/my-messages', listings: '/listings' },
+const PATHS: Record<Surface, { contact: string; leads: string; templates: string; bulk: string; integrations: string; inbox: string; messages: string; listings: string; listingImport: string; contactImport: string }> = {
+  agency: { contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', bulk: '/bulk-email', integrations: '/settings/integrations', inbox: '/inbox', messages: '/messages', listings: '/live-listings', listingImport: '/live-listings/import', contactImport: '/customers/import' },
+  agent: { contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', bulk: '/my-bulk-email', integrations: '/my-integrations', inbox: '/my-inbox', messages: '/my-messages', listings: '/listings', listingImport: '/listings/import', contactImport: '/my-contacts/import' },
 };
 
 const CONTACT_PAGE = /^\/(?:customers|my-contacts)\/([0-9a-f-]{36})(?:\/|$)/i;
@@ -388,6 +390,26 @@ function FrameView({ frame, surface }: { frame: AssistantFrame; surface: Surface
       return <ProposalCardView id={frame.id} surface={surface} />;
     case 'widget':
       return <Tile tile={frame.tile} compact />;
+    case 'import': {
+      // The import's own controls (ADR 0039 Phase 3): the file and the sheet go to the import screens, never to the model.
+      const base = frame.what === 'contacts' ? p.contactImport : p.listingImport;
+      return (
+        <div className={styles.frame}>
+          <div className={styles.frameHead}>{frame.what === 'contacts' ? 'Import contacts' : 'Import listings'}</div>
+          <div style={{ padding: '0.625rem', display: 'grid', gap: '1rem' }}>
+            <UploadForm base={base} mayPublish={frame.mayPublish} kind={frame.what} />
+            <div>
+              <div className={styles.label}>Or a Google Sheet</div>
+              {frame.sheets.state === 'connected' ? null : <ConnectButton label="Google Sheets" mayConnect={frame.sheets.mayConnect} href={p.integrations} />}
+              <SheetImport base={base} mayPublish={frame.mayPublish} kind={frame.what} integrationsHref={p.integrations} />
+            </div>
+            <Link href={base} className={styles.meta}>
+              Open the import page
+            </Link>
+          </div>
+        </div>
+      );
+    }
     case 'connections':
       return (
         <FrameBox title="Connected accounts">

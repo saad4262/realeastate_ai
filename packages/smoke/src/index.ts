@@ -239,6 +239,9 @@ import {
   setImportMapping,
   startDryRun,
   startImport,
+  createImportFromSheet,
+  pickerSession,
+  reimportSheet,
   type ImportDeps,
 } from '@repo/core/imports';
 import { agencyReviews, clearAgencyGooglePlace, publicListingReviews, searchGooglePlaces, setAgencyGooglePlace, type PlaceDetails, type PlacesClient } from '@repo/core/reviews';
@@ -6608,6 +6611,9 @@ async function main() {
   // ------------------------------------------------------- tenant isolation --
   // ------------------------------------------- new email and team messages --
   // ── ADR 0040 part 2: connect shape, saved lists in parts, invites, listings ──────────────────
+  // Its own group, so it can be run alone (SMOKE_ONLY="Assistant part 2") — the whole Console assistant group is slow.
+  // The invite and listing checks need migration 0048 (the proposed_action tool CHECK).
+  group('Assistant part 2 (ADR 0040)');
 
   await check('part 2 §1: "Connect Zoom first" has one shape — a card and a plan step both return needs_connection and the Connect frame, and propose nothing', async () =>
     inRollback(async (t) => {
@@ -8705,6 +8711,91 @@ async function main() {
       assert(a1.rows.every((r) => r.contactId === f.contacts.p1), `the vector half widened A1’s results: ${JSON.stringify(a1.kinds)}`);
       assert(meters.some((m) => m.feature === 'assistant' && m.userId === f.people.a1), `the question was not metered to A1: ${JSON.stringify(meters)}`);
       return 'hybrid: A1 still only P1; query embedding metered as assistant for A1';
+    }),
+  );
+
+  // ------------------------------------------------- imports, Phase 3 --
+  group('Imports: contacts and Google Sheets');
+
+  await check('a contacts import (ADR 0029 amendment): new rows added as the uploader with source "import"; an existing email and a repeat in the file skipped; consent never imported', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const a1 = f.actor('a1');
+      // P1 already has p1.<tag>@smoke.test — the file repeats it, and a new person twice.
+      const csv = [
+        'First name,Last name,Email,Mobile,Type,Agent,Notes,Marketing consent',
+        `Nina,New,nina.${f.tag}@smoke.test,0412 000 111,buyer,owner.${f.tag}@smoke.test,Wants 3 beds,yes`,
+        `Already,There,P1.${f.tag}@SMOKE.TEST,,seller,,,yes`,
+        `Nina,Again,nina.${f.tag}@smoke.test,,buyer,,,`,
+        `No,Way,,,buyer,,,`,
+        `Phil,Phone,,0499 000 222,landlord,,,`,
+      ].join('\n');
+      const imp = await createImport(t, a1, { fileName: `contacts-${f.tag}.csv`, text: csv, kind: 'contacts' });
+      await startDryRun(t, a1, imp.id);
+      await driveImport(t, a1, imp.id, {}, ['validated']);
+      const rows = await importReport(t, a1, imp.id, { limit: 50 });
+      const st = rows.map((r) => `${r.rowNumber}:${r.status}`).join(',');
+      assert(st === '2:valid,3:duplicate,4:duplicate,5:error,6:valid', `after the check: ${st}`);
+      assert(!JSON.stringify(rows[1]).includes('P1') && /already a contact/.test(JSON.stringify(rows[1]!.warnings)), `existing email: ${JSON.stringify(rows[1])}`);
+      await startImport(t, a1, imp.id);
+      await driveImport(t, a1, imp.id, {}, ['done']);
+      const made = await t.execute<{ name: string; source: string; assigned_to: string; consent: string | null; notes: number }>(sql`
+        select c.name, c.source, c.assigned_to, c.marketing_consent_at as consent,
+               (select count(*)::int from note n where n.contact_id = c.id) as notes
+        from contact c where c.agency_id = ${f.agencyId} and c.source = 'import' order by c.name`);
+      assert(made.length === 2 && made.every((m) => m.assigned_to === f.people.a1 && m.consent === null), `made: ${JSON.stringify(made)}`);
+      assert(made.find((m) => m.name === 'Nina New')?.notes === 1, 'the note was not added');
+      const after = await importReport(t, a1, imp.id, { limit: 50 });
+      assert(/Only an owner or admin assigns/.test(JSON.stringify(after.find((r) => r.rowNumber === 2)?.warnings)), 'an agent’s Agent column was not refused with a warning');
+      const [p1] = await t.execute<{ name: string }>(sql`select name from contact where id = ${f.contacts.p1}`);
+      assert(p1?.name === 'P1', 'the existing contact was changed');
+      return '2 added (source import, A1’s, no consent, note kept); existing email and in-file repeat skipped; a row without email/phone refused; existing contact untouched';
+    }),
+  );
+
+  await check('a contacts import: a read-only member cannot start one; another agency’s import is not found', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const ro = await createImport(t, f.actor('viewer'), { fileName: 'x.csv', text: 'Name,Email\nA,a@b.co', kind: 'contacts' }).then(() => 'made', (e: unknown) => (e as Error).message);
+      assert(/cannot import contacts/.test(ro), `read-only: ${ro}`);
+      const imp = await createImport(t, f.actor('a1'), { fileName: 'x.csv', text: 'Name,Email\nA,a@b.co', kind: 'contacts' });
+      const g = await contactFixture(t);
+      const other = await getImport(t, g.actor('owner'), imp.id).then(() => 'read', (e: unknown) => (e as Error).message);
+      assert(/not found/.test(other), `other agency: ${other}`);
+      return 'read-only refused; another agency’s owner gets not-found';
+    }),
+  );
+
+  await check('a Google Sheet by the Picker (drive.file): the token handed to the Picker is the access token only; the tab becomes an import that remembers its file and tab; Re-import reads it again', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const a1 = f.actor('a1');
+      const deps = { keys: testKeys, picker: { apiKey: 'smoke-key', appId: '123456789012' } };
+      // Not connected: no token, and it says so.
+      const none = await pickerSession(t, a1, deps);
+      assert(!none.ok && 'needsConnection' in none && none.needsConnection, `not connected: ${JSON.stringify(none)}`);
+      const g = granted(['https://www.googleapis.com/auth/drive.file', 'openid', 'email']);
+      await saveConnection(t, testKeys, a1, { provider: 'google_sheets', ownerType: 'user', ownerId: f.people.a1, agencyId: f.agencyId }, g);
+      const s = await pickerSession(t, a1, deps);
+      assert(s.ok && s.accessToken === g.accessToken && !JSON.stringify(s).includes(g.refreshToken), `session: ${JSON.stringify(s).slice(0, 80)}`);
+      // A read-only member never gets one, even in the same agency.
+      assert(!(await pickerSession(t, f.actor('viewer'), deps)).ok, 'read-only got a Picker token');
+      let reads = 0;
+      const api = {
+        file: async () => ({ title: 'Smoke stock', tabs: [{ title: 'Buyers', rows: 3 }] }),
+        values: async () => {
+          reads += 1;
+          return [['Name', 'Email'], [`Sheet Person ${reads}`, `sheet${reads}.${f.tag}@smoke.test`]];
+        },
+      };
+      const imp = await createImportFromSheet(t, a1, { spreadsheetId: 'abcDEF123_-xyz', tab: 'Buyers', kind: 'contacts' }, deps, api);
+      const v = await getImport(t, a1, imp.id);
+      assert(v.source === 'sheet' && v.kind === 'contacts' && v.sheet?.spreadsheetId === 'abcDEF123_-xyz' && v.sheet.tab === 'Buyers' && v.fileName === 'Smoke stock — Buyers', `import: ${JSON.stringify({ source: v.source, kind: v.kind, sheet: v.sheet, name: v.fileName })}`);
+      const again = await reimportSheet(t, a1, imp.id, deps, api);
+      assert(again.id !== imp.id && reads === 2, `re-import: ${again.id} after ${reads} reads`);
+      const missing = await createImportFromSheet(t, a1, { spreadsheetId: 'abcDEF123_-xyz', tab: 'Gone', kind: 'contacts' }, deps, api).then(() => 'made', (e: unknown) => (e as Error).message);
+      assert(/not in that sheet/.test(missing), `missing tab: ${missing}`);
+      return 'no connection → "connect first"; token = access token only (never refresh); read-only none; sheet import kept file + tab; re-import read it again; a missing tab refused';
     }),
   );
 

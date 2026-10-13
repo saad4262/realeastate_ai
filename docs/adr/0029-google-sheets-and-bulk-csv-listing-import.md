@@ -316,3 +316,22 @@ mapping screen, chunks, lease, cron, report and the 30-day purge are shared.
   with its reason. Nobody is emailed.
 - **Screens:** Contacts → Import (`/customers/import`, `/my-contacts/import`), the same detail
   screen with the contact columns.
+
+## As built — Phase 3 (2026-10-13, branch `feat/sheets-import`; migration 0049 written, NOT applied)
+
+- **Sheets:** `providers.ts` → `drive.file`; Sheets uses the Google adapter. `imports/sheets.ts`:
+  `pickerSession` (who may import, then `withAccessToken` → access token only), `sheetTabs`,
+  `createImportFromSheet` (permission before any network; `values.get` FORMATTED_VALUE),
+  `reimportSheet`. `tableFromCells` makes a sheet look like a parsed CSV (blank rows dropped, width
+  from the headers, the CSV limits); `tableToCsv` is the stored file text.
+- **Excel:** `imports/xlsx.ts`, `read-excel-file` **9.3.10** pinned, `/universal` build. Dates become
+  `YYYY-MM-DD[ HH:mm]` from the UTC parts (Excel stores wall-clock time). Zip magic checked first.
+- **Upload limit found and fixed:** Server Actions take 1 MB by default and Vercel 4.5 MB a request;
+  `serverActions.bodySizeLimit` 4.4 MB, and the screen, action and browser say 4 MB.
+- **Contacts:** `listing_import.kind`, `listing_import_row.contact_id`; `contact-columns.ts` (pure,
+  also the browser's), `contacts.ts` (dry run, import). `contact_import:create`. `createContact`
+  takes `source: 'import'`. Screens `/customers/import`, `/my-contacts/import`; template
+  `contacts-import-template.csv`.
+- **Assistant:** read tool `start_import` (`what`: listings | contacts) → an `import` frame with the
+  upload form and the Sheet picker; prompt `assistant@v17`. It reads nothing and takes no file.
+- Smoke group "Imports: contacts and Google Sheets" (3 checks) written, not run (needs 0049).

@@ -49,6 +49,7 @@ import { findListings, proposeAssignLead, proposeCancelTask, proposeCreateContac
 import { proposeCreateListingDraft, proposeSubmitListing, proposeUpdateListing, proposeWithdrawListing } from './listing-tools';
 import { proposePlanTask } from './plan-task';
 import { findSavedLists } from './list-send';
+import { mayCreateImport } from '../imports/imports';
 import type { FrozenArgs } from './actions';
 import {
   ASSISTANT_ADMIN_TOOLS,
@@ -137,6 +138,7 @@ const LABELS: Record<AssistantToolName, string> = {
   schedule_team_meeting: 'Preparing the team meeting for you to approve…',
   find_listings: 'Looking up listings…',
   find_saved_lists: 'Looking up your saved lists…',
+  start_import: 'Opening the import…',
   set_lead_status: 'Preparing the lead change for you to approve…',
   assign_lead: 'Preparing the assignment for you to approve…',
   create_lead: 'Preparing the new lead for you to approve…',
@@ -243,6 +245,8 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return findListings(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.find_listings>, label);
     case 'find_saved_lists':
       return findSavedLists(ctx, label);
+    case 'start_import':
+      return startImport(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.start_import>, label);
     case 'set_lead_status':
       return proposeSetLeadStatus(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.set_lead_status>, label);
     case 'assign_lead':
@@ -671,6 +675,29 @@ async function checkConnections(
       })),
       // The same shape every refused tool gives (ADR 0040 part 2 §1).
       ...(rows.some((r) => r.state !== 'connected') ? { needs_connection: needsConnection(rows) } : {}),
+    },
+  };
+}
+
+/**
+ * The import's buttons beside the answer (ADR 0039 Phase 3): nothing is read or written here. Who may
+ * import is can()'s; whether Google Sheets is usable is the connection check's — never the model's.
+ */
+async function startImport(ctx: ToolContext, input: z.infer<typeof ASSISTANT_TOOL_INPUTS.start_import>, label: string): Promise<ToolOutcome> {
+  const { actor, db } = ctx;
+  if (!mayCreateImport(actor, input.what)) {
+    return refused(input.what === 'contacts' ? 'This person may not import contacts.' : 'This person may not import listings.', label);
+  }
+  const check = await requireIntegrations(db, actor, ['google_sheets'], ctx.now);
+  const sheets = check.results[0]!;
+  const mayPublish = input.what === 'listings' && can(actor, 'listing:publish', { type: 'listing', agencyId: actor.agencyId as string });
+  return {
+    label,
+    frame: { kind: 'import', what: input.what, mayPublish, sheets: { state: sheets.state, mayConnect: sheets.mayConnect } },
+    result: {
+      shown: true,
+      note: `The import buttons are on screen: upload a CSV or Excel file (up to 4 MB), or pick a Google Sheet${sheets.state === 'connected' ? '' : ' (Google Sheets must be connected first — the Connect button is there)'}. The person matches the columns, sees every row checked, and only then imports — you never see the file.`,
+      ...(input.what === 'contacts' ? { tell_the_user: 'Marketing consent is never imported; it is recorded on each contact when they agree.' } : {}),
     },
   };
 }

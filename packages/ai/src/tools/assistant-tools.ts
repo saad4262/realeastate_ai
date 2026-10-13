@@ -122,6 +122,16 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
     input_schema: { type: 'object', additionalProperties: false, properties: {} },
   },
   {
+    name: 'start_import',
+    description: 'When the person wants to import listings or contacts from a spreadsheet — a CSV or Excel file, or a Google Sheet — put the import buttons on screen. You never see the file: they upload it or pick the sheet, match the columns, see every row checked, and import it on the import screens. Nothing is imported by this tool.',
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { what: { type: 'string', enum: ['listings', 'contacts'], description: 'What the spreadsheet holds.' } },
+      required: ['what'],
+    },
+  },
+  {
     name: 'find_saved_lists',
     description: 'The person\'s own saved contact lists (the filters they saved on the Bulk email screen), each with an F reference — to send a template to a whole list with send_template_email. Names only; who is on a list is worked out when it is used.',
     input_schema: { type: 'object', additionalProperties: false, properties: {} },

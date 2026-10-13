@@ -1213,3 +1213,26 @@ Bulk email with more than 20 contacts who agreed to marketing (for AN6–AN8).
 | AN11 | "Send the <approved template> to my list <name>" (≤ 20 qualify) | The usual email card — every person, skips with reasons. |
 | AN12 | Same with a list of 21–100 who qualify | **One** card: "Send … to N people on …, 20 at a time", the whole list with skips, When: parts of 20, the first on Approve then one every 24 hours. Approve → 20 go now (Bulk email shows the batch). Next day, the next part goes; anyone who unsubscribed meanwhile is skipped. |
 | AN13 | AN12 near your daily limit | The waiting part tries again an hour later; the rest follow; nothing is lost. "Cancel that task" stops the parts not yet sent. |
+
+## AO — Import from Google Sheets (Picker), Excel, and contacts; the assistant opens the import (ADR 0029 amendment, ADR 0039 Phase 3)
+
+Before: migration **0049** applied (and 0048 for AN); `pnpm dev` restarted (prompt `assistant@v17`).
+Google Cloud (the same project as `GOOGLE_OAUTH_CLIENT_ID`): **Google Picker API**, **Google Sheets
+API** and **Google Drive API** enabled; scope `.../auth/drive.file` added on the OAuth consent
+screen; an API key restricted to the console domains **and** `https://docs.google.com/*`, API
+restriction Google Picker API → `GOOGLE_PICKER_API_KEY`; the project **number** →
+`GOOGLE_CLOUD_PROJECT_NUMBER` (both in `.env.local` and on Vercel for the console).
+
+| # | Case | Expected |
+|---|---|---|
+| AO1 | Integrations → Google Sheets → Connect | Google asks only to "see, edit… only the specific Google Drive files you use with this app". Back on Integrations: Connected, with your Google email. |
+| AO2 | Listings → Import → **Pick a Google Sheet** | Google's own picker opens showing only spreadsheets. Pick one → its tabs are listed → choose → "Read this tab and match columns" → the usual mapping screen with the sheet's rows. |
+| AO3 | Not connected (or as an agent with no account of their own and none for the agency) | No picker: "Connect Google Sheets first" with a link to Integrations. |
+| AO4 | Finish AO2's import; on its page press **Read "<tab>" again as a new import** | A new import of the same file and tab (its own check and report). |
+| AO5 | Upload an `.xlsx` (one with dates and a second sheet) | The first sheet with rows is read; dates show as `2026-11-14` (or `2026-11-14 11:00`). With "Excel sheet name" filled, that sheet; a wrong name lists the sheets. A `.xlsx` that is really something else: "That is not an Excel (.xlsx) file". |
+| AO6 | Upload a file over 4 MB | Refused at once: "larger than 4 MB … or import it from Google Sheets". |
+| AO7 | Contacts → **Import** → upload `contacts-import-template.csv` (download it from the page) | Columns matched by name; check → 3 ready; Add 3 contacts → they appear in the directory, yours, with roles and the note on Jane. None has marketing consent. |
+| AO8 | Import the same file again | Every row "already a contact in your agency — skipped" (no names of other people's contacts shown). |
+| AO9 | As an owner, a file whose "Agent" column names an agent | Those contacts are assigned to that agent; an unknown email → "Agent not found … unassigned". As an agent: "Only an owner or admin assigns contacts from a file — this one is yours". |
+| AO10 | As a read-only member | No Import button on Contacts; the import page says you cannot import. |
+| AO11 | Assistant: "I want to import my contacts from a spreadsheet" | The import controls appear in the chat (upload, or pick a Google Sheet, with Connect if needed). The assistant never asks for the file's contents. |

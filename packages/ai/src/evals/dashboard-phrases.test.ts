@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { catalogForPrompt, tileSpecSchema } from '@repo/core/semantic';
 import { WIDGET_IDS, WIDGETS } from '@repo/core/widgets';
-import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v16';
+import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v17';
 import { DASHBOARD_EVALS } from './dashboard-phrases';
 
 /**
@@ -31,7 +31,7 @@ describe('dashboard evals (ADR 0036 Phase 3)', () => {
     expect(ASSISTANT_SYSTEM).toContain(catalogForPrompt());
     // A catalog change changes the prompt: bump ASSISTANT_PROMPT_VERSION and this hash together.
     const hash = createHash('sha256').update(catalogForPrompt()).digest('hex').slice(0, 12);
-    expect({ version: ASSISTANT_PROMPT_VERSION, catalog: hash }).toEqual({ version: 'assistant@v16', catalog: hash });
+    expect({ version: ASSISTANT_PROMPT_VERSION, catalog: hash }).toEqual({ version: 'assistant@v17', catalog: hash });
     expect(ASSISTANT_SYSTEM).not.toMatch(/\d{4}-\d{2}-\d{2}/);
   });
 });

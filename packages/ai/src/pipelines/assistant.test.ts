@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
 import { ASSISTANT_TOOLS, assistantToolsFor } from '../tools/assistant-tools';
-import { ASSISTANT_SYSTEM } from '../prompts/assistant-v16';
+import { ASSISTANT_SYSTEM } from '../prompts/assistant-v17';
 import { contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
 /**
@@ -438,6 +438,16 @@ describe('proposals (Phases B and C)', () => {
       expect(ASSISTANT_TOOL_INPUTS.submit_listing.safeParse({ listing }).success, listing).toBe(false);
     }
     expect(ASSISTANT_SYSTEM).toMatch(/cannot approve/);
+  });
+
+  it('importing (ADR 0039 Phase 3): the tool only opens the import screens — it takes no file, link, row or text, and reads nothing', () => {
+    const t = ASSISTANT_TOOLS.find((x) => x.name === 'start_import')!;
+    expect(ASSISTANT_READ_TOOLS as readonly string[]).toContain('start_import');
+    expect(Object.keys((t.input_schema as { properties: Record<string, unknown> }).properties)).toEqual(['what']);
+    for (const extra of [{ url: 'https://docs.google.com/x' }, { rows: [['a']] }, { csv: 'a,b' }, { spreadsheet_id: 'abc' }]) {
+      expect(ASSISTANT_TOOL_INPUTS.start_import.safeParse({ what: 'contacts', ...extra }).success, JSON.stringify(extra)).toBe(false);
+    }
+    expect(ASSISTANT_SYSTEM).toMatch(/You never see or read the file/);
   });
 });
 

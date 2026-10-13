@@ -231,6 +231,13 @@ export const LIST_SEND = { maxPeople: 100, gapHours: 24 } as const;
 export const findSavedListsInput = z.object({}).strict();
 
 /**
+ * Importing (ADR 0039 Phase 3, ADR 0029 amendment): puts the import's own buttons beside the answer —
+ * upload a CSV/Excel file, or pick a Google Sheet. Nothing is read or written by the tool; the person
+ * goes on through the import screens (match, check, import), and the model never sees a row.
+ */
+export const startImportInput = z.object({ what: z.enum(['listings', 'contacts']) }).strict();
+
+/**
  * Dashboards (ADR 0027 / 0025 Phase F). A widget is an id from the fixed
  * registry and, where it has one, a range — never code, SQL or a figure. Or
  * `custom` with a tile SPEC (ADR 0036 Phase 3): ids from the semantic catalog
@@ -636,7 +643,7 @@ export const scheduleTeamMeetingInput = z
   })
   .strict();
 
-export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_saved_lists'] as const;
+export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_saved_lists', 'start_import'] as const;
 export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 /**
@@ -679,6 +686,7 @@ export const ASSISTANT_TOOL_INPUTS = {
   schedule_team_meeting: scheduleTeamMeetingInput,
   find_listings: findListingsInput,
   find_saved_lists: findSavedListsInput,
+  start_import: startImportInput,
   set_lead_status: setLeadStatusInput,
   assign_lead: assignLeadInput,
   create_lead: createLeadInput,
@@ -762,6 +770,8 @@ export type AssistantFrame =
       mode: 'fulltext' | 'hybrid';
       rows: { handle: string; contactId: string; contactName: string; type: 'note' | 'email' | 'enquiry'; when: string; snippet: string }[];
     }
+  /** The import's own buttons (ADR 0029 amendment): upload a file, or pick a Google Sheet. Decided by can(), drawn by the panel. */
+  | { kind: 'import'; what: 'listings' | 'contacts'; mayPublish: boolean; sheets: { state: string; mayConnect: boolean } }
   /** A widget tile shown in the chat, computed from SQL as the person asking (ADR 0027). */
   | { kind: 'widget'; tile: WidgetTile }
   /** A card waiting for the person. The panel loads it by id — from the database, never from the stream's text. */

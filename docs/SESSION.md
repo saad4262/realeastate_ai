@@ -1,3 +1,14 @@
+## 2026-10-13 — Claude Code — Phase 3: Google Sheets by the Picker, Excel, contacts import, assistant import (branch feat/sheets-import)
+
+- The user chose the Picker (`drive.file`) now; the pasted-link route (ADR 0039 B) is pending Google's verification.
+- Verified against Google's Picker docs (script, `setAppId` = project number, `docs.google.com` on the key) and
+  Next's `serverActions.bodySizeLimit` docs before code.
+- Contacts import reuses the listing import job (`kind`), not a second engine. Consent is never imported.
+- A break-test stayed green once (Excel permission test did not prove "before the file is opened"); the test
+  was strengthened until removing the guard turns it red. Same added for Sheets ("before Google is asked").
+- Next exact step: the user sets up Google Cloud (TEST-PLAN AO), applies 0048 + 0049, runs the two new smoke
+  groups (`SMOKE_ENABLED=true SMOKE_ONLY="Imports" pnpm smoke`), walks AN/AO.
+
 ## 2026-10-13 — Claude Code — Assistant Phase 2 part 2: connect shape, saved lists in parts, invites, listings (ADR 0040, branch feat/assistant-crm-2)
 
 - Worktree `../realestate_ai-crm2`, branch from `feat/assistant-tasks` (not merged to main; the user said not to push).
