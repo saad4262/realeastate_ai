@@ -328,3 +328,43 @@ custom datasets; public share links (still ADR 0027 decision 5).
   sale counts once, under its lead agent", "figures read with a 3 s timeout…", the P3 agreement
   inside the Agents check, and the three indexes in the index list.
 
+
+## As built — Phases 1–4 (2026-10-12, branch `feat/semantic-layer`; migration 0045 applied on dev)
+
+- **Catalog** `packages/core/src/semantic/catalog.ts`: six datasets — `sales`, `listings`
+  (snapshot), `leads`, `appointments`, `emails`, `contacts` (event; `all_time` allowed) — with
+  their measures, dimensions (value lists where there is one), the `agent` dimension needing
+  `report:read_agency`, and each dataset's report config. No `sql.raw` in the folder (a test
+  greps it). Free-text filters ignore case; listed values match exactly.
+- **Spec** `spec.ts` (`tileSpecSchema`, strict at every level, bounded: ≤ 4 measures, ≤ 2
+  group-bys, ≤ 5 filters of ≤ 20 values, ≤ 50 rows; time steps checked against the range; a
+  snapshot takes no range). Errors name the valid ids so the model can correct itself.
+- **Compiler** `compile.ts`: one statement — `base` (scope first, then the dataset's rule, the
+  window, the filters), the groups (zero-filled when the only group is a time step; to today,
+  or to the end of the range for appointments), the total over all rows, the companions.
+  `mayViewSpec` asks the dataset's, each measure's and each dimension's permission as the viewer.
+- **Phase 1–2 presets:** `new_leads`, `upcoming_appointments` (client meetings, ADR 0038),
+  `email_replies`, `sold_count`, `sold_value` and `listings_by_status` now run their figure as
+  a named spec; their ids, shapes and full-page reports are unchanged. Parity: smoke "presets
+  …" compares all six with the old SQL written by hand, every range, owner and agent (the old
+  queries are deleted; the hand-written SQL stays as the check).
+- **`custom` widget** in the registry (`{ widget: 'custom', params: <spec> }`, no migration);
+  `renderWidget` asks `permits(actor, spec)` instead of one fixed permission.
+- **Phase 3 — the assistant:** `show_widget` / `create_dashboard` take `{ widget: 'custom',
+  spec }`; prompt **`assistant@v13`** carries the catalog (`catalogForPrompt()`, pinned by a
+  hash test) and the rules: fixed widget when exact, one dataset per tile, several tiles side
+  by side, ask only when it changes the figure, `report_missing_data` instead of an
+  approximation. **Gap log** table `dashboard_gap_log` (migration **0045**, RLS on, no
+  grants), classified own-agency. Evals: `packages/ai/src/evals/dashboard-phrases.ts`
+  (14 phrases: fixed, custom, missing) — offline test checks every expected answer is valid;
+  the live comparison is in `pnpm smoke:ai` only.
+- **Phase 4 — the standard report** `report.ts`: for a custom tile on the dashboard page, one
+  more statement: the first measure against the same point in the period before, the
+  dataset's figures, a zero-filled trend, up to four breakdowns (a breakdown the viewer may
+  not see is left out). The six fixed widgets keep their own reports (they carry figures the
+  standard report does not have yet — per-day averages, weekdays, the 12-week listings trend);
+  moving them is a follow-up behind the same parity check.
+- **Console:** `components/dashboards/custom.tsx` draws number / bar / line / columns / donut /
+  table with the notes and "showing N of M"; the report skips the trend card for a snapshot.
+- Not done: agents saving dashboards (Q1, after Phase 3 has run in real use); cross-dataset
+  tiles (§3); a screen for reading the gap log.

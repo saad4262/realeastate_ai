@@ -220,6 +220,7 @@ import {
   ASSISTANT_WRITE_TOOLS,
 } from '@repo/core/assistant';
 import { assistantDeps, runAssistantTurn, type AssistantEvent } from '@repo/ai/assistant';
+import { DASHBOARD_EVALS } from '@repo/ai/evals/dashboard-phrases';
 import {
   cancelImport,
   createImport,
@@ -237,6 +238,7 @@ import {
 import { agencyReviews, clearAgencyGooglePlace, publicListingReviews, searchGooglePlaces, setAgencyGooglePlace, type PlaceDetails, type PlacesClient } from '@repo/core/reviews';
 import { archiveDashboard, createDashboard, getDashboardData, listDashboards, rangeWindow, renderWidget, WIDGET_IDS, WIDGET_RANGES } from '@repo/core/dashboards';
 import { isReadTimeout, withReadTimeout } from '@repo/core/widgets';
+import { DATASET_IDS, DATASETS, runTile, tileSpecSchema, type TileSpec } from '@repo/core/semantic';
 import { activeMemberActor, assignNeedsOwner, claimAgentInvite, listNeedsOwner, offboardingPreview, removedFromAgency, removeMember, restoreMember } from '@repo/core/team';
 import { runEmbeddingTick, type Embedder } from '@repo/core/assistant-search';
 import type { ToolContext } from '@repo/core/assistant';
@@ -7057,7 +7059,7 @@ async function main() {
       const as = (who: 'a1' | 'owner') => ({ db: t, actor: A.actor(who), now: new Date(), timeZone: tz });
       assert((await renderWidget(as('a1'), { widget: 'sold_value', params: {} })).state === 'no_access', 'an agent saw Sold value');
       // Every widget runs against the real schema, every range, as an owner and as an agent.
-      for (const widget of WIDGET_IDS) {
+      for (const widget of WIDGET_IDS.filter((w) => w !== 'custom')) {
         for (const range of WIDGET_RANGES) {
           const params = widget === 'listings_by_status' ? {} : { range };
           for (const who of ['owner', 'a1'] as const) {
@@ -7188,6 +7190,240 @@ async function main() {
       const want = d.rows.filter((r) => r.received > 0).map((r) => `${r.name}:${r.received}`).sort().join(' | ');
       assert(got === want, `Replies by agent [${got}] ≠ Agents [${want}]`);
       return 'A: 4 in / 2 sent / 1 failed over 4 people + "No agent"; A2 2 in, 1 sent, 1 failed, 2 new leads, 1 waiting; quiet A1 at 0; B 1 in; older mail out; agent refused; Replies by agent agrees person by person';
+    }),
+  );
+
+  /** Rows in every dataset for one agency: sales, client and team appointments, mail in and out, a contact. */
+  async function fillAgency(t: Db, f: Awaited<ReturnType<typeof contactFixture>>, tag: string, shiftHours = 0) {
+    const sold = async (price: number | null, daysAgo: number, agent: string | null) => {
+      const [l] = await t.execute<{ id: string }>(sql`
+        insert into listing (property_id, agency_id, channel, status, sold_price, sold_date, published_at, headline)
+        values (${f.propertyId}, ${f.agencyId}, 'sale', 'sold', ${price}, now() - (${daysAgo} || ' days')::interval, now() - (${daysAgo + 30} || ' days')::interval, ${tag})
+        returning id`);
+      if (agent) await t.execute(sql`insert into listing_agent (listing_id, user_id, snapshot_name, snapshot_phone, snapshot_email) values (${l!.id}, ${agent}, 'A', '0400000000', 'a@x.test')`);
+    };
+    await sold(910000, 1, f.people.a1);
+    await sold(null, 5, f.people.a2);
+    await sold(720000, 20, null);
+    // Shifted so a second fill never double-books an agent (the no-overlap constraint, ADR 0032).
+    const appt = async (who: string, at: number, status: string, kind: string, type: string, hours = at + shiftHours) =>
+      t.execute(sql`insert into appointment (agency_id, kind, contact_id, assigned_agent_id, created_by, title, type, starts_at, ends_at, timezone, status)
+        values (${f.agencyId}, ${kind}::appointment_kind, ${kind === 'client' ? f.contacts.p2 : null}, ${who}, ${who}, ${tag}, ${type}::appointment_type,
+                now() + (${hours} || ' hours')::interval, now() + (${hours} || ' hours')::interval + interval '30 minutes', 'UTC', ${status}::appointment_status)`);
+    await appt(f.people.a1, 2, 'scheduled', 'client', 'appraisal');
+    await appt(f.people.a2, 5, 'scheduled', 'client', 'inspection');
+    await appt(f.people.a1, 30, 'cancelled', 'client', 'meeting');
+    await appt(f.people.a2, 8, 'scheduled', 'team', 'meeting');
+    const q = await f.lead(`fill.${tag}.${f.tag}@smoke.test`, `Fill ${tag}`, { assigned: f.people.a1, listing: true });
+    const [th] = await t.execute<{ id: string }>(sql`select id from mail_thread where lead_id = ${q.id}`);
+    for (const [dir, by, status] of [['in', null, 'received'], ['in', null, 'received'], ['out', f.people.a1, 'sent'], ['out', f.people.a1, 'failed']] as const) {
+      await t.execute(sql`insert into mail_message (thread_id, agency_id, direction, channel, status, from_email, to_emails, subject, text, sent_by)
+        values (${th!.id}, ${f.agencyId}, ${dir}::mail_direction, ${dir === 'out' ? 'console' : 'email'}::mail_channel, ${status}::mail_status, 'x@smoke.test', ${sql`array[${'y@smoke.test'}]`}, ${tag}, ${tag}, ${by})`);
+    }
+    await t.execute(sql`insert into contact (agency_id, name, email, assigned_to, marketing_consent_at) values (${f.agencyId}, ${tag}, ${`c.${tag}.${f.tag}@smoke.test`}, ${f.people.a2}, now())`);
+  }
+
+  /** The presets' figures, written by hand the way the widgets were before ADR 0036 Phase 1. */
+  async function legacyFigures(t: Db, f: Awaited<ReturnType<typeof contactFixture>>, who: 'owner' | 'a1', range: (typeof WIDGET_RANGES)[number], tz: string, now: Date) {
+    const { from, to } = rangeWindow(range, now, tz);
+    const me = f.people[who];
+    const mine = who !== 'owner';
+    const rows = (r: { label: string; value: string }[]) => r.map((x) => `${x.label}=${Number(x.value)}`).sort().join(', ');
+    const leads = await t.execute<{ label: string; value: string }>(sql`
+      select to_char(created_at at time zone ${tz}, 'Dy DD Mon') as label, count(*) as value from lead
+      where agency_id = ${f.agencyId} and kind <> 'offer' and created_at >= ${from.toISOString()}::timestamptz and created_at < ${to.toISOString()}::timestamptz
+        ${mine ? sql`and (assigned_to = ${me} or listing_id in (select listing_id from listing_agent where user_id = ${me}))` : sql``}
+      group by 1`);
+    const appts = await t.execute<{ label: string; value: string }>(sql`
+      select type::text as label, count(*) as value from appointment
+      where agency_id = ${f.agencyId} and kind = 'client' and status in ('scheduled', 'rescheduled')
+        and starts_at >= ${from.toISOString()}::timestamptz and starts_at < ${to.toISOString()}::timestamptz
+        ${mine ? sql`and (assigned_agent_id = ${me} or created_by = ${me})` : sql``}
+      group by 1`);
+    const sales = await t.execute<{ label: string; value: string }>(sql`
+      select coalesce(nullif(u.name, ''), u.email, 'No agent') as label, count(distinct l.id) as value from listing l
+      left join "user" u on u.id = (select la.user_id from listing_agent la where la.listing_id = l.id order by la.display_order, la.created_at, la.user_id limit 1)
+      where l.agency_id = ${f.agencyId} and l.status = 'sold' and l.sold_date >= ${from.toISOString()}::timestamptz and l.sold_date < ${to.toISOString()}::timestamptz
+      group by 1`);
+    const [mail] = await t.execute<{ n: string }>(sql`
+      select count(*) as n from mail_message m join mail_thread th on th.id = m.thread_id
+      where th.agency_id = ${f.agencyId} and m.direction = 'in' and m.created_at >= ${from.toISOString()}::timestamptz and m.created_at < ${to.toISOString()}::timestamptz`);
+    const [money] = await t.execute<{ total: string; n: string; u: string }>(sql`
+      select coalesce(sum(sold_price), 0) as total, count(sold_price) as n, count(*) - count(sold_price) as u from listing
+      where agency_id = ${f.agencyId} and status = 'sold' and sold_date >= ${from.toISOString()}::timestamptz and sold_date < ${to.toISOString()}::timestamptz`);
+    const [active] = await t.execute<{ live: string; offer: string }>(sql`
+      select count(*) filter (where status = 'live') as live, count(*) filter (where status = 'under_offer') as offer from listing
+      where agency_id = ${f.agencyId} ${mine ? sql`and id in (select listing_id from listing_agent where user_id = ${me})` : sql``}`);
+    const label = (l: string) => ({ appraisal: 'Appraisal', phone_call: 'Phone call', zoom: 'Zoom', inspection: 'Inspection', meeting: 'Meeting' })[l] ?? l;
+    return {
+      new_leads: rows(leads),
+      upcoming_appointments: rows(appts.map((a) => ({ ...a, label: label(a.label) }))),
+      sold_count: rows(sales),
+      email_replies: String(Number(mail!.n)),
+      sold_value: `${Number(money!.total)} from ${Number(money!.n)} + ${Number(money!.u)} undisclosed`,
+      listings_by_status: `${Number(active!.live) + Number(active!.offer)}: Live=${Number(active!.live)}, Under offer=${Number(active!.offer)}`,
+    };
+  }
+
+  await check('presets (ADR 0036 Phases 1–2): all six fixed figures equal the old hand-written SQL, every range, owner and agent', async () =>
+    inRollback(async (t) => {
+      const A = await contactFixture(t);
+      await fillAgency(t, A, 'presets');
+      const tz = 'Australia/Sydney';
+      const now = new Date();
+      let compared = 0;
+      for (const range of WIDGET_RANGES) {
+        for (const who of ['owner', 'a1'] as const) {
+          const hand = await legacyFigures(t, A, who, range, tz, now);
+          const c = { db: t, actor: A.actor(who), now, timeZone: tz };
+          for (const widget of ['new_leads', 'upcoming_appointments', 'sold_count', 'email_replies', 'sold_value', 'listings_by_status'] as const) {
+            const tile = await renderWidget(c, { widget, params: widget === 'listings_by_status' ? {} : { range } });
+            if ((widget === 'sold_count' || widget === 'sold_value') && who === 'a1') {
+              assert(tile.state === 'no_access', `sold_count as an agent: ${tile.state}`);
+              continue;
+            }
+            assert(tile.state === 'ok', `${widget} ${range} ${who}: ${tile.state}`);
+            const d = tile.data as { kind: string; total: number; rows?: { label: string; value: number }[]; count?: number; undisclosed?: number; active?: number };
+            const got =
+              d.kind === 'count' ? String(d.total)
+              : d.kind === 'money' ? `${d.total} from ${d.count} + ${d.undisclosed} undisclosed`
+              : d.kind === 'status' ? `${d.active}: ${(d.rows ?? []).map((r) => `${r.label}=${r.value}`).join(', ')}`
+              : (d.rows ?? []).map((r) => `${r.label}=${r.value}`).sort().join(', ');
+            if (widget !== 'email_replies' || who === 'owner') {
+              assert(got === hand[widget], `${widget} ${range} ${who}: preset "${got}" vs hand "${hand[widget]}"`);
+            }
+            if (d.rows && d.kind === 'breakdown') assert(d.rows.reduce((s, r) => s + r.value, 0) === d.total, `${widget} ${range} ${who}: rows do not add up to ${d.total}`);
+            compared += 1;
+          }
+        }
+      }
+      return `${compared} figures compared (8 ranges × owner/agent); sales are owners'/admins' only`;
+    }),
+  );
+
+  /** Generated specs: every dataset × its first measures × no group / each dimension / a day trend, plus filters. */
+  function generatedSpecs(): TileSpec[] {
+    const out: TileSpec[] = [];
+    for (const id of DATASET_IDS) {
+      const ds = DATASETS[id] as (typeof DATASETS)[keyof typeof DATASETS];
+      const measures = Object.keys(ds.measures);
+      const raw: unknown[] = [{ dataset: id, measures: measures.slice(0, 4), range: ds.kind === 'event' ? '90d' : undefined }];
+      for (const dim of Object.keys(ds.dimensions)) raw.push({ dataset: id, measures: measures.slice(0, 2), groupBy: [dim], range: ds.kind === 'event' ? '90d' : undefined });
+      if (ds.kind === 'event') raw.push({ dataset: id, measures: [measures[0]], groupBy: ['week'], range: '90d' }, { dataset: id, measures: [measures[0]], range: 'all_time' });
+      for (const r of raw) {
+        const p = tileSpecSchema.safeParse(r);
+        if (!p.success) throw new Error(`generated spec refused: ${JSON.stringify(r)} — ${p.error.issues[0]?.message}`);
+        out.push(p.data as TileSpec);
+      }
+    }
+    return out;
+  }
+
+  await check('I9 — generated specs over two agencies: A’s figures are the same with B’s rows there or not; an agent’s counts never exceed the admin’s (ADR 0036)', async () =>
+    inRollback(async (t) => {
+      const A = await contactFixture(t);
+      await fillAgency(t, A, 'agency-a');
+      const tz = 'Australia/Sydney';
+      const now = new Date();
+      const specs = generatedSpecs();
+      const snapshot = async () => {
+        const out: Record<string, string> = {};
+        for (const spec of specs) {
+          for (const who of ['owner', 'a1'] as const) {
+            // A remote dev database can run one statement past the 3 s guard now and then: ask again before comparing.
+            let tile = await renderWidget({ db: t, actor: A.actor(who), now, timeZone: tz }, { widget: 'custom', params: spec });
+            for (let i = 0; i < 2 && tile.state === 'too_slow'; i++) tile = await renderWidget({ db: t, actor: A.actor(who), now, timeZone: tz }, { widget: 'custom', params: spec });
+            out[`${who} ${JSON.stringify(spec)}`] = tile.state === 'ok' ? JSON.stringify(tile.data) : tile.state;
+          }
+        }
+        return out;
+      };
+      const before = await snapshot();
+      // B arrives with rows in every dataset — same suburbs, same kinds of everything.
+      const B = await contactFixture(t);
+      await fillAgency(t, B, 'agency-b');
+      await fillAgency(t, B, 'agency-b2', 100);
+      const after = await snapshot();
+      let ok = 0;
+      const changed: string[] = [];
+      for (const [k, v] of Object.entries(before)) {
+        if (v === 'error' || v === 'too_slow' || v === 'unavailable') throw new Error(`${k}: ${v}`);
+        if (after[k] === 'too_slow') throw new Error(`${k}: too slow after B arrived`);
+        if (after[k] !== v) changed.push(`${k.slice(0, 110)}: ${v.slice(0, 80)} → ${String(after[k]).slice(0, 80)}`);
+        else ok += 1;
+      }
+      const datasets = [...new Set(changed.map((c) => /"dataset":"(\w+)"/.exec(c)?.[1]))];
+      assert(!changed.length, `B changed ${changed.length} of A's figures (datasets: ${datasets.join(', ')}) — ${changed.slice(0, 2).join(' | ')}`);
+      // An agent's figures are their own scope: every count is at most the admin's.
+      let checked = 0;
+      for (const spec of specs) {
+        const o = after[`owner ${JSON.stringify(spec)}`];
+        const a = after[`a1 ${JSON.stringify(spec)}`];
+        if (!o?.startsWith('{') || !a?.startsWith('{')) continue;
+        const od = JSON.parse(o) as { measures: { format: string }[]; total: (number | null)[] };
+        const ad = JSON.parse(a) as { total: (number | null)[] };
+        od.measures.forEach((m, i) => {
+          if (m.format !== 'count') return;
+          assert((ad.total[i] ?? 0) <= (od.total[i] ?? 0), `agent ${ad.total[i]} > admin ${od.total[i]}: ${JSON.stringify(spec)}`);
+          checked += 1;
+        });
+      }
+      // The viewer, not the creator (I4): an agency-wide dashboard made by the owner, opened by an agent.
+      const dash = await createDashboard(t, A.actor('owner'), {
+        title: 'Custom',
+        audience: 'agency',
+        widgets: [
+          { widget: 'custom', params: { dataset: 'leads', measures: ['count'], groupBy: ['agent'] } },
+          { widget: 'custom', params: { dataset: 'leads', measures: ['count'], range: '90d' } },
+        ],
+      });
+      const asAgent = await getDashboardData(t, A.actor('a1'), dash.id);
+      const asOwner = await getDashboardData(t, A.actor('owner'), dash.id);
+      assert(asAgent.tiles[0]!.state === 'no_access', `agent grouped by agent: ${asAgent.tiles[0]!.state}`);
+      const n = (d: typeof asAgent) => (d.tiles[1] as { data: { total: number[] } }).data.total[0]!;
+      assert(n(asAgent) <= n(asOwner) && asOwner.tiles[0]!.state === 'ok', `agent ${n(asAgent)} vs owner ${n(asOwner)}`);
+      return `${specs.length} specs × owner/agent: ${ok} figures unchanged by B; ${checked} counts agent ≤ admin; agent opens the owner's tile as themselves`;
+    }),
+  );
+
+  await check('the assistant builds a custom tile (ADR 0036 Phase 3): the card shows it, Approve saves the spec, the model is told no figure; a gap is logged, not estimated', async () =>
+    inRollback(async (t) => {
+      const A = await contactFixture(t);
+      await fillAgency(t, A, 'phase3');
+      const conv = await claimTurn(t, A.actor('owner'), { message: 'x', surface: 'agency' });
+      const spec = { dataset: 'sales', measures: ['sold_value', 'count'], groupBy: ['agent'], range: '30d' };
+      const out = await runAssistantTool(proposeCtx(t, A.actor('owner'), {}, conv.conversationId), 'create_dashboard', {
+        title: 'Sales by agent', widgets: [{ widget: 'custom', spec }, { widget: 'agent_activity', range: 'today' }], audience: 'admins',
+      });
+      const id = cardId(out);
+      const card = await getProposedAction(t, A.actor('owner'), id);
+      const lines = JSON.stringify(card.card.lines);
+      // $910,000 (1 day ago) + $720,000 (20 days ago); the undisclosed sale is counted apart.
+      assert(/Sales — Sold value and Sales by agent — the last 30 days/.test(lines) && /Sold value: \$1,630,000 · Sales: 3/.test(lines), `card: ${lines}`);
+      assert(!/1,?630|910|720/.test(JSON.stringify(out.result)), 'the model was told a figure');
+      const r = await approveProposedAction(t, A.actor('owner'), id);
+      assert(r.outcome === 'done', `approve: ${r.outcome}`);
+      const [saved] = await t.execute<{ id: string; widgets: { widget: string; params: Record<string, unknown> }[] }>(sql`
+        select id, widgets from dashboard where agency_id = ${A.agencyId} order by created_at desc limit 1`);
+      assert(saved!.widgets[0]!.widget === 'custom' && (saved!.widgets[0]!.params as { dataset?: string }).dataset === 'sales', `saved ${JSON.stringify(saved!.widgets)}`);
+      const page = await getDashboardData(t, A.actor('owner'), saved!.id);
+      const tile = page.tiles[0]!;
+      assert(tile.state === 'ok' && tile.data.kind === 'custom' && !!tile.detail, `page tile ${tile.state}`);
+      // The standard report runs on the real schema too, and its by-agent breakdown adds up to the headline.
+      const byAgent = tile.detail!.breakdowns.find((b) => b.title === 'Sold value by agent')!.rows.reduce((a, x) => a + x.value, 0);
+      assert(byAgent === tile.data.total[0], `report by agent ${byAgent} vs headline ${tile.data.total[0]}`);
+      // An agent cannot have this saved, and their inline custom tile by agent is "no access".
+      const agentConv = await claimTurn(t, A.actor('a1'), { message: 'x', surface: 'agent' });
+      const refused = await runAssistantTool(proposeCtx(t, A.actor('a1'), {}, agentConv.conversationId), 'create_dashboard', { title: 'x', widgets: [{ widget: 'custom', spec: { dataset: 'leads', measures: ['count'] } }] });
+      assert(refused.isError, 'an agent proposed a dashboard');
+      const shown = await runAssistantTool(toolCtx(t, A.actor('a1'), {}), 'show_widget', { widget: 'custom', spec: { dataset: 'leads', measures: ['count'], groupBy: ['agent'] } });
+      assert((shown.frame as { tile: { state: string } }).tile.state === 'no_access', 'an agent saw leads by agent');
+      // The gap log: one row in A, as the person; nothing estimated.
+      const before = await count(t, sql`select count(*)::int as n from dashboard_gap_log where agency_id = ${A.agencyId}`);
+      const gap = await runAssistantTool(toolCtx(t, A.actor('a1'), {}), 'report_missing_data', { request: 'commission per agent', wanted: 'commission', nearest_dataset: 'sales' });
+      const after = await count(t, sql`select count(*)::int as n from dashboard_gap_log where agency_id = ${A.agencyId} and user_id = ${A.people.a1}`);
+      assert(!gap.isError && after === before + 1, `gap log ${before} → ${after}`);
+      return 'card shows the custom tile with its figure; model told none; saved as a spec; page report adds up; agent refused / no access; gap logged';
     }),
   );
 
@@ -9270,6 +9506,50 @@ async function main() {
       if (err !== ROLLBACK) throw err;
     }
     return summary;
+  });
+
+  await check('assistant (live): dashboard phrases become the expected widget, spec, or gap — never a made-up figure (ADR 0036 evals)', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    const ROLLBACK = new Error('smoke rollback');
+    const results: string[] = [];
+    const misses: string[] = [];
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const f = await contactFixture(t);
+        for (const e of DASHBOARD_EVALS) {
+          const request = { message: e.phrase, timeZone: 'Australia/Sydney' };
+          const deps = assistantDeps(t, f.actor('owner'), request, 'agency');
+          const calls: { name: string; input: Record<string, unknown> }[] = [];
+          const runTool = deps.runTool;
+          deps.runTool = (h, name, input, proposal) => (calls.push({ name, input: input as Record<string, unknown> }), runTool(h, name, input, proposal));
+          const events: AssistantEvent[] = [];
+          for await (const ev of runAssistantTurn({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), deps, request, surface: 'agency' })) events.push(ev);
+          const answer = events.filter((ev) => ev.type === 'text').map((ev) => (ev as { text?: string }).text ?? '').join('');
+          const widgets = calls
+            .filter((c) => c.name === 'show_widget' || c.name === 'create_dashboard')
+            .flatMap((c) => (c.name === 'show_widget' ? [c.input] : ((c.input.widgets as Record<string, unknown>[]) ?? [])));
+          let ok = false;
+          if (e.expect.kind === 'missing') ok = calls.some((c) => c.name === 'report_missing_data') && !widgets.length;
+          else if (e.expect.kind === 'fixed') {
+            const want = e.expect;
+            ok = widgets.some((w) => w.widget === want.widget && (!want.range || w.range === want.range));
+          } else {
+            const want = e.expect;
+            ok = widgets.some((w) => w.widget === 'custom' && want.match.every((k) => JSON.stringify((w.spec as Record<string, unknown>)?.[k] ?? null) === JSON.stringify(want.spec[k] ?? null)));
+          }
+          // Never a figure in its own words: no digits next to $ or "sales"/"leads" counts.
+          assert(!/\$\s?\d/.test(answer), `${e.phrase}: the model stated a money figure: ${answer.slice(0, 200)}`);
+          (ok ? results : misses).push(`${e.phrase} → ${JSON.stringify(calls.map((c) => c.name === 'report_missing_data' ? 'gap' : c.input)).slice(0, 160)}`);
+        }
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    // Model behaviour, not a lock: most phrases must land; every miss is printed for review.
+    assert(misses.length <= 2, `${misses.length} of ${DASHBOARD_EVALS.length} missed:\n${misses.join('\n')}`);
+    return `${results.length}/${DASHBOARD_EVALS.length} as expected${misses.length ? `; missed: ${misses.join(' | ')}` : ''}`;
   });
 
   await check('a specific brief searches the right suburb', async () => {

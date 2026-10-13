@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
 import { ASSISTANT_TOOLS, assistantToolsFor } from '../tools/assistant-tools';
-import { ASSISTANT_SYSTEM } from '../prompts/assistant-v12';
+import { ASSISTANT_SYSTEM } from '../prompts/assistant-v13';
 import { contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
 /**
@@ -332,7 +332,9 @@ describe('the tool definitions the model sees match what core enforces', () => {
     for (const tool of ASSISTANT_TOOLS) {
       const zod = ASSISTANT_TOOL_INPUTS[tool.name as keyof typeof ASSISTANT_TOOL_INPUTS];
       expect(zod, tool.name).toBeDefined();
-      const shape = (zod as unknown as { shape: Record<string, { isOptional(): boolean }> }).shape;
+      // A refined schema (show_widget checks a custom spec) wraps the object: compare the object inside.
+      const inner = (zod as unknown as { innerType?: () => unknown }).innerType?.() ?? zod;
+      const shape = (inner as { shape: Record<string, { isOptional(): boolean }> }).shape;
       const schema = tool.input_schema as { properties: Record<string, unknown>; required?: string[] };
       expect(Object.keys(schema.properties).sort(), tool.name).toEqual(Object.keys(shape).sort());
       const required = Object.entries(shape).filter(([, v]) => !v.isOptional()).map(([k]) => k).sort();

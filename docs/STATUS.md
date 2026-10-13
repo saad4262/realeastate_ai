@@ -28,6 +28,18 @@
   Secret Token, validates the endpoint in Zoom, walks TEST-PLAN AK, submits the Zoom app.
 - **Note:** ADR 0035 and 0036 are committed on main (4bf0828, bd02f18) and 0041 + 0042 are
   applied on dev; the two bullets below predate that.
+- **Dashboards from any request — ADR 0036 Phases 1–4 built 2026-10-12, committed on `feat/semantic-layer`
+  (not merged).** Migration **0045 (`dashboard_gap_log`) applied on dev with the user's permission (46 rows).** Semantic layer in
+  `packages/core/src/semantic/`: catalog (sales, listings, leads, appointments, emails, contacts), strict
+  spec, one-statement compiler (scope first, ids from the catalog, values as parameters, no `sql.raw`),
+  standard full-page report. The six fixed widgets are presets now (parity with the old SQL: smoke, 80
+  figures). `custom` widget; assistant `assistant@v13` with the catalog, `show_widget`/`create_dashboard`
+  take `{ widget: 'custom', spec }`, `report_missing_data` → gap log. Evals: 14 phrases (offline validity;
+  live only in `pnpm smoke:ai`). Checks: typecheck/lint 10/10 (0 errors), unit 967 + 298, console production
+  build OK; smoke Dashboards 9/9 (+1 skip, console not running) incl. presets parity (80 figures), I9 over two
+  agencies (88 figures unchanged, 63 counts agent ≤ admin), the assistant's custom card + gap log. Break-tests red:
+  scope, sql.raw, dimension permission (unit); contacts' agency filter dropped → I9 "B changed 5 of A's figures"
+  (smoke). TEST-PLAN **AK**. **Next:** merge to main + push, then walk AK.
 - **New email + team messages + assistant writing (ADR 0035) — built 2026-10-12 on
   `feat/compose-email`, NOT committed. Migration 0041 written, NOT applied (user: "abhi nahi").**
   Agents/owners write a NEW email to a contact (`/inbox/new`, `/my-inbox/new`, contact Emails tab;

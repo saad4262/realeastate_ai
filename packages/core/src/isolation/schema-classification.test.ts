@@ -46,6 +46,8 @@ const OWN_AGENCY = [
   'team_message',
   // ADR 0038: the colleagues on a team meeting; carries its own agency_id like notification.
   'appointment_participant',
+  // ADR 0036 Q2: figures the catalog could not make; written by the assistant, read by the platform team.
+  'dashboard_gap_log',
 ] as const;
 
 /** Reaches an agency through a parent row: table → [foreign-key column, parent table]. */

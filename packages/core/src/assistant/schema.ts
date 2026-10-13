@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { CONTACT_ROLES } from '../contacts/contact-schema';
 import { INTEGRATION_PROVIDERS, type IntegrationProvider } from '../integrations/providers';
 import { WIDGET_IDS, WIDGET_RANGES, type WidgetId, type WidgetTile } from '../widgets/registry';
+import { DATASET_IDS, tileSpecSchema, type DatasetId } from '../semantic';
 
 /**
  * The console assistant's contract (docs/adr/0025). Phase A: read tools only.
@@ -207,12 +208,50 @@ export const sendTemplateEmailInput = z
 
 /**
  * Dashboards (ADR 0027 / 0025 Phase F). A widget is an id from the fixed
- * registry and, where it has one, a range — never code, SQL or a figure.
+ * registry and, where it has one, a range — never code, SQL or a figure. Or
+ * `custom` with a tile SPEC (ADR 0036 Phase 3): ids from the semantic catalog
+ * only, checked here with the catalog's own error (which lists the valid ids,
+ * so the model can correct itself).
  */
 const widgetChoice = z
-  .object({ widget: z.enum(WIDGET_IDS as [WidgetId, ...WidgetId[]]), range: z.enum(WIDGET_RANGES).optional() })
-  .strict();
+  .object({
+    widget: z.enum(WIDGET_IDS as [WidgetId, ...WidgetId[]]),
+    range: z.enum(WIDGET_RANGES).optional(),
+    spec: z.record(z.unknown()).optional(),
+  })
+  .strict()
+  .superRefine((w, ctx) => {
+    if (w.widget !== 'custom') {
+      if (w.spec) ctx.addIssue({ code: 'custom', path: ['spec'], message: 'Only the custom widget takes a spec' });
+      return;
+    }
+    if (!w.spec) return ctx.addIssue({ code: 'custom', path: ['spec'], message: 'A custom widget needs a spec' });
+    const p = tileSpecSchema.safeParse(w.spec);
+    if (!p.success) {
+      const issue = p.error.issues[0];
+      ctx.addIssue({ code: 'custom', path: ['spec', ...(issue?.path ?? [])], message: issue?.message ?? 'Not a valid spec' });
+    }
+  });
+export type WidgetChoice = z.infer<typeof widgetChoice>;
+/** What a widget choice is stored as: a fixed widget's range, or a custom tile's spec. */
+export function widgetChoiceParams(w: WidgetChoice): Record<string, unknown> {
+  if (w.widget === 'custom') return w.spec ?? {};
+  return w.range ? { range: w.range } : {};
+}
 export const showWidgetInput = widgetChoice;
+
+/**
+ * The gap log (ADR 0036 decided Q2): a figure the catalog cannot make. The
+ * model records the person's request and what it found nearest; nothing is
+ * approximated, and nothing is shown to anyone but the platform team.
+ */
+export const reportMissingDataInput = z
+  .object({
+    request: z.string().trim().min(1).max(300),
+    nearest_dataset: z.enum(DATASET_IDS as [DatasetId, ...DatasetId[]]).optional(),
+    wanted: z.string().trim().min(1).max(200),
+  })
+  .strict();
 export const createDashboardInput = z
   .object({
     title: z.string().trim().min(1).max(80),
@@ -390,7 +429,7 @@ export const scheduleTeamMeetingInput = z
   })
   .strict();
 
-export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues'] as const;
+export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data'] as const;
 export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 
@@ -402,6 +441,7 @@ export const ASSISTANT_TOOL_INPUTS = {
   list_templates: listTemplatesInput,
   check_connections: checkConnectionsInput,
   show_widget: showWidgetInput,
+  report_missing_data: reportMissingDataInput,
   search_notes_and_emails: searchNotesAndEmailsInput,
   add_note: addNoteInput,
   set_next_action: setNextActionInput,

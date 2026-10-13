@@ -1,5 +1,6 @@
 import type { WidgetData, WidgetTile } from '@repo/core/widgets';
 import { AgentsFigures } from './agents';
+import { CustomFigures } from './custom';
 import { BarList, Columns, Donut, SplitBar } from './charts';
 import styles from './dashboards.module.css';
 
@@ -42,6 +43,8 @@ function Figures({ widget, data, compact }: { widget: string; data: WidgetData; 
       return <Donut rows={data.rows} centre={data.active} caption="active" />;
     case 'agents':
       return <AgentsFigures data={data} compact={compact} />;
+    case 'custom':
+      return <CustomFigures data={data} compact={compact} />;
     case 'breakdown': {
       const empty = data.rows.length === 0;
       return (
