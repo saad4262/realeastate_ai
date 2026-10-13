@@ -20,6 +20,15 @@ const nextConfig: NextConfig = {
    * minutes is a change made by SOMEONE ELSE in the agency.
    */
   experimental: {
+    /**
+     * Uploads (the listing import's CSV / Excel file) go through a Server Action, whose body is
+     * 1 MB by default — so the screen's "up to 10 MB" was really 1 MB. Vercel takes at most 4.5 MB
+     * in one request, so 4.4 MB is the most an upload can be; a bigger list comes in by Google
+     * Sheets (read server-side, no upload) or split into files.
+     */
+    serverActions: {
+      bodySizeLimit: '4.4mb',
+    },
     staleTimes: {
       dynamic: 120,
       static: 300,

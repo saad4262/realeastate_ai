@@ -33,14 +33,14 @@ export async function ImportStart({ surface }: { surface: 'agency' | 'agent' }) 
         <div className={contactStyles.headText}>
           <h1 className={contactStyles.title}>Import listings</h1>
           <p className={contactStyles.sub}>
-            From a CSV file or a Google Sheet, up to 5,000 rows. You match the columns, we check every row and show you each problem, and only then does anything get imported.
+            From a CSV or Excel file, or a Google Sheet, up to 5,000 rows. You match the columns, we check every row and show you each problem, and only then does anything get imported.
             {mayPublish ? ' Your import goes live (or as drafts, if you choose).' : ' Your listings arrive waiting for an owner or admin to approve them.'}{' '}
             <a href="/import-template.csv" download>Download the template</a> — it shows every column and three example rows.
           </p>
         </div>
       </div>
       <section className={contactStyles.card} style={{ padding: '1rem' }}>
-        <h2 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>A CSV file</h2>
+        <h2 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>A CSV or Excel file</h2>
         <UploadForm base={base} mayPublish={mayPublish} />
       </section>
       <section className={contactStyles.card} style={{ padding: '1rem', marginTop: '1rem' }}>

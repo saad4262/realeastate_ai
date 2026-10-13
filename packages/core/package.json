@@ -70,14 +70,15 @@
   "dependencies": {
     "@repo/db": "workspace:*",
     "drizzle-orm": "^0.38.3",
+    "read-excel-file": "9.3.10",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@repo/auth": "workspace:*",
+    "@repo/config": "workspace:*",
     "dotenv": "^16.4.7",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8",
-    "@repo/config": "workspace:*"
+    "vitest": "^2.1.8"
   }
 }

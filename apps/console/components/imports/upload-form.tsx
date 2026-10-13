@@ -14,6 +14,12 @@ export function UploadForm({ base, mayPublish }: { base: string; mayPublish: boo
         e.preventDefault();
         const form = new FormData(e.currentTarget);
         setError(null);
+        const file = form.get('file');
+        // Checked here too: a body over the server's limit never reaches the action to be refused politely.
+        if (file instanceof File && file.size > 4 * 1024 * 1024) {
+          setError('That file is larger than 4 MB. Split it into smaller files, or import it from Google Sheets.');
+          return;
+        }
         start(async () => {
           const r = await uploadImportAction(form);
           if (!r.ok) setError(r.error);
@@ -26,8 +32,18 @@ export function UploadForm({ base, mayPublish }: { base: string; mayPublish: boo
       style={{ display: 'grid', gap: '0.75rem', maxWidth: '32rem' }}
     >
       <label>
-        CSV file (UTF-8, up to 10 MB)
-        <input type="file" name="file" accept=".csv,text/csv" required style={{ display: 'block', marginTop: '0.25rem' }} />
+        CSV (UTF-8) or Excel (.xlsx) file, up to 4 MB
+        <input
+          type="file"
+          name="file"
+          accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          required
+          style={{ display: 'block', marginTop: '0.25rem' }}
+        />
+      </label>
+      <label>
+        Excel sheet name <span style={{ color: 'var(--text-secondary)' }}>(only for a workbook with several sheets — otherwise the first one with rows)</span>
+        <input type="text" name="sheet" maxLength={100} placeholder="e.g. Listings" style={{ display: 'block', marginTop: '0.25rem' }} />
       </label>
       {mayPublish ? (
         <fieldset style={{ border: 0, padding: 0, margin: 0 }}>

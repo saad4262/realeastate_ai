@@ -5,6 +5,7 @@ import {
   cancelImport,
   createImport,
   createImportFromSheet,
+  createImportFromXlsx,
   pickerSession,
   reimportSheet,
   sheetsDepsFromEnv,
@@ -34,6 +35,9 @@ import { requireActionUserId } from './auth-account';
  */
 type R<T> = { ok: true } & T | { ok: false; error: string };
 
+/** One upload's largest file — under the 4.4 MB body limit in next.config.ts, which Vercel's 4.5 MB caps. */
+const UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
+
 async function actor() {
   const a = await loadListingActor(await requireActionUserId());
   if (!a) throw new ImportError('forbidden', 'Database is not configured.');
@@ -49,10 +53,16 @@ function fail(err: unknown): { ok: false; error: string } {
 export async function uploadImportAction(form: FormData): Promise<R<{ id: string; sameFileAs: string | null }>> {
   try {
     const file = form.get('file');
-    if (!(file instanceof File) || !file.size) return { ok: false, error: 'Choose a CSV file first' };
-    if (file.size > 10 * 1024 * 1024) return { ok: false, error: 'That file is larger than 10 MB' };
+    if (!(file instanceof File) || !file.size) return { ok: false, error: 'Choose a CSV or Excel file first' };
+    // 4 MB: what one upload can carry on Vercel (next.config.ts). A Google Sheet has no such limit.
+    if (file.size > UPLOAD_MAX_BYTES) return { ok: false, error: 'That file is larger than 4 MB. Split it into smaller files, or import it from Google Sheets.' };
     const mode = form.get('mode') === 'draft' ? 'draft' : 'live';
-    const r = await createImport(getConsoleDb(), await actor(), { fileName: file.name, text: await file.text(), mode: mode as ImportMode });
+    // An Excel workbook (ADR 0029 amendment) is read into the same rows a CSV would give.
+    const isXlsx = /\.xlsx$/i.test(file.name) || file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    const sheet = String(form.get('sheet') ?? '').trim().slice(0, 100) || null;
+    const r = isXlsx
+      ? await createImportFromXlsx(getConsoleDb(), await actor(), { fileName: file.name, bytes: await file.arrayBuffer(), sheet, mode: mode as ImportMode })
+      : await createImport(getConsoleDb(), await actor(), { fileName: file.name, text: await file.text(), mode: mode as ImportMode });
     return { ok: true, id: r.id, sameFileAs: r.sameFileAs ? r.sameFileAs.createdAt.toISOString() : null };
   } catch (err) {
     return fail(err);
