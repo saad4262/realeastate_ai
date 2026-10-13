@@ -3,6 +3,7 @@ import { CONTACT_ROLES } from '../contacts/contact-schema';
 import { INTEGRATION_PROVIDERS, type IntegrationProvider } from '../integrations/providers';
 import { WIDGET_IDS, WIDGET_RANGES, type WidgetId, type WidgetTile } from '../widgets/registry';
 import { DATASET_IDS, tileSpecSchema, type DatasetId } from '../semantic';
+import { AU_STATES, PROPERTY_TYPES } from '../listings/listing-schema';
 
 /**
  * The console assistant's contract (docs/adr/0025). Phase A: read tools only.
@@ -32,6 +33,8 @@ export const HANDLE_KINDS = {
   P: 'listing',
   /** An assistant task — issued by plan_task (ADR 0040). */
   K: 'task',
+  /** One of the person's OWN saved contact lists — issued by find_saved_lists (ADR 0040 part 2). */
+  F: 'filter',
 } as const;
 export type HandlePrefix = keyof typeof HANDLE_KINDS;
 export type HandleKind = (typeof HANDLE_KINDS)[HandlePrefix];
@@ -39,7 +42,7 @@ export type HandleKind = (typeof HANDLE_KINDS)[HandlePrefix];
 export const handleSchema = z
   .string()
   .trim()
-  .regex(/^[CLATSMIPK][1-9][0-9]{0,2}$/, 'Not a reference the assistant was given');
+  .regex(/^[CLATSMIPKF][1-9][0-9]{0,2}$/, 'Not a reference the assistant was given');
 
 /** A handle that must name an appointment. */
 export const appointmentHandleSchema = handleSchema.refine((h) => h.startsWith('A'), { message: 'Not an appointment reference' });
@@ -56,6 +59,7 @@ export const contactHandleSchema = handleSchema.refine((h) => h.startsWith('C') 
 export const leadHandleSchema = handleSchema.refine((h) => h.startsWith('L'), { message: 'Not a lead reference' });
 export const listingHandleSchema = handleSchema.refine((h) => h.startsWith('P'), { message: 'Not a listing reference' });
 export const taskHandleSchema = handleSchema.refine((h) => h.startsWith('K'), { message: 'Not a task reference' });
+export const listHandleSchema = handleSchema.refine((h) => h.startsWith('F'), { message: 'Not a saved list reference' });
 export const memberHandleSchema = handleSchema.refine((h) => h.startsWith('M'), { message: 'Not a team member reference' });
 
 /** A handle that must name a team member or a pending invite (from find_agents). */
@@ -209,9 +213,22 @@ export const cancelAppointmentInput = z
 export const sendTemplateEmailInput = z
   .object({
     template: templateHandleSchema,
-    recipients: z.array(contactHandleSchema).min(1).max(20),
+    recipients: z.array(contactHandleSchema).min(1).max(20).optional(),
+    /** ADR 0040 part 2 §2: one of the person's OWN saved lists (an F reference) — never a query. */
+    list: listHandleSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine((v) => Boolean(v.recipients) !== Boolean(v.list), { message: 'Give either recipients or a list, not both', path: ['recipients'] });
+
+/**
+ * A list larger than one batch (ADR 0040 part 2 §2, decided option a): one card, at most
+ * `maxPeople`, sent in parts of the batch size — the first at once, each later one `gapHours`
+ * after the one before.
+ */
+export const LIST_SEND = { maxPeople: 100, gapHours: 24 } as const;
+
+/** The person's own saved contact lists (the Bulk email screen's), as F references. Read only. */
+export const findSavedListsInput = z.object({}).strict();
 
 /**
  * Dashboards (ADR 0027 / 0025 Phase F). A widget is an id from the fixed
@@ -314,6 +331,10 @@ export const PLANNABLE_TOOLS = [
   'assign_lead',
   'create_lead',
   'create_contact',
+  'create_listing_draft',
+  'update_listing',
+  'withdraw_listing',
+  'submit_listing',
   'remind',
 ] as const;
 export type PlannableTool = (typeof PLANNABLE_TOOLS)[number];
@@ -339,6 +360,94 @@ export const planTaskInput = z
   })
   .strict();
 export const cancelTaskInput = z.object({ task: taskHandleSchema }).strict();
+
+// ── ADR 0040 part 2: listings and invites ─────────────────────────────────────
+
+const price = z.number().min(0).max(1_000_000_000);
+const rooms = z.number().int().min(0).max(20);
+/**
+ * The listing fields a person may give in words. `price_low` / `price_high`, never `…_to`: no
+ * write tool has a field that reads as a recipient. No field for status, agents, photos or the
+ * agency — a listing is always made a draft, by this person, for their own agency.
+ */
+const listingFields = {
+  headline: z.string().trim().min(1).max(200),
+  /** The ad's body copy — the person's words, or the assistant's draft of them (labelled on the card). */
+  description: z.string().trim().max(20_000),
+  /** What a buyer reads, e.g. "Offers over $950,000" or "Contact agent". */
+  price_display: z.string().trim().max(120),
+  /** The searchable range — only figures the person gave. */
+  price_low: price,
+  price_high: price,
+  rent_per_week: price,
+  bedrooms: rooms,
+  bathrooms: rooms,
+  car_spaces: rooms,
+  property_type: z.enum(PROPERTY_TYPES),
+  land_area_sqm: z.number().min(0).max(10_000_000),
+} as const;
+
+export const createListingDraftInput = z
+  .object({
+    channel: z.enum(['sale', 'rent']),
+    unit: z.string().trim().min(1).max(32).optional(),
+    street_number: z.string().trim().min(1).max(32).optional(),
+    street: z.string().trim().min(1).max(200).optional(),
+    suburb: z.string().trim().min(1).max(120),
+    state: z.enum(AU_STATES),
+    postcode: z.string().trim().regex(/^\d{4}$/, 'Postcode must be 4 digits'),
+    headline: listingFields.headline,
+    description: listingFields.description.optional(),
+    price_display: listingFields.price_display.optional(),
+    price_low: price.optional(),
+    price_high: price.optional(),
+    rent_per_week: price.optional(),
+    bedrooms: rooms.optional(),
+    bathrooms: rooms.optional(),
+    car_spaces: rooms.optional(),
+    property_type: listingFields.property_type.optional(),
+    land_area_sqm: listingFields.land_area_sqm.optional(),
+  })
+  .strict();
+
+/** Only the fields named change — the edit form's own. Not the address, agents, photos or status (ADR 0040 part 2 §4). `""` or null clears one. */
+export const updateListingInput = z
+  .object({
+    listing: listingHandleSchema,
+    headline: listingFields.headline.optional(),
+    description: z.string().trim().max(20_000).optional(),
+    price_display: z.string().trim().max(120).optional(),
+    price_low: price.nullable().optional(),
+    price_high: price.nullable().optional(),
+    rent_per_week: price.nullable().optional(),
+    bedrooms: rooms.nullable().optional(),
+    bathrooms: rooms.nullable().optional(),
+    car_spaces: rooms.nullable().optional(),
+    property_type: listingFields.property_type.optional(),
+    land_area_sqm: listingFields.land_area_sqm.nullable().optional(),
+  })
+  .strict();
+
+/** "Delete" a listing = withdraw it (ADR 0039 A). */
+export const withdrawListingInput = z.object({ listing: listingHandleSchema }).strict();
+/** An agent sends a draft or withdrawn listing for an owner/admin to publish. The assistant never publishes. */
+export const submitListingInput = z.object({ listing: listingHandleSchema }).strict();
+
+/** Invite an agent (owners/admins, `team:manage`) — the Agents & Team wizard's required fields, from the person's words. */
+export const inviteAgentInput = z
+  .object({
+    first_name: z.string().trim().min(1).max(80),
+    last_name: z.string().trim().min(1).max(80),
+    display_name: z.string().trim().min(1).max(160).optional(),
+    /** Where the invite link is sent — the address the person gave. Shown on the card before anything is sent. */
+    email: z.string().trim().email('That does not look like an email address').max(320),
+    phone: z.string().trim().min(1).max(32),
+    licence_number: z.string().trim().min(1).max(64),
+    licence_expiry: dateString.optional(),
+    territory_suburbs: z.array(z.string().trim().min(1).max(80)).min(1).max(20),
+    role: z.enum(['senior', 'principal', 'pm', 'cadet', 'custom']).default('senior'),
+  })
+  .strict();
 
 /** The cards of this conversation and how each ended (ADR 0039 Phase 1). No input. */
 export const checkCardsInput = z.object({}).strict();
@@ -527,8 +636,8 @@ export const scheduleTeamMeetingInput = z
   })
   .strict();
 
-export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task'] as const;
+export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_saved_lists'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 /**
  * What a `proposed_action` row's `tool` may be — the database CHECK (migration 0047) holds exactly
@@ -569,6 +678,7 @@ export const ASSISTANT_TOOL_INPUTS = {
   message_colleagues: messageColleaguesInput,
   schedule_team_meeting: scheduleTeamMeetingInput,
   find_listings: findListingsInput,
+  find_saved_lists: findSavedListsInput,
   set_lead_status: setLeadStatusInput,
   assign_lead: assignLeadInput,
   create_lead: createLeadInput,
@@ -576,6 +686,11 @@ export const ASSISTANT_TOOL_INPUTS = {
   create_reminder: createReminderInput,
   plan_task: planTaskInput,
   cancel_task: cancelTaskInput,
+  create_listing_draft: createListingDraftInput,
+  update_listing: updateListingInput,
+  withdraw_listing: withdrawListingInput,
+  submit_listing: submitListingInput,
+  invite_agent: inviteAgentInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];
@@ -587,7 +702,7 @@ export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as Assist
 export const ASSISTANT_ADMIN_TOOLS = ['find_team_members', 'assign_contacts', 'assign_lead'] as const satisfies readonly AssistantToolName[];
 
 /** Team tools (ADR 0033): owners and admins only, by `team:manage` — shown to nobody else, refused in core. */
-export const ASSISTANT_TEAM_TOOLS = ['find_agents', 'update_agent', 'remove_agent'] as const satisfies readonly AssistantToolName[];
+export const ASSISTANT_TEAM_TOOLS = ['find_agents', 'update_agent', 'remove_agent', 'invite_agent'] as const satisfies readonly AssistantToolName[];
 
 function isTimeZone(tz: string): boolean {
   try {

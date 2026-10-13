@@ -11,7 +11,11 @@ import { issueHandle, resolveHandle } from './handles';
 import { propose, type FrozenArgs } from './actions';
 import { NOTHING_YET, refused, UNKNOWN_REF, visibleContact } from './write-tools';
 import { proposePlanTask } from './plan-task';
+import { inviteAgentDraftSchema, TIER_SPLITS, type InviteAgentDraft } from '../team/invite-schema';
+import { formatRemaining, inviteMemberProblem, invitePendingProblem, inviteTtlMinutes } from '../team/invite-agent';
+import { OPERATIONAL_ROLE_LABELS } from '../team/edit-member';
 import type {
+  inviteAgentInput,
   assignLeadInput,
   cancelTaskInput,
   createContactInput,
@@ -247,3 +251,56 @@ export async function proposeCancelTask(ctx: ToolContext, input: z.infer<typeof 
   return propose(ctx, label, { tool: 'cancel_task', args, card, contactId: null });
 }
 
+
+/**
+ * Invite an agent (ADR 0040 part 2 §3; owners/admins, `team:manage` — asked at the door and by
+ * inviteAgent again). The wizard's own schema and refusals (already a member, an invite still
+ * open) are checked before any card. The card shows every field and every default the wizard
+ * applies; Approve creates the invite (database only, in the claim) and emails the link after
+ * the commit. Runs when approved — never later, never in a plan.
+ */
+export async function proposeInviteAgent(ctx: ToolContext, input: z.infer<typeof inviteAgentInput>, label: string): Promise<ToolOutcome> {
+  const { actor, db } = ctx;
+  if (!actor.agencyId || !can(actor, 'team:manage', { type: 'team', agencyId: actor.agencyId })) {
+    return refused('Only an owner or admin can invite agents.', label);
+  }
+  const parsed = inviteAgentDraftSchema.safeParse({
+    firstName: input.first_name,
+    lastName: input.last_name,
+    displayName: input.display_name ?? `${input.first_name} ${input.last_name}`,
+    email: input.email.toLowerCase(),
+    phone: input.phone,
+    licenceNumber: input.licence_number,
+    licenceExpiry: input.licence_expiry ?? null,
+    territorySuburbs: input.territory_suburbs,
+    operationalRole: input.role,
+  });
+  if (!parsed.success) return refused(`${parsed.error.issues[0]?.message ?? 'Those details are not valid'}. Ask the person; nothing was proposed.`, label);
+  const draft: InviteAgentDraft = parsed.data;
+  const problem = (await inviteMemberProblem(db, actor.agencyId, actor.userId, draft.email)) ?? (await invitePendingProblem(db, actor.agencyId, draft.email));
+  if (problem) return refused(`${problem.message}. Nothing was proposed.`, label);
+
+  const tier = TIER_SPLITS[draft.commissionTier];
+  const card: ProposalCard = {
+    title: `Invite ${draft.displayName} to the agency`,
+    contact: { id: '', name: '' },
+    lines: [
+      { label: 'Legal name', value: `${draft.firstName} ${draft.lastName}` },
+      { label: 'Shown as', value: draft.displayName },
+      { label: 'Email (the invite goes here)', value: draft.email },
+      { label: 'Mobile', value: draft.phone },
+      { label: 'Licence', value: `${draft.licenceNumber} · ${draft.licenceClass}${draft.licenceExpiry ? ` · expires ${draft.licenceExpiry}` : ''}` },
+      { label: 'Territory', value: `${draft.territorySuburbs.join(', ')} (${draft.territoryRadiusKm} km)` },
+      { label: 'Role', value: OPERATIONAL_ROLE_LABELS[draft.operationalRole] },
+      { label: 'Commission', value: `${tier.label} — ${draft.commissionSplitAgent}% agent / ${draft.commissionSplitAgency}% agency (the wizard’s default; change it on Agents & Team)` },
+      { label: 'Invite link', value: `Emailed to ${draft.email} when you approve; it works for ${formatRemaining(new Date(Date.now() + inviteTtlMinutes() * 60_000))}` },
+    ],
+    notes: [
+      NOTHING_YET,
+      'They choose their own password from the link and join when they accept. Nothing else is created until then.',
+      ...(draft.operationalRole === 'principal' ? ['Principal makes them an admin: they can run the agency console, manage the team and see every contact and lead.'] : []),
+    ],
+  };
+  const args: FrozenArgs = { tool: 'invite_agent', draft };
+  return propose(ctx, label, { tool: 'invite_agent', args, card, contactId: null });
+}

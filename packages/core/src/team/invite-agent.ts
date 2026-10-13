@@ -222,6 +222,66 @@ async function materialiseAgent(
 }
 
 /**
+ * Why this email cannot be invited because of who already holds a membership — the
+ * person themselves, or anyone in the agency (owner and admins included: membership
+ * (user_id, agency_id) is unique). Null when nothing stands in the way. Read only; the
+ * assistant's card (ADR 0040 part 2 §3) asks it before a card is made, inviteAgent again.
+ */
+export async function inviteMemberProblem(db: DbOrTx, agencyId: string, actorUserId: string, email: string): Promise<InviteAgentError | null> {
+  const [existingMember] = await db
+    .select({
+      userId: membership.userId,
+      role: membership.role,
+    })
+    .from(membership)
+    .innerJoin(user, eq(user.id, membership.userId))
+    .where(
+      and(
+        eq(membership.agencyId, agencyId),
+        eq(sql`lower(${user.email})`, email.toLowerCase()),
+      ),
+    )
+    .limit(1);
+
+  if (!existingMember) return null;
+  if (existingMember.userId === actorUserId) {
+    return new InviteAgentError(
+      'self_invite',
+      `You cannot invite yourself — you are already ${membershipRolePhrase(existingMember.role)} of this agency`,
+      'email',
+    );
+  }
+  return new InviteAgentError(
+    'already_member',
+    'An account with this email is already a member of your agency',
+    'email',
+  );
+}
+
+/** An unexpired invite already sent to this email, as the refusal to give — or null. Read only. */
+export async function invitePendingProblem(db: DbOrTx, agencyId: string, email: string): Promise<InviteAgentError | null> {
+  const [pending] = await db
+    .select({ id: agentInvite.id, expiresAt: agentInvite.expiresAt })
+    .from(agentInvite)
+    .where(
+      and(
+        eq(agentInvite.agencyId, agencyId),
+        eq(sql`lower(${agentInvite.email})`, email.toLowerCase()),
+        eq(agentInvite.status, 'pending'),
+        gt(agentInvite.expiresAt, sql`now()`),
+      ),
+    )
+    .limit(1);
+
+  if (!pending) return null;
+  return new InviteAgentError(
+    'invite_pending',
+    `An invite for this email was already sent — it expires in ${formatRemaining(pending.expiresAt)}. Send a new one after it lapses.`,
+    'email',
+  );
+}
+
+/**
  * Create an agent invite (and optionally provision auth + membership rows).
  * Always authorized via can(team:manage).
  */
@@ -239,37 +299,8 @@ export async function inviteAgent(
   const draft = parsed.data;
   draft.email = draft.email.toLowerCase();
 
-  // Any membership counts, not just agents — the owner and admins hold one too,
-  // and membership(user_id, agency_id) is unique, so a second one cannot exist.
-  const [existingMember] = await db
-    .select({
-      userId: membership.userId,
-      role: membership.role,
-    })
-    .from(membership)
-    .innerJoin(user, eq(user.id, membership.userId))
-    .where(
-      and(
-        eq(membership.agencyId, agencyId),
-        eq(sql`lower(${user.email})`, draft.email),
-      ),
-    )
-    .limit(1);
-
-  if (existingMember) {
-    if (existingMember.userId === actor.userId) {
-      throw new InviteAgentError(
-        'self_invite',
-        `You cannot invite yourself — you are already ${membershipRolePhrase(existingMember.role)} of this agency`,
-        'email',
-      );
-    }
-    throw new InviteAgentError(
-      'already_member',
-      'An account with this email is already a member of your agency',
-      'email',
-    );
-  }
+  const memberProblem = await inviteMemberProblem(db, agencyId, actor.userId, draft.email);
+  if (memberProblem) throw memberProblem;
 
   // Lapsed invites are retired first, so they neither block a resend nor sit
   // in the table claiming to be pending.
@@ -285,26 +316,8 @@ export async function inviteAgent(
       ),
     );
 
-  const [pending] = await db
-    .select({ id: agentInvite.id, expiresAt: agentInvite.expiresAt })
-    .from(agentInvite)
-    .where(
-      and(
-        eq(agentInvite.agencyId, agencyId),
-        eq(sql`lower(${agentInvite.email})`, draft.email),
-        eq(agentInvite.status, 'pending'),
-        gt(agentInvite.expiresAt, sql`now()`),
-      ),
-    )
-    .limit(1);
-
-  if (pending) {
-    throw new InviteAgentError(
-      'invite_pending',
-      `An invite for this email was already sent — it expires in ${formatRemaining(pending.expiresAt)}. Send a new one after it lapses.`,
-      'email',
-    );
-  }
+  const pendingProblem = await invitePendingProblem(db, agencyId, draft.email);
+  if (pendingProblem) throw pendingProblem;
 
   const token = newToken();
   const expiresAt = new Date(Date.now() + inviteTtlMinutes() * 60_000);

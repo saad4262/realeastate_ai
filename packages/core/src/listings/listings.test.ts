@@ -84,10 +84,12 @@ function fakeDb(results: unknown[][] = []) {
 describe('listing permissions', () => {
   const resource = { type: 'listing' as const, agencyId: agencyA, id: listingId };
 
-  it('lets any active member of the agency draft a listing', () => {
+  it('lets any active member who may write draft a listing — never a read-only one', () => {
     expect(can(owner, 'listing:create', resource)).toBe(true);
     expect(can(agent, 'listing:create', resource)).toBe(true);
-    expect(can(readOnly, 'listing:create', resource)).toBe(true);
+    // A read-only member looks and never touches (2026-10-05), as listing_import:create already
+    // said; this let them draft one until ADR 0040 part 2 §4.
+    expect(can(readOnly, 'listing:create', resource)).toBe(false);
   });
 
   it("refuses another agency's owner and an actor with no membership", () => {

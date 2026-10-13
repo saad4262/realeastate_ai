@@ -39,13 +39,16 @@ import {
   proposeSendEmail,
   proposeMessageColleagues,
   proposeScheduleTeamMeeting,
+  needsConnection,
 } from './write-tools';
 import { listColleagues } from '../team-messages/messages';
 import { agencyTimeZone, renderWidget } from '../widgets/registry';
 import { recordDataGap } from '../semantic';
 import { listConversationCards } from './card-updates';
-import { findListings, proposeAssignLead, proposeCancelTask, proposeCreateContact, proposeCreateLead, proposeCreateReminder, proposeSetLeadStatus } from './crm-tools';
+import { findListings, proposeAssignLead, proposeCancelTask, proposeCreateContact, proposeCreateLead, proposeCreateReminder, proposeInviteAgent, proposeSetLeadStatus } from './crm-tools';
+import { proposeCreateListingDraft, proposeSubmitListing, proposeUpdateListing, proposeWithdrawListing } from './listing-tools';
 import { proposePlanTask } from './plan-task';
+import { findSavedLists } from './list-send';
 import type { FrozenArgs } from './actions';
 import {
   ASSISTANT_ADMIN_TOOLS,
@@ -133,6 +136,7 @@ const LABELS: Record<AssistantToolName, string> = {
   message_colleagues: 'Writing the message for you to check…',
   schedule_team_meeting: 'Preparing the team meeting for you to approve…',
   find_listings: 'Looking up listings…',
+  find_saved_lists: 'Looking up your saved lists…',
   set_lead_status: 'Preparing the lead change for you to approve…',
   assign_lead: 'Preparing the assignment for you to approve…',
   create_lead: 'Preparing the new lead for you to approve…',
@@ -140,6 +144,11 @@ const LABELS: Record<AssistantToolName, string> = {
   create_reminder: 'Preparing the reminder for you to approve…',
   plan_task: 'Preparing the plan for you to approve…',
   cancel_task: 'Preparing to stop the task…',
+  create_listing_draft: 'Preparing the draft listing for you to approve…',
+  update_listing: 'Preparing the listing change for you to approve…',
+  withdraw_listing: 'Preparing the withdrawal for you to approve…',
+  submit_listing: 'Preparing to send the listing for approval…',
+  invite_agent: 'Preparing the invite for you to approve…',
 };
 
 /** Tools that change a contact's own record: never for someone who may not edit a contact of their own (read-only). */
@@ -232,6 +241,8 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return checkCards(ctx, label);
     case 'find_listings':
       return findListings(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.find_listings>, label);
+    case 'find_saved_lists':
+      return findSavedLists(ctx, label);
     case 'set_lead_status':
       return proposeSetLeadStatus(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.set_lead_status>, label);
     case 'assign_lead':
@@ -247,6 +258,16 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return proposePlanTask(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.plan_task>, label);
     case 'cancel_task':
       return proposeCancelTask(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.cancel_task>, label);
+    case 'create_listing_draft':
+      return proposeCreateListingDraft(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.create_listing_draft>, label);
+    case 'update_listing':
+      return proposeUpdateListing(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.update_listing>, label);
+    case 'withdraw_listing':
+      return proposeWithdrawListing(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.withdraw_listing>, label);
+    case 'submit_listing':
+      return proposeSubmitListing(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.submit_listing>, label);
+    case 'invite_agent':
+      return proposeInviteAgent(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.invite_agent>, label);
     case 'report_missing_data':
       return reportMissingData(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.report_missing_data>, label);
     case 'search_notes_and_emails':
@@ -646,8 +667,10 @@ async function checkConnections(
         state: r.state,
         account: r.whose,
         // The words the person should see when it is not usable — never improvise a workaround.
-        ...(r.state === 'connected' ? {} : { tell_the_user: `Connect ${r.label} first.` }),
+        ...(r.state === 'connected' ? {} : { tell_the_user: `Connect ${r.label} first — the Connect button is on screen.` }),
       })),
+      // The same shape every refused tool gives (ADR 0040 part 2 §1).
+      ...(rows.some((r) => r.state !== 'connected') ? { needs_connection: needsConnection(rows) } : {}),
     },
   };
 }

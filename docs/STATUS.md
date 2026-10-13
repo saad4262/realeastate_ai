@@ -3,6 +3,16 @@
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
+- **Assistant Phase 2, part 2 (ADR 0040) — built 2026-10-13 on `feat/assistant-crm-2` (on top of
+  `feat/assistant-tasks`), committed, NOT pushed. Migration 0048 written, NOT applied** (dev = production DB).
+  Connect button everywhere (`needs_connection`), template email to a saved list (F refs; > 20 → one card,
+  parts of 20 a day, retry +1 h over the daily limit), `invite_agent`, listings (`create_listing_draft`,
+  `update_listing`, `withdraw_listing`, `submit_listing` — never publish), prompt `assistant@v16`;
+  `listing:create` now refuses read-only members. Checks: typecheck/lint 20/20, unit 989 + 301, 5 break-tests
+  red. Smoke: 5 checks written (before "New email and team messages"), NOT run — the user stopped the slow run;
+  3 need 0048. **Smoke is OFF by default now** (`SMOKE_ENABLED=false` in .env.local). TEST-PLAN **AN**.
+  **Next:** user applies 0048; Phase 3 (Google Sheets via Picker `drive.file`, XLSX, contacts import,
+  assistant import) — the pasted-link route is pending.
 - **Team meetings (ADR 0038) — built 2026-10-12, merged to `main`. Migration
   0044 applied on dev 2026-10-12.** Internal meetings between members, no contact: Calendar →
   **+ Team meeting** (1–10 colleagues, Zoom / phone / in person, agenda, reminder; admins pick a

@@ -178,3 +178,87 @@ panel button: 6–10 h. **About 125–185 h**, each part with its smoke checks a
   use `loadListingActor`, as the leads and mail screens do.
 - Prompt **`assistant@v15`**. Not yet (Phase 2, part 2): listing draft/edit/withdraw, invite agent,
   bulk email on a saved filter, the shared "connect X first" shape with a Connect button.
+
+## Phase 2, part 2 — design (2026-10-13, before code; branch `feat/assistant-crm-2`)
+
+Decided by the user on 2026-10-13: the assistant **never publishes** a listing; a description it
+writes is a **draft** with a label; a price is shown on its own line for checking; a list larger
+than one batch is sent **20 now and the rest later, automatically** (option a).
+
+1. **"Connect X first", one shape.** Every tool refused for a missing account returns, beside its
+   words, `needs_connection: [{ provider, label, may_connect }]`, and the `connections` frame. The
+   panel draws a **Connect** button per account from the frame — the link is the surface's own
+   Integrations page, never a URL from the model; `may_connect: false` says "ask an owner or admin".
+   `plan_task` refused for a step's missing account passes the same frame and shape on. A card or
+   step that fails when it runs because an account was disconnected keeps
+   `result.needsConnection`, and the card shows the same button.
+2. **Saved lists.** `find_saved_lists` (read) gives `F` references to the person's OWN saved
+   directory filters (the Bulk email screen's). `send_template_email` takes `list` (one `F`) OR
+   `recipients` — never both. Who qualifies is ADR 0022's rule, unchanged (one function,
+   `classifyRecipients`, shared with `prepareBatch`).
+   - Up to 20 qualify: one batch card, exactly as today.
+   - More than 20: **one card, the whole list**, at most **100** people (5 parts); anyone past 100
+     is shown skipped ("ask again once these are sent"). Approve starts a task of parts of 20:
+     part 1 at once, each later part **24 hours after the one before**. Each part is prepared and
+     approved AT ITS RUN, as the person then — every recipient classified again (consent,
+     opt-out, archive, 7-day rule) and checked again at send (daily limits, dev allowlist). A part
+     with nobody left is done with 0 sent, not a failure. Cancelling the task stops the rest.
+     Daily limits are unchanged (50 per agent, 200 per agency, per 24 h); a part that meets one
+     shows those people skipped "daily limit" on its send report.
+3. **`invite_agent`** (owners/admins, `team:manage`): the wizard's required fields from the
+   person's words; the card shows every field and every default the wizard would apply
+   (commission tier, licence class, radius). Approve runs `inviteAgent` (database only) in the
+   claim and emails the link after the commit; the card says whether it went, and the link is on
+   Agents & Team. A team change: runs when approved, never later, never in a plan.
+4. **Listings** (cards over the screens' own core functions, `listing:*` asked again at run):
+   - `create_listing_draft` — always a draft, the person named as its agent. The address is
+     geocoded **when the card is made** (outside any transaction) and the pin frozen on the card;
+     the run passes it in, so no network call happens inside the claim. No pin found: saved
+     without one, "set it on the edit page". A description the assistant wrote carries the
+     "written by the assistant" note; prices are on their own lines and listed as figures to check.
+   - `update_listing` — only the fields named, and only the edit form's own (headline,
+     description, prices, rent, rooms, property type, land area); not the address, agents, photos
+     or status. Before → after on the card; refused at run if any of them changed since. (No
+     auction or available-from date: the screens have no field for them, so a screen edit would
+     clear what the assistant set.)
+   - `withdraw_listing` — "delete" for a listing (ADR 0039 A): draft, pending, live or under offer →
+     withdrawn; never a sold one. Refused at run if its status changed since the card.
+   - `submit_listing` — an agent sends a draft or withdrawn listing for approval (`pending`).
+     An owner or admin is told to publish it on the listing's page: **the assistant never puts a
+     listing on the public site.**
+   - All four may be plan steps. `listing:create` also requires a member who may write (a
+     read-only member could draft a listing before — the read-only rule of 2026-10-05 says they
+     write nothing).
+5. **Migration 0048:** the `proposed_action` tool CHECK adds `create_listing_draft`,
+   `update_listing`, `withdraw_listing`, `submit_listing`, `invite_agent`. Prompt `assistant@v16`.
+
+## As built — Phase 2, part 2 (2026-10-13, branch `feat/assistant-crm-2`; migration 0048 written, NOT applied)
+
+- **Connect shape:** `needsConnection()` / `connectFirst()` (write-tools) give `needs_connection`
+  `[{ provider, label, may_connect }]` with the `connections` frame; `check_connections` adds the
+  same; `plan_task` passes a step's shape and frame through. A run refused for a lost account
+  throws `NeedsConnectionError` → the failed card keeps `result.needsConnection`. Panel:
+  `ConnectButton` (surface Integrations path; "ask an owner or admin" when `may_connect` is false).
+- **Saved lists:** `F` handles (`find_saved_lists`); `send_template_email` takes `list` XOR
+  `recipients`. `prepareBatch` split into `classifyRecipients` (read only) + `storePreparedBatch`.
+  `list-send.ts`: ≤ 20 → `proposeBatchCard` (the existing card, now shared); > 20 → one plan card
+  (`storeTask`, shared with `plan_task` via `taskGate`/`storeTask`) whose steps are
+  `send_template_email` parts `{ part, templateId, contactIds, gapHours }`. `runListPart` classifies
+  again, checks today's limits, stores and approves the batch in the step's savepoint; the send runs
+  after the commit (existing `afterCommit`). Over the limit: `RetryLaterError` → the step goes back
+  to `scheduled` at +1 h with `result.waiting`; `ScheduledRunReport.waiting`. `releaseNext` uses
+  `stepDueAt(runAt, gapHours, now)`. Read-back: the batch is `approved_sending` or `sent`.
+- **Invite:** `proposeInviteAgent` (crm-tools) — the wizard's schema, `inviteMemberProblem` /
+  `invitePendingProblem` (extracted from `inviteAgent`, which now calls them); run = `inviteAgent`
+  without an auth provisioner (database only), link emailed after the commit via the existing
+  `inviteClaim` path. Team tool (admins only), never scheduled. Read-back: invite `pending`.
+- **Listings:** `listing-tools.ts`. `createListing` / `updateListing` take `opts.pin`
+  (`null` = no pin, no geocoder). Create resolves the pin at propose and freezes it. Update freezes
+  `before`, refuses if changed, rebuilds the whole edit from the row (keeping auction /
+  available dates the form does not show), passes `pin: null` (the pin is never touched).
+  Withdraw / submit check the status is still the card's. Read-backs per tool.
+  `listing:create` now `mayWrite` (read-only refused; the 2026-09-24 test said otherwise and is
+  updated with the reason).
+- Prompt **`assistant@v16`**. Red-team tests extended, not loosened: `invite_agent`'s `email` and
+  `send_template_email`'s `list` are allowed by name with written reasons; no tool or field can
+  publish or set a status.

@@ -1,5 +1,6 @@
 import { and, asc, eq, gt, inArray, sql } from 'drizzle-orm';
-import { appointment, assistantTask, contact, lead, note, notification, proposedAction, type DbOrTx } from '@repo/db';
+import { agentInvite, appointment, assistantTask, contact, emailBatch, lead, note, notification, proposedAction, type DbOrTx } from '@repo/db';
+import { verifyListingAction } from './listing-tools';
 import { AssistantError } from './conversations';
 
 /**
@@ -31,21 +32,32 @@ export async function activateTask(tx: DbOrTx, taskId: string, approverId: strin
   return { steps: steps.length };
 }
 
-/** The first blocked step becomes due: at its own time, or now if that has passed or it has none. */
+/**
+ * The first blocked step becomes due: at its own time, or now if that has passed or it has none.
+ * A step with `gapHours` (a later part of a saved list, ADR 0040 part 2 §2) waits that long after
+ * the step before it finished — so one part goes out a day however late the person approved.
+ */
 async function releaseNext(tx: DbOrTx, taskId: string, now: Date): Promise<boolean> {
   const [next] = await tx
-    .select({ id: proposedAction.id, runAt: proposedAction.runAt })
+    .select({ id: proposedAction.id, runAt: proposedAction.runAt, args: proposedAction.args })
     .from(proposedAction)
     .where(and(eq(proposedAction.taskId, taskId), eq(proposedAction.status, 'blocked')))
     .orderBy(asc(proposedAction.taskSeq))
     .limit(1);
   if (!next) return false;
-  const at = next.runAt && new Date(next.runAt).getTime() > now.getTime() ? new Date(next.runAt) : now;
+  const at = stepDueAt(next.runAt ? new Date(next.runAt) : null, (next.args as { gapHours?: unknown } | null)?.gapHours, now);
   await tx
     .update(proposedAction)
     .set({ status: 'scheduled', runAt: at, updatedAt: sql`now()` })
     .where(and(eq(proposedAction.id, next.id), eq(proposedAction.status, 'blocked')));
   return true;
+}
+
+/** When a released step is due: its own time, else now — but never sooner than `gapHours` after now. Pure. */
+export function stepDueAt(runAt: Date | null, gapHours: unknown, now: Date): Date {
+  const gap = typeof gapHours === 'number' && gapHours > 0 ? gapHours : 0;
+  const earliest = new Date(now.getTime() + gap * 3_600_000);
+  return runAt && runAt.getTime() > earliest.getTime() ? runAt : earliest;
 }
 
 /**
@@ -127,6 +139,24 @@ export async function verifyExecuted(
       return one(tx.select({ id: contact.id }).from(contact).where(eq(contact.id, String(result.contactId))).limit(1));
     case 'remind':
       return one(tx.select({ id: notification.id }).from(notification).where(eq(notification.id, String(result.notificationId))).limit(1));
+    case 'create_listing_draft':
+    case 'update_listing':
+    case 'withdraw_listing':
+    case 'submit_listing':
+      return (await verifyListingAction(tx, args, result)) ? undefined : fail();
+    case 'invite_agent':
+      return one(tx.select({ id: agentInvite.id }).from(agentInvite).where(and(eq(agentInvite.id, String(result.inviteId)), eq(agentInvite.status, 'pending'))).limit(1));
+    case 'send_template_email':
+      // Approved (or already sending or sent, if the Bulk email screen got there first). A list part
+      // with nobody left made no batch: nothing to confirm.
+      if (!result.batchId) return;
+      return one(
+        tx
+          .select({ id: emailBatch.id })
+          .from(emailBatch)
+          .where(and(eq(emailBatch.id, String(result.batchId)), inArray(emailBatch.status, ['approved_sending', 'sent'])))
+          .limit(1),
+      );
     case 'schedule_appointment':
     case 'schedule_team_meeting':
       return one(

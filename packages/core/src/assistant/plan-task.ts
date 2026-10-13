@@ -19,29 +19,86 @@ import { runAssistantTool, type ToolContext, type ToolOutcome } from './tools';
  * ONE plan card listing every step in words with the exact text of anything
  * that reaches another person. Approving the card starts the task.
  */
-type Step = { tool: AssistantWriteTool | 'remind'; args: FrozenArgs; card: ProposalCard; contactId: string | null; at: Date | null };
+export type TaskStep = { tool: AssistantWriteTool | 'remind'; args: FrozenArgs; card: ProposalCard; contactId: string | null; at: Date | null };
+type Step = TaskStep;
 
-export async function proposePlanTask(ctx: ToolContext, input: z.infer<typeof planTaskInput>, label: string): Promise<ToolOutcome> {
+/**
+ * Before any task is planned: inside a conversation, within this answer's cards and the
+ * person's active tasks — or the card this same tool call already made (a retried request).
+ */
+export async function taskGate(ctx: ToolContext, label: string): Promise<{ stop: ToolOutcome } | { key: string }> {
   const { db, actor, proposal } = ctx;
-  if (!proposal || !actor.agencyId) return refused('A plan can only be made inside a conversation.', label);
+  if (!proposal || !actor.agencyId) return { stop: refused('A plan can only be made inside a conversation.', label) };
   if (proposal.made.count >= ASSISTANT_LIMITS.proposalsPerTurn) {
-    return refused(`You have already proposed ${ASSISTANT_LIMITS.proposalsPerTurn} changes in this answer. Ask the person to deal with those cards first.`, label);
+    return { stop: refused(`You have already proposed ${ASSISTANT_LIMITS.proposalsPerTurn} changes in this answer. Ask the person to deal with those cards first.`, label) };
   }
   const key = `${proposal.conversationId}:${proposal.toolUseId}`;
   const [again] = await db.select({ id: proposedAction.id, args: proposedAction.args }).from(proposedAction).where(eq(proposedAction.idempotencyKey, key)).limit(1);
   if (again) {
     const taskId = (again.args as { taskId?: string }).taskId;
-    return { label, frame: { kind: 'proposal', id: again.id, tool: 'plan_task' }, result: { proposed: true, status: 'waiting for the person', ...(taskId ? { task: issueHandle(ctx.handles, 'K', taskId) } : {}) } };
+    return { stop: { label, frame: { kind: 'proposal', id: again.id, tool: 'plan_task' }, result: { proposed: true, status: 'waiting for the person', ...(taskId ? { task: issueHandle(ctx.handles, 'K', taskId) } : {}) } } };
   }
   const [{ n } = { n: 0 }] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(assistantTask)
     .where(and(eq(assistantTask.userId, actor.userId), inArray(assistantTask.status, ['proposed', 'active'])));
   if (n >= TASK_LIMITS.activePerPerson) {
-    return refused(`You already have ${TASK_LIMITS.activePerPerson} tasks planned or running. Let one finish or cancel one first.`, label);
+    return { stop: refused(`You already have ${TASK_LIMITS.activePerPerson} tasks planned or running. Let one finish or cancel one first.`, label) };
   }
+  return { key };
+}
 
-  const latest = new Date(ctx.now.getTime() + TASK_LIMITS.days * 86_400_000);
+/** The latest a task may run: TASK_LIMITS.days from now. */
+export function taskEnd(now: Date): Date {
+  return new Date(now.getTime() + TASK_LIMITS.days * 86_400_000);
+}
+
+/**
+ * Store the task (`proposed`), each step as a `blocked` proposed_action, and ONE card for the
+ * whole of it — approving the card starts the task (`activateTask`).
+ */
+export async function storeTask(
+  ctx: ToolContext,
+  label: string,
+  key: string,
+  task: { title: string; steps: TaskStep[]; card: ProposalCard; contactId?: string | null },
+): Promise<ToolOutcome> {
+  const { db, actor, proposal } = ctx;
+  const latest = taskEnd(ctx.now);
+  const taskId = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(assistantTask)
+      .values({ agencyId: actor.agencyId!, userId: actor.userId, conversationId: proposal!.conversationId, title: task.title, status: 'proposed', endsAt: latest })
+      .returning({ id: assistantTask.id });
+    for (const [i, s] of task.steps.entries()) {
+      await tx.insert(proposedAction).values({
+        agencyId: actor.agencyId!,
+        userId: actor.userId,
+        conversationId: proposal!.conversationId,
+        turnId: proposal!.turnId,
+        contactId: s.contactId,
+        tool: s.tool,
+        args: s.args,
+        card: s.card,
+        status: 'blocked',
+        idempotencyKey: `${key}:step${i + 1}`,
+        expiresAt: latest,
+        runAt: s.at,
+        taskId: row!.id,
+        taskSeq: i + 1,
+      });
+    }
+    return row!.id;
+  });
+  const out = await propose(ctx, label, { tool: 'plan_task', args: { tool: 'plan_task', taskId }, card: task.card, contactId: task.contactId ?? null });
+  return { ...out, result: { ...(out.result as Record<string, unknown>), task: issueHandle(ctx.handles, 'K', taskId), steps: task.steps.length } };
+}
+
+export async function proposePlanTask(ctx: ToolContext, input: z.infer<typeof planTaskInput>, label: string): Promise<ToolOutcome> {
+  const gate = await taskGate(ctx, label);
+  if ('stop' in gate) return gate.stop;
+
+  const latest = taskEnd(ctx.now);
   const steps: Step[] = [];
   for (const [i, step] of input.steps.entries()) {
     const name = `Step ${i + 1} (${step.tool})`;
@@ -72,8 +129,13 @@ export async function proposePlanTask(ctx: ToolContext, input: z.infer<typeof pl
     // The tool's own path, in plan mode: parse, permission gates, references, card — collected, not stored.
     const collected: Omit<Step, 'at'>[] = [];
     const out = await runAssistantTool({ ...ctx, plan: { collect: (s) => collected.push(s) } }, step.tool, step.input);
-    const said = out.result as { error?: string; tell_the_user?: string; proposed?: boolean };
-    if (out.isError || said.proposed === false) return refused(`${name}: ${said.error ?? said.tell_the_user ?? 'it could not be planned'}`, label);
+    const said = out.result as { error?: string; tell_the_user?: string; proposed?: boolean; needs_connection?: unknown };
+    if (out.isError || said.proposed === false) {
+      const no = refused(`${name}: ${said.error ?? said.tell_the_user ?? 'it could not be planned'}`, label);
+      // "Connect X first" for a step keeps its shape and its Connect button (ADR 0040 part 2 §1).
+      if (said.needs_connection) return { ...no, result: { ...(no.result as object), needs_connection: said.needs_connection }, ...(out.frame ? { frame: out.frame } : {}) };
+      return no;
+    }
     if (collected.length !== 1) return refused(`${name}: it could not be planned as one step.`, label);
     steps.push({ ...collected[0]!, at });
   }
@@ -98,32 +160,5 @@ export async function proposePlanTask(ctx: ToolContext, input: z.infer<typeof pl
     ],
   };
 
-  const taskId = await db.transaction(async (tx) => {
-    const [task] = await tx
-      .insert(assistantTask)
-      .values({ agencyId: actor.agencyId!, userId: actor.userId, conversationId: proposal.conversationId, title: input.title, status: 'proposed', endsAt: latest })
-      .returning({ id: assistantTask.id });
-    for (const [i, s] of steps.entries()) {
-      await tx.insert(proposedAction).values({
-        agencyId: actor.agencyId!,
-        userId: actor.userId,
-        conversationId: proposal.conversationId,
-        turnId: proposal.turnId,
-        contactId: s.contactId,
-        tool: s.tool,
-        args: s.args,
-        card: s.card,
-        status: 'blocked',
-        idempotencyKey: `${key}:step${i + 1}`,
-        expiresAt: latest,
-        runAt: s.at,
-        taskId: task!.id,
-        taskSeq: i + 1,
-      });
-    }
-    return task!.id;
-  });
-
-  const out = await propose(ctx, label, { tool: 'plan_task', args: { tool: 'plan_task', taskId }, card, contactId: null });
-  return { ...out, result: { ...(out.result as Record<string, unknown>), task: issueHandle(ctx.handles, 'K', taskId), steps: steps.length } };
+  return storeTask(ctx, label, gate.key, { title: input.title, steps, card });
 }

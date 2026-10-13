@@ -379,6 +379,16 @@ function aiSkipReason(liveAi: boolean): string {
 const suburbsOf = (rows: PublicListingSummary[]) => [...new Set(rows.map((r) => r.suburb))];
 
 async function main() {
+  /**
+   * The owner's switch (2026-10-13): SMOKE_ENABLED=false in .env.local turns `pnpm smoke` off — it is
+   * slow against the Sydney database. Nothing is checked, and the run says so plainly rather than
+   * looking like a pass. One run anyway: `SMOKE_ENABLED=true pnpm smoke` (a shell variable wins
+   * over the file). Unset means on.
+   */
+  if (/^(false|0|no|off)$/i.test(process.env.SMOKE_ENABLED?.trim() ?? '')) {
+    process.stdout.write('Smoke is switched OFF (SMOKE_ENABLED=false in .env.local) — NOTHING was checked.\nRun it once anyway with: SMOKE_ENABLED=true pnpm smoke\n');
+    process.exit(0);
+  }
   const url = process.env.DATABASE_URL;
   if (!url) {
     process.stdout.write('DATABASE_URL is not set — nothing can be checked.\n');
@@ -6597,6 +6607,183 @@ async function main() {
 
   // ------------------------------------------------------- tenant isolation --
   // ------------------------------------------- new email and team messages --
+  // ── ADR 0040 part 2: connect shape, saved lists in parts, invites, listings ──────────────────
+
+  await check('part 2 §1: "Connect Zoom first" has one shape — a card and a plan step both return needs_connection and the Connect frame, and propose nothing', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const a1 = f.actor('a1');
+      const conv = await claimTurn(t, a1, { message: 'zoom', surface: 'agent' });
+      const handles: HandleMap = {};
+      const c = issueHandle(handles, 'C', f.contacts.p1);
+      const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Melbourne' }).format(new Date(Date.now() + 2 * 86_400_000));
+      const input = { contact: c, type: 'zoom', title: 'Zoom call', date: day, time: '11:00' };
+      const before = await count(t, sql`select count(*)::int as n from proposed_action where user_id = ${f.people.a1}`);
+      const card = await runAssistantTool(proposeCtx(t, a1, handles, conv.conversationId), 'schedule_appointment', input);
+      const plan = await runAssistantTool(proposeCtx(t, a1, handles, conv.conversationId), 'plan_task', { title: 'Zoom', steps: [{ tool: 'schedule_appointment', input }] });
+      for (const [what, out] of [['card', card], ['plan', plan]] as const) {
+        const r = out.result as { needs_connection?: { provider: string; may_connect: boolean }[] };
+        assert(r.needs_connection?.[0]?.provider === 'zoom', `${what}: ${JSON.stringify(out.result)}`);
+        assert((out.frame as { kind?: string } | undefined)?.kind === 'connections', `${what}: no Connect frame`);
+        assert(!JSON.stringify(out.result).includes('http'), `${what}: a URL reached the model`);
+      }
+      assert((await count(t, sql`select count(*)::int as n from proposed_action where user_id = ${f.people.a1}`)) === before, 'something was proposed');
+      return 'card and plan step: needs_connection [zoom] + connections frame; no URL to the model; nothing proposed';
+    }),
+  );
+
+  /** A1 with `n` more contacts who agreed to marketing, and a saved list of everyone assigned to A1. */
+  async function listFixture(t: Db, n: number, limits?: Parameters<typeof emailCardFixture>[1]) {
+    const x = await emailCardFixture(t, limits);
+    for (let i = 0; i < n; i++) {
+      await t.execute(sql`
+        insert into contact (agency_id, name, email, assigned_to, marketing_consent_at)
+        values (${x.f.agencyId}, ${`Buyer ${String(i).padStart(2, '0')}`}, ${`buyer${i}.${x.f.tag}@smoke.test`}, ${x.f.people.a1}, now())`);
+    }
+    const filter = await saveContactFilter(t, x.f.actor('a1'), `Mine ${x.f.tag}`, { assigned: 'me' });
+    const out = await runAssistantTool(toolCtx(t, x.f.actor('a1'), x.h), 'find_saved_lists', {});
+    const lists = (out.result as { lists: { ref: string; name: string }[] }).lists;
+    const ref = lists.find((l) => l.name === `Mine ${x.f.tag}`)?.ref;
+    assert(ref?.startsWith('F'), `find_saved_lists: ${JSON.stringify(out.result)}`);
+    return { ...x, filterId: filter.id, listRef: ref! };
+  }
+
+  await check('part 2 §2: a saved list over one batch is ONE card; Approve sends part 1 now, part 2 a day later — classified again when it runs', async () =>
+    inRollback(async (t) => {
+      const x = await listFixture(t, 23);
+      const a1 = x.f.actor('a1');
+      const out = await runAssistantTool(proposeCtx(t, a1, x.h, x.conv.conversationId), 'send_template_email', { template: x.ref(x.tpl.id), list: x.listRef });
+      const id = cardId(out);
+      const card = await getProposedAction(t, a1, id);
+      const going = (card.card.people ?? []).filter((p) => p.willReceive);
+      const parts = (out.result as { parts?: number }).parts ?? 0;
+      assert(card.tool === 'plan_task' && going.length >= 25 && parts === Math.ceil(going.length / 20), `card: ${card.tool}, ${going.length} going, ${parts} parts`);
+      assert(/Opted out/.test(JSON.stringify(card.card.people)) && /consent/i.test(JSON.stringify(card.card.people)), 'skips not on the card');
+      assert((await count(t, sql`select count(*)::int as n from email_batch where agency_id = ${x.f.agencyId}`)) === 0, 'a batch was prepared before Approve');
+      const taskId = await taskIdOf(t, id);
+      assert((await taskRows(t, taskId)).every((r) => /send_template_email:blocked$/.test(r)), `before: ${await taskRows(t, taskId)}`);
+
+      const approved = await approveProposedAction(t, a1, id, { templateSend: x.deps });
+      assert(approved.outcome === 'done', `approve: ${JSON.stringify(approved)}`);
+      const rows1 = await taskRows(t, taskId);
+      assert(rows1[0] === '1:send_template_email:done' && rows1[1] === '2:send_template_email:scheduled', `after approve: ${rows1}`);
+      assert(x.transport.sent.length === 20, `part 1 sent ${x.transport.sent.length}`);
+      const [due] = await t.execute<{ run_at: string }>(sql`select run_at from proposed_action where task_id = ${taskId} and task_seq = 2`);
+      assert(new Date(due!.run_at).getTime() > Date.now() + 23 * 3_600_000, `part 2 due ${due!.run_at}`);
+
+      // Part 2 waits for its day; meanwhile one of its people unsubscribes — the part classifies them again.
+      await runScheduledActions(t, { templateSend: x.deps }, new Date(Date.now() + 3_600_000));
+      assert((await taskRows(t, taskId))[1] === '2:send_template_email:scheduled', 'part 2 ran early');
+      const [p2] = await t.execute<{ ids: string[] }>(sql`select args->'contactIds' as ids from proposed_action where task_id = ${taskId} and task_seq = 2`);
+      await t.execute(sql`update contact set email_opt_out_at = now() where id = ${p2!.ids[0]!}`);
+      await runScheduledActions(t, { templateSend: x.deps }, new Date(Date.now() + 25 * 3_600_000));
+      const rows2 = await taskRows(t, taskId);
+      assert(rows2[1] === '2:send_template_email:done', `part 2: ${rows2}`);
+      assert(x.transport.sent.length === 20 + p2!.ids.length - 1, `sent ${x.transport.sent.length}, part 2 had ${p2!.ids.length} with one unsubscribed`);
+      if (parts === 2) assert((await taskStatus(t, taskId)).status === 'done', 'task not done');
+      return `${going.length} on one card in ${parts} parts; part 1 sent 20 on Approve; part 2 waited ~24 h and skipped the one who unsubscribed (sent ${p2!.ids.length - 1})`;
+    }),
+  );
+
+  await check('part 2 §2: a part over today’s email limit waits an hour and tries again — the list is not abandoned', async () =>
+    inRollback(async (t) => {
+      const x = await listFixture(t, 23, { perBatch: 20, perAgentDay: 22, perAgencyDay: 200, repeatDays: 7, sendDelayMs: 0 });
+      const a1 = x.f.actor('a1');
+      const id = cardId(await runAssistantTool(proposeCtx(t, a1, x.h, x.conv.conversationId), 'send_template_email', { template: x.ref(x.tpl.id), list: x.listRef }));
+      const taskId = await taskIdOf(t, id);
+      await approveProposedAction(t, a1, id, { templateSend: x.deps });
+      const at = new Date(Date.now() + 25 * 3_600_000);
+      const report = await runScheduledActions(t, { templateSend: x.deps }, at);
+      const [p2] = await t.execute<{ status: string; run_at: string; result: { waiting?: string } | null }>(sql`select status, run_at, result from proposed_action where task_id = ${taskId} and task_seq = 2`);
+      assert(report.waiting === 1 && p2!.status === 'scheduled' && /daily|limit/i.test(p2!.result?.waiting ?? ''), `part 2: ${JSON.stringify(p2)} / ${JSON.stringify(report)}`);
+      assert(Math.abs(new Date(p2!.run_at).getTime() - (at.getTime() + 3_600_000)) < 5_000, `retry at ${p2!.run_at}`);
+      assert((await taskStatus(t, taskId)).status === 'active', 'the task stopped');
+      assert((await count(t, sql`select count(*)::int as n from email_batch where agency_id = ${x.f.agencyId}`)) === 1, 'the waiting part left a batch behind');
+      return 'part 2 over the 22/day limit: scheduled again +1 h with the reason, task still active, no stray batch';
+    }),
+  );
+
+  await check('part 2 §3: invite_agent — owners/admins only; refused for an existing member; Approve creates the invite and emails the link once', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const conv = await claimTurn(t, owner, { message: 'invite', surface: 'agency' });
+      const handles: HandleMap = {};
+      const base = { first_name: 'Sara', last_name: 'Khan', phone: '0418 920 441', licence_number: '20123456', territory_suburbs: ['Ryde'] };
+      const agent = await runAssistantTool(proposeCtx(t, f.actor('a1'), handles, conv.conversationId), 'invite_agent', { ...base, email: `sara.${f.tag}@smoke.test` });
+      assert(agent.isError && /owner or admin/.test(JSON.stringify(agent.result)), `agent: ${JSON.stringify(agent.result)}`);
+      const member = await runAssistantTool(proposeCtx(t, owner, handles, conv.conversationId), 'invite_agent', { ...base, email: `a2.${f.tag}@smoke.test` });
+      assert(member.isError && /already a member/.test(JSON.stringify(member.result)), `existing member: ${JSON.stringify(member.result)}`);
+      const email = `sara.${f.tag}@smoke.test`;
+      const id = cardId(await runAssistantTool(proposeCtx(t, owner, handles, conv.conversationId), 'invite_agent', { ...base, email }));
+      const card = await getProposedAction(t, owner, id);
+      assert(card.card.lines.some((l) => /Email/.test(l.label) && l.value === email) && card.card.lines.some((l) => l.label === 'Commission'), `card: ${JSON.stringify(card.card.lines)}`);
+      assert((await count(t, sql`select count(*)::int as n from agent_invite where agency_id = ${f.agencyId}`)) === 0, 'an invite exists before Approve');
+      assert(!card.scheduling, 'an invite was offered "later"');
+      const transport = fakeTransport();
+      const inviteMail = { mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport }, agentUrl: 'https://agents.smoke' };
+      const r1 = await approveProposedAction(t, owner, id, { inviteMail });
+      const r2 = await approveProposedAction(t, owner, id, { inviteMail });
+      assert(r1.outcome === 'done' && r2.outcome === 'already', `approve: ${JSON.stringify(r1)} / ${JSON.stringify(r2)}`);
+      const [inv] = await t.execute<{ status: string; email: string }>(sql`select status, email from agent_invite where agency_id = ${f.agencyId}`);
+      assert(inv?.status === 'pending' && inv.email === email, `invite: ${JSON.stringify(inv)}`);
+      assert(transport.sent.length === 1 && JSON.stringify(transport.sent[0]).includes(email), `emails: ${transport.sent.length}`);
+      return 'agent refused; existing member refused; card shows email and defaults; one invite, one email, second Approve ran nothing';
+    }),
+  );
+
+  await check('part 2 §4: listings — a draft (never live, read-only refused); an edit refused if changed since, else only the named fields; withdraw; submit; owners told to publish themselves', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const [lst] = await t.execute<{ id: string }>(sql`select listing_id as id from listing_agent where user_id = ${f.people.a1} limit 1`);
+      await t.execute(sql`update listing set headline = 'Smoke home', price_display = 'Offers over $900,000', auction_date = now() + interval '30 days' where id = ${lst!.id}`);
+      const a1 = { ...f.actor('a1'), listingAgentOf: [lst!.id] };
+      const owner = f.actor('owner');
+      const conv = await claimTurn(t, a1, { message: 'listing', surface: 'agent' });
+      const handles: HandleMap = {};
+      const ctx = () => proposeCtx(t, a1, handles, conv.conversationId);
+      const saved = process.env.GOOGLE_MAPS_API_KEY;
+      delete process.env.GOOGLE_MAPS_API_KEY; // never a paid geocoder call from smoke
+      try {
+        const draftIn = { channel: 'sale', street_number: '7', street: 'Smoke Lane', suburb: 'Pakenham', state: 'VIC', postcode: '3810', headline: 'Smoke draft', price_display: 'Contact agent', bedrooms: 3 };
+        const viewer = await runAssistantTool(proposeCtx(t, f.actor('viewer'), handles, conv.conversationId), 'create_listing_draft', draftIn);
+        assert(viewer.isError, `read-only member: ${JSON.stringify(viewer.result)}`);
+        const c1 = cardId(await runAssistantTool(ctx(), 'create_listing_draft', draftIn));
+        const d1 = await approveProposedAction(t, a1, c1);
+        assert(d1.outcome === 'done', `draft: ${JSON.stringify(d1)}`);
+        const newId = String((d1 as { result: Record<string, unknown> }).result.listingId);
+        const [made] = await t.execute<{ status: string; headline: string; agent: string }>(sql`select l.status, l.headline, (select user_id from listing_agent where listing_id = l.id limit 1) as agent from listing l where id = ${newId}`);
+        assert(made?.status === 'draft' && made.headline === 'Smoke draft' && made.agent === f.people.a1, `made: ${JSON.stringify(made)}`);
+      } finally {
+        if (saved !== undefined) process.env.GOOGLE_MAPS_API_KEY = saved;
+      }
+
+      const p = issueHandle(handles, 'P', lst!.id);
+      const e1 = cardId(await runAssistantTool(ctx(), 'update_listing', { listing: p, price_display: 'Offers over $950,000', bedrooms: 4 }));
+      await t.execute(sql`update property set bedrooms = 5 where id = (select property_id from listing where id = ${lst!.id})`);
+      const stale = await approveProposedAction(t, a1, e1);
+      assert(stale.outcome === 'failed' && /changed since/.test((stale as { error: string }).error), `stale edit: ${JSON.stringify(stale)}`);
+      const e2 = cardId(await runAssistantTool(ctx(), 'update_listing', { listing: p, price_display: 'Offers over $950,000' }));
+      const edited = await approveProposedAction(t, a1, e2);
+      const [after] = await t.execute<{ price_display: string; headline: string; bedrooms: number; auction: boolean; status: string }>(sql`
+        select l.price_display, l.headline, pr.bedrooms, l.auction_date is not null as auction, l.status from listing l join property pr on pr.id = l.property_id where l.id = ${lst!.id}`);
+      assert(edited.outcome === 'done' && after?.price_display === 'Offers over $950,000' && after.headline === 'Smoke home' && Number(after.bedrooms) === 5 && after.auction === true && after.status === 'live', `edit: ${JSON.stringify(edited)} / ${JSON.stringify(after)}`);
+
+      const owned = await runAssistantTool(proposeCtx(t, owner, { ...handles }, conv.conversationId), 'submit_listing', { listing: p });
+      assert((owned.result as { proposed?: boolean; tell_the_user?: string }).proposed === false && /publish it yourself/.test(JSON.stringify(owned.result)), `owner submit: ${JSON.stringify(owned.result)}`);
+      const w = cardId(await runAssistantTool(ctx(), 'withdraw_listing', { listing: p }));
+      assert((await approveProposedAction(t, a1, w)).outcome === 'done', 'withdraw');
+      const s = cardId(await runAssistantTool(ctx(), 'submit_listing', { listing: p }));
+      assert((await approveProposedAction(t, a1, s)).outcome === 'done', 'submit');
+      const [st] = await t.execute<{ status: string }>(sql`select status from listing where id = ${lst!.id}`);
+      assert(st?.status === 'pending', `status ${st?.status}`);
+      await t.execute(sql`update listing set status = 'sold' where id = ${lst!.id}`);
+      const sold = await runAssistantTool(ctx(), 'withdraw_listing', { listing: p });
+      assert(sold.isError && /sold/.test(JSON.stringify(sold.result)), `sold: ${JSON.stringify(sold.result)}`);
+      return 'draft saved as draft with A1 as agent (read-only refused); stale edit refused; edit changed only the price wording (auction date kept, still live); withdrawn, then pending; owner told to publish; sold refused';
+    }),
+  );
+
   group('New email and team messages');
 
   /**

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
 import { ASSISTANT_TOOLS, assistantToolsFor } from '../tools/assistant-tools';
-import { ASSISTANT_SYSTEM } from '../prompts/assistant-v15';
+import { ASSISTANT_SYSTEM } from '../prompts/assistant-v16';
 import { contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
 /**
@@ -384,7 +384,16 @@ describe('proposals (Phases B and C)', () => {
     // only after they approve, exactly as if they had typed it on the Agents & Team screen.
     // create_contact's `email` (ADR 0040): the NEW contact's own address, shown on the card and saved;
     // nothing is sent to it, and a contact already holding it means no card at all.
-    expect(ASSISTANT_TOOLS.filter((t) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(t.name) && 'email' in (t.input_schema as { properties: Record<string, unknown> }).properties).map((t) => t.name).sort()).toEqual(['create_contact', 'update_agent', 'update_contact']);
+    // invite_agent's `email` (ADR 0040 part 2 §3): the address an owner/admin gave for the person they
+    // are inviting — exactly what the Agents & Team wizard takes. It is on the card before anything
+    // is sent, the invite link goes to it only after THEY approve, and only owners/admins are shown
+    // the tool (team:manage, asserted under "tools by role"). Never a contact, never a list.
+    expect(ASSISTANT_TOOLS.filter((t) => (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(t.name) && 'email' in (t.input_schema as { properties: Record<string, unknown> }).properties).map((t) => t.name).sort()).toEqual(['create_contact', 'invite_agent', 'update_agent', 'update_contact']);
+    const invite = ASSISTANT_TOOLS.find((t) => t.name === 'invite_agent')!;
+    expect(invite.description).toMatch(/owners and admins only/);
+    for (const email of ['Sara', 'C1', 'F1', 'everyone']) {
+      expect(ASSISTANT_TOOL_INPUTS.invite_agent.safeParse({ first_name: 'S', last_name: 'K', email, phone: '0418 920 441', licence_number: '1', territory_suburbs: ['Ryde'] }).success, email).toBe(false);
+    }
     const update = ASSISTANT_TOOLS.find((t) => t.name === 'update_contact')!;
     expect(Object.keys((update.input_schema as { properties: Record<string, unknown> }).properties).sort()).toEqual(['contact', 'email', 'name', 'phone', 'roles']);
     expect(update.description).toMatch(/Nothing is sent|cannot change who the contact is assigned to/);
@@ -405,9 +414,29 @@ describe('proposals (Phases B and C)', () => {
     }
     expect(ASSISTANT_TOOL_INPUTS.send_email.safeParse({ contact: 'C1', subject: 's', body: 'b', to: 'x@example.com' }).success).toBe(false);
     expect(direct.description).toMatch(/never invent a price, date, time or any figure/);
-    // The template email card takes a template reference and contact references — no subject, body, address or filter.
+    // The template email card takes a template reference and contact references — no subject, body, address or filter —
+    // or (ADR 0040 part 2 §2) `list`: ONE F reference to the person's OWN saved list, issued only by
+    // find_saved_lists, resolved through the directory's own rule. Never a query, never a name, never both.
     const send = ASSISTANT_TOOLS.find((t) => t.name === 'send_template_email')!;
-    expect(Object.keys((send.input_schema as { properties: Record<string, unknown> }).properties).sort()).toEqual(['recipients', 'template']);
+    expect(Object.keys((send.input_schema as { properties: Record<string, unknown> }).properties).sort()).toEqual(['list', 'recipients', 'template']);
+    for (const list of ['Parramatta buyers', 'C1', 'S1', 'M1', '{"suburb":"Ryde"}', '55555555-5555-4555-8555-555555555555']) {
+      expect(ASSISTANT_TOOL_INPUTS.send_template_email.safeParse({ template: 'T1', list }).success, list).toBe(false);
+    }
+    expect(ASSISTANT_TOOL_INPUTS.send_template_email.safeParse({ template: 'T1', list: 'F1' }).success).toBe(true);
+    expect(ASSISTANT_TOOL_INPUTS.send_template_email.safeParse({ template: 'T1', list: 'F1', recipients: ['C1'] }).success).toBe(false);
+    expect(ASSISTANT_TOOL_INPUTS.send_template_email.safeParse({ template: 'T1' }).success).toBe(false);
+    // Listings (ADR 0040 part 2 §4): no tool publishes, and no field takes a status, an agent or an agency.
+    expect(ASSISTANT_TOOLS.map((t) => t.name).filter((n) => /publish|live/.test(n))).toEqual([]);
+    for (const name of ['create_listing_draft', 'update_listing']) {
+      const keys = Object.keys((ASSISTANT_TOOLS.find((t) => t.name === name)!.input_schema as { properties: Record<string, unknown> }).properties);
+      expect(keys.filter((k) => /status|publish|agent|agency|owner|user|live/.test(k)), name).toEqual([]);
+    }
+    expect(ASSISTANT_TOOL_INPUTS.create_listing_draft.safeParse({ channel: 'sale', suburb: 'Ryde', state: 'NSW', postcode: '2112', headline: 'h', status: 'live' }).success).toBe(false);
+    expect(ASSISTANT_TOOL_INPUTS.update_listing.safeParse({ listing: 'P1', status: 'live' }).success).toBe(false);
+    for (const listing of ['C1', 'L1', '55555555-5555-4555-8555-555555555555', '12 George St']) {
+      expect(ASSISTANT_TOOL_INPUTS.withdraw_listing.safeParse({ listing }).success, listing).toBe(false);
+      expect(ASSISTANT_TOOL_INPUTS.submit_listing.safeParse({ listing }).success, listing).toBe(false);
+    }
     expect(ASSISTANT_SYSTEM).toMatch(/cannot approve/);
   });
 });
@@ -437,7 +466,7 @@ describe('a booking card may carry the invitation (ADR 0032)', () => {
 
 describe('tools by role: assigning contacts is offered to owners and admins only', () => {
   const as = (membershipRole: 'owner' | 'admin' | 'agent' | 'assistant' | 'property_manager' | 'read_only') => ({ userId: 'u', agencyId: 'a', membershipRole });
-  const ADMIN_ONLY = ['assign_contacts', 'find_team_members', 'find_agents', 'update_agent', 'remove_agent'];
+  const ADMIN_ONLY = ['assign_contacts', 'find_team_members', 'find_agents', 'update_agent', 'remove_agent', 'invite_agent'];
 
   it('an agent, assistant, property manager or read-only member is never shown the assign tools', () => {
     for (const role of ['agent', 'assistant', 'property_manager', 'read_only'] as const) {

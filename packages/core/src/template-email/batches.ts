@@ -94,6 +94,16 @@ export type PrepareInput =
 /** At most this many explicit contacts — the assistant's own cap, and well inside a batch. */
 export const MAX_PICKED_CONTACTS = 20;
 
+/** Who a batch would go to, classified — before anything is stored. */
+export type ClassifiedRecipients = {
+  agencyId: string;
+  template: { id: string; name: string; subject: string; body: string };
+  filter: { id: string; name: string; query: unknown } | null;
+  picked: string[] | null;
+  query: unknown;
+  recipients: { contactId: string; name: string; email: string | null; status: RecipientStatus; skipReason: SkipReason | null }[];
+};
+
 export async function prepareBatch(
   db: Db,
   actor: Actor,
@@ -101,6 +111,26 @@ export async function prepareBatch(
   limits: TemplateLimits,
   now = new Date(),
 ): Promise<{ id: string; notFound: number }> {
+  const c = await classifyRecipients(db, actor, input, limits);
+  if (!c.recipients.length) {
+    throw new TemplateEmailError('invalid', c.picked ? 'None of those contacts were found' : 'Nobody matches that filter');
+  }
+  return storePreparedBatch(db, actor, c, now);
+}
+
+/**
+ * Resolve and classify (ADR 0022's rule, one place): who this person may see
+ * among the filter's or the picked contacts, and for each whether they will
+ * be sent to or skipped and why. Past `limits.perBatch`, a qualifying person
+ * is skipped `batch_limit`. Nothing is written. The assistant's list card
+ * (ADR 0040 part 2 §2) uses it to show a whole list before any batch exists.
+ */
+export async function classifyRecipients(
+  db: DbOrTx,
+  actor: Actor,
+  input: PrepareInput,
+  limits: TemplateLimits,
+): Promise<ClassifiedRecipients> {
   if (!actor.agencyId || !can(actor, 'email_batch:create', { type: 'email_batch', agencyId: actor.agencyId })) {
     throw new TemplateEmailError('forbidden', 'You cannot prepare bulk email');
   }
@@ -157,9 +187,6 @@ export async function prepareBatch(
     )
     .orderBy(asc(contact.name), asc(contact.id))
     .limit(2000);
-  if (!rows.length) {
-    throw new TemplateEmailError('invalid', picked ? 'None of those contacts were found' : 'Nobody matches that filter');
-  }
 
   let toSend = 0;
   const recipients = rows.map((r) => {
@@ -176,12 +203,24 @@ export async function prepareBatch(
     }
     return { contactId: r.id, name: r.name, email: r.email, status: (reason ? 'skipped' : 'queued') as RecipientStatus, skipReason: reason };
   });
+  return {
+    agencyId,
+    template: { id: tpl.id, name: tpl.name, subject: tpl.subject, body: tpl.body },
+    filter,
+    picked,
+    query,
+    recipients,
+  };
+}
 
+/** Freeze a classified list as a prepared batch: the batch and every recipient, or none of them. */
+export async function storePreparedBatch(db: Db, actor: Actor, c: ClassifiedRecipients, now = new Date()): Promise<{ id: string; notFound: number }> {
+  const { template: tpl, filter, picked, query, recipients } = c;
   return db.transaction(async (tx) => {
     const [batch] = await tx
       .insert(emailBatch)
       .values({
-        agencyId,
+        agencyId: c.agencyId,
         userId: actor.userId,
         templateId: tpl.id,
         filterId: filter?.id ?? null,
@@ -197,7 +236,7 @@ export async function prepareBatch(
     for (let i = 0; i < recipients.length; i += 500) {
       await tx.insert(emailBatchRecipient).values(recipients.slice(i, i + 500).map((r) => ({ ...r, batchId: id })));
     }
-    return { id, notFound: picked ? picked.length - rows.length : 0 };
+    return { id, notFound: picked ? picked.length - recipients.length : 0 };
   });
 }
 

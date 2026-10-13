@@ -448,9 +448,12 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       return sameAgency(actor, resource) && Boolean(actor.membershipRole);
 
     case 'listing:create':
-      // Any active member of the agency may draft a listing; publishing it is
-      // a separate decision, and every new listing starts as a draft.
-      return sameAgency(actor, resource) && Boolean(actor.membershipRole);
+      // Any active member of the agency who may write may draft a listing;
+      // publishing it is a separate decision, and every new listing starts as
+      // a draft. Not a read-only member: they look and never touch (the rule of
+      // 2026-10-05) — `Boolean(membershipRole)` let them draft one (found with
+      // the assistant's listing tools, ADR 0040 part 2 §4).
+      return sameAgency(actor, resource) && mayWrite(actor);
 
     case 'listing:edit':
     case 'listing:submit':

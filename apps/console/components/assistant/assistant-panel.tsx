@@ -40,9 +40,9 @@ type Turn = {
   pending: boolean;
 };
 
-const PATHS: Record<Surface, { contact: string; leads: string; templates: string; bulk: string; integrations: string; inbox: string; messages: string }> = {
-  agency: { contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', bulk: '/bulk-email', integrations: '/settings/integrations', inbox: '/inbox', messages: '/messages' },
-  agent: { contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', bulk: '/my-bulk-email', integrations: '/my-integrations', inbox: '/my-inbox', messages: '/my-messages' },
+const PATHS: Record<Surface, { contact: string; leads: string; templates: string; bulk: string; integrations: string; inbox: string; messages: string; listings: string }> = {
+  agency: { contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', bulk: '/bulk-email', integrations: '/settings/integrations', inbox: '/inbox', messages: '/messages', listings: '/live-listings' },
+  agent: { contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', bulk: '/my-bulk-email', integrations: '/my-integrations', inbox: '/my-inbox', messages: '/my-messages', listings: '/listings' },
 };
 
 const CONTACT_PAGE = /^\/(?:customers|my-contacts)\/([0-9a-f-]{36})(?:\/|$)/i;
@@ -395,17 +395,28 @@ function FrameView({ frame, surface }: { frame: AssistantFrame; surface: Surface
             <li key={r.provider}>
               <span>{r.label}</span>
               <span className={styles.meta}>
-                {r.state === 'connected' ? `Connected${r.whose === 'agency' ? ' (agency)' : ''}` : (
-                  <>
-                    Not usable ({r.state.replace('_', ' ')}) — <Link href={p.integrations}>Connect {r.label} first</Link>
-                  </>
-                )}
+                {r.state === 'connected' ? `Connected${r.whose === 'agency' ? ' (agency)' : ''}` : `Not usable (${r.state.replace('_', ' ')})`}
               </span>
+              {r.state === 'connected' ? null : <ConnectButton label={r.label} mayConnect={r.mayConnect} href={p.integrations} />}
             </li>
           ))}
         </FrameBox>
       );
   }
+}
+
+/**
+ * "Connect X first" as a button (ADR 0040 part 2 §1). The link is this surface's own
+ * Integrations page — never a URL from the model. Someone who may not connect it (the
+ * agency's account, for an agent) is told who can.
+ */
+function ConnectButton({ label, mayConnect, href }: { label: string; mayConnect: boolean; href: string }) {
+  if (!mayConnect) return <span className={styles.meta}>Ask an owner or admin to connect the agency’s {label}.</span>;
+  return (
+    <Link href={href} className={styles.connect}>
+      Connect {label}
+    </Link>
+  );
 }
 
 function FrameBox({ title, total, shown, children }: { title: string; total?: number; shown?: number; children: React.ReactNode }) {
@@ -503,7 +514,11 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
             ? `${PATHS[surface].inbox}?thread=${view.result.threadId}`
             : view.tool === 'message_colleagues' && view.result?.teamThreadId
               ? `${PATHS[surface].messages}?thread=${view.result.teamThreadId}`
-          : view.tool === 'update_agent' || view.tool === 'remove_agent'
+            : view.tool === 'plan_task' && card.people?.length
+              ? PATHS[surface].bulk
+            : /_listing/.test(view.tool) && view.result?.listingId
+              ? `${PATHS[surface].listings}/${view.result.listingId}/edit`
+          : view.tool === 'update_agent' || view.tool === 'remove_agent' || view.tool === 'invite_agent'
             ? '/team'
             : card.contact.id
             ? `${contactHref}?tab=${view.tool === 'add_note' ? 'notes' : /appointment/.test(view.tool) ? 'calendar' : 'overview'}`
@@ -515,7 +530,11 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
         ? 'Open the send report'
         : view.tool === 'send_email' || view.tool === 'message_colleagues'
           ? 'Open the conversation'
-        : view.tool === 'update_agent' || view.tool === 'remove_agent'
+        : view.tool === 'plan_task' && card.people?.length
+          ? 'Open Bulk email'
+        : /_listing/.test(view.tool)
+          ? 'Open the listing'
+        : view.tool === 'update_agent' || view.tool === 'remove_agent' || view.tool === 'invite_agent'
           ? 'Open Agents & Team'
           : `Open ${card.contact.name}`;
   /**
@@ -544,7 +563,7 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
       {card.text ? (
         <div className={styles.cardText}>
           <div className={styles.label}>
-            {card.text.label} — exactly as it will be {view.tool === 'send_email' || view.tool === 'message_colleagues' ? 'sent' : 'saved'}
+            {card.text.label} — exactly as it will be {view.tool === 'send_email' || view.tool === 'message_colleagues' || card.people?.length ? 'sent' : 'saved'}
           </div>
           {card.text.value}
         </div>
@@ -608,6 +627,13 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
           {view.result.invited ? 'Booked, and the invitation was emailed.' : `Booked. ${view.result.invitationError}`}
         </p>
       ) : null}
+      {view.status === 'done' && view.tool === 'invite_agent' ? (
+        <p className={styles.cardNote}>
+          {view.result?.emailed
+            ? 'Invited — the link was emailed to them.'
+            : 'Invited, but the link was not emailed — copy it from Agents & Team → Pending invites.'}
+        </p>
+      ) : null}
       {view.status === 'done' && view.tool === 'update_agent' && view.result?.claimPath ? (
         <p className={styles.cardNote}>
           {view.result.emailed
@@ -627,6 +653,13 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
         </p>
       ) : null}
       {view.error ? <div className={styles.error}>{view.error}</div> : null}
+      {view.status === 'failed' && view.result?.needsConnection?.length ? (
+        <div className={styles.connectRow}>
+          {view.result.needsConnection.map((a) => (
+            <ConnectButton key={a.provider} label={a.label} mayConnect={a.mayConnect} href={PATHS[surface].integrations} />
+          ))}
+        </div>
+      ) : null}
       {message ? <div className={styles.error}>{message}</div> : null}
       {view.mayDecide && view.scheduling ? (
         <div className={styles.cardNote}>

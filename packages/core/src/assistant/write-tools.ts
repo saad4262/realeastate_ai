@@ -41,6 +41,7 @@ import {
   type TeamTarget,
 } from '../team/edit-member';
 import { offboardingPreview, OffboardError } from '../team/offboarding';
+import { proposeListEmail } from './list-send';
 import type { z } from 'zod';
 
 /**
@@ -141,14 +142,26 @@ export async function proposeSetNextAction(ctx: ToolContext, input: z.infer<type
 }
 
 /**
- * "Connect X first": the answer when an account the action needs is not
- * usable. Nothing is proposed; the panel shows the accounts with a link.
+ * The one shape of "Connect X first" (ADR 0040 part 2 §1): which accounts are
+ * missing and whether this person may connect each. The panel draws a Connect
+ * button per account from the `connections` frame — the link is the surface's
+ * own Integrations page, never a URL the model was given or could repeat.
  */
-async function connectFirst(ctx: ToolContext, providers: IntegrationProvider[], label: string): Promise<ToolOutcome | null> {
+export function needsConnection(rows: { provider: IntegrationProvider; state: string; mayConnect: boolean }[]) {
+  return rows.filter((r) => r.state !== 'connected').map((r) => ({ provider: r.provider, label: PROVIDERS[r.provider].label, may_connect: r.mayConnect }));
+}
+
+/**
+ * "Connect X first": the answer when an account the action needs is not
+ * usable. Nothing is proposed; the panel shows the accounts with a button.
+ */
+export async function connectFirst(ctx: ToolContext, providers: IntegrationProvider[], label: string): Promise<ToolOutcome | null> {
   if (!providers.length) return null;
   const check = await requireIntegrations(ctx.db, ctx.actor, providers, ctx.now);
   if (check.ok) return null;
   const names = check.missing.map((p) => PROVIDERS[p].label);
+  const missing = needsConnection(check.results);
+  const askAdmin = missing.some((m) => !m.may_connect);
   return {
     label,
     frame: {
@@ -163,7 +176,8 @@ async function connectFirst(ctx: ToolContext, providers: IntegrationProvider[], 
     },
     result: {
       proposed: false,
-      tell_the_user: `Connect ${names.join(' and ')} first — from Integrations (the link is on screen). Nothing was proposed.`,
+      needs_connection: missing,
+      tell_the_user: `Connect ${names.join(' and ')} first — the Connect button is on screen${askAdmin ? ' (an owner or admin connects the agency’s account)' : ''}. Nothing was proposed.`,
     },
   };
 }
@@ -372,8 +386,10 @@ export async function proposeSendTemplateEmail(
 ): Promise<ToolOutcome> {
   const templateId = resolveHandle(ctx.handles, input.template, 'template');
   if (!templateId) return refused(UNKNOWN_REF, label);
+  // One of the person's own saved lists (ADR 0040 part 2 §2): its own path, which may send in parts.
+  if (input.list) return proposeListEmail(ctx, templateId, input.list, label);
   const contactIds: string[] = [];
-  for (const ref of input.recipients) {
+  for (const ref of input.recipients ?? []) {
     const id = resolveHandle(ctx.handles, ref, 'contact');
     if (!id) return refused(`${ref}: ${UNKNOWN_REF}`, label);
     contactIds.push(id);
@@ -391,6 +407,18 @@ export async function proposeSendTemplateEmail(
     if (err instanceof TemplateEmailError) return refused(err.message, label);
     throw err;
   }
+  return proposeBatchCard(ctx, prepared, label);
+}
+
+/**
+ * The card for one PREPARED batch (ADR 0022's frozen list): every recipient, every skip with
+ * its reason, the email as the first person will get it. Shared by picked contacts and by a
+ * saved list that fits in one batch.
+ */
+export async function proposeBatchCard(ctx: ToolContext, prepared: { id: string; notFound: number }, label: string): Promise<ToolOutcome> {
+  const { actor, db } = ctx;
+  if (!actor.agencyId) return refused('This person cannot send bulk email.', label);
+  const limits = emailLimitsFromEnv();
   const batch = await getBatch(db, actor, prepared.id, ctx.now);
   const people = batch.recipients.map((r) => ({
     name: r.name,
@@ -434,7 +462,7 @@ export async function proposeSendTemplateEmail(
       ...(prepared.notFound ? [`${prepared.notFound} of the people asked for could not be found for you and are not on the list.`] : []),
     ],
   };
-  const args: FrozenArgs = { tool: 'send_template_email', batchId: batch.id, templateId, contactIds: batch.recipients.map((r) => r.contactId) };
+  const args: FrozenArgs = { tool: 'send_template_email', batchId: batch.id, templateId: batch.template.templateId, contactIds: batch.recipients.map((r) => r.contactId) };
   return propose(ctx, label, { tool: 'send_template_email', args, card, contactId: first.contactId });
 }
 

@@ -1192,3 +1192,24 @@ Before: migration 0047 applied; `pnpm dev` restarted (prompt `assistant@v15`).
 | AM10 | Agent: "record a lead from <contact> on <my listing>, they want an appraisal" | The assistant looks up the listing, then a card "Record a lead …" — assigned to you, source manual. On another agent's listing: refused. |
 | AM11 | "Add a contact Ali Raza, ali@example.com" | A card; Approve → the contact is yours. With an email that already exists: no card, it says so. |
 | AM12 | A new enquiry from the website on Saad's listing | It arrives already assigned to Saad. |
+
+## AN — Listings, an agent invite, saved lists in parts, and the Connect button (ADR 0040 part 2)
+
+Before: migration **0048** applied; `pnpm dev` restarted (prompt `assistant@v16`). A saved list on
+Bulk email with more than 20 contacts who agreed to marketing (for AN6–AN8).
+
+| # | Case | Expected |
+|---|---|---|
+| AN1 | Disconnect Zoom, then: "book a Zoom with <contact> tomorrow at 3" | No card. The assistant says to connect Zoom first, and a blue **Connect Zoom** button is beside its answer; it opens your Integrations page. As an agent whose agency Zoom is the only one: "Ask an owner or admin…". |
+| AN2 | Same, inside a plan ("book a Zoom with … then remind me") | No plan card; the same Connect button. |
+| AN3 | Approve a Zoom booking, then disconnect Zoom before a scheduled run of it | The card fails "Zoom is no longer connected…" with the Connect button under it. |
+| AN4 | "Draft a listing: 7 Smoke Lane Pakenham VIC 3810, 3 bed house for sale, offers over $900,000, write a short description" | A card **Draft a listing: …** with the address, map pin (found / not found), the price wording and range on their own lines, the description word for word, "Check these figures", Status: Draft. Approve → the listing exists as a **draft**, you are its agent; "Open the listing" goes to its edit page. It is not on the public site. |
+| AN5 | As a read-only member, ask for the same | Refused — and the Listings screen no longer lets a read-only member create one. |
+| AN6 | "Change the price on <listing> to offers over $950,000" | A card with Price shown on the ad: before → after; a live listing says buyers see it once approved. Approve → only that changes (the address, photos, status and any auction date stay). |
+| AN7 | Make a card as AN6, edit the same listing's bedrooms on the screen, then Approve the card | The card fails: "The listing's bedrooms changed since this card was made…". Nothing changed. |
+| AN8 | "Withdraw / delete <listing>" | A card Now: Live → After: Withdrawn. Approve → off the public site, nothing deleted. A sold listing: refused. |
+| AN9 | Agent: "send <draft listing> for approval" | A card → Approve → Waiting for approval. Owner asking the same: "You can publish it yourself on the listing's page" — the assistant never publishes. |
+| AN10 | Owner: "invite Sara Khan, sara@…, 0418 920 441, licence 20123456, Ryde" | A card with every field and the defaults (commission tier, licence class, radius). Approve → Agents & Team shows the pending invite; Sara gets one email. Missing a field: it asks first. An agent never has this tool. |
+| AN11 | "Send the <approved template> to my list <name>" (≤ 20 qualify) | The usual email card — every person, skips with reasons. |
+| AN12 | Same with a list of 21–100 who qualify | **One** card: "Send … to N people on …, 20 at a time", the whole list with skips, When: parts of 20, the first on Approve then one every 24 hours. Approve → 20 go now (Bulk email shows the batch). Next day, the next part goes; anyone who unsubscribed meanwhile is skipped. |
+| AN13 | AN12 near your daily limit | The waiting part tries again an hour later; the rest follow; nothing is lost. "Cancel that task" stops the parts not yet sent. |

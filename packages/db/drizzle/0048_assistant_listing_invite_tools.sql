@@ -1,0 +1,5 @@
+-- ADR 0040 part 2: the assistant's listing tools (always a draft; never published) and its agent
+-- invite. The CHECK holds exactly PROPOSED_ACTION_TOOLS (packages/core/src/assistant/schema.ts);
+-- smoke compares the two. Additive: every row that passed the old CHECK passes this one.
+ALTER TABLE "proposed_action" DROP CONSTRAINT "proposed_action_tool_check";--> statement-breakpoint
+ALTER TABLE "proposed_action" ADD CONSTRAINT "proposed_action_tool_check" CHECK (tool IN ('add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'plan_task', 'cancel_task', 'remind', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent'));

@@ -1,3 +1,13 @@
+## 2026-10-13 — Claude Code — Assistant Phase 2 part 2: connect shape, saved lists in parts, invites, listings (ADR 0040, branch feat/assistant-crm-2)
+
+- Worktree `../realestate_ai-crm2`, branch from `feat/assistant-tasks` (not merged to main; the user said not to push).
+- Decided by the user: never publish; description is a labelled draft; price on its own line; a big list goes 20 now and the rest later automatically.
+- Design and "As built" in ADR 0040. Found on the way: `listing:create` let read-only members draft (fixed, test updated with the reason);
+  console forms have no auction/available dates (left out of the tools; an assistant edit keeps them).
+- Smoke: the user stopped a 10+ min Console assistant run; nothing was left in the database (rolled back, checked
+  pg_stat_activity). Added `SMOKE_ENABLED` switch; set false in both .env.local files.
+- Next exact step: Phase 3 starts with ADR 0029 amendment (Picker now, pasted link pending).
+
 ## 2026-10-13 — Claude Code — Assistant Phase 2 part 1: tasks, reminders, CRM tools (ADR 0040, branch feat/assistant-tasks)
 
 - Phase 1 merged to main and pushed (22c6524); all three Vercel production projects READY.

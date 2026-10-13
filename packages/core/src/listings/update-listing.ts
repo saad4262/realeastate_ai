@@ -8,7 +8,7 @@ import {
   updateListingInputSchema,
   type UpdateListingInput,
 } from './listing-schema';
-import { money, resolvePin, upsertProperty } from './property-resolver';
+import { money, resolvePin, upsertProperty, type ResolvedPin } from './property-resolver';
 
 export type UpdateListingResult = {
   listingId: string;
@@ -37,6 +37,8 @@ export async function updateListing(
   actor: Actor,
   listingId: string,
   input: unknown,
+  /** A pin worked out before this call, as createListing's — `null` means "no pin". */
+  opts: { pin?: ResolvedPin } = {},
 ): Promise<UpdateListingResult> {
   if (!actor.agencyId) {
     throw new ListingError('forbidden', 'You do not have permission to edit this listing');
@@ -77,7 +79,7 @@ export async function updateListing(
 
   // Outside the transaction: this is a network call, and a transaction holding
   // a connection open while Google thinks is a transaction nobody wants.
-  const pin = await resolvePin(db, draft.property);
+  const pin = opts.pin !== undefined ? opts.pin : await resolvePin(db, draft.property);
   const l = draft.listing;
 
   /**

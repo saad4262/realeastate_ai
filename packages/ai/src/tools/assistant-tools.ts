@@ -1,5 +1,6 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { APPOINTMENT_RANGES, ASSISTANT_ADMIN_TOOLS, ASSISTANT_TEAM_TOOLS, ASSISTANT_APPOINTMENT_TYPES, LEAD_SINCE, LEAD_STATUSES, LISTING_STATUSES_FOR_FIND, PLANNABLE_TOOLS, TASK_LIMITS } from '@repo/core/assistant/schema';
+import { APPOINTMENT_RANGES, ASSISTANT_ADMIN_TOOLS, ASSISTANT_TEAM_TOOLS, ASSISTANT_APPOINTMENT_TYPES, LEAD_SINCE, LEAD_STATUSES, LIST_SEND, LISTING_STATUSES_FOR_FIND, PLANNABLE_TOOLS, TASK_LIMITS } from '@repo/core/assistant/schema';
+import { AU_STATES, PROPERTY_TYPES } from '@repo/core/listings/schema';
 import { can, type Actor } from '@repo/core/permissions';
 import { WIDGET_IDS, WIDGET_RANGES } from '@repo/core/widgets';
 import { DATASET_IDS, DATASETS, SPEC_RANGES, TIME_UNITS, VIZ } from '@repo/core/semantic';
@@ -118,6 +119,11 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   {
     name: 'list_templates',
     description: "The agency's approved email templates (name and subject). Only approved templates can ever be sent.",
+    input_schema: { type: 'object', additionalProperties: false, properties: {} },
+  },
+  {
+    name: 'find_saved_lists',
+    description: 'The person\'s own saved contact lists (the filters they saved on the Bulk email screen), each with an F reference — to send a template to a whole list with send_template_email. Names only; who is on a list is worked out when it is used.',
     input_schema: { type: 'object', additionalProperties: false, properties: {} },
   },
   {
@@ -243,6 +249,68 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
     name: 'cancel_task',
     description: `Propose stopping one of this person's tasks (a K reference). Steps already done stay done. ${PROPOSES}`,
     input_schema: { type: 'object', additionalProperties: false, properties: { task: { type: 'string', description: 'A K reference from plan_task.' } }, required: ['task'] },
+  },
+  {
+    name: 'create_listing_draft',
+    description: `Propose a new listing as a DRAFT from what the person told you — it is never published: an owner or admin publishes it from the listing's page. The person becomes its agent; photos are added on the edit page. Use only details and figures the person gave; never invent or estimate a price, size or feature — if a sale has no price wording, ask (or use "Contact agent" only if they said so). The address is checked on the map when the card is made. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        channel: { type: 'string', enum: ['sale', 'rent'], description: 'For sale, or for lease (rent).' },
+        unit: { type: 'string' },
+        street_number: { type: 'string' },
+        street: { type: 'string', description: 'Street name with its type, e.g. "George Street".' },
+        suburb: { type: 'string' },
+        state: { type: 'string', enum: [...AU_STATES] },
+        postcode: { type: 'string', description: 'Four digits.' },
+        headline: { type: 'string', description: 'The ad\'s title, up to 200 characters.' },
+        description: { type: 'string', description: 'The ad\'s body copy: the person\'s words, or your draft of what they told you. Never invent a feature, a figure or a claim they did not give.' },
+        price_display: { type: 'string', description: 'The price as a buyer reads it, exactly as the person said: "Offers over $950,000", "Contact agent", "Auction". Must contain a word or a $.' },
+        price_low: { type: 'number', description: 'The searchable price range, lower end, in dollars — only a figure the person gave.' },
+        price_high: { type: 'number', description: 'The searchable price range, upper end, in dollars — only a figure the person gave.' },
+        rent_per_week: { type: 'number', description: 'For a lease: rent per week in dollars, as the person gave it.' },
+        bedrooms: { type: 'integer' },
+        bathrooms: { type: 'integer' },
+        car_spaces: { type: 'integer' },
+        property_type: { type: 'string', enum: [...PROPERTY_TYPES] },
+        land_area_sqm: { type: 'number', description: 'Land area in square metres, as the person gave it.' },
+      },
+      required: ['channel', 'suburb', 'state', 'postcode', 'headline'],
+    },
+  },
+  {
+    name: 'update_listing',
+    description: `Propose changing a listing's details (a P reference from find_listings): only the fields named — headline, description, the price wording and range, rent, rooms, property type, land area. Not the address, agents, photos or status. Values only from the person's words. The card shows each field before → after; if the listing is live, buyers see the change once approved. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        listing: { type: 'string', description: 'A P reference from find_listings.' },
+        headline: { type: 'string', description: 'The ad\'s title, up to 200 characters.' },
+        description: { type: 'string', description: 'The ad\'s body copy: the person\'s words, or your draft of what they told you. Never invent a feature, a figure or a claim they did not give.' },
+        price_display: { type: 'string', description: 'The price as a buyer reads it, exactly as the person said: "Offers over $950,000", "Contact agent", "Auction". Must contain a word or a $.' },
+        price_low: { type: 'number', description: 'The searchable price range, lower end, in dollars — only a figure the person gave.' },
+        price_high: { type: 'number', description: 'The searchable price range, upper end, in dollars — only a figure the person gave.' },
+        rent_per_week: { type: 'number', description: 'For a lease: rent per week in dollars, as the person gave it.' },
+        bedrooms: { type: 'integer' },
+        bathrooms: { type: 'integer' },
+        car_spaces: { type: 'integer' },
+        property_type: { type: 'string', enum: [...PROPERTY_TYPES] },
+        land_area_sqm: { type: 'number', description: 'Land area in square metres, as the person gave it.' },
+      },
+      required: ['listing'],
+    },
+  },
+  {
+    name: 'withdraw_listing',
+    description: `Propose withdrawing a listing (a P reference) — this is what "delete a listing" means here: it comes off the public site, nothing is deleted, and it can be submitted again. A sold or leased listing cannot be withdrawn. ${PROPOSES}`,
+    input_schema: { type: 'object', additionalProperties: false, properties: { listing: { type: 'string', description: 'A P reference from find_listings.' } }, required: ['listing'] },
+  },
+  {
+    name: 'submit_listing',
+    description: `Propose sending a draft or withdrawn listing (a P reference) for approval, so an owner or admin can publish it. You never publish a listing: if the person is an owner or admin, it tells them to publish it themselves on the listing's page. ${PROPOSES}`,
+    input_schema: { type: 'object', additionalProperties: false, properties: { listing: { type: 'string', description: 'A P reference from find_listings.' } }, required: ['listing'] },
   },
   {
     name: 'check_cards',
@@ -372,7 +440,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   },
   {
     name: 'send_template_email',
-    description: `Propose sending one of the agency's APPROVED email templates (from list_templates) to contacts — the ones the person selected (S1…) or ones you found (C…). The card lists every recipient: people without marketing consent, who unsubscribed, are archived, were emailed a template in the last 7 days or are over today's limits are shown as skipped with the reason, and are never sent to. If nobody can receive it, nothing is proposed — tell the person why. Sent from the platform address with an unsubscribe link. ${PROPOSES}`,
+    description: `Propose sending one of the agency's APPROVED email templates (from list_templates) EITHER to contacts — the ones the person selected (S1…) or ones you found (C…) — OR to one of the person's own saved lists (an F reference from find_saved_lists). Give recipients or list, never both. The card lists every recipient: people without marketing consent, who unsubscribed, are archived, were emailed a template in the last 7 days or are over today's limits are shown as skipped with the reason, and are never sent to. A list with more than 20 who can receive it goes in parts of 20 — the first when the person approves, then one every ${LIST_SEND.gapHours} hours — up to ${LIST_SEND.maxPeople} people on one card; the card shows the whole plan. If nobody can receive it, nothing is proposed — tell the person why. Sent from the platform address with an unsubscribe link. ${PROPOSES}`,
     input_schema: {
       type: 'object',
       additionalProperties: false,
@@ -381,10 +449,11 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
         recipients: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Contact references, e.g. ["S1", "S2"] or ["C3"]. 1 to 20. Never names or email addresses.',
+          description: 'Contact references, e.g. ["S1", "S2"] or ["C3"]. 1 to 20. Never names or email addresses. Omit when you give list.',
         },
+        list: { type: 'string', description: 'One of the person\'s saved lists: an F reference from find_saved_lists. Omit when you give recipients.' },
       },
-      required: ['template', 'recipients'],
+      required: ['template'],
     },
   },
   {
@@ -534,7 +603,28 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
       },
       required: ['agent'],
     },
-  },  {
+  },
+  {
+    name: 'invite_agent',
+    description: `Propose inviting a new agent to the agency — owners and admins only. Ask for anything missing: legal first and last name, email, mobile, licence number and at least one territory suburb (all required); role defaults to senior. Use only what the person gave. The card shows every detail and the defaults that will apply; on approval the invite link is emailed to that address and they join when they accept. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        first_name: { type: 'string', description: 'Legal first name.' },
+        last_name: { type: 'string', description: 'Legal last name.' },
+        display_name: { type: 'string', description: 'The name shown in the console and on listings. Omit to use first and last name.' },
+        email: { type: 'string', description: 'Their email address, as the person gave it — the invite link is sent here once they approve.' },
+        phone: { type: 'string', description: 'Mobile number, e.g. 0418 920 441.' },
+        licence_number: { type: 'string', description: 'Real estate licence number.' },
+        licence_expiry: { type: 'string', description: 'Licence expiry as YYYY-MM-DD, if given.' },
+        territory_suburbs: { type: 'array', items: { type: 'string' }, description: 'The suburbs they cover, 1 to 20.' },
+        role: { type: 'string', enum: ['senior', 'principal', 'pm', 'cadet', 'custom'], description: 'senior = agent (the default); principal = admin (runs the agency console); pm = property manager; cadet = assistant; custom = agent.' },
+      },
+      required: ['first_name', 'last_name', 'email', 'phone', 'licence_number', 'territory_suburbs'],
+    },
+  },
+  {
     name: 'find_colleagues',
     description: 'Look up the other active members of the agency — to write to them with message_colleagues or meet them with schedule_team_meeting. Returns M references with each person\'s name, role and email. Anyone may use it.',
     input_schema: {

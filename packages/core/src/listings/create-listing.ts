@@ -7,7 +7,7 @@ import {
   toListingError,
   type CreateListingInput,
 } from './listing-schema';
-import { money, resolvePin, upsertProperty } from './property-resolver';
+import { money, resolvePin, upsertProperty, type ResolvedPin } from './property-resolver';
 
 const FORBIDDEN = new ListingError(
   'forbidden',
@@ -41,6 +41,12 @@ export async function createListing(
   db: Db,
   actor: Actor,
   input: unknown,
+  /**
+   * A pin already worked out before this call (the assistant's card resolves it when the card
+   * is made, ADR 0040 part 2 §4, so its run makes no network call inside the claim). `null`
+   * means "no pin" — not "go and find one".
+   */
+  opts: { pin?: ResolvedPin } = {},
 ): Promise<CreateListingResult> {
   const agencyId = requireAgency(actor);
 
@@ -50,7 +56,7 @@ export async function createListing(
 
   // The geocoder call, before anything is opened. It is the one slow part of
   // this and it has no business holding a database connection.
-  const pin = await resolvePin(db, draft.property);
+  const pin = opts.pin !== undefined ? opts.pin : await resolvePin(db, draft.property);
 
   const l = draft.listing;
 

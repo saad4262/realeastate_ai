@@ -26,10 +26,10 @@ import { recordContactEmail } from '../mail/compose';
 import { MailError } from '../mail/threads';
 import { deliverTeamMessage, startTeamThread, TeamMessageError, type TeamMessageDeps } from '../team-messages/messages';
 import { requireIntegrations } from '../integrations/accounts';
-import { approveBatch, cancelBatch } from '../template-email/batches';
+import { approveBatch, cancelBatch, classifyRecipients, storePreparedBatch } from '../template-email/batches';
 import { sendBatch, type TemplateSendDeps } from '../template-email/send';
 import { TemplateEmailError } from '../template-email/templates';
-import { emailLimitsFromEnv } from '../email/limits';
+import { checkEmailLimits, emailLimitsFromEnv, type TemplateLimits } from '../email/limits';
 import { createDashboard, DashboardError } from '../dashboards';
 import { PROVIDERS, type IntegrationProvider } from '../integrations/providers';
 import type { ActivityKind } from '../contacts/contact-schema';
@@ -44,6 +44,10 @@ import { createManualLead } from '../leads/create-manual-lead';
 import { createContact } from '../contacts/write-contacts';
 import { buildReminderEmail } from '../email/team-notices';
 import type { ToolContext, ToolOutcome } from './tools';
+import { runListingAction, type FrozenPin } from './listing-tools';
+import { ListingError } from '../listings/listing-schema';
+import { inviteAgent } from '../team/invite-agent';
+import { isInviteAgentError, type InviteAgentDraft } from '../team/invite-schema';
 
 /**
  * Proposed actions (ADR 0025 §1, §6, §7): the model proposes; a person
@@ -89,6 +93,11 @@ export type FrozenArgs =
    * `contactIds` = every recipient, for the audit on each of their timelines.
    */
   | { tool: 'send_template_email'; batchId: string; templateId: string; contactIds: string[] }
+  /**
+   * ADR 0040 part 2 §2: one part of a saved list, a task step. Prepared and approved WHEN IT RUNS,
+   * as the person then (every recipient classified again); `gapHours` after the part before.
+   */
+  | { tool: 'send_template_email'; part: { n: number; of: number; list: string }; templateId: string; contactIds: string[]; gapHours: number }
   /** ADR 0027: the dashboard as it will be saved — registry ids and parsed params only. */
   | { tool: 'create_dashboard'; title: string; widgets: { widget: string; params: Record<string, unknown> }[]; audience: 'private' | 'admins' | 'agency' }
   /** Owners/admins: give these contacts to `to`. `from` = who held each when the card was made. */
@@ -131,7 +140,15 @@ export type FrozenArgs =
   | { tool: 'remind'; text: string; email: boolean }
   /** ADR 0040: approving the plan starts its task. */
   | { tool: 'plan_task'; taskId: string }
-  | { tool: 'cancel_task'; taskId: string };
+  | { tool: 'cancel_task'; taskId: string }
+  /** ADR 0040 part 2 §4: always a draft; the pin worked out when the card was made (no network in the claim). */
+  | { tool: 'create_listing_draft'; draft: { property: Record<string, unknown>; listing: Record<string, unknown> }; pin: FrozenPin | null }
+  /** Only the fields the card showed; `before` = what it showed them as (refused if they changed since). */
+  | { tool: 'update_listing'; listingId: string; patch: Partial<Record<string, string | number | null>>; before: Partial<Record<string, string | number | null>> }
+  | { tool: 'withdraw_listing'; listingId: string; before: string }
+  | { tool: 'submit_listing'; listingId: string; before: string }
+  /** ADR 0040 part 2 §3: the wizard's draft, parsed when the card was made and again when it runs. */
+  | { tool: 'invite_agent'; draft: InviteAgentDraft };
 
 /** The contacts whose timelines carry this action's audit lines. */
 function auditContacts(row: { contactId: string | null; args: unknown }): string[] {
@@ -232,11 +249,36 @@ function runRefusal(err: unknown): string | null {
     err instanceof OffboardError ||
     err instanceof MailError ||
     err instanceof TeamMessageError ||
-    err instanceof LeadTriageError
+    err instanceof LeadTriageError ||
+    err instanceof ListingError ||
+    isInviteAgentError(err)
   ) {
-    return err.message;
+    return (err as Error).message;
   }
   return null;
+}
+
+/**
+ * A task step that cannot run YET (ADR 0040 part 2 §2: a list part over today's email limit):
+ * it goes back to `scheduled` at `retryAt` and the task carries on. Never ends the task.
+ */
+export class RetryLaterError extends AssistantError {
+  constructor(
+    message: string,
+    readonly retryAt: Date,
+  ) {
+    super('limit', message);
+  }
+}
+
+/** A run refused because an account it needs is no longer connected — the card keeps which, for its Connect button. */
+export class NeedsConnectionError extends AssistantError {
+  constructor(
+    message: string,
+    readonly accounts: { provider: IntegrationProvider; label: string; mayConnect: boolean }[],
+  ) {
+    super('conflict', message);
+  }
 }
 
 async function assertStillConnected(db: DbOrTx, actor: Actor, providers: IntegrationProvider[], now: Date): Promise<void> {
@@ -244,7 +286,10 @@ async function assertStillConnected(db: DbOrTx, actor: Actor, providers: Integra
   const check = await requireIntegrations(db, actor, providers, now);
   if (!check.ok) {
     const names = check.missing.map((m) => PROVIDERS[m].label).join(' and ');
-    throw new AssistantError('conflict', `${names} is no longer connected. Connect ${names} first (Integrations), then ask again.`);
+    throw new NeedsConnectionError(
+      `${names} is no longer connected. Connect ${names} first, then ask again.`,
+      check.results.filter((r) => r.state !== 'connected').map((r) => ({ provider: r.provider, label: PROVIDERS[r.provider].label, mayConnect: r.mayConnect })),
+    );
   }
 }
 
@@ -307,6 +352,17 @@ async function execute(
   rowId: string,
 ): Promise<Executed> {
   switch (args.tool) {
+    case 'create_listing_draft':
+    case 'update_listing':
+    case 'withdraw_listing':
+    case 'submit_listing':
+      return runListingAction(tx, actor, args);
+    case 'invite_agent': {
+      // team:manage again, and the wizard's refusals again (already a member, an invite still open).
+      // Database only: the link is emailed after the commit (`inviteClaim`).
+      const r = await inviteAgent(tx, actor, args.draft);
+      return { result: { inviteId: r.inviteId, claimPath: r.claimPath }, inviteClaim: { inviteId: r.inviteId, claimPath: r.claimPath, expiresAt: r.expiresAt } };
+    }
     case 'set_lead_status': {
       // lead:update again — an agent the lead was taken from is told it is now another agent's (ADR 0039 C3).
       await updateLeadStatus(tx, actor, args.leadId, args.status);
@@ -395,8 +451,10 @@ async function execute(
     case 'send_template_email': {
       // Refuse before claiming the batch: approving one that cannot be sent would strand it.
       if (!deps.templateSend) throw new AssistantError('conflict', 'Email is not set up on this server, so nothing can be sent.');
+      const limits = deps.templateSend.limits ?? emailLimitsFromEnv();
+      if ('part' in args) return runListPart(tx, actor, args, limits, now);
       // ADR 0022's own Approve: guarded (once), expiry and today's limits re-checked, as this person.
-      await approveBatch(tx, actor, args.batchId, deps.templateSend.limits ?? emailLimitsFromEnv(), now);
+      await approveBatch(tx, actor, args.batchId, limits, now);
       return { result: { batchId: args.batchId }, batchId: args.batchId };
     }
     case 'create_dashboard': {
@@ -490,6 +548,29 @@ async function execute(
   }
 }
 
+/**
+ * One part of a saved list (ADR 0040 part 2 §2), inside the step's savepoint. The people are
+ * classified AGAIN now, as this person — consent, unsubscribes, archive and the 7-day rule as
+ * they are today — and the batch prepared and approved through ADR 0022's own functions; it is
+ * sent after the commit. Nobody left: done, 0 sent. Over today's limit: it waits an hour.
+ */
+async function runListPart(
+  tx: Db,
+  actor: Actor,
+  args: Extract<FrozenArgs, { part: unknown }>,
+  limits: TemplateLimits,
+  now: Date,
+): Promise<Executed> {
+  const c = await classifyRecipients(tx, actor, { templateId: args.templateId, contactIds: args.contactIds }, limits);
+  const toSend = c.recipients.filter((r) => r.status === 'queued').length;
+  if (!toSend) return { result: { part: args.part.n, sent: 0, skipped: args.contactIds.length, nobodyLeft: true } };
+  const check = await checkEmailLimits(tx, { agencyId: c.agencyId, userId: actor.userId }, limits, toSend);
+  if (!check.ok) throw new RetryLaterError(`Waiting for today’s email limit — it tries again in an hour. ${check.reason}`, new Date(now.getTime() + 3_600_000));
+  const { id } = await storePreparedBatch(tx, actor, c, now);
+  await approveBatch(tx, actor, id, limits, now);
+  return { result: { part: args.part.n, batchId: id }, batchId: id };
+}
+
 const NOT_FOUND = () => new AssistantError('not_found', 'That card was not found');
 
 async function loadRow(db: DbOrTx, actor: Actor, id: string) {
@@ -510,7 +591,7 @@ export type ApproveResult =
   | { outcome: 'already'; status: ProposalStatus };
 
 type RowT = typeof proposedAction.$inferSelect;
-type Ran = ({ ok: true } & Executed) | { ok: false; error: string };
+type Ran = ({ ok: true } & Executed) | { ok: false; error: string; waiting?: true };
 
 /**
  * Run a CLAIMED action inside the caller's transaction: audit, execute in a
@@ -543,25 +624,34 @@ async function runClaimed(tx: Db, actor: Actor, row: RowT, deps: RunDeps, now: D
     if (row.taskId) await advanceTask(tx, row.taskId, { ok: true }, now);
     return { ok: true, ...done };
   } catch (err) {
+    // A task step that cannot run yet goes back to wait; its task carries on (ADR 0040 part 2 §2).
+    if (err instanceof RetryLaterError && row.taskId) {
+      await tx
+        .update(proposedAction)
+        .set({ status: 'scheduled', runAt: err.retryAt, result: { waiting: err.message }, updatedAt: sql`now()` })
+        .where(eq(proposedAction.id, row.id));
+      return { ok: false, error: err.message, waiting: true };
+    }
     const reason = runRefusal(err);
     if (!reason) throw err;
-    await failRow(tx, actor, row, reason, now);
+    // A lost account keeps which one, so the failed card shows its Connect button (ADR 0040 part 2 §1).
+    await failRow(tx, actor, row, reason, now, err instanceof NeedsConnectionError ? { needsConnection: err.accounts } : null);
     return { ok: false, error: reason };
   }
 }
 
 /** Mark it failed with the reason; an email card takes its prepared batch with it. */
-async function failRow(tx: Db, actor: Actor | null, row: RowT, reason: string, now: Date): Promise<void> {
+async function failRow(tx: Db, actor: Actor | null, row: RowT, reason: string, now: Date, result: Record<string, unknown> | null = null): Promise<void> {
   const args = row.args as FrozenArgs;
   await tx
     .update(proposedAction)
-    .set({ status: 'failed', error: reason, finishedAt: now, updatedAt: sql`now()` })
+    .set({ status: 'failed', error: reason, finishedAt: now, updatedAt: sql`now()`, ...(result ? { result } : {}) })
     .where(eq(proposedAction.id, row.id));
   // A failed step stops its task (ADR 0040): nothing after it runs.
   if (row.taskId) await advanceTask(tx, row.taskId, { ok: false, error: `Step ${row.taskSeq ?? '?'}: ${reason}` }, now);
   // A failed email card takes its prepared batch with it, so the Bulk email screen
   // never shows a batch still waiting for an Approve that the card refused.
-  if (args.tool === 'send_template_email' && actor) {
+  if (args.tool === 'send_template_email' && 'batchId' in args && actor) {
     await tx.transaction((sp) => cancelBatch(sp as unknown as Db, actor, args.batchId)).catch(() => undefined);
   }
   if (actor) {
@@ -807,10 +897,10 @@ async function schedule(db: Db, actor: Actor, row: RowT, runAt: Date, deps: RunD
   const args = row.args as FrozenArgs;
   // A team change (ADR 0033) runs when approved: the cron has no calendar keys for a removal,
   // and a role or invite change waiting for hours is a change nobody is watching.
-  if (args.tool === 'update_agent' || args.tool === 'remove_agent') {
+  if (args.tool === 'update_agent' || args.tool === 'remove_agent' || args.tool === 'invite_agent') {
     throw new AssistantError('conflict', 'A team change runs when you approve it — it cannot be set for later.');
   }
-  if (args.tool === 'send_template_email') {
+  if (args.tool === 'send_template_email' && 'batchId' in args) {
     // The prepared email (ADR 0022) has its own 48-hour life; the run must fall inside it.
     const [b] = await db.select({ expiresAt: emailBatch.expiresAt }).from(emailBatch).where(eq(emailBatch.id, args.batchId)).limit(1);
     const last = b ? new Date(b.expiresAt).getTime() - BATCH_MARGIN_MS : 0;
@@ -841,7 +931,7 @@ async function schedule(db: Db, actor: Actor, row: RowT, runAt: Date, deps: RunD
   return { outcome: 'scheduled', runAt };
 }
 
-export type ScheduledRunReport = { ran: number; done: number; failed: number };
+export type ScheduledRunReport = { ran: number; done: number; failed: number; waiting: number };
 
 /**
  * The cron tick (Phase E): run every scheduled action that is due, one per
@@ -863,10 +953,10 @@ export async function runScheduledActions(
   /** Only this task's steps (ADR 0040: right after its plan is approved). */
   opts: { taskId?: string } = {},
 ): Promise<ScheduledRunReport> {
-  const report: ScheduledRunReport = { ran: 0, done: 0, failed: 0 };
+  const report: ScheduledRunReport = { ran: 0, done: 0, failed: 0, waiting: 0 };
   for (let i = 0; i < limit; i++) {
     let row: RowT | null = null;
-    let outcome: { kind: 'done'; ran: Extract<Ran, { ok: true }>; actor: Actor } | { kind: 'failed' } | null;
+    let outcome: { kind: 'done'; ran: Extract<Ran, { ok: true }>; actor: Actor } | { kind: 'failed' } | { kind: 'waiting' } | null;
     try {
       outcome = await db.transaction(async (tx) => {
         // Lock one due row (another tick skips it), then move it on — both in this transaction.
@@ -893,7 +983,7 @@ export async function runScheduledActions(
           return { kind: 'failed' as const };
         }
         const ran = await runClaimed(tx as unknown as Db, actor, row, deps, now);
-        return ran.ok ? { kind: 'done' as const, ran, actor } : { kind: 'failed' as const };
+        return ran.ok ? { kind: 'done' as const, ran, actor } : ran.waiting ? { kind: 'waiting' as const } : { kind: 'failed' as const };
       });
     } catch (err) {
       // Not a refusal: the transaction rolled back, nothing happened. Fail it (guarded) so it is
@@ -919,6 +1009,10 @@ export async function runScheduledActions(
     }
     if (!outcome) break;
     report.ran += 1;
+    if (outcome.kind === 'waiting') {
+      report.waiting += 1;
+      continue;
+    }
     if (outcome.kind === 'failed') {
       report.failed += 1;
       continue;
@@ -971,7 +1065,7 @@ async function settle(
     // A rejected or cancelled plan takes its task with it (ADR 0040): none of its steps will run.
     if (args.tool === 'plan_task') await endTask(tx, args.taskId, 'cancelled', new Date());
     // A rejected or cancelled email card takes its prepared batch with it.
-    if (args.tool === 'send_template_email') {
+    if (args.tool === 'send_template_email' && 'batchId' in args) {
       await tx.transaction((sp) => cancelBatch(sp as unknown as Db, actor, args.batchId)).catch(() => undefined);
     }
     for (const contactId of auditContacts(row)) {
@@ -1005,7 +1099,7 @@ export type ProposalView = {
   card: ProposalCard;
   error: string | null;
   /** Ids of what it made or changed — for links. Never model text. */
-  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; recorded?: number; withdrawn?: number; changed?: string[]; claimPath?: string; emailed?: boolean; removed?: boolean; sent?: number; skipped?: number; failed?: number; sendError?: string; invited?: boolean; invitationError?: string; threadId?: string; teamThreadId?: string; told?: boolean; zoomError?: string; emailStatus?: 'sent' | 'failed' | 'sending'; emailError?: string } | null;
+  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; recorded?: number; withdrawn?: number; changed?: string[]; claimPath?: string; emailed?: boolean; removed?: boolean; sent?: number; skipped?: number; failed?: number; sendError?: string; invited?: boolean; invitationError?: string; threadId?: string; teamThreadId?: string; told?: boolean; zoomError?: string; emailStatus?: 'sent' | 'failed' | 'sending'; emailError?: string; listingId?: string; inviteId?: string; status?: string; part?: number; nobodyLeft?: boolean; waiting?: string; needsConnection?: { provider: IntegrationProvider; label: string; mayConnect: boolean }[] } | null;
   expiresAt: Date;
   /** When a scheduled action will run (about; up to ~5 minutes later). */
   runAt: Date | null;
@@ -1031,7 +1125,7 @@ export async function getProposedAction(db: Db, actor: Actor, id: string, now = 
     expiresAt: new Date(row.expiresAt),
     runAt: row.runAt ? new Date(row.runAt) : null,
     // A team change runs when approved, never later (schedule() refuses it), so the card offers no time.
-    scheduling: schedulingEnabled() && row.tool !== 'update_agent' && row.tool !== 'remove_agent',
+    scheduling: schedulingEnabled() && row.tool !== 'update_agent' && row.tool !== 'remove_agent' && row.tool !== 'invite_agent',
     mayDecide: waiting && can(actor, 'proposed_action:decide', actionResource(row)),
     mayCancel: (status === 'proposed' || status === 'scheduled') && can(actor, 'proposed_action:cancel', actionResource(row)),
   };

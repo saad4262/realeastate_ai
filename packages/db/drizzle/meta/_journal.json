@@ -337,6 +337,13 @@
       "when": 1791876365264,
       "tag": "0047_assistant_tasks_and_lead_source",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1791890275620,
+      "tag": "0048_assistant_listing_invite_tools",
+      "breakpoints": true
     }
   ]
 }
