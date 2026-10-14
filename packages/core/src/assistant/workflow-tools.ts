@@ -14,7 +14,7 @@ import type { ToolContext, ToolOutcome } from './tools';
 /**
  * Workflows by the assistant (ADR 0041 Part C). The model writes the workflow from the catalog's parts
  * with references; here every reference becomes an id (or the reply names the part that is wrong), the
- * spec is checked as the person (the catalog's rules, D2's scope, members and approved templates), and
+ * spec is checked as the person (the catalog's rules, D2's scope, members and templates the owner may send), and
  * ONE card reads the whole workflow in words — every fixed text word for word, which actions run by
  * themselves and which wait for approval. Approve saves it, active. The model never writes code.
  */
@@ -134,7 +134,7 @@ export async function proposeCreateWorkflow(ctx: ToolContext, input: z.infer<typ
       NOTHING_YET,
       `Once on, it runs by itself every time — ${byItself.length ? 'these steps need no further click from you' : 'no step changes anything by itself'}; it acts as you, with your permissions checked each time.`,
       ...(spec.actions.some((a: WorkflowAction) => a.type === 'send_template_email')
-        ? ['An approved template goes only to people who may receive it at that moment — consent, unsubscribes, the 7-day rule and today’s limits are checked each time.']
+        ? ['A template goes only to people who may receive it at that moment — consent (recorded, or an enquiry or client role), unsubscribes and today’s limits are checked each time.']
         : []),
       ...(waits ? ['An email the AI writes is a DRAFT: it waits for your one click in “Waiting for you”, and is never sent by the workflow.'] : []),
       ...(spec.actions.some((a) => REACHES_CONTACT.includes(a.type)) ? [] : ['Nothing in it reaches a contact.']),

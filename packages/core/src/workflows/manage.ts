@@ -1,6 +1,7 @@
 import { and, count, desc, eq, gt, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { emailTemplate, proposedAction, user, workflow, workflowRun, type Db, type DbOrTx } from '@repo/db';
 import { activeMemberActor } from '../team/member-actor';
+import { usableTemplateSql } from '../template-email/templates';
 import { can, type Actor } from '../permissions';
 import { specInWords, specProblem, WORKFLOW_LIMITS, workflowSpecSchema, type WorkflowScope, type WorkflowSpec } from './catalog';
 
@@ -58,8 +59,9 @@ export async function checkWorkflow(db: DbOrTx, actor: Actor, scope: WorkflowSco
     const rows = await db
       .select({ id: emailTemplate.id })
       .from(emailTemplate)
-      .where(and(eq(emailTemplate.agencyId, actor.agencyId), eq(emailTemplate.status, 'approved'), inArray(emailTemplate.id, [...templates])));
-    if (rows.length !== templates.size) return { problem: 'A template the workflow sends is not an approved template of the agency' };
+      .where(and(usableTemplateSql(actor), inArray(emailTemplate.id, [...templates])));
+    // ADR 0043: a template the OWNER may send — the agency's, or their own.
+    if (rows.length !== templates.size) return { problem: 'A template the workflow sends is not one its owner may send (the agency’s, or their own)' };
   }
   return { spec };
 }

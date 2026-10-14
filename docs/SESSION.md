@@ -1,3 +1,14 @@
+## 2026-10-14 — Claude Code — ADR 0043: templates without approval, inferred consent, no 7-day rule (branch feat/email-rules)
+
+- The user asked to drop template approval and "the permission before emailing". Asked (AskUserQuestion): agent templates
+  for the agent only; consent inferred from an enquiry/client role (Spam Act inferred consent — unsubscribe still wins);
+  the 7-day rule removed.
+- One rule each: `mayUseTemplate`/`usableTemplateSql`, `hasMarketingConsentSql` (Prepare + send). `email_template:approve` →
+  `email_template:manage`. Migration 0053 (`agency_wide`, backfill).
+- Break-tests red: template author ignored; consent before the opt-out. Smoke fixed: a task check that failed late at night in
+  Melbourne (time-of-day bug, unrelated).
+- Next exact step: push/deploy only with permission; TEST-PLAN AS.
+
 ## 2026-10-14 — Claude Code — ADR 0042: open questions on the agency's data (branch feat/open-analytics)
 
 - The user asked that the assistant answer ANY question on the agency's data and build any dashboard, saying plainly when the

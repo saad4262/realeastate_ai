@@ -79,7 +79,7 @@ describe('specInWords — the card, the screen and the log say the same thing', 
     expect(w).toEqual({
       when: 'When an enquiry arrives from the website',
       if: ['the listing’s suburb is Parramatta or Ryde'],
-      then: ['Give the lead to Ahmed', 'Wait 1 day', 'Send the approved template “Welcome” to the contact (only if they may receive it then)'],
+      then: ['Give the lead to Ahmed', 'Wait 1 day', 'Send the template “Welcome” to the contact (only if they may receive it then)'],
     });
   });
 });

@@ -658,7 +658,8 @@ async function listApprovedTemplates(ctx: ToolContext, label: string): Promise<T
     return refused('You do not have permission to view email templates.', label);
   }
   const { templates } = await listTemplates(db, actor);
-  const approved = templates.filter((t) => t.status === 'approved').slice(0, 20);
+  // ADR 0043: only templates this person may send — the agency's and their own.
+  const approved = templates.filter((t) => t.mayUse).slice(0, 20);
   const shown = approved.map((t) => ({ handle: issueHandle(ctx.handles, 'T', t.id), id: t.id, name: t.name, subject: t.subject }));
   return {
     label,

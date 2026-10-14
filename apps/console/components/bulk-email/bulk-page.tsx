@@ -6,7 +6,6 @@ import {
   listBatches,
   listMyFilters,
   listTemplates,
-  TEMPLATE_STATUS_LABELS,
   TemplateEmailError,
 } from '@repo/core/template-email';
 import contactStyles from '@/components/contacts/contacts.module.css';
@@ -31,7 +30,8 @@ export async function BulkEmailPage({ surface }: { surface: 'agency' | 'agent' }
     return <p role="alert" style={{ padding: '1rem', color: 'var(--rose)' }}>{err instanceof TemplateEmailError ? err.message : 'Failed to load bulk email'}</p>;
   }
   const [batches, { templates, mayDraft }, filters] = data;
-  const approved = templates.filter((t) => t.status === 'approved');
+  // ADR 0043: the templates this person may send — the agency's and their own.
+  const usable = templates.filter((t) => t.mayUse);
   const dev = process.env.NODE_ENV !== 'production';
 
   return (
@@ -39,8 +39,9 @@ export async function BulkEmailPage({ surface }: { surface: 'agency' | 'agent' }
       <div className={contactStyles.headText}>
         <h1 className={contactStyles.title}>Bulk email</h1>
         <p className={contactStyles.sub}>
-          An approved template to the contacts in one of your saved filters — only people who agreed to marketing
-          email. Prepare, check every name, then Approve &amp; Send. Nothing is ever sent on a schedule.
+          A template to the contacts in one of your saved filters — people who agreed to marketing email, made an
+          enquiry in the last 24 months, or are a seller, landlord or tenant; never anyone who unsubscribed.
+          Prepare, check every name, then Approve &amp; Send. Nothing is ever sent on a schedule.
         </p>
       </div>
       {dev ? (
@@ -55,7 +56,7 @@ export async function BulkEmailPage({ surface }: { surface: 'agency' | 'agent' }
           <h2 className={contactStyles.sectionTitle}>Prepare a send</h2>
           <PrepareForm
             basePath={basePath}
-            templates={approved.map((t) => ({ id: t.id, name: t.name }))}
+            templates={usable.map((t) => ({ id: t.id, name: t.name }))}
             filters={filters.map((f) => ({ id: f.id, name: f.name }))}
           />
         </div>
@@ -106,8 +107,8 @@ export async function BulkEmailPage({ surface }: { surface: 'agency' | 'agent' }
                     <Link href={`${basePath}/templates/${t.id}`} className={contactStyles.name}>{t.name}</Link>
                     <span className={contactStyles.muted}>{t.subject}</span>
                   </span>
-                  <span className={t.status === 'approved' ? contactStyles.chip : contactStyles.chipInferred}>
-                    {TEMPLATE_STATUS_LABELS[t.status]}
+                  <span className={t.agencyWide ? contactStyles.chip : contactStyles.chipInferred}>
+                    {t.agencyWide ? 'Agency' : t.mayUse ? 'Only you' : `${t.authorName ?? 'An agent'}’s own`}
                   </span>
                 </li>
               ))}

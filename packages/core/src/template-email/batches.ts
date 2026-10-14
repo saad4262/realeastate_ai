@@ -16,7 +16,8 @@ import { contactListQuerySchema } from '../contacts/contact-schema';
 import { contactQueryFilters } from '../contacts/list-contacts';
 import { checkEmailLimits, type TemplateLimits } from '../email/limits';
 import { BATCH_TTL_MS, renderMerge, type MergeValues, type SkipReason } from './schema';
-import { TemplateEmailError } from './templates';
+import { mayUseTemplate, TemplateEmailError } from './templates';
+import { hasMarketingConsentSql } from './consent';
 
 /**
  * Template email batches (docs/adr/0022): Prepare → Approve & Send.
@@ -47,33 +48,15 @@ function batchResource(b: { id: string; agencyId: string; userId: string }): Res
 }
 
 /**
- * The repeat window: a template email to this contact in the last N days, queued or sent.
- * N = 0 (development only, see emailLimitsFromEnv) means the rule is off: never "recently emailed".
+ * The order the skip reasons are tested in — the first that applies is the one shown. The opt-out
+ * comes before consent, so an unsubscribe wins over any consent, recorded or inferred (ADR 0043).
+ * There is no repeat window any more (ADR 0043 removed the 7-day rule).
  */
-function recentlyEmailedSql(contactIdExpr: unknown, days: number, exceptMessageId?: string | null) {
-  if (days <= 0) return sql<boolean>`false`;
-  return sql<boolean>`exists (
-    select 1 from mail_message m join mail_thread t on t.id = m.thread_id
-    where t.contact_id = ${contactIdExpr} and m.kind = 'template_email'
-      and m.status in ('queued', 'sent')
-      and m.created_at > now() - make_interval(days => ${days})
-      ${exceptMessageId ? sql`and m.id <> ${exceptMessageId}` : sql``}
-  )`;
-}
-
-/** The order the skip reasons are tested in — the first that applies is the one shown. */
-function classify(c: {
-  archived: boolean;
-  optedOut: boolean;
-  consent: boolean;
-  email: string | null;
-  recently: boolean;
-}): SkipReason | null {
+function classify(c: { archived: boolean; optedOut: boolean; consent: boolean; email: string | null }): SkipReason | null {
   if (c.archived) return 'archived';
   if (c.optedOut) return 'opted_out';
   if (!c.consent) return 'no_consent';
   if (!c.email) return 'no_email';
-  if (c.recently) return 'recently_emailed';
   return null;
 }
 
@@ -141,8 +124,8 @@ export async function classifyRecipients(
     .where(and(eq(emailTemplate.id, input.templateId), eq(emailTemplate.agencyId, agencyId)))
     .limit(1);
   if (!tpl) throw new TemplateEmailError('not_found', 'That template was not found');
-  if (tpl.status !== 'approved') {
-    throw new TemplateEmailError('not_approved', 'Only an approved template can be used — ask an owner or admin to approve it');
+  if (!mayUseTemplate(actor, tpl)) {
+    throw new TemplateEmailError('not_approved', 'That template is not one you can send — it is retired, or it is a colleague’s own');
   }
   const picked = 'contactIds' in input ? [...new Set(input.contactIds)] : null;
   let filter: { id: string; name: string; query: unknown } | null = null;
@@ -173,9 +156,8 @@ export async function classifyRecipients(
       email: contact.email,
       archivedAt: contact.archivedAt,
       optOutAt: contact.emailOptOutAt,
-      consentAt: contact.marketingConsentAt,
-      // Qualified by hand: a single-table select renders its columns as a bare "id", which the subquery's own tables would make ambiguous.
-      recently: recentlyEmailedSql(sql.raw('"contact"."id"'), limits.repeatDays),
+      // Recorded, or inferred from an enquiry or a client role (ADR 0043) — one definition, also used at send.
+      consent: hasMarketingConsentSql(),
     })
     .from(contact)
     .where(
@@ -193,9 +175,8 @@ export async function classifyRecipients(
     let reason = classify({
       archived: Boolean(r.archivedAt),
       optedOut: Boolean(r.optOutAt),
-      consent: Boolean(r.consentAt),
+      consent: truthy(r.consent),
       email: r.email,
-      recently: truthy(r.recently),
     });
     if (!reason) {
       if (toSend >= limits.perBatch) reason = 'batch_limit';
@@ -400,7 +381,7 @@ export async function listBatches(db: Db, actor: Actor, now = new Date()): Promi
   if (!actor.agencyId || !can(actor, 'email_batch:read', { type: 'email_batch', agencyId: actor.agencyId })) {
     throw new TemplateEmailError('forbidden', 'You do not have permission to view bulk email');
   }
-  const admin = can(actor, 'email_template:approve', { type: 'email_template', agencyId: actor.agencyId });
+  const admin = can(actor, 'email_template:manage', { type: 'email_template', agencyId: actor.agencyId });
   const rows = await db
     .select({
       id: emailBatch.id,
@@ -519,4 +500,4 @@ export async function expirePreparedBatches(db: Db, now = new Date()): Promise<n
   return done.length;
 }
 
-export { recentlyEmailedSql, classify };
+export { classify };

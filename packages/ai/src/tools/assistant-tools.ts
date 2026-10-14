@@ -143,7 +143,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   },
   {
     name: 'list_templates',
-    description: "The agency's approved email templates (name and subject). Only approved templates can ever be sent.",
+    description: "The email templates this person may send (name and subject): the agency's, and their own. A template is ready when saved — no approval.",
     input_schema: { type: 'object', additionalProperties: false, properties: {} },
   },
   {
@@ -204,7 +204,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
               members: { type: 'array', items: { type: 'string' }, description: 'message_colleagues: M references.' },
               subject: { type: 'string', description: 'message_colleagues.' },
               body: { type: 'string', description: 'message_colleagues: the exact words.' },
-              template: { type: 'string', description: 'send_template_email: a T reference to an APPROVED template.' },
+              template: { type: 'string', description: 'send_template_email: a T reference from list_templates.' },
               instructions: { type: 'string', description: 'draft_email: what the AI should write about, in the person’s words. It becomes a draft for them to approve.' },
               hours: { type: 'integer', description: 'wait: hours before the next step (1–720).' },
             },
@@ -633,7 +633,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   },
   {
     name: 'send_template_email',
-    description: `Propose sending one of the agency's APPROVED email templates (from list_templates) EITHER to contacts — the ones the person selected (S1…) or ones you found (C…) — OR to one of the person's own saved lists (an F reference from find_saved_lists). Give recipients or list, never both. The card lists every recipient: people without marketing consent, who unsubscribed, are archived, were emailed a template in the last 7 days or are over today's limits are shown as skipped with the reason, and are never sent to. A list with more than 20 who can receive it goes in parts of 20 — the first when the person approves, then one every ${LIST_SEND.gapHours} hours — up to ${LIST_SEND.maxPeople} people on one card; the card shows the whole plan. If nobody can receive it, nothing is proposed — tell the person why. Sent from the platform address with an unsubscribe link. ${PROPOSES}`,
+    description: `Propose sending one of the email templates from list_templates (the agency's, or the person's own) EITHER to contacts — the ones the person selected (S1…) or ones you found (C…) — OR to one of the person's own saved lists (an F reference from find_saved_lists). Give recipients or list, never both. The card lists every recipient. A contact may receive it if they agreed to marketing email, made an enquiry in the last 24 months, or are a seller, landlord or tenant; people who unsubscribed, are archived, have no email, have none of those or are over today's limits are shown as skipped with the reason, and are never sent to. A list with more than 20 who can receive it goes in parts of 20 — the first when the person approves, then one every ${LIST_SEND.gapHours} hours — up to ${LIST_SEND.maxPeople} people on one card; the card shows the whole plan. If nobody can receive it, nothing is proposed — tell the person why. Sent from the platform address with an unsubscribe link. ${PROPOSES}`,
     input_schema: {
       type: 'object',
       additionalProperties: false,

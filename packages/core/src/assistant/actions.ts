@@ -588,7 +588,7 @@ async function execute(
 
 /**
  * One part of a saved list (ADR 0040 part 2 §2), inside the step's savepoint. The people are
- * classified AGAIN now, as this person — consent, unsubscribes, archive and the 7-day rule as
+ * classified AGAIN now, as this person — consent, unsubscribes and archive as
  * they are today — and the batch prepared and approved through ADR 0022's own functions; it is
  * sent after the commit. Nobody left: done, 0 sent. Over today's limit: it waits an hour.
  */
@@ -838,7 +838,7 @@ async function afterCommit(db: Db, actor: Actor, row: RowT, ran: Extract<Ran, { 
     return { outcome: 'done', result, sync };
   }
   if (ran.batchId && deps.templateSend) {
-    // sendBatch re-checks each recipient — consent, opt-out, archive, email changed, the 7-day
+    // sendBatch re-checks each recipient — consent, opt-out, archive, email changed, the
     // rule, the dev allowlist, today's limits — and skips with the reason; it never adds anyone.
     const report = await sendBatch(db, deps.templateSend, ran.batchId).catch((err: unknown) => {
       console.error('[assistant] template send failed', err instanceof Error ? err.message : err);
@@ -996,7 +996,7 @@ export type ScheduledRunReport = { ran: number; done: number; failed: number; wa
  * still an active member, still allowed to decide it, and through the same
  * core function as Approve-now, which repeats every check (can(), contact
  * visible and not archived, the appointment still ahead, integrations still
- * connected; for email: consent, opt-out, the 7-day rule, today's limits and
+ * connected; for email: consent, opt-out, today's limits and
  * the dev allowlist, per recipient, at send).
  */
 export async function runScheduledActions(

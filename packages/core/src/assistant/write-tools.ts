@@ -372,7 +372,7 @@ export async function proposeCancelAppointment(
 }
 
 /**
- * Phase D (ADR 0025 §8, ADR 0022): send an APPROVED template to contacts the
+ * Phase D (ADR 0025 §8, ADR 0022): send a template (ADR 0043: no approval; the agency's or their own) to contacts the
  * person picked (S…) or found (C…). Recipients come only from references the
  * server issued — resolved to ids here, then re-scoped by `prepareBatch`
  * through the directory's own rule. The card is the frozen ADR 0022 batch:
@@ -459,7 +459,7 @@ export async function proposeBatchCard(ctx: ToolContext, prepared: { id: string;
     people,
     notes: [
       NOTHING_YET,
-      'At the moment of sending, consent, unsubscribes, archiving, the 7-day rule, today’s limits and the development allowlist are checked again — anyone who no longer qualifies is skipped and shown.',
+      'At the moment of sending, consent, unsubscribes, archiving, today’s limits and the development allowlist are checked again — anyone who no longer qualifies is skipped and shown.',
       ...(prepared.notFound ? [`${prepared.notFound} of the people asked for could not be found for you and are not on the list.`] : []),
     ],
   };

@@ -11,7 +11,7 @@ import {
   prepareBatchAction,
   retryFailedAction,
   saveFilterAction,
-  templateStepAction,
+  retireTemplateAction,
   updateTemplateAction,
   type TemplateEmailResult,
 } from '@/lib/template-email-actions';
@@ -68,7 +68,7 @@ export function TemplateForm({
         setError(null);
         run(
           () => (templateId ? updateTemplateAction(templateId, input) : createTemplateAction(input)),
-          'Draft saved',
+          'Saved — ready to use',
           (r) => !templateId && r.id && router.push(`${basePath}/templates/${r.id}`),
         );
       }}
@@ -91,47 +91,23 @@ export function TemplateForm({
         </span>
       </label>
       <div className={contactStyles.actions}>
-        <button type="submit" className={contactStyles.btn} disabled={pending}>{pending ? 'Saving…' : 'Save draft'}</button>
+        <button type="submit" className={contactStyles.btn} disabled={pending}>{pending ? 'Saving…' : 'Save'}</button>
       </div>
     </form>
   );
 }
 
-export function TemplateSteps({
-  id,
-  maySubmit,
-  mayApprove,
-  mayRetire,
-}: {
-  id: string;
-  maySubmit: boolean;
-  mayApprove: boolean;
-  mayRetire: boolean;
-}) {
+/** A template's one step (ADR 0043 — no approval): retire it. */
+export function TemplateSteps({ id, mayRetire }: { id: string; mayRetire: boolean }) {
   const { pending, run } = useRun();
   return (
     <div className={contactStyles.inlineForm}>
-      {maySubmit ? (
-        <button type="button" className={contactStyles.btn} disabled={pending} onClick={() => run(() => templateStepAction(id, 'submit'), 'Sent for approval')}>
-          Submit for approval
-        </button>
-      ) : null}
-      {mayApprove ? (
-        <>
-          <button type="button" className={contactStyles.btn} disabled={pending} onClick={() => run(() => templateStepAction(id, 'approve'), 'Approved')}>
-            Approve
-          </button>
-          <button type="button" className={contactStyles.btnGhost} disabled={pending} onClick={() => run(() => templateStepAction(id, 'send_back'), 'Sent back as a draft')}>
-            Send back
-          </button>
-        </>
-      ) : null}
       {mayRetire ? (
         <button
           type="button"
           className={contactStyles.linkBtn}
           disabled={pending}
-          onClick={() => window.confirm('Retire this template? It can no longer be used for new batches.') && run(() => templateStepAction(id, 'retire'), 'Retired')}
+          onClick={() => window.confirm('Retire this template? It can no longer be used for new batches.') && run(() => retireTemplateAction(id), 'Retired')}
         >
           Retire
         </button>
@@ -152,7 +128,7 @@ export function PrepareForm({
   const { pending, run, router } = useRun();
   const [templateId, setTemplateId] = useState(templates[0]?.id ?? '');
   const [filterId, setFilterId] = useState(filters[0]?.id ?? '');
-  if (!templates.length) return <p className={contactStyles.note}>No approved template yet — write one and ask an owner or admin to approve it.</p>;
+  if (!templates.length) return <p className={contactStyles.note}>No template yet — write one under Templates; it is ready to use as soon as it is saved.</p>;
   if (!filters.length) return <p className={contactStyles.note}>No saved filter yet — filter the contact list and press “Save this filter”.</p>;
   return (
     <form
@@ -162,7 +138,7 @@ export function PrepareForm({
         run(() => prepareBatchAction(templateId, filterId), 'Prepared — check the list before sending', (r) => r.id && router.push(`${basePath}/${r.id}`));
       }}
     >
-      <select className={contactStyles.select} value={templateId} onChange={(e) => setTemplateId(e.target.value)} aria-label="Approved template">
+      <select className={contactStyles.select} value={templateId} onChange={(e) => setTemplateId(e.target.value)} aria-label="Template">
         {templates.map((t) => (
           <option key={t.id} value={t.id}>{t.name}</option>
         ))}

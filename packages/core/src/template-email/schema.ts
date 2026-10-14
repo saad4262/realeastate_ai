@@ -48,7 +48,7 @@ export type TemplateInput = z.input<typeof templateInputSchema>;
 export const TEMPLATE_STATUS_LABELS = {
   draft: 'Draft',
   pending_approval: 'Waiting for approval',
-  approved: 'Approved',
+  approved: 'Ready',
   retired: 'Retired',
 } as const;
 
@@ -69,8 +69,9 @@ export type SkipReason = (typeof SKIP_REASONS)[number];
 export const SKIP_REASON_LABELS: Record<SkipReason, string> = {
   opted_out: 'Opted out of marketing email',
   archived: 'Archived',
-  recently_emailed: 'Already sent a template email in the last 7 days',
-  no_consent: 'No marketing consent recorded',
+  // ADR 0043 removed the 7-day rule; only batches made before it carry this reason.
+  recently_emailed: 'Already sent a template email in the last 7 days (an old rule)',
+  no_consent: 'No marketing consent — none recorded, no enquiry in the last 24 months, not a client',
   no_email: 'No email address',
   batch_limit: 'Over the per-batch limit',
   dev_allowlist: 'Not on the development allowlist (nothing real is sent in development)',

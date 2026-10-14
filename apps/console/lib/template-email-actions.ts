@@ -4,16 +4,13 @@ import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import {
   approveBatch,
-  approveTemplate,
   cancelBatch,
   createTemplate,
   prepareBatch,
   retireTemplate,
   retryFailed,
   saveContactFilter,
-  sendBackTemplate,
   sendBatch,
-  submitTemplate,
   TemplateEmailError,
   templateSendDepsFromEnv,
   updateTemplate,
@@ -70,11 +67,10 @@ export async function updateTemplateAction(id: string, input: TemplateInput): Pr
   return run(async () => (await updateTemplate(getConsoleDb(), who, id, input), { ok: true, id }), 'Could not save the template');
 }
 
-export async function templateStepAction(id: string, step: 'submit' | 'approve' | 'send_back' | 'retire'): Promise<TemplateEmailResult> {
+/** Retire a template — its author or an admin (ADR 0043: there is no approval step left). */
+export async function retireTemplateAction(id: string): Promise<TemplateEmailResult> {
   const who = await actor();
-  const db = getConsoleDb();
-  const fn = { submit: submitTemplate, approve: approveTemplate, send_back: sendBackTemplate, retire: retireTemplate }[step];
-  return run(async () => (await fn(db, who, id), { ok: true, id }), 'Could not update the template');
+  return run(async () => (await retireTemplate(getConsoleDb(), who, id), { ok: true, id }), 'Could not retire the template');
 }
 
 export async function saveFilterAction(name: string, query: Record<string, string | undefined>): Promise<TemplateEmailResult> {

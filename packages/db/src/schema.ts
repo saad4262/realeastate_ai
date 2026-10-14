@@ -1799,6 +1799,11 @@ export const emailTemplate = pgTable(
     approvedBy: uuid('approved_by').references(() => user.id, { onDelete: 'set null' }),
     approvedAt: timestamp('approved_at', { withTimezone: true }),
     retiredAt: timestamp('retired_at', { withTimezone: true }),
+    /**
+     * ADR 0043: usable by everyone in the agency (made by an owner/admin), or only by its
+     * author (made by an agent). A template is ready when saved — there is no approval step.
+     */
+    agencyWide: boolean('agency_wide').notNull().default(false),
     ...timestamps,
   },
   (t) => [index('email_template_agency_idx').on(t.agencyId, t.status)],
@@ -1872,7 +1877,7 @@ export const emailBatchRecipient = pgTable(
     name: text('name').notNull(),
     email: text('email'),
     status: emailRecipientStatusEnum('status').notNull(),
-    /** Why skipped: opted_out, archived, recently_emailed, no_consent, no_email, batch_limit, dev_allowlist. */
+    /** Why skipped: opted_out, archived, no_consent, no_email, batch_limit, dev_allowlist (recently_emailed: old batches only, ADR 0043). */
     skipReason: varchar('skip_reason', { length: 32 }),
     /** Skipped at Prepare, or only at the moment of sending. */
     skippedAtSend: boolean('skipped_at_send').notNull().default(false),

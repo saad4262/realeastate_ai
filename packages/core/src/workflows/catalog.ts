@@ -194,7 +194,7 @@ export const ACTION_WORDS: Record<ActionType, string> = {
   assign_lead: 'give the lead to',
   assign_contact: 'give the contact to',
   message_colleagues: 'message colleagues',
-  send_template_email: 'send an approved template',
+  send_template_email: 'send an email template',
   draft_email: 'write an email draft for you to approve',
   wait: 'wait',
 };
@@ -252,7 +252,7 @@ export function actionInWords(a: WorkflowAction, names: Record<string, string> =
     case 'message_colleagues':
       return `Message ${a.to.map((id) => names[id] ?? 'a colleague').join(', ')}: “${a.subject}”`;
     case 'send_template_email':
-      return `Send the approved template “${names[a.template_id] ?? 'template'}” to the contact (only if they may receive it then)`;
+      return `Send the template “${names[a.template_id] ?? 'template'}” to the contact (only if they may receive it then)`;
     case 'draft_email':
       return `Write an email draft for you to approve, about: “${a.instructions}”`;
     case 'wait':

@@ -253,12 +253,15 @@ export type Action =
   /** See the agency's email templates (ADR 0022). Any active member. */
   | 'email_template:read'
   /**
-   * Draft a template, or edit/submit one still in draft: anyone who may write
-   * creates; only its author (`ownerId`) or an admin edits or submits it.
+   * Write a template (ready when saved — ADR 0043, no approval): anyone who may
+   * write creates one; only its author (`ownerId`) or an admin edits or retires it.
    */
   | 'email_template:draft'
-  /** Approve, send back or retire a template. Owner/admin only. */
-  | 'email_template:approve'
+  /**
+   * Owner/admin (ADR 0043): their templates are for the whole agency, and they
+   * see, edit and retire every template in it.
+   */
+  | 'email_template:manage'
   /** Prepare a bulk send. Any active member who is not read-only. */
   | 'email_batch:create'
   /** See a batch: the agent who prepared it (`ownerId`), or an admin. */
@@ -728,7 +731,7 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       if (!resource.id || isAgencyAdmin(actor)) return true;
       return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
 
-    case 'email_template:approve':
+    case 'email_template:manage':
       return sameAgency(actor, resource) && isAgencyAdmin(actor);
 
     case 'email_batch:create':

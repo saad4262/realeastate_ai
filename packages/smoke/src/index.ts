@@ -191,15 +191,14 @@ import {
   approveBatch as approveEmailBatch,
   cancelBatch as cancelEmailBatch,
   listTemplates as listEmailTemplates,
-  approveTemplate as approveEmailTemplate,
   createTemplate as createEmailTemplate,
+  retireTemplate as retireEmailTemplate,
   getBatch as getEmailBatch,
   listBatches as listEmailBatches,
   optOutContact,
   prepareBatch as prepareEmailBatch,
   saveContactFilter,
   sendBatch as sendEmailBatch,
-  submitTemplate as submitEmailTemplate,
   type TemplateSendDeps,
 } from '@repo/core/template-email';
 import { verifyContactUnsubscribeToken } from '@repo/core/email';
@@ -5098,7 +5097,7 @@ async function main() {
   // ---------------------------------------------------- template email --
   group('Template email');
 
-  const LIMITS = { perAgentDay: 50, perAgencyDay: 200, perBatch: 20, repeatDays: 7, sendDelayMs: 0 };
+  const LIMITS = { perAgentDay: 50, perAgencyDay: 200, perBatch: 20, sendDelayMs: 0 };
 
   /** A throwaway agency with A1 owning three consenting contacts (+ P1/P5 from the fixture), an approved template and a saved filter. */
   async function templateFixture(t: Db) {
@@ -5118,8 +5117,6 @@ async function main() {
       values (${f.agencyId}, 'Nora NoConsent', ${`nora.${f.tag}@smoke.test`}, ${f.people.a1})
     `);
     const tpl = await createEmailTemplate(t, f.actor('a1'), { name: 'Smoke template', subject: 'Hello {{first_name}}', body: 'Hi {{first_name}}, from {{agency_name}}.' });
-    await submitEmailTemplate(t, f.actor('a1'), tpl.id);
-    await approveEmailTemplate(t, f.actor('owner'), tpl.id);
     const filter = await saveContactFilter(t, f.actor('a1'), 'All mine', { assigned: 'me' });
     const transport = fakeTransport();
     const deps: TemplateSendDeps = {
@@ -5149,23 +5146,73 @@ async function main() {
 
   const codeOf = (p: Promise<unknown>) => p.then(() => 'ok', (e: unknown) => (e as { code?: string }).code ?? String(e));
 
-  await check('an unapproved template cannot be used, and the frozen list does not change after contact edits', () =>
+  await check('a template is ready when saved (ADR 0043): its author sends it at once, a colleague cannot, an owner’s is for everyone; the frozen list does not change after contact edits', () =>
     rolledBack(async (t) => {
       const x = await templateFixture(t);
-      const draft = await createEmailTemplate(t, x.f.actor('a1'), { name: 'Draft', subject: 'Hi', body: 'Hi' });
-      assert((await codeOf(prepareEmailBatch(t, x.f.actor('a1'), { templateId: draft.id, filterId: x.filter.id }, LIMITS))) === 'not_approved', 'a draft template was used');
+      const a1 = x.f.actor('a1');
+      const mine = await createEmailTemplate(t, a1, { name: 'Mine', subject: 'Hi', body: 'Hi' });
+      assert((await codeOf(prepareEmailBatch(t, a1, { templateId: mine.id, filterId: x.filter.id }, LIMITS))) === 'ok', 'the author could not send a template just saved');
+      const theirs = await createEmailTemplate(t, x.f.actor('a2'), { name: 'Theirs', subject: 'Hi', body: 'Hi' });
+      assert((await codeOf(prepareEmailBatch(t, a1, { templateId: theirs.id, filterId: x.filter.id }, LIMITS))) === 'not_approved', 'a colleague’s own template was used');
+      const agencyTpl = await createEmailTemplate(t, x.f.actor('owner'), { name: 'Agency', subject: 'Hi', body: 'Hi' });
+      assert((await codeOf(prepareEmailBatch(t, a1, { templateId: agencyTpl.id, filterId: x.filter.id }, LIMITS))) === 'ok', 'the owner’s template was not usable by an agent');
+      await retireEmailTemplate(t, a1, mine.id);
+      assert((await codeOf(prepareEmailBatch(t, a1, { templateId: mine.id, filterId: x.filter.id }, LIMITS))) === 'not_approved', 'a retired template was used');
 
-      const { id } = await prepareEmailBatch(t, x.f.actor('a1'), { templateId: x.tpl.id, filterId: x.filter.id }, LIMITS);
-      const before = (await getEmailBatch(t, x.f.actor('a1'), id)).recipients.map((r) => `${r.contactId}:${r.name}:${r.email}:${r.status}:${r.skipReason}`).sort();
+      const { id } = await prepareEmailBatch(t, a1, { templateId: x.tpl.id, filterId: x.filter.id }, LIMITS);
+      const before = (await getEmailBatch(t, a1, id)).recipients.map((r) => `${r.contactId}:${r.name}:${r.email}:${r.status}:${r.skipReason}`).sort();
       // Edits after Prepare: a rename, an address change, consent added to someone skipped, a new matching contact.
       await t.execute(sql`update contact set name = 'Renamed' where id = ${x.extra[0]}`);
       await t.execute(sql`update contact set email = 'changed.${sql.raw(x.f.tag)}@smoke.test' where id = ${x.extra[1]}`);
       await t.execute(sql`update contact set marketing_consent_at = now() where id = ${x.f.contacts.p5}`);
       await t.execute(sql`insert into contact (agency_id, name, email, assigned_to, marketing_consent_at) values (${x.f.agencyId}, 'Late', ${`late.${x.f.tag}@smoke.test`}, ${x.f.people.a1}, now())`);
-      const after = (await getEmailBatch(t, x.f.actor('a1'), id)).recipients.map((r) => `${r.contactId}:${r.name}:${r.email}:${r.status}:${r.skipReason}`).sort();
+      const after = (await getEmailBatch(t, a1, id)).recipients.map((r) => `${r.contactId}:${r.name}:${r.email}:${r.status}:${r.skipReason}`).sort();
       assert(JSON.stringify(before) === JSON.stringify(after), 'the frozen list changed after Prepare');
       assert(before.some((r) => r.includes('no_consent')), 'the no-consent contact was not shown as skipped');
-      return `draft refused; ${before.length} people frozen, unchanged by 4 edits`;
+      return `own template sent at once; colleague’s refused; owner’s usable by all; retired refused; ${before.length} people frozen, unchanged by 4 edits`;
+    }),
+  );
+
+  await check('consent (ADR 0043): recorded, an enquiry in 24 months, or a seller/landlord/tenant — a buyer alone or an old enquiry is not; an unsubscribe always wins, at Prepare and at send', () =>
+    rolledBack(async (t) => {
+      const x = await templateFixture(t);
+      const a1 = x.f.actor('a1');
+      const person = async (name: string, opts: { leadMonthsAgo?: number; role?: string; optedOut?: boolean } = {}) => {
+        const [c] = await t.execute<{ id: string }>(sql`
+          insert into contact (agency_id, name, email, assigned_to, email_opt_out_at)
+          values (${x.f.agencyId}, ${name}, ${`${name.toLowerCase()}.${x.f.tag}@smoke.test`}, ${x.f.people.a1}, ${opts.optedOut ? sql`now()` : null}) returning id`);
+        if (opts.leadMonthsAgo !== undefined) {
+          await t.execute(sql`insert into lead (property_id, agency_id, name, email, contact_id, created_at)
+            values (${x.f.propertyId}, ${x.f.agencyId}, ${name}, ${`${name.toLowerCase()}.${x.f.tag}@smoke.test`}, ${c!.id}, now() - make_interval(months => ${opts.leadMonthsAgo}))`);
+        }
+        if (opts.role) await t.execute(sql`insert into contact_role (contact_id, role) values (${c!.id}, ${opts.role}::contact_role_kind)`);
+        return c!.id;
+      };
+      const ids = {
+        recentEnquiry: await person('Recent', { leadMonthsAgo: 3 }),
+        oldEnquiry: await person('Oldenq', { leadMonthsAgo: 30 }),
+        seller: await person('Seller', { role: 'seller' }),
+        tenant: await person('Tenant', { role: 'tenant' }),
+        buyerOnly: await person('Buyer', { role: 'buyer' }),
+        nothing: await person('Nothing'),
+        unsubscribedEnquirer: await person('Unsub', { leadMonthsAgo: 1, optedOut: true }),
+        laterUnsub: await person('Laterunsub', { leadMonthsAgo: 1 }),
+      };
+      const { id } = await prepareEmailBatch(t, a1, { templateId: x.tpl.id, contactIds: Object.values(ids) }, LIMITS);
+      const b = await getEmailBatch(t, a1, id);
+      const why = Object.fromEntries(Object.entries(ids).map(([k, cid]) => [k, b.recipients.find((r) => r.contactId === cid)?.skipReason ?? 'send']));
+      const expected = { recentEnquiry: 'send', oldEnquiry: 'no_consent', seller: 'send', tenant: 'send', buyerOnly: 'no_consent', nothing: 'no_consent', unsubscribedEnquirer: 'opted_out', laterUnsub: 'send' };
+      assert(JSON.stringify(why) === JSON.stringify(expected), `at Prepare: ${JSON.stringify(why)}`);
+      // Unsubscribes after Prepare: still skipped at the moment of sending, enquiry or not.
+      await optOutContact(t, ids.laterUnsub);
+      await approveEmailBatch(t, a1, id, LIMITS);
+      await sendEmailBatch(t, x.deps, id);
+      const sent = (await getEmailBatch(t, a1, id)).recipients;
+      const later = sent.find((r) => r.contactId === ids.laterUnsub);
+      assert(later?.status === 'skipped' && later.skipReason === 'opted_out' && later.skippedAtSend, `later unsubscribe: ${JSON.stringify(later)}`);
+      const went = sent.filter((r) => r.status === 'sent').length;
+      assert(went === 3, `sent ${went} (recent enquiry, seller, tenant)`);
+      return `recent enquiry, seller, tenant sent; 30-month enquiry, buyer-only, nobody skipped (no consent); unsubscribed skipped at Prepare and at send`;
     }),
   );
 
@@ -5192,29 +5239,22 @@ async function main() {
     }),
   );
 
-  await check('the 7-day rule: on at 7 (preview and send skip the person), off at 0 — development only; every other rule unchanged', () =>
+  await check('no repeat window (ADR 0043): a contact emailed yesterday is sent to again; consent still decides', () =>
     rolledBack(async (t) => {
       const x = await templateFixture(t);
       const a1 = x.f.actor('a1');
-      const OFF = { ...LIMITS, repeatDays: 0 };
       const first = await prepareEmailBatch(t, a1, { templateId: x.tpl.id, filterId: x.filter.id }, LIMITS);
       await approveEmailBatch(t, a1, first.id, LIMITS);
       const sent = (await sendEmailBatch(t, x.deps, first.id)).sent;
-      // Sent yesterday, not "this instant" in this transaction — so the rule, not the clock, decides.
       await t.execute(sql`update mail_message set created_at = now() - interval '1 day' where agency_id = ${x.f.agencyId} and kind = 'template_email'`);
-      // At 7: the people just emailed are skipped in the preview.
-      const again = await getEmailBatch(t, a1, (await prepareEmailBatch(t, a1, { templateId: x.tpl.id, filterId: x.filter.id }, LIMITS)).id);
-      const recent7 = again.recipients.filter((r) => r.skipReason === 'recently_emailed').length;
-      // At 0: nobody is skipped for that reason, and the send goes out again — consent and the rest still apply.
-      const offBatch = await prepareEmailBatch(t, a1, { templateId: x.tpl.id, filterId: x.filter.id }, OFF);
-      const off = await getEmailBatch(t, a1, offBatch.id);
-      const recent0 = off.recipients.filter((r) => r.skipReason === 'recently_emailed').length;
-      const noConsentStill = off.recipients.some((r) => r.skipReason === 'no_consent');
-      await approveEmailBatch(t, a1, offBatch.id, OFF);
-      const resent = (await sendEmailBatch(t, { ...x.deps, limits: OFF }, offBatch.id)).sent;
-      assert(sent > 0 && recent7 === sent, `at 7: sent ${sent}, then ${recent7} skipped as recently emailed`);
-      assert(recent0 === 0 && resent === sent && noConsentStill, `at 0: ${recent0} recently-emailed skips, ${resent} re-sent of ${sent}, no-consent still skipped: ${noConsentStill}`);
-      return `sent ${sent}; at 7 all ${recent7} skipped; at 0 re-sent ${resent}, no-consent still skipped`;
+      const again = await prepareEmailBatch(t, a1, { templateId: x.tpl.id, filterId: x.filter.id }, LIMITS);
+      const view = await getEmailBatch(t, a1, again.id);
+      const noConsentStill = view.recipients.some((r) => r.skipReason === 'no_consent');
+      assert(!view.recipients.some((r) => r.skipReason === 'recently_emailed'), 'someone was skipped as recently emailed');
+      await approveEmailBatch(t, a1, again.id, LIMITS);
+      const resent = (await sendEmailBatch(t, x.deps, again.id)).sent;
+      assert(sent > 0 && resent === sent && noConsentStill, `sent ${sent}, re-sent ${resent}, no-consent still skipped: ${noConsentStill}`);
+      return `sent ${sent}; the next day re-sent ${resent}; no-consent still skipped`;
     }),
   );
 
@@ -5523,7 +5563,8 @@ async function main() {
       // The minute tick before the reminder's time: nothing. At its time: the bell, then step 3 right after.
       await runScheduledActions(t, {}, new Date());
       assert((await taskRows(t, taskId))[1] === '2:remind:scheduled', 'the reminder ran early');
-      await runScheduledActions(t, {}, new Date(tomorrow.getTime() + 3_600_000));
+      // Well past 09:00 on that day wherever the clock is now (it is a Melbourne date: +26 h + 1 h fell short of it late at night there).
+      await runScheduledActions(t, {}, new Date(Date.now() + 50 * 3_600_000));
       assert((await taskRows(t, taskId)).join() === '1:add_note:done,2:remind:done,3:set_next_action:done', `after its time: ${await taskRows(t, taskId)}`);
       assert((await taskStatus(t, taskId)).status === 'done', 'the task did not finish');
       assert((await count(t, sql`select count(*)::int as n from notification where user_id = ${f.people.owner} and kind = 'reminder'`)) === 1, 'no bell');
@@ -5997,7 +6038,7 @@ async function main() {
   });
 
   /** Phase D fixture: A1's own contacts with every marketing state, an approved template, and send deps with a fake transport. */
-  async function emailCardFixture(t: Db, limits = { perBatch: 20, perAgentDay: 50, perAgencyDay: 200, repeatDays: 7, sendDelayMs: 0 }) {
+  async function emailCardFixture(t: Db, limits = { perBatch: 20, perAgentDay: 50, perAgencyDay: 200, sendDelayMs: 0 }) {
     const f = await contactFixture(t);
     const person = async (name: string, opts: { consent?: boolean; optedOut?: boolean; archived?: boolean } = {}) => {
       const [r] = await t.execute<{ id: string }>(sql`
@@ -6015,8 +6056,6 @@ async function main() {
       archived: await person('Archived', { consent: true, archived: true }),
     };
     const tpl = await createEmailTemplate(t, f.actor('a1'), { name: 'Open home Saturday', subject: 'Open home this Saturday, {{first_name}}', body: 'Hi {{first_name}}, come and see it on Saturday.' });
-    await submitEmailTemplate(t, f.actor('a1'), tpl.id);
-    await approveEmailTemplate(t, f.actor('owner'), tpl.id);
     const transport = fakeTransport();
     const deps: TemplateSendDeps = {
       mail: { mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport }, config: null },
@@ -6090,9 +6129,9 @@ async function main() {
     }),
   );
 
-  await check('D: limits, unapproved templates, people you cannot see, and nobody-can-receive are all refused', async () =>
+  await check('D: limits, a colleague’s own template, people you cannot see, and nobody-can-receive are all refused', async () =>
     inRollback(async (t) => {
-      const x = await emailCardFixture(t, { perBatch: 20, perAgentDay: 1, perAgencyDay: 200, repeatDays: 7, sendDelayMs: 0 });
+      const x = await emailCardFixture(t, { perBatch: 20, perAgentDay: 1, perAgencyDay: 200, sendDelayMs: 0 });
       const ctxA1 = () => proposeCtx(t, x.f.actor('a1'), x.h, x.conv.conversationId);
       // Today's limit (1) is crossed by a card for two people: Approve fails with the reason, nothing sent.
       const id = cardId(await runAssistantTool(ctxA1(), 'send_template_email', { template: x.ref(x.tpl.id), recipients: [x.ref(x.people.ready), x.ref(x.people.later)] }));
@@ -6104,12 +6143,12 @@ async function main() {
       const id0 = cardId(await runAssistantTool(ctxA1(), 'send_template_email', { template: x.ref(x.tpl.id), recipients: [x.ref(x.people.ready)] }));
       const noMail = await approveProposedAction(t, x.f.actor('a1'), id0, { templateSend: null });
       assert(noMail.outcome === 'failed', `no email set up: ${JSON.stringify(noMail)}`);
-      // A draft template, even with a reference to it: refused.
-      const draft = await createEmailTemplate(t, x.f.actor('a1'), { name: 'Draft', subject: 'x', body: 'x' });
+      // A colleague's own template (ADR 0043), even with a reference to it: refused.
+      const draft = await createEmailTemplate(t, x.f.actor('a2'), { name: 'Theirs', subject: 'x', body: 'x' });
       issueHandle(x.h, 'T', draft.id);
       const dref = Object.entries(x.h).find(([, v]) => v.id === draft.id)![0];
       const d = await runAssistantTool(ctxA1(), 'send_template_email', { template: dref, recipients: [x.ref(x.people.ready)] });
-      assert(d.isError && /approved/.test(JSON.stringify(d.result)), `a draft template: ${JSON.stringify(d.result)}`);
+      assert(d.isError && /not one you can send/.test(JSON.stringify(d.result)), `a colleague’s template: ${JSON.stringify(d.result)}`);
       // Nobody can receive it: no card, and no prepared batch left behind.
       const before = await count(t, sql`select count(*)::int as n from email_batch where agency_id = ${x.f.agencyId} and status = 'prepared'`);
       const none = await runAssistantTool(ctxA1(), 'send_template_email', { template: x.ref(x.tpl.id), recipients: [x.ref(x.people.noConsent), x.ref(x.people.optedOut)] });
@@ -6698,7 +6737,7 @@ async function main() {
 
   await check('part 2 §2: a part over today’s email limit waits an hour and tries again — the list is not abandoned', async () =>
     inRollback(async (t) => {
-      const x = await listFixture(t, 23, { perBatch: 20, perAgentDay: 22, perAgencyDay: 200, repeatDays: 7, sendDelayMs: 0 });
+      const x = await listFixture(t, 23, { perBatch: 20, perAgentDay: 22, perAgencyDay: 200, sendDelayMs: 0 });
       const a1 = x.f.actor('a1');
       const id = cardId(await runAssistantTool(proposeCtx(t, a1, x.h, x.conv.conversationId), 'send_template_email', { template: x.ref(x.tpl.id), list: x.listRef }));
       const taskId = await taskIdOf(t, id);
@@ -7440,12 +7479,10 @@ async function main() {
       const note = await createNote(t, a1, f.contacts.p1, `shared note ${f.tag}`);
       const privateNote = await createNote(t, f.actor('owner'), f.contacts.p1, `private note ${f.tag}`, { isPrivate: true });
       const tpl = await createEmailTemplate(t, a1, { name: `Tpl ${f.tag}`, subject: 'Hi {{first_name}}', body: 'Hi {{first_name}}.' });
-      await submitEmailTemplate(t, a1, tpl.id);
-      await approveEmailTemplate(t, f.actor('owner'), tpl.id);
       // A contact of A1's own, so the saved filter matches someone and a batch can be prepared.
       await t.execute(sql`insert into contact (agency_id, name, email, assigned_to) values (${f.agencyId}, ${`Mine ${f.tag}`}, ${`mine.${f.tag}@smoke.test`}, ${f.people.a1})`);
       const filter = await saveContactFilter(t, a1, `Mine ${f.tag}`, { assigned: 'me' });
-      const batch = await prepareEmailBatch(t, a1, { templateId: tpl.id, filterId: filter.id }, { perBatch: 20, perAgentDay: 50, perAgencyDay: 200, repeatDays: 7, sendDelayMs: 0 });
+      const batch = await prepareEmailBatch(t, a1, { templateId: tpl.id, filterId: filter.id }, { perBatch: 20, perAgentDay: 50, perAgencyDay: 200, sendDelayMs: 0 });
       const skill = await addSkillToMine(t, a1, await libraryId(t, 'morning-brief'), 'UTC');
       const calendar = await g.connect(t, a1, 'google_calendar', 'user', f.people.a1, f.agencyId);
       const zoom = await g.connect(t, f.actor('owner'), 'zoom', 'agency', f.agencyId, f.agencyId);
@@ -7587,7 +7624,7 @@ async function main() {
       const before = await agencySnapshot(t, B.f.agencyId);
       const transport = fakeTransport();
       const mailDeps = { mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport }, config: null, env: { ...process.env, NODE_ENV: 'development', EMAIL_DEV_ALLOWLIST: '@smoke.test' } };
-      const limits = { perBatch: 20, perAgentDay: 50, perAgencyDay: 200, repeatDays: 7, sendDelayMs: 0 };
+      const limits = { perBatch: 20, perAgentDay: 50, perAgencyDay: 200, sendDelayMs: 0 };
       const accepted: string[] = [];
       let attempts = 0;
       for (const role of A_ROLES) {
@@ -7624,7 +7661,7 @@ async function main() {
           ['assignLead(A lead → B person)', () => assignLead(t, actor, A.ids.lead, B.ids.people[1]!)],
           ['markThreadRead', () => markThreadRead(t, actor, B.ids.thread)],
           ['sendThreadReply', () => sendThreadReply(t, mailDeps, actor, B.ids.thread, { body: 'x' })],
-          ['approveEmailTemplate', () => approveEmailTemplate(t, actor, B.ids.template)],
+          ['retireEmailTemplate', () => retireEmailTemplate(t, actor, B.ids.template)],
           ['prepareEmailBatch(B template)', () => prepareEmailBatch(t, actor, { templateId: B.ids.template, filterId: A.ids.filter }, limits)],
           ['prepareEmailBatch(B filter)', () => prepareEmailBatch(t, actor, { templateId: A.ids.template, filterId: B.ids.filter }, limits)],
           ['approveEmailBatch', () => approveEmailBatch(t, actor, B.ids.batch, limits)],

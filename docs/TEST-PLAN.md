@@ -1283,3 +1283,17 @@ Before: migration **0052** applied (it is); `pnpm dev` restarted (prompt `assist
 | AR8 | Read-only member asks any data question | "This person may not ask open questions of the agency's data." |
 | AR9 | Open the AR1 dashboard as an agent (audience: everyone in the agency) | They see one row: themselves. |
 | AR10 | Ask 10 questions in a row quickly | All answered; after 60 open queries in an hour the agency is told to wait (the cap). |
+
+## AS — Templates without approval, consent from an enquiry, no 7-day rule (ADR 0043)
+
+Before: migration **0053** applied (it is); prompt `assistant@v21`.
+
+| # | Case | Expected |
+|---|---|---|
+| AS1 | Agent: Bulk email → New template → Save | "Saved — ready to use". No Submit/Approve buttons. It shows "Only you" and appears in the agent's Prepare list straight away. |
+| AS2 | Another agent opens Bulk email | They do not see or send the first agent's template. |
+| AS3 | Owner makes a template | It shows "Agency" and every agent can send it. |
+| AS4 | Prepare to a contact who enquired last month (no consent ticked) | Will be sent. A contact with only the "buyer" role and no enquiry: skipped "No marketing consent". A seller/landlord/tenant: sent. |
+| AS5 | A contact who unsubscribed (even with an enquiry) | Always skipped "Opted out". |
+| AS6 | Send the same template to the same people two days in a row | Both go out (no 7-day rule). |
+| AS7 | Assistant: "send our open-home template to Sara" | Lists templates you may send; the card shows Sara as will-send if she enquired. |

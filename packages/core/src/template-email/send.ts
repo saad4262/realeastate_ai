@@ -12,7 +12,8 @@ import {
 import { checkEmailLimits, devAllowlist, emailLimitsFromEnv, type TemplateLimits } from '../email/limits';
 import { contactUnsubscribeUrl } from '../email/unsubscribe';
 import { deliverOutbound, mailDepsFromEnv, recordOutbound, type MailDeps } from '../mail/send';
-import { mergeValuesFor, recentlyEmailedSql, classify, type TemplateSnapshot } from './batches';
+import { mergeValuesFor, classify, type TemplateSnapshot } from './batches';
+import { hasMarketingConsentSql } from './consent';
 import { renderMerge, type SkipReason } from './schema';
 
 /**
@@ -27,8 +28,8 @@ import { renderMerge, type SkipReason } from './schema';
  * rather than writing a second one.
  *
  * Re-checked at the moment of sending, per recipient: archived, opted out,
- * consent, the address still the one frozen at Prepare, the 7-day rule (other
- * batches since), the development allowlist, the daily limits. Each may only
+ * consent (recorded or inferred, ADR 0043), the address still the one frozen
+ * at Prepare, the development allowlist, the daily limits. Each may only
  * REMOVE someone; nobody is added after Prepare.
  *
  * Network calls (the mail provider) run outside every transaction.
@@ -99,8 +100,8 @@ export async function sendBatch(db: Db, deps: TemplateSendDeps, batchId: string)
         archivedAt: contact.archivedAt,
         mergedIntoId: contact.mergedIntoId,
         optOutAt: contact.emailOptOutAt,
-        consentAt: contact.marketingConsentAt,
-        recently: recentlyEmailedSql(sql.raw('"contact"."id"'), deps.limits.repeatDays, r.mail_message_id),
+        // The same definition as at Prepare (ADR 0043): recorded, or inferred — and the opt-out tested first.
+        consent: hasMarketingConsentSql(),
       })
       .from(contact)
       .where(eq(contact.id, r.contact_id))
@@ -110,9 +111,8 @@ export async function sendBatch(db: Db, deps: TemplateSendDeps, batchId: string)
       : classify({
           archived: Boolean(now.archivedAt || now.mergedIntoId),
           optedOut: Boolean(now.optOutAt),
-          consent: Boolean(now.consentAt),
+          consent: now.consent === true || (now.consent as unknown) === 't',
           email: now.email,
-          recently: now.recently === true || (now.recently as unknown) === 't',
         });
     if (!reason && (now?.email ?? '').toLowerCase() !== (r.email ?? '').toLowerCase()) reason = 'email_changed';
     if (!reason && allowed && !allowed(r.email ?? '')) reason = 'dev_allowlist';
@@ -297,10 +297,10 @@ export async function ensureTemplateEmailSkill(db: Db): Promise<void> {
       slug: 'template-email',
       name: 'Template email to contacts',
       description:
-        'Send an approved template to the contacts in one of your saved filters — only people who agreed to marketing email. Prepare, check every name, then Approve & Send. Never on a schedule.',
+        'Send a template to the contacts in one of your saved filters — people who agreed to marketing email, enquired in the last 24 months, or are clients; never anyone who unsubscribed. Prepare, check every name, then Approve & Send. Never on a schedule.',
       handler: 'template_email',
       bodyMd:
-        '---\nrequires: []\nmodel: summary\n---\n\nNo AI writes this email: it is an approved template with merge fields.\nUse it from Bulk email: Prepare, check the list, Approve & Send.\nNeeds each contact to have marketing consent recorded.\n',
+        '---\nrequires: []\nmodel: summary\n---\n\nNo AI writes this email: it is a template a person wrote, with merge fields.\nUse it from Bulk email: Prepare, check the list, Approve & Send.\nNeeds each contact to have marketing consent recorded.\n',
       requires: [],
       modelTier: 'summary',
     })

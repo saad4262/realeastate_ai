@@ -1,4 +1,12 @@
 # Status
+- **Templates without approval, consent from an enquiry, no 7-day rule (ADR 0043, the user's decisions 2026-10-14) — built on
+  `feat/email-rules`, committed, NOT pushed. Migration 0053 APPLIED with the user's permission.** A template is ready when saved
+  (an agent's: theirs only; an owner's/admin's: the agency's); consent = recorded, OR an enquiry in 24 months, OR a
+  seller/landlord/tenant role; an unsubscribe always wins; the 7-day rule is deleted (batch size and daily caps stay). Prompt
+  `assistant@v21`. Unit 1410 green; smoke Template email 7/7, Workflows 6/6, Tenant isolation 4/4, Assistant part 2 5/5,
+  Console assistant: every check green in at least one of two runs (the rest were network drops); one old time-of-day bug in
+  a task check fixed. TEST-PLAN **AS**. **Next:** push/deploy with permission; the user walks AS; a lawyer confirms the
+  24 months and the client roles once.
 - **Open questions on the agency's data (ADR 0042, accepted 2026-10-14) — built 2026-10-14 on `feat/open-analytics` (from main),
   committed, NOT pushed. Migration 0052 APPLIED 2026-10-14 with the user's permission.** The assistant writes ONE read-only
   SELECT over 9 named datasets (`describe_data`, `query_data`), run as the person behind four locks (parser; the screens' scope

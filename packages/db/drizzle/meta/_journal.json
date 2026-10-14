@@ -372,6 +372,13 @@
       "when": 1791977298332,
       "tag": "0052_open_query",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1791979961170,
+      "tag": "0053_template_no_approval",
+      "breakpoints": true
     }
   ]
 }

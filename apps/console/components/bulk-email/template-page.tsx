@@ -1,12 +1,11 @@
 import Link from 'next/link';
 import { listTemplates, TEMPLATE_STATUS_LABELS, TemplateEmailError } from '@repo/core/template-email';
-import { can } from '@repo/core/permissions';
 import contactStyles from '@/components/contacts/contacts.module.css';
 import { getConsoleDb } from '../../lib/db';
 import { requireConsoleAccess } from '../../lib/require-console-access';
 import { TemplateForm, TemplateSteps } from './islands';
 
-/** One template: edit while a draft, submit, and (admins) approve / send back / retire. */
+/** One template (ADR 0043): ready when saved; its author or an admin edits or retires it. */
 export async function TemplatePage({ surface, id }: { surface: 'agency' | 'agent'; id: string | null }) {
   const session = await requireConsoleAccess(surface);
   const basePath = surface === 'agency' ? '/bulk-email' : '/my-bulk-email';
@@ -19,7 +18,6 @@ export async function TemplatePage({ surface, id }: { surface: 'agency' | 'agent
   }
   const t = id ? list.templates.find((x) => x.id === id) : null;
   if (id && !t) return <p role="alert" style={{ padding: '1rem', color: 'var(--rose)' }}>That template was not found</p>;
-  const mayRetire = Boolean(t) && t!.status !== 'retired' && can(session.actor, 'email_template:approve', { type: 'email_template', agencyId: session.actor.agencyId });
 
   return (
     <div className={contactStyles.wrap}>
@@ -29,11 +27,13 @@ export async function TemplatePage({ surface, id }: { surface: 'agency' | 'agent
           <h1 className={contactStyles.title}>{t ? t.name : 'New template'}</h1>
           <p className={contactStyles.sub}>
             {t
-              ? `${TEMPLATE_STATUS_LABELS[t.status]}${t.authorName ? ` · written by ${t.authorName}` : ''}${t.approvedByName ? ` · approved by ${t.approvedByName}` : ''}`
-              : 'Agents draft; an owner or admin approves. Only an approved template can be sent.'}
+              ? `${TEMPLATE_STATUS_LABELS[t.status]} · ${t.agencyWide ? 'for everyone in the agency' : 'only its author sends it'}${t.authorName ? ` · written by ${t.authorName}` : ''}`
+              : surface === 'agency'
+                ? 'Ready to use as soon as you save it — for everyone in the agency.'
+                : 'Ready to use as soon as you save it — for you only.'}
           </p>
         </div>
-        {t ? <TemplateSteps id={t.id} maySubmit={t.maySubmit} mayApprove={t.mayApprove} mayRetire={mayRetire} /> : null}
+        {t ? <TemplateSteps id={t.id} mayRetire={t.mayRetire} /> : null}
       </div>
       <div className={contactStyles.card}>
         {!t || t.mayEdit ? (
@@ -45,7 +45,7 @@ export async function TemplatePage({ surface, id }: { surface: 'agency' | 'agent
             <p className={contactStyles.note} style={{ marginTop: '0.75rem' }}>Email</p>
             <pre style={{ margin: 0, whiteSpace: 'pre-wrap', font: 'inherit' }}>{t.body}</pre>
             <p className={contactStyles.hint} style={{ marginTop: '0.75rem' }}>
-              {t.status === 'approved' ? 'Approved templates are not edited — retire it and write a new one.' : 'Waiting for an owner or admin.'}
+              Only its author or an owner/admin can change this template.
             </p>
           </div>
         )}

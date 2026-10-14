@@ -134,7 +134,7 @@ export async function proposeListEmail(ctx: ToolContext, templateId: string, lis
     people,
     notes: [
       NOTHING_YET,
-      'Each part is checked again when it is sent — consent, unsubscribes, archiving, the 7-day rule, today’s limits and the development allowlist. Anyone who no longer qualifies is skipped and shown on that part’s send report.',
+      'Each part is checked again when it is sent — consent, unsubscribes, archiving, today’s limits and the development allowlist. Anyone who no longer qualifies is skipped and shown on that part’s send report.',
       'If a part would go past today’s email limit, it waits an hour and tries again; the rest follow it.',
       'To stop the parts not yet sent, ask me to cancel the task at any time.',
       ...(overCap ? [`${overCap} more on the list are past the ${LIST_SEND.maxPeople}-person limit for one card and are not included.`] : []),

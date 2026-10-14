@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { contactFilter, emailTemplate, user, type Db } from '@repo/db';
 import { can, type Actor, type Resource } from '../permissions';
@@ -6,10 +6,12 @@ import { contactListQuerySchema, type ContactListQuery } from '../contacts/conta
 import { templateInputSchema, type TemplateInput } from './schema';
 
 /**
- * Email templates and saved filters (docs/adr/0022). Anyone who may write
- * drafts a template; only an owner/admin approves one; only an approved one
- * can be sent. An approved template is never edited — retire it and write a
- * new one, so a sent email always traces to the text that was approved.
+ * Email templates and saved filters (docs/adr/0022, amended by ADR 0043). A
+ * template is READY when saved — there is no approval step. An owner's or
+ * admin's template is for the whole agency (`agency_wide`); an agent's is for
+ * that agent alone. Its author or an admin edits or retires it. A prepared
+ * batch keeps its own frozen copy, so a sent email always traces to the exact
+ * words that went out.
  */
 
 export class TemplateEmailError extends Error {
@@ -23,7 +25,6 @@ export class TemplateEmailError extends Error {
 
 const UUID = /^[0-9a-f-]{36}$/i;
 const author = alias(user, 'author');
-const approver = alias(user, 'approver');
 
 export type TemplateStatus = 'draft' | 'pending_approval' | 'approved' | 'retired';
 
@@ -34,12 +35,13 @@ export type TemplateView = {
   body: string;
   status: TemplateStatus;
   authorName: string | null;
-  approvedByName: string | null;
-  approvedAt: Date | null;
+  /** For everyone in the agency (an owner's/admin's), or only its author's. */
+  agencyWide: boolean;
   updatedAt: Date;
+  /** This person may send it (ADR 0043: its author, or anyone when agency-wide). */
+  mayUse: boolean;
   mayEdit: boolean;
-  maySubmit: boolean;
-  mayApprove: boolean;
+  mayRetire: boolean;
 };
 
 function templateResource(t: { id: string; agencyId: string; createdBy: string | null }): Resource {
@@ -47,14 +49,34 @@ function templateResource(t: { id: string; agencyId: string; createdBy: string |
 }
 
 /**
- * The templates this actor may see: approved ones for everyone; drafts and
- * pending ones to their author and to admins. Retired are hidden. One query.
+ * ADR 0043, the ONE rule for sending a template — Bulk email, the assistant, the list send,
+ * workflows and the skill all ask it: ready (not retired), in this person's agency, and either
+ * for the whole agency or their own. An admin may oversee an agent's own template, not send it.
+ */
+export function mayUseTemplate(actor: Actor, t: { agencyId: string; createdBy: string | null; status: string; agencyWide: boolean }): boolean {
+  if (!actor.agencyId || t.agencyId !== actor.agencyId || t.status !== 'approved') return false;
+  if (!can(actor, 'email_batch:create', { type: 'email_batch', agencyId: actor.agencyId })) return false;
+  return t.agencyWide || (Boolean(t.createdBy) && t.createdBy === actor.userId);
+}
+
+/** In SQL: the templates this person may send (the same rule, for lists). */
+export function usableTemplateSql(actor: Actor): SQL {
+  return and(
+    eq(emailTemplate.agencyId, actor.agencyId ?? '00000000-0000-0000-0000-000000000000'),
+    eq(emailTemplate.status, 'approved'),
+    or(eq(emailTemplate.agencyWide, true), eq(emailTemplate.createdBy, actor.userId))!,
+  )!;
+}
+
+/**
+ * The templates this actor may see: the agency's and their own; an owner/admin sees every
+ * template, to oversee and retire. Retired are hidden. One query.
  */
 export async function listTemplates(db: Db, actor: Actor): Promise<{ templates: TemplateView[]; mayDraft: boolean }> {
   if (!actor.agencyId || !can(actor, 'email_template:read', { type: 'email_template', agencyId: actor.agencyId })) {
     throw new TemplateEmailError('forbidden', 'You do not have permission to view templates');
   }
-  const admin = can(actor, 'email_template:approve', { type: 'email_template', agencyId: actor.agencyId });
+  const admin = can(actor, 'email_template:manage', { type: 'email_template', agencyId: actor.agencyId });
   const rows = await db
     .select({
       id: emailTemplate.id,
@@ -63,26 +85,25 @@ export async function listTemplates(db: Db, actor: Actor): Promise<{ templates: 
       subject: emailTemplate.subject,
       body: emailTemplate.body,
       status: emailTemplate.status,
+      agencyWide: emailTemplate.agencyWide,
       createdBy: emailTemplate.createdBy,
       authorName: author.name,
-      approvedByName: approver.name,
-      approvedAt: emailTemplate.approvedAt,
       updatedAt: emailTemplate.updatedAt,
     })
     .from(emailTemplate)
     .leftJoin(author, eq(author.id, emailTemplate.createdBy))
-    .leftJoin(approver, eq(approver.id, emailTemplate.approvedBy))
     .where(
       and(
         eq(emailTemplate.agencyId, actor.agencyId),
         ne(emailTemplate.status, 'retired'),
-        admin ? sql`true` : or(eq(emailTemplate.status, 'approved'), eq(emailTemplate.createdBy, actor.userId))!,
+        admin ? sql`true` : or(eq(emailTemplate.agencyWide, true), eq(emailTemplate.createdBy, actor.userId))!,
       ),
     )
     .orderBy(desc(emailTemplate.updatedAt));
   return {
     templates: rows.map((r) => {
       const res = templateResource(r);
+      const mayChange = r.status !== 'retired' && can(actor, 'email_template:draft', res);
       return {
         id: r.id,
         name: r.name,
@@ -90,12 +111,11 @@ export async function listTemplates(db: Db, actor: Actor): Promise<{ templates: 
         body: r.body,
         status: r.status as TemplateStatus,
         authorName: r.authorName,
-        approvedByName: r.approvedByName,
-        approvedAt: r.approvedAt ? new Date(r.approvedAt) : null,
+        agencyWide: r.agencyWide,
         updatedAt: new Date(r.updatedAt),
-        mayEdit: r.status === 'draft' && can(actor, 'email_template:draft', res),
-        maySubmit: r.status === 'draft' && can(actor, 'email_template:draft', res),
-        mayApprove: r.status === 'pending_approval' && can(actor, 'email_template:approve', res),
+        mayUse: mayUseTemplate(actor, r),
+        mayEdit: mayChange,
+        mayRetire: mayChange,
       };
     }),
     mayDraft: can(actor, 'email_template:draft', { type: 'email_template', agencyId: actor.agencyId }),
@@ -119,66 +139,54 @@ function parseInput(input: TemplateInput) {
   return v.data;
 }
 
+/** Save a template, ready to use at once (ADR 0043): the agency's if an owner/admin wrote it, its author's own otherwise. */
 export async function createTemplate(db: Db, actor: Actor, input: TemplateInput): Promise<{ id: string }> {
   if (!actor.agencyId || !can(actor, 'email_template:draft', { type: 'email_template', agencyId: actor.agencyId })) {
     throw new TemplateEmailError('forbidden', 'You cannot write templates');
   }
   const v = parseInput(input);
+  const agencyWide = can(actor, 'email_template:manage', { type: 'email_template', agencyId: actor.agencyId });
   const [row] = await db
     .insert(emailTemplate)
-    .values({ agencyId: actor.agencyId, name: v.name, subject: v.subject, body: v.body, createdBy: actor.userId })
+    .values({
+      agencyId: actor.agencyId,
+      name: v.name,
+      subject: v.subject,
+      body: v.body,
+      createdBy: actor.userId,
+      status: 'approved',
+      approvedBy: actor.userId,
+      approvedAt: sql`now()` as unknown as Date,
+      agencyWide,
+    })
     .returning({ id: emailTemplate.id });
   return { id: row!.id };
 }
 
-/** Edit a DRAFT — its author or an admin. An approved template is never edited. */
+/** Change a template — its author or an admin. Batches already prepared keep the words they froze. */
 export async function updateTemplate(db: Db, actor: Actor, id: string, input: TemplateInput): Promise<void> {
   const t = await loadTemplate(db, actor, id);
   if (!can(actor, 'email_template:draft', templateResource(t))) throw new TemplateEmailError('forbidden', 'Only its author or an admin edits this template');
-  if (t.status !== 'draft') throw new TemplateEmailError('conflict', 'Only a draft can be edited — retire an approved template and write a new one');
+  if (t.status === 'retired') throw new TemplateEmailError('conflict', 'A retired template cannot be edited — write a new one');
   const v = parseInput(input);
   const done = await db
     .update(emailTemplate)
-    .set({ name: v.name, subject: v.subject, body: v.body, updatedAt: sql`now()` })
-    .where(and(eq(emailTemplate.id, t.id), eq(emailTemplate.status, 'draft')))
+    .set({ name: v.name, subject: v.subject, body: v.body, status: 'approved', updatedAt: sql`now()` })
+    .where(and(eq(emailTemplate.id, t.id), ne(emailTemplate.status, 'retired')))
     .returning({ id: emailTemplate.id });
   if (!done.length) throw new TemplateEmailError('conflict', 'This template changed — reload');
 }
 
-async function move(db: Db, id: string, from: TemplateStatus[], set: Partial<typeof emailTemplate.$inferInsert>) {
-  const done = await db
-    .update(emailTemplate)
-    .set({ ...set, updatedAt: sql`now()` })
-    .where(and(eq(emailTemplate.id, id), inArray(emailTemplate.status, from)))
-    .returning({ id: emailTemplate.id });
-  if (!done.length) throw new TemplateEmailError('conflict', 'This template changed — reload');
-}
-
-/** Ask an admin to approve it. */
-export async function submitTemplate(db: Db, actor: Actor, id: string): Promise<void> {
-  const t = await loadTemplate(db, actor, id);
-  if (!can(actor, 'email_template:draft', templateResource(t))) throw new TemplateEmailError('forbidden', 'Only its author or an admin submits this template');
-  await move(db, t.id, ['draft'], { status: 'pending_approval' });
-}
-
-export async function approveTemplate(db: Db, actor: Actor, id: string): Promise<void> {
-  const t = await loadTemplate(db, actor, id);
-  if (!can(actor, 'email_template:approve', templateResource(t))) throw new TemplateEmailError('forbidden', 'Only an owner or admin approves templates');
-  await move(db, t.id, ['pending_approval'], { status: 'approved', approvedBy: actor.userId, approvedAt: sql`now()` as unknown as Date });
-}
-
-/** Back to its author as a draft. */
-export async function sendBackTemplate(db: Db, actor: Actor, id: string): Promise<void> {
-  const t = await loadTemplate(db, actor, id);
-  if (!can(actor, 'email_template:approve', templateResource(t))) throw new TemplateEmailError('forbidden', 'Only an owner or admin reviews templates');
-  await move(db, t.id, ['pending_approval'], { status: 'draft' });
-}
-
-/** No longer usable for new batches. Batches already prepared keep their frozen copy. */
+/** No longer usable for new batches — its author or an admin. Batches already prepared keep their frozen copy. */
 export async function retireTemplate(db: Db, actor: Actor, id: string): Promise<void> {
   const t = await loadTemplate(db, actor, id);
-  if (!can(actor, 'email_template:approve', templateResource(t))) throw new TemplateEmailError('forbidden', 'Only an owner or admin retires templates');
-  await move(db, t.id, ['approved', 'draft', 'pending_approval'], { status: 'retired', retiredAt: sql`now()` as unknown as Date });
+  if (!can(actor, 'email_template:draft', templateResource(t))) throw new TemplateEmailError('forbidden', 'Only its author or an admin retires this template');
+  const done = await db
+    .update(emailTemplate)
+    .set({ status: 'retired', retiredAt: sql`now()` as unknown as Date, updatedAt: sql`now()` })
+    .where(and(eq(emailTemplate.id, t.id), inArray(emailTemplate.status, ['approved', 'draft', 'pending_approval'])))
+    .returning({ id: emailTemplate.id });
+  if (!done.length) throw new TemplateEmailError('conflict', 'This template changed — reload');
 }
 
 // ── Saved directory filters ────────────────────────────────────────────────

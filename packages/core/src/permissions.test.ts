@@ -693,9 +693,9 @@ describe('template email', () => {
     expect(can(agent, 'email_template:draft', { type: 'email_template', agencyId: agencyA })).toBe(true);
     expect(can(agent, 'email_template:draft', tpl('agent'))).toBe(true);
     expect(can(other, 'email_template:draft', tpl('agent'))).toBe(false);
-    expect(can(agent, 'email_template:approve', tpl('agent'))).toBe(false);
-    expect(can(owner, 'email_template:approve', tpl('agent'))).toBe(true);
-    expect(can(rival, 'email_template:approve', tpl('agent'))).toBe(false);
+    expect(can(agent, 'email_template:manage', tpl('agent'))).toBe(false);
+    expect(can(owner, 'email_template:manage', tpl('agent'))).toBe(true);
+    expect(can(rival, 'email_template:manage', tpl('agent'))).toBe(false);
     expect(can(viewer, 'email_template:draft', { type: 'email_template', agencyId: agencyA })).toBe(false);
   });
 

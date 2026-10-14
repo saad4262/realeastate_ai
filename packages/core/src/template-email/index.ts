@@ -1,14 +1,14 @@
 export * from './schema';
+export { CLIENT_ROLES, hasMarketingConsentSql, INFERRED_CONSENT_MONTHS } from './consent';
 export {
-  approveTemplate,
   createTemplate,
   listMyFilters,
   listTemplates,
+  mayUseTemplate,
   retireTemplate,
   saveContactFilter,
-  sendBackTemplate,
-  submitTemplate,
   TemplateEmailError,
+  usableTemplateSql,
   updateTemplate,
   type SavedFilter,
   type TemplateStatus,

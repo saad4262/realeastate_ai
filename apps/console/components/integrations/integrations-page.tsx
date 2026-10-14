@@ -27,14 +27,14 @@ const VIEWS: readonly View[] = ['all', 'connected', 'agency', 'user', 'builtin']
 /** The console's own features that sit beside the connected accounts, as cards that open them. */
 const FEATURES: Record<'agency' | 'agent', { href: string; label: string; icon: string; purpose: string }[]> = {
   agency: [
-    { href: '/bulk-email', label: 'Bulk email', icon: 'forward_to_inbox', purpose: 'An approved template to the contacts in one of your saved filters — only people who agreed to marketing email.' },
-    { href: '/bulk-email/templates', label: 'Email templates', icon: 'draft', purpose: 'The approved templates that bulk email and the assistant send from.' },
+    { href: '/bulk-email', label: 'Bulk email', icon: 'forward_to_inbox', purpose: 'A template to the contacts in one of your saved filters — people who agreed, enquired in the last 24 months, or are clients; never anyone who unsubscribed.' },
+    { href: '/bulk-email/templates', label: 'Email templates', icon: 'draft', purpose: 'Your templates and the agency’s — ready when saved — that bulk email and the assistant send from.' },
     { href: '/skills', label: 'Skills', icon: 'auto_awesome', purpose: 'Ready-made AI jobs that read only what you can see and never send or change anything on their own.' },
     { href: '/settings/reviews', label: 'Google reviews', icon: 'reviews', purpose: 'The agency’s public Google rating and reviews, shown on your live listings’ pages.' },
   ],
   agent: [
-    { href: '/my-bulk-email', label: 'Bulk email', icon: 'forward_to_inbox', purpose: 'An approved template to the contacts in one of your saved filters — only people who agreed to marketing email.' },
-    { href: '/my-bulk-email/templates', label: 'Email templates', icon: 'draft', purpose: 'The approved templates that bulk email and the assistant send from.' },
+    { href: '/my-bulk-email', label: 'Bulk email', icon: 'forward_to_inbox', purpose: 'A template to the contacts in one of your saved filters — people who agreed, enquired in the last 24 months, or are clients; never anyone who unsubscribed.' },
+    { href: '/my-bulk-email/templates', label: 'Email templates', icon: 'draft', purpose: 'Your templates and the agency’s — ready when saved — that bulk email and the assistant send from.' },
     { href: '/my-skills', label: 'Skills', icon: 'auto_awesome', purpose: 'Ready-made AI jobs that read only what you can see and never send or change anything on their own.' },
     { href: '/my-reviews', label: 'Agency reviews', icon: 'reviews', purpose: 'The agency’s public Google rating and reviews, shown on your live listings’ pages.' },
   ],
