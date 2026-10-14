@@ -4,10 +4,12 @@
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
 - **Phase 4 Parts B–C — workflows (ADR 0041) — built 2026-10-14 on `feat/workflows` (on top of `feat/assistant-skills`),
-  committed, NOT pushed. Migration 0051 written, NOT applied — and REQUIRED before this branch runs (core functions now write
-  `workflow_event`).** Catalog, outbox events, engine on the minute cron, AI drafts as cards (never sent), manage + permissions,
+  committed, NOT pushed. **Migration 0051 APPLIED 2026-10-14 with the user's permission (52 rows)** — required for this branch
+  (core functions write `workflow_event`); main's code ignores the new tables.** Catalog, outbox events, engine on the minute cron, AI drafts as cards (never sent), manage + permissions,
   assistant `find_workflows` / `create_workflow` / `change_workflow` (prompt `assistant@v19`), Workflows page. Smoke group
-  "Workflows (ADR 0041)" (6) written, needs 0051. TEST-PLAN **AQ**. **Next:** apply 0051 (ask), run the group, walk AP/AQ.
+  "Workflows (ADR 0041)" 6/6 green (2026-10-14) after two fixes it found: events now take `clock_timestamp()` (one transaction
+  shared `now()`), and a draft step that cannot write a draft is FAILED with the reason, not silently done. TEST-PLAN **AQ**.
+  **Next:** walk AP/AQ in the browser; decide push/merge of the stacked branches.
 - **Phase 4 Part A — skills by the assistant (ADR 0041, accepted 2026-10-14) — built on `feat/assistant-skills`
   (on top of `feat/sheets-import`), committed, NOT pushed. **Migration 0050 APPLIED 2026-10-14 with the user's permission (51 rows).** `find_skills`,
   `set_up_skill`, `change_skill` (cards over the ADR 0021 skills code), prompt `assistant@v18`. Smoke group

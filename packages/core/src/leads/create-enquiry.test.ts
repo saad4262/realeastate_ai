@@ -51,10 +51,12 @@ describe('a public enquiry', () => {
 
     expect(leadId).toBe('lead-1');
     // ADR 0041: one workflow event with it, from the website (no actor), ids only.
-    expect(inserted[1]).toEqual({
+    const { occurredAt, ...event } = inserted[1]!;
+    expect(event).toEqual({
       agencyId: 'agency-real', kind: 'lead.created', leadId: 'lead-1', contactId: 'contact-1', listingId: 'listing-1',
       appointmentId: null, actorId: null, origin: 'website', data: { source: 'website' },
     });
+    expect(occurredAt).toBeDefined(); // clock_timestamp(): the order events happened in, even in one transaction
     expect(inserted[0]).toMatchObject({
       // Both keys, and the property one comes from the listing rather than the
       // caller — an enquiry and a private offer on the same address have to

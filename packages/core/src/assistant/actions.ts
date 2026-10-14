@@ -751,8 +751,14 @@ async function afterCommit(db: Db, actor: Actor, row: RowT, ran: Extract<Ran, { 
       return { draftError: 'The draft could not be written. Nothing was sent.' };
     });
     const result = { ...ran.result, ...out };
-    await db.update(proposedAction).set({ result, updatedAt: sql`now()` }).where(eq(proposedAction.id, row.id));
-    return { outcome: 'done', result, sync: null };
+    // No draft could be written (they unsubscribed, are not the owner's to email, no model here): the step
+    // says so as a failed step with the reason, so the run log shows it — the steps after it already ran on.
+    const failed = 'draftError' in out ? (out as { draftError: string }).draftError : null;
+    await db
+      .update(proposedAction)
+      .set({ result, ...(failed ? { status: 'failed', error: failed } : {}), updatedAt: sql`now()` })
+      .where(eq(proposedAction.id, row.id));
+    return failed ? { outcome: 'failed', error: failed } : { outcome: 'done', result, sync: null };
   }
   if (ran.reminderEmail) {
     // To the person themselves, only because they asked (ADR 0040 Q3). The bell already has it.

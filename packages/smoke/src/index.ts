@@ -6925,7 +6925,9 @@ async function main() {
   await check('an AI email is only a DRAFT (D1): the step writes a send_email card for the owner, on the bell; nothing is sent until they approve', async () =>
     inRollback(async (t) => {
       const w = await workflowFixture(t, { trigger: { kind: 'lead.created' }, conditions: [], actions: [{ type: 'draft_email', instructions: 'Thank them and ask when they could inspect' }] });
-      await createManualLead(t, w.actor, { contactId: w.f.contacts.p2, listingId: w.listingId, kind: 'enquiry', message: null });
+      // A contact of A1's own — the person the workflow may email.
+      const { id: buyer } = await createContact(t, w.actor, { name: 'Bea Buyer', email: `bea.${w.f.tag}@smoke.test` });
+      await createManualLead(t, w.actor, { contactId: buyer, listingId: w.listingId, kind: 'enquiry', message: null });
       await runWorkflowTick(t, new Date());
       let asked = 0;
       const draftWriter = async () => {
@@ -6949,14 +6951,30 @@ async function main() {
       const waiting = await listWaitingDrafts(t, w.actor);
       assert(waiting.length === 1 && waiting[0]!.id === draft.id, `waiting: ${JSON.stringify(waiting)}`);
       void env;
-      return 'one model call → a send_email card (origin workflow) waiting for A1, on the bell; no email sent';
+      // And a contact A1 may not email (A2's): no model call, the step fails with the reason — never a silent "done".
+      const before = asked;
+      await createManualLead(t, w.actor, { contactId: w.f.contacts.p2, listingId: w.listingId, kind: 'enquiry', message: null });
+      await runWorkflowTick(t, new Date());
+      process.env.EMAIL_DEV_ALLOWLIST = '@smoke.test';
+      try {
+        await runScheduledActions(t, { draftWriter }, new Date());
+      } finally {
+        if (prev === undefined) delete process.env.EMAIL_DEV_ALLOWLIST;
+        else process.env.EMAIL_DEV_ALLOWLIST = prev;
+      }
+      const stepsNow = await t.execute<{ status: string; error: string | null }>(sql`
+        select status, error from proposed_action where tool = 'draft_email' and user_id = ${w.f.people.a1}`);
+      const refusedStep = stepsNow.find((x) => x.status === 'failed');
+      assert(asked === before && stepsNow.length === 2 && /No draft was written/.test(refusedStep?.error ?? ''), `draft steps: ${JSON.stringify(stepsNow)}`);
+      return 'one model call → a send_email card (origin workflow) waiting for A1, on the bell; no email sent; a contact A1 may not email → no call, the step failed with the reason';
     }),
   );
 
   await check('a removed owner’s workflow is paused (with the reason) and never runs as them; resuming checks it again', async () =>
     inRollback(async (t) => {
       const w = await workflowFixture(t, { trigger: { kind: 'contact.created' }, conditions: [], actions: [{ type: 'remind_owner', text: 'x', mail_me: false }] });
-      await t.execute(sql`update membership set status = 'removed' where user_id = ${w.f.people.a1} and agency_id = ${w.f.agencyId}`);
+      // As offboarding leaves a removed member (ADR 0030): suspended, with removed_at.
+      await t.execute(sql`update membership set status = 'suspended', removed_at = now() where user_id = ${w.f.people.a1} and agency_id = ${w.f.agencyId}`);
       await createContact(t, w.f.actor('owner'), { name: 'Later', email: `later.${w.f.tag}@smoke.test` });
       const r = await runWorkflowTick(t, new Date());
       const [wf] = await t.execute<{ status: string; paused_reason: string | null }>(sql`select status, paused_reason from workflow where id = ${w.workflowId}`);

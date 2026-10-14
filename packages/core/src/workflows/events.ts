@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { workflowEvent, type Db, type DbOrTx } from '@repo/db';
 import type { Actor } from '../permissions';
 import type { TriggerKind } from './catalog';
@@ -37,6 +38,9 @@ export async function emitWorkflowEvent(tx: DbOrTx, e: WorkflowEventInput): Prom
     actorId: e.actor?.userId ?? null,
     origin: originOf(e.actor),
     data: e.data ?? {},
+    // The wall clock, not now(): several changes in one transaction share now(), and the tick takes
+    // events in the order they happened (as team messages, ADR 0035).
+    occurredAt: sql`clock_timestamp()`,
   });
 }
 
