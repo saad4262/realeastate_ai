@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import contactStyles from '@/components/contacts/contacts.module.css';
 
-/** Settings. Integrations is the first section that exists; offices and preferences come later. */
+/** Settings. Connectors is the first section that exists; offices and preferences come later. */
 export default function SettingsPage() {
   return (
     <div className={contactStyles.wrap}>
@@ -11,7 +11,7 @@ export default function SettingsPage() {
       </div>
       <div className={contactStyles.card}>
         <div className={contactStyles.section} style={{ borderTop: 0 }}>
-          <Link href="/settings/integrations" className={contactStyles.name}>Integrations →</Link>
+          <Link href="/settings/integrations" className={contactStyles.name}>Connectors →</Link>
           <p className={contactStyles.note}>Google Calendar, Zoom, Google Sheets and Google reviews.</p>
         </div>
         <div className={contactStyles.section}>

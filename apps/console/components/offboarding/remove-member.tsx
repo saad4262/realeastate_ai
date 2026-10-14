@@ -129,7 +129,7 @@ export function Report({ name, report: r }: { name: string; report: RemovalRepor
             : ''}
           .
         </li>
-        {r.agencyAccountsFlagged ? <li>{r.agencyAccountsFlagged} agency account(s) they connected keep working — reconnect them with an account the agency controls (Settings → Integrations).</li> : null}
+        {r.agencyAccountsFlagged ? <li>{r.agencyAccountsFlagged} agency account(s) they connected keep working — reconnect them with an account the agency controls (Settings → Connectors).</li> : null}
       </ul>
       <p>
         <Link href="/team">Back to the team</Link>

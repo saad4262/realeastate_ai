@@ -1,10 +1,15 @@
 import Link from 'next/link';
 import { Suspense, type ReactNode } from 'react';
 import type { ConsoleChrome } from '../../lib/require-console-access';
-import { AssistantPanel } from '@/components/assistant/assistant-panel';
+import { AssistantRoute } from '@/components/assistant/assistant-route';
 import { LiveRefresh } from '@/components/live-refresh';
 import { NotificationBell } from '@/components/notifications/notification-bell';
+import { listAssistantConversations } from '@repo/core/assistant';
+import { getConsoleDb } from '../../lib/db';
+import { loadActor } from '../../lib/load-actor';
+import { HomeLink } from './home-link';
 import { NavList } from './nav-list';
+import { RecentsList } from './recents-list';
 import styles from './agency-shell.module.css';
 
 /**
@@ -28,6 +33,8 @@ type AgencyShellProps = {
   children: ReactNode;
   /** From middleware's headers — costs nothing, so the shell paints at once. */
   userLabel: string;
+  /** Middleware's verified user id — what Recents reads conversations for. */
+  userId: string;
   /**
    * Agency name, role and counts, still in flight.
    *
@@ -39,7 +46,7 @@ type AgencyShellProps = {
   chrome: Promise<ConsoleChrome>;
 };
 
-export function AgencyShell({ children, userLabel, chrome }: AgencyShellProps) {
+export function AgencyShell({ children, userLabel, userId, chrome }: AgencyShellProps) {
   const initials = userLabel
     .split(/\s+/)
     .map((p) => p[0])
@@ -52,11 +59,11 @@ export function AgencyShell({ children, userLabel, chrome }: AgencyShellProps) {
       <aside className={styles.sidebar}>
         <div className={styles.sidebarTop}>
           <div className={styles.brandRow}>
-            <div className={styles.brandLeft}>
+            <Link href="/overview" className={styles.brandLeft}>
               <Suspense fallback={<BrandFallback />}>
                 <Brand chrome={chrome} />
               </Suspense>
-            </div>
+            </Link>
           </div>
 
           <div className={styles.sideSearch}>
@@ -71,6 +78,15 @@ export function AgencyShell({ children, userLabel, chrome }: AgencyShellProps) {
             />
             <kbd className={styles.cmdK}>⌘K</kbd>
           </div>
+
+          {/*
+            The assistant's conversations, first: the home page is the
+            assistant, and these are the way back into one. They stream in
+            behind the shell like the brand and the badges do.
+          */}
+          <Suspense fallback={<RecentsFallback />}>
+            <Recents userId={userId} />
+          </Suspense>
 
           {/*
             The nav paints immediately with no badge, and the badge streams in
@@ -147,12 +163,13 @@ export function AgencyShell({ children, userLabel, chrome }: AgencyShellProps) {
                 tune
               </span>
             </button>
-            <Link href="/ai" className={styles.aiBtn}>
-              <span className={`${styles.glyph} ${styles.glyphFill} mat`} aria-hidden>
-                smart_toy
+            {/* A new conversation is the home page with no `?c=` — see assistant-home.tsx. */}
+            <HomeLink href="/overview" className={styles.aiBtn}>
+              <span className={styles.glyph} aria-hidden>
+                add
               </span>
-              LocalAgent AI
-            </Link>
+              New chat
+            </HomeLink>
           </div>
         </header>
 
@@ -160,7 +177,7 @@ export function AgencyShell({ children, userLabel, chrome }: AgencyShellProps) {
       </div>
       {/* New mail, team messages and the bell show up without a reload (ADR 0035). */}
       <LiveRefresh />
-      <AssistantPanel surface="agency" />
+      <AssistantRoute home="/overview" />
     </div>
   );
 }
@@ -203,6 +220,31 @@ function BrandFallback() {
         <div className={`${styles.brandSub} ${styles.shimmerLine}`} />
       </div>
     </>
+  );
+}
+
+/**
+ * Recents: this person's own assistant conversations (kept 30 days); core
+ * narrows to the signed-in person. One query: the actor comes from the
+ * per-request cache the chrome and the gate already filled — not from the
+ * panel's server action, which would add a listing_agent read nothing here
+ * uses. Decorative chrome must never blank the shell, so a failure is an empty
+ * list, not a throw.
+ */
+async function Recents({ userId }: { userId: string }) {
+  const rows = await loadActor(userId)
+    .then((actor) => (actor ? listAssistantConversations(getConsoleDb(), actor) : []))
+    .catch(() => []);
+  return <RecentsList rows={rows.map((r) => ({ id: r.id, title: r.title }))} />;
+}
+
+function RecentsFallback() {
+  return (
+    <div className={styles.recents}>
+      <div className={styles.sectionLabel}>Recents</div>
+      <span className={styles.shimmerLine} style={{ width: '80%', margin: '0.375rem 0.75rem' }} />
+      <span className={styles.shimmerLine} style={{ width: '60%', margin: '0.375rem 0.75rem' }} />
+    </div>
   );
 }
 

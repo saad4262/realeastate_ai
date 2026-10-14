@@ -2,19 +2,17 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AssistantEvent, AssistantFrame } from '@repo/core/assistant/schema';
-import type { ConversationSummary } from '@repo/core/assistant';
+import { useEffect, useState } from 'react';
+import type { AssistantFrame } from '@repo/core/assistant/schema';
 import {
   approveProposedActionAction,
   cancelProposedActionAction,
-  getAssistantConversationAction,
   getProposedActionAction,
-  listAssistantConversationsAction,
   rejectProposedActionAction,
 } from '@/lib/assistant-actions';
 import type { ProposalView } from '@repo/core/assistant';
-import { clearPicks, usePicks } from './picks';
+import { clearPicks } from './picks';
+import { useAssistant, type Turn } from './use-assistant';
 import { Tile } from '../dashboards/tile';
 import { UploadForm } from '../imports/upload-form';
 import { SheetImport } from '../imports/sheet-import';
@@ -22,7 +20,8 @@ import styles from './assistant-panel.module.css';
 
 /**
  * The console assistant (docs/adr/0025, Phase A): a launcher and a right-hand
- * panel, the same component on both surfaces. It only READS in this phase.
+ * panel on the agent desk. The agency console shows the same conversation as
+ * its home page instead (assistant-home.tsx); both drive useAssistant.
  *
  * Everything listed beside an answer is a frame the server built from SQL —
  * names, dates, counts and links never come from the model's prose. The
@@ -30,17 +29,7 @@ import styles from './assistant-panel.module.css';
  * the person who asked).
  */
 
-type Surface = 'agent' | 'agency';
-
-type Turn = {
-  key: string;
-  userText: string;
-  answer: string;
-  frames: AssistantFrame[];
-  status: string | null;
-  error: string | null;
-  pending: boolean;
-};
+export type Surface = 'agent' | 'agency';
 
 const PATHS: Record<Surface, { contact: string; leads: string; templates: string; bulk: string; integrations: string; inbox: string; messages: string; listings: string; listingImport: string; contactImport: string; skills: string; workflows: string }> = {
   agency: { contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', bulk: '/bulk-email', integrations: '/settings/integrations', inbox: '/inbox', messages: '/messages', listings: '/live-listings', listingImport: '/live-listings/import', contactImport: '/customers/import', skills: '/skills', workflows: '/workflows' },
@@ -49,137 +38,29 @@ const PATHS: Record<Surface, { contact: string; leads: string; templates: string
 
 const CONTACT_PAGE = /^\/(?:customers|my-contacts)\/([0-9a-f-]{36})(?:\/|$)/i;
 
-function browserZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Australia/Sydney';
-  } catch {
-    return 'Australia/Sydney';
-  }
-}
+/** What the empty assistant suggests. Shown as a list in the panel and as chips on the agency home. */
+export const EXAMPLES = [
+  '“Which leads came in this week?”',
+  '“What’s on my calendar tomorrow?”',
+  '“Is my Google Calendar connected?”',
+  '“Book an appraisal with this contact tomorrow at 3pm.”',
+  'Pick contacts in the directory, then: “Send them the open home template.”',
+  '“What’s our sold value this month?” (owners and admins)',
+];
 
 export function AssistantPanel({ surface }: { surface: Surface }) {
   const pathname = usePathname();
   const onContact = CONTACT_PAGE.exec(pathname ?? '')?.[1] ?? null;
-  // Contacts picked in the directory win over the page the panel was opened on.
-  const picks = usePicks();
+  const a = useAssistant({ contactId: onContact });
+  const { picks, turns, full, draft, setDraft, busy, useSelection, setUseSelection, history, setHistory, endRef, send } = a;
 
   const [open, setOpen] = useState(false);
-  const [turns, setTurns] = useState<Turn[]>([]);
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [full, setFull] = useState(false);
-  const [draft, setDraft] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [useSelection, setUseSelection] = useState(true);
-  const [history, setHistory] = useState<ConversationSummary[] | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
-  const endRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => setUseSelection(true), [onContact]);
   useEffect(() => {
     const open = () => setOpen(true);
     window.addEventListener('assistant:open', open);
     return () => window.removeEventListener('assistant:open', open);
   }, []);
-  // A block body on purpose: Chrome's scrollIntoView() now returns a Promise, and an effect that
-  // returns anything but a function makes production React throw "x is not a function" on cleanup.
-  useEffect(() => {
-    void endRef.current?.scrollIntoView({ block: 'end' });
-  }, [turns]);
-
-  const update = (key: string, fn: (t: Turn) => Turn) => setTurns((all) => all.map((t) => (t.key === key ? fn(t) : t)));
-
-  const send = useCallback(async () => {
-    const message = draft.trim();
-    if (!message || busy) return;
-    const key = `${Date.now()}`;
-    setDraft('');
-    setBusy(true);
-    setTurns((all) => [...all, { key, userText: message, answer: '', frames: [], status: null, error: null, pending: true }]);
-    const controller = new AbortController();
-    abortRef.current = controller;
-    try {
-      const res = await fetch('/api/assistant', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          ...(conversationId ? { conversationId } : {}),
-          message,
-          timeZone: browserZone(),
-          ...(picks.length
-            ? { selection: { contactIds: picks.map((p) => p.id) } }
-            : onContact && useSelection
-              ? { selection: { contactIds: [onContact] } }
-              : {}),
-        }),
-      });
-      if (!res.body || !(res.headers.get('content-type') ?? '').includes('ndjson')) {
-        const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        update(key, (t) => ({ ...t, error: body?.error ?? 'The assistant is unavailable right now.' }));
-        return;
-      }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        let nl: number;
-        while ((nl = buffer.indexOf('\n')) >= 0) {
-          const line = buffer.slice(0, nl).trim();
-          buffer = buffer.slice(nl + 1);
-          if (!line) continue;
-          const e = JSON.parse(line) as AssistantEvent;
-          if (e.type === 'turn') setConversationId(e.conversationId);
-          else if (e.type === 'text') update(key, (t) => ({ ...t, answer: t.answer + e.delta, status: null }));
-          else if (e.type === 'status') update(key, (t) => ({ ...t, status: e.label }));
-          else if (e.type === 'results') update(key, (t) => ({ ...t, frames: [...t.frames, e.frame] }));
-          else if (e.type === 'error') {
-            update(key, (t) => ({ ...t, error: e.message }));
-            if (e.code === 'limit') setFull(true);
-          }
-        }
-      }
-    } catch (err) {
-      if ((err as Error).name !== 'AbortError') update(key, (t) => ({ ...t, error: 'The connection dropped. Please try again.' }));
-    } finally {
-      update(key, (t) => ({ ...t, pending: false, status: null }));
-      setBusy(false);
-      abortRef.current = null;
-    }
-  }, [busy, conversationId, draft, onContact, useSelection, picks]);
-
-  const startNew = () => {
-    abortRef.current?.abort();
-    setTurns([]);
-    setConversationId(null);
-    setFull(false);
-    setHistory(null);
-  };
-
-  const showHistory = async () => {
-    setHistory(await listAssistantConversationsAction().catch(() => []));
-  };
-
-  const openConversation = async (id: string) => {
-    const r = await getAssistantConversationAction(id);
-    setHistory(null);
-    if (!r.ok) return;
-    setConversationId(r.conversation.id);
-    setFull(r.conversation.full);
-    setTurns(
-      r.conversation.turns.map((t) => ({
-        key: `${id}-${t.seq}`,
-        userText: t.userText,
-        answer: t.answer,
-        frames: t.frames,
-        status: null,
-        error: t.status === 'failed' ? (t.error ?? 'This answer did not finish.') : null,
-        pending: false,
-      })),
-    );
-  };
 
   if (!open) {
     return (
@@ -198,10 +79,10 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
           <div className={styles.sub}>Looks things up, and suggests notes and appointments for you to approve. It never sends email.</div>
         </div>
         <div className={styles.headActions}>
-          <button type="button" className={styles.ghost} onClick={showHistory} disabled={busy}>
+          <button type="button" className={styles.ghost} onClick={a.showHistory} disabled={busy}>
             History
           </button>
-          <button type="button" className={styles.ghost} onClick={startNew}>
+          <button type="button" className={styles.ghost} onClick={a.startNew}>
             New
           </button>
           <button type="button" className={styles.close} onClick={() => setOpen(false)} aria-label="Close the assistant">
@@ -217,7 +98,7 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
           </div>
           {history.length === 0 ? <p className={styles.muted}>None yet.</p> : null}
           {history.map((c) => (
-            <button key={c.id} type="button" className={styles.historyRow} onClick={() => openConversation(c.id)}>
+            <button key={c.id} type="button" className={styles.historyRow} onClick={() => void a.openConversation(c.id)}>
               <span>{c.title}</span>
               <span className={styles.muted}>{new Date(c.lastTurnAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}</span>
             </button>
@@ -232,35 +113,13 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
             <div className={styles.empty}>
               <p>Ask about your own work, for example:</p>
               <ul>
-                <li>“Which leads came in this week?”</li>
-                <li>“What’s on my calendar tomorrow?”</li>
-                <li>“Is my Google Calendar connected?”</li>
-                <li>“Book an appraisal with this contact tomorrow at 3pm.”</li>
-                <li>Pick contacts in the directory, then: “Send them the open home template.”</li>
-                <li>“What’s our sold value this month?” (owners and admins)</li>
+                {EXAMPLES.map((e) => (
+                  <li key={e}>{e}</li>
+                ))}
               </ul>
             </div>
           ) : null}
-          {turns.map((t) => (
-            <div key={t.key} className={styles.turn}>
-              <div className={styles.you}>{t.userText}</div>
-              {t.answer ? (
-                <div className={styles.answer}>
-                  <div className={styles.label}>Written by the assistant</div>
-                  {t.answer}
-                </div>
-              ) : null}
-              {t.frames.map((f, i) => (
-                <FrameView key={i} frame={f} surface={surface} />
-              ))}
-              {t.pending && !t.error ? <div className={styles.status}>{t.status ?? 'Thinking…'}</div> : null}
-              {t.error ? (
-                <div className={styles.error} role="alert">
-                  {t.error}
-                </div>
-              ) : null}
-            </div>
-          ))}
+          <TurnList turns={turns} surface={surface} />
           <div ref={endRef} />
         </div>
       )}
@@ -305,7 +164,7 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
             disabled={full}
           />
           {busy ? (
-            <button type="button" className={styles.send} onClick={() => abortRef.current?.abort()}>
+            <button type="button" className={styles.send} onClick={a.stop}>
               Stop
             </button>
           ) : (
@@ -316,6 +175,34 @@ export function AssistantPanel({ surface }: { surface: Surface }) {
         </form>
       </footer>
     </aside>
+  );
+}
+
+/** The conversation itself: what was asked, the labelled answer, and the server's frames. */
+export function TurnList({ turns, surface }: { turns: Turn[]; surface: Surface }) {
+  return (
+    <>
+      {turns.map((t) => (
+        <div key={t.key} className={styles.turn}>
+          <div className={styles.you}>{t.userText}</div>
+          {t.answer ? (
+            <div className={styles.answer}>
+              <div className={styles.label}>Written by the assistant</div>
+              {t.answer}
+            </div>
+          ) : null}
+          {t.frames.map((f, i) => (
+            <FrameView key={i} frame={f} surface={surface} />
+          ))}
+          {t.pending && !t.error ? <div className={styles.status}>{t.status ?? 'Thinking…'}</div> : null}
+          {t.error ? (
+            <div className={styles.error} role="alert">
+              {t.error}
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </>
   );
 }
 

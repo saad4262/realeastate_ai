@@ -1,6 +1,2 @@
-import { PageSkeleton } from '@/components/page-skeleton';
-
-/** The integrations page's shape while the database answers. */
-export default function Loading() {
-  return <PageSkeleton rows={1} />;
-}
+/** The same page as the agency's Connectors, so the same shape while it loads. */
+export { default } from '../../(agency)/settings/integrations/loading';

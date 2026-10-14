@@ -23,7 +23,7 @@ export default async function AgencyLayout({ children }: { children: React.React
   const chrome = loadConsoleChrome(session.userId);
 
   return (
-    <AgencyShell userLabel={session.label} chrome={chrome}>
+    <AgencyShell userLabel={session.label} userId={session.userId} chrome={chrome}>
       <Suspense fallback={<PageSkeleton />}>
         <AgencyGate>{children}</AgencyGate>
       </Suspense>

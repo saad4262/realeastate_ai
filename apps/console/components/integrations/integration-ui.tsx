@@ -5,6 +5,7 @@ import {
   type IntegrationSlot,
   type IntegrationState,
 } from '@repo/core/integrations';
+import Link from 'next/link';
 import { LocalTime } from '@repo/ui';
 import contactStyles from '@/components/contacts/contacts.module.css';
 import { connectIntegrationAction, disconnectIntegrationAction } from '@/lib/integration-actions';
@@ -49,7 +50,30 @@ export function ConnectButton({
   );
 }
 
+/** A glyph per provider for the card's icon tile — the console's icon font, not brand logos. */
+const ICONS: Partial<Record<IntegrationSlot['provider'], string>> = {
+  google_calendar: 'calendar_month',
+  zoom: 'videocam',
+  google_sheets: 'table_chart',
+  gmail: 'mail',
+  google_reviews: 'reviews',
+};
+
+/** The card's icon tile; the dot says "connected" at a glance, the pill beside it says it in words. */
+function ConnectorIcon({ icon, connected = false }: { icon: string; connected?: boolean }) {
+  return (
+    <span className={styles.icon} aria-hidden>
+      <span className={styles.iconGlyph}>{icon}</span>
+      {connected ? <span className={styles.iconDot} /> : null}
+    </span>
+  );
+}
+
 /**
+ * One connector, as a card in the grid: icon, name, what it is for, and the
+ * one action that matters (Connect / Reconnect) on the right. The account's
+ * facts, the permission list and Disconnect wait under Details.
+ *
  * `compact`: a slot this person can only look at — the agency's accounts on
  * the agent desk. Name, status and which account; the permission list and the
  * "who may change it" line belong to whoever manages it, and the section
@@ -59,90 +83,119 @@ export function IntegrationCard({ slot, compact = false }: { slot: IntegrationSl
   const info = PROVIDERS[slot.provider];
   const a = slot.account;
   const state: IntegrationState = a ? a.state : 'not_connected';
+  const icon = <ConnectorIcon icon={ICONS[slot.provider] ?? 'extension'} connected={state === 'connected'} />;
   if (compact) {
     return (
       <article className={`${styles.card} ${styles.compact}`}>
-        <div className={styles.cardHead}>
-          <span className={styles.name}>{info.label}</span>
-          <StatusPill state={state} />
+        <div className={styles.cardMain}>
+          {icon}
+          <div className={styles.cardText}>
+            <span className={styles.name}>{info.label}</span>
+            {a?.accountLabel ? <p className={styles.purpose}>{a.accountLabel}</p> : null}
+          </div>
+          <div className={styles.cardSide}>
+            <StatusPill state={state} />
+          </div>
         </div>
-        {a?.accountLabel ? <p className={styles.note}>{a.accountLabel}</p> : null}
       </article>
     );
   }
   return (
     <article className={styles.card}>
-      <div className={styles.cardHead}>
-        <span>
+      <div className={styles.cardMain}>
+        {icon}
+        <div className={styles.cardText}>
           <span className={styles.name}>{info.label}</span>
-          <br />
           <span className={styles.level}>{slot.ownerType === 'agency' ? "The agency's account" : 'Your own account'}</span>
-        </span>
-        <StatusPill state={state} />
-      </div>
-      <p className={styles.purpose}>{info.purpose}</p>
-      {a ? (
-        <dl className={styles.facts}>
-          <dt>Account</dt>
-          <dd>{a.accountLabel ?? '—'}</dd>
-          <dt>Connected</dt>
-          <dd><LocalTime iso={a.connectedAt.toISOString()} style="short" /></dd>
-          <dt>Last sync</dt>
-          <dd>{a.lastSyncedAt ? <LocalTime iso={a.lastSyncedAt.toISOString()} style="short" /> : 'Not yet'}</dd>
-          {a.missingScopes.length ? (
-            <>
-              <dt>Missing</dt>
-              <dd>{a.missingScopes.join(', ')} — reconnect and leave every box ticked.</dd>
-            </>
-          ) : null}
-          {a.connectorLeft ? (
-            <>
-              <dt>Reconnect</dt>
-              <dd>Connected by someone who has left the agency. It still works — reconnect it with an account the agency controls.</dd>
-            </>
-          ) : null}
-          {a.lastError && !a.missingScopes.length ? (
-            <>
-              <dt>Problem</dt>
-              <dd>{a.lastError}</dd>
-            </>
-          ) : null}
-        </dl>
-      ) : null}
-      <details>
-        <summary className={styles.note}>Why we ask for each permission</summary>
-        <ul className={styles.scopes}>
-          {info.scopes.map((s) => (
-            <li key={s.scope} className={styles.scope}>
-              {s.why} <code>{s.scope}</code>
-            </li>
-          ))}
-        </ul>
-      </details>
-      {slot.mayManage ? (
-        <div className={styles.row}>
-          {state !== 'connected' ? (
+          <p className={styles.purpose}>{info.purpose}</p>
+        </div>
+        <div className={styles.cardSide}>
+          {state !== 'not_connected' ? <StatusPill state={state} /> : null}
+          {slot.mayManage && state !== 'connected' ? (
             <ConnectButton provider={slot.provider} ownerType={slot.ownerType} label={a ? 'Reconnect' : 'Connect'} />
           ) : null}
-          {a ? (
-            <form action={disconnectIntegrationAction}>
-              <input type="hidden" name="provider" value={slot.provider} />
-              <input type="hidden" name="ownerType" value={slot.ownerType} />
-              <ConfirmSubmit
-                className={contactStyles.btnGhost}
-                message={`Disconnect ${info.label}? The stored access is deleted from this platform.`}
-              >
-                Disconnect
-              </ConfirmSubmit>
-            </form>
-          ) : null}
         </div>
-      ) : (
-        <p className={styles.note}>
-          {slot.ownerType === 'agency' ? 'Only an owner or admin connects the agency’s account.' : 'You can view this, not change it.'}
-        </p>
-      )}
+      </div>
+      <details className={styles.details}>
+        <summary className={styles.detailsSummary}>Details</summary>
+        <div className={styles.detailsBody}>
+          {a ? (
+            <dl className={styles.facts}>
+              <dt>Account</dt>
+              <dd>{a.accountLabel ?? '—'}</dd>
+              <dt>Connected</dt>
+              <dd><LocalTime iso={a.connectedAt.toISOString()} style="short" /></dd>
+              <dt>Last sync</dt>
+              <dd>{a.lastSyncedAt ? <LocalTime iso={a.lastSyncedAt.toISOString()} style="short" /> : 'Not yet'}</dd>
+              {a.missingScopes.length ? (
+                <>
+                  <dt>Missing</dt>
+                  <dd>{a.missingScopes.join(', ')} — reconnect and leave every box ticked.</dd>
+                </>
+              ) : null}
+              {a.connectorLeft ? (
+                <>
+                  <dt>Reconnect</dt>
+                  <dd>Connected by someone who has left the agency. It still works — reconnect it with an account the agency controls.</dd>
+                </>
+              ) : null}
+              {a.lastError && !a.missingScopes.length ? (
+                <>
+                  <dt>Problem</dt>
+                  <dd>{a.lastError}</dd>
+                </>
+              ) : null}
+            </dl>
+          ) : null}
+          <p className={styles.note}>Why we ask for each permission:</p>
+          <ul className={styles.scopes}>
+            {info.scopes.map((s) => (
+              <li key={s.scope} className={styles.scope}>
+                {s.why} <code>{s.scope}</code>
+              </li>
+            ))}
+          </ul>
+          {slot.mayManage ? (
+            a ? (
+              <div className={styles.row}>
+                <form action={disconnectIntegrationAction}>
+                  <input type="hidden" name="provider" value={slot.provider} />
+                  <input type="hidden" name="ownerType" value={slot.ownerType} />
+                  <ConfirmSubmit
+                    className={contactStyles.btnGhost}
+                    message={`Disconnect ${info.label}? The stored access is deleted from this platform.`}
+                  >
+                    Disconnect
+                  </ConfirmSubmit>
+                </form>
+              </div>
+            ) : null
+          ) : (
+            <p className={styles.note}>
+              {slot.ownerType === 'agency' ? 'Only an owner or admin connects the agency’s account.' : 'You can view this, not change it.'}
+            </p>
+          )}
+        </div>
+      </details>
     </article>
+  );
+}
+
+/** One of the console's own tools, as a card in the same grid. It opens the tool's page; nothing to connect. */
+export function FeatureCard({ href, label, icon, purpose }: { href: string; label: string; icon: string; purpose: string }) {
+  return (
+    <Link href={href} className={`${styles.card} ${styles.featureCard}`}>
+      <div className={styles.cardMain}>
+        <ConnectorIcon icon={icon} />
+        <div className={styles.cardText}>
+          <span className={styles.name}>{label}</span>
+          <p className={styles.purpose}>{purpose}</p>
+        </div>
+        <span className={`${styles.cardSide} ${styles.iconGlyph} ${styles.go}`} aria-hidden>
+          arrow_forward
+        </span>
+      </div>
+    </Link>
   );
 }
 
@@ -187,7 +240,7 @@ export function ConnectFirst({ requirement: r, purpose }: { requirement: Integra
       {r.mayConnect ? (
         <ConnectButton provider={r.provider} ownerType={ownerType} label={`Connect ${info.label}`} />
       ) : (
-        <p className={styles.note}>Ask an owner or admin to connect it in Settings → Integrations.</p>
+        <p className={styles.note}>Ask an owner or admin to connect it in Settings → Connectors.</p>
       )}
     </div>
   );

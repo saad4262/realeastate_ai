@@ -1,6 +1,6 @@
-import { DashboardsPage } from '@/components/dashboards/dashboards-page';
+import { redirect } from 'next/navigation';
 
-/** Dashboards (docs/adr/0027). The body is shared by both consoles. */
+/** Dashboards are called Projects on the agency console now; old links and bookmarks land there. */
 export default function Page() {
-  return <DashboardsPage surface="agency" />;
+  redirect('/projects');
 }

@@ -227,7 +227,7 @@ export function SchedulePanel({
                   : zoom.state === 'permission_missing'
                     ? 'Zoom is connected without every permission it needs — reconnect it. '
                     : 'Connect Zoom first — you have no Zoom connected, and neither does the agency. '}
-                <a href={zoom.integrationsPath}>Open Integrations</a>, or paste a meeting link above.
+                <a href={zoom.integrationsPath}>Open Connectors</a>, or paste a meeting link above.
               </div>
             ) : null}
 

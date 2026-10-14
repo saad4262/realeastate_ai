@@ -17,7 +17,7 @@ const NAV = [
   { href: '/my-bulk-email', label: 'Bulk email', icon: 'forward_to_inbox' },
   { href: '/my-dashboards', label: 'Dashboards', icon: 'monitoring' },
   { href: '/my-reviews', label: 'Agency reviews', icon: 'reviews' },
-  { href: '/my-integrations', label: 'Integrations', icon: 'extension' },
+  { href: '/my-integrations', label: 'Connectors', icon: 'hub' },
 ];
 
 /**

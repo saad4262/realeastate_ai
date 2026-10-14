@@ -11,7 +11,8 @@ import styles from './dashboards.module.css';
  * last version it saw — an unchanged one comes back 304 — and pauses while the
  * tab is hidden. No browser database connection: the server is the only door.
  */
-export function DashboardView({ initial, inboxPath }: { initial: DashboardData; inboxPath: string }) {
+/** `embedded`: shown inside the agency console's chrome as a Project, rather than full screen. */
+export function DashboardView({ initial, inboxPath, embedded = false }: { initial: DashboardData; inboxPath: string; embedded?: boolean }) {
   const [data, setData] = useState(initial);
   const [updatedAt, setUpdatedAt] = useState(() => new Date());
   const [lost, setLost] = useState<string | null>(null);
@@ -52,10 +53,10 @@ export function DashboardView({ initial, inboxPath }: { initial: DashboardData; 
 
   const many = data.tiles.length > 1;
   return (
-    <main className={styles.page}>
+    <main className={embedded ? styles.pageEmbedded : styles.page}>
       <header className={styles.head}>
         <div>
-          <div className={styles.eyebrow}>Dashboard</div>
+          <div className={styles.eyebrow}>{embedded ? 'Project' : 'Dashboard'}</div>
           <h1 className={styles.title}>{data.title}</h1>
           <div className={styles.updated}>Times on the agency’s clock ({data.timeZone}) · every figure is worked out for you, from the agency’s records</div>
         </div>

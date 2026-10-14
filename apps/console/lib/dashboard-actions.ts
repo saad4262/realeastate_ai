@@ -13,6 +13,7 @@ export async function archiveDashboardAction(id: string): Promise<{ ok: true } |
   try {
     await archiveDashboard(getConsoleDb(), actor, id);
     revalidatePath('/dashboards');
+    revalidatePath('/projects');
     revalidatePath('/my-dashboards');
     return { ok: true };
   } catch (err) {

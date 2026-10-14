@@ -4,6 +4,9 @@ import { z } from 'zod';
 import { agency, dashboard, type Db, type DbOrTx } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { renderWidget, WIDGETS, widgetRefSchema, type WidgetRef, type WidgetTile } from '../widgets/registry';
+import { widgetPreview, type WidgetPreview } from './preview';
+
+export { PREVIEW_SHAPES, widgetPreview, type PreviewShape, type WidgetPreview } from './preview';
 
 /**
  * Saved dashboards (ADR 0027). Saved by owners/admins only; opened by signed-in
@@ -75,7 +78,16 @@ export async function createDashboard(db: DbOrTx, actor: Actor, input: CreateDas
   return { id: row!.id };
 }
 
-export type DashboardSummary = { id: string; title: string; audience: DashboardAudience; widgetCount: number; createdAt: Date; mayManage: boolean };
+export type DashboardSummary = {
+  id: string;
+  title: string;
+  audience: DashboardAudience;
+  widgetCount: number;
+  /** Each widget's title and shape, for the card's thumbnail — no figures (see preview.ts). */
+  preview: WidgetPreview[];
+  createdAt: Date;
+  mayManage: boolean;
+};
 
 /** The dashboards this person may open, newest first. One statement. */
 export async function listDashboards(db: Db, actor: Actor): Promise<DashboardSummary[]> {
@@ -93,6 +105,7 @@ export async function listDashboards(db: Db, actor: Actor): Promise<DashboardSum
       title: d.title,
       audience: d.audience as DashboardAudience,
       widgetCount: Array.isArray(d.widgets) ? d.widgets.length : 0,
+      preview: Array.isArray(d.widgets) ? d.widgets.map(widgetPreview) : [],
       createdAt: new Date(d.createdAt),
       mayManage: can(actor, 'dashboard:manage', resource(d)),
     }));

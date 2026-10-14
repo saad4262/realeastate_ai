@@ -61,12 +61,19 @@ export function ContactFrame({
   basePath,
   tab,
   counts,
+  askHref,
   children,
 }: {
   contact: ContactView;
   basePath: string;
   tab: ContactTab;
   counts: ContactCounts;
+  /**
+   * Where "Ask the assistant" goes, with this contact as its selection. Only
+   * the agency console passes one: there the assistant is the home page, so it
+   * has to be told the contact. The agent desk's panel reads it off this page.
+   */
+  askHref?: string;
   children: React.ReactNode;
 }) {
   const tabs: { key: ContactTab; label: string; count?: number }[] = [
@@ -93,6 +100,11 @@ export function ContactFrame({
           </p>
         </div>
         <div className={styles.headActions}>
+          {askHref ? (
+            <Link href={askHref} className={styles.btn}>
+              Ask the assistant
+            </Link>
+          ) : null}
           {c.mayUpdate ? (
             <Link href={tabHref(basePath, c.id, 'overview', { edit: '1' })} className={styles.btnGhost}>Edit</Link>
           ) : null}
@@ -532,7 +544,7 @@ export function NotConnected({ which }: { which: 'google-calendar' | 'zoom' | 'r
           <span className={styles.statusOff}>Not connected</span>
         </div>
         <p className={styles.note}>{copy.what}</p>
-        <p className={styles.note}>Connecting integrations arrives with Settings → Integrations (a later phase).</p>
+        <p className={styles.note}>Connecting integrations arrives with Settings → Connectors (a later phase).</p>
       </div>
     </div>
   );
