@@ -678,11 +678,11 @@ export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appoin
 export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 /**
- * What a `proposed_action` row's `tool` may be — the database CHECK (migration 0047) holds exactly
- * this list: every write tool except create_reminder (it stores a one-step plan_task), plus
- * `remind`, a task step that is never a tool of its own (ADR 0040).
+ * What a `proposed_action` row's `tool` may be — the database CHECK (latest: migration 0051) holds
+ * exactly this list: every write tool except create_reminder (it stores a one-step plan_task), plus
+ * `remind` (ADR 0040) and `draft_email` (ADR 0041), task steps that are never tools of their own.
  */
-export const PROPOSED_ACTION_TOOLS = [...ASSISTANT_WRITE_TOOLS.filter((t) => t !== 'create_reminder'), 'remind'] as const;
+export const PROPOSED_ACTION_TOOLS = [...ASSISTANT_WRITE_TOOLS.filter((t) => t !== 'create_reminder'), 'remind', 'draft_email'] as const;
 
 /** Every tool. Read tools run at once; write tools only propose (ADR 0025 §8). */
 export const ASSISTANT_TOOL_INPUTS = {

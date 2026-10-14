@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, ne, notExists, sql } from 'drizzle-orm';
+import { pauseWorkflowsOf } from '../workflows/manage';
 import { z } from 'zod';
 import {
   activity,
@@ -428,6 +429,8 @@ export async function removeMember(db: Db, actor: Actor, userId: string, rawChoi
       .update(assistantTask)
       .set({ status: 'cancelled', error: 'The person was removed from the agency', finishedAt: now, updatedAt: sql`now()` })
       .where(and(eq(assistantTask.agencyId, agencyId), eq(assistantTask.userId, userId), inArray(assistantTask.status, ['proposed', 'active'])));
+    // Their workflows stop too (ADR 0041): paused with the reason, never run as someone who left.
+    await pauseWorkflowsOf(tx, agencyId, userId);
     const cardContacts = cards.filter((c) => c.contactId);
     if (cardContacts.length) {
       await tx.insert(activity).values(

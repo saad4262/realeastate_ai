@@ -319,6 +319,15 @@ export type Action =
   | 'listing_import:create'
   /** Import contacts from a file or a sheet (ADR 0029 amendment): whoever may add contacts. */
   | 'contact_import:create'
+  /**
+   * Workflows (ADR 0041 D2). See one and its runs: its owner, or an owner/admin (every workflow of the
+   * agency). Make one that acts on the maker's own leads and contacts: any member who may write. Make an
+   * agency-wide one (which may assign): owners/admins. Pause, resume, archive: its owner or an admin.
+   */
+  | 'workflow:read'
+  | 'workflow:create'
+  | 'workflow:create_agency'
+  | 'workflow:manage'
   /** See an import and its row report: its creator, or an admin. */
   | 'listing_import:read'
   /** Map, dry-run and run it: its creator only. */
@@ -625,6 +634,17 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'agent_skill:manage':
       return sameAgency(actor, resource) && mayWrite(actor) &&
         Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'workflow:read':
+      if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      return isAgencyAdmin(actor) || (Boolean(resource.ownerId) && actor.userId === resource.ownerId);
+    case 'workflow:create':
+      return sameAgency(actor, resource) && mayWrite(actor);
+    case 'workflow:create_agency':
+      return sameAgency(actor, resource) && isAgencyAdmin(actor);
+    case 'workflow:manage':
+      if (!sameAgency(actor, resource) || !mayWrite(actor)) return false;
+      return isAgencyAdmin(actor) || (Boolean(resource.ownerId) && actor.userId === resource.ownerId);
 
     case 'assistant:use':
       return sameAgency(actor, resource) && Boolean(actor.membershipRole);

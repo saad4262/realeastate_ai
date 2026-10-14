@@ -58,7 +58,8 @@
     "./semantic": "./src/semantic/index.ts",
     "./skills/schema": "./src/skills/skill-schema.ts",
     "./template-email": "./src/template-email/index.ts",
-    "./template-email/schema": "./src/template-email/schema.ts"
+    "./template-email/schema": "./src/template-email/schema.ts",
+    "./workflows": "./src/workflows/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -6,6 +6,8 @@ import { mailDepsFromEnv } from '@repo/core/mail';
 import { teamMessageDepsFromEnv } from '@repo/core/team-messages';
 import { authoriseCronRequest } from '@repo/core/schedules';
 import { templateSendDepsFromEnv } from '@repo/core/template-email';
+import { runWorkflowTick } from '@repo/core/workflows';
+import { workflowDraftWriterFromEnv } from '@repo/ai/workflow-draft';
 import { getWebDb } from '../../../../lib/db';
 
 export const runtime = 'nodejs';
@@ -29,6 +31,11 @@ async function handler(request: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
+    // Workflows first (ADR 0041): their runs' first steps are then due in the same tick, below.
+    const workflows = await runWorkflowTick(getWebDb()).catch((err: unknown) => ({
+      error: err instanceof Error ? err.message : 'workflow tick failed',
+    }));
+
     const scheduled = await (async () => {
       const send = templateSendDepsFromEnv();
       return runScheduledActions(getWebDb(), {
@@ -37,6 +44,8 @@ async function handler(request: NextRequest) {
         mail: mailDepsFromEnv(),
         teamMessages: teamMessageDepsFromEnv(),
         teamMeetings: teamMeetingDepsFromEnv(),
+        // A workflow's email draft (ADR 0041 D1) is written by packages/ai — never sent by the workflow.
+        draftWriter: workflowDraftWriterFromEnv(getWebDb()),
       });
     })().catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'scheduled actions failed' }));
 
@@ -45,7 +54,7 @@ async function handler(request: NextRequest) {
     }));
 
     // Counts only — this is read from a cron log.
-    return NextResponse.json({ ok: true, scheduled, reminders }, { headers: { 'cache-control': 'no-store' } });
+    return NextResponse.json({ ok: true, workflows, scheduled, reminders }, { headers: { 'cache-control': 'no-store' } });
   } catch (err) {
     return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : 'tick failed' }, { status: 503 });
   }

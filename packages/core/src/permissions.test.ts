@@ -908,3 +908,23 @@ describe('offboarding (ADR 0030)', () => {
     expect(can({ userId: 'u', agencyId: agencyB, membershipRole: 'owner' }, 'team:remove_owner', team)).toBe(false);
   });
 });
+
+describe('workflows (ADR 0041 D2)', () => {
+  const A = 'agency-a';
+  const m = (userId: string, membershipRole: Actor['membershipRole'], agencyId = A): Actor => ({ userId, agencyId, membershipRole });
+  const own = { type: 'workflow', agencyId: A, ownerId: 'agent-1' };
+  it('an agent makes their own; only an owner/admin makes an agency-wide one; read-only makes none', () => {
+    expect(can(m('agent-1', 'agent'), 'workflow:create', { type: 'workflow', agencyId: A })).toBe(true);
+    expect(can(m('agent-1', 'agent'), 'workflow:create_agency', { type: 'workflow', agencyId: A })).toBe(false);
+    expect(can(m('boss', 'admin'), 'workflow:create_agency', { type: 'workflow', agencyId: A })).toBe(true);
+    expect(can(m('ro', 'read_only'), 'workflow:create', { type: 'workflow', agencyId: A })).toBe(false);
+  });
+  it('its owner and the agency’s admins see and manage it; another agent does not; another agency never', () => {
+    expect(can(m('agent-1', 'agent'), 'workflow:read', own)).toBe(true);
+    expect(can(m('agent-1', 'agent'), 'workflow:manage', own)).toBe(true);
+    expect(can(m('agent-2', 'agent'), 'workflow:read', own)).toBe(false);
+    expect(can(m('agent-2', 'agent'), 'workflow:manage', own)).toBe(false);
+    expect(can(m('boss', 'owner'), 'workflow:manage', own)).toBe(true);
+    expect(can(m('boss', 'owner', 'agency-b'), 'workflow:read', own)).toBe(false);
+  });
+});

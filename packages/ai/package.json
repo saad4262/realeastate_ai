@@ -15,7 +15,8 @@
     "./skills": "./src/pipelines/skills.ts",
     "./assistant": "./src/pipelines/assistant.ts",
     "./search-embedder": "./src/search/voyage.ts",
-    "./evals/dashboard-phrases": "./src/evals/dashboard-phrases.ts"
+    "./evals/dashboard-phrases": "./src/evals/dashboard-phrases.ts",
+    "./workflow-draft": "./src/pipelines/workflow-draft.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

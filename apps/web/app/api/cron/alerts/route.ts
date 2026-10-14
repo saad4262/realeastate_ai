@@ -6,6 +6,7 @@ import { runEmbeddingTick } from '@repo/core/assistant-search';
 import { embedderFromEnv } from '@repo/ai/search-embedder';
 import { mailDepsFromEnv, pullReceivedMail, resendStuckMessages } from '@repo/core/mail';
 import { authoriseCronRequest, runScheduleTick } from '@repo/core/schedules';
+import { purgeWorkflowHistory } from '@repo/core/workflows';
 import { runSkillTick } from '@repo/core/skills';
 import {
   expirePreparedBatches,
@@ -124,8 +125,9 @@ async function handler(request: NextRequest) {
      * then deleted with their turns (ADR 0025, decided Q5). Cost rows stay.
      */
     // …and a card nobody approved within 48 h expires; its row stays as the record.
-    const assistant = await Promise.all([purgeAssistantConversations(getWebDb()), expireProposedActions(getWebDb())])
-      .then(([purged, expired]) => ({ purged, expired }))
+    // …and workflow history: processed events after 30 days, runs after 90 (ADR 0041).
+    const assistant = await Promise.all([purgeAssistantConversations(getWebDb()), expireProposedActions(getWebDb()), purgeWorkflowHistory(getWebDb())])
+      .then(([purged, expired, workflowHistory]) => ({ purged, expired, workflowHistory }))
       .catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'assistant purge failed' }));
 
     /**

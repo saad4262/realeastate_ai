@@ -46,6 +46,7 @@ import { buildReminderEmail } from '../email/team-notices';
 import type { ToolContext, ToolOutcome } from './tools';
 import { runListingAction, type FrozenPin } from './listing-tools';
 import { runSkillAction } from './skill-tools';
+import { createWorkflowDraft, type DraftWriter } from '../workflows/drafts';
 import type { SkillScheduleInput } from '../skills/skill-schema';
 import { ListingError } from '../listings/listing-schema';
 import { inviteAgent } from '../team/invite-agent';
@@ -151,6 +152,11 @@ export type FrozenArgs =
   | { tool: 'submit_listing'; listingId: string; before: string }
   /** ADR 0040 part 2 §3: the wizard's draft, parsed when the card was made and again when it runs. */
   | { tool: 'invite_agent'; draft: InviteAgentDraft }
+  /**
+   * ADR 0041 Part B: a workflow step — the AI writes an email to the contact from these instructions,
+   * after the commit, as a DRAFT card for the workflow's owner to approve (D1). Never sent by itself.
+   */
+  | { tool: 'draft_email'; contactId: string; instructions: string; workflowName: string }
   /** ADR 0041 Part A: a library skill added to the person's own, scheduled, and switched on. */
   | { tool: 'set_up_skill'; skillId: string; schedule: SkillScheduleInput | null; emailMe: boolean; timezone: string }
   /** ADR 0041 Part A: only what the card showed; `before` = the copy as the card showed it (refused if it changed since). */
@@ -322,6 +328,8 @@ type RunDeps = {
   teamMessages?: TeamMessageDeps | null;
   /** A team meeting's emails (ADR 0038). Without it, the bell only. */
   teamMeetings?: TeamMeetingDeps | null;
+  /** A workflow's email draft (ADR 0041), written by packages/ai. Without it, the step says no draft was made. */
+  draftWriter?: DraftWriter | null;
 };
 
 type Executed = {
@@ -340,6 +348,8 @@ type Executed = {
   reminderEmail?: { text: string };
   /** An approved plan (ADR 0040): run its steps that are due now, after the commit. */
   taskId?: string;
+  /** A workflow's email draft (ADR 0041): written by the model after the commit, as a card for the owner. */
+  draftEmail?: { contactId: string; instructions: string; workflowName: string };
 };
 
 /**
@@ -374,6 +384,9 @@ async function execute(
     case 'set_up_skill':
     case 'change_skill':
       return runSkillAction(tx, actor, args, now);
+    case 'draft_email':
+      // Nothing is written now: the model is a network call, so it runs after the commit (afterCommit).
+      return { result: { drafting: true }, draftEmail: { contactId: args.contactId, instructions: args.instructions, workflowName: args.workflowName } };
     case 'invite_agent': {
       // team:manage again, and the wizard's refusals again (already a member, an invite still open).
       // Database only: the link is emailed after the commit (`inviteClaim`).
@@ -723,6 +736,16 @@ async function emailReminder(db: Db, actor: Actor, text: string, deps: RunDeps):
 /** After the commit: Google/Zoom sync, the email send, a removal (network never runs inside a transaction). */
 async function afterCommit(db: Db, actor: Actor, row: RowT, ran: Extract<Ran, { ok: true }>, deps: RunDeps): Promise<ApproveResult> {
   if (ran.offboard) return runOffboard(db, actor, row, ran, deps);
+  if (ran.draftEmail) {
+    // ADR 0041 D1: the AI's email is a DRAFT card for the owner — never sent by the workflow.
+    const out = await createWorkflowDraft(db, actor, row.id, ran.draftEmail, deps.draftWriter ?? null).catch((err: unknown) => {
+      console.error('[workflow] draft failed', err instanceof Error ? err.message : err);
+      return { draftError: 'The draft could not be written. Nothing was sent.' };
+    });
+    const result = { ...ran.result, ...out };
+    await db.update(proposedAction).set({ result, updatedAt: sql`now()` }).where(eq(proposedAction.id, row.id));
+    return { outcome: 'done', result, sync: null };
+  }
   if (ran.reminderEmail) {
     // To the person themselves, only because they asked (ADR 0040 Q3). The bell already has it.
     const emailed = await emailReminder(db, actor, ran.reminderEmail.text, deps).catch((err: unknown) => {
@@ -999,8 +1022,10 @@ export async function runScheduledActions(
           await failRow(tx as unknown as Db, actor, row, 'The person who approved this is no longer an active member who may make this change, so it did not run.', now);
           return { kind: 'failed' as const };
         }
-        const ran = await runClaimed(tx as unknown as Db, actor, row, deps, now);
-        return ran.ok ? { kind: 'done' as const, ran, actor } : ran.waiting ? { kind: 'waiting' as const } : { kind: 'failed' as const };
+        // A workflow's step (ADR 0041) acts for the workflow: its changes never trigger another workflow.
+        const acting: Actor = row.origin === 'workflow' ? { ...actor, via: 'workflow' } : actor;
+        const ran = await runClaimed(tx as unknown as Db, acting, row, deps, now);
+        return ran.ok ? { kind: 'done' as const, ran, actor: acting } : ran.waiting ? { kind: 'waiting' as const } : { kind: 'failed' as const };
       });
     } catch (err) {
       // Not a refusal: the transaction rolled back, nothing happened. Fail it (guarded) so it is
