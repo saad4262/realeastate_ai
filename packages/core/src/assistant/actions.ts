@@ -46,6 +46,8 @@ import { buildReminderEmail } from '../email/team-notices';
 import type { ToolContext, ToolOutcome } from './tools';
 import { runListingAction, type FrozenPin } from './listing-tools';
 import { runSkillAction } from './skill-tools';
+import { runWorkflowAction } from './workflow-tools';
+import type { WorkflowSpec } from '../workflows/catalog';
 import { createWorkflowDraft, type DraftWriter } from '../workflows/drafts';
 import type { SkillScheduleInput } from '../skills/skill-schema';
 import { ListingError } from '../listings/listing-schema';
@@ -157,6 +159,9 @@ export type FrozenArgs =
    * after the commit, as a DRAFT card for the workflow's owner to approve (D1). Never sent by itself.
    */
   | { tool: 'draft_email'; contactId: string; instructions: string; workflowName: string }
+  /** ADR 0041 Part C: a workflow as checked on its card (ids resolved); saved active on Approve, or replacing `replaces`. */
+  | { tool: 'create_workflow'; name: string; scope: 'mine' | 'agency'; spec: WorkflowSpec; replaces: string | null }
+  | { tool: 'change_workflow'; workflowId: string; change: 'pause' | 'resume' | 'archive' }
   /** ADR 0041 Part A: a library skill added to the person's own, scheduled, and switched on. */
   | { tool: 'set_up_skill'; skillId: string; schedule: SkillScheduleInput | null; emailMe: boolean; timezone: string }
   /** ADR 0041 Part A: only what the card showed; `before` = the copy as the card showed it (refused if it changed since). */
@@ -384,6 +389,9 @@ async function execute(
     case 'set_up_skill':
     case 'change_skill':
       return runSkillAction(tx, actor, args, now);
+    case 'create_workflow':
+    case 'change_workflow':
+      return runWorkflowAction(tx, actor, args);
     case 'draft_email':
       // Nothing is written now: the model is a network call, so it runs after the commit (afterCommit).
       return { result: { drafting: true }, draftEmail: { contactId: args.contactId, instructions: args.instructions, workflowName: args.workflowName } };
@@ -1141,7 +1149,7 @@ export type ProposalView = {
   card: ProposalCard;
   error: string | null;
   /** Ids of what it made or changed — for links. Never model text. */
-  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; recorded?: number; withdrawn?: number; changed?: string[]; claimPath?: string; emailed?: boolean; removed?: boolean; sent?: number; skipped?: number; failed?: number; sendError?: string; invited?: boolean; invitationError?: string; threadId?: string; teamThreadId?: string; told?: boolean; zoomError?: string; emailStatus?: 'sent' | 'failed' | 'sending'; emailError?: string; agentSkillId?: string; listingId?: string; inviteId?: string; status?: string; part?: number; nobodyLeft?: boolean; waiting?: string; needsConnection?: { provider: IntegrationProvider; label: string; mayConnect: boolean }[] } | null;
+  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; recorded?: number; withdrawn?: number; changed?: string[]; claimPath?: string; emailed?: boolean; removed?: boolean; sent?: number; skipped?: number; failed?: number; sendError?: string; invited?: boolean; invitationError?: string; threadId?: string; teamThreadId?: string; told?: boolean; zoomError?: string; emailStatus?: 'sent' | 'failed' | 'sending'; emailError?: string; agentSkillId?: string; workflowId?: string; listingId?: string; inviteId?: string; status?: string; part?: number; nobodyLeft?: boolean; waiting?: string; needsConnection?: { provider: IntegrationProvider; label: string; mayConnect: boolean }[] } | null;
   expiresAt: Date;
   /** When a scheduled action will run (about; up to ~5 minutes later). */
   runAt: Date | null;

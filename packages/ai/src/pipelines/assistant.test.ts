@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
 import { ASSISTANT_TOOLS, assistantToolsFor } from '../tools/assistant-tools';
-import { ASSISTANT_SYSTEM } from '../prompts/assistant-v18';
+import { ASSISTANT_SYSTEM } from '../prompts/assistant-v19';
 import { contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
 /**
@@ -438,6 +438,19 @@ describe('proposals (Phases B and C)', () => {
       expect(ASSISTANT_TOOL_INPUTS.submit_listing.safeParse({ listing }).success, listing).toBe(false);
     }
     expect(ASSISTANT_SYSTEM).toMatch(/cannot approve/);
+  });
+
+  it('workflows (ADR 0041): parts from the catalog only — no address, no free recipient, no code; a template by T reference; the AI writes drafts, never sends', () => {
+    const t = ASSISTANT_TOOLS.find((x) => x.name === 'create_workflow')!;
+    const action = ((t.input_schema as { properties: { actions: { items: { properties: Record<string, unknown> } } } }).properties.actions.items.properties);
+    expect(Object.keys(action).filter((k) => /email|address|recipient|^to$|url|sql|code|script/.test(k))).toEqual([]);
+    const base = { name: 'W', trigger: { kind: 'lead.created' } };
+    for (const a of [{ type: 'send_template_email', template: 'Welcome' }, { type: 'draft_email', instructions: 'x', to: 'a@b.co' }, { type: 'send_email', body: 'x' }, { type: 'assign_lead', member: 'ahmed@agency.com' }]) {
+      expect(ASSISTANT_TOOL_INPUTS.create_workflow.safeParse({ ...base, actions: [a] }).success, JSON.stringify(a)).toBe(false);
+    }
+    expect(ASSISTANT_TOOL_INPUTS.create_workflow.safeParse({ ...base, actions: [{ type: 'send_template_email', template: 'T1' }] }).success).toBe(true);
+    expect(t.description).toMatch(/never sent by itself/);
+    expect(ASSISTANT_SYSTEM).toMatch(/only writes a draft for them to approve/);
   });
 
   it('skills (ADR 0041 Part A): the tools set when a skill runs and whether it is on — never what it reads, its handler or what it needs', () => {

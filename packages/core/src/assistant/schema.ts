@@ -37,6 +37,8 @@ export const HANDLE_KINDS = {
   F: 'filter',
   /** A skill of the library this person may use — issued by find_skills (ADR 0041). Their own copy is found by it. */
   Q: 'skill',
+  /** A workflow this person may see — issued by find_workflows (ADR 0041 Part C). */
+  W: 'workflow',
 } as const;
 export type HandlePrefix = keyof typeof HANDLE_KINDS;
 export type HandleKind = (typeof HANDLE_KINDS)[HandlePrefix];
@@ -44,7 +46,7 @@ export type HandleKind = (typeof HANDLE_KINDS)[HandlePrefix];
 export const handleSchema = z
   .string()
   .trim()
-  .regex(/^[CLATSMIPKFQ][1-9][0-9]{0,2}$/, 'Not a reference the assistant was given');
+  .regex(/^[CLATSMIPKFQW][1-9][0-9]{0,2}$/, 'Not a reference the assistant was given');
 
 /** A handle that must name an appointment. */
 export const appointmentHandleSchema = handleSchema.refine((h) => h.startsWith('A'), { message: 'Not an appointment reference' });
@@ -255,6 +257,64 @@ export const skillScheduleInput = z
   .refine((v) => v.cadence !== 'weekly' || v.weekday, { message: 'A weekly skill needs a weekday', path: ['weekday'] })
   .refine((v) => v.cadence !== 'interval' || v.every_minutes, { message: 'An interval skill needs every_minutes', path: ['every_minutes'] });
 export const findSkillsInput = z.object({}).strict();
+
+// ── ADR 0041 Part C: workflows by the assistant ──────────────────────────────
+
+export const workflowHandleSchema = handleSchema.refine((h) => h.startsWith('W'), { message: 'Not a workflow reference' });
+/**
+ * A workflow as the model writes it: the catalog's parts (packages/core/src/workflows/catalog.ts) with
+ * REFERENCES where the stored spec has ids — `member`/`members` (M), `template` (T). Flat objects with
+ * a `type`/`kind`; the server checks each against the catalog and names the part that is wrong.
+ * `lead_status`, never `status` or `to`: no field here reads as a card's status or a recipient.
+ */
+export const workflowTriggerInput = z
+  .object({
+    kind: z.enum(['lead.created', 'lead.status_changed', 'lead.no_reply', 'appointment.booked', 'listing.status_changed', 'contact.created']),
+    source: z.enum(['website', 'manual', 'import']).optional(),
+    lead_status: z.enum(['new', 'contacted', 'qualified', 'closed']).optional(),
+    listing_status: z.enum(['live', 'under_offer', 'sold', 'withdrawn']).optional(),
+    days: z.number().int().min(1).max(14).optional(),
+    appointment_type: z.enum(['appraisal', 'phone_call', 'zoom', 'inspection', 'meeting']).optional(),
+  })
+  .strict();
+export const workflowConditionInput = z
+  .object({
+    field: z.enum(['listing.suburb', 'listing.channel', 'lead.kind', 'lead.source', 'assignee', 'contact.role', 'appointment.type']),
+    op: z.enum(['eq', 'in', 'not_in']),
+    /** Words from the field's list, a suburb as the person said it, or M references for `assignee`. */
+    values: z.array(z.string().trim().min(1).max(80)).min(1).max(20),
+  })
+  .strict();
+export const workflowActionInput = z
+  .object({
+    type: z.enum(['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'send_template_email', 'draft_email', 'wait']),
+    text: z.string().trim().min(1).max(2000).optional(),
+    in_days: z.number().int().min(0).max(60).optional(),
+    mail_me: z.boolean().optional(),
+    lead_status: z.enum(['new', 'contacted', 'qualified', 'closed']).optional(),
+    member: memberHandleSchema.optional(),
+    members: z.array(memberHandleSchema).min(1).max(10).optional(),
+    subject: z.string().trim().min(1).max(200).optional(),
+    body: z.string().trim().min(1).max(2000).optional(),
+    template: templateHandleSchema.optional(),
+    instructions: z.string().trim().min(1).max(1000).optional(),
+    hours: z.number().int().min(1).max(720).optional(),
+  })
+  .strict();
+export const createWorkflowInput = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    /** `mine`: only the person's own leads and contacts. `agency`: the whole agency — owners and admins only. */
+    scope: z.enum(['mine', 'agency']).default('mine'),
+    trigger: workflowTriggerInput,
+    conditions: z.array(workflowConditionInput).max(5).default([]),
+    actions: z.array(workflowActionInput).min(1).max(6),
+    /** A W reference: replace that workflow (a new version) instead of making another. */
+    replaces: workflowHandleSchema.optional(),
+  })
+  .strict();
+export const findWorkflowsInput = z.object({}).strict();
+export const changeWorkflowInput = z.object({ workflow: workflowHandleSchema, change: z.enum(['pause', 'resume', 'archive']) }).strict();
 export const setUpSkillInput = z.object({ skill: skillHandleSchema, schedule: skillScheduleInput.optional(), mail_me: z.boolean().optional() }).strict();
 /** One of the person's own skills: only what is named changes. `instructions` is the whole new text under the front-matter. */
 export const changeSkillInput = z
@@ -674,8 +734,8 @@ export const scheduleTeamMeetingInput = z
   })
   .strict();
 
-export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_saved_lists', 'start_import', 'find_skills'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill'] as const;
+export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_saved_lists', 'start_import', 'find_skills', 'find_workflows'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill', 'create_workflow', 'change_workflow'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 /**
  * What a `proposed_action` row's `tool` may be — the database CHECK (latest: migration 0051) holds
@@ -719,6 +779,7 @@ export const ASSISTANT_TOOL_INPUTS = {
   find_saved_lists: findSavedListsInput,
   start_import: startImportInput,
   find_skills: findSkillsInput,
+  find_workflows: findWorkflowsInput,
   set_lead_status: setLeadStatusInput,
   assign_lead: assignLeadInput,
   create_lead: createLeadInput,
@@ -733,6 +794,8 @@ export const ASSISTANT_TOOL_INPUTS = {
   invite_agent: inviteAgentInput,
   set_up_skill: setUpSkillInput,
   change_skill: changeSkillInput,
+  create_workflow: createWorkflowInput,
+  change_workflow: changeWorkflowInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];

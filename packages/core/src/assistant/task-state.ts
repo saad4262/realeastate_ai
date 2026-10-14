@@ -2,6 +2,7 @@ import { and, asc, eq, gt, inArray, sql } from 'drizzle-orm';
 import { agentInvite, appointment, assistantTask, contact, emailBatch, lead, note, notification, proposedAction, type DbOrTx } from '@repo/db';
 import { verifyListingAction } from './listing-tools';
 import { verifySkillAction } from './skill-tools';
+import { verifyWorkflowAction } from './workflow-tools';
 import { AssistantError } from './conversations';
 
 /**
@@ -145,6 +146,9 @@ export async function verifyExecuted(
     case 'withdraw_listing':
     case 'submit_listing':
       return (await verifyListingAction(tx, args, result)) ? undefined : fail();
+    case 'create_workflow':
+    case 'change_workflow':
+      return (await verifyWorkflowAction(tx, args, result)) ? undefined : fail();
     case 'set_up_skill':
     case 'change_skill':
       return (await verifySkillAction(tx, args, result)) ? undefined : fail();

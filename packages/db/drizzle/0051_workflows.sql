@@ -66,3 +66,8 @@ ALTER TABLE "workflow_event" ADD CONSTRAINT "workflow_event_origin_check" CHECK 
 ALTER TABLE "workflow_event" ADD CONSTRAINT "workflow_event_kind_check" CHECK (kind IN ('lead.created', 'lead.status_changed', 'lead.no_reply', 'appointment.booked', 'listing.status_changed', 'contact.created'));--> statement-breakpoint
 ALTER TABLE "workflow_run" ADD CONSTRAINT "workflow_run_status_check" CHECK (status IN ('started', 'skipped', 'failed'));--> statement-breakpoint
 ALTER TABLE "proposed_action" ADD CONSTRAINT "proposed_action_origin_check" CHECK (origin IN ('assistant', 'workflow'));
+
+--> statement-breakpoint
+-- The tool CHECK holds exactly PROPOSED_ACTION_TOOLS: + create_workflow, change_workflow (cards) and draft_email (a workflow step).
+ALTER TABLE "proposed_action" DROP CONSTRAINT "proposed_action_tool_check";--> statement-breakpoint
+ALTER TABLE "proposed_action" ADD CONSTRAINT "proposed_action_tool_check" CHECK (tool IN ('add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill', 'create_workflow', 'change_workflow', 'remind', 'draft_email'));

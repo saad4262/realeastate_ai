@@ -51,6 +51,7 @@ import { proposePlanTask } from './plan-task';
 import { findSavedLists } from './list-send';
 import { mayCreateImport } from '../imports/imports';
 import { findSkills, proposeChangeSkill, proposeSetUpSkill } from './skill-tools';
+import { findWorkflows, proposeChangeWorkflow, proposeCreateWorkflow } from './workflow-tools';
 import type { FrozenArgs } from './actions';
 import {
   ASSISTANT_ADMIN_TOOLS,
@@ -143,6 +144,9 @@ const LABELS: Record<AssistantToolName, string> = {
   find_skills: 'Looking up skills…',
   set_up_skill: 'Preparing the skill for you to approve…',
   change_skill: 'Preparing the change for you to approve…',
+  find_workflows: 'Looking up workflows…',
+  create_workflow: 'Preparing the workflow for you to approve…',
+  change_workflow: 'Preparing the change for you to approve…',
   set_lead_status: 'Preparing the lead change for you to approve…',
   assign_lead: 'Preparing the assignment for you to approve…',
   create_lead: 'Preparing the new lead for you to approve…',
@@ -249,6 +253,12 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return findListings(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.find_listings>, label);
     case 'find_saved_lists':
       return findSavedLists(ctx, label);
+    case 'find_workflows':
+      return findWorkflows(ctx, label);
+    case 'create_workflow':
+      return proposeCreateWorkflow(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.create_workflow>, label);
+    case 'change_workflow':
+      return proposeChangeWorkflow(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.change_workflow>, label);
     case 'find_skills':
       return findSkills(ctx, label);
     case 'set_up_skill':
