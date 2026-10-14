@@ -236,3 +236,16 @@ About 4 to 5 days:
 2. **Show query:** owners and admins only.
 3. **Caps:** 60 open queries per agency per hour, and 20 tool calls per analysis turn.
 4. **Saving answers:** an answer typed in chat is not saved, and a tile is saved only on approve.
+
+## As built — Phase 0 (2026-10-14): both checks pass
+
+- **Role and pooler:** the server connects as `postgres` (not superuser; `CREATEROLE` yes,
+  `BYPASSRLS` yes) through the transaction pooler (port 6543), on Postgres 17.11. Inside
+  one transaction, `SET TRANSACTION READ ONLY`, then `SET LOCAL ROLE authenticated`, then
+  `set_config('ai.ticket', …, true)` all work. A table without a grant gives `42501
+  permission denied`. L3 and L4 therefore need **no second connection string**. On
+  Postgres 16 and later, a role made with `CREATEROLE` is not settable by its creator by
+  default, so the migration adds `GRANT ai_reader TO postgres WITH SET TRUE`.
+- **Parser:** `libpg-query@18.1.5` (WASM, 1.8 MB) runs in Node. It returns one node per
+  statement (`SelectStmt`, `DeleteStmt` …), so "exactly one SelectStmt" is a plain check, and
+  it rejects text it cannot parse.
