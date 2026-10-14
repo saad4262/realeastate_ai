@@ -4,10 +4,9 @@
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
 - **Phase 4 Part A — skills by the assistant (ADR 0041, accepted 2026-10-14) — built on `feat/assistant-skills`
-  (on top of `feat/sheets-import`), committed, NOT pushed. Migration 0050 written, NOT applied.** `find_skills`,
+  (on top of `feat/sheets-import`), committed, NOT pushed. **Migration 0050 APPLIED 2026-10-14 with the user's permission (51 rows).** `find_skills`,
   `set_up_skill`, `change_skill` (cards over the ADR 0021 skills code), prompt `assistant@v18`. Smoke group
-  "Assistant skills (ADR 0041)" written, needs 0050. TEST-PLAN **AP**. **Next:** apply 0050 (ask), run the group,
-  then Part B — the workflow engine (ADR 0041).
+  "Assistant skills (ADR 0041)" 1/1 green (2026-10-14). TEST-PLAN **AP**. **Next:** Part B — the workflow engine (ADR 0041).
 - **Phase 3 — imports (ADR 0029 amendment, ADR 0039 Phase 3) — built 2026-10-13 on `feat/sheets-import`
   (on top of `feat/assistant-crm-2`), committed, NOT pushed. **Migrations 0048 + 0049 APPLIED 2026-10-14 with the user's permission (50 rows; dev = production DB).**
   Google Sheets by the Picker (`drive.file`; pasted-link route PENDING Google verification), Excel (.xlsx)
