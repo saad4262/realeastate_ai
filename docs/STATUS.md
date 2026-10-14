@@ -1,4 +1,11 @@
 # Status
+- **DEPLOYED 2026-10-14 (the user's permission):** `main` fast-forwarded to `5cb8107` — assistant Phase 2 (both parts),
+  Phase 3 imports (Sheets by Picker, Excel, contacts), Phase 4 (skills, workflows), and the "Console UI: the assistant as the
+  agency home…" commit (made by another session on `feat/workflows`, NOT covered by the full smoke run; its typecheck/lint and
+  the Vercel builds pass). All three Vercel production deployments Ready; migrations 0047–0051 applied. Full smoke before the
+  push: 245 pass, 7 fail — none from this work (4 HTTP checks hit the local DEV server, the known inbox test, two old
+  team routes without loading.tsx, a check reading the removed .github cron file). **Next (the user):** Google Cloud setup
+  (TEST-PLAN AO), walk AM–AQ in the browser.
 - Milestone: **M6 — email conversations live in the app (ADR 0016).** Every lead
   is a conversation an agency can read and answer in the console; buyers read
   theirs on the website; replies from Gmail land back in the same thread.
