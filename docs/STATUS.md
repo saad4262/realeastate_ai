@@ -4,14 +4,15 @@
   theirs on the website; replies from Gmail land back in the same thread.
   Built on M5 (sold properties, private offers, the lead inbox).
 - **Phase 3 — imports (ADR 0029 amendment, ADR 0039 Phase 3) — built 2026-10-13 on `feat/sheets-import`
-  (on top of `feat/assistant-crm-2`), committed, NOT pushed. Migration 0049 written, NOT applied.**
+  (on top of `feat/assistant-crm-2`), committed, NOT pushed. **Migrations 0048 + 0049 APPLIED 2026-10-14 with the user's permission (50 rows; dev = production DB).**
   Google Sheets by the Picker (`drive.file`; pasted-link route PENDING Google verification), Excel (.xlsx)
   uploads, contacts import (CSV / Excel / Sheet; same email skipped; consent never imported), assistant
   `start_import` (prompt `assistant@v17`). Found: uploads were capped at 1 MB by the Server Action default —
   now 4 MB everywhere (Vercel's 4.5 MB limit). Checks: typecheck/lint 20/20, unit 1014+ / 302, break-tests red.
-  Smoke group "Imports: contacts and Google Sheets" written, NOT run. TEST-PLAN **AO** (lists the Google Cloud
+  Smoke "Imports: contacts and Google Sheets" 3/3 and "Assistant part 2 (ADR 0040)" 5/5 green (2026-10-14). TEST-PLAN **AO** (lists the Google Cloud
   setup: Picker/Sheets/Drive APIs, `drive.file` on the consent screen, `GOOGLE_PICKER_API_KEY`,
-  `GOOGLE_CLOUD_PROJECT_NUMBER`). **Next (the user):** Google Cloud setup, apply 0048 + 0049, walk AN/AO.
+  `GOOGLE_CLOUD_PROJECT_NUMBER`). Onboarding photo "10 MB" checked: correct (signed upload straight to Storage).
+  **Next (the user):** Google Cloud setup + env on Vercel, walk AN/AO, then decide push/merge to main.
 - **Assistant Phase 2, part 2 (ADR 0040) — built 2026-10-13 on `feat/assistant-crm-2` (on top of
   `feat/assistant-tasks`), committed, NOT pushed. Migration 0048 written, NOT applied** (dev = production DB).
   Connect button everywhere (`needs_connection`), template email to a saved list (F refs; > 20 → one card,
