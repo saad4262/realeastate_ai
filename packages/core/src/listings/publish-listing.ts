@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { listing, type DbOrTx } from '@repo/db';
 import { can, type Actor } from '../permissions';
+import { atomically, emitWorkflowEvent } from '../workflows/events';
 import {
   ListingError,
   soldDetailsSchema,
@@ -13,6 +14,9 @@ export type PublishListingResult = {
   status: ListingStatus;
   publishedAt: Date | null;
 };
+
+/** The listing changes a workflow may react to (ADR 0041). */
+const WORKFLOW_LISTING_STATUSES = ['live', 'under_offer', 'sold', 'withdrawn'] as const;
 
 /** The statuses a person may move a listing to by hand. */
 export type SettableStatus = Extract<
@@ -150,7 +154,9 @@ export async function setListingStatus(
     );
   }
 
-  const [row] = await db
+  // The change and its workflow event (ADR 0041), together or not at all.
+  const row = await atomically(db, async (tx) => {
+  const [u] = await tx
     .update(listing)
     .set({
       status: next,
@@ -186,6 +192,11 @@ export async function setListingStatus(
       status: listing.status,
       publishedAt: listing.publishedAt,
     });
+  if (u && u.status !== target.status && (WORKFLOW_LISTING_STATUSES as readonly string[]).includes(u.status)) {
+    await emitWorkflowEvent(tx, { agencyId: target.agencyId, kind: 'listing.status_changed', listingId: u.id, actor, data: { to: u.status } });
+  }
+  return u;
+  });
 
   if (!row) {
     throw next === 'pending'

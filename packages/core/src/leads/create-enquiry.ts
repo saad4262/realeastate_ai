@@ -3,6 +3,7 @@ import { lead, listing, type DbOrTx } from '@repo/db';
 import { sql } from 'drizzle-orm';
 import { leadAgentIdSql } from '../listings/scope';
 import { enquiryInputSchema, type EnquiryInput } from './lead-schema';
+import { atomically, emitWorkflowEvent } from '../workflows/events';
 
 /** Live only — the same status the public search and listing page use. */
 const PUBLIC_STATUS = 'live' as const;
@@ -59,7 +60,9 @@ export async function createEnquiry(
 
   if (!target) throw new EnquiryError('That listing is no longer available');
 
-  const [row] = await db
+  // The lead and its workflow event (ADR 0041), together or not at all.
+  const row = await atomically(db, async (tx) => {
+  const [made] = await tx
     .insert(lead)
     .values({
       propertyId: target.propertyId,
@@ -76,7 +79,12 @@ export async function createEnquiry(
       // ADR 0039 C3: the listing's lead agent has it from the start; the agency may move it later.
       assignedTo: leadAgentIdSql(sql`${listingId}::uuid`),
     })
-    .returning({ id: lead.id });
+    .returning({ id: lead.id, contactId: lead.contactId });
+  if (made) {
+    await emitWorkflowEvent(tx, { agencyId: target.agencyId, kind: 'lead.created', leadId: made.id, contactId: made.contactId, listingId, actor: null, data: { source: 'website' } });
+  }
+  return made;
+  });
 
   if (!row) throw new EnquiryError('Could not record the enquiry');
   return { leadId: row.id };

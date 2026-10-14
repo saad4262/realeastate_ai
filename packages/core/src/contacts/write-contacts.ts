@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { emitWorkflowEvent } from '../workflows/events';
 import { z } from 'zod';
 import {
   activity,
@@ -202,6 +203,8 @@ export async function createContact(
           .onConflictDoNothing();
       }
       await recordActivity(tx, actor, agencyId, id, 'contact_created', { roles: v.roles, ...(opts.source === 'import' ? { via: 'import' } : {}) });
+      // ADR 0041: a new contact may trigger a workflow — in the same transaction.
+      await emitWorkflowEvent(tx, { agencyId, kind: 'contact.created', contactId: id, actor, data: { source: opts.source ?? 'manual' } });
       if (v.marketingConsent) {
         await recordActivity(tx, actor, agencyId, id, 'consent_recorded', {
           note: v.marketingConsentNote ?? null,

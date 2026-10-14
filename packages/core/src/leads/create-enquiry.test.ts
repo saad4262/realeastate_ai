@@ -23,7 +23,9 @@ function fakeDb(listingRows: unknown[]) {
     inserted.push(v);
     return chain;
   };
-  chain.returning = () => Promise.resolve([{ id: 'lead-1' }]);
+  chain.returning = () => Promise.resolve([{ id: 'lead-1', contactId: 'contact-1' }]);
+  // The lead and its workflow event share one transaction (ADR 0041); here, the same fake.
+  chain.transaction = (fn: (tx: unknown) => unknown) => fn(chain);
 
   return { db: chain as unknown as DbOrTx, inserted };
 }
@@ -48,6 +50,11 @@ describe('a public enquiry', () => {
     const { leadId } = await createEnquiry(db, 'listing-1', VALID);
 
     expect(leadId).toBe('lead-1');
+    // ADR 0041: one workflow event with it, from the website (no actor), ids only.
+    expect(inserted[1]).toEqual({
+      agencyId: 'agency-real', kind: 'lead.created', leadId: 'lead-1', contactId: 'contact-1', listingId: 'listing-1',
+      appointmentId: null, actorId: null, origin: 'website', data: { source: 'website' },
+    });
     expect(inserted[0]).toMatchObject({
       // Both keys, and the property one comes from the listing rather than the
       // caller — an enquiry and a private offer on the same address have to

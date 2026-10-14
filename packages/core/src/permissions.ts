@@ -16,6 +16,12 @@ export type Actor = {
   membershipRole?: MembershipRole;
   /** Listing IDs where actor appears in listing_agent */
   listingAgentOf?: string[];
+  /**
+   * Acting for a workflow (ADR 0041): set by the engine on the owner's actor when a workflow's step
+   * runs. Never a permission — can() ignores it — only so the change it makes does not trigger
+   * workflows in turn (no loops, v1).
+   */
+  via?: 'workflow';
 };
 
 export type Action =

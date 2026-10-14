@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gte, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
+import { emitWorkflowEvent } from '../workflows/events';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   appointment,
@@ -447,6 +448,8 @@ export async function scheduleAppointment(
       .returning({ id: appointment.id });
     const id = row!.id;
     await recordActivity(tx, actor, agencyId, head.row.id, 'appointment_scheduled', activityPayload({ id, ...v }));
+    // ADR 0041: an appointment with a contact may trigger a workflow — in the same transaction.
+    await emitWorkflowEvent(tx, { agencyId, kind: 'appointment.booked', appointmentId: id, contactId: head.row.id, actor, data: { type: v.type } });
     return { id };
   }));
 }

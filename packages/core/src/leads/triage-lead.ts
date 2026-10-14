@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { lead, leadStatusEnum, membership, type DbOrTx } from '@repo/db';
 import { can, type Actor, type MembershipRole, type Resource } from '../permissions';
 import type { LeadStatus } from './list-leads';
+import { atomically, emitWorkflowEvent } from '../workflows/events';
 
 /**
  * Triage: moving a lead along, and deciding whose job it is.
@@ -38,6 +39,8 @@ type Loaded = {
   id: string;
   agencyId: string;
   kind: string;
+  status: string;
+  contactId: string | null;
   assignedTo: string | null;
   listingId: string | null;
 };
@@ -53,6 +56,8 @@ async function loadLead(db: DbOrTx, actor: Actor, leadId: string): Promise<Loade
       id: lead.id,
       agencyId: lead.agencyId,
       kind: lead.kind,
+      status: lead.status,
+      contactId: lead.contactId,
       assignedTo: lead.assignedTo,
       listingId: lead.listingId,
     })
@@ -133,7 +138,9 @@ export async function updateLeadStatus(
     throw new LeadTriageError('forbidden', 'Only an admin or the person this lead is assigned to can update it');
   }
 
-  const [updated] = await db
+  // The change and its workflow event (ADR 0041) together. An offer never triggers a workflow.
+  const updated = await atomically(db, async (tx) => {
+  const [u] = await tx
     .update(lead)
     .set({ status: parsed.data, updatedAt: sql`now()` })
     .where(
@@ -144,6 +151,11 @@ export async function updateLeadStatus(
       ),
     )
     .returning({ id: lead.id, status: lead.status, assignedTo: lead.assignedTo });
+  if (u && row.status !== parsed.data && row.kind !== 'offer') {
+    await emitWorkflowEvent(tx, { agencyId: row.agencyId, kind: 'lead.status_changed', leadId: row.id, contactId: row.contactId, listingId: row.listingId, actor, data: { to: parsed.data } });
+  }
+  return u;
+  });
 
   if (!updated) {
     throw new LeadTriageError('conflict', 'This lead was reassigned a moment ago — refresh and try again');

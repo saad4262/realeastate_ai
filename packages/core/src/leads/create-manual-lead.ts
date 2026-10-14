@@ -3,6 +3,7 @@ import { contact, lead, listing, type DbOrTx } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { listingScopeFilters } from '../listings/scope';
 import { LeadTriageError } from './triage-lead';
+import { atomically, emitWorkflowEvent } from '../workflows/events';
 
 /**
  * A lead a member records by hand (ADR 0040): a contact's interest in one of
@@ -37,14 +38,18 @@ export async function createManualLead(
     .limit(1);
   if (!c) throw new LeadTriageError('not_found', 'That contact was not found');
   if (!c.email) throw new LeadTriageError('invalid', `${c.name} has no email address — add one to the contact first`);
-  const [row] = await db
+  const agencyId = actor.agencyId;
+  const email = c.email;
+  // The lead and its workflow event (ADR 0041), together or not at all.
+  const row = await atomically(db, async (tx) => {
+  const [made] = await tx
     .insert(lead)
     .values({
       propertyId: l.propertyId,
       listingId: l.id,
-      agencyId: actor.agencyId,
+      agencyId,
       name: c.name,
-      email: c.email,
+      email,
       phone: c.phone,
       message: input.message?.trim() || null,
       kind: input.kind,
@@ -52,6 +57,9 @@ export async function createManualLead(
       source: 'manual',
       assignedTo: actor.userId,
     })
-    .returning({ id: lead.id });
-  return { leadId: row!.id };
+    .returning({ id: lead.id, contactId: lead.contactId });
+  await emitWorkflowEvent(tx, { agencyId, kind: 'lead.created', leadId: made!.id, contactId: made!.contactId, listingId: l.id, actor, data: { source: 'manual' } });
+  return made!;
+  });
+  return { leadId: row.id };
 }

@@ -39,7 +39,11 @@ function fakeDb(opts: { reads?: unknown[][]; returns?: unknown[][] } = {}) {
   };
   chain.limit = () => Promise.resolve(reads.shift() ?? []);
   chain.returning = () => Promise.resolve(returns.shift() ?? []);
-  return { db: chain as unknown as DbOrTx, sets, wheres };
+  // The change and its workflow event share one transaction (ADR 0041); here, the same fake.
+  const events: Record<string, unknown>[] = [];
+  chain.transaction = (fn: (tx: unknown) => unknown) => fn(chain);
+  chain.insert = () => ({ values: (v: Record<string, unknown>) => void events.push(v) });
+  return { db: chain as unknown as DbOrTx, sets, wheres, events };
 }
 
 const enquiry = (assignedTo: string | null = null) => ({
