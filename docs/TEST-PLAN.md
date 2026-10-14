@@ -1250,3 +1250,19 @@ Before: migration **0050** applied; `pnpm dev` restarted (prompt `assistant@v18`
 | AP5 | A skill that needs Google Calendar, with it disconnected | No card: "Connect Google Calendar first" with the Connect button. |
 | AP6 | Make a card as AP2, change the skill on the Skills page, then Approve | "The skill was changed since this card was made…" — nothing changed. |
 | AP7 | "Set up the template email skill to run daily" | Refused: it is used from its own page (Prepare, then Approve & Send). |
+
+## AQ — Workflows (ADR 0041 Parts B–C)
+
+Before: migration **0051** applied; `pnpm dev` restarted (prompt `assistant@v19`); the minute cron running (or call `/api/cron/minute` with the secret).
+
+| # | Case | Expected |
+|---|---|---|
+| AQ1 | Agent, assistant: "Whenever a website enquiry comes in on one of my listings, add a note 'New enquiry from {{contact_first_name}}' and remind me the next day to call them" | One card **Make the workflow …**: Acts on your own leads and contacts; When an enquiry arrives from the website; Then 1 Add a note…, Then 2 Wait 1 day, Then 3 Remind you…. Approve → Workflows shows it On. |
+| AQ2 | Send an enquiry from the website on that agent's listing | Within a minute: the note on the contact (with their first name); next day the reminder on the bell. The workflow's runs show each step Done. |
+| AQ3 | Same, on a colleague's listing | Nothing runs for the first agent's workflow. |
+| AQ4 | Agent asks for an agency-wide workflow, or one that assigns | Refused: owners and admins only. |
+| AQ5 | Owner: "If a buyer has had no reply for 2 days, give the lead to Sara and remind me" (agency-wide) | The card says it acts on the whole agency. After a buyer's email sits unanswered 2 days: the lead moves to Sara, the bell rings. |
+| AQ6 | A workflow with "write them a follow-up email" | When it runs: the bell says a draft is waiting; Workflows → Waiting for you shows the card with the exact words and figures. Nothing is sent until Approve; Approve sends it once. |
+| AQ7 | A workflow that sends an approved template | A contact without marketing consent, or unsubscribed, is skipped (see the run / Bulk email report). |
+| AQ8 | Pause / Turn on / Archive on the page, and "pause my welcome workflow" in the assistant | Each changes it; a paused one runs nothing. Admin: **Pause all workflows** pauses every one. |
+| AQ9 | Remove the agent who owns a workflow (Agents & Team) | Their workflow shows Paused — "Its owner left the agency…". |

@@ -18,6 +18,7 @@ const NAV = [
   { href: '/insights', label: 'Insights', icon: 'analytics' },
   { href: '/dashboards', label: 'Dashboards', icon: 'monitoring' },
   { href: '/skills', label: 'Skills', icon: 'auto_awesome' },
+  { href: '/workflows', label: 'Workflows', icon: 'account_tree' },
   { href: '/bulk-email', label: 'Bulk email', icon: 'forward_to_inbox' },
   { href: '/ai', label: 'LocalAgent AI', icon: 'smart_toy', badge: '2030', badgeTone: 'blue' as const },
   { href: '/finance', label: 'Finance & Trust', icon: 'account_balance' },

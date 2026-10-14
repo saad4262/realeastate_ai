@@ -232,3 +232,50 @@ Each condition is checked in SQL against the record as it is **when the workflow
   reminders already do).
 - Prompt `assistant@v18`. Migration 0050: the tool CHECK adds `set_up_skill`, `change_skill`.
 - Smoke group "Assistant skills (ADR 0041)" (1 check, needs 0050). TEST-PLAN **AP**.
+
+## As built — Parts B and C, workflows (2026-10-14, branch `feat/workflows`; migration 0051 written, NOT applied)
+
+- **Data (0051):** `workflow`, `workflow_event` (outbox; dedupe index for scans), `workflow_run`
+  (unique per workflow and event), `proposed_action.origin`; RLS on; CHECKs; the tool CHECK adds
+  `create_workflow`, `change_workflow`, `draft_email`. **This branch writes events from core
+  functions, so 0051 must be applied before it runs against a database.**
+- **Catalog** `workflows/catalog.ts` (pure): triggers, conditions, actions, `specProblem`, merge
+  fields, the words.
+- **Events** `workflows/events.ts`: `emitWorkflowEvent` in the same transaction as
+  `createEnquiry`, `createManualLead`, `updateLeadStatus` (not offers), `scheduleAppointment`,
+  `setListingStatus` (live/under offer/sold/withdrawn), `createContact`.
+  - `atomically` wraps the single-statement ones.
+  - `Actor.via = 'workflow'` gives origin `workflow`, which triggers nothing.
+  - Contacts made by the enquiry trigger are covered by `lead.created`, not `contact.created` (v1).
+- **Engine** `workflows/engine.ts`:
+  - `runWorkflowTick` (minute cron, before `runScheduledActions`): the no-reply scan (only
+    messages that reached the wait in the last 2 days), claim, match, owner / scope / conditions,
+    daily cap, then one run as an ADR 0040 task activated as the owner.
+  - `wait` → the next step's `gapHours`.
+  - Steps run with `actor.via = 'workflow'`.
+  - Pauses: the owner left, the owner is no longer an admin for an agency workflow, or the spec is
+    invalid.
+- **Draft email** `workflows/drafts.ts` + `packages/ai/pipelines/workflow-draft.ts`
+  (`workflow-draft@v1`, metered, zod-checked JSON).
+  - The model is called after the commit.
+  - The draft is a `send_email` card (origin `workflow`, no conversation) for the owner, on the bell.
+  - It expires after 7 days (the existing expiry sweep).
+  - v1 facts: the contact's name, the agent and the agency. No listing address yet.
+- **Manage** `workflows/manage.ts`:
+  - `checkWorkflow`: catalog + scope + active members + approved templates.
+  - `saveWorkflow`, including replace as a new version, and the limits 10/50.
+  - `setWorkflowStatus`: resume is checked as the OWNER.
+  - `pauseAllWorkflows`, `pauseWorkflowsOf` (called from offboarding).
+  - `listWorkflows`, `workflowRuns`, `listWaitingDrafts`, `purgeWorkflowHistory` (5-minute cron).
+- **Permissions:** `workflow:read | create | create_agency | manage`.
+- **Assistant:**
+  - `find_workflows` (W references), `create_workflow` (card in words), `change_workflow`
+    (pause / resume / archive).
+  - Fields chosen so nothing reads as a recipient or a status: `member`, `members`, `template`,
+    `lead_status`.
+  - Prompt `assistant@v19`.
+- **Screen:** Workflows / My workflows:
+  - Waiting for you: each draft as its card.
+  - The list in words, with pause / turn on / archive and "Pause all" for admins.
+  - The run log per workflow.
+- Smoke group "Workflows (ADR 0041)" (6 checks, needs 0051). TEST-PLAN **AQ**.

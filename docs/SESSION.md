@@ -1,3 +1,11 @@
+## 2026-10-14 — Claude Code — Phase 4 Parts B–C: the workflow engine (branch feat/workflows)
+
+- Built in the ADR's order: B1 tables + catalog, B2 outbox events, B3 engine + manage + permissions, B4 the AI draft writer,
+  B5 assistant tools, B6 the page. Runs reuse ADR 0040 tasks (no second execution path).
+- Break-tests red: the scope guard (an agent's workflow on a colleague's lead), earlier catalog/permission guards.
+- IMPORTANT: 0051 must be applied before this branch touches a database (events are written by core functions).
+- Next exact step: apply 0051 with permission; `SMOKE_ENABLED=true SMOKE_ONLY="Workflows" pnpm smoke`.
+
 ## 2026-10-14 — Claude Code — ADR 0041 and Phase 4 Part A: skills by the assistant (branch feat/assistant-skills)
 
 - ADR 0041 written and accepted (user: D1 option C — approved templates may send themselves, AI-written email is

@@ -13,6 +13,7 @@ const NAV = [
   { href: '/my-calendar', label: 'Calendar', icon: 'event' },
   { href: '#', label: 'Offers', icon: 'handshake' },
   { href: '/my-skills', label: 'Skills', icon: 'auto_awesome' },
+  { href: '/my-workflows', label: 'Workflows', icon: 'account_tree' },
   { href: '/my-bulk-email', label: 'Bulk email', icon: 'forward_to_inbox' },
   { href: '/my-dashboards', label: 'Dashboards', icon: 'monitoring' },
   { href: '/my-reviews', label: 'Agency reviews', icon: 'reviews' },

@@ -135,6 +135,7 @@ import {
   editContactDetails,
   updateNote,
   visibleContactIdsSql,
+  createContact,
   type ContactView,
 } from '@repo/core/contacts';
 import {
@@ -227,6 +228,7 @@ import {
 } from '@repo/core/assistant';
 import { assistantDeps, runAssistantTurn, type AssistantEvent } from '@repo/ai/assistant';
 import { DASHBOARD_EVALS } from '@repo/ai/evals/dashboard-phrases';
+import { listWaitingDrafts, runWorkflowTick, saveWorkflow, setWorkflowStatus } from '@repo/core/workflows';
 import {
   cancelImport,
   createImport,
@@ -6840,6 +6842,150 @@ async function main() {
       assert((await approveProposedAction(t, a1, c4)).outcome === 'done', 'turn off');
       assert((await listMySkills(t, a1)).find((m) => m.skillId === lib.id)?.enabled === false, 'still on');
       return 'found as Q; read-only refused; set up daily 07:00 + email, on, after Approve only; instructions changed with front-matter kept; stale card refused; turned off';
+    }),
+  );
+
+  // ── ADR 0041 Parts B–C: workflows (needs migration 0051) ─────────────────────────────────────
+  group('Workflows (ADR 0041)');
+
+  /** A1's listing, with A1 named on it, and a workflow of A1's saved through core (as the approved card does). */
+  async function workflowFixture(t: Db, spec: unknown, scope: 'mine' | 'agency' = 'mine', who: 'a1' | 'owner' = 'a1') {
+    const f = await contactFixture(t);
+    const [lst] = await t.execute<{ id: string }>(sql`select listing_id as id from listing_agent where user_id = ${f.people.a1} limit 1`);
+    const actor = who === 'a1' ? { ...f.actor('a1'), listingAgentOf: [lst!.id] } : f.actor('owner');
+    const { id } = await saveWorkflow(t, actor, { name: `Smoke ${f.tag}`, scope, spec });
+    return { f, listingId: lst!.id, workflowId: id, actor };
+  }
+  const runsOf = async (t: Db, workflowId: string) =>
+    (await t.execute<{ status: string; error: string | null; task_id: string | null }>(sql`select status, error, task_id from workflow_run where workflow_id = ${workflowId}`));
+
+  await check('an event is written in the same transaction as its change: a rolled-back change leaves none; a workflow’s own step causes an event that triggers nothing', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const before = await count(t, sql`select count(*)::int as n from workflow_event where agency_id = ${f.agencyId}`);
+      await t.transaction(async (sp) => {
+        await createContact(sp as unknown as Db, f.actor('a1'), { name: 'Kept', email: `kept.${f.tag}@smoke.test` });
+      });
+      const ROLL = new Error('roll');
+      await t.transaction(async (sp) => {
+        await createContact(sp as unknown as Db, f.actor('a1'), { name: 'Rolled', email: `rolled.${f.tag}@smoke.test` });
+        throw ROLL;
+      }).catch((e: unknown) => { if (e !== ROLL) throw e; });
+      const ev = await t.execute<{ kind: string; origin: string }>(sql`select kind, origin from workflow_event where agency_id = ${f.agencyId} order by occurred_at`);
+      assert(ev.length === before + 1 && ev[ev.length - 1]!.kind === 'contact.created' && ev[ev.length - 1]!.origin === 'person', `events: ${JSON.stringify(ev)}`);
+      await createContact(t, { ...f.actor('a1'), via: 'workflow' }, { name: 'ByWorkflow', email: `wf.${f.tag}@smoke.test` });
+      const [last] = await t.execute<{ origin: string }>(sql`select origin from workflow_event where agency_id = ${f.agencyId} order by occurred_at desc limit 1`);
+      assert(last?.origin === 'workflow', `workflow origin: ${last?.origin}`);
+      return 'committed change → 1 event; rolled-back change → none; a workflow step’s change → origin "workflow"';
+    }),
+  );
+
+  await check('a workflow runs once per event, as its owner: the note is added with merge fields filled, the reminder rings; a second tick runs nothing more', async () =>
+    inRollback(async (t) => {
+      const w = await workflowFixture(t, {
+        trigger: { kind: 'lead.created', source: 'manual' },
+        conditions: [{ field: 'listing.suburb', op: 'eq', values: ['pakenham'] }],
+        actions: [{ type: 'add_note', text: 'New lead from {{contact_first_name}} on {{listing_address}}' }, { type: 'remind_owner', text: 'Call {{contact_name}}', mail_me: false }],
+      });
+      await createManualLead(t, w.actor, { contactId: w.f.contacts.p2, listingId: w.listingId, kind: 'enquiry', message: null });
+      const first = await runWorkflowTick(t, new Date());
+      await runScheduledActions(t, {}, new Date());
+      await runScheduledActions(t, {}, new Date());
+      const second = await runWorkflowTick(t, new Date());
+      const runs = await runsOf(t, w.workflowId);
+      assert(first.runs === 1 && second.runs === 0 && runs.length === 1 && runs[0]!.status === 'started', `runs: ${JSON.stringify({ first, second, runs })}`);
+      const [note] = await t.execute<{ body: string }>(sql`select body from note where contact_id = ${w.f.contacts.p2} order by created_at desc limit 1`);
+      assert(note?.body === 'New lead from P2 on 1 Smoke Street, Pakenham, VIC 3810', `note: ${note?.body}`);
+      assert((await count(t, sql`select count(*)::int as n from notification where user_id = ${w.f.people.a1} and title = 'Call P2'`)) === 1, 'no reminder');
+      const steps = await t.execute<{ status: string; origin: string }>(sql`select status, origin from proposed_action where task_id = ${runs[0]!.task_id} order by task_seq`);
+      assert(steps.every((s) => s.status === 'done' && s.origin === 'workflow'), `steps: ${JSON.stringify(steps)}`);
+      return 'one run, two steps done as A1 (origin workflow); note "New lead from P2 on 1 Smoke Street…"; bell rang; second tick ran nothing';
+    }),
+  );
+
+  await check('scope (D2): an agent’s workflow never acts on a colleague’s lead; conditions read the record as it is now; another agency never triggers it', async () =>
+    inRollback(async (t) => {
+      const w = await workflowFixture(t, { trigger: { kind: 'lead.status_changed', to: 'closed' }, conditions: [], actions: [{ type: 'remind_owner', text: 'closed', mail_me: false }] });
+      const theirs = await w.f.lead(`theirs.${w.f.tag}@smoke.test`, 'Theirs', { assigned: w.f.people.a2 });
+      await updateLeadStatus(t, w.f.actor('owner'), theirs.id, 'closed');
+      const g = await contactFixture(t);
+      const other = await g.lead(`other.${g.tag}@smoke.test`, 'Other', { assigned: g.people.a1 });
+      await updateLeadStatus(t, g.actor('owner'), other.id, 'closed');
+      const mine = await w.f.lead(`mine.${w.f.tag}@smoke.test`, 'Mine', { assigned: w.f.people.a1 });
+      await updateLeadStatus(t, w.actor, mine.id, 'closed');
+      const report = await runWorkflowTick(t, new Date());
+      const runs = await runsOf(t, w.workflowId);
+      assert(runs.length === 1, `runs: ${runs.length} (report ${JSON.stringify(report)})`);
+      const [r] = await t.execute<{ lead_id: string }>(sql`select lead_id from workflow_run where workflow_id = ${w.workflowId}`);
+      assert(r?.lead_id === mine.id, 'ran on the wrong lead');
+      return 'a colleague’s lead and another agency’s lead: no run; their own: one run';
+    }),
+  );
+
+  await check('an AI email is only a DRAFT (D1): the step writes a send_email card for the owner, on the bell; nothing is sent until they approve', async () =>
+    inRollback(async (t) => {
+      const w = await workflowFixture(t, { trigger: { kind: 'lead.created' }, conditions: [], actions: [{ type: 'draft_email', instructions: 'Thank them and ask when they could inspect' }] });
+      await createManualLead(t, w.actor, { contactId: w.f.contacts.p2, listingId: w.listingId, kind: 'enquiry', message: null });
+      await runWorkflowTick(t, new Date());
+      let asked = 0;
+      const draftWriter = async () => {
+        asked += 1;
+        return { subject: 'Thanks for your enquiry', body: 'Hi P2,\n\nThanks for asking. When could you inspect?' };
+      };
+      const env = { ...process.env, NODE_ENV: 'development', EMAIL_DEV_ALLOWLIST: '@smoke.test' };
+      const prev = process.env.EMAIL_DEV_ALLOWLIST;
+      process.env.EMAIL_DEV_ALLOWLIST = '@smoke.test';
+      try {
+        await runScheduledActions(t, { draftWriter }, new Date());
+      } finally {
+        if (prev === undefined) delete process.env.EMAIL_DEV_ALLOWLIST;
+        else process.env.EMAIL_DEV_ALLOWLIST = prev;
+      }
+      const [draft] = await t.execute<{ id: string; status: string; origin: string; tool: string }>(sql`
+        select id, status, origin, tool from proposed_action where user_id = ${w.f.people.a1} and task_id is null and origin = 'workflow'`);
+      assert(asked === 1 && draft?.tool === 'send_email' && draft.status === 'proposed', `draft: ${JSON.stringify(draft)} asked ${asked}`);
+      assert((await count(t, sql`select count(*)::int as n from mail_message m join mail_thread th on th.id = m.thread_id where th.agency_id = ${w.f.agencyId} and m.direction = 'out'`)) === 0, 'something was sent');
+      assert((await count(t, sql`select count(*)::int as n from notification where user_id = ${w.f.people.a1} and kind = 'workflow_draft'`)) === 1, 'no bell for the draft');
+      const waiting = await listWaitingDrafts(t, w.actor);
+      assert(waiting.length === 1 && waiting[0]!.id === draft.id, `waiting: ${JSON.stringify(waiting)}`);
+      void env;
+      return 'one model call → a send_email card (origin workflow) waiting for A1, on the bell; no email sent';
+    }),
+  );
+
+  await check('a removed owner’s workflow is paused (with the reason) and never runs as them; resuming checks it again', async () =>
+    inRollback(async (t) => {
+      const w = await workflowFixture(t, { trigger: { kind: 'contact.created' }, conditions: [], actions: [{ type: 'remind_owner', text: 'x', mail_me: false }] });
+      await t.execute(sql`update membership set status = 'removed' where user_id = ${w.f.people.a1} and agency_id = ${w.f.agencyId}`);
+      await createContact(t, w.f.actor('owner'), { name: 'Later', email: `later.${w.f.tag}@smoke.test` });
+      const r = await runWorkflowTick(t, new Date());
+      const [wf] = await t.execute<{ status: string; paused_reason: string | null }>(sql`select status, paused_reason from workflow where id = ${w.workflowId}`);
+      assert(r.paused === 1 && wf?.status === 'paused' && /no longer an active member/.test(wf.paused_reason ?? ''), `workflow: ${JSON.stringify(wf)} / ${JSON.stringify(r)}`);
+      assert((await runsOf(t, w.workflowId)).length === 0, 'it ran');
+      const resume = await setWorkflowStatus(t, w.f.actor('owner'), w.workflowId, 'active').then(() => 'resumed', (e: unknown) => (e as Error).message);
+      assert(/no longer an active member/.test(resume), `resume: ${resume}`);
+      return 'owner removed → paused with the reason, no run; an admin cannot resume it as them';
+    }),
+  );
+
+  await check('the assistant: create_workflow is one card in words; Approve saves it active; an agent cannot make an agency-wide one', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const a1 = f.actor('a1');
+      const conv = await claimTurn(t, a1, { message: 'workflow', surface: 'agent' });
+      const handles: HandleMap = {};
+      const input = { name: `Welcome ${f.tag}`, scope: 'mine', trigger: { kind: 'lead.created', source: 'website' }, actions: [{ type: 'remind_owner', text: 'Call {{contact_first_name}}' }, { type: 'wait', hours: 24 }, { type: 'draft_email', instructions: 'Follow up' }] };
+      const agencyWide = await runAssistantTool(proposeCtx(t, a1, handles, conv.conversationId), 'create_workflow', { ...input, scope: 'agency' });
+      assert(agencyWide.isError && /owner or admin/.test(JSON.stringify(agencyWide.result)), `agency-wide by an agent: ${JSON.stringify(agencyWide.result)}`);
+      const id = cardId(await runAssistantTool(proposeCtx(t, a1, handles, conv.conversationId), 'create_workflow', input));
+      const card = await getProposedAction(t, a1, id);
+      const words = card.card.lines.map((l) => `${l.label}: ${l.value}`).join(' | ');
+      assert(/When: When an enquiry arrives from the website/.test(words) && /Then 2: Wait 1 day/.test(words) && card.card.notes.some((n) => /DRAFT/.test(n)), `card: ${words}`);
+      assert((await count(t, sql`select count(*)::int as n from workflow where agency_id = ${f.agencyId}`)) === 0, 'saved before Approve');
+      assert((await approveProposedAction(t, a1, id)).outcome === 'done', 'approve');
+      const [wf] = await t.execute<{ status: string; scope: string }>(sql`select status, scope from workflow where agency_id = ${f.agencyId}`);
+      assert(wf?.status === 'active' && wf.scope === 'mine', `saved: ${JSON.stringify(wf)}`);
+      return 'agency-wide refused for an agent; the card reads When/Then and says AI email is a draft; saved active only on Approve';
     }),
   );
 

@@ -42,9 +42,9 @@ type Turn = {
   pending: boolean;
 };
 
-const PATHS: Record<Surface, { contact: string; leads: string; templates: string; bulk: string; integrations: string; inbox: string; messages: string; listings: string; listingImport: string; contactImport: string; skills: string }> = {
-  agency: { contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', bulk: '/bulk-email', integrations: '/settings/integrations', inbox: '/inbox', messages: '/messages', listings: '/live-listings', listingImport: '/live-listings/import', contactImport: '/customers/import', skills: '/skills' },
-  agent: { contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', bulk: '/my-bulk-email', integrations: '/my-integrations', inbox: '/my-inbox', messages: '/my-messages', listings: '/listings', listingImport: '/listings/import', contactImport: '/my-contacts/import', skills: '/my-skills' },
+const PATHS: Record<Surface, { contact: string; leads: string; templates: string; bulk: string; integrations: string; inbox: string; messages: string; listings: string; listingImport: string; contactImport: string; skills: string; workflows: string }> = {
+  agency: { contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', bulk: '/bulk-email', integrations: '/settings/integrations', inbox: '/inbox', messages: '/messages', listings: '/live-listings', listingImport: '/live-listings/import', contactImport: '/customers/import', skills: '/skills', workflows: '/workflows' },
+  agent: { contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', bulk: '/my-bulk-email', integrations: '/my-integrations', inbox: '/my-inbox', messages: '/my-messages', listings: '/listings', listingImport: '/listings/import', contactImport: '/my-contacts/import', skills: '/my-skills', workflows: '/my-workflows' },
 };
 
 const CONTACT_PAGE = /^\/(?:customers|my-contacts)\/([0-9a-f-]{36})(?:\/|$)/i;
@@ -475,7 +475,7 @@ const STATUS_WORDS: Record<string, string> = {
  * the database by id — the stream only told us which card. Approve / Reject
  * are the person's buttons; the model has no way to press them.
  */
-function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
+export function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
   const [view, setView] = useState<ProposalView | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -538,6 +538,8 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
               ? `${PATHS[surface].messages}?thread=${view.result.teamThreadId}`
             : view.tool === 'plan_task' && card.people?.length
               ? PATHS[surface].bulk
+            : /_workflow$/.test(view.tool)
+              ? PATHS[surface].workflows
             : /_skill$/.test(view.tool) && view.result?.agentSkillId
               ? `${PATHS[surface].skills}/${view.result.agentSkillId}`
             : /_listing/.test(view.tool) && view.result?.listingId
@@ -556,6 +558,8 @@ function ProposalCardView({ id, surface }: { id: string; surface: Surface }) {
           ? 'Open the conversation'
         : view.tool === 'plan_task' && card.people?.length
           ? 'Open Bulk email'
+        : /_workflow$/.test(view.tool)
+          ? 'Open Workflows'
         : /_skill$/.test(view.tool)
           ? 'Open the skill'
         : /_listing/.test(view.tool)
