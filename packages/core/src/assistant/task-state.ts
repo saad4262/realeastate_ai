@@ -1,6 +1,7 @@
 import { and, asc, eq, gt, inArray, sql } from 'drizzle-orm';
 import { agentInvite, appointment, assistantTask, contact, emailBatch, lead, note, notification, proposedAction, type DbOrTx } from '@repo/db';
 import { verifyListingAction } from './listing-tools';
+import { verifySkillAction } from './skill-tools';
 import { AssistantError } from './conversations';
 
 /**
@@ -144,6 +145,9 @@ export async function verifyExecuted(
     case 'withdraw_listing':
     case 'submit_listing':
       return (await verifyListingAction(tx, args, result)) ? undefined : fail();
+    case 'set_up_skill':
+    case 'change_skill':
+      return (await verifySkillAction(tx, args, result)) ? undefined : fail();
     case 'invite_agent':
       return one(tx.select({ id: agentInvite.id }).from(agentInvite).where(and(eq(agentInvite.id, String(result.inviteId)), eq(agentInvite.status, 'pending'))).limit(1));
     case 'send_template_email':

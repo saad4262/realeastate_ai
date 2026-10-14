@@ -45,6 +45,8 @@ import { createContact } from '../contacts/write-contacts';
 import { buildReminderEmail } from '../email/team-notices';
 import type { ToolContext, ToolOutcome } from './tools';
 import { runListingAction, type FrozenPin } from './listing-tools';
+import { runSkillAction } from './skill-tools';
+import type { SkillScheduleInput } from '../skills/skill-schema';
 import { ListingError } from '../listings/listing-schema';
 import { inviteAgent } from '../team/invite-agent';
 import { isInviteAgentError, type InviteAgentDraft } from '../team/invite-schema';
@@ -148,7 +150,19 @@ export type FrozenArgs =
   | { tool: 'withdraw_listing'; listingId: string; before: string }
   | { tool: 'submit_listing'; listingId: string; before: string }
   /** ADR 0040 part 2 §3: the wizard's draft, parsed when the card was made and again when it runs. */
-  | { tool: 'invite_agent'; draft: InviteAgentDraft };
+  | { tool: 'invite_agent'; draft: InviteAgentDraft }
+  /** ADR 0041 Part A: a library skill added to the person's own, scheduled, and switched on. */
+  | { tool: 'set_up_skill'; skillId: string; schedule: SkillScheduleInput | null; emailMe: boolean; timezone: string }
+  /** ADR 0041 Part A: only what the card showed; `before` = the copy as the card showed it (refused if it changed since). */
+  | {
+      tool: 'change_skill';
+      agentSkillId: string;
+      enabled?: boolean;
+      schedule?: SkillScheduleInput;
+      emailMe?: boolean;
+      bodyMd?: string;
+      before: { enabled: boolean; emailMe: boolean; when: string; bodyMd: string };
+    };
 
 /** The contacts whose timelines carry this action's audit lines. */
 function auditContacts(row: { contactId: string | null; args: unknown }): string[] {
@@ -357,6 +371,9 @@ async function execute(
     case 'withdraw_listing':
     case 'submit_listing':
       return runListingAction(tx, actor, args);
+    case 'set_up_skill':
+    case 'change_skill':
+      return runSkillAction(tx, actor, args, now);
     case 'invite_agent': {
       // team:manage again, and the wizard's refusals again (already a member, an invite still open).
       // Database only: the link is emailed after the commit (`inviteClaim`).
@@ -1099,7 +1116,7 @@ export type ProposalView = {
   card: ProposalCard;
   error: string | null;
   /** Ids of what it made or changed — for links. Never model text. */
-  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; recorded?: number; withdrawn?: number; changed?: string[]; claimPath?: string; emailed?: boolean; removed?: boolean; sent?: number; skipped?: number; failed?: number; sendError?: string; invited?: boolean; invitationError?: string; threadId?: string; teamThreadId?: string; told?: boolean; zoomError?: string; emailStatus?: 'sent' | 'failed' | 'sending'; emailError?: string; listingId?: string; inviteId?: string; status?: string; part?: number; nobodyLeft?: boolean; waiting?: string; needsConnection?: { provider: IntegrationProvider; label: string; mayConnect: boolean }[] } | null;
+  result: { noteId?: string; appointmentId?: string; batchId?: string; dashboardId?: string; assigned?: number; recorded?: number; withdrawn?: number; changed?: string[]; claimPath?: string; emailed?: boolean; removed?: boolean; sent?: number; skipped?: number; failed?: number; sendError?: string; invited?: boolean; invitationError?: string; threadId?: string; teamThreadId?: string; told?: boolean; zoomError?: string; emailStatus?: 'sent' | 'failed' | 'sending'; emailError?: string; agentSkillId?: string; listingId?: string; inviteId?: string; status?: string; part?: number; nobodyLeft?: boolean; waiting?: string; needsConnection?: { provider: IntegrationProvider; label: string; mayConnect: boolean }[] } | null;
   expiresAt: Date;
   /** When a scheduled action will run (about; up to ~5 minutes later). */
   runAt: Date | null;

@@ -1236,3 +1236,17 @@ restriction Google Picker API → `GOOGLE_PICKER_API_KEY`; the project **number*
 | AO9 | As an owner, a file whose "Agent" column names an agent | Those contacts are assigned to that agent; an unknown email → "Agent not found … unassigned". As an agent: "Only an owner or admin assigns contacts from a file — this one is yours". |
 | AO10 | As a read-only member | No Import button on Contacts; the import page says you cannot import. |
 | AO11 | Assistant: "I want to import my contacts from a spreadsheet" | The import controls appear in the chat (upload, or pick a Google Sheet, with Connect if needed). The assistant never asks for the file's contents. |
+
+## AP — Skills from plain language (ADR 0041 Part A)
+
+Before: migration **0050** applied; `pnpm dev` restarted (prompt `assistant@v18`).
+
+| # | Case | Expected |
+|---|---|---|
+| AP1 | Assistant: "Send me a brief every morning at 7, by email too" | It finds the skills, then a card **Turn on "Morning Brief"**: When "Every day at 7:00 am (your zone)", Also by email Yes. Approve → Skills shows it on, next run tomorrow 7:00. |
+| AP2 | "Move my brief to 8 on weekdays" / "every Monday at 9" | A card When: before → after. Approve → the Skills page shows the new time. |
+| AP3 | "Make my brief start with leads waiting for a reply" | A card with the new instructions word for word, marked written with the assistant. Approve → the skill's text changed; its requirements (front-matter) unchanged. |
+| AP4 | "Stop the morning brief" | A card Turn off. Approve → off. |
+| AP5 | A skill that needs Google Calendar, with it disconnected | No card: "Connect Google Calendar first" with the Connect button. |
+| AP6 | Make a card as AP2, change the skill on the Skills page, then Approve | "The skill was changed since this card was made…" — nothing changed. |
+| AP7 | "Set up the template email skill to run daily" | Refused: it is used from its own page (Prepare, then Approve & Send). |

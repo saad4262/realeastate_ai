@@ -122,6 +122,63 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
     input_schema: { type: 'object', additionalProperties: false, properties: {} },
   },
   {
+    name: 'find_skills',
+    description: 'The skills this person can use (the morning brief, important emails…) with a Q reference each, and whether they have it on, when it runs and whether it emails them. Use it before setting up or changing a skill.',
+    input_schema: { type: 'object', additionalProperties: false, properties: {} },
+  },
+  {
+    name: 'set_up_skill',
+    description: `Propose switching on one of the skills for this person (a Q reference from find_skills) — "send me a brief every morning at 7". Give a schedule only from what they said; mail_me only if they asked for it by email. A skill that needs an account not connected says "Connect … first" and proposes nothing. It runs as them and only they receive it. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        skill: { type: 'string', description: 'A Q reference from find_skills.' },
+        schedule: {
+          type: 'object',
+          additionalProperties: false,
+          description: 'When it runs, on the person’s own clock.',
+          properties: {
+            cadence: { type: 'string', enum: ['daily', 'weekly', 'interval'] },
+            time: { type: 'string', description: `${TIME} For daily and weekly.` },
+            weekday: { type: 'string', enum: ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'], description: 'For weekly.' },
+            every_minutes: { type: 'integer', description: 'For interval: 10 to 1440.' },
+          },
+          required: ['cadence'],
+        },
+        mail_me: { type: 'boolean', description: 'Also email it to their own address.' },
+      },
+      required: ['skill'],
+    },
+  },
+  {
+    name: 'change_skill',
+    description: `Propose changing one of this person's own skills (a Q reference): turn it on or off, its schedule, mail_me, or its instructions — the whole new text of what it should emphasise, in their words. What a skill reads and does never changes. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        skill: { type: 'string', description: 'A Q reference from find_skills.' },
+        on: { type: 'boolean' },
+        schedule: {
+          type: 'object',
+          additionalProperties: false,
+          description: 'When it runs, on the person’s own clock.',
+          properties: {
+            cadence: { type: 'string', enum: ['daily', 'weekly', 'interval'] },
+            time: { type: 'string', description: `${TIME} For daily and weekly.` },
+            weekday: { type: 'string', enum: ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'], description: 'For weekly.' },
+            every_minutes: { type: 'integer', description: 'For interval: 10 to 1440.' },
+          },
+          required: ['cadence'],
+        },
+        mail_me: { type: 'boolean' },
+        instructions: { type: 'string', description: 'The whole new instructions, plain words, up to 6000 characters. Only when the person asked to change what it focuses on.' },
+      },
+      required: ['skill'],
+    },
+  },
+  {
     name: 'start_import',
     description: 'When the person wants to import listings or contacts from a spreadsheet — a CSV or Excel file, or a Google Sheet — put the import buttons on screen. You never see the file: they upload it or pick the sheet, match the columns, see every row checked, and import it on the import screens. Nothing is imported by this tool.',
     input_schema: {

@@ -1,3 +1,12 @@
+## 2026-10-14 — Claude Code — ADR 0041 and Phase 4 Part A: skills by the assistant (branch feat/assistant-skills)
+
+- ADR 0041 written and accepted (user: D1 option C — approved templates may send themselves, AI-written email is
+  always a draft; D2 option A — agents their own, admins agency-wide; skills first). Open defaults stand.
+- Part A built: three tools over the existing skills code; front-matter kept on an instructions change.
+- The red-team guard caught `email_me`; renamed `mail_me` (the reminder precedent) instead of loosening it.
+- Next exact step: apply 0050 with the user's permission, `SMOKE_ENABLED=true SMOKE_ONLY="Assistant skills" pnpm smoke`,
+  then Part B (workflow engine).
+
 ## 2026-10-13 — Claude Code — Phase 3: Google Sheets by the Picker, Excel, contacts import, assistant import (branch feat/sheets-import)
 
 - The user chose the Picker (`drive.file`) now; the pasted-link route (ADR 0039 B) is pending Google's verification.

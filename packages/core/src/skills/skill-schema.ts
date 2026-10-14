@@ -101,6 +101,16 @@ export function parseScheduleLine(v: string): SkillSchedule | null {
  * reader — three keys, no YAML library — so what it accepts is exactly what
  * this file says.
  */
+/**
+ * The same skill with new instructions: its front-matter (requires, model, schedule) kept exactly,
+ * the text under it replaced (ADR 0041 Part A — the assistant changes tone and emphasis, never what
+ * the skill needs or reads).
+ */
+export function withInstructions(md: string, instructions: string): string {
+  const m = /^(\s*---\r?\n[\s\S]*?\r?\n---\r?\n?)/.exec(md);
+  return `${m ? m[1]!.replace(/\r?\n?$/, '\n') : ''}${instructions.trim()}\n`;
+}
+
 export function parseSkillMarkdown(md: string): ParsedSkillMarkdown {
   const out: ParsedSkillMarkdown = { requires: [], model: null, schedule: null, instructions: md.trim(), errors: [] };
   const m = /^\s*---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(md);

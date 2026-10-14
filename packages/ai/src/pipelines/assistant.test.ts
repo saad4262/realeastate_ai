@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
 import { ASSISTANT_TOOLS, assistantToolsFor } from '../tools/assistant-tools';
-import { ASSISTANT_SYSTEM } from '../prompts/assistant-v17';
+import { ASSISTANT_SYSTEM } from '../prompts/assistant-v18';
 import { contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
 /**
@@ -438,6 +438,19 @@ describe('proposals (Phases B and C)', () => {
       expect(ASSISTANT_TOOL_INPUTS.submit_listing.safeParse({ listing }).success, listing).toBe(false);
     }
     expect(ASSISTANT_SYSTEM).toMatch(/cannot approve/);
+  });
+
+  it('skills (ADR 0041 Part A): the tools set when a skill runs and whether it is on — never what it reads, its handler or what it needs', () => {
+    for (const name of ['set_up_skill', 'change_skill']) {
+      const keys = Object.keys((ASSISTANT_TOOLS.find((t) => t.name === name)!.input_schema as { properties: Record<string, unknown> }).properties);
+      expect(keys.filter((k) => /handler|requires|model|body|scope|agency|user|owner|front/.test(k)), name).toEqual([]);
+    }
+    for (const skill of ['C1', 'M1', 'morning_brief', '55555555-5555-4555-8555-555555555555']) {
+      expect(ASSISTANT_TOOL_INPUTS.set_up_skill.safeParse({ skill }).success, skill).toBe(false);
+    }
+    expect(ASSISTANT_TOOL_INPUTS.set_up_skill.safeParse({ skill: 'Q1', handler: 'template_email' }).success).toBe(false);
+    expect(ASSISTANT_TOOL_INPUTS.change_skill.safeParse({ skill: 'Q1', requires: ['gmail'] }).success).toBe(false);
+    expect(ASSISTANT_TOOL_INPUTS.change_skill.safeParse({ skill: 'Q1' }).success).toBe(false);
   });
 
   it('importing (ADR 0039 Phase 3): the tool only opens the import screens — it takes no file, link, row or text, and reads nothing', () => {

@@ -218,3 +218,17 @@ Each condition is checked in SQL against the record as it is **when the workflow
 2. AI drafts expire after 7 days unapproved.
 3. Run history kept 90 days; events 30 days.
 4. v1 has no time-based trigger (use a skill or a reminder) and no workflow-to-workflow chains.
+
+## As built — Part A, skills (2026-10-14, branch `feat/assistant-skills`; migration 0050 written, NOT applied)
+
+- `assistant/skill-tools.ts`: `find_skills` (read; library + own copies, `Q` references),
+  `set_up_skill` and `change_skill` (cards) over `addSkillToMine`, `updateMySkill`,
+  `setSkillEnabled` — `agent_skill:manage` and the requirements asked again at run.
+  `change_skill` freezes `before` and refuses if the copy changed since.
+  Missing accounts use the ADR 0040 part 2 Connect shape. Read-backs per tool. Not plan steps.
+- `withInstructions` (skill-schema): new text under the copy's front-matter, which is kept exactly —
+  instructions cannot add a requirement or change the model tier.
+- Field `mail_me`, not `email_me` (the red-team guard: no write field that reads as a recipient; as
+  reminders already do).
+- Prompt `assistant@v18`. Migration 0050: the tool CHECK adds `set_up_skill`, `change_skill`.
+- Smoke group "Assistant skills (ADR 0041)" (1 check, needs 0050). TEST-PLAN **AP**.

@@ -351,6 +351,13 @@
       "when": 1791893555001,
       "tag": "0049_import_source_and_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1791956410169,
+      "tag": "0050_assistant_skill_tools",
+      "breakpoints": true
     }
   ]
 }

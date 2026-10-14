@@ -35,6 +35,8 @@ export const HANDLE_KINDS = {
   K: 'task',
   /** One of the person's OWN saved contact lists — issued by find_saved_lists (ADR 0040 part 2). */
   F: 'filter',
+  /** A skill of the library this person may use — issued by find_skills (ADR 0041). Their own copy is found by it. */
+  Q: 'skill',
 } as const;
 export type HandlePrefix = keyof typeof HANDLE_KINDS;
 export type HandleKind = (typeof HANDLE_KINDS)[HandlePrefix];
@@ -42,7 +44,7 @@ export type HandleKind = (typeof HANDLE_KINDS)[HandlePrefix];
 export const handleSchema = z
   .string()
   .trim()
-  .regex(/^[CLATSMIPKF][1-9][0-9]{0,2}$/, 'Not a reference the assistant was given');
+  .regex(/^[CLATSMIPKFQ][1-9][0-9]{0,2}$/, 'Not a reference the assistant was given');
 
 /** A handle that must name an appointment. */
 export const appointmentHandleSchema = handleSchema.refine((h) => h.startsWith('A'), { message: 'Not an appointment reference' });
@@ -236,6 +238,35 @@ export const findSavedListsInput = z.object({}).strict();
  * goes on through the import screens (match, check, import), and the model never sees a row.
  */
 export const startImportInput = z.object({ what: z.enum(['listings', 'contacts']) }).strict();
+
+// ── ADR 0041 Part A: skills from plain language ──────────────────────────────
+
+export const skillHandleSchema = handleSchema.refine((h) => h.startsWith('Q'), { message: 'Not a skill reference' });
+/** When a skill runs, on the person's clock (their browser's zone, from console_context). */
+export const skillScheduleInput = z
+  .object({
+    cadence: z.enum(['daily', 'weekly', 'interval']),
+    /** HH:mm, 24-hour. For `interval`, ignored. */
+    time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'A time as HH:mm, 24-hour').default('07:00'),
+    weekday: z.enum(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']).optional(),
+    every_minutes: z.number().int().min(10).max(1440).optional(),
+  })
+  .strict()
+  .refine((v) => v.cadence !== 'weekly' || v.weekday, { message: 'A weekly skill needs a weekday', path: ['weekday'] })
+  .refine((v) => v.cadence !== 'interval' || v.every_minutes, { message: 'An interval skill needs every_minutes', path: ['every_minutes'] });
+export const findSkillsInput = z.object({}).strict();
+export const setUpSkillInput = z.object({ skill: skillHandleSchema, schedule: skillScheduleInput.optional(), mail_me: z.boolean().optional() }).strict();
+/** One of the person's own skills: only what is named changes. `instructions` is the whole new text under the front-matter. */
+export const changeSkillInput = z
+  .object({
+    skill: skillHandleSchema,
+    on: z.boolean().optional(),
+    schedule: skillScheduleInput.optional(),
+    mail_me: z.boolean().optional(),
+    instructions: z.string().trim().min(1).max(6000).optional(),
+  })
+  .strict()
+  .refine((v) => v.on !== undefined || v.schedule || v.mail_me !== undefined || v.instructions, { message: 'Say what to change: on/off, the schedule, mail_me, or the instructions' });
 
 /**
  * Dashboards (ADR 0027 / 0025 Phase F). A widget is an id from the fixed
@@ -643,8 +674,8 @@ export const scheduleTeamMeetingInput = z
   })
   .strict();
 
-export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_saved_lists', 'start_import'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent'] as const;
+export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_saved_lists', 'start_import', 'find_skills'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 /**
  * What a `proposed_action` row's `tool` may be — the database CHECK (migration 0047) holds exactly
@@ -687,6 +718,7 @@ export const ASSISTANT_TOOL_INPUTS = {
   find_listings: findListingsInput,
   find_saved_lists: findSavedListsInput,
   start_import: startImportInput,
+  find_skills: findSkillsInput,
   set_lead_status: setLeadStatusInput,
   assign_lead: assignLeadInput,
   create_lead: createLeadInput,
@@ -699,6 +731,8 @@ export const ASSISTANT_TOOL_INPUTS = {
   withdraw_listing: withdrawListingInput,
   submit_listing: submitListingInput,
   invite_agent: inviteAgentInput,
+  set_up_skill: setUpSkillInput,
+  change_skill: changeSkillInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];

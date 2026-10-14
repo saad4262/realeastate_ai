@@ -6790,6 +6790,59 @@ async function main() {
     }),
   );
 
+  // ── ADR 0041 Part A: skills from plain language (needs migration 0050) ────────────────────────
+  group('Assistant skills (ADR 0041)');
+
+  await check('skills by the assistant: set up (schedule, mail_me, on) by card; changed and turned off by card; the front-matter kept; a card refused if the skill changed since; read-only refused', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const a1 = f.actor('a1');
+      // An agency skill of our own, needing no account, so the check never depends on the library or a connection.
+      const lib = await createAgencySkill(t, owner, {
+        name: `Smoke brief ${f.tag}`,
+        description: 'A smoke-test brief of the day.',
+        handler: 'morning_brief',
+        bodyMd: '---\nmodel: summary\n---\nLead with today’s appointments.',
+      });
+      const conv = await claimTurn(t, a1, { message: 'brief', surface: 'agent' });
+      const handles: HandleMap = {};
+      const found = await runAssistantTool(toolCtx(t, a1, handles), 'find_skills', {});
+      const ref = (found.result as { skills: { ref: string; name: string }[] }).skills.find((s) => s.name === `Smoke brief ${f.tag}`)?.ref;
+      assert(ref?.startsWith('Q'), `find_skills: ${JSON.stringify(found.result).slice(0, 200)}`);
+      const ctx = () => proposeCtx(t, a1, handles, conv.conversationId);
+
+      const viewer = await runAssistantTool(proposeCtx(t, f.actor('viewer'), handles, conv.conversationId), 'set_up_skill', { skill: ref });
+      assert(viewer.isError, `read-only: ${JSON.stringify(viewer.result)}`);
+
+      const c1 = cardId(await runAssistantTool(ctx(), 'set_up_skill', { skill: ref, schedule: { cadence: 'daily', time: '07:00' }, mail_me: true }));
+      const card1 = await getProposedAction(t, a1, c1);
+      assert(card1.card.lines.some((l) => l.label === 'When' && /Every day at 7:00 am/.test(l.value)), `card: ${JSON.stringify(card1.card.lines)}`);
+      assert((await listMySkills(t, a1)).every((m) => m.skillId !== lib.id), 'a copy existed before Approve');
+      const r1 = await approveProposedAction(t, a1, c1);
+      assert(r1.outcome === 'done', `approve: ${JSON.stringify(r1)}`);
+      const mine = (await listMySkills(t, a1)).find((m) => m.skillId === lib.id);
+      assert(mine?.enabled && mine.emailMe && mine.cadence === 'daily' && mine.sendAtMinute === 420 && mine.nextRunAt, `copy: ${JSON.stringify(mine)}`);
+
+      // New words: the front-matter stays.
+      const c2 = cardId(await runAssistantTool(ctx(), 'change_skill', { skill: ref, instructions: 'Start with leads waiting for a reply.' }));
+      assert((await approveProposedAction(t, a1, c2)).outcome === 'done', 'instructions change');
+      const after = (await listMySkills(t, a1)).find((m) => m.skillId === lib.id)!;
+      assert(after.bodyMd.startsWith('---\nmodel: summary\n---\n') && after.bodyMd.includes('Start with leads waiting'), `body: ${after.bodyMd}`);
+
+      // A card made, then the skill changed on the screen: the card refuses.
+      const c3 = cardId(await runAssistantTool(ctx(), 'change_skill', { skill: ref, on: false }));
+      await setSkillEnabled(t, a1, after.id, false);
+      const stale = await approveProposedAction(t, a1, c3);
+      assert(stale.outcome === 'failed' && /changed since/.test((stale as { error: string }).error), `stale: ${JSON.stringify(stale)}`);
+      await setSkillEnabled(t, a1, after.id, true);
+      const c4 = cardId(await runAssistantTool(ctx(), 'change_skill', { skill: ref, on: false }));
+      assert((await approveProposedAction(t, a1, c4)).outcome === 'done', 'turn off');
+      assert((await listMySkills(t, a1)).find((m) => m.skillId === lib.id)?.enabled === false, 'still on');
+      return 'found as Q; read-only refused; set up daily 07:00 + email, on, after Approve only; instructions changed with front-matter kept; stale card refused; turned off';
+    }),
+  );
+
   group('New email and team messages');
 
   /**
