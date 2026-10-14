@@ -50,6 +50,10 @@ const OWN_AGENCY = [
   'dashboard_gap_log',
   // ADR 0040: an assistant task — its steps are proposed_action rows, which carry agency_id too.
   'assistant_task',
+  // ADR 0041: a workflow, the events it reacts to (an outbox of ids), and its runs — each carries agency_id.
+  'workflow',
+  'workflow_event',
+  'workflow_run',
 ] as const;
 
 /** Reaches an agency through a parent row: table → [foreign-key column, parent table]. */

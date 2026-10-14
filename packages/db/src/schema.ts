@@ -1989,6 +1989,97 @@ export const assistantTask = pgTable(
 );
 
 /**
+ * A workflow (ADR 0041 Part B): WHEN one trigger, IF its conditions, THEN its actions — a spec from
+ * the fixed catalog (packages/core/src/workflows/catalog.ts), never code. It runs as its owner, as
+ * they are at run time. `mine`: only the owner's own leads and contacts; `agency`: the whole agency
+ * (owners/admins only). "Delete" archives.
+ */
+export const workflow = pgTable(
+  'workflow',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    scope: varchar('scope', { length: 8 }).notNull().default('mine'),
+    name: varchar('name', { length: 80 }).notNull(),
+    /** The validated spec: { trigger, conditions, actions }, record ids resolved. */
+    spec: jsonb('spec').notNull(),
+    /** active | paused | archived. */
+    status: varchar('status', { length: 12 }).notNull().default('active'),
+    /** Why it is paused, when the system paused it (its owner left, a limit). */
+    pausedReason: text('paused_reason'),
+    version: integer('version').notNull().default(1),
+    ...timestamps,
+  },
+  (t) => [index('workflow_agency_idx').on(t.agencyId, t.status), index('workflow_owner_idx').on(t.ownerId, t.status)],
+);
+
+/**
+ * Something that happened, written in the SAME transaction as the change (a transactional outbox,
+ * ADR 0041): a rolled-back change emits nothing. Ids only — no text. The minute tick matches each to
+ * workflows once. `origin = workflow`: caused by a workflow's own action — never triggers one (v1).
+ */
+export const workflowEvent = pgTable(
+  'workflow_event',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    kind: varchar('kind', { length: 32 }).notNull(),
+    leadId: uuid('lead_id'),
+    contactId: uuid('contact_id'),
+    listingId: uuid('listing_id'),
+    appointmentId: uuid('appointment_id'),
+    actorId: uuid('actor_id'),
+    /** person | website | workflow | system. */
+    origin: varchar('origin', { length: 12 }).notNull().default('person'),
+    /** The trigger's own facts: `{ to: 'closed' }`, `{ source: 'website' }`, `{ days: 3 }`. Never free text. */
+    data: jsonb('data').notNull().default({}),
+    /** For events found by a scan (lead.no_reply): one per thing it is about. */
+    dedupeKey: text('dedupe_key'),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+  },
+  (t) => [
+    index('workflow_event_pending_idx').on(t.occurredAt).where(sql`processed_at is null`),
+    uniqueIndex('workflow_event_dedupe_idx').on(t.agencyId, t.dedupeKey).where(sql`dedupe_key is not null`),
+  ],
+);
+
+/** One workflow run for one event — never two (the unique index). Its actions are an ADR 0040 task. */
+export const workflowRun = pgTable(
+  'workflow_run',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workflowId: uuid('workflow_id')
+      .notNull()
+      .references(() => workflow.id, { onDelete: 'cascade' }),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    eventId: uuid('event_id').references(() => workflowEvent.id, { onDelete: 'set null' }),
+    /** started | skipped | failed (the run itself; its steps' outcomes are on its task). */
+    status: varchar('status', { length: 12 }).notNull().default('started'),
+    taskId: uuid('task_id').references(() => assistantTask.id, { onDelete: 'set null' }),
+    /** The record it acted on, for the run log: a contact's or lead's id. */
+    contactId: uuid('contact_id'),
+    leadId: uuid('lead_id'),
+    error: text('error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('workflow_run_once_idx').on(t.workflowId, t.eventId),
+    index('workflow_run_recent_idx').on(t.workflowId, desc(t.createdAt)),
+  ],
+);
+
+/**
  * An action the assistant PROPOSED and only a person may run (ADR 0025 §1, §7).
  *
  * `args` are frozen and RESOLVED — row ids, instants, the exact text — never
@@ -2010,6 +2101,8 @@ export const proposedAction = pgTable(
       .references(() => user.id, { onDelete: 'cascade' }),
     conversationId: uuid('conversation_id').references(() => assistantConversation.id, { onDelete: 'set null' }),
     turnId: uuid('turn_id'),
+    /** assistant: a card in a conversation; workflow: a workflow's step or draft (ADR 0041). */
+    origin: varchar('origin', { length: 12 }).notNull().default('assistant'),
     /** The contact it is about, for the timeline. */
     contactId: uuid('contact_id').references(() => contact.id, { onDelete: 'set null' }),
     tool: varchar('tool', { length: 48 }).notNull(),

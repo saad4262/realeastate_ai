@@ -358,6 +358,13 @@
       "when": 1791956410169,
       "tag": "0050_assistant_skill_tools",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1791956998381,
+      "tag": "0051_workflows",
+      "breakpoints": true
     }
   ]
 }
