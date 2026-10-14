@@ -1,6 +1,7 @@
 import type { WidgetData, WidgetTile } from '@repo/core/widgets';
 import { AgentsFigures } from './agents';
 import { CustomFigures } from './custom';
+import { OpenFigures } from './open';
 import { BarList, Columns, Donut, SplitBar } from './charts';
 import styles from './dashboards.module.css';
 
@@ -45,6 +46,8 @@ function Figures({ widget, data, compact }: { widget: string; data: WidgetData; 
       return <AgentsFigures data={data} compact={compact} />;
     case 'custom':
       return <CustomFigures data={data} compact={compact} />;
+    case 'open':
+      return <OpenFigures data={data} compact={compact} />;
     case 'breakdown': {
       const empty = data.rows.length === 0;
       return (

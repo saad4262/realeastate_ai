@@ -46,13 +46,13 @@ function countingDb(rows: Record<string, unknown>[]) {
 }
 
 const noDb = new Proxy({}, { get: () => { throw new Error('the database was reached'); } }) as unknown as Db;
-/** The fixed widgets; `custom` takes a spec and has its own tests (semantic.test.ts). */
-const FIXED = WIDGET_IDS.filter((id) => id !== 'custom');
+/** The fixed widgets; `custom` takes a spec (semantic.test.ts) and `open` a query (open-query/*.test.ts) — each has its own tests. */
+const FIXED = WIDGET_IDS.filter((id) => id !== 'custom' && id !== 'open');
 const ctx = (db: Db, actor: Actor = owner) => ({ db, actor, now: new Date('2026-10-07T23:30:00Z'), timeZone: 'Australia/Sydney' });
 
 describe('the widget registry', () => {
   it('every widget is complete: params schema, permission, refresh 30–60 s, a description', () => {
-    expect([...WIDGET_IDS].sort()).toEqual(['agent_activity', 'custom', 'email_replies', 'listings_by_status', 'new_leads', 'sold_count', 'sold_value', 'upcoming_appointments']);
+    expect([...WIDGET_IDS].sort()).toEqual(['agent_activity', 'custom', 'email_replies', 'listings_by_status', 'new_leads', 'open', 'sold_count', 'sold_value', 'upcoming_appointments']);
     for (const id of FIXED) {
       const w = WIDGETS[id];
       expect(w.refreshSeconds, id).toBeGreaterThanOrEqual(30);

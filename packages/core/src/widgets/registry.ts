@@ -8,6 +8,7 @@ import { RANGE_LABELS, WIDGET_RANGES, type WidgetRange } from './ranges';
 import { appointmentsDetail, leadsDetail, listingsDetail, repliesDetail, salesDetail, type WidgetDetail } from './detail';
 import { agentActivity, agentsDetail, type AgentActivityRow } from './agents';
 import { describeSpec, mayViewSpec, runTile, standardReport, tileSpecSchema, type CustomTileData, type TileSpec } from '../semantic';
+import { openTileSchema, runOpenTile, type OpenTileData, type OpenTileSpec } from '../open-query/tile';
 
 /**
  * The FIXED widget library (ADR 0027). A dashboard — or the assistant — can
@@ -29,7 +30,9 @@ export type WidgetData =
   /** The Agents widget (ADR 0034): totals, how many people are in the agency, and one row per person. */
   | { kind: 'agents'; received: number; sent: number; failed: number; people: number; rows: AgentActivityRow[] }
   /** A tile made of a spec (ADR 0036): any dataset × measures × dimensions from the semantic catalog. */
-  | CustomTileData;
+  | CustomTileData
+  /** A tile made of a model-written query (ADR 0042), checked and run as the viewer on every render. */
+  | OpenTileData;
 
 export type WidgetContext = { db: DbOrTx; actor: Actor; now: Date; timeZone: string };
 
@@ -47,6 +50,8 @@ type WidgetDef<P extends z.ZodTypeAny> = {
   query: (ctx: WidgetContext, params: z.infer<P>) => Promise<WidgetData>;
   /** The full-page report (trend, figures, breakdowns): ONE more statement, same scope. Only the dashboard page asks. */
   detail?: (ctx: WidgetContext, params: z.infer<P>) => Promise<WidgetDetail>;
+  /** Runs its own read-only transaction (an open tile: its ticket is inserted first, ADR 0042 L4) — not inside the shared one. */
+  ownTransaction?: true;
 };
 
 /**
@@ -209,6 +214,20 @@ export const WIDGETS = {
     // The standard report (ADR 0036 Phase 4), generated from the dataset's definition.
     detail: (ctx, spec) => standardReport(ctx, spec),
   } satisfies WidgetDef<typeof tileSpecSchema>,
+
+  /**
+   * A tile from an open question (ADR 0042): the model's query, re-checked by the parser
+   * and run as the viewer — their ticket, their scope — on every render.
+   */
+  open: {
+    title: 'Worked out by the assistant',
+    describe: (spec: OpenTileSpec) => spec.title,
+    params: openTileSchema,
+    permission: 'report:query',
+    refreshSeconds: 60,
+    query: (ctx, spec) => runOpenTile(ctx.db, ctx.actor, spec, ctx.timeZone),
+    ownTransaction: true,
+  } satisfies WidgetDef<typeof openTileSchema>,
 } as const;
 
 export type { AgentMessage, AgentMessages, DetailRow, DetailSeries, WidgetDetail, WidgetFormat } from './detail';
@@ -255,6 +274,7 @@ export async function renderWidget(
     return { ...base, state: 'no_access' };
   }
   try {
+    if (def.ownTransaction) return { ...base, state: 'ok', data: await def.query(ctx, parsed.data) };
     // The headline and its report share one read-only transaction with a statement timeout (ADR 0036 P6).
     return await withReadTimeout(ctx.db, async (db): Promise<WidgetTile> => {
       const c = { ...ctx, db };

@@ -10,6 +10,13 @@ const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR || '.next',
   transpilePackages: ['@repo/ui', '@repo/auth', '@repo/core', '@repo/db', '@repo/config', '@repo/ai'],
   /**
+   * The Postgres parser behind open questions (ADR 0042 L1) is WebAssembly that reads its .wasm
+   * from beside itself at run time — bundling would lose the file, so it stays a plain require,
+   * and the file is traced into every server function explicitly.
+   */
+  serverExternalPackages: ['libpg-query'],
+  outputFileTracingIncludes: { '/**': ['../../node_modules/.pnpm/libpg-query@*/node_modules/libpg-query/wasm/*'] },
+  /**
    * How long a visited segment stays usable in the client router cache.
    *
    * At the 30s this used to be, clicking Team → Listings → Team refetched the

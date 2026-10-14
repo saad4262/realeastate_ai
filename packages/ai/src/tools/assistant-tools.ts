@@ -4,6 +4,7 @@ import { AU_STATES, PROPERTY_TYPES } from '@repo/core/listings/schema';
 import { can, type Actor } from '@repo/core/permissions';
 import { WIDGET_IDS, WIDGET_RANGES } from '@repo/core/widgets';
 import { DATASET_IDS, DATASETS, SPEC_RANGES, TIME_UNITS, VIZ } from '@repo/core/semantic';
+import { OPEN_FORMATS, OPEN_VIZ } from '@repo/core/open-query';
 import { CONTACT_ROLES } from '@repo/core/contacts/schema';
 import { INTEGRATION_PROVIDERS } from '@repo/core/integrations/providers';
 
@@ -66,6 +67,30 @@ const SPEC = {
     limit: { type: 'integer', description: 'How many groups to show, up to 50. Default 20.' },
   },
   required: ['dataset', 'measures'],
+} as const;
+/** An open tile (ADR 0042): a query query_data ran, with its title, explanation and how to draw it. */
+const OPEN = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'Only with widget "open": a query you have run with query_data and checked.',
+  properties: {
+    title: { type: 'string', description: 'A short title, e.g. "Replies per agent — last 30 days".' },
+    explanation: { type: 'string', description: 'One plain sentence of exactly what it counts, over which period, with which filters.' },
+    sql: { type: 'string', description: 'The exact SELECT that ran with query_data.' },
+    viz: { type: 'string', enum: [...OPEN_VIZ], description: 'number (the first number of the first row), table, bar or donut (first text column by first number), line (first date column over time). Default table.' },
+    rows_are: { type: 'string', enum: ['agents', 'other'], description: '"agents" when there is one row per agent: everyone active must be in it.' },
+    columns: {
+      type: 'array',
+      description: 'Labels for the columns the person sees (columns ending in _id are hidden unless listed).',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { key: { type: 'string', description: 'The result column name.' }, label: { type: 'string' }, format: { type: 'string', enum: [...OPEN_FORMATS] } },
+        required: ['key', 'label'],
+      },
+    },
+  },
+  required: ['title', 'explanation', 'sql'],
 } as const;
 const CONTACTS = 'Contact references, e.g. ["C1", "S2"]. 1 to 20 — only the people the person named or asked you to look up. Never names, email addresses or "everyone".';
 
@@ -269,6 +294,26 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
     },
   },
   {
+    name: 'describe_data',
+    description:
+      'The data dictionary for open questions: the datasets you can query, every column and what it means, how they join, the agency’s time zone, how far this person can see, and what the system does NOT hold. Call it once before your first query_data in a conversation.',
+    input_schema: { type: 'object', additionalProperties: false, properties: {} },
+  },
+  {
+    name: 'query_data',
+    description:
+      'Run ONE read-only PostgreSQL SELECT over the datasets from describe_data, as this person (an agent sees only their own records). Returns the columns and up to 50 rows straight from the database, or the error to correct. Text other people wrote comes back as a placeholder. Nothing can be changed by it. Make the query do every calculation.',
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        sql: { type: 'string', description: 'One SELECT (CTEs allowed) over the dataset names only, up to 4000 characters.' },
+        purpose: { type: 'string', description: 'What this run is for, in a few words — shown to the person as the step ("leads per day, last 30 days").' },
+      },
+      required: ['sql'],
+    },
+  },
+  {
     name: 'find_saved_lists',
     description: 'The person\'s own saved contact lists (the filters they saved on the Bulk email screen), each with an F reference — to send a template to a whole list with send_template_email. Names only; who is on a list is worked out when it is used.',
     input_schema: { type: 'object', additionalProperties: false, properties: {} },
@@ -281,9 +326,10 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
       type: 'object',
       additionalProperties: false,
       properties: {
-        widget: { type: 'string', enum: [...WIDGET_IDS], description: 'Which widget. "custom" for a tile made from the catalog (then give spec, not range).' },
+        widget: { type: 'string', enum: [...WIDGET_IDS], description: 'Which widget. "custom" for a tile made from the catalog (then give spec, not range); "open" for the result of a query you ran (then give open).' },
         range: { type: 'string', enum: [...WIDGET_RANGES], description: 'The period, on the agency’s clock. Omit for the widget’s default (active listings has none).' },
         spec: SPEC,
+        open: OPEN,
       },
       required: ['widget'],
     },
@@ -620,6 +666,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
               widget: { type: 'string', enum: [...WIDGET_IDS] },
               range: { type: 'string', enum: [...WIDGET_RANGES] },
               spec: SPEC,
+              open: OPEN,
             },
             required: ['widget'],
           },

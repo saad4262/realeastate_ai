@@ -20,6 +20,13 @@ const nextConfig: NextConfig = {
    */
   transpilePackages: ['@repo/ui', '@repo/core', '@repo/db', '@repo/config', '@repo/ai', '@repo/auth'],
   /**
+   * The Postgres parser behind open questions (ADR 0042 L1) is WebAssembly that reads its .wasm
+   * from beside itself at run time — bundling would lose the file, so it stays a plain require,
+   * and the file is traced into every server function explicitly.
+   */
+  serverExternalPackages: ['libpg-query'],
+  outputFileTracingIncludes: { '/**': ['../../node_modules/.pnpm/libpg-query@*/node_modules/libpg-query/wasm/*'] },
+  /**
    * The one remote host next/image may fetch from.
    *
    * next/image refuses any host that is not allow-listed, so this and

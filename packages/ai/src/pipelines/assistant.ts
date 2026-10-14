@@ -3,6 +3,7 @@ import type { Db } from '@repo/db';
 import type { Actor } from '@repo/core/permissions';
 import {
   ASSISTANT_FEATURE,
+  ASSISTANT_ANALYSIS_TOOLS,
   ASSISTANT_LIMITS,
   AssistantError,
   cardUpdatesBlock,
@@ -25,7 +26,7 @@ import {
   type ToolOutcome,
 } from '@repo/core/assistant';
 import { getModel, SERVER_FALLBACK_MODELS, type TokenUsage } from '../models';
-import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v19';
+import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v20';
 import { embedderFromEnv } from '../search/voyage';
 import { assistantToolsFor } from '../tools/assistant-tools';
 import { trackAiRunQuietly } from '../usage';
@@ -156,6 +157,8 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
   const frames: AssistantFrame[] = [];
   let answer = '';
   let toolCalls = 0;
+  // ADR 0042 Part D: a turn that works through the data (describe_data, query_data) may take more steps.
+  let callLimit: number = ASSISTANT_LIMITS.toolCallsPerTurn;
   let status: 'done' | 'failed' = 'done';
   let error: string | null = null;
   let finished = false;
@@ -266,7 +269,8 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
 
       const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
       for (const use of uses) {
-        if (toolCalls >= ASSISTANT_LIMITS.toolCallsPerTurn) {
+        if ((ASSISTANT_ANALYSIS_TOOLS as readonly string[]).includes(use.name)) callLimit = ASSISTANT_LIMITS.toolCallsPerAnalysisTurn;
+        if (toolCalls >= callLimit) {
           // Every tool_use still gets its result; the next request answers in words.
           results.push({
             type: 'tool_result',
@@ -296,7 +300,7 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
           ...(outcome.isError ? { is_error: true } : {}),
         });
       }
-      if (toolCalls >= ASSISTANT_LIMITS.toolCallsPerTurn) mustAnswer = true;
+      if (toolCalls >= callLimit) mustAnswer = true;
       // Every tool_result in ONE user message (parallel calls stay parallel).
       turnMessages.push({ role: 'user', content: results });
     }

@@ -24,6 +24,9 @@ function headline(tile: OkTile): { value: number; format: WidgetFormat } {
       return { value: d.received, format: 'count' };
     case 'custom':
       return { value: d.total[0] ?? 0, format: d.measures[0]?.format ?? 'count' };
+    case 'open':
+      // An open tile has no report page of its own (ADR 0042); never reached through hasReport.
+      return { value: 0, format: 'count' };
     default:
       return { value: d.total, format: 'count' };
   }

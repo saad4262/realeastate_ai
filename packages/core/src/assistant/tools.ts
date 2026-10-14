@@ -44,6 +44,7 @@ import {
 import { listColleagues } from '../team-messages/messages';
 import { agencyTimeZone, renderWidget } from '../widgets/registry';
 import { recordDataGap } from '../semantic';
+import { dataDictionary, missingAgents, OPEN_QUERY_LIMITS, runOpenQuery, seesWholeTeam } from '../open-query';
 import { listConversationCards } from './card-updates';
 import { findListings, proposeAssignLead, proposeCancelTask, proposeCreateContact, proposeCreateLead, proposeCreateReminder, proposeInviteAgent, proposeSetLeadStatus } from './crm-tools';
 import { proposeCreateListingDraft, proposeSubmitListing, proposeUpdateListing, proposeWithdrawListing } from './listing-tools';
@@ -115,6 +116,8 @@ const LABELS: Record<AssistantToolName, string> = {
   list_templates: 'Reading the email templates…',
   check_connections: 'Checking connected accounts…',
   show_widget: 'Working out the figures…',
+  describe_data: 'Reading what data the agency holds…',
+  query_data: 'Looking into the data…',
   report_missing_data: 'Noting what is missing…',
   check_cards: 'Checking your cards…',
   search_notes_and_emails: 'Searching notes and emails…',
@@ -249,6 +252,10 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return showWidget(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.show_widget>, label);
     case 'check_cards':
       return checkCards(ctx, label);
+    case 'describe_data':
+      return describeData(ctx, label);
+    case 'query_data':
+      return queryData(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.query_data>, label);
     case 'find_listings':
       return findListings(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.find_listings>, label);
     case 'find_saved_lists':
@@ -820,6 +827,61 @@ async function showWidget(ctx: ToolContext, input: z.infer<typeof ASSISTANT_TOOL
       ...(tile.state === 'no_access' ? { tell_the_user: 'This figure is for owners and admins only.' } : {}),
       ...(tile.state === 'too_slow' ? { tell_the_user: 'That took too long to work out — suggest a shorter period.' } : {}),
       note: 'The figures are on screen beside your answer. Do not state or estimate any number yourself.',
+    },
+  };
+}
+
+/**
+ * ADR 0042 Part C: what the agency's data holds — and does not. The same text for every
+ * agency (built from the dataset definitions), plus this person's clock and reach.
+ */
+function describeData(ctx: ToolContext, label: string): ToolOutcome {
+  if (!can(ctx.actor, 'report:query', { type: 'report', agencyId: ctx.actor.agencyId ?? '' })) {
+    return refused('This person may not ask open questions of the agency’s data.', label);
+  }
+  return {
+    label,
+    result: {
+      time_zone: ctx.timeZone,
+      your_reach: seesWholeTeam(ctx.actor) ? 'the whole agency — every agent’s records' : 'only this person’s own records (their leads, contacts, listings, emails and appointments)',
+      dictionary: dataDictionary(),
+    },
+  };
+}
+
+/**
+ * ADR 0042 Part D: one read-only query, through every lock, as this person. The model sees
+ * the rows with other people's words replaced by a placeholder; numbers are what Postgres
+ * returned. Part G: a result with agent_id names any active agent it left out.
+ */
+async function queryData(ctx: ToolContext, input: z.infer<typeof ASSISTANT_TOOL_INPUTS.query_data>, label: string): Promise<ToolOutcome> {
+  const step = input.purpose ? `Looking into: ${input.purpose.slice(0, 80)}…` : label;
+  const res = await runOpenQuery(ctx.db, ctx.actor, input.sql, { mode: 'model', via: 'assistant' });
+  if (!res.ok) {
+    return {
+      label: step,
+      result: {
+        ran: false,
+        problem: res.problem,
+        ...(res.outcome === 'forbidden' || res.outcome === 'capped' ? { tell_the_user: res.problem } : { next: 'Correct the query and run it again.' }),
+      },
+    };
+  }
+  const missing = res.truncated ? [] : await missingAgents(ctx.db, ctx.actor, res.columns, res.rows);
+  const shown = res.rows.slice(0, OPEN_QUERY_LIMITS.rowsToModel);
+  return {
+    label: step,
+    result: {
+      ran: true,
+      note: `${DATA_NOTE} Rows straight from the database, as this person may see them; text hidden from you shows a placeholder. Every number here came from SQL — use them as they are.`,
+      columns: res.columns.map((c) => `${c.name} (${c.type})`),
+      rows: shown,
+      row_count: res.rowCount,
+      ...(res.truncated ? { more_than: OPEN_QUERY_LIMITS.rowsKept } : {}),
+      ...(res.rowCount > shown.length ? { rows_shown_to_you: shown.length } : {}),
+      ...(missing.length
+        ? { active_agents_not_in_result: missing.map((m) => m.name), hint: 'If this is meant to list every agent, start FROM agents and LEFT JOIN the rest so everyone appears.' }
+        : {}),
     },
   };
 }

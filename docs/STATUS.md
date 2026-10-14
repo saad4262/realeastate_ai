@@ -1,4 +1,11 @@
 # Status
+- **Open questions on the agency's data (ADR 0042, accepted 2026-10-14) — built 2026-10-14 on `feat/open-analytics` (from main),
+  committed, NOT pushed. Migration 0052 APPLIED 2026-10-14 with the user's permission.** The assistant writes ONE read-only
+  SELECT over 9 named datasets (`describe_data`, `query_data`), run as the person behind four locks (parser; the screens' scope
+  helpers; role `ai_reader` on the `ai` schema's ticket-filtered views; a read-only 5 s transaction). Answers in chat and saved
+  tiles via `widget: "open"`; nobody dropped from per-agent tiles; other people's words never reach the model. Prompt
+  `assistant@v20`. Unit 1404 green; smoke "Open questions (ADR 0042)" 5/5 green; console + web build trace the parser's wasm.
+  TEST-PLAN **AR**. **Next:** the user walks AR in the browser; then push/merge with permission.
 - **DEPLOYED 2026-10-14 (the user's permission):** `main` fast-forwarded to `5cb8107` — assistant Phase 2 (both parts),
   Phase 3 imports (Sheets by Picker, Excel, contacts), Phase 4 (skills, workflows), and the "Console UI: the assistant as the
   agency home…" commit (made by another session on `feat/workflows`, NOT covered by the full smoke run; its typecheck/lint and

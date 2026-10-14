@@ -42,6 +42,7 @@ import {
 } from '../team/edit-member';
 import { offboardingPreview, OffboardError } from '../team/offboarding';
 import { proposeListEmail } from './list-send';
+import { openTileSummary } from '../open-query/tile';
 import type { z } from 'zod';
 
 /**
@@ -490,6 +491,8 @@ function figure(d: WidgetData): string {
       const notes = d.notes.filter((n) => n.value > 0).map((n) => ` · ${n.label}: ${n.value}`).join('');
       return `${shown.join(' · ')}${groups}${notes}`;
     }
+    case 'open':
+      return openTileSummary(d);
   }
 }
 
@@ -518,6 +521,20 @@ export async function proposeCreateDashboard(
     const params = WIDGETS[w.widget].params.parse(w.params ?? {}) as Record<string, unknown>;
     frozen.push({ widget: w.widget, params });
     const tile = await renderWidget({ db, actor, now: ctx.now, timeZone }, { widget: w.widget, params });
+    if (tile.state === 'ok' && tile.data.kind === 'open') {
+      // ADR 0042: an open tile is saved only if it runs, and only with everybody in it (Part G).
+      if (tile.data.problem) return refused(`The query for “${tile.description}” does not run: ${tile.data.problem} Nothing was proposed.`, label);
+      if (tile.data.missing.length) {
+        return refused(
+          `“${tile.description}” is one row per agent, but these active agents are not in it: ${tile.data.missing.join(', ')}. Start FROM agents and LEFT JOIN the rest so everyone appears. Nothing was proposed.`,
+          label,
+        );
+      }
+      lines.push({ label: tile.description, value: `${figure(tile.data)} (now)` });
+      lines.push({ label: 'How it is worked out', value: tile.data.explanation });
+      continue;
+    }
+    if (tile.state !== 'ok' && w.widget === 'open') return refused(`The query for “${tile.description}” could not run just now (${tile.state === 'too_slow' ? 'it took too long — make it simpler' : 'try again'}). Nothing was proposed.`, label);
     lines.push({ label: tile.description, value: tile.state === 'ok' ? `${figure(tile.data)} (now)` : 'Not available' });
   }
   const card: ProposalCard = {

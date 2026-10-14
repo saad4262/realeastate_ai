@@ -2190,6 +2190,50 @@ export const dashboardGapLog = pgTable(
   (t) => [index('dashboard_gap_log_dataset_idx').on(t.nearestDataset, desc(t.createdAt))],
 );
 
+// ── Open questions on an agency's data (docs/adr/0042) ─────────────────────
+
+/**
+ * The ticket an open query runs under (ADR 0042 L4). Inserted INSIDE the
+ * query's own transaction and rolled back with it, so it is never committed
+ * and no other session ever sees one. The `ai` schema's views keep only the
+ * rows of the agency whose ticket `ai.ticket` names. RLS on, no policy, no
+ * grant: `ai_reader` cannot read it — only `ai.ticket_agency()` can.
+ */
+export const aiQueryTicket = pgTable('ai_query_ticket', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  agencyId: uuid('agency_id')
+    .notNull()
+    .references(() => agency.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').references(() => user.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Every open query that ran (ADR 0042): who, what, how long, how it ended.
+ * The per-agency hourly cap counts these. `sql` is the model's query as it
+ * was run; never shown to anyone but the platform team. Kept 90 days.
+ */
+export const aiQueryLog = pgTable(
+  'ai_query_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
+    /** `assistant` (run_query in a turn) or `tile` (an open tile on a dashboard). */
+    via: varchar('via', { length: 16 }).notNull(),
+    sql: text('sql').notNull(),
+    /** `ok`, `rejected` (the guard said no), `error` (Postgres said no), `too_slow`, `capped`. */
+    outcome: varchar('outcome', { length: 16 }).notNull(),
+    detail: text('detail'),
+    ms: integer('ms'),
+    rows: integer('rows'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('ai_query_log_agency_idx').on(t.agencyId, desc(t.createdAt))],
+);
+
 // ── Listing import (docs/adr/0029) ──────────────────────────────────────────
 
 /**

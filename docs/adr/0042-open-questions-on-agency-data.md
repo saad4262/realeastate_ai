@@ -249,3 +249,68 @@ About 4 to 5 days:
 - **Parser:** `libpg-query@18.1.5` (WASM, 1.8 MB) runs in Node. It returns one node per
   statement (`SelectStmt`, `DeleteStmt` …), so "exactly one SelectStmt" is a plain check, and
   it rejects text it cannot parse.
+
+## As built (2026-10-14, branch `feat/open-analytics`; migration 0052 APPLIED)
+
+Differences from the text above, each for a reason:
+
+- **L4 is enforced by views, not RLS policies.** Schema `ai` holds one `security_barrier` view per
+  table the datasets need (16 of them). Each view has the same name as its table and lists only
+  the columns the figures use. Each keeps only the rows where
+  `agency_id = ai.ticket_agency()`, or the agency reached through a parent row.
+  - `ai_reader` holds USAGE on `ai`, SELECT on the views, and EXECUTE on
+    `ai.ticket_agency()` (SECURITY DEFINER). It holds nothing in `public`.
+  - The query runs with `search_path = ai`. So core's scope helpers, which name `lead`,
+    `listing_agent` and so on, resolve to the views unchanged. L2 reuses them verbatim, with no
+    second copy of `can()` in SQL.
+  - This is stronger than the policies proposed above: without the views, `ai_reader` can read
+    no table at all.
+- **The ticket is never committed.** Core inserts it inside the query's own transaction, and
+  the transaction is always rolled back.
+  - No other session ever sees a ticket, so a query can only ever name its own. There is no
+    expiry, and nothing to purge.
+  - The smoke suite asserts that `ai_query_ticket` stays empty.
+- **One transaction per query**, in this order:
+  1. insert the ticket
+  2. `set_config` for `statement_timeout` 5 s, `lock_timeout` 1 s, `search_path`, `ai.ticket`,
+     `transaction_read_only` and `role ai_reader`
+  3. the statement
+  4. rollback
+
+  The entry point for this is `runAsReader`, which the smoke suite calls directly with the
+  parser off.
+- **Tools.**
+  - `describe_data`, and **`query_data`** (not `run_query`). The red-team name test forbids
+    "run" and "sql" in a tool's name, and the name was changed rather than the guard loosened.
+  - There is no `propose_open_tile`. A tile is `widget: "open"` in the existing `show_widget`
+    (the answer in chat) and `create_dashboard` (saved).
+  - `create_dashboard` refuses an open tile that does not run, or one with
+    `rows_are: "agents"` that leaves an active agent out (Part G).
+  - An analysis turn gets 20 tool calls instead of 8.
+  - Prompt `assistant@v20`.
+- **Display columns.**
+  - In the model's runs they are a bound placeholder in the dataset CTE itself, so the text is
+    not there to leak through an alias, a function or an error message.
+  - A tile and the chat frame run as `person`.
+  - The display columns are: email `subject` and `body`, lead `message`, contact
+    `next_action`, appointment `title` and `outcome`, note `body`, and listing `headline`.
+  - Filtering on them is not possible in the model's runs, and the dictionary says so.
+- **I9 as built.** `pg_catalog` and `information_schema` are refused by L1 (schema-qualified
+  names and unknown relations). With L1 off, Postgres lets every role read catalog *names*,
+  but no row of any agency's data. This is a limit of Postgres, recorded here.
+- **The parser checks parents for unwrapped children.** The unit tests caught that
+  `::regclass` and `WITH RECURSIVE` passed at first: libpg-query gives a cast's type and a
+  SELECT's WITH clause as plain fields, not `{ Kind: … }` nodes. They are now checked on
+  their parent, with tests.
+- **Deploy.**
+  - `libpg-query` is in `serverExternalPackages`, and its `wasm/*` is in
+    `outputFileTracingIncludes` for both apps.
+  - It is also a direct dependency of both apps, so the runtime `require` resolves.
+  - A local build traces `libpg-query.wasm` into `/api/assistant`.
+- **Tests.**
+  - `open-query.test.ts` has 53 cases: L1 accepts and refuses, L2's scope, I7, the dictionary
+    and the tile.
+  - There is a permission test for `report:query`. Its break-test was run: widening the rule to
+    read-only members makes the test fail.
+  - The smoke group "Open questions (ADR 0042)" has 5 checks, I1–I10. It drops the `ai.lead`
+    filter inside a rollback to prove the probe can fail. All pass.

@@ -3,6 +3,8 @@ import { CONTACT_ROLES } from '../contacts/contact-schema';
 import { INTEGRATION_PROVIDERS, type IntegrationProvider } from '../integrations/providers';
 import { WIDGET_IDS, WIDGET_RANGES, type WidgetId, type WidgetTile } from '../widgets/registry';
 import { DATASET_IDS, tileSpecSchema, type DatasetId } from '../semantic';
+import { openTileSchema } from '../open-query/tile';
+import { QUERY_MAX_CHARS } from '../open-query/guard';
 import { AU_STATES, PROPERTY_TYPES } from '../listings/listing-schema';
 
 /**
@@ -73,6 +75,8 @@ export const agentHandleSchema = handleSchema.refine((h) => h.startsWith('M') ||
 export const ASSISTANT_LIMITS = {
   /** Tool calls in one turn, across every round. */
   toolCallsPerTurn: 8,
+  /** …in a turn that works through a question with describe_data / query_data (ADR 0042 Part D). */
+  toolCallsPerAnalysisTurn: 20,
   /** Rows a read tool returns. */
   rowsPerTool: 20,
   /** Turns in one conversation. History is replayed append-only and never trimmed; a long one starts afresh. */
@@ -340,9 +344,22 @@ const widgetChoice = z
     widget: z.enum(WIDGET_IDS as [WidgetId, ...WidgetId[]]),
     range: z.enum(WIDGET_RANGES).optional(),
     spec: z.record(z.unknown()).optional(),
+    /** ADR 0042: an open tile — the query you ran with query_data, its title, explanation and how to draw it. */
+    open: z.record(z.unknown()).optional(),
   })
   .strict()
   .superRefine((w, ctx) => {
+    if (w.widget === 'open') {
+      if (w.spec) ctx.addIssue({ code: 'custom', path: ['spec'], message: 'An open tile takes `open`, not a spec' });
+      if (!w.open) return ctx.addIssue({ code: 'custom', path: ['open'], message: 'An open tile needs `open`: { title, explanation, sql, viz, rows_are, columns }' });
+      const p = openTileSchema.safeParse(w.open);
+      if (!p.success) {
+        const issue = p.error.issues[0];
+        ctx.addIssue({ code: 'custom', path: ['open', ...(issue?.path ?? [])], message: issue?.message ?? 'Not a valid open tile' });
+      }
+      return;
+    }
+    if (w.open) ctx.addIssue({ code: 'custom', path: ['open'], message: 'Only the open widget takes `open`' });
     if (w.widget !== 'custom') {
       if (w.spec) ctx.addIssue({ code: 'custom', path: ['spec'], message: 'Only the custom widget takes a spec' });
       return;
@@ -358,9 +375,24 @@ export type WidgetChoice = z.infer<typeof widgetChoice>;
 /** What a widget choice is stored as: a fixed widget's range, or a custom tile's spec. */
 export function widgetChoiceParams(w: WidgetChoice): Record<string, unknown> {
   if (w.widget === 'custom') return w.spec ?? {};
+  if (w.widget === 'open') return w.open ?? {};
   return w.range ? { range: w.range } : {};
 }
 export const showWidgetInput = widgetChoice;
+
+/**
+ * Open questions (ADR 0042). `describe_data` gives the data dictionary; `query_data` runs ONE
+ * read-only SELECT over the named datasets, as this person, through every lock. Neither
+ * changes anything; a tile is saved only by create_dashboard's card.
+ */
+export const describeDataInput = z.object({}).strict();
+export const queryDataInput = z
+  .object({
+    sql: z.string().trim().min(1).max(QUERY_MAX_CHARS),
+    /** What this run is for, in a few words ("leads per day, last 30 days"): shown to the person as the step. */
+    purpose: z.string().trim().max(120).optional(),
+  })
+  .strict();
 
 /**
  * The gap log (ADR 0036 decided Q2): a figure the catalog cannot make. The
@@ -734,7 +766,9 @@ export const scheduleTeamMeetingInput = z
   })
   .strict();
 
-export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_saved_lists', 'start_import', 'find_skills', 'find_workflows'] as const;
+export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_saved_lists', 'start_import', 'find_skills', 'find_workflows', 'describe_data', 'query_data'] as const;
+/** ADR 0042: a turn that uses these may make more tool calls (`toolCallsPerAnalysisTurn`). */
+export const ASSISTANT_ANALYSIS_TOOLS = ['describe_data', 'query_data'] as const;
 export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill', 'create_workflow', 'change_workflow'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 /**
@@ -752,6 +786,8 @@ export const ASSISTANT_TOOL_INPUTS = {
   list_templates: listTemplatesInput,
   check_connections: checkConnectionsInput,
   show_widget: showWidgetInput,
+  describe_data: describeDataInput,
+  query_data: queryDataInput,
   report_missing_data: reportMissingDataInput,
   check_cards: checkCardsInput,
   search_notes_and_emails: searchNotesAndEmailsInput,

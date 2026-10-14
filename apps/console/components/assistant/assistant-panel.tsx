@@ -276,7 +276,8 @@ function FrameView({ frame, surface }: { frame: AssistantFrame; surface: Surface
     case 'proposal':
       return <ProposalCardView id={frame.id} surface={surface} />;
     case 'widget':
-      return <Tile tile={frame.tile} compact />;
+      // An open answer (ADR 0042) is the answer itself — its rows, how it was worked out — so it is drawn in full.
+      return <Tile tile={frame.tile} compact={!(frame.tile.state === 'ok' && frame.tile.data.kind === 'open')} />;
     case 'import': {
       // The import's own controls (ADR 0039 Phase 3): the file and the sheet go to the import screens, never to the model.
       const base = frame.what === 'contacts' ? p.contactImport : p.listingImport;

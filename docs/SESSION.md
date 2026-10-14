@@ -1,3 +1,15 @@
+## 2026-10-14 — Claude Code — ADR 0042: open questions on the agency's data (branch feat/open-analytics)
+
+- The user asked that the assistant answer ANY question on the agency's data and build any dashboard, saying plainly when the
+  data is not held. ADR 0042 replaces 0036's "model-written SQL ruled out" (for reads) with database-held locks.
+- Built: `packages/core/src/open-query` (guard = libpg-query allowlist; datasets = CTEs from the scope helpers; runAsReader =
+  in-transaction ticket + `ai_reader` + read-only 5 s; open tile; Part G completeness), migration 0052 (`ai` schema views,
+  role, ticket + log tables), tools `describe_data` / `query_data`, `widget: "open"` in show_widget + create_dashboard,
+  analysis turns get 20 tool calls, prompt v20, console `open.tsx`.
+- Unit tests caught two parser holes (`::regclass`, `WITH RECURSIVE` — unwrapped fields); fixed with tests. Permission
+  break-test red. Smoke's lock check drops the `ai.lead` filter inside a rollback and sees agency B — so it can fail.
+- Next exact step: the user walks TEST-PLAN AR; push/merge only with permission.
+
 ## 2026-10-14 — Claude Code — Phase 4 Parts B–C: the workflow engine (branch feat/workflows)
 
 - Built in the ADR's order: B1 tables + catalog, B2 outbox events, B3 engine + manage + permissions, B4 the AI draft writer,

@@ -821,6 +821,12 @@ describe('dashboards (ADR 0027)', () => {
     }
   });
 
+  it('open questions (ADR 0042): every member who may write, in their own agency — never a read-only member or another agency', () => {
+    const r = { type: 'report', agencyId: agencyA };
+    for (const a of [owner, admin, agent]) expect(can(a, 'report:query', r)).toBe(true);
+    for (const a of [viewer, rival, { userId: 'nobody' } as Actor]) expect(can(a, 'report:query', r)).toBe(false);
+  });
+
   it('who may open one follows its audience, and never another agency', () => {
     expect(can(owner, 'dashboard:read', d('private'))).toBe(true);
     expect(can(admin, 'dashboard:read', d('private'))).toBe(false);

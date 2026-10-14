@@ -54,6 +54,10 @@ const OWN_AGENCY = [
   'workflow',
   'workflow_event',
   'workflow_run',
+  // ADR 0042: an open query's ticket (never committed — inserted and rolled back inside the query's own
+  // transaction) and the log of open queries; both carry agency_id, and neither has a grant or a policy.
+  'ai_query_ticket',
+  'ai_query_log',
 ] as const;
 
 /** Reaches an agency through a parent row: table → [foreign-key column, parent table]. */

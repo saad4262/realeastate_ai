@@ -312,6 +312,12 @@ export type Action =
   /** Agency-wide money and performance figures (Sold value, sales). Owner/admin. */
   | 'report:read_agency'
   /**
+   * Ask an open question of the agency's data (ADR 0042): the assistant writes a
+   * read-only query over the named datasets, each scoped as this person. Any
+   * member who may write; a read-only member may not.
+   */
+  | 'report:query'
+  /**
    * Start a CSV listing import (ADR 0029): any member who may write. An
    * agent's import is forced to `pending` (admin approval); only someone with
    * `listing:publish` may import live or as draft.
@@ -657,6 +663,7 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'report:read_agency':
       return sameAgency(actor, resource) && isAgencyAdmin(actor);
 
+    case 'report:query':
     case 'listing_import:create':
       return sameAgency(actor, resource) && mayWrite(actor);
 

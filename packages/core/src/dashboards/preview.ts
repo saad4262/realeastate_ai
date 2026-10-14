@@ -1,5 +1,6 @@
 import { effectiveViz, type TileSpec, type Viz } from '../semantic';
 import { WIDGETS, type WidgetId } from '../widgets/registry';
+import type { OpenTileSpec, OpenViz } from '../open-query/tile';
 
 /**
  * A dashboard's thumbnail (the Projects grid): each widget's title and the
@@ -16,7 +17,7 @@ export type PreviewShape = (typeof PREVIEW_SHAPES)[number];
 export type WidgetPreview = { title: string; shape: PreviewShape };
 
 /** What each preset's tile draws (components/dashboards/tile.tsx). */
-const PRESET_SHAPES: Record<Exclude<WidgetId, 'custom'>, PreviewShape> = {
+const PRESET_SHAPES: Record<Exclude<WidgetId, 'custom' | 'open'>, PreviewShape> = {
   sold_value: 'money',
   sold_count: 'bars',
   new_leads: 'columns',
@@ -35,6 +36,8 @@ const VIZ_SHAPES: Record<Viz, PreviewShape> = {
   columns: 'columns',
 };
 
+const OPEN_SHAPES: Record<OpenViz, PreviewShape> = { number: 'figure', table: 'table', bar: 'bars', line: 'line', donut: 'donut' };
+
 /** One stored widget (`dashboard.widgets[i]`) as its preview. Anything unreadable falls back to a plain figure. */
 export function widgetPreview(ref: unknown): WidgetPreview {
   const r = (ref ?? {}) as { widget?: unknown; params?: unknown };
@@ -42,11 +45,12 @@ export function widgetPreview(ref: unknown): WidgetPreview {
   const id = r.widget as WidgetId;
   const def = WIDGETS[id];
   const parsed = def.params.safeParse(r.params ?? {});
-  if (!parsed.success) return { title: def.title, shape: id === 'custom' ? 'figure' : PRESET_SHAPES[id] };
+  if (!parsed.success) return { title: def.title, shape: id === 'custom' || id === 'open' ? 'figure' : PRESET_SHAPES[id] };
   try {
     // The same words the tile shows as its title (renderWidget's `description`).
     const title = (def.describe as (p: unknown) => string)(parsed.data);
-    const shape = id === 'custom' ? VIZ_SHAPES[effectiveViz(parsed.data as TileSpec)] : PRESET_SHAPES[id];
+    const shape =
+      id === 'custom' ? VIZ_SHAPES[effectiveViz(parsed.data as TileSpec)] : id === 'open' ? OPEN_SHAPES[(parsed.data as OpenTileSpec).viz] : PRESET_SHAPES[id];
     return { title, shape };
   } catch {
     return { title: def.title, shape: 'figure' };

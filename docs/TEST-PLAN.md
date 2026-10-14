@@ -1266,3 +1266,20 @@ Before: migration **0051** applied; `pnpm dev` restarted (prompt `assistant@v19`
 | AQ7 | A workflow that sends an approved template | A contact without marketing consent, or unsubscribed, is skipped (see the run / Bulk email report). |
 | AQ8 | Pause / Turn on / Archive on the page, and "pause my welcome workflow" in the assistant | Each changes it; a paused one runs nothing. Admin: **Pause all workflows** pauses every one. |
 | AQ9 | Remove the agent who owns a workflow (Agents & Team) | Their workflow shows Paused — "Its owner left the agency…". |
+
+## AR — Open questions on the agency's data (ADR 0042)
+
+Before: migration **0052** applied (it is); `pnpm dev` restarted (prompt `assistant@v20`). As an owner with some leads, emails and agents.
+
+| # | Case | Expected |
+|---|---|---|
+| AR1 | Owner, assistant: "Make me a dashboard of every agent with their location, emails they got and sent, replies waiting, and leads — last 30 days" | It reads the data ("Reading what data the agency holds…", "Looking into: …" steps), then a card **Save the dashboard …** with "How it is worked out". Approve → the dashboard has ONE row per active agent, Location = their territory suburbs ("None set" when empty), and an agent with nothing shows 0 — nobody missing. "Worked out by the assistant" and **Show query** under it. |
+| AR2 | "Show me the latest replies from contacts, with who sent them and their phone" | A table in the chat: time, contact name, email, phone, and the reply text. The assistant itself does not quote the text (it says it cannot read it). |
+| AR3 | "What's the average number of leads per day over the last 30 days?" | One number, and the assistant says how it was worked out (total ÷ 30 days, days with none included). |
+| AR4 | "Leads only from Pakenham, by week, this year" | A line or bars by week, Pakenham only. |
+| AR5 | "Show commission earned per agent" / "our marketing spend" | It says the account does not hold that (only the commission split settings); no made-up figure. |
+| AR6 | "What's the weather in Sydney?" / "house prices in Melbourne generally" | It says it can only answer from the agency's own records. |
+| AR7 | Agent (not admin): "how many leads do I have by status" | Only their own leads. "Show query" is not shown to them. They cannot save a dashboard (owners/admins). |
+| AR8 | Read-only member asks any data question | "This person may not ask open questions of the agency's data." |
+| AR9 | Open the AR1 dashboard as an agent (audience: everyone in the agency) | They see one row: themselves. |
+| AR10 | Ask 10 questions in a row quickly | All answered; after 60 open queries in an hour the agency is told to wait (the cap). |

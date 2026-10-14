@@ -205,3 +205,12 @@
 .table tfoot th, .table tfoot td, .miniTable tfoot th, .miniTable tfoot td { border-top: 1px solid var(--border-strong); font-weight: 700; padding-top: 0.5rem; }
 .table tfoot td { text-align: right; }
 .table tfoot th { text-align: left; }
+
+/* Open tiles (ADR 0042): text cells wrap and read left; the "worked out by the assistant" line and the query. */
+.table tbody td.openText, .miniTable td.openText { text-align: left; font-weight: 400; white-space: normal; max-width: 28rem; }
+.openWarning { margin: 0.5rem 0 0; padding: 0.375rem 0.5rem; border-radius: 0.375rem; font-size: 0.8125rem; background: var(--amber-subtle); color: var(--text-primary); border-left: 3px solid var(--amber); }
+.openHow { margin-top: 0.75rem; font-size: 0.75rem; color: var(--text-secondary); line-height: 1.4; }
+.openBadge { display: inline-block; margin-right: 0.25rem; padding: 0 0.375rem; border-radius: 999px; font-weight: 600; background: var(--surface-container-low); color: var(--text-primary); }
+.openQuery { margin-top: 0.375rem; }
+.openQuery summary { cursor: pointer; color: var(--text-secondary); }
+.openQuery pre { margin: 0.375rem 0 0; padding: 0.5rem; max-height: 16rem; overflow: auto; border-radius: 0.375rem; background: var(--surface-container-low); font-size: 0.75rem; white-space: pre-wrap; word-break: break-word; }
