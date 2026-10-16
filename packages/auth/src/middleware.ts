@@ -1,5 +1,5 @@
 import { createServerClient } from '@supabase/ssr';
-import type { User } from '@supabase/supabase-js';
+import type { JwtPayload } from '@supabase/supabase-js';
 import { type NextRequest, NextResponse } from 'next/server';
 import { cookieDomainFor } from './cookie-domain';
 
@@ -12,9 +12,12 @@ function publicEnv() {
   return { url, key };
 }
 
+/** Who middleware verified: the token's own claims, never the cookie's unverified copy of the user. */
+export type SessionIdentity = { id: string; email: string | null; label: string };
+
 export type SessionResult = {
   response: NextResponse;
-  user: User | null;
+  user: SessionIdentity | null;
 };
 
 /**
@@ -44,8 +47,36 @@ function stripSessionHeaders(headers: Headers): void {
 }
 
 /**
- * Refresh Supabase session cookies and return the user from a single getUser().
+ * The identity in a verified access token, or null if it names nobody.
+ *
+ * `sub` is auth.users.id, which is the app's user.id (CLAUDE.md #14). The label
+ * is what the shell greets with: the name given at sign-up, else the address's
+ * local part. Exported for its unit test.
+ */
+export function identityFromClaims(claims: JwtPayload | null | undefined): SessionIdentity | null {
+  const id = claims?.sub;
+  if (typeof id !== 'string' || !id) return null;
+  const email = typeof claims?.email === 'string' && claims.email ? claims.email : null;
+  const meta = claims?.user_metadata as { full_name?: unknown; name?: unknown } | undefined;
+  const named = [meta?.full_name, meta?.name].find((v): v is string => typeof v === 'string' && v.trim() !== '');
+  return { id, email, label: named ?? email?.split('@')[0] ?? '' };
+}
+
+/**
+ * Refresh Supabase session cookies and return who the verified token names.
  * Pass `forwardHeaders` so surface / user headers reach Server Components.
+ *
+ * `getClaims()`, not `getUser()` (ADR 0046). getUser asks the Auth server on
+ * every request — every page, RSC navigation, prefetch and poll — and
+ * middleware runs at the edge near the visitor, not beside the database, so
+ * that was a long round trip before anything else began. getClaims checks the
+ * access token's ES256 signature here, against the project's public keys
+ * (fetched once and cached for ten minutes by auth-js), and still refreshes an
+ * expired session through getSession. With a symmetric key it falls back to
+ * getUser by itself, so it is never weaker than before. What it cannot see is a
+ * session revoked elsewhere until the token expires; every console page and
+ * action loads the member from our own database (loadActor → can()), which is
+ * where a removed member is refused.
  *
  * `headerPrefix` chooses which name the verified identity is written under.
  * It defaults to the console's, so the console's call site is unchanged.
@@ -96,18 +127,16 @@ export async function updateSession(
   // x-console-user-id must not survive a request to the consumer app either.
   stripSessionHeaders(requestHeaders);
 
-  const { data } = await supabase.auth.getUser();
-  const user = data.user ?? null;
+  const { data, error } = await supabase.auth.getClaims();
+  const user = error ? null : identityFromClaims(data?.claims);
 
   if (user) {
     requestHeaders.set(`${prefix}-id`, user.id);
     if (user.email) {
       requestHeaders.set(`${prefix}-email`, encodeURIComponent(user.email));
     }
-    const meta = user.user_metadata as { full_name?: string; name?: string } | undefined;
-    const label = meta?.full_name ?? meta?.name ?? user.email?.split('@')[0] ?? '';
-    if (label) {
-      requestHeaders.set(`${prefix}-label`, encodeURIComponent(label));
+    if (user.label) {
+      requestHeaders.set(`${prefix}-label`, encodeURIComponent(user.label));
     }
     // Rebuild so mutated headers are visible to the App Router
     const cookies = response.cookies.getAll();
@@ -127,7 +156,7 @@ export async function updateSession(
   return { response, user };
 }
 
-/** @deprecated Prefer `updateSession` — it already returns `user` (one getUser). */
+/** @deprecated Prefer `updateSession` — it already returns `user`. */
 export async function getMiddlewareUser(request: NextRequest) {
   const { user } = await updateSession(request);
   return user;

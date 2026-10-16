@@ -42,7 +42,7 @@ export async function requireAuthAccount(): Promise<AuthAccount> {
 /**
  * The signed-in user's id, for a Server Action.
  *
- * Middleware already calls supabase.auth.getUser() on every request that
+ * Middleware already verifies the session (getClaims, ADR 0046) on every request that
  * reaches this app — server action POSTs included, since the matcher covers
  * everything but _next/static, _next/image and favicon — and forwards the
  * verified id as a header it strips from the caller's own request first.

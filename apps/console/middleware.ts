@@ -99,7 +99,7 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  // Single Supabase getUser via updateSession — never also call getMiddlewareUser
+  // One session check via updateSession (getClaims, ADR 0046) — never also call getMiddlewareUser
   let response: NextResponse;
   let userId: string | null = null;
 

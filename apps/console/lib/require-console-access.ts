@@ -25,14 +25,14 @@ export type ConsoleSession = {
 };
 
 /**
- * AuthN via Supabase getUser + AuthZ via can()/loadActor for the host surface.
- * Cached per request so nested layouts/pages can reuse without double getUser.
+ * AuthN from middleware's verified session + AuthZ via can()/loadActor for the host surface.
+ * Cached per request so nested layouts/pages reuse one answer.
  */
 /**
  * The session, as middleware verified it.
  *
- * Middleware already calls getUser() on every request and forwards the result
- * as headers it clears first, so calling getUser() again here was a second
+ * Middleware already verifies the session on every request (getClaims, ADR 0046)
+ * and forwards the result as headers it clears first, so calling getUser() here was a
  * round trip to the auth service for an answer we already had — measured at
  * ~520 ms on every single page load, before any of the page's own work.
  *

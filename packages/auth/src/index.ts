@@ -7,6 +7,7 @@ export {
 export {
   updateSession,
   getMiddlewareUser,
+  type SessionIdentity,
   type SessionResult,
 } from './middleware';
 export { handleAuthCallback } from './callback';

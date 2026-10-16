@@ -1,6 +1,7 @@
 # 0046 — Middleware verifies the session locally (`getClaims`), not by asking Supabase (`getUser`)
 
-**Status:** PROPOSED, 2026-10-16. Not built. Follows the region fix (`49eca64`, functions in `syd1`).
+**Status:** ACCEPTED and BUILT, 2026-10-16 (the user: "ADR 0046 par kaam shuru kar do"), branch `feat/session-claims`.
+Follows the region fix (`49eca64`, functions in `syd1`).
 
 ## Problem
 
@@ -44,3 +45,18 @@ is too long, shorten the JWT expiry in Supabase (e.g. 10 min) — refresh is aut
 - Smoke: signed-in navigation keeps working across the 1 h boundary (refresh path); an expired
   cookie with no refresh token → `/login`.
 - Measure: console navigation time before/after from outside Australia, recorded here.
+
+## As built (2026-10-16)
+
+- `updateSession` calls `getClaims()`; `identityFromClaims` turns verified claims into `{ id, email, label }`
+  (`SessionResult.user` is that identity now — both apps only ever read `.id`). Header strip unchanged.
+- `packages/auth` has unit tests now (`vitest`, offline guard; in `pnpm test`): real ES256 keys, a fake JWKS and refresh
+  endpoint. 9 tests: identity from claims; signed by the project key → forwarded with **zero** `/auth/v1/user` calls;
+  another key / edited claims / no cookie → nobody, forged `x-console-user-id` and `x-web-user-id` gone; expired →
+  refreshed, new cookie, still zero `/user` calls; refresh refused → nobody.
+- Break-tests, each red: trusting the cookie's token without a signature check (2 fail); back to `getUser` (4 fail);
+  header strip removed (2 fail).
+- Against real Supabase Auth and a local `next start`: a test owner's token is ES256 with a `kid`; `/leads`,
+  `/settings/integrations` and `/api/live` answer 200 signed in; a forged id header with no cookie → 307 `/login`.
+  Smoke "Console (HTTP, signed out)" 16/16. Not measured: production timing from outside Australia (TEST-PLAN AW).
+

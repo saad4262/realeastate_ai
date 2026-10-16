@@ -6,8 +6,9 @@ import { SESSION_HEADER_PREFIXES, updateSession } from '@repo/auth/middleware';
  *
  * ## Why the matcher is the important line in this file
  *
- * `updateSession` is a `supabase.auth.getUser()` — a network round trip to
- * Supabase, on every request it runs for. The three fastest pages in this
+ * `updateSession` reads and verifies the session on every request it runs for —
+ * a local signature check since ADR 0046, but still a cookie parse, a public-key
+ * fetch every ten minutes and a token refresh when one is due. The three fastest pages in this
  * repo are on this app and were measured with no middleware anywhere near
  * them: `/` 33 ms, suburb search 36 ms, radius search 32 ms
  * (ARCHITECTURE § 11). `/` is also a cached route, and a cached route that

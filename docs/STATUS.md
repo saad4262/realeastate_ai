@@ -1,4 +1,12 @@
 # Status
+- **ADR 0046 built on `feat/session-claims` 2026-10-16, committed, NOT pushed (the user's go).** Middleware `getUser()` →
+  `getClaims()`: the ES256 access token is verified locally (JWKS cached 10 min), expired sessions still refresh, an HS
+  key would fall back to getUser. `SessionResult.user` = `{ id, email, label }`. Checks: typecheck 10/10, lint 0 errors,
+  unit 1122 + 307 + **auth 9 (new package suite, in `pnpm test`)**, console + web builds OK; break-tests red (no
+  signature check; back to getUser; no header strip); real Supabase sign-in against a local `next start`: 200 signed in,
+  forged header → /login; smoke signed-out 16/16. Trade-off (in the ADR): a session revoked elsewhere passes middleware
+  until its token expires; the console's own membership check still refuses a removed member. TEST-PLAN **AW**.
+  **Next:** merge + push with the user's go; walk AW.
 - **Nav clicks that did not register — fixed on `fix/console-polling` 2026-10-16, committed, NOT pushed (the user's go).**
   LiveRefresh (5 s), the bell (1 min) and the inbox's mail pull (20 s) polled by Server Action; a click during one made
   Next discard it and force a refresh that empties the Router Cache (next 15.5 `app-router-instance.js`), so returning to

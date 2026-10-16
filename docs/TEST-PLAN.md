@@ -1340,3 +1340,15 @@ Both consoles, on production after the deploy. Browser DevTools → Network open
 | AV3 | Leave a page open a minute | Network shows `GET /api/live` every 5 s and `GET /api/notifications` once a minute — no `POST` to the page itself (that was a Server Action). On the inbox: `POST /api/mail/sync` every 20 s. |
 | AV4 | Send yourself an email reply / make a colleague write to you while a page is open | The page and its badges update within a few seconds without a reload (unchanged behaviour). The bell still toasts a new reminder. |
 | AV5 | Sign out in another tab, wait 5 s | The polls get redirected to login and fail quietly; the page does not break or show an error. |
+
+## AW — The session is checked without a call to Supabase Auth (ADR 0046)
+
+On production after the deploy, both consoles and the public site's account pages.
+
+| # | Case | Expected |
+|---|---|---|
+| AW1 | Sign in, click around the console for a minute (nav, Recents, a contact) | Everything works as before; no unexpected trip to /login. Clicks feel quicker than before the deploy, most from outside Australia. |
+| AW2 | Leave a console tab open over an hour (or past the JWT expiry set in Supabase), then click | The click works: the session refreshes itself, no sign-in asked. |
+| AW3 | Sign out in one tab, then click in another | That tab is sent to /login on its next navigation (the cookies are gone). |
+| AW4 | Owner removes an agent (Agents & Team → Remove) while the agent's tab is open; the agent clicks | Refused at once by the console (membership from our database), even though their token has not expired. |
+| AW5 | Public site: `/account` signed in, `/` and `/search` signed out | Account pages work; `/` and `/search` still have no session layer (`x-web-session` absent). |

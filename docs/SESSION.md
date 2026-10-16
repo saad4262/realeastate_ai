@@ -1,3 +1,13 @@
+## 2026-10-16 — Claude Code — ADR 0046 built: the session checked locally (branch feat/session-claims)
+
+- `updateSession` uses `getClaims()`; identity from verified claims. Comments in both middlewares and the console's
+  session helpers updated (they said getUser).
+- New: `packages/auth` unit suite (vitest + offline guard), added to root `pnpm test`; real ES256 keys, fake Supabase.
+  Three break-tests red. Verified once against real Supabase Auth with the Harbour test owner on a local build
+  (password read from the untracked script, never printed).
+- Not run: web's signed-out HTTP group (needs the web server); production timing.
+- Next exact step: the user's go to merge into main and push; walk TEST-PLAN AW.
+
 ## 2026-10-16 — Claude Code — Nav clicks that did not register: polls off Server Actions (branch fix/console-polling)
 
 - The user: Connectors → Projects → straight back to Connectors did nothing for 2–3 s. Cause found in Next 15.5's
