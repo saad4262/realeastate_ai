@@ -128,12 +128,20 @@ Nothing below is optional for production. Each line names what proves it is done
 | Include files outside root dir   | **on** (needs `packages/`)|
 | Framework Preset                 | Next.js                   |
 | Install / Build / Output command | leave as detected         |
+| Function region                  | `syd1` — from `vercel.json` (both apps) |
 
 Nothing needs a custom build command. The workspace packages export raw
 TypeScript (`"." : "./src/index.ts"`, no `dist`) and `next.config.ts` lists
 every one of them in `transpilePackages`, so `next build` compiles them
 itself. `packageManager: "pnpm@9.15.0"` in the root `package.json` is what
 tells Vercel which package manager to use — do not remove it.
+
+**Functions run in Sydney (`syd1`), next to the database (`ap-southeast-2`).** Both
+`apps/web/vercel.json` and `apps/console/vercel.json` say so (`"regions"`), so all three
+projects get it from the repo and not from a dashboard setting. Vercel's default is `iad1`
+(Washington): every query then crosses the Pacific twice, about 200 ms each, and a console
+click that makes a few queries in a row waited 0.6–1.2 s for nothing else (found 2026-10-16).
+If the database ever moves, this line moves with it.
 
 ## Environment variables
 
