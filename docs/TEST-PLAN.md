@@ -1379,3 +1379,14 @@ Public site, `/search?q=Pakenham` (or `/sold`), "Show … on a map". 1/14 and 2/
 | AY3 | Click another marker, then back | Only one popup is open at a time; it moves to the marker clicked. |
 | AY4 | A search whose only results are those units | The map centres on the building at street level, not zoomed in to a grey blur. |
 | AY5 | Console → a listing's Edit → pin: drag the pin, zoom in, drag again | The zoom you chose stays; the pin moves as before. |
+
+## AZ — Sign out actually signs out (2026-10-16)
+
+Both consoles (agency.* and agents.*), after the deploy.
+
+| # | Case | Expected |
+|---|---|---|
+| AZ1 | Signed in, press the logout icon at the bottom of the sidebar | Lands on /login and stays there; Back or typing /leads goes to /login again. |
+| AZ2 | Sign in again | Works; the console opens normally. |
+| AZ3 | Signed in as A, open B's invite link → "Sign out and accept as …" | Signed out, back on the invite page, signed out (no loop into A's console). |
+| AZ4 | Hover/scroll past the logout icon, wait | Still signed in — nothing signs out without a press. |

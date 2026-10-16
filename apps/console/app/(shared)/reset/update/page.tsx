@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getAuthAccount } from '../../../../lib/auth-account';
 import { AuthShell } from '../../auth-shell';
 import { UpdatePasswordForm } from './update-password-form';
+import { SignOutButton } from '@/components/sign-out-button';
 
 export const metadata: Metadata = {
   title: 'Set a New Password — LocalAgentHub OS',
@@ -25,7 +25,7 @@ export default async function UpdatePasswordPage() {
       subtitle={`You are signing in as ${account.email}.`}
       footer={
         <>
-          Changed your mind? <Link href="/sign-out">Sign out</Link>
+          Changed your mind? <SignOutButton style={{ textDecoration: 'underline' }}>Sign out</SignOutButton>
         </>
       }
     >

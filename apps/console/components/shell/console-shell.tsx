@@ -12,6 +12,7 @@ import { NavList } from './nav-list';
 import { RecentsList } from './recents-list';
 import { SHELLS, type ShellSurface } from './surfaces';
 import styles from './console-shell.module.css';
+import { SignOutButton } from '@/components/sign-out-button';
 
 /**
  * The console chrome — one shell for both sides (CLAUDE.md #9). The agency
@@ -122,14 +123,9 @@ export function ConsoleShell({ surface, children, userLabel, userId, chrome }: C
               </Suspense>
             </div>
             <span className={styles.profileOnline} aria-hidden />
-            <Link
-              href="/sign-out"
-              title="Sign out"
-              className={styles.glyph}
-              style={{ color: 'var(--text-muted)' }}
-            >
+            <SignOutButton title="Sign out" className={styles.glyph} style={{ color: 'var(--text-muted)' }}>
               logout
-            </Link>
+            </SignOutButton>
           </div>
         </div>
       </aside>

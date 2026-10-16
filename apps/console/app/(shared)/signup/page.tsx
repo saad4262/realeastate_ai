@@ -8,6 +8,7 @@ import { AuthShell } from '../auth-shell';
 import { ClaimInvitePanel } from './claim-invite-panel';
 import { SignupForm } from './signup-form';
 import styles from '../auth.module.css';
+import { SignOutButton } from '@/components/sign-out-button';
 
 export const metadata: Metadata = {
   title: 'Sign Up — LocalAgentHub OS',
@@ -70,7 +71,7 @@ export default async function SignupPage({
         subtitle={`Your account is active at ${invite.agencyName}.`}
         footer={
           <>
-            Wrong account? <Link href="/sign-out">Sign out</Link>
+            Wrong account? <SignOutButton style={{ color: 'inherit', textDecoration: 'underline' }}>Sign out</SignOutButton>
           </>
         }
       >
@@ -127,7 +128,7 @@ export default async function SignupPage({
         subtitle={`${invite.agencyName} has invited you to join their roster.`}
         footer={
           <>
-            Not expecting this? <Link href="/sign-out">Sign out</Link>
+            Not expecting this? <SignOutButton style={{ color: 'inherit', textDecoration: 'underline' }}>Sign out</SignOutButton>
           </>
         }
       >

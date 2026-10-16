@@ -41,6 +41,7 @@ const PUBLIC_ROUTES: Record<string, { why: string; guard: RegExp }> = {
   'apps/console/app/(shared)/auth/callback/route.ts': { why: 'Supabase sign-in return: it creates the session', guard: /handleAuthCallback/ },
   'apps/web/app/auth/callback/route.ts': { why: 'Supabase sign-in return: it creates the session', guard: /handleAuthCallback/ },
   'apps/web/app/sign-out/route.ts': { why: 'ends the caller’s own session', guard: /signOut/ },
+  'apps/console/app/(shared)/sign-out/route.ts': { why: 'ends the caller’s own session; its GET signs nobody out', guard: /signOut/ },
   'apps/console/app/integrations/stub/route.ts': { why: 'dev-only fake OAuth consent', guard: /stubEnabled/ },
   'apps/console/app/integrations/stub/decide/route.ts': { why: 'dev-only fake OAuth consent', guard: /stubEnabled[\s\S]*verifyState|verifyState[\s\S]*stubEnabled/ },
   'apps/web/app/api/chat/route.ts': { why: 'the public property guide: anonymous, public listings only', guard: /runPropertyChat/ },

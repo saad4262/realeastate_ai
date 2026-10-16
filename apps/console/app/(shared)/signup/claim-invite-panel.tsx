@@ -33,7 +33,6 @@ export function ClaimInvitePanel({
   const [error, setError] = useState<string | null>(null);
 
   const sameAccount = sessionEmail.toLowerCase() === inviteEmail.toLowerCase();
-  const switchHref = `/sign-out?next=${encodeURIComponent(returnTo)}`;
 
   async function accept() {
     setBusy(true);
@@ -71,10 +70,13 @@ export function ClaimInvitePanel({
           This invite is for <strong>{inviteEmail}</strong>, but you are signed in as{' '}
           <strong>{sessionEmail}</strong>. Sign out and open the link again to accept it.
         </p>
-        <a className={styles.submit} href={switchHref}>
-          <span>Sign out and accept as {inviteEmail}</span>
-          <span className={styles.glyph}>logout</span>
-        </a>
+        <form method="post" action="/sign-out" style={{ margin: 0 }}>
+          <input type="hidden" name="next" value={returnTo} />
+          <button type="submit" className={styles.submit}>
+            <span>Sign out and accept as {inviteEmail}</span>
+            <span className={styles.glyph}>logout</span>
+          </button>
+        </form>
       </div>
     );
   }
@@ -93,9 +95,12 @@ export function ClaimInvitePanel({
         {!busy ? <span className={styles.glyph}>arrow_forward</span> : null}
       </button>
 
-      <a className={styles.forgot} href={switchHref} style={{ textAlign: 'center' }}>
-        Use a different account
-      </a>
+      <form method="post" action="/sign-out" style={{ margin: 0, textAlign: 'center' }}>
+        <input type="hidden" name="next" value={returnTo} />
+        <button type="submit" className={styles.forgot} style={{ background: 'none', border: 0, padding: 0, font: 'inherit', cursor: 'pointer' }}>
+          Use a different account
+        </button>
+      </form>
     </div>
   );
 }

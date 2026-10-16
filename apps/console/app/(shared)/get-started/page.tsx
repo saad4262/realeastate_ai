@@ -7,6 +7,7 @@ import { loadActor } from '../../../lib/load-actor';
 import { RegisterAgencyForm } from './register-agency-form';
 import { removedFromAgency } from '@repo/core/team';
 import { getConsoleDb } from '../../../lib/db';
+import { SignOutButton } from '@/components/sign-out-button';
 
 export const metadata: Metadata = {
   title: 'Register your agency — LocalAgentHub OS',
@@ -49,7 +50,7 @@ export default async function GetStartedPage({
         subtitle={`Signed in as ${account.email}.`}
         footer={
           <>
-            <Link href="/sign-out">Sign out</Link> · <Link href="/get-started?register=1">Register a different agency instead</Link>
+            <SignOutButton style={{ textDecoration: 'underline' }}>Sign out</SignOutButton> · <Link href="/get-started?register=1">Register a different agency instead</Link>
           </>
         }
       >
@@ -69,7 +70,7 @@ export default async function GetStartedPage({
       subtitle={`Signed in as ${account.email}. Create the agency you will run — you become its licensee in charge.`}
       footer={
         <>
-          Joined by invitation instead? <Link href="/sign-out">Sign out</Link> and use the invite
+          Joined by invitation instead? <SignOutButton style={{ textDecoration: 'underline' }}>Sign out</SignOutButton> and use the invite
           link your agency sent you.
         </>
       }

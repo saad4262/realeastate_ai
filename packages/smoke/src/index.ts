@@ -9445,6 +9445,26 @@ async function main() {
 
   const consoleUp = await reachable(AGENCY);
 
+  await check('console sign-out is a POST route that can clear cookies; a GET (link, prefetch) signs nobody out', async () => {
+    if (!consoleUp) skip('console is not running');
+    // It was a page: a Server Component cannot write cookies, so signOut() cleared nothing and
+    // the person stayed signed in (verified on production 2026-10-16: 0 cookies cleared).
+    const get = await fetch(`${AGENCY}/sign-out`, { redirect: 'manual', signal: AbortSignal.timeout(20_000) });
+    assert(get.status === 303 && new URL(get.headers.get('location') ?? '', AGENCY).pathname === '/', `GET /sign-out: ${get.status} ${get.headers.get('location')}`);
+    assert(!get.headers.getSetCookie().some((c) => /auth-token/.test(c)), 'GET /sign-out touched the session cookie');
+    const post = await fetch(`${AGENCY}/sign-out`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'next=%2F%2Fevil.example',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(20_000),
+    });
+    const location = post.headers.get('location') ?? '';
+    assert(post.status === 303, `POST /sign-out answered ${post.status}, expected 303`);
+    assert(location === `${new URL(AGENCY).origin}/login`, `POST /sign-out with next=//evil.example went to ${location}`);
+    return `GET 303 → / (no cookie touched); POST 303 → ${location} (an absolute next refused)`;
+  });
+
   const guarded: [string, string][] = [
     [`${AGENCY}/live-listings`, 'agency listings'],
     [`${AGENCY}/live-listings/new`, 'agency add-listing'],

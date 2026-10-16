@@ -1,3 +1,12 @@
+## 2026-10-16 — Claude Code — Console sign-out fixed; everything pushed (branch feat/dashboard-update → main)
+
+- The user: the logout button does not log out. Fix it, then push and merge.
+- Cause: `/sign-out` was a page, and a Server Component cannot write cookies, so signOut()'s clearing was swallowed.
+  Confirmed on production (0 cookies cleared) and fixed locally: the POST route cleared the cookie, then /leads → /login.
+- Also: sign-out was a prefetchable `<Link>` in six places; all are POST forms now.
+- `main` is checked out in the realestate_ai-crm2 worktree, so the push is `HEAD:main`, a fast-forward.
+- Next exact step: the user walks AX, AY, AZ on production.
+
 ## 2026-10-16 — Claude Code — Map: overlapping unit pins (branch feat/dashboard-update)
 
 - The user: 14, 1/14, 2/14 Henry St are different places, so why does clicking the map misbehave? DB read: four

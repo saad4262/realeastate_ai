@@ -1,12 +1,19 @@
 # Status
-- **Map: units at one point could not be chosen — fixed on `feat/dashboard-update` 2026-10-16, committed, NOT pushed.**
+- **Console sign-out did nothing — fixed 2026-10-16, pushed with the user's go (with ADR 0047 and the map fix).**
+  `/sign-out` was a Server Component page: `signOut()` could not write cookies, the throw was swallowed by `setAll`'s
+  catch, the session survived and /login bounced back in (production checked with the Harbour test owner: 0 cookies
+  cleared). Now a POST route handler (GET → `/`, signs nobody out), every sign-out link a form (`SignOutButton`), `next`
+  relative only. Verified on a local `next start` with a real sign-in: POST clears the cookie, /leads → /login; GET and
+  `next=//evil.example` harmless. Smoke check added to "Console (HTTP, signed out)" (not run, at the user's word);
+  isolation test lists the route as public. TEST-PLAN **AZ**.
+- **Map: units at one point could not be chosen — fixed 2026-10-16, pushed with the user's go.**
   1/14 and 2/14 Henry St (and any building's units) share one geocode: one marker each sat exactly on top of the
   other, so only the top one was clickable, every marker had its own never-closing InfoWindow, and fitBounds on one
   point dove to max zoom. `packages/ui/src/maps`: `groupPins` (≤ 3 m = same spot) → one marker with a count and a popup
   listing each pin as a link; one shared InfoWindow; popup built with textContent (labels were interpolated as raw
   HTML); fit capped at zoom 18. Pin placing (editable) unchanged, and keeps the agent's zoom. New `@repo/ui` vitest
   suite (4, in root `pnpm test`; break-test red). Typecheck 10/10, lint 0 errors, unit 1135 + 307 + 9 + 4, web +
-  console builds OK. TEST-PLAN **AY**. **Next:** push with the user's go; walk AY.
+  console builds OK. TEST-PLAN **AY**. **Next:** walk AY.
 - **ADR 0047 built on `feat/dashboard-update` 2026-10-16 (the user's request: change a project in the chat that made it;
   new chat = new project; colours on request; proper responsive tables).** `update_dashboard` (card → `updateDashboard`,
   `dashboard:manage` again, refused if changed since the card), tiles kept with `{ keep: n }`; `create_dashboard` refused
