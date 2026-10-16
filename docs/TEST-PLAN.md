@@ -1367,3 +1367,15 @@ Owner or admin on agency.*, after migration 0055 is applied and the deploy is Re
 | AX6 | NEW chat: "change the Weekly board" | The assistant says a dashboard is changed in the chat that made it and offers to make a new one here. No change card. |
 | AX7 | Open a project with a table tile (e.g. per-agent open question) on a phone (≤ 640 px, or DevTools) | No sideways scroll on the page. Each row is a block: name on top, then "label … value" lines. On desktop the table tile spans the full width. |
 | AX8 | Leave the full-screen dashboard open in a tab, then approve a change (AX2/AX3) | Within a minute the open tab shows the new title and colours, with no reload. |
+
+## AY — Units at one map point can each be chosen (2026-10-16)
+
+Public site, `/search?q=Pakenham` (or `/sold`), "Show … on a map". 1/14 and 2/14 Henry Street share one geocode.
+
+| # | Case | Expected |
+|---|---|---|
+| AY1 | Open the map where 1/14 and 2/14 Henry St are results | ONE marker with "2" on it at that building; 14 Henry St (≈12 m away) is its own marker. |
+| AY2 | Click the "2" marker | One popup: "2 properties at this spot", then each address as its own link. Each link opens that listing. |
+| AY3 | Click another marker, then back | Only one popup is open at a time; it moves to the marker clicked. |
+| AY4 | A search whose only results are those units | The map centres on the building at street level, not zoomed in to a grey blur. |
+| AY5 | Console → a listing's Edit → pin: drag the pin, zoom in, drag again | The zoom you chose stays; the pin moves as before. |

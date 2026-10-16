@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { groupPins, type PinGroup } from './group-pins';
 import { loadGoogleMaps, mapsBrowserKey } from './loader';
 import styles from './map-view.module.css';
 
@@ -35,6 +36,50 @@ const SYDNEY = { lat: -33.8688, lng: 151.2093 };
 /** Close enough to read a street sign, which is what dropping a pin needs. */
 const PIN_ZOOM = 17;
 const AREA_ZOOM = 13;
+/**
+ * Framing pins never zooms in past this. Pins a few metres apart (or all on one
+ * building) give fitBounds a box of nothing, and it would dive to the map's
+ * deepest zoom, where the street is a grey blur.
+ */
+const MAX_FIT_ZOOM = 18;
+
+/**
+ * What a marker's popup shows: a link (or a line) per pin.
+ *
+ * Built from DOM nodes with textContent, never an HTML string — a label is an
+ * address or a price an agent typed, and `<img onerror>` in a street name
+ * must stay text.
+ */
+function popupContent(group: PinGroup): HTMLElement {
+  const box = document.createElement('div');
+  box.style.cssText = 'font:13px/1.4 system-ui,sans-serif;max-width:260px';
+  if (group.pins.length > 1) {
+    const head = document.createElement('div');
+    head.textContent = `${group.pins.length} properties at this spot`;
+    head.style.cssText = 'font-weight:700;margin:0 0 6px';
+    box.appendChild(head);
+  }
+  const list = document.createElement(group.pins.length > 1 ? 'ul' : 'div');
+  if (group.pins.length > 1) list.style.cssText = 'list-style:none;margin:0;padding:0;display:grid;gap:4px';
+  for (const pin of group.pins) {
+    const item = document.createElement(group.pins.length > 1 ? 'li' : 'div');
+    const text = pin.label ?? (pin.href ? 'View listing' : '');
+    if (pin.href) {
+      const a = document.createElement('a');
+      a.href = pin.href;
+      a.textContent = text;
+      a.style.cssText = 'font-weight:600;color:#0b3d2e';
+      item.appendChild(a);
+    } else {
+      item.textContent = text;
+      item.style.fontWeight = '600';
+    }
+    if (group.pins.length > 1) item.style.cssText += ';padding:4px 0;border-top:1px solid #e5e7eb';
+    list.appendChild(item);
+  }
+  box.appendChild(list);
+  return box;
+}
 
 export function MapView({
   pins,
@@ -47,6 +92,8 @@ export function MapView({
   const holder = useRef<HTMLDivElement>(null);
   const map = useRef<google.maps.Map | null>(null);
   const markers = useRef<google.maps.Marker[]>([]);
+  /** The one popup the read-only map shows; opening it for another marker moves it there. */
+  const info = useRef<google.maps.InfoWindow | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
@@ -108,46 +155,63 @@ export function MapView({
 
     for (const m of markers.current) m.setMap(null);
     markers.current = [];
+    info.current?.close();
 
-    for (const [i, pin] of pins.entries()) {
-      const marker = new maps.Marker({
-        position: { lat: pin.lat, lng: pin.lng },
-        map: map.current,
-        draggable: editable && i === 0,
-        title: pin.label,
-      });
-
-      if (editable && i === 0) {
+    if (editable) {
+      // Placing a pin: one marker, the first pin, and it is the one you drag.
+      const pin = pins[0];
+      if (pin) {
+        const marker = new maps.Marker({ position: { lat: pin.lat, lng: pin.lng }, map: map.current, draggable: true, title: pin.label });
         marker.addListener('dragend', (e: google.maps.MapMouseEvent) => {
           const p = e.latLng;
           if (p) moveHandler.current?.(p.lat(), p.lng());
         });
+        markers.current.push(marker);
       }
-
-      if (!editable && (pin.label || pin.href)) {
-        const info = new maps.InfoWindow({
-          content: pin.href
-            ? `<a href="${pin.href}" style="font:600 13px system-ui;color:#0b3d2e">${pin.label ?? 'View listing'}</a>`
-            : `<span style="font:600 13px system-ui">${pin.label ?? ''}</span>`,
+    } else {
+      // Reading results: pins on the same spot (units of one building) share ONE marker with a
+      // count, and its popup lists each of them — stacked markers left all but the top one
+      // unclickable. One popup for the whole map, so opening one closes the last.
+      const popup = (info.current ??= new maps.InfoWindow());
+      for (const group of groupPins(pins)) {
+        const many = group.pins.length > 1;
+        const marker = new maps.Marker({
+          position: { lat: group.lat, lng: group.lng },
+          map: map.current,
+          title: many ? `${group.pins.length} properties at this spot` : group.pins[0]!.label,
+          ...(many ? { label: { text: String(group.pins.length), color: '#ffffff', fontWeight: '700', fontSize: '12px' } } : {}),
+          zIndex: many ? 2 : 1,
         });
-        marker.addListener('click', () => info.open({ map: map.current!, anchor: marker }));
+        if (many || group.pins[0]!.label || group.pins[0]!.href) {
+          marker.addListener('click', () => {
+            popup.setContent(popupContent(group));
+            popup.open({ map: map.current!, anchor: marker });
+          });
+        }
+        markers.current.push(marker);
       }
-
-      markers.current.push(marker);
     }
 
     if (!pins.length) return;
 
-    if (pins.length > 1) {
+    const spots = groupPins(pins);
+    if (spots.length > 1) {
       // Frame every result rather than centring on the first one, which would
-      // leave most of them off screen.
+      // leave most of them off screen — but never dive past street level.
       const bounds = new maps.LatLngBounds();
       for (const p of pins) bounds.extend({ lat: p.lat, lng: p.lng });
       map.current.fitBounds(bounds, 48);
-    } else if (pins[0]) {
-      map.current.panTo({ lat: pins[0].lat, lng: pins[0].lng });
+      maps.event.addListenerOnce(map.current, 'idle', () => {
+        const z = map.current?.getZoom();
+        if (z !== undefined && z > MAX_FIT_ZOOM) map.current?.setZoom(MAX_FIT_ZOOM);
+      });
+    } else if (spots[0]) {
+      // One spot — one pin, or every unit of one building: centre on it at street level.
+      map.current.panTo({ lat: spots[0].lat, lng: spots[0].lng });
+      // Not while placing a pin: every drag lands here, and the agent's own zoom must stay.
+      if (!editable && zoom === undefined) map.current.setZoom(PIN_ZOOM);
     }
-  }, [pins, ready, editable]);
+  }, [pins, ready, editable, zoom]);
 
   /**
    * Follow the centre when there is no pin to follow instead.

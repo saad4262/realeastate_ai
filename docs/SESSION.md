@@ -1,3 +1,12 @@
+## 2026-10-16 — Claude Code — Map: overlapping unit pins (branch feat/dashboard-update)
+
+- The user: 14, 1/14, 2/14 Henry St are different places, so why does clicking the map misbehave? DB read: four
+  separate properties (no merge; `addressKey` keeps units apart). 1/14 and 2/14 have the same pin, and 14 is ≈12 m away.
+- Cause in MapView: one Marker per pin (stacked, so only the top one could be clicked), one InfoWindow per marker (they
+  piled up), fitBounds over one point (max zoom), and label/href put into an HTML string unescaped.
+- Fix: group within 3 m → count marker + list popup; one InfoWindow; DOM-built popup; zoom cap 18.
+- Next exact step: the user's go to push; walk TEST-PLAN AY on the public site.
+
 ## 2026-10-16 — Claude Code — ADR 0047: change a project in the chat that made it (branch feat/dashboard-update)
 
 - The user (Roman Urdu): asking the console assistant to update a project made a NEW one. They want: changes in the

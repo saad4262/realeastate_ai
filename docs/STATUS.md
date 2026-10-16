@@ -1,4 +1,12 @@
 # Status
+- **Map: units at one point could not be chosen — fixed on `feat/dashboard-update` 2026-10-16, committed, NOT pushed.**
+  1/14 and 2/14 Henry St (and any building's units) share one geocode: one marker each sat exactly on top of the
+  other, so only the top one was clickable, every marker had its own never-closing InfoWindow, and fitBounds on one
+  point dove to max zoom. `packages/ui/src/maps`: `groupPins` (≤ 3 m = same spot) → one marker with a count and a popup
+  listing each pin as a link; one shared InfoWindow; popup built with textContent (labels were interpolated as raw
+  HTML); fit capped at zoom 18. Pin placing (editable) unchanged, and keeps the agent's zoom. New `@repo/ui` vitest
+  suite (4, in root `pnpm test`; break-test red). Typecheck 10/10, lint 0 errors, unit 1135 + 307 + 9 + 4, web +
+  console builds OK. TEST-PLAN **AY**. **Next:** push with the user's go; walk AY.
 - **ADR 0047 built on `feat/dashboard-update` 2026-10-16 (the user's request: change a project in the chat that made it;
   new chat = new project; colours on request; proper responsive tables).** `update_dashboard` (card → `updateDashboard`,
   `dashboard:manage` again, refused if changed since the card), tiles kept with `{ keep: n }`; `create_dashboard` refused
