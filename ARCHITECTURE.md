@@ -184,6 +184,18 @@ Three things go with it, every time:
   There is deliberately no mouse-out handler — a prefetch already in flight is
   cheaper to finish than to cancel and repeat.
 
+### A poll is a fetch, never a Server Action
+
+Anything that runs on a timer — LiveRefresh's stamp, the bell, the inbox's
+mail pull — calls an `app/api/` route with `fetch`. The router runs Server
+Actions in its own queue: a click while one is in flight discards it and
+marks the router for a full refresh, which empties the Router Cache, the
+prefetched skeletons included. With a 5-second poll that was most clicks, and
+it read as a nav item that did not respond for two or three seconds. Actions
+are for what a person does (a click, a submit). `pnpm smoke` follows every
+`setInterval` through its file and fails on a call into a `'use server'`
+module ("Console navigation").
+
 ---
 
 ## 4. State: the URL is the state store

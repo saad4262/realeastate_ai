@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import Link, { useLinkStatus } from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { SHELLS, type NavCount, type NavItem, type ShellSurface } from './surfaces';
@@ -89,6 +89,7 @@ export function NavList({
           {item.icon}
         </span>
         <span>{item.label}</span>
+        <NavPending />
         {count > 0 ? (
           <span
             className={`${styles.navBadge} ${styles.navBadgeBlue}`}
@@ -125,4 +126,17 @@ export function NavList({
       </div>
     </nav>
   );
+}
+
+/**
+ * A ring inside the clicked nav item while its page is on the way.
+ *
+ * A nav click whose page is not in the router cache waits a round trip before
+ * anything changes, and an unchanged screen reads as "my click did nothing" —
+ * so it gets clicked again. useLinkStatus is scoped to the Link it renders in
+ * (ARCHITECTURE.md § 10, as on /team), so only the clicked item shows it.
+ */
+function NavPending() {
+  const { pending } = useLinkStatus();
+  return pending ? <span className={styles.navSpinner} role="status" aria-label="Loading" /> : null;
 }

@@ -1,12 +1,10 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { after } from 'next/server';
 import {
   markThreadRead,
   MailError,
   mailDepsFromEnv,
-  pullReceivedMail,
   retryFailedMessage,
   sendContactEmail,
   sendThreadReply,
@@ -141,31 +139,4 @@ export async function markThreadReadAction(threadId: string): Promise<{ ok: bool
     // A badge that stays lit is the whole cost of failing here.
     return { ok: false };
   }
-}
-
-/**
- * Pull new mail from Resend (core `pullReceivedMail`). The inbox calls this
- * while it is open, so a buyer's Gmail reply shows up without a webhook — which
- * is what makes inbound work on localhost and before DNS is set up.
- *
- * At most once per 10 s per server process however many tabs ask: a ceiling on
- * requests to Resend, not a security control. Any signed-in console member may
- * trigger it; it reads nothing back to them except a count, and what it stores
- * is shown only through can().
- */
-const LAST_PULL = ((globalThis as { __mailPull?: { at: number } }).__mailPull ??= { at: 0 });
-
-export async function syncMailAction(): Promise<{ stored: number; configured: boolean }> {
-  await requireActionUserId();
-  // With the webhook set up (ADR 0035) mail is stored the moment it arrives and
-  // LiveRefresh shows it; this pull is then only the backstop for a missed delivery.
-  const gap = process.env.RESEND_WEBHOOK_SECRET?.trim() ? 60_000 : 10_000;
-  if (Date.now() - LAST_PULL.at < gap) return { stored: 0, configured: true };
-  LAST_PULL.at = Date.now();
-
-  const result = await pullReceivedMail({ db: getConsoleDb });
-  if (!result.ok) return { stored: 0, configured: result.reason !== 'not_configured' };
-  if (result.followUp) after(result.followUp);
-  if (result.stored > 0) refresh();
-  return { stored: result.stored, configured: true };
 }

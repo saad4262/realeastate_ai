@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { NotificationList, NotificationView } from '@repo/core/notifications';
 import { useToast } from '@/components/toast';
-import { listNotificationsAction, markNotificationsReadAction } from '@/lib/notification-actions';
+import { markNotificationsReadAction } from '@/lib/notification-actions';
 import styles from './notification-bell.module.css';
 
 /**
@@ -16,9 +16,25 @@ import styles from './notification-bell.module.css';
  * visible again), which is cheap — one indexed statement — and needs no push
  * infrastructure. A reminder that is new since the last poll also pops a
  * toast with a Join button, so a person working in another screen sees it.
+ *
+ * The poll is a plain GET (api/notifications), never a Server Action — see
+ * live-refresh.tsx. Marking read is a click, and stays an action.
  */
 
 const POLL_MS = 60_000;
+
+const EMPTY: NotificationList = { rows: [], unread: 0 };
+
+/** The bell's rows; JSON carries the dates as strings. A failure is an empty bell. */
+async function fetchNotifications(): Promise<NotificationList> {
+  const res = await fetch('/api/notifications', { cache: 'no-store' }).catch(() => null);
+  if (!res?.ok) return EMPTY;
+  const body = (await res.json().catch(() => EMPTY)) as NotificationList;
+  return {
+    unread: body.unread,
+    rows: body.rows.map((n) => ({ ...n, createdAt: new Date(n.createdAt), readAt: n.readAt ? new Date(n.readAt) : null })),
+  };
+}
 
 function ago(at: Date): string {
   const mins = Math.round((Date.now() - new Date(at).getTime()) / 60_000);
@@ -40,13 +56,13 @@ export function NotificationBell({
   placement?: 'top' | 'sidebar';
 }) {
   const { toast } = useToast();
-  const [data, setData] = useState<NotificationList>({ rows: [], unread: 0 });
+  const [data, setData] = useState<NotificationList>(EMPTY);
   const [open, setOpen] = useState(false);
   const seen = useRef<Set<string> | null>(null);
   const wrap = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
-    const next = await listNotificationsAction();
+    const next = await fetchNotifications();
     setData(next);
     // The first load only remembers what is there; later loads toast what is new.
     if (seen.current) {

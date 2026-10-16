@@ -4,7 +4,7 @@ import { useEffect, useRef, useTransition } from 'react';
 import { useLinkStatus } from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/toast';
-import { markThreadReadAction, retryMessageAction, sendFromPlatformAction, syncMailAction } from '@/lib/mail-actions';
+import { markThreadReadAction, retryMessageAction, sendFromPlatformAction } from '@/lib/mail-actions';
 import styles from './inbox.module.css';
 
 /**
@@ -84,7 +84,9 @@ export function MailSync() {
     let stopped = false;
     const pull = () => {
       if (document.visibilityState !== 'visible') return;
-      void syncMailAction()
+      // A POST route, not a Server Action — see live-refresh.tsx.
+      void fetch('/api/mail/sync', { method: 'POST', cache: 'no-store' })
+        .then((r) => (r.ok ? (r.json() as Promise<{ stored: number }>) : { stored: 0 }))
         .then((r) => {
           if (!stopped && r.stored > 0) router.refresh();
         })

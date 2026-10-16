@@ -1328,3 +1328,15 @@ Both consoles: agency.* and agents.*. Repeat AU1–AU9 on each (agency home `/ov
 | AU8 | Sidebar: More → open a page behind it | More stays open on that page; with unread team messages, a dot shows on a closed More. |
 | AU9 | Projects → a card | The board opens inside the console (sidebar stays); "Full screen ↗" opens it in a new tab. Old `/dashboards` and `/my-dashboards` links land on Projects. |
 | AU10 | Connectors: search, each filter, Connect, Disconnect | Filters and search change the URL; Connect/Disconnect work exactly as before. |
+
+## AV — A nav click always registers; polls never empty the router cache (2026-10-16)
+
+Both consoles, on production after the deploy. Browser DevTools → Network open for AV4.
+
+| # | Case | Expected |
+|---|---|---|
+| AV1 | On Connectors, click Projects, then at once click Connectors again (repeat ten times, at different moments) | Every click responds at once: the clicked nav item shows a small spinning ring, or the page changes. Never 2–3 s of nothing. Going back to Connectors within two minutes is instant (from the cache). |
+| AV2 | Click any nav item whose page is slow (Leads, Inbox) | The ring shows inside that item only, until the page arrives; no other item spins. With "reduce motion" on, the ring shows but does not spin. |
+| AV3 | Leave a page open a minute | Network shows `GET /api/live` every 5 s and `GET /api/notifications` once a minute — no `POST` to the page itself (that was a Server Action). On the inbox: `POST /api/mail/sync` every 20 s. |
+| AV4 | Send yourself an email reply / make a colleague write to you while a page is open | The page and its badges update within a few seconds without a reload (unchanged behaviour). The bell still toasts a new reminder. |
+| AV5 | Sign out in another tab, wait 5 s | The polls get redirected to login and fail quietly; the page does not break or show an error. |

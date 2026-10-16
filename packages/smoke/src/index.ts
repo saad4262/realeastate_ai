@@ -2,6 +2,7 @@ import { config } from 'dotenv';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import ts from 'typescript';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
 import {
   getDb,
@@ -9418,6 +9419,10 @@ async function main() {
     [`${AGENCY}/inbox`, 'agency inbox'],
     [`${AGENCY}/inbox?folder=offers`, 'agency inbox (offers folder)'],
     [`${AGENT}/my-inbox`, 'agent inbox'],
+    // The console's polls (they moved off Server Actions — see "Console navigation").
+    [`${AGENCY}/api/live`, 'agency live stamp'],
+    [`${AGENT}/api/notifications`, 'agent notifications'],
+    [`${AGENCY}/api/mail/sync`, 'agency mail sync'],
   ];
 
   /**
@@ -9567,6 +9572,89 @@ async function main() {
     );
 
     return `${reads.length} database-backed routes, each with its own loader`;
+  });
+
+  group('Console navigation');
+
+  /**
+   * Nothing the console polls goes through a Server Action.
+   *
+   * The router runs Server Actions in its own queue. A click while one is in
+   * flight discards it and marks the router for a full refresh, and that
+   * refresh empties the Router Cache — the page just left and every skeleton
+   * the nav had prefetched. LiveRefresh asked for its stamp by action every
+   * 5 s and the bell and the inbox's mail pull did the same, so most clicks
+   * landed during one: going back to a page seconds later meant a full round
+   * trip with nothing on screen, which read as a click that did not register
+   * (found 2026-10-16). The polls are plain fetches to api/ routes now.
+   *
+   * Static and AST-based: every function handed to setInterval is followed
+   * through the same file's own functions (the bell's poll calls `load`, which
+   * did the calling), and any reference to an import from a 'use server'
+   * module on that path fails it.
+   */
+  await check('no interval poll in the console calls a Server Action', () => {
+    const consoleDir = resolve(process.cwd(), '../../apps/console');
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        if (entry === 'node_modules' || entry.startsWith('.next')) continue;
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (/\.tsx?$/.test(entry)) files.push(full);
+      }
+    };
+    for (const d of ['app', 'components', 'lib']) walk(join(consoleDir, d));
+
+    const isServerModule = (spec: string, from: string): boolean => {
+      const base = spec.startsWith('@/') ? join(consoleDir, spec.slice(2)) : spec.startsWith('.') ? resolve(dirname(from), spec) : null;
+      if (!base) return false;
+      for (const f of [`${base}.ts`, `${base}.tsx`, join(base, 'index.ts')]) {
+        try {
+          if (/^\s*['"]use server['"]/.test(readFileSync(f, 'utf8'))) return true;
+        } catch {
+          // not this extension
+        }
+      }
+      return false;
+    };
+
+    const polling = files.filter((f) => readFileSync(f, 'utf8').includes('setInterval('));
+    assert(polling.length > 0, 'found no console poll — did the app move?');
+    const bad: string[] = [];
+    for (const file of polling) {
+      const src = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+      const actions = new Set<string>();
+      const decls = new Map<string, ts.Node>();
+      const intervals: ts.Node[] = [];
+      const collect = (n: ts.Node) => {
+        if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier) && isServerModule(n.moduleSpecifier.text, file)) {
+          const named = n.importClause?.namedBindings;
+          if (named && ts.isNamedImports(named)) named.elements.forEach((e) => actions.add(e.name.text));
+        }
+        if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) decls.set(n.name.text, n.initializer);
+        if (ts.isFunctionDeclaration(n) && n.name && n.body) decls.set(n.name.text, n.body);
+        if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'setInterval' && n.arguments[0]) intervals.push(n.arguments[0]);
+        ts.forEachChild(n, collect);
+      };
+      collect(src);
+      if (actions.size === 0) continue;
+      const seen = new Set<string>();
+      const follow = (n: ts.Node) => {
+        if (ts.isIdentifier(n)) {
+          if (actions.has(n.text)) bad.push(`${file.slice(consoleDir.length + 1)}: ${n.text}`);
+          const d = decls.get(n.text);
+          if (d && !seen.has(n.text)) {
+            seen.add(n.text);
+            follow(d);
+          }
+        }
+        ts.forEachChild(n, follow);
+      };
+      intervals.forEach(follow);
+    }
+    assert(bad.length === 0, `a poll calls a Server Action — move it to an api/ route: ${[...new Set(bad)].join(', ')}`);
+    return `${polling.length} files with an interval, none polls through an action`;
   });
 
   // ------------------------------------------------------------ chat (AI) --

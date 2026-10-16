@@ -356,6 +356,26 @@
   color: var(--text-secondary);
 }
 
+.navSpinner {
+  margin-left: auto;
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: 9999px;
+  border: 2px solid color-mix(in srgb, var(--sapphire) 30%, transparent);
+  border-top-color: var(--sapphire);
+  animation: navSpin 0.6s linear infinite;
+}
+
+/* Beside a badge, the badge keeps the far edge. */
+.navSpinner + .navBadge {
+  margin-left: 0.375rem;
+}
+
+@keyframes navSpin {
+  to { transform: rotate(360deg); }
+}
+
 .navBadgeBlue {
   background: var(--sapphire-subtle);
   color: var(--sapphire);
@@ -735,4 +755,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .shimmerLine { animation: none; }
+  /* The ring still shows something is in flight; it just does not spin. */
+  .navSpinner { animation: none; }
 }

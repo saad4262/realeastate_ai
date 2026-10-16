@@ -1,4 +1,13 @@
 # Status
+- **Nav clicks that did not register — fixed on `fix/console-polling` 2026-10-16, committed, NOT pushed (the user's go).**
+  LiveRefresh (5 s), the bell (1 min) and the inbox's mail pull (20 s) polled by Server Action; a click during one made
+  Next discard it and force a refresh that empties the Router Cache (next 15.5 `app-router-instance.js`), so returning to
+  a page meant 2–3 s of nothing. Now `GET /api/live`, `GET /api/notifications`, `POST /api/mail/sync` (same core calls,
+  401 without a session); `liveStampAction`, `listNotificationsAction`, `syncMailAction` removed. Nav items show a ring
+  while their page loads (`useLinkStatus`). ARCHITECTURE §3 "A poll is a fetch". Checks: typecheck 10/10, lint 0 errors,
+  unit 1122 + 307, console + web builds OK; smoke "Console navigation" 1/1 (break-tests red: an action in the bell's
+  `load`; and main's old code → names all three polls), "Console (HTTP, signed out)" 16/16 incl. the three routes.
+  TEST-PLAN **AV**. **Next:** merge + push with the user's go; walk AV.
 - **Functions moved to Sydney (`syd1`) 2026-10-16 (`49eca64`, pushed + deployed with the user's go).** All three
   Vercel projects ran in `iad1` (Washington) while the DB is `ap-southeast-2`: ~200 ms per query, several per console
   click. `regions` in `apps/web/vercel.json` + new `apps/console/vercel.json`; DEPLOY.md says why. No Zustand: the

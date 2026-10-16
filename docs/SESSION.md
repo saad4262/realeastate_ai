@@ -1,3 +1,14 @@
+## 2026-10-16 — Claude Code — Nav clicks that did not register: polls off Server Actions (branch fix/console-polling)
+
+- The user: Connectors → Projects → straight back to Connectors did nothing for 2–3 s. Cause found in Next 15.5's
+  action queue: a navigation discards an in-flight Server Action and sets needsRefresh → router.refresh() → Router
+  Cache emptied. Three polls were Server Actions (LiveRefresh 5 s, bell, inbox mail pull).
+- Fix 1: three api/ routes + fetch. Fix 2: `NavPending` (useLinkStatus) ring in nav items. Recents untouched (they
+  pushState on the home, no router navigation).
+- New smoke group "Console navigation" (TypeScript AST: setInterval → same-file functions → no 'use server' import).
+  Red on a planted action and on main's code; green now. Signed-out group 16/16 against a local `next start`.
+- Next exact step: the user's go to merge into main and push; walk TEST-PLAN AV.
+
 ## 2026-10-16 — Claude Code — Console navigation delay: functions to Sydney; ADR 0046 proposed
 
 - The user felt a delay on every console click and asked whether Zustand was missing. Found: Vercel functions in
