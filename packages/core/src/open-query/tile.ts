@@ -3,7 +3,7 @@ import type { DbOrTx } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { QUERY_MAX_CHARS } from './guard';
 import { runOpenQuery, type OpenCell, type OpenColumnType } from './run';
-import { missingAgents } from './complete';
+import { agentsNamedTwice, FAN_OUT_PROBLEM, missingAgents } from './complete';
 
 /**
  * An open tile (ADR 0042 Part F): the model's query, saved with its title, a one-line
@@ -12,7 +12,10 @@ import { missingAgents } from './complete';
  * tile is drawn for the person, never handed to a model.
  */
 
-export const OPEN_VIZ = ['number', 'table', 'bar', 'line', 'donut'] as const;
+/** `figures` (ADR 0044 F): one result row, every numeric column drawn as a labelled figure — headline totals side by side. */
+export const OPEN_VIZ = ['number', 'figures', 'table', 'bar', 'line', 'donut'] as const;
+/** Columns one open tile may label: room for a view of many parts (ADR 0044 E). */
+export const OPEN_MAX_COLUMNS = 24;
 export const OPEN_FORMATS = ['number', 'money', 'percent', 'decimal', 'text', 'date', 'datetime', 'list'] as const;
 export type OpenViz = (typeof OPEN_VIZ)[number];
 export type OpenFormat = (typeof OPEN_FORMATS)[number];
@@ -29,7 +32,7 @@ export const openTileSchema = z
     /** Labels and formats by result column; columns not named here are drawn by their type, `*_id` hidden. */
     columns: z
       .array(z.object({ key: z.string().trim().min(1).max(63), label: z.string().trim().min(1).max(60), format: z.enum(OPEN_FORMATS).optional() }).strict())
-      .max(16)
+      .max(OPEN_MAX_COLUMNS)
       .default([]),
   })
   .strict();
@@ -75,6 +78,9 @@ export async function runOpenTile(db: DbOrTx, actor: Actor, spec: OpenTileSpec, 
     const n = named.get(c.name);
     return { key: c.name, label: n?.label ?? labelFor(c.name), format: n?.format ?? FORMAT_BY_TYPE[c.type], hidden: !n && /(^|_)id$/.test(c.name) };
   });
+  // ADR 0044 C: a per-agent tile that names someone twice has multiplied figures — never shown as if right.
+  const twice = spec.rows_are === 'agents' ? agentsNamedTwice(res.columns, res.rows) : [];
+  if (twice.length) return { ...base, columns: [], rows: [], truncated: false, missing: [], ...(showSql ? { sql: spec.sql } : {}), problem: FAN_OUT_PROBLEM(twice) };
   const missing = spec.rows_are === 'agents' && !res.truncated ? (await missingAgents(db, actor, res.columns, res.rows)).map((m) => m.name) : [];
   return { ...base, columns, rows: res.rows, truncated: res.truncated, missing, ...(showSql ? { sql: spec.sql } : {}) };
 }
@@ -82,6 +88,15 @@ export async function runOpenTile(db: DbOrTx, actor: Actor, spec: OpenTileSpec, 
 /** For a card or a chat line: the shape of the result, never a cell's text (display columns may hold other people's words). */
 export function openTileSummary(d: OpenTileData): string {
   if (d.problem) return 'Needs rebuilding';
+  if (d.viz === 'figures') {
+    // Only numeric columns: a text cell may hold other people's words.
+    const row = d.rows[0];
+    const shown = d.columns
+      .map((c, i) => ({ c, v: row?.[i] }))
+      .filter(({ c }) => !c.hidden && ['number', 'money', 'percent', 'decimal'].includes(c.format))
+      .map(({ c, v }) => `${c.label}: ${typeof v !== 'number' ? 'No information yet' : c.format === 'money' ? `$${v.toLocaleString('en-AU', { maximumFractionDigits: 0 })}` : c.format === 'percent' ? `${v.toLocaleString('en-AU', { maximumFractionDigits: 1 })}%` : v.toLocaleString('en-AU', { maximumFractionDigits: 2 })}`);
+    return shown.length ? shown.join(' · ') : 'No information yet';
+  }
   if (d.viz === 'number') {
     const at = d.columns.findIndex((c) => c.format !== 'text' && c.format !== 'list' && !c.hidden);
     const v = at >= 0 ? d.rows[0]?.[at] : null;

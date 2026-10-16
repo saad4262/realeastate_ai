@@ -2,7 +2,7 @@ import { and, count, eq, gte, sql, type SQL } from 'drizzle-orm';
 import { aiQueryLog, aiQueryTicket, type Db, type DbOrTx } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { checkQuery } from './guard';
-import { AI_VIEW_NAMES, datasetCtes, OPEN_DATASET_NAMES, type QueryMode } from './datasets';
+import { AI_VIEW_NAMES, datasetCtes, OPEN_DATASET_NAMES, OPEN_DATASETS, type QueryMode } from './datasets';
 
 /**
  * Running one model-written query (ADR 0042). In order:
@@ -18,8 +18,11 @@ export const OPEN_QUERY_LIMITS = {
   rowsKept: 500,
   /** Rows handed back to the model. */
   rowsToModel: 50,
-  /** Open queries an agency's assistant may run in an hour (tiles on a dashboard are not counted). */
-  perAgencyPerHour: 60,
+  /**
+   * Open queries an agency's assistant may run in an hour (tiles on a dashboard are not counted). Room
+   * for a request of ten parts with its corrections (ADR 0044 E); a cap on load, not a lock.
+   */
+  perAgencyPerHour: 150,
   statementTimeout: '5s',
 } as const;
 
@@ -78,8 +81,8 @@ export async function runOpenQuery(db: DbOrTx, actor: Actor, text: string, opts:
     const outcome = code === '57014' ? 'too_slow' : 'error';
     const problem =
       outcome === 'too_slow'
-        ? 'The query ran longer than 5 seconds and was stopped. Make it simpler: fewer joins, a shorter period, or aggregate first.'
-        : `Postgres refused the query: ${pgMessage(err)}`;
+        ? 'The query ran longer than 5 seconds and was stopped. Make it simpler: aggregate each dataset in its own CTE first and join the small results, use a shorter period, or avoid correlated subqueries per row.'
+        : `Postgres refused the query: ${pgMessage(err)}${errorHint(pgMessage(err), checked.datasets)}`;
     await log(db, actor, opts, query, outcome, problem, Date.now() - started);
     return { ok: false, outcome, problem };
   }
@@ -171,11 +174,33 @@ function pgMessage(err: unknown): string {
   return msg.slice(0, 300);
 }
 
+/**
+ * ADR 0044 D: a hint after Postgres's own words, so the model can correct the query in one go.
+ * Built from the dataset definitions; it never reveals anything the dictionary does not.
+ */
+export function errorHint(message: string, used: string[]): string {
+  const m = message.toLowerCase();
+  if (/column .* does not exist/.test(m)) {
+    const cols = OPEN_DATASETS.filter((d) => used.includes(d.name))
+      .map((d) => `${d.name}(${d.columns.map((c) => c.name).join(', ')})`)
+      .join('; ');
+    return ` Hint: the columns of the datasets this query reads are ${cols}. A column of your own CTE must be selected in it, with that name.`;
+  }
+  if (/is ambiguous/.test(m)) return ' Hint: more than one dataset in the query has that column — write it with the alias, e.g. a.agent_id.';
+  if (/must appear in the group by clause|aggregate function/.test(m)) return ' Hint: every selected column must be inside an aggregate or listed in GROUP BY. Aggregate each dataset in its own CTE, then join the CTEs.';
+  if (/division by zero/.test(m)) return ' Hint: divide by nullif(x, 0), so nothing to divide by gives null.';
+  if (/operator does not exist|invalid input syntax|cannot be matched|function .* does not exist/.test(m)) {
+    return ' Hint: the two sides have different types — cast one (::text, ::numeric, ::date, ::timestamptz), or check the function\'s arguments.';
+  }
+  if (/more than one row returned by a subquery/.test(m)) return ' Hint: a subquery used as a value returned several rows — aggregate it, or join it as a CTE instead.';
+  return '';
+}
+
 async function log(db: DbOrTx, actor: Actor, opts: OpenQueryOptions, query: string, outcome: 'ok' | 'rejected' | 'error' | 'too_slow' | 'capped', detail: string | null, ms?: number, rows?: number) {
   // A tile on an open dashboard runs every minute: only its failures are worth a row.
   if (opts.via === 'tile' && outcome === 'ok') return;
   try {
-    await db.insert(aiQueryLog).values({ agencyId: actor.agencyId!, userId: actor.userId, via: opts.via, sql: query.slice(0, 8000), outcome, detail: detail?.slice(0, 500) ?? null, ms: ms ?? null, rows: rows ?? null });
+    await db.insert(aiQueryLog).values({ agencyId: actor.agencyId!, userId: actor.userId, via: opts.via, sql: query.slice(0, 12000), outcome, detail: detail?.slice(0, 500) ?? null, ms: ms ?? null, rows: rows ?? null });
   } catch (err) {
     console.error('[open-query] log failed', err instanceof Error ? err.message : err);
   }

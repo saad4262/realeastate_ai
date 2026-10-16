@@ -1297,3 +1297,18 @@ Before: migration **0053** applied (it is); prompt `assistant@v21`.
 | AS5 | A contact who unsubscribed (even with an enquiry) | Always skipped "Opted out". |
 | AS6 | Send the same template to the same people two days in a row | Both go out (no 7-day rule). |
 | AS7 | Assistant: "send our open-home template to Sara" | Lists templates you may send; the card shows Sara as will-send if she enquired. |
+
+## AT — Requests of many parts, one dashboard (ADR 0044)
+
+Before: migration **0054** applied (licence columns on `ai.agent_profile`); `pnpm dev` restarted (prompt `assistant@v22`). As an
+owner, with at least two agents who have a licence number, some live listings, a sale this month and leads answered by email.
+
+| # | Case | Expected |
+|---|---|---|
+| AT1 | "Show me a dashboard with agent names, their licence numbers, active listings in Pakenham and Officer, total sales value this month, and their average lead response time, all grouped together." | Steps "Reading what data the agency holds…", "Looking into: …" (several). ONE card **Save the dashboard …** with a per-agent table (every active agent once — nobody missing, nobody twice), the "How it is worked out" line, and a **You asked for: …** line for each of the five items saying which tile shows it. Approve → the dashboard matches the Agents & Team, Listings and Sales screens. |
+| AT2 | The same, but "active listings in specific suburbs" (no suburbs named) | One short question: which suburbs. Nothing is built until you answer. |
+| AT3 | Add "and commission earned" to AT1 | The card has **You asked for: commission earned — Not held by this account — nothing was estimated**; the reply says so. |
+| AT4 | Ten things at once: "agents with licence, licence expiry, active listings, sales this month, undisclosed sales, new leads this month, unanswered leads, average response, emails in and out, appointments ahead" | One per-agent table (up to 24 columns) and, if you asked for totals, a **figures** tile (several numbers side by side). Every item on the card. No "answer was cut off". |
+| AT5 | "Agency totals this month: sales value, active listings and average response time" | A figures tile: three labelled numbers in a row; an empty one reads "No information yet". |
+| AT6 | Agent (not admin) asks AT1 | Their own row only, as a chat tile (agents cannot save a dashboard). |
+| AT7 | Response time with leads answered only by phone | They count as unanswered — the reply says response time counts email answers only. |

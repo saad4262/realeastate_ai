@@ -1,3 +1,16 @@
+## 2026-10-16 — Claude Code — ADR 0044: requests of many parts, one dashboard (branch feat/complex-dashboards)
+
+- The user asked for 9–10 metrics in one prompt (agents, licence numbers, active listings in suburbs, sales this month,
+  response time "all grouped together") and "no catalog limits". The locks (ADR 0042 L1–L5) stay — they limit whose rows,
+  not how many datasets; the caps that were sized for one question were raised.
+- Found: licence not in `ai.agent_profile` (0054), no response-time dataset, prompt v21 told the model "one tile per
+  dataset", nothing caught fan-out, and 8,000 output tokens would cut off a dashboard of many queries.
+- Also: the Dashboards smoke failure ("open today as owner: unavailable") was a stale check since 0042, fixed. Earlier
+  this session: UI merged (5cb8107), full smoke 245/7, Dashboards 8/1 (that one) on rerun after a network drop.
+- 0054 applied (user's permission). Smoke: ADR 0044 check green after a fixture fix (a lead's thread comes from the 0020
+  trigger). Live eval green once (its own group, so it can run alone). I1's 7.5 s wall-clock budget is network-flaky.
+- Next exact step: commit on the user's go; walk TEST-PLAN AT.
+
 ## 2026-10-14 — Claude Code — ADR 0043: templates without approval, inferred consent, no 7-day rule (branch feat/email-rules)
 
 - The user asked to drop template approval and "the permission before emailing". Asked (AskUserQuestion): agent templates

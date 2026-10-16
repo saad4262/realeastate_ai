@@ -8,6 +8,7 @@ import { noteVisibleSql } from '../contacts/notes';
 import { appointmentScopeFilters } from '../appointments/appointments';
 import { threadScopeFilters } from '../mail/threads';
 import { conversationOwnerSql, emailOwnerSql } from '../mail/owner';
+import { QUERY_MAX_CHARS } from './guard';
 
 /**
  * L2 of ADR 0042: the named datasets a model-written query reads. Each is a CTE core
@@ -59,11 +60,15 @@ export const OPEN_DATASETS: readonly Dataset[] = [
       { name: 'commission_tier', type: 'text', about: 'their commission tier label' },
       { name: 'commission_split_agent_pct', type: 'integer', about: 'the agent’s share of commission, % (a setting — not an amount earned)' },
       { name: 'commission_split_agency_pct', type: 'integer', about: 'the agency’s share of commission, %' },
+      { name: 'licence_number', type: 'text', about: 'their real estate licence (registration) number (null: not entered)' },
+      { name: 'licence_class', type: 'text', about: 'the licence class, as entered' },
+      { name: 'licence_expiry', type: 'timestamptz', about: 'when the licence expires' },
     ],
     build: (_db, actor) => sql`select u.id as agent_id, coalesce(nullif(u.name, ''), u.email) as name, u.email, u.phone,
         m.role::text as role, m.status::text as status, m.joined_at, o.name as office,
         coalesce(p.territory_suburbs, '{}'::text[]) as territory_suburbs, p.territory_radius_km, coalesce(p.specialties, '{}'::text[]) as specialties,
-        p.years_experience, p.commission_tier, p.commission_split_agent as commission_split_agent_pct, p.commission_split_agency as commission_split_agency_pct
+        p.years_experience, p.commission_tier, p.commission_split_agent as commission_split_agent_pct, p.commission_split_agency as commission_split_agency_pct,
+        p.licence_number, p.licence_class, p.licence_expiry
       from membership m join "user" u on u.id = m.user_id
       left join agent_profile p on p.user_id = m.user_id left join office o on o.id = m.office_id
       where m.agency_id = ${agencyOf(actor)}${seesWholeTeam(actor) ? sql`` : sql` and m.user_id = ${actor.userId}`}`,
@@ -115,6 +120,29 @@ export const OPEN_DATASETS: readonly Dataset[] = [
       from listing_agent la where la.listing_id in (select listing.id from listing where ${and(...listingScopeFilters(actor))})`,
   },
   {
+    // ADR 0044 B: the dashboards' own definition of a sale (status sold, dated by the sale, under its lead agent).
+    name: 'sales',
+    about: 'One row per sold listing, dated by the sale and counted under its lead agent. "Sales value" / "revenue" = sum(sold_price); an undisclosed price is null — count it apart, never as $0.',
+    columns: [
+      { name: 'listing_id', type: 'uuid', about: 'the listing that sold — joins listings.listing_id' },
+      { name: 'sold_date', type: 'timestamptz', about: 'when it sold' },
+      { name: 'sold_price', type: 'numeric', about: 'sold price, AUD; null when undisclosed' },
+      { name: 'price_disclosed', type: 'boolean', about: 'false when the price was not disclosed' },
+      { name: 'agent_id', type: 'uuid', about: 'the lead agent (one per sale)' },
+      { name: 'suburb', type: 'text', about: 'suburb' },
+      { name: 'postcode', type: 'text', about: 'postcode' },
+      { name: 'property_type', type: 'text', about: 'house, unit, townhouse, land …' },
+      { name: 'bedrooms', type: 'integer', about: 'bedrooms' },
+      { name: 'days_on_market', type: 'numeric', about: 'days from going live to the sale (null: never live, or no dates)' },
+    ],
+    build: (_db, actor) => sql`select listing.id as listing_id, listing.sold_date, listing.sold_price, listing.sold_price is not null as price_disclosed,
+        ${leadAgentIdSql(sql`listing.id`)} as agent_id, pr.suburb, pr.postcode, pr.property_type, pr.bedrooms,
+        case when listing.published_at is not null and listing.published_at <= listing.sold_date
+             then round(extract(epoch from (listing.sold_date - listing.published_at)) / 86400, 1) end as days_on_market
+      from listing join property pr on pr.id = listing.property_id
+      where listing.status = 'sold' and ${and(...listingScopeFilters(actor))}`,
+  },
+  {
     name: 'leads',
     about: 'Enquiries, appraisal requests and offers that came in (kind). One row per lead.',
     columns: [
@@ -139,6 +167,35 @@ export const OPEN_DATASETS: readonly Dataset[] = [
         lead.source, lead.offer_amount, lead.assigned_to as agent_id, lead.listing_id, lead.contact_id, lead.name as contact_name,
         lead.email as contact_email, lead.phone as contact_phone, pr.suburb, pr.property_type, pr.bedrooms, ${text(sql`lead.message`)} as message
       from lead join property pr on pr.id = lead.property_id
+      where ${and(...leadScopeFilters(db, actor))}`,
+  },
+  {
+    // ADR 0044 B: lead response time, worked out once here rather than by every query. Only an email a
+    // PERSON sent (sent_by set) counts as a reply; phone calls and SMS are not held.
+    name: 'lead_responses',
+    about: 'One row per lead (the same leads as `leads`) with how fast it was first answered by email: our first sent email on any of its conversations, written by a person, at or after it came in. Unanswered leads have replied = false and null times — average response_minutes over replied leads, and count the unanswered ones apart.',
+    columns: [
+      { name: 'lead_id', type: 'uuid', about: 'the lead — joins leads.lead_id' },
+      { name: 'created_at', type: 'timestamptz', about: 'when the lead came in' },
+      { name: 'kind', type: 'text', about: 'enquiry, inspection, appraisal, offer' },
+      { name: 'agent_id', type: 'uuid', about: 'who the lead is assigned to (null: nobody)' },
+      { name: 'listing_id', type: 'uuid', about: 'the listing it is about, if any' },
+      { name: 'suburb', type: 'text', about: 'suburb of the property it is about' },
+      { name: 'replied', type: 'boolean', about: 'answered by email yet' },
+      { name: 'first_reply_at', type: 'timestamptz', about: 'when the first email answer was sent (null: not yet)' },
+      { name: 'replied_by_agent_id', type: 'uuid', about: 'who sent that first answer' },
+      { name: 'response_minutes', type: 'numeric', about: 'minutes from the lead to the first answer (null: not yet)' },
+    ],
+    build: (db, actor) => sql`select lead.id as lead_id, lead.created_at, lead.kind::text as kind, lead.assigned_to as agent_id, lead.listing_id, pr.suburb,
+        r.first_reply_at is not null as replied, r.first_reply_at, r.replied_by as replied_by_agent_id,
+        round(extract(epoch from (r.first_reply_at - lead.created_at)) / 60, 1) as response_minutes
+      from lead join property pr on pr.id = lead.property_id
+      left join lateral (
+        select mm.created_at as first_reply_at, mm.sent_by as replied_by
+        from mail_message mm join mail_thread mt on mt.id = mm.thread_id
+        where mt.lead_id = lead.id and mm.direction = 'out' and mm.status = 'sent' and mm.sent_by is not null and mm.created_at >= lead.created_at
+        order by mm.created_at limit 1
+      ) r on true
       where ${and(...leadScopeFilters(db, actor))}`,
   },
   {
@@ -321,10 +378,23 @@ const DICTIONARY_RULES = `# How to query
 - Money is AUD; times are timestamptz (UTC). Group days in the agency's time zone: date_trunc('day', created_at at time zone '<tz>').
 - An "average per day" is the total divided by the number of days in the period (use generate_series for days with none), not the average of the days that had some.
 - PER AGENT (per suburb, per listing …): start FROM that dataset and LEFT JOIN the activity onto it, so someone with nothing still appears (as 0). Always include agents.agent_id in a per-agent result. Use agents.status = 'active' for the current team unless asked otherwise.
+- NEVER join two activities (listings, sales, leads, emails, appointments …) to the same base row in one FROM: the rows multiply and every sum and count is wrong. Aggregate EACH activity in its own CTE at the grain of the result (GROUP BY agent_id, suburb …), then LEFT JOIN those CTEs onto the base — exactly one row per base row. A per-agent result that names an agent twice is refused.
+- Counts from a LEFT JOIN are coalesce(x, 0); an average with nothing to average stays null (shown as "No information yet").
+- "Active listings" = listings.status in ('live', 'under_offer'). "This month" = created_at (or sold_date) >= date_trunc('month', now() at time zone '<tz>') at time zone '<tz>'.
 - Columns marked "text hidden from you" hold a placeholder in your runs: select them to show the person, but never filter, group or search on them.
-- At most 500 rows are kept for a tile and 50 come back to you. Order your rows.
-- If an error comes back, read it and correct the query.`;
+- At most 500 rows are kept for a tile and 50 come back to you. Order your rows. A query may be up to ${QUERY_MAX_CHARS} characters.
+- If an error comes back, read it and the hint with it, and correct the query.
+
+Worked example — "agents with their licence number, active listings in Pakenham and Officer, sales value this month and their average lead response time, all together" (time zone Australia/Melbourne):
+with act as (select agent_id, count(*) as active_listings from listings where status in ('live', 'under_offer') and suburb in ('Pakenham', 'Officer') group by agent_id),
+     sold as (select agent_id, sum(sold_price) as sales_value, count(*) filter (where not price_disclosed) as undisclosed from sales
+              where sold_date >= date_trunc('month', now() at time zone 'Australia/Melbourne') at time zone 'Australia/Melbourne' group by agent_id),
+     resp as (select agent_id, round(avg(response_minutes), 1) as avg_response_minutes, count(*) filter (where not replied) as unanswered from lead_responses group by agent_id)
+select a.agent_id, a.name, a.licence_number, coalesce(act.active_listings, 0) as active_listings, coalesce(sold.sales_value, 0) as sales_value,
+       coalesce(sold.undisclosed, 0) as undisclosed_sales, resp.avg_response_minutes, coalesce(resp.unanswered, 0) as unanswered_leads
+from agents a left join act on act.agent_id = a.agent_id left join sold on sold.agent_id = a.agent_id left join resp on resp.agent_id = a.agent_id
+where a.status = 'active' order by a.name`;
 
 const NOT_HELD = `# What this system does NOT hold
 
-Commission amounts earned (only the split settings), marketing or advertising spend, expenses, payroll, website visits or traffic, portal (realestate.com.au / Domain) statistics, call logs, SMS, social media, vendor-paid advertising, property valuations (other than asking and sold prices), market data about other agencies, and anything about another agency. If a question needs one of these, or anything not in a dataset above, say plainly that the account does not hold it — never stand in a near-match without saying so.`;
+Commission amounts earned (only the split settings), marketing or advertising spend, expenses, payroll, website visits or traffic, portal (realestate.com.au / Domain) statistics, call logs, SMS (so a response time counts email answers only — say so), social media, vendor-paid advertising, property valuations (other than asking and sold prices), market data about other agencies, and anything about another agency. If a question needs one of these, or anything not in a dataset above, say plainly that the account does not hold it — never stand in a near-match without saying so.`;

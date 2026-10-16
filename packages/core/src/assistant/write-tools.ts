@@ -26,7 +26,7 @@ import { SKIP_REASON_LABELS } from '../template-email/schema';
 import { checkEmailLimits, devAllowlistProblem, emailLimitsFromEnv } from '../email/limits';
 import { clashMessage, findClash, findFirstClash, teamClashMessage } from '../appointments/clash';
 import { AUDIENCE_LABELS, createDashboardSchema } from '../dashboards';
-import { agencyTimeZone, renderWidget, WIDGETS, type WidgetData } from '../widgets/registry';
+import { agencyTimeZone, renderWidget, WIDGETS, type WidgetData, type WidgetId } from '../widgets/registry';
 import type { ToolContext, ToolOutcome } from './tools';
 import {
   changedFields,
@@ -537,11 +537,15 @@ export async function proposeCreateDashboard(
     if (tile.state !== 'ok' && w.widget === 'open') return refused(`The query for “${tile.description}” could not run just now (${tile.state === 'too_slow' ? 'it took too long — make it simpler' : 'try again'}). Nothing was proposed.`, label);
     lines.push({ label: tile.description, value: tile.state === 'ok' ? `${figure(tile.data)} (now)` : 'Not available' });
   }
+  // ADR 0044 A: every item asked for is on the card — in a tile that is really on this dashboard, or "not held".
+  const covered = coverageLines(input.coverage ?? [], frozen.map((w) => describeWidget(w)));
+  if (!covered.ok) return refused(covered.problem, label);
   const card: ProposalCard = {
     title: `Save the dashboard “${parsed.data.title}”`,
     contact: { id: '', name: '' },
     lines: [
       ...lines,
+      ...covered.lines,
       { label: 'Who can open it', value: AUDIENCE_LABELS[parsed.data.audience] },
       { label: 'Updates', value: 'Every 30–60 seconds while it is open' },
     ],
@@ -551,6 +555,42 @@ export async function proposeCreateDashboard(
   return propose(ctx, label, { tool: 'create_dashboard', args, card, contactId: null });
 }
 
+
+/** A saved widget's title as the dashboard shows it. */
+function describeWidget(w: { widget: string; params: Record<string, unknown> }): string {
+  const def = WIDGETS[w.widget as WidgetId];
+  try {
+    return (def.describe as (p: unknown) => string)(def.params.parse(w.params));
+  } catch {
+    return def.title;
+  }
+}
+
+/**
+ * ADR 0044 A: the request, item by item. `shown_in` must name a tile on this dashboard (so the
+ * list cannot claim a tile that is not there); null means the account does not hold it.
+ */
+export function coverageLines(
+  coverage: { asked: string; shown_in: string | null }[],
+  titles: string[],
+): { ok: true; lines: { label: string; value: string }[] } | { ok: false; problem: string } {
+  const norm = (t: string) => t.trim().toLowerCase();
+  const known = new Map(titles.map((t) => [norm(t), t]));
+  const wrong = coverage.filter((c) => c.shown_in !== null && !known.has(norm(c.shown_in)));
+  if (wrong.length) {
+    return {
+      ok: false,
+      problem: `coverage names tiles that are not on this dashboard: ${wrong.map((w) => `“${w.shown_in}”`).join(', ')}. The tiles are: ${titles.map((t) => `“${t}”`).join(', ')}. Nothing was proposed.`,
+    };
+  }
+  return {
+    ok: true,
+    lines: coverage.map((c) => ({
+      label: `You asked for: ${c.asked}`,
+      value: c.shown_in === null ? 'Not held by this account — nothing was estimated' : `Shown in “${known.get(norm(c.shown_in))}”`,
+    })),
+  };
+}
 
 /** Every contact a multi-contact card names, each visible to this person now — or the first refusal. */
 async function visibleContacts(ctx: ToolContext, refs: string[]) {

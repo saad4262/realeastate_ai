@@ -75,8 +75,12 @@ export const agentHandleSchema = handleSchema.refine((h) => h.startsWith('M') ||
 export const ASSISTANT_LIMITS = {
   /** Tool calls in one turn, across every round. */
   toolCallsPerTurn: 8,
-  /** …in a turn that works through a question with describe_data / query_data (ADR 0042 Part D). */
-  toolCallsPerAnalysisTurn: 20,
+  /** …in a turn that works through a question with describe_data / query_data (ADR 0042 Part D; 30 for a request of many parts, ADR 0044 E). */
+  toolCallsPerAnalysisTurn: 30,
+  /** Output tokens a round may write once the turn works through data: a dashboard of many open tiles carries every query (ADR 0044 E). */
+  outputTokensPerAnalysisRound: 32000,
+  /** Items of a request a dashboard card accounts for (ADR 0044 A). */
+  coverageItems: 24,
   /** Rows a read tool returns. */
   rowsPerTool: 20,
   /** Turns in one conversation. History is replayed append-only and never trimmed; a long one starts afresh. */
@@ -594,6 +598,14 @@ export const createDashboardInput = z
     title: z.string().trim().min(1).max(80),
     widgets: z.array(widgetChoice).min(1).max(12),
     audience: z.enum(['private', 'admins', 'agency']).default('admins'),
+    /**
+     * ADR 0044 A: every item the person asked for, and the tile that shows it — or null when the
+     * account does not hold it. Shown on the card, so nothing asked for disappears silently.
+     */
+    coverage: z
+      .array(z.object({ asked: z.string().trim().min(1).max(120), shown_in: z.string().trim().min(1).max(80).nullable() }).strict())
+      .max(ASSISTANT_LIMITS.coverageItems)
+      .optional(),
   })
   .strict();
 

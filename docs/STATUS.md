@@ -1,4 +1,17 @@
 # Status
+- **Requests of many parts, one dashboard (ADR 0044, asked 2026-10-16) — built on `feat/complex-dashboards` (from
+  `feat/email-rules`), NOT committed, NOT pushed. Migration 0054 APPLIED 2026-10-16 with the user's permission (dev =
+  production DB). ORDER on deploy: 0054 is in; main's code ignores the new view columns.** Prompt `assistant@v22`: list every item,
+  map it to a dataset or "not held", one view per grain, build, then ONE create_dashboard with `coverage` (card lines "You
+  asked for: …"). New datasets `sales`, `lead_responses` (email response time); agents + licence number/class/expiry. Fan-out:
+  taught (one CTE per activity) + a per-agent result naming an agent twice is refused. Error hints for the model. Caps raised
+  (query 12,000 chars, 24 columns, 30 tool calls, 32k output tokens per analysis round, 150 queries/hour); locks unchanged.
+  New tile `figures`. Also fixed: the Dashboards smoke check that looped over `open` without a query (failed since 0042).
+  Checks: typecheck/lint 20/20, unit 1122 + 307, console build OK, break-tests red. Smoke "Open questions": the ADR 0044
+  check green (every hand-worked figure; the fanned-out query gives 3,600,000 vs 900,000); I1's wall-clock budget (7.5 s for
+  a 5 s timeout) is network-flaky from here (7.9 / 6.9 / 7.5 s), not from this work. Live eval (`SMOKE_ONLY="Many parts,
+  live" pnpm smoke:ai`, its own group) green once: 4 tool calls, 1 query, coverage 6 items, commission not held, a1's row
+  exact. TEST-PLAN **AT**. **Next:** commit with the user's go; walk AT; more live samples before calling it reliable.
 - **Templates without approval, consent from an enquiry, no 7-day rule (ADR 0043, the user's decisions 2026-10-14) — built on
   `feat/email-rules`, committed, NOT pushed. Migration 0053 APPLIED with the user's permission.** A template is ready when saved
   (an agent's: theirs only; an owner's/admin's: the agency's); consent = recorded, OR an enquiry in 24 months, OR a

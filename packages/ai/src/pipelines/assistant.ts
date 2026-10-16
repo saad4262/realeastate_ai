@@ -26,7 +26,7 @@ import {
   type ToolOutcome,
 } from '@repo/core/assistant';
 import { getModel, SERVER_FALLBACK_MODELS, type TokenUsage } from '../models';
-import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v21';
+import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v22';
 import { embedderFromEnv } from '../search/voyage';
 import { assistantToolsFor } from '../tools/assistant-tools';
 import { trackAiRunQuietly } from '../usage';
@@ -204,7 +204,8 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
       const stream = client.beta.messages.stream(
         {
           model: model.id,
-          max_tokens: model.maxTokens,
+          // ADR 0044 E: once the turn works through data, a round may carry a dashboard of many queries.
+          max_tokens: callLimit === ASSISTANT_LIMITS.toolCallsPerAnalysisTurn ? Math.max(model.maxTokens, ASSISTANT_LIMITS.outputTokensPerAnalysisRound) : model.maxTokens,
           betas: [...(fallback ? [BETAS_FALLBACK] : []), ...(model.adaptiveThinking ? [BETAS_BINDING] : [])],
           // On a classifier decline the API re-runs the request on Anthropic's
           // recommended model for that category, inside this call.

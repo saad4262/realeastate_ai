@@ -94,8 +94,32 @@ function series(data: OpenData) {
   };
 }
 
+const NUMERIC = ['number', 'money', 'percent', 'decimal'];
+
+/** ADR 0044 F: one row, every visible number as a labelled figure. */
+function Figures({ data }: { data: OpenData }) {
+  const row = data.rows[0];
+  const cols = data.columns.map((c, i) => ({ c, i })).filter(({ c }) => !c.hidden && NUMERIC.includes(c.format));
+  if (!row || !cols.length) return <Empty>{EMPTY}</Empty>;
+  return (
+    <dl className={styles.openFigures}>
+      {cols.map(({ c, i }) => {
+        const cell = row[i] ?? null;
+        return (
+          <div key={c.key}>
+            <dt>{c.label}</dt>
+            <dd data-empty={typeof cell === 'number' ? undefined : ''}>{show(cell, c, data.timeZone)}</dd>
+          </div>
+        );
+      })}
+    </dl>
+  );
+}
+
 function Figure({ data, compact }: { data: OpenData; compact: boolean }) {
   switch (data.viz) {
+    case 'figures':
+      return <Figures data={data} />;
     case 'number': {
       const v = pick(data, true);
       const cell = v ? data.rows[0]?.[v.at] : null;

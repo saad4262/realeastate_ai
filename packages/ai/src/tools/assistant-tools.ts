@@ -4,7 +4,7 @@ import { AU_STATES, PROPERTY_TYPES } from '@repo/core/listings/schema';
 import { can, type Actor } from '@repo/core/permissions';
 import { WIDGET_IDS, WIDGET_RANGES } from '@repo/core/widgets';
 import { DATASET_IDS, DATASETS, SPEC_RANGES, TIME_UNITS, VIZ } from '@repo/core/semantic';
-import { OPEN_FORMATS, OPEN_VIZ } from '@repo/core/open-query';
+import { OPEN_FORMATS, OPEN_VIZ, QUERY_MAX_CHARS } from '@repo/core/open-query';
 import { CONTACT_ROLES } from '@repo/core/contacts/schema';
 import { INTEGRATION_PROVIDERS } from '@repo/core/integrations/providers';
 
@@ -77,7 +77,7 @@ const OPEN = {
     title: { type: 'string', description: 'A short title, e.g. "Replies per agent — last 30 days".' },
     explanation: { type: 'string', description: 'One plain sentence of exactly what it counts, over which period, with which filters.' },
     sql: { type: 'string', description: 'The exact SELECT that ran with query_data.' },
-    viz: { type: 'string', enum: [...OPEN_VIZ], description: 'number (the first number of the first row), table, bar or donut (first text column by first number), line (first date column over time). Default table.' },
+    viz: { type: 'string', enum: [...OPEN_VIZ], description: 'number (the first number of the first row), figures (ONE row: every number column side by side as labelled figures — headline totals), table (one row per agent/suburb/… with many columns — "grouped together"), bar or donut (first text column by first number), line (first date column over time). Default table.' },
     rows_are: { type: 'string', enum: ['agents', 'other'], description: '"agents" when there is one row per agent: everyone active must be in it.' },
     columns: {
       type: 'array',
@@ -307,7 +307,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
       type: 'object',
       additionalProperties: false,
       properties: {
-        sql: { type: 'string', description: 'One SELECT (CTEs allowed) over the dataset names only, up to 4000 characters.' },
+        sql: { type: 'string', description: `One SELECT (CTEs allowed) over the dataset names only, up to ${QUERY_MAX_CHARS} characters.` },
         purpose: { type: 'string', description: 'What this run is for, in a few words — shown to the person as the step ("leads per day, last 30 days").' },
       },
       required: ['sql'],
@@ -651,7 +651,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   },
   {
     name: 'create_dashboard',
-    description: `Propose saving a dashboard: a page of widgets that stays up to date, opened by link — for owners and admins only. Fixed widgets, or "custom" tiles built from the catalog (each with its spec). Who can open it: only the person ("private"), owners and admins ("admins", the default), or everyone in the agency ("agency" — each sees only the figures they may). Nobody outside the agency can ever open it. ${PROPOSES}`,
+    description: `Propose saving a dashboard: a page of widgets that stays up to date, opened by link — for owners and admins only. Fixed widgets, "custom" tiles built from the catalog (each with its spec), or "open" tiles from queries you ran with query_data (each with open). For a request of several parts, pass coverage. Who can open it: only the person ("private"), owners and admins ("admins", the default), or everyone in the agency ("agency" — each sees only the figures they may). Nobody outside the agency can ever open it. ${PROPOSES}`,
     input_schema: {
       type: 'object',
       additionalProperties: false,
@@ -673,6 +673,19 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
           description: '1 to 12 widgets, in the order to show them.',
         },
         audience: { type: 'string', enum: ['private', 'admins', 'agency'], description: 'Who can open it. Default admins.' },
+        coverage: {
+          type: 'array',
+          description: 'For a request of several parts: EVERY item the person asked for, in their order, with the title of the tile that shows it — or shown_in null when the account does not hold it. Shown on the card.',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              asked: { type: 'string', description: 'The item in a few words, e.g. "licence numbers".' },
+              shown_in: { type: ['string', 'null'], description: 'The exact title of the tile on this dashboard that shows it, or null if not held.' },
+            },
+            required: ['asked', 'shown_in'],
+          },
+        },
       },
       required: ['title', 'widgets'],
     },

@@ -2,7 +2,7 @@ import { config } from 'dotenv';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, sql, type SQL } from 'drizzle-orm';
 import {
   getDb,
   listing,
@@ -249,7 +249,7 @@ import { agencyReviews, clearAgencyGooglePlace, publicListingReviews, searchGoog
 import { archiveDashboard, createDashboard, getDashboardData, listDashboards, rangeWindow, renderWidget, WIDGET_IDS, WIDGET_RANGES } from '@repo/core/dashboards';
 import { isReadTimeout, withReadTimeout } from '@repo/core/widgets';
 import { DATASET_IDS, DATASETS, runTile, tileSpecSchema, type TileSpec } from '@repo/core/semantic';
-import { missingAgents, runAsReader, runOpenQuery, runOpenTile, OPEN_QUERY_LIMITS, HIDDEN_TEXT } from '@repo/core/open-query';
+import { agentsNamedTwice, dataDictionary, missingAgents, runAsReader, runOpenQuery, runOpenTile, OPEN_QUERY_LIMITS, HIDDEN_TEXT, type OpenCell } from '@repo/core/open-query';
 import { leadScopeFilters as openLeadScope } from '@repo/core/leads';
 import { contactScopeFilters as openContactScope } from '@repo/core/contacts';
 import { activeMemberActor, assignNeedsOwner, claimAgentInvite, listNeedsOwner, offboardingPreview, removedFromAgency, removeMember, restoreMember } from '@repo/core/team';
@@ -7182,6 +7182,124 @@ async function main() {
     }),
   );
 
+  /**
+   * ADR 0044: the user's own example — agents, licence numbers, active listings in named suburbs,
+   * sales value this month and average lead response time, all together. Every figure below is
+   * worked out by hand from these rows; agency B has a sale, a listing and a lead in the same suburb.
+   * Needs migration 0054 (licence columns on ai.agent_profile).
+   */
+  async function complexFixture(t: Db) {
+    const { a, b } = await openFixture(t);
+    const P = a.people;
+    await t.execute(sql`insert into agent_profile (user_id, slug, licence_number, licence_class) values
+      (${P.a1}, ${'smoke-a1-' + a.tag}, '2049182', 'Class 1'), (${P.a2}, ${'smoke-a2-' + a.tag}, 'L-A2-77', 'Agent')`);
+    const place = async (agencyId: string, suburb: string) => {
+      const [p] = await t.execute<{ id: string }>(sql`insert into property (street_number, street, suburb, state, postcode) values ('9', 'Smoke Road', ${suburb}, 'VIC', '3000') returning id`);
+      return p!.id;
+    };
+    const listing = async (agencyId: string, who: string, suburb: string, status: string, sold?: { price: number | null; daysAgo: number }) => {
+      const [l] = await t.execute<{ id: string }>(sql`insert into listing (property_id, agency_id, channel, status, sold_price, sold_date)
+        values (${await place(agencyId, suburb)}, ${agencyId}, 'sale', ${status}::listing_status, ${sold?.price ?? null},
+                ${sold ? sql`now() - make_interval(days => ${sold.daysAgo})` : null}) returning id`);
+      await t.execute(sql`insert into listing_agent (listing_id, user_id, snapshot_name, snapshot_phone, snapshot_email) values (${l!.id}, ${who}, 'S', '0400000000', 's@smoke.test')`);
+      return l!.id;
+    };
+    // A: a1 already has one live listing in Pakenham (contactFixture). The rest:
+    await listing(a.agencyId, P.a1, 'Pakenham', 'withdrawn'); // not active
+    await listing(a.agencyId, P.a2, 'Officer', 'live'); // a2: 1 active in the suburbs
+    await listing(a.agencyId, P.a2, 'Berwick', 'under_offer'); // active, but not a named suburb
+    await listing(a.agencyId, P.a1, 'Pakenham', 'sold', { price: 900000, daysAgo: 0 });
+    await listing(a.agencyId, P.a1, 'Officer', 'sold', { price: null, daysAgo: 0 }); // undisclosed: counted apart, never $0
+    await listing(a.agencyId, P.a2, 'Officer', 'sold', { price: 550000, daysAgo: 0 });
+    await listing(a.agencyId, P.a2, 'Officer', 'sold', { price: 1000000, daysAgo: 40 }); // last month or earlier
+    // B, in the same suburbs: must change nothing of A's.
+    await listing(b.agencyId, b.people.a1, 'Pakenham', 'live');
+    await listing(b.agencyId, b.people.a1, 'Pakenham', 'sold', { price: 5000000, daysAgo: 0 });
+    // Leads and their first answers. a1: 30 and 90 minutes → 60.0 on average; a2: none answered.
+    const lead = async (agencyId: string, propertyId: string, who: string, hoursAgo: number) => {
+      const [l] = await t.execute<{ id: string }>(sql`insert into lead (property_id, agency_id, name, email, message, kind, assigned_to, created_at)
+        values (${propertyId}, ${agencyId}, 'R', ${`r.${randomUUID().slice(0, 6)}@smoke.test`}, 'smoke', 'enquiry', ${who}, now() - make_interval(hours => ${hoursAgo})) returning id`);
+      // A lead gets its conversation from the 0020 triggers (one per lead); make one only if it did not.
+      const [have] = await t.execute<{ id: string }>(sql`select id from mail_thread where lead_id = ${l!.id}`);
+      const [th] = have
+        ? [have]
+        : await t.execute<{ id: string }>(sql`insert into mail_thread (agency_id, subject, contact_email, contact_name, lead_id)
+            values (${agencyId}, 'Enquiry', 'r@smoke.test', 'R', ${l!.id}) returning id`);
+      return { lead: l!.id, thread: th!.id };
+    };
+    const send = async (agencyId: string, thread: string, by: string | null, status: string, at: SQL) =>
+      t.execute(sql`insert into mail_message (thread_id, agency_id, direction, status, from_email, subject, text, sent_by, created_at)
+        values (${thread}, ${agencyId}, 'out', ${status}::mail_status, 'agent@smoke.test', 'Re', 'Hi', ${by}, ${at})`);
+    const l1 = await lead(a.agencyId, a.propertyId, P.a1, 2);
+    await send(a.agencyId, l1.thread, P.a1, 'sent', sql`now() - interval '90 minutes'`); // 30 min after
+    await send(a.agencyId, l1.thread, P.a1, 'sent', sql`now() - interval '10 minutes'`); // a later one: not the first
+    const l2 = await lead(a.agencyId, a.propertyId, P.a1, 3);
+    await send(a.agencyId, l2.thread, P.a1, 'sent', sql`now() - interval '90 minutes'`); // 90 min after
+    const l3 = await lead(a.agencyId, a.propertyId, P.a2, 1);
+    await send(a.agencyId, l3.thread, P.a2, 'failed', sql`now() - interval '50 minutes'`); // failed: not an answer
+    await send(a.agencyId, l3.thread, null, 'sent', sql`now() - interval '50 minutes'`); // the platform's, not a person's
+    await send(a.agencyId, l3.thread, P.a2, 'sent', sql`now() - interval '2 hours'`); // before the lead came in
+    const bl = await lead(b.agencyId, (await place(b.agencyId, 'Pakenham')), b.people.a1, 2);
+    await send(b.agencyId, bl.thread, b.people.a1, 'sent', sql`now() - interval '119 minutes'`); // B: 1 minute
+    return { a, b };
+  }
+
+  await check('ADR 0044: the example of many parts — licence, active listings in named suburbs, sales this month, response time — every figure right, nobody missing or doubled, B changes nothing', async () =>
+    inRollback(async (t) => {
+      const { a } = await complexFixture(t);
+      const owner = a.actor('owner');
+      const dict = dataDictionary();
+      // The query the dictionary teaches, run exactly as written.
+      const taught = dict.slice(dict.indexOf('\nwith act as'), dict.indexOf('order by a.name') + 'order by a.name'.length).trim();
+      const res = await runOpenQuery(t, owner, taught, { mode: 'person', via: 'tile' });
+      assert(res.ok, `the taught query did not run: ${JSON.stringify(res)}`);
+      if (!res.ok) return '';
+      const col = (n: string) => res.columns.findIndex((c) => c.name === n);
+      const row = (name: string) => res.rows.find((r) => r[col('name')] === name) ?? [];
+      const got = (name: string) => ['licence_number', 'active_listings', 'sales_value', 'undisclosed_sales', 'avg_response_minutes', 'unanswered_leads'].map((c) => row(name)[col(c)] ?? null);
+      assert(res.rows.length === 4, `rows: ${res.rows.length} (owner, a1, a2, viewer)`);
+      assert(JSON.stringify(got('a1')) === JSON.stringify(['2049182', 1, 900000, 1, 60, 1]), `a1: ${JSON.stringify(got('a1'))}`);
+      assert(JSON.stringify(got('a2')) === JSON.stringify(['L-A2-77', 1, 550000, 0, null, 2]), `a2: ${JSON.stringify(got('a2'))}`);
+      assert(JSON.stringify(got('owner')) === JSON.stringify([null, 0, 0, 0, null, 0]), `owner: ${JSON.stringify(got('owner'))}`);
+      assert(agentsNamedTwice(res.columns, res.rows).length === 0 && (await missingAgents(t, owner, res.columns, res.rows)).length === 0, 'someone doubled or missing');
+      // An agent running the same query sees their own row, with the same figures.
+      const asA2 = await runOpenQuery(t, a.actor('a2'), taught, { mode: 'person', via: 'tile' });
+      assert(asA2.ok && asA2.rows.length === 1 && JSON.stringify(asA2.rows[0]) === JSON.stringify(row('a2')), `a2's own run: ${JSON.stringify(asA2)}`);
+      // The break-test: the same parts joined in ONE FROM multiply — a1's sales come out wrong, so these checks can fail.
+      const naive = `select a.agent_id, a.name, sum(s.sold_price) as sales_value from agents a left join listings l on l.agent_id = a.agent_id
+        left join sales s on s.agent_id = a.agent_id where a.status = 'active' group by a.agent_id, a.name`;
+      const wrong = await runOpenQuery(t, owner, naive, { mode: 'person', via: 'tile' });
+      const naiveA1 = wrong.ok ? wrong.rows.find((r) => r[1] === 'a1')?.[2] : null;
+      assert(typeof naiveA1 === 'number' && naiveA1 !== 900000, `the fanned-out query gave ${naiveA1} — the expectation could not tell`);
+      // Ungrouped fan-out is caught in code: a per-agent tile naming a1 twice is refused.
+      const conv = await claimTurn(t, owner, { message: 'many parts', surface: 'agency' });
+      const ctx = () => proposeCtx(t, owner, {}, conv.conversationId);
+      const doubled = `select a.agent_id, a.name, l.suburb from agents a left join listings l on l.agent_id = a.agent_id where a.status = 'active'`;
+      const refused = await runAssistantTool(ctx(), 'create_dashboard', { title: 'x', widgets: [{ widget: 'open', open: { title: 'Doubled', explanation: 'x', sql: doubled, rows_are: 'agents' } }] });
+      assert(refused.isError && /more than once/.test(JSON.stringify(refused.result)), `doubled: ${JSON.stringify(refused.result).slice(0, 300)}`);
+      // The dashboard: one per-agent table, one figures strip, and the coverage list — "commission" not held.
+      const totals = `select (select coalesce(sum(sold_price), 0) from sales where sold_date >= date_trunc('month', now() at time zone 'Australia/Melbourne') at time zone 'Australia/Melbourne') as sales_value,
+        (select count(*) from listings where status in ('live', 'under_offer')) as active_listings`;
+      const id = cardId(await runAssistantTool(ctx(), 'create_dashboard', {
+        title: 'Agents this month', audience: 'admins',
+        widgets: [
+          { widget: 'open', open: { title: 'Agents — this month', explanation: 'Every active agent: licence, active listings in Pakenham and Officer, sales value this month, average email response', sql: taught, viz: 'table', rows_are: 'agents', columns: [{ key: 'sales_value', label: 'Sales this month', format: 'money' }] } },
+          { widget: 'open', open: { title: 'Agency totals', explanation: 'Sales value this month and active listings, whole agency', sql: totals, viz: 'figures', columns: [{ key: 'sales_value', label: 'Sales this month', format: 'money' }, { key: 'active_listings', label: 'Active listings', format: 'number' }] } },
+        ],
+        coverage: [
+          { asked: 'agent names', shown_in: 'Agents — this month' }, { asked: 'licence numbers', shown_in: 'Agents — this month' },
+          { asked: 'active listings in Pakenham and Officer', shown_in: 'Agents — this month' }, { asked: 'sales value this month', shown_in: 'Agency totals' },
+          { asked: 'average lead response time', shown_in: 'Agents — this month' }, { asked: 'commission earned', shown_in: null },
+        ],
+      }));
+      const card = await getProposedAction(t, owner, id);
+      const words = card.card.lines.map((l) => `${l.label}: ${l.value}`).join(' | ');
+      assert(/Sales this month: \$1,450,000 · Active listings: 3/.test(words), `figures on the card: ${words}`);
+      assert(/You asked for: commission earned: Not held/.test(words) && /You asked for: licence numbers: Shown in “Agents — this month”/.test(words), `coverage: ${words}`);
+      return 'a1 2049182 · 1 active · $900,000 + 1 undisclosed · 60 min · 1 unanswered; a2 1 · $550,000 · none answered (2); B and last month left out; a2 sees the same row; the fanned-out query gives ' + naiveA1 + '; a doubled per-agent tile refused; card: totals $1,450,000 / 3 active + 6 coverage lines';
+    }),
+  );
+
   await check('the parser in front, the log and the hourly cap', async () =>
     inRollback(async (t) => {
       const { a } = await openFixture(t);
@@ -7903,7 +8021,8 @@ async function main() {
       const as = (who: 'a1' | 'owner') => ({ db: t, actor: A.actor(who), now: new Date(), timeZone: tz });
       assert((await renderWidget(as('a1'), { widget: 'sold_value', params: {} })).state === 'no_access', 'an agent saw Sold value');
       // Every widget runs against the real schema, every range, as an owner and as an agent.
-      for (const widget of WIDGET_IDS.filter((w) => w !== 'custom')) {
+      // custom and open tiles carry a spec or a query of their own; they have their own checks.
+      for (const widget of WIDGET_IDS.filter((w) => w !== 'custom' && w !== 'open')) {
         for (const range of WIDGET_RANGES) {
           const params = widget === 'listings_by_status' ? {} : { range };
           for (const who of ['owner', 'a1'] as const) {
@@ -10480,6 +10599,55 @@ async function main() {
     assert(misses.length <= 2, `${misses.length} of ${DASHBOARD_EVALS.length} missed:\n${misses.join('\n')}`);
     return `${results.length}/${DASHBOARD_EVALS.length} as expected${misses.length ? `; missed: ${misses.join(' | ')}` : ''}`;
   });
+
+  // Its own group, so this one paid check can be run alone: SMOKE_ONLY="Many parts, live" pnpm smoke:ai.
+  group('Many parts, live AI (ADR 0044)');
+  await check('assistant (live): a request of many parts becomes one dashboard — every item accounted for, the figures right (ADR 0044)', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    const ROLLBACK = new Error('smoke rollback');
+    let summary = '';
+    try {
+      await db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        const { a } = await complexFixture(t);
+        const owner = a.actor('owner');
+        const request = {
+          message: 'Show me a dashboard with agent names, their licence numbers, active listings in Pakenham and Officer, total sales value this month, and their average lead response time, all grouped together. Also show commission earned.',
+          timeZone: 'Australia/Melbourne',
+        };
+        const deps = assistantDeps(t, owner, request, 'agency');
+        const calls: { name: string; input: Record<string, unknown>; isError: boolean }[] = [];
+        const runTool = deps.runTool;
+        deps.runTool = async (h, name, input, proposal) => {
+          const out = await runTool(h, name, input, proposal);
+          calls.push({ name, input: input as Record<string, unknown>, isError: Boolean(out.isError) });
+          return out;
+        };
+        const events: AssistantEvent[] = [];
+        for await (const ev of runAssistantTurn({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), deps, request, surface: 'agency' })) events.push(ev);
+        assert(!events.some((e) => e.type === 'error'), `the turn failed: ${JSON.stringify(events.find((e) => e.type === 'error'))}`);
+        const made = calls.find((c) => c.name === 'create_dashboard' && !c.isError);
+        assert(made, `no dashboard card: ${calls.map((c) => `${c.name}${c.isError ? '(refused)' : ''}`).join(', ')}`);
+        const coverage = (made!.input.coverage as { asked: string; shown_in: string | null }[] | undefined) ?? [];
+        assert(coverage.length >= 5 && coverage.some((c) => c.shown_in === null && /commission/i.test(c.asked)), `coverage: ${JSON.stringify(coverage)}`);
+        // Whatever the model wrote, the tile showing licences must hold the hand-worked figures for a1.
+        const opens = ((made!.input.widgets as { widget: string; open?: { sql: string } }[]) ?? []).filter((w) => w.widget === 'open' && w.open);
+        const rows: OpenCell[][] = [];
+        for (const w of opens) {
+          const r = await runOpenQuery(t, owner, w.open!.sql, { mode: 'person', via: 'tile' });
+          if (r.ok) rows.push(...r.rows);
+        }
+        const a1 = rows.find((r) => r.includes('2049182'));
+        assert(a1 && a1.includes(900000) && a1.includes(60) && a1.includes(1), `a1's row: ${JSON.stringify(a1)}; tiles: ${opens.length}`);
+        summary = `${calls.length} tool calls (${calls.filter((c) => c.name === 'query_data').length} queries); ${opens.length} open tiles; coverage ${coverage.length} items, commission not held; a1 ${JSON.stringify(a1)}`;
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    return summary;
+  });
+  group('AI property chat');
 
   await check('a specific brief searches the right suburb', async () => {
     if (!webUp) skip('web app is not running');

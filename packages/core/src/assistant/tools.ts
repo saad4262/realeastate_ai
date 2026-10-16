@@ -44,7 +44,7 @@ import {
 import { listColleagues } from '../team-messages/messages';
 import { agencyTimeZone, renderWidget } from '../widgets/registry';
 import { recordDataGap } from '../semantic';
-import { dataDictionary, missingAgents, OPEN_QUERY_LIMITS, runOpenQuery, seesWholeTeam } from '../open-query';
+import { agentsNamedTwice, dataDictionary, missingAgents, OPEN_QUERY_LIMITS, runOpenQuery, seesWholeTeam } from '../open-query';
 import { listConversationCards } from './card-updates';
 import { findListings, proposeAssignLead, proposeCancelTask, proposeCreateContact, proposeCreateLead, proposeCreateReminder, proposeInviteAgent, proposeSetLeadStatus } from './crm-tools';
 import { proposeCreateListingDraft, proposeSubmitListing, proposeUpdateListing, proposeWithdrawListing } from './listing-tools';
@@ -819,12 +819,16 @@ async function showWidget(ctx: ToolContext, input: z.infer<typeof ASSISTANT_TOOL
     { db: ctx.db, actor: ctx.actor, now: ctx.now, timeZone },
     { widget: input.widget, params: widgetChoiceParams(input) },
   );
+  // ADR 0044 C: an open tile that does not hold (fan-out, a broken query, someone left out) goes back to be fixed.
+  const open = tile.state === 'ok' && tile.data.kind === 'open' ? tile.data : null;
+  const fix = open?.problem ? open.problem : open?.missing.length ? `These active agents are not in it: ${open.missing.join(', ')}. Start FROM agents and LEFT JOIN the rest.` : null;
   return {
     label,
     frame: { kind: 'widget', tile },
     result: {
-      shown: tile.state === 'ok',
+      shown: tile.state === 'ok' && !open?.problem,
       title: tile.description,
+      ...(fix ? { problem: fix, next: 'Correct the query with query_data, then show it again.' } : {}),
       ...(tile.state === 'no_access' ? { tell_the_user: 'This figure is for owners and admins only.' } : {}),
       ...(tile.state === 'too_slow' ? { tell_the_user: 'That took too long to work out — suggest a shorter period.' } : {}),
       note: 'The figures are on screen beside your answer. Do not state or estimate any number yourself.',
@@ -869,6 +873,8 @@ async function queryData(ctx: ToolContext, input: z.infer<typeof ASSISTANT_TOOL_
     };
   }
   const missing = res.truncated ? [] : await missingAgents(ctx.db, ctx.actor, res.columns, res.rows);
+  // ADR 0044 C: the same agent on two rows. Fine for a list of leads; in a per-agent view it means multiplied figures.
+  const twice = agentsNamedTwice(res.columns, res.rows);
   const shown = res.rows.slice(0, OPEN_QUERY_LIMITS.rowsToModel);
   return {
     label: step,
@@ -882,6 +888,9 @@ async function queryData(ctx: ToolContext, input: z.infer<typeof ASSISTANT_TOOL_
       ...(res.rowCount > shown.length ? { rows_shown_to_you: shown.length } : {}),
       ...(missing.length
         ? { active_agents_not_in_result: missing.map((m) => m.name), hint: 'If this is meant to list every agent, start FROM agents and LEFT JOIN the rest so everyone appears.' }
+        : {}),
+      ...(twice.length
+        ? { agents_on_more_than_one_row: twice.slice(0, 10), fan_out_check: 'If this is meant to be one row per agent, two activities were joined in one FROM and the figures are multiplied: aggregate each activity per agent in its own CTE, then LEFT JOIN the CTEs onto agents.' }
         : {}),
     },
   };

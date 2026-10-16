@@ -36,7 +36,7 @@ const VIZ_SHAPES: Record<Viz, PreviewShape> = {
   columns: 'columns',
 };
 
-const OPEN_SHAPES: Record<OpenViz, PreviewShape> = { number: 'figure', table: 'table', bar: 'bars', line: 'line', donut: 'donut' };
+const OPEN_SHAPES: Record<OpenViz, PreviewShape> = { number: 'figure', figures: 'figure', table: 'table', bar: 'bars', line: 'line', donut: 'donut' };
 
 /** One stored widget (`dashboard.widgets[i]`) as its preview. Anything unreadable falls back to a plain figure. */
 export function widgetPreview(ref: unknown): WidgetPreview {

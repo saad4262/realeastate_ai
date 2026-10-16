@@ -9,7 +9,8 @@ import { parse } from 'libpg-query';
  * file is wrong — which is exactly what the smoke suite tests by switching it off.
  */
 
-export const QUERY_MAX_CHARS = 4000;
+/** Room for a request of many parts in one view (ADR 0044 E): a cap on size, not one of the locks. */
+export const QUERY_MAX_CHARS = 12000;
 
 /** Node kinds a read query is made of. Anything else — a write, a lock, a parameter, XMLTABLE, TABLESAMPLE — is refused. */
 const NODES = new Set([
@@ -17,7 +18,7 @@ const NODES = new Set([
   'FuncCall', 'TypeCast', 'TypeName', 'A_Expr', 'BoolExpr', 'NullTest', 'BooleanTest', 'CaseExpr', 'CaseWhen',
   'CoalesceExpr', 'MinMaxExpr', 'SubLink', 'RangeVar', 'RangeSubselect', 'RangeFunction', 'JoinExpr', 'Alias',
   'SortBy', 'WindowDef', 'WithClause', 'CommonTableExpr', 'List', 'A_ArrayExpr', 'A_Indirection', 'A_Indices',
-  'RowExpr', 'SQLValueFunction', 'GroupingSet', 'CollateClause',
+  'RowExpr', 'SQLValueFunction', 'GroupingSet', 'CollateClause', 'NamedArgExpr',
 ]);
 
 /** Functions a figure may use: aggregates, windows, dates, maths, text, arrays. Nothing with a side effect or a view of the server. */
@@ -30,16 +31,17 @@ export const ALLOWED_FUNCTIONS = new Set([
   // dates and times
   'now', 'date_trunc', 'date_part', 'extract', 'age', 'to_char', 'to_date', 'to_timestamp', 'make_date', 'make_interval',
   'make_timestamp', 'make_timestamptz', 'date_bin', 'timezone', 'justify_days', 'justify_hours', 'justify_interval', 'isfinite',
-  'generate_series', 'overlaps',
+  'generate_series', 'overlaps', 'date', 'date_add', 'date_subtract',
   // maths
   'round', 'floor', 'ceil', 'ceiling', 'abs', 'trunc', 'mod', 'power', 'sqrt', 'sign', 'div', 'width_bucket', 'greatest', 'least',
-  'to_number',
+  'to_number', 'num_nulls', 'num_nonnulls',
   // text
   'lower', 'upper', 'initcap', 'length', 'char_length', 'character_length', 'trim', 'btrim', 'ltrim', 'rtrim', 'substr',
   'substring', 'left', 'right', 'concat', 'concat_ws', 'replace', 'split_part', 'position', 'strpos', 'lpad', 'rpad',
   'starts_with', 'format', 'regexp_replace', 'regexp_match', 'regexp_like', 'translate', 'like_escape', 'nullif',
   // arrays
   'array_length', 'cardinality', 'unnest', 'array_to_string', 'array_position', 'array_remove', 'array_append', 'array_cat',
+  'array_upper', 'array_lower', 'string_to_array', 'array_prepend',
 ]);
 
 /** Casts a query may make: plain values only (a `regclass` or `regproc` cast would look into the catalog). */
