@@ -1,4 +1,8 @@
 # Status
+- **Console assistant answers showed raw Markdown (`**`, `- `) — fixed 2026-10-16 on `feat/dashboard-update`, committed.**
+  The answer went into one pre-wrap div. Now `components/assistant/rich-text.tsx` renders it through the shared
+  `@repo/core/markdown` parser (the web chat's): paragraphs, lists, bold/italic/code, heading lines. React elements only,
+  no HTML. Lint 0 errors, unit green, console build OK. TEST-PLAN **BA**.
 - **Console sign-out did nothing — fixed 2026-10-16, pushed with the user's go (with ADR 0047 and the map fix).**
   `/sign-out` was a Server Component page: `signOut()` could not write cookies, the throw was swallowed by `setAll`'s
   catch, the session survived and /login bounced back in (production checked with the Harbour test owner: 0 cookies

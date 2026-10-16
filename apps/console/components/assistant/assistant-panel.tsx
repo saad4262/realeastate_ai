@@ -12,6 +12,7 @@ import {
 import type { ProposalView } from '@repo/core/assistant';
 import type { Turn } from './use-assistant';
 import { Tile } from '../dashboards/tile';
+import { RichText } from './rich-text';
 import { UploadForm } from '../imports/upload-form';
 import { SheetImport } from '../imports/sheet-import';
 import styles from './assistant-panel.module.css';
@@ -55,7 +56,7 @@ export function TurnList({ turns, surface }: { turns: Turn[]; surface: Surface }
           {t.answer ? (
             <div className={styles.answer}>
               <div className={styles.label}>Written by the assistant</div>
-              {t.answer}
+              <RichText text={t.answer} />
             </div>
           ) : null}
           {t.frames.map((f, i) => (

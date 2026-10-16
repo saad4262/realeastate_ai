@@ -1390,3 +1390,11 @@ Both consoles (agency.* and agents.*), after the deploy.
 | AZ2 | Sign in again | Works; the console opens normally. |
 | AZ3 | Signed in as A, open B's invite link → "Sign out and accept as …" | Signed out, back on the invite page, signed out (no loop into A's console). |
 | AZ4 | Hover/scroll past the logout icon, wait | Still signed in — nothing signs out without a press. |
+
+## BA — The console assistant's answers read as formatted text (2026-10-16)
+
+| # | Case | Expected |
+|---|---|---|
+| BA1 | Ask "arrange a zoom meeting with <agent>", answer "yes" | The follow-up shows a sentence, then a bulleted list with **Day and time:**, **Length:** and **Title or agenda:** in bold. No `**` or `- ` characters show. |
+| BA2 | Ask something that gets a numbered answer | A numbered list, evenly spaced. |
+| BA3 | Watch an answer stream in | Text appears as it arrives; a half-written `**` shows briefly and then becomes bold. |
