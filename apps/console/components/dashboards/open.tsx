@@ -61,11 +61,11 @@ function Table({ data, compact }: { data: OpenData; compact: boolean }) {
             <tr key={n}>
               {cols.map(({ c, i }, j) =>
                 j === 0 ? (
-                  <th key={c.key} scope="row">
+                  <th key={c.key} scope="row" data-label={c.label}>
                     {show(r[i] ?? null, c, data.timeZone)}
                   </th>
                 ) : (
-                  <td key={c.key} className={c.format === 'text' || c.format === 'list' ? styles.openText : undefined}>
+                  <td key={c.key} data-label={c.label} className={c.format === 'text' || c.format === 'list' ? styles.openText : undefined}>
                     {show(r[i] ?? null, c, data.timeZone)}
                   </td>
                 ),

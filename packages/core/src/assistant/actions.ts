@@ -30,7 +30,7 @@ import { approveBatch, cancelBatch, classifyRecipients, storePreparedBatch } fro
 import { sendBatch, type TemplateSendDeps } from '../template-email/send';
 import { TemplateEmailError } from '../template-email/templates';
 import { checkEmailLimits, emailLimitsFromEnv, type TemplateLimits } from '../email/limits';
-import { createDashboard, DashboardError } from '../dashboards';
+import { createDashboard, DashboardError, updateDashboard } from '../dashboards';
 import { PROVIDERS, type IntegrationProvider } from '../integrations/providers';
 import type { ActivityKind } from '../contacts/contact-schema';
 import { AssistantError } from './conversations';
@@ -104,7 +104,24 @@ export type FrozenArgs =
    */
   | { tool: 'send_template_email'; part: { n: number; of: number; list: string }; templateId: string; contactIds: string[]; gapHours: number }
   /** ADR 0027: the dashboard as it will be saved — registry ids and parsed params only. */
-  | { tool: 'create_dashboard'; title: string; widgets: { widget: string; params: Record<string, unknown> }[]; audience: 'private' | 'admins' | 'agency' }
+  | {
+      tool: 'create_dashboard';
+      title: string;
+      widgets: { widget: string; params: Record<string, unknown> }[];
+      audience: 'private' | 'admins' | 'agency';
+      /** ADR 0047: absent on cards made before colours existed. */
+      theme?: { colors: string[] } | null;
+    }
+  /** ADR 0047: only what the card showed changing; `expectedUpdatedAt` = the dashboard as the card saw it. */
+  | {
+      tool: 'update_dashboard';
+      dashboardId: string;
+      expectedUpdatedAt: string;
+      title?: string;
+      widgets?: { widget: string; params: Record<string, unknown> }[];
+      audience?: 'private' | 'admins' | 'agency';
+      theme?: { colors: string[] } | null;
+    }
   /** Owners/admins: give these contacts to `to`. `from` = who held each when the card was made. */
   | { tool: 'assign_contacts'; to: string; contactIds: string[]; from: Record<string, string | null> }
   /** Consent for these contacts, with the person's words for how they agreed. */
@@ -497,7 +514,13 @@ async function execute(
     }
     case 'create_dashboard': {
       // createDashboard asks dashboard:create (owner/admin) again and re-parses every widget.
-      const { id } = await createDashboard(tx, actor, { title: args.title, widgets: args.widgets as never, audience: args.audience });
+      const { id } = await createDashboard(tx, actor, { title: args.title, widgets: args.widgets as never, audience: args.audience, theme: args.theme ?? null });
+      return { result: { dashboardId: id } };
+    }
+    case 'update_dashboard': {
+      // updateDashboard asks dashboard:manage again, refuses a dashboard changed since the card, and re-parses every widget.
+      const { dashboardId, expectedUpdatedAt, tool: _tool, ...change } = args;
+      const { id } = await updateDashboard(tx, actor, dashboardId, change as never, { expectedUpdatedAt });
       return { result: { dashboardId: id } };
     }
     case 'assign_contacts': {

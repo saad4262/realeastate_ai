@@ -101,6 +101,26 @@ largest single win in this repo. If Material Symbols is wanted anyway the axes
 must be pinned (`@20..24,400,0..1,0`), and it is a whole font on the critical
 path of a site that today loads no icons at all.
 
+### Dashboards: colour, layout and tables (ADR 0047)
+
+Rules for anything drawn on a dashboard or a Project (`apps/console/components/dashboards`):
+
+- **No chart colour is written in a component.** Series colours are `SERIES` in `charts.tsx`, and
+  each is `var(--chart-N, <console default>)`. A dashboard that has colours (`dashboard.theme`, set
+  only when the person named some) sets `--chart-1…6` on its root (`theme.ts`). Without one, the
+  fallbacks give the console's palette. A new chart reads `--chart-N` too. Semantic colours (up/down,
+  the live dot, warnings) stay fixed and are never themed.
+- **Wide content takes the whole row.** A tile whose figures are a table, a row of headline figures
+  or a line over time is marked `data-wide` and spans the grid (`grid-column: 1 / -1`). Do not squeeze
+  a table into a 17 rem column. The grid is `minmax(min(100%, 17rem), 1fr)`, so the narrowest phone
+  gets one column and never a sideways page.
+- **A table has a phone layout, not just a scrollbar.** Every body cell carries `data-label` (its
+  column's label). Under 640 px each row becomes a block: its name first, then "label … value"
+  lines. The header row stays for screen readers. A new table in a tile uses `.table` and labels its
+  cells. Numbers are right-aligned and `tabular-nums`.
+- **Hierarchy is fixed:** eyebrow (accent) → title → "times on the agency's clock" line → tiles (title
+  over a hairline, then the figure) → reports. Do not add a second visual language per tile.
+
 ### The island rule
 
 When a mostly-static component needs one interactive control, extract the

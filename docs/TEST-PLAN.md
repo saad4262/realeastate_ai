@@ -1352,3 +1352,18 @@ On production after the deploy, both consoles and the public site's account page
 | AW3 | Sign out in one tab, then click in another | That tab is sent to /login on its next navigation (the cookies are gone). |
 | AW4 | Owner removes an agent (Agents & Team → Remove) while the agent's tab is open; the agent clicks | Refused at once by the console (membership from our database), even though their token has not expired. |
 | AW5 | Public site: `/account` signed in, `/` and `/search` signed out | Account pages work; `/` and `/search` still have no session layer (`x-web-session` absent). |
+
+## AX — A project is changed in the chat that made it; colours; tables on a phone (ADR 0047)
+
+Owner or admin on agency.*, after migration 0055 is applied and the deploy is Ready.
+
+| # | Case | Expected |
+|---|---|---|
+| AX1 | New chat: "make a dashboard of new leads this week and listings by status". Approve the card | One project in Projects. |
+| AX2 | Same chat: "add sales this month to it and rename it Weekly board" | Card title "Change the dashboard “…”" with Tiles now / Tiles after. Approve, open the link: the SAME project (same URL) shows 3 tiles and the new title. Projects still has one card for it, not two. |
+| AX3 | Same chat: "make it navy and gold" | Card shows Colours: The console’s own → #…, #…. After Approve: eyebrow square, bars, lines and rings use navy first, then gold. Live dot and up/down badges keep their usual colours. |
+| AX4 | Same chat: "make it pale yellow" | The assistant says the colour is too pale and offers a deeper shade. No card. |
+| AX5 | Same chat: "make another separate dashboard of appointments" | A second create card (separate). Approving it adds a second project. |
+| AX6 | NEW chat: "change the Weekly board" | The assistant says a dashboard is changed in the chat that made it and offers to make a new one here. No change card. |
+| AX7 | Open a project with a table tile (e.g. per-agent open question) on a phone (≤ 640 px, or DevTools) | No sideways scroll on the page. Each row is a block: name on top, then "label … value" lines. On desktop the table tile spans the full width. |
+| AX8 | Leave the full-screen dashboard open in a tab, then approve a change (AX2/AX3) | Within a minute the open tab shows the new title and colours, with no reload. |

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agency, dashboard, type Db, type DbOrTx } from '@repo/db';
+import { agency, dashboard, proposedAction, type Db, type DbOrTx } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { renderWidget, WIDGETS, widgetRefSchema, type WidgetRef, type WidgetTile } from '../widgets/registry';
 import { widgetPreview, type WidgetPreview } from './preview';
@@ -16,7 +16,7 @@ export { PREVIEW_SHAPES, widgetPreview, type PreviewShape, type WidgetPreview } 
 
 export class DashboardError extends Error {
   constructor(
-    readonly code: 'forbidden' | 'not_found' | 'invalid',
+    readonly code: 'forbidden' | 'not_found' | 'invalid' | 'conflict',
     message: string,
   ) {
     super(message);
@@ -37,21 +37,84 @@ export const AUDIENCE_LABELS: Record<DashboardAudience, string> = {
 /** The longest dashboard worth a TV screen. */
 export const MAX_WIDGETS = 12;
 
+/** Colours a person may give one dashboard (ADR 0047): the first is its accent, the rest its charts' series. */
+export const MAX_THEME_COLORS = 6;
+
+/** WCAG contrast of a #rrggbb colour against a white card. */
+export function contrastOnWhite(hex: string): number {
+  const channel = (i: number) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const l = 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+  return 1.05 / (l + 0.05);
+}
+
+/** Below this a bar or a line on a white card cannot be told from the card. */
+export const MIN_THEME_CONTRAST = 1.5;
+
+export const dashboardThemeSchema = z
+  .object({
+    colors: z
+      .array(
+        z
+          .string()
+          .trim()
+          .regex(/^#[0-9a-f]{6}$/i, 'A colour is written #RRGGBB')
+          .transform((c) => c.toLowerCase()),
+      )
+      .min(1)
+      .max(MAX_THEME_COLORS),
+  })
+  .strict()
+  .superRefine((v, ctx) => {
+    v.colors.forEach((c, i) => {
+      if (contrastOnWhite(c) < MIN_THEME_CONTRAST) ctx.addIssue({ code: 'custom', path: ['colors', i], message: `${c} is too pale to see on a white card — choose a deeper shade` });
+    });
+  });
+export type DashboardTheme = z.output<typeof dashboardThemeSchema>;
+
+/** A stored theme, or null when it is absent or no longer valid — never a crash on read. */
+function readTheme(raw: unknown): DashboardTheme | null {
+  const parsed = dashboardThemeSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
+function refineWidgets(widgets: { widget: keyof typeof WIDGETS; params?: unknown }[], ctx: z.RefinementCtx) {
+  widgets.forEach((w, i) => {
+    const def = WIDGETS[w.widget];
+    const ok = def.params.safeParse(w.params ?? {});
+    if (!ok.success) ctx.addIssue({ code: 'custom', path: ['widgets', i, 'params'], message: `Not a valid setting for ${def.title}` });
+  });
+}
+
 export const createDashboardSchema = z
   .object({
     title: z.string().trim().min(1, 'Give it a title').max(80),
     widgets: z.array(widgetRefSchema).min(1).max(MAX_WIDGETS),
     audience: z.enum(DASHBOARD_AUDIENCES).default('admins'),
+    theme: dashboardThemeSchema.nullable().default(null),
+  })
+  .strict()
+  .superRefine((v, ctx) => refineWidgets(v.widgets, ctx));
+export type CreateDashboardInput = z.input<typeof createDashboardSchema>;
+
+/** ADR 0047: only what changes. `theme: null` goes back to the console's palette. */
+export const updateDashboardSchema = z
+  .object({
+    title: z.string().trim().min(1, 'Give it a title').max(80).optional(),
+    widgets: z.array(widgetRefSchema).min(1).max(MAX_WIDGETS).optional(),
+    audience: z.enum(DASHBOARD_AUDIENCES).optional(),
+    theme: dashboardThemeSchema.nullable().optional(),
   })
   .strict()
   .superRefine((v, ctx) => {
-    v.widgets.forEach((w, i) => {
-      const def = WIDGETS[w.widget];
-      const ok = def.params.safeParse(w.params ?? {});
-      if (!ok.success) ctx.addIssue({ code: 'custom', path: ['widgets', i, 'params'], message: `Not a valid setting for ${def.title}` });
-    });
+    if (v.widgets) refineWidgets(v.widgets, ctx);
+    if (v.title === undefined && v.widgets === undefined && v.audience === undefined && v.theme === undefined) {
+      ctx.addIssue({ code: 'custom', message: 'Nothing to change' });
+    }
   });
-export type CreateDashboardInput = z.input<typeof createDashboardSchema>;
+export type UpdateDashboardInput = z.input<typeof updateDashboardSchema>;
 
 function resource(d: { id: string; agencyId: string; createdBy: string | null; audience: string }) {
   return {
@@ -73,9 +136,99 @@ export async function createDashboard(db: DbOrTx, actor: Actor, input: CreateDas
   const widgets: WidgetRef[] = parsed.data.widgets.map((w) => ({ widget: w.widget, params: WIDGETS[w.widget].params.parse(w.params ?? {}) }));
   const [row] = await db
     .insert(dashboard)
-    .values({ agencyId: actor.agencyId, createdBy: actor.userId, title: parsed.data.title, widgets, audience: parsed.data.audience })
+    .values({ agencyId: actor.agencyId, createdBy: actor.userId, title: parsed.data.title, widgets, audience: parsed.data.audience, theme: parsed.data.theme })
     .returning({ id: dashboard.id });
   return { id: row!.id };
+}
+
+/**
+ * ADR 0047: change one. Its creator or an admin (`dashboard:manage`), asked again here. With
+ * `expectedUpdatedAt` (the card's), a dashboard changed since the card was made is refused rather
+ * than overwritten. Each widget's params are re-parsed by its own schema, as on create.
+ */
+export async function updateDashboard(
+  db: DbOrTx,
+  actor: Actor,
+  id: string,
+  input: UpdateDashboardInput,
+  opts: { expectedUpdatedAt?: string } = {},
+): Promise<{ id: string }> {
+  const row = await loadReadable(db, actor, id);
+  if (!can(actor, 'dashboard:manage', resource(row))) throw new DashboardError('forbidden', 'Only its creator or an admin can change this dashboard');
+  if (opts.expectedUpdatedAt && new Date(row.updatedAt).toISOString() !== new Date(opts.expectedUpdatedAt).toISOString()) {
+    throw new DashboardError('conflict', 'This dashboard was changed after the card was made. Ask again to see it as it is now.');
+  }
+  const parsed = updateDashboardSchema.safeParse(input);
+  if (!parsed.success) throw new DashboardError('invalid', parsed.error.issues[0]?.message ?? 'Check the dashboard');
+  const { title, widgets, audience, theme } = parsed.data;
+  await db
+    .update(dashboard)
+    .set({
+      ...(title !== undefined ? { title } : {}),
+      ...(widgets !== undefined ? { widgets: widgets.map((w) => ({ widget: w.widget, params: WIDGETS[w.widget].params.parse(w.params ?? {}) })) } : {}),
+      ...(audience !== undefined ? { audience } : {}),
+      ...(theme !== undefined ? { theme } : {}),
+      updatedAt: sql`now()`,
+    })
+    .where(eq(dashboard.id, row.id));
+  return { id: row.id };
+}
+
+export type ChatDashboard = {
+  id: string;
+  title: string;
+  audience: DashboardAudience;
+  widgets: WidgetRef[];
+  theme: DashboardTheme | null;
+  /** ISO, for a card's "unchanged since" check. */
+  updatedAt: string;
+  mayManage: boolean;
+};
+
+/**
+ * ADR 0047: the dashboards THIS conversation saved — the ones its approved create_dashboard cards
+ * made, newest first, still open, and readable by this person. A dashboard belongs to the chat that
+ * made it; a new chat makes a new one. One statement.
+ */
+export async function chatDashboards(db: DbOrTx, actor: Actor, conversationId: string): Promise<ChatDashboard[]> {
+  if (!actor.agencyId) return [];
+  const rows = await db
+    .select({
+      id: dashboard.id,
+      agencyId: dashboard.agencyId,
+      createdBy: dashboard.createdBy,
+      title: dashboard.title,
+      widgets: dashboard.widgets,
+      audience: dashboard.audience,
+      theme: dashboard.theme,
+      updatedAt: dashboard.updatedAt,
+    })
+    .from(proposedAction)
+    .innerJoin(dashboard, sql`${dashboard.id}::text = ${proposedAction.result}->>'dashboardId'`)
+    .where(
+      and(
+        eq(proposedAction.conversationId, conversationId),
+        eq(proposedAction.userId, actor.userId),
+        eq(proposedAction.agencyId, actor.agencyId),
+        eq(proposedAction.tool, 'create_dashboard'),
+        eq(proposedAction.status, 'done'),
+        eq(dashboard.agencyId, actor.agencyId),
+        isNull(dashboard.archivedAt),
+      ),
+    )
+    .orderBy(desc(proposedAction.finishedAt))
+    .limit(20);
+  return rows
+    .filter((d) => can(actor, 'dashboard:read', resource(d)))
+    .map((d) => ({
+      id: d.id,
+      title: d.title,
+      audience: d.audience as DashboardAudience,
+      widgets: (Array.isArray(d.widgets) ? d.widgets : []) as WidgetRef[],
+      theme: readTheme(d.theme),
+      updatedAt: new Date(d.updatedAt).toISOString(),
+      mayManage: can(actor, 'dashboard:manage', resource(d)),
+    }));
 }
 
 export type DashboardSummary = {
@@ -121,7 +274,9 @@ async function loadReadable(db: DbOrTx, actor: Actor, id: string) {
       title: dashboard.title,
       widgets: dashboard.widgets,
       audience: dashboard.audience,
+      theme: dashboard.theme,
       archivedAt: dashboard.archivedAt,
+      updatedAt: dashboard.updatedAt,
       timeZone: agency.timeZone,
     })
     .from(dashboard)
@@ -138,6 +293,8 @@ export type DashboardData = {
   title: string;
   audience: DashboardAudience;
   timeZone: string;
+  /** ADR 0047: the colours the person asked for, or null for the console's palette. */
+  theme: DashboardTheme | null;
   tiles: WidgetTile[];
   /** How often the page asks again: the shortest of its widgets', never under 30 s. */
   refreshSeconds: number;
@@ -158,12 +315,15 @@ export async function getDashboardData(db: DbOrTx, actor: Actor, id: string, now
   const tiles: WidgetTile[] = [];
   for (const ref of refs) tiles.push(await renderWidget({ db, actor, now, timeZone: row.timeZone }, ref, { detail: true }));
   const refreshSeconds = Math.max(30, Math.min(...tiles.map((t) => t.refreshSeconds), 60));
-  const version = createHash('sha1').update(JSON.stringify(tiles)).digest('hex').slice(0, 16);
+  const theme = readTheme(row.theme);
+  // The title and colours are in the hash too: a board left up on a wall picks up a change made in its chat.
+  const version = createHash('sha1').update(JSON.stringify({ title: row.title, theme, tiles })).digest('hex').slice(0, 16);
   return {
     id: row.id,
     title: row.title,
     audience: row.audience as DashboardAudience,
     timeZone: row.timeZone,
+    theme,
     tiles,
     refreshSeconds,
     version,

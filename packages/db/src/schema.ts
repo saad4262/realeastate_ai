@@ -2166,6 +2166,8 @@ export const dashboard = pgTable(
     widgets: jsonb('widgets').notNull(),
     /** `private` (its creator), `admins` (owners and admins), `agency` (every active member). */
     audience: varchar('audience', { length: 16 }).notNull().default('admins'),
+    /** ADR 0047: `{ colors: ['#RRGGBB', …] }` when the person asked for colours; null = the console's palette. */
+    theme: jsonb('theme'),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     ...timestamps,
   },

@@ -1,3 +1,14 @@
+## 2026-10-16 — Claude Code — ADR 0047: change a project in the chat that made it (branch feat/dashboard-update)
+
+- The user (Roman Urdu): asking the console assistant to update a project made a NEW one. They want: changes in the
+  same chat go to the same project, a new chat makes a new project, colours when asked (else ours), tables properly
+  responsive and the design organised. At first I took this for Claude's own artifacts and saved two memories. The
+  code showed only `create_dashboard` existed, so I corrected course and rewrote the memories.
+- Link chat → dashboard without a column: the done `create_dashboard` card's `result.dashboardId` in that conversation.
+- Migration 0055 written (theme + tool CHECK), NOT applied. The smoke check is written and not run, because it needs 0055.
+- No browser walk: there is no headless browser here. TEST-PLAN AX covers the phone layout and the colours.
+- Next exact step: the user's go to apply 0055 (production DB), run `SMOKE_ONLY="Dashboards" pnpm smoke`, merge, push.
+
 ## 2026-10-16 — Claude Code — ADR 0046 built: the session checked locally (branch feat/session-claims)
 
 - `updateSession` uses `getClaims()`; identity from verified claims. Comments in both middlewares and the console's

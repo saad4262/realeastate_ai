@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DashboardData } from '@repo/core/dashboards';
 import { hasReport, Report } from './report';
+import { themeStyle } from './theme';
 import { Tile } from './tile';
 import styles from './dashboards.module.css';
 
@@ -53,7 +54,7 @@ export function DashboardView({ initial, inboxPath, embedded = false }: { initia
 
   const many = data.tiles.length > 1;
   return (
-    <main className={embedded ? styles.pageEmbedded : styles.page}>
+    <main className={embedded ? styles.pageEmbedded : styles.page} style={themeStyle(data.theme)}>
       <header className={styles.head}>
         <div>
           <div className={styles.eyebrow}>{embedded ? 'Project' : 'Dashboard'}</div>

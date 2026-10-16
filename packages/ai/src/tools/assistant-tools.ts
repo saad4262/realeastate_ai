@@ -94,6 +94,40 @@ const OPEN = {
 } as const;
 const CONTACTS = 'Contact references, e.g. ["C1", "S2"]. 1 to 20 — only the people the person named or asked you to look up. Never names, email addresses or "everyone".';
 
+/** One tile of a dashboard, as create_dashboard and update_dashboard take it. */
+const DASHBOARD_WIDGET = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    widget: { type: 'string', enum: [...WIDGET_IDS] },
+    range: { type: 'string', enum: [...WIDGET_RANGES] },
+    spec: SPEC,
+    open: OPEN,
+  },
+  required: ['widget'],
+} as const;
+
+const DASHBOARD_COVERAGE = {
+  type: 'array',
+  description: 'For a request of several parts: EVERY item the person asked for, in their order, with the title of the tile that shows it — or shown_in null when the account does not hold it. Shown on the card.',
+  items: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      asked: { type: 'string', description: 'The item in a few words, e.g. "licence numbers".' },
+      shown_in: { type: ['string', 'null'], description: 'The exact title of the tile on this dashboard that shows it, or null if not held.' },
+    },
+    required: ['asked', 'shown_in'],
+  },
+} as const;
+
+/** ADR 0047: only when the person named colours. */
+const DASHBOARD_COLORS = {
+  type: 'array',
+  items: { type: 'string', description: 'A colour as #RRGGBB, e.g. #1e3a8a.' },
+  description: 'Only when the person named colours or a brand scheme: 1 to 6 colours as #RRGGBB, the main one first (the rest colour the charts). Leave out otherwise.',
+};
+
 export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze([
   {
     name: 'find_contacts',
@@ -651,43 +685,44 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   },
   {
     name: 'create_dashboard',
-    description: `Propose saving a dashboard: a page of widgets that stays up to date, opened by link — for owners and admins only. Fixed widgets, "custom" tiles built from the catalog (each with its spec), or "open" tiles from queries you ran with query_data (each with open). For a request of several parts, pass coverage. Who can open it: only the person ("private"), owners and admins ("admins", the default), or everyone in the agency ("agency" — each sees only the figures they may). Nobody outside the agency can ever open it. ${PROPOSES}`,
+    description: `Propose saving a dashboard: a page of widgets that stays up to date, opened by link — for owners and admins only. Fixed widgets, "custom" tiles built from the catalog (each with its spec), or "open" tiles from queries you ran with query_data (each with open). For a request of several parts, pass coverage. Who can open it: only the person ("private"), owners and admins ("admins", the default), or everyone in the agency ("agency" — each sees only the figures they may). Nobody outside the agency can ever open it. A chat that already saved a dashboard changes it with update_dashboard instead. ${PROPOSES}`,
     input_schema: {
       type: 'object',
       additionalProperties: false,
       properties: {
         title: { type: 'string', description: 'A short title, e.g. "Sales this week".' },
+        widgets: { type: 'array', items: DASHBOARD_WIDGET, description: '1 to 12 widgets, in the order to show them.' },
+        audience: { type: 'string', enum: ['private', 'admins', 'agency'], description: 'Who can open it. Default admins.' },
+        coverage: DASHBOARD_COVERAGE,
+        colors: DASHBOARD_COLORS,
+        separate: { type: 'boolean', description: 'Only when this chat already saved a dashboard AND the person asked for another, separate one. Otherwise leave it out and use update_dashboard.' },
+      },
+      required: ['title', 'widgets'],
+    },
+  },
+  {
+    name: 'update_dashboard',
+    description: `Propose changing a dashboard THIS chat saved — the same dashboard and link, never a new one: its tiles, title, who can open it, or colours. Pass only what changes. Refused for a dashboard saved in another chat. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        dashboard: { type: 'string', description: 'Only when this chat saved more than one: the exact current title of the one to change. Default: the newest one this chat saved.' },
+        title: { type: 'string', description: 'A new title.' },
         widgets: {
           type: 'array',
           items: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              widget: { type: 'string', enum: [...WIDGET_IDS] },
-              range: { type: 'string', enum: [...WIDGET_RANGES] },
-              spec: SPEC,
-              open: OPEN,
-            },
-            required: ['widget'],
+            anyOf: [
+              { type: 'object', additionalProperties: false, properties: { keep: { type: 'integer', description: 'Keep tile n (counting from 1) exactly as it is.' } }, required: ['keep'] },
+              DASHBOARD_WIDGET,
+            ],
           },
-          description: '1 to 12 widgets, in the order to show them.',
+          description: 'The WHOLE new list of 1 to 12 tiles, in order: { keep: n } for a tile unchanged, or a new or rebuilt tile written in full as for create_dashboard. Leave out to keep the tiles as they are.',
         },
-        audience: { type: 'string', enum: ['private', 'admins', 'agency'], description: 'Who can open it. Default admins.' },
-        coverage: {
-          type: 'array',
-          description: 'For a request of several parts: EVERY item the person asked for, in their order, with the title of the tile that shows it — or shown_in null when the account does not hold it. Shown on the card.',
-          items: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              asked: { type: 'string', description: 'The item in a few words, e.g. "licence numbers".' },
-              shown_in: { type: ['string', 'null'], description: 'The exact title of the tile on this dashboard that shows it, or null if not held.' },
-            },
-            required: ['asked', 'shown_in'],
-          },
-        },
+        audience: { type: 'string', enum: ['private', 'admins', 'agency'], description: 'Who can open it, if that changes.' },
+        colors: { ...DASHBOARD_COLORS, type: ['array', 'null'], description: `${DASHBOARD_COLORS.description} null goes back to the console's own palette.` },
+        coverage: DASHBOARD_COVERAGE,
       },
-      required: ['title', 'widgets'],
     },
   },
   {

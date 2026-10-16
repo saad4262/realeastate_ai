@@ -386,6 +386,13 @@
       "when": 1792126842609,
       "tag": "0054_open_query_licence",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1792151002268,
+      "tag": "0055_dashboard_update",
+      "breakpoints": true
     }
   ]
 }

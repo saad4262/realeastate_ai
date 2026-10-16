@@ -19,13 +19,13 @@ import { MailError } from '../mail/threads';
 import { resolveSender, senderLine } from '../mail/sender';
 import { listColleagues } from '../team-messages/messages';
 import type { messageColleaguesInput, scheduleTeamMeetingInput, sendEmailInput } from './schema';
-import type { addNoteInput, assignContactsInput, removeAgentInput, updateAgentInput, cancelAppointmentInput, recordMarketingConsentInput, setContactArchivedInput, updateContactInput, withdrawMarketingConsentInput, createDashboardInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
+import type { addNoteInput, assignContactsInput, removeAgentInput, updateAgentInput, cancelAppointmentInput, recordMarketingConsentInput, setContactArchivedInput, updateContactInput, withdrawMarketingConsentInput, createDashboardInput, updateDashboardInput, rescheduleAppointmentInput, scheduleAppointmentInput, sendTemplateEmailInput, setNextActionInput } from './schema';
 import { cancelBatch, getBatch, prepareBatch } from '../template-email/batches';
 import { TemplateEmailError } from '../template-email/templates';
 import { SKIP_REASON_LABELS } from '../template-email/schema';
 import { checkEmailLimits, devAllowlistProblem, emailLimitsFromEnv } from '../email/limits';
 import { clashMessage, findClash, findFirstClash, teamClashMessage } from '../appointments/clash';
-import { AUDIENCE_LABELS, createDashboardSchema } from '../dashboards';
+import { AUDIENCE_LABELS, chatDashboards, createDashboardSchema, dashboardThemeSchema, updateDashboardSchema, type ChatDashboard, type DashboardTheme } from '../dashboards';
 import { agencyTimeZone, renderWidget, WIDGETS, type WidgetData, type WidgetId } from '../widgets/registry';
 import type { ToolContext, ToolOutcome } from './tools';
 import {
@@ -496,47 +496,89 @@ function figure(d: WidgetData): string {
   }
 }
 
+type Tile = { widget: string; params: Record<string, unknown> };
+
+/**
+ * Every tile as it will be saved, each worked out once now (SQL, as this person) for the card's
+ * lines. An open tile is saved only if it runs, and only with everybody in it (ADR 0042 Part G).
+ */
+async function checkTiles(ctx: ToolContext, tiles: Tile[]): Promise<{ lines: { label: string; value: string }[] } | { problem: string }> {
+  const { actor, db } = ctx;
+  const timeZone = await agencyTimeZone(db, actor.agencyId!);
+  const lines: { label: string; value: string }[] = [];
+  for (const w of tiles) {
+    const tile = await renderWidget({ db, actor, now: ctx.now, timeZone }, w);
+    if (tile.state === 'ok' && tile.data.kind === 'open') {
+      if (tile.data.problem) return { problem: `The query for “${tile.description}” does not run: ${tile.data.problem} Nothing was proposed.` };
+      if (tile.data.missing.length) {
+        return {
+          problem: `“${tile.description}” is one row per agent, but these active agents are not in it: ${tile.data.missing.join(', ')}. Start FROM agents and LEFT JOIN the rest so everyone appears. Nothing was proposed.`,
+        };
+      }
+      lines.push({ label: tile.description, value: `${figure(tile.data)} (now)` });
+      lines.push({ label: 'How it is worked out', value: tile.data.explanation });
+      continue;
+    }
+    if (tile.state !== 'ok' && w.widget === 'open') {
+      return { problem: `The query for “${tile.description}” could not run just now (${tile.state === 'too_slow' ? 'it took too long — make it simpler' : 'try again'}). Nothing was proposed.` };
+    }
+    lines.push({ label: tile.description, value: tile.state === 'ok' ? `${figure(tile.data)} (now)` : 'Not available' });
+  }
+  return { lines };
+}
+
+/** The colours as the card shows them. */
+function colorsLine(theme: DashboardTheme | null): { label: string; value: string } {
+  return { label: 'Colours', value: theme ? theme.colors.join(', ') : 'The console’s own' };
+}
+
+/** Colours the model passed, checked as core will check them; null when none were asked for. */
+function parseColors(colors: string[] | null | undefined): { theme: DashboardTheme | null } | { problem: string } {
+  if (!colors) return { theme: null };
+  const parsed = dashboardThemeSchema.safeParse({ colors });
+  return parsed.success ? { theme: parsed.data } : { problem: `${parsed.error.issues[0]?.message ?? 'Those colours cannot be used'}. Nothing was proposed.` };
+}
+
+/** This chat's dashboards, or none when there is no conversation (a task plan, a test). */
+async function thisChatsDashboards(ctx: ToolContext): Promise<ChatDashboard[]> {
+  return ctx.proposal ? chatDashboards(ctx.db, ctx.actor, ctx.proposal.conversationId) : [];
+}
+
 /**
  * ADR 0027: save a dashboard, as a card. Owners/admins only. The card lists
  * every widget in plain words with its figure as of now (SQL, as this person),
  * and who will be able to open it. Approve saves it through createDashboard,
  * which asks dashboard:create again; the card then shows its link.
+ *
+ * ADR 0047: one chat, one project — a chat that already saved one changes it with
+ * update_dashboard; a second only with `separate` (the person asked for another).
  */
 export async function proposeCreateDashboard(
   ctx: ToolContext,
   input: z.infer<typeof createDashboardInput>,
   label: string,
 ): Promise<ToolOutcome> {
-  const { actor, db } = ctx;
+  const { actor } = ctx;
   if (!actor.agencyId || !can(actor, 'dashboard:create', { type: 'dashboard', agencyId: actor.agencyId })) {
     return refused('Only an owner or admin can save a dashboard. You can ask to see a figure here instead.', label);
   }
-  const widgets = input.widgets.map((w) => ({ widget: w.widget, params: widgetChoiceParams(w) }));
-  const parsed = createDashboardSchema.safeParse({ title: input.title, widgets, audience: input.audience });
-  if (!parsed.success) return refused(parsed.error.issues[0]?.message ?? 'That dashboard is not valid.', label);
-  const timeZone = await agencyTimeZone(db, actor.agencyId);
-  const lines: { label: string; value: string }[] = [];
-  const frozen: { widget: string; params: Record<string, unknown> }[] = [];
-  for (const w of parsed.data.widgets) {
-    const params = WIDGETS[w.widget].params.parse(w.params ?? {}) as Record<string, unknown>;
-    frozen.push({ widget: w.widget, params });
-    const tile = await renderWidget({ db, actor, now: ctx.now, timeZone }, { widget: w.widget, params });
-    if (tile.state === 'ok' && tile.data.kind === 'open') {
-      // ADR 0042: an open tile is saved only if it runs, and only with everybody in it (Part G).
-      if (tile.data.problem) return refused(`The query for “${tile.description}” does not run: ${tile.data.problem} Nothing was proposed.`, label);
-      if (tile.data.missing.length) {
-        return refused(
-          `“${tile.description}” is one row per agent, but these active agents are not in it: ${tile.data.missing.join(', ')}. Start FROM agents and LEFT JOIN the rest so everyone appears. Nothing was proposed.`,
-          label,
-        );
-      }
-      lines.push({ label: tile.description, value: `${figure(tile.data)} (now)` });
-      lines.push({ label: 'How it is worked out', value: tile.data.explanation });
-      continue;
+  if (!input.separate) {
+    const [existing] = await thisChatsDashboards(ctx);
+    if (existing) {
+      return refused(
+        `This chat already saved the dashboard “${existing.title}”. To change it — tiles, title, who can open it or colours — use update_dashboard. Pass separate: true only if the person asked for another, separate dashboard. Nothing was proposed.`,
+        label,
+      );
     }
-    if (tile.state !== 'ok' && w.widget === 'open') return refused(`The query for “${tile.description}” could not run just now (${tile.state === 'too_slow' ? 'it took too long — make it simpler' : 'try again'}). Nothing was proposed.`, label);
-    lines.push({ label: tile.description, value: tile.state === 'ok' ? `${figure(tile.data)} (now)` : 'Not available' });
   }
+  const colors = parseColors(input.colors);
+  if ('problem' in colors) return refused(colors.problem, label);
+  const widgets = input.widgets.map((w) => ({ widget: w.widget, params: widgetChoiceParams(w) }));
+  const parsed = createDashboardSchema.safeParse({ title: input.title, widgets, audience: input.audience, theme: colors.theme });
+  if (!parsed.success) return refused(parsed.error.issues[0]?.message ?? 'That dashboard is not valid.', label);
+  const frozen: Tile[] = parsed.data.widgets.map((w) => ({ widget: w.widget, params: WIDGETS[w.widget].params.parse(w.params ?? {}) as Record<string, unknown> }));
+  const checked = await checkTiles(ctx, frozen);
+  if ('problem' in checked) return refused(checked.problem, label);
   // ADR 0044 A: every item asked for is on the card — in a tile that is really on this dashboard, or "not held".
   const covered = coverageLines(input.coverage ?? [], frozen.map((w) => describeWidget(w)));
   if (!covered.ok) return refused(covered.problem, label);
@@ -544,15 +586,105 @@ export async function proposeCreateDashboard(
     title: `Save the dashboard “${parsed.data.title}”`,
     contact: { id: '', name: '' },
     lines: [
-      ...lines,
+      ...checked.lines,
       ...covered.lines,
       { label: 'Who can open it', value: AUDIENCE_LABELS[parsed.data.audience] },
+      ...(parsed.data.theme ? [colorsLine(parsed.data.theme)] : []),
       { label: 'Updates', value: 'Every 30–60 seconds while it is open' },
     ],
     notes: [NOTHING_YET, 'Only signed-in members of your agency can open its link; nobody else, ever.'],
   };
-  const args: FrozenArgs = { tool: 'create_dashboard', title: parsed.data.title, widgets: frozen, audience: parsed.data.audience };
+  const args: FrozenArgs = { tool: 'create_dashboard', title: parsed.data.title, widgets: frozen, audience: parsed.data.audience, theme: parsed.data.theme };
   return propose(ctx, label, { tool: 'create_dashboard', args, card, contactId: null });
+}
+
+/**
+ * ADR 0047: change a dashboard THIS chat saved, as a card. The newest one, or the one with that
+ * exact title. Tiles are the whole new list — `{ keep: n }` keeps tile n as it is. The card shows
+ * what changes, before and after; Approve runs updateDashboard, which asks dashboard:manage again
+ * and refuses a dashboard changed since this card was made.
+ */
+export async function proposeUpdateDashboard(
+  ctx: ToolContext,
+  input: z.infer<typeof updateDashboardInput>,
+  label: string,
+): Promise<ToolOutcome> {
+  const { actor } = ctx;
+  if (!actor.agencyId) return refused('Only a member of an agency can change a dashboard.', label);
+  const mine = await thisChatsDashboards(ctx);
+  if (!mine.length) {
+    return refused(
+      'This chat has not saved a dashboard, so there is none to change here. A dashboard is changed in the chat that made it. To make one in this chat, use create_dashboard. Nothing was proposed.',
+      label,
+    );
+  }
+  const norm = (t: string) => t.trim().toLowerCase();
+  const target = input.dashboard ? mine.find((d) => norm(d.title) === norm(input.dashboard!)) : mine[0];
+  if (!target) {
+    return refused(`This chat saved no dashboard called “${input.dashboard}”. It saved: ${mine.map((d) => `“${d.title}”`).join(', ')}. Nothing was proposed.`, label);
+  }
+  if (!target.mayManage) return refused('Only its creator or an admin can change this dashboard.', label);
+
+  const current: Tile[] = target.widgets.map((w) => ({ widget: w.widget, params: (w.params ?? {}) as Record<string, unknown> }));
+  const currentList = current.map((w, i) => `${i + 1}. “${describeWidget(w)}”`).join(', ');
+  let tiles: Tile[] | undefined;
+  if (input.widgets) {
+    tiles = [];
+    for (const w of input.widgets) {
+      if ('keep' in w) {
+        const kept = current[w.keep - 1];
+        if (!kept) return refused(`There is no tile ${w.keep} on “${target.title}”. Its tiles are: ${currentList}. Nothing was proposed.`, label);
+        tiles.push(kept);
+      } else {
+        tiles.push({ widget: w.widget, params: widgetChoiceParams(w) });
+      }
+    }
+  }
+  const colors = input.colors === undefined ? undefined : parseColors(input.colors);
+  if (colors && 'problem' in colors) return refused(colors.problem, label);
+  const parsed = updateDashboardSchema.safeParse({
+    ...(input.title !== undefined && input.title !== target.title ? { title: input.title } : {}),
+    ...(tiles ? { widgets: tiles } : {}),
+    ...(input.audience !== undefined && input.audience !== target.audience ? { audience: input.audience } : {}),
+    ...(colors ? { theme: colors.theme } : {}),
+  });
+  if (!parsed.success) return refused(`${parsed.error.issues[0]?.message ?? 'That change is not valid'}. Nothing was proposed.`, label);
+  const change = parsed.data;
+  const frozen: Tile[] | undefined = change.widgets?.map((w) => ({ widget: w.widget, params: WIDGETS[w.widget].params.parse(w.params ?? {}) as Record<string, unknown> }));
+
+  const lines: { label: string; value: string }[] = [];
+  if (change.title !== undefined) lines.push({ label: 'Title', value: `“${target.title}” → “${change.title}”` });
+  if (frozen) {
+    const checked = await checkTiles(ctx, frozen);
+    if ('problem' in checked) return refused(checked.problem, label);
+    const before = current.map(describeWidget);
+    const after = frozen.map(describeWidget);
+    lines.push({ label: 'Tiles now', value: before.map((t, i) => `${i + 1}. ${t}`).join(' · ') });
+    lines.push({ label: 'Tiles after', value: after.map((t, i) => `${i + 1}. ${t}`).join(' · ') });
+    lines.push(...checked.lines);
+    const covered = coverageLines(input.coverage ?? [], after);
+    if (!covered.ok) return refused(covered.problem, label);
+    lines.push(...covered.lines);
+  }
+  if (change.audience !== undefined) lines.push({ label: 'Who can open it', value: `${AUDIENCE_LABELS[target.audience]} → ${AUDIENCE_LABELS[change.audience]}` });
+  if (change.theme !== undefined) lines.push({ label: 'Colours', value: `${colorsLine(target.theme).value} → ${colorsLine(change.theme).value}` });
+
+  const card: ProposalCard = {
+    title: `Change the dashboard “${target.title}”`,
+    contact: { id: '', name: '' },
+    lines,
+    notes: [NOTHING_YET, 'The same dashboard and the same link — nothing new is made.'],
+  };
+  const args: FrozenArgs = {
+    tool: 'update_dashboard',
+    dashboardId: target.id,
+    expectedUpdatedAt: target.updatedAt,
+    ...(change.title !== undefined ? { title: change.title } : {}),
+    ...(frozen ? { widgets: frozen } : {}),
+    ...(change.audience !== undefined ? { audience: change.audience } : {}),
+    ...(change.theme !== undefined ? { theme: change.theme } : {}),
+  };
+  return propose(ctx, label, { tool: 'update_dashboard', args, card, contactId: null });
 }
 
 

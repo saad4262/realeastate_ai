@@ -593,19 +593,44 @@ export const reportMissingDataInput = z
     wanted: z.string().trim().min(1).max(200),
   })
   .strict();
+/**
+ * ADR 0044 A: every item the person asked for, and the tile that shows it — or null when the
+ * account does not hold it. Shown on the card, so nothing asked for disappears silently.
+ */
+const coverage = z
+  .array(z.object({ asked: z.string().trim().min(1).max(120), shown_in: z.string().trim().min(1).max(80).nullable() }).strict())
+  .max(ASSISTANT_LIMITS.coverageItems)
+  .optional();
+
+/** ADR 0047: colours the person named, as #RRGGBB — the first is the accent. Checked again in core. */
+const dashboardColors = z.array(z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, 'A colour is written #RRGGBB')).min(1).max(6);
+
 export const createDashboardInput = z
   .object({
     title: z.string().trim().min(1).max(80),
     widgets: z.array(widgetChoice).min(1).max(12),
     audience: z.enum(['private', 'admins', 'agency']).default('admins'),
-    /**
-     * ADR 0044 A: every item the person asked for, and the tile that shows it — or null when the
-     * account does not hold it. Shown on the card, so nothing asked for disappears silently.
-     */
-    coverage: z
-      .array(z.object({ asked: z.string().trim().min(1).max(120), shown_in: z.string().trim().min(1).max(80).nullable() }).strict())
-      .max(ASSISTANT_LIMITS.coverageItems)
-      .optional(),
+    coverage,
+    colors: dashboardColors.optional(),
+    /** ADR 0047: a chat that already saved a dashboard changes it; a second one only when the person asked for a separate one. */
+    separate: z.boolean().default(false),
+  })
+  .strict();
+
+/** ADR 0047: a tile kept exactly as it is now — its number on the dashboard, from 1. */
+const keptTile = z.object({ keep: z.number().int().min(1).max(12) }).strict();
+
+/** ADR 0047: change a dashboard THIS chat saved. Only what changes; `colors: null` goes back to the console's palette. */
+export const updateDashboardInput = z
+  .object({
+    /** Which of this chat's dashboards, by its exact current title. Absent: the newest one this chat saved. */
+    dashboard: z.string().trim().min(1).max(80).optional(),
+    title: z.string().trim().min(1).max(80).optional(),
+    /** The whole new list, in order: `{ keep: n }` for a tile as it is, or a new tile. */
+    widgets: z.array(z.union([keptTile, widgetChoice])).min(1).max(12).optional(),
+    audience: z.enum(['private', 'admins', 'agency']).optional(),
+    colors: dashboardColors.nullable().optional(),
+    coverage,
   })
   .strict();
 
@@ -781,7 +806,7 @@ export const scheduleTeamMeetingInput = z
 export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_saved_lists', 'start_import', 'find_skills', 'find_workflows', 'describe_data', 'query_data'] as const;
 /** ADR 0042: a turn that uses these may make more tool calls (`toolCallsPerAnalysisTurn`). */
 export const ASSISTANT_ANALYSIS_TOOLS = ['describe_data', 'query_data'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill', 'create_workflow', 'change_workflow'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'update_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill', 'create_workflow', 'change_workflow'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 /**
  * What a `proposed_action` row's `tool` may be — the database CHECK (latest: migration 0051) holds
@@ -810,6 +835,7 @@ export const ASSISTANT_TOOL_INPUTS = {
   cancel_appointment: cancelAppointmentInput,
   send_template_email: sendTemplateEmailInput,
   create_dashboard: createDashboardInput,
+  update_dashboard: updateDashboardInput,
   find_team_members: findTeamMembersInput,
   assign_contacts: assignContactsInput,
   record_marketing_consent: recordMarketingConsentInput,

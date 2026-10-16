@@ -1,4 +1,14 @@
 # Status
+- **ADR 0047 built on `feat/dashboard-update` 2026-10-16 (the user's request: change a project in the chat that made it;
+  new chat = new project; colours on request; proper responsive tables).** `update_dashboard` (card → `updateDashboard`,
+  `dashboard:manage` again, refused if changed since the card), tiles kept with `{ keep: n }`; `create_dashboard` refused
+  in a chat that already saved one unless `separate`; "this chat's dashboard" = its done create card (`chatDashboards`).
+  `dashboard.theme` `{ colors }` → `--chart-1…6`; pale colours refused. Tables stack under 640 px, wide tiles span the
+  grid (ARCHITECTURE §2 "Dashboards: colour, layout and tables"). Prompt `assistant@v23`. **Migration 0055 (theme column +
+  tool CHECK) NOT applied: needs the user's permission (dev = production DB), and it must go in BEFORE the deploy.**
+  Checks: typecheck 10/10, lint 0 errors, unit 1135 (+13) + 307 + 9, console build OK; break-tests red (manage check,
+  stale check, one-chat refusal). New smoke check "ADR 0047 …" (Dashboards group) written, not run (needs 0055).
+  TEST-PLAN **AX**. **Next:** the user's go → apply 0055 → smoke the Dashboards group → merge + push → walk AX.
 - **ADR 0046 built on `feat/session-claims` 2026-10-16, committed, NOT pushed (the user's go).** Middleware `getUser()` →
   `getClaims()`: the ES256 access token is verified locally (JWKS cached 10 min), expired sessions still refresh, an HS
   key would fall back to getUser. `SessionResult.user` = `{ id, email, label }`. Checks: typecheck 10/10, lint 0 errors,

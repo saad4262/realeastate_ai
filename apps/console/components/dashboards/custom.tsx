@@ -62,12 +62,14 @@ function Table({ data, compact }: { data: CustomData; compact: boolean }) {
           {rows.map((r, i) => (
             <tr key={`${r.labels.join('|')}-${i}`}>
               {r.labels.map((l, j) => (
-                <th key={j} scope="row">
+                <th key={j} scope="row" data-label={data.dimensions[j]?.label}>
                   {l}
                 </th>
               ))}
               {data.measures.map((m, j) => (
-                <td key={m.id}>{formatValue(m.format, r.values[j] ?? null)}</td>
+                <td key={m.id} data-label={m.label}>
+                  {formatValue(m.format, r.values[j] ?? null)}
+                </td>
               ))}
             </tr>
           ))}
@@ -79,7 +81,9 @@ function Table({ data, compact }: { data: CustomData; compact: boolean }) {
                 All
               </th>
               {data.measures.map((m, j) => (
-                <td key={m.id}>{formatValue(m.format, data.total[j] ?? null)}</td>
+                <td key={m.id} data-label={m.label}>
+                  {formatValue(m.format, data.total[j] ?? null)}
+                </td>
               ))}
             </tr>
           </tfoot>

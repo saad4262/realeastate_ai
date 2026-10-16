@@ -119,15 +119,15 @@ export function AgentsSection({
                     <div className={styles.person}>{r.name}</div>
                     <div className={styles.personSub}>{[roleOf(r), r.email, r.phone].filter(Boolean).join(' · ')}</div>
                   </th>
-                  <td>{n(r.received)}</td>
-                  <td>{n(r.sent)}</td>
-                  <td>{r.failed ? <span className={styles.bad}>{n(r.failed)}</span> : '0'}</td>
-                  <td>{n(r.awaitingReply)}</td>
-                  <td>{n(r.newLeads)}</td>
-                  <td>{n(r.appointments)}</td>
-                  <td>{r.userId ? n(r.activeListings) : '—'}</td>
-                  <td>{r.userId ? n(r.contacts) : '—'}</td>
-                  <td>{when(r.lastEmailAt, timeZone)}</td>
+                  <td data-label="Received">{n(r.received)}</td>
+                  <td data-label="Sent">{n(r.sent)}</td>
+                  <td data-label="Failed">{r.failed ? <span className={styles.bad}>{n(r.failed)}</span> : '0'}</td>
+                  <td data-label="Waiting for a reply">{n(r.awaitingReply)}</td>
+                  <td data-label="New leads">{n(r.newLeads)}</td>
+                  <td data-label="Appointments">{n(r.appointments)}</td>
+                  <td data-label="Active listings">{r.userId ? n(r.activeListings) : '—'}</td>
+                  <td data-label="Contacts">{r.userId ? n(r.contacts) : '—'}</td>
+                  <td data-label="Latest email">{when(r.lastEmailAt, timeZone)}</td>
                 </tr>
               ))}
             </tbody>

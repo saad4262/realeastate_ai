@@ -31,7 +31,7 @@ function Figures({ widget, data, compact }: { widget: string; data: WidgetData; 
           {data.undisclosed ? (
             <SplitBar
               parts={[
-                { label: 'With a price', value: data.count, color: 'var(--sapphire)' },
+                { label: 'With a price', value: data.count, color: 'var(--chart-1, var(--sapphire))' },
                 { label: 'No disclosed price (not counted as $0)', value: data.undisclosed, color: 'var(--border-strong)' },
               ]}
             />
@@ -66,9 +66,21 @@ function Figures({ widget, data, compact }: { widget: string; data: WidgetData; 
   }
 }
 
+/**
+ * A tile whose figures are a table or a row of several headline figures needs the room: on the
+ * dashboard's grid it takes the whole row (`data-wide`) instead of being squeezed into one column.
+ */
+function isWide(tile: WidgetTile): boolean {
+  if (tile.state !== 'ok') return false;
+  const d = tile.data;
+  if (d.kind === 'open') return d.viz === 'table' || d.viz === 'figures' || d.viz === 'line';
+  if (d.kind === 'custom') return d.viz === 'table' || d.viz === 'line';
+  return d.kind === 'agents';
+}
+
 export function Tile({ tile, compact = false }: { tile: WidgetTile; compact?: boolean }) {
   return (
-    <div className={`${styles.tile} ${compact ? styles.compact : ''}`} data-state={tile.state}>
+    <div className={`${styles.tile} ${compact ? styles.compact : ''}`} data-state={tile.state} data-wide={!compact && isWide(tile) ? '' : undefined}>
       <div className={styles.tileTitle}>{tile.description}</div>
       {tile.state === 'ok' ? <Figures widget={tile.widget} data={tile.data} compact={compact} /> : <p className={styles.muted}>{NOT_OK[tile.state]}</p>}
     </div>

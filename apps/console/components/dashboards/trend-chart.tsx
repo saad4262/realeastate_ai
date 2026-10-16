@@ -72,8 +72,8 @@ export function TrendChart({ rows, format, height = 230 }: { rows: { label: stri
       >
         <defs>
           <linearGradient id={gradient} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="var(--sapphire)" stopOpacity="0.22" />
-            <stop offset="100%" stopColor="var(--sapphire)" stopOpacity="0" />
+            <stop offset="0%" stopColor="var(--chart-1, var(--sapphire))" stopOpacity="0.22" />
+            <stop offset="100%" stopColor="var(--chart-1, var(--sapphire))" stopOpacity="0" />
           </linearGradient>
         </defs>
         {ticks.map((t) => (
@@ -92,14 +92,14 @@ export function TrendChart({ rows, format, height = 230 }: { rows: { label: stri
           ) : null,
         )}
         <path d={area} fill={`url(#${gradient})`} />
-        <path d={line} fill="none" stroke="var(--sapphire)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        <path d={line} fill="none" stroke="var(--chart-1, var(--sapphire))" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
         {rows.length <= 14
-          ? pts.map(([px, py], i) => <circle key={i} cx={px} cy={py} r="2.5" fill="var(--surface-card)" stroke="var(--sapphire)" strokeWidth="1.5" />)
+          ? pts.map(([px, py], i) => <circle key={i} cx={px} cy={py} r="2.5" fill="var(--surface-card)" stroke="var(--chart-1, var(--sapphire))" strokeWidth="1.5" />)
           : null}
         {h ? (
           <g pointerEvents="none">
             <line x1={h.px} x2={h.px} y1={top} y2={top + plotH} className={styles.crosshair} />
-            <circle cx={h.px} cy={h.py} r="5" fill="var(--sapphire)" stroke="var(--surface-card)" strokeWidth="2" />
+            <circle cx={h.px} cy={h.py} r="5" fill="var(--chart-1, var(--sapphire))" stroke="var(--surface-card)" strokeWidth="2" />
           </g>
         ) : null}
       </svg>

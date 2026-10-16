@@ -283,7 +283,7 @@ export function ProposalCardView({ id, surface }: { id: string; surface: Surface
   const doneHref =
     view.status !== 'done'
       ? null
-      : view.tool === 'create_dashboard' && view.result?.dashboardId
+      : (view.tool === 'create_dashboard' || view.tool === 'update_dashboard') && view.result?.dashboardId
         ? `/dashboards/${view.result.dashboardId}`
         : view.tool === 'send_template_email' && view.result?.batchId
           ? `${PATHS[surface].bulk}/${view.result.batchId}`
@@ -305,7 +305,7 @@ export function ProposalCardView({ id, surface }: { id: string; surface: Surface
             ? `${contactHref}?tab=${view.tool === 'add_note' ? 'notes' : /appointment/.test(view.tool) ? 'calendar' : 'overview'}`
             : null;
   const doneLabel =
-    view.tool === 'create_dashboard'
+    view.tool === 'create_dashboard' || view.tool === 'update_dashboard'
       ? 'Open the dashboard'
       : view.tool === 'send_template_email'
         ? 'Open the send report'
@@ -329,7 +329,7 @@ export function ProposalCardView({ id, surface }: { id: string; surface: Surface
    * taking the panel's place would mean going Back to say anything else to the assistant.
    * A contact or a send report is somewhere you go next, so those still navigate.
    */
-  const doneNewTab = view.tool === 'create_dashboard';
+  const doneNewTab = view.tool === 'create_dashboard' || view.tool === 'update_dashboard';
 
   return (
     <div className={`${styles.frame} ${styles.card}`} data-status={view.status}>

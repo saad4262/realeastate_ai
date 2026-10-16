@@ -247,7 +247,7 @@ import {
   type ImportDeps,
 } from '@repo/core/imports';
 import { agencyReviews, clearAgencyGooglePlace, publicListingReviews, searchGooglePlaces, setAgencyGooglePlace, type PlaceDetails, type PlacesClient } from '@repo/core/reviews';
-import { archiveDashboard, createDashboard, getDashboardData, listDashboards, rangeWindow, renderWidget, WIDGET_IDS, WIDGET_RANGES } from '@repo/core/dashboards';
+import { archiveDashboard, createDashboard, getDashboardData, listDashboards, rangeWindow, renderWidget, updateDashboard, WIDGET_IDS, WIDGET_RANGES } from '@repo/core/dashboards';
 import { isReadTimeout, withReadTimeout } from '@repo/core/widgets';
 import { DATASET_IDS, DATASETS, runTile, tileSpecSchema, type TileSpec } from '@repo/core/semantic';
 import { agentsNamedTwice, dataDictionary, missingAgents, runAsReader, runOpenQuery, runOpenTile, OPEN_QUERY_LIMITS, HIDDEN_TEXT, type OpenCell } from '@repo/core/open-query';
@@ -8085,6 +8085,47 @@ async function main() {
       const shown = await runAssistantTool(toolCtx(t, A.actor('owner'), {}), 'show_widget', { widget: 'sold_value', range: '7d' });
       assert(!/1,?450,?000/.test(JSON.stringify(shown.result)) && (shown.frame as { kind: string }).kind === 'widget', 'show_widget told the model the figure');
       return 'agent refused; card shows $1,450,000 and who can open it; model never given the figure; approve twice = 1 dashboard';
+    }),
+  );
+
+  await check('ADR 0047: a dashboard is changed in the chat that made it — the same one, never a second; another chat or agency cannot', async () =>
+    inRollback(async (t) => {
+      const { A, B } = await dashboardFixture(t);
+      const owner = A.actor('owner');
+      const conv = await claimTurn(t, owner, { message: 'x', surface: 'agency' });
+      const other = await claimTurn(t, owner, { message: 'y', surface: 'agency' });
+      const made = cardId(await runAssistantTool(proposeCtx(t, owner, {}, conv.conversationId), 'create_dashboard', { title: 'Leads', widgets: [{ widget: 'new_leads' }, { widget: 'listings_by_status' }], audience: 'agency' }));
+      assert((await approveProposedAction(t, owner, made)).outcome === 'done', 'the first dashboard was not saved');
+      const dashId = (await t.execute<{ id: string }>(sql`select result->>'dashboardId' as id from proposed_action where id = ${made}`))[0]!.id;
+      const count0 = await count(t, sql`select count(*)::int as n from dashboard where agency_id = ${A.agencyId}`);
+      const again = await runAssistantTool(proposeCtx(t, owner, {}, conv.conversationId), 'create_dashboard', { title: 'Leads again', widgets: [{ widget: 'new_leads' }] });
+      assert(again.isError && /update_dashboard/.test(JSON.stringify(again.result)), `a second create in the same chat: ${JSON.stringify(again.result)}`);
+      const elsewhere = await runAssistantTool(proposeCtx(t, owner, {}, other.conversationId), 'update_dashboard', { title: 'Hijacked' });
+      assert(elsewhere.isError && !elsewhere.frame, 'another chat proposed a change to this chat’s dashboard');
+      const changed = cardId(
+        await runAssistantTool(proposeCtx(t, owner, {}, conv.conversationId), 'update_dashboard', { title: 'Leads and sales', widgets: [{ keep: 2 }, { widget: 'sold_count' }], colors: ['#1E3A8A'] }),
+      );
+      const card = await getProposedAction(t, owner, changed);
+      assert(/Tiles after/.test(JSON.stringify(card.card.lines)) && /#1e3a8a/.test(JSON.stringify(card.card.lines)), `card: ${JSON.stringify(card.card.lines)}`);
+      assert((await approveProposedAction(t, owner, changed)).outcome === 'done', 'the change was not applied');
+      const count1 = await count(t, sql`select count(*)::int as n from dashboard where agency_id = ${A.agencyId}`);
+      assert(count1 === count0, `a change made ${count1 - count0} new dashboard(s)`);
+      const data = await getDashboardData(t, owner, dashId);
+      assert(
+        data.title === 'Leads and sales' && data.theme?.colors[0] === '#1e3a8a' && data.tiles.map((x) => x.widget).join() === 'listings_by_status,sold_count',
+        `after: ${data.title} ${JSON.stringify(data.theme)} ${data.tiles.map((x) => x.widget)}`,
+      );
+      // A card made before someone else changed it is refused, not applied over the change.
+      const stale = cardId(await runAssistantTool(proposeCtx(t, owner, {}, conv.conversationId), 'update_dashboard', { title: 'Stale' }));
+      await t.execute(sql`update dashboard set title = 'Changed meanwhile', updated_at = now() + interval '1 second' where id = ${dashId}`);
+      assert((await approveProposedAction(t, owner, stale)).outcome !== 'done', 'a stale card overwrote a newer change');
+      const bTried = await updateDashboard(t, B.actor('owner'), dashId, { title: 'B' }).then(() => 'changed', (e: unknown) => (e as { code: string }).code);
+      assert(bTried === 'not_found', `agency B: ${bTried}`);
+      const a1Tried = await updateDashboard(t, A.actor('a1'), dashId, { title: 'a1' }).then(() => 'changed', (e: unknown) => (e as { code: string }).code);
+      assert(a1Tried === 'forbidden', `an agent who did not make it: ${a1Tried}`);
+      const separate = await runAssistantTool(proposeCtx(t, owner, {}, conv.conversationId), 'create_dashboard', { title: 'Another', widgets: [{ widget: 'new_leads' }], separate: true });
+      assert(!separate.isError && separate.frame, 'separate: true was refused');
+      return 'same chat: second create refused, change = same dashboard (count unchanged), keep + colours applied; other chat refused; stale card refused; B not_found; agent forbidden; separate: true allowed';
     }),
   );
 

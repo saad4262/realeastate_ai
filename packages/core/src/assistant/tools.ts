@@ -32,6 +32,7 @@ import {
   proposeRescheduleAppointment,
   proposeScheduleAppointment,
   proposeCreateDashboard,
+  proposeUpdateDashboard,
   proposeSendTemplateEmail,
   proposeSetNextAction,
   proposeUpdateAgent,
@@ -128,6 +129,7 @@ const LABELS: Record<AssistantToolName, string> = {
   cancel_appointment: 'Preparing the cancellation for you to approve…',
   send_template_email: 'Preparing the email for you to approve…',
   create_dashboard: 'Preparing the dashboard for you to approve…',
+  update_dashboard: 'Preparing the change to the dashboard for you to approve…',
   find_team_members: 'Looking up the team…',
   assign_contacts: 'Preparing the assignment for you to approve…',
   record_marketing_consent: 'Preparing the consent for you to approve…',
@@ -318,6 +320,8 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return proposeSendTemplateEmail(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.send_template_email>, label);
     case 'create_dashboard':
       return proposeCreateDashboard(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.create_dashboard>, label);
+    case 'update_dashboard':
+      return proposeUpdateDashboard(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.update_dashboard>, label);
     case 'find_team_members':
       return findTeamMembers(ctx, label);
     case 'assign_contacts':

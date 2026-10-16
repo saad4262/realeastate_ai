@@ -12,7 +12,8 @@ type Row = { label: string; value: number };
 const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
 
 /** Fixed hue order, never cycled (a ring has at most six slices; core folds the rest into "Other"). */
-export const SERIES = ['var(--sapphire)', 'var(--emerald)', 'var(--amber)', 'var(--rose)', '#7c3aed', '#64748b'];
+/** A dashboard's colours (ADR 0047) when it has some — see theme.ts — else the console's palette. */
+export const SERIES = ['var(--chart-1, var(--sapphire))', 'var(--chart-2, var(--emerald))', 'var(--chart-3, var(--amber))', 'var(--chart-4, var(--rose))', 'var(--chart-5, #7c3aed)', 'var(--chart-6, #64748b)'];
 
 /** A "nice" axis ceiling so gridlines land on round numbers. */
 export function niceMax(max: number, steps = 4): number {
