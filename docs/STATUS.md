@@ -1,5 +1,6 @@
 # Status
-- **Integration 2026-10-16: everything is on local `main`, NOT pushed (push = production deploy, the user's go).**
+- **Integration 2026-10-16: on `main`, PUSHED and DEPLOYED with the user's go (`a474665`); all three Vercel production
+  projects (agent, agencyy, users) Ready.**
   `main` = origin/main (ADR 0042 + 0043, deployed) + ADR 0044 (`4e742d3`) + the one console shell (ADR **0045**, renumbered
   from a second "0041"). The shell work had sat uncommitted on `feat/assistant-tasks` since 2026-10-14; a snapshot of its
   agency half was already on main (`5cb8107`). Rebased onto main: both consoles use `components/shell/console-shell.tsx`
@@ -14,7 +15,7 @@
   leads on listings they listed) vs "nothing through a listing"; ADR 0043 (no template approval) vs approval — and their
   migrations 0038/0039 clash with main's. Their 0038 (`lead_handover`) / 0039 were applied on dev back then: those objects
   may still be in the database, unused by main. `packages/smoke/src/test-accounts.ts` stays untracked (holds a password).
-  **Next:** the user's go to push main → walk AU + AT on production.
+  **Next:** walk AU (both consoles) + AT on production; smoke when the user chooses.
 - **Requests of many parts, one dashboard (ADR 0044, asked 2026-10-16) — built on `feat/complex-dashboards` (from
   `feat/email-rules`), committed on main (`4e742d3`), NOT pushed. Migration 0054 APPLIED 2026-10-16 with the user's permission (dev =
   production DB). ORDER on deploy: 0054 is in; main's code ignores the new view columns.** Prompt `assistant@v22`: list every item,
