@@ -3,52 +3,24 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import styles from './agency-shell.module.css';
-
-type NavItem = { href: string; label: string; icon: string; badge?: string; badgeTone?: 'blue' };
-
-/**
- * The few destinations shown at all times. Everything else waits behind More.
- * Leads and Inbox carry the live badges; Projects and Connectors are the two
- * card grids. Change this list, not the markup, to promote a page.
- */
-const PRIMARY: NavItem[] = [
-  { href: '/leads', label: 'Leads', icon: 'filter_alt' },
-  { href: '/inbox', label: 'Inbox', icon: 'mail' },
-  { href: '/projects', label: 'Projects', icon: 'folder_open' },
-  { href: '/settings/integrations', label: 'Connectors', icon: 'hub' },
-];
-
-const MORE: NavItem[] = [
-  { href: '/live-listings', label: 'Listings', icon: 'real_estate_agent' },
-  { href: '/messages', label: 'Team messages', icon: 'forum' },
-  { href: '/team', label: 'Agents & Team', icon: 'groups' },
-  { href: '/customers', label: 'Customers', icon: 'contacts' },
-  { href: '/calendar', label: 'Calendar', icon: 'calendar_today' },
-  { href: '/marketing', label: 'Marketing & Reviews', icon: 'campaign' },
-  { href: '/insights', label: 'Insights', icon: 'analytics' },
-  { href: '/skills', label: 'Skills', icon: 'auto_awesome' },
-  { href: '/workflows', label: 'Workflows', icon: 'account_tree' },
-  { href: '/bulk-email', label: 'Bulk email', icon: 'forward_to_inbox' },
-  { href: '/ai', label: 'LocalAgent AI', icon: 'smart_toy', badge: '2030', badgeTone: 'blue' },
-  { href: '/finance', label: 'Finance & Trust', icon: 'account_balance' },
-  { href: '/settings', label: 'Settings', icon: 'settings' },
-];
+import { SHELLS, type NavCount, type NavItem, type ShellSurface } from './surfaces';
+import styles from './console-shell.module.css';
 
 /**
  * The one item to mark active: the longest href the path sits under, so
  * `/settings/integrations` lights Connectors and not Settings as well.
  */
-function activeHref(pathname: string): string | null {
+function activeHref(pathname: string, items: NavItem[]): string | null {
   let best: string | null = null;
-  for (const { href } of [...PRIMARY, ...MORE]) {
+  for (const { href } of items) {
+    if (href === '#') continue;
     if ((pathname === href || pathname.startsWith(`${href}/`)) && href.length > (best?.length ?? 0)) best = href;
   }
   return best;
 }
 
 /**
- * The only part of the agency chrome that has to run in the browser.
+ * The only part of the console chrome that has to run in the browser.
  *
  * usePathname is genuinely required and cannot be moved to the server: layouts
  * are preserved across client navigation and do not re-render, so an active
@@ -69,25 +41,12 @@ function activeHref(pathname: string): string | null {
  * prefetching entirely on a slow connection or with Save-Data set.
  */
 export function NavList({
+  surface,
   newOffers = 0,
   unreadMail = 0,
   unreadTeam = 0,
 }: {
-  newOffers?: number;
-  /** Unopened conversations, narrowed by can() in load-actor.ts. */
-  unreadMail?: number;
-  /** Team conversations you are on with something new (ADR 0035). */
-  unreadTeam?: number;
-}) {
-  const pathname = usePathname();
-  const active = activeHref(pathname);
-  const inMore = MORE.some((i) => i.href === active);
-  const [moreOpen, setMoreOpen] = useState(inMore);
-  // Arriving on a page that lives behind More opens it, so the active item is never hidden.
-  useEffect(() => {
-    if (inMore) setMoreOpen(true);
-  }, [inMore]);
-
+  surface: ShellSurface;
   /**
    * Unactioned private offers, counted by SQL and already zeroed by can() for
    * anyone who may not read one — see load-actor.ts. This is the only signal
@@ -96,15 +55,32 @@ export function NavList({
    * high-value rows get buried in a date-sorted list, and email is currently
    * the only other way one is noticed.
    */
-  const counts: Record<string, number> = { '/leads': newOffers, '/inbox': unreadMail, '/messages': unreadTeam };
-  const hiddenNews = MORE.some((i) => (counts[i.href] ?? 0) > 0);
+  newOffers?: number;
+  /** Unopened conversations, narrowed by can() in load-actor.ts. */
+  unreadMail?: number;
+  /** Team conversations you are on with something new (ADR 0035). */
+  unreadTeam?: number;
+}) {
+  const { primary, more, navLabel } = SHELLS[surface];
+  const pathname = usePathname();
+  const active = activeHref(pathname, [...primary, ...more]);
+  const inMore = more.some((i) => i.href === active);
+  const [moreOpen, setMoreOpen] = useState(inMore);
+  // Arriving on a page that lives behind More opens it, so the active item is never hidden.
+  useEffect(() => {
+    if (inMore) setMoreOpen(true);
+  }, [inMore]);
+
+  const counts: Record<NavCount, number> = { newOffers, unreadMail, unreadTeam };
+  const countOf = (item: NavItem) => (item.count ? counts[item.count] : 0);
+  const hiddenNews = more.some((i) => countOf(i) > 0);
 
   const link = (item: NavItem) => {
     const on = item.href === active;
-    const count = counts[item.href] ?? 0;
+    const count = countOf(item);
     return (
       <Link
-        key={item.href}
+        key={item.label}
         href={item.href}
         className={on ? `${styles.navLink} ${styles.navLinkActive}` : styles.navLink}
         aria-current={on ? 'page' : undefined}
@@ -116,7 +92,7 @@ export function NavList({
         {count > 0 ? (
           <span
             className={`${styles.navBadge} ${styles.navBadgeBlue}`}
-            aria-label={item.href === '/leads' ? undefined : `${count} unread`}
+            aria-label={item.countLabel === 'unread' ? `${count} unread` : undefined}
           >
             {count}
           </span>
@@ -129,13 +105,13 @@ export function NavList({
   };
 
   return (
-    <nav className={styles.nav} aria-label="Agency">
-      {PRIMARY.map(link)}
+    <nav className={styles.nav} aria-label={navLabel}>
+      {primary.map(link)}
       <button
         type="button"
         className={styles.navLink}
         aria-expanded={moreOpen}
-        aria-controls="agency-nav-more"
+        aria-controls="console-nav-more"
         onClick={() => setMoreOpen((v) => !v)}
       >
         <span className={styles.glyph} aria-hidden>
@@ -144,8 +120,8 @@ export function NavList({
         <span>{moreOpen ? 'Less' : 'More'}</span>
         {!moreOpen && hiddenNews ? <span className={styles.navDot} aria-label="Something new under More" /> : null}
       </button>
-      <div id="agency-nav-more" className={styles.navMore} hidden={!moreOpen}>
-        {MORE.map(link)}
+      <div id="console-nav-more" className={styles.navMore} hidden={!moreOpen}>
+        {more.map(link)}
       </div>
     </nav>
   );

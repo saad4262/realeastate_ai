@@ -31,7 +31,7 @@ function withSurface(
 }
 
 function homePath(surface: ConsoleSurface) {
-  return surface === 'agency' ? '/overview' : '/listings';
+  return surface === 'agency' ? '/overview' : '/assistant';
 }
 
 export async function middleware(request: NextRequest) {

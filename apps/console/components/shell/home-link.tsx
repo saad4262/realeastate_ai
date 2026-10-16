@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import type { MouseEvent, ReactNode } from 'react';
 
 /**
- * A link to the assistant home (`/overview`, `/overview?c=…`).
+ * A link to the assistant home (`home`, `home?c=…` — /overview or /assistant).
  *
  * Already on the home, which conversation is open is only `?c=` — the page's
  * server half does not read it. So the URL is changed in place with
@@ -16,6 +16,7 @@ import type { MouseEvent, ReactNode } from 'react';
  * Modified clicks (new tab, new window) are left to the browser.
  */
 export function HomeLink({
+  home,
   href,
   className,
   title,
@@ -23,6 +24,8 @@ export function HomeLink({
   children,
   ...aria
 }: {
+  /** This console's assistant home; a click there changes the URL in place. */
+  home: string;
   href: string;
   className?: string;
   title?: string;
@@ -32,7 +35,7 @@ export function HomeLink({
 }) {
   const pathname = usePathname();
   const onClick = (e: MouseEvent<HTMLAnchorElement>) => {
-    if (pathname !== '/overview' || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (pathname !== home || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
     if (`${window.location.pathname}${window.location.search}` !== href) window.history.pushState(null, '', href);
   };

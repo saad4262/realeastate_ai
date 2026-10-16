@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import { PageSkeleton } from '@/components/page-skeleton';
-import { AgentShell } from './agent-shell';
+import { ConsoleShell } from '@/components/shell/console-shell';
 import {
   loadConsoleChrome,
   requireConsoleAccess,
@@ -8,7 +8,7 @@ import {
 } from '../../lib/require-console-access';
 
 /**
- * Agent desk chrome — same split as the agency layout: the session comes from
+ * Agent desk chrome — the same shell as the agency console, and the same split: the session comes from
  * middleware's headers so the shell paints at once, and the two slow questions
  * sit behind their own boundaries.
  */
@@ -17,11 +17,11 @@ export default async function AgentLayout({ children }: { children: React.ReactN
   const chrome = loadConsoleChrome(session.userId);
 
   return (
-    <AgentShell userLabel={session.label} chrome={chrome}>
+    <ConsoleShell surface="agent" userLabel={session.label} userId={session.userId} chrome={chrome}>
       <Suspense fallback={<PageSkeleton />}>
         <AgentGate>{children}</AgentGate>
       </Suspense>
-    </AgentShell>
+    </ConsoleShell>
   );
 }
 

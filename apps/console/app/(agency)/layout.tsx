@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import { PageSkeleton } from '@/components/page-skeleton';
-import { AgencyShell } from './agency-shell';
+import { ConsoleShell } from '@/components/shell/console-shell';
 import {
   loadConsoleChrome,
   requireConsoleAccess,
@@ -23,11 +23,11 @@ export default async function AgencyLayout({ children }: { children: React.React
   const chrome = loadConsoleChrome(session.userId);
 
   return (
-    <AgencyShell userLabel={session.label} userId={session.userId} chrome={chrome}>
+    <ConsoleShell surface="agency" userLabel={session.label} userId={session.userId} chrome={chrome}>
       <Suspense fallback={<PageSkeleton />}>
         <AgencyGate>{children}</AgencyGate>
       </Suspense>
-    </AgencyShell>
+    </ConsoleShell>
   );
 }
 

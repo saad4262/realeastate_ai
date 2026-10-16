@@ -3,7 +3,7 @@
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { HomeLink } from './home-link';
-import styles from './agency-shell.module.css';
+import styles from './console-shell.module.css';
 
 const SHOWN = 6;
 
@@ -17,7 +17,7 @@ const SHOWN = 6;
  * whose server half does not even read `?c=`. On the home itself a click
  * costs no page request at all (HomeLink).
  */
-export function RecentsList({ rows }: { rows: { id: string; title: string }[] }) {
+export function RecentsList({ home, rows }: { home: string; rows: { id: string; title: string }[] }) {
   const pathname = usePathname();
   const open = useSearchParams().get('c');
   const [all, setAll] = useState(false);
@@ -31,11 +31,12 @@ export function RecentsList({ rows }: { rows: { id: string; title: string }[] })
       ) : (
         <ul className={`${styles.recentList} ${all ? styles.recentListAll : ''}`}>
           {shown.map((r) => {
-            const active = pathname === '/overview' && open === r.id;
+            const active = pathname === home && open === r.id;
             return (
               <li key={r.id}>
                 <HomeLink
-                  href={`/overview?c=${r.id}`}
+                  home={home}
+                  href={`${home}?c=${r.id}`}
                   prefetch={false}
                   className={active ? `${styles.recent} ${styles.recentActive}` : styles.recent}
                   aria-current={active ? 'page' : undefined}

@@ -10,10 +10,13 @@ import { loadActor } from '../../lib/load-actor';
 import { HomeLink } from './home-link';
 import { NavList } from './nav-list';
 import { RecentsList } from './recents-list';
-import styles from './agency-shell.module.css';
+import { SHELLS, type ShellSurface } from './surfaces';
+import styles from './console-shell.module.css';
 
 /**
- * Agency OS chrome — a Server Component.
+ * The console chrome — one shell for both sides (CLAUDE.md #9). The agency
+ * console and the agent desk pass their surface; what differs between them
+ * (nav, home, a few words) is surfaces.ts. A Server Component.
  *
  * This whole file used to be a client component, and all 292 lines of it went
  * to the browser so that one string comparison could pick a CSS class. Only
@@ -29,7 +32,8 @@ import styles from './agency-shell.module.css';
  * shell still paints before the database answers; that was always Suspense
  * doing the work, not the hook.
  */
-type AgencyShellProps = {
+type ConsoleShellProps = {
+  surface: ShellSurface;
   children: ReactNode;
   /** From middleware's headers — costs nothing, so the shell paints at once. */
   userLabel: string;
@@ -46,7 +50,8 @@ type AgencyShellProps = {
   chrome: Promise<ConsoleChrome>;
 };
 
-export function AgencyShell({ children, userLabel, userId, chrome }: AgencyShellProps) {
+export function ConsoleShell({ surface, children, userLabel, userId, chrome }: ConsoleShellProps) {
+  const shell = SHELLS[surface];
   const initials = userLabel
     .split(/\s+/)
     .map((p) => p[0])
@@ -59,9 +64,9 @@ export function AgencyShell({ children, userLabel, userId, chrome }: AgencyShell
       <aside className={styles.sidebar}>
         <div className={styles.sidebarTop}>
           <div className={styles.brandRow}>
-            <Link href="/overview" className={styles.brandLeft}>
+            <Link href={shell.home} className={styles.brandLeft}>
               <Suspense fallback={<BrandFallback />}>
-                <Brand chrome={chrome} />
+                <Brand chrome={chrome} fallback={shell.brandFallback} />
               </Suspense>
             </Link>
           </div>
@@ -85,7 +90,7 @@ export function AgencyShell({ children, userLabel, userId, chrome }: AgencyShell
             behind the shell like the brand and the badges do.
           */}
           <Suspense fallback={<RecentsFallback />}>
-            <Recents userId={userId} />
+            <Recents userId={userId} home={shell.home} />
           </Suspense>
 
           {/*
@@ -94,18 +99,20 @@ export function AgencyShell({ children, userLabel, userId, chrome }: AgencyShell
             the database to draw the sidebar would undo the whole reason the
             chrome is a Server Component.
           */}
-          <Suspense fallback={<NavList />}>
-            <NavWithOffers chrome={chrome} />
+          <Suspense fallback={<NavList surface={surface} />}>
+            <NavWithCounts surface={surface} chrome={chrome} />
           </Suspense>
         </div>
 
         <div className={styles.sidebarFoot}>
-          <Link href="/settings" className={styles.navLink}>
-            <span className={styles.glyph} aria-hidden>
-              help_outline
-            </span>
-            <span>Help &amp; Support</span>
-          </Link>
+          {shell.helpHref ? (
+            <Link href={shell.helpHref} className={styles.navLink}>
+              <span className={styles.glyph} aria-hidden>
+                help_outline
+              </span>
+              <span>Help &amp; Support</span>
+            </Link>
+          ) : null}
           <div className={styles.profile}>
             <div className={styles.avatar}>{initials}</div>
             <div className={styles.profileMeta}>
@@ -137,7 +144,7 @@ export function AgencyShell({ children, userLabel, userId, chrome }: AgencyShell
             </span>
             <input
               className={styles.searchInput}
-              placeholder="Search agent name, REINSW licence, suburb specialist, or sales volume..."
+              placeholder={shell.omniPlaceholder}
               type="search"
               aria-label="Omni search"
             />
@@ -150,11 +157,13 @@ export function AgencyShell({ children, userLabel, userId, chrome }: AgencyShell
             these are the agency's own, counted in the same query that builds
             the session.
           */}
-          <div className={styles.ticker} aria-label="Agency summary">
-            <Suspense fallback={<span className={styles.shimmerLine} style={{ width: '13rem' }} />}>
-              <Ticker chrome={chrome} />
-            </Suspense>
-          </div>
+          {shell.ticker ? (
+            <div className={styles.ticker} aria-label="Agency summary">
+              <Suspense fallback={<span className={styles.shimmerLine} style={{ width: '13rem' }} />}>
+                <Ticker chrome={chrome} />
+              </Suspense>
+            </div>
+          ) : null}
 
           <div className={styles.topActions}>
             <NotificationBell className={styles.iconBtn} glyphClassName={styles.glyph} />
@@ -164,7 +173,7 @@ export function AgencyShell({ children, userLabel, userId, chrome }: AgencyShell
               </span>
             </button>
             {/* A new conversation is the home page with no `?c=` — see assistant-home.tsx. */}
-            <HomeLink href="/overview" className={styles.aiBtn}>
+            <HomeLink home={shell.home} href={shell.home} className={styles.aiBtn}>
               <span className={styles.glyph} aria-hidden>
                 add
               </span>
@@ -177,7 +186,7 @@ export function AgencyShell({ children, userLabel, userId, chrome }: AgencyShell
       </div>
       {/* New mail, team messages and the bell show up without a reload (ADR 0035). */}
       <LiveRefresh />
-      <AssistantRoute home="/overview" />
+      <AssistantRoute home={shell.home} />
     </div>
   );
 }
@@ -189,7 +198,7 @@ export function AgencyShell({ children, userLabel, userId, chrome }: AgencyShell
  * brand, the profile role and the header counts fill in together — and the
  * shell around them never waits on any of it.
  */
-async function Brand({ chrome }: { chrome: Promise<ConsoleChrome> }) {
+async function Brand({ chrome, fallback }: { chrome: Promise<ConsoleChrome>; fallback: string }) {
   const { agencyName } = await chrome;
   // Initials stand in for a logo until agency branding is uploadable.
   const initials =
@@ -205,7 +214,7 @@ async function Brand({ chrome }: { chrome: Promise<ConsoleChrome> }) {
       <div className={styles.logo}>{initials}</div>
       <div>
         <div className={styles.brandName}>LocalAgentHub</div>
-        <div className={styles.brandSub}>{agencyName ?? 'No agency yet'}</div>
+        <div className={styles.brandSub}>{agencyName ?? fallback}</div>
       </div>
     </>
   );
@@ -231,11 +240,11 @@ function BrandFallback() {
  * uses. Decorative chrome must never blank the shell, so a failure is an empty
  * list, not a throw.
  */
-async function Recents({ userId }: { userId: string }) {
+async function Recents({ userId, home }: { userId: string; home: string }) {
   const rows = await loadActor(userId)
     .then((actor) => (actor ? listAssistantConversations(getConsoleDb(), actor) : []))
     .catch(() => []);
-  return <RecentsList rows={rows.map((r) => ({ id: r.id, title: r.title }))} />;
+  return <RecentsList home={home} rows={rows.map((r) => ({ id: r.id, title: r.title }))} />;
 }
 
 function RecentsFallback() {
@@ -254,15 +263,23 @@ async function ProfileRole({ chrome }: { chrome: Promise<ConsoleChrome> }) {
 }
 
 /**
- * The nav, once the unactioned-offer count is known.
+ * The nav, once the counts are known.
  *
  * `summary.newOffers` is already zero for anyone `lead:read_offer` refuses —
  * decided in load-actor.ts by can(), not here. This component must never make
- * that decision itself (#2); it only draws the number it is handed.
+ * that decision itself (#2); it only draws the numbers it is handed, on the
+ * items surfaces.ts says carry them.
  */
-async function NavWithOffers({ chrome }: { chrome: Promise<ConsoleChrome> }) {
+async function NavWithCounts({ surface, chrome }: { surface: ShellSurface; chrome: Promise<ConsoleChrome> }) {
   const { summary } = await chrome;
-  return <NavList newOffers={summary.newOffers} unreadMail={summary.unreadMail} unreadTeam={summary.unreadTeam} />;
+  return (
+    <NavList
+      surface={surface}
+      newOffers={summary.newOffers}
+      unreadMail={summary.unreadMail}
+      unreadTeam={summary.unreadTeam}
+    />
+  );
 }
 
 async function Ticker({ chrome }: { chrome: Promise<ConsoleChrome> }) {

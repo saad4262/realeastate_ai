@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { AssistantFrame } from '@repo/core/assistant/schema';
 import {
@@ -11,17 +10,17 @@ import {
   rejectProposedActionAction,
 } from '@/lib/assistant-actions';
 import type { ProposalView } from '@repo/core/assistant';
-import { clearPicks } from './picks';
-import { useAssistant, type Turn } from './use-assistant';
+import type { Turn } from './use-assistant';
 import { Tile } from '../dashboards/tile';
 import { UploadForm } from '../imports/upload-form';
 import { SheetImport } from '../imports/sheet-import';
 import styles from './assistant-panel.module.css';
 
 /**
- * The console assistant (docs/adr/0025, Phase A): a launcher and a right-hand
- * panel on the agent desk. The agency console shows the same conversation as
- * its home page instead (assistant-home.tsx); both drive useAssistant.
+ * The console assistant's conversation parts (docs/adr/0025): the turns, the
+ * frames beside an answer and the proposal cards. Both consoles show them on
+ * their assistant home (assistant-home.tsx) — it was a floating panel once,
+ * which is where this file's name comes from.
  *
  * Everything listed beside an answer is a frame the server built from SQL —
  * names, dates, counts and links never come from the model's prose. The
@@ -36,9 +35,7 @@ const PATHS: Record<Surface, { contact: string; leads: string; templates: string
   agent: { contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', bulk: '/my-bulk-email', integrations: '/my-integrations', inbox: '/my-inbox', messages: '/my-messages', listings: '/listings', listingImport: '/listings/import', contactImport: '/my-contacts/import', skills: '/my-skills', workflows: '/my-workflows' },
 };
 
-const CONTACT_PAGE = /^\/(?:customers|my-contacts)\/([0-9a-f-]{36})(?:\/|$)/i;
-
-/** What the empty assistant suggests. Shown as a list in the panel and as chips on the agency home. */
+/** What the empty assistant suggests — the home turns the ones you can type into chips. */
 export const EXAMPLES = [
   '“Which leads came in this week?”',
   '“What’s on my calendar tomorrow?”',
@@ -47,136 +44,6 @@ export const EXAMPLES = [
   'Pick contacts in the directory, then: “Send them the open home template.”',
   '“What’s our sold value this month?” (owners and admins)',
 ];
-
-export function AssistantPanel({ surface }: { surface: Surface }) {
-  const pathname = usePathname();
-  const onContact = CONTACT_PAGE.exec(pathname ?? '')?.[1] ?? null;
-  const a = useAssistant({ contactId: onContact });
-  const { picks, turns, full, draft, setDraft, busy, useSelection, setUseSelection, history, setHistory, endRef, send } = a;
-
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    const open = () => setOpen(true);
-    window.addEventListener('assistant:open', open);
-    return () => window.removeEventListener('assistant:open', open);
-  }, []);
-
-  if (!open) {
-    return (
-      <button type="button" className={styles.launcher} onClick={() => setOpen(true)} aria-label="Open the assistant">
-        <span className={styles.launcherDot} aria-hidden />
-        Assistant
-      </button>
-    );
-  }
-
-  return (
-    <aside className={styles.panel} aria-label="Assistant">
-      <header className={styles.head}>
-        <div>
-          <div className={styles.title}>Assistant</div>
-          <div className={styles.sub}>Looks things up, and suggests notes and appointments for you to approve. It never sends email.</div>
-        </div>
-        <div className={styles.headActions}>
-          <button type="button" className={styles.ghost} onClick={a.showHistory} disabled={busy}>
-            History
-          </button>
-          <button type="button" className={styles.ghost} onClick={a.startNew}>
-            New
-          </button>
-          <button type="button" className={styles.close} onClick={() => setOpen(false)} aria-label="Close the assistant">
-            ×
-          </button>
-        </div>
-      </header>
-
-      {history ? (
-        <div className={styles.history}>
-          <div className={styles.historyHead}>
-            Your conversations <span className={styles.muted}>(kept 30 days, only you can see them)</span>
-          </div>
-          {history.length === 0 ? <p className={styles.muted}>None yet.</p> : null}
-          {history.map((c) => (
-            <button key={c.id} type="button" className={styles.historyRow} onClick={() => void a.openConversation(c.id)}>
-              <span>{c.title}</span>
-              <span className={styles.muted}>{new Date(c.lastTurnAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}</span>
-            </button>
-          ))}
-          <button type="button" className={styles.ghost} onClick={() => setHistory(null)}>
-            Back
-          </button>
-        </div>
-      ) : (
-        <div className={styles.thread}>
-          {turns.length === 0 ? (
-            <div className={styles.empty}>
-              <p>Ask about your own work, for example:</p>
-              <ul>
-                {EXAMPLES.map((e) => (
-                  <li key={e}>{e}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          <TurnList turns={turns} surface={surface} />
-          <div ref={endRef} />
-        </div>
-      )}
-
-      <footer className={styles.foot}>
-        {picks.length ? (
-          <div className={styles.chip}>
-            Using {picks.length} picked {picks.length === 1 ? 'contact' : 'contacts'}
-            <button type="button" onClick={clearPicks} aria-label="Clear the picked contacts">
-              ×
-            </button>
-          </div>
-        ) : onContact && useSelection ? (
-          <div className={styles.chip}>
-            Using this contact
-            <button type="button" onClick={() => setUseSelection(false)} aria-label="Don’t use this contact">
-              ×
-            </button>
-          </div>
-        ) : null}
-        {full ? <p className={styles.muted}>This conversation is full — start a new one.</p> : null}
-        <form
-          className={styles.form}
-          onSubmit={(e) => {
-            e.preventDefault();
-            void send();
-          }}
-        >
-          <textarea
-            className={styles.input}
-            value={draft}
-            maxLength={2000}
-            rows={2}
-            placeholder="Ask the assistant…"
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-            disabled={full}
-          />
-          {busy ? (
-            <button type="button" className={styles.send} onClick={a.stop}>
-              Stop
-            </button>
-          ) : (
-            <button type="submit" className={styles.send} disabled={!draft.trim() || full}>
-              Send
-            </button>
-          )}
-        </form>
-      </footer>
-    </aside>
-  );
-}
 
 /** The conversation itself: what was asked, the labelled answer, and the server's frames. */
 export function TurnList({ turns, surface }: { turns: Turn[]; surface: Surface }) {

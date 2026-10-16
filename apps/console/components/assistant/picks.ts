@@ -38,7 +38,7 @@ export function usePicks(): Pick[] {
   );
 }
 
-/** Open the assistant panel (it listens for this). */
+/** Go to the assistant — the shell's AssistantRoute listens for this and takes the picks there. */
 export function openAssistant(): void {
   window.dispatchEvent(new CustomEvent('assistant:open'));
 }

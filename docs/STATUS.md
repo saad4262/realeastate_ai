@@ -1,6 +1,22 @@
 # Status
+- **Integration 2026-10-16: everything is on local `main`, NOT pushed (push = production deploy, the user's go).**
+  `main` = origin/main (ADR 0042 + 0043, deployed) + ADR 0044 (`4e742d3`) + the one console shell (ADR **0045**, renumbered
+  from a second "0041"). The shell work had sat uncommitted on `feat/assistant-tasks` since 2026-10-14; a snapshot of its
+  agency half was already on main (`5cb8107`). Rebased onto main: both consoles use `components/shell/console-shell.tsx`
+  + `surfaces.ts`; the agent desk's home is `/assistant` (middleware + `lib/surface.ts`), Projects at `/my-projects`
+  (`/my-dashboards` redirects); the floating `AssistantPanel` is gone. Kept from main in the merge: Workflows in both
+  navs, the import frame, Connect buttons, skill/workflow/listing links, `invite_agent`, the open-answer tile (0042) and its
+  thumbnail shape, ADR 0043's template wording. No migration, no new endpoint. Checks on the merged tree: typecheck 10/10,
+  lint 0 errors (1 old web `<img>` warning), unit 1122 + 307, console + web production builds OK. NOT run: smoke (off
+  by default; the user runs it) and the browser walk — TEST-PLAN **AU** (both consoles) + AT.
+  **Deliberately NOT merged:** `feat/crm-visibility` and `feat/crm-assistant-more` (2026-10-08/09). Later decisions
+  replaced them — ADR 0039 A (nothing deleted for good) vs their contact delete + purge; ADR 0039 C (an agent also sees
+  leads on listings they listed) vs "nothing through a listing"; ADR 0043 (no template approval) vs approval — and their
+  migrations 0038/0039 clash with main's. Their 0038 (`lead_handover`) / 0039 were applied on dev back then: those objects
+  may still be in the database, unused by main. `packages/smoke/src/test-accounts.ts` stays untracked (holds a password).
+  **Next:** the user's go to push main → walk AU + AT on production.
 - **Requests of many parts, one dashboard (ADR 0044, asked 2026-10-16) — built on `feat/complex-dashboards` (from
-  `feat/email-rules`), NOT committed, NOT pushed. Migration 0054 APPLIED 2026-10-16 with the user's permission (dev =
+  `feat/email-rules`), committed on main (`4e742d3`), NOT pushed. Migration 0054 APPLIED 2026-10-16 with the user's permission (dev =
   production DB). ORDER on deploy: 0054 is in; main's code ignores the new view columns.** Prompt `assistant@v22`: list every item,
   map it to a dataset or "not held", one view per grain, build, then ONE create_dashboard with `coverage` (card lines "You
   asked for: …"). New datasets `sales`, `lead_responses` (email response time); agents + licence number/class/expiry. Fan-out:
@@ -11,9 +27,9 @@
   check green (every hand-worked figure; the fanned-out query gives 3,600,000 vs 900,000); I1's wall-clock budget (7.5 s for
   a 5 s timeout) is network-flaky from here (7.9 / 6.9 / 7.5 s), not from this work. Live eval (`SMOKE_ONLY="Many parts,
   live" pnpm smoke:ai`, its own group) green once: 4 tool calls, 1 query, coverage 6 items, commission not held, a1's row
-  exact. TEST-PLAN **AT**. **Next:** commit with the user's go; walk AT; more live samples before calling it reliable.
+  exact. TEST-PLAN **AT**. **Next:** push with the user's go; walk AT; more live samples before calling it reliable.
 - **Templates without approval, consent from an enquiry, no 7-day rule (ADR 0043, the user's decisions 2026-10-14) — built on
-  `feat/email-rules`, committed, NOT pushed. Migration 0053 APPLIED with the user's permission.** A template is ready when saved
+  `feat/email-rules`, pushed to origin/main (`89157de`). Migration 0053 APPLIED with the user's permission.** A template is ready when saved
   (an agent's: theirs only; an owner's/admin's: the agency's); consent = recorded, OR an enquiry in 24 months, OR a
   seller/landlord/tenant role; an unsubscribe always wins; the 7-day rule is deleted (batch size and daily caps stay). Prompt
   `assistant@v21`. Unit 1410 green; smoke Template email 7/7, Workflows 6/6, Tenant isolation 4/4, Assistant part 2 5/5,
@@ -21,7 +37,7 @@
   a task check fixed. TEST-PLAN **AS**. **Next:** push/deploy with permission; the user walks AS; a lawyer confirms the
   24 months and the client roles once.
 - **Open questions on the agency's data (ADR 0042, accepted 2026-10-14) — built 2026-10-14 on `feat/open-analytics` (from main),
-  committed, NOT pushed. Migration 0052 APPLIED 2026-10-14 with the user's permission.** The assistant writes ONE read-only
+  pushed to origin/main (`24d2dd4`). Migration 0052 APPLIED 2026-10-14 with the user's permission.** The assistant writes ONE read-only
   SELECT over 9 named datasets (`describe_data`, `query_data`), run as the person behind four locks (parser; the screens' scope
   helpers; role `ai_reader` on the `ai` schema's ticket-filtered views; a read-only 5 s transaction). Answers in chat and saved
   tiles via `widget: "open"`; nobody dropped from per-agent tiles; other people's words never reach the model. Prompt

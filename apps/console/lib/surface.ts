@@ -49,7 +49,7 @@ const AGENCY: SurfaceCopy = {
 
 const AGENT: SurfaceCopy = {
   surface: 'agent',
-  home: '/listings',
+  home: '/assistant',
   productName: 'Agent Desk',
   signInTitle: 'Sign in to your agent desk',
   signInSubtitle: 'Enter the email your agency invited, and your password.',

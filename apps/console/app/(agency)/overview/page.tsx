@@ -19,6 +19,8 @@ export default async function AgencyHomePage() {
   return (
     <Suspense fallback={null}>
       <AssistantHome
+        surface="agency"
+        home="/overview"
         name={name}
         notices={
           <Suspense fallback={null}>

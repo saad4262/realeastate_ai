@@ -262,7 +262,7 @@ export async function ContactPage({
       basePath={basePath}
       tab={tab}
       counts={counts}
-      askHref={surface === 'agency' ? `/overview?contact=${c.id}` : undefined}
+      askHref={`${surface === 'agency' ? '/overview' : '/assistant'}?contact=${c.id}`}
     >
       {body}
     </ContactFrame>

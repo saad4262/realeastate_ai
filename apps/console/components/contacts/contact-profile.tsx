@@ -69,9 +69,9 @@ export function ContactFrame({
   tab: ContactTab;
   counts: ContactCounts;
   /**
-   * Where "Ask the assistant" goes, with this contact as its selection. Only
-   * the agency console passes one: there the assistant is the home page, so it
-   * has to be told the contact. The agent desk's panel reads it off this page.
+   * Where "Ask the assistant" goes, with this contact as its selection: the
+   * console's assistant home, which is a page of its own and so has to be told
+   * which contact.
    */
   askHref?: string;
   children: React.ReactNode;

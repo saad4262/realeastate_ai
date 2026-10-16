@@ -1,3 +1,26 @@
+## 2026-10-16 — Claude Code — Integration: the one console shell onto main (ADR 0045)
+
+- The user asked to put all stuck and uncommitted code on main, resolve the agent-shell conflicts, renumber the ADR
+  to 0045, and run typecheck, unit and build.
+- Uncommitted shell work (feat/assistant-tasks working tree) → branch `feat/console-shell` → rebased onto main
+  (16 conflicts). Rule used: the WIP's surface/home generalisation wins; every feature main added after the WIP's base
+  stays (assistant-panel kept main's file minus the floating panel; integrations kept ADR 0043 wording; preview kept
+  `open`). Workflows was missing from the WIP's `surfaces.ts` — added to both navs. TEST-PLAN section AN → AU.
+- Not merged on purpose: feat/crm-visibility, feat/crm-assistant-more (superseded by ADR 0039 A/C and 0043; clashing
+  migration numbers). next-env.d.ts build noise reverted; test-accounts.ts left untracked and its password removed
+  from this file.
+- Checks: typecheck 10/10, lint 0 errors, unit 1122 + 307, console + web builds OK. Smoke and browser not run.
+- Next exact step: the user's go to push main (deploys); walk TEST-PLAN AU on agents.* and agency.*, then AT.
+
+## 2026-10-16 — Claude Code — Manual-testing accounts (user's request)
+
+- Seeded with the user's go, into the dev DB (= production): 3 agencies "Harbour Realty (TEST)",
+  "Yarra Property Co (TEST)", "Sunshine Homes (TEST)" — owner + 3 agents each, 3 LIVE listings each
+  (headlines start "(TEST)", lead agent = agent1/2/3), and 2 buyers. All addresses are
+  alphaedgetechnologylabs+<tag>@gmail.com, one shared password (in the script, not in git), confirmed in Supabase Auth.
+- Script: packages/smoke/src/test-accounts.ts (kept untracked on purpose — it holds the password; idempotent; `--withdraw` takes the listings
+  off the public site, deletes nothing). Run from packages/smoke: `pnpm exec tsx src/test-accounts.ts`.
+
 ## 2026-10-16 — Claude Code — ADR 0044: requests of many parts, one dashboard (branch feat/complex-dashboards)
 
 - The user asked for 9–10 metrics in one prompt (agents, licence numbers, active listings in suburbs, sales this month,

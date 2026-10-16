@@ -1312,3 +1312,19 @@ owner, with at least two agents who have a licence number, some live listings, a
 | AT5 | "Agency totals this month: sales value, active listings and average response time" | A figures tile: three labelled numbers in a row; an empty one reads "No information yet". |
 | AT6 | Agent (not admin) asks AT1 | Their own row only, as a chat tile (agents cannot save a dashboard). |
 | AT7 | Response time with leads answered only by phone | They count as unanswered — the reply says response time counts email answers only. |
+## AU — One console shell; the assistant as the home page (ADR 0045)
+
+Both consoles: agency.* and agents.*. Repeat AU1–AU9 on each (agency home `/overview`, agent home `/assistant`).
+
+| # | Case | Expected |
+|---|---|---|
+| AU1 | Sign in | You land on the assistant home: "What's on today, <name>?", a centred input, suggestion chips. No floating Assistant button anywhere. |
+| AU2 | Ask anything | The answer streams; the URL becomes `…?c=<id>`; the conversation appears at the top of Recents. |
+| AU3 | Click another conversation in Recents, then Back | It switches without the page reloading; Back returns to the first one. Click two quickly: the one clicked last is shown. |
+| AU4 | "+ New chat" (top right) while in a conversation | An empty home; the old conversation is still in Recents. |
+| AU5 | Agent: ask "What's our sold value this month?" | Same answer as before the redesign for an agent (owner/admin figures stay refused). |
+| AU6 | Contact page → **Ask the assistant** → "Book an appraisal with this contact tomorrow at 3pm" | The chip "Using this contact" shows; the card names that contact. × removes it. |
+| AU7 | Directory: tick 2 contacts → Ask | The home opens with "Using 2 picked contacts". |
+| AU8 | Sidebar: More → open a page behind it | More stays open on that page; with unread team messages, a dot shows on a closed More. |
+| AU9 | Projects → a card | The board opens inside the console (sidebar stays); "Full screen ↗" opens it in a new tab. Old `/dashboards` and `/my-dashboards` links land on Projects. |
+| AU10 | Connectors: search, each filter, Connect, Disconnect | Filters and search change the URL; Connect/Disconnect work exactly as before. |

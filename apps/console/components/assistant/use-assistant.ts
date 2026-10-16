@@ -2,17 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AssistantEvent, AssistantFrame } from '@repo/core/assistant/schema';
-import type { ConversationSummary } from '@repo/core/assistant';
-import { getAssistantConversationAction, listAssistantConversationsAction } from '@/lib/assistant-actions';
+import { getAssistantConversationAction } from '@/lib/assistant-actions';
 import { usePicks } from './picks';
 
 /**
- * The assistant's conversation state and its one door to the server, shared by
- * the agent desk's floating panel and the agency's home page.
+ * The assistant's conversation state and its one door to the server — the
+ * state behind both consoles' assistant home (assistant-home.tsx).
  *
- * Moved here unchanged from the panel so the two layouts drive the same code —
- * a second copy of the stream reader would be a second place for the
- * selection rule or the limit handling to drift.
+ * Moved here unchanged from the old floating panel, so the stream reader, the
+ * selection rule and the limit handling exist once.
  */
 
 export type Turn = {
@@ -44,7 +42,6 @@ export function useAssistant({ contactId }: { contactId: string | null }) {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [useSelection, setUseSelection] = useState(true);
-  const [history, setHistory] = useState<ConversationSummary[] | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   /** Bumped by every open and every New, so a slow load cannot land over a newer choice. */
@@ -129,11 +126,6 @@ export function useAssistant({ contactId }: { contactId: string | null }) {
     setTurns([]);
     setConversationId(null);
     setFull(false);
-    setHistory(null);
-  };
-
-  const showHistory = async () => {
-    setHistory(await listAssistantConversationsAction().catch(() => []));
   };
 
   /**
@@ -144,7 +136,6 @@ export function useAssistant({ contactId }: { contactId: string | null }) {
     const seq = ++loadSeq.current;
     const r = await getAssistantConversationAction(id);
     if (seq !== loadSeq.current) return null;
-    setHistory(null);
     if (!r.ok) return false;
     setConversationId(r.conversation.id);
     setFull(r.conversation.full);
@@ -172,13 +163,10 @@ export function useAssistant({ contactId }: { contactId: string | null }) {
     busy,
     useSelection,
     setUseSelection,
-    history,
-    setHistory,
     endRef,
     send,
     stop,
     startNew,
-    showHistory,
     openConversation,
   };
 }

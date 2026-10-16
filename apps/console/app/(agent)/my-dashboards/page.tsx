@@ -1,6 +1,6 @@
-import { DashboardsPage } from '@/components/dashboards/dashboards-page';
+import { redirect } from 'next/navigation';
 
-/** Dashboards shared with the whole agency (docs/adr/0027). */
+/** Dashboards are called Projects on the agent desk now; old links and bookmarks land there. */
 export default function Page() {
-  return <DashboardsPage surface="agent" />;
+  redirect('/my-projects');
 }

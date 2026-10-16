@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { clearPicks } from './picks';
-import { EXAMPLES, TurnList } from './assistant-panel';
+import { EXAMPLES, TurnList, type Surface } from './assistant-panel';
 import { useAssistant } from './use-assistant';
 import styles from './assistant-home.module.css';
 
@@ -14,7 +14,8 @@ const CONTACT_ID = /^[0-9a-f-]{36}$/i;
 const SUGGESTIONS = EXAMPLES.filter((e) => e.startsWith('“')).map((e) => e.replace(/[“”]/g, '').replace(/\s*\(.*\)$/, ''));
 
 /**
- * The agency console's home: the assistant as the page, not a panel over it.
+ * The assistant home of both consoles (/overview, /assistant): the assistant
+ * as the page, not a panel over it.
  *
  * Which conversation is open lives in the URL (`?c=`), so the sidebar's
  * Recents are plain links, Back works, and "New" is a link to this page with
@@ -23,7 +24,20 @@ const SUGGESTIONS = EXAMPLES.filter((e) => e.startsWith('“')).map((e) => e.rep
  * in flight is not interrupted — and the layout is refreshed once the first
  * answer ends, which is what puts it into Recents.
  */
-export function AssistantHome({ name, notices, below }: { name: string | null; notices?: ReactNode; below?: ReactNode }) {
+export function AssistantHome({
+  surface,
+  home,
+  name,
+  notices,
+  below,
+}: {
+  surface: Surface;
+  /** This page's own path — "start a new one" links here. */
+  home: string;
+  name: string | null;
+  notices?: ReactNode;
+  below?: ReactNode;
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const c = params.get('c');
@@ -173,14 +187,14 @@ export function AssistantHome({ name, notices, below }: { name: string | null; n
       {/* Its own scroller: the shell's content area is a scroll container, so a sticky composer would not stick. */}
       <div className={styles.scroller}>
         <div className={styles.thread}>
-          <TurnList turns={turns} surface="agency" />
+          <TurnList turns={turns} surface={surface} />
           <div ref={endRef} />
         </div>
       </div>
       <div className={styles.dock}>
         {full ? (
           <p className={styles.note}>
-            This conversation is full — <Link href="/overview">start a new one</Link>.
+            This conversation is full — <Link href={home}>start a new one</Link>.
           </p>
         ) : null}
         {composer}

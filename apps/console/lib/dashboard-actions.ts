@@ -15,6 +15,7 @@ export async function archiveDashboardAction(id: string): Promise<{ ok: true } |
     revalidatePath('/dashboards');
     revalidatePath('/projects');
     revalidatePath('/my-dashboards');
+    revalidatePath('/my-projects');
     return { ok: true };
   } catch (err) {
     if (err instanceof DashboardError) return { ok: false, error: err.message };

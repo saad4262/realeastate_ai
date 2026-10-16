@@ -18,19 +18,20 @@ import styles from './dashboards.module.css';
  * owners/admins through the assistant's card; opened by signed-in members of
  * the agency only.
  *
- * The agency console calls them Projects and opens one inside its own chrome
- * (`/projects/[id]`), sidebar still there. The agent desk keeps Dashboards and
- * the full-screen page in a new tab.
+ * Both consoles call them Projects and open one inside their own chrome
+ * (`/projects/[id]`, `/my-projects/[id]`), sidebar still there; the
+ * full-screen page for a wall is a link from there.
  */
 export async function DashboardsPage({ surface }: { surface: 'agency' | 'agent' }) {
   const session = await requireConsoleAccess(surface);
   const rows = await listDashboards(getConsoleDb(), session.actor);
   const agency = surface === 'agency';
+  const base = agency ? '/projects' : '/my-projects';
   return (
     <div className={contactStyles.wrap}>
       <div className={contactStyles.head}>
         <div className={contactStyles.headText}>
-          <h1 className={contactStyles.title}>{agency ? 'Projects' : 'Dashboards'}</h1>
+          <h1 className={contactStyles.title}>Projects</h1>
           <p className={contactStyles.sub}>
             Live figures that refresh about every minute.{' '}
             {agency
@@ -45,7 +46,7 @@ export async function DashboardsPage({ surface }: { surface: 'agency' | 'agent' 
         ) : null}
       </div>
       {rows.length === 0 ? (
-        <p className={styles.muted}>{agency ? 'No projects yet.' : 'No dashboards yet.'}</p>
+        <p className={styles.muted}>No projects yet.</p>
       ) : (
         <PrefetchOnIntent>
           <ul className={styles.cards}>
@@ -62,36 +63,9 @@ export async function DashboardsPage({ surface }: { surface: 'agency' | 'agent' 
                     monitoring
                   </span>
                   <div className={styles.cardText}>
-                    {agency ? (
-                      <Link href={`/projects/${d.id}`} prefetch={false} className={styles.cardLink}>
-                        {d.title}
-                      </Link>
-                    ) : (
-                      /*
-                      A dashboard opens in its own tab on the desk.
-
-                      It is a thing you leave up — on a second screen, on the
-                      wall — and it refreshes itself about every minute.
-                      Replacing the console with it meant going Back to do
-                      anything else, which closed the dashboard you had just
-                      opened. The agency console has /projects/[id] instead,
-                      inside its chrome, with a Full screen link for the wall.
-                    */
-                      <Link
-                        href={`/dashboards/${d.id}`}
-                        target="_blank"
-                        rel="noopener"
-                        prefetch={false}
-                        className={styles.cardLink}
-                        aria-label={`${d.title} (opens in a new tab)`}
-                      >
-                        {d.title}
-                        <span className={styles.newTab} aria-hidden>
-                          {' '}
-                          ↗
-                        </span>
-                      </Link>
-                    )}
+                    <Link href={`${base}/${d.id}`} prefetch={false} className={styles.cardLink}>
+                      {d.title}
+                    </Link>
                     <div className={styles.cardMeta}>
                       {d.widgetCount} widget{d.widgetCount === 1 ? '' : 's'} ·{' '}
                       {AUDIENCE_LABELS[d.audience]} · Created{' '}
@@ -127,7 +101,7 @@ export function ProjectThumb({ title, tiles }: { title: string; tiles: WidgetPre
       <div className={styles.mBoard}>
         <div className={styles.mHead}>
           <div className={styles.mHeadText}>
-            <span className={styles.mEyebrow}>Dashboard</span>
+            <span className={styles.mEyebrow}>Project</span>
             <span className={styles.mTitle}>{title}</span>
           </div>
           <span className={styles.mLive}>
