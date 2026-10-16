@@ -1,4 +1,10 @@
 # Status
+- **Functions moved to Sydney (`syd1`) 2026-10-16 (`49eca64`, pushed + deployed with the user's go).** All three
+  Vercel projects ran in `iad1` (Washington) while the DB is `ap-southeast-2`: ~200 ms per query, several per console
+  click. `regions` in `apps/web/vercel.json` + new `apps/console/vercel.json`; DEPLOY.md says why. No Zustand: the
+  user agreed it is not needed if the region fix gives the speed (ARCHITECTURE §4 stands).
+  **ADR 0046 PROPOSED** (not built): middleware `getUser()` → `getClaims()` (local ES256 check, refresh kept, HS
+  fallback). **Next:** the user feels the console after the deploy; then build 0046 with its break-test + smoke.
 - **Integration 2026-10-16: on `main`, PUSHED and DEPLOYED with the user's go (`a474665`); all three Vercel production
   projects (agent, agencyy, users) Ready.**
   `main` = origin/main (ADR 0042 + 0043, deployed) + ADR 0044 (`4e742d3`) + the one console shell (ADR **0045**, renumbered

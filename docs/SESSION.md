@@ -1,3 +1,13 @@
+## 2026-10-16 — Claude Code — Console navigation delay: functions to Sydney; ADR 0046 proposed
+
+- The user felt a delay on every console click and asked whether Zustand was missing. Found: Vercel functions in
+  `iad1`, DB in Sydney (checked with `vercel project inspect` and the pooler host) — ~200 ms per query. Nav routes
+  already have loading.tsx and staleTimes 120 s; no global store exists and none is needed (ARCHITECTURE §4).
+- `regions: ["syd1"]` for both apps (both console projects build from apps/console), pushed → deployed.
+- ADR 0046 (proposed): `getClaims()` in middleware; verified against Supabase's SSR guide and auth-js 2.116 source.
+- Not done: 15 secondary routes without their own loading.tsx (imports detail, onboarding steps, /ai).
+- Next exact step: the user tries the console; then build ADR 0046.
+
 ## 2026-10-16 — Claude Code — Integration: the one console shell onto main (ADR 0045)
 
 - The user asked to put all stuck and uncommitted code on main, resolve the agent-shell conflicts, renumber the ADR
