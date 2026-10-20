@@ -253,6 +253,8 @@ export async function sendInvitation(
       sentBy: actor.userId,
       channel: 'console',
       kind: notice === 'cancellation' ? CANCELLATION_KIND : INVITATION_KIND,
+      // Its own new conversation: the subject as written, no "Re:".
+      opening: true,
     });
     return { threadId: thread!.id, messageId: id, cancellationEntry: entry };
   });

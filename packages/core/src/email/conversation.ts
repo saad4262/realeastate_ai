@@ -62,6 +62,13 @@ export type ConversationEmailInput = {
    * transactional — it may leave through the author's Gmail.
    */
   opening?: { optOutUrl: string };
+  /**
+   * Nothing came before it in its conversation — an appointment's invitation,
+   * update, cancellation or reminder each start their own. The subject as
+   * written: a "Re:" there makes the first email look like a reply to
+   * something the person never sent. Nothing else changes.
+   */
+  firstInThread?: boolean;
 };
 
 /**
@@ -136,7 +143,7 @@ export function buildConversationEmail(input: ConversationEmailInput): EmailMess
     to: input.to,
     from: input.from,
     replyTo: input.replyTo,
-    subject: input.opening ? input.subject.trim() : replySubject(input.subject),
+    subject: input.opening || input.firstInThread ? input.subject.trim() : replySubject(input.subject),
     html,
     text,
     tags: { kind: input.opening ? 'direct-email' : 'conversation' },

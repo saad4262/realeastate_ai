@@ -339,6 +339,15 @@ describe('conversation emails', () => {
     expect(m.html).toContain('1 Test St, Pakenham VIC 3810');
   });
 
+  it('a reply says "Re:"; the first email of its own conversation (an invitation, a reminder) does not', () => {
+    expect(buildConversationEmail(base).subject).toBe('Re: Enquiry about 12 Example St');
+    const first = buildConversationEmail({ ...base, subject: 'Zoom meeting with Bea — Fri, 23 Oct', firstInThread: true });
+    expect(first.subject).toBe('Zoom meeting with Bea — Fri, 23 Oct');
+    // Only the subject changes: it stays one-to-one, transactional, with no opt-out footer.
+    expect(first.kind).toBe('transactional');
+    expect(first.text).not.toMatch(/unsubscribe/i);
+  });
+
   it('never stacks "Re:"', () => {
     expect(replySubject('Re: Hello')).toBe('Re: Hello');
     expect(replySubject('RE:Hello')).toBe('RE:Hello');

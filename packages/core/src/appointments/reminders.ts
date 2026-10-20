@@ -289,6 +289,8 @@ export async function runReminderTick(db: Db, deps: ReminderDeps = {}): Promise<
             sentBy,
             channel: 'console',
             kind: REMINDER_KIND,
+            // Its own new conversation: the subject as written, no "Re:".
+            opening: true,
           });
         });
         const outcome = await deliverOutbound(db, deps.mail, messageId);

@@ -233,6 +233,10 @@ export async function deliverOutbound(
       sendAttempt: mailMessage.sendAttempt,
       kind: mailMessage.kind,
       channel: mailMessage.channel,
+      // Nothing else in its conversation: its subject goes as written, no "Re:" (a retry is the same message).
+      firstInThread: sql<boolean>`not exists (
+        select 1 from mail_message x where x.thread_id = ${mailMessage.threadId} and x.id <> ${mailMessage.id}
+      )`,
       sentBy: mailMessage.sentBy,
       agencyId: mailThread.agencyId,
       text: mailMessage.text,
@@ -359,6 +363,7 @@ export async function deliverOutbound(
       ...(m.inReplyTo ? { threading: { inReplyTo: m.inReplyTo, references: [m.inReplyTo] } } : {}),
       ...(opts.unsubscribeUrl ? { unsubscribeUrl: opts.unsubscribeUrl } : {}),
       ...(optOutUrl ? { opening: { optOutUrl } } : {}),
+      ...(m.firstInThread === true || (m.firstInThread as unknown) === 't' ? { firstInThread: true } : {}),
     });
     // One key per message and try: a crash recovery reuses it (sent at most once); a person's Retry is a new try.
     result = gmail ? await sendViaGmail(db, deps, gmail, email) : await transport.send({ ...email, idempotencyKey: `mail-message-${m.id}-${m.sendAttempt}` });
