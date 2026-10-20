@@ -27,6 +27,7 @@ import { pendingSyncFields, syncAppointment, type SyncDeps, type SyncOutcome, ty
 import { clashMessage, findClash, findFirstClash, isOverlapViolation, OVERLAP_MESSAGE, teamClashMessage } from './clash';
 import {
   ACTIVE_STATUSES,
+  contactNoticeFor,
   finishAppointmentSchema,
   rescheduleAppointmentSchema,
   scheduleAppointmentSchema,
@@ -35,6 +36,7 @@ import {
   type AppointmentListQuery,
   type AppointmentStatus,
   type AppointmentType,
+  type ContactNotice,
   type FinishAppointmentInput,
   type RescheduleAppointmentInput,
   type ScheduleAppointmentInput,
@@ -143,6 +145,12 @@ export type AppointmentView = {
    * and no invitation has gone out since: "resend the invitation".
    */
   zoomLinkChanged: boolean;
+  /** The contact was emailed about it at some point (an invitation or an update) — they hold its details. */
+  contactInvitedBefore: boolean;
+  /** The contact was emailed that it is cancelled. */
+  cancellationSent: boolean;
+  /** The email the contact needs now, sent by a person from a preview (`contactNoticeFor`); null for none. */
+  contactNotice: ContactNotice | null;
   /** Decided by can(); the screen draws its buttons from this. */
   mayUpdate: boolean;
   /** A participant of a team meeting who has not declined it yet. */
@@ -195,6 +203,13 @@ const columns = {
   zoomSyncError: appointment.zoomSyncError,
   /** The last time an offboarding moved this appointment's Zoom meeting (ADR 0030 §5.2). In the same statement. */
   zoomLinkChangedAt: sql<string | null>`(select max(x.occurred_at) from activity x where x.kind = 'zoom_link_changed' and x.payload->>'appointmentId' = ${appointment.id}::text)`,
+  /** What the contact was emailed about it (invitation.ts), in the same statement; by contact first, for activity_contact_idx. */
+  contactNotifiedAt: sql<string | null>`(select max(x.occurred_at) from activity x
+    where x.contact_id = appointment.contact_id and x.kind in ('appointment_invitation_sent', 'appointment_update_sent')
+      and x.payload->>'appointmentId' = appointment.id::text)`,
+  cancellationSentAt: sql<string | null>`(select max(x.occurred_at) from activity x
+    where x.contact_id = appointment.contact_id and x.kind = 'appointment_cancellation_sent'
+      and x.payload->>'appointmentId' = appointment.id::text)`,
   externalCalendarId: appointment.externalCalendarId,
 };
 
@@ -218,6 +233,10 @@ function toView(actor: Actor, r: Row): AppointmentView {
   const people = participantsOf(r);
   const resource = rowResource(r);
   const me = people.find((p) => p.userId === actor.userId);
+  const kind = (r.kind as AppointmentKind | null) ?? 'client';
+  // Currently invited counts too: a delivery finished by the stuck-mail sweep writes no timeline entry.
+  const contactInvitedBefore = Boolean(r.contactNotifiedAt) || Boolean(r.invitationSentAt);
+  const cancellationSent = Boolean(r.cancellationSentAt);
   return {
     id: r.id,
     kind: (r.kind as AppointmentKind | null) ?? 'client',
@@ -258,6 +277,15 @@ function toView(actor: Actor, r: Row): AppointmentView {
     zoomSyncState: (r.zoomSyncState as SyncState | null) ?? null,
     zoomSyncError: (r.zoomSyncError as string | null) ?? null,
     zoomLinkChanged: Boolean(r.zoomLinkChangedAt) && !r.invitationSentAt,
+    contactInvitedBefore,
+    cancellationSent,
+    contactNotice: contactNoticeFor({
+      kind,
+      status: r.status as AppointmentStatus,
+      invitationSentAt: (r.invitationSentAt as Date | string | null) ?? null,
+      contactInvitedBefore,
+      cancellationSent,
+    }),
     mayUpdate: can(actor, 'appointment:update', resource),
     mayDecline: Boolean(me && !me.declined) && can(actor, 'appointment:respond', resource),
   };

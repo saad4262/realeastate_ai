@@ -48,6 +48,9 @@ export const ACTIVITY_KINDS = [
   'appointment_completed',
   'appointment_cancelled',
   'appointment_invitation_sent',
+  // The contact was emailed the new details of a moved appointment, or told it was cancelled.
+  'appointment_update_sent',
+  'appointment_cancellation_sent',
   'template_email_sent',
   // ADR 0035: a new email written to them (by a person, or approved on an assistant card).
   'email_sent',
@@ -103,6 +106,8 @@ export const ACTIVITY_LABELS: Record<ActivityKind, string> = {
   appointment_completed: 'Appointment completed',
   appointment_cancelled: 'Appointment cancelled',
   appointment_invitation_sent: 'Invitation emailed',
+  appointment_update_sent: 'New appointment details emailed',
+  appointment_cancellation_sent: 'Cancellation emailed',
   template_email_sent: 'Template email sent',
   email_sent: 'Email sent',
   contact_opted_out: 'Unsubscribed from marketing email',

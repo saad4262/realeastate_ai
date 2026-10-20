@@ -330,7 +330,12 @@ export async function proposeRescheduleAppointment(
       { label: 'Google Calendar', value: a.calendarSyncState ? 'The event moves too' : 'Not on a calendar' },
       { label: 'Zoom', value: a.zoomMeeting ? 'The meeting moves too (same link)' : 'Not used' },
     ],
-    notes: [NOTHING_YET, 'Its invitation is not re-sent. To send a new one, open the contact’s Calendar tab and press Send invitation.'],
+    notes: [
+      NOTHING_YET,
+      a.contactInvitedBefore
+        ? `${a.contactName} was emailed the earlier time and is not told by itself. After approving, open their Calendar tab and press “Email the new time…”.`
+        : 'No invitation is emailed. To send one, open the contact’s Calendar tab and press Email invitation.',
+    ],
   };
   const args: FrozenArgs = {
     tool: 'reschedule_appointment',
@@ -365,7 +370,12 @@ export async function proposeCancelAppointment(
       { label: 'Zoom', value: a.zoomMeeting ? 'The meeting is deleted' : 'Not used' },
     ],
     ...(input.reason ? { text: { label: 'Reason (kept on the appointment)', value: input.reason } } : {}),
-    notes: [NOTHING_YET, 'Nobody is emailed about the cancellation.'],
+    notes: [
+      NOTHING_YET,
+      a.contactInvitedBefore
+        ? `${a.contactName} was invited and is not told by itself. After approving, open their Calendar tab and press “Email the cancellation…”.`
+        : 'Nobody is emailed about the cancellation (they were never invited).',
+    ],
   };
   const args: FrozenArgs = { tool: 'cancel_appointment', appointmentId: a.id, contactId: a.contactId, reason: input.reason ?? null, requires };
   return propose(ctx, label, { tool: 'cancel_appointment', args, card, contactId: a.contactId });

@@ -20,6 +20,33 @@ export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number];
 /** Still to happen. */
 export const ACTIVE_STATUSES: readonly AppointmentStatus[] = ['scheduled', 'rescheduled'];
 
+/**
+ * The email a client appointment's contact needs now, if any — always sent by
+ * a person pressing Send on a preview (ADR 0019), never by itself:
+ *  - `invitation`: never emailed about it;
+ *  - `update`: emailed before, and since moved (or its Zoom link changed) —
+ *    they hold old details (a move clears `invitation_sent_at`);
+ *  - `cancellation`: emailed before, then cancelled, and not told yet — they
+ *    would otherwise open a Zoom meeting that no longer exists.
+ * Null: a team meeting (its people are told automatically, ADR 0038), up to
+ * date, or nothing to tell.
+ */
+export type ContactNotice = 'invitation' | 'update' | 'cancellation';
+
+export function contactNoticeFor(a: {
+  kind: AppointmentKind;
+  status: AppointmentStatus;
+  invitationSentAt: Date | string | null;
+  /** An invitation or an update reached them at some point. */
+  contactInvitedBefore: boolean;
+  cancellationSent: boolean;
+}): ContactNotice | null {
+  if (a.kind === 'team') return null;
+  if (a.status === 'cancelled') return a.contactInvitedBefore && !a.cancellationSent ? 'cancellation' : null;
+  if (!ACTIVE_STATUSES.includes(a.status) || a.invitationSentAt) return null;
+  return a.contactInvitedBefore ? 'update' : 'invitation';
+}
+
 export const APPOINTMENT_TYPE_LABELS: Record<AppointmentType, string> = {
   appraisal: 'Appraisal',
   phone_call: 'Phone call',

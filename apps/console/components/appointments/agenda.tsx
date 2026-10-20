@@ -160,12 +160,18 @@ function AppointmentCard({
         toast({ title: 'Not saved', description: r.error, variant: 'error' });
         return;
       }
+      // A contact who was emailed the old details is offered the new ones (or the cancellation) at once — still a preview and a Send.
+      const tellContact = !team && a.contactInvitedBefore && (mode === 'cancel' || mode === 'reschedule');
       toast({
         title: mode === 'complete' ? 'Completed' : mode === 'cancel' ? 'Cancelled' : 'Moved',
-        ...(team && mode !== 'complete' ? { description: 'Everyone on it was told.' } : {}),
+        ...(team && mode !== 'complete'
+          ? { description: 'Everyone on it was told.' }
+          : tellContact
+            ? { description: `${a.contactName ?? 'The contact'} still has the earlier email — check and send the one below.` }
+            : {}),
         variant: 'success',
       });
-      setMode(null);
+      setMode(tellContact ? 'invite' : null);
       router.refresh();
     });
   }
@@ -234,12 +240,25 @@ function AppointmentCard({
               : active
                 ? 'Nobody emailed yet — waiting for the Zoom link'
                 : ''
-            : a.invitationSentAt
-              ? 'Invitation emailed'
-              : active
-                ? 'No invitation sent'
-                : ''}
+            : a.status === 'cancelled'
+              ? a.cancellationSent
+                ? 'Cancellation emailed'
+                : ''
+              : a.invitationSentAt
+                ? 'Invitation emailed'
+                : active && a.contactNotice === 'invitation'
+                  ? 'No invitation sent'
+                  : ''}
         </div>
+        {!team && !over && !a.zoomLinkChanged && (a.contactNotice === 'update' || a.contactNotice === 'cancellation') ? (
+          <div className={styles.syncWarn} role="status">
+            <span>
+              {a.contactNotice === 'update'
+                ? `⚠ ${a.contactName ?? 'The contact'} was emailed the earlier details — email them the new time, or they get no reminder for it.`
+                : `⚠ ${a.contactName ?? 'The contact'} was invited and does not know it is cancelled — email them, or they will try to join.`}
+            </span>
+          </div>
+        ) : null}
         {a.notes ? <div className={styles.outcome}>{team ? 'Agenda' : 'Notes'}: {a.notes}</div> : null}
         {a.outcome ? <div className={styles.outcome}>Outcome: {a.outcome}</div> : null}
 
@@ -248,9 +267,17 @@ function AppointmentCard({
             <button type="button" className={contactStyles.btnSmall} onClick={() => { setOutcome(''); setMode('complete'); }}>Complete</button>
             <button type="button" className={contactStyles.btnSmall} onClick={openReschedule}>Reschedule</button>
             <button type="button" className={contactStyles.btnSmall} onClick={() => { setOutcome(''); setMode('cancel'); }}>Cancel</button>
-            {!team && !a.invitationSentAt && !over ? (
-              <button type="button" className={contactStyles.btnSmall} onClick={() => setMode('invite')}>Email invitation…</button>
+            {!team && a.contactNotice && !over ? (
+              <button type="button" className={contactStyles.btnSmall} onClick={() => setMode('invite')}>
+                {a.contactNotice === 'update' ? 'Email the new time…' : 'Email invitation…'}
+              </button>
             ) : null}
+          </div>
+        ) : null}
+
+        {a.mayUpdate && a.contactNotice === 'cancellation' && !over && mode === null ? (
+          <div className={styles.actions}>
+            <button type="button" className={contactStyles.btnSmall} onClick={() => setMode('invite')}>Email the cancellation…</button>
           </div>
         ) : null}
 

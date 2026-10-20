@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { appointmentStatusEnum, appointmentTypeEnum } from '@repo/db/schema';
-import { APPOINTMENT_STATUSES, APPOINTMENT_TYPES, scheduleAppointmentSchema } from './appointment-schema';
-import { buildInvitation } from './invitation';
+import { APPOINTMENT_STATUSES, APPOINTMENT_TYPES, contactNoticeFor, scheduleAppointmentSchema } from './appointment-schema';
+import { buildCancellationNotice, buildInvitation } from './invitation';
 
 describe('the appointment vocabularies match the database enums', () => {
   it('types', () => expect([...APPOINTMENT_TYPES]).toEqual([...appointmentTypeEnum.enumValues]));
@@ -58,5 +58,53 @@ describe('the invitation email', () => {
     // The type has no `notes`: an invitation cannot leak what the agent wrote for themselves.
     const { body } = buildInvitation({ ...appt, notes: 'Vendor is in debt' } as typeof appt, { agentName: 'S', agencyName: 'A' });
     expect(body).not.toMatch(/debt/);
+  });
+
+  it('a moved appointment’s email says it replaces the earlier one, with the new time and the same link', () => {
+    const zoom = { ...appt, type: 'zoom' as const, meetingUrl: 'https://zoom.us/j/123' };
+    const { subject, body } = buildInvitation(zoom, { agentName: 'Sarah', agencyName: 'Alpha' }, 'update');
+    expect(subject).toMatch(/^Updated: Appraisal of 12 Henry St — /);
+    expect(body).toContain('has changed');
+    expect(body).toContain('instead of the earlier email');
+    expect(body).toContain('Join: https://zoom.us/j/123');
+    expect(body).toMatch(/9:00/);
+  });
+
+  it('a cancellation names the time it was, never a link, and never the reason', () => {
+    // `outcome` (the reason) is handed in on purpose: the builder must not print it.
+    const zoom = { ...appt, type: 'zoom' as const, meetingUrl: 'https://zoom.us/j/123', outcome: 'Vendor pulled out' } as Parameters<typeof buildCancellationNotice>[0];
+    const { subject, body } = buildCancellationNotice(zoom, { agentName: 'Sarah', agencyName: 'Alpha' });
+    expect(subject).toMatch(/^Cancelled: Appraisal of 12 Henry St — /);
+    expect(body).toContain('has been cancelled');
+    expect(body).toMatch(/^Was: .*9:00/m);
+    expect(body).toContain('no longer works');
+    expect(body).not.toContain('https://zoom.us/j/123');
+    expect(body).not.toMatch(/pulled out/);
+  });
+});
+
+describe('which email the contact needs (contactNoticeFor)', () => {
+  const base = { kind: 'client' as const, status: 'scheduled' as const, invitationSentAt: null, contactInvitedBefore: false, cancellationSent: false };
+
+  it('never emailed: the invitation; emailed for this time: nothing', () => {
+    expect(contactNoticeFor(base)).toBe('invitation');
+    expect(contactNoticeFor({ ...base, invitationSentAt: new Date(), contactInvitedBefore: true })).toBeNull();
+  });
+
+  it('emailed, then moved (which clears invitation_sent_at): the new details', () => {
+    expect(contactNoticeFor({ ...base, status: 'rescheduled', contactInvitedBefore: true })).toBe('update');
+  });
+
+  it('emailed, then cancelled: the cancellation, once; never emailed: nothing to cancel', () => {
+    const cancelled = { ...base, status: 'cancelled' as const };
+    expect(contactNoticeFor({ ...cancelled, contactInvitedBefore: true })).toBe('cancellation');
+    expect(contactNoticeFor({ ...cancelled, contactInvitedBefore: true, cancellationSent: true })).toBeNull();
+    expect(contactNoticeFor(cancelled)).toBeNull();
+  });
+
+  it('a completed appointment and a team meeting need nothing from this', () => {
+    expect(contactNoticeFor({ ...base, status: 'completed', contactInvitedBefore: true })).toBeNull();
+    expect(contactNoticeFor({ ...base, kind: 'team' })).toBeNull();
+    expect(contactNoticeFor({ ...base, kind: 'team', status: 'cancelled', contactInvitedBefore: true })).toBeNull();
   });
 });
