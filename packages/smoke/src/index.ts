@@ -7050,6 +7050,88 @@ async function main() {
     }),
   );
 
+  // ADR 0048 (needs migration 0056): TEST-PLAN BB without a browser — the model's part is the card, everything after it runs here.
+  await check('ADR 0048: a template written in the chat, then “new Parramatta leads → that template at 9 am”: the email waits for 9:00 on the agency’s clock; a Bondi lead runs nothing; a 5 km radius matches by the pin; paused runs nothing', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const [lst] = await t.execute<{ id: string }>(sql`select id from listing where agency_id = ${f.agencyId} limit 1`);
+      const moveTo = (suburb: string, lat: number, lng: number) =>
+        t.execute(sql`update property set suburb = ${suburb}, state = 'NSW', postcode = '2000', latitude = ${lat}, longitude = ${lng} where id = ${f.propertyId}`);
+      await t.execute(sql`update agency set time_zone = 'Australia/Sydney' where id = ${f.agencyId}`);
+      await moveTo('Parramatta', -33.8151, 151.0034);
+      const conv = await claimTurn(t, owner, { message: 'automatic emails', surface: 'agency' });
+      const handles: HandleMap = {};
+
+      // BB1: the template, written in the chat — nothing saved before Approve.
+      const tplName = `Welcome ${f.tag}`;
+      const tplCard = cardId(await runAssistantTool(proposeCtx(t, owner, handles, conv.conversationId), 'create_template', { name: tplName, subject: 'Thanks {{first_name}}', body: 'Hi {{first_name}}, thanks for your enquiry.\n{{agent_name}}' }));
+      assert((await count(t, sql`select count(*)::int as n from email_template where agency_id = ${f.agencyId} and name = ${tplName}`)) === 0, 'template saved before Approve');
+      assert((await approveProposedAction(t, owner, tplCard)).outcome === 'done', 'approve template');
+      const [tpl] = await t.execute<{ id: string; status: string; agency_wide: boolean }>(sql`select id, status, agency_wide from email_template where agency_id = ${f.agencyId} and name = ${tplName}`);
+      assert(tpl?.status === 'approved' && tpl.agency_wide === true, `template: ${JSON.stringify(tpl)}`);
+
+      // BB2: the workflow, through the assistant's own tool — words on the card, saved on Approve.
+      const wfCard = cardId(
+        await runAssistantTool(proposeCtx(t, owner, handles, conv.conversationId), 'create_workflow', {
+          name: `Parramatta ${f.tag}`,
+          scope: 'agency',
+          trigger: { kind: 'lead.created' },
+          conditions: [{ field: 'listing.suburb', op: 'in', values: ['Parramatta'] }],
+          actions: [{ type: 'wait_until', time: '09:00' }, { type: 'send_template_email', template: issueHandle(handles, 'T', tpl.id) }],
+        }),
+      );
+      const words = (await getProposedAction(t, owner, wfCard)).card.lines.map((l) => `${l.label}: ${l.value}`).join(' | ');
+      assert(/If: the listing’s suburb is Parramatta/.test(words) && /Then 1: Wait until the next 9:00 am, any day/.test(words) && /Times: On the agency’s clock: Australia\/Sydney/.test(words), `card: ${words}`);
+      assert((await approveProposedAction(t, owner, wfCard)).outcome === 'done', 'approve workflow');
+      const [wf] = await t.execute<{ id: string; status: string }>(sql`select id, status from workflow where agency_id = ${f.agencyId}`);
+      assert(wf?.status === 'active', `workflow: ${JSON.stringify(wf)}`);
+
+      // BB6: a lead at 8 pm Sydney → one run; the email step is due at 9:00 am the next morning, and not sent before.
+      const evening = new Date('2026-10-20T09:00:00Z'); // Tue 20:00 AEDT
+      await createManualLead(t, owner, { contactId: f.contacts.p1, listingId: lst!.id, kind: 'enquiry', message: null });
+      await runWorkflowTick(t, evening);
+      await runScheduledActions(t, {}, evening);
+      const stepsOf = (id: string) =>
+        t.execute<{ tool: string; status: string; run_at: string | null }>(sql`
+          select pa.tool, pa.status, pa.run_at from proposed_action pa join workflow_run r on r.task_id = pa.task_id where r.workflow_id = ${id} order by pa.created_at, pa.task_seq`);
+      const steps = await stepsOf(wf.id);
+      const due = steps[0]?.run_at ? new Date(steps[0].run_at).toISOString() : null;
+      assert(steps.length === 1 && steps[0]!.tool === 'send_template_email' && steps[0]!.status === 'scheduled' && due === '2026-10-20T22:00:00.000Z', `steps: ${JSON.stringify(steps)}`);
+
+      // A Bondi listing: no run.
+      await moveTo('Bondi', -33.891, 151.277);
+      await createManualLead(t, owner, { contactId: f.contacts.p5, listingId: lst!.id, kind: 'enquiry', message: null });
+      await runWorkflowTick(t, evening);
+      assert((await runsOf(t, wf.id)).length === 1, 'a Bondi lead ran the Parramatta workflow');
+
+      // BB4: within 5 km of Parramatta (the place as a geocoder gives it) — Bondi (~25 km) no, Parramatta yes.
+      const { id: near } = await saveWorkflow(t, owner, {
+        name: `Near ${f.tag}`,
+        scope: 'agency',
+        spec: { trigger: { kind: 'lead.created' }, conditions: [{ field: 'listing.near', op: 'within', km: 5, place: { label: 'Parramatta NSW 2150', lat: -33.8136, lng: 151.0034 } }], actions: [{ type: 'remind_owner', text: 'Near lead', mail_me: false }] },
+      });
+      await createManualLead(t, owner, { contactId: f.contacts.p6, listingId: lst!.id, kind: 'inspection', message: null });
+      await runWorkflowTick(t, evening);
+      assert((await runsOf(t, near)).length === 0, 'Bondi matched a 5 km radius around Parramatta');
+      await moveTo('Parramatta', -33.8151, 151.0034);
+      await createManualLead(t, owner, { contactId: f.contacts.p6, listingId: lst!.id, kind: 'appraisal', message: null });
+      await runWorkflowTick(t, evening);
+      assert((await runsOf(t, near)).length === 1 && (await runsOf(t, wf.id)).length === 2, `near ${(await runsOf(t, near)).length}, parramatta ${(await runsOf(t, wf.id)).length}`);
+
+      // BB7: paused → nothing; on again → runs.
+      await setWorkflowStatus(t, owner, wf.id, 'paused');
+      await createManualLead(t, owner, { contactId: f.contacts.p1, listingId: lst!.id, kind: 'inspection', message: null });
+      await runWorkflowTick(t, evening);
+      assert((await runsOf(t, wf.id)).length === 2, 'a paused workflow ran');
+      await setWorkflowStatus(t, owner, wf.id, 'active');
+      await createManualLead(t, owner, { contactId: f.contacts.p5, listingId: lst!.id, kind: 'inspection', message: null });
+      await runWorkflowTick(t, evening);
+      assert((await runsOf(t, wf.id)).length === 3, 'turned on again but did not run');
+      return 'template saved only on Approve (agency-wide); card reads "If Parramatta / Wait until the next 9:00 am / Sydney"; 8 pm lead → email due 09:00 next morning, not sent early; Bondi → no run; 5 km radius: Bondi no, Parramatta yes; paused → no run, on → runs';
+    }),
+  );
+
   // ── ADR 0042: open questions on an agency's data (needs migration 0052) ──────────────────────
   group('Open questions (ADR 0042)');
 

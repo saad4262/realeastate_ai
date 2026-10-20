@@ -9,7 +9,11 @@
   "contains" rule removed, template permission removed); the red-team test caught a model field named `to` → `time`/`until`.
   **Failing before this work, on this Windows machine, untouched files:** core isolation/subquery tests (backslash
   paths), ai recent-sales dates (machine zone), `@repo/config` typecheck (no @types/node — the uncommitted
-  package.json/pnpm-lock changes). Smoke not run. TEST-PLAN **BB**.
+  package.json/pnpm-lock changes). TEST-PLAN **BB**. **Smoke "Workflows" 7/7 green (2026-10-20, DATABASE_URL=DIRECT_URL;
+  over the 6543 pooler one old check dropped its connection)**, incl. the new ADR 0048 check = BB1/2/4/6/7 without a
+  browser (template card → Approve; Parramatta + 9 am card → Approve; 8 pm lead → email due 09:00 next morning; Bondi no
+  run; 5 km radius; pause/resume). Break-test red (window ignored → step ran at 8 pm). NOT checked: the screens and the
+  live model's choices (no browser here; no paid run).
   **Next:** the user walks BB; push/merge with their go.
 - **Console assistant answers showed raw Markdown (`**`, `- `) — fixed 2026-10-16 on `feat/dashboard-update`, committed.**
   The answer went into one pre-wrap div. Now `components/assistant/rich-text.tsx` renders it through the shared
