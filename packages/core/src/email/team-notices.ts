@@ -412,6 +412,8 @@ export type MeetingReminderEmailInput = {
   location: string | null;
   /** The Zoom (or pasted) join link, if it has one. */
   joinUrl: string | null;
+  /** Something wrong with the meeting, said up front — e.g. its Zoom meeting was never created. */
+  problem?: string | null;
   /** The console calendar on the person's own surface. */
   calendarUrl: string;
 };
@@ -426,6 +428,7 @@ export function buildMeetingReminderEmail(input: MeetingReminderEmailInput): Tra
     why: 'Sent because this meeting is on your calendar with a reminder.',
   };
   const lines = [
+    input.problem ? `<strong style="color:#9a3412;">${escapeHtml(input.problem)}</strong>` : null,
     `When: ${escapeHtml(input.when)}`,
     input.location ? `Where: ${escapeHtml(input.location)}` : null,
     input.joinUrl ? `Join: <a href="${escapeHtml(input.joinUrl)}" style="color:#0b3d2e;">${escapeHtml(input.joinUrl)}</a>` : null,
@@ -445,6 +448,7 @@ export function buildMeetingReminderEmail(input: MeetingReminderEmailInput): Tra
   const text = [
     heading,
     intro,
+    ...(input.problem ? ['', input.problem] : []),
     '',
     `When: ${input.when}`,
     input.location ? `Where: ${input.location}` : null,
@@ -464,6 +468,55 @@ export function buildMeetingReminderEmail(input: MeetingReminderEmailInput): Tra
     text,
     tags: { kind: 'meeting-reminder' },
   };
+}
+
+// ── A Zoom meeting that could not be created (to its host and booker) ────────
+
+export type ZoomFailedEmailInput = {
+  to: { email: string; name?: string };
+  from: { email: string; name: string };
+  postalAddress: string;
+  title: string;
+  /** Who it is with: the contact's name, or "your colleagues". */
+  withWhom: string;
+  when: string;
+  /** Why, as the sync wrote it on the row ("Zoom needs reconnecting — …"). Never a provider body. */
+  reason: string;
+  /** The console calendar on the person's own surface. */
+  calendarUrl: string;
+};
+
+/**
+ * "No Zoom link yet." The booking stands, but the Zoom meeting was not made,
+ * so nobody has a link and — on a team meeting — nobody was told. Sent once per
+ * meeting time to whoever can fix it.
+ */
+export function buildZoomFailedEmail(input: ZoomFailedEmailInput): TransactionalMessage {
+  requireSenderFooter(input.from, input.postalAddress, 'zoom failure notice');
+  const heading = `No Zoom link yet: ${input.title}`;
+  const intro = `Your meeting with ${input.withWhom} is booked, but its Zoom meeting could not be created, so nobody has a join link.`;
+  const fix = 'To fix it: reconnect Zoom in Settings → Integrations, then open the meeting in your calendar and press Retry. Its invitation can be sent once it has a link.';
+  const footer: Footer = {
+    from: input.from,
+    postalAddress: input.postalAddress,
+    why: 'Sent because you host or booked this meeting.',
+  };
+  const html = layout({
+    heading,
+    intro,
+    body: `
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:18px;">
+            <tr><td style="padding:16px 0 0;border-top:1px solid #ece7dd;font:400 15px/1.6 ${FONT};color:#1a1a1a;">
+              When: ${escapeHtml(input.when)}<br>
+              Why: ${escapeHtml(input.reason)}
+            </td></tr>
+          </table>`,
+    button: { label: 'Open your calendar', url: input.calendarUrl },
+    after: fix,
+    footer,
+  });
+  const text = [heading, intro, '', `When: ${input.when}`, `Why: ${input.reason}`, '', fix, `Your calendar: ${input.calendarUrl}`, '', ...textFooter(footer)].join('\n');
+  return { kind: 'transactional', to: input.to, from: input.from, subject: heading, html, text, tags: { kind: 'zoom-failed' } };
 }
 
 // ── Team meeting (ADR 0038 §5) ─────────────────────────────────────────────

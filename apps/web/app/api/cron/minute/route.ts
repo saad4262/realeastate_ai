@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { runReminderTick, syncDepsFromEnv, teamMeetingDepsFromEnv } from '@repo/core/appointments';
+import { runReminderTick, runZoomFailureAlerts, syncDepsFromEnv, teamMeetingDepsFromEnv } from '@repo/core/appointments';
 import { noticeMailFromEnv } from '@repo/core/email';
 import { runScheduledActions } from '@repo/core/assistant';
 import { mailDepsFromEnv } from '@repo/core/mail';
@@ -53,8 +53,13 @@ async function handler(request: NextRequest) {
       error: err instanceof Error ? err.message : 'reminder tick failed',
     }));
 
+    // A Zoom meeting that could not be created: its host and booker are told, once (a meeting without a link is time-critical too).
+    const zoomAlerts = await runZoomFailureAlerts(getWebDb(), { notice: noticeMailFromEnv() }).catch((err: unknown) => ({
+      error: err instanceof Error ? err.message : 'zoom alert tick failed',
+    }));
+
     // Counts only — this is read from a cron log.
-    return NextResponse.json({ ok: true, workflows, scheduled, reminders }, { headers: { 'cache-control': 'no-store' } });
+    return NextResponse.json({ ok: true, workflows, scheduled, reminders, zoomAlerts }, { headers: { 'cache-control': 'no-store' } });
   } catch (err) {
     return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : 'tick failed' }, { status: 503 });
   }

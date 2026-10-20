@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { clashMessage, isOverlapViolation, OVERLAP_CONSTRAINT } from './clash';
-import { buildContactReminder, startsIn } from './reminders';
+import { buildContactReminder, NO_ZOOM_LINK, reminderRecipients, startsIn, zoomLinkMissing } from './reminders';
 import { DEFAULT_REMINDER_MINUTES, scheduleAppointmentSchema } from './appointment-schema';
-import { buildMeetingReminderEmail } from '../email/team-notices';
+import { buildMeetingReminderEmail, buildZoomFailedEmail } from '../email/team-notices';
 import { scheduleAppointmentInput } from '../assistant/schema';
 
 /** ADR 0032: the pure parts of meetings end to end. The SQL halves are in `pnpm smoke`. */
@@ -102,6 +102,55 @@ describe('reminders', () => {
     expect(msg.text).toContain('1 George St, Sydney NSW 2000');
     const noLink = buildMeetingReminderEmail({ ...{ to: { email: 's@e.com' }, from, postalAddress: 'x', title: 't', withWhom: 'c', when: 'w', startsIn: 'now', location: 'Office', joinUrl: null, calendarUrl: 'https://a/my-calendar' } });
     expect(noLink.html).toContain('Open your calendar');
+  });
+});
+
+describe('a Zoom meeting whose link was never created', () => {
+  const from = { email: 'noreply@example.com', name: 'Example' };
+  const person = (userId: string) => ({ userId, email: `${userId}@example.com`, name: userId, role: 'agent' as const });
+
+  it('is recognised only for a Zoom meeting with no link', () => {
+    expect(zoomLinkMissing({ type: 'zoom', meetingUrl: null })).toBe(true);
+    expect(zoomLinkMissing({ type: 'zoom', meetingUrl: 'https://zoom.us/j/1' })).toBe(false);
+    expect(zoomLinkMissing({ type: 'in_person', meetingUrl: null })).toBe(false);
+  });
+
+  it('a team meeting nobody was told about reminds its host and booker, never its colleagues', () => {
+    const base = { kind: 'team', assignee: person('host'), booker: person('admin') };
+    const untold = reminderRecipients({ ...base, invitationSentAt: null }, [person('colleague'), person('host')]);
+    expect(untold.map((p) => p.userId)).toEqual(['host', 'admin']);
+    const told = reminderRecipients({ ...base, invitationSentAt: new Date() }, [person('colleague'), person('host')]);
+    expect(told.map((p) => p.userId)).toEqual(['host', 'admin', 'colleague']);
+    // A client appointment has no colleagues to hold back; the booker who is the host is reminded once.
+    expect(reminderRecipients({ kind: 'client', invitationSentAt: null, assignee: person('host'), booker: person('host') }, []).map((p) => p.userId)).toEqual(['host']);
+  });
+
+  it('the reminder says there is no link and how to fix it', () => {
+    const msg = buildMeetingReminderEmail({ to: { email: 's@e.com' }, from, postalAddress: 'x', title: 't', withWhom: 'c', when: 'w', startsIn: 'in 5 minutes', location: null, joinUrl: null, problem: NO_ZOOM_LINK, calendarUrl: 'https://a/my-calendar' });
+    expect(msg.text).toContain('No Zoom link yet');
+    expect(msg.html).toContain('press Retry');
+    expect(msg.html).toContain('Open your calendar');
+    expect(msg.html).not.toContain('Join the meeting');
+  });
+
+  it('the host and booker are told why, and what to do', () => {
+    const msg = buildZoomFailedEmail({
+      to: { email: 'sam@example.com', name: 'Sam' },
+      from,
+      postalAddress: '1 George St, Sydney NSW 2000',
+      title: 'Chat <b>',
+      withWhom: 'Bea',
+      when: 'Sat 10 Oct 2026, 8:00 pm AEDT – 9:00 pm',
+      reason: 'Zoom needs reconnecting — open Integrations, reconnect, then Retry.',
+      calendarUrl: 'https://agents.example.com/my-calendar',
+    });
+    expect(msg.kind).toBe('transactional');
+    expect(msg.subject).toBe('No Zoom link yet: Chat <b>');
+    expect(msg.html).toContain('Chat &lt;b&gt;');
+    expect(msg.text).toContain('Why: Zoom needs reconnecting');
+    expect(msg.text).toContain('Settings → Integrations');
+    expect(msg.text).toContain('https://agents.example.com/my-calendar');
+    expect(msg.text).toContain('1 George St, Sydney NSW 2000');
   });
 });
 

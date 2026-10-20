@@ -60,6 +60,8 @@ export {
   buildMeetingReminderEmail,
   buildTeamMessageEmail,
   buildTeamMeetingEmail,
+  buildZoomFailedEmail,
+  type ZoomFailedEmailInput,
   type TeamMeetingEmailInput,
   type TeamMeetingEvent,
   type MeetingReminderEmailInput,

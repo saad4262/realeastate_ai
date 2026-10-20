@@ -50,12 +50,16 @@ export {
 export { clashingIds, clashMessage, findClash, findFirstClash, isOverlapViolation, OVERLAP_CONSTRAINT, OVERLAP_MESSAGE, teamClashMessage, type Clash } from './clash';
 export {
   buildContactReminder,
+  NO_ZOOM_LINK,
   NOTIFICATION_KIND_REMINDER,
   REMINDER_KIND,
+  reminderRecipients,
   runReminderTick,
   startsIn,
+  zoomLinkMissing,
   type ReminderDeps,
   type ReminderReport,
 } from './reminders';
+export { NOTIFICATION_KIND_ZOOM_FAILED, runZoomFailureAlerts, ZOOM_ALERT_GRACE_MS, type ZoomAlertReport } from './zoom-alerts';
 export { listCustomerMeetings, type CustomerMeeting } from './customer-meetings';
 export * from './appointment-schema';

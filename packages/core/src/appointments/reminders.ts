@@ -10,7 +10,7 @@ import { formatInZone } from '../time/local-input';
 import { ACTIVE_STATUSES, APPOINTMENT_TYPE_LABELS, type AppointmentType } from './appointment-schema';
 
 /**
- * Meeting reminders (ADR 0032 §4), run by the 5-minute cron tick.
+ * Meeting reminders (ADR 0032 §4), run by the every-minute cron tick.
  *
  * Due = active, a reminder asked for, not yet reminded, its reminder time
  * reached and the meeting not over. Each due appointment is CLAIMED
@@ -23,7 +23,10 @@ import { ACTIVE_STATUSES, APPOINTMENT_TYPE_LABELS, type AppointmentType } from '
  *    same person once), while they are ACTIVE members of the agency: a bell
  *    notification, and an email if mail is set up;
  *  - on a team meeting (ADR 0038 §6), also every colleague on it who has not
- *    declined, the same way;
+ *    declined, the same way — once they were told about it (a Zoom failure
+ *    leaves them untold; see `reminderRecipients`);
+ *  - a Zoom meeting with no link says so ("No Zoom link yet … Retry") rather
+ *    than going out as if nothing were wrong;
  *  - the contact, by email, only if they were sent the invitation — a
  *    reminder about a meeting nobody told them of would be the first they
  *    heard of it. It goes through the conversation pipeline (ADR 0016), so the
@@ -54,6 +57,38 @@ const booker = alias(user, 'booker');
 const bookerM = alias(membership, 'booker_m');
 
 type Person = { userId: string; email: string; name: string | null; role: MembershipRole };
+
+/** The line a reminder carries when a Zoom meeting has no link: it was never created (Zoom failed). */
+export const NO_ZOOM_LINK = 'No Zoom link yet — the Zoom meeting was not created. Open it in your calendar and press Retry.';
+
+/** A Zoom meeting whose link was never made: reminding about it must say so, not just omit the link. */
+export function zoomLinkMissing(r: { type: string; meetingUrl: string | null }): boolean {
+  return r.type === 'zoom' && !r.meetingUrl;
+}
+
+/**
+ * Who a reminder reaches: the agent it is assigned to and whoever booked it,
+ * then a team meeting's colleagues — but only once they were told about it
+ * (`invitation_sent_at`). A team meeting whose Zoom failed was never sent to
+ * its colleagues; a "starts soon" would be the first they heard of it, with no
+ * link. Its host and booker are still reminded, so they can fix it.
+ */
+export function reminderRecipients(
+  r: {
+    kind: string;
+    invitationSentAt: Date | string | null;
+    assignee: Person | null;
+    booker: Person | null;
+  },
+  colleagues: Person[],
+): Person[] {
+  const people: Person[] = [];
+  if (r.assignee) people.push(r.assignee);
+  if (r.booker && r.booker.userId !== r.assignee?.userId) people.push(r.booker);
+  const told = r.kind !== 'team' || r.invitationSentAt !== null;
+  if (told) for (const c of colleagues) if (!people.some((p) => p.userId === c.userId)) people.push(c);
+  return people;
+}
 
 /** "in 15 minutes", "in 1 hour", "now" — for a subject line, from the tick's clock. */
 export function startsIn(startsAt: Date, now: Date): string {
@@ -125,6 +160,7 @@ export async function runReminderTick(db: Db, deps: ReminderDeps = {}): Promise<
         id: appointment.id,
         agencyId: appointment.agencyId,
         contactId: appointment.contactId,
+        kind: appointment.kind,
         title: appointment.title,
         type: appointment.type,
         startsAt: appointment.startsAt,
@@ -164,16 +200,19 @@ export async function runReminderTick(db: Db, deps: ReminderDeps = {}): Promise<
       .where(and(inArray(appointmentParticipant.appointmentId, ids.map((r) => r.id)), isNull(appointmentParticipant.declinedAt)));
 
     const out = rows.map((r) => {
-      const people: Person[] = [];
-      if (r.assigneeId && r.assigneeRole && r.assigneeEmail) people.push({ userId: r.assigneeId, email: r.assigneeEmail, name: r.assigneeName, role: r.assigneeRole as MembershipRole });
-      if (r.bookerId && r.bookerRole && r.bookerEmail && r.bookerId !== r.assigneeId) people.push({ userId: r.bookerId, email: r.bookerEmail, name: r.bookerName, role: r.bookerRole as MembershipRole });
       const mine = colleagues.filter((c) => c.appointmentId === r.id);
-      for (const c of mine) {
-        if (!people.some((p) => p.userId === c.userId)) people.push({ userId: c.userId, email: c.email, name: c.name, role: c.role as MembershipRole });
-      }
+      const people = reminderRecipients(
+        {
+          kind: r.kind,
+          invitationSentAt: r.invitationSentAt,
+          assignee: r.assigneeId && r.assigneeRole && r.assigneeEmail ? { userId: r.assigneeId, email: r.assigneeEmail, name: r.assigneeName, role: r.assigneeRole as MembershipRole } : null,
+          booker: r.bookerId && r.bookerRole && r.bookerEmail ? { userId: r.bookerId, email: r.bookerEmail, name: r.bookerName, role: r.bookerRole as MembershipRole } : null,
+        },
+        mine.map((c) => ({ userId: c.userId, email: c.email, name: c.name, role: c.role as MembershipRole })),
+      );
       // Who it is with, for the reminder: the contact, or the team meeting's people.
       const team = [r.assigneeName || r.assigneeEmail, ...mine.map((c) => c.name?.trim() || c.email)].filter((n): n is string => Boolean(n));
-      return { ...r, people, withWhom: r.contactName ?? `your colleagues (${team.join(', ')})` };
+      return { ...r, people, linkMissing: zoomLinkMissing(r), withWhom: r.contactName ?? `your colleagues (${team.join(', ')})` };
     });
 
     const values = out.flatMap((r) =>
@@ -183,7 +222,7 @@ export async function runReminderTick(db: Db, deps: ReminderDeps = {}): Promise<
         kind: NOTIFICATION_KIND_REMINDER,
         appointmentId: r.id,
         title: `Starts soon: ${r.title}`,
-        body: `${formatInZone(r.startsAt, r.timezone)} · with ${r.withWhom}`,
+        body: `${formatInZone(r.startsAt, r.timezone)} · with ${r.withWhom}${r.linkMissing ? ` · ${NO_ZOOM_LINK}` : ''}`,
         href: calendarPath(p, r.agencyId),
         joinUrl: r.meetingUrl,
         // The same start time is reminded once, whatever happens to the claim.
@@ -216,6 +255,7 @@ export async function runReminderTick(db: Db, deps: ReminderDeps = {}): Promise<
               startsIn: startsIn(r.startsAt, now),
               location: r.location,
               joinUrl: r.meetingUrl,
+              ...(r.linkMissing ? { problem: NO_ZOOM_LINK } : {}),
               calendarUrl: `${base}${calendarPath(p, r.agencyId)}`,
             }),
           );
