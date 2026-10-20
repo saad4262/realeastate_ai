@@ -1398,3 +1398,18 @@ Both consoles (agency.* and agents.*), after the deploy.
 | BA1 | Ask "arrange a zoom meeting with <agent>", answer "yes" | The follow-up shows a sentence, then a bulleted list with **Day and time:**, **Length:** and **Title or agenda:** in bold. No `**` or `- ` characters show. |
 | BA2 | Ask something that gets a numbered answer | A numbered list, evenly spaced. |
 | BA3 | Watch an answer stream in | Text appears as it arrives; a half-written `**` shows briefly and then becomes bold. |
+
+## BB — Automatic emails to new leads: names, listings, distance, a time, templates from the chat (ADR 0048)
+
+Needs migration **0056** applied (only `create_template` needs it; the rest works without). Agency console, as an owner.
+
+| # | Case | Expected |
+|---|---|---|
+| BB1 | Assistant: "write a welcome email template for new enquiries" | It asks what to say if you didn't; then a card **Save the email template …** with the exact subject and body, figures listed, "For: The whole agency", "Saving sends nothing". Approve → it appears on Bulk email → Templates as Ready. |
+| BB2 | Same chat: "whenever a new lead comes in from Parramatta or Ryde, send it that template at 9 am" | One workflow card: When a new lead arrives · If the listing's suburb is Parramatta or Ryde · Then 1 "Wait until the next 9:00 am, any day (the agency's time)" · Then 2 "Send the template …" · Times: On the agency's clock: Australia/Sydney. |
+| BB3 | "only Monday to Friday, 9 to 5" | Then 1 reads "Wait until 9:00 am–5:00 pm, Monday to Friday … at once if it already is". |
+| BB4 | "new leads within 5 km of Bondi Beach" | If: "the listing is within 5 km of Bondi Beach NSW 2026, Australia (listings without a map pin never match)" — the place as Google found it. A made-up place → the assistant asks for a suburb and state. |
+| BB5 | "leads whose name contains Smith", "leads on 12 King St" (it looks the listing up), "leads of <agent>" | The card names each: "the contact's name contains “Smith”", "the listing is 12 King St, …", "the assigned agent is …". |
+| BB6 | Approve BB2, then make a website enquiry on a Parramatta listing at 8 pm | Workflows → its run log shows the run; the email step is scheduled for 9:00 am next day, then sent (consent checked). An enquiry on a Bondi listing makes no run. |
+| BB7 | Workflows page → Pause it, enquire again → Turn on | Paused: no run. On again: runs. Also by chat: "turn off the Parramatta workflow". |
+| BB8 | As a read-only member: "write me a template" | Refused: may not write email templates. |

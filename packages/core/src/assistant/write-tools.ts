@@ -1136,7 +1136,7 @@ export async function proposeRemoveAgent(ctx: ToolContext, input: z.infer<typeof
 
 // ── Writing (ADR 0035 §4) ─────────────────────────────────────────────────
 
-const WRITTEN_BY_ASSISTANT = 'Written by the assistant. Read every word — names, dates and figures — before you approve; what you approve is what is sent.';
+export const WRITTEN_BY_ASSISTANT = 'Written by the assistant. Read every word — names, dates and figures — before you approve; what you approve is what is sent.';
 
 /**
  * Every figure in a text the assistant wrote — "$950,000", "14", "10:30am",

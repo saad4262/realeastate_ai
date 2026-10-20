@@ -1,12 +1,13 @@
 import { and, asc, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
-import { assistantTask, notification, proposedAction, workflow, workflowEvent, workflowRun, type Db } from '@repo/db';
+import { agency, assistantTask, notification, proposedAction, workflow, workflowEvent, workflowRun, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { activeMemberActor } from '../team/member-actor';
 import { activateTask } from '../assistant/task-state';
 import type { FrozenArgs } from '../assistant/actions';
 import type { ProposalCard } from '../assistant/schema';
 import { formatAddress } from '../listings/listing-schema';
-import { actionInWords, renderMerge, specProblem, WORKFLOW_LIMITS, workflowSpecSchema, type Condition, type MergeValues, type Trigger, type WorkflowSpec } from './catalog';
+import { actionInWords, isNear, renderMerge, specProblem, WORKFLOW_LIMITS, workflowSpecSchema, type Condition, type MergeValues, type Trigger, type ValuesCondition, type WorkflowSpec } from './catalog';
+import { windowFrom, type SendWindow } from './send-window';
 
 /**
  * The workflow engine (ADR 0041 Part B), run by the minute tick:
@@ -49,6 +50,9 @@ export type Facts = {
   listingSuburb: string | null;
   listingChannel: string | null;
   listingAddress: string | null;
+  /** The listing's map pin; null when it has none. */
+  listingLat: number | null;
+  listingLng: number | null;
   appointmentId: string | null;
   appointmentType: string | null;
   appointmentAgent: string | null;
@@ -62,7 +66,7 @@ async function loadFacts(db: Db, ev: EventRow): Promise<Facts> {
            c.id as contact_id, c.name as contact_name, c.assigned_to as contact_assignee,
            (select coalesce(array_agg(r.role::text), '{}') from contact_role r where r.contact_id = c.id) as contact_roles,
            li.id as listing_id, li.channel::text as listing_channel,
-           p.unit, p.street_number, p.street, p.suburb, p.state, p.postcode,
+           p.unit, p.street_number, p.street, p.suburb, p.state, p.postcode, p.latitude, p.longitude,
            a.id as appointment_id, a.type::text as appointment_type, a.assigned_agent_id as appointment_agent
     from (select 1) one
     left join lead l on l.id = ${id(ev.leadId)} and l.agency_id = ${ev.agencyId}
@@ -73,6 +77,10 @@ async function loadFacts(db: Db, ev: EventRow): Promise<Facts> {
     left join property p on p.id = li.property_id`);
   const s = (k: string) => (r?.[k] === null || r?.[k] === undefined ? null : String(r[k]));
   const roles = r?.contact_roles;
+  const coord = (k: string) => {
+    const n = s(k) === null ? NaN : Number(s(k));
+    return Number.isFinite(n) ? n : null;
+  };
   return {
     agencyId: ev.agencyId,
     leadId: s('lead_id'),
@@ -89,6 +97,8 @@ async function loadFacts(db: Db, ev: EventRow): Promise<Facts> {
     listingSuburb: s('suburb'),
     listingChannel: s('listing_channel'),
     listingAddress: s('suburb') ? formatAddress({ unit: s('unit'), streetNumber: s('street_number'), street: s('street'), suburb: s('suburb')!, state: s('state') ?? '', postcode: s('postcode') ?? '' }) : null,
+    listingLat: coord('latitude'),
+    listingLng: coord('longitude'),
     appointmentId: s('appointment_id'),
     appointmentType: s('appointment_type'),
     appointmentAgent: s('appointment_agent'),
@@ -111,8 +121,12 @@ export function triggerMatches(t: Trigger, data: Record<string, unknown>): boole
   }
 }
 
-function fieldValues(c: Condition, f: Facts): string[] {
+function fieldValues(c: ValuesCondition, f: Facts): string[] {
   switch (c.field) {
+    case 'contact.name':
+      return f.contactName ? [f.contactName] : [];
+    case 'listing':
+      return f.listingId ? [f.listingId] : [];
     case 'listing.suburb':
       return f.listingSuburb ? [f.listingSuburb] : [];
     case 'listing.channel':
@@ -132,11 +146,29 @@ function fieldValues(c: Condition, f: Facts): string[] {
   }
 }
 
-/** Every condition holds, against the record as it is now. Case does not matter (suburbs are typed by people). */
+const norm = (v: string) => v.trim().toLowerCase().replace(/\s+/g, ' ');
+
+/** Great-circle distance in km (haversine). The coordinates come from the database and the geocoder. */
+export function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2;
+  return 2 * 6371.0088 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** Every condition holds, against the record as it is now. Case and spacing do not matter (suburbs and names are typed by people). */
 export function conditionsHold(conditions: Condition[], f: Facts): boolean {
   return conditions.every((c) => {
-    const have = fieldValues(c, f).map((v) => v.trim().toLowerCase());
-    const hit = c.values.some((v) => have.includes(v.trim().toLowerCase()));
+    if (isNear(c)) {
+      if (f.listingLat === null || f.listingLng === null) return false;
+      return distanceKm({ lat: f.listingLat, lng: f.listingLng }, c.place) <= c.km;
+    }
+    const have = fieldValues(c, f).map(norm);
+    const want = c.values.map(norm);
+    if (c.op === 'contains' || c.op === 'not_contains') {
+      const hit = want.some((w) => have.some((h) => h.includes(w)));
+      return c.op === 'contains' ? hit : !hit;
+    }
+    const hit = want.some((w) => have.includes(w));
     return c.op === 'not_in' ? !hit : hit;
   });
 }
@@ -156,15 +188,23 @@ export function inScope(owner: Actor, wf: { scope: string; agencyId: string }, f
   return false;
 }
 
-type Step = { tool: FrozenArgs['tool']; args: FrozenArgs & { gapHours?: number }; card: ProposalCard; contactId: string | null };
+type Step = { tool: FrozenArgs['tool']; args: FrozenArgs & { gapHours?: number; window?: SendWindow }; card: ProposalCard; contactId: string | null };
 
-/** The run's steps, in order — record ids from the facts, texts with their merge fields filled. A `wait` is the next step's gap. */
-export function stepsFor(wf: { name: string }, spec: WorkflowSpec, f: Facts, merge: MergeValues, now: Date): Step[] | { problem: string } {
+/**
+ * The run's steps, in order — record ids from the facts, texts with their merge fields filled. A `wait`
+ * is the next step's gap; a `wait_until` its window, on the agency's clock (`timeZone`, frozen here).
+ */
+export function stepsFor(wf: { name: string }, spec: WorkflowSpec, f: Facts, merge: MergeValues, now: Date, timeZone: string): Step[] | { problem: string } {
   const steps: Step[] = [];
   let gap = 0;
+  let window: SendWindow | null = null;
   for (const a of spec.actions) {
     if (a.type === 'wait') {
       gap += a.hours;
+      continue;
+    }
+    if (a.type === 'wait_until') {
+      window = windowFrom(a, timeZone);
       continue;
     }
     const contactId = f.contactId;
@@ -209,11 +249,12 @@ export function stepsFor(wf: { name: string }, spec: WorkflowSpec, f: Facts, mer
     }
     steps.push({
       tool: args.tool,
-      args: gap > 0 ? { ...args, gapHours: gap } : args,
+      args: { ...args, ...(gap > 0 ? { gapHours: gap } : {}), ...(window ? { window } : {}) },
       card: { title: actionInWords(a), contact: { id: contactId ?? '', name: f.contactName ?? '' }, lines: [{ label: 'Workflow', value: wf.name }], notes: [] },
       contactId: ACTION_TOUCHES_CONTACT.has(a.type) ? contactId : null,
     });
     gap = 0;
+    window = null;
   }
   return steps;
 }
@@ -350,7 +391,13 @@ async function runOne(db: Db, wf: WorkflowRow, ev: EventRow, facts: Facts, owner
   };
   const [ownerRow] = await db.execute<{ name: string | null; email: string }>(sql`select name, email from "user" where id = ${wf.ownerId}`);
   if (ownerRow) merge.agent_name = ownerRow.name || ownerRow.email;
-  const steps = stepsFor(wf, spec, facts, merge, now);
+  // Only a workflow that waits for a time reads the agency's clock.
+  let timeZone = 'Australia/Sydney';
+  if (spec.actions.some((a) => a.type === 'wait_until')) {
+    const [z] = await db.select({ tz: agency.timeZone }).from(agency).where(eq(agency.id, wf.agencyId)).limit(1);
+    if (z?.tz) timeZone = z.tz;
+  }
+  const steps = stepsFor(wf, spec, facts, merge, now, timeZone);
 
   return db.transaction(async (tx) => {
     const [run] = await tx

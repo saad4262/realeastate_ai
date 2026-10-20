@@ -54,6 +54,7 @@ import { findSavedLists } from './list-send';
 import { mayCreateImport } from '../imports/imports';
 import { findSkills, proposeChangeSkill, proposeSetUpSkill } from './skill-tools';
 import { findWorkflows, proposeChangeWorkflow, proposeCreateWorkflow } from './workflow-tools';
+import { proposeCreateTemplate } from './template-tools';
 import type { FrozenArgs } from './actions';
 import {
   ASSISTANT_ADMIN_TOOLS,
@@ -164,6 +165,7 @@ const LABELS: Record<AssistantToolName, string> = {
   withdraw_listing: 'Preparing the withdrawal for you to approve…',
   submit_listing: 'Preparing to send the listing for approval…',
   invite_agent: 'Preparing the invite for you to approve…',
+  create_template: 'Writing the template for you to check…',
 };
 
 /** Tools that change a contact's own record: never for someone who may not edit a contact of their own (read-only). */
@@ -268,6 +270,8 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return proposeCreateWorkflow(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.create_workflow>, label);
     case 'change_workflow':
       return proposeChangeWorkflow(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.change_workflow>, label);
+    case 'create_template':
+      return proposeCreateTemplate(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.create_template>, label);
     case 'find_skills':
       return findSkills(ctx, label);
     case 'set_up_skill':

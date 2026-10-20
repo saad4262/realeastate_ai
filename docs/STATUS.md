@@ -1,4 +1,16 @@
 # Status
+- **Automatic emails to new leads, filtered and timed, from the chat (ADR 0048, asked 2026-10-20) — built on
+  `feat/workflow-filters`, NOT committed.** On top of ADR 0041's workflows: conditions `contact.name` (whole name, or
+  `contains`), `listing` (P refs), `listing.near` (N km of a place the SERVER geocodes — the model only names it);
+  action `wait_until` (a time, or a window + weekdays, on `agency.time_zone`, DST-safe); new card `create_template`
+  (exact words, `createTemplate`). On/off was already there (Workflows screen, `change_workflow`). Prompt
+  `assistant@v24`. **Migration 0056 (tool CHECK + `create_template`) APPLIED 2026-10-20 with the user's go (checked: 57 recorded, CHECK has create_template).**
+  Checks: typecheck core/ai/console OK, lint 0 errors, new unit tests green; 3 break-tests red (window ignored,
+  "contains" rule removed, template permission removed); the red-team test caught a model field named `to` → `time`/`until`.
+  **Failing before this work, on this Windows machine, untouched files:** core isolation/subquery tests (backslash
+  paths), ai recent-sales dates (machine zone), `@repo/config` typecheck (no @types/node — the uncommitted
+  package.json/pnpm-lock changes). Smoke not run. TEST-PLAN **BB**.
+  **Next:** the user walks BB; push/merge with their go.
 - **Console assistant answers showed raw Markdown (`**`, `- `) — fixed 2026-10-16 on `feat/dashboard-update`, committed.**
   The answer went into one pre-wrap div. Now `components/assistant/rich-text.tsx` renders it through the shared
   `@repo/core/markdown` parser (the web chat's): paragraphs, lists, bold/italic/code, heading lines. React elements only,

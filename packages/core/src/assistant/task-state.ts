@@ -3,6 +3,8 @@ import { agentInvite, appointment, assistantTask, contact, emailBatch, lead, not
 import { verifyListingAction } from './listing-tools';
 import { verifySkillAction } from './skill-tools';
 import { verifyWorkflowAction } from './workflow-tools';
+import { verifyTemplateAction } from './template-tools';
+import { nextInWindow, readWindow, type SendWindow } from '../workflows/send-window';
 import { AssistantError } from './conversations';
 
 /**
@@ -47,7 +49,8 @@ async function releaseNext(tx: DbOrTx, taskId: string, now: Date): Promise<boole
     .orderBy(asc(proposedAction.taskSeq))
     .limit(1);
   if (!next) return false;
-  const at = stepDueAt(next.runAt ? new Date(next.runAt) : null, (next.args as { gapHours?: unknown } | null)?.gapHours, now);
+  const args = next.args as { gapHours?: unknown; window?: unknown } | null;
+  const at = stepDueAt(next.runAt ? new Date(next.runAt) : null, args?.gapHours, now, readWindow(args?.window));
   await tx
     .update(proposedAction)
     .set({ status: 'scheduled', runAt: at, updatedAt: sql`now()` })
@@ -55,11 +58,15 @@ async function releaseNext(tx: DbOrTx, taskId: string, now: Date): Promise<boole
   return true;
 }
 
-/** When a released step is due: its own time, else now — but never sooner than `gapHours` after now. Pure. */
-export function stepDueAt(runAt: Date | null, gapHours: unknown, now: Date): Date {
+/**
+ * When a released step is due: its own time, else now — but never sooner than `gapHours` after now;
+ * then, for a workflow's `wait_until` (ADR 0048), moved into its window. Pure.
+ */
+export function stepDueAt(runAt: Date | null, gapHours: unknown, now: Date, window: SendWindow | null = null): Date {
   const gap = typeof gapHours === 'number' && gapHours > 0 ? gapHours : 0;
   const earliest = new Date(now.getTime() + gap * 3_600_000);
-  return runAt && runAt.getTime() > earliest.getTime() ? runAt : earliest;
+  const due = runAt && runAt.getTime() > earliest.getTime() ? runAt : earliest;
+  return window ? nextInWindow(due, window) : due;
 }
 
 /**
@@ -152,6 +159,8 @@ export async function verifyExecuted(
     case 'set_up_skill':
     case 'change_skill':
       return (await verifySkillAction(tx, args, result)) ? undefined : fail();
+    case 'create_template':
+      return (await verifyTemplateAction(tx, args, result)) ? undefined : fail();
     case 'invite_agent':
       return one(tx.select({ id: agentInvite.id }).from(agentInvite).where(and(eq(agentInvite.id, String(result.inviteId)), eq(agentInvite.status, 'pending'))).limit(1));
     case 'send_template_email':

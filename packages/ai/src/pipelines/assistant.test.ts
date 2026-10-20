@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
 import { ASSISTANT_TOOLS, assistantToolsFor } from '../tools/assistant-tools';
-import { ASSISTANT_SYSTEM } from '../prompts/assistant-v23';
+import { ASSISTANT_SYSTEM } from '../prompts/assistant-v24';
 import { contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
 /**
@@ -451,6 +451,18 @@ describe('proposals (Phases B and C)', () => {
     expect(ASSISTANT_TOOL_INPUTS.create_workflow.safeParse({ ...base, actions: [{ type: 'send_template_email', template: 'T1' }] }).success).toBe(true);
     expect(t.description).toMatch(/never sent by itself/);
     expect(ASSISTANT_SYSTEM).toMatch(/only writes a draft for them to approve/);
+  });
+
+  it('ADR 0048: a distance is a place NAME the server finds — the model can give no coordinate; a template card has no recipient', () => {
+    const t = ASSISTANT_TOOLS.find((x) => x.name === 'create_workflow')!;
+    const cond = (t.input_schema as { properties: { conditions: { items: { properties: Record<string, unknown> } } } }).properties.conditions.items.properties;
+    expect(Object.keys(cond).filter((k) => /lat|lng|lon|coord|point|geo/.test(k))).toEqual([]);
+    const base = { name: 'W', trigger: { kind: 'lead.created' }, actions: [{ type: 'remind_owner', text: 'x' }] };
+    expect(ASSISTANT_TOOL_INPUTS.create_workflow.safeParse({ ...base, conditions: [{ field: 'listing.near', op: 'within', km: 5, values: ['Bondi'], lat: -33.9, lng: 151.2 }] }).success).toBe(false);
+    expect(ASSISTANT_TOOL_INPUTS.create_workflow.safeParse({ ...base, conditions: [{ field: 'listing.near', op: 'within', km: 5, values: ['Bondi'] }] }).success).toBe(true);
+    const tpl = ASSISTANT_TOOLS.find((x) => x.name === 'create_template')!;
+    expect(Object.keys((tpl.input_schema as { properties: Record<string, unknown> }).properties).sort()).toEqual(['body', 'name', 'subject']);
+    expect(ASSISTANT_SYSTEM).toMatch(/never give coordinates/);
   });
 
   it('skills (ADR 0041 Part A): the tools set when a skill runs and whether it is on — never what it reads, its handler or what it needs', () => {

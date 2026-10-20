@@ -1,9 +1,10 @@
 import { and, count, desc, eq, gt, inArray, isNull, ne, sql } from 'drizzle-orm';
-import { emailTemplate, proposedAction, user, workflow, workflowRun, type Db, type DbOrTx } from '@repo/db';
+import { emailTemplate, listing, property, proposedAction, user, workflow, workflowRun, type Db, type DbOrTx } from '@repo/db';
 import { activeMemberActor } from '../team/member-actor';
 import { usableTemplateSql } from '../template-email/templates';
+import { formatAddress } from '../listings/listing-schema';
 import { can, type Actor } from '../permissions';
-import { specInWords, specProblem, WORKFLOW_LIMITS, workflowSpecSchema, type WorkflowScope, type WorkflowSpec } from './catalog';
+import { isNear, specInWords, specProblem, WORKFLOW_LIMITS, workflowSpecSchema, type WorkflowScope, type WorkflowSpec } from './catalog';
 
 /**
  * Making and managing workflows (ADR 0041 Part C, the core under the card and the screen). Every write
@@ -48,7 +49,16 @@ export async function checkWorkflow(db: DbOrTx, actor: Actor, scope: WorkflowSco
     if (a.type === 'message_colleagues') a.to.forEach((m) => members.add(m));
     if (a.type === 'send_template_email') templates.add(a.template_id);
   }
-  for (const c of spec.conditions) if (c.field === 'assignee') c.values.forEach((m) => members.add(m));
+  const listings = new Set<string>();
+  for (const c of spec.conditions) {
+    if (isNear(c)) continue;
+    if (c.field === 'assignee') c.values.forEach((m) => members.add(m));
+    if (c.field === 'listing') c.values.forEach((l) => listings.add(l));
+  }
+  if (listings.size) {
+    const rows = await db.select({ id: listing.id }).from(listing).where(and(eq(listing.agencyId, actor.agencyId), inArray(listing.id, [...listings])));
+    if (rows.length !== listings.size) return { problem: 'A listing the workflow names is not one of the agency’s' };
+  }
   if (members.size) {
     const rows = await db.execute<{ id: string }>(sql`
       select m.user_id as id from membership m
@@ -73,10 +83,23 @@ export async function namesFor(db: DbOrTx, agencyId: string, spec: WorkflowSpec)
     if (a.type === 'assign_lead' || a.type === 'assign_contact') ids.add(a.to);
     if (a.type === 'message_colleagues') a.to.forEach((m) => ids.add(m));
   }
-  for (const c of spec.conditions) if (c.field === 'assignee') c.values.forEach((m) => ids.add(m));
+  const listings = new Set<string>();
+  for (const c of spec.conditions) {
+    if (isNear(c)) continue;
+    if (c.field === 'assignee') c.values.forEach((m) => ids.add(m));
+    if (c.field === 'listing') c.values.forEach((l) => listings.add(l));
+  }
   const tpl = spec.actions.flatMap((a) => (a.type === 'send_template_email' ? [a.template_id] : []));
   const out: Record<string, string> = {};
   if (ids.size) for (const r of await db.select({ id: user.id, name: user.name, email: user.email }).from(user).where(inArray(user.id, [...ids]))) out[r.id] = r.name || r.email;
+  if (listings.size) {
+    const rows = await db
+      .select({ id: listing.id, unit: property.unit, streetNumber: property.streetNumber, street: property.street, suburb: property.suburb, state: property.state, postcode: property.postcode })
+      .from(listing)
+      .innerJoin(property, eq(property.id, listing.propertyId))
+      .where(and(eq(listing.agencyId, agencyId), inArray(listing.id, [...listings])));
+    for (const r of rows) out[r.id] = formatAddress(r);
+  }
   if (tpl.length) for (const r of await db.select({ id: emailTemplate.id, name: emailTemplate.name }).from(emailTemplate).where(and(eq(emailTemplate.agencyId, agencyId), inArray(emailTemplate.id, tpl)))) out[r.id] = r.name;
   return out;
 }

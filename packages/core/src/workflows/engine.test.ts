@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Actor } from '../permissions';
-import { conditionsHold, inScope, stepsFor, triggerMatches, type Facts } from './engine';
+import { conditionsHold, distanceKm, inScope, stepsFor, triggerMatches, type Facts } from './engine';
 
 /** ADR 0041 Part B: the engine's decisions that need no database. */
 
@@ -25,6 +25,8 @@ const facts = (over: Partial<Facts> = {}): Facts => ({
   listingSuburb: 'Parramatta',
   listingChannel: 'sale',
   listingAddress: '1 George St, Parramatta, NSW 2150',
+  listingLat: -33.8151,
+  listingLng: 151.0034,
   appointmentId: null,
   appointmentType: null,
   appointmentAgent: null,
@@ -93,6 +95,7 @@ describe('stepsFor — the run’s steps', () => {
       facts(),
       { contact_first_name: 'Sara', listing_address: '1 George St, Parramatta, NSW 2150' },
       now,
+      'Australia/Sydney',
     );
     if ('problem' in steps) throw new Error(steps.problem);
     expect(steps.map((s) => s.tool)).toEqual(['add_note', 'send_template_email', 'draft_email']);
@@ -101,7 +104,50 @@ describe('stepsFor — the run’s steps', () => {
     expect(steps[2]!.args).toEqual({ tool: 'draft_email', contactId: 'contact-1', instructions: 'Ask when they can inspect', workflowName: 'Welcome' });
   });
   it('a step that needs a contact the record no longer has: the run is not made, and says why', () => {
-    const out = stepsFor({ name: 'X' }, { trigger: { kind: 'lead.created' }, conditions: [], actions: [{ type: 'add_note', text: 'x' }] }, facts({ contactId: null }), {}, now);
+    const out = stepsFor({ name: 'X' }, { trigger: { kind: 'lead.created' }, conditions: [], actions: [{ type: 'add_note', text: 'x' }] }, facts({ contactId: null }), {}, now, 'Australia/Sydney');
     expect(out).toEqual({ problem: 'the contact is archived, merged or gone' });
+  });
+  it('ADR 0048: a wait_until becomes the next step’s window on the agency’s clock, after any wait; the step after has none', () => {
+    const steps = stepsFor(
+      { name: 'Office hours' },
+      {
+        trigger: { kind: 'lead.created' },
+        conditions: [],
+        actions: [
+          { type: 'wait', hours: 2 },
+          { type: 'wait_until', from: '09:00', to: '17:00', days: ['mon', 'tue', 'wed', 'thu', 'fri'] },
+          { type: 'send_template_email', template_id: T1 },
+          { type: 'remind_owner', text: 'Sent', mail_me: false },
+        ],
+      },
+      facts(),
+      {},
+      now,
+      'Australia/Perth',
+    );
+    if ('problem' in steps) throw new Error(steps.problem);
+    expect(steps[0]!.args).toMatchObject({ gapHours: 2, window: { from: 540, to: 1020, days: [1, 2, 3, 4, 5], tz: 'Australia/Perth' } });
+    expect(steps[1]!.args).not.toHaveProperty('window');
+  });
+});
+
+describe('conditionsHold — ADR 0048: names, listings, distance', () => {
+  const near = (km: number) => ({ field: 'listing.near' as const, op: 'within' as const, km, place: { label: 'Parramatta NSW 2150', lat: -33.8136, lng: 151.0034 } });
+  it('a name: the whole name (eq/in), or a word in it (contains); case and spacing ignored', () => {
+    expect(conditionsHold([{ field: 'contact.name', op: 'eq', values: ['sara  KHAN'] }], facts())).toBe(true);
+    expect(conditionsHold([{ field: 'contact.name', op: 'eq', values: ['Sara'] }], facts())).toBe(false);
+    expect(conditionsHold([{ field: 'contact.name', op: 'contains', values: ['smith', 'khan'] }], facts())).toBe(true);
+    expect(conditionsHold([{ field: 'contact.name', op: 'not_contains', values: ['khan'] }], facts())).toBe(false);
+    expect(conditionsHold([{ field: 'contact.name', op: 'contains', values: ['khan'] }], facts({ contactName: null }))).toBe(false);
+  });
+  it('a listing: by id', () => {
+    expect(conditionsHold([{ field: 'listing', op: 'in', values: ['listing-1', 'listing-9'] }], facts())).toBe(true);
+    expect(conditionsHold([{ field: 'listing', op: 'not_in', values: ['listing-1'] }], facts())).toBe(false);
+  });
+  it('within N km of the place; a listing without a pin never matches', () => {
+    expect(distanceKm({ lat: -33.8688, lng: 151.2093 }, { lat: -33.8136, lng: 151.0034 })).toBeCloseTo(20, 0);
+    expect(conditionsHold([near(1)], facts())).toBe(true);
+    expect(conditionsHold([near(0.1)], facts())).toBe(false);
+    expect(conditionsHold([near(50)], facts({ listingLat: null, listingLng: null }))).toBe(false);
   });
 });

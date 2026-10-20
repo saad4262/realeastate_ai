@@ -4,6 +4,8 @@ import { workflow as workflowTable, type Db, type DbOrTx } from '@repo/db';
 import type { Actor } from '../permissions';
 import { checkWorkflow, listWorkflows, namesFor, saveWorkflow, setWorkflowStatus, WorkflowError } from '../workflows/manage';
 import { REACHES_CONTACT, specInWords, type Condition, type WorkflowAction, type WorkflowSpec } from '../workflows/catalog';
+import { resolvePlace } from '../geo/places';
+import { agencyTimeZone } from '../widgets/registry';
 import { issueHandle, resolveHandle } from './handles';
 import { propose, type FrozenArgs } from './actions';
 import { AssistantError } from './conversations';
@@ -19,8 +21,18 @@ import type { ToolContext, ToolOutcome } from './tools';
  * themselves and which wait for approval. Approve saves it, active. The model never writes code.
  */
 
-/** The model's flat parts → the catalog's spec, references resolved. Or what is wrong, named. */
-export function specFrom(ctx: Pick<ToolContext, "handles">, input: z.infer<typeof createWorkflowInput>): { spec: unknown } | { problem: string } {
+export type FoundPlace = { label: string; lat: number; lng: number };
+
+/** The place names `listing.near` conditions give — found on the map by the server, never by the model. */
+export function nearPlaces(input: z.infer<typeof createWorkflowInput>): string[] {
+  return [...new Set(input.conditions.filter((c) => c.field === 'listing.near' && c.values[0]).map((c) => c.values[0]!))];
+}
+
+/**
+ * The model's flat parts → the catalog's spec, references resolved. Or what is wrong, named.
+ * `places`: each `listing.near` name as the geocoder found it (null: not found).
+ */
+export function specFrom(ctx: Pick<ToolContext, 'handles'>, input: z.infer<typeof createWorkflowInput>, places: Record<string, FoundPlace | null> = {}): { spec: unknown } | { problem: string } {
   const t = input.trigger;
   const trigger: Record<string, unknown> = { kind: t.kind };
   switch (t.kind) {
@@ -46,11 +58,21 @@ export function specFrom(ctx: Pick<ToolContext, "handles">, input: z.infer<typeo
   }
   const conditions: Condition[] = [];
   for (const [i, c] of input.conditions.entries()) {
-    if (c.field === 'assignee') {
-      const ids = c.values.map((v) => resolveHandle(ctx.handles, v, 'member'));
-      if (ids.some((v) => !v)) return { problem: `condition ${i + 1}: the assignee must be M references from find_colleagues or find_team_members` };
-      conditions.push({ field: c.field, op: c.op, values: ids as string[] });
-    } else conditions.push({ field: c.field, op: c.op, values: c.values });
+    if (c.field === 'listing.near') {
+      if (c.op !== 'within' || c.km === undefined || c.values.length !== 1) return { problem: `condition ${i + 1}: listing.near needs op "within", km, and ONE place name in values` };
+      const place = places[c.values[0]!];
+      if (!place) return { problem: `condition ${i + 1}: “${c.values[0]}” could not be found on the map — ask the person for a suburb and state, or an address` };
+      conditions.push({ field: 'listing.near', op: 'within', km: c.km, place });
+      continue;
+    }
+    if (c.op === 'within' || c.km !== undefined) return { problem: `condition ${i + 1}: "within" and km are only for listing.near` };
+    const op = c.op;
+    if (c.field === 'assignee' || c.field === 'listing') {
+      const kind = c.field === 'assignee' ? 'member' : 'listing';
+      const ids = c.values.map((v) => resolveHandle(ctx.handles, v, kind));
+      if (ids.some((v) => !v)) return { problem: c.field === 'assignee' ? `condition ${i + 1}: the assignee must be M references from find_colleagues or find_team_members` : `condition ${i + 1}: the listing must be P references from find_listings` };
+      conditions.push({ field: c.field, op, values: ids as string[] });
+    } else conditions.push({ field: c.field, op, values: c.values });
   }
   const actions: unknown[] = [];
   for (const [i, a] of input.actions.entries()) {
@@ -102,6 +124,10 @@ export function specFrom(ctx: Pick<ToolContext, "handles">, input: z.infer<typeo
         if (need('hours')) return { problem: need('hours')! };
         built = { type: a.type, hours: a.hours };
         break;
+      case 'wait_until':
+        if (need('time')) return { problem: need('time')! };
+        built = { type: a.type, from: a.time, ...(a.until ? { to: a.until } : {}), ...(a.days ? { days: a.days } : {}) };
+        break;
     }
     actions.push(built);
   }
@@ -111,13 +137,19 @@ export function specFrom(ctx: Pick<ToolContext, "handles">, input: z.infer<typeo
 export async function proposeCreateWorkflow(ctx: ToolContext, input: z.infer<typeof createWorkflowInput>, label: string): Promise<ToolOutcome> {
   const replaces = input.replaces ? resolveHandle(ctx.handles, input.replaces, 'workflow') : null;
   if (input.replaces && !replaces) return refused(UNKNOWN_REF, label);
-  const built = specFrom(ctx, input);
+  // Network before anything is stored: each place name to coordinates, by the geocoder (cached).
+  const places: Record<string, FoundPlace | null> = {};
+  for (const name of nearPlaces(input)) {
+    const p = await resolvePlace(ctx.db, name);
+    places[name] = p ? { label: p.formatted || name, lat: p.latitude, lng: p.longitude } : null;
+  }
+  const built = specFrom(ctx, input, places);
   if ('problem' in built) return refused(`${built.problem}. Nothing was proposed.`, label);
   const checked = await checkWorkflow(ctx.db, ctx.actor, input.scope, built.spec);
   if ('problem' in checked) return refused(`${checked.problem}. Nothing was proposed.`, label);
   const spec = checked.spec;
   const words = specInWords(spec, await namesFor(ctx.db, ctx.actor.agencyId!, spec));
-  const byItself = spec.actions.filter((a) => a.type !== 'wait' && a.type !== 'draft_email');
+  const byItself = spec.actions.filter((a) => a.type !== 'wait' && a.type !== 'wait_until' && a.type !== 'draft_email');
   const waits = spec.actions.some((a) => a.type === 'draft_email');
   const lines: ProposalCard['lines'] = [
     { label: 'Name', value: input.name },
@@ -125,6 +157,7 @@ export async function proposeCreateWorkflow(ctx: ToolContext, input: z.infer<typ
     { label: 'When', value: words.when },
     ...words.if.map((c, i) => ({ label: i === 0 ? 'If' : 'And', value: c })),
     ...words.then.map((s, i) => ({ label: `Then ${i + 1}`, value: s })),
+    ...(spec.actions.some((a) => a.type === 'wait_until') ? [{ label: 'Times', value: `On the agency’s clock: ${await agencyTimeZone(ctx.db, ctx.actor.agencyId!)}` }] : []),
   ];
   const card: ProposalCard = {
     title: `${replaces ? 'Change' : 'Make'} the workflow “${input.name}”`,

@@ -47,6 +47,7 @@ import type { ToolContext, ToolOutcome } from './tools';
 import { runListingAction, type FrozenPin } from './listing-tools';
 import { runSkillAction } from './skill-tools';
 import { runWorkflowAction } from './workflow-tools';
+import { runTemplateAction } from './template-tools';
 import type { WorkflowSpec } from '../workflows/catalog';
 import { createWorkflowDraft, type DraftWriter } from '../workflows/drafts';
 import type { SkillScheduleInput } from '../skills/skill-schema';
@@ -179,6 +180,8 @@ export type FrozenArgs =
   /** ADR 0041 Part C: a workflow as checked on its card (ids resolved); saved active on Approve, or replacing `replaces`. */
   | { tool: 'create_workflow'; name: string; scope: 'mine' | 'agency'; spec: WorkflowSpec; replaces: string | null }
   | { tool: 'change_workflow'; workflowId: string; change: 'pause' | 'resume' | 'archive' }
+  /** ADR 0048: the exact words the card showed — saved as a template on Approve. */
+  | { tool: 'create_template'; name: string; subject: string; body: string }
   /** ADR 0041 Part A: a library skill added to the person's own, scheduled, and switched on. */
   | { tool: 'set_up_skill'; skillId: string; schedule: SkillScheduleInput | null; emailMe: boolean; timezone: string }
   /** ADR 0041 Part A: only what the card showed; `before` = the copy as the card showed it (refused if it changed since). */
@@ -409,6 +412,9 @@ async function execute(
     case 'create_workflow':
     case 'change_workflow':
       return runWorkflowAction(tx, actor, args);
+    case 'create_template':
+      // email_template:draft again, and the template rules (merge fields) again.
+      return runTemplateAction(tx, actor, args);
     case 'draft_email':
       // Nothing is written now: the model is a network call, so it runs after the commit (afterCommit).
       return { result: { drafting: true }, draftEmail: { contactId: args.contactId, instructions: args.instructions, workflowName: args.workflowName } };

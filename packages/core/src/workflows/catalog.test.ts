@@ -83,3 +83,55 @@ describe('specInWords — the card, the screen and the log say the same thing', 
     });
   });
 });
+
+describe('ADR 0048 — names, listings, distance, and waiting for a time', () => {
+  const L1 = '33333333-3333-4333-8333-333333333333';
+  const remind = { type: 'remind_owner' as const, text: 'x', mail_me: false };
+  const spec = (s: Partial<WorkflowSpec>): WorkflowSpec => ({ trigger: { kind: 'lead.created' }, conditions: [], actions: [remind], ...s });
+  const near = { field: 'listing.near', op: 'within', km: 5, place: { label: 'Bondi Beach NSW 2026', lat: -33.891, lng: 151.277 } };
+
+  it('parses the new parts; a distance needs a found place, never a bare coordinate pair', () => {
+    expect(parse({ trigger: { kind: 'lead.created' }, conditions: [near, { field: 'contact.name', op: 'contains', values: ['Smith'] }, { field: 'listing', op: 'in', values: [L1] }], actions: [{ type: 'wait_until', from: '09:00', to: '17:00', days: ['mon', 'fri'] }, remind] }).success).toBe(true);
+    expect(parse({ trigger: { kind: 'lead.created' }, conditions: [{ ...near, place: undefined, lat: -33.9, lng: 151.2 }], actions: [remind] }).success).toBe(false);
+    expect(parse({ trigger: { kind: 'lead.created' }, conditions: [{ ...near, km: 500 }], actions: [remind] }).success).toBe(false);
+    expect(parse({ trigger: { kind: 'lead.created' }, conditions: [{ ...near, values: ['Bondi'] }], actions: [remind] }).success).toBe(false);
+    expect(parse({ trigger: { kind: 'lead.created' }, actions: [{ type: 'wait_until', from: '9am' }, remind] }).success).toBe(false);
+    expect(parse({ trigger: { kind: 'lead.created' }, actions: [{ type: 'wait_until', from: '09:00', days: ['someday'] }, remind] }).success).toBe(false);
+  });
+
+  it('“contains” is for a name only; a listing must be an id; a distance needs a listing', () => {
+    expect(specProblem(spec({ conditions: [{ field: 'listing.suburb', op: 'contains', values: ['Par'] }] }), 'mine')).toMatch(/only for a contact’s name/);
+    expect(specProblem(spec({ conditions: [{ field: 'contact.name', op: 'contains', values: ['Smith'] }] }), 'mine')).toBeNull();
+    expect(specProblem(spec({ conditions: [{ field: 'listing', op: 'in', values: ['12 King St'] }] }), 'mine')).toMatch(/agency’s listings/);
+    expect(specProblem(spec({ trigger: { kind: 'contact.created' }, conditions: [near as never] }), 'mine')).toMatch(/no listing to look at/);
+    expect(specProblem(spec({ conditions: [near as never] }), 'mine')).toBeNull();
+  });
+
+  it('a wait for a time holds back a real step: not last, no wait after it, “to” after “from”', () => {
+    const until = { type: 'wait_until' as const, from: '09:00' };
+    expect(specProblem(spec({ actions: [remind, until] }), 'mine')).toMatch(/end with a wait/);
+    expect(specProblem(spec({ actions: [until, { type: 'wait', hours: 2 }, remind] }), 'mine')).toMatch(/put any wait before it/);
+    expect(specProblem(spec({ actions: [{ type: 'wait', hours: 2 }, until, remind] }), 'mine')).toBeNull();
+    expect(specProblem(spec({ actions: [{ ...until, to: '08:00' }, remind] }), 'mine')).toMatch(/later than “from”/);
+    expect(specProblem(spec({ actions: [{ ...until, days: ['mon', 'mon'] }, remind] }), 'mine')).toMatch(/named twice/);
+    expect(specProblem(spec({ actions: [{ type: 'wait', hours: 600 }, remind] }), 'mine')).toBeNull();
+    expect(specProblem(spec({ actions: [{ type: 'wait', hours: 600 }, until, remind] }), 'mine')).toMatch(/under 29 days/);
+  });
+
+  it('reads as a sentence', () => {
+    const words = specInWords(
+      spec({
+        conditions: [near as never, { field: 'contact.name', op: 'not_contains', values: ['Test'] }, { field: 'listing', op: 'in', values: [L1] }],
+        actions: [{ type: 'wait_until', from: '09:00', to: '17:30', days: ['mon', 'tue', 'wed', 'thu', 'fri'] }, { type: 'send_template_email', template_id: T1 }, { type: 'wait_until', from: '08:15' }, remind],
+      }),
+      { [L1]: '12 King St, Newtown NSW 2042', [T1]: 'Welcome' },
+    );
+    expect(words.if).toEqual([
+      'the listing is within 5 km of Bondi Beach NSW 2026 (listings without a map pin never match)',
+      'the contact’s name does not contain “Test”',
+      'the listing is 12 King St, Newtown NSW 2042',
+    ]);
+    expect(words.then[0]).toBe('Wait until 9:00 am–5:30 pm, Monday to Friday (the agency’s time) — at once if it already is');
+    expect(words.then[2]).toBe('Wait until the next 8:15 am, any day (the agency’s time)');
+  });
+});

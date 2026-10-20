@@ -1,3 +1,15 @@
+## 2026-10-20 — Claude Code — ADR 0048: workflow filters, send times, templates from the chat (branch feat/workflow-filters)
+
+- The user (Roman Urdu): checked first that emails reach the right people (they do: FK joins + can() re-checks) and
+  that dashboards are per agent/agency from one dataset (they are: ADR 0042). Then: "the owner tells the assistant —
+  new leads from these suburbs / names / agents / within a distance — email them; it asks the template and the time;
+  then it runs by itself; save them, on/off". Most of it existed as ADR 0041 workflows; the gaps were built.
+- Radius: the model gives a place NAME; `resolvePlace` (cache → Google → own suburbs) gives the coordinates at
+  propose time, before anything is stored. Times: the agency's zone, frozen onto the step as `window`.
+- Two cards, not one, for template + workflow: a spec may only name a template that exists (`checkWorkflow`).
+- Migration 0056 APPLIED with the user's go (57 recorded, CHECK verified). No browser walk (no headless browser here).
+- Next exact step: the user walks TEST-PLAN BB; push/merge with their go.
+
 ## 2026-10-16 — Claude Code — Console sign-out fixed; everything pushed (branch feat/dashboard-update → main)
 
 - The user: the logout button does not log out. Fix it, then push and merge.

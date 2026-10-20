@@ -287,15 +287,20 @@ export const workflowTriggerInput = z
   .strict();
 export const workflowConditionInput = z
   .object({
-    field: z.enum(['listing.suburb', 'listing.channel', 'lead.kind', 'lead.source', 'assignee', 'contact.role', 'appointment.type']),
-    op: z.enum(['eq', 'in', 'not_in']),
-    /** Words from the field's list, a suburb as the person said it, or M references for `assignee`. */
+    field: z.enum(['listing.suburb', 'listing.channel', 'lead.kind', 'lead.source', 'assignee', 'contact.role', 'appointment.type', 'contact.name', 'listing', 'listing.near']),
+    op: z.enum(['eq', 'in', 'not_in', 'contains', 'not_contains', 'within']),
+    /**
+     * Words from the field's list, a suburb or name as the person said it, M references for `assignee`,
+     * P references for `listing`, or for `listing.near` ONE place name — the server finds it on the map.
+     */
     values: z.array(z.string().trim().min(1).max(80)).min(1).max(20),
+    /** `listing.near` only: the distance the person said, in km. */
+    km: z.number().min(0.1).max(100).optional(),
   })
   .strict();
 export const workflowActionInput = z
   .object({
-    type: z.enum(['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'send_template_email', 'draft_email', 'wait']),
+    type: z.enum(['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'send_template_email', 'draft_email', 'wait', 'wait_until']),
     text: z.string().trim().min(1).max(2000).optional(),
     in_days: z.number().int().min(0).max(60).optional(),
     mail_me: z.boolean().optional(),
@@ -307,6 +312,10 @@ export const workflowActionInput = z
     template: templateHandleSchema.optional(),
     instructions: z.string().trim().min(1).max(1000).optional(),
     hours: z.number().int().min(1).max(720).optional(),
+    /** wait_until: HH:mm on the agency's clock; with `until`, a window. `days` default every day. Never `to`: nothing here reads as a recipient. */
+    time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'A time as HH:mm, 24-hour').optional(),
+    until: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'A time as HH:mm, 24-hour').optional(),
+    days: z.array(z.enum(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'])).min(1).max(7).optional(),
   })
   .strict();
 export const createWorkflowInput = z
@@ -322,6 +331,17 @@ export const createWorkflowInput = z
   })
   .strict();
 export const findWorkflowsInput = z.object({}).strict();
+/**
+ * ADR 0048: a new email template written for the person — the exact words on the card, saved on
+ * Approve as the Bulk email screen saves one. Merge fields are the templates' own ({{first_name}} …).
+ */
+export const createTemplateInput = z
+  .object({
+    name: z.string().trim().min(2).max(80),
+    subject: z.string().trim().min(1).max(160),
+    body: z.string().trim().min(1).max(8000),
+  })
+  .strict();
 export const changeWorkflowInput = z.object({ workflow: workflowHandleSchema, change: z.enum(['pause', 'resume', 'archive']) }).strict();
 export const setUpSkillInput = z.object({ skill: skillHandleSchema, schedule: skillScheduleInput.optional(), mail_me: z.boolean().optional() }).strict();
 /** One of the person's own skills: only what is named changes. `instructions` is the whole new text under the front-matter. */
@@ -806,10 +826,10 @@ export const scheduleTeamMeetingInput = z
 export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_saved_lists', 'start_import', 'find_skills', 'find_workflows', 'describe_data', 'query_data'] as const;
 /** ADR 0042: a turn that uses these may make more tool calls (`toolCallsPerAnalysisTurn`). */
 export const ASSISTANT_ANALYSIS_TOOLS = ['describe_data', 'query_data'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'update_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill', 'create_workflow', 'change_workflow'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'update_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill', 'create_workflow', 'change_workflow', 'create_template'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 /**
- * What a `proposed_action` row's `tool` may be — the database CHECK (latest: migration 0051) holds
+ * What a `proposed_action` row's `tool` may be — the database CHECK (latest: migration 0056) holds
  * exactly this list: every write tool except create_reminder (it stores a one-step plan_task), plus
  * `remind` (ADR 0040) and `draft_email` (ADR 0041), task steps that are never tools of their own.
  */
@@ -870,6 +890,7 @@ export const ASSISTANT_TOOL_INPUTS = {
   change_skill: changeSkillInput,
   create_workflow: createWorkflowInput,
   change_workflow: changeWorkflowInput,
+  create_template: createTemplateInput,
 } as const;
 export type AssistantToolName = keyof typeof ASSISTANT_TOOL_INPUTS;
 export const ASSISTANT_TOOL_NAMES = Object.keys(ASSISTANT_TOOL_INPUTS) as AssistantToolName[];

@@ -215,9 +215,10 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
             type: 'object',
             additionalProperties: false,
             properties: {
-              field: { type: 'string', enum: ['listing.suburb', 'listing.channel', 'lead.kind', 'lead.source', 'assignee', 'contact.role', 'appointment.type'] },
-              op: { type: 'string', enum: ['eq', 'in', 'not_in'], description: 'eq takes one value.' },
-              values: { type: 'array', items: { type: 'string' }, description: 'channel: sale/rent; lead.kind: enquiry/inspection/appraisal; lead.source: website/manual; contact.role: buyer/seller/landlord/tenant/investor; assignee: M references; suburb: as the person said it.' },
+              field: { type: 'string', enum: ['listing.suburb', 'listing.channel', 'lead.kind', 'lead.source', 'assignee', 'contact.role', 'appointment.type', 'contact.name', 'listing', 'listing.near'] },
+              op: { type: 'string', enum: ['eq', 'in', 'not_in', 'contains', 'not_contains', 'within'], description: 'eq takes one value. contains / not_contains: contact.name only (any of the words appears in the name). within: listing.near only.' },
+              values: { type: 'array', items: { type: 'string' }, description: 'channel: sale/rent; lead.kind: enquiry/inspection/appraisal; lead.source: website/manual; contact.role: buyer/seller/landlord/tenant/investor; assignee: M references; listing: P references from find_listings; suburb or contact.name: as the person said it; listing.near: ONE place name as the person said it (a suburb, a street address, a landmark) — the server finds it on the map, never give coordinates.' },
+              km: { type: 'number', description: 'listing.near only: the distance the person said, in km (0.1 to 100). Ask if they did not say one.' },
             },
             required: ['field', 'op', 'values'],
           },
@@ -229,7 +230,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
             type: 'object',
             additionalProperties: false,
             properties: {
-              type: { type: 'string', enum: ['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'send_template_email', 'draft_email', 'wait'] },
+              type: { type: 'string', enum: ['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'send_template_email', 'draft_email', 'wait', 'wait_until'] },
               text: { type: 'string', description: 'add_note / set_next_action / remind_owner: the exact words (merge fields allowed).' },
               in_days: { type: 'integer', description: 'set_next_action: due in N days (0–60).' },
               mail_me: { type: 'boolean', description: 'remind_owner: also email it to the person.' },
@@ -241,6 +242,9 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
               template: { type: 'string', description: 'send_template_email: a T reference from list_templates.' },
               instructions: { type: 'string', description: 'draft_email: what the AI should write about, in the person’s words. It becomes a draft for them to approve.' },
               hours: { type: 'integer', description: 'wait: hours before the next step (1–720).' },
+              time: { type: 'string', description: 'wait_until: HH:mm, 24-hour, on the agency’s clock. Alone = the next time it is that time ("at 9 am").' },
+              until: { type: 'string', description: 'wait_until: HH:mm, later than time — makes a window ("office hours 9 to 5"): at once if inside it, else at its next start.' },
+              days: { type: 'array', items: { type: 'string', enum: ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] }, description: 'wait_until: the days allowed. Omit for every day; weekdays = mon to fri.' },
             },
             required: ['type'],
           },
@@ -248,6 +252,20 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
         replaces: { type: 'string', description: 'A W reference, to change that workflow instead of making another.' },
       },
       required: ['name', 'trigger', 'actions'],
+    },
+  },
+  {
+    name: 'create_template',
+    description: `Propose a new email template, written for the person: a name, a subject and a plain-text body in their voice, no sign-off (the agency's details and an unsubscribe link are added). Only facts the person gave you — never invent a price, date, address or other figure; ask first. Merge fields: {{first_name}}, {{full_name}}, {{agent_name}}, {{agency_name}} — no others. The card shows the exact words; on approval it is saved and ready (an owner's or admin's for the whole agency, an agent's for themselves) and nothing is sent. To use it in a workflow, after approval call list_templates for its T reference. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        name: { type: 'string', description: 'A short name the person will recognise, e.g. "Welcome — new website enquiry".' },
+        subject: { type: 'string', description: 'The subject line (merge fields allowed).' },
+        body: { type: 'string', description: 'The whole email, plain text (merge fields allowed).' },
+      },
+      required: ['name', 'subject', 'body'],
     },
   },
   {

@@ -38,10 +38,14 @@ export const TRIGGER_RECORDS: Record<TriggerKind, { lead: boolean; contact: bool
 
 // ── Conditions ──────────────────────────────────────────────────────────────
 
-export const CONDITION_FIELDS = ['listing.suburb', 'listing.channel', 'lead.kind', 'lead.source', 'assignee', 'contact.role', 'appointment.type'] as const;
+export const CONDITION_FIELDS = ['listing.suburb', 'listing.channel', 'lead.kind', 'lead.source', 'assignee', 'contact.role', 'appointment.type', 'contact.name', 'listing'] as const;
 export type ConditionField = (typeof CONDITION_FIELDS)[number];
 
-/** The values a field may be compared with, where the list is fixed. `null`: free words (a suburb) or an id (a member). */
+/** ADR 0048: within N km of a place the server geocoded — never coordinates from the model. */
+export const NEAR_FIELD = 'listing.near';
+export const NEAR_KM = { min: 0.1, max: 100 } as const;
+
+/** The values a field may be compared with, where the list is fixed. `null`: free words (a suburb, a name) or an id (a member, a listing). */
 export const CONDITION_VALUES: Record<ConditionField, readonly string[] | null> = {
   'listing.suburb': null,
   'listing.channel': ['sale', 'rent'],
@@ -50,10 +54,14 @@ export const CONDITION_VALUES: Record<ConditionField, readonly string[] | null> 
   assignee: null,
   'contact.role': CONTACT_ROLES,
   'appointment.type': APPOINTMENT_TYPES,
+  'contact.name': null,
+  listing: null,
 };
 
+type RecordKind = 'lead' | 'contact' | 'listing' | 'appointment';
+
 /** Which record a field is read from — a condition is only allowed where its trigger has that record. */
-const FIELD_RECORD: Record<ConditionField, 'lead' | 'contact' | 'listing' | 'appointment'> = {
+const FIELD_RECORD: Record<ConditionField | typeof NEAR_FIELD, RecordKind> = {
   'listing.suburb': 'listing',
   'listing.channel': 'listing',
   'lead.kind': 'lead',
@@ -61,16 +69,38 @@ const FIELD_RECORD: Record<ConditionField, 'lead' | 'contact' | 'listing' | 'app
   assignee: 'contact',
   'contact.role': 'contact',
   'appointment.type': 'appointment',
+  'contact.name': 'contact',
+  listing: 'listing',
+  [NEAR_FIELD]: 'listing',
 };
 
-export const conditionSchema = z
+/** Fields whose values are ids, resolved from references and checked against the database. */
+export const ID_FIELDS: readonly ConditionField[] = ['assignee', 'listing'];
+/** `contains` / `not_contains`: any of the words appears in the text. Names only. */
+const TEXT_OPS = ['contains', 'not_contains'] as const;
+const TEXT_FIELDS: readonly ConditionField[] = ['contact.name'];
+
+export const valuesConditionSchema = z
   .object({
     field: z.enum(CONDITION_FIELDS),
-    op: z.enum(['eq', 'in', 'not_in']),
+    op: z.enum(['eq', 'in', 'not_in', ...TEXT_OPS]),
     values: z.array(z.string().trim().min(1).max(80)).min(1).max(20),
   })
   .strict();
+export const nearConditionSchema = z
+  .object({
+    field: z.literal(NEAR_FIELD),
+    op: z.literal('within'),
+    km: z.number().min(NEAR_KM.min).max(NEAR_KM.max),
+    /** As the geocoder found it, when the card was made. */
+    place: z.object({ label: z.string().trim().min(1).max(200), lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).strict(),
+  })
+  .strict();
+export const conditionSchema = z.union([valuesConditionSchema, nearConditionSchema]);
+export type ValuesCondition = z.infer<typeof valuesConditionSchema>;
+export type NearCondition = z.infer<typeof nearConditionSchema>;
 export type Condition = z.infer<typeof conditionSchema>;
+export const isNear = (c: Condition): c is NearCondition => c.field === NEAR_FIELD;
 
 // ── Actions ─────────────────────────────────────────────────────────────────
 
@@ -85,11 +115,17 @@ export const ACTION_TYPES = [
   'send_template_email',
   'draft_email',
   'wait',
+  'wait_until',
 ] as const;
 export type ActionType = (typeof ACTION_TYPES)[number];
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 const uuid = z.string().uuid();
+export const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'a time as HH:mm, 24-hour');
+const minuteOf = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+/** Steps that only hold the next one back. */
+const WAITS: readonly ActionType[] = ['wait', 'wait_until'];
 
 export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('add_note'), text: text(2000) }).strict(),
@@ -103,6 +139,8 @@ export const actionSchema = z.discriminatedUnion('type', [
   /** What the AI should write about — the person's instructions. The email is a DRAFT for the owner (D1). */
   z.object({ type: z.literal('draft_email'), instructions: text(1000) }).strict(),
   z.object({ type: z.literal('wait'), hours: z.number().int().min(1).max(720) }).strict(),
+  /** ADR 0048, on the agency's clock: with `to`, a window (now if inside it); without, the next `from`. */
+  z.object({ type: z.literal('wait_until'), from: hhmm, to: hhmm.optional(), days: z.array(z.enum(WEEKDAYS)).min(1).max(7).optional() }).strict(),
 ]);
 export type WorkflowAction = z.infer<typeof actionSchema>;
 
@@ -118,6 +156,7 @@ export const ACTION_NEEDS: Record<ActionType, 'lead' | 'contact' | null> = {
   send_template_email: 'contact',
   draft_email: 'contact',
   wait: null,
+  wait_until: null,
 };
 
 /** Actions only an agency-wide workflow may have (D2: assigning is an admin's). */
@@ -148,20 +187,31 @@ export function specProblem(spec: WorkflowSpec, scope: WorkflowScope): string | 
   for (const [i, c] of spec.conditions.entries()) {
     const rec = FIELD_RECORD[c.field];
     if (!has[rec]) return `Condition ${i + 1} (${c.field}): a “${TRIGGER_WORDS[spec.trigger.kind]}” workflow has no ${rec} to look at`;
+    if (isNear(c)) continue;
     const allowed = CONDITION_VALUES[c.field];
     if (allowed) for (const v of c.values) if (!allowed.includes(v)) return `Condition ${i + 1} (${c.field}): “${v}” is not one of ${allowed.join(', ')}`;
     if (c.op === 'eq' && c.values.length !== 1) return `Condition ${i + 1}: “is” takes one value`;
+    if ((TEXT_OPS as readonly string[]).includes(c.op) && !TEXT_FIELDS.includes(c.field)) return `Condition ${i + 1} (${c.field}): “contains” is only for a contact’s name`;
     if (c.field === 'assignee' && c.values.some((v) => !uuid.safeParse(v).success)) return `Condition ${i + 1}: the assignee must be a team member`;
+    if (c.field === 'listing' && c.values.some((v) => !uuid.safeParse(v).success)) return `Condition ${i + 1}: the listing must be one of the agency’s listings`;
   }
   for (const [i, a] of spec.actions.entries()) {
     const need = ACTION_NEEDS[a.type];
     if (need && !has[need]) return `Action ${i + 1} (${ACTION_WORDS[a.type]}): a “${TRIGGER_WORDS[spec.trigger.kind]}” workflow has no ${need} to act on`;
     if (scope === 'mine' && AGENCY_ONLY_ACTIONS.includes(a.type)) return `Action ${i + 1} (${ACTION_WORDS[a.type]}): only an agency-wide workflow (owners and admins) may assign`;
+    if (a.type === 'wait_until') {
+      const next = spec.actions[i + 1];
+      if (!next) break;
+      if (WAITS.includes(next.type)) return `Action ${i + 1} (wait for a time): put any wait before it — the step after it must be a real step`;
+      if (a.to !== undefined && minuteOf(a.to) <= minuteOf(a.from)) return `Action ${i + 1} (wait for a time): “to” must be later than “from” on the same day`;
+      if (a.days && new Set(a.days).size !== a.days.length) return `Action ${i + 1} (wait for a time): a day is named twice`;
+    }
   }
   const last = spec.actions[spec.actions.length - 1]!;
-  if (last.type === 'wait') return 'A workflow cannot end with a wait — say what happens after it';
-  if (spec.actions.every((a) => a.type === 'wait')) return 'Give at least one action';
-  if (spec.actions.reduce((h, a) => h + (a.type === 'wait' ? a.hours : 0), 0) > 29 * 24) return 'All the waits together must be under 29 days';
+  if (WAITS.includes(last.type)) return 'A workflow cannot end with a wait — say what happens after it';
+  if (spec.actions.every((a) => WAITS.includes(a.type))) return 'Give at least one action';
+  // A wait_until holds a step back less than a week; the run's task lives 30 days.
+  if (spec.actions.reduce((h, a) => h + (a.type === 'wait' ? a.hours : a.type === 'wait_until' ? 7 * 24 : 0), 0) > 29 * 24) return 'All the waits together must be under 29 days (a wait for a time counts as up to 7)';
   return null;
 }
 
@@ -197,6 +247,7 @@ export const ACTION_WORDS: Record<ActionType, string> = {
   send_template_email: 'send an email template',
   draft_email: 'write an email draft for you to approve',
   wait: 'wait',
+  wait_until: 'wait for a time',
 };
 
 const STATUS = (s: string) => s.replace('_', ' ');
@@ -208,6 +259,8 @@ const FIELD_LABELS: Record<ConditionField, string> = {
   assignee: 'the assigned agent',
   'contact.role': 'the contact’s role',
   'appointment.type': 'the appointment type',
+  'contact.name': 'the contact’s name',
+  listing: 'the listing',
 };
 const VALUE_WORDS: Record<string, string> = { sale: 'for sale', rent: 'for lease', enquiry: 'an enquiry', inspection: 'an inspection request', appraisal: 'an appraisal request' };
 
@@ -228,11 +281,28 @@ export function triggerInWords(t: Trigger): string {
   }
 }
 
-/** `names` turns member and template ids into names, from the database, for the words. */
+const km = (n: number) => `${Number.isInteger(n) ? n : n.toFixed(1)} km`;
+
+/** `names` turns member, listing and template ids into names, from the database, for the words. */
 export function conditionInWords(c: Condition, names: Record<string, string> = {}): string {
-  const vals = c.values.map((v) => names[v] ?? (c.field === 'listing.suburb' ? v : VALUE_WORDS[v] ?? STATUS(v)));
+  if (isNear(c)) return `the listing is within ${km(c.km)} of ${c.place.label} (listings without a map pin never match)`;
+  const vals = c.values.map((v) => names[v] ?? (c.field === 'listing.suburb' ? v : c.field === 'contact.name' ? `“${v}”` : c.field === 'listing' ? 'a listing' : VALUE_WORDS[v] ?? STATUS(v)));
   const list = vals.length > 1 ? `${vals.slice(0, -1).join(', ')} or ${vals[vals.length - 1]}` : vals[0]!;
-  return `${FIELD_LABELS[c.field]} ${c.op === 'not_in' ? 'is not' : 'is'} ${list}`;
+  const verb = { eq: 'is', in: 'is', not_in: 'is not', contains: 'contains', not_contains: 'does not contain' }[c.op];
+  return `${FIELD_LABELS[c.field]} ${verb} ${list}`;
+}
+
+const DAY_SHORT: Record<(typeof WEEKDAYS)[number], string> = { sun: 'Sun', mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat' };
+function clockWords(t: string): string {
+  const m = minuteOf(t);
+  const h = Math.floor(m / 60);
+  return `${((h + 11) % 12) + 1}:${String(m % 60).padStart(2, '0')} ${h < 12 ? 'am' : 'pm'}`;
+}
+function daysWords(days: readonly (typeof WEEKDAYS)[number][] | undefined): string {
+  if (!days || days.length === 7) return 'any day';
+  const set = new Set(days);
+  if (set.size === 5 && ['mon', 'tue', 'wed', 'thu', 'fri'].every((d) => set.has(d as never))) return 'Monday to Friday';
+  return WEEKDAYS.filter((d) => set.has(d)).map((d) => DAY_SHORT[d]).join(', ');
 }
 
 export function actionInWords(a: WorkflowAction, names: Record<string, string> = {}): string {
@@ -257,6 +327,10 @@ export function actionInWords(a: WorkflowAction, names: Record<string, string> =
       return `Write an email draft for you to approve, about: “${a.instructions}”`;
     case 'wait':
       return a.hours % 24 === 0 ? `Wait ${a.hours / 24} day${a.hours === 24 ? '' : 's'}` : `Wait ${a.hours} hour${a.hours === 1 ? '' : 's'}`;
+    case 'wait_until':
+      return a.to
+        ? `Wait until ${clockWords(a.from)}–${clockWords(a.to)}, ${daysWords(a.days)} (the agency’s time) — at once if it already is`
+        : `Wait until the next ${clockWords(a.from)}, ${daysWords(a.days)} (the agency’s time)`;
   }
 }
 
