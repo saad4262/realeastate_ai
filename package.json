@@ -18,6 +18,7 @@
     "smoke:ai": "pnpm --filter @repo/smoke smoke:ai"
   },
   "devDependencies": {
+    "cross-env": "^10.1.0",
     "prettier": "^3.4.2",
     "turbo": "^2.3.3",
     "typescript": "^5.7.2"

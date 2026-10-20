@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "NEXT_DIST_DIR=.next-dev next dev --port 3001",
+    "dev": "cross-env NEXT_DIST_DIR=.next-dev next dev --port 3001",
     "build": "next build",
     "start": "next start --port 3001",
     "lint": "eslint .",
