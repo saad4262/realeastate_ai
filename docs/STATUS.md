@@ -1,12 +1,12 @@
 # Status
-- **Platform admin (ADR 0049 + 0050 + 0051) — committed on `feat/platform-admin` (rebased on `main`) and PUSHED
-  2026-10-21; NOT merged.** The user opens the Pull Request into `main` themself (no `gh` on this machine) and merges
-  only after reviewing the Privacy Policy paragraph and walking TEST-PLAN BC, BD and BE. **Migrations 0057, 0058 and
+- **Platform admin (ADR 0049 + 0050 + 0051) — MERGED into `main` (fast-forward) and pushed 2026-10-21 at the user's
+  word, which deploys it.** Smoke run once (SMOKE_ENABLED=true for the run only): Platform admin 2/2 (break-test red),
+  Console signed-out 23/23, Tenant isolation 4/4. Still the user's: the Privacy Policy paragraph and TEST-PLAN BC, BD, BE. **Migrations 0057, 0058 and
   0059 are APPLIED** to the Sydney database (60 recorded; RLS on, no grants on the three new tables). The dev admin
   account exists; its address and password are not recorded in the repo and must be replaced before production.
   Merging deploys to production at once (public-site tracking + the privacy paragraph go live); the admin console
   needs the `admin.` domain and `NEXT_PUBLIC_ADMIN_URL` on Vercel (DEPLOY.md). Smoke not run (SMOKE_ENABLED=false).
-  **Next:** the user reviews, tests and merges the PR; then replaces the admin credentials and sets up the domain.
+  **Next:** a Vercel project for the admin console (CONSOLE_SURFACE_OVERRIDE=admin); replace the admin credentials; walk BC/BD/BE.
 - **Users, site activity, email activity, new admin home (ADR 0051, 2026-10-21) — `feat/platform-admin`, committed (see above).**
   Tracking: `site_activity` (0059) written by `/api/activity` from an `ActivityBeacon` on /search (page 1) and
   /listing/[id] — signed-in by account with filters, anonymous counts only; privacy page updated (owner to review).
