@@ -16,7 +16,8 @@
     "db:seed": "tsx src/seed.ts",
     "db:clear-listings": "tsx src/clear-listings.ts",
     "db:repair-listings": "tsx src/repair-listings.mts",
-    "db:reset": "tsx src/reset.ts"
+    "db:reset": "tsx src/reset.ts",
+    "db:platform-admin": "tsx src/platform-admin.ts"
   },
   "dependencies": {
     "@repo/config": "workspace:*",

@@ -1,4 +1,4 @@
-import { and, eq, like } from 'drizzle-orm';
+import { and, eq, isNull, like, or } from 'drizzle-orm';
 import { agency, membership, office, type Db } from '@repo/db';
 import { ensureAppUser } from '../identity/ensure-app-user';
 import {
@@ -21,8 +21,8 @@ export type RegisterAgencyResult = {
 };
 
 export class AlreadyMemberError extends Error {
-  constructor() {
-    super('This account already belongs to an agency');
+  constructor(message = 'This account already belongs to an agency') {
+    super(message);
     this.name = 'AlreadyMemberError';
   }
 }
@@ -59,19 +59,23 @@ export async function registerAgency(
 ): Promise<RegisterAgencyResult> {
   const input: RegisterAgencyInput = registerAgencySchema.parse(raw);
 
+  // An active membership, or one the platform blocked (ADR 0050): a blocked person does not get
+  // round the block by registering an agency of their own. A REMOVAL (removed_at set) does not stop it.
   const existing = await db
-    .select({ id: membership.id })
+    .select({ id: membership.id, status: membership.status })
     .from(membership)
     .where(
       and(
         eq(membership.userId, account.userId),
-        eq(membership.status, 'active'),
+        or(eq(membership.status, 'active'), and(eq(membership.status, 'suspended'), isNull(membership.removedAt))),
       ),
     )
     .limit(1);
 
   if (existing[0]) {
-    throw new AlreadyMemberError();
+    throw existing[0].status === 'suspended'
+      ? new AlreadyMemberError('Your access has been blocked by the platform team, so a new agency cannot be registered.')
+      : new AlreadyMemberError();
   }
 
   const slug = await allocateSlug(db, input.agencyName);

@@ -2,11 +2,9 @@ import { and, eq } from 'drizzle-orm';
 import { lead, listing, type DbOrTx } from '@repo/db';
 import { sql } from 'drizzle-orm';
 import { leadAgentIdSql } from '../listings/scope';
+import { publicListing } from '../listings/search-listings';
 import { enquiryInputSchema, type EnquiryInput } from './lead-schema';
 import { atomically, emitWorkflowEvent } from '../workflows/events';
-
-/** Live only — the same status the public search and listing page use. */
-const PUBLIC_STATUS = 'live' as const;
 
 export class EnquiryError extends Error {
   readonly field?: keyof EnquiryInput;
@@ -55,7 +53,8 @@ export async function createEnquiry(
      */
     .select({ agencyId: listing.agencyId, propertyId: listing.propertyId })
     .from(listing)
-    .where(and(eq(listing.id, listingId), eq(listing.status, PUBLIC_STATUS)))
+    // Live, and the agency not suspended (ADR 0050): a visitor cannot enquire about a hidden ad.
+    .where(and(eq(listing.id, listingId), publicListing()))
     .limit(1);
 
   if (!target) throw new EnquiryError('That listing is no longer available');

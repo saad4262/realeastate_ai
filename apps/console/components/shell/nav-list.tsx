@@ -108,22 +108,27 @@ export function NavList({
   return (
     <nav className={styles.nav} aria-label={navLabel}>
       {primary.map(link)}
-      <button
-        type="button"
-        className={styles.navLink}
-        aria-expanded={moreOpen}
-        aria-controls="console-nav-more"
-        onClick={() => setMoreOpen((v) => !v)}
-      >
-        <span className={styles.glyph} aria-hidden>
-          {moreOpen ? 'expand_less' : 'expand_more'}
-        </span>
-        <span>{moreOpen ? 'Less' : 'More'}</span>
-        {!moreOpen && hiddenNews ? <span className={styles.navDot} aria-label="Something new under More" /> : null}
-      </button>
-      <div id="console-nav-more" className={styles.navMore} hidden={!moreOpen}>
-        {more.map(link)}
-      </div>
+      {/* The admin console's nav has nothing behind More (ADR 0049). */}
+      {more.length === 0 ? null : (
+        <>
+          <button
+            type="button"
+            className={styles.navLink}
+            aria-expanded={moreOpen}
+            aria-controls="console-nav-more"
+            onClick={() => setMoreOpen((v) => !v)}
+          >
+            <span className={styles.glyph} aria-hidden>
+              {moreOpen ? 'expand_less' : 'expand_more'}
+            </span>
+            <span>{moreOpen ? 'Less' : 'More'}</span>
+            {!moreOpen && hiddenNews ? <span className={styles.navDot} aria-label="Something new under More" /> : null}
+          </button>
+          <div id="console-nav-more" className={styles.navMore} hidden={!moreOpen}>
+            {more.map(link)}
+          </div>
+        </>
+      )}
     </nav>
   );
 }

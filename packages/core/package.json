@@ -60,7 +60,10 @@
     "./template-email": "./src/template-email/index.ts",
     "./template-email/schema": "./src/template-email/schema.ts",
     "./workflows": "./src/workflows/index.ts",
-    "./open-query": "./src/open-query/index.ts"
+    "./open-query": "./src/open-query/index.ts",
+    "./platform": "./src/platform/index.ts",
+    "./platform/access": "./src/platform/access.ts",
+    "./activity": "./src/activity/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

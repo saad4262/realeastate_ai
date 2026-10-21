@@ -40,6 +40,12 @@ Nothing below is optional for production. Each line names what proves it is done
 - [ ] **Domain** bought and on Vercel: apex/`www` → `apps/web`; `agents.` and `agency.` →
       `apps/console` (one project, two hosts). `NEXT_PUBLIC_AGENT_URL`, `NEXT_PUBLIC_AGENCY_URL`,
       `COOKIE_DOMAIN=.<domain>` set; signing in on one host is signed in on the other.
+- [ ] **Admin console** (ADR 0049): `admin.` → the same console project (or, while hosts are
+      `*.vercel.app`, one more console project with `CONSOLE_SURFACE_OVERRIDE=admin`);
+      `NEXT_PUBLIC_ADMIN_URL` set; migration 0057 applied; the first admin made with
+      `PLATFORM_ADMIN_EMAIL=… PLATFORM_ADMIN_PASSWORD=… pnpm --filter @repo/db db:platform-admin` — an address
+      the platform owns and a strong password (that account reads every agency). Proven by: signing in on
+      admin.* lands on /platform; an agency owner signing in there is refused.
 - [ ] **Vercel Pro** on both projects (console needs it; the web cron needs it). Proven by:
       the plan page.
 - [ ] **5-minute cron**: `*/5 * * * *` on `/api/cron/alerts` (replaces the Hobby daily floor and

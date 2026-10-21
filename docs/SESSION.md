@@ -1,3 +1,36 @@
+## 2026-10-21 — Claude Code — ADR 0051: Users, site activity, email activity, admin home (branch feat/platform-admin)
+
+- The user: what is left; is the design proper; three sections (agencies, agents, users) with everything —
+  emails sent/replied, suspend, and users' search activity (which suburbs, which agencies). Chosen: apply 0058
+  (done), track signed-in by account / anonymous as counts, build Users + Email activity + a new admin design.
+- Found: `event` table exists but nothing writes it; /search and /listing keep no session on purpose. So a
+  browser beacon to `/api/activity` (in the matcher) records after render — the pages stay as fast.
+- Delivery/opens/bounces are not recorded anywhere (status is queued/sent/failed only); said so on the page.
+- 0059 not applied yet (the go). SQL verified inside a rolled-back transaction on the real DB.
+- Next exact step: the user's go → `pnpm --filter @repo/db db:migrate`; walk BC, BD, BE; commit/push with the go.
+
+## 2026-10-21 — Claude Code — ADR 0050: admin controls; 0057 applied, admin created (branch feat/platform-admin)
+
+- The user: go for 0057 + the dev admin account (applied, checked, real sign-in OK); then "start all the work",
+  narrowed by them to "1. Agency control": suspend/activate, plan/trial, block an agent, change the owner.
+- Found: `agency.status` was enforced nowhere, and a blocked (vs removed) membership did not exist. Enforcement put
+  where people and work come in (actor loader, public listing predicate, job claim queries), not in the action.
+- 0058 written, not applied (the admin profile page reads its columns, so apply before using the console).
+- Next exact step: the user's go → `pnpm --filter @repo/db db:migrate`; walk TEST-PLAN BC + BD.
+
+## 2026-10-20 — Claude Code — ADR 0049: platform admin console (branch feat/platform-admin)
+
+- The user (Roman Urdu): a proper admin on its own URL who sees every agency → its profile, agents, leads,
+  messages, meetings, everything; and each agent the same. Plan approved; answers: a dev admin login they chose (credentials not recorded in the repo),
+  read everything with an audit log, read-only, admin.<domain> on the same console app.
+- Design: reuse the agency console's core reads through a read-only "view actor" (`via: 'platform'`) instead of a
+  second query layer; only team threads and assistant chats needed platform-only readers.
+- Found on the way: can-matrix's action parser read 6 actions on a CRLF checkout (fixed); the single-table
+  subquery test caught my bare `${agency.id}` (fixed). Other pre-existing Windows failures untouched.
+- Not done: migration 0057 and the admin account (waiting for the go); smoke not run (switched off); no browser walk.
+- Next exact step: the user's go → `pnpm --filter @repo/db db:migrate`, then
+  `PLATFORM_ADMIN_EMAIL=… PLATFORM_ADMIN_PASSWORD=… pnpm --filter @repo/db db:platform-admin`, walk BC.
+
 ## 2026-10-20 — Claude Code — ADR 0048: workflow filters, send times, templates from the chat (branch feat/workflow-filters)
 
 - The user (Roman Urdu): checked first that emails reach the right people (they do: FK joins + can() re-checks) and

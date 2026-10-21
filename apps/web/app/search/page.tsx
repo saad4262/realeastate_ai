@@ -10,6 +10,7 @@ import { Refreshing, SortBar, SortingProvider } from './sorting';
 import { NearbySuburbsPanel, NotConnectedPanel, TopAgentsPanel } from './sidebar';
 import { parseSearchParams, savedQueryToPath } from '@repo/core/listings/url';
 import { SaveSearch } from '../../components/save-search';
+import { ActivityBeacon } from '../../components/activity-beacon';
 import { looksSignedIn } from '../../lib/session';
 import { cachedPlace } from '../../lib/cached';
 import { portalFonts } from '../portal-fonts';
@@ -304,6 +305,26 @@ export default async function SearchPage({
     // sniff, good enough to choose which of two links to draw and never
     // trusted for anything else. Both destinations re-check on the server.
     <WebShell wide account={{ signedIn }}>
+      {/* Counted after render, off this page's path (ADR 0051). The first page only: paging is not a new search. */}
+      {page === 1 ? (
+        <ActivityBeacon
+          kind="search"
+          query={{
+            text: query.text,
+            suburb,
+            state,
+            postcode,
+            channel: query.channel,
+            priceFrom: query.priceFrom,
+            priceTo: query.priceTo,
+            bedrooms: query.bedrooms,
+            bathrooms: query.bathrooms,
+            carSpaces: query.carSpaces,
+            propertyType: query.propertyType,
+            radiusKm: near?.radiusKm,
+          }}
+        />
+      ) : null}
       {/*
         The portal skin.
 

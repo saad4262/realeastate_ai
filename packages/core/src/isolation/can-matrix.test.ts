@@ -18,7 +18,8 @@ const A = '11111111-1111-1111-1111-111111111111';
 const B = '22222222-2222-2222-2222-222222222222';
 
 function allActions(): Action[] {
-  const src = readFileSync(join(__dirname, '..', 'permissions.ts'), 'utf8');
+  // CRLF on a Windows checkout: the block ends at a blank line either way.
+  const src = readFileSync(join(__dirname, '..', 'permissions.ts'), 'utf8').replace(/\r\n/g, '\n');
   const start = src.indexOf('export type Action =');
   const end = src.indexOf(';', src.indexOf("| '", start) + 1);
   const block = src.slice(start, src.indexOf('\n\nexport', start) > 0 ? src.indexOf('\n\nexport', start) : end);

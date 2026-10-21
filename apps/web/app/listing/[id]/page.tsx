@@ -11,6 +11,7 @@ import {
 } from '@repo/core/listings/format';
 import { WebShell } from '../../../components/web-shell';
 import { looksSignedIn } from '../../../lib/session';
+import { ActivityBeacon } from '../../../components/activity-beacon';
 import { ListingMap } from '../../../components/listing-map';
 import { EnquiryForm } from '../../../components/enquiry-form';
 import { ListingReviews } from '../../../components/listing-reviews';
@@ -197,6 +198,8 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
 
   return (
     <WebShell wide account={{ signedIn }}>
+      {/* Counted after render, off this page's path (ADR 0051). */}
+      <ActivityBeacon kind="listing_view" listingId={listing.id} />
       {/*
         The portal skin, and the mock's two families with it.
 

@@ -57,7 +57,21 @@ import {
   listLeadAssignees,
 } from '@repo/core/leads';
 import { can, type Actor, type MembershipRole } from '@repo/core/permissions';
-import { agencyNotificationRecipients } from '@repo/core/agency';
+import {
+  getAgencyProfile,
+  getPlatformAssistantChat,
+  listAgencies,
+  listPlatformAssistantChats,
+  listPlatformTeamThreads,
+  loadPlatformAdmin,
+  logPlatformView,
+  platformViewActor,
+  blockMember,
+  reactivateAgency,
+  suspendAgency,
+  unblockMember,
+} from '@repo/core/platform';
+import { agencyNotificationRecipients, registerAgency } from '@repo/core/agency';
 import { DEV_ALLOWLIST_PROBLEM, fakeTransport } from '@repo/core/email';
 import {
   deliverTeamMessage,
@@ -264,6 +278,8 @@ config({ path: resolve(process.cwd(), '../../.env') });
 const WEB = process.env.NEXT_PUBLIC_WEB_URL ?? 'http://localhost:3000';
 const AGENCY = process.env.NEXT_PUBLIC_AGENCY_URL ?? 'http://agency.lvh.me:3001';
 const AGENT = process.env.NEXT_PUBLIC_AGENT_URL ?? 'http://agents.lvh.me:3001';
+// The platform admin console (ADR 0049): the same console app on its own host.
+const ADMIN = process.env.NEXT_PUBLIC_ADMIN_URL ?? 'http://admin.lvh.me:3001';
 
 /** Is a dev server answering? Checked once so 20 checks do not each time out. */
 async function reachable(url: string): Promise<boolean> {
@@ -7983,6 +7999,145 @@ async function main() {
     }),
   );
 
+  // -------------------------------------------------------- platform admin --
+  group('Platform admin');
+
+  /**
+   * ADR 0049: the admin console reads every agency through a read-only view.
+   * What must hold against the real database: a view reads its agency and
+   * nothing of another; every write under it is refused and changes nothing;
+   * reading a conversation leaves nobody's unread state touched; a member's
+   * private things (assistant chats) are reached only through that member's
+   * view; an agency owner is not an admin; and each page writes its log row.
+   */
+  const [platformTables] = await db.execute<{ n: number }>(
+    sql`select count(*)::int as n from pg_tables where schemaname = 'public' and tablename in ('platform_admin', 'platform_view_log')`,
+  );
+  const platformReady = Number(platformTables?.n ?? 0) === 2;
+
+  await check('a platform view reads its agency, not another; writes refused; no read marks; owners are not admins', async () => {
+    if (!platformReady) skip('migration 0057 (platform_admin) is not applied');
+    return inRollback(async (t) => {
+      const { A, B, bIds } = await isolationFixture(t);
+      const adminId = randomUUID();
+      await t.execute(sql`insert into "user" (id, email, name) values (${adminId}, ${`admin.${A.f.tag}@smoke.test`}, 'Smoke Admin')`);
+      await t.execute(sql`insert into platform_admin (user_id, note) values (${adminId}, 'smoke')`);
+      const admin = await loadPlatformAdmin(t, adminId);
+      assert(admin?.platformAdmin === true, 'the platform_admin row did not make an admin');
+      assert((await loadPlatformAdmin(t, A.f.people.owner)) === null, 'an agency owner loaded as a platform admin');
+      const ownerTry = await listAgencies(t, A.f.actor('owner')).then(
+        () => 'GOT',
+        (e: { code?: string }) => e.code,
+      );
+      assert(ownerTry === 'forbidden', `an owner listing agencies: ${ownerTry}`);
+
+      const profileA = await getAgencyProfile(t, admin!, A.f.agencyId);
+      const profileB = await getAgencyProfile(t, admin!, B.f.agencyId);
+      assert(profileA.id === A.f.agencyId && profileB.id === B.f.agencyId, 'profiles');
+
+      const view = await platformViewActor(t, admin!, { agencyId: A.f.agencyId });
+      const reads = JSON.stringify(
+        await Promise.all([
+          listAgencyLeads(t, view.actor),
+          listContacts(t, view.actor, { archived: 'all' }),
+          listMailThreads(t, view.actor),
+          listAppointments(t, view.actor, { when: 'upcoming' }),
+          listAgencyListings(t, view.actor),
+          listPlatformTeamThreads(t, view.actor),
+        ]),
+      );
+      assert(reads.includes(A.ids.lead) && reads.includes(A.ids.contacts[0]!), 'the agency view did not see its own agency');
+      const leak = bIds.find((id) => reads.includes(id));
+      assert(!leak, `the view of A read B's ${leak}`);
+
+      // Reading a conversation marks nothing read.
+      const [readsBefore] = await t.execute<{ n: number }>(sql`select count(*)::int as n from mail_read`);
+      await getMailThread(t, view.actor, A.ids.thread);
+      const [readsAfter] = await t.execute<{ n: number }>(sql`select count(*)::int as n from mail_read`);
+      assert(readsBefore!.n === readsAfter!.n, 'opening a thread under a platform view wrote a read mark');
+
+      // Writes: refused, and agency A unchanged.
+      const before = await agencySnapshot(t, A.f.agencyId);
+      const tries = [
+        await updateLeadStatus(t, view.actor, A.ids.lead, 'contacted').then(() => 'GOT', () => 'refused'),
+        await createNote(t, view.actor, A.ids.contacts[0]!, 'admin was here').then(() => 'GOT', () => 'refused'),
+      ];
+      assert(tries.every((r) => r === 'refused'), `a write under a platform view went through: ${tries.join(', ')}`);
+      const after = await agencySnapshot(t, A.f.agencyId);
+      const changed = Object.keys(before).filter((k) => before[k] !== after[k]);
+      assert(changed.length === 0, `agency A changed under a platform view: ${changed.join(', ')}`);
+
+      // A member's own view reaches their assistant chats; a member of B is not in A.
+      const member = await platformViewActor(t, admin!, { agencyId: A.f.agencyId, userId: A.f.people.a1 });
+      const chats = await listPlatformAssistantChats(t, member.actor);
+      assert(chats.some((c) => c.id === A.ids.conversation), 'the member view did not see their assistant chat');
+      const chat = await getPlatformAssistantChat(t, member.actor, A.ids.conversation);
+      assert(chat.id === A.ids.conversation, 'the chat did not open');
+      const stranger = await platformViewActor(t, admin!, { agencyId: A.f.agencyId, userId: B.f.people.a1 }).then(
+        () => 'GOT',
+        (e: { code?: string }) => e.code,
+      );
+      assert(stranger === 'not_found', `a member of B opened inside A: ${stranger}`);
+
+      await logPlatformView(t, member.actor, { area: 'smoke' });
+      const [logged] = await t.execute<{ n: number }>(
+        sql`select count(*)::int as n from platform_view_log where admin_user_id = ${adminId} and agency_id = ${A.f.agencyId} and subject_user_id = ${A.f.people.a1}`,
+      );
+      assert(Number(logged?.n) === 1, 'the view log row was not written');
+      return 'A read, B unseen, 2 writes refused (A unchanged), no read mark, member chats reached, log written';
+    });
+  });
+
+  const [controlTables] = await db.execute<{ n: number }>(
+    sql`select count(*)::int as n from information_schema.columns where table_schema = 'public' and table_name = 'agency' and column_name = 'suspended_at'`,
+  );
+  const controlsReady = platformReady && Number(controlTables?.n ?? 0) === 1;
+
+  await check('agency control: a suspended agency is off the public site and its work waits; a blocked member cannot register (ADR 0050)', async () => {
+    if (!controlsReady) skip('migration 0058 (agency control) is not applied');
+    return inRollback(async (t) => {
+      const { A } = await isolationFixture(t);
+      const adminId = randomUUID();
+      await t.execute(sql`insert into "user" (id, email, name) values (${adminId}, ${`admin.c.${A.f.tag}@smoke.test`}, 'Smoke Admin')`);
+      await t.execute(sql`insert into platform_admin (user_id, note) values (${adminId}, 'smoke')`);
+      const admin = (await loadPlatformAdmin(t, adminId))!;
+
+      // A live listing of A's, visible before.
+      await t.execute(sql`update listing set status = 'live' where id = ${A.ids.listing}`);
+      assert((await getPublicListing(t, A.ids.listing)) !== null, 'the live listing was not public to begin with');
+
+      const ownerTry = await suspendAgency(t, A.f.actor('owner'), A.f.agencyId, 'owner tries').then(() => 'GOT', (e: { code?: string }) => e.code);
+      assert(ownerTry === 'forbidden', `an agency owner suspended an agency: ${ownerTry}`);
+
+      await suspendAgency(t, admin, A.f.agencyId, 'smoke suspension');
+      assert((await getPublicListing(t, A.ids.listing)) === null, 'a suspended agency’s listing is still public');
+      const search = JSON.stringify(await searchPublicListings(t, {}));
+      assert(!search.includes(A.ids.listing), 'a suspended agency’s listing is still in the public search');
+      const [{ n: due } = { n: 0 }] = await t.execute<{ n: number }>(
+        sql`select count(*)::int as n from agent_skill where agency_id = ${A.f.agencyId} and agency_id not in (select sa.id from agency sa where sa.status = 'suspended')`,
+      );
+      assert(Number(due) === 0, 'the suspended-agency filter still lets its skills through');
+
+      await reactivateAgency(t, admin, A.f.agencyId, 'active');
+      assert((await getPublicListing(t, A.ids.listing)) !== null, 'reactivating did not bring the listing back');
+
+      // Block a1: they may not register an agency of their own; unblock restores them.
+      await blockMember(t, admin, A.f.agencyId, A.f.people.a1, 'smoke block');
+      const reg = await registerAgency(t, { userId: A.f.people.a1, email: `a1.${A.f.tag}@smoke.test` }, { agencyName: `Escape ${A.f.tag}`, ownerName: 'A1', phone: '0400000000' }).then(
+        () => 'GOT',
+        (e: Error) => e.name,
+      );
+      assert(reg === 'AlreadyMemberError', `a blocked member registered a new agency: ${reg}`);
+      await unblockMember(t, admin, A.f.agencyId, A.f.people.a1);
+
+      const [{ n: actions } = { n: 0 }] = await t.execute<{ n: number }>(
+        sql`select count(*)::int as n from platform_action where agency_id = ${A.f.agencyId} and admin_user_id = ${adminId}`,
+      );
+      assert(Number(actions) === 4, `expected 4 recorded changes, found ${actions}`);
+      return 'owner refused; suspended → listing gone from page and search → back on reactivate; blocked member cannot register; 4 changes recorded';
+    });
+  });
+
   // ------------------------------------------------------------ dashboards --
   group('Dashboards');
 
@@ -9566,7 +9721,25 @@ async function main() {
     [`${AGENCY}/api/live`, 'agency live stamp'],
     [`${AGENT}/api/notifications`, 'agent notifications'],
     [`${AGENCY}/api/mail/sync`, 'agency mail sync'],
+    // The admin console (ADR 0049) reads every agency: it is the last place to leave open.
+    [`${ADMIN}/platform`, 'admin home'],
+    [`${ADMIN}/agencies`, 'admin agencies'],
+    [`${ADMIN}/agencies/00000000-0000-0000-0000-000000000000/inbox`, 'admin agency inbox'],
+    [`${ADMIN}/agencies/00000000-0000-0000-0000-000000000000/agents/00000000-0000-0000-0000-000000000000/chats`, 'admin member assistant chats'],
+    [`${ADMIN}/agents`, 'admin all agents'],
   ];
+
+  await check('the admin host has no sign-up, and serves none of an agency console (ADR 0049)', async () => {
+    if (!consoleUp) skip(`${AGENCY} is not answering`);
+    const signup = await http(`${ADMIN}/signup`);
+    const to = new URL(signup.headers.get('location') ?? '', ADMIN).pathname;
+    assert(signup.status === 307 || signup.status === 302, `admin /signup answered ${signup.status}`);
+    assert(to === '/login', `admin /signup went to ${to}, not /login`);
+    // Signed out, an agency page on the admin host goes to sign-in first, like any page.
+    const leads = await http(`${ADMIN}/leads`);
+    assert(/login/.test(leads.headers.get('location') ?? ''), `admin /leads: ${leads.status} ${leads.headers.get('location')}`);
+    return 'signup → /login; /leads → login';
+  });
 
   /**
    * A real member's id, offered as a header, with no session cookie.

@@ -31,7 +31,7 @@ const files = [...walk(join(ROOT, 'apps', 'console', 'app')), ...walk(join(ROOT,
 const rel = (p: string) => relative(ROOT, p);
 
 /** Calls that read the caller from the verified session (cookies / middleware header). */
-const SESSION = /\b(requireActionUserId|actionUserId|requireAuthAccount|getAuthAccount|ensureConsumerAccount|currentWebUser|requireConsoleAccess|requireConsoleSession|getSessionUser|requireUser)\s*\(/;
+const SESSION = /\b(requireActionUserId|actionUserId|requireAuthAccount|getAuthAccount|ensureConsumerAccount|currentWebUser|requireConsoleAccess|requireConsoleSession|requirePlatformAdmin|getSessionUser|requireUser)\s*\(/;
 
 /**
  * Public on purpose, each with the guard its reason relies on (a regex that

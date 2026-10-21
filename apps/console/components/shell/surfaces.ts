@@ -10,7 +10,7 @@
  * Plain data, no 'use client': read by the server shell and the client nav.
  */
 
-export type ShellSurface = 'agency' | 'agent';
+export type ShellSurface = 'agency' | 'agent' | 'admin';
 
 /** The chrome's counts a nav item may show as a badge — all from SQL, already narrowed by can(). */
 export type NavCount = 'newOffers' | 'unreadMail' | 'unreadTeam';
@@ -59,7 +59,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
       { href: '/customers', label: 'Customers', icon: 'contacts' },
       { href: '/calendar', label: 'Calendar', icon: 'calendar_today' },
       { href: '/marketing', label: 'Marketing & Reviews', icon: 'campaign' },
-      { href: '/insights', label: 'Insights', icon: 'analytics' },
+      { href: '/site-activity', label: 'Insights', icon: 'analytics' },
       { href: '/skills', label: 'Skills', icon: 'auto_awesome' },
       { href: '/workflows', label: 'Workflows', icon: 'account_tree' },
       { href: '/bulk-email', label: 'Bulk email', icon: 'forward_to_inbox' },
@@ -94,6 +94,22 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
     ],
     brandFallback: 'Agent desk',
     omniPlaceholder: 'Search your listings, contacts or suburbs...',
+    ticker: false,
+  },
+  // The platform admin console (ADR 0049): its own lean shell (components/admin/admin-shell.tsx) reads this nav.
+  admin: {
+    home: '/platform',
+    navLabel: 'Platform',
+    primary: [
+      { href: '/platform', label: 'Overview', icon: 'monitoring' },
+      { href: '/agencies', label: 'Agencies', icon: 'apartment' },
+      { href: '/agents', label: 'Agents', icon: 'groups' },
+      { href: '/users', label: 'Users', icon: 'person_search' },
+      { href: '/site-activity', label: 'Site activity', icon: 'travel_explore' },
+    ],
+    more: [],
+    brandFallback: 'Platform admin',
+    omniPlaceholder: 'Search agencies...',
     ticker: false,
   },
 };

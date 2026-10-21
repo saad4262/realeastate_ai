@@ -3,6 +3,7 @@ import { desc, eq, sql } from 'drizzle-orm';
 import { agency, listingAgent, membership, user } from '@repo/db/schema';
 import { can, type Actor, type MembershipRole } from '@repo/core/permissions';
 import { narrowedContactIdsSql } from '@repo/core/contacts';
+import { accessBlock, type AccessBlock } from '@repo/core/platform/access';
 import { getConsoleDb } from './db';
 
 /**
@@ -21,6 +22,12 @@ export type ActorContext = {
   agencySlug: string | null;
   /** Our own mirror of the name, so the chrome never needs the auth service. */
   userName: string | null;
+  /**
+   * Set when the platform shut this person out (ADR 0050): their agency is
+   * suspended, or their membership blocked. The actor then has no agency, so
+   * every can() refuses; the gate uses this only to say why.
+   */
+  blocked?: AccessBlock;
   /**
    * Counts for the console header. Sub-selected in the same statement so the
    * chrome still costs one round trip, and every figure comes from SQL —
@@ -70,6 +77,8 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
       agencyId: membership.agencyId,
       role: membership.role,
       status: membership.status,
+      removedAt: membership.removedAt,
+      agencyStatus: agency.status,
       agencyName: agency.name,
       agencySlug: agency.slug,
       userName: user.name,
@@ -135,13 +144,17 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
 
   const empty = { members: 0, liveListings: 0, pendingInvites: 0, newOffers: 0, unreadMail: 0, unreadTeam: 0 };
 
-  if (!mem || mem.status !== 'active') {
+  // Suspended agency or blocked member (ADR 0050): no agency on the actor, so nothing passes can().
+  const blocked = mem ? accessBlock({ membershipStatus: mem.status, removedAt: mem.removedAt, agencyStatus: mem.agencyStatus }) : null;
+
+  if (!mem || mem.status !== 'active' || blocked) {
     return {
       actor: { userId },
       agencyName: null,
       agencySlug: null,
       userName: null,
       summary: empty,
+      ...(blocked ? { blocked } : {}),
     };
   }
 

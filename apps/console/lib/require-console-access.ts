@@ -143,6 +143,11 @@ export const requireConsoleAccess = cache(
       redirect('/login?error=database');
     }
 
+    // Shut out by the platform (ADR 0050): say so, never offer to register another agency.
+    if (context?.blocked) {
+      redirect(`/login?error=${context.blocked}`);
+    }
+
     // Signed in but not in any agency yet — send them to register one (ADR 0006),
     // rather than bouncing to a login page they are already past.
     if (!actor.agencyId || !actor.membershipRole) {

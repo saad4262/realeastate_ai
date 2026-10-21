@@ -2,7 +2,7 @@ import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { agency, listing, listingAgent, property, type Db } from '@repo/db';
 import type { Near } from '../geo/place-schema';
 import type { ListingChannel } from './listing-schema';
-import { PROPERTY_GEOM, PUBLIC_STATUS } from './search-listings';
+import { PROPERTY_GEOM, publicListing } from './search-listings';
 
 /**
  * The two panels beside a results page, and nothing else.
@@ -71,7 +71,7 @@ type Scope = {
 
 /** Live only, and the same channel the visitor is browsing. */
 function scopeFilters(scope: Scope): SQL[] {
-  const filters: SQL[] = [eq(listing.status, PUBLIC_STATUS)];
+  const filters: SQL[] = [publicListing()];
   if (scope.channel) filters.push(eq(listing.channel, scope.channel));
   if (scope.state) filters.push(sql`lower(${property.state}) = lower(${scope.state})`);
   return filters;

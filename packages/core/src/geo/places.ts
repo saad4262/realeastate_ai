@@ -1,5 +1,6 @@
 import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import { listing, placeCache, property, type Db } from '@repo/db';
+import { publicListing } from '../listings/search-listings';
 import { googleGeoProvider, isGeoProviderConfigured } from './provider-google';
 import {
   addressQuery,
@@ -63,7 +64,7 @@ async function localSuggestions(
   const rows = opts.liveOnly
     ? await base
         .innerJoin(listing, eq(listing.propertyId, property.id))
-        .where(and(eq(listing.status, 'live'), sql`lower(${property.suburb}) like ${like}`))
+        .where(and(publicListing(), sql`lower(${property.suburb}) like ${like}`))
         .limit(limit)
     : await base.where(sql`lower(${property.suburb}) like ${like}`).limit(limit);
 

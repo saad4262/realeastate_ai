@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { listing, property, type Db } from '@repo/db';
 import type { ListingChannel } from './listing-schema';
-import { PUBLIC_STATUS } from './search-listings';
+import { publicListing } from './search-listings';
 
 /**
  * What the search filters may offer, taken from what is actually listed.
@@ -140,7 +140,7 @@ export async function searchFacets(db: Db): Promise<SearchFacets> {
     })
     .from(listing)
     .innerJoin(property, sql`${property.id} = ${listing.propertyId}`)
-    .where(sql`${listing.status} = ${PUBLIC_STATUS}`);
+    .where(publicListing());
 
   const empty: ChannelFacets = {
     total: 0,

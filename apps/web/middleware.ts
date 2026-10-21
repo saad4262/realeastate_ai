@@ -145,6 +145,11 @@ export const config = {
    * and their absence is load-bearing.
    */
   matcher: [
+    /**
+     * The search and listing pages' visit beacon (ADR 0051). The pages stay outside the matcher;
+     * the beacon is sent after they render, so the session check is off their path.
+     */
+    '/api/activity',
     '/alerts/:path*',
     '/account/:path*',
     '/chat',

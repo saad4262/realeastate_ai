@@ -1413,3 +1413,55 @@ Needs migration **0056** applied (only `create_template` needs it; the rest work
 | BB6 | Approve BB2, then make a website enquiry on a Parramatta listing at 8 pm | Workflows → its run log shows the run; the email step is scheduled for 9:00 am next day, then sent (consent checked). An enquiry on a Bondi listing makes no run. |
 | BB7 | Workflows page → Pause it, enquire again → Turn on | Paused: no run. On again: runs. Also by chat: "turn off the Parramatta workflow". |
 | BB8 | As a read-only member: "write me a template" | Refused: may not write email templates. |
+
+## BC — The platform admin console: every agency, read-only, every read recorded (ADR 0049)
+
+Needs migration **0057** applied and an admin made (`PLATFORM_ADMIN_EMAIL=… PLATFORM_ADMIN_PASSWORD=… pnpm --filter @repo/db db:platform-admin`).
+Dev: `http://admin.lvh.me:3001` (the console's dev server; `admin.*` resolves to the admin surface).
+
+| # | Case | Expected |
+|---|---|---|
+| BC1 | Signed out: open admin.lvh.me:3001/agencies; then /signup | → /login (title "Sign in to Platform Admin", no "Register" link); /signup → /login. |
+| BC2 | Sign in as the admin | Lands on **/platform**: figures (agencies, members, live listings, leads 7/30 d, meetings) and the newest agencies. Sidebar: Overview, Agencies, Agents — no assistant, no bell, no Recents. |
+| BC3 | Agencies → search a name, filter by status → open one | Profile: figures, details (status, plan, slug, ABN, zone), owners/admins, People table, Platform access log. Amber banner "Read-only admin view…". |
+| BC4 | Tabs: Agents, Leads, Customers (open one), Inbox (open a thread), Meetings (Upcoming/Past), Listings, Team messages (open one), Workflows | Every tab shows the agency's data; no Reply, no status/assign controls (text only), no Approve/Cancel on meetings, no New/Edit/Publish on listings. A customer shows private notes too. |
+| BC5 | Opening an inbox thread as the admin, then sign in as that agency's owner | The thread is still **unread** for the owner — the admin's look marked nothing. |
+| BC6 | Agents tab → open an agent | Their own view: leads/inbox/meetings/listings as their desk shows them, **Team messages** they are on, **Assistant chats** (open one: their questions and the answers). |
+| BC7 | Top nav **Agents** → search by name or agency → open one | Opens that person inside their agency (BC6). |
+| BC8 | Back on the agency's Overview | Platform access log lists each page from BC3–BC7, with the admin's name and "as" the agent where it was their view. |
+| BC9 | On admin.* type /leads, /overview, /get-started | → /platform. On agency.* or agents.* type /agencies or /platform → that console's home. |
+| BC10 | Sign in on admin.* as an agency OWNER (not a platform admin) | /login with "Your account does not have access to this console." |
+| BC11 | Phone width (≤ 640 px): agencies and people tables | Rows stack as labelled cards. (The sidebar is the console shell's own fixed one, as on the agency console.) |
+
+## BD — Admin controls: suspend an agency, plan and trial, block a member, change the owner (ADR 0050)
+
+Needs migration **0058**. As the platform admin on admin.*, a test agency's Overview → **Controls**.
+
+| # | Case | Expected |
+|---|---|---|
+| BD1 | Suspend with no reason | The form asks for one (at least 3 characters). |
+| BD2 | Suspend with a reason → confirm | Red banner "Suspended since … — reason". "Changes by the platform" lists it. |
+| BD3 | As that agency's owner and an agent, open agency.* / agents.* | /login with "Your agency's account is suspended…". /get-started → the same, no register form. |
+| BD4 | Public site: search, the listing page, enquiry form of that agency's live listing | Not in search; the listing page is not found; an enquiry is refused. |
+| BD5 | Reactivate as active | Members sign in again; the listing is back on search and its page. |
+| BD6 | Plan: "pro", Trial, trial ends a date → Save | Details show plan and "Trial ends …"; recorded. Switch to Active → the trial date clears. |
+| BD7 | Agents → open an agent → Access → Block (with reason) | People table shows "blocked"; that agent signing in gets "Your access has been blocked…"; /get-started does not let them register. |
+| BD8 | Unblock | They sign in again. |
+| BD9 | Block the agency's only owner | Refused: "This is the agency's only owner. Make someone else owner first." |
+| BD10 | Owner → choose an admin, "current owner(s) become admins" → Make owner | Who runs it: the new owner; the old owner is Admin. Recorded. |
+| BD11 | An agency OWNER (not platform admin) posts to the admin console's actions | Refused ("Only a platform admin may change this"). |
+
+## BE — Users, site activity, email activity, the admin home (ADR 0051)
+
+Needs migration **0059**. Public site + admin console.
+
+| # | Case | Expected |
+|---|---|---|
+| BE1 | Signed out on the public site: search "Bondi", open a listing | /site-activity (admin): searches and views go up; Bondi in the suburbs; the listing's agency in "drawing interest". No user named. |
+| BE2 | Sign in as a buyer; search with 3 beds in Parramatta; open two listings; save one; enquire | /users → that buyer: Searches/Listings opened counts; "Where they look" Parramatta; Recent activity shows "Searched to buy in Parramatta · 3+ bed" and the two listings; Shortlist and Enquiries filled, enquiry links to the agency. |
+| BE3 | The buyer's guide chat | Listed; opening it shows the questions and answers. |
+| BE4 | Page 2 of a search; reloading a listing | Page 2 is not a new search; each listing load is a view. |
+| BE5 | An agency → Email activity (7 / 30 / 90 days) | Sent/failed/received/replies match its Inbox; By member links to a member's Email activity; bulk batches with counts; latest emails open the thread. |
+| BE6 | Admin home | Needs-attention (set a trial ending in a week from Controls → it appears); leads-per-week columns with the latest and peak labelled; hover shows each week. |
+| BE7 | Phone width | Sidebar becomes a top bar with the nav scrolling sideways; tables stack. |
+| BE8 | A suspended agency's listing opened by a visitor | Not found, and no view recorded. |

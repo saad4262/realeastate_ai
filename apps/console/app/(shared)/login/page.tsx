@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { peekAgentInvite } from '@repo/core/team';
 import { getConsoleDb } from '../../../lib/db';
+import { ACCESS_BLOCK_MESSAGES } from '@repo/core/platform/access';
 import { surfaceCopy } from '../../../lib/surface';
 import { AuthShell } from '../auth-shell';
 import { LoginForm } from './login-form';
@@ -11,6 +12,7 @@ export const metadata: Metadata = {
 };
 
 const ERROR_MESSAGES: Record<string, string> = {
+  ...ACCESS_BLOCK_MESSAGES,
   forbidden: 'Your account does not have access to this console.',
   database:
     'Database is not configured (check DATABASE_URL). Membership checks cannot run.',

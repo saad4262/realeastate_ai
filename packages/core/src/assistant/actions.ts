@@ -1,4 +1,5 @@
 import { and, asc, eq, gt, inArray, lt, lte, sql } from 'drizzle-orm';
+import { SUSPENDED_AGENCY_IDS } from '../platform/access';
 import { assistantTask, emailBatch, proposedAction, user, type Db, type DbOrTx } from '@repo/db';
 import { notifyMyself } from '../notifications';
 import { activeMemberActor } from '../team/member-actor';
@@ -1046,7 +1047,15 @@ export async function runScheduledActions(
         const [due] = await tx
           .select({ id: proposedAction.id })
           .from(proposedAction)
-          .where(and(eq(proposedAction.status, 'scheduled'), lte(proposedAction.runAt, now), ...(opts.taskId ? [eq(proposedAction.taskId, opts.taskId)] : [])))
+          .where(
+            and(
+              eq(proposedAction.status, 'scheduled'),
+              lte(proposedAction.runAt, now),
+              // A suspended agency's scheduled steps wait (ADR 0050) — not failed, so they carry on once reactivated.
+              sql`${proposedAction.agencyId} not in ${SUSPENDED_AGENCY_IDS}`,
+              ...(opts.taskId ? [eq(proposedAction.taskId, opts.taskId)] : []),
+            ),
+          )
           .orderBy(asc(proposedAction.runAt))
           .limit(1)
           .for('update', { skipLocked: true });

@@ -1,0 +1,178 @@
+/* The platform admin console (ADR 0049). Same tokens as the agency console. */
+
+.wrap { display: grid; gap: 1rem; min-width: 0; }
+
+.head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 0.75rem; }
+.headText { display: grid; gap: 0.25rem; min-width: 0; }
+.title { margin: 0; font-family: var(--font-display, inherit); font-size: 1.5rem; letter-spacing: -0.02em; }
+.h2 { margin: 0; font-size: 1rem; font-weight: 600; }
+.sub { margin: 0; font-size: 0.8125rem; color: var(--text-secondary); }
+.crumbs { font-size: 0.75rem; color: var(--text-muted); display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.crumbs a { color: inherit; }
+
+/* The banner every page inside an agency carries: whose view this is, and that it is read-only. */
+.banner {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
+  padding: 0.55rem 0.85rem; border-radius: 0.5rem;
+  background: var(--amber-subtle); color: var(--text-primary);
+  border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent);
+  font-size: 0.8125rem;
+}
+
+.tabs { display: flex; gap: 0.25rem; overflow-x: auto; border-bottom: 1px solid var(--border-default); }
+.tab {
+  padding: 0.5rem 0.75rem; white-space: nowrap; text-decoration: none;
+  font-size: 0.8125rem; color: var(--text-secondary); border-bottom: 2px solid transparent;
+}
+.tab:hover { color: var(--text-primary); }
+.tabOn { composes: tab; color: var(--text-primary); font-weight: 600; border-bottom-color: var(--text-primary); }
+
+.filters { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.input, .select {
+  padding: 0.45rem 0.6rem; border-radius: 0.5rem;
+  border: 1px solid var(--border-default);
+  background: var(--surface-canvas); color: var(--text-primary);
+  font: inherit; font-size: 0.8125rem;
+}
+.input { min-width: 12rem; flex: 1 1 14rem; }
+.btn {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.45rem 0.85rem; border-radius: 0.5rem;
+  border: 1px solid var(--border-default);
+  background: var(--surface-canvas); color: var(--text-primary);
+  font: inherit; font-size: 0.8125rem; font-weight: 600; text-decoration: none; cursor: pointer;
+}
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: 0.75rem; }
+.stat {
+  padding: 0.85rem 1rem; border-radius: 0.75rem;
+  background: var(--surface-elevated); border: 1px solid var(--border-default);
+  display: grid; gap: 0.2rem;
+}
+.statLabel { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+.statValue { font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.card {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  min-width: 0;
+}
+.cardBody { padding: 1rem; display: grid; gap: 0.75rem; }
+
+.scroll { overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; }
+.table th {
+  text-align: left; padding: 0.65rem 1rem; white-space: nowrap;
+  font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-muted); border-bottom: 1px solid var(--border-default);
+}
+.table td { padding: 0.65rem 1rem; border-bottom: 1px solid var(--border-default); vertical-align: top; font-size: 0.8125rem; }
+.table tr:last-child td { border-bottom: 0; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.table th.num { text-align: right; }
+
+/* Under 640 px a table becomes stacked cards (ARCHITECTURE §2): each cell labels itself. */
+@media (max-width: 640px) {
+  .table thead { display: none; }
+  .table tr { display: grid; gap: 0.2rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-default); }
+  .table tr:last-child { border-bottom: 0; }
+  .table td { padding: 0; border: 0; text-align: left; }
+  .table td[data-label]::before { content: attr(data-label) ': '; color: var(--text-muted); font-size: 0.75rem; }
+  .num { text-align: left; }
+}
+
+.name { font-weight: 600; color: var(--text-primary); text-decoration: none; }
+.name:hover { text-decoration: underline; }
+.muted { color: var(--text-muted); }
+.empty { padding: 1.25rem 1rem; color: var(--text-muted); font-size: 0.8125rem; margin: 0; }
+.alert { padding: 1rem; color: var(--rose); margin: 0; }
+
+.badge {
+  display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px;
+  font-size: 0.6875rem; font-weight: 600; white-space: nowrap;
+  background: var(--surface-canvas); color: var(--text-secondary); border: 1px solid var(--border-default);
+}
+.badgeGood { composes: badge; background: var(--emerald-subtle); color: var(--emerald); border-color: transparent; }
+.badgeWarn { composes: badge; background: var(--amber-subtle); color: var(--amber); border-color: transparent; }
+.badgeBad { composes: badge; background: var(--rose-subtle); color: var(--rose); border-color: transparent; }
+
+.grid2 { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; margin: 0; font-size: 0.8125rem; }
+.facts dt { color: var(--text-muted); }
+.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+/* A conversation: one message per block, oldest first. */
+.messages { display: grid; gap: 0.75rem; padding: 1rem; }
+.message { display: grid; gap: 0.3rem; padding: 0.75rem 0.9rem; border-radius: 0.6rem; border: 1px solid var(--border-default); background: var(--surface-canvas); }
+.messageMeta { display: flex; flex-wrap: wrap; gap: 0.5rem; font-size: 0.75rem; color: var(--text-muted); }
+.messageWho { font-weight: 600; color: var(--text-primary); }
+.messageText { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.875rem; }
+.ask { composes: message; background: var(--sapphire-subtle); border-color: transparent; }
+
+/* Controls (ADR 0050). */
+.h3 { margin: 0; font-size: 0.8125rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
+.controlRow { display: grid; gap: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--border-default); }
+.inline { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8125rem; color: var(--text-secondary); }
+.btnDanger { composes: btn; background: var(--rose); color: #fff; border-color: var(--rose); }
+.btn:disabled, .btnDanger:disabled { opacity: 0.6; cursor: default; }
+.ok { margin: 0; font-size: 0.8125rem; color: var(--emerald); }
+.alertInline { margin: 0; font-size: 0.8125rem; color: var(--rose); }
+.select:disabled { opacity: 0.6; }
+.bannerBad {
+  margin: 0; padding: 0.6rem 0.85rem; border-radius: 0.5rem; font-size: 0.8125rem;
+  background: var(--rose-subtle); color: var(--rose);
+  border: 1px solid color-mix(in srgb, var(--rose) 35%, transparent);
+}
+
+/* Bar lists (Site activity, a user's interests): one series, one hue, the number in text ink. */
+.bars { list-style: none; margin: 0; padding: 0.25rem 1rem 1rem; display: grid; gap: 0.6rem; }
+.barRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.15rem 0.75rem; align-items: baseline; font-size: 0.8125rem; }
+.barLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+.barLabel a { color: inherit; }
+.barValue { font-variant-numeric: tabular-nums; color: var(--text-secondary); white-space: nowrap; }
+.barTrack { grid-column: 1 / -1; height: 8px; border-radius: 4px; background: var(--surface-container-low); overflow: hidden; }
+.barFill { height: 100%; border-radius: 0 4px 4px 0; background: var(--sapphire); min-width: 2px; }
+.barRow:hover .barFill { filter: brightness(1.15); }
+
+/* A profile's header: initials, name, the one line about them. */
+.profileHead { display: flex; align-items: center; gap: 0.9rem; }
+.avatarLg {
+  flex: none; width: 3rem; height: 3rem; border-radius: 999px; display: grid; place-items: center;
+  font-weight: 700; font-size: 1rem; color: var(--sapphire); background: var(--sapphire-subtle);
+}
+
+/* Weekly columns (admin home): one series, one hue; only the latest and the peak carry a number. */
+.columns { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; align-items: end; height: 9rem; padding: 0.5rem 1rem 0; }
+.column { position: relative; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
+.columnFill { border-radius: 4px 4px 0 0; background: var(--sapphire); min-height: 2px; }
+.column:hover .columnFill { filter: brightness(1.15); }
+.columnValue { position: absolute; left: 0; right: 0; text-align: center; font-size: 0.6875rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.columnAxis { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; padding: 0.35rem 1rem 1rem; border-top: 1px solid var(--border-default); margin: 0 1rem; font-size: 0.625rem; color: var(--text-muted); }
+.columnAxis span { text-align: center; white-space: nowrap; overflow: hidden; }
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Attention list on the home. */
+.attention { list-style: none; margin: 0; padding: 0 1rem 1rem; display: grid; gap: 0.5rem; font-size: 0.8125rem; }
+.attention li { display: flex; flex-wrap: wrap; gap: 0.35rem 0.6rem; align-items: baseline; }
+
+/*
+ * The admin shell on a narrow screen: the console's fixed 256 px sidebar becomes a top bar with the
+ * nav scrolling sideways. Doubled classes so these win over the shared shell module whatever the
+ * stylesheet order.
+ */
+@media (max-width: 900px) {
+  .adminShell.adminShell { flex-direction: column; }
+  .adminSidebar.adminSidebar {
+    position: sticky; top: 0; bottom: auto; width: 100%; height: auto;
+    flex-direction: row; align-items: center; gap: 0.75rem;
+    padding: 0.5rem 1rem; border-right: 0; border-bottom: 1px solid var(--border-default);
+  }
+  .adminSidebar > div:first-child { flex-direction: row; align-items: center; gap: 0.75rem; min-width: 0; }
+  .adminSidebar nav { flex-direction: row; border-top: 0; padding: 0; overflow-x: auto; gap: 0.15rem; }
+  .adminSidebar nav a { white-space: nowrap; }
+  .adminMain.adminMain { margin-left: 0; min-height: 0; }
+  .adminContent.adminContent { padding: 1rem; }
+  .adminProfileText { display: none; }
+}

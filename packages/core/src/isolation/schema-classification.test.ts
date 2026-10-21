@@ -5,7 +5,7 @@ import * as schema from '@repo/db/schema';
 
 /**
  * Tenant isolation, layer 0 (ADR 0030 §1): every table in the schema is in
- * exactly one of four groups, and the group is checked against the table.
+ * exactly one of five groups, and the group is checked against the table.
  *
  * A new table fails this test until someone puts it in a group — and putting
  * it there is the review: "whose is this row, and how does a query keep it in
@@ -90,6 +90,15 @@ const SHARED = ['property', 'place_cache', 'user', 'agency'] as const;
 /** A public-site visitor's own data (ADR 0011): owned by a person, never an agency. */
 const PUBLIC_SITE_USER = ['search_schedule', 'schedule_run', 'chat_thread', 'chat_message', 'shortlist', 'event'] as const;
 
+/**
+ * The platform's own (ADR 0049): who is a platform admin, and every page one opened. Read and
+ * written only by the admin console and its script — never by an agency's console, never by the
+ * public site. The view log names an agency (nullable: the agencies list names none), but no
+ * agency reads it.
+ */
+// site_activity (ADR 0051): public-site searches and listing views, read only by the admin console.
+const PLATFORM = ['platform_admin', 'platform_view_log', 'platform_action', 'site_activity'] as const;
+
 function tables() {
   return (Object.values(schema) as unknown[])
     .filter((v): v is PgTable => is(v, PgTable))
@@ -111,7 +120,7 @@ describe('tenant isolation — every table is classified', () => {
   const names = all.map((t) => t.name);
 
   it('every table is in exactly one group', () => {
-    const groups = [...OWN_AGENCY, ...Object.keys(THROUGH_PARENT), ...SHARED, ...PUBLIC_SITE_USER];
+    const groups = [...OWN_AGENCY, ...Object.keys(THROUGH_PARENT), ...SHARED, ...PUBLIC_SITE_USER, ...PLATFORM];
     const unclassified = names.filter((n) => !groups.includes(n as never));
     expect(unclassified, 'add the new table to a group in this file, with its reason').toEqual([]);
     const twice = groups.filter((g, i) => groups.indexOf(g) !== i);

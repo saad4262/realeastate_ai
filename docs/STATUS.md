@@ -1,4 +1,41 @@
 # Status
+- **Users, site activity, email activity, new admin home (ADR 0051, 2026-10-21) — `feat/platform-admin`, NOT committed.**
+  Tracking: `site_activity` (0059) written by `/api/activity` from an `ActivityBeacon` on /search (page 1) and
+  /listing/[id] — signed-in by account with filters, anonymous counts only; privacy page updated (owner to review).
+  Admin: /users, /users/[id] (+ guide chats), /site-activity, Email activity tab (agency + member), home with
+  needs-attention + leads/week + interest bars, profile headers, shell top bar under 900 px.
+  **Migration 0058 APPLIED 2026-10-21 (59 recorded). 0059 written, NOT applied — /platform, /users and /site-activity
+  read it, so apply before opening the admin console.** All new SQL run against the real DB inside a rolled-back
+  transaction (OK). Checks: core platform tests 85 green; break-tests red (anonymous filters kept; last-owner);
+  typecheck 9/10 (config old), lint 0 errors. TEST-PLAN **BE**.
+- **Admin controls (ADR 0050, the user's pick 2026-10-21) — built on `feat/platform-admin`, NOT committed.**
+  Suspend/reactivate an agency (console login refused via `accessBlock` in load-actor; listings off the public
+  site via `publicListing()`; workflows/skills/scheduled steps/imports/bulk email skip it via `SUSPENDED_AGENCY_IDS`),
+  plan + trial end, block/unblock a member (status suspended WITHOUT removed_at; may not register a new agency),
+  make owner. `platform:manage`; every change → `platform_action` in the same transaction. Controls on the agency
+  Overview, Access on a member's page, "Changes by the platform" table.
+  **Migration 0057 APPLIED 2026-10-21 with the user's go (58 recorded, RLS on, no grants); the dev admin account created
+  and a real Supabase sign-in checked.** **Migration 0058 written, NOT applied** — waits for the go.
+  Checks: core platform tests (41 + 18) green, break-test red (last-owner guard); core typecheck, console typecheck,
+  lint 0 errors. Smoke check "agency control…" written, not run (smoke off; needs 0058). TEST-PLAN **BD**.
+  **Next:** go for 0058 → apply; walk BC + BD; commit/push with the go.
+- **Platform admin console (ADR 0049, asked 2026-10-20) — built on `feat/platform-admin`, NOT committed.**
+  New surface `admin.*` (same console app; `CONSOLE_SURFACE_OVERRIDE=admin` also works): /platform (figures),
+  /agencies (all agencies → profile with tabs Agents, Leads, Customers, Inbox, Meetings, Listings, Team messages,
+  Workflows), /agencies/[id]/agents/[userId] (that member's own view + Assistant chats), /agents (everyone).
+  Read-only by construction: `platformViewActor` builds an owner/member actor with `via: 'platform'`, and can()
+  refuses every action outside `PLATFORM_READ`. The user chose: admins read everything (team messages, assistant
+  chats, private notes) and every page is logged (`platform_view_log`, fail-closed). Admin = row in `platform_admin`,
+  made by `PLATFORM_ADMIN_EMAIL=… PLATFORM_ADMIN_PASSWORD=… pnpm --filter @repo/db db:platform-admin`.
+  **Migration 0057 APPLIED and the dev admin account created 2026-10-21 (see the entry above).** The user asked
+  for a dev admin account on a public-mail address with a short password (not recorded here) — told them the address may be someone else's (reset-link takeover) and the password is guessable; fine for dev, change before production.
+  Checks: core platform tests 41 green; break-test red (read-only guard removed → 13 red); typecheck 9/10
+  (`@repo/config` failed before); lint 0; console build OK; local `next start`: admin host signed-out → /login,
+  /signup → /login, login copy "Platform Admin". The subquery test caught a real bug (bare "id" in single-table
+  selects), fixed. can-matrix parser fixed for CRLF (it was silently parsing 6 actions on this machine).
+  Smoke group "Platform admin" + admin rows in "Console (HTTP, signed out)" written, NOT run (SMOKE_ENABLED=false;
+  the DB group also needs 0057). TEST-PLAN **BC**.
+  **Next:** the user's go → apply 0057, create the admin, walk BC; commit/push with their go.
 - **Automatic emails to new leads, filtered and timed, from the chat (ADR 0048, asked 2026-10-20) — built on
   `feat/workflow-filters`, NOT committed.** On top of ADR 0041's workflows: conditions `contact.name` (whole name, or
   `contains`), `listing` (P refs), `listing.near` (N km of a place the SERVER geocodes — the model only names it);

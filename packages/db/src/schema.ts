@@ -134,6 +134,14 @@ export const agency = pgTable('agency', {
    * from the agency's connected Gmail. An owner/admin switch, on by default.
    */
   membersMayUseAgencyGmail: boolean('members_may_use_agency_gmail').notNull().default(true),
+  /**
+   * Set by a platform admin (ADR 0050). While `status` is `suspended` nobody in the agency can use
+   * the console, its listings are off the public site and its background work waits.
+   */
+  suspendedAt: timestamp('suspended_at', { withTimezone: true }),
+  suspendedReason: text('suspended_reason'),
+  /** When a trial ends — recorded and shown to the platform team; nothing is switched off by it yet. */
+  trialEndsAt: timestamp('trial_ends_at', { withTimezone: true }),
   ...timestamps,
 });
 
@@ -2377,6 +2385,107 @@ export const searchEmbedding = pgTable(
     uniqueIndex('search_embedding_source_idx').on(t.sourceKind, t.sourceId, t.chunkIndex),
     index('search_embedding_agency_idx').on(t.agencyId),
     index('search_embedding_vector_idx').using('hnsw', t.embedding.op('vector_cosine_ops')),
+  ],
+);
+
+// ── The platform admin console (docs/adr/0049) ─────────────────────────────
+
+/**
+ * Who runs the platform rather than an agency (ADR 0049). Not a membership: a
+ * platform admin belongs to no agency and every agency rule in can() refuses
+ * them. What they get is `platform:read` — the admin console, which reads every
+ * agency through a read-only view. Granted and revoked by the
+ * `db:platform-admin` script only; no screen writes this table.
+ */
+export const platformAdmin = pgTable('platform_admin', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  note: text('note'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Every page a platform admin opened (ADR 0049, the user's decision: admins
+ * read everything, and every read is recorded). One row per page render:
+ * which agency, which member's view (null = the agency as a whole), which
+ * area, and the one thing opened in it, if any.
+ */
+export const platformViewLog = pgTable(
+  'platform_view_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    adminUserId: uuid('admin_user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    agencyId: uuid('agency_id').references(() => agency.id, { onDelete: 'cascade' }),
+    subjectUserId: uuid('subject_user_id').references(() => user.id, { onDelete: 'set null' }),
+    /** `agencies`, `profile`, `leads`, `inbox`, `thread`, `chats`, … — what was on the page. */
+    area: varchar('area', { length: 32 }).notNull(),
+    /** The one row opened, when the page is one thing (a thread, a contact, a chat). */
+    refId: uuid('ref_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('platform_view_log_agency_idx').on(t.agencyId, desc(t.createdAt)),
+    index('platform_view_log_admin_idx').on(t.adminUserId, desc(t.createdAt)),
+  ],
+);
+
+/**
+ * Every change a platform admin made (ADR 0050): suspending or reactivating an agency, its plan and
+ * trial, blocking a member, a new owner. Written in the same transaction as the change.
+ */
+export const platformAction = pgTable(
+  'platform_action',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    adminUserId: uuid('admin_user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    agencyId: uuid('agency_id').references(() => agency.id, { onDelete: 'cascade' }),
+    subjectUserId: uuid('subject_user_id').references(() => user.id, { onDelete: 'set null' }),
+    /** `agency_suspended`, `agency_reactivated`, `plan_changed`, `member_blocked`, `member_unblocked`, `owner_changed`. */
+    action: varchar('action', { length: 32 }).notNull(),
+    /** What it was and what it became, and the reason given. */
+    detail: jsonb('detail').notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('platform_action_agency_idx').on(t.agencyId, desc(t.createdAt))],
+);
+
+/**
+ * What visitors to the public site search for and open (ADR 0051), for the
+ * platform admin's Users section. Written by `/api/activity`, which the search
+ * and listing pages call from the browser after they render — those pages keep
+ * no session (apps/web/middleware.ts), so this is where a visitor's identity is
+ * learnt, off the page's own path.
+ *
+ * The user's decision: a signed-in visitor's row names them (`user_id`) and
+ * keeps the search's filters (`query`); an anonymous visit is a count only —
+ * no id, no cookie, no filters beyond the place and the channel.
+ */
+export const siteActivity = pgTable(
+  'site_activity',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
+    /** `search` or `listing_view`. */
+    kind: varchar('kind', { length: 16 }).notNull(),
+    suburb: text('suburb'),
+    state: varchar('state', { length: 8 }),
+    channel: varchar('channel', { length: 16 }),
+    /** On a listing view: the listing, and the agency it belongs to (from the listing, never the browser). */
+    listingId: uuid('listing_id').references(() => listing.id, { onDelete: 'set null' }),
+    agencyId: uuid('agency_id').references(() => agency.id, { onDelete: 'set null' }),
+    /** Signed-in searches only: the filters as searched (price, bedrooms, radius…). */
+    query: jsonb('query'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('site_activity_user_idx').on(t.userId, desc(t.createdAt)),
+    index('site_activity_created_idx').on(t.createdAt),
+    index('site_activity_agency_idx').on(t.agencyId, desc(t.createdAt)),
   ],
 );
 

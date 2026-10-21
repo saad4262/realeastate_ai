@@ -6,6 +6,7 @@ apps/web     — public consumer, Next.js 15 App Router, SSR/ISR, site.com.au
 apps/console — agent + agency, host-routed:
                agents.site.com.au → (agent)  route group
                agency.site.com.au → (agency) route group
+               admin.site.com.au  → (admin)  route group — platform admin, read-only (ADR 0049)
 packages/: db (Drizzle), core, auth (Supabase Auth SSR), ai, ui, config
 Supabase Postgres + PostGIS + pgvector (dev may be Seoul; prod Sydney later).
 Auth: Supabase Auth. Media: Supabase Storage (ADR 0009; R2 maybe later).
@@ -67,7 +68,7 @@ Either may touch shared packages. Handoff files are the source of truth.
     human; anything that reaches the person who asked for it needs a label.
 8.  Types are derived from packages/db/schema.ts. Never hand-write a duplicate type.
 9.  Two apps, THREE domains, ONE database, ONE packages layer.
-    agents.* and agency.* are the SAME app — never fork them.
+    agents.*, agency.* and admin.* are the SAME app — never fork them.
 10. No business logic in apps/. If two route groups need it, it belongs in packages/core.
 11. Never import across apps/. Share through packages/ only.
 12. Surface is resolved from the host header in middleware. Never hardcode a surface.

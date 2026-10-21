@@ -241,6 +241,7 @@ export function ThreadReader({
   assignees,
   inboundOn,
   webUrl,
+  readOnly = false,
 }: {
   view: MailThreadView;
   unread: boolean;
@@ -249,6 +250,12 @@ export function ThreadReader({
   assignees: LeadAssignee[];
   inboundOn: boolean;
   webUrl: string;
+  /**
+   * The platform admin's view (ADR 0049): no read mark (an admin looking must
+   * not change anybody's unread state), no composer, no retry. can() refuses
+   * all three anyway; this keeps the page from offering them.
+   */
+  readOnly?: boolean;
 }) {
   const contact = view.contactName || view.contactEmail;
   const lead = view.lead;
@@ -263,7 +270,7 @@ export function ThreadReader({
 
   return (
     <div>
-      <MarkRead threadId={view.id} unread={unread} />
+      {readOnly ? null : <MarkRead threadId={view.id} unread={unread} />}
 
       <div className={styles.toolbar}>
         <Link href={backHref} className={styles.back}>
@@ -331,13 +338,22 @@ export function ThreadReader({
               <div className={styles.bodyText}>{lead.message}</div>
             </MessageCard>
           ) : item.kind === 'mail' ? (
-            <Message key={item.m.id} m={item.m} contact={contact} contactEmail={view.contactEmail} open={i >= openFrom} />
+            <Message
+              key={item.m.id}
+              m={item.m}
+              contact={contact}
+              contactEmail={view.contactEmail}
+              open={i >= openFrom}
+              readOnly={readOnly}
+            />
           ) : null,
         )}
         {items.length === 0 ? <p className={styles.alert}>No messages yet.</p> : null}
       </div>
 
-      {view.maySend ? (
+      {readOnly ? (
+        <p className={styles.readonly}>Read-only admin view.</p>
+      ) : view.maySend ? (
         <Composer
           threadId={view.id}
           to={view.contactName ? `${view.contactName} <${view.contactEmail}>` : view.contactEmail}
@@ -406,11 +422,13 @@ function Message({
   contact,
   contactEmail,
   open,
+  readOnly = false,
 }: {
   m: MailMessageView;
   contact: string;
   contactEmail: string;
   open: boolean;
+  readOnly?: boolean;
 }) {
   const out = m.direction === 'out';
   const fromName = out ? m.authorName || 'Your agency' : m.fromName || m.fromEmail || contact;
@@ -476,8 +494,14 @@ function Message({
       {out && m.status === 'queued' ? <span className={styles.note}>Sending…</span> : null}
       {out && m.status === 'failed' ? (
         <span className={styles.noteError}>
-          Not delivered{m.error && m.failedViaGmail ? ` — ${m.error}` : ''}. <RetrySend messageId={m.id} />
-          {m.failedViaGmail ? <> · <RetrySend messageId={m.id} platform /></> : null}
+          Not delivered{m.error && m.failedViaGmail ? ` — ${m.error}` : ''}.
+          {readOnly ? null : (
+            <>
+              {' '}
+              <RetrySend messageId={m.id} />
+              {m.failedViaGmail ? <> · <RetrySend messageId={m.id} platform /></> : null}
+            </>
+          )}
         </span>
       ) : null}
       {out && m.status === 'sent' && m.sentVia ? <span className={styles.note}>{m.sentVia}</span> : null}

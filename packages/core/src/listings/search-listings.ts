@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gte, lte, or, sql, type SQL } from 'drizzle-orm';
 import { agency, listing, property, type Db } from '@repo/db';
 import type { Near } from '../geo/place-schema';
+import { SUSPENDED_AGENCY_IDS } from '../platform/access';
 import { formatAddress, type ListingChannel, type SearchSort } from './listing-schema';
 
 /**
@@ -124,6 +125,12 @@ const num = (v: string | number | null): number | null => {
  * gets to widen it by passing a status.
  */
 export const PUBLIC_STATUS = 'live' as const;
+
+
+/** What a visitor may see: a live ad of an agency that is not suspended (ADR 0050). Every public read uses this. */
+export function publicListing(): SQL {
+  return sql`(${listing.status} = ${PUBLIC_STATUS} and ${listing.agencyId} not in ${SUSPENDED_AGENCY_IDS})`;
+}
 
 /** A rental's price lives in a different column from a sale's. */
 function isRental(channel: ListingChannel | undefined): boolean {
@@ -286,7 +293,7 @@ function toDetail(r: Record<string, unknown>, agents: string[]): PublicListing {
  * Everything but the geography, so the filter list has one definition.
  */
 function baseFilters(query: PublicSearchQuery): SQL[] {
-  const filters: SQL[] = [eq(listing.status, PUBLIC_STATUS)];
+  const filters: SQL[] = [publicListing()];
 
   if (query.channel) filters.push(eq(listing.channel, query.channel));
 
@@ -491,7 +498,7 @@ export async function getPublicListing(db: Db, id: string): Promise<PublicListin
     .from(listing)
     .innerJoin(property, eq(property.id, listing.propertyId))
     .innerJoin(agency, eq(agency.id, listing.agencyId))
-    .where(and(eq(listing.id, id), eq(listing.status, PUBLIC_STATUS)))
+    .where(and(eq(listing.id, id), publicListing()))
     .limit(1);
 
   if (!row) return null;
@@ -504,7 +511,7 @@ export async function liveSuburbs(db: Db): Promise<string[]> {
     .selectDistinct({ suburb: property.suburb })
     .from(listing)
     .innerJoin(property, eq(property.id, listing.propertyId))
-    .where(eq(listing.status, PUBLIC_STATUS))
+    .where(publicListing())
     .orderBy(property.suburb);
   return rows.map((r) => r.suburb);
 }
@@ -518,7 +525,7 @@ export async function livePropertyTypes(db: Db): Promise<string[]> {
     .selectDistinct({ propertyType: property.propertyType })
     .from(listing)
     .innerJoin(property, eq(property.id, listing.propertyId))
-    .where(and(eq(listing.status, PUBLIC_STATUS), sql`${property.propertyType} is not null`))
+    .where(and(publicListing(), sql`${property.propertyType} is not null`))
     .orderBy(property.propertyType);
   return rows.map((r) => r.propertyType).filter((t): t is string => Boolean(t));
 }

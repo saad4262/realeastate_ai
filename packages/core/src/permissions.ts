@@ -20,8 +20,21 @@ export type Actor = {
    * Acting for a workflow (ADR 0041): set by the engine on the owner's actor when a workflow's step
    * runs. Never a permission — can() ignores it — only so the change it makes does not trigger
    * workflows in turn (no loops, v1).
+   *
+   * `platform` (ADR 0049): a READ-ONLY view of an agency, or of one member of it, opened by a
+   * platform admin from the admin console. Unlike `workflow` this one IS a permission: can()
+   * refuses every action outside PLATFORM_READ before any other rule is asked, so no write
+   * function in core can run under it. Only `platformViewActor` builds one.
    */
-  via?: 'workflow';
+  via?: 'workflow' | 'platform';
+  /** On a `platform` view: the admin actually looking (for the view log). */
+  viewerId?: string;
+  /**
+   * A platform admin (ADR 0049) — a row in `platform_admin`, set only by `loadPlatformAdmin`.
+   * Grants `platform:read` and nothing else: it is not a membership, so every agency rule
+   * still refuses it. Reading an agency's data goes through a `platform` view actor.
+   */
+  platformAdmin?: boolean;
 };
 
 export type Action =
@@ -372,7 +385,14 @@ export type Action =
   /** Read one's own saved conversations. */
   | 'chat:read'
   /** Append to, or delete, one's own saved conversations. */
-  | 'chat:write';
+  | 'chat:write'
+  /** The admin console (ADR 0049): list every agency and open a read-only view of one. */
+  | 'platform:read'
+  /**
+   * The admin console's controls (ADR 0050): suspend or reactivate an agency, its plan and trial,
+   * block or unblock a member, change the owner. Every platform admin, for now (no admin roles yet).
+   */
+  | 'platform:manage';
 
 export type Resource = {
   type: 'listing' | 'lead' | 'team' | 'agency' | 'console' | 'schedule' | 'chat' | string;
@@ -461,7 +481,47 @@ function isListingAgent(actor: Actor, listingId?: string): boolean {
   return actor.listingAgentOf.includes(listingId);
 }
 
+/**
+ * What a `platform` view actor may still do (ADR 0049): look. Every other action is refused
+ * before its own rule runs, whatever role the view carries — the view of an owner cannot send,
+ * assign, approve or delete anything. A new action is NOT in here until someone decides it is a
+ * read; the permission test lists every action and fails if a write slips in.
+ *
+ * The rule each of these then runs is the ordinary one for the role the view carries: the
+ * agency-wide view is an owner's and sees what an owner sees; an agent's view sees what that
+ * agent sees, their own team conversations and assistant chats included.
+ */
+export const PLATFORM_READ: ReadonlySet<Action> = new Set<Action>([
+  'listing:read',
+  'listing:read_all',
+  'lead:read',
+  'lead:read_all',
+  'lead:read_offer',
+  'mail:read',
+  'mail:read_own',
+  'team_message:read',
+  'meeting:read_own',
+  'contact:read',
+  'contact:read_all',
+  'note:read_private',
+  'appointment:read',
+  'appointment:read_all',
+  'integration:read',
+  'skill:read',
+  'agent_skill:read',
+  'email_template:read',
+  'email_batch:read',
+  'assistant_conversation:read',
+  'proposed_action:read',
+  'dashboard:read',
+  'report:read_agency',
+  'workflow:read',
+  'listing_import:read',
+  'review:read',
+]);
+
 export function can(actor: Actor, action: Action, resource: Resource): boolean {
+  if (actor.via === 'platform' && !PLATFORM_READ.has(action)) return false;
   switch (action) {
     case 'listing:read':
       // The agency's own listings only — drafts, pending and withdrawn ones
@@ -768,6 +828,11 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
 
     case 'console:agent':
       return Boolean(actor.agencyId && actor.membershipRole);
+
+    case 'platform:read':
+    case 'platform:manage':
+      // The admin themself, never a view they opened (a view is already inside one agency).
+      return actor.platformAdmin === true && actor.via === undefined;
 
     case 'schedule:create':
       // Ownership, not membership. An agency owner gets this because they are

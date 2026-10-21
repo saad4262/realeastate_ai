@@ -1,4 +1,5 @@
 import { and, asc, eq, isNull, lt, lte, notInArray, sql } from 'drizzle-orm';
+import { SUSPENDED_AGENCY_IDS } from '../platform/access';
 import { agentSkill, membership, skill, skillRun, user, type Db } from '@repo/db';
 import { can, type Actor, type MembershipRole } from '../permissions';
 import { requireIntegrations } from '../integrations/accounts';
@@ -77,6 +78,8 @@ export async function claimDueSkills(db: Db, opts: { now?: Date; limit?: number;
           // Disabled skills are never claimed — whatever their cursor says.
           eq(agentSkill.enabled, true),
           isNull(agentSkill.archivedAt),
+          // Not while the platform has the agency suspended (ADR 0050): left due, it runs once reactivated.
+          sql`${agentSkill.agencyId} not in ${SUSPENDED_AGENCY_IDS}`,
           lte(agentSkill.nextRunAt, now),
           lt(agentSkill.consecutiveFailures, SKILL_FAILURE_LIMIT),
           ...(opts.userId ? [eq(agentSkill.userId, opts.userId)] : []),

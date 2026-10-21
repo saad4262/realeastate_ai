@@ -1,4 +1,5 @@
 import { and, asc, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { SUSPENDED_AGENCY_IDS } from '../platform/access';
 import { agency, assistantTask, notification, proposedAction, workflow, workflowEvent, workflowRun, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { activeMemberActor } from '../team/member-actor';
@@ -330,7 +331,15 @@ export async function runWorkflowTick(db: Db, now = new Date(), limit = 50): Pro
             await db
               .select()
               .from(workflow)
-              .where(and(eq(workflow.agencyId, ev.agencyId), eq(workflow.status, 'active'), sql`${workflow.spec}->'trigger'->>'kind' = ${ev.kind}`)),
+              .where(
+                and(
+                  eq(workflow.agencyId, ev.agencyId),
+                  eq(workflow.status, 'active'),
+                  sql`${workflow.spec}->'trigger'->>'kind' = ${ev.kind}`,
+                  // A suspended agency's workflows do not react while it lasts (ADR 0050); the event is spent.
+                  sql`${workflow.agencyId} not in ${SUSPENDED_AGENCY_IDS}`,
+                ),
+              ),
           );
         }
         const candidates = workflows.get(key)!;

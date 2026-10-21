@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
+import { SUSPENDED_AGENCY_IDS } from '../platform/access';
 import { listing, listingImport, listingImportRow, membership, property, user, type Db, type DbOrTx } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { createListing } from '../listings/create-listing';
@@ -683,7 +684,14 @@ export async function runImportTick(db: Db, deps: ImportDeps = {}, now = new Dat
   const due = await db
     .select({ id: listingImport.id, agencyId: listingImport.agencyId, createdBy: listingImport.createdBy })
     .from(listingImport)
-    .where(and(inArray(listingImport.status, ['validating', 'importing']), or(isNull(listingImport.claimedAt), lt(listingImport.claimedAt, stale))))
+    .where(
+      and(
+        inArray(listingImport.status, ['validating', 'importing']),
+        or(isNull(listingImport.claimedAt), lt(listingImport.claimedAt, stale)),
+        // Waits while the platform has the agency suspended (ADR 0050).
+        sql`${listingImport.agencyId} not in ${SUSPENDED_AGENCY_IDS}`,
+      ),
+    )
     .orderBy(asc(listingImport.updatedAt))
     .limit(limit);
   let ran = 0;

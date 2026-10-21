@@ -1,6 +1,6 @@
 import { headers } from 'next/headers';
 
-export type ConsoleSurface = 'agent' | 'agency';
+export type ConsoleSurface = 'agent' | 'agency' | 'admin';
 
 /**
  * Which console this request is for.
@@ -10,7 +10,8 @@ export type ConsoleSurface = 'agent' | 'agency';
  * again further in.
  */
 export async function currentSurface(): Promise<ConsoleSurface> {
-  return (await headers()).get('x-console-surface') === 'agent' ? 'agent' : 'agency';
+  const raw = (await headers()).get('x-console-surface');
+  return raw === 'agent' || raw === 'admin' ? raw : 'agency';
 }
 
 export type SurfaceCopy = {
@@ -61,7 +62,23 @@ const AGENT: SurfaceCopy = {
   noAccountHint: 'Agents join by invitation — ask your agency to send you a link.',
 };
 
+/** The platform admin console (ADR 0049). Nobody signs up here: admins are made by a script. */
+const ADMIN: SurfaceCopy = {
+  surface: 'admin',
+  home: '/platform',
+  productName: 'Platform Admin',
+  signInTitle: 'Sign in to Platform Admin',
+  signInSubtitle: 'For the platform team only. Every page you open here is recorded.',
+  emailLabel: 'Admin email',
+  signUpTitle: 'Platform Admin',
+  signUpSubtitle: 'Admin accounts are not created here.',
+  resetSubtitle: 'Recover access to the admin console by email.',
+  selfRegisters: false,
+  noAccountHint: 'Admin accounts are made by the platform team.',
+};
+
 export function copyFor(surface: ConsoleSurface): SurfaceCopy {
+  if (surface === 'admin') return ADMIN;
   return surface === 'agent' ? AGENT : AGENCY;
 }
 

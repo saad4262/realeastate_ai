@@ -1,7 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { agency, agencyGooglePlace, listing, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
-import { PUBLIC_STATUS } from '../listings/search-listings';
+import { publicListing } from '../listings/search-listings';
 import { googlePlacesFromEnv, isPlaceId, type PlaceDetails, type PlaceHit, type PlacesClient } from './google-places';
 
 /**
@@ -137,7 +137,7 @@ export async function publicListingReviews(db: Db, listingId: string, deps: Revi
     .from(listing)
     .innerJoin(agency, eq(agency.id, listing.agencyId))
     .innerJoin(agencyGooglePlace, eq(agencyGooglePlace.agencyId, listing.agencyId))
-    .where(and(eq(listing.id, listingId), eq(listing.status, PUBLIC_STATUS)))
+    .where(and(eq(listing.id, listingId), publicListing()))
     .limit(1);
   if (!row) return null;
   const places = client(deps);

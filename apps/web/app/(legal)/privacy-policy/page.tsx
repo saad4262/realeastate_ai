@@ -35,6 +35,11 @@ export default function PrivacyPolicyPage() {
           <li>Account details: your name, email address and password (passwords are handled by our sign-in provider and never stored by us in readable form).</li>
           <li>What you send us: enquiries and offers about a property, messages to an agency, saved searches and email alert preferences.</li>
           <li>Conversations with the AI property guide, so you can return to them.</li>
+          <li>
+            What you search for and which listings you open. If you are signed in, we keep this with your account
+            (including your search filters) to understand what our users look for and to improve the service. If you
+            are not signed in, we only count it — the suburb and the listing — without anything that identifies you.
+          </li>
           <li>Basic technical information, such as your IP address, used to keep the service secure and to limit abuse.</li>
         </ul>
         <h3>If you work for an agency that uses our software</h3>

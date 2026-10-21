@@ -15,7 +15,8 @@ description: >-
 | `site.com.au` / `web.lvh.me` | `apps/web` | — | Consumer shell (`AppShell` / later marketing) | Buyers / renters |
 | `agents.*` | `apps/console` | `(agent)` | **`AgentShell`** (dark desk) | Individual agents |
 | `agency.*` | `apps/console` | `(agency)` | **`AgencyShell`** (Stitch Agency OS) | Principals / admins |
-| both console hosts | `apps/console` | `(shared)` | Auth shells only | login / signup / sign-out |
+| `admin.*` | `apps/console` | `(admin)` | **`AdminShell`** (lean console shell) | Platform admins — every agency, read-only (ADR 0049) |
+| every console host | `apps/console` | `(shared)` | Auth shells only | login / signup / sign-out (no signup on admin.*) |
 
 **Shared core** = `packages/ui` (tokens, Button, primitives) + `packages/core` (can(), domain).  
 **Do not** reuse Agency OS sidebar on agent or web. Each surface has its own shell; business logic stays in packages.

@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { updateSession } from '@repo/auth/middleware';
 
-export type ConsoleSurface = 'agent' | 'agency';
+export type ConsoleSurface = 'agent' | 'agency' | 'admin';
 
 export function resolveSurface(
   host: string,
@@ -9,12 +9,27 @@ export function resolveSurface(
 ): ConsoleSurface {
   // For deployments with no agents./agency. subdomains (e.g. two *.vercel.app
   // projects from this one app). Set per deployment; unset means host decides.
-  if (override === 'agency' || override === 'agent') return override;
+  if (override === 'agency' || override === 'agent' || override === 'admin') return override;
   const hostname = host.split(':')[0]?.toLowerCase() ?? '';
   if (hostname.startsWith('agency.') || hostname === 'agency.lvh.me') {
     return 'agency';
   }
+  // The platform admin console (ADR 0049): the same app on its own host.
+  if (hostname.startsWith('admin.')) return 'admin';
   return 'agent';
+}
+
+/**
+ * The admin console's pages (ADR 0049). Route groups share one URL space, so
+ * these paths exist on every host; middleware keeps each surface to its own.
+ * The (admin) layout's requirePlatformAdmin is the gate — this only keeps the
+ * hosts apart: the admin host serves nothing of an agency's console, and the
+ * agency and agent hosts serve none of the admin's.
+ */
+const ADMIN_PATHS = ['/platform', '/agencies', '/agents', '/users', '/site-activity'];
+
+export function isAdminPath(pathname: string): boolean {
+  return ADMIN_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
 function withSurface(
@@ -31,6 +46,7 @@ function withSurface(
 }
 
 function homePath(surface: ConsoleSurface) {
+  if (surface === 'admin') return '/platform';
   return surface === 'agency' ? '/overview' : '/assistant';
 }
 
@@ -151,9 +167,17 @@ export async function middleware(request: NextRequest) {
     return withSurface(redirect, surface, cookieDomain);
   }
 
-  if (pathname === '/') {
+  // Each host keeps to its own pages (ADR 0049). On the admin host: no sign-up
+  // (admins are made by a script), and nothing of an agency's console —
+  // /get-started included, where the login form sends an account with no
+  // agency, which is exactly what a platform admin is.
+  const adminSignup = surface === 'admin' && pathname.startsWith('/signup');
+  const offSurface =
+    surface === 'admin' ? adminSignup || (!isPublic && !isAdminPath(pathname)) : isAdminPath(pathname);
+  if (pathname === '/' || offSurface) {
     const dest = request.nextUrl.clone();
-    dest.pathname = homePath(surface);
+    dest.pathname = adminSignup ? '/login' : homePath(surface);
+    if (offSurface) dest.search = '';
     const redirect = NextResponse.redirect(dest);
     response.cookies.getAll().forEach((c) => redirect.cookies.set(c));
     return withSurface(redirect, surface, cookieDomain);

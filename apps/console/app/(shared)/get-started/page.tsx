@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { AuthShell } from '../auth-shell';
 import { getAuthAccount } from '../../../lib/auth-account';
-import { loadActor } from '../../../lib/load-actor';
+import { loadActorContext } from '../../../lib/load-actor';
 import { RegisterAgencyForm } from './register-agency-form';
 import { removedFromAgency } from '@repo/core/team';
 import { getConsoleDb } from '../../../lib/db';
@@ -27,9 +27,14 @@ export default async function GetStartedPage({
     redirect('/login?next=/get-started');
   }
 
-  const actor = await loadActor(account.userId);
+  const context = await loadActorContext(account.userId);
+  const actor = context?.actor ?? null;
   if (actor === null) {
     redirect('/login?error=database');
+  }
+  // Shut out by the platform (ADR 0050): no registration form — say why.
+  if (context?.blocked) {
+    redirect(`/login?error=${context.blocked}`);
   }
   if (actor.agencyId && actor.membershipRole) {
     redirect('/');

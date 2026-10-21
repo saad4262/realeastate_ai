@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import { type Db } from '@repo/db';
 import type { Near } from '../geo/place-schema';
 import type { ListingChannel } from './listing-schema';
+import { SUSPENDED_AGENCY_IDS } from '../platform/access';
 
 /**
  * "My office is here — where is the cheapest place near it?"
@@ -128,6 +129,8 @@ export async function nearbyMarket(
 
   const filters = [
     sql`l.status = 'live'`,
+    // A suspended agency's listings are off the public market (ADR 0050).
+    sql`l.agency_id not in ${SUSPENDED_AGENCY_IDS}`,
     sql`l.channel = ${query.channel}`,
     // geom is the generated geography column, GiST-indexed (migration 0006).
     // A property with no coordinates cannot be placed and is simply not near

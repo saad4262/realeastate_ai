@@ -10,6 +10,7 @@ import {
   type Db,
 } from '@repo/db';
 import { formatAddress, type ListingChannel, type ListingStatus } from './listing-schema';
+import { publicListing } from './search-listings';
 
 /**
  * The three reads behind the parts of a listing page that are not the listing.
@@ -346,7 +347,7 @@ export async function liveListingIdForProperty(
   const [row] = await db
     .select({ id: listing.id })
     .from(listing)
-    .where(and(eq(listing.propertyId, propertyId), eq(listing.status, 'live')))
+    .where(and(eq(listing.propertyId, propertyId), publicListing()))
     .orderBy(desc(listing.publishedAt), desc(listing.id))
     .limit(1);
   return row?.id ?? null;
