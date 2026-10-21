@@ -20,6 +20,19 @@ export {
   type PlatformView,
   type PlatformViewLogRow,
 } from './admin';
+export { ONLINE_MINUTES, platformPeople, touchLastSeen, type PlatformPeople } from './presence';
+export {
+  AUDIENCE_LABEL,
+  createPlatformEmail,
+  deliverPlatformEmails,
+  describeAudience,
+  listPlatformEmails,
+  previewPlatformEmail,
+  type EmailAudience,
+  type PlatformEmailInput,
+  type PlatformEmailRow,
+  type PlatformMailDeps,
+} from './emails';
 export { platformAttention, type PlatformAttention, type WeeklyLeads } from './attention';
 export {
   getSiteUser,
@@ -34,12 +47,16 @@ export {
 export { emailActivity, parseEmailDays, type EmailActivity, type EmailActivityDays } from './email-activity';
 export {
   blockMember,
+  blockSiteUser,
+  isUserBlocked,
   listPlatformActions,
   makeOwner,
   reactivateAgency,
   setAgencyPlan,
   suspendAgency,
   unblockMember,
+  unblockSiteUser,
+  type AuthBan,
   type PlanInput,
   type PlatformActionKind,
   type PlatformActionRow,

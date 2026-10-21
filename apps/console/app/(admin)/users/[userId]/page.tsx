@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { LocalTime } from '@repo/ui';
 import { getSiteUser, getSiteUserChat, PlatformError, type SiteUserChat } from '@repo/core/platform';
-import { BarList, Stat } from '@/components/admin/tables';
+import { UserControls } from '@/components/admin/controls';
+import { BarList, LastSeen, Stat } from '@/components/admin/tables';
 import styles from '@/components/admin/admin.module.css';
 import { getConsoleDb } from '@/lib/db';
 import { recordPlatformView, requirePlatformAdmin } from '@/lib/require-platform-admin';
@@ -89,10 +90,15 @@ export default async function SiteUserPage({
           <p className={styles.sub}>
             {u.email}
             {u.phone ? ` · ${u.phone}` : ''} · joined <LocalTime iso={u.createdAt.toISOString()} style="date" />
-            {u.lastActiveAt ? <> · last active <LocalTime iso={u.lastActiveAt.toISOString()} /></> : null}
+            {u.lastActiveAt ? <> · last active <LocalTime iso={u.lastActiveAt.toISOString()} /></> : null} · seen <LastSeen at={u.lastSeenAt} />
           </p>
         </div>
+        <Link className={styles.btn} href={`/emails?kind=user&userId=${u.id}`} style={{ marginLeft: 'auto' }}>
+          Send email
+        </Link>
       </div>
+
+      <UserControls userId={u.id} name={u.name} blocked={u.blocked} reason={u.blockedReason} />
 
       <div className={styles.stats}>
         <Stat label="Searches" value={u.searches} />

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { AppShell } from '@repo/ui';
+import { PresencePing } from './presence-ping';
 
 /**
  * The public site's chrome.
@@ -40,6 +41,8 @@ export function WebShell({
 }) {
   return (
     <AppShell surface="web" wide={wide} linkAs={Link} account={account}>
+      {/* Online for the admin console (ADR 0052) — signed-in visitors only. */}
+      {account?.signedIn ? <PresencePing /> : null}
       {children}
     </AppShell>
   );

@@ -36,7 +36,7 @@ const IS_SITE_USER = sql.raw(
 );
 
 const USER_COLUMNS = sql.raw(`
-  u.id, coalesce(nullif(u.name, ''), u.email) as name, u.email, u.phone, u.created_at,
+  u.id, coalesce(nullif(u.name, ''), u.email) as name, u.email, u.phone, u.created_at, u.last_seen_at, u.blocked_at, u.blocked_reason,
   (select count(*)::int from site_activity a where a.user_id = u.id and a.kind = 'search') as searches,
   (select count(*)::int from site_activity a where a.user_id = u.id and a.kind = 'listing_view') as views,
   (select count(*)::int from lead l where l.user_id = u.id) as enquiries,
@@ -62,6 +62,10 @@ export type SiteUserRow = {
   shortlist: number;
   chats: number;
   lastActiveAt: Date | null;
+  /** ADR 0052. */
+  lastSeenAt: Date | null;
+  blocked: boolean;
+  blockedReason: string | null;
 };
 
 function userRow(r: Record<string, unknown>): SiteUserRow {
@@ -78,6 +82,9 @@ function userRow(r: Record<string, unknown>): SiteUserRow {
     shortlist: n(r.shortlist),
     chats: n(r.chats),
     lastActiveAt: d(r.last_active_at),
+    lastSeenAt: d(r.last_seen_at),
+    blocked: Boolean(r.blocked_at),
+    blockedReason: (r.blocked_reason as string | null) ?? null,
   };
 }
 

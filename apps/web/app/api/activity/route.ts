@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { recordSiteActivity } from '@repo/core/activity';
+import { touchLastSeen } from '@repo/core/platform';
 import { getWebDb } from '../../../lib/db';
 import { currentWebUser } from '../../../lib/session';
 
@@ -51,6 +52,11 @@ export async function POST(request: NextRequest) {
   }
   try {
     const user = await currentWebUser();
+    // A presence ping (ADR 0052): last seen for a signed-in visitor, nothing for anyone else.
+    if ((body as { kind?: unknown } | null)?.kind === 'ping') {
+      if (user) await touchLastSeen(getWebDb(), user.id);
+      return DONE();
+    }
     await recordSiteActivity(getWebDb(), { userId: user?.id ?? null }, body);
   } catch (err) {
     console.error('[activity] not recorded', err instanceof Error ? err.message : err);

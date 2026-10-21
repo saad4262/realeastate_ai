@@ -1,4 +1,7 @@
+import { cache } from 'react';
 import { cookies, headers } from 'next/headers';
+import { isUserBlocked } from '@repo/core/platform';
+import { getWebDb } from './db';
 import { redirect } from 'next/navigation';
 
 /**
@@ -33,17 +36,29 @@ function decode(value: string | null): string | null {
   }
 }
 
-export async function currentWebUser(): Promise<WebUser | null> {
+export const currentWebUser = cache(async (): Promise<WebUser | null> => {
   const h = await headers();
   const id = h.get('x-web-user-id');
   if (!id) return null;
+
+  /**
+   * A site user the platform blocked (ADR 0052) is signed out here, whatever
+   * their token says: Supabase refuses their next sign-in and refresh, and
+   * until their current access token expires this is what keeps them out.
+   * One indexed read, only for a signed-in request, cached for the request.
+   * Fails open on a database error — the session itself was verified, and a
+   * blocked person reaching an account page for a moment is the lesser harm
+   * than every signed-in visitor losing theirs.
+   */
+  const blocked = await isUserBlocked(getWebDb(), id).catch(() => false);
+  if (blocked) return null;
 
   return {
     id,
     email: decode(h.get('x-web-user-email')),
     label: decode(h.get('x-web-user-label')),
   };
-}
+});
 
 /**
  * The same, for a route that cannot render without one.

@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { LocalTime } from '@repo/ui';
 import { membershipRolePhrase } from '@repo/core/permissions';
-import type { PlatformAgencyRow, PlatformPersonRow } from '@repo/core/platform';
+import { ONLINE_MINUTES, type PlatformAgencyRow, type PlatformPersonRow } from '@repo/core/platform';
 import styles from './admin.module.css';
 
 /** The agencies table — the platform home's and /agencies'. Server-rendered, links only. */
@@ -67,7 +67,7 @@ export function PeopleTable({ rows, showAgency = false }: { rows: PlatformPerson
             <th className={styles.num}>Listings</th>
             <th className={styles.num}>Customers</th>
             <th className={styles.num}>Upcoming meetings</th>
-            <th>Last used assistant</th>
+            <th>Last seen</th>
           </tr>
         </thead>
         <tbody>
@@ -95,9 +95,7 @@ export function PeopleTable({ rows, showAgency = false }: { rows: PlatformPerson
               <td data-label="Listings" className={styles.num}>{p.listings}</td>
               <td data-label="Customers" className={styles.num}>{p.contacts}</td>
               <td data-label="Upcoming meetings" className={styles.num}>{p.upcomingMeetings}</td>
-              <td data-label="Last used assistant">
-                {p.lastAssistantAt ? <LocalTime iso={p.lastAssistantAt.toISOString()} /> : <span className={styles.muted}>Never</span>}
-              </td>
+              <td data-label="Last seen"><LastSeen at={p.lastSeenAt} /></td>
             </tr>
           ))}
         </tbody>
@@ -179,4 +177,11 @@ export function ColumnChart({ points, label }: { points: { key: string; tick: st
       </table>
     </figure>
   );
+}
+
+/** "Online" (seen within ONLINE_MINUTES) or when they were last seen (ADR 0052). */
+export function LastSeen({ at }: { at: Date | null }) {
+  if (!at) return <span className={styles.muted}>Never</span>;
+  if (Date.now() - at.getTime() < ONLINE_MINUTES * 60_000) return <span className={styles.online}>Online</span>;
+  return <LocalTime iso={at.toISOString()} />;
 }

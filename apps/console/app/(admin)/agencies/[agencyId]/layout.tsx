@@ -40,6 +40,9 @@ export default async function AgencyLayout({
             {view.agencyPlan ? <> · plan: {view.agencyPlan}</> : null} · {view.agencyTimeZone}
           </p>
         </div>
+        <Link className={styles.btn} href={`/emails?kind=agency&agencyId=${agencyId}`} style={{ marginLeft: 'auto' }}>
+          Email the agency
+        </Link>
       </div>
       <p className={styles.banner} role="note">
         Admin view. The agency’s data here is read-only; its status, plan, owner and members’ access are changed from

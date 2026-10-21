@@ -260,6 +260,8 @@ export type PlatformPersonRow = {
   joinedAt: Date | null;
   /** `suspended` with this set is a removal by the agency (ADR 0030); without it, a block by the platform (ADR 0050). */
   removed: boolean;
+  /** ADR 0052: the last time their console was open. */
+  lastSeenAt: Date | null;
   agencyId: string;
   agencyName: string;
   openLeads: number;
@@ -299,6 +301,7 @@ const personColumns = () => ({
   status: membership.status,
   joinedAt: membership.joinedAt,
   removedAt: membership.removedAt,
+  lastSeenAt: user.lastSeenAt,
   agencyId: agency.id,
   agencyName: agency.name,
   ...personCounts(),
@@ -314,6 +317,7 @@ function personRow(r: Record<string, unknown>): PlatformPersonRow {
     status: r.status as string,
     joinedAt: r.joinedAt ? new Date(r.joinedAt as string | Date) : null,
     removed: Boolean(r.removedAt),
+    lastSeenAt: r.lastSeenAt ? new Date(r.lastSeenAt as string | Date) : null,
     agencyId: r.agencyId as string,
     agencyName: r.agencyName as string,
     openLeads: num(r.openLeads),

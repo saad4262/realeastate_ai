@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { LocalTime } from '@repo/ui';
 import { listSiteUsers } from '@repo/core/platform';
+import { LastSeen } from '@/components/admin/tables';
 import styles from '@/components/admin/admin.module.css';
 import { getConsoleDb } from '@/lib/db';
 import { recordPlatformView, requirePlatformAdmin } from '@/lib/require-platform-admin';
@@ -49,6 +50,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
                   <th className={styles.num}>Saved searches</th>
                   <th className={styles.num}>Shortlist</th>
                   <th className={styles.num}>Guide chats</th>
+                  <th>Last seen</th>
                   <th>Last active</th>
                   <th>Joined</th>
                 </tr>
@@ -58,6 +60,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
                   <tr key={u.id}>
                     <td>
                       <Link className={styles.name} href={`/users/${u.id}`}>{u.name}</Link>
+                      {u.blocked ? <> <span className={styles.badgeBad}>Blocked</span></> : null}
                       <div className={styles.muted}>{u.email}</div>
                     </td>
                     <td data-label="Searches" className={styles.num}>{u.searches}</td>
@@ -66,6 +69,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
                     <td data-label="Saved searches" className={styles.num}>{u.savedSearches}</td>
                     <td data-label="Shortlist" className={styles.num}>{u.shortlist}</td>
                     <td data-label="Guide chats" className={styles.num}>{u.chats}</td>
+                    <td data-label="Last seen"><LastSeen at={u.lastSeenAt} /></td>
                     <td data-label="Last active">{u.lastActiveAt ? <LocalTime iso={u.lastActiveAt.toISOString()} /> : <span className={styles.muted}>—</span>}</td>
                     <td data-label="Joined"><LocalTime iso={u.createdAt.toISOString()} style="date" /></td>
                   </tr>

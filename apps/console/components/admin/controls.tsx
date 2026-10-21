@@ -9,6 +9,9 @@ import {
   setAgencyPlanAction,
   suspendAgencyAction,
   unblockMemberAction,
+  blockSiteUserAction,
+  unblockSiteUserAction,
+  type BlockUserResult,
   type PlatformActionResult,
 } from '@/lib/platform-actions';
 import styles from './admin.module.css';
@@ -286,6 +289,76 @@ export function MemberControls({
           <p className={styles.muted}>Not active ({status}).</p>
         )}
         <Message message={a.message} />
+      </div>
+    </section>
+  );
+}
+
+/** Block or unblock a public-site user (ADR 0052). */
+export function UserControls({ userId, name, blocked, reason }: { userId: string; name: string; blocked: boolean; reason: string | null }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [why, setWhy] = useState('');
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const done = (r: BlockUserResult, label: string) => {
+    if (r.ok) {
+      setMessage({ ok: r.signInChanged, text: r.signInChanged ? label : `${label} — but the sign-in itself could not be changed at the auth provider; the site still treats them as ${blocked ? 'unblocked' : 'signed out'}. Try again to retry it.` });
+      router.refresh();
+    } else {
+      setMessage({ ok: false, text: r.error });
+    }
+  };
+  return (
+    <section className={styles.card} aria-label="Access">
+      <div className={styles.cardBody}>
+        <h3 className={styles.h3}>Access</h3>
+        {blocked ? (
+          <div className={styles.filters}>
+            <span className={styles.badgeBad}>Blocked by the platform</span>
+            {reason ? <span className={styles.muted}>{reason}</span> : null}
+            <button
+              type="button"
+              className={styles.btn}
+              disabled={pending}
+              onClick={() => {
+                if (confirm(`Unblock ${name}? They can sign in again and their alerts resume.`)) {
+                  start(async () => done(await unblockSiteUserAction(userId), 'Unblocked.'));
+                }
+              }}
+            >
+              Unblock
+            </button>
+          </div>
+        ) : (
+          <form
+            className={styles.filters}
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (confirm(`Block ${name}?\n\nThey cannot sign in to the site, their saved-search alerts stop, and the site treats them as signed out. They can still browse like any visitor.`)) {
+                start(async () => done(await blockSiteUserAction(userId, why), 'Blocked.'));
+              }
+            }}
+          >
+            <input
+              className={styles.input}
+              value={why}
+              onChange={(e) => setWhy(e.target.value)}
+              placeholder="Why (kept with the change)"
+              aria-label="Reason for blocking"
+              required
+              minLength={3}
+              maxLength={500}
+            />
+            <button type="submit" className={styles.btnDanger} disabled={pending}>
+              Block {name}
+            </button>
+          </form>
+        )}
+        {message ? (
+          <p role={message.ok ? 'status' : 'alert'} className={message.ok ? styles.ok : styles.alertInline}>
+            {message.text}
+          </p>
+        ) : null}
       </div>
     </section>
   );

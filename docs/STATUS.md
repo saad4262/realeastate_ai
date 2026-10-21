@@ -1,4 +1,13 @@
 # Status
+- **Admin dashboard: online, email, user block (ADR 0052, 2026-10-21) — committed, pushed and MERGED into `main` at the user's word.**
+  Online = `user.last_seen_at` within 5 min (console `/api/live` + site `PresencePing`, ≤ 1 write/min). Dashboard:
+  agencies/agents/users with online/suspended/blocked, online now, newest agencies/members/users. `/emails`: write to
+  one agency (owners+admins), member, user, or every agency/agent/user — recipients resolved server-side and frozen,
+  first 25 sent at once, the rest by the minute cron. Block a site user: `user.blocked_at` + Supabase ban; the site
+  treats them as signed out; alerts stop. **Migration 0060 APPLIED 2026-10-21 before the merge (61 recorded; RLS on,
+  no grants).** The user adds SUPABASE_SERVICE_ROLE_KEY to the admin Vercel project and tests email by hand. All new SQL run on the real DB inside a rolled-back transaction (OK). Checks: core
+  platform tests 189 green; break-test red (member guard on user block); typecheck 9/10, lint 0 errors; console +
+  web builds OK. TEST-PLAN **BF**. Smoke not run.
 - **Platform admin (ADR 0049 + 0050 + 0051) — MERGED into `main` (fast-forward) and pushed 2026-10-21 at the user's
   word, which deploys it.** Smoke run once (SMOKE_ENABLED=true for the run only): Platform admin 2/2 (break-test red),
   Console signed-out 23/23, Tenant isolation 4/4. Still the user's: the Privacy Policy paragraph and TEST-PLAN BC, BD, BE. **Migrations 0057, 0058 and

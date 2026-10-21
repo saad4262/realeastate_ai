@@ -1,3 +1,12 @@
+## 2026-10-21 — Claude Code — ADR 0052: admin dashboard, online, email, user block (branch feat/platform-admin)
+
+- The user: a dashboard (agencies, agents, users, online, recent members), email to agency/agent/user, block users too.
+  Chosen: online = 5 minutes; email one or all; user block = no sign-in on the site.
+- Nothing recorded presence; the console poll and a site ping now write last_seen (≤ 1/min). Blocking uses a Supabase
+  ban (service key, after the transaction) plus the DB flag the site checks.
+- 0060 not applied (the go) — it must go in before the merge. Smoke not run.
+- Next exact step: the go → apply 0060 → commit, push, merge; the user walks BF.
+
 ## 2026-10-21 — Claude Code — ADR 0051: Users, site activity, email activity, admin home (branch feat/platform-admin)
 
 - The user: what is left; is the design proper; three sections (agencies, agents, users) with everything —

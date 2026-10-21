@@ -21,6 +21,8 @@ const CHANGE_LABEL: Record<PlatformActionKind, string> = {
   member_blocked: 'Blocked',
   member_unblocked: 'Unblocked',
   owner_changed: 'Made owner',
+  user_blocked: 'User blocked',
+  user_unblocked: 'User unblocked',
 };
 
 /** The reason, or what it became — from the change's own record. */

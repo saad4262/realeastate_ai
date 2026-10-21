@@ -3,6 +3,7 @@ import { runReminderTick, runZoomFailureAlerts, syncDepsFromEnv, teamMeetingDeps
 import { noticeMailFromEnv } from '@repo/core/email';
 import { runScheduledActions } from '@repo/core/assistant';
 import { mailDepsFromEnv } from '@repo/core/mail';
+import { deliverPlatformEmails } from '@repo/core/platform';
 import { teamMessageDepsFromEnv } from '@repo/core/team-messages';
 import { authoriseCronRequest } from '@repo/core/schedules';
 import { templateSendDepsFromEnv } from '@repo/core/template-email';
@@ -58,8 +59,14 @@ async function handler(request: NextRequest) {
       error: err instanceof Error ? err.message : 'zoom alert tick failed',
     }));
 
+    // Email from the platform team (ADR 0052): what the console did not send straight away.
+    const notice = noticeMailFromEnv();
+    const platformEmails = await deliverPlatformEmails(getWebDb(), notice ? notice.mailer : null, { limit: 100 }).catch((err: unknown) => ({
+      error: err instanceof Error ? err.message : 'platform email tick failed',
+    }));
+
     // Counts only — this is read from a cron log.
-    return NextResponse.json({ ok: true, workflows, scheduled, reminders, zoomAlerts }, { headers: { 'cache-control': 'no-store' } });
+    return NextResponse.json({ ok: true, workflows, scheduled, reminders, zoomAlerts, platformEmails }, { headers: { 'cache-control': 'no-store' } });
   } catch (err) {
     return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : 'tick failed' }, { status: 503 });
   }

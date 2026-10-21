@@ -1,4 +1,4 @@
-import { and, asc, eq, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, lte, sql } from 'drizzle-orm';
 import { scheduleRun, searchSchedule, user, type Db } from '@repo/db';
 import { savedSearchQuerySchema, type SavedSearchQuery } from '../listings/search-url';
 import { nextRunFor } from './next-run';
@@ -118,6 +118,8 @@ export async function claimDueSchedules(
         and(
           eq(searchSchedule.status, 'active'),
           lte(searchSchedule.nextRunAt, now),
+          // A user the platform blocked gets no alerts while it lasts (ADR 0052); left due, they resume on unblock.
+          isNull(user.blockedAt),
           ...(opts.ownerId ? [eq(searchSchedule.userId, opts.ownerId)] : []),
         ),
       )

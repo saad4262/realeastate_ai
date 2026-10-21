@@ -23,7 +23,9 @@ export type PlatformActionKind =
   | 'plan_changed'
   | 'member_blocked'
   | 'member_unblocked'
-  | 'owner_changed';
+  | 'owner_changed'
+  | 'user_blocked'
+  | 'user_unblocked';
 
 function requireManager(admin: Actor): void {
   if (!can(admin, 'platform:manage', PLATFORM)) {
@@ -40,7 +42,7 @@ function reasonOf(raw: string): string {
 async function record(
   tx: DbOrTx,
   admin: Actor,
-  agencyId: string,
+  agencyId: string | null,
   action: PlatformActionKind,
   detail: Record<string, unknown>,
   subjectUserId: string | null = null,
@@ -244,4 +246,80 @@ export async function listPlatformActions(db: Db, admin: Actor, agencyId: string
     subjectName: r.subjectName ?? null,
     detail: (r.detail ?? {}) as Record<string, unknown>,
   }));
+}
+
+// ── Site users (ADR 0052) ─────────────────────────────────────────────────
+
+/**
+ * Turns a person's sign-in off or on at the auth provider (Supabase: a ban).
+ * A port, like `AuthProvisioner`: core decides, the console supplies the call.
+ * It is a network call, so it runs after the transaction, never inside it.
+ */
+export type AuthBan = { setBanned(userId: string, banned: boolean): Promise<void> };
+
+async function lockSiteUser(tx: DbOrTx, userId: string) {
+  if (!UUID.test(userId)) throw new PlatformError('not_found', 'That user was not found');
+  const [row] = await tx.execute<{ id: string; blocked_at: string | null; member: boolean; admin: boolean }>(sql`
+    select u.id, u.blocked_at,
+      exists (select 1 from membership m where m.user_id = u.id) as member,
+      exists (select 1 from platform_admin pa where pa.user_id = u.id) as admin
+    from "user" u where u.id = ${userId} for update of u`);
+  if (!row) throw new PlatformError('not_found', 'That user was not found');
+  if (row.member || row.admin) {
+    throw new PlatformError('invalid', 'This person belongs to an agency (or runs the platform) — block them from their agency page instead.');
+  }
+  return row;
+}
+
+/**
+ * Block a public-site account: the database flag first (the site and the
+ * alerts go by it at once), then the sign-in itself. If the second step fails
+ * the block still stands; the caller is told so it can be retried.
+ */
+export async function blockSiteUser(
+  db: Db,
+  admin: Actor,
+  userId: string,
+  rawReason: string,
+  deps: { auth?: AuthBan } = {},
+): Promise<{ signInChanged: boolean }> {
+  requireManager(admin);
+  const reason = reasonOf(rawReason);
+  await db.transaction(async (tx) => {
+    const u = await lockSiteUser(tx, userId);
+    if (u.blocked_at) throw new PlatformError('invalid', 'This user is already blocked.');
+    await tx.execute(sql`update "user" set blocked_at = now(), blocked_reason = ${reason}, updated_at = now() where id = ${userId}`);
+    await record(tx, admin, null, 'user_blocked', { reason }, userId);
+  });
+  return { signInChanged: await ban(deps.auth, userId, true) };
+}
+
+/** Undo a block: the flag, then the sign-in. */
+export async function unblockSiteUser(db: Db, admin: Actor, userId: string, deps: { auth?: AuthBan } = {}): Promise<{ signInChanged: boolean }> {
+  requireManager(admin);
+  await db.transaction(async (tx) => {
+    const u = await lockSiteUser(tx, userId);
+    if (!u.blocked_at) throw new PlatformError('invalid', 'This user is not blocked.');
+    await tx.execute(sql`update "user" set blocked_at = null, blocked_reason = null, updated_at = now() where id = ${userId}`);
+    await record(tx, admin, null, 'user_unblocked', {}, userId);
+  });
+  return { signInChanged: await ban(deps.auth, userId, false) };
+}
+
+async function ban(auth: AuthBan | undefined, userId: string, banned: boolean): Promise<boolean> {
+  if (!auth) return false;
+  try {
+    await auth.setBanned(userId, banned);
+    return true;
+  } catch (err) {
+    console.error('[platform] sign-in ban not changed', err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
+/** Is this signed-in person a blocked site user? One statement; the web app treats them as signed out. */
+export async function isUserBlocked(db: DbOrTx, userId: string): Promise<boolean> {
+  if (!UUID.test(userId)) return false;
+  const [row] = await db.execute<{ blocked: boolean }>(sql`select blocked_at is not null as blocked from "user" where id = ${userId}`);
+  return row?.blocked === true || (row?.blocked as unknown) === 't';
 }

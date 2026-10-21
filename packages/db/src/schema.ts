@@ -112,6 +112,18 @@ export const user = pgTable('user', {
    * — changing the sign-in address leaves it stale, and stale matches nothing.
    */
   verifiedEmail: text('verified_email'),
+  /**
+   * The last time this person's console or site was open (ADR 0052): the open
+   * page pings at most once a minute. "Online" = seen in the last 5 minutes.
+   */
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+  /**
+   * A public-site account the platform blocked (ADR 0052): Supabase refuses
+   * their sign-in, the site treats them as signed out, their alerts stop.
+   * Agency members are blocked through `membership` instead (ADR 0050).
+   */
+  blockedAt: timestamp('blocked_at', { withTimezone: true }),
+  blockedReason: text('blocked_reason'),
   ...timestamps,
 });
 
@@ -2486,6 +2498,55 @@ export const siteActivity = pgTable(
     index('site_activity_user_idx').on(t.userId, desc(t.createdAt)),
     index('site_activity_created_idx').on(t.createdAt),
     index('site_activity_agency_idx').on(t.agencyId, desc(t.createdAt)),
+  ],
+);
+
+/**
+ * An email a platform admin sent (ADR 0052): to one agency's owners and admins,
+ * one member, one site user, or a whole audience. The recipients are resolved
+ * on the server and frozen as rows when it is sent; a cron tick delivers what
+ * the request itself did not.
+ */
+export const platformEmail = pgTable(
+  'platform_email',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    adminUserId: uuid('admin_user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    /** `agency`, `member`, `user`, `all_agencies`, `all_agents`, `all_users`. */
+    audience: varchar('audience', { length: 24 }).notNull(),
+    agencyId: uuid('agency_id').references(() => agency.id, { onDelete: 'set null' }),
+    subjectUserId: uuid('subject_user_id').references(() => user.id, { onDelete: 'set null' }),
+    subject: text('subject').notNull(),
+    body: text('body').notNull(),
+    recipients: integer('recipients').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('platform_email_created_idx').on(desc(t.createdAt))],
+);
+
+/** One person an admin email went to, and what happened to it. */
+export const platformEmailRecipient = pgTable(
+  'platform_email_recipient',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    emailId: uuid('email_id')
+      .notNull()
+      .references(() => platformEmail.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
+    email: text('email').notNull(),
+    name: text('name'),
+    /** `queued`, `sent`, `failed`. */
+    status: varchar('status', { length: 12 }).notNull().default('queued'),
+    error: text('error'),
+    providerId: text('provider_id'),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('platform_email_recipient_email_idx').on(t.emailId, t.status),
+    index('platform_email_recipient_queued_idx').on(t.status, t.createdAt),
   ],
 );
 

@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { LocalTime } from '@repo/ui';
-import { listAgencies, platformAttention, platformTotals, siteInsights } from '@repo/core/platform';
-import { AgencyTable, BarList, ColumnChart, Stat } from '@/components/admin/tables';
+import { listAgencies, ONLINE_MINUTES, platformAttention, platformPeople, platformTotals, siteInsights } from '@repo/core/platform';
+import { AgencyTable, BarList, ColumnChart, LastSeen, Stat, StatusBadge } from '@/components/admin/tables';
 import styles from '@/components/admin/admin.module.css';
 import { getConsoleDb } from '@/lib/db';
 import { recordPlatformView, requirePlatformAdmin } from '@/lib/require-platform-admin';
@@ -13,7 +13,8 @@ export default async function PlatformHomePage() {
   const { admin } = await requirePlatformAdmin();
   await recordPlatformView(admin, 'overview');
   const db = getConsoleDb();
-  const [totals, newest, { attention, weeklyLeads }, site] = await Promise.all([
+  const [people, totals, newest, { attention, weeklyLeads }, site] = await Promise.all([
+    platformPeople(db, admin),
     platformTotals(db, admin),
     listAgencies(db, admin, { limit: 8 }),
     platformAttention(db, admin),
@@ -29,9 +30,128 @@ export default async function PlatformHomePage() {
         <p className={styles.sub}>Every agency, agent and user. Every page you open and every change you make is recorded.</p>
       </div>
 
+      <div className={styles.peopleGrid}>
+        <Link href="/agencies" className={styles.peopleCard}>
+          <span className={styles.statLabel}>Agencies</span>
+          <span className={styles.statValue}>{people.agencies.total.toLocaleString('en-AU')}</span>
+          <span className={styles.statOnline}>{people.agencies.online} online</span>
+          <span className={styles.muted}>{people.agencies.suspended} suspended</span>
+        </Link>
+        <Link href="/agents" className={styles.peopleCard}>
+          <span className={styles.statLabel}>Agents</span>
+          <span className={styles.statValue}>{people.agents.total.toLocaleString('en-AU')}</span>
+          <span className={styles.statOnline}>{people.agents.online} online</span>
+          <span className={styles.muted}>{people.agents.blocked} blocked</span>
+        </Link>
+        <Link href="/users" className={styles.peopleCard}>
+          <span className={styles.statLabel}>Users</span>
+          <span className={styles.statValue}>{people.users.total.toLocaleString('en-AU')}</span>
+          <span className={styles.statOnline}>{people.users.online} online</span>
+          <span className={styles.muted}>{people.users.blocked} blocked</span>
+        </Link>
+        <Link href="/emails" className={styles.peopleCard}>
+          <span className={styles.statLabel}>Email</span>
+          <span className={styles.h2}>Write to everyone →</span>
+          <span className={styles.muted}>agencies, agents or users</span>
+        </Link>
+      </div>
+
+      <div className={styles.grid2}>
+        <section className={styles.card}>
+          <div className={styles.cardBody}>
+            <h2 className={styles.h2}>Online now</h2>
+            <p className={styles.sub}>Seen in the last {ONLINE_MINUTES} minutes.</p>
+          </div>
+          {people.onlineNow.length === 0 ? (
+            <p className={styles.empty}>Nobody right now.</p>
+          ) : (
+            <ul className={styles.attention}>
+              {people.onlineNow.map((p) => (
+                <li key={p.userId}>
+                  <span className={styles.online}>{p.kind === 'member' ? 'Agent' : 'User'}</span>
+                  <Link href={p.kind === 'member' && p.agencyId ? `/agencies/${p.agencyId}/agents/${p.userId}` : `/users/${p.userId}`}>{p.name}</Link>
+                  <span className={styles.muted}>{p.agencyName ? `${p.agencyName}${p.role ? ` · ${p.role}` : ''}` : p.email}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        <section className={styles.card}>
+          <div className={styles.cardBody}>
+            <h2 className={styles.h2}>New members</h2>
+          </div>
+          {people.recentMembers.length === 0 ? (
+            <p className={styles.empty}>None yet.</p>
+          ) : (
+            <table className={styles.table}>
+              <tbody>
+                {people.recentMembers.map((m) => (
+                  <tr key={`${m.agencyId}-${m.userId}`}>
+                    <td>
+                      <Link className={styles.name} href={`/agencies/${m.agencyId}/agents/${m.userId}`}>{m.name}</Link>
+                      <div className={styles.muted}>{m.role} · {m.agencyName}</div>
+                    </td>
+                    <td data-label="Joined"><LocalTime iso={m.joinedAt.toISOString()} style="date" /></td>
+                    <td data-label="Last seen"><LastSeen at={m.lastSeenAt} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+      </div>
+
+      <div className={styles.grid2}>
+        <section className={styles.card}>
+          <div className={styles.cardBody}>
+            <h2 className={styles.h2}>New agencies</h2>
+          </div>
+          {people.recentAgencies.length === 0 ? (
+            <p className={styles.empty}>None yet.</p>
+          ) : (
+            <table className={styles.table}>
+              <tbody>
+                {people.recentAgencies.map((a) => (
+                  <tr key={a.id}>
+                    <td>
+                      <Link className={styles.name} href={`/agencies/${a.id}`}>{a.name}</Link>
+                      <div className={styles.muted}>{a.owner ?? 'No owner'}</div>
+                    </td>
+                    <td data-label="Status"><StatusBadge status={a.status} /></td>
+                    <td data-label="Joined"><LocalTime iso={a.createdAt.toISOString()} style="date" /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+        <section className={styles.card}>
+          <div className={styles.cardBody}>
+            <h2 className={styles.h2}>New users</h2>
+          </div>
+          {people.recentUsers.length === 0 ? (
+            <p className={styles.empty}>None yet.</p>
+          ) : (
+            <table className={styles.table}>
+              <tbody>
+                {people.recentUsers.map((u) => (
+                  <tr key={u.userId}>
+                    <td>
+                      <Link className={styles.name} href={`/users/${u.userId}`}>{u.name}</Link>
+                      {u.blocked ? <> <span className={styles.badgeBad}>Blocked</span></> : null}
+                      <div className={styles.muted}>{u.email}</div>
+                    </td>
+                    <td data-label="Joined"><LocalTime iso={u.createdAt.toISOString()} style="date" /></td>
+                    <td data-label="Last seen"><LastSeen at={u.lastSeenAt} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+      </div>
+
       <div className={styles.stats}>
-        <Stat label="Agencies" value={totals.agencies} />
-        <Stat label="Active members" value={totals.activeMembers} />
         <Stat label="Live listings" value={totals.liveListings} />
         <Stat label="Leads (7 days)" value={totals.leads7d} />
         <Stat label="Leads (30 days)" value={totals.leads30d} />

@@ -97,7 +97,8 @@ const PUBLIC_SITE_USER = ['search_schedule', 'schedule_run', 'chat_thread', 'cha
  * agency reads it.
  */
 // site_activity (ADR 0051): public-site searches and listing views, read only by the admin console.
-const PLATFORM = ['platform_admin', 'platform_view_log', 'platform_action', 'site_activity'] as const;
+// platform_email + its recipients (ADR 0052): what platform admins emailed, and to whom.
+const PLATFORM = ['platform_admin', 'platform_view_log', 'platform_action', 'site_activity', 'platform_email', 'platform_email_recipient'] as const;
 
 function tables() {
   return (Object.values(schema) as unknown[])

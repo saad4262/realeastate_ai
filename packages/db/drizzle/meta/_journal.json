@@ -421,6 +421,13 @@
       "when": 1792574422381,
       "tag": "0059_site_activity",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1792583509681,
+      "tag": "0060_platform_presence_block_email",
+      "breakpoints": true
     }
   ]
 }

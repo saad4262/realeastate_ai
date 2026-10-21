@@ -106,6 +106,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
       { href: '/agents', label: 'Agents', icon: 'groups' },
       { href: '/users', label: 'Users', icon: 'person_search' },
       { href: '/site-activity', label: 'Site activity', icon: 'travel_explore' },
+      { href: '/emails', label: 'Emails', icon: 'mail' },
     ],
     more: [],
     brandFallback: 'Platform admin',

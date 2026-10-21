@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { membershipRolePhrase } from '@repo/core/permissions';
 import { AdminTabs } from '@/components/admin/tabs';
 import styles from '@/components/admin/admin.module.css';
@@ -30,6 +31,9 @@ export default async function MemberLayout({
             {subject.status !== 'active' ? <> · <span className={styles.badgeWarn}>{subject.status}</span></> : null}
           </p>
         </div>
+        <Link className={styles.btn} href={`/emails?kind=member&agencyId=${agencyId}&userId=${userId}`} style={{ marginLeft: 'auto' }}>
+          Send email
+        </Link>
       </div>
       <AdminTabs
         label="Member"

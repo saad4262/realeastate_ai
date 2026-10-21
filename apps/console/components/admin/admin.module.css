@@ -176,3 +176,16 @@
   .adminContent.adminContent { padding: 1rem; }
   .adminProfileText { display: none; }
 }
+
+/* Online (ADR 0052): a dot with a word — never colour alone. */
+.online { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--emerald); font-weight: 600; font-size: 0.75rem; white-space: nowrap; }
+.online::before { content: ''; width: 0.5rem; height: 0.5rem; border-radius: 999px; background: var(--emerald); box-shadow: 0 0 0 2px var(--emerald-subtle); }
+.statOnline { font-size: 0.75rem; color: var(--emerald); font-weight: 600; }
+
+/* The dashboard's people cards: a total, how many are online, and the exceptions. */
+.peopleGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 0.75rem; }
+.peopleCard {
+  display: grid; gap: 0.25rem; padding: 1rem; border-radius: 0.75rem; text-decoration: none; color: inherit;
+  background: var(--surface-elevated); border: 1px solid var(--border-default);
+}
+.peopleCard:hover { border-color: var(--border-strong); }

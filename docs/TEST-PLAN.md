@@ -1465,3 +1465,18 @@ Needs migration **0059**. Public site + admin console.
 | BE6 | Admin home | Needs-attention (set a trial ending in a week from Controls → it appears); leads-per-week columns with the latest and peak labelled; hover shows each week. |
 | BE7 | Phone width | Sidebar becomes a top bar with the nav scrolling sideways; tables stack. |
 | BE8 | A suspended agency's listing opened by a visitor | Not found, and no view recorded. |
+
+## BF — Admin dashboard: online, email, blocking a user (ADR 0052)
+
+Needs migration **0060**.
+
+| # | Case | Expected |
+|---|---|---|
+| BF1 | Open the agency console as an agent; open the public site signed in as a buyer; then the admin dashboard | Agencies / Agents / Users cards show 1 online each where it applies; "Online now" lists the agent (Agent, agency · role) and the buyer (User). |
+| BF2 | Close both; wait 6 minutes; reload the dashboard | They drop out of "Online now"; their Last seen shows a time. |
+| BF3 | An agency → "Email the agency" → Check recipients → Send | Count = its active owners and admins; they receive it with "Hi <name>," and the footer; /emails lists it with Sent = count. |
+| BF4 | /emails → "Every public-site user" → Check recipients | Count excludes blocked users. Send to a test audience only. |
+| BF5 | A user's page → Block (reason) | "Blocked by the platform"; signing in on the site is refused; an already open session is treated as signed out (account pages ask to sign in); their alerts stop. |
+| BF6 | Unblock | They sign in again; alerts resume. |
+| BF7 | Try to block an agency member from /users/<their id> | Refused: block them from their agency page. |
+| BF8 | Agent block and agency suspend (ADR 0050) | Still work from the agent's Access card and the agency's Controls. |

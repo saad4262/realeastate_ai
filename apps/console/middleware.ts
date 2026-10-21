@@ -26,7 +26,7 @@ export function resolveSurface(
  * hosts apart: the admin host serves nothing of an agency's console, and the
  * agency and agent hosts serve none of the admin's.
  */
-const ADMIN_PATHS = ['/platform', '/agencies', '/agents', '/users', '/site-activity'];
+const ADMIN_PATHS = ['/platform', '/agencies', '/agents', '/users', '/site-activity', '/emails'];
 
 export function isAdminPath(pathname: string): boolean {
   return ADMIN_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));

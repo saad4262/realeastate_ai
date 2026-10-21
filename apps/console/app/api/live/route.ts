@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { consoleLiveStamp } from '@repo/core/mail';
+import { touchLastSeen } from '@repo/core/platform';
 import { getConsoleDb } from '../../../lib/db';
 import { loadListingActor } from '../../../lib/load-actor';
 import { actionUserId } from '../../../lib/auth-account';
@@ -16,12 +17,29 @@ import { actionUserId } from '../../../lib/auth-account';
  * again. Polled every few seconds, that was most clicks. A plain fetch is
  * outside the router and cannot do it.
  */
+/**
+ * Online for the admin console (ADR 0052): this poll runs every few seconds while a console page is
+ * open, so it is also where "last seen" is kept. Written at most once a minute per person per
+ * instance (and the SQL refuses a write inside the minute anyway).
+ */
+const SEEN = Symbol.for('@repo/console.last-seen');
+function dueForSeen(userId: string): boolean {
+  const g = globalThis as unknown as Record<symbol, Map<string, number> | undefined>;
+  const map = (g[SEEN] ??= new Map());
+  const now = Date.now();
+  if ((map.get(userId) ?? 0) > now - 60_000) return false;
+  map.set(userId, now);
+  if (map.size > 10_000) map.clear();
+  return true;
+}
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const userId = await actionUserId();
   if (!userId) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+  if (dueForSeen(userId)) await touchLastSeen(getConsoleDb(), userId).catch(() => undefined);
   try {
     const actor = await loadListingActor(userId);
     const stamp = actor ? await consoleLiveStamp(getConsoleDb(), actor) : '';
