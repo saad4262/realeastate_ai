@@ -1,25 +1,32 @@
 # Status
-- **Users, site activity, email activity, new admin home (ADR 0051, 2026-10-21) — `feat/platform-admin`, NOT committed.**
+- **Platform admin (ADR 0049 + 0050 + 0051) — committed on `feat/platform-admin` (rebased on `main`) and PUSHED
+  2026-10-21; NOT merged.** The user opens the Pull Request into `main` themself (no `gh` on this machine) and merges
+  only after reviewing the Privacy Policy paragraph and walking TEST-PLAN BC, BD and BE. **Migrations 0057, 0058 and
+  0059 are APPLIED** to the Sydney database (60 recorded; RLS on, no grants on the three new tables). The dev admin
+  account exists; its address and password are not recorded in the repo and must be replaced before production.
+  Merging deploys to production at once (public-site tracking + the privacy paragraph go live); the admin console
+  needs the `admin.` domain and `NEXT_PUBLIC_ADMIN_URL` on Vercel (DEPLOY.md). Smoke not run (SMOKE_ENABLED=false).
+  **Next:** the user reviews, tests and merges the PR; then replaces the admin credentials and sets up the domain.
+- **Users, site activity, email activity, new admin home (ADR 0051, 2026-10-21) — `feat/platform-admin`, committed (see above).**
   Tracking: `site_activity` (0059) written by `/api/activity` from an `ActivityBeacon` on /search (page 1) and
   /listing/[id] — signed-in by account with filters, anonymous counts only; privacy page updated (owner to review).
   Admin: /users, /users/[id] (+ guide chats), /site-activity, Email activity tab (agency + member), home with
   needs-attention + leads/week + interest bars, profile headers, shell top bar under 900 px.
-  **Migration 0058 APPLIED 2026-10-21 (59 recorded). 0059 written, NOT applied — /platform, /users and /site-activity
-  read it, so apply before opening the admin console.** All new SQL run against the real DB inside a rolled-back
+  **Migrations 0058 and 0059 APPLIED 2026-10-21 (60 recorded).** All new SQL run against the real DB inside a rolled-back
   transaction (OK). Checks: core platform tests 85 green; break-tests red (anonymous filters kept; last-owner);
   typecheck 9/10 (config old), lint 0 errors. TEST-PLAN **BE**.
-- **Admin controls (ADR 0050, the user's pick 2026-10-21) — built on `feat/platform-admin`, NOT committed.**
+- **Admin controls (ADR 0050, the user's pick 2026-10-21) — built on `feat/platform-admin`, committed (see above).**
   Suspend/reactivate an agency (console login refused via `accessBlock` in load-actor; listings off the public
   site via `publicListing()`; workflows/skills/scheduled steps/imports/bulk email skip it via `SUSPENDED_AGENCY_IDS`),
   plan + trial end, block/unblock a member (status suspended WITHOUT removed_at; may not register a new agency),
   make owner. `platform:manage`; every change → `platform_action` in the same transaction. Controls on the agency
   Overview, Access on a member's page, "Changes by the platform" table.
   **Migration 0057 APPLIED 2026-10-21 with the user's go (58 recorded, RLS on, no grants); the dev admin account created
-  and a real Supabase sign-in checked.** **Migration 0058 written, NOT applied** — waits for the go.
+  and a real Supabase sign-in checked.** **Migration 0058 APPLIED 2026-10-21.**
   Checks: core platform tests (41 + 18) green, break-test red (last-owner guard); core typecheck, console typecheck,
   lint 0 errors. Smoke check "agency control…" written, not run (smoke off; needs 0058). TEST-PLAN **BD**.
-  **Next:** go for 0058 → apply; walk BC + BD; commit/push with the go.
-- **Platform admin console (ADR 0049, asked 2026-10-20) — built on `feat/platform-admin`, NOT committed.**
+  **Next:** walk BC + BD (see the top entry).
+- **Platform admin console (ADR 0049, asked 2026-10-20) — built on `feat/platform-admin`, committed (see above).**
   New surface `admin.*` (same console app; `CONSOLE_SURFACE_OVERRIDE=admin` also works): /platform (figures),
   /agencies (all agencies → profile with tabs Agents, Leads, Customers, Inbox, Meetings, Listings, Team messages,
   Workflows), /agencies/[id]/agents/[userId] (that member's own view + Assistant chats), /agents (everyone).
@@ -35,9 +42,9 @@
   selects), fixed. can-matrix parser fixed for CRLF (it was silently parsing 6 actions on this machine).
   Smoke group "Platform admin" + admin rows in "Console (HTTP, signed out)" written, NOT run (SMOKE_ENABLED=false;
   the DB group also needs 0057). TEST-PLAN **BC**.
-  **Next:** the user's go → apply 0057, create the admin, walk BC; commit/push with their go.
+  **Next:** walk BC (see the top entry).
 - **Automatic emails to new leads, filtered and timed, from the chat (ADR 0048, asked 2026-10-20) — built on
-  `feat/workflow-filters`, NOT committed.** On top of ADR 0041's workflows: conditions `contact.name` (whole name, or
+  `feat/workflow-filters`, since merged into `main`.** On top of ADR 0041's workflows: conditions `contact.name` (whole name, or
   `contains`), `listing` (P refs), `listing.near` (N km of a place the SERVER geocodes — the model only names it);
   action `wait_until` (a time, or a window + weekdays, on `agency.time_zone`, DST-safe); new card `create_template`
   (exact words, `createTemplate`). On/off was already there (Workflows screen, `change_workflow`). Prompt
