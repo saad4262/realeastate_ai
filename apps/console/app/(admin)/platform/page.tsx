@@ -195,7 +195,7 @@ async function StatsSection({ admin }: { admin: Actor }) {
       <Stat label="Leads (7 days)" value={totals.leads7d} />
       <Stat label="Leads (30 days)" value={totals.leads30d} />
       <Stat label="Meetings next 7 days" value={totals.meetingsNext7d} />
-      <Stat label="Site searches (30 days)" value={site.totals.searches} />
+      <Stat label="Site searches (30 days)" value={site.totals.searches + site.totals.guideSearches} />
     </div>
   );
 }
@@ -276,12 +276,12 @@ async function InterestSection({ admin }: { admin: Actor }) {
         </div>
         <BarList
           empty="No searches recorded yet."
-          rows={site.topSuburbs.slice(0, 6).map((r) => ({
+          rows={site.suburbs.slice(0, 6).map((r) => ({
             key: `${r.suburb}-${r.state}`,
             label: `${r.suburb}${r.state ? `, ${r.state}` : ''}`,
             title: r.suburb,
-            value: r.searches + r.views,
-            detail: `${r.searches + r.views}`,
+            value: r.searches + r.guideSearches + r.views,
+            detail: `${r.searches + r.guideSearches + r.views}`,
           }))}
         />
       </section>

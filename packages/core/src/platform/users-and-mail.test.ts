@@ -4,7 +4,7 @@ import type { Actor } from '../permissions';
 import { recordSiteActivity } from '../activity/site-activity';
 import { platformAttention } from './attention';
 import { emailActivity } from './email-activity';
-import { getSiteUser, getSiteUserChat, listSiteUsers, siteInsights } from './site-users';
+import { getSiteUser, getSiteUserChat, listSiteUsers, siteInsights, siteTrend } from './site-users';
 
 /**
  * ADR 0051: the Users section, site activity, email activity and the admin home's panels.
@@ -51,6 +51,7 @@ describe('platform-wide reads refuse anyone but the platform admin', () => {
     ['getSiteUser', (db, who) => getSiteUser(db, who, U)],
     ['getSiteUserChat', (db, who) => getSiteUserChat(db, who, U, A)],
     ['siteInsights', (db, who) => siteInsights(db, who)],
+    ['siteTrend', (db, who) => siteTrend(db, who)],
     ['platformAttention', (db, who) => platformAttention(db, who)],
   ];
   for (const [name, call] of calls) {
@@ -73,12 +74,13 @@ describe('platform-wide reads refuse anyone but the platform admin', () => {
 });
 
 describe('fixed statement counts (no N+1)', () => {
-  it('users list 1, a user 8, a chat 2, insights 4, the home panels 3', async () => {
+  it('users list 1, a user 8, a chat 2, insights 4, trend 1, the home panels 3', async () => {
     const cases: [number, (db: Db) => Promise<unknown>][] = [
       [1, (db) => listSiteUsers(db, admin, { q: 'ann' })],
       [8, (db) => getSiteUser(db, admin, U)],
       [2, (db) => getSiteUserChat(db, admin, U, A)],
       [4, (db) => siteInsights(db, admin, 7)],
+      [1, (db) => siteTrend(db, admin, 90)],
       [3, (db) => platformAttention(db, admin)],
     ];
     for (const [expected, run] of cases) {

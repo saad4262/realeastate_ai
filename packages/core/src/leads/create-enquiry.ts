@@ -30,11 +30,16 @@ export class EnquiryError extends Error {
  * Returns the new lead's id. It is assigned to the listing's lead agent
  * straight away (ADR 0039 C3); status changes and reassignment are the
  * console's.
+ *
+ * `who` is the verified session of a signed-in visitor, or nobody. Like the
+ * agency, it is the server's to say and never read from the form: a `userId`
+ * in `input` is dropped by the schema.
  */
 export async function createEnquiry(
   db: DbOrTx,
   listingId: string,
   input: unknown,
+  who: { userId: string | null } = { userId: null },
 ): Promise<{ leadId: string }> {
   const parsed = enquiryInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -71,6 +76,8 @@ export async function createEnquiry(
       email: parsed.data.email,
       phone: parsed.data.phone ?? null,
       message: parsed.data.message,
+      // The account, when the visitor was signed in (the admin's "from signed-in users").
+      userId: who.userId,
       // Set here rather than accepted from the browser. A caller choosing its
       // own status could file a lead as already closed.
       kind: 'enquiry',

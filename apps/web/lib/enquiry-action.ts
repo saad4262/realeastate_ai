@@ -9,7 +9,9 @@ import {
   notifyNewLead,
   type EnquiryResult,
 } from '@repo/core/leads';
+import { ensureAppUser } from '@repo/core/identity';
 import { getWebDb } from './db';
+import { verifiedWebUserForAction } from './session';
 
 /**
  * Enquiries per IP per minute.
@@ -77,7 +79,7 @@ export async function sendEnquiryAction(
   }
 
   try {
-    const { leadId } = await createEnquiry(getWebDb(), listingId, input);
+    const { leadId } = await createEnquiry(getWebDb(), listingId, input, { userId: await signedInSender() });
     // Tell the listing's agents — after the response, so the visitor never
     // waits on Resend, and outside the write, so a mail outage loses no lead.
     after(() => emailListingAgents(leadId));
@@ -89,6 +91,24 @@ export async function sendEnquiryAction(
     }
     // Never hand a raw database error to a public page.
     return { ok: false, error: 'Could not send that just now. Please try again.' };
+  }
+}
+
+/**
+ * The signed-in visitor's id, or null. Verified here, because the listing page
+ * is outside the middleware matcher (see verifiedWebUserForAction). Their
+ * `user` row is made first — `lead.user_id` references it, and someone who
+ * signed in and went straight to a listing may never have opened an account
+ * page. Any failure sends the enquiry anonymously rather than losing it.
+ */
+async function signedInSender(): Promise<string | null> {
+  const user = await verifiedWebUserForAction();
+  if (!user) return null;
+  try {
+    await ensureAppUser(getWebDb(), { id: user.id, email: user.email ?? '', ...(user.label ? { name: user.label } : {}) });
+    return user.id;
+  } catch {
+    return null;
   }
 }
 

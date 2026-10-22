@@ -89,6 +89,16 @@ describe('a public enquiry', () => {
     expect(inserted[0]?.listingId).toBe('listing-1');
   });
 
+  it('names the signed-in visitor from the session, never from the form', async () => {
+    const anon = fakeDb(LIVE);
+    await createEnquiry(anon.db, 'listing-1', { ...VALID, userId: 'user-attacker' });
+    expect(anon.inserted[0]?.userId).toBeNull();
+
+    const signedIn = fakeDb(LIVE);
+    await createEnquiry(signedIn.db, 'listing-1', { ...VALID, userId: 'user-attacker' }, { userId: 'user-real' });
+    expect(signedIn.inserted[0]?.userId).toBe('user-real');
+  });
+
   it('writes nothing when the listing lookup comes back empty', async () => {
     /**
      * What this does and does not prove.

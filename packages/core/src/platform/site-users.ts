@@ -221,34 +221,83 @@ export async function getSiteUserChat(db: Db, admin: Actor, userId: string, thre
 
 // ── The whole site ────────────────────────────────────────────────────────
 
+/** A period on the admin's site pages: the last 7, 30 or 90 days, or everything recorded. */
+export type SitePeriod = 7 | 30 | 90 | 'all';
+
+/** `created_at > since` for a period. 'all' is every row ever recorded. */
+const sinceFor = (period: SitePeriod) =>
+  period === 'all' ? sql`'-infinity'::timestamptz` : sql`now() - make_interval(days => ${period})`;
+
+/**
+ * Searches made through the property guide (`/chat`): the assistant turn records each search it ran.
+ * Saved only for signed-in visitors — an anonymous chat is never stored — so this undercounts them.
+ */
+const GUIDE_SEARCHES = sql.raw(`
+  select m.created_at, q->'query'->>'suburb' as suburb, q->'query'->>'state' as state
+  from chat_message m
+  cross join lateral jsonb_array_elements(case when jsonb_typeof(m.searches) = 'array' then m.searches else '[]'::jsonb end) as q
+  where m.role = 'assistant'`);
+
+export type SiteSuburbRow = {
+  suburb: string;
+  state: string | null;
+  /** On the site's search page. */
+  searches: number;
+  /** Through the property guide. */
+  guideSearches: number;
+  views: number;
+};
+
 export type SiteInsights = {
-  days: number;
-  totals: { searches: number; signedInSearches: number; views: number; signedInViews: number; activeUsers: number; newUsers: number; enquiries: number };
-  topSuburbs: { suburb: string; state: string | null; searches: number; views: number }[];
+  days: SitePeriod;
+  totals: {
+    searches: number;
+    signedInSearches: number;
+    /** Searches the property guide ran for signed-in visitors. */
+    guideSearches: number;
+    views: number;
+    signedInViews: number;
+    activeUsers: number;
+    newUsers: number;
+    /** Leads filed from the public site — enquiries and private offers. */
+    enquiries: number;
+    /** Of those, the ones sent by a signed-in visitor. Enquiries named nobody before 2026-10-22, so older ones count as anonymous. */
+    signedInEnquiries: number;
+  };
+  /** Every suburb searched or viewed in the period (the first 100), most searched first. */
+  suburbs: SiteSuburbRow[];
   topAgencies: { agencyId: string; name: string; views: number; enquiries: number }[];
   topListings: { listingId: string; address: string | null; agencyName: string | null; views: number }[];
 };
 
-/** What the public site's visitors looked for, over the last `days`. Four statements, started together. */
-export async function siteInsights(db: Db, admin: Actor, days: 7 | 30 | 90 = 30): Promise<SiteInsights> {
+/** What the public site's visitors looked for, over a period. Four statements, started together. */
+export async function siteInsights(db: Db, admin: Actor, days: SitePeriod = 30): Promise<SiteInsights> {
   requireAdmin(admin);
-  const since = sql`now() - make_interval(days => ${days})`;
+  const since = sinceFor(days);
   const [[t], suburbs, agencies, listings] = await Promise.all([
     db.execute<Record<string, unknown>>(sql`
       select
         (select count(*)::int from site_activity where kind = 'search' and created_at > ${since}) as searches,
         (select count(*)::int from site_activity where kind = 'search' and user_id is not null and created_at > ${since}) as signed_in_searches,
+        (select count(*)::int from (${GUIDE_SEARCHES}) g where g.created_at > ${since}) as guide_searches,
         (select count(*)::int from site_activity where kind = 'listing_view' and created_at > ${since}) as views,
         (select count(*)::int from site_activity where kind = 'listing_view' and user_id is not null and created_at > ${since}) as signed_in_views,
         (select count(distinct user_id)::int from site_activity where user_id is not null and created_at > ${since}) as active_users,
         (select count(*)::int from "user" u where u.created_at > ${since} and not exists (select 1 from membership m where m.user_id = u.id)) as new_users,
-        (select count(*)::int from lead where user_id is not null and created_at > ${since}) as enquiries`),
+        -- Every lead the public site filed (enquiries and private offers), and how many named a signed-in account.
+        (select count(*)::int from lead where source = 'website' and created_at > ${since}) as enquiries,
+        (select count(*)::int from lead where source = 'website' and user_id is not null and created_at > ${since}) as signed_in_enquiries`),
     db.execute<Record<string, unknown>>(sql`
-      select min(a.suburb) as suburb, max(a.state) as state,
-        count(*) filter (where a.kind = 'search')::int as searches,
-        count(*) filter (where a.kind = 'listing_view')::int as views
-      from site_activity a where a.suburb is not null and a.created_at > ${since}
-      group by lower(a.suburb) order by count(*) desc limit 15`),
+      with s as (
+        select a.suburb, a.state, (a.kind = 'search')::int as searches, 0 as guide, (a.kind = 'listing_view')::int as views
+        from site_activity a where a.suburb is not null and a.created_at > ${since}
+        union all
+        select g.suburb, g.state, 0, 1, 0 from (${GUIDE_SEARCHES}) g where g.suburb is not null and g.created_at > ${since}
+      )
+      select min(s.suburb) as suburb, max(s.state) as state,
+        sum(s.searches)::int as searches, sum(s.guide)::int as guide, sum(s.views)::int as views
+      from s group by lower(s.suburb)
+      order by sum(s.searches) + sum(s.guide) desc, sum(s.views) desc, min(s.suburb) limit 100`),
     db.execute<Record<string, unknown>>(sql`
       select ag.id as agency_id, ag.name,
         (select count(*)::int from site_activity a where a.agency_id = ag.id and a.kind = 'listing_view' and a.created_at > ${since}) as views,
@@ -266,14 +315,65 @@ export async function siteInsights(db: Db, admin: Actor, days: 7 | 30 | 90 = 30)
     totals: {
       searches: n(t?.searches),
       signedInSearches: n(t?.signed_in_searches),
+      guideSearches: n(t?.guide_searches),
       views: n(t?.views),
       signedInViews: n(t?.signed_in_views),
       activeUsers: n(t?.active_users),
       newUsers: n(t?.new_users),
       enquiries: n(t?.enquiries),
+      signedInEnquiries: n(t?.signed_in_enquiries),
     },
-    topSuburbs: [...suburbs].map((r) => ({ suburb: String(r.suburb), state: (r.state as string | null) ?? null, searches: n(r.searches), views: n(r.views) })),
+    suburbs: [...suburbs].map((r) => ({
+      suburb: String(r.suburb),
+      state: (r.state as string | null) ?? null,
+      searches: n(r.searches),
+      guideSearches: n(r.guide),
+      views: n(r.views),
+    })),
     topAgencies: [...agencies].filter((r) => n(r.views) + n(r.enquiries) > 0).map((r) => ({ agencyId: r.agency_id as string, name: String(r.name), views: n(r.views), enquiries: n(r.enquiries) })),
     topListings: [...listings].map((r) => ({ listingId: r.listing_id as string, address: (r.address as string | null) ?? null, agencyName: (r.agency_name as string | null) ?? null, views: n(r.views) })),
+  };
+}
+
+export type SiteTrendPoint = {
+  /** The bucket's first day, `YYYY-MM-DD`, in Sydney time. */
+  start: string;
+  /** On the search page and through the property guide together. */
+  searches: number;
+  views: number;
+  /** Leads filed from the public site, as in `SiteInsights.totals.enquiries`. */
+  enquiries: number;
+};
+export type SiteTrend = { bucket: 'day' | 'week' | 'month'; points: SiteTrendPoint[] };
+
+/**
+ * Searches, listing views and enquiries per day (7 and 30 days), per week (90 days) or per month
+ * (all time: the last 12), every bucket present even when empty, in Sydney time like the rest of
+ * the admin. One statement.
+ */
+export async function siteTrend(db: Db, admin: Actor, days: SitePeriod = 30): Promise<SiteTrend> {
+  requireAdmin(admin);
+  const bucket = days === 'all' ? 'month' : days === 90 ? 'week' : 'day';
+  const buckets = days === 'all' ? 12 : days === 90 ? 13 : days;
+  // Both from code, never from the request.
+  const step = sql.raw(`interval '1 ${bucket}'`);
+  const unit = sql.raw(`'${bucket}'`);
+  const local = (col: string) => sql.raw(`(${col} at time zone 'Australia/Sydney')`);
+  const rows = await db.execute<Record<string, unknown>>(sql`
+    with b as (
+      select g as s from generate_series(
+        date_trunc(${unit}, now() at time zone 'Australia/Sydney') - ${buckets - 1}::int * ${step},
+        date_trunc(${unit}, now() at time zone 'Australia/Sydney'),
+        ${step}) as g
+    )
+    select to_char(b.s, 'YYYY-MM-DD') as start,
+      (select count(*)::int from site_activity a where a.kind = 'search' and ${local('a.created_at')} >= b.s and ${local('a.created_at')} < b.s + ${step})
+        + (select count(*)::int from (${GUIDE_SEARCHES}) g where ${local('g.created_at')} >= b.s and ${local('g.created_at')} < b.s + ${step}) as searches,
+      (select count(*)::int from site_activity a where a.kind = 'listing_view' and ${local('a.created_at')} >= b.s and ${local('a.created_at')} < b.s + ${step}) as views,
+      (select count(*)::int from lead l where l.source = 'website' and ${local('l.created_at')} >= b.s and ${local('l.created_at')} < b.s + ${step}) as enquiries
+    from b order by b.s`);
+  return {
+    bucket,
+    points: [...rows].map((r) => ({ start: String(r.start), searches: n(r.searches), views: n(r.views), enquiries: n(r.enquiries) })),
   };
 }

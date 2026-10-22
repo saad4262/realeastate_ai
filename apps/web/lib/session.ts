@@ -1,5 +1,7 @@
 import { cache } from 'react';
 import { cookies, headers } from 'next/headers';
+import { identityFromClaims } from '@repo/auth/middleware';
+import { createServerSupabaseClient } from '@repo/auth/server';
 import { isUserBlocked } from '@repo/core/platform';
 import { getWebDb } from './db';
 import { redirect } from 'next/navigation';
@@ -95,6 +97,32 @@ export async function requireWebUser(nextPath: string): Promise<WebUser> {
  * It must never gate data, an action, or anything a person could mistake for
  * proof that they are signed in.
  */
+/**
+ * Who sent a Server Action posted from a page OUTSIDE the matcher, verified
+ * here rather than by middleware.
+ *
+ * The listing page's enquiry form posts to `/listing/[id]`, where middleware
+ * never runs, so `currentWebUser()` is always null there. Widening the matcher
+ * would put a session check in front of every listing view; this puts one in
+ * front of the rare submit instead — getClaims, a local signature check
+ * (ADR 0046), plus the blocked-user read `currentWebUser` does.
+ *
+ * Never throws: an enquiry is worth more than knowing who sent it, so any
+ * failure answers "nobody" and the enquiry goes through anonymously.
+ */
+export async function verifiedWebUserForAction(): Promise<WebUser | null> {
+  try {
+    const supabase = await createServerSupabaseClient();
+    const { data, error } = await supabase.auth.getClaims();
+    const who = error ? null : identityFromClaims(data?.claims);
+    if (!who) return null;
+    if (await isUserBlocked(getWebDb(), who.id)) return null;
+    return { id: who.id, email: who.email, label: who.label || null };
+  } catch {
+    return null;
+  }
+}
+
 export async function looksSignedIn(): Promise<boolean> {
   const jar = await cookies();
   // @supabase/ssr names its cookies `sb-<project-ref>-auth-token`, possibly
