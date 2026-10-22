@@ -618,11 +618,15 @@ describe('integrations', () => {
     expect(can(owner, 'integration:manage', mine('agent'))).toBe(false);
   });
 
-  it('keeps agency accounts to admins to manage, and lets members see and use them', () => {
+  it('keeps agency accounts to owners and admins — an agent neither sees nor uses them', () => {
     expect(can(owner, 'integration:manage', agencyAcct)).toBe(true);
+    expect(can(owner, 'integration:read', agencyAcct)).toBe(true);
+    expect(can(owner, 'integration:use', agencyAcct)).toBe(true);
+    expect(can(m('admin', 'admin'), 'integration:use', agencyAcct)).toBe(true);
     expect(can(agent, 'integration:manage', agencyAcct)).toBe(false);
-    expect(can(agent, 'integration:read', agencyAcct)).toBe(true);
-    expect(can(agent, 'integration:use', agencyAcct)).toBe(true);
+    expect(can(agent, 'integration:read', agencyAcct)).toBe(false);
+    expect(can(agent, 'integration:use', agencyAcct)).toBe(false);
+    expect(can(viewer, 'integration:use', agencyAcct)).toBe(false);
   });
 
   it('never crosses agencies, even for an owner', () => {

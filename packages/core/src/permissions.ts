@@ -230,10 +230,11 @@ export type Action =
   | 'appointment:respond'
   /**
    * See a connected account's STATUS (ADR 0020) — never its tokens. Your own
-   * user-level accounts; your agency's agency-level ones (an agent must be able
-   * to see that the agency's Zoom is connected). The resource carries
-   * `integrationOwnerType` and `ownerId` (a user id, or the agency id). No id
-   * with no owner type: "open my integrations page", any active member.
+   * user-level accounts; your agency's agency-level ones only as an owner or
+   * admin (ADR 0020 amendment, 2026-10-22: everyone else works through their
+   * own accounts only). The resource carries `integrationOwnerType` and
+   * `ownerId` (a user id, or the agency id). No id with no owner type: "open my
+   * integrations page", any active member.
    */
   | 'integration:read'
   /**
@@ -243,9 +244,9 @@ export type Action =
   | 'integration:manage'
   /**
    * Let the SERVER use the tokens on your behalf (create your calendar event,
-   * a meeting on the agency's Zoom). Never a way to read them: no function
-   * returns a token outside packages/core. Your own user-level account; an
-   * agency-level one for any active member.
+   * your Zoom meeting). Never a way to read them: no function returns a token
+   * outside packages/core. Your own user-level account; an agency-level one
+   * only for an owner or admin — never a fallback for an agent.
    */
   | 'integration:use'
   /**
@@ -674,7 +675,7 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'integration:use':
       if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
       if (!resource.integrationOwnerType) return action === 'integration:read' && !resource.id;
-      if (resource.integrationOwnerType === 'agency') return resource.ownerId === actor.agencyId;
+      if (resource.integrationOwnerType === 'agency') return resource.ownerId === actor.agencyId && isAgencyAdmin(actor);
       return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
 
     case 'integration:manage':

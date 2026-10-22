@@ -1,7 +1,7 @@
-import { and, eq, or, sql } from 'drizzle-orm';
+import { and, eq, or } from 'drizzle-orm';
 import { agency, integrationAccount, type DbOrTx } from '@repo/db';
 import { can, type Actor } from '../permissions';
-import { IntegrationError, integrationResource } from '../integrations/accounts';
+import { integrationResource } from '../integrations/accounts';
 import { missingScopes, type IntegrationStatus } from '../integrations/providers';
 import { plainAddress } from '../integrations/gmail';
 
@@ -9,8 +9,9 @@ import { plainAddress } from '../integrations/gmail';
  * Who a one-to-one email comes from (ADR 0026 §2), decided per message on
  * the server, in this order:
  *   1. the person's own connected Gmail;
- *   2. else the agency's connected Gmail — if they may (`gmail:send_as_agency`:
- *      the admin switch "Members may send from the agency Gmail");
+ *   2. else the agency's connected Gmail — an owner or admin only
+ *      (`integration:use`; an agent never sends from it, whatever the old
+ *      "Members may send from the agency Gmail" switch says);
  *   3. else the platform sender.
  * Expired or missing-permission accounts count as not connected here, and the
  * screens say so. One statement.
@@ -95,18 +96,4 @@ export function senderLine(choice: SenderChoice, platformName = 'LocalAgentHub')
 export function sentViaLabel(m: { sentVia: string | null; senderOwnerType: string | null }, platformName = 'LocalAgentHub'): string {
   if (m.sentVia === 'gmail') return m.senderOwnerType === 'agency' ? 'Sent from the agency’s Gmail' : 'Sent from their Gmail';
   return `Sent from ${platformName}`;
-}
-
-/** The admin switch (ADR 0026, decided Q3): may members send from the agency's Gmail? */
-export async function agencyGmailSharing(db: DbOrTx, actor: Actor): Promise<{ on: boolean; mayChange: boolean }> {
-  if (!actor.agencyId) return { on: false, mayChange: false };
-  const [row] = await db.select({ on: agency.membersMayUseAgencyGmail }).from(agency).where(eq(agency.id, actor.agencyId)).limit(1);
-  return { on: row?.on ?? true, mayChange: can(actor, 'gmail:configure_agency', { type: 'agency', agencyId: actor.agencyId }) };
-}
-
-export async function setAgencyGmailSharing(db: DbOrTx, actor: Actor, on: boolean): Promise<void> {
-  if (!actor.agencyId || !can(actor, 'gmail:configure_agency', { type: 'agency', agencyId: actor.agencyId })) {
-    throw new IntegrationError('forbidden', 'Only an owner or admin can change this');
-  }
-  await db.update(agency).set({ membersMayUseAgencyGmail: Boolean(on), updatedAt: sql`now()` }).where(eq(agency.id, actor.agencyId));
 }

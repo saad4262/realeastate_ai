@@ -192,9 +192,10 @@ export type IntegrationCheck = {
  * a connected account with every scope is reported, and the caller says
  * "Connect X first".
  *
- * Which account applies follows the provider's owner order: Zoom is the
- * agent's own, else the agency's; a calendar is only ever the person's own;
- * reviews only the agency's. One statement, however many providers are asked.
+ * Which account applies follows the provider's owner order, among those this
+ * person may use: an agent's is only ever their own; an owner or admin uses
+ * their own, else the agency's; a calendar is only ever the person's own.
+ * One statement, however many providers are asked.
  */
 export async function requireIntegrations(
   db: DbOrTx,
@@ -208,9 +209,18 @@ export async function requireIntegrations(
   return { ok: missing.length === 0, results, missing };
 }
 
-/** One provider's answer, and — for the server only — which account row it is. */
+/**
+ * One provider's answer, and — for the server only — which account row it is.
+ * Only accounts this actor may USE count: an agent's own, never the agency's
+ * (that is an owner's or admin's), so an agent without their own is told to
+ * connect it — never quietly put on someone else's.
+ */
 function pick(rows: SafeRow[], actor: Actor, provider: IntegrationProvider, now: Date): { requirement: IntegrationRequirement; accountId: string | null } {
-  const order = PROVIDERS[provider].ownerTypes;
+  const order = PROVIDERS[provider].ownerTypes.filter((ownerType) =>
+    actor.agencyId
+      ? can(actor, 'integration:use', integrationResource({ agencyId: actor.agencyId, ownerType, ownerId: ownerType === 'user' ? actor.userId : actor.agencyId }))
+      : false,
+  );
   const found = order
     .map((ownerType) => rows.find((r) => r.provider === provider && r.ownerType === ownerType))
     .filter((r): r is SafeRow => Boolean(r))
@@ -242,7 +252,7 @@ function pick(rows: SafeRow[], actor: Actor, provider: IntegrationProvider, now:
 
 /**
  * For the server's own use (appointment sync): the account `actor` would use
- * for this provider — their own, else the agency's, by the provider's order —
+ * for this provider — their own, else (an owner or admin only) the agency's —
  * or null with the reason. The id never reaches a page.
  */
 export async function resolveIntegration(
@@ -368,7 +378,7 @@ export async function disconnectIntegration(
 /**
  * The tokens, decrypted, for the SERVER to call a provider on this actor's
  * behalf (Phase 3b). `integration:use` first: a person's own account, or the
- * agency's for any member. Never passed to a page or an action's result.
+ * agency's for an owner or admin. Never passed to a page or an action's result.
  */
 export async function tokensForUse(
   db: Db,

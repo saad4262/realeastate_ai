@@ -226,7 +226,7 @@ export function TeamMeetingPanel({
                 ? 'Zoom needs reconnecting. '
                 : zoom.state === 'permission_missing'
                   ? 'Zoom is connected without every permission it needs — reconnect it. '
-                  : 'Connect Zoom first — you have no Zoom connected, and neither does the agency. '}
+                  : 'Connect your own Zoom first — meetings are created on your Zoom, so you are the host. '}
               <a href={zoom.integrationsPath}>Open Connectors</a>, or paste a meeting link above.
             </div>
           ) : null}
@@ -255,7 +255,7 @@ export function TeamMeetingPanel({
                   <option key={h.userId} value={h.userId}>{h.name}</option>
                 ))}
               </select>
-              <span className={contactStyles.hint}>The Zoom meeting is created on the host’s Zoom (or the agency’s).</span>
+              <span className={contactStyles.hint}>The Zoom meeting is created on the host’s own Zoom.</span>
             </label>
           ) : null}
 

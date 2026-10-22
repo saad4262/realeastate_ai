@@ -376,7 +376,7 @@ async function assertAssignable(db: DbOrTx, actor: Actor, userId: string): Promi
 
 /**
  * A Zoom appointment without a link of its own needs a Zoom to create the
- * meeting on: the assigned agent's own, else the agency's. Checked before
+ * meeting on: the assigned agent's own (an owner or admin: else the agency's). Checked before
  * anything is written, so "Connect Zoom first" is said instead of a booking
  * that can never get its link.
  */
@@ -389,7 +389,7 @@ async function assertZoomUsable(db: DbOrTx, assignee: Actor, forSelf: boolean): 
       ? 'Zoom needs reconnecting (Integrations)'
       : requirement.state === 'permission_missing'
         ? 'Zoom is connected without every permission — reconnect it (Integrations)'
-        : `Connect Zoom first — ${who.toLowerCase()} no Zoom connected, and neither does the agency`;
+        : `Connect Zoom first — ${who.toLowerCase()} no Zoom of ${forSelf ? 'your' : 'their'} own connected`;
   throw new AppointmentError('integration', `${why}. Or paste a meeting link of your own.`);
 }
 

@@ -97,7 +97,6 @@ import {
   recordOutbound,
   resendStuckMessages,
   threadReplyAddress,
-  setAgencyGmailSharing,
   sendContactEmail,
   consoleLiveStamp,
   customerMailStamp,
@@ -171,6 +170,7 @@ import {
   scheduleTeamMeeting,
   declineTeamMeeting,
   notifyTeamMeeting,
+  tellTeamMeeting,
   type SyncDeps,
 } from '@repo/core/appointments';
 import { listNotifications, markNotificationsRead } from '@repo/core/notifications';
@@ -4417,7 +4417,8 @@ async function main() {
           title: 'Standup', type: 'meeting', startsAt: soon.toISOString(), endsAt: new Date(soon.getTime() + 15 * 60_000).toISOString(),
           timezone: 'Australia/Sydney', participantIds: [f.people.a2, f.people.viewer], reminderMinutes: 15,
         });
-        const told = await notifyTeamMeeting(t, deps, id, 'booked', { actorId: f.people.a1 });
+        // As the console tells them: tellTeamMeeting also marks it told, so its colleagues are reminded.
+        const told = await tellTeamMeeting(t, deps, id, 'booked', { actorId: f.people.a1 });
         assert(told.notified === 2 && told.emailed === 2, `booked: ${JSON.stringify(told)}`);
         const bells = await t.execute<{ user_id: string }>(sql`select user_id from notification where appointment_id = ${id} and kind = 'team_meeting'`);
         assert(!bells.some((b) => b.user_id === f.people.a1) && bells.length === 2, `bells went to ${JSON.stringify(bells)}`);
@@ -4553,7 +4554,7 @@ async function main() {
     return summary;
   });
 
-  await check('requireIntegrations reports not connected, agency fallback, missing permission and expiry', async () => {
+  await check('requireIntegrations reports not connected, agency fallback (owner/admin only), missing permission and expiry', async () => {
     const ROLLBACK = new Error('smoke rollback');
     let summary = '';
     try {
@@ -4570,7 +4571,10 @@ async function main() {
         await saveConnection(t, testKeys, f.actor('owner'), { provider: 'zoom', ownerType: 'agency', ownerId: f.agencyId, agencyId: f.agencyId }, granted(ALL.zoom));
         await saveConnection(t, testKeys, a1, { provider: 'google_calendar', ownerType: 'user', ownerId: f.people.a1, agencyId: f.agencyId }, granted(['openid', 'email']));
         s1 = await state();
-        assert(s1.zoom === 'connected/agency', `agency Zoom not used as the fallback: ${s1.zoom}`);
+        // The agency's Zoom is the owner's and admins' — never an agent's fallback.
+        assert(s1.zoom === 'not_connected/-', `an agent was handed the agency Zoom: ${s1.zoom}`);
+        const ownerZoom = (await requireIntegrations(t, f.actor('owner'), ['zoom'])).results[0]!;
+        assert(`${ownerZoom.state}/${ownerZoom.ownerType}` === 'connected/agency', `agency Zoom not the owner's fallback: ${ownerZoom.state}/${ownerZoom.ownerType}`);
         assert(s1.google_calendar === 'permission_missing/user', `an unticked scope reads ${s1.google_calendar}`);
 
         await t.execute(sql`
@@ -4581,7 +4585,7 @@ async function main() {
         await t.execute(sql`update integration_account set granted_scopes = array[${s0}, ${s1s}, ${s2}]::text[] where provider = 'google_calendar' and owner_id = ${f.people.a1}`);
         s1 = await state();
         assert(s1.google_calendar === 'expired/user', `a lapsed token with no refresh reads ${s1.google_calendar}`);
-        summary = 'not_connected → agency Zoom fallback → permission_missing → expired, each reported';
+        summary = 'not_connected → agency Zoom for the owner, not the agent → permission_missing → expired, each reported';
         throw ROLLBACK;
       });
     } catch (err) {
@@ -4902,7 +4906,7 @@ async function main() {
     }),
   );
 
-  await check("nobody's connection is used for someone else; the agency Zoom is the fallback; Zoom without a Zoom is refused", () =>
+  await check("nobody's connection is used for someone else; the agency Zoom is the owner's, never an agent's; Zoom without a Zoom is refused", () =>
     inRollback(async (t) => {
       const f = await contactFixture(t);
       const g = fakeProviders();
@@ -4923,24 +4927,29 @@ async function main() {
       const forA1Row = await apptRow(t, forA1.id);
       assert(forA1Row.external_calendar_account_id === a1Cal && forA1Row.external_calendar_account_id !== ownerCal, 'an appointment for A1 went into the wrong calendar');
 
-      // Zoom: refused with nothing connected for A2; the agency Zoom once an admin connects it.
+      // Zoom: refused with nothing connected for A2 — and still refused once the agency has one:
+      // an agent's meetings are on their own Zoom only. The owner's own booking uses the agency's.
       const refused = await scheduleAppointment(t, f.actor('a2'), f.contacts.p2, { title: 'Z', type: 'zoom', ...slot(7) }).then(() => 'booked', (e: unknown) => (e as { code?: string }).code);
       assert(refused === 'integration', `a Zoom booking with no Zoom got ${refused}`);
       const ownLink = await scheduleAppointment(t, f.actor('a2'), f.contacts.p2, { title: 'Z link', type: 'zoom', meetingUrl: 'https://example.com/my-room', ...slot(7) });
       await syncAppointment(t, g.deps, ownLink.id);
       assert((await apptRow(t, ownLink.id)).zoom_meeting_id === null, 'a meeting was created although a link was pasted');
       const agencyZoom = await g.connect(t, f.actor('owner'), 'zoom', 'agency', f.agencyId, f.agencyId);
-      const a2Zoom = await scheduleAppointment(t, f.actor('a2'), f.contacts.p2, { title: 'Z2', type: 'zoom', ...slot(8) });
-      await syncAppointment(t, g.deps, a2Zoom.id);
+      const stillRefused = await scheduleAppointment(t, f.actor('a2'), f.contacts.p2, { title: 'Z2', type: 'zoom', ...slot(8) }).then(() => 'booked', (e: unknown) => (e as { code?: string }).code);
+      assert(stillRefused === 'integration', `an agent was put on the agency's Zoom: ${stillRefused}`);
+      const forA2 = await scheduleAppointment(t, f.actor('owner'), f.contacts.p2, { title: 'Z2 for A2', type: 'zoom', ...slot(9), assignedAgentId: f.people.a2 }).then(() => 'booked', (e: unknown) => (e as { code?: string }).code);
+      assert(forA2 === 'integration', `the owner booked A2 onto the agency's Zoom: ${forA2}`);
+      const ownerZoomAppt = await scheduleAppointment(t, f.actor('owner'), f.contacts.p1, { title: 'Z owner', type: 'zoom', ...slot(10) });
+      await syncAppointment(t, g.deps, ownerZoomAppt.id);
       const a1ZoomAppt = await scheduleAppointment(t, f.actor('a1'), f.contacts.p1, { title: 'Z1', type: 'zoom', ...slot(8) });
       await syncAppointment(t, g.deps, a1ZoomAppt.id);
-      assert((await apptRow(t, a2Zoom.id)).zoom_account_id === agencyZoom, "A2's Zoom appointment did not use the agency's Zoom");
+      assert((await apptRow(t, ownerZoomAppt.id)).zoom_account_id === agencyZoom, "the owner's Zoom appointment did not use the agency's Zoom");
       assert((await apptRow(t, a1ZoomAppt.id)).zoom_account_id === a1Zoom, "A1's Zoom appointment did not use A1's own Zoom");
 
       // Retry is the appointment's own permission: A2 cannot push A1's.
       const probe = await retryAppointmentSync(t, g.deps, f.actor('a2'), forA1.id).then(() => 'ran', (e: unknown) => (e as { code?: string }).code);
       assert(probe === 'not_found', `A2 retrying A1's appointment got ${probe}`);
-      return "A2's appointment touched no calendar; owner's booking for A1 used A1's; Zoom refused, then agency fallback, A1's own first; A2 cannot retry A1's";
+      return "A2's appointment touched no calendar; owner's booking for A1 used A1's; A2's Zoom refused even with an agency Zoom (the owner's own uses it), A1's own used; A2 cannot retry A1's";
     }),
   );
 
@@ -5940,12 +5949,17 @@ async function main() {
       assert(/Not connected/.test(noCal.card.lines.find((x) => x.label === 'Google Calendar')?.value ?? ''), `no calendar card: ${JSON.stringify(noCal.card.lines)}`);
       await rejectProposedAction(t, a1, noCal.id);
       await g.connect(t, a1, 'google_calendar', 'user', f.people.a1, f.agencyId);
+      // The agency's Zoom is not an agent's: still "Connect Zoom first", no card — until A1 connects their own.
       await g.connect(t, f.actor('owner'), 'zoom', 'agency', f.agencyId, f.agencyId);
+      const cardsBefore = await cards();
+      const agencyOnly = await book('zoom');
+      assert(/Connect Zoom first/.test(JSON.stringify(agencyOnly.result)) && (await cards()) === cardsBefore, `agent offered the agency Zoom: ${JSON.stringify(agencyOnly.result)}`);
+      await g.connect(t, a1, 'zoom', 'user', f.people.a1, f.agencyId);
 
       const id = cardId(await book('zoom'));
       const card = await getProposedAction(t, a1, id);
       const line = (l: string) => card.card.lines.find((x) => x.label === l)?.value ?? '';
-      assert(/Your calendar/.test(line('Google Calendar')) && /agency’s Zoom/.test(line('Zoom')) && /3:00/.test(line('When')), `card lines: ${JSON.stringify(card.card.lines)}`);
+      assert(/Your calendar/.test(line('Google Calendar')) && /Your Zoom/.test(line('Zoom')) && /3:00/.test(line('When')), `card lines: ${JSON.stringify(card.card.lines)}`);
       assert(card.card.notes.some((n) => /No invitation is emailed/.test(n)), 'the card does not say no invitation is sent');
       assert((await appts()) === 0, 'proposing booked an appointment');
 
@@ -6012,7 +6026,7 @@ async function main() {
       issueHandle(forged, 'A', apptId);
       const a2cancel = await runAssistantTool(proposeCtx(t, f.actor('a2'), forged, a2conv.conversationId), 'cancel_appointment', { appointment: 'A1' });
       assert(a2cancel.isError, 'A2 proposed cancelling A1’s appointment');
-      return 'Zoom connect-first with no card; no calendar → card says so; card names your calendar + agency Zoom; approve twice = 1 booking, 1 event, 1 meeting, 0 emails; overlap refused; invite card → booked + 1 email with the Zoom link; no mail → booked, says so; moved with its event; calendar lost → failed; A2 and the past refused';
+      return 'Zoom connect-first with no card; no calendar → card says so; card names your calendar + your own Zoom (never the agency’s); approve twice = 1 booking, 1 event, 1 meeting, 0 emails; overlap refused; invite card → booked + 1 email with the Zoom link; no mail → booked, says so; moved with its event; calendar lost → failed; A2 and the past refused';
     }),
   );
 
@@ -8960,7 +8974,7 @@ async function main() {
     }),
   );
 
-  await check('then the agency Gmail — unless an admin switched members off it; then the platform; another agent’s Gmail is never used', async () =>
+  await check('the agency Gmail is the owner’s and admins’ only — an agent without their own sends from the platform; another agent’s Gmail is never used', async () =>
     inRollback(async (t) => {
       const gmail = fakeGmail();
       const x = await gmailFixture(t, gmail);
@@ -8969,18 +8983,13 @@ async function main() {
       const none = await send('a2', 'nobody connected for me');
       assert(none.sent_via === 'resend' && none.from_email === 'platform@example.com', `with only a1's Gmail: ${JSON.stringify(none)}`);
       const agencyAcct = await x.connect('owner', 'agency', `sales.${x.f.tag}@agency.example`);
-      const viaAgency = await send('a2', 'agency gmail');
-      assert(viaAgency.sent_via === 'gmail' && viaAgency.sender_account_id === agencyAcct.id, `agency: ${JSON.stringify(viaAgency)}`);
-      const refused = await setAgencyGmailSharing(t, x.f.actor('a2'), false).then(() => 'changed', (e: unknown) => (e as { code?: string }).code);
-      assert(refused === 'forbidden', `an agent flipped the switch: ${refused}`);
-      await setAgencyGmailSharing(t, x.f.actor('owner'), false);
-      const off = await send('a2', 'switch off');
-      assert(off.sent_via === 'resend', `switch off, agent: ${JSON.stringify(off)}`);
-      assert((await getMailThread(t, x.f.actor('a2'), x.thread)).sendFrom?.startsWith('Sent from LocalAgentHub'), 'composer still promised the agency Gmail');
-      const ownerOff = await send('owner', 'owner with switch off');
-      assert(ownerOff.sent_via === 'gmail' && ownerOff.sender_account_id === agencyAcct.id, `owner keeps the agency Gmail: ${JSON.stringify(ownerOff)}`);
+      const agent = await send('a2', 'agency gmail connected');
+      assert(agent.sent_via === 'resend', `an agent sent from the agency Gmail: ${JSON.stringify(agent)}`);
+      assert((await getMailThread(t, x.f.actor('a2'), x.thread)).sendFrom?.startsWith('Sent from LocalAgentHub'), 'the composer promised an agent the agency Gmail');
+      const owner = await send('owner', 'owner');
+      assert(owner.sent_via === 'gmail' && owner.sender_account_id === agencyAcct.id, `the owner does not use the agency Gmail: ${JSON.stringify(owner)}`);
       assert(gmail.sent.every((g) => !g.raw.includes(`a1.gmail.${x.f.tag}`)), 'a1’s Gmail was used for someone else');
-      return 'platform → agency Gmail → switched off → platform for agents (owner still agency); a1’s Gmail never used; agents cannot flip it';
+      return 'platform → agency Gmail connected: the agent still sends from the platform, the owner from the agency’s; a1’s Gmail never used';
     }),
   );
 
@@ -9044,6 +9053,8 @@ async function main() {
     const a1Cal = await g.connect(t, a1, 'google_calendar', 'user', f.people.a1, f.agencyId);
     await g.connect(t, a1, 'zoom', 'user', f.people.a1, f.agencyId);
     await g.connect(t, f.actor('a2'), 'google_calendar', 'user', f.people.a2, f.agencyId);
+    // The receiver hosts the moved meeting on their OWN Zoom — an agent never gets the agency's.
+    await g.connect(t, f.actor('a2'), 'zoom', 'user', f.people.a2, f.agencyId);
     const agencyZoom = await g.connect(t, f.actor('owner'), 'zoom', 'agency', f.agencyId, f.agencyId);
     await t.execute(sql`update integration_account set connected_by = ${f.people.a1} where id = ${agencyZoom}`);
     const { id: apptId } = await scheduleAppointment(t, a1, f.contacts.p1, { title: 'Zoom catch-up', type: 'zoom', ...slot(3) });

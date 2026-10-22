@@ -3,7 +3,6 @@
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
-import { setAgencyGmailSharing } from '@repo/core/mail';
 import {
   disconnectAndRevoke,
   IntegrationError,
@@ -77,20 +76,4 @@ export async function disconnectIntegrationAction(formData: FormData): Promise<v
   revalidatePath('/settings/integrations');
   revalidatePath('/my-integrations');
   redirect(`${path}?${message}`);
-}
-
-/**
- * The admin switch "Members may send from the agency Gmail" (ADR 0026,
- * decided Q3). Owner/admin only — core decides.
- */
-export async function setAgencyGmailSharingAction(formData: FormData): Promise<void> {
-  const who = await actor();
-  const { path } = await settingsPath();
-  try {
-    await setAgencyGmailSharing(getConsoleDb(), who, formData.get('on') === '1');
-  } catch (err) {
-    if (err instanceof IntegrationError) redirect(`${path}?error=${encodeURIComponent(err.message)}`);
-    throw err;
-  }
-  revalidatePath(path);
 }

@@ -1,7 +1,5 @@
 import Link from 'next/link';
 import { IntegrationError, listIntegrationSlots, stubEnabled, tokenKeysFromEnv, PROVIDERS, isIntegrationProvider } from '@repo/core/integrations';
-import { agencyGmailSharing } from '@repo/core/mail';
-import { setAgencyGmailSharingAction } from '../../lib/integration-actions';
 import contactStyles from '@/components/contacts/contacts.module.css';
 import { getConsoleDb } from '../../lib/db';
 import { requireConsoleAccess } from '../../lib/require-console-access';
@@ -12,8 +10,8 @@ import styles from './integrations.module.css';
  * Connectors (docs/adr/0020; called Integrations until the agency redesign),
  * shared by the agency console (`/settings/integrations`: the agency's
  * accounts and the admin's own) and the agent desk (`/my-integrations`: their
- * own, and the agency's to look at). Which slots appear, and which may be
- * changed, is can()'s.
+ * own only — an agent never works through the agency's accounts). Which slots
+ * appear, and which may be changed, is can()'s.
  *
  * Laid out as a rail of filters beside a grid of cards. The filter and the
  * search are the URL (`?view=`, `?q=`) — a GET form and links — so they work
@@ -67,29 +65,25 @@ export async function IntegrationsPage({
   const q = (first(sp.q) ?? '').trim().slice(0, 80);
   const matches = (...text: string[]) => !q || text.some((t) => t.toLowerCase().includes(q.toLowerCase()));
   const configured = tokenKeysFromEnv() !== null;
-  const sharing = await agencyGmailSharing(getConsoleDb(), session.actor);
-  // Zoom, Sheets and Gmail can each be connected twice — the person's own and
-  // the agency's — so the two kinds are separate sections, never one grid
-  // where the same app appears twice with nothing to say why. Agency accounts
-  // first on the agency console; your own first on the desk.
+  // Zoom, Sheets and Gmail can each be connected twice for an owner or admin —
+  // their own and the agency's — so the two kinds are separate sections, never
+  // one grid where the same app appears twice with nothing to say why. An
+  // agent sees only their own. Agency accounts first on the agency console.
   const own = slots.filter((s) => s.ownerType === 'user');
   const agency = slots.filter((s) => s.ownerType === 'agency');
-  const agencyManaged = agency.some((s) => s.mayManage);
   const sections = [
     {
       key: 'user',
       title: 'Your accounts',
-      hint: 'Connected by you and used for what you do. Where both exist, your own account is used before the agency’s.',
+      hint: agency.length
+        ? 'Connected by you and used for what you do. Where both exist, your own account is used before the agency’s.'
+        : 'Connected by you and used for what you do — your Zoom hosts your meetings, your Gmail sends your emails.',
       slots: own,
     },
     {
       key: 'agency',
       title: 'The agency’s accounts',
-      hint: agencyManaged
-        ? 'Shared by everyone in the agency. Used when a member has not connected their own.'
-        : `Shared by everyone in the agency, used when you have not connected your own${
-            sharing.on ? '' : ' (except Gmail — the agency has not shared it with members)'
-          }. Only an owner or admin connects these.`,
+      hint: 'For owners and admins only. Agents never use these — each connects their own.',
       slots: agency,
     },
   ].filter((section) => section.slots.length > 0);
@@ -234,18 +228,6 @@ export async function IntegrationsPage({
 
             {!shownSections.length && !showFeatures ? (
               <p className={styles.empty}>{q ? `Nothing matches “${q}”.` : 'Nothing here yet.'}</p>
-            ) : null}
-
-            {sharing.mayChange && surface === 'agency' && (view === 'all' || view === 'agency') && !q ? (
-              <form action={setAgencyGmailSharingAction} className={contactStyles.card} style={{ padding: '1rem' }}>
-                <input type="hidden" name="on" value={sharing.on ? '0' : '1'} />
-                <p style={{ margin: '0 0 0.5rem' }}>
-                  <strong>Members may send from the agency Gmail:</strong> {sharing.on ? 'On' : 'Off'}. When it is on, an agent
-                  without their own Gmail connected sends one-to-one emails from the agency’s Gmail; when off, from the platform
-                  address. Owners and admins may always use it. Bulk template email always goes from the platform address.
-                </p>
-                <button type="submit">{sharing.on ? 'Turn off' : 'Turn on'}</button>
-              </form>
             ) : null}
           </div>
         </section>

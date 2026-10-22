@@ -83,7 +83,7 @@ async function connection(db: Db, actor: Actor): Promise<{ accountId: string } |
         ? 'Your Google Sheets connection has expired — reconnect it on Integrations.'
         : requirement.mayConnect
           ? 'Connect Google Sheets first — on Integrations.'
-          : 'Google Sheets is not connected. Ask an owner or admin to connect the agency’s, or connect your own on Integrations.',
+          : 'Google Sheets is not connected. Connect your own on Integrations.',
   };
 }
 

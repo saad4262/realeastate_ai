@@ -22,7 +22,7 @@ import { ACTIVE_STATUSES, APPOINTMENT_TYPE_LABELS, type AppointmentStatus, type 
  * Our `appointment` row is the source of truth. After every change the
  * console calls `syncAppointment`, which makes the outside match it:
  *   - Zoom (type zoom, no link of their own): create the meeting on the
- *     assigned agent's own Zoom, else the agency's; move it on reschedule;
+ *     assigned agent's own Zoom (an owner or admin's: else the agency's); move it on reschedule;
  *     delete it on cancel. Done first, so the calendar event carries the link.
  *   - Google Calendar (the assigned agent's own, if connected): the event is
  *     created / moved / marked done / deleted to match. No attendees, so
@@ -283,7 +283,7 @@ async function syncZoom(db: DbOrTx, deps: SyncDeps, a: Loaded, agent: Actor | nu
             zoomSyncError:
               requirement.state === 'expired'
                 ? 'Zoom needs reconnecting — open Integrations, reconnect, then Retry.'
-                : 'Connect Zoom first (the agent’s own, or the agency’s), then Retry.',
+                : 'Connect Zoom first (the agent’s own), then Retry.',
           })
           .where(eq(appointment.id, a.id));
         return 'failed';

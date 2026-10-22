@@ -39,7 +39,7 @@ export const PROVIDERS: Record<IntegrationProvider, ProviderInfo> = {
   },
   zoom: {
     label: 'Zoom',
-    purpose: 'A Zoom appointment creates its own meeting link. Your own Zoom is used first, then the agency’s.',
+    purpose: 'A Zoom appointment creates its own meeting link, on your own Zoom — so you are its host.',
     ownerTypes: ['user', 'agency'],
     scopes: [
       { scope: 'meeting:write:meeting', why: 'To create the meeting for a Zoom appointment.' },

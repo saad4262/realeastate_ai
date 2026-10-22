@@ -99,12 +99,5 @@ export {
   verifySecretFromEnv,
 } from './verify-email';
 export { pullReceivedMail, syncReceivedEmails, type PullResult, type SyncResult } from './sync';
-export {
-  agencyGmailSharing,
-  resolveSender,
-  senderLine,
-  sentViaLabel,
-  setAgencyGmailSharing,
-  type SenderChoice,
-} from './sender';
+export { resolveSender, senderLine, sentViaLabel, type SenderChoice } from './sender';
 export { conversationOwnerSql, emailOwnerSql } from './owner';

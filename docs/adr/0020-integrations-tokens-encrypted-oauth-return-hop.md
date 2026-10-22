@@ -145,3 +145,23 @@ are not removed from Google when a calendar is disconnected (the connection that
 is gone). When Sheets arrives on the same Google app, disconnecting one Google connection may
 revoke the other's grant — to check then. Zoom Marketplace publishing (other companies' Zoom
 accounts) and Google verification wait for the domain.
+
+## Amendment (2026-10-22): an agent works only through their own accounts
+
+Decided by the user: everyone connects and uses their **own** account. The agency's
+accounts (Zoom, Gmail, Sheets) are the owner's and admins' — never an agent's fallback.
+
+- `integration:read` and `integration:use` on an agency-level account: owner/admin only
+  (was: any active member). Items 4–5 above ("an agent must see agency Zoom is connected",
+  "agency-level for any active member") are replaced by this. `integration:manage` is unchanged.
+- `requireIntegrations` / `resolveIntegration` consider only accounts the actor may use, so
+  an agent without their own Zoom is told "Connect your own Zoom first" — the meeting is
+  never created on someone else's Zoom, where the agent would not be the host and opening
+  the link would not start it. An owner or admin: their own, else the agency's (as before).
+- A Zoom meeting is created for the **assigned** agent, so an admin booking for an agent
+  needs that agent's own Zoom; a meeting moved on offboarding goes to the receiver's own.
+- Gmail: an agent without their own Gmail sends from the platform address. ADR 0026's
+  "Members may send from the agency Gmail" switch no longer has anything to switch and is
+  gone from Settings (the `agency.members_may_use_agency_gmail` column is left in place).
+- Existing data, checked on 2026-10-22 (read-only): no appointment used an agency Zoom and
+  no email went from an agency Gmail, so nothing in flight changes hands.
