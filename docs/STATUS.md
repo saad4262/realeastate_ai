@@ -1,4 +1,20 @@
 # Status
+- **AI contact import (ADR 0056, 2026-10-26) — committed on `feat/documents` (not pushed). Migration 0064 APPLIED 2026-10-26 at the user's go (65 recorded).**
+  Step 1 mapping: after a contacts upload (CSV/xlsx/sheet/re-import), if a headed column is unused and a field
+  unmatched, headings + 5 MASKED sample rows (x/X/9) → model; synonyms stand, the model fills empty fields only;
+  `listing_import.ai_mapped` marks them "✦ AI" (unmarked when changed). Step 2 cleaning: opt-in checkbox
+  (`ai_clean`, off by default); only failing rows' mapped cleanable fields; guards (`acceptFix`) prove each value
+  came from the row, then `normalizeContactRow` decides; changes are row warnings "Fixed by AI … check it".
+  Core `imports/contact-ai.ts` (pure) + contacts.ts/imports.ts; ai `pipelines/import-assist.ts`
+  (beta.messages.parse + betaZodOutputFormat, Opus 5.5 low effort, fallbacks, 30 s, metered `import-map` /
+  `import-clean`); per-agency cap IMPORT_AI_DAILY_BUDGET_USD_PER_AGENCY (default 1). Wired in console actions and
+  the web alerts cron. Checks: core 1322 pass (3 = pre-existing Windows), ai 319 (2 = pre-existing time-zone);
+  break-test red (guards off → 6 fail); typecheck core/ai/console/web; console lint 0; build compiles; new actions
+  pass the session check (replayed, CRLF normalised). Real DB, ONE rolled-back tx with FAKE mapper/cleaner (no
+  model): 0064 applied; synonyms matched nothing, the merge filled 6 fields; a dirty row fixed on all 5 fields;
+  an invented domain refused. NO live-model call made yet. TEST-PLAN BJ; DEPLOY "AI help for the contacts import".
+  **Next:** push; deploy (0064 is live, so the code is safe to deploy); walk BJ live after deployment (the user's
+  choice: no live-model run before it). Address on contacts is a separate later feature (geocoding + contact_property).
 - **Smart buyer matching (ADR 0055 §6, 2026-10-26) — committed on `feat/documents` (not pushed). No migration.**
   New opportunity kind `buyer_match` (`opportunities/detectors.ts`): the agency's own listings live within 7 days,
   same channel, price ranges overlap (no stated price → no match when the brief has a budget), beds/baths at least,

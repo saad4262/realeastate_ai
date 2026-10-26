@@ -17,7 +17,8 @@
     "./search-embedder": "./src/search/voyage.ts",
     "./evals/dashboard-phrases": "./src/evals/dashboard-phrases.ts",
     "./workflow-draft": "./src/pipelines/workflow-draft.ts",
-    "./document-reader": "./src/pipelines/document-read.ts"
+    "./document-reader": "./src/pipelines/document-read.ts",
+    "./import-assist": "./src/pipelines/import-assist.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

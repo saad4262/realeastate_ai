@@ -133,6 +133,9 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
   const [mapping, setMapping] = useState<Record<string, number | null>>({});
   const [error, setError] = useState<string | null>(null);
   const [update, setUpdate] = useState(false);
+  /** ADR 0056 step 2: off until the uploader ticks it — it sends failing rows' details to the model. */
+  const [aiClean, setAiClean] = useState(false);
+  const [aiAvailable, setAiAvailable] = useState(false);
   const driving = useRef(false);
 
   const load = useCallback(async () => {
@@ -140,6 +143,7 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
     if (!r.ok) return setError(r.error);
     setView(r.view);
     setProblems(r.problems);
+    setAiAvailable(r.aiAvailable);
     setMapping((m) => (Object.keys(m).length ? m : (r.view.mapping as Record<string, number | null>)));
   }, [id]);
 
@@ -197,14 +201,27 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
             For each of our fields, pick the column in your file.{' '}
             {view.kind === 'contacts' ? 'A name (full, or first and last) and an email or a phone are needed.' : 'Fields marked * are required.'}
           </p>
+          {view.aiMapped.length ? (
+            <p role="note" style={{ fontSize: '0.875rem', padding: '0.5rem 0.75rem', borderRadius: '0.5rem', background: 'var(--surface-subtle, rgba(127,127,127,0.08))' }}>
+              ✦ AI matched {view.aiMapped.length} {view.aiMapped.length === 1 ? 'field' : 'fields'} your headings did not name. They are marked below — check them
+              before you run the check. (Only the headings and the shape of a few values were sent, never anyone&rsquo;s details.)
+            </p>
+          ) : null}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(16rem, 1fr))', gap: '0.5rem' }}>
             {(view.kind === 'contacts'
               ? CONTACT_IMPORT_FIELDS.map((f) => ({ f: f as string, label: CONTACT_FIELD_LABELS[f], required: false }))
               : IMPORT_FIELDS.map((f) => ({ f: f as string, label: FIELD_LABELS[f], required: REQUIRED_FIELDS.includes(f) }))
             ).map(({ f, label, required }) => (
               <label key={f} style={{ display: 'grid', fontSize: '0.8125rem' }}>
-                {label}
-                {required ? ' *' : ''}
+                <span>
+                  {label}
+                  {required ? ' *' : ''}
+                  {view.aiMapped.includes(f) ? (
+                    <span title="Suggested by AI — check it" style={{ marginLeft: '0.35rem', color: 'var(--sapphire)', fontWeight: 600 }}>
+                      ✦ AI
+                    </span>
+                  ) : null}
+                </span>
                 <select value={mapping[f] ?? ''} onChange={(e) => setMapping({ ...mapping, [f]: e.target.value === '' ? null : Number(e.target.value) })}>
                   <option value="">— not in my file —</option>
                   {view.headers.map((h, i) => (
@@ -229,10 +246,22 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
               </tbody>
             </table>
           </div>
+          {view.kind === 'contacts' && aiAvailable ? (
+            <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', marginTop: '1rem', fontSize: '0.875rem', maxWidth: '44rem' }}>
+              <input type="checkbox" checked={aiClean} onChange={(e) => setAiClean(e.target.checked)} style={{ marginTop: '0.2rem' }} />
+              <span>
+                Let AI suggest fixes for rows that fail the check — a phone written oddly, &ldquo;SMITH, Jane&rdquo;, an email with spaces.
+                <span style={{ display: 'block', color: 'var(--text-secondary)' }}>
+                  Only those rows&rsquo; matched fields are sent to Anthropic. A fix is kept only if it comes from what the row already says, and
+                  every one is listed below for you to check.
+                </span>
+              </span>
+            </label>
+          ) : null}
           <button type="button" style={{ ...btn, marginTop: '1rem' }} onClick={() => act(async () => {
             const m = await setMappingAction(id, mapping);
             if (!m.ok) return m;
-            return startDryRunAction(id);
+            return startDryRunAction(id, view.kind === 'contacts' && aiAvailable && aiClean);
           })}>
             Check every row (nothing is imported yet)
           </button>
@@ -248,6 +277,11 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
           {c.photosDone + c.photosFailed + c.photosPending ? ` · photos: ${c.photosDone} in, ${c.photosFailed} failed, ${c.photosPending} to go` : ''}
         </p>
         <RunProgress view={view} />
+        {view.aiClean && ['validated', 'importing', 'done'].includes(view.status) ? (
+          <p role="note" style={{ margin: '0.5rem 0 0', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+            ✦ AI fixes were on: rows it changed say &ldquo;Fixed by AI&rdquo; in Rows to look at — check them before you import.
+          </p>
+        ) : null}
         {view.status === 'validated' && view.mayRun ? (
           <div style={{ marginTop: '0.75rem', display: 'grid', gap: '0.5rem', justifyItems: 'start' }}>
             {view.mayUpdateDuplicates && c.duplicate ? (

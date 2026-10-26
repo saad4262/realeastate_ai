@@ -2338,6 +2338,16 @@ export const listingImport = pgTable(
     headers: jsonb('headers').notNull().default([]),
     /** Our field → the file's column index (or null). */
     mapping: jsonb('mapping').notNull().default({}),
+    /**
+     * The fields of `mapping` a model suggested (ADR 0056 step 1) rather than the header synonyms —
+     * marked on the mapping screen for the uploader to check. A field drops out once they change it.
+     */
+    aiMapped: jsonb('ai_mapped').notNull().default([]),
+    /**
+     * The uploader asked for AI fixes in the dry run (ADR 0056 step 2): rows that fail the check are
+     * sent, their mapped fields only, for a proposed fix. Off unless ticked — it sends personal details.
+     */
+    aiClean: boolean('ai_clean').notNull().default(false),
     status: varchar('status', { length: 16 }).notNull().default('mapped'),
     /** `live` | `draft` (owner/admin) or `pending` (an agent's import, ADR 0014). */
     mode: varchar('mode', { length: 16 }).notNull().default('pending'),

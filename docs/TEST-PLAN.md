@@ -1553,3 +1553,18 @@ Run the opportunity cron by hand after each step: `curl -H "Authorization: Beare
 | BI17 | The contact enquired about that listing before the cron ran | No match — they already know of it. |
 | BI18 | Another agent, an admin, another agency | Only the contact's assigned agent sees it. |
 | BI19 | A listing that went live 8+ days ago | Never matched to a brief created today. |
+
+## BJ — AI help for the contacts import (ADR 0056)
+
+Needs migration **0064** and `ANTHROPIC_API_KEY`. Uses the real model (small cost per import).
+
+| # | Case | Expected |
+|---|---|---|
+| BJ1 | Contacts → Import a CSV headed `Client Name, E-mail Addr, Mob No., Client Address Details, Client Category, Follow Up On` | The mapping screen opens with Full name, Email, Phone, Roles and Next action date filled and each marked "✦ AI", and the note "AI matched N fields…". The address column is left unmatched. |
+| BJ2 | Change one marked field | Its "✦ AI" mark goes. |
+| BJ3 | A CSV whose headings are our own (`name, email, phone…`) | No "✦ AI" anywhere — the synonyms matched everything; no `import-map` row in `ai_run`. |
+| BJ4 | Tick "Let AI suggest fixes…" and check a file with `"SMITH, John"`, `"john @ example,com"`, `+61 (0)413-111-222`, `Vendor`, `14/11/2026` | The row is ready, and Rows to look at lists each change: "Fixed by AI: “…” → “…” — check it". |
+| BJ5 | Same file, box NOT ticked | The row stays with its errors; no `import-clean` row in `ai_run`. |
+| BJ6 | A row with `ali@example` (no domain) | Stays an error — no domain is ever made up. |
+| BJ7 | `IMPORT_AI=off`, or no key | No "✦ AI", no checkbox; imports work as before. |
+| BJ8 | Set `IMPORT_AI_DAILY_BUDGET_USD_PER_AGENCY=0` and check with the box ticked | Failing rows say "Not sent for an AI fix — today’s AI budget for imports is spent". |

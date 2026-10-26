@@ -1,3 +1,16 @@
+## 2026-10-26 — Claude Code — ADR 0055 + 0056: buyer requirements, buyer matching, AI contact import (branch feat/documents)
+
+- The user (pasted briefs, English): analyse three features, then build them in order — approval-event fix first,
+  Feature 1 buyer requirements, Feature 2 matching, Feature 3 AI contact import (mapping first, cleaning as a fallback).
+- Fixed: `approveListings` never emitted `listing.status_changed` (approved listings never reached workflows).
+- Chosen: a typed `buyer_requirement` table, not JSON; matching as the `buyer_match` opportunity detector (own
+  listings, no-price never matches a budget, hourly) — the user agreed to all three choices; import AI behind core
+  interfaces, masked samples for mapping, opt-in cleaning with guards that prove each value came from the row.
+- Found: the SDK turns a zod enum into a description only — field names now filtered in code; masking turned X into x.
+- Done: 0062, 0063, 0064 applied at the user's go (65 recorded), each first run in a rolled-back tx on the real DB;
+  commits 28d6fa7, 591873e and the Feature 3 commit. NOT pushed. No live-model call (the user's choice).
+- Next exact step: the user pushes `feat/documents`, deploys, walks BH, BI and BJ (BJ live). Address on contacts later.
+
 ## 2026-10-26 — Claude Code — ADR 0054: proactive opportunities (branch feat/documents)
 
 - The user: apply 0061 (done, 62 recorded), commit (9661c82), then build Step 3 — 0062, SQL detectors, panel + bell.

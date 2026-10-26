@@ -449,6 +449,13 @@
       "when": 1793016645163,
       "tag": "0063_buyer_requirements",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1793018571815,
+      "tag": "0064_import_ai",
+      "breakpoints": true
     }
   ]
 }

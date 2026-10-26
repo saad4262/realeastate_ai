@@ -4,6 +4,7 @@ import { expireProposedActions, purgeAssistantConversations } from '@repo/core/a
 import { purgeImportFiles, runImportTick } from '@repo/core/imports';
 import { runEmbeddingTick } from '@repo/core/assistant-search';
 import { embedderFromEnv } from '@repo/ai/search-embedder';
+import { importAssistFromEnv } from '@repo/ai/import-assist';
 import { mailDepsFromEnv, pullReceivedMail, resendStuckMessages } from '@repo/core/mail';
 import { authoriseCronRequest, runScheduleTick } from '@repo/core/schedules';
 import { purgeWorkflowHistory } from '@repo/core/workflows';
@@ -133,9 +134,11 @@ async function handler(request: NextRequest) {
     /**
      * CSV listing imports (ADR 0029): carry on an import whose tab was closed,
      * one chunk each, as the person who started it (re-checked every tick);
-     * an uploaded file is deleted 30 days after upload, the report stays.
+     * an uploaded file is deleted 30 days after upload, the report stays. A contacts dry run whose
+     * uploader ticked AI fixes gets the cleaner (ADR 0056); without a key, rows keep their errors.
      */
-    const imports = await Promise.all([runImportTick(getWebDb()), purgeImportFiles(getWebDb())])
+    const importCleaner = importAssistFromEnv(getWebDb())?.cleaner;
+    const imports = await Promise.all([runImportTick(getWebDb(), importCleaner ? { cleaner: importCleaner } : {}), purgeImportFiles(getWebDb())])
       .then(([tick, purged]) => ({ ...tick, purged }))
       .catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'import tick failed' }));
 

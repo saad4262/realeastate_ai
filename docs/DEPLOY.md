@@ -512,3 +512,20 @@ database), `/search` returns results, `/listing/[id]` opens, and `/chat`
 either answers or 503s with a readable reason rather than a stack trace.
 
 `docs/TEST-PLAN.md` is the manual pass that needs a browser.
+
+## AI help for the contacts import (ADR 0056)
+
+1. **Migration 0064** (`listing_import.ai_mapped`, `ai_clean`) — apply before deploying this code:
+   the import screens read both columns.
+2. **Environment** — both projects: the console maps columns at upload and runs dry-run chunks
+   while the page is open; the web cron carries on a dry run whose tab was closed.
+
+       ANTHROPIC_API_KEY                    Already set. Unset: imports work exactly as before
+                                            (header synonyms only, no "AI fixes" box).
+       ANTHROPIC_IMPORT_MODEL               Default claude-opus-5-5 (low effort). Must be a model
+                                            priced in packages/ai/src/models.ts.
+       IMPORT_AI                            `off` switches both steps off.
+       IMPORT_AI_DAILY_BUDGET_USD_PER_AGENCY  Default 1. Trailing 24 h, both steps together; over it,
+                                            the synonyms stand and failing rows say so.
+
+3. **Check** (TEST-PLAN **BJ**).

@@ -15,7 +15,8 @@ import { agencyTimeZone } from '../widgets/registry';
 import { CsvError, csvCell, parseCsv, tableToCsv, type ImportTable } from './csv';
 import { autoMap, FIELD_LABELS, importMappingSchema, normalizeRow, REQUIRED_FIELDS, type ImportMapping, type NormalizedRow } from './columns';
 import { importPhoto, PhotoError, type PhotoDeps } from './photos';
-import { importContactChunk, validateContactChunk } from './contacts';
+import { importAiAllowed, importContactChunk, validateContactChunk } from './contacts';
+import { maskSample, mergeSuggestedMapping, SAMPLE_ROWS_FOR_AI, shouldAskMapper, type ColumnMapper, type RowCleaner } from './contact-ai';
 import { contactAutoMap, contactMappingProblem, contactMappingSchema, type ContactImportMapping, type NormalizedContact } from './contact-columns';
 
 /**
@@ -52,6 +53,9 @@ export type ImportDeps = {
   /** Address → pin. Network; never inside a transaction. Test seam. */
   geocode?: typeof geocodeAddress;
   photos?: PhotoDeps;
+  /** AI fixes for rows that fail a contacts dry run (ADR 0056 step 2) — asked only when the uploader ticked it. */
+  cleaner?: RowCleaner;
+  env?: NodeJS.ProcessEnv;
 };
 
 function resource(i: { id: string; agencyId: string; createdBy: string | null }) {
@@ -184,8 +188,12 @@ export async function setImportMapping(db: Db, actor: Actor, id: string, mapping
   if (!parsed.success) throw new ImportError('invalid', 'That column mapping is not valid');
   const width = (imp.headers as unknown[]).length;
   if (Object.values(parsed.data).some((v) => v !== null && v !== undefined && v >= width)) throw new ImportError('invalid', 'That column is not in the file');
+  // A field the uploader changed is theirs now, no longer "suggested by AI".
+  const before = imp.mapping as Record<string, number | null>;
+  const next = parsed.data as Record<string, number | null | undefined>;
+  const aiMapped = (Array.isArray(imp.aiMapped) ? (imp.aiMapped as string[]) : []).filter((f) => (next[f] ?? null) === (before[f] ?? null));
   await db.transaction(async (tx) => {
-    await tx.update(listingImport).set({ mapping: parsed.data, status: 'mapped', updatedAt: sql`now()` }).where(eq(listingImport.id, imp.id));
+    await tx.update(listingImport).set({ mapping: parsed.data, aiMapped, status: 'mapped', updatedAt: sql`now()` }).where(eq(listingImport.id, imp.id));
     await tx
       .update(listingImportRow)
       .set({ status: 'pending', normalized: null, errors: [], warnings: [], duplicateOfListingId: null, updatedAt: sql`now()` })
@@ -193,8 +201,56 @@ export async function setImportMapping(db: Db, actor: Actor, id: string, mapping
   });
 }
 
-/** Begin the dry run. Required columns must be mapped first. */
-export async function startDryRun(db: Db, actor: Actor, id: string): Promise<void> {
+/**
+ * Ask a model to fill the contact fields the header synonyms could not match (ADR 0056 step 1).
+ * Right after upload, while the import is still `mapped`. Only the headers and MASKED samples are
+ * sent. The model's suggestion never replaces a synonym's match, and every failure — no mapper,
+ * today's budget spent, the model erring — leaves the mapping exactly as the synonyms made it.
+ */
+export async function suggestContactMapping(
+  db: Db,
+  actor: Actor,
+  id: string,
+  mapper: ColumnMapper | null,
+  opts: { env?: NodeJS.ProcessEnv; now?: Date } = {},
+): Promise<{ aiFields: string[] }> {
+  const imp = await loadImport(db, actor, id);
+  requireRun(actor, imp);
+  if (!mapper || imp.kind !== 'contacts' || imp.status !== 'mapped') return { aiFields: [] };
+  const headers = imp.headers as string[];
+  const auto = imp.mapping as ContactImportMapping;
+  if (!shouldAskMapper(auto, headers)) return { aiFields: [] };
+  if (!(await importAiAllowed(db, imp.agencyId, opts.env ?? process.env, opts.now ?? new Date()))) return { aiFields: [] };
+  const rows = await db
+    .select({ raw: listingImportRow.raw })
+    .from(listingImportRow)
+    .where(eq(listingImportRow.importId, imp.id))
+    .orderBy(asc(listingImportRow.rowNumber))
+    .limit(SAMPLE_ROWS_FOR_AI);
+  const samples = rows.map((r) => ((r.raw as string[] | null) ?? []).map((cell) => maskSample(String(cell ?? ''))));
+  let suggested: Record<string, unknown>;
+  try {
+    // The network, with no transaction open.
+    suggested = await mapper.suggest({ headers, samples, importId: imp.id, agencyId: imp.agencyId, userId: imp.createdBy });
+  } catch (err) {
+    console.error('[import] AI mapping failed — keeping the header matches', err instanceof Error ? err.message : err);
+    return { aiFields: [] };
+  }
+  const { mapping, aiFields } = mergeSuggestedMapping(auto, suggested, headers.length);
+  if (!aiFields.length) return { aiFields: [] };
+  // Still `mapped`: a dry run started meanwhile keeps the mapping it started with.
+  await db
+    .update(listingImport)
+    .set({ mapping, aiMapped: aiFields, updatedAt: sql`now()` })
+    .where(and(eq(listingImport.id, imp.id), eq(listingImport.status, 'mapped')));
+  return { aiFields };
+}
+
+/**
+ * Begin the dry run. Required columns must be mapped first. `aiClean` (contacts only) asks for AI
+ * fixes of the rows that fail — the uploader's explicit choice, recorded on the import.
+ */
+export async function startDryRun(db: Db, actor: Actor, id: string, opts: { aiClean?: boolean } = {}): Promise<void> {
   const imp = await loadImport(db, actor, id);
   requireRun(actor, imp);
   if (imp.status !== 'mapped') throw new ImportError('conflict', 'Map the columns first');
@@ -206,7 +262,10 @@ export async function startDryRun(db: Db, actor: Actor, id: string): Promise<voi
     const missing = REQUIRED_FIELDS.filter((f) => mapping[f] === null || mapping[f] === undefined);
     if (missing.length) throw new ImportError('invalid', `Choose a column for: ${missing.map((f) => FIELD_LABELS[f]).join(', ')}`);
   }
-  await db.update(listingImport).set({ status: 'validating', updatedAt: sql`now()` }).where(and(eq(listingImport.id, imp.id), eq(listingImport.status, 'mapped')));
+  await db
+    .update(listingImport)
+    .set({ status: 'validating', aiClean: imp.kind === 'contacts' && Boolean(opts.aiClean), updatedAt: sql`now()` })
+    .where(and(eq(listingImport.id, imp.id), eq(listingImport.status, 'mapped')));
 }
 
 /**
@@ -278,7 +337,7 @@ export async function runImportChunk(db: Db, actor: Actor, id: string, deps: Imp
     if (claimed.kind === 'contacts') {
       // The uploader may still add contacts, asked again each chunk (and by createContact, per row).
       assertMayImport(actor, 'contacts');
-      return claimed.status === 'validating' ? await validateContactChunk(db, claimed) : await importContactChunk(db, actor, claimed);
+      return claimed.status === 'validating' ? await validateContactChunk(db, claimed, deps, now) : await importContactChunk(db, actor, claimed);
     }
     if (claimed.status === 'validating') return await validateChunk(db, actor, claimed, deps);
     return await importChunk(db, actor, claimed, deps);
@@ -536,6 +595,10 @@ export type ImportView = {
   updateDuplicates: boolean;
   headers: string[];
   mapping: ImportMapping;
+  /** Fields of `mapping` a model suggested (ADR 0056) — the screen marks them to be checked. */
+  aiMapped: string[];
+  /** The uploader asked for AI fixes of failing rows in the dry run. */
+  aiClean: boolean;
   totalRows: number;
   counts: ImportCounts;
   createdAt: Date;
@@ -580,6 +643,8 @@ export async function getImport(db: Db, actor: Actor, id: string): Promise<Impor
     updateDuplicates: imp.updateDuplicates,
     headers: imp.headers as string[],
     mapping: imp.mapping as ImportMapping,
+    aiMapped: Array.isArray(imp.aiMapped) ? (imp.aiMapped as string[]) : [],
+    aiClean: imp.aiClean,
     totalRows: imp.totalRows,
     counts: {
       pending: n(c?.pending), valid: n(c?.valid), error: n(c?.error), duplicate: n(c?.duplicate), imported: n(c?.imported),

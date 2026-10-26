@@ -19,11 +19,14 @@ import {
   setImportMapping,
   startDryRun,
   startImport,
+  suggestContactMapping,
   type ImportMode,
   type ImportReportRow,
   type ImportView,
 } from '@repo/core/imports';
 import { tokenKeysFromEnv } from '@repo/core/integrations';
+import type { Actor } from '@repo/core/permissions';
+import { importAssistFromEnv } from '@repo/ai/import-assist';
 import { getConsoleDb } from './db';
 import { loadListingActor } from './load-actor';
 import { requireActionUserId } from './auth-account';
@@ -61,23 +64,40 @@ export async function uploadImportAction(form: FormData): Promise<R<{ id: string
     const isXlsx = /\.xlsx$/i.test(file.name) || file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     const sheet = String(form.get('sheet') ?? '').trim().slice(0, 100) || null;
     const kind = form.get('kind') === 'contacts' ? 'contacts' : 'listings';
+    const a = await actor();
     const r = isXlsx
-      ? await createImportFromXlsx(getConsoleDb(), await actor(), { fileName: file.name, bytes: await file.arrayBuffer(), sheet, mode: mode as ImportMode, kind })
-      : await createImport(getConsoleDb(), await actor(), { fileName: file.name, text: await file.text(), mode: mode as ImportMode, kind });
+      ? await createImportFromXlsx(getConsoleDb(), a, { fileName: file.name, bytes: await file.arrayBuffer(), sheet, mode: mode as ImportMode, kind })
+      : await createImport(getConsoleDb(), a, { fileName: file.name, text: await file.text(), mode: mode as ImportMode, kind });
+    if (kind === 'contacts') await suggestMapping(a, r.id);
     return { ok: true, id: r.id, sameFileAs: r.sameFileAs ? r.sameFileAs.createdAt.toISOString() : null };
   } catch (err) {
     return fail(err);
   }
 }
 
-export async function getImportAction(id: string): Promise<R<{ view: ImportView; problems: ImportReportRow[] }>> {
+/**
+ * ADR 0056 step 1, right after a contacts upload: let a model fill the fields the header synonyms
+ * could not. Never fails the upload — without a key, over budget or on any error the synonyms stand.
+ */
+async function suggestMapping(a: Actor, id: string): Promise<void> {
+  const ai = importAssistFromEnv(getConsoleDb());
+  if (!ai) return;
+  try {
+    await suggestContactMapping(getConsoleDb(), a, id, ai.mapper);
+  } catch (err) {
+    console.error('[import] AI mapping skipped', err instanceof Error ? err.message : err);
+  }
+}
+
+export async function getImportAction(id: string): Promise<R<{ view: ImportView; problems: ImportReportRow[]; aiAvailable: boolean }>> {
   try {
     const a = await actor();
     const view = await getImport(getConsoleDb(), a, id);
     const problems = ['validated', 'importing', 'done', 'failed', 'cancelled'].includes(view.status)
       ? await importReport(getConsoleDb(), a, id, { onlyProblems: true, limit: 500 })
       : [];
-    return { ok: true, view, problems };
+    // Whether the screen may offer AI fixes: this server has a key and has not switched them off.
+    return { ok: true, view, problems, aiAvailable: importAssistFromEnv(getConsoleDb()) !== null };
   } catch (err) {
     return fail(err);
   }
@@ -92,9 +112,9 @@ export async function setMappingAction(id: string, mapping: Record<string, numbe
   }
 }
 
-export async function startDryRunAction(id: string): Promise<R<object>> {
+export async function startDryRunAction(id: string, aiClean = false): Promise<R<object>> {
   try {
-    await startDryRun(getConsoleDb(), await actor(), id);
+    await startDryRun(getConsoleDb(), await actor(), id, { aiClean: aiClean === true });
     return { ok: true };
   } catch (err) {
     return fail(err);
@@ -113,7 +133,9 @@ export async function startImportAction(id: string, updateDuplicates: boolean): 
 /** One chunk. The open page calls this in a loop; the cron tick does the same when nobody is watching. */
 export async function continueImportAction(id: string): Promise<R<{ status: string; processed: number; busy: boolean }>> {
   try {
-    const r = await runImportChunk(getConsoleDb(), await actor(), id);
+    // The cleaner is used only by an import whose uploader ticked AI fixes (core checks `ai_clean`).
+    const cleaner = importAssistFromEnv(getConsoleDb())?.cleaner;
+    const r = await runImportChunk(getConsoleDb(), await actor(), id, cleaner ? { cleaner } : {});
     if (r.status === 'done') {
       revalidatePath('/live-listings');
       revalidatePath('/listings');
@@ -169,7 +191,10 @@ export async function importSheetAction(input: { spreadsheetId: string; tab: str
   try {
     const deps = sheetsDeps();
     if (!deps) return { ok: false, error: 'Google Sheets import is not set up on this server yet.' };
-    const r = await createImportFromSheet(getConsoleDb(), await actor(), { spreadsheetId: String(input.spreadsheetId), tab: String(input.tab), mode: input.mode === 'draft' ? 'draft' : 'live', kind: input.kind === 'contacts' ? 'contacts' : 'listings' }, deps);
+    const a = await actor();
+    const kind = input.kind === 'contacts' ? 'contacts' : 'listings';
+    const r = await createImportFromSheet(getConsoleDb(), a, { spreadsheetId: String(input.spreadsheetId), tab: String(input.tab), mode: input.mode === 'draft' ? 'draft' : 'live', kind }, deps);
+    if (kind === 'contacts') await suggestMapping(a, r.id);
     return { ok: true, id: r.id, sameFileAs: r.sameFileAs ? r.sameFileAs.createdAt.toISOString() : null };
   } catch (err) {
     return fail(err);
@@ -181,7 +206,10 @@ export async function reimportSheetAction(id: string): Promise<R<{ id: string }>
   try {
     const deps = sheetsDeps();
     if (!deps) return { ok: false, error: 'Google Sheets import is not set up on this server yet.' };
-    const r = await reimportSheet(getConsoleDb(), await actor(), id, deps);
+    const a = await actor();
+    const r = await reimportSheet(getConsoleDb(), a, id, deps);
+    // Core asks the model only for a contacts import that left fields unmatched.
+    await suggestMapping(a, r.id);
     return { ok: true, id: r.id };
   } catch (err) {
     return fail(err);
