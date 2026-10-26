@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { AssistantHome } from '@/components/assistant/assistant-home';
 import { NeedsOwner } from '@/components/offboarding/needs-owner';
 import { UpcomingMeetings } from '@/components/appointments/upcoming-meetings';
+import { OpportunitiesPanel } from '@/components/opportunities/opportunities-panel';
 import { requireConsoleAccess } from '../../../lib/require-console-access';
 
 /**
@@ -28,9 +29,15 @@ export default async function AgencyHomePage() {
           </Suspense>
         }
         below={
-          <Suspense fallback={null}>
-            <UpcomingMeetings actor={session.actor} surface="agency" />
-          </Suspense>
+          <>
+            {/* ADR 0054: what the hourly scan noticed for this person; its own boundary, so neither card waits on the other. */}
+            <Suspense fallback={null}>
+              <OpportunitiesPanel actor={session.actor} surface="agency" />
+            </Suspense>
+            <Suspense fallback={null}>
+              <UpcomingMeetings actor={session.actor} surface="agency" />
+            </Suspense>
+          </>
         }
       />
     </Suspense>

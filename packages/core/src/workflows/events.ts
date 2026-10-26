@@ -45,6 +45,28 @@ export async function emitWorkflowEvent(tx: DbOrTx, e: WorkflowEventInput): Prom
 }
 
 /**
+ * Several events in ONE statement — for a bulk change (approving 500 listings) that is two statements
+ * however many rows, and must not become one insert per row. Same rules as `emitWorkflowEvent`.
+ */
+export async function emitWorkflowEvents(tx: DbOrTx, events: readonly WorkflowEventInput[]): Promise<void> {
+  if (!events.length) return;
+  await tx.insert(workflowEvent).values(
+    events.map((e) => ({
+      agencyId: e.agencyId,
+      kind: e.kind,
+      leadId: e.leadId ?? null,
+      contactId: e.contactId ?? null,
+      listingId: e.listingId ?? null,
+      appointmentId: e.appointmentId ?? null,
+      actorId: e.actor?.userId ?? null,
+      origin: originOf(e.actor),
+      data: e.data ?? {},
+      occurredAt: sql`clock_timestamp()`,
+    })),
+  );
+}
+
+/**
  * A change and its event in one transaction — a savepoint when the caller already holds one. For the
  * functions whose change is a single statement and so had no transaction of their own.
  */

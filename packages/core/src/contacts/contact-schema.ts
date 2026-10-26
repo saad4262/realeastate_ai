@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { propertyDraftSchema } from '../listings/listing-schema';
+import { PROPERTY_TYPES, propertyDraftSchema, type PropertyType } from '../listings/listing-schema';
 
 /**
  * The contracts for contacts (docs/adr/0018).
@@ -64,6 +64,10 @@ export const ACTIVITY_KINDS = [
   'owner_left',
   'zoom_link_changed',
   'assistant_failed',
+  // ADR 0055: what they are looking for.
+  'requirement_added',
+  'requirement_updated',
+  'requirement_removed',
 ] as const;
 export const activityKindSchema = z.enum(ACTIVITY_KINDS);
 export type ActivityKind = z.infer<typeof activityKindSchema>;
@@ -116,6 +120,9 @@ export const ACTIVITY_LABELS: Record<ActivityKind, string> = {
   assistant_rejected: 'Assistant change rejected',
   assistant_cancelled: 'Assistant change cancelled',
   assistant_failed: 'Assistant change could not be made',
+  requirement_added: 'Requirements added',
+  requirement_updated: 'Requirements changed',
+  requirement_removed: 'Requirements removed',
 };
 
 export const CONTACT_SOURCE_LABELS: Record<ContactSource, string> = {
@@ -259,9 +266,143 @@ export const nextActionSchema = z.object({
 });
 export type NextActionInput = z.input<typeof nextActionSchema>;
 
+// ── Buyer requirements (ADR 0055) ──────────────────────────────────────────
+
+/** What a brief is for. A subset of listing_channel: nobody is looking to buy a sold listing. */
+export const REQUIREMENT_CHANNELS = ['sale', 'rent'] as const;
+export type RequirementChannel = (typeof REQUIREMENT_CHANNELS)[number];
+export const REQUIREMENT_CHANNEL_LABELS: Record<RequirementChannel, string> = { sale: 'Buying', rent: 'Renting' };
+
+export const REQUIREMENT_STATUSES = ['active', 'paused'] as const;
+export type RequirementStatus = (typeof REQUIREMENT_STATUSES)[number];
+
+/** A contact holds at most this many briefs — a home, an investment, a fallback; not a search history. */
+export const MAX_REQUIREMENTS_PER_CONTACT = 10;
+export const MAX_REQUIREMENT_SUBURBS = 20;
+export const MAX_REQUIREMENT_NOTE = 1000;
+
+/**
+ * A number from a form box or from code: blank → undefined, "850,000" and "$850000" → 850000.
+ * Never a shorthand ("850k", "1.2m") — a figure is the agent's, never guessed (#4).
+ */
+const optionalNumber = (label: string, max: number, opts: { int?: boolean; step?: number } = {}) =>
+  z
+    .union([z.number(), z.string()])
+    .optional()
+    .transform((v, ctx) => {
+      if (v === undefined) return undefined;
+      const raw = typeof v === 'number' ? v : v.replace(/[\s,$]/g, '');
+      if (raw === '') return undefined;
+      const n = typeof raw === 'number' ? raw : /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : NaN;
+      if (!Number.isFinite(n) || n < 0 || n > max) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${label} must be a number from 0 to ${max.toLocaleString('en-AU')}` });
+        return z.NEVER;
+      }
+      if (opts.int && !Number.isInteger(n)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${label} must be a whole number` });
+        return z.NEVER;
+      }
+      if (opts.step && Math.round(n / opts.step) * opts.step !== n) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${label} goes in steps of ${opts.step}` });
+        return z.NEVER;
+      }
+      return n;
+    });
+
+/** "bondi  beach" → "Bondi Beach": one spelling per suburb, so a brief reads as the listing does. */
+function suburbName(v: string): string {
+  return v
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .replace(/(^|[\s'-])\p{L}/gu, (m) => m.toUpperCase());
+}
+
+/**
+ * One brief, as the form or the assistant sends it. Every bound is optional — null means "any" —
+ * but a brief must say SOMETHING: one with no bound at all would match every listing the agency has.
+ */
+export const buyerRequirementSchema = z
+  .object({
+    channel: z.enum(REQUIREMENT_CHANNELS).default('sale'),
+    priceMin: optionalNumber('The lowest price', 100_000_000),
+    priceMax: optionalNumber('The highest price', 100_000_000),
+    minBedrooms: optionalNumber('Bedrooms', 20, { int: true }),
+    minBathrooms: optionalNumber('Bathrooms', 20, { step: 0.5 }),
+    suburbs: z
+      .array(z.string().trim().min(1).max(80, 'A suburb name is at most 80 characters'))
+      .max(MAX_REQUIREMENT_SUBURBS, `At most ${MAX_REQUIREMENT_SUBURBS} suburbs`)
+      .default([])
+      // Case-insensitive de-duplication: "Bondi" and "bondi" are one suburb.
+      .transform((list) => [...new Map(list.map((s) => suburbName(s)).map((s) => [s.toLowerCase(), s])).values()]),
+    propertyTypes: z
+      .array(z.string().trim().toLowerCase().pipe(z.enum(PROPERTY_TYPES, { errorMap: () => ({ message: 'Choose property types from the list' }) })))
+      .max(PROPERTY_TYPES.length)
+      .default([])
+      .transform((list): PropertyType[] => [...new Set(list)]),
+    note: optionalText(MAX_REQUIREMENT_NOTE),
+    status: z.enum(REQUIREMENT_STATUSES).default('active'),
+  })
+  .refine((v) => v.priceMin === undefined || v.priceMax === undefined || v.priceMin <= v.priceMax, {
+    message: 'The lowest price is above the highest',
+    path: ['priceMax'],
+  })
+  .refine(
+    (v) =>
+      v.priceMin !== undefined ||
+      v.priceMax !== undefined ||
+      v.minBedrooms !== undefined ||
+      v.minBathrooms !== undefined ||
+      v.suburbs.length > 0 ||
+      v.propertyTypes.length > 0,
+    { message: 'Give at least one thing they are looking for — a price, bedrooms, a suburb or a type', path: ['priceMin'] },
+  );
+export type BuyerRequirementInput = z.input<typeof buyerRequirementSchema>;
+export type BuyerRequirementValues = z.output<typeof buyerRequirementSchema>;
+
+/** The figures of a saved brief, as they come back from the database. */
+export type RequirementFacts = {
+  channel: RequirementChannel;
+  priceMin: number | null;
+  priceMax: number | null;
+  minBedrooms: number | null;
+  minBathrooms: number | null;
+  suburbs: string[];
+  propertyTypes: string[];
+};
+
+const AUD = new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', maximumFractionDigits: 0 });
+
+/** "$800,000 – $1,200,000", "up to $650/wk", "from $1,000,000", or null for any price. */
+export function requirementPriceText(r: Pick<RequirementFacts, 'channel' | 'priceMin' | 'priceMax'>): string | null {
+  const per = r.channel === 'rent' ? '/wk' : '';
+  const f = (n: number) => `${AUD.format(n)}${per}`;
+  if (r.priceMin !== null && r.priceMax !== null) return r.priceMin === r.priceMax ? f(r.priceMin) : `${f(r.priceMin)} – ${f(r.priceMax)}`;
+  if (r.priceMax !== null) return `up to ${f(r.priceMax)}`;
+  if (r.priceMin !== null) return `from ${f(r.priceMin)}`;
+  return null;
+}
+
+/**
+ * One line a person can read: "Buying · $800,000 – $1,200,000 · 3+ bed · 2+ bath · House, Townhouse ·
+ * Bondi, Coogee". Rendered from the stored figures only — the timeline, the profile and (later) a
+ * match alert all say a brief the same way, and no model writes it.
+ */
+export function describeRequirement(r: RequirementFacts): string {
+  const parts = [REQUIREMENT_CHANNEL_LABELS[r.channel]];
+  const price = requirementPriceText(r);
+  if (price) parts.push(price);
+  if (r.minBedrooms !== null) parts.push(`${r.minBedrooms}+ bed`);
+  if (r.minBathrooms !== null) parts.push(`${r.minBathrooms}+ bath`);
+  if (r.propertyTypes.length) parts.push(r.propertyTypes.map((t) => t.charAt(0).toUpperCase() + t.slice(1)).join(', '));
+  parts.push(r.suburbs.length ? r.suburbs.join(', ') : 'any suburb');
+  return parts.join(' · ');
+}
+
 /** The profile's tabs. In the URL as `?tab=`; anything else is the overview. */
 export const CONTACT_TABS = [
   'overview',
+  'requirements',
   'timeline',
   'properties',
   'emails',

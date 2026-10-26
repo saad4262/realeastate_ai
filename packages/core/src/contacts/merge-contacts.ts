@@ -1,5 +1,5 @@
 import { and, eq, sql } from 'drizzle-orm';
-import { activity, appointment, contact, document, lead, mailThread, note, type Db } from '@repo/db';
+import { activity, appointment, buyerRequirement, contact, document, lead, mailThread, note, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { loadContactHead } from './get-contact';
 import { CONTACT_NOT_FOUND, ContactError } from './list-contacts';
@@ -71,6 +71,8 @@ export async function mergeContacts(
     await tx.update(activity).set({ contactId: survivorId }).where(eq(activity.contactId, loserId));
     // ADR 0053: their documents move with them, like their notes.
     await tx.update(document).set({ contactId: survivorId, updatedAt: sql`now()` }).where(and(eq(document.contactId, loserId), eq(document.agencyId, agencyId)));
+    // ADR 0055: what they were looking for moves too — a merge never loses a brief, even past the per-contact cap.
+    await tx.update(buyerRequirement).set({ contactId: survivorId, updatedAt: sql`now()` }).where(and(eq(buyerRequirement.contactId, loserId), eq(buyerRequirement.agencyId, agencyId)));
     await tx.execute(sql`
       insert into contact_role (contact_id, role, source, created_by)
       select ${survivorId}, role, source, created_by from contact_role where contact_id = ${loserId}

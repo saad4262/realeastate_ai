@@ -1,3 +1,13 @@
+## 2026-10-26 — Claude Code — ADR 0054: proactive opportunities (branch feat/documents)
+
+- The user: apply 0061 (done, 62 recorded), commit (9661c82), then build Step 3 — 0062, SQL detectors, panel + bell.
+- Chosen: an hourly cron rather than a skill handler (a skill needs switching on per agent); no model at all in v1 —
+  templates over SQL facts; the assistant link only types the question, the person sends it.
+- Found: Drizzle turns `${array}` into `($1,$2…)`, so the documents tick's embedding update was broken (my earlier check
+  used raw postgres.js, which binds arrays). Fixed with a jsonb param, verified through Drizzle in a rolled-back tx.
+- Not done: 0062 not applied (not asked), not committed, no smoke check, no browser walk.
+- Next exact step: the go → `pnpm db:migrate`; commit; the user walks BG and BH once Resend/env are in.
+
 ## 2026-10-26 — Claude Code — ADR 0053: documents, knowledge base, inbound attachments (branch feat/documents)
 
 - The user (pasted brief, English): plan, then build, inbound email + documents/knowledge base (full stack) first;

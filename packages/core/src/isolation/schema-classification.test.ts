@@ -61,6 +61,10 @@ const OWN_AGENCY = [
   // ADR 0053: a document and its searchable chunks — each carries agency_id; reads go through documentScopeFilters.
   'document',
   'document_chunk',
+  // ADR 0054: an opportunity found for one member; carries agency_id and is read only by its recipient.
+  'opportunity',
+  // ADR 0055: a buyer's brief on a contact; carries agency_id and is read only through a readable contact.
+  'buyer_requirement',
 ] as const;
 
 /** Reaches an agency through a parent row: table → [foreign-key column, parent table]. */

@@ -180,7 +180,7 @@ export async function searchLinkableProperties(
 }
 
 /** May this actor change this contact? Loads it; refuses as not-found if unseen. */
-async function requireEditable(db: Db, actor: Actor, contactId: string) {
+export async function requireEditableContact(db: Db, actor: Actor, contactId: string) {
   const head = await loadContactHead(db, actor, contactId);
   if (!head || head.row.mergedIntoId) throw CONTACT_NOT_FOUND();
   const resource = contactResource(head.facts);
@@ -198,7 +198,7 @@ export async function linkContactProperty(
   contactId: string,
   input: LinkPropertyInput,
 ): Promise<void> {
-  const row = await requireEditable(db, actor, contactId);
+  const row = await requireEditableContact(db, actor, contactId);
   const parsed = linkPropertySchema.safeParse(input);
   if (!parsed.success) throw new ContactError('invalid', parsed.error.issues[0]?.message ?? 'Check the fields');
   const v = parsed.data;
@@ -259,7 +259,7 @@ export async function unlinkContactProperty(
   contactId: string,
   linkId: string,
 ): Promise<void> {
-  const row = await requireEditable(db, actor, contactId);
+  const row = await requireEditableContact(db, actor, contactId);
   await db.transaction(async (tx) => {
     const removed = await tx
       .delete(contactProperty)
@@ -291,7 +291,7 @@ export async function linkContactNewAddress(
   contactId: string,
   input: LinkNewAddressInput,
 ): Promise<{ propertyId: string }> {
-  const row = await requireEditable(db, actor, contactId);
+  const row = await requireEditableContact(db, actor, contactId);
   const parsed = linkNewAddressSchema.safeParse(input);
   if (!parsed.success) throw new ContactError('invalid', parsed.error.issues[0]?.message ?? 'Check the address');
   const { relation, note: linkNote, ...address } = parsed.data;

@@ -45,6 +45,14 @@ export {
   type PropertyMatch,
 } from './properties';
 export { listContactNotes, createNote, updateNote, deleteNote, type NoteView } from './notes';
+export {
+  listBuyerRequirements,
+  createBuyerRequirement,
+  updateBuyerRequirement,
+  setBuyerRequirementStatus,
+  deleteBuyerRequirement,
+  type BuyerRequirementView,
+} from './buyer-requirements';
 export { contactCounts, type ContactCounts } from './counts';
 export { notifyContactAssigned } from './contact-notices';
 export {

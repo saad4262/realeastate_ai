@@ -49,6 +49,16 @@ export function AssistantHome({
   const { picks, turns, conversationId, full, draft, setDraft, busy, useSelection, setUseSelection, endRef, send } = a;
   const [missing, setMissing] = useState(false);
 
+  // "Ask the assistant" on an opportunity (ADR 0054): the question is typed into the box, never
+  // sent — the person reads it, changes it if they like, and presses Send. Once per question.
+  const ask = params.get('ask');
+  const asked = useRef<string | null>(null);
+  useEffect(() => {
+    if (!ask || c || asked.current === ask) return;
+    asked.current = ask;
+    setDraft(ask.slice(0, 1000));
+  }, [ask, c, setDraft]);
+
   /** The conversation the URL last pointed at, so a URL change is told apart from a stream naming one. */
   const seen = useRef<string | null>(null);
   /** Set when this page started the conversation, until the sidebar has been refreshed for it. */

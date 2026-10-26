@@ -223,6 +223,10 @@ export type Action =
   | 'knowledge:read'
   /** Add to or remove from the knowledge base: owners and admins — it is the agency's voice. */
   | 'knowledge:manage'
+  /** See an opportunity the platform found (ADR 0054): only the member it was found for (`ownerId`). */
+  | 'opportunity:read'
+  /** Mark it done or dismiss it: the same person. */
+  | 'opportunity:update'
   /**
    * See one appointment (ADR 0019). Admins see the agency's whole calendar; any
    * other member sees appointments assigned to them (`ownerId`) or that they
@@ -667,6 +671,13 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
 
     case 'knowledge:manage':
       return sameAgency(actor, resource) && isAgencyAdmin(actor);
+
+    case 'opportunity:read':
+    case 'opportunity:update':
+      // Personal, like the bell: found for one person, about their own work. An admin does not
+      // read someone else's — the work itself is theirs to see through the contact and the inbox.
+      return sameAgency(actor, resource) && Boolean(actor.membershipRole) &&
+        Boolean(resource.ownerId) && actor.userId === resource.ownerId;
 
     case 'mail:compose':
       return can(actor, 'contact:update', resource);

@@ -179,9 +179,11 @@ async function embedPendingChunks(db: Db, embedder: Embedder, env: NodeJS.Proces
       console.error('[documents] embedding failed', err instanceof Error ? err.message : err);
       continue;
     }
+    // One json parameter: Drizzle spreads a JS array into a record `($1, $2…)`, never an array.
+    const values = JSON.stringify(list.map((c, i) => ({ id: c.id, e: JSON.stringify(vectors[i]) })));
     await db.execute(sql`
       update document_chunk set embedding = v.e::vector, model = ${embedder.model}
-      from (select unnest(${list.map((c) => c.id)}::uuid[]) as id, unnest(${vectors.map((v) => JSON.stringify(v))}::text[]) as e) v
+      from jsonb_to_recordset(${values}::jsonb) as v(id uuid, e text)
       where document_chunk.id = v.id and document_chunk.embedding is null`);
     embedded += list.length;
   }

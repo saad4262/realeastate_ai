@@ -1,12 +1,12 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import { contactProperty, lead, mailThread, note, type Db } from '@repo/db';
+import { buyerRequirement, contactProperty, lead, mailThread, note, type Db } from '@repo/db';
 import type { Actor } from '../permissions';
 import { leadScopeFilters } from '../leads/list-leads';
 import { threadScopeFilters } from '../mail/threads';
 import type { ReadableContact } from './get-contact';
 import { noteVisibleSql } from './notes';
 
-export type ContactCounts = { enquiries: number; conversations: number; notes: number; properties: number };
+export type ContactCounts = { enquiries: number; conversations: number; notes: number; properties: number; requirements: number };
 
 /**
  * The overview's figures, in one statement. Enquiries and conversations are
@@ -31,8 +31,13 @@ export async function contactCounts(db: Db, actor: Actor, c: ReadableContact): P
     .select({ n: sql<number>`count(distinct ${contactProperty.propertyId})` })
     .from(contactProperty)
     .where(eq(contactProperty.contactId, c.id));
-  const [row] = await db.execute<{ e: string; t: string; n: string; p: string }>(sql`
-    select (${leads}) as e, (${threads}) as t, (${notes}) as n, (${linked}) as p
+  // Active briefs only (ADR 0055): a paused one is kept, but it is not what they are looking for now.
+  const briefs = db
+    .select({ n: sql<number>`count(*)` })
+    .from(buyerRequirement)
+    .where(and(eq(buyerRequirement.contactId, c.id), eq(buyerRequirement.agencyId, c.agencyId), eq(buyerRequirement.status, 'active')));
+  const [row] = await db.execute<{ e: string; t: string; n: string; p: string; r: string }>(sql`
+    select (${leads}) as e, (${threads}) as t, (${notes}) as n, (${linked}) as p, (${briefs}) as r
   `);
   // bigint arrives as a string (ARCHITECTURE § 5).
   return {
@@ -40,5 +45,6 @@ export async function contactCounts(db: Db, actor: Actor, c: ReadableContact): P
     conversations: Number(row?.t ?? 0),
     notes: Number(row?.n ?? 0),
     properties: Number(row?.p ?? 0),
+    requirements: Number(row?.r ?? 0),
   };
 }

@@ -15,7 +15,7 @@ The brief's numbering skips #20 and #25. The brief marks some items "Yellow = in
 | # | Skill | Done | State |
 |---|---|---|---|
 | 1 | Inbox | 35% | Email works; no SMS, calls, or reading the agent's Gmail |
-| 2 | AI Business Intelligence Agent | 55% | Assistant with ~60 tools; answers when asked, not proactive |
+| 2 | AI Business Intelligence Agent | 65% | ~60 tools + documents; proactive opportunities built (ADR 0054), migration 0062 not applied |
 | 3 | Advanced CRM | 55% | Contacts + roles; **no buyer requirements** |
 | 4 | AI Contact Import | 45% | CSV/Excel/Sheets + dedupe; mapping is rule-based, no AI |
 | 5 | Smart Buyer Matching | 10% | Blocked on buyer requirements (#3) |

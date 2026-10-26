@@ -1502,3 +1502,40 @@ Needs migration **0061**, the private `documents` bucket and the `/api/cron/docu
 | BG12 | Reply from Gmail to a console email with a PDF and an inline logo attached | After the cron: the PDF is on the contact's Documents tab with "From email"; the logo is not kept. An attachment on a private offer's thread is Private. |
 | BG13 | Delete a document | Gone from the list and from search; the file is removed from the bucket. |
 | BG14 | Merge two contacts (admin) | The duplicate's documents are on the survivor. |
+
+## BH — Proactive opportunities: the hourly scan, the bell, the panel (ADR 0054)
+
+Needs migration **0062** and the `/api/cron/opportunities` cron (hourly at :17). Run it by hand:
+`curl -H "Authorization: Bearer $CRON_SECRET" https://<web host>/api/cron/opportunities`.
+
+| # | Case | Expected |
+|---|---|---|
+| BH1 | A contact assigned to an agent emails the agency; nobody replies; wait 48 h (or backdate the message in a test DB); run the cron | The answer counts `created: 1, notified: 1`. The agent's bell: "Bea is waiting for a reply"; the link opens their assistant home at Opportunities. |
+| BH2 | Run the cron again straight away | `created: 0` — nothing twice. |
+| BH3 | The panel: Open / Ask the assistant | Open goes to the contact's Emails tab on that conversation. Ask opens the home with the contact selected and the question typed in the box — nothing is sent until Send. |
+| BH4 | Dismiss it, run the cron | It stays gone. A NEW email from them later makes a new one. |
+| BH5 | A sold listing whose sold date is 5 years ago this month, with an owner contact | "5 years since … sold", the date and price as stored, to the contact's assignee (else the listing's lead agent). |
+| BH6 | An appraisal 5 days ago with no note/email/new appointment since | "Follow up the appraisal with …" to the assigned agent. Add a note → no new one on the next run. |
+| BH7 | A contact with 3 enquiries this month | "… is actively looking", "3 enquiries in the last 30 days". |
+| BH8 | Another agent, an admin, another agency | None of them sees the first agent's opportunities. Reassign the contact away → it drops off the first agent's panel. |
+| BH9 | Suspend the agency (admin console) and run the cron | Nothing new for its members. |
+| BH10 | Phone width | Each row stacks: label, text, links, buttons. |
+
+## BI — Buyer requirements on a contact, and approvals that now say "live" (ADR 0055)
+
+Needs migration **0063**. Deploy only after it is applied: the contact page's counts read the new table.
+
+| # | Case | Expected |
+|---|---|---|
+| BI1 | As the contact's assigned agent: contact → **Requirements** tab, nothing recorded | The form is open: Buy/Rent, lowest/highest price, bedrooms/bathrooms at least, suburbs, types, anything else. |
+| BI2 | Save with every box empty | Refused in the form: "Give at least one thing they are looking for…". |
+| BI3 | Lowest `900,000`, highest `800000` | Refused: "The lowest price is above the highest". `850k` in either box is refused, never guessed. |
+| BI4 | Buy, `$800,000`–`1,200,000`, 3+ bed, 2+ bath, House + Townhouse, suburbs `bondi  beach, Coogee, BONDI BEACH` | Saved as "Buying · $800,000 – $1,200,000 · 3+ bed · 2+ bath · House, Townhouse · Bondi Beach, Coogee" (one Bondi Beach). The tab shows a count of 1; Overview → "Looking for" shows the same line. Timeline: "Requirements added" with that line. |
+| BI5 | Rent, highest `650` | "Renting · up to $650/wk · any suburb". |
+| BI6 | Edit one, Pause it, Resume it, Remove it | Each saves and toasts; a paused one carries a "Paused" chip and drops out of the tab count and "Looking for"; each step leaves a timeline line. |
+| BI7 | Add an eleventh | Refused: "at most 10". |
+| BI8 | Another agent who sees the contact only through their own lead; a read-only member | They see the requirements; no form, no Edit/Pause/Remove. |
+| BI9 | An admin on somebody else's contact | May add, edit and remove. |
+| BI10 | Merge a duplicate that had requirements into this contact | Its requirements now show here. |
+| BI11 | An agent submits a listing for approval; an admin approves it from the listings table (bulk Approve) | The listing goes live AND a `listing.status_changed` workflow fires — e.g. a workflow "when a listing goes live → task" now runs for an approved listing (before ADR 0055 it did not). |
+| BI12 | Phone width | The form's two-column rows stack; nothing scrolls sideways. |

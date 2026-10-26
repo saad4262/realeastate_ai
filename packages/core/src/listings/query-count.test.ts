@@ -25,6 +25,7 @@ import { listContactTimeline } from '../contacts/timeline';
 import { listContactProperties } from '../contacts/properties';
 import { contactCounts } from '../contacts/counts';
 import { listContactNotes } from '../contacts/notes';
+import { listBuyerRequirements } from '../contacts/buyer-requirements';
 import { listAppointments } from '../appointments/appointments';
 import { checkEmailLimits } from '../email/limits';
 import { listMySkills, listSkillLibrary } from '../skills/skills';
@@ -300,6 +301,7 @@ describe('reads cost a fixed number of queries', () => {
       (db: Db) => listContactProperties(db, actor, ref),
       (db: Db) => contactCounts(db, actor, ref),
       (db: Db) => listContactNotes(db, actor, ref),
+      (db: Db) => listBuyerRequirements(db, actor, ref),
     ];
     for (const read of reads) {
       const { db, count } = countingDb([]);

@@ -1,4 +1,31 @@
 # Status
+- **Buyer requirements (ADR 0055, 2026-10-26) — committed on `feat/documents` (not pushed). Migration 0063 APPLIED 2026-10-26 at the user's go (64 recorded with 0062; RLS on, no anon/authenticated grants).**
+  `buyer_requirement` (typed: channel, price_min/max, min_bedrooms/bathrooms, suburbs[], property_types[], note,
+  status active/paused; ≤ 10 per contact). Core `contacts/buyer-requirements.ts` (list/create/update/setStatus/delete),
+  zod `buyerRequirementSchema` + `describeRequirement` in contact-schema.ts; read = `contact:read`, write =
+  `contact:update` (no new action). Merge moves them; counts gain `requirements`. UI: contact **Requirements** tab
+  (`requirement-form.tsx`), "Looking for" on Overview. **Also fixed:** `approveListings` now emits
+  `listing.status_changed` (one insert, same transaction) — approved listings never reached workflows before.
+  Checks: core 1306 pass (3 = the pre-existing Windows path/CRLF tests; the new server actions pass the session
+  check replayed with CRLF normalised); break-tests red (approval event; contact:update guard); typecheck core/ai/
+  console/web clean; console lint 0; console build compiles. 0062 + 0063 + every new write (create/list/edit/pause/counts/delete, approveListings → its event) run first in ONE rolled-back transaction on the real DB (OK). TEST-PLAN **BI**.
+  Both tables are live, so deploying this code is safe now.
+  **Next:** Feature 2 — the `buyer_match` opportunity detector (in progress); then walk BH + BI.
+- **Proactive opportunities (ADR 0054, 2026-10-26) — committed on `feat/documents` with ADR 0055 (not pushed). Migration 0062 APPLIED 2026-10-26.**
+  `opportunity` (one row per agency + dedupe_key; status open/done/dismissed/expired). Five SQL detectors
+  (`opportunities/detectors.ts`): sale anniversary (5/10 years, owner or vendor), cold contact (90 days), unanswered
+  email (48 h–21 days, never offers), appraisal follow-up (3–30 days), repeat interest (3 in 30 days). Recipient = the
+  assignee (or a sold listing's lead agent), active member, agency not suspended. Hourly cron /api/cron/opportunities
+  (:17): expire after 30 days, ≤ 10 new per person, one bell notification per person per scan. Panel "Opportunities"
+  on /overview and /assistant (Open, Ask the assistant = question typed into the box via `?ask=`, never sent; Done,
+  Dismiss). No model anywhere — every sentence is a template over SQL facts. `opportunity:read/update` = the recipient only.
+  **Fixed on the way (documents tick, committed code):** Drizzle spreads a JS array into a record, so the chunk
+  embedding update (`unnest(${ids}::uuid[])`) would have failed at the first embed — now a jsonb_to_recordset param.
+  Checks: the detectors run read-only on the real DB (~0.5 s each, 2 real unanswered emails found); migration 0062 + two
+  full scans + the panel query + the fixed embedding update run in ONE rolled-back transaction (created 2, notified 2,
+  then created 0; table absent afterwards). Core 1284 pass (3 = the pre-existing Windows tests), ai 312 (2 pre-existing),
+  typecheck/lint clean, web + console builds OK. TEST-PLAN **BH**. Smoke check not written.
+  **Next:** walk BG + BH.
 - **Documents + knowledge base + inbound attachments (ADR 0053, 2026-10-26) — committed on `feat/documents` (not pushed). Migration 0061 APPLIED 2026-10-26 at the user's go (62 recorded; RLS on both tables, no anon/authenticated grants); the tick's raw SQL run in a rolled-back transaction and the list/search/read queries run as dummy actors on the real DB (OK). The user made the `documents` bucket; Resend + Vercel env tonight.**
   `document` (a record on a contact / a listing's property, or the agency `knowledge` base) + `document_chunk` (page-aware
   chunks, generated tsvector, nullable voyage vector) + `mail_message.attachments_stored_at`. Private bucket `documents`:

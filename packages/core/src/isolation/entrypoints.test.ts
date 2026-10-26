@@ -53,6 +53,7 @@ const PUBLIC_ROUTES: Record<string, { why: string; guard: RegExp }> = {
   'apps/web/app/api/cron/alerts/route.ts': { why: 'the scheduler tick', guard: /authoriseCronRequest/ },
   'apps/web/app/api/cron/minute/route.ts': { why: 'the every-minute tick: scheduled actions and reminders (ADR 0035)', guard: /authoriseCronRequest/ },
   'apps/web/app/api/cron/documents/route.ts': { why: 'the document tick: attachments, reading, embedding (ADR 0053)', guard: /authoriseCronRequest/ },
+  'apps/web/app/api/cron/opportunities/route.ts': { why: 'the hourly opportunity scan (ADR 0054)', guard: /authoriseCronRequest/ },
   'apps/web/app/api/mail/inbound/route.ts': { why: 'Resend inbound webhook, signed', guard: /svix/i },
   'apps/web/app/api/zoom/webhook/route.ts': {
     why: 'Zoom event notifications (ADR 0037): the URL check and a deauthorization, signed with the Secret Token',

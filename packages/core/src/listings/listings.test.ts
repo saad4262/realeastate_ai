@@ -52,6 +52,8 @@ function fakeDb(results: unknown[][] = []) {
   const touched: string[] = [];
   /** What each `.set()` was handed, so a test can assert what was written. */
   const sets: Record<string, unknown>[] = [];
+  /** What each `.values()` was handed (an insert's rows). */
+  const values: unknown[] = [];
   const chain: Record<string, unknown> = {};
   for (const m of ['select', 'selectDistinct', 'from', 'innerJoin', 'leftJoin', 'where',
                    'update', 'set', 'insert', 'values', 'orderBy', 'delete',
@@ -61,6 +63,7 @@ function fakeDb(results: unknown[][] = []) {
       if (m === 'set' && arg && typeof arg === 'object') {
         sets.push(arg as Record<string, unknown>);
       }
+      if (m === 'values') values.push(arg);
       return chain;
     };
   }
@@ -78,7 +81,7 @@ function fakeDb(results: unknown[][] = []) {
   chain.returning = () => Promise.resolve(results[i++] ?? []);
   chain.then = (res: (v: unknown) => unknown) =>
     Promise.resolve(results[i++] ?? []).then(res);
-  return { db: chain as unknown as Db, touched, sets };
+  return { db: chain as unknown as Db, touched, sets, values };
 }
 
 describe('listing permissions', () => {
@@ -594,6 +597,23 @@ describe('approveListings (bulk approval)', () => {
     await expect(approveListings(db, owner)).resolves.toEqual({ approved: 2, skipped: 0, remaining: 0 });
     expect(touched.filter((m) => m === 'update')).toHaveLength(1);
     expect(sets[0]).toMatchObject({ status: 'live' });
+  });
+
+  it('says each approval went live — one workflow event per listing that moved, in one insert', async () => {
+    const { db, touched, values } = fakeDb([[a, b], [{ id: 'a1' }, { id: 'a2' }]]);
+    await approveListings(db, owner);
+    expect(touched.filter((m) => m === 'insert')).toHaveLength(1);
+    expect(values[0]).toEqual([
+      expect.objectContaining({ agencyId: agencyA, kind: 'listing.status_changed', listingId: 'a1', data: { to: 'live' }, origin: 'person' }),
+      expect.objectContaining({ agencyId: agencyA, kind: 'listing.status_changed', listingId: 'a2', data: { to: 'live' }, origin: 'person' }),
+    ]);
+  });
+
+  it('writes no event for a listing that did not move', async () => {
+    // a1 was asked for and found, but sent back before the update ran: nothing moved.
+    const { db, touched } = fakeDb([[a], []]);
+    await expect(approveListings(db, owner, { ids: ['a1'] })).resolves.toMatchObject({ approved: 0, skipped: 1 });
+    expect(touched).not.toContain('insert');
   });
 
   it('counts a chosen listing that is no longer pending as skipped, not as approved', async () => {

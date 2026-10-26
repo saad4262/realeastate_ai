@@ -43,7 +43,7 @@ export function toLocalInput(iso: string | null): string {
 }
 
 /** Run an action, toast a refusal, refresh the server-rendered page on success. */
-function useRun() {
+export function useRun() {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();

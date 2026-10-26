@@ -70,6 +70,8 @@ Nothing below is optional for production. Each line names what proves it is done
       set; a reply to a console email lands back in its thread.
 - [ ] **Documents** (ADR 0053): migration 0061 applied, the private `documents` bucket made as in
       "Documents and the knowledge base" below, `/api/cron/documents` answering 200 to the cron.
+- [ ] **Opportunities** (ADR 0054): migration 0062 applied; `/api/cron/opportunities` (hourly, in
+      `apps/web/vercel.json`) answering 200 with `failed: []`.
 - [ ] `EMAIL_DEV_ALLOWLIST` is **ignored** in production (it is) — and `NODE_ENV=production`
       is really set, which is what makes it ignored.
 - [ ] `EMAIL_REPEAT_DAYS` is **7 or more** in production (or unset = 7). `0` is a testing

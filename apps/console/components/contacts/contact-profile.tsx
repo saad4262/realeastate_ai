@@ -5,6 +5,8 @@ import {
   CONTACT_PROPERTY_RELATION_LABELS,
   CONTACT_ROLE_LABELS,
   CONTACT_SOURCE_LABELS,
+  REQUIREMENT_CHANNEL_LABELS,
+  type BuyerRequirementView,
   type ContactAssignee,
   type ContactCounts,
   type ContactPropertyView,
@@ -25,6 +27,7 @@ import {
   UnlinkButton,
 } from './islands';
 import { NewAddressLinker } from './new-address-linker';
+import { NewRequirement, RequirementControls, type RequirementFormValues } from './requirement-form';
 import styles from './contacts.module.css';
 
 /**
@@ -78,6 +81,7 @@ export function ContactFrame({
 }) {
   const tabs: { key: ContactTab; label: string; count?: number }[] = [
     { key: 'overview', label: 'Overview' },
+    { key: 'requirements', label: 'Requirements', count: counts.requirements },
     { key: 'timeline', label: 'Timeline' },
     { key: 'properties', label: 'Properties' },
     { key: 'emails', label: 'Emails', count: counts.conversations },
@@ -148,6 +152,7 @@ export function OverviewTab({
   assignees,
   counts,
   recent,
+  requirements,
 }: {
   contact: ContactView;
   basePath: string;
@@ -155,7 +160,10 @@ export function OverviewTab({
   assignees: ContactAssignee[];
   counts: ContactCounts;
   recent: TimelineItem[];
+  /** Their briefs; the active ones are summed up beside the roles. */
+  requirements: BuyerRequirementView[];
 }) {
+  const lookingFor = requirements.filter((r) => r.status === 'active');
   if (editing && c.mayUpdate) {
     const initial: ContactFormValues = {
       name: c.name,
@@ -207,6 +215,26 @@ export function OverviewTab({
               ) : (
                 <span className={styles.muted}>None yet</span>
               )}
+            </dd>
+            <dt>Looking for</dt>
+            <dd>
+              {lookingFor.length ? (
+                <span style={{ display: 'grid', gap: '0.2rem' }}>
+                  {lookingFor.map((r) => (
+                    <span key={r.id}>{r.summary}</span>
+                  ))}
+                </span>
+              ) : (
+                <span className={styles.muted}>Nothing recorded</span>
+              )}
+              {lookingFor.length || c.mayUpdate ? (
+                <>
+                  {' '}
+                  <Link href={tabHref(basePath, c.id, 'requirements')} className={styles.back}>
+                    {lookingFor.length ? 'Requirements →' : 'Add requirements →'}
+                  </Link>
+                </>
+              ) : null}
             </dd>
             <dt>Assigned to</dt>
             <dd>
@@ -339,6 +367,12 @@ function activityText(item: Extract<TimelineItem, { type: 'activity' }>): string
     case 'consent_recorded':
     case 'consent_withdrawn':
       return typeof p.note === 'string' ? p.note : null;
+    case 'requirement_added':
+    case 'requirement_updated':
+    case 'requirement_removed':
+      return typeof p.summary === 'string'
+        ? `${p.summary}${p.status === 'paused' ? ' — paused' : p.status === 'active' ? ' — resumed' : ''}`
+        : null;
     default:
       return null;
   }
@@ -469,6 +503,68 @@ export function PropertiesTab({
           <h2 className={styles.sectionTitle}>Link a property</h2>
           <PropertyLinker contactId={c.id} />
           <NewAddressLinker contactId={c.id} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ── Requirements (ADR 0055) ────────────────────────────────────────────────
+
+/** A saved brief back into the form's text boxes. */
+function formValues(r: BuyerRequirementView): RequirementFormValues {
+  return {
+    channel: r.channel,
+    priceMin: r.priceMin === null ? '' : String(r.priceMin),
+    priceMax: r.priceMax === null ? '' : String(r.priceMax),
+    minBedrooms: r.minBedrooms === null ? '' : String(r.minBedrooms),
+    minBathrooms: r.minBathrooms === null ? '' : String(r.minBathrooms),
+    suburbs: r.suburbs.join(', '),
+    propertyTypes: r.propertyTypes,
+    note: r.note ?? '',
+  };
+}
+
+export function RequirementsTab({ contact: c, requirements }: { contact: ContactView; requirements: BuyerRequirementView[] }) {
+  return (
+    <div className={styles.card}>
+      <div className={styles.section} style={{ borderTop: 0 }}>
+        {requirements.length === 0 ? (
+          <p className={styles.note}>
+            {c.mayUpdate
+              ? 'Nothing recorded yet. Note what they are looking for — budget, bedrooms, suburbs, type — and new listings can be matched against it.'
+              : 'Nothing recorded yet. Only their assigned agent or an admin can add requirements.'}
+          </p>
+        ) : (
+          <ul className={styles.plainList}>
+            {requirements.map((r) => (
+              <li key={r.id} className={styles.plainItem} style={{ alignItems: 'flex-start' }}>
+                <span style={{ display: 'grid', gap: '0.35rem', flex: 1 }}>
+                  <span className={styles.chips}>
+                    <span className={styles.chip}>{REQUIREMENT_CHANNEL_LABELS[r.channel]}</span>
+                    {r.status === 'paused' ? (
+                      <span className={styles.chipInferred} title="Kept, but not matched against new listings">Paused</span>
+                    ) : null}
+                  </span>
+                  <span className={styles.name}>{r.summary}</span>
+                  {r.note ? <span className={styles.muted}>{r.note}</span> : null}
+                  <span className={styles.muted} style={{ fontSize: '0.75rem' }}>
+                    Updated <LocalTime iso={r.updatedAt.toISOString()} style="short" />
+                  </span>
+                  {c.mayUpdate ? (
+                    <RequirementControls contactId={c.id} requirementId={r.id} status={r.status} values={formValues(r)} />
+                  ) : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {c.mayUpdate ? (
+        <div className={styles.section}>
+          <h2 className={styles.sectionTitle}>{requirements.length ? 'Add requirements' : 'What are they looking for?'}</h2>
+          {/* Keyed on the count, so the form starts fresh after each one is added. */}
+          <NewRequirement key={requirements.length} contactId={c.id} startOpen={requirements.length === 0} />
         </div>
       ) : null}
     </div>

@@ -5,20 +5,26 @@ import { after } from 'next/server';
 import {
   assignContact,
   ContactError,
+  createBuyerRequirement,
   createContact,
   createNote,
+  deleteBuyerRequirement,
   deleteNote,
   linkContactNewAddress,
   linkContactProperty,
   mergeContacts,
   notifyContactAssigned,
   searchLinkableProperties,
+  setBuyerRequirementStatus,
   setContactArchived,
   setNextAction,
   unlinkContactProperty,
+  updateBuyerRequirement,
   updateContact,
   updateNote,
+  type BuyerRequirementInput,
   type CreateContactInput,
+  type RequirementStatus,
   type LinkNewAddressInput,
   type LinkPropertyInput,
   type NextActionInput,
@@ -255,5 +261,59 @@ export async function linkNewAddressAction(
     return { ok: true };
   } catch (err) {
     return simpleFailure(err, 'Could not add the address');
+  }
+}
+
+// ── Buyer requirements (ADR 0055) — `contact:update`, decided in core ─────────
+
+export async function createRequirementAction(contactId: string, input: BuyerRequirementInput): Promise<SimpleResult> {
+  const who = await actor();
+  try {
+    await createBuyerRequirement(getConsoleDb(), who, contactId, input);
+    refresh(contactId);
+    return { ok: true };
+  } catch (err) {
+    return simpleFailure(err, 'Could not save the requirements');
+  }
+}
+
+export async function updateRequirementAction(
+  contactId: string,
+  requirementId: string,
+  input: BuyerRequirementInput,
+): Promise<SimpleResult> {
+  const who = await actor();
+  try {
+    await updateBuyerRequirement(getConsoleDb(), who, contactId, requirementId, input);
+    refresh(contactId);
+    return { ok: true };
+  } catch (err) {
+    return simpleFailure(err, 'Could not save the requirements');
+  }
+}
+
+export async function setRequirementStatusAction(
+  contactId: string,
+  requirementId: string,
+  status: RequirementStatus,
+): Promise<SimpleResult> {
+  const who = await actor();
+  try {
+    await setBuyerRequirementStatus(getConsoleDb(), who, contactId, requirementId, status);
+    refresh(contactId);
+    return { ok: true };
+  } catch (err) {
+    return simpleFailure(err, status === 'paused' ? 'Could not pause the requirements' : 'Could not resume the requirements');
+  }
+}
+
+export async function deleteRequirementAction(contactId: string, requirementId: string): Promise<SimpleResult> {
+  const who = await actor();
+  try {
+    await deleteBuyerRequirement(getConsoleDb(), who, contactId, requirementId);
+    refresh(contactId);
+    return { ok: true };
+  } catch (err) {
+    return simpleFailure(err, 'Could not remove the requirements');
   }
 }

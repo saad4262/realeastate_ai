@@ -435,6 +435,20 @@
       "when": 1793011067820,
       "tag": "0061_documents_and_knowledge",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1793013095480,
+      "tag": "0062_opportunities",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1793016645163,
+      "tag": "0063_buyer_requirements",
+      "breakpoints": true
     }
   ]
 }

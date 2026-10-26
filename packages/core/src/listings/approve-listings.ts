@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { listing, type DbOrTx } from '@repo/db';
 import { can, type Actor } from '../permissions';
+import { atomically, emitWorkflowEvents } from '../workflows/events';
 import { ListingError } from './listing-schema';
 
 /** One call approves at most this many; "approve all" says so when there are more. */
@@ -22,8 +23,9 @@ export type ApproveListingsResult = {
  * waiting. Each one is still the single-listing approval: `listing:publish`
  * asked for each listing's own agency, and the UPDATE itself only moves a row
  * that is STILL pending, so a listing sent back or withdrawn in another tab is
- * skipped rather than put live. Two statements however many listings — never one
- * per row. Callers pass a transaction when they want it atomic with other writes.
+ * skipped rather than put live. Three statements however many listings (the
+ * select, the update, one insert of their workflow events) — never one per row.
+ * Callers pass a transaction when they want it atomic with other writes.
  */
 export async function approveListings(
   db: DbOrTx,
@@ -60,23 +62,34 @@ export async function approveListings(
     throw new ListingError('forbidden', 'Only an agency owner or admin can publish a listing');
   }
 
+  const agencyId = actor.agencyId;
+  // The change and its workflow events (ADR 0041), together or not at all. A listing approved here
+  // goes live exactly as one published through setListingStatus does, and must say so the same way —
+  // without it, workflows and anything else reading `listing.status_changed` never saw an approval.
   const rows = allowed.length
-    ? await db
-        .update(listing)
-        .set({
-          status: 'live',
-          publishedAt: sql`coalesce(${listing.publishedAt}, now())`,
-          updatedAt: sql`now()`,
-        })
-        .where(
-          and(
-            inArray(listing.id, allowed.map((t) => t.id)),
-            eq(listing.agencyId, actor.agencyId),
-            // The approval guard again, in the write: only what is still waiting.
-            eq(listing.status, 'pending'),
-          ),
-        )
-        .returning({ id: listing.id })
+    ? await atomically(db, async (tx) => {
+        const moved = await tx
+          .update(listing)
+          .set({
+            status: 'live',
+            publishedAt: sql`coalesce(${listing.publishedAt}, now())`,
+            updatedAt: sql`now()`,
+          })
+          .where(
+            and(
+              inArray(listing.id, allowed.map((t) => t.id)),
+              eq(listing.agencyId, agencyId),
+              // The approval guard again, in the write: only what is still waiting.
+              eq(listing.status, 'pending'),
+            ),
+          )
+          .returning({ id: listing.id });
+        await emitWorkflowEvents(
+          tx,
+          moved.map((r) => ({ agencyId, kind: 'listing.status_changed' as const, listingId: r.id, actor, data: { to: 'live' } })),
+        );
+        return moved;
+      })
     : [];
 
   return {

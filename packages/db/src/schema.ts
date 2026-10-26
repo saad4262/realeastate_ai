@@ -990,6 +990,50 @@ export const contactProperty = pgTable(
   ],
 );
 
+/**
+ * What a buyer (or tenant) is looking for (ADR 0055): a budget, the least
+ * bedrooms and bathrooms they will take, where and what kind of place. A
+ * contact may hold several — a home and an investment are two briefs.
+ *
+ * Typed columns, never a JSON blob: a new listing is matched against these in
+ * SQL (non-negotiable 4), so each bound is a column a WHERE can read. An empty
+ * array or a null bound means "any". For `rent` the price bounds are per week,
+ * the same rule as the public search's priceFrom / priceTo against rent_pw.
+ */
+export const buyerRequirement = pgTable(
+  'buyer_requirement',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    contactId: uuid('contact_id')
+      .notNull()
+      .references(() => contact.id, { onDelete: 'cascade' }),
+    channel: listingChannelEnum('channel').notNull().default('sale'),
+    /** The agent's figures as typed — never computed or estimated (#4). */
+    priceMin: numeric('price_min', { precision: 14, scale: 2 }),
+    priceMax: numeric('price_max', { precision: 14, scale: 2 }),
+    minBedrooms: integer('min_bedrooms'),
+    minBathrooms: numeric('min_bathrooms', { precision: 3, scale: 1 }),
+    /** Suburb names as written on `property.suburb`; matched case-insensitively. Empty = anywhere. */
+    suburbs: text('suburbs').array().notNull().default(sql`'{}'::text[]`),
+    /** Values of PROPERTY_TYPES (listing-schema.ts). Empty = any type. */
+    propertyTypes: text('property_types').array().notNull().default(sql`'{}'::text[]`),
+    /** Anything the columns cannot hold ("must have a pool"), in the agent's words. Never matched on. */
+    note: text('note'),
+    /** active | paused — a paused brief is kept but matched against nothing. */
+    status: varchar('status', { length: 12 }).notNull().default('active'),
+    createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => [
+    index('buyer_requirement_contact_idx').on(t.contactId),
+    /** The matcher's way in: an agency's active briefs. */
+    index('buyer_requirement_agency_status_idx').on(t.agencyId, t.status),
+  ],
+);
+
 /** Something an agent wrote down about a contact. */
 export const note = pgTable(
   'note',
@@ -2494,6 +2538,45 @@ export const documentChunk = pgTable(
   ],
 );
 
+// ── Proactive opportunities (docs/adr/0054) ────────────────────────────────
+
+/**
+ * Something the platform noticed that one person may want to act on — a client who bought five
+ * years ago, an email nobody answered. Found by SQL detectors (opportunities/detectors.ts), one
+ * row per (agency, dedupe_key): the key carries what makes it new, so the hourly scan never
+ * repeats one and a dismissed one stays dismissed. `facts` are the figures SQL returned.
+ */
+export const opportunity = pgTable(
+  'opportunity',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    /** Who it is for: the assignee whose work it is. */
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    /** sale_anniversary | cold_contact | unanswered_mail | appraisal_follow_up | repeat_interest */
+    kind: varchar('kind', { length: 32 }).notNull(),
+    contactId: uuid('contact_id').references(() => contact.id, { onDelete: 'cascade' }),
+    listingId: uuid('listing_id').references(() => listing.id, { onDelete: 'set null' }),
+    leadId: uuid('lead_id').references(() => lead.id, { onDelete: 'set null' }),
+    threadId: uuid('thread_id').references(() => mailThread.id, { onDelete: 'cascade' }),
+    appointmentId: uuid('appointment_id').references(() => appointment.id, { onDelete: 'set null' }),
+    facts: jsonb('facts').notNull().default(sql`'{}'::jsonb`),
+    dedupeKey: text('dedupe_key').notNull(),
+    /** open → done | dismissed | expired */
+    status: varchar('status', { length: 16 }).notNull().default('open'),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('opportunity_dedupe_idx').on(t.agencyId, t.dedupeKey),
+    index('opportunity_user_open_idx').on(t.userId, t.status, desc(t.createdAt)),
+  ],
+);
+
 // ── The platform admin console (docs/adr/0049) ─────────────────────────────
 
 /**
@@ -2679,3 +2762,4 @@ export type AgencyGooglePlace = typeof agencyGooglePlace.$inferSelect;
 export type SearchEmbedding = typeof searchEmbedding.$inferSelect;
 export type Document = typeof document.$inferSelect;
 export type DocumentChunk = typeof documentChunk.$inferSelect;
+export type Opportunity = typeof opportunity.$inferSelect;

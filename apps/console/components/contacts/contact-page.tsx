@@ -4,6 +4,7 @@ import {
   contactCounts,
   ContactError,
   getContact,
+  listBuyerRequirements,
   listContactAssignees,
   listContactNotes,
   listContactProperties,
@@ -35,6 +36,7 @@ import {
   NotesTab,
   OverviewTab,
   PropertiesTab,
+  RequirementsTab,
   TimelineList,
   tabHref,
 } from './contact-profile';
@@ -90,9 +92,10 @@ export async function ContactPage({
 
   switch (tab) {
     case 'overview': {
-      const [recent, assignees] = await Promise.all([
+      const [recent, assignees, requirements] = await Promise.all([
         listContactTimeline(db, actor, c.ref, { limit: 6 }),
         c.mayAssign ? listContactAssignees(db, actor) : Promise.resolve<ContactAssignee[]>([]),
+        listBuyerRequirements(db, actor, c.ref),
       ]);
       body = (
         <OverviewTab
@@ -102,8 +105,14 @@ export async function ContactPage({
           assignees={assignees}
           counts={counts}
           recent={recent.items}
+          requirements={requirements}
         />
       );
+      break;
+    }
+    case 'requirements': {
+      const requirements = await listBuyerRequirements(db, actor, c.ref);
+      body = <RequirementsTab contact={c} requirements={requirements} />;
       break;
     }
     case 'timeline': {
