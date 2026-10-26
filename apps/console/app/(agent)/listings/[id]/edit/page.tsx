@@ -5,6 +5,7 @@ import { MAX_LISTING_PHOTOS, listingPhotos } from '@repo/core/media';
 import { ListingForm } from '@/components/listing-form';
 import { ListingPhotosSkeleton } from '@/components/listing-form-skeleton';
 import { ListingPhotos } from '@/components/photo-uploader';
+import { ListingDocuments } from '@/components/documents/listing-documents';
 import { getConsoleDb } from '../../../../../lib/db';
 import { requireConsoleAccess } from '../../../../../lib/require-console-access';
 
@@ -34,6 +35,10 @@ export default async function EditAgentListingPage({
       <ListingForm backHref="/listings" initial={listing} />
       <Suspense fallback={<ListingPhotosSkeleton />}>
         <Photos listingId={id} />
+      </Suspense>
+      {/* ADR 0053: the property's documents, after the photos and behind their own boundary. */}
+      <Suspense fallback={null}>
+        <ListingDocuments listingId={id} userId={session.actor.userId} />
       </Suspense>
     </div>
   );

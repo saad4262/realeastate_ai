@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
 import { ASSISTANT_TOOLS, assistantToolsFor } from '../tools/assistant-tools';
-import { ASSISTANT_SYSTEM } from '../prompts/assistant-v24';
+import { ASSISTANT_SYSTEM } from '../prompts/assistant-v25';
 import { contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
 /**

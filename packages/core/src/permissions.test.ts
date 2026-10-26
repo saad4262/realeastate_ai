@@ -938,3 +938,56 @@ describe('workflows (ADR 0041 D2)', () => {
     expect(can(m('boss', 'owner', 'agency-b'), 'workflow:read', own)).toBe(false);
   });
 });
+
+describe('documents and the knowledge base (ADR 0053)', () => {
+  const contactId = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+  const m = (userId: string, membershipRole: Actor['membershipRole'], agencyId = agencyA): Actor => ({ userId, agencyId, membershipRole });
+  const owner = m('owner', 'owner');
+  const agent = m('agent', 'agent', agencyA);
+  const listingAgent: Actor = { ...m('la', 'agent'), listingAgentOf: [listingA] };
+  const viewer = m('viewer', 'read_only');
+  const rival = m('rival', 'owner', agencyB);
+  const theirContact = { type: 'contact', id: contactId, agencyId: agencyA, ownerId: 'agent' };
+  const nobodysContact = { type: 'contact', id: contactId, agencyId: agencyA };
+  const theListing = { type: 'listing', id: listingA, agencyId: agencyA };
+  const doc = (uploader: string) => ({ type: 'document', agencyId: agencyA, ownerId: uploader });
+  const kb = { type: 'knowledge', agencyId: agencyA };
+
+  it('a document on a contact is a note with a file: whoever may see the contact, unless read-only', () => {
+    expect(can(agent, 'document:upload', theirContact)).toBe(true);
+    expect(can(owner, 'document:upload', nobodysContact)).toBe(true);
+    expect(can(agent, 'document:upload', nobodysContact)).toBe(false);
+    expect(can(m('viewer', 'read_only'), 'document:upload', { ...theirContact, ownerId: 'viewer' })).toBe(false);
+    expect(can(rival, 'document:upload', { ...theirContact, ownerId: 'rival' })).toBe(false);
+  });
+
+  it('a document on a listing: the agents named on it, and admins', () => {
+    expect(can(listingAgent, 'document:upload_listing', theListing)).toBe(true);
+    expect(can(owner, 'document:upload_listing', theListing)).toBe(true);
+    expect(can(agent, 'document:upload_listing', theListing)).toBe(false);
+    expect(can({ ...viewer, listingAgentOf: [listingA] }, 'document:upload_listing', theListing)).toBe(false);
+    expect(can({ ...rival, listingAgentOf: [listingA] }, 'document:upload_listing', theListing)).toBe(false);
+  });
+
+  it('delete and private reads: the uploader or an admin, inside the agency', () => {
+    expect(can(agent, 'document:delete', doc('agent'))).toBe(true);
+    expect(can(agent, 'document:delete', doc('someone-else'))).toBe(false);
+    expect(can(owner, 'document:delete', doc('someone-else'))).toBe(true);
+    expect(can(viewer, 'document:delete', doc('viewer'))).toBe(false);
+    expect(can(agent, 'document:read_private', doc('agent'))).toBe(true);
+    expect(can(agent, 'document:read_private', doc('someone-else'))).toBe(false);
+    // No owner: "every private document" — admins only. This is how the list decides to narrow.
+    expect(can(agent, 'document:read_private', { type: 'document', agencyId: agencyA })).toBe(false);
+    expect(can(owner, 'document:read_private', { type: 'document', agencyId: agencyA })).toBe(true);
+    expect(can(rival, 'document:read_private', { type: 'document', agencyId: agencyA })).toBe(false);
+  });
+
+  it('the knowledge base: every member reads it, only owners and admins change it', () => {
+    for (const a of [owner, agent, viewer, m('pm', 'property_manager'), m('asst', 'assistant')]) expect(can(a, 'knowledge:read', kb)).toBe(true);
+    expect(can(owner, 'knowledge:manage', kb)).toBe(true);
+    expect(can(m('admin', 'admin'), 'knowledge:manage', kb)).toBe(true);
+    for (const a of [agent, viewer, m('pm', 'property_manager')]) expect(can(a, 'knowledge:manage', kb)).toBe(false);
+    expect(can(rival, 'knowledge:read', kb)).toBe(false);
+    expect(can({ userId: 'consumer' }, 'knowledge:read', kb)).toBe(false);
+  });
+});

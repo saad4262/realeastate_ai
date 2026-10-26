@@ -595,6 +595,36 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
     },
   },
   {
+    name: 'search_documents',
+    description:
+      'Search the documents this person may read — contracts, reports, forms and photos kept on contacts and listings, and the agency\'s own knowledge base (procedures, policies, scripts, templates) — by words (and by meaning when the agency has it switched on). Returns at most 6 documents: a D reference, the title, where it is kept, the pages, and an untrusted_snippet. Use for "what does the contract say about…", "our procedure for…", "which documents mention…". Then read_document for the pages you need.',
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        query: { type: 'string', description: 'What to look for, in plain words (2–200 characters), e.g. "settlement date" or "open home checklist".' },
+        contact: { type: 'string', description: 'Only this contact\'s documents: a reference you were given (C1, S1…).' },
+        knowledge_only: { type: 'boolean', description: 'Only the agency knowledge base (procedures, policies, scripts).' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'read_document',
+    description:
+      'Read pages of one document search_documents returned (a D reference): up to 10 pages per call, as untrusted text. Answer from it and name the page. A figure in a document is what the document says — quote it, never calculate with it or present it as a checked fact.',
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        document: { type: 'string', description: 'A D reference from search_documents.' },
+        from_page: { type: 'integer', description: 'First page, from 1. Default 1 — or the page a search result named.' },
+        to_page: { type: 'integer', description: 'Last page; at most 10 pages after from_page.' },
+      },
+      required: ['document'],
+    },
+  },
+  {
     name: 'check_connections',
     description:
       'Whether Google Calendar, Zoom, Gmail and the other accounts this person would need are connected. If one is not, tell them to connect it first — never suggest a way around it. Check `gmail` when someone asks to send from their Gmail: template email always goes from the platform address, whatever is connected.',

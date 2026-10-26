@@ -1,4 +1,20 @@
 # Status
+- **Documents + knowledge base + inbound attachments (ADR 0053, 2026-10-26) — committed on `feat/documents` (not pushed). Migration 0061 APPLIED 2026-10-26 at the user's go (62 recorded; RLS on both tables, no anon/authenticated grants); the tick's raw SQL run in a rolled-back transaction and the list/search/read queries run as dummy actors on the real DB (OK). The user made the `documents` bucket; Resend + Vercel env tonight.**
+  `document` (a record on a contact / a listing's property, or the agency `knowledge` base) + `document_chunk` (page-aware
+  chunks, generated tsvector, nullable voyage vector) + `mail_message.attachments_stored_at`. Private bucket `documents`:
+  signed upload → HEAD → row; a 60 s signed download through /api/documents/[id]. One visibility rule, `documentScopeFilters`
+  (knowledge → every member; a record → admins, its uploader, and unless private whoever reads the contact or is named on
+  the listing). New actions document:upload / upload_listing / delete / read_private, knowledge:read / manage. Cron
+  /api/cron/documents (5 min, maxDuration 300 — needs fluid compute): Resend attachments → documents; unpdf / mammoth /
+  plain text; scans and photos → Claude vision (packages/ai `document-read@v1`, ai_run feature `document-read`, per-agency
+  cap DOCUMENTS_VISION_DAILY_BUDGET_USD_PER_AGENCY); chunks embedded within the indexing cap. Assistant: search_documents +
+  read_document (D references), prompt `assistant@v25`. UI: contact Documents tab, "Property documents" on both listing
+  edit pages, /knowledge + /my-knowledge (nav), drag-and-drop uploader, the panel's `documents` frame.
+  Checks: core 1274 pass (3 fail = the pre-existing Windows path/CRLF tests, confirmed on a stash); ai 312 pass (2 fail =
+  the pre-existing time-zone recent-sales tests); auth, ui green; typecheck core/ai/console/web clean; lint 0 errors; web +
+  console builds OK; the entrypoints route check passes with paths normalised for one local run. Smoke check NOT written;
+  TEST-PLAN **BG**; DEPLOY.md "Documents and the knowledge base" + inbound steps.
+  **Next:** the user sets Resend + env, walks BG. Feature 2 (opportunities, 0062) is being built.
 - **Admin dashboard: online, email, user block (ADR 0052, 2026-10-21) — committed, pushed and MERGED into `main` at the user's word.**
   Online = `user.last_seen_at` within 5 min (console `/api/live` + site `PresencePing`, ≤ 1 write/min). Dashboard:
   agencies/agents/users with online/suspended/blocked, online now, newest agencies/members/users. `/emails`: write to

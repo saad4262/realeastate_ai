@@ -63,7 +63,10 @@
     "./open-query": "./src/open-query/index.ts",
     "./platform": "./src/platform/index.ts",
     "./platform/access": "./src/platform/access.ts",
-    "./activity": "./src/activity/index.ts"
+    "./activity": "./src/activity/index.ts",
+    "./documents": "./src/documents/index.ts",
+    "./documents/schema": "./src/documents/document-schema.ts",
+    "./documents/tick": "./src/documents/tick-entry.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -76,7 +79,9 @@
     "@repo/db": "workspace:*",
     "drizzle-orm": "^0.38.3",
     "libpg-query": "18.1.5",
+    "mammoth": "1.13.0",
     "read-excel-file": "9.3.10",
+    "unpdf": "1.9.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {

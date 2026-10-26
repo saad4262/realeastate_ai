@@ -41,6 +41,8 @@ export const HANDLE_KINDS = {
   Q: 'skill',
   /** A workflow this person may see — issued by find_workflows (ADR 0041 Part C). */
   W: 'workflow',
+  /** A document this person may see — issued by search_documents (ADR 0053). */
+  D: 'document',
 } as const;
 export type HandlePrefix = keyof typeof HANDLE_KINDS;
 export type HandleKind = (typeof HANDLE_KINDS)[HandlePrefix];
@@ -48,7 +50,7 @@ export type HandleKind = (typeof HANDLE_KINDS)[HandlePrefix];
 export const handleSchema = z
   .string()
   .trim()
-  .regex(/^[CLATSMIPKFQW][1-9][0-9]{0,2}$/, 'Not a reference the assistant was given');
+  .regex(/^[CLATSMIPKFQWD][1-9][0-9]{0,2}$/, 'Not a reference the assistant was given');
 
 /** A handle that must name an appointment. */
 export const appointmentHandleSchema = handleSchema.refine((h) => h.startsWith('A'), { message: 'Not an appointment reference' });
@@ -150,6 +152,24 @@ export const searchNotesAndEmailsInput = z
     contact: z.string().trim().regex(/^[CS][1-9][0-9]{0,2}$/, 'Not a contact reference').optional(),
     from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A date as YYYY-MM-DD').optional(),
     to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A date as YYYY-MM-DD').optional(),
+  })
+  .strict();
+
+/** ADR 0053: search the documents (and the knowledge base) this person may read. */
+export const searchDocumentsInput = z
+  .object({
+    query: z.string().trim().min(2).max(200),
+    contact: z.string().trim().regex(/^[CS][1-9][0-9]{0,2}$/, 'Not a contact reference').optional(),
+    knowledge_only: z.boolean().optional(),
+  })
+  .strict();
+
+/** ADR 0053: pages of one document search_documents returned (a `D` reference). */
+export const readDocumentInput = z
+  .object({
+    document: z.string().trim().regex(/^D[1-9][0-9]{0,2}$/, 'Not a document reference'),
+    from_page: z.number().int().min(1).max(2000).optional(),
+    to_page: z.number().int().min(1).max(2000).optional(),
   })
   .strict();
 
@@ -823,7 +843,7 @@ export const scheduleTeamMeetingInput = z
   })
   .strict();
 
-export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_saved_lists', 'start_import', 'find_skills', 'find_workflows', 'describe_data', 'query_data'] as const;
+export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_saved_lists', 'start_import', 'find_skills', 'find_workflows', 'describe_data', 'query_data', 'search_documents', 'read_document'] as const;
 /** ADR 0042: a turn that uses these may make more tool calls (`toolCallsPerAnalysisTurn`). */
 export const ASSISTANT_ANALYSIS_TOOLS = ['describe_data', 'query_data'] as const;
 export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'update_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill', 'create_workflow', 'change_workflow', 'create_template'] as const;
@@ -848,6 +868,8 @@ export const ASSISTANT_TOOL_INPUTS = {
   report_missing_data: reportMissingDataInput,
   check_cards: checkCardsInput,
   search_notes_and_emails: searchNotesAndEmailsInput,
+  search_documents: searchDocumentsInput,
+  read_document: readDocumentInput,
   add_note: addNoteInput,
   set_next_action: setNextActionInput,
   schedule_appointment: scheduleAppointmentInput,
@@ -961,6 +983,12 @@ export type AssistantFrame =
       kind: 'search';
       mode: 'fulltext' | 'hybrid';
       rows: { handle: string; contactId: string; contactName: string; type: 'note' | 'email' | 'enquiry'; when: string; snippet: string }[];
+    }
+  /** Documents found (ADR 0053): title, whose, which pages, a short snippet — only documents this person may read. */
+  | {
+      kind: 'documents';
+      mode: 'fulltext' | 'hybrid';
+      rows: { handle: string; id: string; title: string; scope: 'record' | 'knowledge'; contactId: string | null; contactName: string | null; pages: string; snippet: string }[];
     }
   /** The import's own buttons (ADR 0029 amendment): upload a file, or pick a Google Sheet. Decided by can(), drawn by the panel. */
   | { kind: 'import'; what: 'listings' | 'contacts'; mayPublish: boolean; sheets: { state: string; mayConnect: boolean } }

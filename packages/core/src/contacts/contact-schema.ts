@@ -267,6 +267,7 @@ export const CONTACT_TABS = [
   'emails',
   'enquiries',
   'notes',
+  'documents',
   'calendar',
   'reviews',
 ] as const;

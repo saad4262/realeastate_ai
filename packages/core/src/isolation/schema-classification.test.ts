@@ -58,6 +58,9 @@ const OWN_AGENCY = [
   // transaction) and the log of open queries; both carry agency_id, and neither has a grant or a policy.
   'ai_query_ticket',
   'ai_query_log',
+  // ADR 0053: a document and its searchable chunks — each carries agency_id; reads go through documentScopeFilters.
+  'document',
+  'document_chunk',
 ] as const;
 
 /** Reaches an agency through a parent row: table → [foreign-key column, parent table]. */

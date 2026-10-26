@@ -145,7 +145,12 @@ export type AiFeature =
    * The console assistant (ADR 0025): tool-calling over the CRM, on the
    * skills' agent tier — `ANTHROPIC_SKILL_AGENT_MODEL`, default Sonnet 5.5.
    */
-  | 'assistant';
+  | 'assistant'
+  /**
+   * Reading the words off a scanned PDF or a photo (ADR 0053 §4) — transcription, not
+   * judgement. `ANTHROPIC_DOCUMENT_MODEL`, default Opus 5.5 at low effort.
+   */
+  | 'document-read';
 
 export type ModelChoice = {
   id: string;
@@ -297,6 +302,19 @@ export function getModel(feature: AiFeature, env: NodeJS.ProcessEnv = process.en
         ...(can.effort ? { effort: 'low' as const } : {}),
         adaptiveThinking: can.adaptiveThinking,
         midConversationSystem: can.midConversationSystem,
+      };
+    }
+    case 'document-read': {
+      const id = env.ANTHROPIC_DOCUMENT_MODEL?.trim() || 'claude-opus-5-5';
+      const can = CAPABILITIES[id] ?? NO_CAPABILITIES;
+      return {
+        id,
+        // A 100-page scan written out word for word: streamed, so headroom is safe.
+        maxTokens: 64000,
+        // Low: copying words off a page is not reasoning. Raise only on a measurement.
+        ...(can.effort ? { effort: 'low' as const } : {}),
+        adaptiveThinking: can.adaptiveThinking,
+        midConversationSystem: false,
       };
     }
     default: {

@@ -1,5 +1,5 @@
 import { and, eq, sql } from 'drizzle-orm';
-import { activity, appointment, contact, lead, mailThread, note, type Db } from '@repo/db';
+import { activity, appointment, contact, document, lead, mailThread, note, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { loadContactHead } from './get-contact';
 import { CONTACT_NOT_FOUND, ContactError } from './list-contacts';
@@ -69,6 +69,8 @@ export async function mergeContacts(
     await tx.update(note).set({ contactId: survivorId }).where(eq(note.contactId, loserId));
     await tx.update(appointment).set({ contactId: survivorId }).where(and(eq(appointment.contactId, loserId), eq(appointment.agencyId, agencyId)));
     await tx.update(activity).set({ contactId: survivorId }).where(eq(activity.contactId, loserId));
+    // ADR 0053: their documents move with them, like their notes.
+    await tx.update(document).set({ contactId: survivorId, updatedAt: sql`now()` }).where(and(eq(document.contactId, loserId), eq(document.agencyId, agencyId)));
     await tx.execute(sql`
       insert into contact_role (contact_id, role, source, created_by)
       select ${survivorId}, role, source, created_by from contact_role where contact_id = ${loserId}

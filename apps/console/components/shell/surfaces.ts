@@ -57,6 +57,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
       { href: '/messages', label: 'Team messages', icon: 'forum', count: 'unreadTeam', countLabel: 'unread' },
       { href: '/team', label: 'Agents & Team', icon: 'groups' },
       { href: '/customers', label: 'Customers', icon: 'contacts' },
+      { href: '/knowledge', label: 'Knowledge base', icon: 'menu_book' },
       { href: '/calendar', label: 'Calendar', icon: 'calendar_today' },
       { href: '/marketing', label: 'Marketing & Reviews', icon: 'campaign' },
       { href: '/site-activity', label: 'Insights', icon: 'analytics' },
@@ -84,6 +85,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
     more: [
       { href: '/my-messages', label: 'Team messages', icon: 'forum', count: 'unreadTeam', countLabel: 'unread' },
       { href: '/my-contacts', label: 'Contacts', icon: 'contacts' },
+      { href: '/my-knowledge', label: 'Knowledge base', icon: 'menu_book' },
       { href: '/my-calendar', label: 'Calendar', icon: 'event' },
       { href: '#', label: 'Offers', icon: 'handshake' },
       { href: '/my-skills', label: 'Skills', icon: 'auto_awesome' },

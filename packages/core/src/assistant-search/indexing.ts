@@ -80,7 +80,7 @@ function capFrom(raw: string | undefined, fallback: number): number {
  * EMBEDDINGS_DAILY_BUDGET_USD_PER_AGENCY (default 0.25) — and none at all once
  * the platform's AI_DAILY_BUDGET_USD (default 5) is spent. One statement.
  */
-async function agenciesWithinBudget(db: Db, agencyIds: string[], env: NodeJS.ProcessEnv, now: Date): Promise<Set<string>> {
+export async function agenciesWithinBudget(db: Db, agencyIds: string[], env: NodeJS.ProcessEnv, now: Date): Promise<Set<string>> {
   if (!agencyIds.length) return new Set();
   const since = new Date(now.getTime() - 24 * 3_600_000).toISOString();
   const perAgency = capFrom(env.EMBEDDINGS_DAILY_BUDGET_USD_PER_AGENCY, 0.25);

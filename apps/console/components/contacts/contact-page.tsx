@@ -15,6 +15,8 @@ import { listAgencyLeads, listLeadAssignees, type LeadAssignee } from '@repo/cor
 import { getMailThread, listMailThreads, mailConfigFromEnv, MailError } from '@repo/core/mail';
 import { appointmentListQuerySchema, listAppointments } from '@repo/core/appointments';
 import { requireIntegrations } from '@repo/core/integrations';
+import { documentStorageConfigured, listDocuments, RECORD_KINDS } from '@repo/core/documents';
+import { DocumentsPanel } from '@/components/documents/documents-panel';
 import { ConnectFirst } from '@/components/integrations/integration-ui';
 import { can } from '@repo/core/permissions';
 import { Agenda } from '@/components/appointments/agenda';
@@ -201,6 +203,32 @@ export async function ContactPage({
     case 'notes': {
       const notes = await listContactNotes(db, actor, c.ref);
       body = <NotesTab contact={c} notes={notes} />;
+      break;
+    }
+    case 'documents': {
+      // ADR 0053: what they may see here is the visibility rule in core. The upload box is `document:upload`,
+      // which is `note:create`'s rule — already decided on the contact as mayNote; the action asks again.
+      const target = { on: 'contact' as const, contactId: c.id };
+      const [documents, properties] = await Promise.all([
+        listDocuments(db, actor, target),
+        listContactProperties(db, actor, c.ref),
+      ]);
+      body = (
+        <DocumentsPanel
+          heading={`${c.name}'s documents`}
+          target={target}
+          documents={documents}
+          mayUpload={c.mayNote}
+          kinds={RECORD_KINDS}
+          defaultKind="contract"
+          allowPrivate
+          properties={properties.map((p) => ({ id: p.propertyId, address: p.address }))}
+          storageReady={documentStorageConfigured()}
+          emptyTitle="No documents you can see"
+          emptyHint="Contracts, reports, forms and photos added here — and files they email the agency — are kept with this person, and the assistant can answer from them."
+          cannotUploadNote={c.mayNote ? undefined : 'You can view this contact but not add documents to it.'}
+        />
+      );
       break;
     }
     case 'calendar': {

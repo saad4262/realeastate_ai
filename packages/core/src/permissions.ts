@@ -205,6 +205,25 @@ export type Action =
    */
   | 'note:read_private'
   /**
+   * Attach a document to a contact (ADR 0053 §3): `note:create`'s rule — whoever may see the
+   * contact, unless read-only. The resource is the CONTACT.
+   */
+  | 'document:upload'
+  /** Attach a document to a listing's property: `listing:edit`'s rule. The resource is the LISTING. */
+  | 'document:upload_listing'
+  /** Delete a document: its uploader (`ownerId`), or an admin — `note:manage`'s shape. */
+  | 'document:delete'
+  /**
+   * Read a document marked private, or one on no contact and no listing (an attachment to the
+   * agency's own address): admins and its uploader (`ownerId`). The list says it in SQL
+   * (`documentScopeFilters`); this is the same rule for one row.
+   */
+  | 'document:read_private'
+  /** Read the agency's knowledge base (ADR 0053): every member, read-only ones included. */
+  | 'knowledge:read'
+  /** Add to or remove from the knowledge base: owners and admins — it is the agency's voice. */
+  | 'knowledge:manage'
+  /**
    * See one appointment (ADR 0019). Admins see the agency's whole calendar; any
    * other member sees appointments assigned to them (`ownerId`) or that they
    * booked (`createdBy`) — never another agent's, even with the same contact.
@@ -626,7 +645,28 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
 
     case 'note:create':
+    // A document on a contact is a note with a file (ADR 0053 §3): the same people.
+    case 'document:upload':
       return mayWrite(actor) && can(actor, 'contact:read', resource);
+
+    case 'document:upload_listing':
+      return mayWrite(actor) && can(actor, 'listing:edit', resource);
+
+    case 'document:delete':
+      if (!sameAgency(actor, resource) || !mayWrite(actor)) return false;
+      if (isAgencyAdmin(actor)) return true;
+      return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'document:read_private':
+      if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      if (isAgencyAdmin(actor)) return true;
+      return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'knowledge:read':
+      return sameAgency(actor, resource) && Boolean(actor.membershipRole);
+
+    case 'knowledge:manage':
+      return sameAgency(actor, resource) && isAgencyAdmin(actor);
 
     case 'mail:compose':
       return can(actor, 'contact:update', resource);

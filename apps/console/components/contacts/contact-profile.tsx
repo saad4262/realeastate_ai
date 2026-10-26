@@ -83,6 +83,7 @@ export function ContactFrame({
     { key: 'emails', label: 'Emails', count: counts.conversations },
     { key: 'enquiries', label: 'Enquiries', count: counts.enquiries },
     { key: 'notes', label: 'Notes', count: counts.notes },
+    { key: 'documents', label: 'Documents' },
     { key: 'calendar', label: 'Calendar' },
     { key: 'reviews', label: 'Reviews' },
   ];

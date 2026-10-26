@@ -31,9 +31,9 @@ import styles from './assistant-panel.module.css';
 
 export type Surface = 'agent' | 'agency';
 
-const PATHS: Record<Surface, { contact: string; leads: string; templates: string; bulk: string; integrations: string; inbox: string; messages: string; listings: string; listingImport: string; contactImport: string; skills: string; workflows: string }> = {
-  agency: { contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', bulk: '/bulk-email', integrations: '/settings/integrations', inbox: '/inbox', messages: '/messages', listings: '/live-listings', listingImport: '/live-listings/import', contactImport: '/customers/import', skills: '/skills', workflows: '/workflows' },
-  agent: { contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', bulk: '/my-bulk-email', integrations: '/my-integrations', inbox: '/my-inbox', messages: '/my-messages', listings: '/listings', listingImport: '/listings/import', contactImport: '/my-contacts/import', skills: '/my-skills', workflows: '/my-workflows' },
+const PATHS: Record<Surface, { contact: string; leads: string; templates: string; bulk: string; integrations: string; inbox: string; messages: string; listings: string; listingImport: string; contactImport: string; skills: string; workflows: string; knowledge: string }> = {
+  agency: { contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', bulk: '/bulk-email', integrations: '/settings/integrations', inbox: '/inbox', messages: '/messages', listings: '/live-listings', listingImport: '/live-listings/import', contactImport: '/customers/import', skills: '/skills', workflows: '/workflows', knowledge: '/knowledge' },
+  agent: { contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', bulk: '/my-bulk-email', integrations: '/my-integrations', inbox: '/my-inbox', messages: '/my-messages', listings: '/listings', listingImport: '/listings/import', contactImport: '/my-contacts/import', skills: '/my-skills', workflows: '/my-workflows', knowledge: '/my-knowledge' },
 };
 
 /** What the empty assistant suggests — the home turns the ones you can type into chips. */
@@ -135,6 +135,30 @@ function FrameView({ frame, surface }: { frame: AssistantFrame; surface: Surface
               <Link href={`${p.contact}/${r.contactId}`}>{r.contactName}</Link>
               <span className={styles.meta}>
                 {r.type === 'note' ? 'Note' : r.type === 'email' ? 'Email' : 'Enquiry'} · {r.when}
+              </span>
+              {r.snippet ? <q className={styles.meta}>{r.snippet}</q> : null}
+            </li>
+          ))}
+        </FrameBox>
+      );
+    case 'documents':
+      // ADR 0053: the title opens the file (the same visibility rule, asked again by the route); where it is kept links to that page.
+      return (
+        <FrameBox title={frame.mode === 'hybrid' ? 'Found in documents (words and meaning)' : 'Found in documents'} shown={frame.rows.length}>
+          {frame.rows.map((r) => (
+            <li key={r.id}>
+              <a href={`/api/documents/${r.id}`} target="_blank" rel="noopener">
+                {r.title}
+              </a>
+              <span className={styles.meta}>
+                {r.pages} ·{' '}
+                {r.scope === 'knowledge' ? (
+                  <Link href={p.knowledge}>Knowledge base</Link>
+                ) : r.contactId ? (
+                  <Link href={`${p.contact}/${r.contactId}?tab=documents`}>{r.contactName ?? 'Contact'}</Link>
+                ) : (
+                  'A listing'
+                )}
               </span>
               {r.snippet ? <q className={styles.meta}>{r.snippet}</q> : null}
             </li>

@@ -68,6 +68,8 @@ Nothing below is optional for production. Each line names what proves it is done
       address set (`ALERT_*`/sender variables).
 - [ ] **Inbound**: MX for `MAIL_INBOUND_DOMAIN` pointing at Resend Inbound, `MAIL_REPLY_SECRET`
       set; a reply to a console email lands back in its thread.
+- [ ] **Documents** (ADR 0053): migration 0061 applied, the private `documents` bucket made as in
+      "Documents and the knowledge base" below, `/api/cron/documents` answering 200 to the cron.
 - [ ] `EMAIL_DEV_ALLOWLIST` is **ignored** in production (it is) — and `NODE_ENV=production`
       is really set, which is what makes it ignored.
 - [ ] `EMAIL_REPEAT_DAYS` is **7 or more** in production (or unset = 7). `0` is a testing
@@ -253,6 +255,69 @@ never the main domain, whose mail lives elsewhere.
 4. Run migrations 0016–0018 before deploying the code that reads them.
 5. Check: send a reply from `/inbox`, answer it from Gmail, and it appears in the
    thread within seconds. Each agency's own address is shown on its `/inbox`.
+
+#### Production, step by step (own subdomain + webhook)
+
+Sending stays on the verified `alerts@quotemydecking.com.au`; only RECEIVING gets a subdomain.
+
+1. **Resend → Domains → `quotemydecking.com.au` → Receiving → Enable** on a subdomain, e.g.
+   `reply.quotemydecking.com.au` (never the bare domain — its own mail lives elsewhere).
+   Resend shows one **MX** record (host `reply`, priority 10). Add it at the DNS host exactly as
+   shown, wait until Resend says *Verified*.
+2. **Resend → Webhooks → Add endpoint**: URL `https://<web host>/api/mail/inbound`,
+   event **`email.received`**. Copy its signing secret (`whsec_…`).
+3. **The same secret value in both projects** (console signs the Reply-To, web reads it back):
+
+       cd apps/web     && vercel link      # once, pick the web project
+       openssl rand -hex 32                # → the reply secret; keep it in the password manager
+       printf '%s' 'reply.quotemydecking.com.au' | vercel env add MAIL_INBOUND_DOMAIN production
+       printf '%s' '<the hex>'                   | vercel env add MAIL_REPLY_SECRET production
+       printf '%s' 'whsec_…'                     | vercel env add RESEND_WEBHOOK_SECRET production
+       cd ../console   && vercel link      # once, pick the console project
+       printf '%s' 'reply.quotemydecking.com.au' | vercel env add MAIL_INBOUND_DOMAIN production
+       printf '%s' '<the same hex>'              | vercel env add MAIL_REPLY_SECRET production
+
+   Then redeploy both (`vercel --prod`, or Redeploy in the dashboard): env changes reach only new
+   deployments.
+4. **Check**: send a reply from `/inbox`; the email's Reply-To must be
+   `t+<thread>.<sig>@reply.quotemydecking.com.au`. Answer it from Gmail — it lands in the same
+   thread within seconds (webhook), or within 5 minutes (the cron pull) if the webhook is not set.
+   Resend → Webhooks shows each delivery and its HTTP status; a 401 there is a wrong
+   `RESEND_WEBHOOK_SECRET`.
+5. **Attachments** on those replies become documents on the thread's contact (ADR 0053 §7) once
+   the documents section below is set up — nothing more to configure here.
+
+### Documents and the knowledge base (console + web cron; docs/adr/0053)
+
+1. **Migration 0061** before deploying the code that reads it (`pnpm db:migrate`).
+2. **A PRIVATE bucket** — Supabase → Storage → New bucket: name `documents`, **Public: off**,
+   file size limit **25 MB**, allowed MIME types:
+   `application/pdf, image/jpeg, image/png, image/webp,
+   application/vnd.openxmlformats-officedocument.wordprocessingml.document, text/plain,
+   text/markdown, text/csv`. Add **no** policies: the service key is the only way in, and every
+   read is a 60-second signed link handed out after the visibility rule.
+3. **Environment** (both projects unless said):
+
+       SUPABASE_SERVICE_ROLE_KEY            Already set for photos. Required.
+       SUPABASE_DOCUMENTS_BUCKET            Default `documents`.
+       ANTHROPIC_API_KEY  (web)             Reads scans and photos. Unset: text PDFs, Word and
+                                            text files are still read; scans are marked
+                                            "reading is not switched on".
+       ANTHROPIC_DOCUMENT_MODEL (web)       Default claude-opus-5-5. Must be a model priced in
+                                            packages/ai/src/models.ts.
+       DOCUMENTS_VISION (web)               `off` switches scan reading off.
+       DOCUMENTS_VISION_DAILY_BUDGET_USD_PER_AGENCY (web)   Default 1. Trailing 24 h.
+       EMBEDDINGS_PROVIDER / VOYAGE_API_KEY (web)            As for search (ADR 0031); unset
+                                            = documents are found by words only.
+       RESEND_API_KEY (web)                 Already set. Fetches inbound attachments.
+
+4. **The cron** `/api/cron/documents` is in `apps/web/vercel.json` (every 5 minutes, same
+   `CRON_SECRET`). It declares `maxDuration = 300`, which needs **fluid compute** (on by default
+   for new projects: Project → Settings → Functions). Manual run:
+   `curl -H "Authorization: Bearer $CRON_SECRET" https://<web host>/api/cron/documents`.
+5. **Check** (TEST-PLAN **BG**): drop a PDF on a contact's Documents tab → "Reading…" → "Ready"
+   within 5 minutes; ask the assistant about something on page 2 → it names the document and
+   the page.
 
 ### Integrations — the token key (console project; docs/adr/0020)
 

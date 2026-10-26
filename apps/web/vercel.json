@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/minute",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/documents",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

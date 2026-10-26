@@ -1,3 +1,16 @@
+## 2026-10-26 — Claude Code — ADR 0053: documents, knowledge base, inbound attachments (branch feat/documents)
+
+- The user (pasted brief, English): plan, then build, inbound email + documents/knowledge base (full stack) first;
+  proactive opportunities (Feature 2) after. Found inbound email was ALREADY built (ADR 0016) and only needs DNS/env — wrote
+  the exact production steps in DEPLOY.md; the real gap was attachments, now stored as documents.
+- Chunks got their own table rather than search_embedding: answers need the chunk text and its pages. The tick has its own
+  route (maxDuration 300) because one scan read can outlast the 60 s ticks; a spent reading budget parks a document for an
+  hour (`waiting_until`) so it cannot block other agencies.
+- The documents barrel leaves the tick out (`@repo/core/documents/tick`) so pages never load the PDF/Word readers.
+- Then the go: 0061 applied (62 recorded), SQL checked on the real DB (rolled back / reads only), committed. No smoke check, no browser walk.
+- Next exact step: the user's go → `pnpm db:migrate`; create the private bucket; env per DEPLOY.md; walk TEST-PLAN BG;
+  then Feature 2 (opportunity table 0062, detectors, panel + bell).
+
 ## 2026-10-21 — Claude Code — ADR 0052: admin dashboard, online, email, user block (branch feat/platform-admin)
 
 - The user: a dashboard (agencies, agents, users, online, recent members), email to agency/agent/user, block users too.

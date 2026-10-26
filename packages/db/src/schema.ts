@@ -685,8 +685,13 @@ export const mailMessage = pgTable(
      * only the signed Reply-To is.
      */
     rfcMessageId: text('rfc_message_id'),
-    /** `[{ filename, contentType, size }]` — listed, not stored (ADR 0016, Not done). */
+    /** `[{ filename, contentType, size }]` — what arrived. The files themselves become `document` rows (ADR 0053 §7). */
     attachments: jsonb('attachments').notNull().default(sql`'[]'::jsonb`),
+    /**
+     * When the document tick fetched this inbound message's attachments from Resend and stored
+     * the ones it keeps (ADR 0053 §7). Set once, whatever was kept, so a message is tried once.
+     */
+    attachmentsStoredAt: timestamp('attachments_stored_at', { withTimezone: true }),
     /** Why a send failed. Never shown to the buyer. */
     error: text('error'),
     /**
@@ -2400,6 +2405,95 @@ export const searchEmbedding = pgTable(
   ],
 );
 
+// ── Documents and the knowledge base (docs/adr/0053) ───────────────────────
+
+/**
+ * A file the agency keeps: a contract on a contact, a report on a listing's property, or a page
+ * of the agency's own knowledge base. The bytes are in a PRIVATE bucket under `storage_key`;
+ * this row is what decides who may see them (`documentScopeFilters`, ADR 0053 §3).
+ */
+export const document = pgTable(
+  'document',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    /** `record` (on a contact / a listing's property) or `knowledge` (the agency's own). */
+    scope: varchar('scope', { length: 16 }).notNull().default('record'),
+    contactId: uuid('contact_id').references(() => contact.id, { onDelete: 'cascade' }),
+    propertyId: uuid('property_id').references(() => property.id, { onDelete: 'set null' }),
+    listingId: uuid('listing_id').references(() => listing.id, { onDelete: 'set null' }),
+    leadId: uuid('lead_id').references(() => lead.id, { onDelete: 'set null' }),
+    /** The inbound email it arrived on, when it was an attachment. */
+    mailMessageId: uuid('mail_message_id').references(() => mailMessage.id, { onDelete: 'set null' }),
+    /** Null when it arrived by email. */
+    uploadedBy: uuid('uploaded_by').references(() => user.id, { onDelete: 'set null' }),
+    title: text('title').notNull(),
+    /** contract | report | proposal | form | policy | procedure | script | template | photo | other */
+    kind: varchar('kind', { length: 16 }).notNull().default('other'),
+    storageKey: text('storage_key').notNull(),
+    mimeType: varchar('mime_type', { length: 128 }).notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    /** Owners/admins and the uploader only (like a private note). Attachments from an offer's thread are. */
+    isPrivate: boolean('is_private').notNull().default(false),
+    /** pending → extracting → ready | failed. */
+    status: varchar('status', { length: 16 }).notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    /** Not claimed again before this — set while the agency's daily reading budget is spent. */
+    waitingUntil: timestamp('waiting_until', { withTimezone: true }),
+    /** Why it could not be read, in a sentence for the person. */
+    error: text('error'),
+    /** `text` (a PDF's own text layer), `docx`, `plain` or `vision` (read by the model). */
+    extractedVia: varchar('extracted_via', { length: 16 }),
+    /** The words, page by page, with a form feed (`\f`) between pages. */
+    extractedText: text('extracted_text'),
+    pageCount: integer('page_count'),
+    extractedAt: timestamp('extracted_at', { withTimezone: true }),
+    /** Hidden everywhere; the file is removed after the row. */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index('document_contact_idx').on(t.contactId, desc(t.createdAt)),
+    index('document_listing_idx').on(t.listingId, desc(t.createdAt)),
+    index('document_agency_scope_idx').on(t.agencyId, t.scope, desc(t.createdAt)),
+    index('document_pending_idx').on(t.status, t.createdAt).where(sql`status in ('pending', 'extracting')`),
+    uniqueIndex('document_storage_key_idx').on(t.storageKey),
+  ],
+);
+
+/**
+ * One searchable piece of a document (ADR 0053 §5): its own words and the pages they came from,
+ * so an answer can say "page 4". Full-text always; a vector when embeddings are on.
+ */
+export const documentChunk = pgTable(
+  'document_chunk',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => document.id, { onDelete: 'cascade' }),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    chunkIndex: integer('chunk_index').notNull(),
+    pageFrom: integer('page_from').notNull(),
+    pageTo: integer('page_to').notNull(),
+    text: text('text').notNull(),
+    searchTsv: tsvector('search_tsv').generatedAlwaysAs(sql`to_tsvector('english', coalesce(text, ''))`),
+    model: varchar('model', { length: 64 }),
+    embedding: vector('embedding', { dimensions: 1024 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('document_chunk_doc_idx').on(t.documentId, t.chunkIndex),
+    index('document_chunk_agency_idx').on(t.agencyId),
+    index('document_chunk_search_idx').using('gin', t.searchTsv),
+    index('document_chunk_vector_idx').using('hnsw', t.embedding.op('vector_cosine_ops')),
+  ],
+);
+
 // ── The platform admin console (docs/adr/0049) ─────────────────────────────
 
 /**
@@ -2583,3 +2677,5 @@ export type ListingImport = typeof listingImport.$inferSelect;
 export type ListingImportRow = typeof listingImportRow.$inferSelect;
 export type AgencyGooglePlace = typeof agencyGooglePlace.$inferSelect;
 export type SearchEmbedding = typeof searchEmbedding.$inferSelect;
+export type Document = typeof document.$inferSelect;
+export type DocumentChunk = typeof documentChunk.$inferSelect;
