@@ -15,6 +15,7 @@ export const OPPORTUNITY_KIND_LABELS: Record<OpportunityKind, string> = {
   unanswered_mail: 'Waiting for a reply',
   appraisal_follow_up: 'Appraisal follow-up',
   repeat_interest: 'Actively looking',
+  buyer_match: 'New listing match',
 };
 
 type Facts = Record<string, unknown>;
@@ -77,6 +78,24 @@ export function describeOpportunity(kind: string, facts: Facts, timeZone = 'Aust
         title: `${name} is actively looking`,
         detail: `${n} enquiries in the last 30 days, the latest on ${formatDay(facts.latestAt, timeZone)}.`,
         ask: `This contact made ${n} enquiries in the last 30 days. Summarise what they asked about and suggest a next step.`,
+      };
+    }
+    case 'buyer_match': {
+      const address = str(facts.address) ?? 'A new listing';
+      const beds = num(facts.bedrooms);
+      const baths = num(facts.bathrooms);
+      const type = str(facts.propertyType);
+      const what = [
+        str(facts.priceDisplay) ?? 'No price shown',
+        beds !== null ? `${beds} bed` : null,
+        baths !== null ? `${baths} bath` : null,
+        type ? type.charAt(0).toUpperCase() + type.slice(1) : null,
+      ].filter(Boolean);
+      return {
+        title: `${address} fits what ${name} is looking for`,
+        detail: `${what.join(' · ')} — live ${formatDay(facts.publishedAt, timeZone)}.${str(facts.brief) ? ` Their brief: ${str(facts.brief)}.` : ''}`,
+        // The address is the agency's own record; the headline and the price wording stay out of the prompt.
+        ask: `A new listing at ${address} matches what this contact is looking for. Draft a short email telling them about it and offering an inspection.`,
       };
     }
     default:

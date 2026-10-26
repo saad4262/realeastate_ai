@@ -1539,3 +1539,17 @@ Needs migration **0063**. Deploy only after it is applied: the contact page's co
 | BI10 | Merge a duplicate that had requirements into this contact | Its requirements now show here. |
 | BI11 | An agent submits a listing for approval; an admin approves it from the listings table (bulk Approve) | The listing goes live AND a `listing.status_changed` workflow fires — e.g. a workflow "when a listing goes live → task" now runs for an approved listing (before ADR 0055 it did not). |
 | BI12 | Phone width | The form's two-column rows stack; nothing scrolls sideways. |
+
+### BI — part 2: new listings matched to briefs (`buyer_match`, ADR 0055 §6)
+
+Run the opportunity cron by hand after each step: `curl -H "Authorization: Bearer $CRON_SECRET" https://<web host>/api/cron/opportunities`.
+
+| # | Case | Expected |
+|---|---|---|
+| BI13 | Agent A's contact has a brief: Buying, up to $900,000, 2+ bed, the suburb of a listing about to go live. Publish (or approve) that listing at $810,000, 2 bed; run the cron | Agent A's bell: "… fits what <name> is looking for". Panel row "New listing match": price, beds, baths, type, the day it went live, and "Their brief: …". Open → the contact's Requirements tab; "The listing ↗" → the public ad. |
+| BI14 | Run the cron again | `created: 0` — told once. Edit the brief (still matching) → still nothing new. |
+| BI15 | Briefs that should NOT match: highest price below the listing's; another suburb; more bedrooms than it has; Renting for a sale listing; a paused brief | No opportunity for any of them. |
+| BI16 | A listing advertised "Contact agent" (no price) vs a brief with a budget | No match. The same listing vs a brief with no price bounds → a match, shown as "No price shown". |
+| BI17 | The contact enquired about that listing before the cron ran | No match — they already know of it. |
+| BI18 | Another agent, an admin, another agency | Only the contact's assigned agent sees it. |
+| BI19 | A listing that went live 8+ days ago | Never matched to a brief created today. |

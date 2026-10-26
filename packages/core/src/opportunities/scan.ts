@@ -18,7 +18,7 @@ import { describeOpportunity } from './describe';
 export const EXPIRE_AFTER_DAYS = 30;
 export const MAX_NEW_PER_USER = 10;
 /** Most time-critical first, when a person's cap is reached. */
-export const KIND_ORDER: readonly OpportunityKind[] = ['unanswered_mail', 'appraisal_follow_up', 'repeat_interest', 'sale_anniversary', 'cold_contact'];
+export const KIND_ORDER: readonly OpportunityKind[] = ['unanswered_mail', 'buyer_match', 'appraisal_follow_up', 'repeat_interest', 'sale_anniversary', 'cold_contact'];
 
 export type OpportunityScanReport = {
   expired: number;

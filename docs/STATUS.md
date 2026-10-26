@@ -1,4 +1,14 @@
 # Status
+- **Smart buyer matching (ADR 0055 §6, 2026-10-26) — committed on `feat/documents` (not pushed). No migration.**
+  New opportunity kind `buyer_match` (`opportunities/detectors.ts`): the agency's own listings live within 7 days,
+  same channel, price ranges overlap (no stated price → no match when the brief has a budget), beds/baths at least,
+  suburb/type in the brief, not already enquired; recipient = the contact's assignee. Key brief+listing (told once).
+  Ranked 2nd in KIND_ORDER. Template in describe.ts (brief summary kept in facts); panel: Open → Requirements tab,
+  "The listing ↗" → public ad. Checks: core 1310 pass (3 = the pre-existing Windows tests); typecheck core/ai/console
+  clean; console lint 0; build compiles. Real DB: read-only run OK (~0.7 s warm, like the other detectors); in ONE
+  rolled-back tx a fitting brief matched a real live listing, under-budget / other suburb / more beds / other
+  channel / paused / already-enquired did not, the full scan created it and a second scan created 0. TEST-PLAN BI13–19.
+  **Next:** walk BI13–19; Feature 3 (AI contact import) in progress.
 - **Buyer requirements (ADR 0055, 2026-10-26) — committed on `feat/documents` (not pushed). Migration 0063 APPLIED 2026-10-26 at the user's go (64 recorded with 0062; RLS on, no anon/authenticated grants).**
   `buyer_requirement` (typed: channel, price_min/max, min_bedrooms/bathrooms, suburbs[], property_types[], note,
   status active/paused; ≤ 10 per contact). Core `contacts/buyer-requirements.ts` (list/create/update/setStatus/delete),
@@ -10,7 +20,7 @@
   check replayed with CRLF normalised); break-tests red (approval event; contact:update guard); typecheck core/ai/
   console/web clean; console lint 0; console build compiles. 0062 + 0063 + every new write (create/list/edit/pause/counts/delete, approveListings → its event) run first in ONE rolled-back transaction on the real DB (OK). TEST-PLAN **BI**.
   Both tables are live, so deploying this code is safe now.
-  **Next:** Feature 2 — the `buyer_match` opportunity detector (in progress); then walk BH + BI.
+  **Next:** walk BH + BI (BI13–19 = matching).
 - **Proactive opportunities (ADR 0054, 2026-10-26) — committed on `feat/documents` with ADR 0055 (not pushed). Migration 0062 APPLIED 2026-10-26.**
   `opportunity` (one row per agency + dedupe_key; status open/done/dismissed/expired). Five SQL detectors
   (`opportunities/detectors.ts`): sale anniversary (5/10 years, owner or vendor), cold contact (90 days), unanswered

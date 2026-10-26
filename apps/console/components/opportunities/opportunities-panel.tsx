@@ -17,6 +17,8 @@ export async function OpportunitiesPanel({ actor, surface }: { actor: Actor; sur
   const home = surface === 'agency' ? '/overview' : '/assistant';
   const contacts = surface === 'agency' ? '/customers' : '/my-contacts';
   const inbox = surface === 'agency' ? '/inbox' : '/my-inbox';
+  // A matched listing is live, so its public page opens for anyone — unlike the console's listing editor.
+  const webUrl = process.env.NEXT_PUBLIC_WEB_URL ?? 'http://web.lvh.me:3000';
 
   return (
     <section id="opportunities" className={styles.card} aria-labelledby="opportunities-title">
@@ -36,7 +38,7 @@ export async function OpportunitiesPanel({ actor, surface }: { actor: Actor; sur
               ? `${contacts}/${o.contactId}?tab=emails&thread=${o.threadId}`
               : `${inbox}?thread=${o.threadId}`
             : o.contactId
-              ? `${contacts}/${o.contactId}`
+              ? `${contacts}/${o.contactId}${o.kind === 'buyer_match' ? '?tab=requirements' : ''}`
               : null;
           const ask = `${home}?${new URLSearchParams({ ...(o.contactId ? { contact: o.contactId } : {}), ask: o.ask }).toString()}`;
           return (
@@ -50,6 +52,11 @@ export async function OpportunitiesPanel({ actor, surface }: { actor: Actor; sur
                     <Link href={open} className={styles.link}>
                       Open
                     </Link>
+                  ) : null}
+                  {o.kind === 'buyer_match' && o.listingId ? (
+                    <a href={`${webUrl}/listing/${o.listingId}`} target="_blank" rel="noopener" className={styles.link}>
+                      The listing ↗
+                    </a>
                   ) : null}
                   <Link href={ask} className={styles.link}>
                     Ask the assistant

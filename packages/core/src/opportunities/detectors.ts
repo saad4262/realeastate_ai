@@ -1,5 +1,6 @@
 import { sql, type SQL } from 'drizzle-orm';
 import type { DbOrTx } from '@repo/db';
+import { describeRequirement, type RequirementChannel } from '../contacts/contact-schema';
 import { SUSPENDED_AGENCY_IDS } from '../platform/access';
 
 /**
@@ -12,7 +13,7 @@ import { SUSPENDED_AGENCY_IDS } from '../platform/access';
  * not an active member of that agency today.
  */
 
-export const OPPORTUNITY_KINDS = ['sale_anniversary', 'cold_contact', 'unanswered_mail', 'appraisal_follow_up', 'repeat_interest'] as const;
+export const OPPORTUNITY_KINDS = ['sale_anniversary', 'cold_contact', 'unanswered_mail', 'appraisal_follow_up', 'repeat_interest', 'buyer_match'] as const;
 export type OpportunityKind = (typeof OPPORTUNITY_KINDS)[number];
 
 /** The thresholds (v1: constants, not settings). */
@@ -27,6 +28,8 @@ export const RULES = {
   appraisalWithinDays: 30,
   repeatEnquiries: 3,
   repeatWithinDays: 30,
+  /** A listing first live within this many days is "new" to a buyer's brief (ADR 0055 §6). */
+  buyerMatchWithinDays: 7,
 } as const;
 
 /** Per detector per scan, across every agency. */
@@ -243,10 +246,99 @@ export async function detectRepeatInterest(db: DbOrTx): Promise<Detected[]> {
   }));
 }
 
+/**
+ * A listing that went live in the last 7 days and fits an active buyer's brief (ADR 0055 §6), for
+ * the agent the buyer is assigned to. Every bound is compared in SQL against the typed columns —
+ * nothing is parsed out of words, and no model ranks anything (#4):
+ *
+ *   - same agency, same channel (a buying brief meets sale listings, a renting one rent listings);
+ *   - price: the listing's range overlaps the brief's (rent: `rent_pw` against the weekly bounds).
+ *     A listing with no price stated does NOT match a brief that has a budget — an auction with no
+ *     guide could be any price, and a wrong alert costs the agent's trust in all of them;
+ *   - bedrooms / bathrooms at least the brief's; unknown on the property → no match when bounded;
+ *   - suburb among the brief's (case-insensitive), and type among its types — an empty list is any;
+ *   - not a listing this contact has already enquired about: they know of it.
+ *
+ * The key is the brief and the listing: one alert per pair, ever — editing the brief does not
+ * repeat it, a newly matching listing is a new one.
+ */
+export async function detectBuyerMatches(db: DbOrTx): Promise<Detected[]> {
+  const rows = await db.execute<{
+    agency_id: string; user_id: string; contact_id: string; contact_name: string; requirement_id: string; listing_id: string;
+    br_channel: string; br_price_min: string | null; br_price_max: string | null; br_min_bedrooms: number | null;
+    br_min_bathrooms: string | null; br_suburbs: string[]; br_property_types: string[];
+    address: string; price_display: string | null; bedrooms: number | null; bathrooms: string | null;
+    property_type: string | null; published_at: string;
+  }>(sql`
+    select br.agency_id, c.assigned_to as user_id, c.id as contact_id, c.name as contact_name,
+      br.id as requirement_id, li.id as listing_id,
+      br.channel::text as br_channel, br.price_min::text as br_price_min, br.price_max::text as br_price_max,
+      br.min_bedrooms as br_min_bedrooms, br.min_bathrooms::text as br_min_bathrooms,
+      br.suburbs as br_suburbs, br.property_types as br_property_types,
+      concat_ws(', ', nullif(trim(concat(case when p.unit is not null then p.unit || '/' end, concat_ws(' ', p.street_number, p.street))), ''), p.suburb) as address,
+      li.price_display, p.bedrooms, p.bathrooms::text as bathrooms, p.property_type, li.published_at
+    from buyer_requirement br
+    join contact c on c.id = br.contact_id and c.agency_id = br.agency_id
+    join listing li on li.agency_id = br.agency_id and li.channel::text = br.channel::text
+    join property p on p.id = li.property_id
+    -- The listing's price as one range: [low, high]. Sale reads price_from / price_to; rent reads rent_pw.
+    cross join lateral (
+      select
+        case when li.channel = 'rent' then li.rent_pw else coalesce(li.price_from, li.price_to) end as low,
+        case when li.channel = 'rent' then li.rent_pw else coalesce(li.price_to, li.price_from) end as high
+    ) pr
+    where br.status = 'active'
+      and li.status = 'live' and li.published_at > now() - make_interval(days => ${RULES.buyerMatchWithinDays})
+      and c.assigned_to is not null and c.archived_at is null and c.merged_into_id is null
+      and (br.price_min is null or (pr.high is not null and pr.high >= br.price_min))
+      and (br.price_max is null or (pr.low is not null and pr.low <= br.price_max))
+      and (br.min_bedrooms is null or p.bedrooms >= br.min_bedrooms)
+      and (br.min_bathrooms is null or p.bathrooms >= br.min_bathrooms)
+      and (cardinality(br.suburbs) = 0 or exists (select 1 from unnest(br.suburbs) s where lower(s) = lower(p.suburb)))
+      and (cardinality(br.property_types) = 0 or lower(p.property_type) = any (br.property_types))
+      and not exists (select 1 from lead l where l.contact_id = c.id and l.listing_id = li.id)
+      and ${recipientOk(sql`c.assigned_to`, sql`br.agency_id`)}
+    order by li.published_at desc
+    limit ${DETECTOR_LIMIT}`);
+  const n = (v: string | number | null) => (v === null ? null : Number(v));
+  return rows.map((r) => ({
+    kind: 'buyer_match' as const,
+    agencyId: r.agency_id,
+    userId: r.user_id,
+    contactId: r.contact_id,
+    listingId: r.listing_id,
+    leadId: null,
+    threadId: null,
+    appointmentId: null,
+    dedupeKey: `buyer_match:${r.requirement_id}:${r.listing_id}`,
+    facts: {
+      contactName: r.contact_name,
+      requirementId: r.requirement_id,
+      // The brief as it read when it matched, in the same words as the contact's Requirements tab.
+      brief: describeRequirement({
+        channel: r.br_channel as RequirementChannel,
+        priceMin: n(r.br_price_min),
+        priceMax: n(r.br_price_max),
+        minBedrooms: r.br_min_bedrooms,
+        minBathrooms: n(r.br_min_bathrooms),
+        suburbs: r.br_suburbs ?? [],
+        propertyTypes: r.br_property_types ?? [],
+      }),
+      address: r.address,
+      priceDisplay: r.price_display,
+      bedrooms: r.bedrooms,
+      bathrooms: r.bathrooms,
+      propertyType: r.property_type,
+      publishedAt: iso(r.published_at),
+    },
+  }));
+}
+
 export const DETECTORS: Record<OpportunityKind, (db: DbOrTx) => Promise<Detected[]>> = {
   sale_anniversary: detectSaleAnniversaries,
   cold_contact: detectColdContacts,
   unanswered_mail: detectUnansweredMail,
   appraisal_follow_up: detectAppraisalFollowUps,
   repeat_interest: detectRepeatInterest,
+  buyer_match: detectBuyerMatches,
 };
