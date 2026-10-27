@@ -1,6 +1,6 @@
 # 0045 — One console shell; the assistant is each console's home page
 
-**Status:** ACCEPTED, 2026-10-14 (the user: "same design on the agent side, keep the agent's own nav, logic and assistant limits").
+**Status:** ACCEPTED, 2026-10-14 (the user: "same design on the agent side, keep the agent's own nav, logic and assistant limits"). The sidebar line below is replaced by ADR 0057 (the sidebar in groups).
 
 ## Decision
 

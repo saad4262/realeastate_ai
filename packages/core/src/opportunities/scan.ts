@@ -3,6 +3,8 @@ import { membership, notification, opportunity, type Db } from '@repo/db';
 import { isAgencyAdminRole, type MembershipRole } from '../permissions';
 import { DETECTORS, OPPORTUNITY_KINDS, type Detected, type OpportunityKind } from './detectors';
 import { describeOpportunity } from './describe';
+import { SKILL_OF_OPPORTUNITY } from '../skill-switches/catalog';
+import { skillsOffFor } from '../skill-switches/switches';
 
 /**
  * The hourly opportunity scan (ADR 0054 §4), run by /api/cron/opportunities. It claims nothing:
@@ -46,6 +48,12 @@ export function pickNew(detected: Detected[], known: ReadonlySet<string>, cap = 
   return out;
 }
 
+/** Drop what a person has switched off (ADR 0058) — `off` holds `${agencyId}|${userId}|${skillKey}`. Pure. */
+export function dropSwitchedOff(detected: Detected[], off: ReadonlySet<string>): Detected[] {
+  if (!off.size) return detected;
+  return detected.filter((d) => !off.has(`${d.agencyId}|${d.userId}|${SKILL_OF_OPPORTUNITY[d.kind]}`));
+}
+
 /** Where the bell sends a person: their own assistant home. */
 export function opportunitiesHref(role: MembershipRole | null | undefined): string {
   return isAgencyAdminRole(role) ? '/overview#opportunities' : '/assistant#opportunities';
@@ -72,23 +80,28 @@ export async function runOpportunityScan(db: Db, opts: { now?: Date } = {}): Pro
   report.found = detected.length;
   if (!detected.length) return report;
 
+  // Each person's roles, then what they have switched off (ADR 0058): an off skill finds nothing for them.
+  const people = [...new Set(detected.map((d) => d.userId))];
+  const roles = await db
+    .select({ userId: membership.userId, agencyId: membership.agencyId, role: membership.role })
+    .from(membership)
+    .where(and(inArray(membership.userId, people), eq(membership.status, 'active')));
+  const roleOf = new Map(roles.map((r) => [`${r.userId}|${r.agencyId}`, r.role as MembershipRole]));
+  const off = await skillsOffFor(db, roles.map((r) => ({ agencyId: r.agencyId, userId: r.userId, role: r.role as MembershipRole })));
+  const wanted = dropSwitchedOff(detected, off);
+  if (!wanted.length) return report;
+
   // What is already recorded (open, done, dismissed or expired): one statement for all of them.
   // The candidates as ONE json parameter: Drizzle spreads a JS array into a record `($1, $2…)`, never an array.
-  const candidates = JSON.stringify(detected.map((d) => ({ agency_id: d.agencyId, dedupe_key: d.dedupeKey })));
+  const candidates = JSON.stringify(wanted.map((d) => ({ agency_id: d.agencyId, dedupe_key: d.dedupeKey })));
   const existing = await db.execute<{ agency_id: string; dedupe_key: string }>(sql`
     select o.agency_id, o.dedupe_key from opportunity o
     join jsonb_to_recordset(${candidates}::jsonb) as c(agency_id uuid, dedupe_key text)
       on c.agency_id = o.agency_id and c.dedupe_key = o.dedupe_key`);
   const known = new Set(existing.map((e) => `${e.agency_id}|${e.dedupe_key}`));
-  const fresh = pickNew(detected, known);
+  const fresh = pickNew(wanted, known);
   if (!fresh.length) return report;
 
-  const users = [...new Set(fresh.map((d) => d.userId))];
-  const roles = await db
-    .select({ userId: membership.userId, agencyId: membership.agencyId, role: membership.role })
-    .from(membership)
-    .where(and(inArray(membership.userId, users), eq(membership.status, 'active')));
-  const roleOf = new Map(roles.map((r) => [`${r.userId}|${r.agencyId}`, r.role as MembershipRole]));
   // One notification per person per scan: the hour names the scan.
   const stamp = new Date(Math.floor(now.getTime() / 3_600_000) * 3_600_000).toISOString();
 

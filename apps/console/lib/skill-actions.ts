@@ -15,6 +15,7 @@ import {
   type SkillScheduleInput,
 } from '@repo/core/skills';
 import { noticeMailFromEnv } from '@repo/core/email';
+import { isSkillKey, setSkillSwitch, SkillSwitchError } from '@repo/core/skill-switches';
 import { skillWriterFromEnv } from '@repo/ai/skills';
 import { getConsoleDb } from './db';
 import { loadActor } from './load-actor';
@@ -129,5 +130,19 @@ export async function archiveLibrarySkillAction(skillId: string): Promise<SkillA
     return { ok: true };
   } catch (err) {
     return failure(err, 'Could not archive the skill');
+  }
+}
+
+/** A platform skill's switch (ADR 0058) — the agency's for an owner or admin, otherwise the person's own. */
+export async function setSkillSwitchAction(key: string, on: boolean): Promise<SkillActionResult> {
+  const who = await actor();
+  try {
+    if (!isSkillKey(key) || typeof on !== 'boolean') return { ok: false, error: 'That is not a skill.' };
+    await setSkillSwitch(getConsoleDb(), who, key, on);
+    await refresh();
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof SkillSwitchError) return { ok: false, error: err.message };
+    return failure(err, on ? 'Could not switch the skill on' : 'Could not switch the skill off');
   }
 }

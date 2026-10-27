@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Skills Control Centre</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300..600,0..1&display=swap" rel="stylesheet" />
+<!--
+  Mock for ROADMAP Phase 1.2 — the Skills Control Centre (to become ADR 0058).
+  Colours are the console's own tokens (apps/console/app/globals.css). Every name,
+  count and workflow on this page is SAMPLE data for the mock, not an agency's.
+  The "Agency view / Agent view" switch exists only in the mock, to show both sides.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff; --surface-container-low: #eff4ff;
+    --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff;
+    --emerald: #059669; --emerald-subtle: #ecfdf5;
+    --rose: #e11d48; --rose-subtle: #fff1f2;
+    --amber: #d97706; --amber-subtle: #fffbeb;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary);
+    font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .ms { font-family: 'Material Symbols Outlined'; font-size: 20px; line-height: 1; display: inline-flex;
+    width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 400; }
+  .ms.sm { font-size: 16px; width: 16px; height: 16px; }
+  button { font: inherit; }
+
+  /* Mock-only bar */
+  .mockbar { position: sticky; top: 0; z-index: 20; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    padding: 8px 16px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+  .mockbar b { color: #fff; }
+  .seg { display: inline-flex; background: #1e293b; border-radius: 8px; padding: 2px; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; }
+
+  .shell { display: flex; min-height: calc(100vh - 36px); }
+  /* Sidebar (ADR 0057 groups, trimmed) */
+  aside { width: 240px; flex: none; border-right: 1px solid var(--border-default); padding: 16px 12px; background: var(--surface-canvas); }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 16px; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--text-primary); color: #fff; display: grid; place-items: center;
+    font: 700 12px 'Plus Jakarta Sans'; }
+  .brand small { display: block; color: var(--text-muted); font-size: 11px; }
+  .gh { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px 4px; }
+  .nl { display: flex; gap: 12px; align-items: center; padding: 7px 12px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; }
+  .nl.on { background: #fff; color: var(--sapphire); border: 1px solid var(--border-default); font-weight: 500; }
+
+  main { flex: 1; min-width: 0; padding: 28px 32px 64px; }
+  .head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  h1 { font: 600 24px/32px 'Plus Jakarta Sans'; margin: 0; letter-spacing: -.02em; }
+  .sub { color: var(--text-secondary); margin: 4px 0 0; max-width: 640px; }
+  .who { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 999px;
+    background: var(--sapphire-subtle); color: var(--sapphire); margin-top: 10px; }
+  .btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-default); background: #fff; color: var(--text-primary);
+    padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; }
+  .btn.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-default); margin: 24px 0 20px; overflow-x: auto; }
+  .tab { border: 0; background: transparent; padding: 10px 14px; cursor: pointer; color: var(--text-secondary); font-weight: 500;
+    border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+  .tab[aria-selected="true"] { color: var(--text-primary); border-color: var(--text-primary); }
+  .tab .n { font-size: 11px; color: var(--text-muted); margin-left: 4px; }
+
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+  .search { flex: 1; min-width: 200px; max-width: 320px; display: flex; gap: 8px; align-items: center; border: 1px solid var(--border-default);
+    background: #fff; border-radius: 8px; padding: 6px 10px; color: var(--text-muted); }
+  .chip { border: 1px solid var(--border-default); background: #fff; border-radius: 999px; padding: 4px 10px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .count { margin-left: auto; color: var(--text-secondary); font-size: 12px; }
+
+  .cat { margin: 22px 0 10px; display: flex; align-items: baseline; gap: 8px; }
+  .cat h2 { font: 600 15px/22px Inter; margin: 0; }
+  .cat span { color: var(--text-muted); font-size: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  .card { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 10px;
+    transition: opacity .15s, border-color .15s; }
+  .card.off { background: var(--surface-canvas); }
+  .card.off .top, .card.off p { opacity: .55; }
+  .top { display: flex; gap: 12px; align-items: flex-start; }
+  .ic { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--sapphire-subtle); color: var(--sapphire); flex: none; }
+  .t { flex: 1; min-width: 0; }
+  .t b { display: block; font-weight: 600; }
+  .card p { margin: 0; color: var(--text-secondary); font-size: 12.5px; line-height: 18px; }
+  .meta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .tag { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border-default); color: var(--text-secondary); background: #fff;
+    display: inline-flex; gap: 4px; align-items: center; }
+  .tag.g { color: var(--emerald); background: var(--emerald-subtle); border-color: #a7f3d0; }
+  .tag.y { color: var(--amber); background: var(--amber-subtle); border-color: #fde68a; }
+  .tag.ag { color: #7c3aed; background: #f5f3ff; border-color: #ddd6fe; }
+  .tag.need { color: var(--rose); background: var(--rose-subtle); border-color: #fecdd3; }
+  .foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid var(--border-default); padding-top: 10px; font-size: 12px; color: var(--text-muted); }
+  .state { color: var(--text-secondary); }
+  .state.off { color: var(--text-muted); }
+
+  /* Switch */
+  .sw { position: relative; width: 36px; height: 20px; border-radius: 999px; background: var(--border-strong); border: 0; cursor: pointer; flex: none; transition: background .15s; }
+  .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2); transition: transform .15s; }
+  .sw[aria-checked="true"] { background: var(--emerald); }
+  .sw[aria-checked="true"]::after { transform: translateX(16px); }
+  .sw:disabled { opacity: .5; cursor: not-allowed; }
+  .sw:focus-visible, .btn:focus-visible, .tab:focus-visible, .chip:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+
+  .note { display: flex; gap: 10px; align-items: flex-start; background: var(--surface-container-low); border: 1px solid #dbeafe; color: var(--text-secondary);
+    border-radius: 10px; padding: 10px 12px; font-size: 12.5px; margin-top: 18px; }
+  .note .ms { color: var(--sapphire); }
+
+  /* Ask strip */
+  .ask { margin-top: 28px; background: #fff; border: 1px solid var(--border-default); border-radius: 12px; padding: 16px; }
+  .ask h3 { margin: 0 0 10px; font: 600 15px Inter; display: flex; gap: 8px; align-items: center; }
+  .bubble { background: var(--surface-canvas); border: 1px solid var(--border-default); border-radius: 12px; padding: 8px 12px; display: inline-block; margin-bottom: 10px; }
+  .action { border: 1px solid var(--border-default); border-radius: 12px; padding: 12px; max-width: 520px; }
+  .action .row { display: flex; gap: 10px; align-items: center; }
+  .diff { margin: 8px 0 12px; font-size: 12.5px; color: var(--text-secondary); }
+  .diff s { color: var(--text-muted); }
+  .diff b { color: var(--text-primary); }
+  .action .btns { display: flex; gap: 8px; }
+  .done { color: var(--emerald); font-weight: 500; display: none; gap: 6px; align-items: center; }
+
+  /* Lists (AI skills, Automations) */
+  table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--border-default); border-radius: 12px; overflow: hidden; }
+  th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--border-default); vertical-align: middle; }
+  th { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); background: var(--surface-canvas); }
+  tr:last-child td { border-bottom: 0; }
+  td small { display: block; color: var(--text-muted); font-size: 12px; }
+  .flow { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--text-secondary); }
+  .flow .ms { color: var(--text-muted); }
+  .pill { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 999px; background: var(--emerald-subtle); color: var(--emerald); }
+  .pill.p { background: var(--amber-subtle); color: var(--amber); }
+  .tablewrap { overflow-x: auto; }
+  [hidden] { display: none !important; }
+
+  @media (max-width: 860px) {
+    aside { display: none; }
+    main { padding: 20px 16px 48px; }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <b>MOCK · sample data</b>
+  <span>Show as:</span>
+  <div class="seg" role="group" aria-label="Show as">
+    <button type="button" data-view="agency" aria-pressed="true">Agency owner / admin</button>
+    <button type="button" data-view="agent" aria-pressed="false">Agent</button>
+  </div>
+  <span style="opacity:.75">The switch is only in the mock, to show both sides.</span>
+</div>
+
+<div class="shell">
+  <aside aria-label="Sidebar">
+    <div class="brand"><div class="logo">LA</div><div><b>Harbour Realty</b><small id="side-sub">Agency</small></div></div>
+    <div class="gh">Daily work</div>
+    <div class="nl"><span class="ms">filter_alt</span>Leads</div>
+    <div class="nl"><span class="ms">mail</span>Inbox</div>
+    <div class="gh">People</div>
+    <div class="gh">Properties</div>
+    <div class="gh">Marketing</div>
+    <div class="gh">Automation</div>
+    <div class="nl on"><span class="ms" style="font-variation-settings:'FILL' 1">auto_awesome</span>Skills</div>
+    <div class="gh">Knowledge &amp; insights</div>
+    <div class="gh" data-agency-only>Money</div>
+    <div class="gh">Settings</div>
+  </aside>
+
+  <main>
+    <div class="head">
+      <div>
+        <h1>Skills</h1>
+        <p class="sub" id="lead">Everything the platform and the assistant can do for the agency. A skill that is off is off everywhere: on its page, in automations and in the assistant.</p>
+        <span class="who" id="who"><span class="ms sm">apartment</span><span>Switches here are for the whole agency</span></span>
+      </div>
+      <button type="button" class="btn primary"><span class="ms sm">chat</span>Ask the assistant</button>
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="Skills">
+      <button class="tab" role="tab" aria-selected="true" aria-controls="p-platform" id="t-platform">Platform skills <span class="n" id="n-platform"></span></button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="p-ai" id="t-ai">AI skills <span class="n">3</span></button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="p-auto" id="t-auto">Automations <span class="n" id="n-auto"></span></button>
+    </div>
+
+    <!-- PLATFORM SKILLS -->
+    <section id="p-platform" role="tabpanel" aria-labelledby="t-platform">
+      <div class="toolbar">
+        <div class="search"><span class="ms sm">search</span><span>Search skills…</span></div>
+        <button type="button" class="chip" aria-pressed="true" data-filter="all">All</button>
+        <button type="button" class="chip" aria-pressed="false" data-filter="on">On</button>
+        <button type="button" class="chip" aria-pressed="false" data-filter="off">Off</button>
+        <span class="count" id="count"></span>
+      </div>
+      <div id="cats"></div>
+      <div class="note" id="agent-note" hidden>
+        <span class="ms">shield_person</span>
+        <span><b>Every skill here works on your own data only:</b> your leads, your contacts, your emails. The agency also has <b id="hidden-n"></b> agency-only skills that read the whole agency's data. Those are never shown to agents.</span>
+      </div>
+      <div class="note" id="agency-note">
+        <span class="ms">info</span>
+        <span>Agents have their own switches for the skills they can use. They never see skills marked <span class="tag ag">Agency only</span>. A skill always works within what that person may see.</span>
+      </div>
+    </section>
+
+    <!-- AI SKILLS -->
+    <section id="p-ai" role="tabpanel" aria-labelledby="t-ai" hidden>
+      <p class="sub" style="margin:0 0 14px">Jobs the assistant runs on a schedule, in your own words. Each one is yours: others don't see its results.</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Skill</th><th>Schedule</th><th>Last run</th><th>Needs</th><th style="width:60px">On</th></tr></thead>
+        <tbody>
+          <tr><td><b>Morning brief</b><small>Today's appointments, new leads and what needs a reply.</small></td><td>Weekdays 7:00 am</td><td>Today 7:00 am · Done</td><td><span class="tag">Google Calendar</span></td><td><button class="sw" role="switch" aria-checked="true" aria-label="Morning brief"></button></td></tr>
+          <tr><td><b>Important emails</b><small>Which emails matter today, each with the email it came from.</small></td><td>Every 4 hours</td><td>11:00 am · Done</td><td>—</td><td><button class="sw" role="switch" aria-checked="true" aria-label="Important emails"></button></td></tr>
+          <tr><td><b>Template email</b><small>Send an approved template to a picked list. Runs only when you start it.</small></td><td>Manual</td><td>Yesterday · Done</td><td>—</td><td><button class="sw" role="switch" aria-checked="false" aria-label="Template email"></button></td></tr>
+        </tbody>
+      </table></div>
+      <div style="margin-top:12px"><button class="btn" type="button"><span class="ms sm">add</span>Add from library</button></div>
+    </section>
+
+    <!-- AUTOMATIONS -->
+    <section id="p-auto" role="tabpanel" aria-labelledby="t-auto" hidden>
+      <div class="toolbar">
+        <p class="sub" style="margin:0;flex:1">WHEN something happens → IF it fits → THEN do this. Ask the assistant to make one, or start from the list.</p>
+        <button class="btn primary" type="button"><span class="ms sm">add</span>New automation</button>
+      </div>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Automation</th><th>What it does</th><th>Owner</th><th>Runs (7 days)</th><th style="width:60px">On</th></tr></thead>
+        <tbody id="autos"></tbody>
+      </table></div>
+    </section>
+
+    <!-- ASK -->
+    <div class="ask">
+      <h3><span class="ms" style="color:var(--sapphire)">smart_toy</span>Or just ask the assistant</h3>
+      <div class="bubble" id="ask-q">Turn off cold contact alerts</div>
+      <div class="action" id="ask-card">
+        <div class="row"><span class="ms" style="color:var(--amber)">toggle_off</span><b>Turn a skill off</b><span class="tag" id="ask-scope" style="margin-left:auto">For the agency</span></div>
+        <div class="diff">Cold contact alerts: <s>On</s> → <b>Off</b><br/>Nothing is deleted. Turn it back on any time.</div>
+        <div class="btns" id="ask-btns">
+          <button class="btn primary" type="button" id="approve">Approve</button>
+          <button class="btn" type="button" id="cancel">Cancel</button>
+        </div>
+        <div class="done" id="ask-done"><span class="ms sm">check_circle</span>Done. Cold contact alerts are now off.</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+// scope: 'both' = agency and agents (each on their own data); 'agency' = agency only (reads the whole agency).
+// level: g = runs by itself (🟢), y = needs your approval before anything is sent or changed (🟡).
+const SKILLS = [
+  { cat: 'Communication', items: [
+    { id: 'bulk', icon: 'forward_to_inbox', name: 'Bulk email', desc: 'Email a filtered list of contacts. Respects consent and unsubscribes.', scope: 'both', level: 'y', on: true },
+    { id: 'drafts', icon: 'edit_note', name: 'AI email drafts', desc: 'The assistant writes the email. You read it, then send it.', scope: 'both', level: 'y', on: true, needs: 'Gmail' },
+  ]},
+  { cat: 'Listings', items: [
+    { id: 'copy', icon: 'description', name: 'AI listing copy', desc: 'A first draft of the listing description from its details. Goes live only after approval.', scope: 'both', level: 'y', on: true },
+  ]},
+  { cat: 'CRM & matching', items: [
+    { id: 'match', icon: 'person_search', name: 'Buyer matching', desc: "A new listing that fits a buyer's brief alerts that buyer's agent.", scope: 'both', level: 'g', on: true },
+    { id: 'import', icon: 'upload_file', name: 'AI help for imports', desc: 'Matches unusual column names and suggests fixes for failing rows.', scope: 'both', level: 'y', on: true },
+  ]},
+  { cat: 'Opportunities', sub: 'The platform spots these by itself and puts them in front of the right agent.', items: [
+    { id: 'anniv', icon: 'cake', name: 'Sale anniversaries', desc: 'A home sold 5 or 10 years ago: a reason to call the owner.', scope: 'both', level: 'g', on: true },
+    { id: 'cold', icon: 'ac_unit', name: 'Cold contact alerts', desc: 'A buyer or seller with nothing in 90 days.', scope: 'both', level: 'g', on: true },
+    { id: 'unans', icon: 'mark_email_unread', name: 'Unanswered emails', desc: 'An email from a client with no reply after 48 hours.', scope: 'both', level: 'g', on: true },
+    { id: 'appr', icon: 'real_estate_agent', name: 'Appraisal follow-ups', desc: 'An appraisal 3–30 days ago with nothing since.', scope: 'both', level: 'g', on: true },
+    { id: 'repeat', icon: 'replay', name: 'Repeat interest', desc: 'Someone who keeps enquiring on listings.', scope: 'both', level: 'g', on: false },
+  ]},
+  { cat: 'Insights', items: [
+    { id: 'dash', icon: 'dashboard', name: 'Dashboards', desc: 'Ask for a dashboard in words and get a link you can keep open.', scope: 'both', level: 'g', on: true },
+    { id: 'perf', icon: 'monitoring', name: 'Agency performance answers', desc: '"How did we do this quarter?" across every agent and listing.', scope: 'agency', level: 'g', on: true },
+    { id: 'activity', icon: 'groups', name: 'Team activity', desc: "Who did what this week, from each agent's records.", scope: 'agency', level: 'g', on: true },
+  ]},
+  { cat: 'Knowledge & team', items: [
+    { id: 'kb', icon: 'menu_book', name: 'Answers from the knowledge base', desc: "The assistant answers from the agency's procedures and documents, and says which one.", scope: 'both', level: 'g', on: true },
+    { id: 'meet', icon: 'video_call', name: 'Team meetings', desc: 'Book a meeting with colleagues, with a Zoom link.', scope: 'both', level: 'y', on: true, needs: 'Zoom' },
+    { id: 'team', icon: 'manage_accounts', name: 'Team management by the assistant', desc: 'Invite, change or remove an agent by asking.', scope: 'agency', level: 'y', on: false },
+  ]},
+];
+const AUTOS = [
+  { name: 'Welcome a new buyer lead', when: 'New lead (buyer)', then: 'Send "Welcome" template', owner: 'Agency', runs: 14, on: true },
+  { name: 'Nudge after 3 days of silence', when: 'No reply for 3 days', then: 'Remind the lead owner', owner: 'Sarah K.', runs: 6, on: true, agent: true },
+  { name: 'Note the owner when a listing sells', when: 'Listing status → Sold', then: 'Add note to the owner', owner: 'Agency', runs: 2, on: false },
+  { name: 'After-hours enquiry', when: 'New lead, 6 pm – 8 am', then: 'Draft a reply for approval', owner: 'Sarah K.', runs: 3, on: true, agent: true },
+];
+
+let view = 'agency', filter = 'all';
+// The agent's switches are their own, separate from the agency's.
+const agentOn = {};
+SKILLS.forEach(c => c.items.forEach(s => { agentOn[s.id] = s.on; }));
+
+function isOn(s) { return view === 'agency' ? s.on : agentOn[s.id]; }
+
+function render() {
+  const cats = document.getElementById('cats');
+  cats.innerHTML = '';
+  let total = 0, onN = 0, hidden = 0;
+  for (const c of SKILLS) {
+    const items = c.items.filter(s => {
+      if (view === 'agent' && s.scope === 'agency') { hidden++; return false; }
+      return true;
+    });
+    items.forEach(s => { total++; if (isOn(s)) onN++; });
+    const shown = items.filter(s => filter === 'all' || (filter === 'on') === isOn(s));
+    if (!shown.length) continue;
+    const h = document.createElement('div');
+    h.className = 'cat';
+    h.innerHTML = `<h2>${c.cat}</h2>${c.sub ? `<span>${c.sub}</span>` : ''}`;
+    cats.appendChild(h);
+    const g = document.createElement('div');
+    g.className = 'grid';
+    for (const s of shown) {
+      const on = isOn(s);
+      const card = document.createElement('div');
+      card.className = 'card' + (on ? '' : ' off');
+      card.innerHTML = `
+        <div class="top"><div class="ic"><span class="ms">${s.icon}</span></div>
+          <div class="t"><b>${s.name}</b></div>
+          <button class="sw" role="switch" aria-checked="${on}" aria-label="${s.name}" data-id="${s.id}"></button></div>
+        <p>${s.desc}</p>
+        <div class="meta">
+          ${s.level === 'g' ? '<span class="tag g"><span class="ms sm">bolt</span>Runs by itself</span>' : '<span class="tag y"><span class="ms sm">how_to_reg</span>Needs your approval</span>'}
+          ${s.scope === 'agency' ? '<span class="tag ag"><span class="ms sm">apartment</span>Agency only</span>' : ''}
+          ${s.needs ? `<span class="tag"><span class="ms sm">hub</span>Needs ${s.needs}</span>` : ''}
+        </div>
+        <div class="foot"><span class="state ${on ? '' : 'off'}">${on ? 'On' : 'Off: the assistant and automations won’t use it'}</span>
+          <span>${view === 'agency' ? 'Changed by Priya M. · 3 days ago' : 'Your switch'}</span></div>`;
+      g.appendChild(card);
+    }
+    cats.appendChild(g);
+  }
+  document.getElementById('count').textContent = `${onN} of ${total} on`;
+  document.getElementById('n-platform').textContent = total;
+  document.getElementById('hidden-n').textContent = hidden;
+  document.getElementById('agent-note').hidden = view !== 'agent';
+  document.getElementById('agency-note').hidden = view !== 'agency';
+
+  const autos = AUTOS.filter(a => view === 'agency' || a.agent);
+  document.getElementById('n-auto').textContent = autos.length;
+  document.getElementById('autos').innerHTML = autos.map((a, i) => `
+    <tr><td><b>${a.name}</b><small>${a.on ? '<span class="pill">Active</span>' : '<span class="pill p">Paused</span>'}</small></td>
+      <td><span class="flow"><span>${a.when}</span><span class="ms sm">arrow_forward</span><span>${a.then}</span></span></td>
+      <td>${view === 'agent' ? 'You' : a.owner}</td><td>${a.runs}</td>
+      <td><button class="sw" role="switch" aria-checked="${a.on}" aria-label="${a.name}" data-auto="${i}"></button></td></tr>`).join('');
+}
+
+document.addEventListener('click', e => {
+  const sw = e.target.closest('.sw');
+  if (sw && sw.dataset.id) {
+    for (const c of SKILLS) for (const s of c.items) if (s.id === sw.dataset.id) {
+      if (view === 'agency') s.on = !s.on; else agentOn[s.id] = !agentOn[s.id];
+    }
+    render(); return;
+  }
+  if (sw && sw.dataset.auto) { AUTOS[+sw.dataset.auto].on = !AUTOS[+sw.dataset.auto].on; render(); return; }
+  if (sw) { sw.setAttribute('aria-checked', sw.getAttribute('aria-checked') !== 'true'); return; }
+
+  const v = e.target.closest('[data-view]');
+  if (v) {
+    view = v.dataset.view;
+    document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-pressed', b === v));
+    document.getElementById('side-sub').textContent = view === 'agency' ? 'Agency' : 'Agent desk';
+    document.querySelectorAll('[data-agency-only]').forEach(n => n.hidden = view !== 'agency');
+    document.getElementById('who').innerHTML = view === 'agency'
+      ? '<span class="ms sm">apartment</span><span>Switches here are for the whole agency</span>'
+      : '<span class="ms sm">person</span><span>Your own switches: they change only what runs for you</span>';
+    document.getElementById('lead').textContent = view === 'agency'
+      ? 'Everything the platform and the assistant can do for the agency. A skill that is off is off everywhere: on its page, in automations and in the assistant.'
+      : 'What the platform and the assistant do for you. Turn on what helps, turn off what doesn’t. It changes only your own work.';
+    document.getElementById('ask-scope').textContent = view === 'agency' ? 'For the agency' : 'For you';
+    resetAsk(); render(); return;
+  }
+  const f = e.target.closest('[data-filter]');
+  if (f) { filter = f.dataset.filter; document.querySelectorAll('[data-filter]').forEach(b => b.setAttribute('aria-pressed', b === f)); render(); return; }
+
+  const t = e.target.closest('[role=tab]');
+  if (t) {
+    document.querySelectorAll('[role=tab]').forEach(x => x.setAttribute('aria-selected', x === t));
+    document.querySelectorAll('[role=tabpanel]').forEach(p => p.hidden = p.id !== t.getAttribute('aria-controls'));
+    return;
+  }
+  if (e.target.closest('#approve')) {
+    for (const c of SKILLS) for (const s of c.items) if (s.id === 'cold') { if (view === 'agency') s.on = false; else agentOn.cold = false; }
+    document.getElementById('ask-btns').style.display = 'none';
+    document.getElementById('ask-done').style.display = 'inline-flex';
+    render(); return;
+  }
+  if (e.target.closest('#cancel')) { document.getElementById('ask-card').style.opacity = .5; document.getElementById('ask-btns').style.display = 'none'; }
+});
+function resetAsk() {
+  document.getElementById('ask-btns').style.display = 'flex';
+  document.getElementById('ask-done').style.display = 'none';
+  document.getElementById('ask-card').style.opacity = 1;
+}
+render();
+</script>
+</body>
+</html>

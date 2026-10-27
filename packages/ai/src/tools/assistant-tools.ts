@@ -7,6 +7,7 @@ import { DATASET_IDS, DATASETS, SPEC_RANGES, TIME_UNITS, VIZ } from '@repo/core/
 import { OPEN_FORMATS, OPEN_VIZ, QUERY_MAX_CHARS } from '@repo/core/open-query';
 import { CONTACT_ROLES } from '@repo/core/contacts/schema';
 import { INTEGRATION_PROVIDERS } from '@repo/core/integrations/providers';
+import { SKILL_KEYS } from '@repo/core/skill-switches/catalog';
 
 /**
  * What the console assistant's model is shown (ADR 0025 §8, Phase A). The
@@ -280,7 +281,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   },
   {
     name: 'find_skills',
-    description: 'The skills this person can use (the morning brief, important emails…) with a Q reference each, and whether they have it on, when it runs and whether it emails them. Use it before setting up or changing a skill.',
+    description: 'The skills this person can use (the morning brief, important emails…) with a Q reference each, and whether they have it on, when it runs and whether it emails them — and platform_skills: what the platform and you may do for them (bulk email, AI drafts, dashboards, opportunity alerts…), each with a key and whether it is on. Use it before setting up, changing or switching a skill.',
     input_schema: { type: 'object', additionalProperties: false, properties: {} },
   },
   {
@@ -333,6 +334,19 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
         instructions: { type: 'string', description: 'The whole new instructions, plain words, up to 6000 characters. Only when the person asked to change what it focuses on.' },
       },
       required: ['skill'],
+    },
+  },
+  {
+    name: 'switch_skill',
+    description: `Propose turning one platform skill on or off — a key from find_skills' platform_skills ("turn off cold contact alerts", "switch dashboards back on"). An owner or admin switches it for the agency; anyone else only for themselves. When a tool says a skill is switched off, offer this — never work around it. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        skill: { type: 'string', enum: [...SKILL_KEYS], description: 'A key from platform_skills.' },
+        on: { type: 'boolean' },
+      },
+      required: ['skill', 'on'],
     },
   },
   {

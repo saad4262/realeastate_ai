@@ -6,6 +6,7 @@ import { DATASET_IDS, tileSpecSchema, type DatasetId } from '../semantic';
 import { openTileSchema } from '../open-query/tile';
 import { QUERY_MAX_CHARS } from '../open-query/guard';
 import { AU_STATES, PROPERTY_TYPES } from '../listings/listing-schema';
+import { SKILL_KEYS } from '../skill-switches/catalog';
 
 /**
  * The console assistant's contract (docs/adr/0025). Phase A: read tools only.
@@ -375,6 +376,9 @@ export const changeSkillInput = z
   })
   .strict()
   .refine((v) => v.on !== undefined || v.schedule || v.mail_me !== undefined || v.instructions, { message: 'Say what to change: on/off, the schedule, mail_me, or the instructions' });
+
+/** A platform skill's switch (ADR 0058): its key from find_skills' platform_skills, and on or off. */
+export const switchSkillInput = z.object({ skill: z.enum(SKILL_KEYS), on: z.boolean() }).strict();
 
 /**
  * Dashboards (ADR 0027 / 0025 Phase F). A widget is an id from the fixed
@@ -846,7 +850,7 @@ export const scheduleTeamMeetingInput = z
 export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_saved_lists', 'start_import', 'find_skills', 'find_workflows', 'describe_data', 'query_data', 'search_documents', 'read_document'] as const;
 /** ADR 0042: a turn that uses these may make more tool calls (`toolCallsPerAnalysisTurn`). */
 export const ASSISTANT_ANALYSIS_TOOLS = ['describe_data', 'query_data'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'update_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill', 'create_workflow', 'change_workflow', 'create_template'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'update_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill', 'switch_skill', 'create_workflow', 'change_workflow', 'create_template'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 /**
  * What a `proposed_action` row's `tool` may be — the database CHECK (latest: migration 0056) holds
@@ -910,6 +914,7 @@ export const ASSISTANT_TOOL_INPUTS = {
   invite_agent: inviteAgentInput,
   set_up_skill: setUpSkillInput,
   change_skill: changeSkillInput,
+  switch_skill: switchSkillInput,
   create_workflow: createWorkflowInput,
   change_workflow: changeWorkflowInput,
   create_template: createTemplateInput,

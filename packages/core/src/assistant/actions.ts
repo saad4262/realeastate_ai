@@ -46,7 +46,8 @@ import { createContact } from '../contacts/write-contacts';
 import { buildReminderEmail } from '../email/team-notices';
 import type { ToolContext, ToolOutcome } from './tools';
 import { runListingAction, type FrozenPin } from './listing-tools';
-import { runSkillAction } from './skill-tools';
+import { runSkillAction, runSwitchSkill } from './skill-tools';
+import type { SkillKey } from '../skill-switches/catalog';
 import { runWorkflowAction } from './workflow-tools';
 import { runTemplateAction } from './template-tools';
 import type { WorkflowSpec } from '../workflows/catalog';
@@ -194,7 +195,9 @@ export type FrozenArgs =
       emailMe?: boolean;
       bodyMd?: string;
       before: { enabled: boolean; emailMe: boolean; when: string; bodyMd: string };
-    };
+    }
+  /** ADR 0058: a platform skill's switch, the person's own (agency's or theirs); `before` = as the card showed it. */
+  | { tool: 'switch_skill'; skill: SkillKey; on: boolean; before: boolean };
 
 /** The contacts whose timelines carry this action's audit lines. */
 function auditContacts(row: { contactId: string | null; args: unknown }): string[] {
@@ -410,6 +413,8 @@ async function execute(
     case 'set_up_skill':
     case 'change_skill':
       return runSkillAction(tx, actor, args, now);
+    case 'switch_skill':
+      return runSwitchSkill(tx, actor, args);
     case 'create_workflow':
     case 'change_workflow':
       return runWorkflowAction(tx, actor, args);

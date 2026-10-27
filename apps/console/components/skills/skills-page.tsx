@@ -2,29 +2,88 @@ import Link from 'next/link';
 import { LocalTime } from '@repo/ui';
 import { listMySkills, listSkillLibrary, SkillError, SKILL_HANDLER_LABELS } from '@repo/core/skills';
 import { PROVIDERS } from '@repo/core/integrations';
+import { holderOf } from '@repo/core/skill-switches';
 import { ensureTemplateEmailSkill } from '@repo/core/template-email';
+import type { Actor } from '@repo/core/permissions';
 import contactStyles from '@/components/contacts/contacts.module.css';
+import { WorkflowsPage } from '@/components/workflows/workflows-page';
 import { getConsoleDb } from '../../lib/db';
 import { requireConsoleAccess } from '../../lib/require-console-access';
 import { AddSkillButton, ArchiveLibrarySkillButton } from './islands';
+import { PlatformSkills, type SkillFilter } from './platform-skills';
+import styles from './skills.module.css';
 
 const STATUS_LABEL = { running: 'Running', succeeded: 'Done', failed: 'Failed', skipped: 'Skipped' } as const;
 
+export const SKILL_TABS = ['platform', 'ai', 'automations'] as const;
+export type SkillTab = (typeof SKILL_TABS)[number];
+const TAB_LABELS: Record<SkillTab, string> = { platform: 'Platform skills', ai: 'AI skills', automations: 'Automations' };
+
+/** The page's own search params, read loosely: anything unknown is the default. */
+export function skillsParams(sp: { tab?: string; show?: string; runs?: string }): { tab: SkillTab; show: SkillFilter; runs?: string } {
+  const tab = (SKILL_TABS as readonly string[]).includes(sp.tab ?? '') ? (sp.tab as SkillTab) : 'platform';
+  const show = sp.show === 'on' || sp.show === 'off' ? sp.show : 'all';
+  return { tab, show, ...(sp.runs ? { runs: sp.runs } : {}) };
+}
+
 /**
- * Skills (docs/adr/0021): the agent's own skills, then the library. Shared by
- * the agency's `/skills` and the agent's `/my-skills`; what each person sees
- * and may do is can()'s, in packages/core.
+ * Skills — the Control Centre (ADR 0058), shared by the agency's `/skills` and the agent's `/my-skills`.
+ * Three tabs in the URL: Platform skills (every built capability with its switch), AI skills (the
+ * scheduled jobs of ADR 0021) and Automations (the workflows of ADR 0041). What each person sees and
+ * may change is can()'s, in packages/core.
  */
-export async function SkillsPage({ surface }: { surface: 'agency' | 'agent' }) {
+export async function SkillsPage({ surface, tab = 'platform', show = 'all', runs }: { surface: 'agency' | 'agent'; tab?: SkillTab; show?: SkillFilter; runs?: string }) {
   const session = await requireConsoleAccess(surface);
   const basePath = surface === 'agency' ? '/skills' : '/my-skills';
+  const forAgency = holderOf(session.actor.membershipRole) === 'agency';
+  const tabHref = (t: SkillTab) => (t === 'platform' ? basePath : `${basePath}?tab=${t}`);
+
+  return (
+    <div className={contactStyles.wrap}>
+      <div className={contactStyles.head}>
+        <div className={contactStyles.headText}>
+          <h1 className={contactStyles.title}>Skills</h1>
+          <p className={contactStyles.sub}>
+            {forAgency
+              ? 'Everything the platform and the assistant can do for the agency. A skill that is off is off everywhere: on its page, in automations and in the assistant.'
+              : 'What the platform and the assistant do for you. Turn on what helps, turn off what doesn’t. It changes only your own work.'}
+          </p>
+          <span className={styles.whoChip}>
+            <span className={styles.tagGlyph} aria-hidden>
+              {forAgency ? 'apartment' : 'person'}
+            </span>
+            {forAgency ? 'Switches here are for the whole agency' : 'Your own switches'}
+          </span>
+        </div>
+        <Link href={surface === 'agency' ? '/overview' : '/assistant'} className={contactStyles.btnGhost}>
+          Ask the assistant
+        </Link>
+      </div>
+
+      <nav className={contactStyles.tabs} aria-label="Skills sections">
+        {SKILL_TABS.map((t) => (
+          <Link key={t} href={tabHref(t)} className={`${contactStyles.tab} ${tab === t ? contactStyles.tabOn : ''}`} aria-current={tab === t ? 'page' : undefined}>
+            {TAB_LABELS[t]}
+          </Link>
+        ))}
+      </nav>
+
+      {tab === 'platform' ? <PlatformSkills actor={session.actor} basePath={basePath} filter={show} /> : null}
+      {tab === 'ai' ? <AiSkills actor={session.actor} surface={surface} basePath={basePath} /> : null}
+      {tab === 'automations' ? <WorkflowsPage surface={surface} {...(runs ? { runsOf: runs } : {})} /> : null}
+    </div>
+  );
+}
+
+/** AI skills (ADR 0021): the person's own scheduled jobs, then the library. */
+async function AiSkills({ actor, surface, basePath }: { actor: Actor; surface: 'agency' | 'agent'; basePath: string }) {
   const db = getConsoleDb();
   let data: [Awaited<ReturnType<typeof listMySkills>>, Awaited<ReturnType<typeof listSkillLibrary>>] | null = null;
   let loadError: string | null = null;
   try {
     // The template-email library entry cannot be seeded by its migration (a new enum value); see ensureTemplateEmailSkill.
     await ensureTemplateEmailSkill(db);
-    data = await Promise.all([listMySkills(db, session.actor), listSkillLibrary(db, session.actor)]);
+    data = await Promise.all([listMySkills(db, actor), listSkillLibrary(db, actor)]);
   } catch (err) {
     loadError = err instanceof SkillError ? err.message : 'Failed to load skills';
   }
@@ -32,15 +91,12 @@ export async function SkillsPage({ surface }: { surface: 'agency' | 'agent' }) {
   const [mine, library] = data;
 
   return (
-    <div className={contactStyles.wrap}>
+    <>
       <div className={contactStyles.head}>
-        <div className={contactStyles.headText}>
-          <h1 className={contactStyles.title}>{surface === 'agency' ? 'Skills' : 'My skills'}</h1>
-          <p className={contactStyles.sub}>
-            Ready-made AI jobs that read only what you can see and never send or change anything on their own.
-            Add one, adjust its instructions, put it on a schedule.
-          </p>
-        </div>
+        <p className={contactStyles.sub}>
+          Ready-made AI jobs that read only what you can see and never send or change anything on their own.
+          Add one, adjust its instructions, put it on a schedule.
+        </p>
         {library.mayCurate ? (
           <Link href={`${basePath}/library/new`} className={contactStyles.btnGhost}>+ New library skill</Link>
         ) : null}
@@ -105,6 +161,6 @@ export async function SkillsPage({ surface }: { surface: 'agency' | 'agent' }) {
           </ul>
         </div>
       </section>
-    </div>
+    </>
   );
 }

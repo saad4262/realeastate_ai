@@ -1,7 +1,7 @@
 import { and, asc, eq, gt, inArray, sql } from 'drizzle-orm';
 import { agentInvite, appointment, assistantTask, contact, emailBatch, lead, note, notification, proposedAction, type DbOrTx } from '@repo/db';
 import { verifyListingAction } from './listing-tools';
-import { verifySkillAction } from './skill-tools';
+import { verifySkillAction, verifySwitchSkill } from './skill-tools';
 import { verifyWorkflowAction } from './workflow-tools';
 import { verifyTemplateAction } from './template-tools';
 import { nextInWindow, readWindow, type SendWindow } from '../workflows/send-window';
@@ -159,6 +159,8 @@ export async function verifyExecuted(
     case 'set_up_skill':
     case 'change_skill':
       return (await verifySkillAction(tx, args, result)) ? undefined : fail();
+    case 'switch_skill':
+      return (await verifySwitchSkill(tx, args, result)) ? undefined : fail();
     case 'create_template':
       return (await verifyTemplateAction(tx, args, result)) ? undefined : fail();
     case 'invite_agent':

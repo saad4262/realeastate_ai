@@ -19,7 +19,7 @@ const contactId = '22222222-2222-2222-2222-222222222222';
 const noDb = new Proxy({}, { get: () => { throw new Error('the database was reached'); } }) as unknown as Db;
 
 function ctx(handles: HandleMap = {}, role: 'agent' | 'owner' | 'read_only' = 'agent'): ToolContext {
-  return { db: noDb, actor: { userId: 'u1', agencyId, membershipRole: role }, timeZone: 'Australia/Melbourne', handles, now: new Date('2026-10-06T03:00:00Z') };
+  return { db: noDb, actor: { userId: 'u1', agencyId, membershipRole: role }, skillsOff: async () => new Set(), timeZone: 'Australia/Melbourne', handles, now: new Date('2026-10-06T03:00:00Z') };
 }
 
 describe('handles', () => {

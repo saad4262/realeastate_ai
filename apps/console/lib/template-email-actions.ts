@@ -17,6 +17,8 @@ import {
   type TemplateInput,
 } from '@repo/core/template-email';
 import { emailLimitsFromEnv } from '@repo/core/email';
+import { holderOf, isSkillOn, skillOffMessage } from '@repo/core/skill-switches';
+import type { Actor } from '@repo/core/permissions';
 import { getConsoleDb } from './db';
 import { loadActor } from './load-actor';
 import { requireActionUserId } from './auth-account';
@@ -78,8 +80,18 @@ export async function saveFilterAction(name: string, query: Record<string, strin
   return run(async () => ({ ok: true, id: (await saveContactFilter(getConsoleDb(), who, name, query)).id }), 'Could not save the filter');
 }
 
+/**
+ * Bulk email switched off in Skills (ADR 0058) stops this page preparing or sending a batch. Only the
+ * page: a template the assistant or a workflow sends is the Template email skill's, not this one's.
+ */
+async function bulkEmailOff(who: Actor): Promise<TemplateEmailResult | null> {
+  return (await isSkillOn(getConsoleDb(), who, 'bulk_email')) ? null : { ok: false, error: skillOffMessage('bulk_email', holderOf(who.membershipRole)) };
+}
+
 export async function prepareBatchAction(templateId: string, filterId: string): Promise<TemplateEmailResult> {
   const who = await actor();
+  const off = await bulkEmailOff(who);
+  if (off) return off;
   return run(
     async () => ({ ok: true, id: (await prepareBatch(getConsoleDb(), who, { templateId, filterId }, emailLimitsFromEnv())).id }),
     'Could not prepare the batch',
@@ -93,6 +105,8 @@ export async function prepareBatchAction(templateId: string, filterId: string): 
  */
 export async function approveAndSendAction(batchId: string): Promise<TemplateEmailResult> {
   const who = await actor();
+  const off = await bulkEmailOff(who);
+  if (off) return off;
   const sendDeps = templateSendDepsFromEnv();
   if (!sendDeps.ok) return { ok: false, error: `${sendDeps.reason} Nothing was sent.` };
   return run(async () => {

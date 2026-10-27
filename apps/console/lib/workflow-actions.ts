@@ -25,8 +25,8 @@ export async function setWorkflowStatusAction(id: string, status: 'active' | 'pa
   try {
     if (!['active', 'paused', 'archived'].includes(status)) return { ok: false, error: 'Unknown change' };
     await setWorkflowStatus(getConsoleDb(), await actor(), String(id), status);
-    revalidatePath('/workflows');
-    revalidatePath('/my-workflows');
+    revalidatePath('/skills');
+    revalidatePath('/my-skills');
     return { ok: true };
   } catch (err) {
     return fail(err);
@@ -36,7 +36,7 @@ export async function setWorkflowStatusAction(id: string, status: 'active' | 'pa
 export async function pauseAllWorkflowsAction(): Promise<R & { paused?: number }> {
   try {
     const paused = await pauseAllWorkflows(getConsoleDb(), await actor());
-    revalidatePath('/workflows');
+    revalidatePath('/skills');
     return { ok: true, paused };
   } catch (err) {
     return fail(err);

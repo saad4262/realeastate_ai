@@ -25,7 +25,7 @@ export type DraftFacts = { contactName: string; contactFirstName: string; listin
 export type DraftWriter = (input: { instructions: string; facts: DraftFacts; workflowName: string; agencyId: string; userId: string }) => Promise<{ subject: string; body: string }>;
 
 /** Where the owner finds drafts — their console's Workflows page. */
-const waitingHref = (actor: Actor) => (can(actor, 'console:agency', { type: 'console', agencyId: actor.agencyId ?? '' }) ? '/workflows?tab=waiting' : '/my-workflows?tab=waiting');
+const waitingHref = (actor: Actor) => (can(actor, 'console:agency', { type: 'console', agencyId: actor.agencyId ?? '' }) ? '/skills?tab=automations#waiting' : '/my-skills?tab=automations#waiting');
 
 export async function createWorkflowDraft(
   db: Db,

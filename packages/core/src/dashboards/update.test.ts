@@ -104,7 +104,7 @@ describe('updateDashboard (core)', () => {
 
 describe('one chat, one dashboard (the assistant)', () => {
   const proposal = { conversationId: '44444444-4444-4444-4444-444444444444', turnId: 't1', toolUseId: 'tu1', made: { count: 0 } };
-  const ctx = (db: Db, actor: Actor = owner) => ({ db, actor, timeZone: 'UTC', handles: {}, now: new Date(), proposal });
+  const ctx = (db: Db, actor: Actor = owner) => ({ db, actor, skillsOff: async () => new Set<never>(), timeZone: 'UTC', handles: {}, now: new Date(), proposal });
 
   it('a chat that already saved a dashboard is told to change it, not to make another', async () => {
     const { db } = fakeDb([row()]);

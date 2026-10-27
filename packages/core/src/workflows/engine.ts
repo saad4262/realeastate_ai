@@ -3,6 +3,7 @@ import { SUSPENDED_AGENCY_IDS } from '../platform/access';
 import { agency, assistantTask, notification, proposedAction, workflow, workflowEvent, workflowRun, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { activeMemberActor } from '../team/member-actor';
+import { isSkillOn } from '../skill-switches/switches';
 import { activateTask } from '../assistant/task-state';
 import type { FrozenArgs } from '../assistant/actions';
 import type { ProposalCard } from '../assistant/schema';
@@ -406,7 +407,11 @@ async function runOne(db: Db, wf: WorkflowRow, ev: EventRow, facts: Facts, owner
     const [z] = await db.select({ tz: agency.timeZone }).from(agency).where(eq(agency.id, wf.agencyId)).limit(1);
     if (z?.tz) timeZone = z.tz;
   }
-  const steps = stepsFor(wf, spec, facts, merge, now, timeZone);
+  let steps = stepsFor(wf, spec, facts, merge, now, timeZone);
+  // A step the model writes runs only while its owner has AI email drafts on (ADR 0058).
+  if (!('problem' in steps) && spec.actions.some((a) => a.type === 'draft_email') && !(await isSkillOn(db, owner, 'ai_email_drafts'))) {
+    steps = { problem: '“AI email drafts” is switched off in Skills' };
+  }
 
   return db.transaction(async (tx) => {
     const [run] = await tx

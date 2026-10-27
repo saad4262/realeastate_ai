@@ -55,7 +55,10 @@ import { proposeCreateListingDraft, proposeSubmitListing, proposeUpdateListing, 
 import { proposePlanTask } from './plan-task';
 import { findSavedLists } from './list-send';
 import { mayCreateImport } from '../imports/imports';
-import { findSkills, proposeChangeSkill, proposeSetUpSkill } from './skill-tools';
+import { findSkills, proposeChangeSkill, proposeSetUpSkill, proposeSwitchSkill } from './skill-tools';
+import { skillOffMessage, skillsForToolCall } from '../skill-switches/catalog';
+import { holderOf, skillsOffForActor } from '../skill-switches/switches';
+import type { SkillKey } from '../skill-switches/catalog';
 import { findWorkflows, proposeChangeWorkflow, proposeCreateWorkflow } from './workflow-tools';
 import { proposeCreateTemplate } from './template-tools';
 import type { FrozenArgs } from './actions';
@@ -88,6 +91,11 @@ import {
 export type ToolContext = {
   db: Db;
   actor: Actor;
+  /**
+   * The platform skills this person has switched off (ADR 0058), read once per turn by the pipeline.
+   * Absent: the gate reads them itself, so a caller that forgets can never skip a switch.
+   */
+  skillsOff?: () => Promise<ReadonlySet<SkillKey>>;
   /** The person's zone, from the browser: "today" is theirs. */
   timeZone: string;
   /** This conversation's names. Tools add to it; the turn saves it. */
@@ -155,6 +163,7 @@ const LABELS: Record<AssistantToolName, string> = {
   find_skills: 'Looking up skills…',
   set_up_skill: 'Preparing the skill for you to approve…',
   change_skill: 'Preparing the change for you to approve…',
+  switch_skill: 'Preparing the switch for you to approve…',
   find_workflows: 'Looking up workflows…',
   create_workflow: 'Preparing the workflow for you to approve…',
   change_workflow: 'Preparing the change for you to approve…',
@@ -245,6 +254,13 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
   if (CONTACT_EDIT_TOOLS.includes(tool) && !can(actor, 'contact:update', { type: 'contact', id: 'probe', agencyId: actor.agencyId, ownerId: actor.userId })) {
     return refused('This person may view contacts but not change them.', label);
   }
+  // A platform skill switched off in Skills (ADR 0058): refused here, never hidden — the tool lists stay
+  // two frozen lists so the prompt cache holds. switch_skill and find_skills are never gated.
+  const gates = skillsForToolCall(tool, parsed.data);
+  const off = gates.length ? await (ctx.skillsOff ?? (() => skillsOffForActor(ctx.db, actor)))() : null;
+  for (const key of gates) {
+    if (off!.has(key)) return refused(`${skillOffMessage(key, holderOf(actor.membershipRole))} Nothing was done. Offer to switch it on (switch_skill) if they want it.`, label);
+  }
 
   switch (tool) {
     case 'find_contacts':
@@ -283,6 +299,8 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return proposeSetUpSkill(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.set_up_skill>, label);
     case 'change_skill':
       return proposeChangeSkill(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.change_skill>, label);
+    case 'switch_skill':
+      return proposeSwitchSkill(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.switch_skill>, label);
     case 'start_import':
       return startImport(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.start_import>, label);
     case 'set_lead_status':

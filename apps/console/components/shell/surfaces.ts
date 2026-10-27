@@ -26,14 +26,27 @@ export type NavItem = {
   badgeTone?: 'blue';
 };
 
+/**
+ * A section of the sidebar (ADR 0057). A labelled group has a heading that
+ * collapses it; one without a label is always shown and has no heading.
+ */
+export type NavGroup = {
+  label?: string;
+  items: NavItem[];
+};
+
 export type ShellConfig = {
   /** The assistant home: where "+ New chat", the brand and Recents go. Middleware lands people here. */
   home: string;
   navLabel: string;
-  /** Shown at all times. */
-  primary: NavItem[];
-  /** Behind More. */
-  more: NavItem[];
+  /**
+   * The nav, in the brief's order: Daily work · People · Properties · Marketing ·
+   * Automation · Knowledge & insights · Money · Settings. Both consoles use the
+   * same group names; each lists only pages that exist on its side.
+   */
+  groups: NavGroup[];
+  /** The group that starts open beside the one holding the current page. */
+  openByDefault?: string;
   /** The brand's second line before the agency name arrives, or without one. */
   brandFallback: string;
   omniPlaceholder: string;
@@ -46,28 +59,58 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
   agency: {
     home: '/overview',
     navLabel: 'Agency',
-    primary: [
-      { href: '/leads', label: 'Leads', icon: 'filter_alt', count: 'newOffers' },
-      { href: '/inbox', label: 'Inbox', icon: 'mail', count: 'unreadMail', countLabel: 'unread' },
-      { href: '/projects', label: 'Projects', icon: 'folder_open' },
-      { href: '/settings/integrations', label: 'Connectors', icon: 'hub' },
+    groups: [
+      {
+        items: [
+          { href: '/overview', label: 'Overview', icon: 'home' },
+          { href: '/ai', label: 'LocalAgent AI', icon: 'smart_toy', badge: '2030', badgeTone: 'blue' },
+        ],
+      },
+      {
+        label: 'Daily work',
+        items: [
+          { href: '/leads', label: 'Leads', icon: 'filter_alt', count: 'newOffers' },
+          { href: '/inbox', label: 'Inbox', icon: 'mail', count: 'unreadMail', countLabel: 'unread' },
+          { href: '/calendar', label: 'Calendar', icon: 'calendar_today' },
+          { href: '/messages', label: 'Team messages', icon: 'forum', count: 'unreadTeam', countLabel: 'unread' },
+        ],
+      },
+      {
+        label: 'People',
+        items: [
+          { href: '/customers', label: 'Customers', icon: 'contacts' },
+          { href: '/team', label: 'Agents & Team', icon: 'groups' },
+        ],
+      },
+      { label: 'Properties', items: [{ href: '/live-listings', label: 'Listings', icon: 'real_estate_agent' }] },
+      {
+        label: 'Marketing',
+        items: [
+          { href: '/bulk-email', label: 'Bulk email', icon: 'forward_to_inbox' },
+          { href: '/marketing', label: 'Marketing & Reviews', icon: 'campaign' },
+        ],
+      },
+      // Workflows are the Automations tab of Skills (ADR 0058).
+      { label: 'Automation', items: [{ href: '/skills', label: 'Skills', icon: 'auto_awesome' }] },
+      {
+        label: 'Knowledge & insights',
+        items: [
+          { href: '/knowledge', label: 'Knowledge base', icon: 'menu_book' },
+          { href: '/projects', label: 'Projects', icon: 'folder_open' },
+          // Not /site-activity: that is the admin console's, and the agency host sends it home.
+          { href: '/insights', label: 'Insights', icon: 'analytics' },
+        ],
+      },
+      { label: 'Money', items: [{ href: '/finance', label: 'Finance & Trust', icon: 'account_balance' }] },
+      {
+        label: 'Settings',
+        items: [
+          { href: '/settings/integrations', label: 'Connectors', icon: 'hub' },
+          { href: '/settings', label: 'Settings', icon: 'settings' },
+        ],
+      },
     ],
-    more: [
-      { href: '/live-listings', label: 'Listings', icon: 'real_estate_agent' },
-      { href: '/messages', label: 'Team messages', icon: 'forum', count: 'unreadTeam', countLabel: 'unread' },
-      { href: '/team', label: 'Agents & Team', icon: 'groups' },
-      { href: '/customers', label: 'Customers', icon: 'contacts' },
-      { href: '/knowledge', label: 'Knowledge base', icon: 'menu_book' },
-      { href: '/calendar', label: 'Calendar', icon: 'calendar_today' },
-      { href: '/marketing', label: 'Marketing & Reviews', icon: 'campaign' },
-      { href: '/site-activity', label: 'Insights', icon: 'analytics' },
-      { href: '/skills', label: 'Skills', icon: 'auto_awesome' },
-      { href: '/workflows', label: 'Workflows', icon: 'account_tree' },
-      { href: '/bulk-email', label: 'Bulk email', icon: 'forward_to_inbox' },
-      { href: '/ai', label: 'LocalAgent AI', icon: 'smart_toy', badge: '2030', badgeTone: 'blue' },
-      { href: '/finance', label: 'Finance & Trust', icon: 'account_balance' },
-      { href: '/settings', label: 'Settings', icon: 'settings' },
-    ],
+    openByDefault: 'Daily work',
     brandFallback: 'No agency yet',
     omniPlaceholder: 'Search agent name, REINSW licence, suburb specialist, or sales volume...',
     ticker: true,
@@ -76,24 +119,38 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
   agent: {
     home: '/assistant',
     navLabel: 'Agent',
-    primary: [
-      { href: '/listings', label: 'My Listings', icon: 'home_work' },
-      { href: '/my-leads', label: 'Leads', icon: 'person_search' },
-      { href: '/my-inbox', label: 'Inbox', icon: 'mail', count: 'unreadMail', countLabel: 'unread' },
-      { href: '/my-projects', label: 'Projects', icon: 'folder_open' },
+    // The agency's groups, holding the agent's own pages. Offers is not here: it was a link to
+    // nothing, and offers are worked in Leads (ADR 0057).
+    groups: [
+      {
+        label: 'Daily work',
+        items: [
+          { href: '/my-leads', label: 'Leads', icon: 'person_search' },
+          { href: '/my-inbox', label: 'Inbox', icon: 'mail', count: 'unreadMail', countLabel: 'unread' },
+          { href: '/my-calendar', label: 'Calendar', icon: 'event' },
+          { href: '/my-messages', label: 'Team messages', icon: 'forum', count: 'unreadTeam', countLabel: 'unread' },
+        ],
+      },
+      { label: 'People', items: [{ href: '/my-contacts', label: 'Contacts', icon: 'contacts' }] },
+      { label: 'Properties', items: [{ href: '/listings', label: 'My Listings', icon: 'home_work' }] },
+      {
+        label: 'Marketing',
+        items: [
+          { href: '/my-bulk-email', label: 'Bulk email', icon: 'forward_to_inbox' },
+          { href: '/my-reviews', label: 'Agency reviews', icon: 'reviews' },
+        ],
+      },
+      { label: 'Automation', items: [{ href: '/my-skills', label: 'Skills', icon: 'auto_awesome' }] },
+      {
+        label: 'Knowledge & insights',
+        items: [
+          { href: '/my-knowledge', label: 'Knowledge base', icon: 'menu_book' },
+          { href: '/my-projects', label: 'Projects', icon: 'folder_open' },
+        ],
+      },
+      { label: 'Settings', items: [{ href: '/my-integrations', label: 'Connectors', icon: 'hub' }] },
     ],
-    more: [
-      { href: '/my-messages', label: 'Team messages', icon: 'forum', count: 'unreadTeam', countLabel: 'unread' },
-      { href: '/my-contacts', label: 'Contacts', icon: 'contacts' },
-      { href: '/my-knowledge', label: 'Knowledge base', icon: 'menu_book' },
-      { href: '/my-calendar', label: 'Calendar', icon: 'event' },
-      { href: '#', label: 'Offers', icon: 'handshake' },
-      { href: '/my-skills', label: 'Skills', icon: 'auto_awesome' },
-      { href: '/my-workflows', label: 'Workflows', icon: 'account_tree' },
-      { href: '/my-bulk-email', label: 'Bulk email', icon: 'forward_to_inbox' },
-      { href: '/my-reviews', label: 'Agency reviews', icon: 'reviews' },
-      { href: '/my-integrations', label: 'Connectors', icon: 'hub' },
-    ],
+    openByDefault: 'Daily work',
     brandFallback: 'Agent desk',
     omniPlaceholder: 'Search your listings, contacts or suburbs...',
     ticker: false,
@@ -102,15 +159,19 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
   admin: {
     home: '/platform',
     navLabel: 'Platform',
-    primary: [
-      { href: '/platform', label: 'Overview', icon: 'monitoring' },
-      { href: '/agencies', label: 'Agencies', icon: 'apartment' },
-      { href: '/agents', label: 'Agents', icon: 'groups' },
-      { href: '/users', label: 'Users', icon: 'person_search' },
-      { href: '/site-activity', label: 'Site activity', icon: 'travel_explore' },
-      { href: '/emails', label: 'Emails', icon: 'mail' },
+    // One group without a heading: six pages need no sections (ADR 0057).
+    groups: [
+      {
+        items: [
+          { href: '/platform', label: 'Overview', icon: 'monitoring' },
+          { href: '/agencies', label: 'Agencies', icon: 'apartment' },
+          { href: '/agents', label: 'Agents', icon: 'groups' },
+          { href: '/users', label: 'Users', icon: 'person_search' },
+          { href: '/site-activity', label: 'Site activity', icon: 'travel_explore' },
+          { href: '/emails', label: 'Emails', icon: 'mail' },
+        ],
+      },
     ],
-    more: [],
     brandFallback: 'Platform admin',
     omniPlaceholder: 'Search agencies...',
     ticker: false,

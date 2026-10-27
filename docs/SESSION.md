@@ -1,3 +1,16 @@
+## 2026-10-27 — Claude Code — Roadmap plan, ADR 0057 sidebar groups, ADR 0058 Skills Control Centre (branch feat/sidebar-groups)
+
+- The user (Roman Urdu + pasted English): plan the client's 28 skills step by step; decisions in ROADMAP Part 3 (Phase 1 first,
+  grouped sidebar, mock before bigger UI, Twilio settled with the client by the user). Then 1.1 sidebar groups, then 1.2: every
+  built capability as a skill with an on/off switch, agency and agent switches independent (the user: no override for now),
+  workflows inside Skills, the assistant switching skills with an approval card. Mock approved, cards grid.
+- Found: agency "Insights" linked to the admin-only /site-activity (sent home); agent "Offers" was a # link — both fixed.
+- Chosen: switches stored as exceptions (no row = on); assistant tools refused at run time, not hidden (prompt cache); bulk
+  email gated on its page only (core batches also carry assistant/workflow template sends).
+- Done: 0065 applied at the user's go (66 recorded) after a rolled-back run on the real DB (14/14); both steps committed.
+  The user checked the sidebar and Skills UI in a browser. NOT pushed.
+- Next exact step: ROADMAP 1.3 — assistant find_buyers over buyer_requirement.
+
 ## 2026-10-26 — Claude Code — ADR 0055 + 0056: buyer requirements, buyer matching, AI contact import (branch feat/documents)
 
 - The user (pasted briefs, English): analyse three features, then build them in order — approval-event fix first,

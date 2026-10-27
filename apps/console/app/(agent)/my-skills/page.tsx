@@ -1,6 +1,6 @@
-import { SkillsPage } from '@/components/skills/skills-page';
+import { SkillsPage, skillsParams } from '@/components/skills/skills-page';
 
-/** Skills (docs/adr/0021). The body is shared by both consoles. */
-export default function Page() {
-  return <SkillsPage surface="agent" />;
+/** Skills — the Control Centre (ADR 0058). The body is shared by both consoles; the tab is in the URL. */
+export default async function Page({ searchParams }: { searchParams: Promise<{ tab?: string; show?: string; runs?: string }> }) {
+  return <SkillsPage surface="agent" {...skillsParams(await searchParams)} />;
 }

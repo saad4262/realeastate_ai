@@ -25,6 +25,7 @@ import {
   type ImportView,
 } from '@repo/core/imports';
 import { tokenKeysFromEnv } from '@repo/core/integrations';
+import { isSkillOn } from '@repo/core/skill-switches';
 import type { Actor } from '@repo/core/permissions';
 import { importAssistFromEnv } from '@repo/ai/import-assist';
 import { getConsoleDb } from './db';
@@ -96,8 +97,10 @@ export async function getImportAction(id: string): Promise<R<{ view: ImportView;
     const problems = ['validated', 'importing', 'done', 'failed', 'cancelled'].includes(view.status)
       ? await importReport(getConsoleDb(), a, id, { onlyProblems: true, limit: 500 })
       : [];
-    // Whether the screen may offer AI fixes: this server has a key and has not switched them off.
-    return { ok: true, view, problems, aiAvailable: importAssistFromEnv(getConsoleDb()) !== null };
+    // Whether the screen may offer AI fixes: this server has a key and has not switched them off, and
+    // neither has the person (AI help for imports, ADR 0058).
+    const aiAvailable = importAssistFromEnv(getConsoleDb()) !== null && (await isSkillOn(getConsoleDb(), a, 'ai_import'));
+    return { ok: true, view, problems, aiAvailable };
   } catch (err) {
     return fail(err);
   }

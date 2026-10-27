@@ -26,9 +26,11 @@ import {
   type ToolOutcome,
 } from '@repo/core/assistant';
 import { getModel, SERVER_FALLBACK_MODELS, type TokenUsage } from '../models';
-import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v25';
+import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v26';
 import { embedderFromEnv } from '../search/voyage';
 import { assistantToolsFor } from '../tools/assistant-tools';
+import { skillsOffForActor } from '@repo/core/skill-switches';
+import type { SkillKey } from '@repo/core/skill-switches/catalog';
 import { trackAiRunQuietly } from '../usage';
 
 /**
@@ -352,6 +354,9 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
 
 /** The real deps: core's scoped functions as this person, and ai_run metering. */
 export function assistantDeps(db: Db, actor: Actor, request: AssistantTurnRequest, surface: AssistantSurface, now = new Date(), env: NodeJS.ProcessEnv = process.env): AssistantDeps {
+  // ADR 0058: the person's switched-off skills, read once for the whole turn and only if a gated tool is called.
+  let off: Promise<ReadonlySet<SkillKey>> | null = null;
+  const skillsOff = () => (off ??= skillsOffForActor(db, actor));
   return {
     tools: assistantToolsFor(actor),
     claim: () => claimTurn(db, actor, { ...(request.conversationId ? { conversationId: request.conversationId } : {}), message: request.message, surface }, now),
@@ -367,6 +372,7 @@ export function assistantDeps(db: Db, actor: Actor, request: AssistantTurnReques
         {
           db,
           actor,
+          skillsOff,
           timeZone: request.timeZone,
           handles,
           now: new Date(),

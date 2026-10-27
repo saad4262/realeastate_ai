@@ -61,19 +61,26 @@ export function NavList({
   /** Team conversations you are on with something new (ADR 0035). */
   unreadTeam?: number;
 }) {
-  const { primary, more, navLabel } = SHELLS[surface];
+  const { groups, navLabel, openByDefault } = SHELLS[surface];
   const pathname = usePathname();
-  const active = activeHref(pathname, [...primary, ...more]);
-  const inMore = more.some((i) => i.href === active);
-  const [moreOpen, setMoreOpen] = useState(inMore);
-  // Arriving on a page that lives behind More opens it, so the active item is never hidden.
+  const active = activeHref(pathname, groups.flatMap((g) => g.items));
+  const activeGroup = groups.find((g) => g.items.some((i) => i.href === active))?.label;
+  const [open, setOpen] = useState<ReadonlySet<string>>(
+    () => new Set([openByDefault, activeGroup].filter((l): l is string => Boolean(l))),
+  );
+  // Arriving on a page inside a closed group opens it, so the active item is never hidden (ADR 0057).
   useEffect(() => {
-    if (inMore) setMoreOpen(true);
-  }, [inMore]);
+    if (activeGroup) setOpen((s) => (s.has(activeGroup) ? s : new Set(s).add(activeGroup)));
+  }, [activeGroup]);
+  const toggle = (label: string) =>
+    setOpen((s) => {
+      const next = new Set(s);
+      if (!next.delete(label)) next.add(label);
+      return next;
+    });
 
   const counts: Record<NavCount, number> = { newOffers, unreadMail, unreadTeam };
   const countOf = (item: NavItem) => (item.count ? counts[item.count] : 0);
-  const hiddenNews = more.some((i) => countOf(i) > 0);
 
   const link = (item: NavItem) => {
     const on = item.href === active;
@@ -107,28 +114,35 @@ export function NavList({
 
   return (
     <nav className={styles.nav} aria-label={navLabel}>
-      {primary.map(link)}
-      {/* The admin console's nav has nothing behind More (ADR 0049). */}
-      {more.length === 0 ? null : (
-        <>
-          <button
-            type="button"
-            className={styles.navLink}
-            aria-expanded={moreOpen}
-            aria-controls="console-nav-more"
-            onClick={() => setMoreOpen((v) => !v)}
-          >
-            <span className={styles.glyph} aria-hidden>
-              {moreOpen ? 'expand_less' : 'expand_more'}
-            </span>
-            <span>{moreOpen ? 'Less' : 'More'}</span>
-            {!moreOpen && hiddenNews ? <span className={styles.navDot} aria-label="Something new under More" /> : null}
-          </button>
-          <div id="console-nav-more" className={styles.navMore} hidden={!moreOpen}>
-            {more.map(link)}
+      {groups.map(({ label, items }, i) => {
+        if (items.length === 0) return null;
+        // Unlabelled: always shown, no heading (the agency's top pair, the admin's whole nav).
+        if (!label) return <div key={i} className={styles.navGroupItems}>{items.map(link)}</div>;
+        const isOpen = open.has(label);
+        const id = `console-nav-${i}`;
+        return (
+          <div key={label} className={styles.navGroup}>
+            <button
+              type="button"
+              className={styles.navGroupHead}
+              aria-expanded={isOpen}
+              aria-controls={id}
+              onClick={() => toggle(label)}
+            >
+              <span className={styles.navGroupLabel}>{label}</span>
+              {!isOpen && items.some((item) => countOf(item) > 0) ? (
+                <span className={styles.navDot} aria-label={`Something new in ${label}`} />
+              ) : null}
+              <span className={`${styles.glyphSm} ${styles.navGroupChevron}`} aria-hidden>
+                {isOpen ? 'expand_less' : 'expand_more'}
+              </span>
+            </button>
+            <div id={id} className={styles.navGroupItems} hidden={!isOpen}>
+              {items.map(link)}
+            </div>
           </div>
-        </>
-      )}
+        );
+      })}
     </nav>
   );
 }

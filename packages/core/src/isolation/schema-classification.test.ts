@@ -31,6 +31,7 @@ const OWN_AGENCY = [
   'skill',
   'agent_skill',
   'skill_run',
+  'skill_switch',
   'contact_filter',
   'email_template',
   'email_batch',

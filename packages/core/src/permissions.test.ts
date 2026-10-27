@@ -991,3 +991,40 @@ describe('documents and the knowledge base (ADR 0053)', () => {
     expect(can({ userId: 'consumer' }, 'knowledge:read', kb)).toBe(false);
   });
 });
+
+/** The platform skills' switches (ADR 0058): the agency's belong to its owners and admins, everyone else holds their own. */
+describe('skill switches', () => {
+  const m = (userId: string, membershipRole: Actor['membershipRole']): Actor => ({ userId, agencyId: agencyA, membershipRole });
+  const owner = m('owner', 'owner');
+  const admin = m('admin', 'admin');
+  const agent = m('agent', 'agent');
+  const other = m('other', 'agent');
+  const viewer = m('viewer', 'read_only');
+  const rival: Actor = { userId: 'rival', agencyId: agencyB, membershipRole: 'owner' };
+  const agencys = { type: 'skill_switch', agencyId: agencyA };
+  const own = (ownerId: string) => ({ type: 'skill_switch', agencyId: agencyA, ownerId });
+
+  it("lets owners and admins flip the agency's switch, and nobody else", () => {
+    expect(can(owner, 'skill_switch:manage', agencys)).toBe(true);
+    expect(can(admin, 'skill_switch:manage', agencys)).toBe(true);
+    expect(can(agent, 'skill_switch:manage', agencys)).toBe(false);
+    expect(can(agent, 'skill_switch:read', agencys)).toBe(false);
+    expect(can(rival, 'skill_switch:manage', agencys)).toBe(false);
+  });
+
+  it("lets a member flip only their own — not a colleague's, and an owner holds none of their own", () => {
+    expect(can(agent, 'skill_switch:manage', own('agent'))).toBe(true);
+    expect(can(other, 'skill_switch:manage', own('agent'))).toBe(false);
+    expect(can(owner, 'skill_switch:manage', own('agent'))).toBe(false);
+    expect(can(owner, 'skill_switch:manage', own('owner'))).toBe(false);
+  });
+
+  it('lets a read-only member see their switches but not flip them', () => {
+    expect(can(viewer, 'skill_switch:read', own('viewer'))).toBe(true);
+    expect(can(viewer, 'skill_switch:manage', own('viewer'))).toBe(false);
+  });
+
+  it('refuses a platform view (read only) a switch', () => {
+    expect(can({ ...owner, via: 'platform' }, 'skill_switch:manage', agencys)).toBe(false);
+  });
+});

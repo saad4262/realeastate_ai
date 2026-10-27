@@ -1,7 +1,7 @@
-import { WorkflowsPage } from '@/components/workflows/workflows-page';
+import { redirect } from 'next/navigation';
 
-/** Workflows (ADR 0041 Part C). The body is shared by both consoles. */
+/** Workflows are the Automations tab of Skills now (ADR 0058); old links and bookmarks land there. */
 export default async function Page({ searchParams }: { searchParams: Promise<{ runs?: string }> }) {
   const { runs } = await searchParams;
-  return <WorkflowsPage surface="agent" {...(runs ? { runsOf: runs } : {})} />;
+  redirect(`/my-skills?tab=automations${runs ? `&runs=${encodeURIComponent(runs)}#runs` : ''}`);
 }

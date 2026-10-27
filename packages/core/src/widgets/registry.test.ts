@@ -270,7 +270,7 @@ describe('the Agents widget (ADR 0034)', () => {
 
   it('show_widget hands the model no name, email, subject or figure', async () => {
     const { db } = countingDb([{ tz: 'Australia/Sydney', data }]);
-    const out = await runAssistantTool({ db, actor: owner, timeZone: 'UTC', handles: {}, now: new Date() }, 'show_widget', { widget: 'agent_activity', range: 'today' });
+    const out = await runAssistantTool({ db, actor: owner, skillsOff: async () => new Set(), timeZone: 'UTC', handles: {}, now: new Date() }, 'show_widget', { widget: 'agent_activity', range: 'today' });
     expect((out.frame as { kind: string }).kind).toBe('widget');
     const forModel = JSON.stringify(out.result);
     for (const s of ['Ava', 'ava@x.au', '0400', 'Olly', '"5"', ':5', ':3']) expect(forModel).not.toContain(s);
@@ -295,13 +295,13 @@ describe('saving a dashboard', () => {
 describe('the assistant and widgets', () => {
   it('show_widget hands the model no figure — only that it was shown', async () => {
     const { db } = countingDb([{ tz: 'Australia/Sydney', total: '987654.00', count: '41', undisclosed: '29' }]);
-    const out = await runAssistantTool({ db, actor: owner, timeZone: 'UTC', handles: {}, now: new Date() }, 'show_widget', { widget: 'sold_value', range: '7d' });
+    const out = await runAssistantTool({ db, actor: owner, skillsOff: async () => new Set(), timeZone: 'UTC', handles: {}, now: new Date() }, 'show_widget', { widget: 'sold_value', range: '7d' });
     expect((out.frame as { kind: string }).kind).toBe('widget');
     const forModel = JSON.stringify(out.result);
     for (const n of ['987654', '987,654', '41', '29']) expect(forModel).not.toContain(n);
   });
   it('an agent cannot propose saving a dashboard', async () => {
-    const out = await runAssistantTool({ db: noDb, actor: agent, timeZone: 'UTC', handles: {}, now: new Date() }, 'create_dashboard', { title: 'x', widgets: [{ widget: 'new_leads' }] });
+    const out = await runAssistantTool({ db: noDb, actor: agent, skillsOff: async () => new Set(), timeZone: 'UTC', handles: {}, now: new Date() }, 'create_dashboard', { title: 'x', widgets: [{ widget: 'new_leads' }] });
     expect(out.isError).toBe(true);
   });
 });

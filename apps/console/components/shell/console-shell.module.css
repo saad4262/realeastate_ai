@@ -256,14 +256,59 @@
   transform: none;
 }
 
-/* What More hides. `hidden` does the hiding; this only spaces it like the rest. */
-.navMore {
+/* A sidebar section (ADR 0057): a heading that collapses its links. */
+.navGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.navGroupHead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin-top: 0.375rem;
+  padding: 0.375rem 0.75rem 0.25rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.navGroupHead:hover {
+  color: var(--text-primary);
+}
+
+.navGroupHead:focus-visible {
+  outline: 2px solid var(--sapphire);
+  outline-offset: 1px;
+}
+
+.navGroupLabel {
+  flex: 1;
+}
+
+.navGroupChevron {
+  opacity: 0.7;
+}
+
+/* A group's links. `hidden` does the hiding; this only spaces them like the rest. */
+.navGroupItems {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
 }
 
-.navMore[hidden] {
+.navGroupItems[hidden] {
   display: none;
 }
 

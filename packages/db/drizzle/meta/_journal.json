@@ -456,6 +456,13 @@
       "when": 1793018571815,
       "tag": "0064_import_ai",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1793087771385,
+      "tag": "0065_skill_switches",
+      "breakpoints": true
     }
   ]
 }

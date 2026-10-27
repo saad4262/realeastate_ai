@@ -241,13 +241,22 @@ The agent sidebar uses the same groups.
 - [x] AI contact import, mapping + row fixes (#4): ADR 0056, migration 0064.
 
 ### Phase 1 — Finish what is half built (no new provider)
-- [ ] **1.1 Sidebar groups** (layout above), in both the agency and agent shells.
-- [ ] **1.2 Assistant `find_buyers`**: reads `buyer_requirement`, so "buyers for a 3-bed in
+- [x] **1.1 Sidebar groups** (committed with 1.2; the user checked it in a browser) in both the agency and agent shells. ADR 0057, 2026-10-27, branch
+  `feat/sidebar-groups`; TEST-PLAN BK. Projects (= dashboards) sits in Knowledge & insights, Team
+  messages in Daily work; Insights now opens /insights; the dead agent "Offers" link is gone.
+- [x] **1.2 Skills Control Centre** (2026-10-27, ADR 0058, migration 0065 applied, committed with 1.1;
+  TEST-PLAN BL). One Skills page with tabs: Platform skills · AI skills · Automations (Workflows moved in).
+  16 built capabilities each have an on/off switch; the agency's switch and each agent's are independent
+  (the user: no override for now). Agents never see the 3 agency-only skills. Off = refused in the
+  assistant, skipped by the opportunity scan and workflow drafts, and stopped on the bulk email and import
+  screens. The assistant flips a switch with `switch_skill` (approval card, prompt v26). Mock approved:
+  `docs/mocks/skills-control-centre.html`.
+- [ ] **1.3 Assistant `find_buyers`**: reads `buyer_requirement`, so "buyers for a 3-bed in
   Pakenham under $800k" works and the answer shows how it searched (#21, #5).
-- [ ] **1.3 Matched buyers on the listing**: the contacts whose brief fits the listing, plus
+- [ ] **1.4 Matched buyers on the listing**: the contacts whose brief fits the listing, plus
   one-click bulk email or a task for them, respecting consent (#5). Mock first.
-- [ ] **1.4 More roles**: prospect, past client, referral partner (#3).
-- [ ] **1.5 Turn inbound email on** (Resend MX + `MAIL_INBOUND_DOMAIN` + `MAIL_REPLY_SECRET`) and
+- [ ] **1.5 More roles**: prospect, past client, referral partner (#3).
+- [ ] **1.6 Turn inbound email on** (Resend MX + `MAIL_INBOUND_DOMAIN` + `MAIL_REPLY_SECRET`) and
   add an AI reply draft in the inbox that goes out only after the agent approves it (#1). Mock first.
 
 ### Phase 2 — Money
@@ -259,6 +268,9 @@ The agent sidebar uses the same groups.
   documents, pipeline, an AI summary (#10, #6).
 
 ### Phase 3 — Phone + SMS (needs the client's Twilio answers)
+Setup is being settled with the client by the user (2026-10-27). Recommended: the platform's own Twilio
+account with a subaccount per agency ("Get a number" in Connectors), and bring-your-own Twilio later as an
+option. Missed calls reach Twilio by no-answer forwarding from the agency's existing numbers.
 - [ ] **3.1 Twilio integration + SMS threads in the inbox** (#1, #8 SMS).
 - [ ] **3.2 Missed call → SMS → qualify → alert the agent** (#28), plus a Missed Calls page. Mock first.
 - [ ] **3.3 Call recording, transcript and summary; AI voice callback** where it is legal (#9, #28).

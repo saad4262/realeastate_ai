@@ -11,6 +11,7 @@ import { ListingError } from '../listings/listing-schema';
 import { addressKey } from '../listings/address-key';
 import { geocodeAddress } from '../geo/places';
 import { activeMemberActor } from '../team/member-actor';
+import { isSkillOn } from '../skill-switches/switches';
 import { agencyTimeZone } from '../widgets/registry';
 import { CsvError, csvCell, parseCsv, tableToCsv, type ImportTable } from './csv';
 import { autoMap, FIELD_LABELS, importMappingSchema, normalizeRow, REQUIRED_FIELDS, type ImportMapping, type NormalizedRow } from './columns';
@@ -217,6 +218,8 @@ export async function suggestContactMapping(
   const imp = await loadImport(db, actor, id);
   requireRun(actor, imp);
   if (!mapper || imp.kind !== 'contacts' || imp.status !== 'mapped') return { aiFields: [] };
+  // The uploader switched AI help for imports off (ADR 0058): the synonyms stand.
+  if (!(await isSkillOn(db, actor, 'ai_import'))) return { aiFields: [] };
   const headers = imp.headers as string[];
   const auto = imp.mapping as ContactImportMapping;
   if (!shouldAskMapper(auto, headers)) return { aiFields: [] };
@@ -264,7 +267,7 @@ export async function startDryRun(db: Db, actor: Actor, id: string, opts: { aiCl
   }
   await db
     .update(listingImport)
-    .set({ status: 'validating', aiClean: imp.kind === 'contacts' && Boolean(opts.aiClean), updatedAt: sql`now()` })
+    .set({ status: 'validating', aiClean: imp.kind === 'contacts' && Boolean(opts.aiClean) && (await isSkillOn(db, actor, 'ai_import')), updatedAt: sql`now()` })
     .where(and(eq(listingImport.id, imp.id), eq(listingImport.status, 'mapped')));
 }
 

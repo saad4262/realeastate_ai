@@ -1,4 +1,21 @@
 # Status
+- **Skills Control Centre (ADR 0058, 2026-10-27), ROADMAP 1.2, committed on `feat/sidebar-groups` with 1.1 (not pushed). Migration 0065 APPLIED 2026-10-27 at the user's go (66 recorded; RLS on, no anon/authenticated grants), after a rolled-back run on the real DB: the migration + every switch function through Drizzle, 14/14 OK.**
+  `skill_switch` (no row = on; user_id null = the agency's, owners/admins; else a member's own; independent). Core
+  `skill-switches/` (catalog: 16 skills, 3 agency-only; switches: list/isSkillOn/set/skillsOffFor/skillsOffForActor);
+  can() `skill_switch:read|manage`. Gates: assistant tools refused at run time (one read per turn via ToolContext.skillsOff,
+  tool lists unchanged), opportunity scan (dropSwitchedOff), workflow draft_email step, AI import mapping/cleaning, bulk
+  email page actions. Tool `switch_skill` (card → runSwitchSkill → verifySwitchSkill), find_skills lists platform_skills,
+  prompt v26. Console: Skills page with tabs (?tab=platform|ai|automations, ?show=on|off), cards + switch island,
+  /workflows + /my-workflows redirect to the Automations tab, sidebar Automation = Skills only. Checks: core 1337 pass
+  (3 = pre-existing Windows), ai 319 (2 = pre-existing time-zone); gate break-test red (3) then green; typecheck
+  core/ai/console/web/smoke; console lint 0; console build compiles. The user checked the sidebar and Skills UI in a browser (2026-10-27).
+  **Next:** push + deploy (0065 is live, so this code is safe to deploy); walk TEST-PLAN BL on the deployed app.
+- **Sidebar in groups (ADR 0057, 2026-10-27), ROADMAP 1.1, committed on `feat/sidebar-groups` with 1.2. No migration.**
+  `surfaces.ts` lists the nav as `groups` (Daily work · People · Properties · Marketing · Automation · Knowledge &
+  insights · Money · Settings); `nav-list.tsx` draws collapsible headings: Daily work and the current page's group
+  start open, and a closed group with something unread shows a dot. Agency Insights → /insights (was the admin
+  /site-activity, which sent agency users home); agent "Offers" (#) removed. Checks: console typecheck + eslint
+  clean. The user checked it in a browser (2026-10-27).
 - **AI contact import (ADR 0056, 2026-10-26) — committed on `feat/documents` (not pushed). Migration 0064 APPLIED 2026-10-26 at the user's go (65 recorded).**
   Step 1 mapping: after a contacts upload (CSV/xlsx/sheet/re-import), if a headed column is unused and a field
   unmatched, headings + 5 MASKED sample rows (x/X/9) → model; synonyms stand, the model fills empty fields only;

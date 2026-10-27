@@ -1817,6 +1817,29 @@ export const skillRun = pgTable(
   ],
 );
 
+/**
+ * A platform skill switched away from its default (ADR 0058). No row = on. `user_id` null is the
+ * agency's own switch (its owners and admins); a row with a user is that member's own switch. The
+ * two never override each other. `skill_key` is a key of the catalog in core, never free text.
+ */
+export const skillSwitch = pgTable(
+  'skill_switch',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => user.id, { onDelete: 'cascade' }),
+    skillKey: varchar('skill_key', { length: 40 }).notNull(),
+    enabled: boolean('enabled').notNull(),
+    changedBy: uuid('changed_by').references(() => user.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('skill_switch_holder_key_idx').on(t.agencyId, sql`coalesce(${t.userId}, '00000000-0000-0000-0000-000000000000'::uuid)`, t.skillKey),
+  ],
+);
+
 
 // ── Template email (docs/adr/0022) ──────────────────────────────────────────
 
@@ -2758,6 +2781,7 @@ export type IntegrationAccount = typeof integrationAccount.$inferSelect;
 export type Skill = typeof skill.$inferSelect;
 export type AgentSkill = typeof agentSkill.$inferSelect;
 export type SkillRun = typeof skillRun.$inferSelect;
+export type SkillSwitch = typeof skillSwitch.$inferSelect;
 export type EmailTemplate = typeof emailTemplate.$inferSelect;
 export type EmailBatch = typeof emailBatch.$inferSelect;
 export type EmailBatchRecipient = typeof emailBatchRecipient.$inferSelect;

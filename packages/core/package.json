@@ -47,6 +47,8 @@
     "./integrations/startup": "./src/integrations/startup.ts",
     "./startup/console-startup": "./src/startup/console-startup.ts",
     "./skills": "./src/skills/index.ts",
+    "./skill-switches": "./src/skill-switches/index.ts",
+    "./skill-switches/catalog": "./src/skill-switches/catalog.ts",
     "./assistant": "./src/assistant/index.ts",
     "./assistant/schema": "./src/assistant/schema.ts",
     "./dashboards": "./src/dashboards/index.ts",

@@ -32,8 +32,8 @@ import styles from './assistant-panel.module.css';
 export type Surface = 'agent' | 'agency';
 
 const PATHS: Record<Surface, { contact: string; leads: string; templates: string; bulk: string; integrations: string; inbox: string; messages: string; listings: string; listingImport: string; contactImport: string; skills: string; workflows: string; knowledge: string }> = {
-  agency: { contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', bulk: '/bulk-email', integrations: '/settings/integrations', inbox: '/inbox', messages: '/messages', listings: '/live-listings', listingImport: '/live-listings/import', contactImport: '/customers/import', skills: '/skills', workflows: '/workflows', knowledge: '/knowledge' },
-  agent: { contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', bulk: '/my-bulk-email', integrations: '/my-integrations', inbox: '/my-inbox', messages: '/my-messages', listings: '/listings', listingImport: '/listings/import', contactImport: '/my-contacts/import', skills: '/my-skills', workflows: '/my-workflows', knowledge: '/my-knowledge' },
+  agency: { contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', bulk: '/bulk-email', integrations: '/settings/integrations', inbox: '/inbox', messages: '/messages', listings: '/live-listings', listingImport: '/live-listings/import', contactImport: '/customers/import', skills: '/skills', workflows: '/skills?tab=automations', knowledge: '/knowledge' },
+  agent: { contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', bulk: '/my-bulk-email', integrations: '/my-integrations', inbox: '/my-inbox', messages: '/my-messages', listings: '/listings', listingImport: '/listings/import', contactImport: '/my-contacts/import', skills: '/my-skills', workflows: '/my-skills?tab=automations', knowledge: '/my-knowledge' },
 };
 
 /** What the empty assistant suggests — the home turns the ones you can type into chips. */

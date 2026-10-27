@@ -1325,7 +1325,7 @@ Both consoles: agency.* and agents.*. Repeat AU1–AU9 on each (agency home `/ov
 | AU5 | Agent: ask "What's our sold value this month?" | Same answer as before the redesign for an agent (owner/admin figures stay refused). |
 | AU6 | Contact page → **Ask the assistant** → "Book an appraisal with this contact tomorrow at 3pm" | The chip "Using this contact" shows; the card names that contact. × removes it. |
 | AU7 | Directory: tick 2 contacts → Ask | The home opens with "Using 2 picked contacts". |
-| AU8 | Sidebar: More → open a page behind it | More stays open on that page; with unread team messages, a dot shows on a closed More. |
+| AU8 | ~~Sidebar: More~~ | Replaced by groups. See BK (ADR 0057). |
 | AU9 | Projects → a card | The board opens inside the console (sidebar stays); "Full screen ↗" opens it in a new tab. Old `/dashboards` and `/my-dashboards` links land on Projects. |
 | AU10 | Connectors: search, each filter, Connect, Disconnect | Filters and search change the URL; Connect/Disconnect work exactly as before. |
 
@@ -1568,3 +1568,40 @@ Needs migration **0064** and `ANTHROPIC_API_KEY`. Uses the real model (small cos
 | BJ6 | A row with `ali@example` (no domain) | Stays an error — no domain is ever made up. |
 | BJ7 | `IMPORT_AI=off`, or no key | No "✦ AI", no checkbox; imports work as before. |
 | BJ8 | Set `IMPORT_AI_DAILY_BUDGET_USD_PER_AGENCY=0` and check with the box ticked | Failing rows say "Not sent for an AI fix — today’s AI budget for imports is spent". |
+
+## BK — The sidebar in groups (ADR 0057)
+
+No migration. Both consoles, then the admin console.
+
+| # | Case | Expected |
+|---|---|---|
+| BK1 | Agency: sign in | Overview and LocalAgent AI on top with no heading; then the headings Daily work · People · Properties · Marketing · Automation · Knowledge & insights · Money · Settings. Only Daily work is open (Leads, Inbox, Calendar, Team messages). |
+| BK2 | Click a closed heading, then click it again | It opens and shows its pages, then closes; the chevron flips. Tab to a heading and press Enter: same. |
+| BK3 | Open People → Customers, then a contact | People stays open and Customers is lit on both pages. |
+| BK4 | Go straight to `/finance` by URL | Money is open and Finance & Trust is lit. |
+| BK5 | Settings → Connectors | Connectors is lit, not Settings as well. |
+| BK6 | Knowledge & insights → Insights | The Insights page opens. Before this change it landed on the assistant home. |
+| BK7 | Collapse Daily work with an unread email or team message | A blue dot shows on the Daily work heading; open it and the count is on Inbox / Team messages. |
+| BK8 | Agent: sign in | The same headings without Money; there is no Offers link. Every link opens its page. |
+| BK9 | Admin console | Six links, no headings, as before. |
+| BK10 | Phone width | The sidebar behaves as before; the headings don't wrap or overflow. |
+
+## BL — Skills Control Centre: every skill has a switch (ADR 0058)
+
+Needs migration **0065**. Use an owner, and an agent of the same agency, in two browsers.
+
+| # | Case | Expected |
+|---|---|---|
+| BL1 | Owner → Automation → Skills | Three tabs: Platform skills (open), AI skills, Automations. "Switches here are for the whole agency". 16 cards in six groups, each "On by default"; "16 of 16 on". |
+| BL2 | Agent → Skills | 13 cards: no Agency performance answers, Team activity or Team management. "Your own switches". |
+| BL3 | Owner: switch off Dashboards | The card dims and says Off with the owner's name and time; "15 of 16 on"; the Off filter shows it. |
+| BL4 | Same agent, after BL3 | Dashboards is still on for the agent (the two never change each other). The agent asks the assistant for a dashboard: it is made as before. |
+| BL5 | Owner asks the assistant "make a dashboard of new leads" | No card. The assistant says Dashboards is switched off for the agency and offers to switch it on. |
+| BL6 | Owner: "turn dashboards back on" | A card "Turn on “Dashboards”" · For: The agency. Nothing changes until Approve; after it the card says done and the Skills page shows it on. |
+| BL7 | Agent: switch off Bulk email, then try to prepare a batch on My bulk email | "“Bulk email” is switched off for you in Skills…" and nothing is prepared. Owner's Bulk email still works. |
+| BL8 | Agent: switch off AI help for imports, upload a CSV with odd headings | No "✦ AI" marks and no "Let AI suggest fixes" box. Switch it back on: the next upload has them. |
+| BL9 | Agent: switch off Cold contact alerts; wait for the hourly scan (or run /api/cron/opportunities) | No new cold-contact opportunity for that agent; other kinds still arrive; the owner's still arrive. |
+| BL10 | Owner: switch off AI email drafts; trigger a workflow with a draft_email step | Its run says "Not run: “AI email drafts” is switched off in Skills." No draft waits. |
+| BL11 | Owner: switch off Team activity; ask "show me every agent's emails today" | Refused with the switch message; the other widgets still show. |
+| BL12 | Automations tab; open an old `/workflows?runs=<id>` link | Lands on Skills → Automations with that workflow's runs. The bell's "draft waiting" link opens the Waiting section there. |
+| BL13 | Read-only member → Skills | Switches are drawn but can't be pressed; "You may look but not change these." |

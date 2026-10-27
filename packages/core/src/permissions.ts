@@ -287,6 +287,16 @@ export type Action =
   | 'agent_skill:read'
   /** Add to your list, edit, schedule, switch on/off, run now. Not read-only members. */
   | 'agent_skill:manage'
+  /**
+   * The platform skills' switches (ADR 0058): see which are on. Any active member, for the switches
+   * that are theirs — the agency's (owners/admins) or their own (`ownerId` = them).
+   */
+  | 'skill_switch:read'
+  /**
+   * Flip one. No `ownerId`: the agency's switch, owners and admins. `ownerId` = you: your own switch,
+   * any member who may write except owners and admins, whose switch is the agency's.
+   */
+  | 'skill_switch:manage'
   /** See the agency's email templates (ADR 0022). Any active member. */
   | 'email_template:read'
   /**
@@ -755,6 +765,14 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'agent_skill:manage':
       return sameAgency(actor, resource) && mayWrite(actor) &&
         Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'skill_switch:read':
+    case 'skill_switch:manage': {
+      if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      if (action === 'skill_switch:manage' && !mayWrite(actor)) return false;
+      // Owners and admins hold the agency's switch and no switch of their own; everyone else the reverse.
+      return resource.ownerId ? actor.userId === resource.ownerId && !isAgencyAdmin(actor) : isAgencyAdmin(actor);
+    }
 
     case 'workflow:read':
       if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
