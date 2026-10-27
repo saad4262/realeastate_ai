@@ -1,7 +1,7 @@
 # LocalAgentHub — Client Roadmap & Status
 
 The client's full brief (the 28 "skills") and where the codebase stands on each.
-Assessed 2026-10-26 from the code on `feat/platform-admin` (66 tables, the console pages, ~60
+Assessed 2026-10-26 from the code (refreshed the same day after ADR 0053–0056 landed on `main`) on `feat/platform-admin` (66 tables, the console pages, ~60
 assistant tools, the workflow catalog, the integrations). **Percentages are estimates from
 reading the code, not measured.** Update this file as each step lands.
 
@@ -16,9 +16,9 @@ The brief's numbering skips #20 and #25. The brief marks some items "Yellow = in
 |---|---|---|---|
 | 1 | Inbox | 35% | Email works; no SMS, calls, or reading the agent's Gmail |
 | 2 | AI Business Intelligence Agent | 65% | ~60 tools + documents; proactive opportunities built (ADR 0054), migration 0062 not applied |
-| 3 | Advanced CRM | 55% | Contacts + roles; **no buyer requirements** |
-| 4 | AI Contact Import | 45% | CSV/Excel/Sheets + dedupe; mapping is rule-based, no AI |
-| 5 | Smart Buyer Matching | 10% | Blocked on buyer requirements (#3) |
+| 3 | Advanced CRM | 70% | Contacts + roles + buyer requirements (ADR 0055); no prospect/past-client/referral roles, no transactions |
+| 4 | AI Contact Import | 65% | CSV/Excel/Sheets + dedupe + AI mapping and row fixes (ADR 0056); no CRM connectors |
+| 5 | Smart Buyer Matching | 45% | New listing fitting a brief alerts the agent (`buyer_match`, ADR 0055 §6); no matched-buyers list/email |
 | 6 | Seller Prospecting & Appraisals | 10% | `recent_sales` comparables only |
 | 7 | Automated Follow-Ups | 45% | Via workflows (#27) |
 | 8 | Email Marketing & Campaigns | 55% | Bulk email works; no AI segments, no SMS |
@@ -33,7 +33,7 @@ The brief's numbering skips #20 and #25. The brief marks some items "Yellow = in
 | 17 | AI Marketing Studio | 15% | Listing copy drafts only |
 | 18 | Agency Funnel Builder | 10% | Public site exists; no builder |
 | 19 | Integrations & Open API | 25% | 5 providers; no public API/webhooks |
-| 21 | Natural-Language Search | 50% | Works for listings/notes/emails; not buyer requirements |
+| 21 | Natural-Language Search | 50% | Works for listings/notes/emails; the assistant still can't search buyer briefs |
 | 22 | AI Custom Dashboards | 65% | Strongest part |
 | 23 | AI Voice-Controlled Platform | 10% | Commands work by text; no voice input |
 | 24 | Recruitment & Agent Onboarding | 50% | Invite wizard + offboarding |
@@ -41,7 +41,7 @@ The brief's numbering skips #20 and #25. The brief marks some items "Yellow = in
 | 27 | AI Automation Engine | 35% | Engine built; no visual builder, few triggers |
 | 28 | AI Missed Call — Voice & Text | 0% | No phone/SMS provider |
 
-**Whole platform: ~28–30%.** The foundation is solid — auth, tenant isolation, `can()`
+**Whole platform: ~33–35%** (was ~28–30% before ADR 0053–0056). The foundation is solid — auth, tenant isolation, `can()`
 permissions, platform admin, public site — so later work builds on it rather than around it.
 
 ### Built but not in the brief
@@ -63,7 +63,7 @@ Flow: message arrives → matched to contact → AI summary → draft reply → 
 - **Missing:** reading the agent's real Gmail inbox (needs read scope), Outlook, SMS, calls,
   AI reply drafts in the inbox. (Attachments are now stored as documents — ADR 0053.)
 
-### 2. AI Business Intelligence Agent — 55%
+### 2. AI Business Intelligence Agent — 65%
 An AI employee: finds information, answers, creates tasks, drafts emails, finds opportunities, reports.
 Flow: agent asks → AI picks a tool → numbers come from SQL → answer/card → agent approves.
 - **Built:** assistant (ADR 0025, 0039, 0040, 0041) with tools incl. `find_contacts`,
@@ -72,30 +72,31 @@ Flow: agent asks → AI picks a tool → numbers come from SQL → answer/card �
   `send_email`, `send_template_email`, `create_dashboard`, `create_workflow`, `set_up_skill`,
   `recent_sales`, `create_listing_draft`, `invite_agent`, `remove_agent`. Skills:
   `morning_brief`, `important_emails`, `template_email`.
-- **Missing:** proactive opportunity detection ("skill that finds things to do and ways to
-  improve the business"), reports beyond dashboards, knowledge/documents as sources.
+- **Built since:** proactive opportunities (ADR 0054); documents + knowledge as sources (ADR 0053).
+- **Missing:** reports beyond dashboards; searching buyer briefs (`find_buyers`, Phase 1.2).
 
-### 3. Advanced CRM — 55%
+### 3. Advanced CRM — 70%
 Every relationship: buyers, sellers, landlords, tenants, investors, prospects, past clients,
 referral partners — full profile.
 - **Built:** `contact` (assign, archive, merge, consent, opt-out, next action), `contact_role`
   (seller, buyer, landlord, tenant, investor), `contact_property` (owner…), `note`,
   `activity` timeline, `appointment`, leads, mail.
-- **Missing:** **buyer requirements** (budget, beds, suburbs, property type, timeline) — the
-  single biggest gap; roles prospect / past client / referral partner; documents and
-  transactions on the profile.
+- **Built since:** buyer requirements (ADR 0055): a Requirements tab with up to 10 briefs per
+  contact; documents on the profile (ADR 0053).
+- **Missing:** roles prospect / past client / referral partner; transactions on the profile.
 
-### 4. AI Contact Import & Migration — 45%
+### 4. AI Contact Import & Migration — 65%
 Flow: upload → map columns → dedupe → preview → import.
 - **Built:** CSV, Excel, Google Sheets (`packages/core/src/imports`); mapping screen; dupes by
   email + phone key; roles column; dry run then commit.
-- **Missing:** AI cleaning, AI column mapping, AI categorising; connectors to existing CRMs
-  (Rex, VaultRE, AgentBox…).
+- **Built since:** AI column mapping (masked samples) and opt-in AI fixes for failing rows (ADR 0056).
+- **Missing:** AI categorising; connectors to existing CRMs (Rex, VaultRE, AgentBox…).
 
-### 5. Smart Buyer Matching — 10%  (+ option: extra data from the realtime real-estate AI platform)
+### 5. Smart Buyer Matching — 45%  (+ option: extra data from the realtime real-estate AI platform)
 Flow: new listing → AI searches CRM for matching buyers → list with details → email/SMS/call.
 - **Built:** consumer saved-search alerts on the public site; a workflow can fire on listing status.
-- **Missing:** the matching itself — needs buyer requirements (#3) first.
+- **Built since:** the `buyer_match` detector: a new listing that fits an active brief alerts the agent (hourly).
+- **Missing:** the matched-buyers list on the listing and email/SMS/call to them (Phase 1.3).
 
 ### 6. Seller Prospecting & Appraisals — 10%  (+ option as above)
 Flow: AI spots likely sellers from CRM/conversations → list → appraisal management →
@@ -124,17 +125,17 @@ offers, documents; AI helps spot who may buy/sell.
   leads per listing; private offers (ADR 0012).
 - **Missing:** one property page with everything; AI property summary; appraisals/documents on it.
 
-### 11. Agency Knowledge Base — 5%
-Procedures, policies, templates, scripts, branding, training; AI answers from it. Not built.
+### 11. Agency Knowledge Base — 45%
+Procedures, policies, templates, scripts, branding, training; AI answers from it. Built: /knowledge (ADR 0053).
 
 ### 12. Team Collaboration — 40%
 - **Built:** team messages, team meetings, assignment, offboarding reassignment (ADR 0030),
   agents widget (ADR 0034), assistant tasks.
 - **Missing:** shared task board, workload view, overdue overview, daily tasks scheduled for every member.
 
-### 13. Digital Documents — 0%
-Contracts, reports, proposals against contact/property/transaction; AI extracts/summarises. Not built
-(`media` is listing photos only).
+### 13. Digital Documents — 45%
+Contracts, reports, proposals against contact/property/transaction; AI extracts/summarises. Built on
+contacts + listings (ADR 0053); no e-sign, not on transactions yet.
 
 ### 14. Transaction Management — 10%
 Appraisal → Listing → Marketing → Offers → Negotiation → Contract → Settlement.
@@ -217,24 +218,68 @@ update CRM → assign/notify agent → follow-up. Not built; needs telephony + S
 
 ## Part 3 — Work order (step by step)
 
-Pick the next unchecked step. Each step gets an ADR before code (AGENTS.md).
+### Decisions (the user, 2026-10-26)
+- **Start with Phase 1**: finish what is half built before adding any new provider.
+- **Group the agency sidebar** by the brief's architecture (layout below). Every new page goes
+  into its group; pages that aren't built yet are not shown.
+- **Mock first, then build**: each bigger skill gets an HTML mock in `docs/mocks/` (like
+  `listing-detail.html`). The user or client approves it, then we write the ADR, then the code.
+- **Ask the client about Twilio/phone now** (account owner, AU number, call-recording consent,
+  monthly budget), so Phase 3 doesn't sit waiting on the answers.
 
-- [ ] **Step 1 — Buyer requirements on contacts.** Budget from/to, beds, baths, property types,
-  suburbs, timeline, channel (buy/rent). Unlocks #3, #5, #21, partly #6.
-- [ ] **Step 2 — Smart Buyer Matching.** New/changed listing → matched contacts list → bulk
-  email / task / call list. Workflow trigger `listing.created` + action `find_matching_buyers`.
-- [ ] **Step 3 — SMS + phone provider (e.g. Twilio).** Integration + inbox SMS threads.
-  Unlocks #28, #9, #7, #1.
-- [ ] **Step 4 — Missed-call automation (#28)** on top of Step 3: SMS first, voice callback later.
-- [ ] **Step 5 — Automation engine growth (#27):** more triggers, AI-analysis step,
-  template library, Control Centre, 3 permission levels.
-- [ ] **Step 6 — Transaction pipeline + commissions (#14, #16, #22).** Fills `/finance`.
-- [x] **Step 7 — Documents (#13)** then **Knowledge Base (#11)** — built on `feat/documents` (ADR 0053, 2026-10-26); migration 0061 waits for the go.
-- [ ] **Step 8 — AI import cleaning/mapping (#4)** and CRM connectors.
-- [ ] **Step 9 — Public API + webhooks (#19).**
-- [ ] **Step 10 — Marketing Studio (#17) → Social & Ads (#26) → Funnel Builder (#18).**
-- [ ] **Step 11 — Voice (#23, #9), Property Management (#15), Recruitment (#24 rest).**
+Agency sidebar groups (`apps/console/components/shell/surfaces.ts`; [ ] = later):
+Home (Overview, LocalAgent AI) · Daily work (Leads, Inbox, Calendar, Projects) · People (Customers,
+Agents & Team) · Properties (Listings, [Transactions]) · Marketing (Bulk email, Marketing & Reviews,
+[Ads]) · Automation ([Control Centre], Workflows, Skills) · Knowledge & insights (Knowledge base,
+Dashboards, Insights) · Money (Finance & Trust) · Settings (Connectors, Settings).
+The agent sidebar uses the same groups.
 
+### Done
+- [x] Documents (#13) + Knowledge Base (#11): ADR 0053, migration 0061.
+- [x] Proactive opportunities (#2): ADR 0054, migration 0062.
+- [x] Buyer requirements (#3) + a matching alert to the agent (#5): ADR 0055, migration 0063.
+- [x] AI contact import, mapping + row fixes (#4): ADR 0056, migration 0064.
+
+### Phase 1 — Finish what is half built (no new provider)
+- [ ] **1.1 Sidebar groups** (layout above), in both the agency and agent shells.
+- [ ] **1.2 Assistant `find_buyers`**: reads `buyer_requirement`, so "buyers for a 3-bed in
+  Pakenham under $800k" works and the answer shows how it searched (#21, #5).
+- [ ] **1.3 Matched buyers on the listing**: the contacts whose brief fits the listing, plus
+  one-click bulk email or a task for them, respecting consent (#5). Mock first.
+- [ ] **1.4 More roles**: prospect, past client, referral partner (#3).
+- [ ] **1.5 Turn inbound email on** (Resend MX + `MAIL_INBOUND_DOMAIN` + `MAIL_REPLY_SECRET`) and
+  add an AI reply draft in the inbox that goes out only after the agent approves it (#1). Mock first.
+
+### Phase 2 — Money
+- [ ] **2.1 Transaction pipeline** (Appraisal → Listing → Marketing → Offers → Negotiation →
+  Contract → Settlement) on the listing/property (#14). Mock first.
+- [ ] **2.2 Commissions**, expected and completed, by agent, office, suburb and type. Fills
+  `/finance`, and the measures go into the semantic layer so dashboards show revenue (#16, #22).
+- [ ] **2.3 Property page** with everything on it: owners, enquiries, appraisals, offers,
+  documents, pipeline, an AI summary (#10, #6).
+
+### Phase 3 — Phone + SMS (needs the client's Twilio answers)
+- [ ] **3.1 Twilio integration + SMS threads in the inbox** (#1, #8 SMS).
+- [ ] **3.2 Missed call → SMS → qualify → alert the agent** (#28), plus a Missed Calls page. Mock first.
+- [ ] **3.3 Call recording, transcript and summary; AI voice callback** where it is legal (#9, #28).
+
+### Phase 4 — Automation engine (#27, #7)
+- [ ] More triggers (CRM, property, communication, calendar, transaction, missed call), the
+  "AI understands → decides" step, Automation Library templates, the Control Centre page, and all
+  three permission levels. The visual builder comes last.
+
+### Phase 5 — Open platform (#19)
+- [ ] Public API + webhooks; Outlook; Xero; CRM connectors (Rex, VaultRE, AgentBox) for #4.
+
+### Phase 6 — Marketing (#17 → #26 → #18)
+- [ ] Marketing Studio + agency branding → Social & Ads (budget changes need explicit approval) →
+  Funnel Builder.
+
+### Phase 7 — The rest
+- [ ] Voice control (#23), Property Management (#15), recruitment pipeline + training (#24),
+  team workload board (#12).
+
+Each step: a mock (if it has new UI) → ADR → code → TEST-PLAN → tick it here and update Part 1.
 The order is a recommendation; the client/user decides.
 
 ---
