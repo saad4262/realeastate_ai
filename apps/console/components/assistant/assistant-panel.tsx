@@ -90,6 +90,21 @@ function FrameView({ frame, surface }: { frame: AssistantFrame; surface: Surface
           ))}
         </FrameBox>
       );
+    case 'buyers':
+      // ADR 0059: what was searched for, then each buyer with the brief that fits, linked to their Requirements tab.
+      return (
+        <FrameBox title={`Buyers for: ${frame.searched}`} total={frame.total} shown={frame.rows.length}>
+          {frame.rows.length === 0 ? <li className={styles.meta}>No active brief fits this.</li> : null}
+          {frame.rows.map((r) => (
+            <li key={r.id}>
+              <Link href={`${p.contact}/${r.contactId}?tab=requirements`}>{r.name}</Link>
+              <span className={styles.meta}>
+                {[r.brief, r.assigneeName ? `assigned to ${r.assigneeName}` : 'unassigned', r.enquired ? 'already enquired on it' : ''].filter(Boolean).join(' · ')}
+              </span>
+            </li>
+          ))}
+        </FrameBox>
+      );
     case 'leads':
       return (
         <FrameBox title="Leads" total={frame.total} shown={frame.rows.length}>

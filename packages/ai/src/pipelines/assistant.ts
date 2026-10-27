@@ -26,7 +26,7 @@ import {
   type ToolOutcome,
 } from '@repo/core/assistant';
 import { getModel, SERVER_FALLBACK_MODELS, type TokenUsage } from '../models';
-import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v26';
+import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v27';
 import { embedderFromEnv } from '../search/voyage';
 import { assistantToolsFor } from '../tools/assistant-tools';
 import { skillsOffForActor } from '@repo/core/skill-switches';

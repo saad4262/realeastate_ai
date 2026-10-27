@@ -9,7 +9,9 @@
   email gated on its page only (core batches also carry assistant/workflow template sends).
 - Done: 0065 applied at the user's go (66 recorded) after a rolled-back run on the real DB (14/14); both steps committed.
   The user checked the sidebar and Skills UI in a browser. NOT pushed.
-- Next exact step: ROADMAP 1.3 — assistant find_buyers over buyer_requirement.
+- Then 1.3 (ADR 0059): find_buyers built and checked on the real DB (read-only + one rolled-back sample brief); the user
+  checked it in a browser; committed.
+- Next exact step: 1.4 — the mock for matched buyers on the listing + one-click email; code only after the user reviews it.
 
 ## 2026-10-26 — Claude Code — ADR 0055 + 0056: buyer requirements, buyer matching, AI contact import (branch feat/documents)
 

@@ -1605,3 +1605,17 @@ Needs migration **0065**. Use an owner, and an agent of the same agency, in two 
 | BL11 | Owner: switch off Team activity; ask "show me every agent's emails today" | Refused with the switch message; the other widgets still show. |
 | BL12 | Automations tab; open an old `/workflows?runs=<id>` link | Lands on Skills → Automations with that workflow's runs. The bell's "draft waiting" link opens the Waiting section there. |
 | BL13 | Read-only member → Skills | Switches are drawn but can't be pressed; "You may look but not change these." |
+
+## BM — The assistant finds buyers whose brief fits (ADR 0059)
+
+No migration. First give two contacts a brief on their Requirements tab: A "Buying · $650,000 – $820,000 · 3+ bed · House · Pakenham", B "Buying · up to $600,000 · any suburb".
+
+| # | Case | Expected |
+|---|---|---|
+| BM1 | Ask "Find buyers looking for a 3-bedroom house in Pakenham under $800,000" | The panel says "Buyers for: Buying · up to $800,000 · 3 bed · House · Pakenham" and lists A with their brief; B is listed too (no suburb = any, budget overlaps) and the answer says why. |
+| BM2 | "…in Officer" instead | A is not listed (Pakenham only); B still is. |
+| BM3 | "…over $900,000" | Neither. The assistant says none fit and suggests nothing from memory. |
+| BM4 | "Who would want 27 Lakeside Boulevard?" | It looks the listing up first, then lists buyers for its price, bedrooms, type and suburb; a buyer who enquired on it is marked "already enquired on it". |
+| BM5 | A listing with no price | "price not stated, so budgets were not checked" in the search line. |
+| BM6 | An agent asks BM1 | Only contacts that agent may open are listed. |
+| BM7 | Click a buyer's name | Their contact opens on the Requirements tab. |

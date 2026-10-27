@@ -460,6 +460,32 @@ export const findListingsInput = z
   })
   .strict();
 
+/**
+ * Buyers whose brief fits a property (ADR 0059): a listing (P) OR the property in words, never both.
+ * Prices in whole dollars; per week for rent. "Under $800k" is price_to, "from $700k" price_from.
+ */
+const DOLLARS = z.number().int().min(0).max(100_000_000);
+export const findBuyersInput = z
+  .object({
+    listing: listingHandleSchema.optional(),
+    channel: z.enum(['sale', 'rent']).optional(),
+    suburb: z.string().trim().min(1).max(60).optional(),
+    price_from: DOLLARS.optional(),
+    price_to: DOLLARS.optional(),
+    bedrooms: z.number().int().min(0).max(20).optional(),
+    bathrooms: z.number().min(0).max(20).optional(),
+    property_type: z.enum(PROPERTY_TYPES).optional(),
+    limit: z.number().int().min(1).max(50).default(20),
+  })
+  .strict()
+  // One refinement, so the object is one layer in (the tool definitions are compared with its shape).
+  .superRefine((v, ctx) => {
+    const words = [v.suburb, v.price_from, v.price_to, v.bedrooms, v.bathrooms, v.property_type];
+    if (v.listing && (v.channel !== undefined || words.some((x) => x !== undefined))) ctx.addIssue({ code: 'custom', message: 'Give a listing OR the property in words, not both' });
+    if (!v.listing && words.every((x) => x === undefined)) ctx.addIssue({ code: 'custom', message: 'Say what the property is: a listing (P reference), or a suburb, price, bedrooms, bathrooms or type' });
+    if (v.price_from !== undefined && v.price_to !== undefined && v.price_from > v.price_to) ctx.addIssue({ code: 'custom', path: ['price_from'], message: 'price_from is above price_to' });
+  });
+
 /** `stage`, not `status`: no write tool has a field that could read as a card's own status. */
 export const setLeadStatusInput = z.object({ lead: leadHandleSchema, stage: z.enum(LEAD_STATUSES) }).strict();
 /** Owners/admins (`lead:assign`): give a lead to a member found with find_team_members. */
@@ -847,7 +873,7 @@ export const scheduleTeamMeetingInput = z
   })
   .strict();
 
-export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_saved_lists', 'start_import', 'find_skills', 'find_workflows', 'describe_data', 'query_data', 'search_documents', 'read_document'] as const;
+export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_buyers', 'find_saved_lists', 'start_import', 'find_skills', 'find_workflows', 'describe_data', 'query_data', 'search_documents', 'read_document'] as const;
 /** ADR 0042: a turn that uses these may make more tool calls (`toolCallsPerAnalysisTurn`). */
 export const ASSISTANT_ANALYSIS_TOOLS = ['describe_data', 'query_data'] as const;
 export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'update_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill', 'switch_skill', 'create_workflow', 'change_workflow', 'create_template'] as const;
@@ -896,6 +922,7 @@ export const ASSISTANT_TOOL_INPUTS = {
   message_colleagues: messageColleaguesInput,
   schedule_team_meeting: scheduleTeamMeetingInput,
   find_listings: findListingsInput,
+  find_buyers: findBuyersInput,
   find_saved_lists: findSavedListsInput,
   start_import: startImportInput,
   find_skills: findSkillsInput,
@@ -966,6 +993,13 @@ export type AssistantFrame =
       kind: 'contacts';
       total: number;
       rows: { handle: string; id: string; name: string; roles: string[]; assigneeName: string | null; archived: boolean }[];
+    }
+  | {
+      /** ADR 0059: buyers whose brief fits; `searched` says what was looked for, in the Requirements tab's words. */
+      kind: 'buyers';
+      searched: string;
+      total: number;
+      rows: { id: string; handle: string; contactId: string; name: string; brief: string; assigneeName: string | null; enquired: boolean }[];
     }
   | {
       kind: 'leads';

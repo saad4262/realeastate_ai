@@ -54,6 +54,7 @@ import { findListings, proposeAssignLead, proposeCancelTask, proposeCreateContac
 import { proposeCreateListingDraft, proposeSubmitListing, proposeUpdateListing, proposeWithdrawListing } from './listing-tools';
 import { proposePlanTask } from './plan-task';
 import { findSavedLists } from './list-send';
+import { findBuyers } from './buyer-tools';
 import { mayCreateImport } from '../imports/imports';
 import { findSkills, proposeChangeSkill, proposeSetUpSkill, proposeSwitchSkill } from './skill-tools';
 import { skillOffMessage, skillsForToolCall } from '../skill-switches/catalog';
@@ -158,6 +159,7 @@ const LABELS: Record<AssistantToolName, string> = {
   message_colleagues: 'Writing the message for you to check…',
   schedule_team_meeting: 'Preparing the team meeting for you to approve…',
   find_listings: 'Looking up listings…',
+  find_buyers: 'Looking for buyers whose brief fits…',
   find_saved_lists: 'Looking up your saved lists…',
   start_import: 'Opening the import…',
   find_skills: 'Looking up skills…',
@@ -283,6 +285,8 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return queryData(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.query_data>, label);
     case 'find_listings':
       return findListings(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.find_listings>, label);
+    case 'find_buyers':
+      return findBuyers(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.find_buyers>, label);
     case 'find_saved_lists':
       return findSavedLists(ctx, label);
     case 'find_workflows':

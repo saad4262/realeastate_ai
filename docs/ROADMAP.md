@@ -18,7 +18,7 @@ The brief's numbering skips #20 and #25. The brief marks some items "Yellow = in
 | 2 | AI Business Intelligence Agent | 65% | ~60 tools + documents; proactive opportunities built (ADR 0054), migration 0062 not applied |
 | 3 | Advanced CRM | 70% | Contacts + roles + buyer requirements (ADR 0055); no prospect/past-client/referral roles, no transactions |
 | 4 | AI Contact Import | 65% | CSV/Excel/Sheets + dedupe + AI mapping and row fixes (ADR 0056); no CRM connectors |
-| 5 | Smart Buyer Matching | 45% | New listing fitting a brief alerts the agent (`buyer_match`, ADR 0055 §6); no matched-buyers list/email |
+| 5 | Smart Buyer Matching | 55% | Alert on a new listing (ADR 0055 §6) + the assistant lists the buyers for a listing (ADR 0059); no email to them yet |
 | 6 | Seller Prospecting & Appraisals | 10% | `recent_sales` comparables only |
 | 7 | Automated Follow-Ups | 45% | Via workflows (#27) |
 | 8 | Email Marketing & Campaigns | 55% | Bulk email works; no AI segments, no SMS |
@@ -33,7 +33,7 @@ The brief's numbering skips #20 and #25. The brief marks some items "Yellow = in
 | 17 | AI Marketing Studio | 15% | Listing copy drafts only |
 | 18 | Agency Funnel Builder | 10% | Public site exists; no builder |
 | 19 | Integrations & Open API | 25% | 5 providers; no public API/webhooks |
-| 21 | Natural-Language Search | 50% | Works for listings/notes/emails; the assistant still can't search buyer briefs |
+| 21 | Natural-Language Search | 65% | Listings/notes/emails, and the brief's own example now works: buyers by suburb, price, beds, type (ADR 0059) |
 | 22 | AI Custom Dashboards | 65% | Strongest part |
 | 23 | AI Voice-Controlled Platform | 10% | Commands work by text; no voice input |
 | 24 | Recruitment & Agent Onboarding | 50% | Invite wizard + offboarding |
@@ -251,7 +251,7 @@ The agent sidebar uses the same groups.
   assistant, skipped by the opportunity scan and workflow drafts, and stopped on the bulk email and import
   screens. The assistant flips a switch with `switch_skill` (approval card, prompt v26). Mock approved:
   `docs/mocks/skills-control-centre.html`.
-- [ ] **1.3 Assistant `find_buyers`**: reads `buyer_requirement`, so "buyers for a 3-bed in
+- [x] **1.3 Assistant `find_buyers`** (2026-10-27, ADR 0059, no migration, committed; the user checked it; TEST-PLAN BM): reads `buyer_requirement`, so "buyers for a 3-bed in
   Pakenham under $800k" works and the answer shows how it searched (#21, #5).
 - [ ] **1.4 Matched buyers on the listing**: the contacts whose brief fits the listing, plus
   one-click bulk email or a task for them, respecting consent (#5). Mock first.

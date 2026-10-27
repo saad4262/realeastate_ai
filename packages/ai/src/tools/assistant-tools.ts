@@ -414,6 +414,26 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
     },
   },
   {
+    name: 'find_buyers',
+    description:
+      'Buyers (or renters) whose saved brief fits a property: "buyers looking for a 3-bedroom house in Pakenham under $800,000", "who would want P1?". Give EITHER a listing (P reference) OR the property in words — never both. Returns C references, each buyer’s brief in words, and what was searched for. Fill only the fields the person gave.',
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        listing: { type: 'string', description: 'A P reference from find_listings.' },
+        channel: { type: 'string', enum: ['sale', 'rent'], description: 'Default sale.' },
+        suburb: { type: 'string', description: 'One suburb name, as the person said it.' },
+        price_from: { type: 'integer', description: 'Whole dollars (per week for rent). "from/over $700k" → 700000; "around $750k" → 750000 in both.' },
+        price_to: { type: 'integer', description: 'Whole dollars (per week for rent). "under/up to $800k" → 800000.' },
+        bedrooms: { type: 'integer' },
+        bathrooms: { type: 'number' },
+        property_type: { type: 'string', enum: [...PROPERTY_TYPES] },
+        limit: { type: 'integer', description: 'How many, up to 50. Default 20.' },
+      },
+    },
+  },
+  {
     name: 'set_lead_status',
     description: `Propose changing a lead's status. To "delete" a lead, close it — nothing is ever deleted. Only the agent the lead is assigned to, or an owner/admin, may change it. ${PROPOSES}`,
     input_schema: {

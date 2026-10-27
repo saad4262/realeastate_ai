@@ -1,4 +1,13 @@
 # Status
+- **find_buyers (ADR 0059, 2026-10-27), ROADMAP 1.3, committed on `feat/sidebar-groups` (not pushed). No migration.**
+  Read tool over `buyer_requirement`: a listing (P) OR the property in words; the matcher's rule from the property's side
+  (`briefFitsSql`, open ends open), contacts the person may read, active briefs; frame `buyers` says what was searched
+  (`describeTarget`) and each brief (`describeRequirement`, never the note); listing mode marks who already enquired.
+  Prompt v27. Checks: core 1345 pass (3 = pre-existing Windows; 8 new + rule break-test red then green), ai 319 (2 =
+  pre-existing time-zone); typecheck core/ai/console/web/smoke; console lint 0. Real DB: the four searches run read-only;
+  a sample brief in a ROLLED-BACK tx matched/didn't on price, beds, suburb (any case), type, channel — 10/10, count
+  unchanged. The agent-visibility case was not exercised live (shared visibleContactIdsSql). The user checked it in a
+  browser with dummy briefs (2026-10-27). **Next:** 1.4 — mock first (matched buyers on the listing + email them).
 - **Skills Control Centre (ADR 0058, 2026-10-27), ROADMAP 1.2, committed on `feat/sidebar-groups` with 1.1 (not pushed). Migration 0065 APPLIED 2026-10-27 at the user's go (66 recorded; RLS on, no anon/authenticated grants), after a rolled-back run on the real DB: the migration + every switch function through Drizzle, 14/14 OK.**
   `skill_switch` (no row = on; user_id null = the agency's, owners/admins; else a member's own; independent). Core
   `skill-switches/` (catalog: 16 skills, 3 agency-only; switches: list/isSkillOn/set/skillsOffFor/skillsOffForActor);
