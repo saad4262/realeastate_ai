@@ -253,7 +253,8 @@ The agent sidebar uses the same groups.
   `docs/mocks/skills-control-centre.html`.
 - [x] **1.3 Assistant `find_buyers`** (2026-10-27, ADR 0059, no migration, committed; the user checked it; TEST-PLAN BM): reads `buyer_requirement`, so "buyers for a 3-bed in
   Pakenham under $800k" works and the answer shows how it searched (#21, #5).
-- [ ] **1.4 Matched buyers on the listing**: the contacts whose brief fits the listing, plus
+- [ ] **1.4 Matched buyers on the listing** (mock approved 2026-10-27; ADR 0060 — tabs on the listing page, listing
+  merge fields frozen at Prepare, one call task, strict consent; being built): the contacts whose brief fits the listing, plus
   one-click bulk email or a task for them, respecting consent (#5). Mock first.
 - [ ] **1.5 More roles**: prospect, past client, referral partner (#3).
 - [ ] **1.6 Turn inbound email on** (Resend MX + `MAIL_INBOUND_DOMAIN` + `MAIL_REPLY_SECRET`) and

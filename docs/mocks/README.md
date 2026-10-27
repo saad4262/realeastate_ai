@@ -18,6 +18,7 @@ crimson on neutral grey, where the mock is cool slate with `#E11D48`.
 | `listing-detail.html`  | 12/1A Rogers Street, Pakenham VIC 3810 — Property Listing |
 | `listing-detail.png`   | The same screen, rendered (1400 × 5296)               |
 | `skills-control-centre.html` | Console: Skills (platform skills, AI skills, automations), agency and agent views. Hand-made for ROADMAP 1.2, sample data. Approved 2026-10-27; built as ADR 0058 |
+| `matched-buyers.html` | Console: a listing's Matching buyers tab, the Buyers column on Listings, and the Email-them dialog (owner and agent views; `#list` / `#email` open those screens). Hand-made for ROADMAP 1.4, sample data. Approved 2026-10-27; ADR 0060 |
 
 ## Where it came from
 

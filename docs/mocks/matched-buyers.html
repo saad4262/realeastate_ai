@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Matched Buyers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300..600,0..1&display=swap" rel="stylesheet" />
+<!--
+  Mock for ROADMAP Phase 1.4 — matched buyers on a listing + one-click email (to become ADR 0060).
+  Colours are the console's own tokens (apps/console/app/globals.css). Every name, brief, listing and
+  number here is SAMPLE data. The bar at the top (view + screen) exists only in the mock.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff; --surface-container-low: #eff4ff;
+    --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff;
+    --emerald: #059669; --emerald-subtle: #ecfdf5;
+    --rose: #e11d48; --rose-subtle: #fff1f2;
+    --amber: #d97706; --amber-subtle: #fffbeb;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .ms { font-family: 'Material Symbols Outlined'; font-size: 20px; line-height: 1; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 400; }
+  .ms.sm { font-size: 16px; width: 16px; height: 16px; }
+  button, input, select, textarea { font: inherit; }
+  [hidden] { display: none !important; }
+
+  .mockbar { position: sticky; top: 0; z-index: 30; display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+  .mockbar b { color: #fff; }
+  .seg { display: inline-flex; background: #1e293b; border-radius: 8px; padding: 2px; flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; }
+
+  .shell { display: flex; min-height: calc(100vh - 36px); }
+  aside { width: 240px; flex: none; border-right: 1px solid var(--border-default); padding: 16px 12px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 16px; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--text-primary); color: #fff; display: grid; place-items: center; font: 700 12px 'Plus Jakarta Sans'; }
+  .brand small { display: block; color: var(--text-muted); font-size: 11px; }
+  .gh { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px 4px; }
+  .nl { display: flex; gap: 12px; align-items: center; padding: 7px 12px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; }
+  .nl.on { background: #fff; color: var(--sapphire); border: 1px solid var(--border-default); font-weight: 500; }
+
+  main { flex: 1; min-width: 0; padding: 28px 32px 64px; }
+  h1 { font: 600 24px/32px 'Plus Jakarta Sans'; margin: 0; letter-spacing: -.02em; }
+  .sub { color: var(--text-secondary); margin: 4px 0 0; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .between { justify-content: space-between; }
+  .btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-default); background: #fff; color: var(--text-primary); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; text-decoration: none; }
+  .btn.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn:focus-visible, .tab:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+  .back { color: var(--text-secondary); text-decoration: none; display: inline-flex; gap: 4px; align-items: center; font-size: 12.5px; margin-bottom: 10px; }
+
+  .card { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; }
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--border-default); vertical-align: middle; }
+  th { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); background: var(--surface-canvas); white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  td small { display: block; color: var(--text-muted); font-size: 12px; }
+  .pill { display: inline-flex; gap: 4px; align-items: center; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border-default); color: var(--text-secondary); background: #fff; white-space: nowrap; }
+  .pill.live { color: var(--emerald); background: var(--emerald-subtle); border-color: #a7f3d0; }
+  .pill.ok { color: var(--emerald); background: var(--emerald-subtle); border-color: #a7f3d0; }
+  .pill.skip { color: var(--amber); background: var(--amber-subtle); border-color: #fde68a; }
+  .pill.no { color: var(--rose); background: var(--rose-subtle); border-color: #fecdd3; }
+  .pill.info { color: var(--sapphire); background: var(--sapphire-subtle); border-color: #bfdbfe; }
+  .buyers-chip { display: inline-flex; gap: 6px; align-items: center; padding: 3px 10px; border-radius: 999px; background: var(--sapphire-subtle); color: var(--sapphire); font-weight: 600; font-size: 12px; text-decoration: none; border: 1px solid #bfdbfe; cursor: pointer; }
+  .buyers-chip.zero { background: var(--surface-canvas); color: var(--text-muted); border-color: var(--border-default); font-weight: 500; cursor: default; }
+
+  .lhead { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .thumb { width: 92px; height: 68px; border-radius: 10px; background: linear-gradient(135deg, #cbd5e1, #e2e8f0); display: grid; place-items: center; color: #64748b; flex: none; }
+  .facts { display: flex; gap: 14px; flex-wrap: wrap; color: var(--text-secondary); font-size: 12.5px; margin-top: 6px; }
+  .facts span { display: inline-flex; gap: 4px; align-items: center; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-default); margin: 22px 0 18px; overflow-x: auto; }
+  .tab { border: 0; background: transparent; padding: 10px 14px; cursor: pointer; color: var(--text-secondary); font-weight: 500; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+  .tab[aria-selected="true"] { color: var(--text-primary); border-color: var(--text-primary); }
+  .tab .n { display: inline-block; margin-left: 6px; font-size: 11px; padding: 0 7px; border-radius: 999px; background: var(--sapphire-subtle); color: var(--sapphire); }
+
+  .searched { display: flex; gap: 10px; align-items: flex-start; background: var(--surface-container-low); border: 1px solid #dbeafe; border-radius: 10px; padding: 10px 12px; color: var(--text-secondary); font-size: 12.5px; margin-bottom: 14px; }
+  .searched .ms { color: var(--sapphire); }
+  .searched b { color: var(--text-primary); font-weight: 600; }
+  .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--border-default); }
+  .bar .count { color: var(--text-secondary); font-size: 12.5px; margin-right: auto; }
+  input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--text-primary); }
+  .name a { color: var(--text-primary); font-weight: 600; text-decoration: none; }
+  .name a:hover { text-decoration: underline; }
+  .brief { color: var(--text-secondary); font-size: 12.5px; }
+  .why { color: var(--text-muted); font-size: 11.5px; margin-top: 2px; }
+
+  .note { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; color: var(--text-secondary); background: #fff; border: 1px solid var(--border-default); margin-top: 14px; }
+  .note .ms { color: var(--text-muted); }
+
+  /* Dialog */
+  .scrim { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); display: grid; place-items: center; padding: 16px; z-index: 40; }
+  .dialog { width: min(640px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: #fff; border-radius: 14px; box-shadow: 0 20px 50px rgba(15, 23, 42, .25); }
+  .dhead { padding: 16px 18px; border-bottom: 1px solid var(--border-default); display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .dhead h2 { margin: 0; font: 600 17px 'Plus Jakarta Sans'; }
+  .dbody { padding: 16px 18px; display: grid; gap: 14px; }
+  .dfoot { padding: 14px 18px; border-top: 1px solid var(--border-default); display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+  label.f { display: grid; gap: 6px; font-weight: 500; font-size: 12.5px; }
+  select, input[type=text] { border: 1px solid var(--border-default); border-radius: 8px; padding: 8px 10px; background: #fff; color: var(--text-primary); }
+  .preview { border: 1px solid var(--border-default); border-radius: 10px; padding: 12px 14px; background: var(--surface-canvas); font-size: 13px; }
+  .preview .subj { font-weight: 600; margin-bottom: 6px; }
+  .merge { background: var(--sapphire-subtle); color: var(--sapphire); border-radius: 4px; padding: 0 3px; }
+  .who { display: grid; gap: 6px; }
+  .who div { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+  .steps { display: flex; gap: 6px; align-items: center; color: var(--text-muted); font-size: 12px; flex-wrap: wrap; }
+  .steps b { color: var(--text-primary); }
+  .toast { position: fixed; right: 16px; bottom: 16px; background: var(--text-primary); color: #fff; padding: 10px 14px; border-radius: 10px; font-size: 13px; z-index: 50; display: flex; gap: 8px; align-items: center; }
+
+  @media (max-width: 860px) {
+    aside { display: none; }
+    main { padding: 20px 16px 48px; }
+    .hide-sm { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <b>MOCK · sample data</b>
+  <span>Show as:</span>
+  <div class="seg" role="group" aria-label="Show as">
+    <button type="button" data-view="owner" aria-pressed="true">Owner / admin</button>
+    <button type="button" data-view="agent" aria-pressed="false">Agent</button>
+  </div>
+  <span>Screen:</span>
+  <div class="seg" role="group" aria-label="Screen">
+    <button type="button" data-screen="list" aria-pressed="false">1 · Listings</button>
+    <button type="button" data-screen="buyers" aria-pressed="true">2 · Listing → Buyers</button>
+    <button type="button" data-screen="email" aria-pressed="false">3 · Email them</button>
+  </div>
+</div>
+
+<div class="shell">
+  <aside aria-label="Sidebar">
+    <div class="brand"><div class="logo">LA</div><div><b>Harbour Realty</b><small id="side-sub">Agency</small></div></div>
+    <div class="gh">Daily work</div>
+    <div class="gh">People</div>
+    <div class="gh">Properties</div>
+    <div class="nl on"><span class="ms" style="font-variation-settings:'FILL' 1">real_estate_agent</span><span id="side-listings">Listings</span></div>
+    <div class="gh">Marketing</div>
+    <div class="gh">Automation</div>
+    <div class="gh">Knowledge &amp; insights</div>
+    <div class="gh">Settings</div>
+  </aside>
+
+  <main>
+    <!-- SCREEN 1: LISTINGS TABLE -->
+    <section id="s-list" hidden>
+      <div class="row between">
+        <div><h1 id="list-title">Listings</h1><p class="sub">A new column shows how many buyers' briefs fit each listing. Click it to see them.</p></div>
+        <button class="btn primary" type="button"><span class="ms sm">add</span>New listing</button>
+      </div>
+      <div class="card tablewrap" style="margin-top:18px">
+        <table>
+          <thead><tr><th>Address</th><th class="hide-sm">Specs</th><th>Price</th><th class="hide-sm">Agents</th><th>Status</th><th>Buyers</th><th>Actions</th></tr></thead>
+          <tbody id="list-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- SCREEN 2: LISTING → BUYERS TAB -->
+    <section id="s-buyers">
+      <a class="back" href="#" data-go="list"><span class="ms sm">arrow_back</span><span id="back-label">Listings</span></a>
+      <div class="lhead">
+        <div class="thumb"><span class="ms">home</span></div>
+        <div style="flex:1;min-width:240px">
+          <div class="row" style="gap:8px"><h1>27 Lakeside Boulevard, Pakenham</h1><span class="pill live">Live</span></div>
+          <div class="facts">
+            <span><span class="ms sm">sell</span>$750,000 – $790,000</span>
+            <span><span class="ms sm">bed</span>4 bed</span>
+            <span><span class="ms sm">bathtub</span>2 bath</span>
+            <span><span class="ms sm">house</span>House</span>
+            <span><span class="ms sm">person</span>Sarah K.</span>
+          </div>
+        </div>
+        <div class="row"><a class="btn" href="#"><span class="ms sm">open_in_new</span>Public ad</a></div>
+      </div>
+
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" aria-selected="false">Details</button>
+        <button class="tab" role="tab" aria-selected="false">Photos</button>
+        <button class="tab" role="tab" aria-selected="true">Matching buyers <span class="n" id="tab-n"></span></button>
+      </div>
+
+      <div class="searched">
+        <span class="ms">manage_search</span>
+        <span>Buyers whose brief fits this listing: <b>Buying · $750,000 – $790,000 · 4 bed · 2 bath · House · Pakenham</b>.
+          A brief fits when the price ranges overlap, it needs no more bedrooms or bathrooms than this has, and Pakenham and House are among its suburbs and types (a brief that names none accepts any).
+          <span id="scope-note"></span></span>
+      </div>
+
+      <div class="card">
+        <div class="bar">
+          <span class="count" id="sel-count"></span>
+          <button class="btn" type="button" id="btn-remind" disabled><span class="ms sm">call</span>Remind me to call</button>
+          <button class="btn primary" type="button" id="btn-email" disabled><span class="ms sm">forward_to_inbox</span>Email selected</button>
+        </div>
+        <div class="tablewrap">
+          <table>
+            <thead><tr>
+              <th style="width:36px"><input type="checkbox" id="all" aria-label="Select everyone who can be emailed" /></th>
+              <th>Buyer</th><th>Wants</th><th class="hide-sm">Agent</th><th>Email</th>
+            </tr></thead>
+            <tbody id="buyer-rows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="note">
+        <span class="ms">info</span>
+        <span>"Email" follows the bulk-email rules: someone is emailed only if they agreed to marketing, enquired in the last 24 months, or are a client; anyone unsubscribed, archived or without an email is skipped and shown why. Up to 20 people per batch. Nothing is sent until you press Approve &amp; Send on the next screen.
+          <br/>If Bulk email is switched off in Skills, this button says so and does nothing.</span>
+      </div>
+    </section>
+
+    <!-- SCREEN 3 is the dialog below, opened over screen 2 -->
+  </main>
+</div>
+
+<!-- EMAIL DIALOG -->
+<div class="scrim" id="dlg" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-title">
+    <div class="dhead">
+      <h2 id="dlg-title">Email buyers about 27 Lakeside Boulevard</h2>
+      <button class="btn" type="button" data-close aria-label="Close"><span class="ms sm">close</span></button>
+    </div>
+    <div class="dbody">
+      <div class="steps"><b>1 Choose the email</b><span class="ms sm">chevron_right</span><span>2 Review who gets it</span><span class="ms sm">chevron_right</span><span>3 Approve &amp; Send</span></div>
+      <label class="f">Template
+        <select id="tpl">
+          <option value="new">New listing that fits your brief (agency)</option>
+          <option value="open">Open home this Saturday (agency)</option>
+          <option value="mine">My personal intro (yours)</option>
+        </select>
+      </label>
+      <div class="preview" id="preview"></div>
+      <div class="row" style="gap:8px">
+        <span class="pill info"><span class="ms sm">auto_awesome</span>New</span>
+        <span style="font-size:12.5px;color:var(--text-secondary)">Sent from a listing, a template may also use <span class="merge">{{listing_address}}</span> <span class="merge">{{listing_price}}</span> <span class="merge">{{listing_link}}</span>, filled from the listing.</span>
+      </div>
+      <div class="card" style="padding:12px 14px">
+        <div style="font-weight:600;margin-bottom:8px">Who gets it</div>
+        <div class="who" id="who"></div>
+      </div>
+      <a href="#" style="font-size:12.5px;color:var(--sapphire);text-decoration:none">No template fits? Write one for this listing with the assistant →</a>
+    </div>
+    <div class="dfoot">
+      <button class="btn" type="button" data-close>Cancel</button>
+      <button class="btn primary" type="button" id="prepare"><span class="ms sm">fact_check</span>Prepare &amp; review</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden><span class="ms sm">check_circle</span><span id="toast-text"></span></div>
+
+<script>
+const LISTINGS = [
+  { addr: '27 Lakeside Boulevard, Pakenham', specs: '4 bed · 2 bath · House', price: '$750,000 – $790,000', agents: 'Sarah K.', status: 'Live', buyers: 4, mine: true },
+  { addr: '8/14 Main Street, Pakenham', specs: '2 bed · 1 bath · Unit', price: '$480,000', agents: 'Omar R.', status: 'Live', buyers: 2, mine: false },
+  { addr: '3 Henry Road, Officer', specs: '3 bed · 2 bath · Townhouse', price: 'Contact agent', agents: 'Sarah K.', status: 'Live', buyers: 1, mine: true },
+  { addr: '61 Bald Hill Road, Pakenham', specs: '5 bed · 3 bath · House', price: '$1,150,000', agents: 'Omar R.', status: 'Under offer', buyers: 0, mine: false },
+];
+// email: ok | consent | unsub | none
+const BUYERS = [
+  { id: 1, name: 'Priya Natarajan', wants: 'Buying · $700,000 – $800,000 · 3+ bed · House · Pakenham, Officer', agent: 'Sarah K.', mine: true, email: 'ok', why: 'Enquired 3 months ago' },
+  { id: 2, name: 'Daniel & Mei Wong', wants: 'Buying · up to $820,000 · 4+ bed · any suburb', agent: 'Sarah K.', mine: true, email: 'ok', why: 'Agreed to marketing', enquired: true },
+  { id: 3, name: 'Tom Ashby', wants: 'Buying · from $650,000 · 3+ bed · 2+ bath · House · Pakenham', agent: 'Omar R.', mine: false, email: 'consent', why: 'No consent or enquiry on record' },
+  { id: 4, name: 'Lucia Ferreira', wants: 'Buying · $720,000 – $780,000 · House, Townhouse · Pakenham', agent: 'Omar R.', mine: false, email: 'unsub', why: 'Unsubscribed 2 June' },
+];
+const EMAIL = {
+  ok: '<span class="pill ok"><span class="ms sm">check</span>Can be emailed</span>',
+  consent: '<span class="pill skip"><span class="ms sm">block</span>No marketing consent</span>',
+  unsub: '<span class="pill no"><span class="ms sm">unsubscribe</span>Unsubscribed</span>',
+  none: '<span class="pill no">No email</span>',
+};
+const TEMPLATES = {
+  new: { subj: 'Just listed in Pakenham — {{listing_address}}', body: 'Hi {{first_name}},\n\nA home that fits what you told us you’re looking for has just come on the market: {{listing_address}}, {{listing_price}}.\n\nSee it here: {{listing_link}}\n\nHappy to arrange a private inspection.\n{{agent_name}}, {{agency_name}}' },
+  open: { subj: 'Open home this Saturday — {{listing_address}}', body: 'Hi {{first_name}},\n\nWe’re opening {{listing_address}} this Saturday at 11 am. It matches your brief, so I thought of you first.\n\n{{listing_link}}\n\n{{agent_name}}' },
+  mine: { subj: 'A quick hello from {{agent_name}}', body: 'Hi {{first_name}},\n\nI’ve got something you may like. Can I call you this week?\n\n{{agent_name}}' },
+};
+
+let view = 'owner', screen = 'buyers';
+const selected = new Set();
+const visible = () => BUYERS.filter((b) => view === 'owner' || b.mine);
+
+function renderList() {
+  const rows = LISTINGS.filter((l) => view === 'owner' || l.mine);
+  document.getElementById('list-title').textContent = view === 'owner' ? 'Listings' : 'My Listings';
+  document.getElementById('list-rows').innerHTML = rows.map((l, i) => `
+    <tr><td><b>${l.addr}</b></td><td class="hide-sm">${l.specs}</td><td>${l.price}</td><td class="hide-sm">${l.agents}</td>
+      <td><span class="pill ${l.status === 'Live' ? 'live' : ''}">${l.status}</span></td>
+      <td>${l.buyers ? `<a class="buyers-chip" href="#" data-go="buyers"><span class="ms sm">person_search</span>${view === 'agent' && i === 0 ? 2 : l.buyers}</a>` : '<span class="buyers-chip zero">0</span>'}</td>
+      <td><a class="btn" href="#">Edit</a></td></tr>`).join('');
+}
+
+function renderBuyers() {
+  const rows = visible();
+  document.getElementById('tab-n').textContent = rows.length;
+  document.getElementById('scope-note').textContent = view === 'owner' ? 'Showing every buyer in the agency.' : 'Showing only your own buyers; colleagues’ buyers are not shown to you.';
+  document.getElementById('buyer-rows').innerHTML = rows.map((b) => `
+    <tr>
+      <td><input type="checkbox" data-id="${b.id}" ${b.email !== 'ok' ? 'disabled title="Can’t be emailed"' : ''} ${selected.has(b.id) ? 'checked' : ''} aria-label="Select ${b.name}" /></td>
+      <td class="name"><a href="#">${b.name}</a>${b.enquired ? ' <span class="pill info">Enquired on this</span>' : ''}<div class="why">${b.why}</div></td>
+      <td class="brief">${b.wants}</td>
+      <td class="hide-sm">${b.agent}</td>
+      <td>${EMAIL[b.email]}</td>
+    </tr>`).join('');
+  const n = selected.size;
+  document.getElementById('sel-count').textContent = n ? `${n} selected` : `${rows.length} buyer${rows.length === 1 ? '' : 's'} fit · ${rows.filter((b) => b.email === 'ok').length} can be emailed`;
+  document.getElementById('btn-email').disabled = !n;
+  document.getElementById('btn-remind').disabled = !n;
+  document.getElementById('btn-email').innerHTML = `<span class="ms sm">forward_to_inbox</span>Email selected${n ? ` (${n})` : ''}`;
+  const all = document.getElementById('all');
+  const emailable = rows.filter((b) => b.email === 'ok');
+  all.checked = emailable.length > 0 && emailable.every((b) => selected.has(b.id));
+}
+
+function fill(text) {
+  const vals = { first_name: 'Priya', agent_name: 'Sarah K.', agency_name: 'Harbour Realty', listing_address: '27 Lakeside Boulevard, Pakenham', listing_price: '$750,000 – $790,000', listing_link: 'harbourrealty.com.au/listing/27-lakeside' };
+  return text.replace(/{{(\w+)}}/g, (_, k) => `<span class="merge">${vals[k] ?? k}</span>`).replace(/\n/g, '<br/>');
+}
+function renderDialog() {
+  const t = TEMPLATES[document.getElementById('tpl').value];
+  document.getElementById('preview').innerHTML = `<div class="subj">${fill(t.subj)}</div><div>${fill(t.body)}</div><div class="why" style="margin-top:8px">Preview for the first person. Each person sees their own name.</div>`;
+  const chosen = visible().filter((b) => selected.has(b.id));
+  document.getElementById('who').innerHTML = chosen.map((b) => `<div><span>${b.name}</span>${EMAIL[b.email]}</div>`).join('') +
+    `<div style="border-top:1px solid var(--border-default);padding-top:6px;margin-top:2px"><span><b>${chosen.length}</b> will be emailed · nobody skipped</span><span style="color:var(--text-muted)">limit 20 per batch</span></div>`;
+}
+
+function show(s) {
+  screen = s;
+  document.querySelectorAll('[data-screen]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.screen === s));
+  document.getElementById('s-list').hidden = s !== 'list';
+  document.getElementById('s-buyers').hidden = s === 'list';
+  document.getElementById('dlg').hidden = s !== 'email';
+  if (s === 'email') {
+    if (!selected.size) visible().filter((b) => b.email === 'ok').forEach((b) => selected.add(b.id));
+    renderBuyers();
+    renderDialog();
+  }
+}
+function toast(text) {
+  const t = document.getElementById('toast');
+  document.getElementById('toast-text').textContent = text;
+  t.hidden = false;
+  clearTimeout(window._t);
+  window._t = setTimeout(() => (t.hidden = true), 2600);
+}
+
+document.addEventListener('click', (e) => {
+  const v = e.target.closest('[data-view]');
+  if (v) {
+    view = v.dataset.view;
+    document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', b === v));
+    document.getElementById('side-sub').textContent = view === 'owner' ? 'Agency' : 'Agent desk';
+    document.getElementById('side-listings').textContent = view === 'owner' ? 'Listings' : 'My Listings';
+    document.getElementById('back-label').textContent = view === 'owner' ? 'Listings' : 'My Listings';
+    selected.clear(); renderList(); renderBuyers(); if (screen === 'email') renderDialog();
+    return;
+  }
+  const s = e.target.closest('[data-screen]');
+  if (s) { show(s.dataset.screen); return; }
+  const go = e.target.closest('[data-go]');
+  if (go) { e.preventDefault(); show(go.dataset.go); return; }
+  if (e.target.closest('#btn-email')) { show('email'); return; }
+  if (e.target.closest('#btn-remind')) { toast(`A reminder to call ${selected.size} buyer${selected.size === 1 ? '' : 's'} tomorrow at 9 am was added to your tasks`); return; }
+  if (e.target.closest('[data-close]') || e.target.id === 'dlg') { show('buyers'); return; }
+  if (e.target.closest('#prepare')) { show('buyers'); toast('Batch prepared — opening Bulk email to review and Approve & Send'); return; }
+});
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'all') {
+    visible().filter((b) => b.email === 'ok').forEach((b) => (e.target.checked ? selected.add(b.id) : selected.delete(b.id)));
+    renderBuyers(); return;
+  }
+  if (e.target.dataset.id) { const id = +e.target.dataset.id; e.target.checked ? selected.add(id) : selected.delete(id); renderBuyers(); return; }
+  if (e.target.id === 'tpl') renderDialog();
+});
+
+renderList(); renderBuyers();
+// #list / #email open that screen directly (for screenshots and links to the mock).
+show({ '#list': 'list', '#email': 'email' }[location.hash] ?? 'buyers');
+</script>
+</body>
+</html>
