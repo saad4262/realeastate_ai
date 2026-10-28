@@ -1,4 +1,71 @@
 # Status
+- **Automation Library (ADR 0068, 2026-10-28), ROADMAP 4.3, on `feat/sidebar-groups` (not committed). No migration.**
+  Core `workflows/library.ts` (10 entries: words for the card and the assistant's box, never a spec; likeThisOn);
+  WorkflowSummary gains triggerKind/decides. Console: the library at the top of the agency's Automations tab (owners
+  and admins), group chips in the URL, "Use this" → `/overview?ask=…` (typed, not sent). Checks: core 1412 pass
+  (3 = pre-existing Windows; count break-test red then green), ai 329 (2 = pre-existing); typecheck; lint 0; build
+  compiles. **Next:** BV (and 0069 for the entries on the new triggers).
+- **AI decides (ADR 0067, 2026-10-28), ROADMAP 4.2, on `feat/sidebar-groups` (not committed). `workflow_run.decision` added to migration 0069 (regenerated; still NOT applied).**
+  Core: catalog `decide` (2–4 labelled choices; the workflow's own steps are "Not sure"; DECIDABLE_TRIGGERS;
+  stepsProblem per choice; allActions), `workflows/decide.ts` (what the AI reads, budget, pickChoice, decideRun —
+  never fails a run), engine runs the chosen steps and stores the decision; skill "AI decisions in workflows".
+  ai `pipelines/workflow-decide.ts` + prompt workflow-decide@v1; assistant create_workflow.decide, prompt v30; the
+  minute cron passes the decider. Console: the decision and its choices on the Automations tab, "AI chose …" on runs.
+  Checks: core 1409 pass (3 = pre-existing Windows; label-check break-test red then green), ai 329 (2 = pre-existing);
+  typecheck core/ai/console/web/smoke; lint 0; build compiles. **Next:** the go for 0069, then BT and BU.
+- **More workflow triggers (ADR 0066, 2026-10-28), ROADMAP 4.1, on `feat/sidebar-groups` (not committed). Migration 0069 (widens `workflow_event_kind_check`) written, NOT applied — needs the user's go.**
+  Core `workflows/`: catalog (7 triggers + TRIGGER_GUIDE), scans.ts (deal events per side, buyer matches via
+  briefFitsSql, upcoming appointments, appraisals not listed, sale anniversaries — keyed, deduped, never before the
+  oldest such workflow), engine (triggerMatches, inScope per kind, the tick runs the scans), completeAppointment emits
+  appointment.completed. Assistant: create_workflow's new fields; prompt v29. Console: the Automations tab's
+  "What can start a workflow". Checks: core 1400 pass (3 = pre-existing Windows; deal-side break-test red then green),
+  ai 326 (2 = pre-existing); typecheck all; lint 0; build compiles. **Next:** the go for 0069 (rolled-back run with
+  the scans on the real data first), then BT.
+- **Migrations 0067 + 0068 APPLIED 2026-10-28 at the user's go (69 recorded), after a rolled-back run on the real DB, 19/19: both migrations, RLS on the three tables, the deal sync on the real listings (27 opened — 23 Marketing, 4 Contract — and 16 standard conditions; a second run changes nothing; one open deal per property), the board, the Deal tab, a $782,000 commission at 2.2% to the cent, Finance tiles adding up, the Properties list under every filter and search, the property page, an agent's narrower list with no offer or commission on 15 pages and "not found" off his addresses, no offer count on his cards, the summary checks with a fake model. Then, applied, a rolled-back settle 5/5: Settlement, buyer and vendor tagged Past client (inferred), Mark agent paid in Finance. The run found two untyped parameters in the sync (conditions' sort, the reminder offset) — fixed, with a guard test (break-tested).** The deal sync was then run once for real at the user's go (2026-10-28): 27 deals opened (23 Marketing, 4 Contract), 16 conditions, 27 events, no reminders due; a second run changed nothing.
+- **Property page (ADR 0065, 2026-10-27), ROADMAP 2.3, on `feat/sidebar-groups` (not committed). No migration; reads 0068's `deal` (applied 2026-10-28).**
+  Core `properties/`: visibility.ts (visiblePropertyIdsSql — owners/admins any address the agency has a record of, others
+  only their own; lead/appointment rules in SQL from can()), property-page.ts (getPropertyView: facts, campaigns, deal,
+  leads, appointments, open homes, people, documents, timeline; listProperties), summary.ts (numbered records, checks,
+  budget, the new Property summaries skill). ai `pipelines/property-summary.ts` + prompt property-summary@v1. Console:
+  /properties, /properties/[id], /my-properties(…); links from the listing page, a contact's Properties tab and a
+  listing-less Pipeline card. Fixed on the way: the Pipeline card showed agents an offer count (now owners/admins only).
+  Checks: core 1387 pass (3 = pre-existing Windows; offer-guard break-test red then green), ai 326 (2 = pre-existing);
+  typecheck core/ai/console/web/smoke; lint 0; build compiles. Not on a real DB yet. **Next:** fold into the 0068 rolled-back run; BS.
+- **Commissions + Finance (ADR 0064, 2026-10-27), ROADMAP 2.2, on `feat/sidebar-groups` (not committed). Commission columns added to `deal` in migration 0068 (applied 2026-10-28).**
+  Core `deals/commission.ts`: COMMISSION_JOINS/COLUMNS (one SQL expression: percent or fixed, split = deal else agent_profile,
+  agency share = commission − agent share, GST 10%), setDealCommission/markCommissionPaid (`deal:commission`, owners/admins),
+  financeReport (FY July–June on the agency clock; agency scope via report:read_agency, else own) + groupFinance (cent sums).
+  Console: Deal tab CommissionPanel; /finance (placeholder replaced) and /my-commission; sidebar Money. Checks: core 1376
+  pass (3 = pre-existing Windows; cent-rounding break-test red then green), ai 323 (2 = pre-existing); typecheck all; lint 0;
+  build compiles. Not on a real DB yet. **Next:** the go for 0067 + 0068 (rolled-back run first), then BN–BR.
+- **Deal pipeline (ADR 0063, 2026-10-27), ROADMAP 2.1, on `feat/sidebar-groups` (not committed). Migration 0068 (deal, deal_condition, deal_event, deal_stage enum) APPLIED 2026-10-28 after a rolled-back run (see the top entry); the sync ran on the real listings there.**
+  Core `deals/` (stages.ts pure; sync.ts: link appraisal→listing, open from sale listings/appraisals [60-day backfill],
+  forward-only moves from listing status + offers, withdrawn, standard conditions at Contract, reminders 2 days before
+  each condition/settlement; deals.ts: board, Deal tab, details/stage/settle/conditions with listing:edit). Minute cron runs
+  runDealSync. Console: Properties → Pipeline (/pipeline, /my-pipeline), listing page Deal tab (DealEditor island). Assistant
+  find_deals, prompt v28. Checks: core 1368 pass (3 = pre-existing Windows), ai 323 (2 = pre-existing time-zone); typecheck
+  core/ai/console/web/smoke; console lint 0; console build compiles. **Next:** the go for 0068 (rolled-back run first), BQ.
+- **More contact roles (ADR 0061, 2026-10-27), ROADMAP 1.5, on `feat/sidebar-groups` (not committed). Migration 0067 (`contact_role_kind` + prospect, past_client, referral_partner) APPLIED 2026-10-28 at the user's go.**
+  CONTACT_ROLES + labels; import synonyms (past/former/previous client, referral/referrer/referral partner/source,
+  potential client); not a consent role. Checks: core 1352 pass (3 = pre-existing Windows), typecheck core/ai/console.
+- **Inbox assistant (ADR 0062, 2026-10-27), ROADMAP 1.6, on `feat/sidebar-groups` (not committed). No migration.**
+  Core `mail/reply-assist.ts` (numbering, switch + budget gate, checkSummary, bracketUnsupported), ai
+  `pipelines/reply-assist.ts` + prompt reply-assist@v1, console Composer + ReplyAssistant island, actions in
+  `lib/reply-assist-actions.ts`. Summary only on a button (the user). Checks: core 7 + ai 4 new tests, guard
+  break-test red then green; typecheck core/ai/console; console lint 0; read-only real-DB run with FAKE model
+  functions (4 messages numbered, a bad citation dropped, an unsourced price bracketed). No live model call yet.
+- **Matched buyers on the listing (ADR 0060, 2026-10-27), ROADMAP 1.4, on `feat/sidebar-groups` (not committed). Migration 0066 (`email_batch.listing_id`, `listing_snapshot`) APPLIED 2026-10-27 at the user's go (67 recorded), after a rolled-back run on the real DB, 13/13: the tab lists a sample brief, count = tab, a listing template refused without a listing, the batch keeps frozen values, preview has no braces, a later listing change does not reach it, ONE remind step at 9 am tomorrow with title/body/href, a second press makes nothing.**
+  Checks: core 1351 pass (3 = pre-existing Windows path failures), ai 319 (2 = pre-existing time-zone); typecheck
+  core/ai/console/web/smoke; console lint 0; console build compiles. Waiting for the user's browser walk of TEST-PLAN BN.
+  Core `buyer-matching/` (match.ts: ONE rule `briefFitsSql` over given values or a listing's columns, shared by find_buyers,
+  the tab and the counts; buyers.ts: listingBuyers with bulk-email's `classify` per buyer, matchingBuyerCounts in one
+  statement, scheduleBuyerCallTask = one assistant task with one `remind` step at 9 am tomorrow, body = buyers + phones,
+  href = the tab). Template email: `{{listing_address}}`, `{{listing_price}}`, `{{listing_link}}` (listing-values.ts),
+  frozen into the batch at Prepare; a template using them is refused without a listing; the link refused for a listing
+  not live. `notifyMyself` takes body/href. Console: listing edit page → tabs (Details · Photos · Documents · Matching
+  buyers), shared `components/listings/listing-page.tsx`; BuyerPicker island (boxes off for anyone bulk email would skip,
+  Email selected → template → Prepare & review → batch page; Remind me to call); Listings table Buyers column.
+  find_buyers now reads the shared module ("leased" now counts as rent). **Next:** the user walks BN; commit 1.4.
 - **find_buyers (ADR 0059, 2026-10-27), ROADMAP 1.3, committed on `feat/sidebar-groups` (not pushed). No migration.**
   Read tool over `buyer_requirement`: a listing (P) OR the property in words; the matcher's rule from the property's side
   (`briefFitsSql`, open ends open), contacts the person may read, active briefs; frame `buyers` says what was searched

@@ -1,0 +1,39 @@
+/* The trigger guide on the Automations tab (ADR 0066, docs/mocks/workflow-triggers.html). */
+.glyph { font-family: 'Material Symbols Outlined', sans-serif; font-size: 16px; line-height: 1; font-weight: 400; }
+.groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(20rem, 100%), 1fr)); gap: 0.75rem; margin-top: 0.75rem; }
+.group { padding: 0.75rem 0.875rem; border: 1px solid var(--border-default); border-radius: 0.75rem; background: var(--surface-card, #fff); }
+.groupTitle { display: flex; align-items: center; gap: 0.375rem; margin: 0 0 0.375rem; color: var(--text-muted); font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
+.trig { display: grid; grid-template-columns: 1.875rem minmax(0, 1fr); gap: 0.625rem; padding: 0.5625rem 0; border-top: 1px solid var(--border-default); font-size: 0.8125rem; }
+.trig:first-of-type { border-top: 0; }
+.ico { display: grid; place-items: center; width: 1.875rem; height: 1.875rem; border-radius: 0.5rem; background: #f1f5f9; color: var(--text-secondary); }
+.icoNew { background: var(--sapphire-subtle); color: var(--sapphire); }
+.trig b { font-weight: 600; }
+.trig p { margin: 0.125rem 0 0; color: var(--text-secondary); font-size: 0.78125rem; }
+.ask { margin: 0.3rem 0 0; color: #7c3aed; font-size: 0.75rem; font-style: italic; }
+.new { display: inline-flex; margin-left: 0.25rem; padding: 0 0.375rem; border-radius: 999px; border: 1px solid #a7f3d0; background: var(--emerald-subtle); color: var(--emerald); font-size: 0.625rem; font-weight: 700; vertical-align: 1px; }
+
+/* "AI decides" (ADR 0067, docs/mocks/ai-decides.html) */
+.decide { margin: 0.375rem 0; padding: 0.625rem 0.75rem; border: 1px solid #ddd6fe; border-radius: 0.625rem; background: #faf8ff; font-size: 0.8125rem; }
+.decideHead { display: flex; gap: 0.375rem; align-items: flex-start; color: var(--text-secondary); }
+.decideHead .glyph { color: #7c3aed; }
+.branch { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: 0.5rem; margin-top: 0.375rem; padding-top: 0.375rem; border-top: 1px dashed #ddd6fe; }
+.branch ol { margin: 0; padding-left: 1.125rem; }
+.label { display: inline-flex; align-self: start; padding: 0.0625rem 0.5rem; border-radius: 999px; border: 1px solid var(--border-default); background: var(--surface-card, #fff); color: var(--text-secondary); font-size: 0.71875rem; font-weight: 500; overflow-wrap: anywhere; }
+.chose { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; color: var(--text-secondary); font-size: 0.8125rem; }
+.chose .glyph { color: #7c3aed; }
+
+/* The Automation Library (ADR 0068, docs/mocks/automation-library.html) */
+.libChips { display: flex; flex-wrap: wrap; gap: 0.375rem; margin: 0.75rem 0; }
+.libChip { padding: 0.25rem 0.7rem; border-radius: 999px; border: 1px solid var(--border-default); background: var(--surface-card, #fff); color: var(--text-secondary); font-size: 0.75rem; text-decoration: none; }
+.libChipOn { background: var(--text-primary); border-color: var(--text-primary); color: #fff; }
+.libChip:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+.lib { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(18.75rem, 100%), 1fr)); gap: 0.75rem; }
+.tpl { display: grid; align-content: start; gap: 0.5rem; padding: 0.75rem 0.875rem; border: 1px solid var(--border-default); border-radius: 0.75rem; background: var(--surface-card, #fff); font-size: 0.8125rem; }
+.tplHead { display: grid; grid-template-columns: 1.875rem minmax(0, 1fr); gap: 0.625rem; }
+.tplHead b { font-weight: 600; }
+.tplHead p { margin: 0.125rem 0 0; color: var(--text-secondary); font-size: 0.78125rem; }
+.icoAi { background: #f5f3ff; color: #7c3aed; }
+.tplList { display: grid; gap: 0.125rem; margin: 0; padding-left: 1.125rem; color: var(--text-secondary); font-size: 0.78125rem; }
+.tplFoot { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: auto; }
+.need { color: var(--amber); font-size: 0.71875rem; }
+.onCount { color: var(--emerald); font-size: 0.71875rem; font-weight: 600; }

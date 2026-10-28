@@ -133,7 +133,7 @@ export async function ContactPage({
     }
     case 'properties': {
       const properties = await listContactProperties(db, actor, c.ref);
-      body = <PropertiesTab contact={c} properties={properties} webUrl={webUrl} />;
+      body = <PropertiesTab contact={c} properties={properties} webUrl={webUrl} propertyBase={surface === 'agency' ? '/properties' : '/my-properties'} />;
       break;
     }
     case 'emails': {

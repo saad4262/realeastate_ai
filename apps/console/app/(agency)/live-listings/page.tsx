@@ -5,6 +5,7 @@ import {
   listAgencyListingsPage,
   type ListingPage,
 } from '@repo/core/listings';
+import { matchingBuyerCounts } from '@repo/core/buyer-matching';
 import { ListingTable } from '@/components/listing-table';
 import { getConsoleDb } from '../../../lib/db';
 import { requireConsoleAccess } from '../../../lib/require-console-access';
@@ -45,6 +46,14 @@ export default async function AgencyListingsPage({
     );
   }
 
+  // ADR 0060: buyers whose brief fits each listing on this page — one statement for the page, never one per row.
+  let buyerCounts: Record<string, number> = {};
+  try {
+    buyerCounts = await matchingBuyerCounts(getConsoleDb(), session.actor, result.rows.map((r) => r.id));
+  } catch (err) {
+    console.error('[listings] buyer counts unavailable', err instanceof Error ? err.message : err);
+  }
+
   // The one place the delete button's visibility is decided, and it is decided
   // by can() — non-negotiable #2. deleteListing asks the same question again on
   // the server, so hiding the button is a courtesy, never the control.
@@ -72,6 +81,7 @@ export default async function AgencyListingsPage({
       page={page}
       pageSize={CONSOLE_PAGE_SIZE}
       basePath="/live-listings"
+      buyerCounts={buyerCounts}
       // Dates do not cross the server/client boundary intact.
       rows={result.rows.map((r) => ({
         ...r,

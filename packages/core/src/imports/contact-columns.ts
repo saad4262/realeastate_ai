@@ -64,7 +64,25 @@ export function contactMappingProblem(m: ContactImportMapping): string | null {
   return null;
 }
 
-const ROLE_SYNONYMS: Record<string, ContactRoleKind> = { vendor: 'seller', purchaser: 'buyer', renter: 'tenant', lessee: 'tenant', lessor: 'landlord', owner: 'landlord' };
+const ROLE_SYNONYMS: Record<string, ContactRoleKind> = {
+  vendor: 'seller',
+  purchaser: 'buyer',
+  renter: 'tenant',
+  lessee: 'tenant',
+  lessor: 'landlord',
+  owner: 'landlord',
+  // ADR 0061: the words a CRM export uses for the three newer roles.
+  'past client': 'past_client',
+  'past-client': 'past_client',
+  'former client': 'past_client',
+  'previous client': 'past_client',
+  referral: 'referral_partner',
+  referrer: 'referral_partner',
+  'referral partner': 'referral_partner',
+  'referral-partner': 'referral_partner',
+  'referral source': 'referral_partner',
+  'potential client': 'prospect',
+};
 
 /** What a valid row becomes; the import writes exactly this through `createContact`. */
 export type NormalizedContact = {
@@ -104,7 +122,7 @@ export function normalizeContactRow(cells: readonly string[], mapping: ContactIm
   const roles: ContactRoleKind[] = [];
   for (const part of get('roles').split(/[,;|/]/).map((r) => r.trim().toLowerCase()).filter(Boolean)) {
     const role = (CONTACT_ROLES as readonly string[]).includes(part) ? (part as ContactRoleKind) : ROLE_SYNONYMS[part] ?? ROLE_SYNONYMS[part.replace(/s$/, '')] ?? ((CONTACT_ROLES as readonly string[]).includes(part.replace(/s$/, '')) ? (part.replace(/s$/, '') as ContactRoleKind) : null);
-    if (!role) err('roles', `“${part}” is not a role — use buyer, seller, landlord, tenant or investor`);
+    if (!role) err('roles', `“${part}” is not a role — use ${CONTACT_ROLES.map((r) => r.replace(/_/g, ' ')).join(', ')}`);
     else if (!roles.includes(role)) roles.push(role);
   }
 

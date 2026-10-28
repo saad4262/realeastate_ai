@@ -8,6 +8,8 @@ import { OPEN_FORMATS, OPEN_VIZ, QUERY_MAX_CHARS } from '@repo/core/open-query';
 import { CONTACT_ROLES } from '@repo/core/contacts/schema';
 import { INTEGRATION_PROVIDERS } from '@repo/core/integrations/providers';
 import { SKILL_KEYS } from '@repo/core/skill-switches/catalog';
+import { DEAL_SIDES, DEAL_TRIGGER_STAGES, TRIGGER_KINDS } from '@repo/core/workflows/catalog';
+import { DEAL_STAGES } from '@repo/core/deals/stages';
 
 /**
  * What the console assistant's model is shown (ADR 0025 §8, Phase A). The
@@ -129,6 +131,30 @@ const DASHBOARD_COLORS = {
   description: 'Only when the person named colours or a brand scheme: 1 to 6 colours as #RRGGBB, the main one first (the rest colour the charts). Leave out otherwise.',
 };
 
+/** One workflow step, as the model writes it — the steps and each AI choice's steps (ADR 0067) share it. */
+const WORKFLOW_ACTION_ITEM = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    type: { type: 'string', enum: ['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'send_template_email', 'draft_email', 'wait', 'wait_until'] },
+    text: { type: 'string', description: 'add_note / set_next_action / remind_owner: the exact words (merge fields allowed).' },
+    in_days: { type: 'integer', description: 'set_next_action: due in N days (0–60).' },
+    mail_me: { type: 'boolean', description: 'remind_owner: also email it to the person.' },
+    lead_status: { type: 'string', enum: ['new', 'contacted', 'qualified', 'closed'], description: 'set_lead_status.' },
+    member: { type: 'string', description: 'assign_lead / assign_contact (agency scope only): an M reference.' },
+    members: { type: 'array', items: { type: 'string' }, description: 'message_colleagues: M references.' },
+    subject: { type: 'string', description: 'message_colleagues.' },
+    body: { type: 'string', description: 'message_colleagues: the exact words.' },
+    template: { type: 'string', description: 'send_template_email: a T reference from list_templates.' },
+    instructions: { type: 'string', description: 'draft_email: what the AI should write about, in the person’s words. It becomes a draft for them to approve.' },
+    hours: { type: 'integer', description: 'wait: hours before the next step (1–720).' },
+    time: { type: 'string', description: 'wait_until: HH:mm, 24-hour, on the agency’s clock. Alone = the next time it is that time ("at 9 am").' },
+    until: { type: 'string', description: 'wait_until: HH:mm, later than time — makes a window ("office hours 9 to 5"): at once if inside it, else at its next start.' },
+    days: { type: 'array', items: { type: 'string', enum: ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] }, description: 'wait_until: the days allowed. Omit for every day; weekdays = mon to fri.' },
+  },
+  required: ['type'],
+} as const;
+
 export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze([
   {
     name: 'find_contacts',
@@ -200,12 +226,16 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
           additionalProperties: false,
           description: 'WHEN. kind plus only the field it needs.',
           properties: {
-            kind: { type: 'string', enum: ['lead.created', 'lead.status_changed', 'lead.no_reply', 'appointment.booked', 'listing.status_changed', 'contact.created'] },
+            kind: { type: 'string', enum: [...TRIGGER_KINDS] },
             source: { type: 'string', enum: ['website', 'manual', 'import'], description: 'lead.created: website or manual; contact.created: manual or import. Optional.' },
             lead_status: { type: 'string', enum: ['new', 'contacted', 'qualified', 'closed'], description: 'Required for lead.status_changed.' },
             listing_status: { type: 'string', enum: ['live', 'under_offer', 'sold', 'withdrawn'], description: 'Required for listing.status_changed.' },
-            days: { type: 'integer', description: 'Required for lead.no_reply: 1 to 14.' },
-            appointment_type: { type: 'string', enum: ['appraisal', 'phone_call', 'zoom', 'inspection', 'meeting'], description: 'appointment.booked, optional.' },
+            days: { type: 'integer', description: 'Required for lead.no_reply (1 to 14) and appraisal.not_listed (1 to 30).' },
+            appointment_type: { type: 'string', enum: ['appraisal', 'phone_call', 'zoom', 'inspection', 'meeting'], description: 'appointment.booked, appointment.completed and appointment.upcoming, optional.' },
+            deal_stage: { type: 'string', enum: [...DEAL_TRIGGER_STAGES], description: 'Required for deal.stage_reached.' },
+            who: { type: 'string', enum: [...DEAL_SIDES], description: 'deal.stage_reached and deal.settled: whose contact the steps act on, the vendor (default) or the buyer.' },
+            hours: { type: 'integer', description: 'Required for appointment.upcoming: 1 to 72 hours before it starts (a day = 24).' },
+            years: { type: 'integer', description: 'Required for sale.anniversary: 1 to 20.' },
           },
           required: ['kind'],
         },
@@ -227,28 +257,26 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
         actions: {
           type: 'array',
           description: 'THEN — 1 to 6 steps in order; each a type and only its own fields.',
-          items: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              type: { type: 'string', enum: ['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'send_template_email', 'draft_email', 'wait', 'wait_until'] },
-              text: { type: 'string', description: 'add_note / set_next_action / remind_owner: the exact words (merge fields allowed).' },
-              in_days: { type: 'integer', description: 'set_next_action: due in N days (0–60).' },
-              mail_me: { type: 'boolean', description: 'remind_owner: also email it to the person.' },
-              lead_status: { type: 'string', enum: ['new', 'contacted', 'qualified', 'closed'], description: 'set_lead_status.' },
-              member: { type: 'string', description: 'assign_lead / assign_contact (agency scope only): an M reference.' },
-              members: { type: 'array', items: { type: 'string' }, description: 'message_colleagues: M references.' },
-              subject: { type: 'string', description: 'message_colleagues.' },
-              body: { type: 'string', description: 'message_colleagues: the exact words.' },
-              template: { type: 'string', description: 'send_template_email: a T reference from list_templates.' },
-              instructions: { type: 'string', description: 'draft_email: what the AI should write about, in the person’s words. It becomes a draft for them to approve.' },
-              hours: { type: 'integer', description: 'wait: hours before the next step (1–720).' },
-              time: { type: 'string', description: 'wait_until: HH:mm, 24-hour, on the agency’s clock. Alone = the next time it is that time ("at 9 am").' },
-              until: { type: 'string', description: 'wait_until: HH:mm, later than time — makes a window ("office hours 9 to 5"): at once if inside it, else at its next start.' },
-              days: { type: 'array', items: { type: 'string', enum: ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] }, description: 'wait_until: the days allowed. Omit for every day; weekdays = mon to fri.' },
+          items: WORKFLOW_ACTION_ITEM,
+        },
+        decide: {
+          type: 'object',
+          additionalProperties: false,
+          description: 'Optional — the AI decides at the start: it reads the enquiry and its latest email (or an appointment’s outcome) and picks ONE label; that label’s steps run. actions are then the "Not sure" steps. Only for lead.created, lead.status_changed, lead.no_reply and appointment.completed.',
+          properties: {
+            question: { type: 'string', description: 'What the AI decides, in the person’s words, e.g. "Do they want to sell, buy or rent?"' },
+            choices: {
+              type: 'array',
+              description: '2 to 4 choices, each a short label (never "Not sure") and its 1 to 6 steps.',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: { label: { type: 'string' }, actions: { type: 'array', items: WORKFLOW_ACTION_ITEM } },
+                required: ['label', 'actions'],
+              },
             },
-            required: ['type'],
           },
+          required: ['question', 'choices'],
         },
         replaces: { type: 'string', description: 'A W reference, to change that workflow instead of making another.' },
       },
@@ -429,6 +457,21 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
         bedrooms: { type: 'integer' },
         bathrooms: { type: 'number' },
         property_type: { type: 'string', enum: [...PROPERTY_TYPES] },
+        limit: { type: 'integer', description: 'How many, up to 50. Default 20.' },
+      },
+    },
+  },
+  {
+    name: 'find_deals',
+    description:
+      'The sales pipeline: open deals from appraisal to settlement this person may see, with each one’s stage, price, settlement date and next condition — "which deals settle this month?", "what is under contract?". Give a stage and/or settling_within_days only when the person asked.',
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        stage: { type: 'string', enum: [...DEAL_STAGES] },
+        settling_within_days: { type: 'integer', description: '1 to 365: only deals settling from today to that many days ahead.' },
+        mine: { type: 'boolean', description: 'Only this person’s own deals (owners and admins otherwise see the agency’s).' },
         limit: { type: 'integer', description: 'How many, up to 50. Default 20.' },
       },
     },

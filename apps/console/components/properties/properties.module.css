@@ -1,0 +1,67 @@
+/* One property with everything on it (ADR 0065, docs/mocks/property-page.html). Panels, pills and tables are deals.module.css's. */
+
+.crumb { margin: 0 0 -0.5rem; color: var(--text-muted); font-size: 0.75rem; }
+.crumb a { color: var(--text-secondary); text-decoration: none; }
+.crumb a:hover { text-decoration: underline; }
+
+.hero {
+  display: grid; grid-template-columns: 10.5rem minmax(0, 1fr) auto; gap: 1.125rem; align-items: start;
+  padding: 0.875rem; border: 1px solid var(--border-default); border-radius: 0.875rem; background: var(--surface-card, #fff);
+}
+.photo { width: 100%; height: 7rem; border-radius: 0.625rem; object-fit: cover; background: linear-gradient(135deg, #cbd5e1, #e2e8f0); }
+.noPhoto { display: grid; place-items: center; color: var(--text-muted); }
+.address { margin: 0; font-family: var(--font-display, inherit); font-size: 1.375rem; line-height: 1.875rem; letter-spacing: -0.02em; }
+.facts { display: flex; flex-wrap: wrap; gap: 0.375rem 0.875rem; margin-top: 0.5rem; color: var(--text-secondary); font-size: 0.8125rem; }
+.facts span { display: inline-flex; align-items: center; gap: 0.25rem; }
+.pills { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 0.625rem; }
+.heroActions { display: grid; gap: 0.5rem; justify-items: end; }
+
+.tabCount { margin-left: 0.3rem; color: var(--text-muted); font-weight: 500; }
+
+.grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 0.875rem; align-items: start; }
+.stack { display: grid; gap: 0.875rem; }
+
+.list { display: grid; margin: 0; padding: 0; list-style: none; }
+.list li { display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; gap: 0.625rem; align-items: center; padding: 0.5625rem 0; border-top: 1px solid var(--border-default); font-size: 0.8125rem; }
+.list li:first-child { border-top: 0; }
+.list a { color: var(--text-primary); font-weight: 500; text-decoration: none; }
+.list a:hover { text-decoration: underline; }
+.av {
+  display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%;
+  background: #e2e8f0; color: var(--text-secondary); font-size: 0.6875rem; font-weight: 600;
+}
+
+.tl { display: grid; margin: 0; padding: 0; list-style: none; }
+.tl li { display: grid; grid-template-columns: 1.875rem minmax(0, 1fr) auto; gap: 0.625rem; padding: 0.625rem 0; border-top: 1px solid var(--border-default); font-size: 0.8125rem; }
+.tl li:first-child { border-top: 0; }
+.tl b { font-weight: 500; }
+.tl p { margin: 0.125rem 0 0; color: var(--text-secondary); font-size: 0.78125rem; overflow-wrap: anywhere; }
+.when { color: var(--text-muted); font-size: 0.75rem; white-space: nowrap; }
+.ico { display: grid; place-items: center; width: 1.875rem; height: 1.875rem; border-radius: 0.5rem; background: #f1f5f9; color: var(--text-secondary); }
+.icoOffer { background: var(--amber-subtle); color: var(--amber); }
+.icoEnquiry { background: var(--sapphire-subtle); color: var(--sapphire); }
+.icoAppraisal { background: #f5f3ff; color: #7c3aed; }
+.icoSold { background: var(--emerald-subtle); color: var(--emerald); }
+.more summary { margin-top: 0.375rem; color: var(--sapphire); font-size: 0.78125rem; cursor: pointer; }
+
+/* The summary */
+.ai { border-color: #ddd6fe; background: linear-gradient(180deg, #faf8ff, var(--surface-card, #fff) 60%); }
+.aiGlyph { color: #7c3aed; }
+.aiBtn { border-color: #7c3aed; background: #7c3aed; color: #fff; }
+.points { display: grid; gap: 0.375rem; margin: 0; padding-left: 1.125rem; font-size: 0.8125rem; }
+.cite {
+  display: inline-flex; align-items: center; margin-left: 0.25rem; padding: 0 0.375rem; border-radius: 0.375rem;
+  background: #f5f3ff; color: #7c3aed; font-size: 0.6875rem; text-decoration: none; white-space: nowrap;
+}
+.cite:hover { text-decoration: underline; }
+.cite:focus-visible, .aiBtn:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+.aiFoot { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.625rem; color: var(--text-muted); font-size: 0.71875rem; }
+
+.toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.625rem; }
+.search { display: flex; gap: 0.5rem; }
+
+@media (max-width: 900px) {
+  .grid { grid-template-columns: 1fr; }
+  .hero { grid-template-columns: 1fr; }
+  .heroActions { justify-items: start; }
+}

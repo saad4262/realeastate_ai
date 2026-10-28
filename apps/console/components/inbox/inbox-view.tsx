@@ -57,7 +57,12 @@ export type InboxViewProps = {
   webUrl: string;
   /** May write a new email to a contact of their own (`mail:compose`, ADR 0035) — draws "New email". */
   mayCompose?: boolean;
+  /** ADR 0062: the composer's assistant (summary + reply draft); absent when not offered at all. */
+  assist?: ReplyAssistState;
 };
+
+/** Whether the composer's assistant is on for this person, and if not, the switch's own words. */
+export type ReplyAssistState = { on: boolean; offMessage: string | null };
 
 function hrefFor(basePath: string, folder: MailFolder, threadId?: string): string {
   const params = new URLSearchParams();
@@ -163,6 +168,7 @@ export function InboxView(props: InboxViewProps) {
             assignees={props.assignees}
             inboundOn={props.inboundOn}
             webUrl={props.webUrl}
+            {...(props.assist ? { assist: props.assist } : {})}
           />
         )}
       </section>
@@ -242,6 +248,7 @@ export function ThreadReader({
   inboundOn,
   webUrl,
   readOnly = false,
+  assist,
 }: {
   view: MailThreadView;
   unread: boolean;
@@ -256,6 +263,8 @@ export function ThreadReader({
    * all three anyway; this keeps the page from offering them.
    */
   readOnly?: boolean;
+  /** ADR 0062: the assistant over the composer. */
+  assist?: ReplyAssistState;
 }) {
   const contact = view.contactName || view.contactEmail;
   const lead = view.lead;
@@ -363,6 +372,7 @@ export function ThreadReader({
               ? `When ${contact} replies, it comes back to this conversation.`
               : `Until inbound mail is set up, ${contact}'s email replies go to your own email.`
           }
+          {...(assist ? { assist } : {})}
         />
       ) : (
         <p className={styles.readonly}>You can read this conversation, but replying is up to whoever it is assigned to.</p>

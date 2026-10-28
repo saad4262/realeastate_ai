@@ -253,20 +253,29 @@ The agent sidebar uses the same groups.
   `docs/mocks/skills-control-centre.html`.
 - [x] **1.3 Assistant `find_buyers`** (2026-10-27, ADR 0059, no migration, committed; the user checked it; TEST-PLAN BM): reads `buyer_requirement`, so "buyers for a 3-bed in
   Pakenham under $800k" works and the answer shows how it searched (#21, #5).
-- [ ] **1.4 Matched buyers on the listing** (mock approved 2026-10-27; ADR 0060 — tabs on the listing page, listing
-  merge fields frozen at Prepare, one call task, strict consent; being built): the contacts whose brief fits the listing, plus
+- [x] **1.4 Matched buyers on the listing** (mock approved 2026-10-27; ADR 0060 — tabs on the listing page, listing
+  merge fields frozen at Prepare, one call task, strict consent; built 2026-10-27, migration 0066 applied, automated
+  checks green, not committed until the user walks TEST-PLAN BN): the contacts whose brief fits the listing, plus
   one-click bulk email or a task for them, respecting consent (#5). Mock first.
-- [ ] **1.5 More roles**: prospect, past client, referral partner (#3).
-- [ ] **1.6 Turn inbound email on** (Resend MX + `MAIL_INBOUND_DOMAIN` + `MAIL_REPLY_SECRET`) and
-  add an AI reply draft in the inbox that goes out only after the agent approves it (#1). Mock first.
+- [x] **1.5 More roles**: prospect, past client, referral partner (#3). Built 2026-10-27, ADR 0061, migration 0067
+  applied 2026-10-28, not committed; TEST-PLAN BO. None of them gives marketing consent.
+- [x] **1.6 Inbox assistant** (2026-10-27, ADR 0062, no migration, not committed; TEST-PLAN BP): a summary and
+  a reply draft over the reply box, each on a button, checked by core, sent only by the agent (#1). Turning
+  inbound email on is configuration only (DEPLOY.md "Email conversations": MX + `MAIL_INBOUND_DOMAIN` +
+  `MAIL_REPLY_SECRET`) — the user's to do; the code was built in ADR 0016.
 
 ### Phase 2 — Money
-- [ ] **2.1 Transaction pipeline** (Appraisal → Listing → Marketing → Offers → Negotiation →
+- [x] **2.1 Transaction pipeline** (built 2026-10-27, ADR 0063, migration 0068 applied 2026-10-28, not committed; TEST-PLAN
+  BQ — 7 fixed stages, sales only, Mark sold → Contract with Settlement separate, 4 standard conditions + the
+  agent's own, a minute sync that opens and moves deals, a Pipeline board, the listing's Deal tab, find_deals) (Appraisal → Listing → Marketing → Offers → Negotiation →
   Contract → Settlement) on the listing/property (#14). Mock first.
-- [ ] **2.2 Commissions**, expected and completed, by agent, office, suburb and type. Fills
+- [x] **2.2 Commissions** (built 2026-10-27, ADR 0064, columns in migration 0068 applied 2026-10-28, not committed; TEST-PLAN
+  BR — the agency sets it; excl. GST with GST alone; profile split by default, changeable per deal; FY July–June),
+  expected and completed, by agent, office, suburb and type. Fills
   `/finance`, and the measures go into the semantic layer so dashboards show revenue (#16, #22).
-- [ ] **2.3 Property page** with everything on it: owners, enquiries, appraisals, offers,
-  documents, pipeline, an AI summary (#10, #6).
+- [x] **2.3 Property page** (built 2026-10-27, ADR 0065, no migration (reads 0068's deal, applied), not committed; TEST-PLAN
+  BS — agents only their own addresses and records, a Properties list, the summary on a button and never saved, tabs)
+  with everything on it: owners, enquiries, appraisals, offers, documents, pipeline, an AI summary (#10, #6).
 
 ### Phase 3 — Phone + SMS (needs the client's Twilio answers)
 Setup is being settled with the client by the user (2026-10-27). Recommended: the platform's own Twilio
@@ -277,6 +286,14 @@ option. Missed calls reach Twilio by no-answer forwarding from the agency's exis
 - [ ] **3.3 Call recording, transcript and summary; AI voice callback** where it is legal (#9, #28).
 
 ### Phase 4 — Automation engine (#27, #7)
+- [x] **4.1 More triggers** (built 2026-10-28, ADR 0066, migration 0069 NOT applied, not committed; TEST-PLAN BT —
+  deal stage / settled with the side chosen per workflow, buyer match, before / after an appointment, appraisal
+  not listed, sale anniversary; the email rule unchanged). Missed call comes with Phase 3.
+- [x] **4.2 AI decides** (built 2026-10-28, ADR 0067, column in migration 0069 NOT applied, not committed; TEST-PLAN
+  BU — one decision at the start, from the enquiry and its latest email; the workflow's own steps are "Not sure";
+  steps run by themselves and the run's log says what the AI chose and why).
+- [x] **4.3 Automation Library** (built 2026-10-28, ADR 0068, no migration, not committed; TEST-PLAN BV — ten
+  ready-made automations on the Automations tab for owners and admins, set up through the assistant).
 - [ ] More triggers (CRM, property, communication, calendar, transaction, missed call), the
   "AI understands → decides" step, Automation Library templates, the Control Centre page, and all
   three permission levels. The visual builder comes last.

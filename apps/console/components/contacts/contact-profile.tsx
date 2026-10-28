@@ -451,10 +451,13 @@ export function PropertiesTab({
   contact: c,
   properties,
   webUrl,
+  propertyBase,
 }: {
   contact: ContactView;
   properties: ContactPropertyView[];
   webUrl: string;
+  /** The console's property page (ADR 0065): everything the agency has on the address. */
+  propertyBase: string;
 }) {
   return (
     <div className={styles.card}>
@@ -466,14 +469,10 @@ export function PropertiesTab({
             {properties.map((p) => (
               <li key={p.propertyId} className={styles.plainItem}>
                 <span style={{ display: 'grid', gap: '0.25rem' }}>
-                  {/*
-                    The public property page. It shows the address's history
-                    when nothing there is on the market, and sends a visitor
-                    on to the live ad when something is (ADR 0013).
-                  */}
-                  <a href={`${webUrl}/property/${p.propertyId}`} target="_blank" rel="noopener" className={styles.name}>
-                    {p.address} ↗
-                  </a>
+                  {/* The console's property page (ADR 0065); it says "not found" for an address this person is not tied to. */}
+                  <Link href={`${propertyBase}/${p.propertyId}`} className={styles.name}>
+                    {p.address}
+                  </Link>
                   <span className={styles.chips}>
                     {p.links.map((l) => (
                       <span key={l.id} className={styles.chip} title={l.note ?? undefined}>
@@ -488,11 +487,16 @@ export function PropertiesTab({
                     ))}
                   </span>
                 </span>
+                {/* The public property page: the address's history, or on to the live ad (ADR 0013). */}
                 {p.listingId ? (
                   <a href={`${webUrl}/listing/${p.listingId}`} target="_blank" rel="noopener" className={styles.back}>
                     The ad they asked about ↗
                   </a>
-                ) : null}
+                ) : (
+                  <a href={`${webUrl}/property/${p.propertyId}`} target="_blank" rel="noopener" className={styles.back}>
+                    Public page ↗
+                  </a>
+                )}
               </li>
             ))}
           </ul>

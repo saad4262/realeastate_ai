@@ -3,7 +3,7 @@ import type { z } from 'zod';
 import { workflow as workflowTable, type Db, type DbOrTx } from '@repo/db';
 import type { Actor } from '../permissions';
 import { checkWorkflow, listWorkflows, namesFor, saveWorkflow, setWorkflowStatus, WorkflowError } from '../workflows/manage';
-import { REACHES_CONTACT, specInWords, type Condition, type WorkflowAction, type WorkflowSpec } from '../workflows/catalog';
+import { allActions, NOT_SURE, REACHES_CONTACT, specInWords, type Condition, type WorkflowAction, type WorkflowSpec } from '../workflows/catalog';
 import { resolvePlace } from '../geo/places';
 import { agencyTimeZone } from '../widgets/registry';
 import { issueHandle, resolveHandle } from './handles';
@@ -49,11 +49,36 @@ export function specFrom(ctx: Pick<ToolContext, 'handles'>, input: z.infer<typeo
       trigger.to = t.listing_status;
       break;
     case 'lead.no_reply':
-      if (!t.days) return { problem: 'trigger: no reply needs days (1 to 14)' };
+      if (!t.days || t.days > 14) return { problem: 'trigger: no reply needs days (1 to 14)' };
       trigger.days = t.days;
       break;
     case 'appointment.booked':
+    case 'appointment.completed':
       if (t.appointment_type) trigger.type = t.appointment_type;
+      break;
+    // ADR 0066
+    case 'deal.stage_reached':
+      if (!t.deal_stage) return { problem: 'trigger: a deal stage needs deal_stage' };
+      trigger.to = t.deal_stage;
+      trigger.who = t.who ?? 'vendor';
+      break;
+    case 'deal.settled':
+      trigger.who = t.who ?? 'vendor';
+      break;
+    case 'buyer.matched':
+      break;
+    case 'appointment.upcoming':
+      if (!t.hours) return { problem: 'trigger: before an appointment needs hours (1 to 72)' };
+      trigger.hours = t.hours;
+      if (t.appointment_type) trigger.type = t.appointment_type;
+      break;
+    case 'appraisal.not_listed':
+      if (!t.days) return { problem: 'trigger: an appraisal not listed needs days (1 to 30)' };
+      trigger.days = t.days;
+      break;
+    case 'sale.anniversary':
+      if (!t.years) return { problem: 'trigger: a sale anniversary needs years (1 to 20)' };
+      trigger.years = t.years;
       break;
   }
   const conditions: Condition[] = [];
@@ -74,9 +99,23 @@ export function specFrom(ctx: Pick<ToolContext, 'handles'>, input: z.infer<typeo
       conditions.push({ field: c.field, op, values: ids as string[] });
     } else conditions.push({ field: c.field, op, values: c.values });
   }
+  const own = actionsFrom(ctx, input.actions, '');
+  if ('problem' in own) return own;
+  if (!input.decide) return { spec: { trigger, conditions, actions: own.actions } };
+  const choices: { label: string; actions: unknown[] }[] = [];
+  for (const c of input.decide.choices) {
+    const built = actionsFrom(ctx, c.actions, `choice “${c.label}”, `);
+    if ('problem' in built) return built;
+    choices.push({ label: c.label, actions: built.actions });
+  }
+  return { spec: { trigger, conditions, actions: own.actions, decide: { question: input.decide.question, choices } } };
+}
+
+/** One list of the model's steps → the catalog's, references resolved. `where` names the choice in a problem. */
+function actionsFrom(ctx: Pick<ToolContext, 'handles'>, list: z.infer<typeof createWorkflowInput>['actions'], where: string): { actions: unknown[] } | { problem: string } {
   const actions: unknown[] = [];
-  for (const [i, a] of input.actions.entries()) {
-    const need = (k: keyof typeof a) => (a[k] === undefined ? `action ${i + 1} (${a.type}) needs ${String(k)}` : null);
+  for (const [i, a] of list.entries()) {
+    const need = (k: keyof typeof a) => (a[k] === undefined ? `${where}action ${i + 1} (${a.type}) needs ${String(k)}` : null);
     const member = (ref: string | undefined) => (ref ? resolveHandle(ctx.handles, ref, 'member') : null);
     let built: Record<string, unknown>;
     switch (a.type) {
@@ -99,20 +138,20 @@ export function specFrom(ctx: Pick<ToolContext, 'handles'>, input: z.infer<typeo
       case 'assign_lead':
       case 'assign_contact': {
         const id = member(a.member);
-        if (!id) return { problem: `action ${i + 1} (${a.type}) needs member: an M reference ${a.member ? 'you were given' : ''}`.trim() };
+        if (!id) return { problem: `${where}action ${i + 1} (${a.type}) needs member: an M reference ${a.member ? 'you were given' : ''}`.trim() };
         built = { type: a.type, to: id };
         break;
       }
       case 'message_colleagues': {
         const ids = (a.members ?? []).map(member);
-        if (!ids.length || ids.some((v) => !v)) return { problem: `action ${i + 1} (message_colleagues) needs members: M references from find_colleagues` };
+        if (!ids.length || ids.some((v) => !v)) return { problem: `${where}action ${i + 1} (message_colleagues) needs members: M references from find_colleagues` };
         if (need('subject') || need('body')) return { problem: (need('subject') ?? need('body'))! };
         built = { type: a.type, to: ids, subject: a.subject, body: a.body };
         break;
       }
       case 'send_template_email': {
         const id = a.template ? resolveHandle(ctx.handles, a.template, 'template') : null;
-        if (!id) return { problem: `action ${i + 1} (send_template_email) needs template: a T reference from list_templates` };
+        if (!id) return { problem: `${where}action ${i + 1} (send_template_email) needs template: a T reference from list_templates` };
         built = { type: a.type, template_id: id };
         break;
       }
@@ -131,7 +170,7 @@ export function specFrom(ctx: Pick<ToolContext, 'handles'>, input: z.infer<typeo
     }
     actions.push(built);
   }
-  return { spec: { trigger, conditions, actions } };
+  return { actions };
 }
 
 export async function proposeCreateWorkflow(ctx: ToolContext, input: z.infer<typeof createWorkflowInput>, label: string): Promise<ToolOutcome> {
@@ -149,15 +188,22 @@ export async function proposeCreateWorkflow(ctx: ToolContext, input: z.infer<typ
   if ('problem' in checked) return refused(`${checked.problem}. Nothing was proposed.`, label);
   const spec = checked.spec;
   const words = specInWords(spec, await namesFor(ctx.db, ctx.actor.agencyId!, spec));
-  const byItself = spec.actions.filter((a) => a.type !== 'wait' && a.type !== 'wait_until' && a.type !== 'draft_email');
-  const waits = spec.actions.some((a) => a.type === 'draft_email');
+  const every = allActions(spec);
+  const byItself = every.filter((a) => a.type !== 'wait' && a.type !== 'wait_until' && a.type !== 'draft_email');
+  const waits = every.some((a) => a.type === 'draft_email');
   const lines: ProposalCard['lines'] = [
     { label: 'Name', value: input.name },
     { label: 'Acts on', value: input.scope === 'agency' ? 'The whole agency — every lead and contact' : 'Only your own leads and contacts (assigned to you, or on your listings)' },
     { label: 'When', value: words.when },
     ...words.if.map((c, i) => ({ label: i === 0 ? 'If' : 'And', value: c })),
-    ...words.then.map((s, i) => ({ label: `Then ${i + 1}`, value: s })),
-    ...(spec.actions.some((a) => a.type === 'wait_until') ? [{ label: 'Times', value: `On the agency’s clock: ${await agencyTimeZone(ctx.db, ctx.actor.agencyId!)}` }] : []),
+    ...(words.decide
+      ? [
+          { label: 'AI asks', value: `“${words.decide.question}” — it reads the enquiry and its latest email, and picks one` },
+          ...words.decide.choices.map((c) => ({ label: c.label, value: c.then.join('; then ') })),
+          { label: NOT_SURE, value: words.then.join('; then ') },
+        ]
+      : words.then.map((s, i) => ({ label: `Then ${i + 1}`, value: s }))),
+    ...(every.some((a) => a.type === 'wait_until') ? [{ label: 'Times', value: `On the agency’s clock: ${await agencyTimeZone(ctx.db, ctx.actor.agencyId!)}` }] : []),
   ];
   const card: ProposalCard = {
     title: `${replaces ? 'Change' : 'Make'} the workflow “${input.name}”`,
@@ -166,11 +212,12 @@ export async function proposeCreateWorkflow(ctx: ToolContext, input: z.infer<typ
     notes: [
       NOTHING_YET,
       `Once on, it runs by itself every time — ${byItself.length ? 'these steps need no further click from you' : 'no step changes anything by itself'}; it acts as you, with your permissions checked each time.`,
-      ...(spec.actions.some((a: WorkflowAction) => a.type === 'send_template_email')
+      ...(spec.decide ? ['The AI only picks one of these; it never writes a step or sends anything. When it is not sure — or AI decisions are off in Skills — the “Not sure” steps run. The run’s log says which and why.'] : []),
+      ...(every.some((a: WorkflowAction) => a.type === 'send_template_email')
         ? ['A template goes only to people who may receive it at that moment — consent (recorded, or an enquiry or client role), unsubscribes and today’s limits are checked each time.']
         : []),
       ...(waits ? ['An email the AI writes is a DRAFT: it waits for your one click in “Waiting for you”, and is never sent by the workflow.'] : []),
-      ...(spec.actions.some((a) => REACHES_CONTACT.includes(a.type)) ? [] : ['Nothing in it reaches a contact.']),
+      ...(every.some((a) => REACHES_CONTACT.includes(a.type)) ? [] : ['Nothing in it reaches a contact.']),
       'Pause, change or archive it any time — ask me, or open Workflows.',
     ],
   };

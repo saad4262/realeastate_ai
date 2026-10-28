@@ -82,7 +82,16 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
           { href: '/team', label: 'Agents & Team', icon: 'groups' },
         ],
       },
-      { label: 'Properties', items: [{ href: '/live-listings', label: 'Listings', icon: 'real_estate_agent' }] },
+      {
+        label: 'Properties',
+        items: [
+          // ADR 0065: every address the agency has a record of, with everything on it.
+          { href: '/properties', label: 'Properties', icon: 'location_city' },
+          { href: '/live-listings', label: 'Listings', icon: 'real_estate_agent' },
+          // ADR 0063: every sale from appraisal to settlement.
+          { href: '/pipeline', label: 'Pipeline', icon: 'view_kanban' },
+        ],
+      },
       {
         label: 'Marketing',
         items: [
@@ -101,7 +110,8 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
           { href: '/insights', label: 'Insights', icon: 'analytics' },
         ],
       },
-      { label: 'Money', items: [{ href: '/finance', label: 'Finance & Trust', icon: 'account_balance' }] },
+      // ADR 0064: commission earned and expected; trust accounting stays in the agency's trust software.
+      { label: 'Money', items: [{ href: '/finance', label: 'Finance', icon: 'account_balance' }] },
       {
         label: 'Settings',
         items: [
@@ -132,7 +142,14 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
         ],
       },
       { label: 'People', items: [{ href: '/my-contacts', label: 'Contacts', icon: 'contacts' }] },
-      { label: 'Properties', items: [{ href: '/listings', label: 'My Listings', icon: 'home_work' }] },
+      {
+        label: 'Properties',
+        items: [
+          { href: '/my-properties', label: 'Properties', icon: 'location_city' },
+          { href: '/listings', label: 'My Listings', icon: 'home_work' },
+          { href: '/my-pipeline', label: 'Pipeline', icon: 'view_kanban' },
+        ],
+      },
       {
         label: 'Marketing',
         items: [
@@ -148,6 +165,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
           { href: '/my-projects', label: 'Projects', icon: 'folder_open' },
         ],
       },
+      { label: 'Money', items: [{ href: '/my-commission', label: 'My commission', icon: 'account_balance' }] },
       { label: 'Settings', items: [{ href: '/my-integrations', label: 'Connectors', icon: 'hub' }] },
     ],
     openByDefault: 'Daily work',

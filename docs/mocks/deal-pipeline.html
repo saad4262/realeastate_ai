@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Deal Pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300..600,0..1&display=swap" rel="stylesheet" />
+<!--
+  Mock for ROADMAP Phase 2.1 — the transaction pipeline (to become ADR 0063).
+  Console tokens (apps/console/app/globals.css). Every address, name, date and price is SAMPLE data.
+  The bar at the top exists only in the mock. #deal opens a listing's Deal tab.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff; --surface-container-low: #eff4ff;
+    --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff;
+    --emerald: #059669; --emerald-subtle: #ecfdf5;
+    --rose: #e11d48; --rose-subtle: #fff1f2;
+    --amber: #d97706; --amber-subtle: #fffbeb;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .ms { font-family: 'Material Symbols Outlined'; font-size: 20px; line-height: 1; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 400; }
+  .ms.sm { font-size: 16px; width: 16px; height: 16px; }
+  button, input, select { font: inherit; }
+  [hidden] { display: none !important; }
+
+  .mockbar { position: sticky; top: 0; z-index: 30; display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+  .mockbar b { color: #fff; }
+  .seg { display: inline-flex; background: #1e293b; border-radius: 8px; padding: 2px; flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; }
+
+  .shell { display: flex; min-height: calc(100vh - 36px); }
+  aside { width: 232px; flex: none; border-right: 1px solid var(--border-default); padding: 16px 12px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 16px; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--text-primary); color: #fff; display: grid; place-items: center; font: 700 12px 'Plus Jakarta Sans'; }
+  .brand small { display: block; color: var(--text-muted); font-size: 11px; }
+  .gh { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px 4px; }
+  .nl { display: flex; gap: 12px; align-items: center; padding: 7px 12px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; }
+  .nl.on { background: #fff; color: var(--sapphire); border: 1px solid var(--border-default); font-weight: 500; }
+  .new { margin-left: auto; font-size: 10px; font-weight: 700; color: var(--emerald); background: var(--emerald-subtle); padding: 0 6px; border-radius: 999px; }
+
+  main { flex: 1; min-width: 0; padding: 24px 28px 64px; }
+  h1 { font: 600 24px/32px 'Plus Jakarta Sans'; margin: 0; letter-spacing: -.02em; }
+  .sub { color: var(--text-secondary); margin: 4px 0 0; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .between { justify-content: space-between; }
+  .btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-default); background: #fff; color: var(--text-primary); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; text-decoration: none; }
+  .btn.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .btn:focus-visible, .chip:focus-visible, .dcard:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+  .chip { border: 1px solid var(--border-default); background: #fff; border-radius: 999px; padding: 4px 11px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 18px 0; }
+  .stat { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; padding: 12px 14px; }
+  .stat b { display: block; font: 600 20px/28px 'Plus Jakarta Sans'; }
+  .stat span { color: var(--text-muted); font-size: 12px; }
+
+  /* Board */
+  .board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(220px, 1fr); gap: 10px; overflow-x: auto; padding-bottom: 8px; }
+  .col { background: #f1f5f9; border-radius: 12px; padding: 8px; min-height: 280px; }
+  .colhead { display: flex; justify-content: space-between; align-items: center; padding: 4px 6px 8px; font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .04em; }
+  .colhead span { font-weight: 500; color: var(--text-muted); text-transform: none; letter-spacing: 0; }
+  .dcard { display: block; background: #fff; border: 1px solid var(--border-default); border-radius: 10px; padding: 10px; margin-bottom: 8px; text-decoration: none; color: inherit; cursor: pointer; }
+  .dcard:hover { border-color: var(--border-strong); box-shadow: 0 2px 8px rgba(15,23,42,.06); }
+  .dcard b { display: block; font-size: 13px; line-height: 18px; }
+  .meta { color: var(--text-secondary); font-size: 12px; margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .pill { display: inline-flex; gap: 4px; align-items: center; font-size: 11px; font-weight: 500; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border-default); color: var(--text-secondary); background: #fff; white-space: nowrap; }
+  .pill.warn { color: var(--amber); background: var(--amber-subtle); border-color: #fde68a; }
+  .pill.due { color: var(--rose); background: var(--rose-subtle); border-color: #fecdd3; }
+  .pill.ok { color: var(--emerald); background: var(--emerald-subtle); border-color: #a7f3d0; }
+  .pill.auto { color: var(--sapphire); background: var(--sapphire-subtle); border-color: #bfdbfe; }
+  .avatar { width: 20px; height: 20px; border-radius: 50%; background: #e2e8f0; display: inline-grid; place-items: center; font-size: 10px; font-weight: 600; color: var(--text-secondary); }
+
+  /* Deal tab */
+  .back { color: var(--text-secondary); text-decoration: none; display: inline-flex; gap: 4px; align-items: center; font-size: 12.5px; margin-bottom: 10px; cursor: pointer; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-default); margin: 18px 0 16px; overflow-x: auto; }
+  .tab { border: 0; background: transparent; padding: 10px 14px; color: var(--text-secondary); font-weight: 500; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+  .tab.on { color: var(--text-primary); border-color: var(--text-primary); }
+  .tab .n { margin-left: 6px; font-size: 11px; padding: 0 7px; border-radius: 999px; background: var(--sapphire-subtle); color: var(--sapphire); }
+  .stepper { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 16px; }
+  .step { text-align: center; font-size: 11.5px; color: var(--text-muted); }
+  .step i { display: block; height: 6px; border-radius: 999px; background: #e2e8f0; margin-bottom: 6px; }
+  .step.done i { background: var(--emerald); }
+  .step.now i { background: var(--sapphire); }
+  .step.now { color: var(--sapphire); font-weight: 600; }
+  .step.done { color: var(--text-secondary); }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 14px; }
+  .card { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; padding: 14px; }
+  .card h3 { margin: 0 0 10px; font-size: 14px; }
+  dl { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr); gap: 8px 12px; margin: 0; font-size: 13px; }
+  dt { color: var(--text-muted); }
+  dd { margin: 0; }
+  .cond { display: grid; grid-template-columns: 20px minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border-default); font-size: 13px; }
+  .cond:first-of-type { border-top: 0; }
+  .tick { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--border-strong); display: grid; place-items: center; }
+  .tick.on { background: var(--emerald); border-color: var(--emerald); color: #fff; }
+  .log { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; font-size: 12.5px; }
+  .log li { display: grid; grid-template-columns: 18px minmax(0,1fr); gap: 8px; color: var(--text-secondary); }
+  .log b { color: var(--text-primary); font-weight: 500; }
+  .note { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; color: var(--text-secondary); background: var(--surface-container-low); border: 1px solid #dbeafe; margin-top: 14px; }
+  .note .ms { color: var(--sapphire); }
+  .scrim { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: grid; place-items: center; padding: 16px; z-index: 40; }
+  .dialog { width: min(560px, 100%); background: #fff; border-radius: 14px; box-shadow: 0 20px 50px rgba(15,23,42,.25); }
+  .dhead, .dfoot { padding: 14px 18px; display: flex; gap: 8px; align-items: center; }
+  .dhead { border-bottom: 1px solid var(--border-default); justify-content: space-between; }
+  .dhead h2 { margin: 0; font: 600 17px 'Plus Jakarta Sans'; }
+  .dfoot { border-top: 1px solid var(--border-default); justify-content: flex-end; }
+  .dbody { padding: 16px 18px; display: grid; gap: 12px; }
+  label.f { display: grid; gap: 5px; font-size: 12.5px; font-weight: 500; }
+  .in { border: 1px solid var(--border-default); border-radius: 8px; padding: 8px 10px; background: #fff; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 900px) { aside { display: none; } main { padding: 18px 16px 48px; } .grid2 { grid-template-columns: 1fr; } .stepper { grid-template-columns: repeat(4, 1fr); } }
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>MOCK · sample data</b>
+  <span>Screen:</span>
+  <div class="seg" role="group" aria-label="Screen">
+    <button type="button" data-screen="board" aria-pressed="true">1 · Pipeline board</button>
+    <button type="button" data-screen="deal" aria-pressed="false">2 · Listing → Deal tab</button>
+  </div>
+  <span>Show as:</span>
+  <div class="seg" role="group" aria-label="Show as">
+    <button type="button" data-view="owner" aria-pressed="true">Owner / admin</button>
+    <button type="button" data-view="agent" aria-pressed="false">Agent</button>
+  </div>
+</div>
+
+<div class="shell">
+  <aside aria-label="Sidebar">
+    <div class="brand"><div class="logo">LA</div><div><b>Harbour Realty</b><small id="side-sub">Agency</small></div></div>
+    <div class="gh">Daily work</div>
+    <div class="gh">People</div>
+    <div class="gh">Properties</div>
+    <div class="nl" id="nav-listings"><span class="ms">real_estate_agent</span>Listings</div>
+    <div class="nl on" id="nav-pipeline"><span class="ms" style="font-variation-settings:'FILL' 1">view_kanban</span>Pipeline<span class="new">NEW</span></div>
+    <div class="gh">Marketing</div>
+    <div class="gh">Automation</div>
+  </aside>
+
+  <main>
+    <!-- BOARD -->
+    <section id="s-board">
+      <div class="row between">
+        <div><h1 id="board-title">Pipeline</h1><p class="sub">Every deal from appraisal to settlement. Click a card for its Deal tab.</p></div>
+        <div class="row">
+          <button class="chip" type="button" aria-pressed="true">Sales</button>
+          <button class="chip" type="button" aria-pressed="false">Rentals</button>
+          <button class="chip" type="button" aria-pressed="false" id="mine-chip">Only mine</button>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="stat"><b id="st-active">14</b><span>Active deals</span></div>
+        <div class="stat"><b>3</b><span>Under contract</span></div>
+        <div class="stat"><b>2</b><span>Settling in the next 30 days</span></div>
+        <div class="stat"><b>1</b><span>A condition due this week</span></div>
+      </div>
+      <div class="board" id="board"></div>
+      <div class="note"><span class="ms">bolt</span><span>Cards move by themselves when something happens: a listing going live → Marketing, an offer received → Offers, "Under offer" → Negotiation, "Mark sold" → Contract. Contract details and settlement are set on the Deal tab. You can also move a card yourself there.</span></div>
+    </section>
+
+    <!-- DEAL TAB -->
+    <section id="s-deal" hidden>
+      <a class="back" data-go="board"><span class="ms sm">arrow_back</span>Pipeline</a>
+      <div class="row between">
+        <div><h1>27 Lakeside Boulevard, Pakenham</h1><p class="sub">House · 4 bed · 2 bath · Sarah K.</p></div>
+        <button class="btn primary" type="button" id="move"><span class="ms sm">arrow_forward</span>Move to Settlement</button>
+      </div>
+      <div class="tabs">
+        <span class="tab">Details</span><span class="tab">Photos</span><span class="tab">Documents</span><span class="tab">Matching buyers <span class="n">4</span></span><span class="tab on">Deal</span>
+      </div>
+      <div class="stepper" aria-label="Stage">
+        <div class="step done"><i></i>Appraisal</div>
+        <div class="step done"><i></i>Listing</div>
+        <div class="step done"><i></i>Marketing</div>
+        <div class="step done"><i></i>Offers</div>
+        <div class="step done"><i></i>Negotiation</div>
+        <div class="step now"><i></i>Contract</div>
+        <div class="step"><i></i>Settlement</div>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <div class="row between"><h3>The sale</h3><button class="btn" type="button" style="padding:4px 10px"><span class="ms sm">edit</span>Edit</button></div>
+          <dl>
+            <dt>Sale price</dt><dd><b>$782,000</b></dd>
+            <dt>Buyer</dt><dd><a href="#" style="color:var(--sapphire);text-decoration:none">Priya Natarajan</a> · from Matching buyers</dd>
+            <dt>Contract signed</dt><dd>Thu 22 Oct 2026</dd>
+            <dt>Deposit</dt><dd>$78,200 · paid 23 Oct <span class="pill ok">Received</span></dd>
+            <dt>Settlement</dt><dd>Fri 4 Dec 2026 <span class="pill">in 38 days</span></dd>
+            <dt>Buyer's solicitor</dt><dd>Lim &amp; Co Conveyancing</dd>
+          </dl>
+        </div>
+        <div class="card">
+          <h3>Conditions</h3>
+          <div class="cond"><span class="tick on"><span class="ms sm">check</span></span><span>Cooling-off ends</span><span class="pill ok">Ended 27 Oct</span></div>
+          <div class="cond"><span class="tick"></span><span>Finance approval</span><span class="pill due">Due Fri 30 Oct</span></div>
+          <div class="cond"><span class="tick on"><span class="ms sm">check</span></span><span>Building &amp; pest</span><span class="pill ok">Cleared 26 Oct</span></div>
+          <div class="cond"><span class="tick"></span><span>Unconditional</span><span class="pill warn">When finance is approved</span></div>
+          <p class="sub" style="font-size:12px;margin-top:10px">A reminder goes to the listing agent two days before each date.</p>
+        </div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <h3>What happened</h3>
+        <ul class="log">
+          <li><span class="ms sm">gavel</span><span><b>Contract</b> — marked sold at $782,000 by Sarah K. · 22 Oct</span></li>
+          <li><span class="ms sm">handshake</span><span><b>Negotiation</b> — listing set to Under offer · 19 Oct <span class="pill auto">automatic</span></span></li>
+          <li><span class="ms sm">local_offer</span><span><b>Offers</b> — first private offer received · 15 Oct <span class="pill auto">automatic</span></span></li>
+          <li><span class="ms sm">campaign</span><span><b>Marketing</b> — listing went live · 2 Oct <span class="pill auto">automatic</span></span></li>
+          <li><span class="ms sm">real_estate_agent</span><span><b>Appraisal</b> — appraisal with the owner · 18 Sep</span></li>
+        </ul>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="scrim" id="dlg" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-t">
+    <div class="dhead"><h2 id="dlg-t">Settle 27 Lakeside Boulevard</h2><button class="btn" type="button" data-close><span class="ms sm">close</span></button></div>
+    <div class="dbody">
+      <div class="two">
+        <label class="f">Settled on<input class="in" value="04/12/2026" /></label>
+        <label class="f">Final price<input class="in" value="$782,000" /></label>
+      </div>
+      <label class="f"><span><input type="checkbox" checked /> Tag Priya Natarajan and the vendor as Past clients</span></label>
+      <p class="sub" style="font-size:12px">The deal closes and leaves the board. Commission (Phase 2.2) is recorded from here once that is built.</p>
+    </div>
+    <div class="dfoot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="button" data-close><span class="ms sm">check</span>Mark settled</button></div>
+  </div>
+</div>
+
+<script>
+const STAGES = ['Appraisal', 'Listing', 'Marketing', 'Offers', 'Negotiation', 'Contract', 'Settlement'];
+const DEALS = [
+  { a: '14 Henry Rd, Officer', s: 0, ag: 'OR', mine: false, m: ['Appraisal Tue 3 Nov'], p: [] },
+  { a: '9 Main St, Pakenham', s: 0, ag: 'SK', mine: true, m: ['Appraised 20 Oct'], p: [['warn', 'No follow-up 7 days']] },
+  { a: '3/5 Bald Hill Rd, Pakenham', s: 1, ag: 'SK', mine: true, m: ['Draft · photos due'], p: [] },
+  { a: '61 Princes Hwy, Pakenham', s: 2, ag: 'OR', mine: false, m: ['$1.1m–$1.2m', 'Live 12 days'], p: [['auto', '9 enquiries']] },
+  { a: '22 Racecourse Rd, Pakenham', s: 2, ag: 'SK', mine: true, m: ['Auction 14 Nov'], p: [['auto', '4 buyers fit']] },
+  { a: '8/14 Main St, Pakenham', s: 3, ag: 'OR', mine: false, m: ['$480,000'], p: [['auto', '2 offers']] },
+  { a: '5 Wattle Ct, Officer', s: 4, ag: 'SK', mine: true, m: ['Best offer $905,000'], p: [['warn', 'Vendor to reply']] },
+  { a: '27 Lakeside Blvd, Pakenham', s: 5, ag: 'SK', mine: true, m: ['$782,000', 'Settles 4 Dec'], p: [['due', 'Finance due Fri']], open: true },
+  { a: '2 Murray St, Pakenham', s: 5, ag: 'OR', mine: false, m: ['$655,000', 'Settles 20 Nov'], p: [['ok', 'Unconditional']] },
+  { a: '40 Toomuc Valley Rd, Pakenham', s: 6, ag: 'OR', mine: false, m: ['$1,340,000', 'Settles Fri 30 Oct'], p: [['due', 'Settles this week']] },
+];
+let view = 'owner';
+function renderBoard() {
+  const deals = DEALS.filter((d) => view === 'owner' || d.mine);
+  document.getElementById('st-active').textContent = deals.length;
+  document.getElementById('board-title').textContent = view === 'owner' ? 'Pipeline' : 'My pipeline';
+  document.getElementById('board').innerHTML = STAGES.map((st, i) => {
+    const inCol = deals.filter((d) => d.s === i);
+    return `<div class="col"><div class="colhead">${st}<span>${inCol.length}</span></div>${inCol.map((d) => `
+      <a class="dcard" ${d.open ? 'data-go="deal"' : ''} href="#">
+        <b>${d.a}</b>
+        <div class="meta">${d.m.map((x) => `<span>${x}</span>`).join('<span>·</span>')}</div>
+        <div class="meta"><span class="avatar">${d.ag}</span>${d.p.map(([k, t]) => `<span class="pill ${k}">${t}</span>`).join('')}</div>
+      </a>`).join('')}</div>`;
+  }).join('');
+}
+function show(s) {
+  document.querySelectorAll('[data-screen]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.screen === s));
+  document.getElementById('s-board').hidden = s !== 'board';
+  document.getElementById('s-deal').hidden = s !== 'deal';
+  document.getElementById('nav-pipeline').classList.toggle('on', s === 'board');
+  document.getElementById('nav-listings').classList.toggle('on', s === 'deal');
+}
+document.addEventListener('click', (e) => {
+  const s = e.target.closest('[data-screen]'); if (s) { show(s.dataset.screen); return; }
+  const v = e.target.closest('[data-view]');
+  if (v) { view = v.dataset.view; document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', b === v)); document.getElementById('side-sub').textContent = view === 'owner' ? 'Agency' : 'Agent desk'; renderBoard(); return; }
+  const g = e.target.closest('[data-go]'); if (g) { e.preventDefault(); show(g.dataset.go); return; }
+  if (e.target.closest('.dcard')) { e.preventDefault(); return; }
+  if (e.target.closest('#move')) { document.getElementById('dlg').hidden = false; return; }
+  if (e.target.closest('[data-close]') || e.target.id === 'dlg') document.getElementById('dlg').hidden = true;
+});
+renderBoard();
+show(location.hash === '#deal' ? 'deal' : 'board');
+</script>
+</body>
+</html>

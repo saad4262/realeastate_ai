@@ -7,6 +7,8 @@ import { openTileSchema } from '../open-query/tile';
 import { QUERY_MAX_CHARS } from '../open-query/guard';
 import { AU_STATES, PROPERTY_TYPES } from '../listings/listing-schema';
 import { SKILL_KEYS } from '../skill-switches/catalog';
+import { DEAL_STAGES } from '../deals/stages';
+import { DEAL_SIDES, DEAL_TRIGGER_STAGES, TRIGGER_KINDS } from '../workflows/catalog';
 
 /**
  * The console assistant's contract (docs/adr/0025). Phase A: read tools only.
@@ -298,12 +300,21 @@ export const workflowHandleSchema = handleSchema.refine((h) => h.startsWith('W')
  */
 export const workflowTriggerInput = z
   .object({
-    kind: z.enum(['lead.created', 'lead.status_changed', 'lead.no_reply', 'appointment.booked', 'listing.status_changed', 'contact.created']),
+    kind: z.enum(TRIGGER_KINDS),
     source: z.enum(['website', 'manual', 'import']).optional(),
     lead_status: z.enum(['new', 'contacted', 'qualified', 'closed']).optional(),
     listing_status: z.enum(['live', 'under_offer', 'sold', 'withdrawn']).optional(),
-    days: z.number().int().min(1).max(14).optional(),
+    /** lead.no_reply 1–14; appraisal.not_listed 1–30 (checked per kind when the spec is built). */
+    days: z.number().int().min(1).max(30).optional(),
     appointment_type: z.enum(['appraisal', 'phone_call', 'zoom', 'inspection', 'meeting']).optional(),
+    /** ADR 0066: deal.stage_reached. */
+    deal_stage: z.enum(DEAL_TRIGGER_STAGES).optional(),
+    /** ADR 0066: deal.stage_reached / deal.settled — whose contact the steps act on. */
+    who: z.enum(DEAL_SIDES).optional(),
+    /** ADR 0066: appointment.upcoming, 1–72. */
+    hours: z.number().int().min(1).max(72).optional(),
+    /** ADR 0066: sale.anniversary, 1–20. */
+    years: z.number().int().min(1).max(20).optional(),
   })
   .strict();
 export const workflowConditionInput = z
@@ -346,7 +357,16 @@ export const createWorkflowInput = z
     scope: z.enum(['mine', 'agency']).default('mine'),
     trigger: workflowTriggerInput,
     conditions: z.array(workflowConditionInput).max(5).default([]),
+    /** The steps — or, with `decide`, the "Not sure" steps. */
     actions: z.array(workflowActionInput).min(1).max(6),
+    /** ADR 0067: the AI reads the enquiry and picks one of these labels at the start; that label's steps run. */
+    decide: z
+      .object({
+        question: z.string().trim().min(1).max(200),
+        choices: z.array(z.object({ label: z.string().trim().min(1).max(40), actions: z.array(workflowActionInput).min(1).max(6) }).strict()).min(2).max(4),
+      })
+      .strict()
+      .optional(),
     /** A W reference: replace that workflow (a new version) instead of making another. */
     replaces: workflowHandleSchema.optional(),
   })
@@ -485,6 +505,16 @@ export const findBuyersInput = z
     if (!v.listing && words.every((x) => x === undefined)) ctx.addIssue({ code: 'custom', message: 'Say what the property is: a listing (P reference), or a suburb, price, bedrooms, bathrooms or type' });
     if (v.price_from !== undefined && v.price_to !== undefined && v.price_from > v.price_to) ctx.addIssue({ code: 'custom', path: ['price_from'], message: 'price_from is above price_to' });
   });
+
+/** The pipeline (ADR 0063): open deals, by stage and/or settling within N days. */
+export const findDealsInput = z
+  .object({
+    stage: z.enum(DEAL_STAGES).optional(),
+    settling_within_days: z.number().int().min(1).max(365).optional(),
+    mine: z.boolean().optional(),
+    limit: z.number().int().min(1).max(50).default(20),
+  })
+  .strict();
 
 /** `stage`, not `status`: no write tool has a field that could read as a card's own status. */
 export const setLeadStatusInput = z.object({ lead: leadHandleSchema, stage: z.enum(LEAD_STATUSES) }).strict();
@@ -873,7 +903,7 @@ export const scheduleTeamMeetingInput = z
   })
   .strict();
 
-export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_buyers', 'find_saved_lists', 'start_import', 'find_skills', 'find_workflows', 'describe_data', 'query_data', 'search_documents', 'read_document'] as const;
+export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_buyers', 'find_deals', 'find_saved_lists', 'start_import', 'find_skills', 'find_workflows', 'describe_data', 'query_data', 'search_documents', 'read_document'] as const;
 /** ADR 0042: a turn that uses these may make more tool calls (`toolCallsPerAnalysisTurn`). */
 export const ASSISTANT_ANALYSIS_TOOLS = ['describe_data', 'query_data'] as const;
 export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'update_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill', 'switch_skill', 'create_workflow', 'change_workflow', 'create_template'] as const;
@@ -923,6 +953,7 @@ export const ASSISTANT_TOOL_INPUTS = {
   schedule_team_meeting: scheduleTeamMeetingInput,
   find_listings: findListingsInput,
   find_buyers: findBuyersInput,
+  find_deals: findDealsInput,
   find_saved_lists: findSavedListsInput,
   start_import: startImportInput,
   find_skills: findSkillsInput,

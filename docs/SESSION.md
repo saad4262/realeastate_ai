@@ -11,7 +11,20 @@
   The user checked the sidebar and Skills UI in a browser. NOT pushed.
 - Then 1.3 (ADR 0059): find_buyers built and checked on the real DB (read-only + one rolled-back sample brief); the user
   checked it in a browser; committed.
-- Next exact step: 1.4 — the mock for matched buyers on the listing + one-click email; code only after the user reviews it.
+- Then, each mock-first and decided by the user: 1.4 matched buyers (ADR 0060; 0066 applied at the go), 1.5 more roles
+  (ADR 0061; 0067 NOT applied), 1.6 inbox assistant (ADR 0062), 2.1 deal pipeline (ADR 0063; 0068 NOT applied), 2.2
+  commissions + Finance (ADR 0064; columns in 0068), 2.3 property page (ADR 0065; no migration, reads 0068). All on
+  feat/sidebar-groups, NOT committed — the user tests in a browser first. 2.3 also stopped agents seeing an offer count
+  on Pipeline cards.
+- 2026-10-28, the user's go: 0067 + 0068 rolled back on the real DB 19/19 (it found two untyped parameters in the deal
+  sync — fixed, guard test), then applied (69 recorded), then a rolled-back settle 5/5.
+- The deal sync run once for real at the user's go: 27 deals (23 Marketing, 4 Contract), 16 conditions, 27 events.
+- Then 4.1 (ADR 0066), mock first and approved: seven workflow triggers; migration 0069 written, NOT applied.
+- Then 4.2 (ADR 0067), mock first and approved ("theek hai" read as the mock's approval, not the migration's go):
+  "AI decides" at the start of a workflow; workflow_run.decision folded into 0069 (still NOT applied).
+- Then 4.3 (ADR 0068), mock first and approved: the Automation Library through the assistant, owners and admins only.
+  The user said "abhi nahi" to 0069 (2026-10-28).
+- Next exact step: the user's explicit go for 0069 (rolled-back run first); browser tests BN–BV; one commit per step (1.4 → 4.3).
 
 ## 2026-10-26 — Claude Code — ADR 0055 + 0056: buyer requirements, buyer matching, AI contact import (branch feat/documents)
 

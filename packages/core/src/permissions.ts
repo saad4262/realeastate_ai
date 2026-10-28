@@ -297,6 +297,8 @@ export type Action =
    * any member who may write except owners and admins, whose switch is the agency's.
    */
   | 'skill_switch:manage'
+  /** Set a deal's commission and mark the agent's share paid (ADR 0064): the agency's call — owners and admins. */
+  | 'deal:commission'
   /** See the agency's email templates (ADR 0022). Any active member. */
   | 'email_template:read'
   /**
@@ -765,6 +767,9 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'agent_skill:manage':
       return sameAgency(actor, resource) && mayWrite(actor) &&
         Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+
+    case 'deal:commission':
+      return sameAgency(actor, resource) && isAgencyAdmin(actor) && mayWrite(actor);
 
     case 'skill_switch:read':
     case 'skill_switch:manage': {

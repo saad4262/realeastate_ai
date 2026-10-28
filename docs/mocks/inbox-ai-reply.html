@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Inbox AI Reply</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300..600,0..1&display=swap" rel="stylesheet" />
+<!--
+  Mock for ROADMAP Phase 1.6 — the inbox's AI summary and reply draft (to become ADR 0062).
+  Console tokens (apps/console/app/globals.css). Every name, message and figure is SAMPLE data.
+  The bar at the top exists only in the mock. #draft opens the drafted state.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff; --surface-container-low: #eff4ff;
+    --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff;
+    --emerald: #059669; --emerald-subtle: #ecfdf5;
+    --rose: #e11d48; --rose-subtle: #fff1f2;
+    --amber: #d97706; --amber-subtle: #fffbeb;
+    --violet: #6d28d9; --violet-subtle: #f5f3ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .ms { font-family: 'Material Symbols Outlined'; font-size: 20px; line-height: 1; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 400; }
+  .ms.sm { font-size: 16px; width: 16px; height: 16px; }
+  button, input, textarea { font: inherit; }
+  [hidden] { display: none !important; }
+
+  .mockbar { position: sticky; top: 0; z-index: 30; display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+  .mockbar b { color: #fff; }
+  .seg { display: inline-flex; background: #1e293b; border-radius: 8px; padding: 2px; flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; }
+
+  .shell { display: flex; min-height: calc(100vh - 36px); }
+  aside { width: 240px; flex: none; border-right: 1px solid var(--border-default); padding: 16px 12px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 16px; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--text-primary); color: #fff; display: grid; place-items: center; font: 700 12px 'Plus Jakarta Sans'; }
+  .brand small { display: block; color: var(--text-muted); font-size: 11px; }
+  .gh { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px 4px; }
+  .nl { display: flex; gap: 12px; align-items: center; padding: 7px 12px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; }
+  .nl.on { background: #fff; color: var(--sapphire); border: 1px solid var(--border-default); font-weight: 500; }
+  .nl .n { margin-left: auto; font-size: 11px; background: var(--sapphire-subtle); color: var(--sapphire); padding: 0 7px; border-radius: 999px; }
+
+  main { flex: 1; min-width: 0; padding: 22px 32px 64px; max-width: 980px; }
+  .back { color: var(--text-secondary); text-decoration: none; display: inline-flex; gap: 4px; align-items: center; font-size: 12.5px; }
+  h2 { font: 600 19px/26px 'Plus Jakarta Sans'; margin: 10px 0 6px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--sapphire-subtle); color: var(--sapphire); }
+  .ctl { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--text-secondary); }
+  .sel { border: 1px solid var(--border-default); border-radius: 6px; padding: 3px 8px; background: #fff; color: var(--text-primary); font-size: 12.5px; }
+  .chipline { display: inline-flex; gap: 6px; align-items: center; font-size: 11.5px; padding: 3px 9px; border-radius: 999px; border: 1px solid #a7f3d0; background: var(--emerald-subtle); color: var(--emerald); }
+
+  .msg { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; padding: 12px 14px; margin-top: 10px; }
+  .msg.fold { padding: 9px 14px; color: var(--text-secondary); }
+  .mhead { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 12.5px; }
+  .mhead b { color: var(--text-primary); }
+  .mhead span { color: var(--text-muted); }
+  .mbody { margin-top: 8px; white-space: pre-wrap; }
+  .num { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 4px; background: var(--surface-canvas); border: 1px solid var(--border-default); font-size: 11px; color: var(--text-secondary); margin-right: 6px; }
+  .us { border-left: 3px solid var(--sapphire); }
+
+  /* Assistant panel */
+  .ai { margin-top: 16px; background: #fff; border: 1px solid #ddd6fe; border-radius: 14px; overflow: hidden; }
+  .aihead { display: flex; gap: 8px; align-items: center; padding: 10px 14px; background: var(--violet-subtle); color: var(--violet); font-weight: 600; font-size: 13px; }
+  .aihead .tag { margin-left: auto; font-weight: 500; font-size: 11.5px; color: #7c3aed; }
+  .aibody { padding: 12px 14px; display: grid; gap: 12px; }
+  .sum { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+  .sum li { color: var(--text-primary); }
+  .cite { font-size: 11px; color: var(--violet); background: var(--violet-subtle); border-radius: 4px; padding: 0 5px; margin-left: 4px; white-space: nowrap; }
+  .draftbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; border-top: 1px solid var(--border-default); padding-top: 12px; }
+  .chip { border: 1px solid var(--border-default); background: #fff; border-radius: 999px; padding: 4px 11px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .say { flex: 1; min-width: 200px; border: 1px solid var(--border-default); border-radius: 8px; padding: 7px 10px; }
+  .btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-default); background: #fff; color: var(--text-primary); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; }
+  .btn.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .btn.ai { background: var(--violet); color: #fff; border-color: var(--violet); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn:focus-visible, .chip:focus-visible, .say:focus-visible, textarea:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+  .muted { color: var(--text-muted); font-size: 12px; }
+
+  /* Composer */
+  .composer { margin-top: 14px; background: #fff; border: 1px solid var(--border-default); border-radius: 12px; overflow: hidden; }
+  .chead { padding: 9px 14px; border-bottom: 1px solid var(--border-default); font-size: 12.5px; color: var(--text-secondary); display: flex; gap: 8px; flex-wrap: wrap; }
+  .chead b { color: var(--text-primary); font-weight: 500; }
+  .banner { display: flex; gap: 8px; align-items: flex-start; padding: 9px 14px; background: var(--amber-subtle); color: #92400e; font-size: 12.5px; border-bottom: 1px solid #fde68a; }
+  textarea { width: 100%; border: 0; padding: 12px 14px; min-height: 190px; resize: vertical; color: var(--text-primary); line-height: 21px; }
+  .fill { background: #fef3c7; border-radius: 3px; }
+  .cfoot { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--border-default); flex-wrap: wrap; }
+  .cfoot .note { margin-left: auto; font-size: 12px; color: var(--text-muted); }
+
+  .spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+  @media (max-width: 860px) { aside { display: none; } main { padding: 18px 16px 48px; } }
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>MOCK · sample data</b>
+  <span>State:</span>
+  <div class="seg" role="group" aria-label="State">
+    <button type="button" data-state="before" aria-pressed="true">Before a draft</button>
+    <button type="button" data-state="draft" aria-pressed="false">Draft in the composer</button>
+    <button type="button" data-state="off" aria-pressed="false">AI email drafts switched off</button>
+  </div>
+</div>
+
+<div class="shell">
+  <aside aria-label="Sidebar">
+    <div class="brand"><div class="logo">LA</div><div><b>Harbour Realty</b><small>Agent desk</small></div></div>
+    <div class="gh">Daily work</div>
+    <div class="nl"><span class="ms">person_search</span>Leads</div>
+    <div class="nl on"><span class="ms" style="font-variation-settings:'FILL' 1">mail</span>Inbox<span class="n">3</span></div>
+    <div class="nl"><span class="ms">event</span>Calendar</div>
+    <div class="gh">People</div>
+    <div class="gh">Properties</div>
+  </aside>
+
+  <main>
+    <a class="back" href="#"><span class="ms sm">arrow_back</span>Inbox</a>
+    <div class="row"><h2>Re: 27 Lakeside Boulevard, Pakenham</h2><span class="badge">Enquiry</span></div>
+    <div class="row">
+      <span class="ctl">Status <span class="sel">Contacted ▾</span></span>
+      <span class="ctl">Assigned to <span class="sel">You ▾</span></span>
+      <span class="ctl"><span class="ms sm">call</span>0400 111 222</span>
+      <span class="chipline"><span class="ms sm">sync_alt</span>Replies come back to this conversation</span>
+    </div>
+
+    <div class="msg fold"><div class="mhead"><span><span class="num">1</span><b>Priya Natarajan</b> · via the enquiry form</span><span>Mon 9:12 am</span></div></div>
+    <div class="msg fold us"><div class="mhead"><span><span class="num">2</span><b>You</b> to Priya</span><span>Mon 11:40 am</span></div></div>
+    <div class="msg">
+      <div class="mhead"><span><span class="num">3</span><b>Priya Natarajan</b> &lt;priya@example.com&gt;</span><span>Today 8:05 am</span></div>
+      <div class="mbody">Hi Sarah,
+
+Thanks for the floor plan. We'd love to see the house this weekend if possible — Saturday morning suits us best. Also, is the vendor open to offers before the auction, and does the price guide still stand?
+
+Priya</div>
+    </div>
+
+    <!-- ASSISTANT -->
+    <section class="ai" aria-label="Assistant">
+      <div class="aihead"><span class="ms">auto_awesome</span>Assistant<span class="tag">Read only what's in this conversation · nothing is sent by it</span></div>
+      <div class="aibody">
+        <div>
+          <div style="font-weight:600;margin-bottom:4px">What's going on</div>
+          <ul class="sum">
+            <li>Priya wants to inspect 27 Lakeside Boulevard, Saturday morning if possible. <span class="cite">message 3</span></li>
+            <li>She asks whether the vendor would take an offer before the auction. <span class="cite">message 3</span></li>
+            <li>She asks whether the price guide still stands; you sent a floor plan on Monday. <span class="cite">messages 2–3</span></li>
+          </ul>
+        </div>
+        <div class="draftbar" id="draftbar">
+          <span style="font-weight:600">Draft a reply</span>
+          <button class="chip" type="button" data-tone aria-pressed="true">Friendly</button>
+          <button class="chip" type="button" data-tone aria-pressed="false">Short</button>
+          <button class="chip" type="button" data-tone aria-pressed="false">Formal</button>
+          <input class="say" id="say" placeholder="What should it say? e.g. offer Saturday 11 am, guide unchanged (optional)" value="Offer Saturday 11 am; vendor will consider offers" />
+          <button class="btn ai" type="button" id="draftbtn"><span class="ms sm">edit_note</span>Draft reply</button>
+        </div>
+        <div class="muted" id="offnote" hidden><span class="ms sm" style="vertical-align:-3px">toggle_off</span> "AI email drafts" is switched off for you in Skills. Turn it on there to draft replies. The summary is off with it.</div>
+      </div>
+    </section>
+
+    <!-- COMPOSER -->
+    <section class="composer" aria-label="Reply">
+      <div class="chead"><span>To <b>Priya Natarajan &lt;priya@example.com&gt;</b></span><span>· From <b>Sarah Khan (your Gmail)</b></span></div>
+      <div class="banner" id="banner" hidden>
+        <span class="ms sm">edit_note</span>
+        <span><b>Drafted by the assistant — read it before you send.</b> Anything the conversation doesn't say is left in [brackets] for you to fill; it never makes up a price, date or promise. Edit freely; nothing is sent until you press Send.</span>
+      </div>
+      <textarea id="body" placeholder="Write your reply…" aria-label="Reply"></textarea>
+      <div class="cfoot">
+        <button class="btn primary" type="button" id="send"><span class="ms sm">send</span>Send</button>
+        <button class="btn" type="button" id="discard" hidden><span class="ms sm">delete</span>Discard draft</button>
+        <span class="note">When Priya replies, it comes back to this conversation.</span>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+const DRAFT = `Hi Priya,
+
+Thanks for getting back to me — glad the floor plan helped.
+
+Saturday works well. I can show you through 27 Lakeside Boulevard at 11 am; let me know if that suits and I'll lock it in.
+
+The vendor is open to considering offers before the auction. On the price guide, it is [current price guide] — I'll confirm it with you on Saturday.
+
+Looking forward to meeting you,
+Sarah`;
+let state = 'before';
+function render() {
+  document.querySelectorAll('[data-state]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.state === state));
+  const off = state === 'off';
+  document.getElementById('draftbar').hidden = off;
+  document.getElementById('offnote').hidden = !off;
+  document.querySelector('.sum').parentElement.hidden = off;
+  const drafted = state === 'draft';
+  document.getElementById('banner').hidden = !drafted;
+  document.getElementById('discard').hidden = !drafted;
+  document.getElementById('body').value = drafted ? DRAFT : '';
+}
+document.addEventListener('click', (e) => {
+  const s = e.target.closest('[data-state]');
+  if (s) { state = s.dataset.state; render(); return; }
+  const t = e.target.closest('[data-tone]');
+  if (t) { document.querySelectorAll('[data-tone]').forEach((x) => x.setAttribute('aria-pressed', x === t)); return; }
+  if (e.target.closest('#draftbtn')) {
+    const b = document.getElementById('draftbtn');
+    b.disabled = true; b.innerHTML = '<span class="spinner"></span>Drafting…';
+    setTimeout(() => { b.disabled = false; b.innerHTML = '<span class="ms sm">edit_note</span>Draft again'; state = 'draft'; render(); document.getElementById('body').focus(); }, 900);
+    return;
+  }
+  if (e.target.closest('#discard')) { state = 'before'; render(); document.getElementById('draftbtn').innerHTML = '<span class="ms sm">edit_note</span>Draft reply'; }
+});
+if (location.hash === '#draft') state = 'draft';
+render();
+</script>
+</body>
+</html>

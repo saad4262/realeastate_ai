@@ -463,6 +463,34 @@
       "when": 1793087771385,
       "tag": "0065_skill_switches",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1793091645032,
+      "tag": "0066_batch_listing",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1793093301998,
+      "tag": "0067_more_contact_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1793099630245,
+      "tag": "0068_deals",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1793179297448,
+      "tag": "0069_workflow_triggers",
+      "breakpoints": true
     }
   ]
 }

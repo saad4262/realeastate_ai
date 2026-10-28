@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Workflow Triggers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300..600,0..1&display=swap" rel="stylesheet" />
+<!--
+  Mock for ROADMAP Phase 4.1 — new workflow triggers (to become ADR 0066).
+  Console tokens (apps/console/app/globals.css). Every name, address, date and template is SAMPLE data.
+  The bar at the top exists only in the mock: the Automations tab, and the assistant's approval card for a new workflow.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff; --surface-container-low: #eff4ff;
+    --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff;
+    --emerald: #059669; --emerald-subtle: #ecfdf5;
+    --rose: #e11d48; --rose-subtle: #fff1f2;
+    --amber: #d97706; --amber-subtle: #fffbeb;
+    --violet: #7c3aed; --violet-subtle: #f5f3ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .ms { font-family: 'Material Symbols Outlined'; font-size: 20px; line-height: 1; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 400; flex: none; }
+  .ms.sm { font-size: 16px; width: 16px; height: 16px; }
+  button { font: inherit; }
+  [hidden] { display: none !important; }
+
+  .mockbar { position: sticky; top: 0; z-index: 30; display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+  .mockbar b { color: #fff; }
+  .seg { display: inline-flex; background: #1e293b; border-radius: 8px; padding: 2px; flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; }
+
+  .shell { display: flex; min-height: calc(100vh - 36px); }
+  aside { width: 232px; flex: none; border-right: 1px solid var(--border-default); padding: 16px 12px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 16px; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--text-primary); color: #fff; display: grid; place-items: center; font: 700 12px 'Plus Jakarta Sans'; }
+  .brand small { display: block; color: var(--text-muted); font-size: 11px; }
+  .gh { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px 4px; }
+  .nl { display: flex; gap: 12px; align-items: center; padding: 7px 12px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; }
+  .nl.on { background: #fff; color: var(--sapphire); border: 1px solid var(--border-default); font-weight: 500; }
+
+  main { flex: 1; min-width: 0; padding: 24px 28px 64px; max-width: 1180px; }
+  h1 { font: 600 24px/32px 'Plus Jakarta Sans'; margin: 0; letter-spacing: -.02em; }
+  h2 { font: 600 15px/22px 'Plus Jakarta Sans'; margin: 0; }
+  .sub { color: var(--text-secondary); margin: 4px 0 0; }
+  .muted { color: var(--text-muted); font-size: 12px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .between { justify-content: space-between; }
+  .tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--border-default); padding-bottom: 8px; margin: 16px 0; }
+  .tab { padding: 6px 12px; border-radius: 8px; border: 1px solid transparent; color: var(--text-secondary); font-weight: 500; }
+  .tab.on { background: #fff; border-color: var(--border-default); color: var(--text-primary); }
+  .btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-default); background: #fff; color: var(--text-primary); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; }
+  .btn.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .btn:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border-default); background: #fff; color: var(--text-secondary); font-size: 11.5px; font-weight: 500; white-space: nowrap; }
+  .pill.new { border-color: #a7f3d0; background: var(--emerald-subtle); color: var(--emerald); font-weight: 700; font-size: 10.5px; }
+  .pill.auto { border-color: #bfdbfe; background: var(--sapphire-subtle); color: var(--sapphire); }
+  .pill.approve { border-color: #fde68a; background: var(--amber-subtle); color: var(--amber); }
+
+  .card { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; }
+  .section { padding: 14px 16px; border-top: 1px solid var(--border-default); }
+  .section:first-child { border-top: 0; }
+
+  /* Triggers catalogue */
+  .groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; margin-top: 12px; }
+  .group { border: 1px solid var(--border-default); border-radius: 12px; padding: 12px 14px; background: #fff; }
+  .group h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); display: flex; gap: 6px; align-items: center; }
+  .trig { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; padding: 9px 0; border-top: 1px solid var(--border-default); }
+  .trig:first-of-type { border-top: 0; }
+  .ico { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: #f1f5f9; color: var(--text-secondary); }
+  .ico.deal { background: var(--sapphire-subtle); color: var(--sapphire); }
+  .ico.match { background: var(--violet-subtle); color: var(--violet); }
+  .ico.appt { background: var(--amber-subtle); color: var(--amber); }
+  .ico.past { background: var(--emerald-subtle); color: var(--emerald); }
+  .trig b { font-weight: 600; }
+  .trig p { margin: 2px 0 0; color: var(--text-secondary); font-size: 12.5px; }
+  .ask { margin-top: 5px; font-size: 12px; color: var(--violet); font-style: italic; }
+  .opts { margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
+
+  /* Workflow list */
+  .wf { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 14px 16px; border-top: 1px solid var(--border-default); }
+  .wf:first-child { border-top: 0; }
+  .wf ol { margin: 4px 0 0; padding-left: 20px; }
+  .when { font-weight: 500; }
+
+  /* Assistant card */
+  .assist { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; align-items: start; }
+  .chat { display: grid; gap: 10px; }
+  .bubble { max-width: 520px; padding: 10px 12px; border-radius: 12px; background: #fff; border: 1px solid var(--border-default); }
+  .bubble.me { margin-left: auto; background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .proposal { border: 1px solid #c7d2fe; border-radius: 12px; background: #fff; overflow: hidden; }
+  .proposal header { padding: 10px 14px; background: var(--surface-container-low); display: flex; gap: 8px; align-items: center; font-weight: 600; }
+  .proposal .body { padding: 12px 14px; display: grid; gap: 8px; }
+  .kv { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 4px 10px; font-size: 13px; }
+  .kv dt { color: var(--text-muted); }
+  .kv dd { margin: 0; }
+  .proposal footer { padding: 10px 14px; border-top: 1px solid var(--border-default); display: flex; gap: 8px; justify-content: flex-end; }
+  .note { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; border: 1px solid #dbeafe; background: var(--surface-container-low); color: var(--text-secondary); font-size: 12.5px; }
+
+  @media (max-width: 960px) {
+    aside { display: none; }
+    main { padding: 16px; }
+    .assist { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>Mock · 4.1 Workflow triggers</b>
+  <span>Screen</span>
+  <div class="seg" id="scr"><button aria-pressed="true" data-s="tab">Skills → Automations</button><button aria-pressed="false" data-s="card">Assistant: a new workflow</button></div>
+</div>
+
+<div class="shell">
+  <aside>
+    <div class="brand"><div class="logo">LA</div><div><b>Ray White Pakenham</b><small>Agency console</small></div></div>
+    <div class="gh">Home</div>
+    <div class="nl"><span class="ms">space_dashboard</span>Overview</div>
+    <div class="nl"><span class="ms">inbox</span>Inbox</div>
+    <div class="gh">Properties</div>
+    <div class="nl"><span class="ms">location_city</span>Properties</div>
+    <div class="nl"><span class="ms">view_kanban</span>Pipeline</div>
+    <div class="gh">Automation</div>
+    <div class="nl on"><span class="ms">toggle_on</span>Skills</div>
+  </aside>
+
+  <main>
+    <!-- ============ AUTOMATIONS TAB ============ -->
+    <section id="tab">
+      <h1>Skills</h1>
+      <p class="sub">Everything the platform can do for you, on or off — and the automations you have set up.</p>
+      <div class="tabs"><span class="tab">Platform skills</span><span class="tab">AI skills</span><span class="tab on">Automations</span></div>
+
+      <p class="sub" style="margin:0 0 14px">When something happens, steps that run by themselves — as you, with your permissions checked each time. Ask the assistant to make one. An email the AI writes is never sent by a workflow: it waits here for you.</p>
+
+      <section class="card">
+        <div class="section"><h2>Waiting for you (1)</h2>
+          <div class="row between" style="margin-top:8px"><span>Draft to <b>Priya Mehta</b> — “Thank you for choosing us…” <span class="muted">· from “Settled: thank the vendor”</span></span><span class="row"><button class="btn">Edit</button><button class="btn primary">Send</button></span></div>
+        </div>
+      </section>
+
+      <section class="card" style="margin-top:14px">
+        <div class="section"><h2>Workflows</h2></div>
+        <div class="wf">
+          <div>
+            <b>Settled: thank the vendor, then ask for a review</b>
+            <div class="muted">On · the whole agency · 2 runs today</div>
+            <div class="when" style="margin-top:6px">When a deal settles — the vendor</div>
+            <ol><li>Write an email draft for you to approve, about: “thank them, mention the settlement went smoothly”</li><li>Wait 7 days</li><li>Send the template “Review request” to the contact (only if they may receive it then)</li></ol>
+          </div>
+          <div class="row" style="align-items:flex-start"><button class="btn">Pause</button><button class="btn">Archive</button></div>
+        </div>
+        <div class="wf">
+          <div>
+            <b>New listing for a matching buyer</b>
+            <div class="muted">On · your own leads and contacts · 5 runs today</div>
+            <div class="when" style="margin-top:6px">When a new listing fits a buyer’s brief — the buyer</div>
+            <div class="muted">If the listing is for sale</div>
+            <ol><li>Wait until 9:00 am–5:00 pm, Monday to Friday (the agency’s time)</li><li>Send the template “Just listed for you” to the contact (only if they may receive it then)</li></ol>
+          </div>
+          <div class="row" style="align-items:flex-start"><button class="btn">Pause</button><button class="btn">Archive</button></div>
+        </div>
+        <div class="wf">
+          <div>
+            <b>Appraisal not listed after a week</b>
+            <div class="muted">On · your own leads and contacts · 0 runs today</div>
+            <div class="when" style="margin-top:6px">When an appraisal has had no listing for 7 days — the owner</div>
+            <ol><li>Remind you: “Call {{contact_first_name}} about listing {{listing_address}}”</li><li>Set the next action “Follow up the appraisal”, due in 2 days</li></ol>
+          </div>
+          <div class="row" style="align-items:flex-start"><button class="btn">Pause</button><button class="btn">Archive</button></div>
+        </div>
+      </section>
+
+      <section class="card" style="margin-top:14px">
+        <div class="section">
+          <div class="row between"><h2>What can start a workflow</h2><span class="muted">13 triggers · 7 new</span></div>
+          <p class="sub" style="margin-top:4px">Say it to the assistant in your own words — the line in purple is an example.</p>
+          <div class="groups">
+            <div class="group">
+              <h3><span class="ms sm">person_search</span>Leads and contacts</h3>
+              <div class="trig"><span class="ico"><span class="ms sm">mail</span></span><div><b>A new lead arrives</b><p>From the website or recorded by hand.</p></div></div>
+              <div class="trig"><span class="ico"><span class="ms sm">swap_horiz</span></span><div><b>A lead’s status changes</b><p>New, contacted, qualified, closed.</p></div></div>
+              <div class="trig"><span class="ico"><span class="ms sm">schedule</span></span><div><b>No reply for N days</b><p>A buyer’s message still unanswered.</p></div></div>
+              <div class="trig"><span class="ico"><span class="ms sm">person_add</span></span><div><b>A contact is added</b><p>By hand or by an import.</p></div></div>
+            </div>
+
+            <div class="group">
+              <h3><span class="ms sm">view_kanban</span>Deals <span class="pill new">NEW</span></h3>
+              <div class="trig"><span class="ico deal"><span class="ms sm">flag</span></span><div><b>A deal reaches a stage</b> <span class="pill new">NEW</span><p>Any of the seven — by itself or moved by someone. The vendor or the buyer, you choose.</p><div class="opts"><span class="pill">stage</span><span class="pill">vendor / buyer</span></div><div class="ask">“When a deal goes to Contract, email the buyer our conveyancing checklist.”</div></div></div>
+              <div class="trig"><span class="ico deal"><span class="ms sm">handshake</span></span><div><b>A deal settles</b> <span class="pill new">NEW</span><p>When someone presses Settle on the Deal tab.</p><div class="opts"><span class="pill">vendor / buyer</span></div><div class="ask">“When a sale settles, draft a thank-you to the vendor, then a review request a week later.”</div></div></div>
+            </div>
+
+            <div class="group">
+              <h3><span class="ms sm">real_estate_agent</span>Listings and buyers</h3>
+              <div class="trig"><span class="ico"><span class="ms sm">sell</span></span><div><b>A listing’s status changes</b><p>Live, under offer, sold, withdrawn.</p></div></div>
+              <div class="trig"><span class="ico match"><span class="ms sm">join_inner</span></span><div><b>A new listing fits a buyer’s brief</b> <span class="pill new">NEW</span><p>When a listing goes live: once for each buyer whose brief it fits — the same match as the listing’s Matching buyers tab. Only buyers who may be emailed get a template.</p><div class="ask">“When a new sale listing matches a buyer, send them ‘Just listed for you’ in office hours.”</div></div></div>
+            </div>
+
+            <div class="group">
+              <h3><span class="ms sm">event</span>Appointments</h3>
+              <div class="trig"><span class="ico"><span class="ms sm">event_available</span></span><div><b>An appointment is booked</b><p>Optionally one type.</p></div></div>
+              <div class="trig"><span class="ico appt"><span class="ms sm">alarm</span></span><div><b>N hours before an appointment</b> <span class="pill new">NEW</span><p>1 to 72 hours before it starts; not if it was cancelled or moved.</p><div class="opts"><span class="pill">hours</span><span class="pill">type</span></div><div class="ask">“A day before every inspection, send the client the ‘See you tomorrow’ template.”</div></div></div>
+              <div class="trig"><span class="ico appt"><span class="ms sm">task_alt</span></span><div><b>An appointment is completed</b> <span class="pill new">NEW</span><p>When it is marked done, with its outcome.</p><div class="opts"><span class="pill">type</span></div><div class="ask">“After a private inspection is done, remind me to call them the next morning.”</div></div></div>
+              <div class="trig"><span class="ico appt"><span class="ms sm">hourglass_bottom</span></span><div><b>An appraisal with no listing after N days</b> <span class="pill new">NEW</span><p>An appraisal done N days ago (1–30) and nothing listed at that address since.</p><div class="ask">“If an appraisal hasn’t turned into a listing in a week, remind me.”</div></div></div>
+            </div>
+
+            <div class="group">
+              <h3><span class="ms sm">history</span>Past clients <span class="pill new">NEW</span></h3>
+              <div class="trig"><span class="ico past"><span class="ms sm">cake</span></span><div><b>A sale’s anniversary</b> <span class="pill new">NEW</span><p>1 to 20 years after we sold an address, on the day — to its owners and the deal’s buyer.</p><div class="opts"><span class="pill">years</span></div><div class="ask">“Every year on the day we sold their home, send past clients ‘Happy home anniversary’.”</div></div></div>
+            </div>
+          </div>
+          <p class="note" style="margin-top:12px"><span class="ms sm">verified_user</span><span>Same rules for every trigger: an approved template is sent by itself only if the person may receive it then (consent, opt-out, limits); an email the AI writes always waits for you; a personal workflow acts only on your own records; 200 runs a day at most.</span></p>
+        </div>
+      </section>
+    </section>
+
+    <!-- ============ THE ASSISTANT'S CARD ============ -->
+    <section id="card" hidden>
+      <h1>Assistant</h1>
+      <p class="sub">A workflow is made by asking; it starts only after you approve the card.</p>
+      <div class="assist" style="margin-top:16px">
+        <div class="chat">
+          <div class="bubble me">When a sale settles, draft a thank-you to the vendor, then a week later send them the review request template.</div>
+          <div class="bubble">Here it is — every settled sale in the agency, the vendor. The thank-you is a draft that waits for you to send; the review request goes by itself if they may still be emailed then.</div>
+        </div>
+        <div class="proposal">
+          <header><span class="ms sm">bolt</span>New workflow <span class="pill approve" style="margin-left:auto">Needs your approval</span></header>
+          <div class="body">
+            <dl class="kv">
+              <dt>Name</dt><dd>Settled: thank the vendor, then ask for a review</dd>
+              <dt>For</dt><dd>The whole agency</dd>
+              <dt>When</dt><dd><b>A deal settles</b> — <span class="pill">the vendor</span></dd>
+              <dt>Then</dt><dd><ol style="margin:0;padding-left:18px"><li>Write an email draft for you to approve, about: “thank them, mention the settlement went smoothly”</li><li>Wait 7 days</li><li>Send the template “Review request” to the contact (only if they may receive it then)</li></ol></dd>
+            </dl>
+            <p class="muted" style="margin:0">A deal with no vendor on it is skipped and the run says so.</p>
+          </div>
+          <footer><button class="btn">Change</button><button class="btn primary">Approve</button></footer>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+<script>
+  document.getElementById('scr').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    for (const x of document.querySelectorAll('#scr button')) x.setAttribute('aria-pressed', String(x === b));
+    document.getElementById('tab').hidden = b.dataset.s !== 'tab';
+    document.getElementById('card').hidden = b.dataset.s !== 'card';
+  });
+</script>
+</body>
+</html>

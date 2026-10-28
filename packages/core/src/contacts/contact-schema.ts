@@ -10,7 +10,12 @@ import { PROPERTY_TYPES, propertyDraftSchema, type PropertyType } from '../listi
  * the same arrangement as the schedule vocabularies.
  */
 
-export const CONTACT_ROLES = ['seller', 'buyer', 'landlord', 'tenant', 'investor'] as const;
+/**
+ * What a person is to the agency (ADR 0018); one may hold several. Prospect, past client and referral
+ * partner (ADR 0061) are relationships only — none of them is a client role for marketing consent
+ * (CLIENT_ROLES in template-email/consent.ts stays seller, landlord, tenant).
+ */
+export const CONTACT_ROLES = ['seller', 'buyer', 'landlord', 'tenant', 'investor', 'prospect', 'past_client', 'referral_partner'] as const;
 export type ContactRoleKind = (typeof CONTACT_ROLES)[number];
 
 export const CONTACT_SOURCES = ['enquiry', 'offer', 'email', 'manual', 'import'] as const;
@@ -78,6 +83,9 @@ export const CONTACT_ROLE_LABELS: Record<ContactRoleKind, string> = {
   landlord: 'Landlord',
   tenant: 'Tenant',
   investor: 'Investor',
+  prospect: 'Prospect',
+  past_client: 'Past client',
+  referral_partner: 'Referral partner',
 };
 
 export const CONTACT_PROPERTY_RELATION_LABELS: Record<ContactPropertyRelation, string> = {

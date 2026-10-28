@@ -162,7 +162,8 @@ export type FrozenArgs =
   | { tool: 'create_lead'; contactId: string; listingId: string; kind: 'enquiry' | 'inspection' | 'appraisal'; message: string | null }
   | { tool: 'create_contact'; name: string; email: string | null; phone: string | null; roles: string[] }
   /** ADR 0040: a reminder to the person themselves — the bell, and their own email only when asked. */
-  | { tool: 'remind'; text: string; email: boolean }
+  /** `body` and `href` (ADR 0060): a call list's buyers, and where the bell opens it. */
+  | { tool: 'remind'; text: string; email: boolean; body?: string; href?: string }
   /** ADR 0040: approving the plan starts its task. */
   | { tool: 'plan_task'; taskId: string }
   | { tool: 'cancel_task'; taskId: string }
@@ -454,7 +455,7 @@ async function execute(
     }
     case 'remind': {
       if (!actor.agencyId) throw new AssistantError('forbidden', 'You are not in an agency.');
-      const n = await notifyMyself(tx, actor, args.text, `reminder:${rowId}`);
+      const n = await notifyMyself(tx, actor, args.text, `reminder:${rowId}`, { body: args.body, href: args.href });
       if (!n) throw new AssistantError('conflict', 'This reminder was already given.');
       return { result: { notificationId: n.id }, ...(args.email ? { reminderEmail: { text: args.text } } : {}) };
     }

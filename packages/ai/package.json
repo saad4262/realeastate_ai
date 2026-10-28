@@ -18,7 +18,10 @@
     "./evals/dashboard-phrases": "./src/evals/dashboard-phrases.ts",
     "./workflow-draft": "./src/pipelines/workflow-draft.ts",
     "./document-reader": "./src/pipelines/document-read.ts",
-    "./import-assist": "./src/pipelines/import-assist.ts"
+    "./import-assist": "./src/pipelines/import-assist.ts",
+    "./property-summary": "./src/pipelines/property-summary.ts",
+    "./workflow-decide": "./src/pipelines/workflow-decide.ts",
+    "./reply-assist": "./src/pipelines/reply-assist.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

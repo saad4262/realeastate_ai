@@ -78,13 +78,28 @@ export async function markNotificationsRead(db: DbOrTx, actor: Actor, ids: strin
  * bell. `dedupeKey` makes a step that runs twice ring once. Returns the row,
  * or null when that key already rang.
  */
-export async function notifyMyself(db: DbOrTx, actor: Actor, title: string, dedupeKey: string): Promise<{ id: string } | null> {
+export async function notifyMyself(
+  db: DbOrTx,
+  actor: Actor,
+  title: string,
+  dedupeKey: string,
+  extra: { body?: string | undefined; href?: string | undefined } = {},
+): Promise<{ id: string } | null> {
   if (!actor.agencyId || !can(actor, 'notification:read', { type: 'notification', agencyId: actor.agencyId, ownerId: actor.userId })) {
     throw new Error('You cannot receive notifications here');
   }
   const [n] = await db
     .insert(notification)
-    .values({ userId: actor.userId, agencyId: actor.agencyId, kind: 'reminder', title: title.slice(0, 300), dedupeKey })
+    .values({
+      userId: actor.userId,
+      agencyId: actor.agencyId,
+      kind: 'reminder',
+      title: title.slice(0, 300),
+      // Only a console path (ADR 0060's call list opens its listing's tab); anything else is dropped.
+      ...(extra.body ? { body: extra.body.slice(0, 4000) } : {}),
+      ...(extra.href && extra.href.startsWith('/') && !extra.href.startsWith('//') ? { href: extra.href } : {}),
+      dedupeKey,
+    })
     .onConflictDoNothing()
     .returning({ id: notification.id });
   return n ?? null;

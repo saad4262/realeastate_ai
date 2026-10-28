@@ -1028,3 +1028,17 @@ describe('skill switches', () => {
     expect(can({ ...owner, via: 'platform' }, 'skill_switch:manage', agencys)).toBe(false);
   });
 });
+
+/** ADR 0064: the agency sets the commission — an agent sees it on their deal and cannot change it. */
+describe('deal commission', () => {
+  const m = (userId: string, membershipRole: Actor['membershipRole']): Actor => ({ userId, agencyId: agencyA, membershipRole });
+  const res = { type: 'deal', agencyId: agencyA };
+  it('is owners’ and admins’ only, in their own agency', () => {
+    expect(can(m('o', 'owner'), 'deal:commission', res)).toBe(true);
+    expect(can(m('a', 'admin'), 'deal:commission', res)).toBe(true);
+    expect(can(m('g', 'agent'), 'deal:commission', res)).toBe(false);
+    expect(can(m('v', 'read_only'), 'deal:commission', res)).toBe(false);
+    expect(can({ userId: 'r', agencyId: agencyB, membershipRole: 'owner' }, 'deal:commission', res)).toBe(false);
+    expect(can({ ...m('o', 'owner'), via: 'platform' }, 'deal:commission', res)).toBe(false);
+  });
+});

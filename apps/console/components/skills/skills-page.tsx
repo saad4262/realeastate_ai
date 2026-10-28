@@ -7,6 +7,7 @@ import { ensureTemplateEmailSkill } from '@repo/core/template-email';
 import type { Actor } from '@repo/core/permissions';
 import contactStyles from '@/components/contacts/contacts.module.css';
 import { WorkflowsPage } from '@/components/workflows/workflows-page';
+import { LIBRARY_GROUPS, type LibraryGroup } from '@repo/core/workflows';
 import { getConsoleDb } from '../../lib/db';
 import { requireConsoleAccess } from '../../lib/require-console-access';
 import { AddSkillButton, ArchiveLibrarySkillButton } from './islands';
@@ -20,10 +21,11 @@ export type SkillTab = (typeof SKILL_TABS)[number];
 const TAB_LABELS: Record<SkillTab, string> = { platform: 'Platform skills', ai: 'AI skills', automations: 'Automations' };
 
 /** The page's own search params, read loosely: anything unknown is the default. */
-export function skillsParams(sp: { tab?: string; show?: string; runs?: string }): { tab: SkillTab; show: SkillFilter; runs?: string } {
+export function skillsParams(sp: { tab?: string; show?: string; runs?: string; lib?: string }): { tab: SkillTab; show: SkillFilter; runs?: string; lib?: LibraryGroup } {
   const tab = (SKILL_TABS as readonly string[]).includes(sp.tab ?? '') ? (sp.tab as SkillTab) : 'platform';
   const show = sp.show === 'on' || sp.show === 'off' ? sp.show : 'all';
-  return { tab, show, ...(sp.runs ? { runs: sp.runs } : {}) };
+  const lib = (LIBRARY_GROUPS as readonly string[]).includes(sp.lib ?? '') ? (sp.lib as LibraryGroup) : undefined;
+  return { tab, show, ...(sp.runs ? { runs: sp.runs } : {}), ...(lib ? { lib } : {}) };
 }
 
 /**
@@ -32,7 +34,7 @@ export function skillsParams(sp: { tab?: string; show?: string; runs?: string })
  * scheduled jobs of ADR 0021) and Automations (the workflows of ADR 0041). What each person sees and
  * may change is can()'s, in packages/core.
  */
-export async function SkillsPage({ surface, tab = 'platform', show = 'all', runs }: { surface: 'agency' | 'agent'; tab?: SkillTab; show?: SkillFilter; runs?: string }) {
+export async function SkillsPage({ surface, tab = 'platform', show = 'all', runs, lib }: { surface: 'agency' | 'agent'; tab?: SkillTab; show?: SkillFilter; runs?: string; lib?: LibraryGroup }) {
   const session = await requireConsoleAccess(surface);
   const basePath = surface === 'agency' ? '/skills' : '/my-skills';
   const forAgency = holderOf(session.actor.membershipRole) === 'agency';
@@ -70,7 +72,7 @@ export async function SkillsPage({ surface, tab = 'platform', show = 'all', runs
 
       {tab === 'platform' ? <PlatformSkills actor={session.actor} basePath={basePath} filter={show} /> : null}
       {tab === 'ai' ? <AiSkills actor={session.actor} surface={surface} basePath={basePath} /> : null}
-      {tab === 'automations' ? <WorkflowsPage surface={surface} {...(runs ? { runsOf: runs } : {})} /> : null}
+      {tab === 'automations' ? <WorkflowsPage surface={surface} {...(runs ? { runsOf: runs } : {})} {...(lib ? { lib } : {})} /> : null}
     </div>
   );
 }

@@ -1,10 +1,11 @@
 import { and, count, desc, eq, gt, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { emailTemplate, listing, property, proposedAction, user, workflow, workflowRun, type Db, type DbOrTx } from '@repo/db';
 import { activeMemberActor } from '../team/member-actor';
+import type { RunDecision } from './decide';
 import { usableTemplateSql } from '../template-email/templates';
 import { formatAddress } from '../listings/listing-schema';
 import { can, type Actor } from '../permissions';
-import { isNear, specInWords, specProblem, WORKFLOW_LIMITS, workflowSpecSchema, type WorkflowScope, type WorkflowSpec } from './catalog';
+import { allActions, isNear, specInWords, specProblem, WORKFLOW_LIMITS, workflowSpecSchema, type SpecWords, type TriggerKind, type WorkflowScope, type WorkflowSpec } from './catalog';
 
 /**
  * Making and managing workflows (ADR 0041 Part C, the core under the card and the screen). Every write
@@ -44,7 +45,7 @@ export async function checkWorkflow(db: DbOrTx, actor: Actor, scope: WorkflowSco
   if (problem) return { problem };
   const members = new Set<string>();
   const templates = new Set<string>();
-  for (const a of spec.actions) {
+  for (const a of allActions(spec)) {
     if (a.type === 'assign_lead' || a.type === 'assign_contact') members.add(a.to);
     if (a.type === 'message_colleagues') a.to.forEach((m) => members.add(m));
     if (a.type === 'send_template_email') templates.add(a.template_id);
@@ -79,7 +80,7 @@ export async function checkWorkflow(db: DbOrTx, actor: Actor, scope: WorkflowSco
 /** Names for the words: members and templates the spec names, from the database. */
 export async function namesFor(db: DbOrTx, agencyId: string, spec: WorkflowSpec): Promise<Record<string, string>> {
   const ids = new Set<string>();
-  for (const a of spec.actions) {
+  for (const a of allActions(spec)) {
     if (a.type === 'assign_lead' || a.type === 'assign_contact') ids.add(a.to);
     if (a.type === 'message_colleagues') a.to.forEach((m) => ids.add(m));
   }
@@ -89,7 +90,7 @@ export async function namesFor(db: DbOrTx, agencyId: string, spec: WorkflowSpec)
     if (c.field === 'assignee') c.values.forEach((m) => ids.add(m));
     if (c.field === 'listing') c.values.forEach((l) => listings.add(l));
   }
-  const tpl = spec.actions.flatMap((a) => (a.type === 'send_template_email' ? [a.template_id] : []));
+  const tpl = allActions(spec).flatMap((a) => (a.type === 'send_template_email' ? [a.template_id] : []));
   const out: Record<string, string> = {};
   if (ids.size) for (const r of await db.select({ id: user.id, name: user.name, email: user.email }).from(user).where(inArray(user.id, [...ids]))) out[r.id] = r.name || r.email;
   if (listings.size) {
@@ -184,7 +185,10 @@ export type WorkflowSummary = {
   pausedReason: string | null;
   ownerName: string;
   mine: boolean;
-  words: { when: string; if: string[]; then: string[] };
+  words: SpecWords;
+  /** For the library's "N like this on" (ADR 0068); null when the stored spec no longer parses. */
+  triggerKind: TriggerKind | null;
+  decides: boolean;
   runsToday: number;
   mayManage: boolean;
 };
@@ -216,6 +220,8 @@ export async function listWorkflows(db: Db, actor: Actor, now = new Date()): Pro
       ownerName: r.ownerName,
       mine: r.w.ownerId === actor.userId,
       words,
+      triggerKind: parsed.success ? parsed.data.trigger.kind : null,
+      decides: parsed.success && Boolean(parsed.data.decide),
       runsToday: Number(r.runsToday),
       mayManage: can(actor, 'workflow:manage', resource(r.w)),
     });
@@ -223,7 +229,15 @@ export async function listWorkflows(db: Db, actor: Actor, now = new Date()): Pro
   return out;
 }
 
-export type WorkflowRunView = { id: string; at: Date; status: string; error: string | null; steps: { title: string; status: string; error: string | null }[] };
+export type WorkflowRunView = {
+  id: string;
+  at: Date;
+  status: string;
+  error: string | null;
+  /** ADR 0067: what the AI chose at the start, and why; null on a workflow with no decision. */
+  decision: RunDecision | null;
+  steps: { title: string; status: string; error: string | null }[];
+};
 
 /** One workflow's recent runs, each with its steps' outcomes — from the runs' tasks. */
 export async function workflowRuns(db: Db, actor: Actor, id: string, limit = 30): Promise<WorkflowRunView[]> {
@@ -242,6 +256,7 @@ export async function workflowRuns(db: Db, actor: Actor, id: string, limit = 30)
     at: new Date(r.createdAt),
     status: r.status,
     error: r.error,
+    decision: r.decision ?? null,
     steps: steps.filter((s) => s.taskId === r.taskId).map((s) => ({ title: (s.card as { title?: string }).title ?? '', status: s.status, error: s.error })),
   }));
 }

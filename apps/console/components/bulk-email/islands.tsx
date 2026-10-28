@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { MERGE_FIELDS, templateInputSchema } from '@repo/core/template-email/schema';
+import { BASE_MERGE_FIELDS, LISTING_MERGE_FIELDS, templateInputSchema } from '@repo/core/template-email/schema';
 import { useToast } from '@/components/toast';
 import {
   approveAndSendAction,
@@ -86,8 +86,9 @@ export function TemplateForm({
         <span className={contactStyles.label}>Email</span>
         <textarea className={contactStyles.textarea} rows={12} value={body} onChange={(e) => setBody(e.target.value)} maxLength={8000} />
         <span className={contactStyles.hint}>
-          Merge fields: {MERGE_FIELDS.map((f) => `{{${f}}}`).join(' ')}. An unsubscribe link and the agency&apos;s
-          details are added to every email automatically.
+          Merge fields: {BASE_MERGE_FIELDS.map((f) => `{{${f}}}`).join(' ')}. For a template sent from a listing&apos;s Matching
+          buyers tab, also {LISTING_MERGE_FIELDS.map((f) => `{{${f}}}`).join(' ')} — such a template can only be sent from there.
+          An unsubscribe link and the agency&apos;s details are added to every email automatically.
         </span>
       </label>
       <div className={contactStyles.actions}>

@@ -634,6 +634,10 @@ async function finish(
       .returning({ id: appointment.id });
     if (!done.length) throw new AppointmentError('conflict', 'This appointment was changed by somebody else — reload');
     if (a.contactId) await recordActivity(tx, actor, a.agencyId, a.contactId, kind, activityPayload(a, { outcome: parsed.data.outcome ?? null }));
+    // ADR 0066: the outbox, in the same transaction — a client appointment marked done.
+    if (status === 'completed' && a.kind === 'client' && a.contactId) {
+      await emitWorkflowEvent(tx, { agencyId: a.agencyId, kind: 'appointment.completed', appointmentId: a.id, contactId: a.contactId, actor, data: { type: a.type } });
+    }
   });
   return { kind: a.kind };
 }

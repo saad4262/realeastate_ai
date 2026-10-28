@@ -8,8 +8,10 @@ import { activateTask } from '../assistant/task-state';
 import type { FrozenArgs } from '../assistant/actions';
 import type { ProposalCard } from '../assistant/schema';
 import { formatAddress } from '../listings/listing-schema';
-import { actionInWords, isNear, renderMerge, specProblem, WORKFLOW_LIMITS, workflowSpecSchema, type Condition, type MergeValues, type Trigger, type ValuesCondition, type WorkflowSpec } from './catalog';
+import { actionInWords, isNear, renderMerge, specProblem, WORKFLOW_LIMITS, workflowSpecSchema, type Condition, type MergeValues, type Trigger, type TriggerKind, type ValuesCondition, type WorkflowSpec } from './catalog';
 import { windowFrom, type SendWindow } from './send-window';
+import { runTriggerScans, type ScanReport } from './scans';
+import { decideRun, stepsOfChoice, type RunDecision, type WorkflowDecider } from './decide';
 
 /**
  * The workflow engine (ADR 0041 Part B), run by the minute tick:
@@ -27,7 +29,7 @@ import { windowFrom, type SendWindow } from './send-window';
  * Nothing here sends, writes a note or changes a lead: the steps do, later, through the screens' code.
  */
 
-export type WorkflowTickReport = { events: number; runs: number; skipped: number; paused: number; noReplyEvents: number };
+export type WorkflowTickReport = { events: number; runs: number; skipped: number; paused: number; noReplyEvents: number; scanned: ScanReport | null };
 
 const LEASE_MS = 2 * 60_000;
 const DAY_MS = 86_400_000;
@@ -58,6 +60,8 @@ export type Facts = {
   appointmentId: string | null;
   appointmentType: string | null;
   appointmentAgent: string | null;
+  /** A deal event's agent (ADR 0066), from the event: whose deal it is, for a personal workflow's scope. */
+  dealAgent?: string | null;
 };
 
 async function loadFacts(db: Db, ev: EventRow): Promise<Facts> {
@@ -104,6 +108,7 @@ async function loadFacts(db: Db, ev: EventRow): Promise<Facts> {
     appointmentId: s('appointment_id'),
     appointmentType: s('appointment_type'),
     appointmentAgent: s('appointment_agent'),
+    dealAgent: typeof (ev.data as Record<string, unknown> | null)?.agent === 'string' ? ((ev.data as Record<string, string>).agent as string) : null,
   };
 }
 
@@ -119,7 +124,21 @@ export function triggerMatches(t: Trigger, data: Record<string, unknown>): boole
     case 'lead.no_reply':
       return Number(data.days) === t.days;
     case 'appointment.booked':
+    case 'appointment.completed':
       return !t.type || data.type === t.type;
+    // ADR 0066
+    case 'deal.stage_reached':
+      return data.to === t.to && data.who === t.who;
+    case 'deal.settled':
+      return data.who === t.who;
+    case 'buyer.matched':
+      return true;
+    case 'appointment.upcoming':
+      return Number(data.hours) === t.hours && (!t.type || data.type === t.type);
+    case 'appraisal.not_listed':
+      return Number(data.days) === t.days;
+    case 'sale.anniversary':
+      return Number(data.years) === t.years;
   }
 }
 
@@ -179,10 +198,16 @@ export function conditionsHold(conditions: Condition[], f: Facts): boolean {
  * Within the workflow's scope (D2): an agency-wide workflow, while its owner may still make one; a
  * personal one only for the owner's own record — a lead they may work (assigned to them, or on their
  * listing while unassigned), an appointment of theirs, a contact assigned to them, a listing they are on.
+ * ADR 0066: a deal is theirs when they are its agent or on its listing; a sale's anniversary when the contact
+ * is assigned to them or the sold listing was theirs; a buyer match when the buyer is assigned to them.
  */
-export function inScope(owner: Actor, wf: { scope: string; agencyId: string }, f: Facts): boolean {
+export function inScope(owner: Actor, wf: { scope: string; agencyId: string }, f: Facts, kind?: TriggerKind): boolean {
   if (wf.scope === 'agency') return can(owner, 'workflow:create_agency', { type: 'workflow', agencyId: wf.agencyId });
   if (!can(owner, 'workflow:create', { type: 'workflow', agencyId: wf.agencyId })) return false;
+  const onListing = () => Boolean(f.listingId) && can(owner, 'listing:edit', { type: 'listing', id: f.listingId!, agencyId: f.agencyId });
+  if (kind === 'deal.stage_reached' || kind === 'deal.settled') return f.dealAgent === owner.userId || onListing();
+  if (kind === 'sale.anniversary') return f.contactAssignee === owner.userId || onListing();
+  if (kind === 'buyer.matched') return Boolean(f.contactId) && f.contactAssignee === owner.userId;
   if (f.leadId) return can(owner, 'lead:update', { type: 'lead', id: f.leadId, agencyId: f.agencyId, ...(f.leadAssignee ? { ownerId: f.leadAssignee } : {}), listingId: f.leadListingId });
   if (f.appointmentId) return f.appointmentAgent === owner.userId;
   if (f.contactId) return f.contactAssignee === owner.userId;
@@ -315,9 +340,13 @@ async function pause(db: Db, wf: WorkflowRow, reason: string): Promise<void> {
   await db.update(workflow).set({ status: 'paused', pausedReason: reason, updatedAt: sql`now()` }).where(and(eq(workflow.id, wf.id), eq(workflow.status, 'active')));
 }
 
-export async function runWorkflowTick(db: Db, now = new Date(), limit = 50): Promise<WorkflowTickReport> {
-  const report: WorkflowTickReport = { events: 0, runs: 0, skipped: 0, paused: 0, noReplyEvents: 0 };
+/** What the tick needs from outside core: the AI behind "AI decides" (ADR 0067), or null where it is not set up. */
+export type WorkflowTickDeps = { decider?: WorkflowDecider | null; env?: NodeJS.ProcessEnv };
+
+export async function runWorkflowTick(db: Db, now = new Date(), limit = 50, deps: WorkflowTickDeps = {}): Promise<WorkflowTickReport> {
+  const report: WorkflowTickReport = { events: 0, runs: 0, skipped: 0, paused: 0, noReplyEvents: 0, scanned: null };
   report.noReplyEvents = await scanNoReply(db, now);
+  report.scanned = await runTriggerScans(db, now);
   const events = await claimEvents(db, now, limit);
   const workflows = new Map<string, WorkflowRow[]>();
   const owners = new Map<string, Actor | null>();
@@ -346,7 +375,7 @@ export async function runWorkflowTick(db: Db, now = new Date(), limit = 50): Pro
         const candidates = workflows.get(key)!;
         const facts = candidates.length ? await loadFacts(db, ev) : null;
         for (const wf of candidates) {
-          const r = await runOne(db, wf, ev, facts!, owners, now);
+          const r = await runOne(db, wf, ev, facts!, owners, now, deps);
           if (r === 'run') report.runs += 1;
           else if (r === 'paused') report.paused += 1;
           else if (r === 'skipped') report.skipped += 1;
@@ -360,7 +389,7 @@ export async function runWorkflowTick(db: Db, now = new Date(), limit = 50): Pro
   return report;
 }
 
-async function runOne(db: Db, wf: WorkflowRow, ev: EventRow, facts: Facts, owners: Map<string, Actor | null>, now: Date): Promise<'run' | 'no' | 'skipped' | 'paused'> {
+async function runOne(db: Db, wf: WorkflowRow, ev: EventRow, facts: Facts, owners: Map<string, Actor | null>, now: Date, deps: WorkflowTickDeps): Promise<'run' | 'no' | 'skipped' | 'paused'> {
   const parsed = workflowSpecSchema.safeParse(wf.spec);
   if (!parsed.success || specProblem(parsed.data, wf.scope as 'mine' | 'agency')) {
     await pause(db, wf, 'Its steps are no longer valid — open it and save it again.');
@@ -379,7 +408,7 @@ async function runOne(db: Db, wf: WorkflowRow, ev: EventRow, facts: Facts, owner
     await pause(db, wf, 'Its owner is no longer an owner or admin, so it cannot act across the agency.');
     return 'paused';
   }
-  if (!inScope(owner, wf, facts)) return 'no';
+  if (!inScope(owner, wf, facts, spec.trigger.kind)) return 'no';
   if (!conditionsHold(spec.conditions, facts)) return 'no';
 
   // The daily cap: a runaway workflow stops for the day, and its owner is told once.
@@ -395,6 +424,13 @@ async function runOne(db: Db, wf: WorkflowRow, ev: EventRow, facts: Facts, owner
     return 'skipped';
   }
 
+  // ADR 0067: the AI picks one of the workflow's labels — or "Not sure", the workflow's own steps — once, at the start.
+  let decision: RunDecision | null = null;
+  if (spec.decide) {
+    decision = await decideRun(db, owner, spec.decide, facts, deps.decider ?? null, { env: deps.env, now });
+  }
+  const chosen: WorkflowSpec = spec.decide ? { ...spec, actions: stepsOfChoice(spec, decision?.choice ?? null) } : spec;
+
   const merge: MergeValues = {
     ...(facts.contactName ? { contact_name: facts.contactName, contact_first_name: facts.contactName.trim().split(/\s+/)[0] } : {}),
     ...(facts.listingAddress ? { listing_address: facts.listingAddress } : {}),
@@ -403,20 +439,23 @@ async function runOne(db: Db, wf: WorkflowRow, ev: EventRow, facts: Facts, owner
   if (ownerRow) merge.agent_name = ownerRow.name || ownerRow.email;
   // Only a workflow that waits for a time reads the agency's clock.
   let timeZone = 'Australia/Sydney';
-  if (spec.actions.some((a) => a.type === 'wait_until')) {
+  if (chosen.actions.some((a) => a.type === 'wait_until')) {
     const [z] = await db.select({ tz: agency.timeZone }).from(agency).where(eq(agency.id, wf.agencyId)).limit(1);
     if (z?.tz) timeZone = z.tz;
   }
-  let steps = stepsFor(wf, spec, facts, merge, now, timeZone);
+  let steps = stepsFor(wf, chosen, facts, merge, now, timeZone);
   // A step the model writes runs only while its owner has AI email drafts on (ADR 0058).
-  if (!('problem' in steps) && spec.actions.some((a) => a.type === 'draft_email') && !(await isSkillOn(db, owner, 'ai_email_drafts'))) {
+  if (!('problem' in steps) && chosen.actions.some((a) => a.type === 'draft_email') && !(await isSkillOn(db, owner, 'ai_email_drafts'))) {
     steps = { problem: '“AI email drafts” is switched off in Skills' };
   }
 
   return db.transaction(async (tx) => {
     const [run] = await tx
       .insert(workflowRun)
-      .values({ workflowId: wf.id, agencyId: wf.agencyId, eventId: ev.id, status: 'problem' in steps ? 'skipped' : 'started', contactId: facts.contactId, leadId: facts.leadId, error: 'problem' in steps ? `Not run: ${steps.problem}.` : null })
+      .values({ workflowId: wf.id, agencyId: wf.agencyId, eventId: ev.id, status: 'problem' in steps ? 'skipped' : 'started', contactId: facts.contactId, leadId: facts.leadId, error: 'problem' in steps ? `Not run: ${steps.problem}.` : null,
+        // Only when there was one: a workflow without a decision never names the column, so this code also runs
+        // against a database that does not have migration 0069 yet (ADR 0067).
+        ...(decision ? { decision } : {}) })
       .onConflictDoNothing({ target: [workflowRun.workflowId, workflowRun.eventId] })
       .returning({ id: workflowRun.id });
     if (!run) return 'no' as const; // this event already ran for this workflow

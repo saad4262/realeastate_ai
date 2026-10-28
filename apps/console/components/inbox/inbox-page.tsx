@@ -9,6 +9,7 @@ import {
   type MailThreadPage,
 } from '@repo/core/mail';
 import { can } from '@repo/core/permissions';
+import { holderOf, isSkillOn, skillOffMessage } from '@repo/core/skill-switches';
 import { getConsoleDb } from '../../lib/db';
 import { loadActorContext, loadListingActor } from '../../lib/load-actor';
 import { requireConsoleAccess } from '../../lib/require-console-access';
@@ -80,6 +81,14 @@ export async function InboxPage({
 
   const config = mailConfigFromEnv();
   const slug = context?.agencySlug ?? null;
+  // ADR 0062: the composer's assistant — offered when this server has a model, drawn off when this
+  // person switched AI email drafts off in Skills. Only for an open conversation they may reply to.
+  const assist: InboxViewProps['assist'] =
+    opened?.ok && opened.view.maySend && process.env.ANTHROPIC_API_KEY?.trim() && process.env.INBOX_AI?.trim().toLowerCase() !== 'off'
+      ? (await isSkillOn(db, who, 'ai_email_drafts'))
+        ? { on: true, offMessage: null }
+        : { on: false, offMessage: skillOffMessage('ai_email_drafts', holderOf(who.membershipRole)) }
+      : undefined;
 
   let thread: InboxViewProps['thread'] = null;
   if (opened?.ok) {
@@ -105,6 +114,7 @@ export async function InboxPage({
       webUrl={process.env.NEXT_PUBLIC_WEB_URL ?? 'http://web.lvh.me:3000'}
       // A contact of their own would pass: the question is whether they may write at all.
       mayCompose={can(who, 'mail:compose', { type: 'contact', agencyId: who.agencyId ?? undefined, ownerId: who.userId })}
+      {...(assist ? { assist } : {})}
     />
   );
 }

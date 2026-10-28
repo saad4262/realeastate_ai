@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Commissions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300..600,0..1&display=swap" rel="stylesheet" />
+<!--
+  Mock for ROADMAP Phase 2.2 — commissions and /finance (to become ADR 0064).
+  Console tokens (apps/console/app/globals.css). Every name, deal and figure is SAMPLE data, and the sums in
+  this mock are sample too — in the product every figure is SQL's. #deal opens the Deal tab's Commission panel.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff; --surface-container-low: #eff4ff;
+    --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff;
+    --emerald: #059669; --emerald-subtle: #ecfdf5;
+    --amber: #d97706; --amber-subtle: #fffbeb;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .ms { font-family: 'Material Symbols Outlined'; font-size: 20px; line-height: 1; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 400; }
+  .ms.sm { font-size: 16px; width: 16px; height: 16px; }
+  button, input, select { font: inherit; }
+  [hidden] { display: none !important; }
+  .num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+
+  .mockbar { position: sticky; top: 0; z-index: 30; display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+  .mockbar b { color: #fff; }
+  .seg { display: inline-flex; background: #1e293b; border-radius: 8px; padding: 2px; flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; }
+
+  .shell { display: flex; min-height: calc(100vh - 36px); }
+  aside { width: 232px; flex: none; border-right: 1px solid var(--border-default); padding: 16px 12px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 16px; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--text-primary); color: #fff; display: grid; place-items: center; font: 700 12px 'Plus Jakarta Sans'; }
+  .brand small { display: block; color: var(--text-muted); font-size: 11px; }
+  .gh { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px 4px; }
+  .nl { display: flex; gap: 12px; align-items: center; padding: 7px 12px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; }
+  .nl.on { background: #fff; color: var(--sapphire); border: 1px solid var(--border-default); font-weight: 500; }
+
+  main { flex: 1; min-width: 0; padding: 24px 28px 64px; max-width: 1180px; }
+  h1 { font: 600 24px/32px 'Plus Jakarta Sans'; margin: 0; letter-spacing: -.02em; }
+  .sub { color: var(--text-secondary); margin: 4px 0 0; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .between { justify-content: space-between; }
+  .chip { border: 1px solid var(--border-default); background: #fff; border-radius: 999px; padding: 4px 11px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .chip:focus-visible, .btn:focus-visible, .tab:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+  .btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-default); background: #fff; color: var(--text-primary); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; }
+  .btn.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 18px 0; }
+  .tile { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; padding: 14px 16px; }
+  .tile .label { color: var(--text-secondary); font-size: 12.5px; }
+  .tile .value { font: 600 26px/34px 'Plus Jakarta Sans'; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .tile .foot { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+
+  .card { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; overflow: hidden; }
+  .cardhead { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; border-bottom: 1px solid var(--border-default); }
+  .cardhead h2 { margin: 0; font-size: 14px; }
+  .tabs { display: inline-flex; gap: 2px; background: var(--surface-canvas); border: 1px solid var(--border-default); border-radius: 8px; padding: 2px; }
+  .tab { border: 0; background: transparent; padding: 4px 10px; border-radius: 6px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+  .tab[aria-selected="true"] { background: #fff; color: var(--text-primary); font-weight: 600; box-shadow: 0 1px 2px rgba(15,23,42,.08); }
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px 14px; border-bottom: 1px solid var(--border-default); text-align: left; }
+  th { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); background: var(--surface-canvas); white-space: nowrap; }
+  th.num { text-align: right; }
+  tr:last-child td { border-bottom: 0; }
+  tfoot td { font-weight: 600; background: var(--surface-canvas); }
+  .note { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; color: var(--text-secondary); background: var(--surface-container-low); border: 1px solid #dbeafe; margin-top: 14px; }
+  .note .ms { color: var(--sapphire); }
+
+  .pill { display: inline-flex; gap: 4px; align-items: center; font-size: 11px; font-weight: 500; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border-default); color: var(--text-secondary); background: #fff; white-space: nowrap; }
+  .pill.exp { color: var(--amber); background: var(--amber-subtle); border-color: #fde68a; }
+  .pill.earned { color: var(--emerald); background: var(--emerald-subtle); border-color: #a7f3d0; }
+  .pill.paid { color: var(--sapphire); background: var(--sapphire-subtle); border-color: #bfdbfe; }
+
+  /* Deal tab panel */
+  .back { color: var(--text-secondary); text-decoration: none; display: inline-flex; gap: 4px; align-items: center; font-size: 12.5px; margin-bottom: 10px; cursor: pointer; }
+  .ltabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-default); margin: 18px 0 16px; overflow-x: auto; }
+  .ltab { padding: 10px 14px; color: var(--text-secondary); font-weight: 500; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+  .ltab.on { color: var(--text-primary); border-color: var(--text-primary); }
+  .panel { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; padding: 14px; }
+  .panel h3 { margin: 0; font-size: 14px; }
+  .form { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-top: 12px; align-items: start; }
+  label.f { display: grid; gap: 5px; font-size: 12.5px; font-weight: 500; }
+  .in { border: 1px solid var(--border-default); border-radius: 8px; padding: 8px 10px; background: #fff; }
+  .calc { margin-top: 14px; border: 1px solid var(--border-default); border-radius: 10px; overflow: hidden; }
+  .calc div { display: flex; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--border-default); font-size: 13px; }
+  .calc div:last-child { border-bottom: 0; }
+  .calc .tot { background: var(--surface-canvas); font-weight: 600; }
+  .muted { color: var(--text-muted); font-size: 12px; }
+  .steps { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  @media (max-width: 900px) { aside { display: none; } main { padding: 18px 16px 48px; } }
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>MOCK · sample data</b>
+  <span>Screen:</span>
+  <div class="seg" role="group" aria-label="Screen">
+    <button type="button" data-screen="finance" aria-pressed="true">1 · Finance page</button>
+    <button type="button" data-screen="deal" aria-pressed="false">2 · Deal tab → Commission</button>
+  </div>
+  <span>Show as:</span>
+  <div class="seg" role="group" aria-label="Show as">
+    <button type="button" data-view="owner" aria-pressed="true">Owner / admin</button>
+    <button type="button" data-view="agent" aria-pressed="false">Agent</button>
+  </div>
+</div>
+
+<div class="shell">
+  <aside aria-label="Sidebar">
+    <div class="brand"><div class="logo">LA</div><div><b>Harbour Realty</b><small id="side-sub">Agency</small></div></div>
+    <div class="gh">Properties</div>
+    <div class="nl" id="nav-listings"><span class="ms">real_estate_agent</span>Listings</div>
+    <div class="nl"><span class="ms">view_kanban</span>Pipeline</div>
+    <div class="gh">Money</div>
+    <div class="nl on" id="nav-finance"><span class="ms" style="font-variation-settings:'FILL' 1">account_balance</span><span id="nav-finance-label">Finance</span></div>
+  </aside>
+
+  <main>
+    <!-- FINANCE -->
+    <section id="s-finance">
+      <div class="row between">
+        <div><h1 id="fin-title">Finance</h1><p class="sub" id="fin-sub">Commission across the agency: earned on settled sales, and expected from deals under contract.</p></div>
+        <div class="row" role="group" aria-label="Period">
+          <button class="chip" type="button" aria-pressed="false">This month</button>
+          <button class="chip" type="button" aria-pressed="false">This quarter</button>
+          <button class="chip" type="button" aria-pressed="true">FY 2026–27</button>
+          <button class="chip" type="button" aria-pressed="false">Last FY</button>
+        </div>
+      </div>
+
+      <div class="tiles" id="tiles"></div>
+
+      <div class="card">
+        <div class="cardhead">
+          <h2 id="tbl-title">By agent</h2>
+          <div class="tabs" role="tablist" aria-label="Group by" id="groupTabs">
+            <button class="tab" role="tab" aria-selected="true" data-group="agent">Agent</button>
+            <button class="tab" role="tab" aria-selected="false" data-group="suburb">Suburb</button>
+            <button class="tab" role="tab" aria-selected="false" data-group="type">Property type</button>
+            <button class="tab" role="tab" aria-selected="false" data-group="deals">Each deal</button>
+          </div>
+        </div>
+        <div class="tablewrap"><table id="tbl"></table></div>
+      </div>
+
+      <div class="note"><span class="ms">info</span><span>Amounts are excluding GST; GST is shown on its own. <b>Earned</b> = settled in the period. <b>Expected</b> = under contract, settling later. <b>Paid out</b> = the agent's share marked paid. Every figure is added up from each deal's Commission panel — nothing is estimated. Trust accounting stays in the agency's trust software.</span></div>
+    </section>
+
+    <!-- DEAL TAB -->
+    <section id="s-deal" hidden>
+      <a class="back" data-go="finance"><span class="ms sm">arrow_back</span>Finance</a>
+      <h1>27 Lakeside Boulevard, Pakenham</h1>
+      <p class="sub">Under contract · $782,000 · Sarah K.</p>
+      <div class="ltabs"><span class="ltab">Details</span><span class="ltab">Photos</span><span class="ltab">Documents</span><span class="ltab">Matching buyers</span><span class="ltab on">Deal</span></div>
+
+      <div class="panel">
+        <div class="row between"><h3>Commission</h3><span class="pill exp" id="status-pill">Expected — settles 4 Dec</span></div>
+        <div class="form">
+          <label class="f">How it's charged
+            <select class="in" id="basis"><option value="pct">% of the sale price</option><option value="fixed">A fixed fee</option></select>
+          </label>
+          <label class="f" id="rate-f">Rate (excl. GST)<input class="in" id="rate" value="2.2%" /></label>
+          <label class="f" hidden id="fixed-f">Fee (excl. GST)<input class="in" value="$17,000" /></label>
+          <label class="f">Agent's share<input class="in" value="60%" /><span class="muted">Sarah K.'s split from Agents &amp; Team · change it for this deal</span></label>
+        </div>
+        <div class="calc" aria-label="Commission worked out">
+          <div><span>Sale price</span><span class="num">$782,000</span></div>
+          <div><span>Commission (2.2%, excl. GST)</span><span class="num">$17,204</span></div>
+          <div><span>GST (10%)</span><span class="num">$1,720</span></div>
+          <div class="tot"><span>Invoice to the vendor (incl. GST)</span><span class="num">$18,924</span></div>
+          <div><span>Agent's share (60% of $17,204)</span><span class="num">$10,322</span></div>
+          <div><span>Agency's share (40%)</span><span class="num">$6,882</span></div>
+        </div>
+        <p class="muted" style="margin-top:8px">Worked out by the platform from the sale price and these settings — rounded to the cent; the agent's and agency's shares always add up to the commission.</p>
+        <div class="steps">
+          <span class="pill exp">1 Expected</span><span class="ms sm" style="color:var(--text-muted)">chevron_right</span>
+          <span class="pill">2 Earned — when the deal settles</span><span class="ms sm" style="color:var(--text-muted)">chevron_right</span>
+          <span class="pill">3 Paid out — mark when the agent is paid</span>
+        </div>
+        <div class="row" style="margin-top:14px"><button class="btn primary" type="button">Save</button><button class="btn" type="button" disabled style="opacity:.45">Mark agent paid</button><span class="muted">Available once settled.</span></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+const AUD = new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', maximumFractionDigits: 0 });
+const f = (n) => AUD.format(n);
+// Sample rows only — in the product every number is SQL's.
+const GROUPS = {
+  agent: { head: ['Agent', 'Settled', 'Earned', 'Agent share', 'Agency share', 'Expected'], rows: [
+    ['Sarah K.', 4, 71240, 42744, 28496, 27526], ['Omar R.', 3, 52180, 28699, 23481, 14410], ['Mei L.', 1, 15400, 9240, 6160, 0]] },
+  suburb: { head: ['Suburb', 'Settled', 'Earned', 'Agent share', 'Agency share', 'Expected'], rows: [
+    ['Pakenham', 5, 88600, 52080, 36520, 31636], ['Officer', 2, 34820, 19723, 15097, 10300], ['Beaconsfield', 1, 15400, 9240, 6160, 0]] },
+  type: { head: ['Property type', 'Settled', 'Earned', 'Agent share', 'Agency share', 'Expected'], rows: [
+    ['House', 6, 112400, 65640, 46760, 31636], ['Townhouse', 1, 15620, 9372, 6248, 10300], ['Unit', 1, 10800, 6031, 4769, 0]] },
+  deals: { head: ['Deal', 'Status', 'Sale price', 'Commission', 'Agent share', 'Agency share'], rows: [
+    ['40 Toomuc Valley Rd', 'earned', 1340000, 26800, 16080, 10720], ['2 Murray St', 'exp', 655000, 14410, 7926, 6484], ['27 Lakeside Blvd', 'exp', 782000, 17204, 10322, 6882], ['9 Hall Rd', 'paid', 701000, 15422, 9253, 6169]] },
+};
+let view = 'owner', group = 'agent';
+function renderTiles() {
+  const owner = view === 'owner';
+  document.getElementById('tiles').innerHTML = [
+    ['Earned', owner ? 138820 : 71240, owner ? '8 sales settled · excl. GST' : '4 of your sales settled'],
+    ['Expected', owner ? 41936 : 27526, owner ? '3 deals under contract' : '2 of your deals under contract'],
+    [owner ? "Agency's share earned" : 'Your share earned', owner ? 58137 : 42744, owner ? 'after agents’ splits' : '60% of your commission'],
+    [owner ? 'Paid out to agents' : 'Paid to you', owner ? 61310 : 33491, owner ? 'agents’ shares marked paid' : 'marked paid by the agency'],
+  ].map(([l, v, ft]) => `<div class="tile"><div class="label">${l}</div><div class="value">${f(v)}</div><div class="foot">${ft}</div></div>`).join('');
+}
+function renderTable() {
+  const g = GROUPS[group];
+  let rows = g.rows;
+  if (view === 'agent' && group === 'agent') rows = rows.filter((r) => r[0] === 'Sarah K.');
+  const label = { earned: '<span class="pill earned">Earned</span>', exp: '<span class="pill exp">Expected</span>', paid: '<span class="pill paid">Paid out</span>' };
+  const cell = (v, i) => (typeof v === 'number' && i > 1 || (typeof v === 'number' && group !== 'deals' && i >= 1)) ? `<td class="num">${group !== 'deals' && i === 1 ? v : f(v)}</td>` : `<td>${label[v] ?? v}</td>`;
+  const totals = group === 'deals' ? null : g.head.map((_, i) => (i === 0 ? 'Total' : rows.reduce((s, r) => s + r[i], 0)));
+  document.getElementById('tbl').innerHTML =
+    `<thead><tr>${g.head.map((h, i) => `<th class="${i > 0 && !(group === 'deals' && i === 1) ? 'num' : ''}">${h}</th>`).join('')}</tr></thead>` +
+    `<tbody>${rows.map((r) => `<tr>${r.map(cell).join('')}</tr>`).join('')}</tbody>` +
+    (totals ? `<tfoot><tr>${totals.map((v, i) => (i === 0 ? `<td>${v}</td>` : `<td class="num">${i === 1 ? v : f(v)}</td>`)).join('')}</tr></tfoot>` : '');
+  document.getElementById('tbl-title').textContent = { agent: view === 'owner' ? 'By agent' : 'Yours', suburb: 'By suburb', type: 'By property type', deals: 'Each deal' }[group];
+}
+function show(s) {
+  document.querySelectorAll('[data-screen]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.screen === s));
+  document.getElementById('s-finance').hidden = s !== 'finance';
+  document.getElementById('s-deal').hidden = s !== 'deal';
+  document.getElementById('nav-finance').classList.toggle('on', s === 'finance');
+  document.getElementById('nav-listings').classList.toggle('on', s === 'deal');
+}
+document.addEventListener('click', (e) => {
+  const s = e.target.closest('[data-screen]'); if (s) { show(s.dataset.screen); return; }
+  const v = e.target.closest('[data-view]');
+  if (v) {
+    view = v.dataset.view; document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', b === v));
+    document.getElementById('side-sub').textContent = view === 'owner' ? 'Agency' : 'Agent desk';
+    document.getElementById('fin-title').textContent = view === 'owner' ? 'Finance' : 'My commission';
+    document.getElementById('nav-finance-label').textContent = view === 'owner' ? 'Finance' : 'My commission';
+    document.getElementById('fin-sub').textContent = view === 'owner' ? 'Commission across the agency: earned on settled sales, and expected from deals under contract.' : 'Your commission: earned on your settled sales, expected from yours under contract, and what has been paid to you.';
+    renderTiles(); renderTable(); return;
+  }
+  const t = e.target.closest('[data-group]');
+  if (t) { group = t.dataset.group; document.querySelectorAll('[data-group]').forEach((b) => b.setAttribute('aria-selected', b === t)); renderTable(); return; }
+  const g = e.target.closest('[data-go]'); if (g) { e.preventDefault(); show(g.dataset.go); return; }
+  if (e.target.closest('.chip')) { const c = e.target.closest('.chip'); c.parentElement.querySelectorAll('.chip').forEach((x) => x.setAttribute('aria-pressed', x === c)); }
+});
+document.getElementById('basis').addEventListener('change', (e) => {
+  document.getElementById('rate-f').hidden = e.target.value !== 'pct';
+  document.getElementById('fixed-f').hidden = e.target.value !== 'fixed';
+});
+renderTiles(); renderTable();
+show(location.hash === '#deal' ? 'deal' : 'finance');
+</script>
+</body>
+</html>

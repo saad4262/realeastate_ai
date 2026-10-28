@@ -3,7 +3,7 @@ import type { z } from 'zod';
 import { emailTemplate, type Db, type DbOrTx } from '@repo/db';
 import { can } from '../permissions';
 import { createTemplate, TemplateEmailError } from '../template-email/templates';
-import { MERGE_FIELDS, templateInputSchema } from '../template-email/schema';
+import { BASE_MERGE_FIELDS, LISTING_MERGE_FIELDS, listingFieldsUsed, templateInputSchema } from '../template-email/schema';
 import { propose, type FrozenArgs } from './actions';
 import { AssistantError } from './conversations';
 import { figuresIn, NOTHING_YET, refused, WRITTEN_BY_ASSISTANT } from './write-tools';
@@ -32,7 +32,10 @@ export function templateCard(input: z.infer<typeof createTemplateInput>, agencyW
     notes: [
       NOTHING_YET,
       WRITTEN_BY_ASSISTANT,
-      `${MERGE_FIELDS.map((f) => `{{${f}}}`).join(', ')} are filled in for each person when it is sent.`,
+      `${BASE_MERGE_FIELDS.map((f) => `{{${f}}}`).join(', ')} are filled in for each person when it is sent.`,
+      ...(listingFieldsUsed(input.subject, input.body).length
+        ? [`${LISTING_MERGE_FIELDS.map((f) => `{{${f}}}`).join(', ')} are filled from the listing, so this template can only be sent from a listing’s Matching buyers tab.`]
+        : []),
       'Saving sends nothing. It is ready to use at once (no approval step); each email carries an unsubscribe link and goes only to people who may receive it.',
     ],
   };

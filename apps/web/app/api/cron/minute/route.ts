@@ -8,7 +8,9 @@ import { teamMessageDepsFromEnv } from '@repo/core/team-messages';
 import { authoriseCronRequest } from '@repo/core/schedules';
 import { templateSendDepsFromEnv } from '@repo/core/template-email';
 import { runWorkflowTick } from '@repo/core/workflows';
+import { runDealSync } from '@repo/core/deals';
 import { workflowDraftWriterFromEnv } from '@repo/ai/workflow-draft';
+import { workflowDeciderFromEnv } from '@repo/ai/workflow-decide';
 import { getWebDb } from '../../../../lib/db';
 
 export const runtime = 'nodejs';
@@ -33,7 +35,8 @@ async function handler(request: NextRequest) {
 
   try {
     // Workflows first (ADR 0041): their runs' first steps are then due in the same tick, below.
-    const workflows = await runWorkflowTick(getWebDb()).catch((err: unknown) => ({
+    // "AI decides" (ADR 0067): its model is packages/ai's; without a key every decision is "Not sure".
+    const workflows = await runWorkflowTick(getWebDb(), new Date(), 50, { decider: workflowDeciderFromEnv(getWebDb()) }).catch((err: unknown) => ({
       error: err instanceof Error ? err.message : 'workflow tick failed',
     }));
 
@@ -59,6 +62,9 @@ async function handler(request: NextRequest) {
       error: err instanceof Error ? err.message : 'zoom alert tick failed',
     }));
 
+    // The deal pipeline (ADR 0063): deals opened and moved from listings, offers and appraisals; condition reminders.
+    const deals = await runDealSync(getWebDb()).catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'deal sync failed' }));
+
     // Email from the platform team (ADR 0052): what the console did not send straight away.
     const notice = noticeMailFromEnv();
     const platformEmails = await deliverPlatformEmails(getWebDb(), notice ? notice.mailer : null, { limit: 100 }).catch((err: unknown) => ({
@@ -66,7 +72,7 @@ async function handler(request: NextRequest) {
     }));
 
     // Counts only — this is read from a cron log.
-    return NextResponse.json({ ok: true, workflows, scheduled, reminders, zoomAlerts, platformEmails }, { headers: { 'cache-control': 'no-store' } });
+    return NextResponse.json({ ok: true, workflows, scheduled, reminders, zoomAlerts, deals, platformEmails }, { headers: { 'cache-control': 'no-store' } });
   } catch (err) {
     return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : 'tick failed' }, { status: 503 });
   }

@@ -529,3 +529,62 @@ either answers or 503s with a readable reason rather than a stack trace.
                                             the synonyms stand and failing rows say so.
 
 3. **Check** (TEST-PLAN **BJ**).
+
+## Skills, matched buyers, more roles, the inbox assistant (ADR 0058–0062)
+
+1. **Migrations**, before deploying this code: **0065** (`skill_switch`) and **0066** (`email_batch.listing_id`,
+   `listing_snapshot`) are applied; **0067** (three contact roles) was applied 2026-10-28. The contact form and
+   directory list the new roles, so 0067 must be in before this code is deployed.
+2. **Environment** — console only (the inbox assistant runs from the open conversation):
+
+       ANTHROPIC_API_KEY                     Already set. Unset: no assistant over the reply box.
+       ANTHROPIC_SKILL_AGENT_MODEL           The model both calls use (default claude-sonnet-5-5).
+       INBOX_AI                              `off` hides the assistant on every conversation.
+       INBOX_AI_DAILY_BUDGET_USD_PER_AGENCY  Default 2. Trailing 24 h, summaries and drafts together; over
+                                             it, the buttons say the budget is used up.
+       NEXT_PUBLIC_WEB_URL                   Already set. `{{listing_link}}` points at its /listing/<id>.
+
+3. **Inbound email** is ROADMAP 1.6's other half and needs no code — see "Email conversations" above
+   (`MAIL_INBOUND_DOMAIN`, `MAIL_REPLY_SECRET`, the MX record). Until it is set, the assistant still works
+   on enquiries and on what the agent sent; clients' replies just don't come back into the thread.
+4. **Check**: TEST-PLAN **BK**, **BL**, **BM**, **BN**, **BO**, **BP**.
+
+## The deal pipeline (ADR 0063)
+
+1. **Migration 0068** (`deal` with its commission columns, `deal_condition`, `deal_event`) before deploying this
+   code: the listing page's Deal tab, `/pipeline`, `/finance` and `/my-commission` read them. **0067** too, for
+   settling's Past client tag. Both applied 2026-10-28.
+2. Nothing new in the environment. The web project's every-minute cron (`/api/cron/minute`) now runs the deal
+   sync and the condition/settlement reminders.
+3. **Check**: TEST-PLAN **BQ** and **BR**.
+
+## The property page (ADR 0065)
+
+1. No migration of its own, but `/properties` and `/my-properties` read the deal: **0068** first.
+2. **Environment** — console only:
+
+       PROPERTY_AI                              `off` hides the summary button on every property.
+       PROPERTY_AI_DAILY_BUDGET_USD_PER_AGENCY  Default 2. Trailing 24 h of property summaries; over it, the
+                                                button says the budget is used up. AI_DAILY_BUDGET_USD still caps all AI.
+
+   The summary uses ANTHROPIC_API_KEY and ANTHROPIC_SKILL_AGENT_MODEL, like the inbox assistant.
+3. **Check**: TEST-PLAN **BS**.
+
+## More workflow triggers (ADR 0066)
+
+1. **Migration 0069** (widens `workflow_event_kind_check`) before deploying this code — a scan inserting a new kind
+   into the old CHECK would fail the minute tick's workflow step.
+2. Nothing new in the environment; the scans run in the existing minute cron, only while a workflow wants them.
+3. **Check**: TEST-PLAN **BT**.
+
+## "AI decides" in a workflow (ADR 0067)
+
+1. **Migration 0069** also adds `workflow_run.decision` — the minute tick writes it, so 0069 goes in first.
+2. **Environment** — the **web** project (the minute cron runs the decision):
+
+       ANTHROPIC_API_KEY                         Set it on web too. Unset: every decision is "Not sure".
+       ANTHROPIC_SKILL_AGENT_MODEL               The model (default as for the inbox assistant).
+       WORKFLOW_AI                               `off` makes every decision "Not sure".
+       WORKFLOW_AI_DAILY_BUDGET_USD_PER_AGENCY   Default 2. Trailing 24 h; over it, "Not sure" with the reason.
+
+3. **Check**: TEST-PLAN **BU**.

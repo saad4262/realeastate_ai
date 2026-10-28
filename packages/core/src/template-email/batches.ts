@@ -15,7 +15,8 @@ import { can, type Actor, type Resource } from '../permissions';
 import { contactListQuerySchema } from '../contacts/contact-schema';
 import { contactQueryFilters } from '../contacts/list-contacts';
 import { checkEmailLimits, type TemplateLimits } from '../email/limits';
-import { BATCH_TTL_MS, renderMerge, type MergeValues, type SkipReason } from './schema';
+import { BATCH_TTL_MS, listingFieldsUsed, renderMerge, type MergeValues, type SkipReason } from './schema';
+import { listingSnapshotFor, listingValuesOf, type ListingSnapshot } from './listing-values';
 import { mayUseTemplate, TemplateEmailError } from './templates';
 import { hasMarketingConsentSql } from './consent';
 
@@ -70,9 +71,13 @@ const truthy = (v: unknown) => v === true || v === 't';
  * through the directory's own rule: an id this person may not see is simply
  * not there (and is counted in `notFound`, never named).
  */
-export type PrepareInput =
+export type PrepareInput = (
   | { templateId: string; filterId: string }
-  | { templateId: string; contactIds: string[] };
+  | { templateId: string; contactIds: string[] }
+) & {
+  /** Prepared from a listing's Matching buyers tab (ADR 0060): its merge values are frozen into the batch. */
+  listingId?: string;
+};
 
 /** At most this many explicit contacts — the assistant's own cap, and well inside a batch. */
 export const MAX_PICKED_CONTACTS = 20;
@@ -85,6 +90,8 @@ export type ClassifiedRecipients = {
   picked: string[] | null;
   query: unknown;
   recipients: { contactId: string; name: string; email: string | null; status: RecipientStatus; skipReason: SkipReason | null }[];
+  /** The listing's merge values, frozen (ADR 0060); null when not prepared from a listing. */
+  listing: ListingSnapshot | null;
 };
 
 export async function prepareBatch(
@@ -127,6 +134,15 @@ export async function classifyRecipients(
   if (!mayUseTemplate(actor, tpl)) {
     throw new TemplateEmailError('not_approved', 'That template is not one you can send — it is retired, or it is a colleague’s own');
   }
+  // ADR 0060: listing fields are filled only from a listing — anywhere else the email would go out with braces in it.
+  const uses = listingFieldsUsed(tpl.subject, tpl.body);
+  if (uses.length && !input.listingId) {
+    throw new TemplateEmailError(
+      'invalid',
+      `“${tpl.name}” uses listing details (${uses.map((f) => `{{${f}}}`).join(', ')}), so it can only be sent from a listing’s Matching buyers tab.`,
+    );
+  }
+  const listingSnap = input.listingId ? await listingSnapshotFor(db, actor, input.listingId, uses) : null;
   const picked = 'contactIds' in input ? [...new Set(input.contactIds)] : null;
   let filter: { id: string; name: string; query: unknown } | null = null;
   if (picked) {
@@ -191,6 +207,7 @@ export async function classifyRecipients(
     picked,
     query,
     recipients,
+    listing: listingSnap,
   };
 }
 
@@ -209,6 +226,8 @@ export async function storePreparedBatch(db: Db, actor: Actor, c: ClassifiedReci
         filterSnapshot: (filter
           ? { filterId: filter.id, name: filter.name, query }
           : { filterId: null, name: `Picked contacts (${picked!.length})`, query: { contactIds: picked } }) satisfies FilterSnapshot,
+        listingId: c.listing?.listingId ?? null,
+        listingSnapshot: c.listing,
         preparedAt: now,
         expiresAt: new Date(now.getTime() + BATCH_TTL_MS),
       })
@@ -281,7 +300,9 @@ function effectiveStatus(status: string, expiresAt: Date, now: Date): BatchStatu
   return status === 'prepared' && expiresAt.getTime() <= now.getTime() ? 'expired' : (status as BatchStatus);
 }
 
-export async function mergeValuesFor(db: DbOrTx, batch: { agencyId: string; userId: string }) {
+export async function mergeValuesFor(db: DbOrTx, batch: { agencyId: string; userId: string; listingSnapshot?: unknown }) {
+  // ADR 0060: a batch prepared from a listing carries its listing values, frozen at Prepare.
+  const fromListing = listingValuesOf(batch.listingSnapshot);
   const [who] = await db
     .select({ agentName: user.name, agentEmail: user.email, agencyName: agency.name })
     .from(user)
@@ -293,6 +314,7 @@ export async function mergeValuesFor(db: DbOrTx, batch: { agencyId: string; user
     full_name: name,
     agent_name: who?.agentName || who?.agentEmail || 'your agent',
     agency_name: who?.agencyName || 'the agency',
+    ...fromListing,
   });
 }
 
@@ -308,6 +330,7 @@ export async function getBatch(db: Db, actor: Actor, id: string, now = new Date(
       status: emailBatch.status,
       templateSnapshot: emailBatch.templateSnapshot,
       filterSnapshot: emailBatch.filterSnapshot,
+      listingSnapshot: emailBatch.listingSnapshot,
       preparedAt: emailBatch.preparedAt,
       expiresAt: emailBatch.expiresAt,
       approvedAt: emailBatch.approvedAt,

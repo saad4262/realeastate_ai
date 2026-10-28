@@ -3,6 +3,7 @@ import {
   type AnyPgColumn,
   boolean,
   customType,
+  date,
   index,
   integer,
   jsonb,
@@ -842,6 +843,10 @@ export const contactRoleKindEnum = pgEnum('contact_role_kind', [
   'landlord',
   'tenant',
   'investor',
+  // ADR 0061 (ROADMAP 1.5): the brief's other relationships.
+  'prospect',
+  'past_client',
+  'referral_partner',
 ]);
 
 /** Whether somebody chose a tag, or it was read off what the person did. */
@@ -1840,6 +1845,112 @@ export const skillSwitch = pgTable(
   ],
 );
 
+// ── Deals (docs/adr/0063) ───────────────────────────────────────────────────
+
+/** The seven stages of a sale, in order (ADR 0063 §1). A deal never moves backwards by itself. */
+export const dealStageEnum = pgEnum('deal_stage', ['appraisal', 'listing', 'marketing', 'offers', 'negotiation', 'contract', 'settlement']);
+
+/**
+ * One sale, from appraisal to settlement (ADR 0063): one open deal per property at a time. Opened and
+ * moved by the deal sync from what the platform already knows (an appraisal, the listing's status, an
+ * offer); its contract details and settlement are the agent's. Sales only (rentals come later).
+ */
+export const deal = pgTable(
+  'deal',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => property.id, { onDelete: 'cascade' }),
+    /** The campaign's listing, once there is one (an appraisal deal has none yet). */
+    listingId: uuid('listing_id').references(() => listing.id, { onDelete: 'set null' }),
+    stage: dealStageEnum('stage').notNull(),
+    /** open | settled | withdrawn. */
+    status: varchar('status', { length: 12 }).notNull().default('open'),
+    /** Whose deal it is: the listing's lead agent, or the appraisal's. */
+    agentId: uuid('agent_id').references(() => user.id, { onDelete: 'set null' }),
+    vendorContactId: uuid('vendor_contact_id').references(() => contact.id, { onDelete: 'set null' }),
+    buyerContactId: uuid('buyer_contact_id').references(() => contact.id, { onDelete: 'set null' }),
+    salePrice: numeric('sale_price', { precision: 14, scale: 2 }),
+    contractDate: date('contract_date'),
+    depositAmount: numeric('deposit_amount', { precision: 14, scale: 2 }),
+    depositPaidOn: date('deposit_paid_on'),
+    settlementDate: date('settlement_date'),
+    buyerSolicitor: text('buyer_solicitor'),
+    settledAt: timestamp('settled_at', { withTimezone: true }),
+    /**
+     * The commission, set by the agency (ADR 0064): `percent` of the sale price (`commission_rate`, e.g.
+     * 2.2) or a `fixed` fee, excluding GST. Amounts are worked out in SQL (COMMISSION_SQL), never stored.
+     */
+    commissionBasis: varchar('commission_basis', { length: 8 }),
+    commissionRate: numeric('commission_rate', { precision: 6, scale: 3 }),
+    commissionFixed: numeric('commission_fixed', { precision: 14, scale: 2 }),
+    /** The agent's share in percent for this deal; null = their profile's split. */
+    agentSplit: numeric('agent_split', { precision: 5, scale: 2 }),
+    /** When the agency paid the agent their share. */
+    commissionPaidOn: date('commission_paid_on'),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('deal_open_property_idx').on(t.propertyId).where(sql`status = 'open'`),
+    index('deal_agency_status_stage_idx').on(t.agencyId, t.status, t.stage),
+    index('deal_listing_idx').on(t.listingId),
+  ],
+);
+
+/**
+ * A deal's conditions (ADR 0063 §3): the four standard ones, made when the deal reaches Contract, and any
+ * the agent adds. Each has a due date and, once met, a done date.
+ */
+export const dealCondition = pgTable(
+  'deal_condition',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    dealId: uuid('deal_id')
+      .notNull()
+      .references(() => deal.id, { onDelete: 'cascade' }),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    /** cooling_off | finance | building_pest | unconditional | custom. */
+    kind: varchar('kind', { length: 16 }).notNull(),
+    label: varchar('label', { length: 80 }).notNull(),
+    dueOn: date('due_on'),
+    doneAt: timestamp('done_at', { withTimezone: true }),
+    sort: integer('sort').notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [index('deal_condition_deal_idx').on(t.dealId, t.sort)],
+);
+
+/** What happened to a deal, newest last (ADR 0063 §3): stage moves, settling, a condition met. */
+export const dealEvent = pgTable(
+  'deal_event',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    dealId: uuid('deal_id')
+      .notNull()
+      .references(() => deal.id, { onDelete: 'cascade' }),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    /** opened | stage | settled | withdrawn | condition | edited. */
+    kind: varchar('kind', { length: 16 }).notNull(),
+    fromStage: dealStageEnum('from_stage'),
+    toStage: dealStageEnum('to_stage'),
+    /** True when the deal sync did it; then `actorId` is null. */
+    auto: boolean('auto').notNull().default(false),
+    actorId: uuid('actor_id').references(() => user.id, { onDelete: 'set null' }),
+    /** One line from SQL facts — "listing went live", "Finance approval met". Never model text. */
+    note: text('note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('deal_event_deal_idx').on(t.dealId, t.createdAt)],
+);
+
 
 // ── Template email (docs/adr/0022) ──────────────────────────────────────────
 
@@ -1932,6 +2043,13 @@ export const emailBatch = pgTable(
     templateSnapshot: jsonb('template_snapshot').notNull(),
     /** The filter's name and query, at Prepare. */
     filterSnapshot: jsonb('filter_snapshot').notNull(),
+    /**
+     * Prepared from a listing's Matching buyers tab (ADR 0060): the listing, and its merge values
+     * (`listing_address`, `listing_price`, `listing_link`) frozen at Prepare like the template — what
+     * the agent reviewed is what is sent, even if the listing changes or goes.
+     */
+    listingId: uuid('listing_id').references(() => listing.id, { onDelete: 'set null' }),
+    listingSnapshot: jsonb('listing_snapshot'),
     status: emailBatchStatusEnum('status').notNull().default('prepared'),
     preparedAt: timestamp('prepared_at', { withTimezone: true }).notNull().defaultNow(),
     /** prepared_at + 48 h. Past it, the batch cannot be approved. */
@@ -2168,6 +2286,12 @@ export const workflowRun = pgTable(
     contactId: uuid('contact_id'),
     leadId: uuid('lead_id'),
     error: text('error'),
+    /**
+     * What the AI chose at the start (ADR 0067): `{ choice, reason, by }` — `choice` one of the workflow's own
+     * labels or null for "Not sure"; `by` 'ai', or why the AI was not asked ('off', 'budget', 'no_text', 'failed').
+     * Null on a workflow with no decision.
+     */
+    decision: jsonb('decision').$type<{ choice: string | null; reason: string; by: 'ai' | 'off' | 'budget' | 'no_text' | 'failed' | 'unavailable' }>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -2782,6 +2906,9 @@ export type Skill = typeof skill.$inferSelect;
 export type AgentSkill = typeof agentSkill.$inferSelect;
 export type SkillRun = typeof skillRun.$inferSelect;
 export type SkillSwitch = typeof skillSwitch.$inferSelect;
+export type Deal = typeof deal.$inferSelect;
+export type DealCondition = typeof dealCondition.$inferSelect;
+export type DealEvent = typeof dealEvent.$inferSelect;
 export type EmailTemplate = typeof emailTemplate.$inferSelect;
 export type EmailBatch = typeof emailBatch.$inferSelect;
 export type EmailBatchRecipient = typeof emailBatchRecipient.$inferSelect;

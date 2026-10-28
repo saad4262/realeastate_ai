@@ -9,12 +9,33 @@ import { CONTACT_ROLES } from '../contacts/contact-schema';
 
 // ── Triggers ────────────────────────────────────────────────────────────────
 
-export const TRIGGER_KINDS = ['lead.created', 'lead.status_changed', 'lead.no_reply', 'appointment.booked', 'listing.status_changed', 'contact.created'] as const;
+export const TRIGGER_KINDS = [
+  'lead.created',
+  'lead.status_changed',
+  'lead.no_reply',
+  'appointment.booked',
+  'listing.status_changed',
+  'contact.created',
+  // ADR 0066 (ROADMAP 4.1): deals, buyer matches, appointments and past clients.
+  'deal.stage_reached',
+  'deal.settled',
+  'buyer.matched',
+  'appointment.upcoming',
+  'appointment.completed',
+  'appraisal.not_listed',
+  'sale.anniversary',
+] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 
 const LEAD_STATUSES = ['new', 'contacted', 'qualified', 'closed'] as const;
 const LISTING_STATUSES = ['live', 'under_offer', 'sold', 'withdrawn'] as const;
 const APPOINTMENT_TYPES = ['appraisal', 'phone_call', 'zoom', 'inspection', 'meeting'] as const;
+/** The deal pipeline's seven stages (ADR 0063), repeated so this file stays pure data. */
+export const DEAL_TRIGGER_STAGES = ['appraisal', 'listing', 'marketing', 'offers', 'negotiation', 'contract', 'settlement'] as const;
+/** Which side of a deal a deal workflow acts on (ADR 0066, the user's decision 2): chosen per workflow. */
+export const DEAL_SIDES = ['vendor', 'buyer'] as const;
+export type DealSide = (typeof DEAL_SIDES)[number];
+export const TRIGGER_LIMITS = { upcomingHours: { min: 1, max: 72 }, notListedDays: { min: 1, max: 30 }, anniversaryYears: { min: 1, max: 20 } } as const;
 
 export const triggerSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('lead.created'), source: z.enum(['website', 'manual']).optional() }).strict(),
@@ -23,6 +44,19 @@ export const triggerSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('appointment.booked'), type: z.enum(APPOINTMENT_TYPES).optional() }).strict(),
   z.object({ kind: z.literal('listing.status_changed'), to: z.enum(LISTING_STATUSES) }).strict(),
   z.object({ kind: z.literal('contact.created'), source: z.enum(['manual', 'import']).optional() }).strict(),
+  z.object({ kind: z.literal('deal.stage_reached'), to: z.enum(DEAL_TRIGGER_STAGES), who: z.enum(DEAL_SIDES).default('vendor') }).strict(),
+  z.object({ kind: z.literal('deal.settled'), who: z.enum(DEAL_SIDES).default('vendor') }).strict(),
+  z.object({ kind: z.literal('buyer.matched') }).strict(),
+  z
+    .object({
+      kind: z.literal('appointment.upcoming'),
+      hours: z.number().int().min(TRIGGER_LIMITS.upcomingHours.min).max(TRIGGER_LIMITS.upcomingHours.max),
+      type: z.enum(APPOINTMENT_TYPES).optional(),
+    })
+    .strict(),
+  z.object({ kind: z.literal('appointment.completed'), type: z.enum(APPOINTMENT_TYPES).optional() }).strict(),
+  z.object({ kind: z.literal('appraisal.not_listed'), days: z.number().int().min(TRIGGER_LIMITS.notListedDays.min).max(TRIGGER_LIMITS.notListedDays.max) }).strict(),
+  z.object({ kind: z.literal('sale.anniversary'), years: z.number().int().min(TRIGGER_LIMITS.anniversaryYears.min).max(TRIGGER_LIMITS.anniversaryYears.max) }).strict(),
 ]);
 export type Trigger = z.infer<typeof triggerSchema>;
 
@@ -34,6 +68,13 @@ export const TRIGGER_RECORDS: Record<TriggerKind, { lead: boolean; contact: bool
   'appointment.booked': { lead: false, contact: true, listing: false, appointment: true },
   'listing.status_changed': { lead: false, contact: false, listing: true, appointment: false },
   'contact.created': { lead: false, contact: true, listing: false, appointment: false },
+  'deal.stage_reached': { lead: false, contact: true, listing: true, appointment: false },
+  'deal.settled': { lead: false, contact: true, listing: true, appointment: false },
+  'buyer.matched': { lead: false, contact: true, listing: true, appointment: false },
+  'appointment.upcoming': { lead: false, contact: true, listing: false, appointment: true },
+  'appointment.completed': { lead: false, contact: true, listing: false, appointment: true },
+  'appraisal.not_listed': { lead: false, contact: true, listing: false, appointment: true },
+  'sale.anniversary': { lead: false, contact: true, listing: true, appointment: false },
 };
 
 // ── Conditions ──────────────────────────────────────────────────────────────
@@ -167,14 +208,44 @@ export const REACHES_CONTACT: readonly ActionType[] = ['send_template_email', 'd
 
 export const WORKFLOW_LIMITS = { conditions: 5, actions: 6, perAgent: 10, perAgency: 50, runsPerDay: 200, draftDays: 7 } as const;
 
+// ── AI decides (ADR 0067, ROADMAP 4.2) ──────────────────────────────────────
+
+/** The triggers whose record has words for the AI to read: an enquiry and its latest email, or an appointment's outcome. */
+export const DECIDABLE_TRIGGERS: readonly TriggerKind[] = ['lead.created', 'lead.status_changed', 'lead.no_reply', 'appointment.completed'];
+export const DECIDE_LIMITS = { choices: { min: 2, max: 4 }, label: 40, question: 200 } as const;
+/** The label of the workflow's own steps when there is a decision: what runs when the AI is not sure, or was not asked. */
+export const NOT_SURE = 'Not sure';
+
+/**
+ * At the start of a run, the AI reads the record and picks ONE of these labels (the user's decision 1); that
+ * choice's steps run, and the workflow's own steps are "Not sure" (decision 3). The AI never writes a step.
+ */
+export const decideSchema = z
+  .object({
+    question: text(DECIDE_LIMITS.question),
+    choices: z
+      .array(z.object({ label: text(DECIDE_LIMITS.label), actions: z.array(actionSchema).min(1).max(WORKFLOW_LIMITS.actions) }).strict())
+      .min(DECIDE_LIMITS.choices.min)
+      .max(DECIDE_LIMITS.choices.max),
+  })
+  .strict();
+export type Decide = z.infer<typeof decideSchema>;
+
 export const workflowSpecSchema = z
   .object({
     trigger: triggerSchema,
     conditions: z.array(conditionSchema).max(WORKFLOW_LIMITS.conditions).default([]),
+    /** The steps — or, with `decide`, the "Not sure" steps. */
     actions: z.array(actionSchema).min(1).max(WORKFLOW_LIMITS.actions),
+    decide: decideSchema.optional(),
   })
   .strict();
 export type WorkflowSpec = z.infer<typeof workflowSpecSchema>;
+
+/** Every step a workflow may run, across its choices — for what a card warns about and what a run may need. */
+export function allActions(spec: WorkflowSpec): WorkflowAction[] {
+  return [...spec.actions, ...(spec.decide?.choices.flatMap((c) => c.actions) ?? [])];
+}
 export type WorkflowScope = 'mine' | 'agency';
 
 /**
@@ -195,23 +266,43 @@ export function specProblem(spec: WorkflowSpec, scope: WorkflowScope): string | 
     if (c.field === 'assignee' && c.values.some((v) => !uuid.safeParse(v).success)) return `Condition ${i + 1}: the assignee must be a team member`;
     if (c.field === 'listing' && c.values.some((v) => !uuid.safeParse(v).success)) return `Condition ${i + 1}: the listing must be one of the agency’s listings`;
   }
-  for (const [i, a] of spec.actions.entries()) {
+  if (spec.decide) {
+    if (!DECIDABLE_TRIGGERS.includes(spec.trigger.kind)) {
+      return `The AI can only decide on a workflow whose trigger has words to read — a new lead, a lead's status change, no reply, or an appointment completed`;
+    }
+    const labels = spec.decide.choices.map((c) => c.label.trim().toLowerCase());
+    if (new Set(labels).size !== labels.length) return 'Each of the AI’s choices needs its own label';
+    if (labels.includes(NOT_SURE.toLowerCase())) return `“${NOT_SURE}” is the workflow’s own steps — give the choices other labels`;
+  }
+  const own = stepsProblem(spec.actions, spec, scope, spec.decide ? `${NOT_SURE}: ` : '');
+  if (own) return own;
+  for (const c of spec.decide?.choices ?? []) {
+    const p = stepsProblem(c.actions, spec, scope, `${c.label}: `);
+    if (p) return p;
+  }
+  return null;
+}
+
+/** One list of steps: each needs a record its trigger has, assigning only agency-wide, no wait at the end. */
+function stepsProblem(actions: readonly WorkflowAction[], spec: WorkflowSpec, scope: WorkflowScope, prefix: string): string | null {
+  const has = TRIGGER_RECORDS[spec.trigger.kind];
+  for (const [i, a] of actions.entries()) {
     const need = ACTION_NEEDS[a.type];
-    if (need && !has[need]) return `Action ${i + 1} (${ACTION_WORDS[a.type]}): a “${TRIGGER_WORDS[spec.trigger.kind]}” workflow has no ${need} to act on`;
-    if (scope === 'mine' && AGENCY_ONLY_ACTIONS.includes(a.type)) return `Action ${i + 1} (${ACTION_WORDS[a.type]}): only an agency-wide workflow (owners and admins) may assign`;
+    if (need && !has[need]) return `${prefix}Action ${i + 1} (${ACTION_WORDS[a.type]}): a “${TRIGGER_WORDS[spec.trigger.kind]}” workflow has no ${need} to act on`;
+    if (scope === 'mine' && AGENCY_ONLY_ACTIONS.includes(a.type)) return `${prefix}Action ${i + 1} (${ACTION_WORDS[a.type]}): only an agency-wide workflow (owners and admins) may assign`;
     if (a.type === 'wait_until') {
-      const next = spec.actions[i + 1];
+      const next = actions[i + 1];
       if (!next) break;
-      if (WAITS.includes(next.type)) return `Action ${i + 1} (wait for a time): put any wait before it — the step after it must be a real step`;
-      if (a.to !== undefined && minuteOf(a.to) <= minuteOf(a.from)) return `Action ${i + 1} (wait for a time): “to” must be later than “from” on the same day`;
-      if (a.days && new Set(a.days).size !== a.days.length) return `Action ${i + 1} (wait for a time): a day is named twice`;
+      if (WAITS.includes(next.type)) return `${prefix}Action ${i + 1} (wait for a time): put any wait before it — the step after it must be a real step`;
+      if (a.to !== undefined && minuteOf(a.to) <= minuteOf(a.from)) return `${prefix}Action ${i + 1} (wait for a time): “to” must be later than “from” on the same day`;
+      if (a.days && new Set(a.days).size !== a.days.length) return `${prefix}Action ${i + 1} (wait for a time): a day is named twice`;
     }
   }
-  const last = spec.actions[spec.actions.length - 1]!;
-  if (WAITS.includes(last.type)) return 'A workflow cannot end with a wait — say what happens after it';
-  if (spec.actions.every((a) => WAITS.includes(a.type))) return 'Give at least one action';
+  const last = actions[actions.length - 1]!;
+  if (WAITS.includes(last.type)) return `${prefix}A workflow cannot end with a wait — say what happens after it`;
+  if (actions.every((a) => WAITS.includes(a.type))) return `${prefix}Give at least one action`;
   // A wait_until holds a step back less than a week; the run's task lives 30 days.
-  if (spec.actions.reduce((h, a) => h + (a.type === 'wait' ? a.hours : a.type === 'wait_until' ? 7 * 24 : 0), 0) > 29 * 24) return 'All the waits together must be under 29 days (a wait for a time counts as up to 7)';
+  if (actions.reduce((h, a) => h + (a.type === 'wait' ? a.hours : a.type === 'wait_until' ? 7 * 24 : 0), 0) > 29 * 24) return `${prefix}All the waits together must be under 29 days (a wait for a time counts as up to 7)`;
   return null;
 }
 
@@ -234,6 +325,13 @@ export const TRIGGER_WORDS: Record<TriggerKind, string> = {
   'appointment.booked': 'appointment booked',
   'listing.status_changed': 'listing status change',
   'contact.created': 'new contact',
+  'deal.stage_reached': 'deal stage',
+  'deal.settled': 'deal settled',
+  'buyer.matched': 'buyer match',
+  'appointment.upcoming': 'before an appointment',
+  'appointment.completed': 'appointment completed',
+  'appraisal.not_listed': 'appraisal not listed',
+  'sale.anniversary': 'sale anniversary',
 };
 
 export const ACTION_WORDS: Record<ActionType, string> = {
@@ -251,6 +349,8 @@ export const ACTION_WORDS: Record<ActionType, string> = {
 };
 
 const STATUS = (s: string) => s.replace('_', ' ');
+/** "an appraisal", "a zoom". */
+const art = (w: string) => `${/^[aeiou]/i.test(w) ? 'an' : 'a'} ${w}`;
 const FIELD_LABELS: Record<ConditionField, string> = {
   'listing.suburb': 'the listing’s suburb',
   'listing.channel': 'the listing',
@@ -273,13 +373,84 @@ export function triggerInWords(t: Trigger): string {
     case 'lead.no_reply':
       return `When a buyer has had no reply for ${t.days} day${t.days === 1 ? '' : 's'}`;
     case 'appointment.booked':
-      return t.type ? `When a ${STATUS(t.type)} appointment is booked` : 'When an appointment with a contact is booked';
+      return t.type ? `When ${art(STATUS(t.type))} appointment is booked` : 'When an appointment with a contact is booked';
     case 'listing.status_changed':
       return `When a listing becomes ${STATUS(t.to)}`;
     case 'contact.created':
       return t.source === 'import' ? 'When a contact is imported' : t.source === 'manual' ? 'When a contact is added by hand' : 'When a contact is added';
+    case 'deal.stage_reached':
+      return `When a deal reaches ${STAGE_WORDS[t.to]} — the ${t.who}`;
+    case 'deal.settled':
+      return `When a deal settles — the ${t.who}`;
+    case 'buyer.matched':
+      return 'When a new listing fits a buyer’s brief — the buyer';
+    case 'appointment.upcoming': {
+      const when = t.hours % 24 === 0 ? `${t.hours / 24} day${t.hours === 24 ? '' : 's'}` : `${t.hours} hour${t.hours === 1 ? '' : 's'}`;
+      return `${when} before ${t.type ? art(STATUS(t.type)) : 'an appointment with a contact'} starts`;
+    }
+    case 'appointment.completed':
+      return t.type ? `When ${art(STATUS(t.type))} appointment is completed` : 'When an appointment with a contact is completed';
+    case 'appraisal.not_listed':
+      return `When an appraisal has had no listing for ${t.days} day${t.days === 1 ? '' : 's'} — the owner`;
+    case 'sale.anniversary':
+      return `${t.years === 1 ? 'A year' : `${t.years} years`} to the day after we sold an address — its owners and buyer`;
   }
 }
+
+const STAGE_WORDS: Record<(typeof DEAL_TRIGGER_STAGES)[number], string> = {
+  appraisal: 'Appraisal', listing: 'Listing', marketing: 'Marketing', offers: 'Offers', negotiation: 'Negotiation', contract: 'Contract', settlement: 'Settlement',
+};
+
+// ── The guide on the Automations tab (ADR 0066, docs/mocks/workflow-triggers.html) ─────────
+
+export const TRIGGER_GROUPS = ['Leads and contacts', 'Deals', 'Listings and buyers', 'Appointments', 'Past clients'] as const;
+export type TriggerGroup = (typeof TRIGGER_GROUPS)[number];
+export type TriggerGuide = { group: TriggerGroup; icon: string; title: string; description: string; example: string | null; isNew: boolean };
+
+/** What each trigger is, in the person's words, with something they might say to the assistant. Pure data. */
+export const TRIGGER_GUIDE: Record<TriggerKind, TriggerGuide> = {
+  'lead.created': { group: 'Leads and contacts', icon: 'mail', title: 'A new lead arrives', description: 'From the website or recorded by hand.', example: null, isNew: false },
+  'lead.status_changed': { group: 'Leads and contacts', icon: 'swap_horiz', title: 'A lead’s status changes', description: 'New, contacted, qualified, closed.', example: null, isNew: false },
+  'lead.no_reply': { group: 'Leads and contacts', icon: 'schedule', title: 'No reply for N days', description: 'A buyer’s message still unanswered (1 to 14 days).', example: null, isNew: false },
+  'contact.created': { group: 'Leads and contacts', icon: 'person_add', title: 'A contact is added', description: 'By hand or by an import.', example: null, isNew: false },
+  'deal.stage_reached': {
+    group: 'Deals', icon: 'flag', title: 'A deal reaches a stage', isNew: true,
+    description: 'Any of the seven — by itself or moved by someone. The vendor or the buyer, you choose.',
+    example: 'When a deal goes to Contract, email the buyer our conveyancing checklist.',
+  },
+  'deal.settled': {
+    group: 'Deals', icon: 'handshake', title: 'A deal settles', isNew: true,
+    description: 'When someone presses Settle on the Deal tab. The vendor or the buyer, you choose.',
+    example: 'When a sale settles, draft a thank-you to the vendor, then a review request a week later.',
+  },
+  'listing.status_changed': { group: 'Listings and buyers', icon: 'sell', title: 'A listing’s status changes', description: 'Live, under offer, sold, withdrawn.', example: null, isNew: false },
+  'buyer.matched': {
+    group: 'Listings and buyers', icon: 'join_inner', title: 'A new listing fits a buyer’s brief', isNew: true,
+    description: 'When a listing goes live: once for each buyer whose brief it fits — the same match as the listing’s Matching buyers tab. Only buyers who may be emailed get a template.',
+    example: 'When a new sale listing matches a buyer, send them “Just listed for you” in office hours.',
+  },
+  'appointment.booked': { group: 'Appointments', icon: 'event_available', title: 'An appointment is booked', description: 'Optionally one type.', example: null, isNew: false },
+  'appointment.upcoming': {
+    group: 'Appointments', icon: 'alarm', title: 'N hours before an appointment', isNew: true,
+    description: '1 to 72 hours before it starts; not for one that was cancelled, and a moved one counts from its new time.',
+    example: 'A day before every inspection, send the client the “See you tomorrow” template.',
+  },
+  'appointment.completed': {
+    group: 'Appointments', icon: 'task_alt', title: 'An appointment is completed', isNew: true,
+    description: 'When it is marked done.',
+    example: 'After a private inspection is done, remind me to call them the next morning.',
+  },
+  'appraisal.not_listed': {
+    group: 'Appointments', icon: 'hourglass_bottom', title: 'An appraisal with no listing after N days', isNew: true,
+    description: 'An appraisal held N days ago (1 to 30) and nothing listed at that address since.',
+    example: 'If an appraisal hasn’t turned into a listing in a week, remind me.',
+  },
+  'sale.anniversary': {
+    group: 'Past clients', icon: 'cake', title: 'A sale’s anniversary', isNew: true,
+    description: '1 to 20 years after we sold an address, on the day — to its owners and the deal’s buyer (never the vendor).',
+    example: 'Every year on the day we sold their home, send past clients “Happy home anniversary”.',
+  },
+};
 
 const km = (n: number) => `${Number.isInteger(n) ? n : n.toFixed(1)} km`;
 
@@ -334,6 +505,21 @@ export function actionInWords(a: WorkflowAction, names: Record<string, string> =
   }
 }
 
-export function specInWords(spec: WorkflowSpec, names: Record<string, string> = {}): { when: string; if: string[]; then: string[] } {
-  return { when: triggerInWords(spec.trigger), if: spec.conditions.map((c) => conditionInWords(c, names)), then: spec.actions.map((a) => actionInWords(a, names)) };
+export type SpecWords = {
+  when: string;
+  if: string[];
+  /** The steps — or, with a decision, the "Not sure" steps. */
+  then: string[];
+  decide?: { question: string; choices: { label: string; then: string[] }[] };
+};
+
+export function specInWords(spec: WorkflowSpec, names: Record<string, string> = {}): SpecWords {
+  return {
+    when: triggerInWords(spec.trigger),
+    if: spec.conditions.map((c) => conditionInWords(c, names)),
+    then: spec.actions.map((a) => actionInWords(a, names)),
+    ...(spec.decide
+      ? { decide: { question: spec.decide.question, choices: spec.decide.choices.map((c) => ({ label: c.label, then: c.actions.map((a) => actionInWords(a, names)) })) } }
+      : {}),
+  };
 }

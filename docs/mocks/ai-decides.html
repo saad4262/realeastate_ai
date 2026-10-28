@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI Decides</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300..600,0..1&display=swap" rel="stylesheet" />
+<!--
+  Mock for ROADMAP Phase 4.2 — "AI decides" at the start of a workflow (to become ADR 0067).
+  Console tokens. Every name, address and template is SAMPLE data. The bar at the top exists only in the mock.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff; --surface-container-low: #eff4ff;
+    --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff;
+    --emerald: #059669; --emerald-subtle: #ecfdf5;
+    --rose: #e11d48; --rose-subtle: #fff1f2;
+    --amber: #d97706; --amber-subtle: #fffbeb;
+    --violet: #7c3aed; --violet-subtle: #f5f3ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .ms { font-family: 'Material Symbols Outlined'; font-size: 20px; line-height: 1; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 400; flex: none; }
+  .ms.sm { font-size: 16px; width: 16px; height: 16px; }
+  button { font: inherit; }
+  [hidden] { display: none !important; }
+
+  .mockbar { position: sticky; top: 0; z-index: 30; display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+  .mockbar b { color: #fff; }
+  .seg { display: inline-flex; background: #1e293b; border-radius: 8px; padding: 2px; flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; }
+
+  .shell { display: flex; min-height: calc(100vh - 36px); }
+  aside { width: 232px; flex: none; border-right: 1px solid var(--border-default); padding: 16px 12px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 16px; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--text-primary); color: #fff; display: grid; place-items: center; font: 700 12px 'Plus Jakarta Sans'; }
+  .brand small { display: block; color: var(--text-muted); font-size: 11px; }
+  .gh { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px 4px; }
+  .nl { display: flex; gap: 12px; align-items: center; padding: 7px 12px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; }
+  .nl.on { background: #fff; color: var(--sapphire); border: 1px solid var(--border-default); font-weight: 500; }
+
+  main { flex: 1; min-width: 0; padding: 24px 28px 64px; max-width: 1180px; }
+  h1 { font: 600 24px/32px 'Plus Jakarta Sans'; margin: 0; letter-spacing: -.02em; }
+  h2 { font: 600 15px/22px 'Plus Jakarta Sans'; margin: 0; }
+  .sub { color: var(--text-secondary); margin: 4px 0 0; }
+  .muted { color: var(--text-muted); font-size: 12px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .between { justify-content: space-between; }
+  .tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--border-default); padding-bottom: 8px; margin: 16px 0; }
+  .tab { padding: 6px 12px; border-radius: 8px; border: 1px solid transparent; color: var(--text-secondary); font-weight: 500; }
+  .tab.on { background: #fff; border-color: var(--border-default); color: var(--text-primary); }
+  .btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-default); background: #fff; color: var(--text-primary); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; }
+  .btn.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .btn:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border-default); background: #fff; color: var(--text-secondary); font-size: 11.5px; font-weight: 500; white-space: nowrap; }
+  .pill.new { border-color: #a7f3d0; background: var(--emerald-subtle); color: var(--emerald); font-weight: 700; font-size: 10.5px; }
+  .pill.auto { border-color: #bfdbfe; background: var(--sapphire-subtle); color: var(--sapphire); }
+  .pill.approve { border-color: #fde68a; background: var(--amber-subtle); color: var(--amber); }
+
+  .card { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; }
+  .section { padding: 14px 16px; border-top: 1px solid var(--border-default); }
+  .section:first-child { border-top: 0; }
+
+  /* Triggers catalogue */
+  .groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; margin-top: 12px; }
+  .group { border: 1px solid var(--border-default); border-radius: 12px; padding: 12px 14px; background: #fff; }
+  .group h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); display: flex; gap: 6px; align-items: center; }
+  .trig { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; padding: 9px 0; border-top: 1px solid var(--border-default); }
+  .trig:first-of-type { border-top: 0; }
+  .ico { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: #f1f5f9; color: var(--text-secondary); }
+  .ico.deal { background: var(--sapphire-subtle); color: var(--sapphire); }
+  .ico.match { background: var(--violet-subtle); color: var(--violet); }
+  .ico.appt { background: var(--amber-subtle); color: var(--amber); }
+  .ico.past { background: var(--emerald-subtle); color: var(--emerald); }
+  .trig b { font-weight: 600; }
+  .trig p { margin: 2px 0 0; color: var(--text-secondary); font-size: 12.5px; }
+  .ask { margin-top: 5px; font-size: 12px; color: var(--violet); font-style: italic; }
+  .opts { margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
+
+  /* Workflow list */
+  .wf { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 14px 16px; border-top: 1px solid var(--border-default); }
+  .wf:first-child { border-top: 0; }
+  .wf ol { margin: 4px 0 0; padding-left: 20px; }
+  .when { font-weight: 500; }
+
+  /* Assistant card */
+  .assist { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; align-items: start; }
+  .chat { display: grid; gap: 10px; }
+  .bubble { max-width: 520px; padding: 10px 12px; border-radius: 12px; background: #fff; border: 1px solid var(--border-default); }
+  .bubble.me { margin-left: auto; background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .proposal { border: 1px solid #c7d2fe; border-radius: 12px; background: #fff; overflow: hidden; }
+  .proposal header { padding: 10px 14px; background: var(--surface-container-low); display: flex; gap: 8px; align-items: center; font-weight: 600; }
+  .proposal .body { padding: 12px 14px; display: grid; gap: 8px; }
+  .kv { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 4px 10px; font-size: 13px; }
+  .kv dt { color: var(--text-muted); }
+  .kv dd { margin: 0; }
+  .proposal footer { padding: 10px 14px; border-top: 1px solid var(--border-default); display: flex; gap: 8px; justify-content: flex-end; }
+  .note { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; border: 1px solid #dbeafe; background: var(--surface-container-low); color: var(--text-secondary); font-size: 12.5px; }
+
+  @media (max-width: 960px) {
+    aside { display: none; }
+    main { padding: 16px; }
+    .assist { grid-template-columns: 1fr; }
+  }
+  .decide { margin: 8px 0; padding: 10px 12px; border: 1px solid #ddd6fe; border-radius: 10px; background: #faf8ff; }
+  .decideHead { display: flex; gap: 6px; align-items: flex-start; color: var(--text-secondary); }
+  .decideHead .ms { color: var(--violet); }
+  .branch { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 8px; padding: 6px 0; border-top: 1px dashed #ddd6fe; margin-top: 6px; }
+  .branch ol { margin: 0; padding-left: 18px; }
+  .pill.b1 { border-color: #a7f3d0; background: var(--emerald-subtle); color: var(--emerald); }
+  .pill.b2 { border-color: #bfdbfe; background: var(--sapphire-subtle); color: var(--sapphire); }
+  .pill.b3 { border-color: #fde68a; background: var(--amber-subtle); color: var(--amber); }
+  .chose { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
+  .chose .ms { color: var(--violet); }
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>Mock · 4.2 AI decides</b>
+  <span>Screen</span>
+  <div class="seg" id="scr"><button aria-pressed="true" data-s="tab">Skills → Automations</button><button aria-pressed="false" data-s="runs">Its runs</button><button aria-pressed="false" data-s="card">Assistant: the card</button></div>
+</div>
+
+<div class="shell">
+  <aside>
+    <div class="brand"><div class="logo">LA</div><div><b>Ray White Pakenham</b><small>Agency console</small></div></div>
+    <div class="gh">Home</div>
+    <div class="nl"><span class="ms">space_dashboard</span>Overview</div>
+    <div class="nl"><span class="ms">inbox</span>Inbox</div>
+    <div class="gh">Automation</div>
+    <div class="nl on"><span class="ms">toggle_on</span>Skills</div>
+  </aside>
+
+  <main>
+    <!-- ============ AUTOMATIONS TAB ============ -->
+    <section id="tab">
+      <h1>Skills</h1>
+      <div class="tabs"><span class="tab">Platform skills</span><span class="tab">AI skills</span><span class="tab on">Automations</span></div>
+
+      <section class="card">
+        <div class="section"><h2>Workflows</h2></div>
+        <div class="wf">
+          <div>
+            <b>Sort new enquiries: seller, buyer or tenant</b>
+            <div class="muted">On · the whole agency · 14 runs today</div>
+            <div class="when" style="margin-top:6px">When an enquiry arrives from the website</div>
+            <div class="decide">
+              <div class="decideHead"><span class="ms sm">psychology</span><b>The AI reads the enquiry and its latest email, and decides:</b> “Do they want to sell, buy or rent?”</div>
+              <div class="branch"><span class="pill b1">Sell</span><ol><li>Give the lead to Sarah Nguyen</li><li>Send the template “Free appraisal” to the contact (only if they may receive it then)</li></ol></div>
+              <div class="branch"><span class="pill b2">Buy</span><ol><li>Remind you: “Call {{contact_first_name}} about {{listing_address}}”</li></ol></div>
+              <div class="branch"><span class="pill b3">Rent</span><ol><li>Message Rentals team: “New rental enquiry from {{contact_name}}”</li></ol></div>
+              <div class="branch"><span class="pill">Not sure</span><ol><li>Remind you: “Read {{contact_first_name}}’s enquiry — the AI could not tell”</li></ol></div>
+            </div>
+            <a class="muted" href="#" id="toRuns">Its runs</a>
+          </div>
+          <div class="row" style="align-items:flex-start"><button class="btn">Pause</button><button class="btn">Archive</button></div>
+        </div>
+      </section>
+
+      <p class="note" style="margin-top:14px"><span class="ms sm">verified_user</span><span>The AI only <b>chooses one of your options</b> — it never writes the steps, sends anything, or makes up an option. It reads the enquiry’s message and the newest email from the client (for “an appointment is completed”, its outcome note) — nothing else. When it is not sure, “Not sure” runs. Its choice and why are in the run’s log. Under <b>Skills → AI decisions in workflows</b>; while that is off, every run takes “Not sure”.</span></p>
+    </section>
+
+    <!-- ============ RUNS ============ -->
+    <section id="runs" hidden>
+      <h1>Skills</h1>
+      <div class="tabs"><span class="tab">Platform skills</span><span class="tab">AI skills</span><span class="tab on">Automations</span></div>
+      <section class="card">
+        <div class="section"><h2>Runs of “Sort new enquiries: seller, buyer or tenant”</h2></div>
+        <div class="wf"><div>
+          <div class="muted">Today 10:42 am · Priya Mehta</div>
+          <div class="chose"><span class="ms sm">psychology</span>AI chose <span class="pill b1">Sell</span> — “Says they want to sell their 3-bed townhouse in Pakenham and asks for an appraisal.”</div>
+          <div class="muted">1. Give the lead to Sarah Nguyen — Done</div>
+          <div class="muted">2. Send the template “Free appraisal” — Done</div>
+        </div></div>
+        <div class="wf"><div>
+          <div class="muted">Today 9:15 am · Ravi Patel</div>
+          <div class="chose"><span class="ms sm">psychology</span>AI chose <span class="pill b2">Buy</span> — “Asks whether 8 Henry Road is still available and when the next open home is.”</div>
+          <div class="muted">1. Remind you: “Call Ravi about 8 Henry Road, Pakenham” — Done</div>
+        </div></div>
+        <div class="wf"><div>
+          <div class="muted">Today 8:03 am · Mia Chen</div>
+          <div class="chose"><span class="ms sm">help</span>AI chose <span class="pill">Not sure</span> — “Only asks for ‘more information’ about the address.”</div>
+          <div class="muted">1. Remind you: “Read Mia’s enquiry — the AI could not tell” — Done</div>
+        </div></div>
+        <div class="wf"><div>
+          <div class="muted">Yesterday 6:20 pm · Tom Briggs</div>
+          <div class="chose"><span class="ms sm">toggle_off</span><span class="pill">Not sure</span> — AI decisions were switched off, so the “Not sure” steps ran.</div>
+          <div class="muted">1. Remind you: “Read Tom’s enquiry — the AI could not tell” — Done</div>
+        </div></div>
+      </section>
+    </section>
+
+    <!-- ============ THE ASSISTANT'S CARD ============ -->
+    <section id="card" hidden>
+      <h1>Assistant</h1>
+      <div class="assist" style="margin-top:16px">
+        <div class="chat">
+          <div class="bubble me">When a website enquiry comes in, work out if they want to sell, buy or rent. Sellers go to Sarah with the free appraisal template, buyers remind me, renters tell the rentals team. If you can't tell, remind me to read it.</div>
+          <div class="bubble">Here it is. The AI only picks one of these four for each enquiry, from its message and latest email, and the run’s log says which and why. It starts after you approve.</div>
+        </div>
+        <div class="proposal">
+          <header><span class="ms sm">bolt</span>New workflow <span class="pill approve" style="margin-left:auto">Needs your approval</span></header>
+          <div class="body">
+            <dl class="kv">
+              <dt>Name</dt><dd>Sort new enquiries: seller, buyer or tenant</dd>
+              <dt>For</dt><dd>The whole agency</dd>
+              <dt>When</dt><dd>An enquiry arrives from the website</dd>
+              <dt>AI asks</dt><dd>“Do they want to sell, buy or rent?”</dd>
+              <dt>Sell</dt><dd>Give the lead to Sarah Nguyen; send “Free appraisal”</dd>
+              <dt>Buy</dt><dd>Remind you to call</dd>
+              <dt>Rent</dt><dd>Message Rentals team</dd>
+              <dt>Not sure</dt><dd>Remind you to read it</dd>
+            </dl>
+          </div>
+          <footer><button class="btn">Change</button><button class="btn primary">Approve</button></footer>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+<script>
+  const show = (s) => {
+    for (const id of ['tab', 'runs', 'card']) document.getElementById(id).hidden = id !== s;
+    for (const x of document.querySelectorAll('#scr button')) x.setAttribute('aria-pressed', String(x.dataset.s === s));
+  };
+  document.getElementById('scr').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) show(b.dataset.s); });
+  document.getElementById('toRuns').addEventListener('click', (e) => { e.preventDefault(); show('runs'); });
+</script>
+</body>
+</html>

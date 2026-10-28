@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { MAX_REPLY_LENGTH, replyInputSchema } from '@repo/core/mail/schema';
 import { useToast } from '@/components/toast';
 import { sendReplyAction } from '@/lib/mail-actions';
+import { ReplyAssistant } from './reply-assistant';
 import styles from './inbox.module.css';
 
 /**
@@ -24,18 +25,33 @@ export function Composer({
   replyNote,
   /** "Sent from your Gmail (…)" / "Sent from LocalAgentHub — connect your Gmail…" (ADR 0026 §2). */
   sendFrom = null,
+  /** ADR 0062: the assistant over the box — absent when this server or page does not offer it. */
+  assist,
 }: {
   threadId: string;
   to: string;
   replyNote: string;
   sendFrom?: string | null;
+  assist?: { on: boolean; offMessage: string | null };
 }) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [body, setBody] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /** The box holds the assistant's draft: the banner says so until it is sent or discarded. */
+  const [drafted, setDrafted] = useState<{ bracketed: number } | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const boxRef = useRef<HTMLTextAreaElement>(null);
+
+  function takeDraft(text: string, bracketed: number) {
+    // Never over the agent's own words without asking.
+    if (body.trim() && !drafted && !window.confirm('Replace what you have written with the assistant’s draft?')) return;
+    setBody(text.slice(0, MAX_REPLY_LENGTH));
+    setDrafted({ bracketed });
+    setError(null);
+    boxRef.current?.focus();
+  }
 
   function submit() {
     const parsed = replyInputSchema.safeParse({ body });
@@ -53,6 +69,7 @@ export function Composer({
       }
       // Recorded either way; a failed send is now a marked message with a retry.
       setBody('');
+      setDrafted(null);
       if (result.status === 'sent') {
         toast({ variant: 'success', title: 'Sent', description: `Your reply is on its way to ${to}.` });
       } else {
@@ -67,6 +84,8 @@ export function Composer({
   }
 
   return (
+    <>
+    {assist ? <ReplyAssistant threadId={threadId} on={assist.on} offMessage={assist.offMessage} busy={pending} onDraft={takeDraft} /> : null}
     <form
       ref={formRef}
       className={styles.composer}
@@ -78,7 +97,16 @@ export function Composer({
       <label className={styles.label} htmlFor={`reply-${threadId}`}>
         To: {to}
       </label>
+      {drafted ? (
+        <p className={styles.draftBanner} role="note">
+          <strong>Drafted by the assistant — read it before you send.</strong> Anything the conversation doesn’t say is left in [brackets]
+          for you to fill
+          {drafted.bracketed ? `, including ${drafted.bracketed} figure${drafted.bracketed === 1 ? '' : 's'} it could not find in the conversation` : ''}.
+          Edit freely; nothing is sent until you press Send.
+        </p>
+      ) : null}
       <textarea
+        ref={boxRef}
         id={`reply-${threadId}`}
         className={styles.textarea}
         value={body}
@@ -107,11 +135,25 @@ export function Composer({
         <button type="submit" className={styles.send} disabled={pending}>
           {pending ? 'Sending…' : 'Send'}
         </button>
+        {drafted ? (
+          <button
+            type="button"
+            className={styles.discard}
+            disabled={pending}
+            onClick={() => {
+              setBody('');
+              setDrafted(null);
+            }}
+          >
+            Discard draft
+          </button>
+        ) : null}
         <span className={styles.note}>
           {sendFrom ? <>{sendFrom}. </> : null}
           {replyNote}
         </span>
       </div>
     </form>
+    </>
   );
 }

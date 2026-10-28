@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Automation Library</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300..600,0..1&display=swap" rel="stylesheet" />
+<!--
+  Mock for ROADMAP Phase 4.3 — the Automation Library (to become ADR 0068).
+  Console tokens. Every name and template is SAMPLE data. The bar at the top exists only in the mock.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff; --surface-container-low: #eff4ff;
+    --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff;
+    --emerald: #059669; --emerald-subtle: #ecfdf5;
+    --rose: #e11d48; --rose-subtle: #fff1f2;
+    --amber: #d97706; --amber-subtle: #fffbeb;
+    --violet: #7c3aed; --violet-subtle: #f5f3ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .ms { font-family: 'Material Symbols Outlined'; font-size: 20px; line-height: 1; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 400; flex: none; }
+  .ms.sm { font-size: 16px; width: 16px; height: 16px; }
+  button { font: inherit; }
+  [hidden] { display: none !important; }
+
+  .mockbar { position: sticky; top: 0; z-index: 30; display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+  .mockbar b { color: #fff; }
+  .seg { display: inline-flex; background: #1e293b; border-radius: 8px; padding: 2px; flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; }
+
+  .shell { display: flex; min-height: calc(100vh - 36px); }
+  aside { width: 232px; flex: none; border-right: 1px solid var(--border-default); padding: 16px 12px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 16px; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--text-primary); color: #fff; display: grid; place-items: center; font: 700 12px 'Plus Jakarta Sans'; }
+  .brand small { display: block; color: var(--text-muted); font-size: 11px; }
+  .gh { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px 4px; }
+  .nl { display: flex; gap: 12px; align-items: center; padding: 7px 12px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; }
+  .nl.on { background: #fff; color: var(--sapphire); border: 1px solid var(--border-default); font-weight: 500; }
+
+  main { flex: 1; min-width: 0; padding: 24px 28px 64px; max-width: 1180px; }
+  h1 { font: 600 24px/32px 'Plus Jakarta Sans'; margin: 0; letter-spacing: -.02em; }
+  h2 { font: 600 15px/22px 'Plus Jakarta Sans'; margin: 0; }
+  .sub { color: var(--text-secondary); margin: 4px 0 0; }
+  .muted { color: var(--text-muted); font-size: 12px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .between { justify-content: space-between; }
+  .tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--border-default); padding-bottom: 8px; margin: 16px 0; }
+  .tab { padding: 6px 12px; border-radius: 8px; border: 1px solid transparent; color: var(--text-secondary); font-weight: 500; }
+  .tab.on { background: #fff; border-color: var(--border-default); color: var(--text-primary); }
+  .btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-default); background: #fff; color: var(--text-primary); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; }
+  .btn.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .btn:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border-default); background: #fff; color: var(--text-secondary); font-size: 11.5px; font-weight: 500; white-space: nowrap; }
+  .pill.new { border-color: #a7f3d0; background: var(--emerald-subtle); color: var(--emerald); font-weight: 700; font-size: 10.5px; }
+  .pill.auto { border-color: #bfdbfe; background: var(--sapphire-subtle); color: var(--sapphire); }
+  .pill.approve { border-color: #fde68a; background: var(--amber-subtle); color: var(--amber); }
+
+  .card { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; }
+  .section { padding: 14px 16px; border-top: 1px solid var(--border-default); }
+  .section:first-child { border-top: 0; }
+
+  /* Triggers catalogue */
+  .groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; margin-top: 12px; }
+  .group { border: 1px solid var(--border-default); border-radius: 12px; padding: 12px 14px; background: #fff; }
+  .group h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); display: flex; gap: 6px; align-items: center; }
+  .trig { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; padding: 9px 0; border-top: 1px solid var(--border-default); }
+  .trig:first-of-type { border-top: 0; }
+  .ico { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: #f1f5f9; color: var(--text-secondary); }
+  .ico.deal { background: var(--sapphire-subtle); color: var(--sapphire); }
+  .ico.match { background: var(--violet-subtle); color: var(--violet); }
+  .ico.appt { background: var(--amber-subtle); color: var(--amber); }
+  .ico.past { background: var(--emerald-subtle); color: var(--emerald); }
+  .trig b { font-weight: 600; }
+  .trig p { margin: 2px 0 0; color: var(--text-secondary); font-size: 12.5px; }
+  .ask { margin-top: 5px; font-size: 12px; color: var(--violet); font-style: italic; }
+  .opts { margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
+
+  /* Workflow list */
+  .wf { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 14px 16px; border-top: 1px solid var(--border-default); }
+  .wf:first-child { border-top: 0; }
+  .wf ol { margin: 4px 0 0; padding-left: 20px; }
+  .when { font-weight: 500; }
+
+  /* Assistant card */
+  .assist { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; align-items: start; }
+  .chat { display: grid; gap: 10px; }
+  .bubble { max-width: 520px; padding: 10px 12px; border-radius: 12px; background: #fff; border: 1px solid var(--border-default); }
+  .bubble.me { margin-left: auto; background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .proposal { border: 1px solid #c7d2fe; border-radius: 12px; background: #fff; overflow: hidden; }
+  .proposal header { padding: 10px 14px; background: var(--surface-container-low); display: flex; gap: 8px; align-items: center; font-weight: 600; }
+  .proposal .body { padding: 12px 14px; display: grid; gap: 8px; }
+  .kv { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 4px 10px; font-size: 13px; }
+  .kv dt { color: var(--text-muted); }
+  .kv dd { margin: 0; }
+  .proposal footer { padding: 10px 14px; border-top: 1px solid var(--border-default); display: flex; gap: 8px; justify-content: flex-end; }
+  .note { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; border: 1px solid #dbeafe; background: var(--surface-container-low); color: var(--text-secondary); font-size: 12.5px; }
+
+  @media (max-width: 960px) {
+    aside { display: none; }
+    main { padding: 16px; }
+    .assist { grid-template-columns: 1fr; }
+  }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0; }
+  .chip { border: 1px solid var(--border-default); background: #fff; border-radius: 999px; padding: 4px 11px; font-size: 12px; color: var(--text-secondary); }
+  .chip.on { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .lib { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  .tpl { display: grid; gap: 8px; align-content: start; padding: 12px 14px; border: 1px solid var(--border-default); border-radius: 12px; background: #fff; }
+  .tplHead { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; }
+  .tplHead p { margin: 2px 0 0; color: var(--text-secondary); font-size: 12.5px; }
+  .ico.ai { background: var(--violet-subtle); color: var(--violet); }
+  .tpl ul { margin: 0; padding-left: 18px; color: var(--text-secondary); font-size: 12.5px; display: grid; gap: 2px; }
+  .tplFoot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: auto; }
+  .tplFoot .btn { margin-left: auto; }
+  .need { font-size: 11.5px; color: var(--amber); }
+  .on { font-size: 11.5px; color: var(--emerald); font-weight: 600; }
+  .composer { margin-top: 14px; padding: 12px; border: 1px solid var(--border-default); border-radius: 12px; background: #fff; max-width: 760px; }
+  .composer textarea { width: 100%; border: 0; resize: vertical; font: inherit; color: var(--text-primary); outline: none; }
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>Mock · 4.3 Automation Library</b>
+  <span>Screen</span>
+  <div class="seg" id="scr"><button aria-pressed="true" data-s="tab">Skills → Automations (owner)</button><button aria-pressed="false" data-s="ask">After “Use this”</button><button aria-pressed="false" data-s="agent">An agent’s Automations</button></div>
+</div>
+
+<div class="shell">
+  <aside>
+    <div class="brand"><div class="logo">LA</div><div><b>Ray White Pakenham</b><small>Agency console</small></div></div>
+    <div class="gh">Home</div>
+    <div class="nl"><span class="ms">space_dashboard</span>Overview</div>
+    <div class="nl"><span class="ms">inbox</span>Inbox</div>
+    <div class="gh">Automation</div>
+    <div class="nl on"><span class="ms">toggle_on</span>Skills</div>
+  </aside>
+
+  <main>
+    <!-- ============ OWNER: LIBRARY ON THE AUTOMATIONS TAB ============ -->
+    <section id="tab">
+      <h1>Skills</h1>
+      <div class="tabs"><span class="tab">Platform skills</span><span class="tab">AI skills</span><span class="tab on">Automations</span></div>
+
+      <section class="card">
+        <div class="section">
+          <div class="row between"><h2>Automation Library</h2><span class="muted">10 ready-made · for the whole agency</span></div>
+          <p class="sub" style="margin-top:4px">Pick one and the assistant sets it up with you — it asks which template, who and when, shows you the card, and it starts only when you approve.</p>
+          <div class="chips">
+            <span class="chip on">All</span><span class="chip">Leads</span><span class="chip">Appointments</span><span class="chip">Deals</span><span class="chip">Buyers and past clients</span>
+          </div>
+          <div class="lib">
+            <article class="tpl">
+              <div class="tplHead"><span class="ico"><span class="ms sm">bolt</span></span><div><b>Reply to website enquiries in office hours</b><p>Every enquiry gets your welcome email, sent between 9 and 5 on weekdays.</p></div></div>
+              <ul><li><b>When</b> an enquiry arrives from the website</li><li><b>Then</b> wait for office hours, send your welcome template</li></ul>
+              <div class="tplFoot"><span class="need">Needs an approved template</span><span class="on">1 on</span><a class="btn primary" href="#" data-ask>Use this</a></div>
+            </article>
+            <article class="tpl">
+              <div class="tplHead"><span class="ico ai"><span class="ms sm">psychology</span></span><div><b>Sort enquiries: seller, buyer or tenant</b> <span class="pill new">AI</span><p>The AI reads each enquiry and sends it the right way; when it can’t tell, it reminds you.</p></div></div>
+              <ul><li><b>When</b> an enquiry arrives</li><li><b>AI decides</b> sell / buy / rent / not sure</li></ul>
+              <div class="tplFoot"><span class="need">Needs a team member</span><a class="btn primary" href="#" data-ask>Use this</a></div>
+            </article>
+            <article class="tpl">
+              <div class="tplHead"><span class="ico"><span class="ms sm">schedule</span></span><div><b>Chase a buyer with no reply</b><p>If a buyer’s email has had no answer for 2 days, you get a reminder.</p></div></div>
+              <ul><li><b>When</b> no reply for 2 days</li><li><b>Then</b> remind you, set the next action</li></ul>
+              <div class="tplFoot"><span class="on">2 on</span><a class="btn primary" href="#" data-ask>Use this</a></div>
+            </article>
+            <article class="tpl">
+              <div class="tplHead"><span class="ico appt"><span class="ms sm">alarm</span></span><div><b>Inspection reminder the day before</b><p>The client gets your “See you tomorrow” email 24 hours before a private inspection.</p></div></div>
+              <ul><li><b>When</b> 24 hours before an inspection</li><li><b>Then</b> send the template</li></ul>
+              <div class="tplFoot"><span class="need">Needs an approved template</span><a class="btn primary" href="#" data-ask>Use this</a></div>
+            </article>
+            <article class="tpl">
+              <div class="tplHead"><span class="ico appt"><span class="ms sm">task_alt</span></span><div><b>Follow up after an inspection</b><p>When an inspection is marked done, a reminder to call them the next morning.</p></div></div>
+              <ul><li><b>When</b> an inspection is completed</li><li><b>Then</b> wait until 9 am, remind you</li></ul>
+              <div class="tplFoot"><a class="btn primary" href="#" data-ask>Use this</a></div>
+            </article>
+            <article class="tpl">
+              <div class="tplHead"><span class="ico appt"><span class="ms sm">hourglass_bottom</span></span><div><b>Appraisal not listed after a week</b><p>An appraisal with no listing after 7 days: a reminder and a next action on the owner.</p></div></div>
+              <ul><li><b>When</b> an appraisal has had no listing for 7 days</li><li><b>Then</b> remind you, next action in 2 days</li></ul>
+              <div class="tplFoot"><a class="btn primary" href="#" data-ask>Use this</a></div>
+            </article>
+            <article class="tpl">
+              <div class="tplHead"><span class="ico deal"><span class="ms sm">flag</span></span><div><b>Contract: send the buyer the checklist</b><p>When a deal goes to Contract, the buyer gets your conveyancing checklist.</p></div></div>
+              <ul><li><b>When</b> a deal reaches Contract — the buyer</li><li><b>Then</b> send the template</li></ul>
+              <div class="tplFoot"><span class="need">Needs an approved template</span><a class="btn primary" href="#" data-ask>Use this</a></div>
+            </article>
+            <article class="tpl">
+              <div class="tplHead"><span class="ico deal"><span class="ms sm">handshake</span></span><div><b>Settled: thank the vendor, ask for a review</b><p>A thank-you draft for you to send, then your review request a week later.</p></div></div>
+              <ul><li><b>When</b> a deal settles — the vendor</li><li><b>Then</b> draft a thank-you, wait 7 days, send the review template</li></ul>
+              <div class="tplFoot"><span class="need">Needs an approved template</span><span class="on">1 on</span><a class="btn primary" href="#" data-ask>Use this</a></div>
+            </article>
+            <article class="tpl">
+              <div class="tplHead"><span class="ico match"><span class="ms sm">join_inner</span></span><div><b>Just listed for matching buyers</b><p>A new listing that fits a buyer’s brief: your “Just listed” email, in office hours.</p></div></div>
+              <ul><li><b>When</b> a new listing fits a buyer’s brief</li><li><b>Then</b> wait for office hours, send the template</li></ul>
+              <div class="tplFoot"><span class="need">Needs an approved template</span><a class="btn primary" href="#" data-ask>Use this</a></div>
+            </article>
+            <article class="tpl">
+              <div class="tplHead"><span class="ico past"><span class="ms sm">cake</span></span><div><b>Home anniversary</b><p>A year after we sold their home, the new owners hear from you.</p></div></div>
+              <ul><li><b>When</b> a year after a sale — owners and buyer</li><li><b>Then</b> send the template</li></ul>
+              <div class="tplFoot"><span class="need">Needs an approved template</span><a class="btn primary" href="#" data-ask>Use this</a></div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" style="margin-top:14px">
+        <div class="section"><h2>Workflows</h2><p class="muted" style="margin:4px 0 0">Your 4 workflows, “Waiting for you” and “What can start a workflow” stay below, as today.</p></div>
+      </section>
+    </section>
+
+    <!-- ============ AFTER "USE THIS": THE ASSISTANT, TEXT IN THE BOX ============ -->
+    <section id="ask" hidden>
+      <h1>Assistant</h1>
+      <p class="sub">The library’s words are typed into the box — nothing is sent until you press Send. Change anything first.</p>
+      <div class="composer">
+        <textarea rows="5">Set up an agency-wide workflow: when a deal settles, write a thank-you email draft for me to approve for the vendor, then 7 days later send them our review request template. Ask me which template to use.</textarea>
+        <div class="row between" style="margin-top:8px"><span class="muted">From the Automation Library · “Settled: thank the vendor, ask for a review”</span><button class="btn primary"><span class="ms sm">send</span>Send</button></div>
+      </div>
+      <div class="chat" style="margin-top:16px">
+        <div class="bubble">Which template should go a week later? You have: <b>Review request</b>, <b>Thank you — sale</b>, <b>Market update</b>.</div>
+        <div class="bubble me">Review request</div>
+        <div class="bubble">Here’s the card — it starts after you approve.</div>
+      </div>
+    </section>
+
+    <!-- ============ AN AGENT ============ -->
+    <section id="agent" hidden>
+      <h1>My Skills</h1>
+      <div class="tabs"><span class="tab">Platform skills</span><span class="tab">AI skills</span><span class="tab on">Automations</span></div>
+      <section class="card">
+        <div class="section"><h2>Workflows</h2><p class="muted" style="margin:4px 0 0">No library here: ready-made automations are set up by the agency’s owners and admins. An agent still makes their own by asking the assistant.</p></div>
+      </section>
+    </section>
+  </main>
+</div>
+<script>
+  const show = (s) => {
+    for (const id of ['tab', 'ask', 'agent']) document.getElementById(id).hidden = id !== s;
+    for (const x of document.querySelectorAll('#scr button')) x.setAttribute('aria-pressed', String(x.dataset.s === s));
+  };
+  document.getElementById('scr').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) show(b.dataset.s); });
+  for (const a of document.querySelectorAll('[data-ask]')) a.addEventListener('click', (e) => { e.preventDefault(); show('ask'); });
+</script>
+</body>
+</html>

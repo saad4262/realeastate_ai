@@ -5,10 +5,26 @@ import { z } from 'zod';
  * the same checks the server does.
  */
 
-/** The only merge fields there are. Every value comes from SQL, never a model. */
-export const MERGE_FIELDS = ['first_name', 'full_name', 'agent_name', 'agency_name'] as const;
+/** The merge fields every send fills. Every value comes from SQL, never a model. */
+export const BASE_MERGE_FIELDS = ['first_name', 'full_name', 'agent_name', 'agency_name'] as const;
+/**
+ * Filled only when the batch is prepared from a listing (ADR 0060), from values frozen at Prepare. A
+ * template that uses one cannot be sent anywhere else — it would go out with the braces in it.
+ */
+export const LISTING_MERGE_FIELDS = ['listing_address', 'listing_price', 'listing_link'] as const;
+/** The only merge fields there are. */
+export const MERGE_FIELDS = [...BASE_MERGE_FIELDS, ...LISTING_MERGE_FIELDS] as const;
 export type MergeField = (typeof MERGE_FIELDS)[number];
-export type MergeValues = Record<MergeField, string>;
+export type ListingMergeField = (typeof LISTING_MERGE_FIELDS)[number];
+export type ListingMergeValues = Record<ListingMergeField, string>;
+export type MergeValues = Record<(typeof BASE_MERGE_FIELDS)[number], string> & Partial<ListingMergeValues>;
+
+/** The listing fields these texts use, in field order. Pure. */
+export function listingFieldsUsed(...texts: string[]): ListingMergeField[] {
+  const used = new Set<string>();
+  for (const t of texts) for (const m of t.matchAll(/\{\{\s*([a-z_]+)\s*\}\}/g)) used.add(m[1]!);
+  return LISTING_MERGE_FIELDS.filter((f) => used.has(f));
+}
 
 /** Merge fields a text uses that do not exist — `{{suburb}}`, a typo, a stray brace. */
 export function unknownMergeFields(text: string): string[] {
@@ -22,8 +38,9 @@ export function unknownMergeFields(text: string): string[] {
 }
 
 export function renderMerge(text: string, values: MergeValues): string {
+  // A listing field without a value stays as written; prepare refuses such a template before it gets here.
   return text.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (all, key: string) =>
-    (MERGE_FIELDS as readonly string[]).includes(key) ? values[key as MergeField] : all,
+    (MERGE_FIELDS as readonly string[]).includes(key) ? (values[key as MergeField] ?? all) : all,
   );
 }
 
@@ -35,7 +52,12 @@ const mergeChecked = (max: number, what: string) =>
     .max(max)
     .superRefine((v, ctx) => {
       const bad = unknownMergeFields(v);
-      if (bad.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Unknown merge field: ${bad.join(', ')}. Use ${MERGE_FIELDS.map((f) => `{{${f}}}`).join(', ')}.` });
+      if (bad.length) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Unknown merge field: ${bad.join(', ')}. Use ${BASE_MERGE_FIELDS.map((f) => `{{${f}}}`).join(', ')} — or, for a template sent from a listing, ${LISTING_MERGE_FIELDS.map((f) => `{{${f}}}`).join(', ')}.`,
+        });
+      }
     });
 
 export const templateInputSchema = z.object({

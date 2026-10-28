@@ -39,6 +39,14 @@ describe('normalizeContactRow', () => {
     });
   });
 
+  it('reads the three newer roles (ADR 0061) as an export writes them', () => {
+    const { row: r, errors } = normalizeContactRow(row({ 0: 'Ali', 3: 'ali@example.com', 5: 'Past clients | Referral; prospect' }), m, tz);
+    expect(errors).toEqual([]);
+    expect(r?.roles).toEqual(['past_client', 'referral_partner', 'prospect']);
+    expect(normalizeContactRow(row({ 0: 'Ali', 3: 'a@x.com', 5: 'former client, referral partner' }), m, tz).row?.roles).toEqual(['past_client', 'referral_partner']);
+    expect(normalizeContactRow(row({ 0: 'Ali', 3: 'a@x.com', 5: 'friend' }), m, tz).errors[0]?.message).toMatch(/past client, referral partner/);
+  });
+
   it('a full name wins over first and last', () => {
     expect(normalizeContactRow(row({ 0: 'Dr Sara Khan', 1: 'Sara', 4: '0418 920 441' }), m, tz).row?.name).toBe('Dr Sara Khan');
   });

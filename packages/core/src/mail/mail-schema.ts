@@ -119,3 +119,9 @@ export type ReceivedEmail = z.infer<typeof receivedEmailSchema>;
 
 /** What `mail_message.attachments` holds. */
 export type AttachmentNote = { filename: string; contentType: string | null; size: number | null };
+
+/** The inbox assistant's reply tones (ADR 0062). Pure, so the composer and the server share them. */
+export const REPLY_TONES = ['friendly', 'short', 'formal'] as const;
+export type ReplyTone = (typeof REPLY_TONES)[number];
+export const REPLY_TONE_LABELS: Record<ReplyTone, string> = { friendly: 'Friendly', short: 'Short', formal: 'Formal' };
+export const MAX_REPLY_INSTRUCTION = 500;

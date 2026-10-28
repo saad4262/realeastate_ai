@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Property Page</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300..600,0..1&display=swap" rel="stylesheet" />
+<!--
+  Mock for ROADMAP Phase 2.3 — one property with everything on it (to become ADR 0065).
+  Console tokens (apps/console/app/globals.css). Every address, name, date and price is SAMPLE data.
+  The bar at the top exists only in the mock: owner / agent view, and the AI summary before / after the button.
+  #list opens the Properties list.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff; --surface-container-low: #eff4ff;
+    --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff;
+    --emerald: #059669; --emerald-subtle: #ecfdf5;
+    --rose: #e11d48; --rose-subtle: #fff1f2;
+    --amber: #d97706; --amber-subtle: #fffbeb;
+    --violet: #7c3aed; --violet-subtle: #f5f3ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .ms { font-family: 'Material Symbols Outlined'; font-size: 20px; line-height: 1; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 400; flex: none; }
+  .ms.sm { font-size: 16px; width: 16px; height: 16px; }
+  button, input, select { font: inherit; }
+  [hidden] { display: none !important; }
+  a { color: inherit; }
+
+  .mockbar { position: sticky; top: 0; z-index: 30; display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+  .mockbar b { color: #fff; }
+  .seg { display: inline-flex; background: #1e293b; border-radius: 8px; padding: 2px; flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; }
+
+  .shell { display: flex; min-height: calc(100vh - 36px); }
+  aside { width: 232px; flex: none; border-right: 1px solid var(--border-default); padding: 16px 12px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 16px; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--text-primary); color: #fff; display: grid; place-items: center; font: 700 12px 'Plus Jakarta Sans'; }
+  .brand small { display: block; color: var(--text-muted); font-size: 11px; }
+  .gh { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px 4px; }
+  .nl { display: flex; gap: 12px; align-items: center; padding: 7px 12px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; text-decoration: none; }
+  .nl.on { background: #fff; color: var(--sapphire); border: 1px solid var(--border-default); font-weight: 500; }
+  .new { margin-left: auto; font-size: 10px; font-weight: 700; color: var(--emerald); background: var(--emerald-subtle); padding: 0 6px; border-radius: 999px; }
+
+  main { flex: 1; min-width: 0; padding: 24px 28px 64px; max-width: 1240px; }
+  h1 { font: 600 24px/32px 'Plus Jakarta Sans'; margin: 0; letter-spacing: -.02em; }
+  h2 { font: 600 15px/22px 'Plus Jakarta Sans'; margin: 0; }
+  .sub { color: var(--text-secondary); margin: 4px 0 0; }
+  .muted { color: var(--text-muted); font-size: 12px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .between { justify-content: space-between; }
+  .crumb { color: var(--text-muted); font-size: 12px; margin-bottom: 8px; }
+  .crumb a { text-decoration: none; color: var(--text-secondary); }
+  .btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-default); background: #fff; color: var(--text-primary); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; text-decoration: none; }
+  .btn.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .btn.ai { background: var(--violet); border-color: var(--violet); color: #fff; }
+  .btn:focus-visible, .tab:focus-visible, .chip:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border-default); background: #fff; color: var(--text-secondary); font-size: 11.5px; font-weight: 500; white-space: nowrap; }
+  .pill.blue { border-color: #bfdbfe; background: var(--sapphire-subtle); color: var(--sapphire); }
+  .pill.green { border-color: #a7f3d0; background: var(--emerald-subtle); color: var(--emerald); }
+  .pill.amber { border-color: #fde68a; background: var(--amber-subtle); color: var(--amber); }
+  .pill.violet { border-color: #ddd6fe; background: var(--violet-subtle); color: var(--violet); }
+
+  /* Header */
+  .hero { display: grid; grid-template-columns: 168px minmax(0, 1fr) auto; gap: 18px; align-items: start; background: #fff; border: 1px solid var(--border-default); border-radius: 14px; padding: 14px; }
+  .photo { height: 112px; border-radius: 10px; background: linear-gradient(135deg, #cbd5e1, #e2e8f0); display: grid; place-items: center; color: var(--text-muted); }
+  .facts { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; color: var(--text-secondary); font-size: 13px; }
+  .facts span { display: inline-flex; gap: 4px; align-items: center; }
+  .heroActions { display: grid; gap: 8px; justify-items: end; }
+
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border-default); margin: 18px 0 16px; overflow-x: auto; }
+  .tab { border: 0; background: none; padding: 9px 12px; color: var(--text-secondary); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; font-weight: 500; }
+  .tab[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--text-primary); }
+  .tab small { color: var(--text-muted); font-weight: 500; margin-left: 4px; }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+  .stack { display: grid; gap: 14px; }
+  .panel { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; padding: 14px; }
+  .panelHead { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; }
+
+  /* AI summary */
+  .ai { border-color: #ddd6fe; background: linear-gradient(180deg, #faf8ff, #fff 60%); }
+  .ai ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+  .cite { display: inline-flex; align-items: center; margin-left: 4px; padding: 0 6px; border-radius: 6px; background: var(--violet-subtle); color: var(--violet); font-size: 11px; text-decoration: none; }
+  .aiFoot { display: flex; gap: 8px; align-items: center; margin-top: 10px; color: var(--text-muted); font-size: 11.5px; }
+
+  /* Stage strip */
+  .stepper { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+  .step { color: var(--text-muted); font-size: 11px; text-align: center; }
+  .step i { display: block; height: 6px; margin-bottom: 6px; border-radius: 999px; background: #e2e8f0; }
+  .step.done { color: var(--text-secondary); } .step.done i { background: var(--emerald); }
+  .step.now { color: var(--sapphire); font-weight: 600; } .step.now i { background: var(--sapphire); }
+  .dl { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: 6px 12px; margin: 12px 0 0; font-size: 13px; }
+  .dl dt { color: var(--text-muted); } .dl dd { margin: 0; }
+
+  /* Lists */
+  .people { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+  .people li { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 0; border-top: 1px solid var(--border-default); }
+  .people li:first-child { border-top: 0; }
+  .av { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: #e2e8f0; color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+  .people b { font-weight: 500; }
+
+  .tl { margin: 0; padding: 0; list-style: none; display: grid; gap: 0; }
+  .tl li { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border-default); }
+  .tl li:first-child { border-top: 0; }
+  .ico { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: #f1f5f9; color: var(--text-secondary); }
+  .ico.offer { background: var(--amber-subtle); color: var(--amber); }
+  .ico.enq { background: var(--sapphire-subtle); color: var(--sapphire); }
+  .ico.appr { background: var(--violet-subtle); color: var(--violet); }
+  .ico.sold { background: var(--emerald-subtle); color: var(--emerald); }
+  .tl b { font-weight: 500; }
+  .tl p { margin: 2px 0 0; color: var(--text-secondary); font-size: 12.5px; }
+
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { border: 1px solid var(--border-default); background: #fff; border-radius: 999px; padding: 4px 11px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border-default); }
+  th { background: var(--surface-canvas); color: var(--text-muted); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+  tr:last-child td { border-bottom: 0; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tableWrap { overflow-x: auto; border: 1px solid var(--border-default); border-radius: 12px; background: #fff; }
+
+  .note { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; border: 1px solid #dbeafe; background: var(--surface-container-low); color: var(--text-secondary); font-size: 12.5px; }
+  .search { display: flex; gap: 8px; align-items: center; padding: 7px 10px; border: 1px solid var(--border-default); background: #fff; border-radius: 8px; min-width: 260px; color: var(--text-muted); }
+
+  @media (max-width: 900px) {
+    aside { display: none; }
+    main { padding: 16px; }
+    .grid { grid-template-columns: 1fr; }
+    .hero { grid-template-columns: 1fr; }
+    .heroActions { justify-items: start; }
+    .stepper { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>Mock · 2.3 Property page</b>
+  <span>View</span>
+  <div class="seg" id="viewSeg"><button aria-pressed="true" data-v="owner">Owner / admin</button><button aria-pressed="false" data-v="agent">Agent (Omar)</button></div>
+  <span>AI summary</span>
+  <div class="seg" id="aiSeg"><button aria-pressed="true" data-a="before">Before the button</button><button aria-pressed="false" data-a="after">After</button></div>
+  <span>Screen</span>
+  <div class="seg" id="scrSeg"><button aria-pressed="true" data-s="page">Property</button><button aria-pressed="false" data-s="list">Properties list</button></div>
+</div>
+
+<div class="shell">
+  <aside>
+    <div class="brand"><div class="logo">LA</div><div><b>Ray White Pakenham</b><small>Agency console</small></div></div>
+    <div class="gh">Home</div>
+    <a class="nl"><span class="ms">space_dashboard</span>Overview</a>
+    <a class="nl"><span class="ms">inbox</span>Inbox</a>
+    <div class="gh">People</div>
+    <a class="nl"><span class="ms">group</span>Contacts</a>
+    <a class="nl"><span class="ms">person_search</span>Leads</a>
+    <div class="gh">Properties</div>
+    <a class="nl on" href="#list"><span class="ms">home_work</span>Properties<span class="new">NEW</span></a>
+    <a class="nl"><span class="ms">real_estate_agent</span>Listings</a>
+    <a class="nl"><span class="ms">view_kanban</span>Pipeline</a>
+    <div class="gh">Money</div>
+    <a class="nl"><span class="ms">payments</span>Finance</a>
+    <div class="gh">Automation</div>
+    <a class="nl"><span class="ms">toggle_on</span>Skills</a>
+  </aside>
+
+  <main>
+    <!-- ============ THE PROPERTY ============ -->
+    <section id="page">
+      <div class="crumb"><a href="#list">Properties</a> / 12/1A Rogers Street</div>
+      <div class="hero">
+        <div class="photo"><span class="ms">image</span></div>
+        <div>
+          <div class="row"><h1>12/1A Rogers Street, Pakenham VIC 3810</h1></div>
+          <div class="facts">
+            <span><span class="ms sm">home</span>Townhouse</span>
+            <span><span class="ms sm">bed</span>3</span>
+            <span><span class="ms sm">bathtub</span>2</span>
+            <span><span class="ms sm">directions_car</span>2</span>
+            <span><span class="ms sm">square_foot</span>312 m² land</span>
+            <span><span class="ms sm">calendar_month</span>Built 2014</span>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <span class="pill blue"><span class="ms sm">view_kanban</span>Deal · Negotiation</span>
+            <span class="pill amber"><span class="ms sm">sell</span>Listing · Under offer</span>
+            <span class="pill">Lead agent · Omar Khan</span>
+          </div>
+        </div>
+        <div class="heroActions">
+          <a class="btn primary" href="#"><span class="ms sm">edit</span>Open the listing</a>
+          <a class="btn" href="#"><span class="ms sm">open_in_new</span>Public page</a>
+        </div>
+      </div>
+
+      <div class="tabs" role="tablist" id="tabs">
+        <button class="tab" role="tab" aria-selected="true" data-t="overview">Overview</button>
+        <button class="tab" role="tab" aria-selected="false" data-t="people">People<small>4</small></button>
+        <button class="tab" role="tab" aria-selected="false" data-t="enq">Enquiries &amp; offers<small class="cnt-enq">9</small></button>
+        <button class="tab" role="tab" aria-selected="false" data-t="appr">Appraisals &amp; visits<small>3</small></button>
+        <button class="tab" role="tab" aria-selected="false" data-t="docs">Documents<small>5</small></button>
+        <button class="tab" role="tab" aria-selected="false" data-t="history">History<small>2</small></button>
+      </div>
+
+      <!-- Overview -->
+      <div data-panel="overview" class="grid">
+        <div class="stack">
+          <section class="panel ai" aria-labelledby="ai-h">
+            <div class="panelHead">
+              <h2 id="ai-h"><span class="ms sm" style="color:var(--violet)">auto_awesome</span> Summary</h2>
+              <span class="muted aiAfter" hidden>Made just now · from 21 records you can see</span>
+            </div>
+            <div class="aiBefore">
+              <p class="sub" style="margin:0 0 10px">The assistant reads everything on this page that you may see and writes a short summary. Every point links to the record it came from; a figure that is not in a record is not written.</p>
+              <button class="btn ai" id="aiBtn"><span class="ms sm">auto_awesome</span>Summarise this property</button>
+            </div>
+            <div class="aiAfter" hidden>
+              <ul>
+                <li>Vendors <b>Priya and Daniel Mehta</b> listed it with us on 2 Sep after an appraisal on 18 Aug. <a class="cite" href="#">Appraisal 18 Aug</a></li>
+                <li class="ownerOnly">Campaign has had <b>7 enquiries</b> and <b>2 private offers</b>; the higher offer is <b>$742,000</b> from Hannah Lee. <a class="cite" href="#">Offer 21 Oct</a></li>
+                <li class="agentOnly" hidden>Campaign has had <b>7 enquiries</b> and one open home with 6 groups. <a class="cite" href="#">Enquiries</a></li>
+                <li class="ownerOnly">Hannah Lee’s finance is pre-approved; her offer is subject to building &amp; pest. <a class="cite" href="#">Note 22 Oct</a></li>
+                <li>The deal is at <b>Negotiation</b>; nothing is under contract yet. <a class="cite" href="#">Deal</a></li>
+                <li>Last sold <b>14 Mar 2019 for $585,000</b> (our sale). <a class="cite" href="#">History</a></li>
+                <li>Next: a second private inspection with Ravi Patel on Thu 30 Oct, 4:30 pm. <a class="cite" href="#">Appointment</a></li>
+              </ul>
+              <div class="aiFoot"><span class="ms sm">verified</span>Figures checked against the records · not saved · <button class="btn" style="padding:3px 8px;font-size:12px">Redo</button></div>
+            </div>
+          </section>
+
+          <section class="panel" aria-labelledby="act-h">
+            <div class="panelHead"><h2 id="act-h">What has happened</h2><span class="muted">newest first · everything at this address</span></div>
+            <ul class="tl">
+              <li class="ownerOnly"><span class="ico offer"><span class="ms sm">request_quote</span></span><div><b>Private offer · $742,000</b> <span class="muted">Hannah Lee</span><p>Subject to building &amp; pest, 30-day settlement.</p></div><span class="muted">21 Oct</span></li>
+              <li><span class="ico"><span class="ms sm">swap_horiz</span></span><div><b>Deal moved to Negotiation</b> <span class="muted">automatic</span><p>The listing was marked Under offer.</p></div><span class="muted">21 Oct</span></li>
+              <li class="ownerOnly"><span class="ico offer"><span class="ms sm">request_quote</span></span><div><b>Private offer · $715,000</b> <span class="muted">Ravi Patel</span></div><span class="muted">17 Oct</span></li>
+              <li><span class="ico appr"><span class="ms sm">event</span></span><div><b>Open home · 6 groups</b></div><span class="muted">11 Oct</span></li>
+              <li><span class="ico enq"><span class="ms sm">mail</span></span><div><b>Enquiry</b> <span class="muted">Mia Chen</span><p>“Is the body corporate fee quarterly?”</p></div><span class="muted">9 Oct</span></li>
+              <li class="ownerOnly"><span class="ico"><span class="ms sm">description</span></span><div><b>Contract of sale uploaded</b> <span class="muted">Sarah Nguyen</span></div><span class="muted">4 Sep</span></li>
+              <li><span class="ico sold"><span class="ms sm">rocket_launch</span></span><div><b>Listing went live</b><p>For sale · $700,000 – $750,000</p></div><span class="muted">2 Sep</span></li>
+            </ul>
+            <button class="btn" style="margin-top:6px">Show older (14)</button>
+          </section>
+        </div>
+
+        <div class="stack">
+          <section class="panel" aria-labelledby="deal-h">
+            <div class="panelHead"><h2 id="deal-h">Pipeline</h2><a class="btn" href="#" style="padding:4px 9px;font-size:12px">Open Deal tab</a></div>
+            <div class="stepper">
+              <div class="step done"><i></i>Appraisal</div><div class="step done"><i></i>Listing</div><div class="step done"><i></i>Marketing</div>
+              <div class="step done"><i></i>Offers</div><div class="step now"><i></i>Negotiation</div><div class="step"><i></i>Contract</div><div class="step"><i></i>Settlement</div>
+            </div>
+            <dl class="dl">
+              <dt>Asking</dt><dd>$700,000 – $750,000</dd>
+              <dt class="ownerOnly">Highest offer</dt><dd class="ownerOnly">$742,000 · 2 offers</dd>
+              <dt>Days on market</dt><dd>55</dd>
+              <dt class="ownerOnly">Commission</dt><dd class="ownerOnly">2.2% · set (Finance)</dd>
+            </dl>
+          </section>
+
+          <section class="panel" aria-labelledby="ppl-h">
+            <div class="panelHead"><h2 id="ppl-h">People</h2><button class="btn" style="padding:4px 9px;font-size:12px"><span class="ms sm">add</span>Link someone</button></div>
+            <ul class="people">
+              <li><span class="av">PM</span><div><b>Priya Mehta</b><div class="muted">Owner · Vendor</div></div><span class="pill green">Vendor</span></li>
+              <li><span class="av">DM</span><div><b>Daniel Mehta</b><div class="muted">Owner · Vendor</div></div><span class="pill green">Vendor</span></li>
+              <li class="ownerOnly"><span class="av">HL</span><div><b>Hannah Lee</b><div class="muted">Offered $742,000 · 21 Oct</div></div><span class="pill amber">Offer</span></li>
+              <li><span class="av">RP</span><div><b>Ravi Patel</b><div class="muted"><span class="ownerOnly">Offered $715,000 · </span>visit Thu</div></div><span class="pill">Interested</span></li>
+            </ul>
+          </section>
+
+          <section class="panel" aria-labelledby="doc-h">
+            <div class="panelHead"><h2 id="doc-h">Documents</h2><span class="muted">5</span></div>
+            <ul class="people">
+              <li><span class="av"><span class="ms sm">picture_as_pdf</span></span><div><b>Section 32 statement</b><div class="muted">Listing · 2 Sep</div></div><span class="pill">Disclosure</span></li>
+              <li class="ownerOnly"><span class="av"><span class="ms sm">picture_as_pdf</span></span><div><b>Contract of sale (draft)</b><div class="muted">Private · Sarah Nguyen</div></div><span class="pill">Contract</span></li>
+              <li><span class="av"><span class="ms sm">picture_as_pdf</span></span><div><b>Appraisal report</b><div class="muted">18 Aug</div></div><span class="pill">Appraisal</span></li>
+            </ul>
+          </section>
+        </div>
+      </div>
+
+      <!-- People -->
+      <div data-panel="people" hidden>
+        <div class="tableWrap">
+          <table>
+            <thead><tr><th>Person</th><th>To this property</th><th>Where it comes from</th><th>Phone / email</th></tr></thead>
+            <tbody>
+              <tr><td><b>Priya Mehta</b></td><td><span class="pill green">Owner</span> <span class="pill green">Vendor</span></td><td class="muted">Linked by Sarah · the deal’s vendor</td><td>0412 555 018</td></tr>
+              <tr><td><b>Daniel Mehta</b></td><td><span class="pill green">Owner</span> <span class="pill green">Vendor</span></td><td class="muted">Linked by Sarah</td><td>daniel.m@example.com</td></tr>
+              <tr class="ownerOnly"><td><b>Hannah Lee</b></td><td><span class="pill amber">Made an offer</span></td><td class="muted">Offer 21 Oct</td><td>hannah@example.com</td></tr>
+              <tr><td><b>Ravi Patel</b></td><td><span class="pill amber ownerOnly">Made an offer</span> <span class="pill">Interested</span></td><td class="muted"><span class="ownerOnly">Offer 17 Oct · </span>inspection 3 Oct</td><td>0433 555 207</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note" style="margin-top:12px"><span class="ms sm">info</span><span>Owners, vendors, landlords and tenants come from the contact’s <b>Properties</b> link and the deal; anyone who enquired or made an offer comes from their enquiry. A person you may not open is not listed.</span></p>
+      </div>
+
+      <!-- Enquiries & offers -->
+      <div data-panel="enq" hidden>
+        <div class="row between" style="margin-bottom:10px">
+          <div class="chips"><button class="chip" aria-pressed="true">All</button><button class="chip ownerOnly" aria-pressed="false">Offers</button><button class="chip" aria-pressed="false">Enquiries</button><button class="chip" aria-pressed="false">Inspections</button></div>
+          <span class="muted">This campaign and earlier ones</span>
+        </div>
+        <div class="tableWrap">
+          <table>
+            <thead><tr><th>When</th><th>Who</th><th>Kind</th><th>Message</th><th class="num">Offer</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr class="ownerOnly"><td>21 Oct</td><td>Hannah Lee</td><td><span class="pill amber">Offer</span></td><td class="muted">Subject to building &amp; pest…</td><td class="num offerAmt">$742,000</td><td>Contacted</td></tr>
+              <tr class="ownerOnly"><td>17 Oct</td><td>Ravi Patel</td><td><span class="pill amber">Offer</span></td><td class="muted">Can settle in 60 days</td><td class="num offerAmt">$715,000</td><td>Contacted</td></tr>
+              <tr><td>9 Oct</td><td>Mia Chen</td><td><span class="pill blue">Enquiry</span></td><td class="muted">Is the body corporate fee quarterly?</td><td class="num">—</td><td>Closed</td></tr>
+              <tr><td>3 Oct</td><td>Ravi Patel</td><td><span class="pill">Inspection</span></td><td class="muted">Saturday open home</td><td class="num">—</td><td>Qualified</td></tr>
+              <tr class="ownerOnly"><td>14 Jan 2019</td><td>Tom Briggs</td><td><span class="pill blue">Enquiry</span></td><td class="muted">2019 campaign</td><td class="num">—</td><td>Closed</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note agentOnly" style="margin-top:12px" hidden><span class="ms sm">lock</span><span>You see the enquiries on listings you are named on and the ones assigned to you — the same as your Leads page. Private offers stay with owners and admins, as they do everywhere else.</span></p>
+      </div>
+
+      <!-- Appraisals -->
+      <div data-panel="appr" hidden>
+        <div class="tableWrap">
+          <table>
+            <thead><tr><th>When</th><th>What</th><th>With</th><th>Agent</th><th>Outcome</th></tr></thead>
+            <tbody>
+              <tr><td>Thu 30 Oct, 4:30 pm</td><td><span class="pill">Private inspection</span></td><td>Ravi Patel</td><td>Omar Khan</td><td class="muted">Scheduled</td></tr>
+              <tr><td>11 Oct</td><td><span class="pill">Open home</span></td><td>6 groups</td><td>Omar Khan</td><td class="muted">Done</td></tr>
+              <tr><td>18 Aug</td><td><span class="pill violet">Appraisal</span></td><td>Priya Mehta</td><td>Sarah Nguyen</td><td>“Happy with $700–750k; wants to list in Sept.”</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Documents -->
+      <div data-panel="docs" hidden>
+        <div class="tableWrap">
+          <table>
+            <thead><tr><th>Document</th><th>Kind</th><th>On</th><th>Added</th></tr></thead>
+            <tbody>
+              <tr><td>Section 32 statement.pdf</td><td>Disclosure</td><td>The listing</td><td>2 Sep · Sarah</td></tr>
+              <tr class="ownerOnly"><td>Contract of sale (draft).pdf <span class="pill">Private</span></td><td>Contract</td><td>The listing</td><td>4 Sep · Sarah</td></tr>
+              <tr><td>Appraisal report.pdf</td><td>Appraisal</td><td>Priya Mehta</td><td>18 Aug · Sarah</td></tr>
+              <tr><td>Floorplan.pdf</td><td>Plan</td><td>The listing</td><td>2 Sep · Omar</td></tr>
+              <tr><td>Body corporate minutes.pdf</td><td>Other</td><td>The listing</td><td>5 Sep · Omar</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note" style="margin-top:12px"><span class="ms sm">info</span><span>Documents on this address’s listings and on its owners’ records. Upload stays where it is today — the listing’s Documents tab or the contact.</span></p>
+      </div>
+
+      <!-- History -->
+      <div data-panel="history" hidden>
+        <div class="tableWrap">
+          <table>
+            <thead><tr><th>Campaign</th><th>Channel</th><th>Status</th><th class="num">Price</th><th>Agent</th></tr></thead>
+            <tbody>
+              <tr><td>2 Sep 2026 – now</td><td>Sale</td><td><span class="pill amber">Under offer</span></td><td class="num">$700,000 – $750,000</td><td>Omar Khan</td></tr>
+              <tr><td>Jan – Mar 2019</td><td>Sale</td><td><span class="pill green">Sold 14 Mar 2019</span></td><td class="num">$585,000</td><td>Sarah Nguyen</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note" style="margin-top:12px"><span class="ms sm">info</span><span>Our agency’s campaigns at this address. Prices are what was entered on each listing — nothing is estimated.</span></p>
+      </div>
+    </section>
+
+    <!-- ============ THE LIST ============ -->
+    <section id="list" hidden>
+      <div class="row between">
+        <div><h1>Properties</h1><p class="sub">Every address the agency has a record of — a listing, an enquiry, an appraisal, an owner or a deal.</p></div>
+        <div class="search"><span class="ms sm">search</span>Search an address or suburb</div>
+      </div>
+      <div class="chips" style="margin:14px 0">
+        <button class="chip" aria-pressed="true">All</button><button class="chip" aria-pressed="false">Listed now</button><button class="chip" aria-pressed="false">In the pipeline</button><button class="chip" aria-pressed="false">Appraised, not listed</button><button class="chip" aria-pressed="false">Sold by us</button>
+      </div>
+      <div class="tableWrap">
+        <table>
+          <thead><tr><th>Address</th><th>Type</th><th>Now</th><th>Owner</th><th class="num">Enquiries</th><th>Last activity</th></tr></thead>
+          <tbody>
+            <tr><td><a href="#" class="openP"><b>12/1A Rogers Street, Pakenham</b></a></td><td>Townhouse · 3 bed</td><td><span class="pill blue">Negotiation</span></td><td>Priya Mehta</td><td class="num">9</td><td>Offer · 21 Oct</td></tr>
+            <tr><td><a href="#" class="openP"><b>8 Henry Road, Pakenham</b></a></td><td>House · 4 bed</td><td><span class="pill blue">Marketing</span></td><td>Lucy Ward</td><td class="num">14</td><td>Enquiry · 26 Oct</td></tr>
+            <tr><td><a href="#" class="openP"><b>3 Lakeside Boulevard, Officer</b></a></td><td>House · 4 bed</td><td><span class="pill violet">Appraisal</span></td><td>Ahmed Raza</td><td class="num">0</td><td>Appraisal · 20 Oct</td></tr>
+            <tr class="ownerOnly"><td><a href="#" class="openP"><b>27 Station Street, Beaconsfield</b></a></td><td>Unit · 2 bed</td><td><span class="pill green">Settled</span></td><td>—</td><td class="num">6</td><td>Settled · 2 Oct</td></tr>
+            <tr><td><a href="#" class="openP"><b>45 Princes Highway, Pakenham</b></a></td><td>House · 3 bed</td><td><span class="pill">Owner only</span></td><td>Gary Lim</td><td class="num">0</td><td>Linked · 12 Sep</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note agentOnly" style="margin-top:12px" hidden><span class="ms sm">lock</span><span>Your properties: the ones on your listings, your deals, your appraisals and your contacts.</span></p>
+    </section>
+  </main>
+</div>
+
+<script>
+  const $ = (s) => document.querySelectorAll(s);
+  let view = 'owner';
+  function seg(id, attr, cb) {
+    document.getElementById(id).addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      for (const x of document.getElementById(id).querySelectorAll('button')) x.setAttribute('aria-pressed', String(x === b));
+      cb(b.dataset[attr]);
+    });
+  }
+  function applyView() {
+    for (const el of $('.ownerOnly')) el.hidden = view !== 'owner';
+    for (const el of $('.agentOnly')) el.hidden = view !== 'agent';
+    document.querySelector('.cnt-enq').textContent = view === 'owner' ? '9' : '6';
+  }
+  function setAi(a) {
+    for (const el of $('.aiBefore')) el.hidden = a === 'after';
+    for (const el of $('.aiAfter')) el.hidden = a !== 'after';
+    for (const b of document.querySelectorAll('#aiSeg button')) b.setAttribute('aria-pressed', String(b.dataset.a === a));
+  }
+  function setScreen(s) {
+    document.getElementById('page').hidden = s !== 'page';
+    document.getElementById('list').hidden = s !== 'list';
+    for (const b of document.querySelectorAll('#scrSeg button')) b.setAttribute('aria-pressed', String(b.dataset.s === s));
+  }
+  seg('viewSeg', 'v', (v) => { view = v; applyView(); });
+  seg('aiSeg', 'a', setAi);
+  seg('scrSeg', 's', setScreen);
+  document.getElementById('aiBtn').addEventListener('click', () => setAi('after'));
+  document.getElementById('tabs').addEventListener('click', (e) => {
+    const t = e.target.closest('.tab'); if (!t) return;
+    for (const x of $('.tab')) x.setAttribute('aria-selected', String(x === t));
+    for (const p of $('[data-panel]')) p.hidden = p.dataset.panel !== t.dataset.t;
+  });
+  for (const a of $('.openP')) a.addEventListener('click', (e) => { e.preventDefault(); setScreen('page'); });
+  for (const a of $('a[href="#list"]')) a.addEventListener('click', (e) => { e.preventDefault(); setScreen('list'); });
+  if (location.hash === '#list') setScreen('list');
+  applyView();
+</script>
+</body>
+</html>

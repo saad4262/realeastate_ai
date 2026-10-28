@@ -99,6 +99,22 @@ export async function prepareBatchAction(templateId: string, filterId: string): 
 }
 
 /**
+ * ADR 0060: the buyers picked on a listing's Matching buyers tab, with a template — prepared as a batch
+ * that carries the listing's merge values. The same prepareBatch: consent, the opt-out and the limits all
+ * hold, and nothing is sent until Approve & Send on the batch page this returns.
+ */
+export async function prepareListingBatchAction(listingId: string, templateId: string, contactIds: string[]): Promise<TemplateEmailResult> {
+  const who = await actor();
+  const off = await bulkEmailOff(who);
+  if (off) return off;
+  if (!Array.isArray(contactIds) || contactIds.some((id) => typeof id !== 'string')) return { ok: false, error: 'Pick the buyers to email.' };
+  return run(
+    async () => ({ ok: true, id: (await prepareBatch(getConsoleDb(), who, { templateId: String(templateId), contactIds, listingId: String(listingId) }, emailLimitsFromEnv())).id }),
+    'Could not prepare the email',
+  );
+}
+
+/**
  * Approve & Send. The claim happens here, once; the sending runs after the
  * response so the page can show progress. A second click finds the batch
  * already claimed and starts nothing new.

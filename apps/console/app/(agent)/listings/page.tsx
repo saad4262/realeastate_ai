@@ -6,6 +6,7 @@ import {
   type ListingPage,
 } from '@repo/core/listings';
 import { Suspense } from 'react';
+import { matchingBuyerCounts } from '@repo/core/buyer-matching';
 import { ListingTable } from '@/components/listing-table';
 import { UpcomingMeetings } from '@/components/appointments/upcoming-meetings';
 import { getConsoleDb } from '../../../lib/db';
@@ -43,6 +44,14 @@ export default async function AgentListingsPage({
     );
   }
 
+  // ADR 0060: buyers whose brief fits each listing, among the contacts this agent may read — one statement.
+  let buyerCounts: Record<string, number> = {};
+  try {
+    buyerCounts = await matchingBuyerCounts(getConsoleDb(), session.actor, result.rows.map((r) => r.id));
+  } catch (err) {
+    console.error('[listings] buyer counts unavailable', err instanceof Error ? err.message : err);
+  }
+
   // Decided by can(), not by looking at the role here — non-negotiable #2.
   // On this surface it is normally false: deleting is an agency-admin act, and
   // an admin who wants to do it has the agency console.
@@ -75,6 +84,7 @@ export default async function AgentListingsPage({
       page={page}
       pageSize={CONSOLE_PAGE_SIZE}
       basePath="/listings"
+      buyerCounts={buyerCounts}
       rows={result.rows.map((r) => ({
         ...r,
         createdAt: r.createdAt.toISOString(),

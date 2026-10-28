@@ -117,6 +117,7 @@ export function ListingTable({
   page,
   pageSize,
   basePath,
+  buyerCounts,
 }: {
   rows: Row[];
   title: string;
@@ -153,6 +154,11 @@ export function ListingTable({
   pageSize: number;
   /** Where the pager's links point — the two surfaces mount listings differently. */
   basePath: string;
+  /**
+   * ADR 0060: how many buyers' briefs fit each listing on this page, counted by core in ONE statement
+   * over the contacts this person may read. Absent: the column is not drawn.
+   */
+  buyerCounts?: Record<string, number>;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -468,6 +474,7 @@ export function ListingTable({
                 <th>Price</th>
                 <th>Agents</th>
                 <th>Status</th>
+                {buyerCounts ? <th>Buyers</th> : null}
                 <th>Actions</th>
               </tr>
             </thead>
@@ -504,6 +511,26 @@ export function ListingTable({
                         {STATUS_LABEL[row.status]}
                       </span>
                     </td>
+                    {buyerCounts ? (
+                      <td>
+                        {buyerCounts[row.id] ? (
+                          <Link
+                            href={`${editHrefBase}/${row.id}/edit?tab=buyers`}
+                            className={styles.buyersChip}
+                            aria-label={`${buyerCounts[row.id]} matching buyers`}
+                          >
+                            <span className={styles.glyphSm} aria-hidden>
+                              person_search
+                            </span>
+                            {buyerCounts[row.id]}
+                          </Link>
+                        ) : (
+                          <span className={styles.buyersNone} aria-label="No matching buyers">
+                            0
+                          </span>
+                        )}
+                      </td>
+                    ) : null}
                     <td>
                       <div className={styles.actions}>
                         {row.status === 'live' || row.status === 'under_offer' ? (

@@ -1,10 +1,6 @@
-import { AgencyPlaceholder } from '../_placeholder';
+import { FinancePage, financeParams } from '@/components/deals/finance-page';
 
-export default function FinancePage() {
-  return (
-    <AgencyPlaceholder
-      title="Finance & Trust"
-      blurb="Trust accounting, commissions, and statutory ledgers — UI mock placeholder."
-    />
-  );
+/** Finance — commission earned, expected and paid out (ADR 0064). Shared by both consoles; the period and grouping are in the URL. */
+export default async function Page({ searchParams }: { searchParams: Promise<{ period?: string; by?: string }> }) {
+  return <FinancePage surface="agency" {...financeParams(await searchParams)} />;
 }
