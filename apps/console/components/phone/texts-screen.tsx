@@ -106,7 +106,9 @@ export async function TextsScreen({ surface, searchParams }: { surface: 'agency'
                     {m.body}
                     <span className={styles.bubbleMeta}>
                       {m.at.toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
-                      {m.direction === 'out' ? ` · ${m.byName ?? 'sent'} · ${m.status === 'failed' || m.status === 'undelivered' ? `not delivered${m.error ? `: ${m.error}` : ''}` : m.status}` : ''}
+                      {m.direction === 'out'
+                        ? ` · ${m.kind === 'missed_call_text' ? 'Automatic missed-call text' : (m.byName ?? 'sent')} · ${m.status === 'failed' || m.status === 'undelivered' ? `not delivered${m.error ? `: ${m.error}` : ''}` : m.status}`
+                        : ''}
                     </span>
                   </div>
                 ))}

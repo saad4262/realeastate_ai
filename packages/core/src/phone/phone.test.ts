@@ -25,6 +25,8 @@ describe('Australian numbers (ADR 0070)', () => {
     expect(isAuMobile('+61412345678')).toBe(true);
     expect(isAuMobile('+61395551234')).toBe(false);
     expect(displayAu('+61480999888')).toBe('0480 999 888');
+    expect(displayAu('+61395551234')).toBe('(03) 9555 1234');
+    expect(displayAu('+442079460958')).toBe('+442079460958');
   });
 
   it('gives the no-reply forwarding code to the agent’s Twilio number, and the code to stop it', () => {

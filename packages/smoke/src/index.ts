@@ -7223,6 +7223,8 @@ async function main() {
       const a2 = f.actor('a2');
       const deps: PhoneDeps = { keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test' };
       await t.execute(sql`update "user" set phone = '0412 111 222' where id = ${f.people.a1}`);
+      // The fixture switches every skill on; here nobody has switched on Missed call text (ADR 0071).
+      await t.execute(sql`delete from skill_switch where agency_id = ${f.agencyId} and skill_key = 'missed_call_text'`);
 
       // Connect: only an owner or admin; the secret is stored encrypted.
       const refused = await connectTwilio(t, a1, { accountSid: '', apiKeySid: '', apiKeySecret: '' }, deps).catch((e: unknown) => e);

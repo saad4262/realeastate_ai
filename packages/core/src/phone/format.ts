@@ -19,11 +19,13 @@ export function isAuMobile(e164: string | null | undefined): boolean {
   return Boolean(e164 && /^\+614\d{8}$/.test(e164));
 }
 
-/** "+61480999888" → "0480 999 888" (mobiles); anything else unchanged. */
+/** "+61480999888" → "0480 999 888", "+61395551234" → "(03) 9555 1234"; anything else unchanged. */
 export function displayAu(e164: string | null | undefined): string {
   if (!e164) return '';
   const m = /^\+614(\d{2})(\d{3})(\d{3})$/.exec(e164);
-  return m ? `04${m[1]} ${m[2]} ${m[3]}` : e164;
+  if (m) return `04${m[1]} ${m[2]} ${m[3]}`;
+  const l = /^\+61([2378])(\d{4})(\d{4})$/.exec(e164);
+  return l ? `(0${l[1]}) ${l[2]} ${l[3]}` : e164;
 }
 
 export const CARRIERS = ['telstra', 'optus', 'vodafone', 'other'] as const;
