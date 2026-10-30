@@ -45,7 +45,7 @@ export function stateKey(keys: TokenKeys): Buffer {
 }
 
 /** `twilio_api_secret`: an agency's own Twilio API key secret on `phone_account` (ADR 0070). */
-export type TokenSlot = { rowId: string; column: 'access_token' | 'refresh_token' | 'twilio_api_secret' };
+export type TokenSlot = { rowId: string; column: 'access_token' | 'refresh_token' | 'twilio_api_secret' | 'sip_password' };
 
 const aad = (slot: TokenSlot) => Buffer.from(`${slot.rowId}:${slot.column}`, 'utf8');
 

@@ -254,7 +254,12 @@ import {
   saveMissedCallSettings,
   getPhoneSetup,
   getSmsConversation,
+  handleRetellWebhook,
   handleTwilioWebhook,
+  retellWebhookToken,
+  runDueAiCallbacks,
+  setUpAiCalls,
+  stubVoiceAi,
   listSmsConversations,
   PhoneError,
   refreshCallerId,
@@ -7366,6 +7371,68 @@ async function main() {
       const d = await getMissedCall(t, owner, id);
       assert(d.handledAt && d.text?.body.startsWith('Hi there') && d.canHandle, `detail: ${JSON.stringify({ h: d.handledAt, t: d.text?.body })}`);
       return 'off → kept, "They’ll get back to you soon", no text; agent can’t save settings; {{price}} refused; agency only → no text; both → "Hi there, a1 here…" sent; same caller again / landline → not texted; A2 sees none, owner 5; A2 can’t mark handled, A1 can';
+    }),
+  );
+
+  await check('AI call back (ADR 0072): scheduled only with both switches and a ready number, placed when due, checked again; Retell’s summary lands labelled', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const a1 = f.actor('a1');
+      const voice = stubVoiceAi();
+      const deps: PhoneDeps = { keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test' };
+      await connectTwilio(t, owner, { accountSid: '', apiKeySid: '', apiKeySecret: '' }, deps);
+      const n = await getNumberForAgent(t, owner, f.people.a1, deps);
+      const token = webhookToken(n.id, testKeys);
+      // A known caller: P6 has this mobile, so the summary can land on their contact.
+      await t.execute(sql`update contact set phone = '0400 777 888' where id = ${f.contacts.p6}`);
+      const missed = (sid: string, from: string) =>
+        handleTwilioWebhook({ db: () => t, token, kind: 'voice', params: { CallSid: sid, From: from }, keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test', voice });
+      const aiOf = async (sid: string) => (await t.execute<{ id: string; ai_status: string | null; ai_reason: string | null; ai_due_at: Date | null; ai_call_id: string | null }>(sql`select id, ai_status, ai_reason, ai_due_at, ai_call_id from phone_call where call_sid = ${sid}`))[0]!;
+
+      // Not set up: the fixture has every skill on, but the number is not registered with Retell.
+      await missed(`CAnr${f.tag}`, '+61400777000');
+      assert((await aiOf(`CAnr${f.tag}`)).ai_reason === 'not_ready', 'scheduled before the number was set up');
+      const agentSetUp = await setUpAiCalls(t, a1, deps, voice).catch((e: unknown) => e);
+      assert(agentSetUp instanceof PhoneError, 'an agent set up AI calls');
+      const s = await setUpAiCalls(t, owner, deps, voice);
+      assert(s.registered === 1, `registered: ${JSON.stringify(s)}`);
+      const [acct] = await t.execute<{ sip: string | null }>(sql`select sip_password as sip from phone_account where agency_id = ${f.agencyId}`);
+      assert(acct?.sip?.startsWith('v1.'), 'the SIP password is stored in the clear');
+
+      // The agent's own switch off: skipped. Both on: scheduled, then placed when due.
+      await t.execute(sql`delete from skill_switch where agency_id = ${f.agencyId} and user_id = ${f.people.a1} and skill_key = 'ai_callback'`);
+      await missed(`CAoff${f.tag}`, '+61400777111');
+      assert((await aiOf(`CAoff${f.tag}`)).ai_reason === 'skill_off', 'scheduled with the agent’s switch off');
+      await setSkillSwitch(t, a1, 'ai_callback', true);
+      await missed(`CAyes${f.tag}`, '+61400777888');
+      const yes = await aiOf(`CAyes${f.tag}`);
+      assert(yes.ai_status === 'scheduled' && yes.ai_due_at, `not scheduled: ${JSON.stringify(yes)}`);
+      // Another caller who texts back before the AI is due: not called.
+      await missed(`CAtxt${f.tag}`, '+61400777222');
+      await handleTwilioWebhook({ db: () => t, token, kind: 'sms', params: { From: '+61400777222', Body: 'Call me after 5 please', MessageSid: `SMtxt${f.tag}` }, keys: testKeys });
+      const due = new Date(Date.now() + 8 * 24 * 60 * 60 * 1000);
+      const ran = await runDueAiCallbacks(t, voice, due, 10, { agencyId: f.agencyId });
+      assert(ran.placed === 1 && ran.skipped === 1, `tick: ${JSON.stringify(ran)}`);
+      assert((await aiOf(`CAtxt${f.tag}`)).ai_reason === 'replied', 'called someone who texted back');
+      const placed = await aiOf(`CAyes${f.tag}`);
+      assert(placed.ai_status === 'calling' && placed.ai_call_id, `placed: ${JSON.stringify(placed)}`);
+
+      // Retell's webhook: a foreign call id refused; ours ended then analysed → done, summary, note, bell.
+      const rt = retellWebhookToken(testKeys);
+      const hook = (body: unknown) => handleRetellWebhook({ db: () => t, token: rt, rawBody: JSON.stringify(body), signature: null, keys: testKeys, apiKey: null, verifySignature: false });
+      assert((await hook({ event: 'call_ended', call: { call_id: 'not_ours' } })).status === 404, 'a call we did not place was accepted');
+      assert((await hook({ event: 'call_ended', call: { call_id: placed.ai_call_id, metadata: { phoneCallId: 'someone-else' } } })).status === 403, 'a call with another id in its metadata was accepted');
+      const meta = { phoneCallId: placed.id, agencyId: f.agencyId };
+      await hook({ event: 'call_ended', call: { call_id: placed.ai_call_id, metadata: meta, disconnection_reason: 'user_hangup', start_timestamp: 1_800_000_000_000, end_timestamp: 1_800_000_192_000, transcript: 'Agent: Hi…\nUser: About 14 Smith St.', recording_url: 'https://recordings.example/x.wav' } });
+      await hook({ event: 'call_analyzed', call: { call_id: placed.ai_call_id, metadata: meta, call_analysis: { call_summary: 'Wants to inspect 14 Smith St on Saturday.', custom_analysis_data: { priority: 'high' } }, call_cost: { combined_cost: 42 } } });
+      await hook({ event: 'call_analyzed', call: { call_id: placed.ai_call_id, metadata: meta, call_analysis: { call_summary: 'again' } } });
+      const d = await getMissedCall(t, a1, placed.id);
+      assert(d.aiStatus === 'done' && d.aiPriority === 'high' && d.ai.durationS === 192 && d.ai.summary === 'Wants to inspect 14 Smith St on Saturday.', `detail: ${JSON.stringify({ s: d.aiStatus, p: d.aiPriority, dur: d.ai.durationS, sum: d.ai.summary })}`);
+      assert((await count(t, sql`select count(*)::int as n from note where contact_id = ${f.contacts.p6} and body like 'AI call back — written by the AI%'`)) === 1, 'summary not on the contact once');
+      assert((await count(t, sql`select count(*)::int as n from notification where user_id = ${f.people.a1} and kind = 'ai_call'`)) === 1, 'agent not told once');
+      assert((await count(t, sql`select count(*)::int as n from ai_run where entity_id = ${placed.id} and feature = 'ai_callback' and cost_usd = 0.42`)) === 1, 'cost not metered once');
+      return 'not ready → not_ready; agent can’t set up; owner: trunk (password encrypted) + 1 number; agent switch off → skill_off; both → scheduled → placed; texted back → replied; foreign id 404, wrong metadata 403; ended + analysed → done, high, 192 s, summary once on P6 as a labelled note, bell once, $0.42 metered';
     }),
   );
 

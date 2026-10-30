@@ -4,6 +4,7 @@ import type { TokenKeys } from '../integrations/crypto';
 import { displayAu, smsKeyword, SMS_MAX_LENGTH, toAuE164, verifyWebhookToken, WEBHOOK_KINDS, type WebhookKind } from './format';
 import { recordMissedCall } from './missed-calls';
 import { contactByPhone, phoneDepsFromEnv, textsPathFor, type PhoneDeps } from './setup';
+import type { VoiceAi } from './voice';
 
 /**
  * What Twilio tells us (ADR 0070), on `/api/phone/twilio/<token>/<kind>` of the web app:
@@ -45,6 +46,8 @@ export async function handleTwilioWebhook(opts: {
   client?: PhoneDeps['client'];
   /** For the missed-call text's delivery callback. */
   webhookBase?: string | null;
+  /** Retell (or the dev stub): an AI call back is scheduled only when there is one (ADR 0072). */
+  voice?: VoiceAi | null;
   now?: Date;
 }): Promise<TwilioWebhookResult> {
   if (!opts.keys) return plain(503, 'not configured');
@@ -54,7 +57,7 @@ export async function handleTwilioWebhook(opts: {
   const db = opts.db();
   const now = opts.now ?? new Date();
   const [n] = await db
-    .select({ id: phoneNumber.id, agencyId: phoneNumber.agencyId, userId: phoneNumber.userId, e164: phoneNumber.e164, callerIdE164: phoneNumber.callerIdE164, status: phoneNumber.status, agentName: sql<string>`coalesce(${user.name}, ${user.email})`, role: membership.role })
+    .select({ id: phoneNumber.id, agencyId: phoneNumber.agencyId, userId: phoneNumber.userId, e164: phoneNumber.e164, callerIdE164: phoneNumber.callerIdE164, retellRegisteredAt: phoneNumber.retellRegisteredAt, status: phoneNumber.status, agentName: sql<string>`coalesce(${user.name}, ${user.email})`, role: membership.role })
     .from(phoneNumber)
     .innerJoin(user, eq(user.id, phoneNumber.userId))
     .leftJoin(membership, and(eq(membership.userId, phoneNumber.userId), eq(membership.agencyId, phoneNumber.agencyId)))
@@ -133,8 +136,8 @@ export async function handleTwilioWebhook(opts: {
       if (n.status !== 'active') return ok('<Hangup/>');
       // A caller the agent did not answer (ADR 0071): kept, the agent told, and texted only while the
       // "Missed call text" skill is on for the agency and the agent.
-      const deps: PhoneDeps = { keys: opts.keys, client: opts.client ?? phoneDepsFromEnv().client, webhookBase: opts.webhookBase ?? null };
-      return ok(await recordMissedCall(db, { id: n.id, agencyId: n.agencyId, userId: n.userId, e164: n.e164, agentName: n.agentName, role: n.role }, callSid, from, deps));
+      const deps = { keys: opts.keys, client: opts.client ?? phoneDepsFromEnv().client, webhookBase: opts.webhookBase ?? null, voice: opts.voice ?? null };
+      return ok(await recordMissedCall(db, { id: n.id, agencyId: n.agencyId, userId: n.userId, e164: n.e164, agentName: n.agentName, role: n.role, retellRegisteredAt: n.retellRegisteredAt }, callSid, from, deps));
     }
 
     case 'caller-id': {

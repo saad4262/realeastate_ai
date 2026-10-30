@@ -4,6 +4,7 @@ import {
   getMissedCallSettings,
   listMissedCalls,
   missedCallSkillSummary,
+  AI_REASON_WORDS,
   OUTCOME_WORDS,
   PhoneError,
   type MissedCallDetail,
@@ -30,6 +31,26 @@ function whatHappened(r: Pick<MissedCallRow, 'outcome' | 'textStatus' | 'replied
   if (r.outcome === 'text_failed') return { icon: 'error', words: OUTCOME_WORDS.text_failed, tone: styles.bad! };
   if (r.outcome === 'skill_off') return { icon: 'toggle_off', words: 'Listed only: Missed call text is off', tone: '' };
   return { icon: 'block', words: r.outcome ? OUTCOME_WORDS[r.outcome] : 'Kept', tone: styles.warn! };
+}
+
+/** The AI call back's part of a row (ADR 0072), or null when there is nothing to say about it. */
+function aiPart(r: Pick<MissedCallRow, 'aiStatus' | 'aiReason' | 'aiPriority' | 'aiDueAt'>): { words: string; tone: string } | null {
+  switch (r.aiStatus) {
+    case 'scheduled':
+      return { words: `AI calls ${r.aiDueAt ? when(r.aiDueAt) : 'soon'}`, tone: '' };
+    case 'calling':
+      return { words: 'AI calling now', tone: '' };
+    case 'done':
+      return { words: `AI spoke to them${r.aiPriority ? ` · ${r.aiPriority[0]!.toUpperCase()}${r.aiPriority.slice(1)}` : ''}`, tone: r.aiPriority === 'high' ? styles.bad! : styles.ok! };
+    case 'no_answer':
+      return { words: 'AI: no answer', tone: styles.warn! };
+    case 'failed':
+      return { words: 'AI call failed', tone: styles.bad! };
+    case 'skipped':
+      return r.aiReason && r.aiReason !== 'skill_off' ? { words: `No AI call: ${AI_REASON_WORDS[r.aiReason]}`, tone: '' } : null;
+    default:
+      return null;
+  }
 }
 
 export async function MissedCallsScreen({
@@ -87,11 +108,19 @@ export async function MissedCallsScreen({
           {summary.offFor.length ? <p className={styles.muted}>Not texting for: {summary.offFor.join(', ')}. Their missed calls are only listed here.</p> : null}
         </section>
         <MissedCallSettingsForm
-          initial={{ greeting: settings.greeting, smsTemplate: settings.smsTemplate, textsPerAgentDay: settings.textsPerAgentDay, textsPerAgencyDay: settings.textsPerAgencyDay }}
+          initial={{
+            greeting: settings.greeting,
+            smsTemplate: settings.smsTemplate,
+            textsPerAgentDay: settings.textsPerAgentDay,
+            textsPerAgencyDay: settings.textsPerAgencyDay,
+            aiCallAfterMinutes: settings.aiCallAfterMinutes,
+            callingHours: settings.callingHours,
+            aiCallsPerAgentDay: settings.aiCallsPerAgentDay,
+            aiCallsPerAgencyDay: settings.aiCallsPerAgencyDay,
+          }}
           canManage={settings.canManage}
           agencyName={settings.agencyName}
         />
-        <p className={styles.muted}>The AI call back (calling hours, what it may say) comes with Phase 3.3.</p>
       </div>
     );
   }
@@ -163,7 +192,15 @@ export async function MissedCallsScreen({
                       </td>
                       <td className={styles.mono}>{when(r.at)}</td>
                       {list.everyAgent ? <td>{r.agentName}</td> : null}
-                      <td><span className={`${styles.pill} ${w.tone}`}><span className={styles.glyph} style={{ fontSize: 14 }} aria-hidden>{w.icon}</span>{w.words}</span></td>
+                      <td>
+                        <div className={styles.row} style={{ gap: '0.35rem' }}>
+                          <span className={`${styles.pill} ${w.tone}`}><span className={styles.glyph} style={{ fontSize: 14 }} aria-hidden>{w.icon}</span>{w.words}</span>
+                          {(() => {
+                            const a = aiPart(r);
+                            return a ? <span className={`${styles.pill} ${a.tone}`}><span className={styles.glyph} style={{ fontSize: 14 }} aria-hidden>smart_toy</span>{a.words}</span> : null;
+                          })()}
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -203,8 +240,38 @@ function CallDetail({ d, surface }: { d: MissedCallDetail; surface: 'agency' | '
               <div className={`${styles.bubble} ${styles.bubbleIn}`} style={{ marginTop: '0.35rem' }}>{r.body}</div>
             </li>
           ))}
+          {d.aiStatus === 'scheduled' ? <li><b>AI call back</b> due {d.aiDueAt ? when(d.aiDueAt) : 'soon'}. It won’t call if the caller texts back or this is marked handled first.</li> : null}
+          {d.aiStatus === 'skipped' && d.aiReason && d.aiReason !== 'skill_off' ? <li className={styles.muted}>No AI call back: {AI_REASON_WORDS[d.aiReason]}.</li> : null}
+          {d.aiStatus && ['calling', 'done', 'no_answer', 'failed'].includes(d.aiStatus) ? (
+            <li>
+              <b>{d.aiStatus === 'done' ? 'The AI called back' : d.aiStatus === 'no_answer' ? 'The AI called back: no answer' : d.aiStatus === 'calling' ? 'The AI is calling' : 'The AI call failed'}</b>
+              {d.ai.endedAt ? ` · ${when(d.ai.endedAt)}` : ''}
+              {d.ai.durationS ? ` · ${Math.floor(d.ai.durationS / 60)} min ${d.ai.durationS % 60} s` : ''}
+              {d.ai.recordingUrl ? (
+                <>
+                  {' · '}
+                  <a href={d.ai.recordingUrl} target="_blank" rel="noreferrer">Listen to the recording</a>
+                </>
+              ) : null}
+            </li>
+          ) : null}
           {d.handledAt ? <li><b>Handled</b> by {d.handledByName ?? 'someone'} · {when(d.handledAt)}</li> : null}
         </ol>
+        {d.ai.summary ? (
+          <div className={`${styles.note} ${styles.noteOk}`} style={{ display: 'grid' }}>
+            <b>
+              What they said{d.aiPriority ? ` · ${d.aiPriority} priority` : ''}
+              <span className={styles.muted} style={{ fontWeight: 400 }}> — written by the AI from the call; check it before you act</span>
+            </b>
+            <span>{d.ai.summary}</span>
+          </div>
+        ) : null}
+        {d.ai.transcript ? (
+          <details>
+            <summary className={styles.btnLink}>Read the transcript</summary>
+            <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '0.8125rem', margin: '0.5rem 0 0' }}>{d.ai.transcript}</pre>
+          </details>
+        ) : null}
       </section>
       <aside className={styles.step}>
         <b>{d.contactName ?? 'New caller'}</b>

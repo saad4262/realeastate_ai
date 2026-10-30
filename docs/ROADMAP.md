@@ -325,8 +325,9 @@ forwarding tests. Voyage key and the temporary domain arrive at the same time (c
   its settings (SMS template, greeting, calling hours, limits). Mock: `missed-calls.html`. Built 2026-10-30, ADR
   0071, migration 0072 NOT applied; skill `missed_call_text` (agency + agent); calling hours move to 3.3 (they
   only govern AI calls); TEST-PLAN BY.
-- [ ] **3.3 Retell AI callback** from the agent's verified number; recording, transcript and summary on the
-  contact (#9, #28).
+- [x] **3.3 Retell AI callback** from the agent's verified number; recording, transcript and summary on the
+  contact (#9, #28). Built 2026-10-30, ADR 0072, migration 0073 NOT applied, Retell keys not yet (dev stub);
+  calls from the agent's Twilio number for now (their mobile as caller ID is still to test); TEST-PLAN BZ.
 - [ ] **3.4 SMS everywhere:** matched buyers, bulk SMS (consent + STOP), the workflow "Send SMS" action and
   the "Missed call" trigger (#5, #8, #27).
 

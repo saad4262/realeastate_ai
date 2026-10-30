@@ -2572,6 +2572,14 @@ export const phoneAccount = pgTable('phone_account', {
   status: varchar('status', { length: 12 }).notNull().default('connected'),
   error: text('error'),
   connectedBy: uuid('connected_by').references(() => user.id, { onDelete: 'set null' }),
+  /**
+   * ADR 0072: the Elastic SIP trunk made on the agency's Twilio so Retell can place calls from its
+   * numbers. The password is encrypted like the API secret (AAD `<id>:sip_password`).
+   */
+  sipTrunkSid: varchar('sip_trunk_sid', { length: 64 }),
+  sipDomain: varchar('sip_domain', { length: 128 }),
+  sipUsername: varchar('sip_username', { length: 64 }),
+  sipPassword: text('sip_password'),
   ...timestamps,
 });
 
@@ -2602,6 +2610,9 @@ export const phoneNumber = pgTable(
     forwardingTestedAt: timestamp('forwarding_tested_at', { withTimezone: true }),
     /** active | released. A released number is kept for its messages' history. */
     status: varchar('status', { length: 12 }).notNull().default('active'),
+    /** ADR 0072: when this number was registered with Retell for AI calls (PROVISIONAL until tried live). */
+    retellRegisteredAt: timestamp('retell_registered_at', { withTimezone: true }),
+    retellError: text('retell_error'),
     ...timestamps,
   },
   (t) => [
@@ -2708,6 +2719,23 @@ export const phoneCall = pgTable(
     /** A person marked it dealt with. */
     handledAt: timestamp('handled_at', { withTimezone: true }),
     handledBy: uuid('handled_by').references(() => user.id, { onDelete: 'set null' }),
+    /**
+     * The AI call back (ADR 0072): scheduled | calling | done | no_answer | skipped | failed; null =
+     * none was planned. `aiReason` says why it was skipped. Claimed by the minute tick when due.
+     */
+    aiStatus: varchar('ai_status', { length: 16 }),
+    aiReason: varchar('ai_reason', { length: 24 }),
+    aiDueAt: timestamp('ai_due_at', { withTimezone: true }),
+    /** Retell's call id. Unique: its webhook is matched on it, and a retry is a no-op. */
+    aiCallId: varchar('ai_call_id', { length: 64 }).unique(),
+    /** Written by Retell's model from the call: shown labelled, never as a fact (non-negotiable 7). */
+    aiSummary: text('ai_summary'),
+    aiTranscript: text('ai_transcript'),
+    aiRecordingUrl: text('ai_recording_url'),
+    /** high | medium | low — Retell's post-call classification. A label, never a number. */
+    aiPriority: varchar('ai_priority', { length: 8 }),
+    aiDurationS: integer('ai_duration_s'),
+    aiEndedAt: timestamp('ai_ended_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -2715,6 +2743,8 @@ export const phoneCall = pgTable(
     index('phone_call_number_idx').on(t.phoneNumberId, desc(t.createdAt)),
     /** The Missed calls page: an agency's missed calls, newest first. */
     index('phone_call_agency_missed_idx').on(t.agencyId, desc(t.createdAt)).where(sql`kind = 'missed'`),
+    /** The minute tick: AI call-backs that are due (ADR 0072). */
+    index('phone_call_ai_due_idx').on(t.aiDueAt).where(sql`ai_status = 'scheduled'`),
   ],
 );
 
@@ -2731,6 +2761,12 @@ export const missedCallSetting = pgTable('missed_call_setting', {
   smsTemplate: text('sms_template').notNull(),
   textsPerAgentDay: integer('texts_per_agent_day').notNull(),
   textsPerAgencyDay: integer('texts_per_agency_day').notNull(),
+  /** ADR 0072: minutes after the missed call before the AI calls back. */
+  aiCallAfterMinutes: integer('ai_call_after_minutes').notNull().default(2),
+  /** ADR 0072: when the AI may call, in the agency's time zone: { weekdays: [8, 20], saturday: [9, 17], sunday: null }. */
+  callingHours: jsonb('calling_hours').notNull().default(sql`'{"weekdays":[8,20],"saturday":[9,17],"sunday":null}'::jsonb`),
+  aiCallsPerAgentDay: integer('ai_calls_per_agent_day').notNull().default(20),
+  aiCallsPerAgencyDay: integer('ai_calls_per_agency_day').notNull().default(100),
   updatedBy: uuid('updated_by').references(() => user.id, { onDelete: 'set null' }),
   ...timestamps,
 });

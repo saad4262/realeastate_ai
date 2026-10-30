@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, count, desc, eq, gt, gte, isNull, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gt, gte, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { agency, missedCallSetting, notification, phoneCall, phoneNumber, smsMessage, user, type Db, type DbOrTx } from '@repo/db';
 import { can, isAgencyAdminRole, type Actor, type MembershipRole } from '../permissions';
@@ -7,6 +7,7 @@ import { isPairedSkillOn } from '../skill-switches/switches';
 import { displayAu, isAuMobile, webhookUrl, xmlEscape } from './format';
 import { agencyTwilio, contactByPhone, PhoneError, providerFailure, textsPathFor, type PhoneDeps } from './setup';
 import { isOptedOut } from './sms';
+import { AI_REASON_WORDS, decideAiCallback, DEFAULT_CALLING_HOURS, nextCallableTime, readCallingHours, type AiSkipReason, type CallingHours, type VoiceAi } from './voice';
 
 /**
  * Missed calls (ADR 0071, Phase 3.2). A caller an agent did not answer is forwarded to the agent's
@@ -20,17 +21,34 @@ import { isOptedOut } from './sms';
 export const MERGE_FIELDS = ['first_name', 'agent_first_name', 'agency_name'] as const;
 type MergeField = (typeof MERGE_FIELDS)[number];
 
-export const DEFAULT_MISSED_CALL_SETTINGS = {
+export const DEFAULT_MISSED_CALL_SETTINGS: Omit<MissedCallSettings, 'updatedAt' | 'isDefault'> = {
   greeting: "Sorry, {{agent_first_name}} can't take your call right now. We'll text you straight away.",
   smsTemplate: "Hi {{first_name}}, {{agent_first_name}} from {{agency_name}} here. Sorry I missed your call! What can I help with? Reply here or I'll call you back shortly.",
   textsPerAgentDay: 50,
   textsPerAgencyDay: 300,
-} as const;
+  aiCallAfterMinutes: 2,
+  callingHours: DEFAULT_CALLING_HOURS,
+  aiCallsPerAgentDay: 20,
+  aiCallsPerAgencyDay: 100,
+};
+
+export const AI_CALL_AFTER_MINUTES = [1, 2, 5, 10] as const;
 
 /** Heard when no text follows (the skill is off, a private number, STOP…): it promises nothing. */
 export const NO_TEXT_GREETING = "Sorry, {{agent_first_name}} can't take your call right now. They'll get back to you soon.";
 
-export type MissedCallSettings = { greeting: string; smsTemplate: string; textsPerAgentDay: number; textsPerAgencyDay: number; updatedAt: Date | null; isDefault: boolean };
+export type MissedCallSettings = {
+  greeting: string;
+  smsTemplate: string;
+  textsPerAgentDay: number;
+  textsPerAgencyDay: number;
+  aiCallAfterMinutes: number;
+  callingHours: CallingHours;
+  aiCallsPerAgentDay: number;
+  aiCallsPerAgencyDay: number;
+  updatedAt: Date | null;
+  isDefault: boolean;
+};
 
 /** Every `{{field}}` in a template that is not one we fill. */
 export function unknownFields(template: string): string[] {
@@ -47,18 +65,41 @@ export function firstName(name: string | null | undefined, fallback: string): st
   return w && !w.includes('@') ? w : fallback;
 }
 
+/** A day's AI calling hours: [from, to) in whole hours, or null for none. */
+const hoursPair = z
+  .tuple([z.coerce.number().int().min(0).max(23), z.coerce.number().int().min(1).max(24)])
+  .refine(([a, b]) => a < b, 'Calling hours must end after they start.')
+  .nullable();
+
 const settingsSchema = z.object({
   greeting: z.string().trim().min(10, 'The greeting is too short.').max(300, 'Keep the greeting under 300 characters.'),
   smsTemplate: z.string().trim().min(10, 'The text is too short.').max(480, 'Keep the text under 480 characters (three texts).'),
   textsPerAgentDay: z.coerce.number().int().min(1).max(500),
   textsPerAgencyDay: z.coerce.number().int().min(1).max(5000),
+  aiCallAfterMinutes: z.coerce.number().int().refine((n) => (AI_CALL_AFTER_MINUTES as readonly number[]).includes(n), 'Pick 1, 2, 5 or 10 minutes.').default(2),
+  callingHours: z
+    .object({ weekdays: hoursPair, saturday: hoursPair, sunday: hoursPair })
+    .default(DEFAULT_CALLING_HOURS),
+  aiCallsPerAgentDay: z.coerce.number().int().min(1).max(200).default(20),
+  aiCallsPerAgencyDay: z.coerce.number().int().min(1).max(2000).default(100),
 });
 export type MissedCallSettingsInput = z.input<typeof settingsSchema>;
 
 export async function loadMissedCallSettings(db: DbOrTx, agencyId: string): Promise<MissedCallSettings> {
   const [row] = await db.select().from(missedCallSetting).where(eq(missedCallSetting.agencyId, agencyId)).limit(1);
   return row
-    ? { greeting: row.greeting, smsTemplate: row.smsTemplate, textsPerAgentDay: row.textsPerAgentDay, textsPerAgencyDay: row.textsPerAgencyDay, updatedAt: row.updatedAt, isDefault: false }
+    ? {
+        greeting: row.greeting,
+        smsTemplate: row.smsTemplate,
+        textsPerAgentDay: row.textsPerAgentDay,
+        textsPerAgencyDay: row.textsPerAgencyDay,
+        aiCallAfterMinutes: row.aiCallAfterMinutes,
+        callingHours: readCallingHours(row.callingHours),
+        aiCallsPerAgentDay: row.aiCallsPerAgentDay,
+        aiCallsPerAgencyDay: row.aiCallsPerAgencyDay,
+        updatedAt: row.updatedAt,
+        isDefault: false,
+      }
     : { ...DEFAULT_MISSED_CALL_SETTINGS, updatedAt: null, isDefault: true };
 }
 
@@ -135,14 +176,17 @@ export function decideMissedCallText(f: {
   return 'send';
 }
 
-type NumberRow = { id: string; agencyId: string; userId: string; e164: string; agentName: string; role: MembershipRole | null };
+type NumberRow = { id: string; agencyId: string; userId: string; e164: string; agentName: string; role: MembershipRole | null; retellRegisteredAt: Date | null };
+
+/** AI calls that count against the daily ceilings and "once a day": placed or about to be. */
+const AI_COUNTED = ['scheduled', 'calling', 'done', 'no_answer'];
 
 /**
  * A missed call reached an agent's number (the voice webhook, after the token): keep it, decide the
  * text, tell the agent, and return the greeting (TwiML) the caller hears. The text is written queued in
  * the transaction and sent to Twilio after it (never inside).
  */
-export async function recordMissedCall(db: Db, n: NumberRow, callSid: string, from: string | null, deps: PhoneDeps): Promise<string> {
+export async function recordMissedCall(db: Db, n: NumberRow, callSid: string, from: string | null, deps: PhoneDeps & { voice?: VoiceAi | null }): Promise<string> {
   const day = sql`now() - interval '24 hours'`;
   const settings = await loadMissedCallSettings(db, n.agencyId);
   const who = from ? await contactByPhone(db, n.agencyId, from) : null;
@@ -166,10 +210,44 @@ export async function recordMissedCall(db: Db, n: NumberRow, callSid: string, fr
       limits: { perAgent: settings.textsPerAgentDay, perAgency: settings.textsPerAgencyDay },
     });
   }
-  const [ag] = await db.select({ name: agency.name }).from(agency).where(eq(agency.id, n.agencyId)).limit(1);
+  const [ag] = await db.select({ name: agency.name, timeZone: agency.timeZone }).from(agency).where(eq(agency.id, n.agencyId)).limit(1);
   const values = { first_name: firstName(who?.name, 'there'), agent_first_name: firstName(n.agentName, 'the agent'), agency_name: ag?.name ?? '' };
   const body = renderMissedCallTemplate(settings.smsTemplate, values);
   const smsId = decision === 'send' ? randomUUID() : null;
+
+  // The AI call back (ADR 0072): only scheduled here, behind its own two-switch skill; the tick places it.
+  let ai: { status: 'scheduled' | 'skipped'; reason: AiSkipReason | null; dueAt: Date | null } = { status: 'skipped', reason: 'skill_off', dueAt: null };
+  if (await isPairedSkillOn(db, n.agencyId, n.userId, n.role, 'ai_callback')) {
+    const [[agentCalls], [agencyCalls], [again]] = await Promise.all([
+      db.select({ n: count() }).from(phoneCall).where(and(eq(phoneCall.phoneNumberId, n.id), inArray(phoneCall.aiStatus, AI_COUNTED), gt(phoneCall.createdAt, day))),
+      db.select({ n: count() }).from(phoneCall).where(and(eq(phoneCall.agencyId, n.agencyId), inArray(phoneCall.aiStatus, AI_COUNTED), gt(phoneCall.createdAt, day))),
+      from
+        ? db.select({ n: count() }).from(phoneCall).where(and(eq(phoneCall.phoneNumberId, n.id), eq(phoneCall.fromE164, from), inArray(phoneCall.aiStatus, AI_COUNTED), gt(phoneCall.createdAt, day)))
+        : Promise.resolve([{ n: 0 }]),
+    ]);
+    const choice = decideAiCallback({
+      skillOn: true,
+      ready: Boolean(n.retellRegisteredAt && deps.voice),
+      from,
+      optedOut: from ? await isOptedOut(db, n.agencyId, from) : false,
+      calledToday: (again?.n ?? 0) > 0,
+      agentCallsToday: agentCalls?.n ?? 0,
+      agencyCallsToday: agencyCalls?.n ?? 0,
+      limits: { perAgent: settings.aiCallsPerAgentDay, perAgency: settings.aiCallsPerAgencyDay },
+    });
+    if (choice === 'schedule') {
+      const due = nextCallableTime(new Date(Date.now() + settings.aiCallAfterMinutes * 60_000), settings.callingHours, ag?.timeZone ?? 'Australia/Sydney');
+      ai = due ? { status: 'scheduled', reason: null, dueAt: due } : { status: 'skipped', reason: 'no_hours', dueAt: null };
+    } else {
+      ai = { status: 'skipped', reason: choice, dueAt: null };
+    }
+  }
+  const aiLine =
+    ai.status === 'scheduled'
+      ? ` The AI calls them back ${ai.dueAt!.toLocaleString('en-AU', { timeZone: ag?.timeZone ?? 'Australia/Sydney', weekday: 'short', hour: 'numeric', minute: '2-digit' })}.`
+      : ai.reason && ai.reason !== 'skill_off'
+        ? ` No AI call back: ${AI_REASON_WORDS[ai.reason]}.`
+        : '';
 
   const kept = await db.transaction(async (tx) => {
     if (smsId) {
@@ -177,7 +255,20 @@ export async function recordMissedCall(db: Db, n: NumberRow, callSid: string, fr
     }
     const [row] = await tx
       .insert(phoneCall)
-      .values({ agencyId: n.agencyId, phoneNumberId: n.id, kind: 'missed', callSid, fromE164: from, contactId: who?.id ?? null, status: 'received', outcome: smsId ? 'texted' : decision, smsMessageId: smsId })
+      .values({
+        agencyId: n.agencyId,
+        phoneNumberId: n.id,
+        kind: 'missed',
+        callSid,
+        fromE164: from,
+        contactId: who?.id ?? null,
+        status: 'received',
+        outcome: smsId ? 'texted' : decision,
+        smsMessageId: smsId,
+        aiStatus: ai.status,
+        aiReason: ai.reason,
+        aiDueAt: ai.dueAt,
+      })
       .onConflictDoNothing({ target: phoneCall.callSid })
       .returning({ id: phoneCall.id });
     if (!row) throw new DuplicateCall(); // Twilio sent this call twice: roll the text back too
@@ -189,7 +280,7 @@ export async function recordMissedCall(db: Db, n: NumberRow, callSid: string, fr
         agencyId: n.agencyId,
         kind: 'missed_call',
         title: `Missed call from ${name}`.slice(0, 300),
-        body: smsId ? `Texted them: “${body.slice(0, 200)}”` : OUTCOME_WORDS[decision as MissedCallOutcome],
+        body: `${smsId ? `Texted them: “${body.slice(0, 200)}”` : OUTCOME_WORDS[decision as MissedCallOutcome]}.${aiLine}`.replace('”.', '”'),
         href: `${isAgencyAdminRole(n.role) ? '/missed-calls' : '/my-missed-calls'}?call=${row.id}`,
         dedupeKey: `call:${callSid}`,
       })
@@ -234,6 +325,11 @@ export type MissedCallRow = {
   textStatus: string | null;
   replied: boolean;
   handledAt: Date | null;
+  /** ADR 0072: the AI call back — status, why it was skipped, Retell's label, when it is due. */
+  aiStatus: string | null;
+  aiReason: AiSkipReason | null;
+  aiPriority: 'high' | 'medium' | 'low' | null;
+  aiDueAt: Date | null;
 };
 
 export type MissedCallList = {
@@ -260,6 +356,10 @@ export async function listMissedCalls(db: DbOrTx, actor: Actor, opts: { days?: n
       textStatus: sql<string | null>`(select s.status from sms_message s where s.id = phone_call.sms_message_id)`,
       replied: sql<boolean>`exists (select 1 from sms_message r where r.phone_number_id = phone_call.phone_number_id and r.counterpart = phone_call.from_e164 and r.direction = 'in' and r.created_at > phone_call.created_at)`,
       handledAt: phoneCall.handledAt,
+      aiStatus: phoneCall.aiStatus,
+      aiReason: phoneCall.aiReason,
+      aiPriority: phoneCall.aiPriority,
+      aiDueAt: phoneCall.aiDueAt,
     })
     .from(phoneCall)
     .innerJoin(phoneNumber, eq(phoneNumber.id, phoneCall.phoneNumberId))
@@ -275,7 +375,14 @@ export async function listMissedCalls(db: DbOrTx, actor: Actor, opts: { days?: n
     )
     .orderBy(desc(phoneCall.createdAt))
     .limit(200);
-  const list: MissedCallRow[] = rows.map((r) => ({ ...r, display: r.from ? displayAu(r.from) : 'Private number', outcome: (r.outcome as MissedCallOutcome | null) ?? null, replied: Boolean(r.replied) }));
+  const list: MissedCallRow[] = rows.map((r) => ({
+    ...r,
+    display: r.from ? displayAu(r.from) : 'Private number',
+    outcome: (r.outcome as MissedCallOutcome | null) ?? null,
+    replied: Boolean(r.replied),
+    aiReason: (r.aiReason as AiSkipReason | null) ?? null,
+    aiPriority: priorityOf(r.aiPriority),
+  }));
   return {
     rows: list,
     counts: {
@@ -288,7 +395,11 @@ export async function listMissedCalls(db: DbOrTx, actor: Actor, opts: { days?: n
   };
 }
 
+const priorityOf = (v: string | null): MissedCallRow['aiPriority'] => (v === 'high' || v === 'medium' || v === 'low' ? v : null);
+
 export type MissedCallDetail = MissedCallRow & {
+  /** Written by Retell's model from the call: the page labels it as the AI's (non-negotiable 7). */
+  ai: { summary: string | null; transcript: string | null; recordingUrl: string | null; durationS: number | null; endedAt: Date | null };
   agentUserId: string;
   text: { body: string; status: string; error: string | null; at: Date } | null;
   replies: { body: string; at: Date }[];
@@ -335,6 +446,11 @@ export async function getMissedCall(db: DbOrTx, actor: Actor, callId: string): P
     textStatus: text?.status ?? null,
     replied: replies.length > 0,
     handledAt: call.handledAt,
+    aiStatus: call.aiStatus,
+    aiReason: (call.aiReason as AiSkipReason | null) ?? null,
+    aiPriority: priorityOf(call.aiPriority),
+    aiDueAt: call.aiDueAt,
+    ai: { summary: call.aiSummary, transcript: call.aiTranscript, recordingUrl: call.aiRecordingUrl, durationS: call.aiDurationS, endedAt: call.aiEndedAt },
     text: text ?? null,
     replies,
     handledByName: handler?.name ?? null,

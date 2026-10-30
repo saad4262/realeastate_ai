@@ -1831,3 +1831,25 @@ everything except a real forwarded call (use real Twilio for BY2–BY6, or the s
 | BY9 | Settings: texts per agent a day = 1; two new callers | The second is "daily limit reached". |
 | BY10 | Sarah opens a call → Mark as handled | "Handled by Sarah"; Not handled filter hides it. Ali cannot open or mark it; the owner can. |
 | BY11 | Agent → Missed calls | Only their own calls; no Settings tab. |
+
+## BZ — The AI call back (ADR 0072)
+
+Needs migrations **0071–0073**, the minute cron, and BX/BY done. Real calls need RETELL_API_KEY, RETELL_AGENT_ID
+(from `pnpm --filter @repo/ai retell:setup`) and PHONE_WEBHOOK_BASE (https). `PHONE_STUB=1` (dev) gives a pretend
+Retell: calls are "placed" but nobody is rung.
+
+| # | Case | Expected |
+|---|---|---|
+| BZ1 | Owner → Connectors → Phone & SMS | Step 4 "AI calls back": "0 of 1 numbers ready" and Set up AI calls (or "Not on this server yet" without Retell). |
+| BZ2 | Set up AI calls | Toast "1 numbers ready"; step 4 ✓. In Twilio: one Elastic SIP trunk with a credential list; the number is NOT on the trunk. In Retell: the number, with our agent for outbound. |
+| BZ3 | Skills: AI calls back on for the agency only; a missed call | Not scheduled: the agent's own switch is off. Their card says the agency has it on. |
+| BZ4 | Agent switches theirs on; a missed call at 2 pm | The bell: "…The AI calls them back Fri 2:02 pm". The row: "AI calls …". |
+| BZ5 | The tick passes the due time | The caller is rung from the agent's Twilio number: the AI says it is the AI assistant for Sarah at …, that the call may be recorded, and asks how it can help. |
+| BZ6 | On the call, ask "what's it worth?" and "book me for Saturday" | It gives no figure and books nothing; says Sarah will go through it / be in touch. |
+| BZ7 | After the call | Row: "AI spoke to them · High/Medium/Low". The call's page: the summary labelled "written by the AI from the call", the transcript, Listen to the recording. The contact (if known) has the same summary as a note. Agent's bell rings once. |
+| BZ8 | A missed call at 10 pm | Due 8:00 am next weekday (or Saturday 9 am). Settings → calling hours change it. |
+| BZ9 | A missed caller texts back before the AI is due | Not called: "No AI call: they replied by text first". |
+| BZ10 | Mark a scheduled call handled before it is due | Not called: "the call was handled first". |
+| BZ11 | The same caller again the same day | Not scheduled again: "already called back today". |
+| BZ12 | They don't answer | Row: "AI: no answer". No second call. |
+| BZ13 | A POST to /api/phone/retell/<wrong token> | 403, nothing written. With RETELL_VERIFY_SIGNATURE=1 and a bad signature: 401. |

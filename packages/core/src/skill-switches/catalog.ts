@@ -28,6 +28,7 @@ export const SKILL_KEYS = [
   'team_meetings',
   'team_management',
   'missed_call_text',
+  'ai_callback',
 ] as const;
 
 export type SkillKey = (typeof SKILL_KEYS)[number];
@@ -83,6 +84,7 @@ export const PLATFORM_SKILLS: readonly PlatformSkill[] = Object.freeze([
   { key: 'team_meetings', group: 'Knowledge & team', icon: 'video_call', name: 'Team meetings', description: 'Book a meeting with colleagues by asking, with a Zoom link.', scope: 'both', level: 'approval', needs: 'Zoom' },
   { key: 'team_management', group: 'Knowledge & team', icon: 'manage_accounts', name: 'Team management by the assistant', description: 'Invite, change or remove an agent by asking. The Team page works either way.', scope: 'agency', level: 'approval' },
   { key: 'missed_call_text', group: 'Phone & SMS', icon: 'sms', name: 'Missed call text', description: "A caller an agent missed gets the agency's approved text from that agent's number straight away. Once per caller a day; never anyone who replied STOP.", scope: 'both', level: 'auto', needs: 'Twilio', pair: true },
+  { key: 'ai_callback', group: 'Phone & SMS', icon: 'smart_toy', name: 'AI calls back', description: "The AI calls a missed caller back from the agent's number in calling hours, says it is an AI assistant, asks what they need and offers a call back. No prices, no promises. Once per caller a day.", scope: 'both', level: 'auto', needs: 'Twilio', pair: true },
 ] satisfies PlatformSkill[]);
 
 const BY_KEY = new Map(PLATFORM_SKILLS.map((s) => [s.key, s]));

@@ -32,6 +32,15 @@ export function HandledButton({ callId, handled }: { callId: string; handled: bo
   );
 }
 
+type Day = [number, number] | null;
+type Hours = { weekdays: Day; saturday: Day; sunday: Day };
+const DAYS: [keyof Hours, string, [number, number]][] = [
+  ['weekdays', 'Mon–Fri', [8, 20]],
+  ['saturday', 'Saturday', [9, 17]],
+  ['sunday', 'Sunday', [10, 16]],
+];
+const hourLabel = (h: number) => (h === 0 || h === 24 ? '12 am' : h === 12 ? '12 pm' : h < 12 ? `${h} am` : `${h - 12} pm`);
+
 const SAMPLE = { first_name: 'John', agent_first_name: 'Sarah', agency_name: 'your agency' };
 const preview = (t: string, agencyName: string) =>
   t.replace(/\{\{\s*(first_name|agent_first_name|agency_name)\s*\}\}/g, (_, f: keyof typeof SAMPLE) => (f === 'agency_name' ? agencyName || SAMPLE.agency_name : SAMPLE[f]));
@@ -42,7 +51,16 @@ export function MissedCallSettingsForm({
   canManage,
   agencyName,
 }: {
-  initial: { greeting: string; smsTemplate: string; textsPerAgentDay: number; textsPerAgencyDay: number };
+  initial: {
+    greeting: string;
+    smsTemplate: string;
+    textsPerAgentDay: number;
+    textsPerAgencyDay: number;
+    aiCallAfterMinutes: number;
+    callingHours: Hours;
+    aiCallsPerAgentDay: number;
+    aiCallsPerAgencyDay: number;
+  };
   canManage: boolean;
   agencyName: string;
 }) {
@@ -81,6 +99,54 @@ export function MissedCallSettingsForm({
           <textarea className={styles.textarea} value={v.smsTemplate} onChange={(e) => set('smsTemplate', e.target.value)} maxLength={480} aria-label="Text message" />
           <p className={styles.muted}>Fields: {'{{first_name}}'} (or “there” for a new caller) · {'{{agent_first_name}}'} · {'{{agency_name}}'} · {v.smsTemplate.length}/480</p>
           <div className={styles.bubble} style={{ background: 'var(--surface-canvas)', border: '1px solid var(--border-default)' }}>{preview(v.smsTemplate, agencyName)}</div>
+        </section>
+
+        <section className={styles.step}>
+          <h2 className={styles.stepTitle}>How the AI calls back</h2>
+          <p className={styles.muted}>Only while “AI calls back” is on in Skills for the agency and that agent. It calls from the agent’s number, says it is an AI assistant and that the call may be recorded, asks what they need and offers a call back from the agent. It never gives prices, valuations or promises, and books nothing. Once per caller a day; never anyone who replied STOP.</p>
+          <div className={styles.fields}>
+            <label className={styles.field}>
+              Call back after the missed call
+              <select className={styles.input} value={v.aiCallAfterMinutes} onChange={(e) => set('aiCallAfterMinutes', Number(e.target.value))}>
+                {[1, 2, 5, 10].map((m) => <option key={m} value={m}>{m} minute{m > 1 ? 's' : ''}</option>)}
+              </select>
+            </label>
+            <label className={styles.field}>
+              AI calls per agent a day
+              <input className={styles.input} type="number" min={1} max={200} value={v.aiCallsPerAgentDay} onChange={(e) => set('aiCallsPerAgentDay', Number(e.target.value))} />
+            </label>
+            <label className={styles.field}>
+              AI calls per agency a day
+              <input className={styles.input} type="number" min={1} max={2000} value={v.aiCallsPerAgencyDay} onChange={(e) => set('aiCallsPerAgencyDay', Number(e.target.value))} />
+            </label>
+          </div>
+          <b style={{ fontSize: '0.8125rem' }}>Calling hours (the agency’s time)</b>
+          <p className={styles.muted}>A call missed outside these hours is called back when they next open: a 10 pm missed call at 8 am.</p>
+          {DAYS.map(([key, label, fallback]) => {
+            const day = v.callingHours[key];
+            const setDay = (d: Day) => set('callingHours', { ...v.callingHours, [key]: d });
+            return (
+              <div key={key} className={styles.row}>
+                <label className={styles.row} style={{ minWidth: '9rem' }}>
+                  <input type="checkbox" checked={day !== null} onChange={(e) => setDay(e.target.checked ? fallback : null)} />
+                  {label}
+                </label>
+                {day ? (
+                  <>
+                    <select className={styles.input} aria-label={`${label} from`} value={day[0]} onChange={(e) => setDay([Number(e.target.value), Math.max(day[1], Number(e.target.value) + 1)])}>
+                      {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
+                    </select>
+                    <span className={styles.muted}>to</span>
+                    <select className={styles.input} aria-label={`${label} to`} value={day[1]} onChange={(e) => setDay([day[0], Number(e.target.value)])}>
+                      {Array.from({ length: 24 }, (_, i) => i + 1).filter((h) => h > day[0]).map((h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
+                    </select>
+                  </>
+                ) : (
+                  <span className={styles.muted}>No AI calls</span>
+                )}
+              </div>
+            );
+          })}
         </section>
 
         <section className={styles.step}>

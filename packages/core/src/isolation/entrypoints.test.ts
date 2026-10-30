@@ -60,6 +60,10 @@ const PUBLIC_ROUTES: Record<string, { why: string; guard: RegExp }> = {
     guard: /handleZoomWebhook\(/,
   },
   'apps/web/app/api/revalidate/route.ts': { why: 'cache revalidation from the console, shared secret', guard: /REVALIDATE_SECRET/ },
+  'apps/web/app/api/phone/retell/[token]/route.ts': {
+    why: 'Retell’s webhook for the AI call back (ADR 0072): the URL token, the signature when on, and a call id we placed are checked in core',
+    guard: /handleRetellWebhook\(/,
+  },
   'apps/web/app/api/phone/twilio/[token]/[kind]/route.ts': {
     why: 'Twilio webhooks for the agents’ numbers (ADR 0070): the per-number HMAC token in the URL is checked in core before anything is read',
     guard: /handleTwilioWebhook\(/,

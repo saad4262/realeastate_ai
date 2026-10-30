@@ -35,10 +35,17 @@ export interface TwilioApi {
   isCallerIdVerified(e164: string): Promise<boolean>;
   /** A call from the agent's Twilio number to their mobile that nobody should answer. */
   placeTestCall(input: { from: string; to: string }): Promise<{ sid: string }>;
+  /**
+   * An Elastic SIP trunk with a credential list, so Retell can place AI calls from this account's
+   * numbers (ADR 0072). The numbers are NOT moved onto the trunk: their incoming calls still reach our
+   * voice webhook. PROVISIONAL until tried with a real account.
+   */
+  createSipTrunk(input: { friendlyName: string; domainPrefix: string; username: string; password: string }): Promise<{ trunkSid: string; domain: string }>;
 }
 
 const API = 'https://api.twilio.com/2010-04-01';
 const NUMBERS = 'https://numbers.twilio.com/v2';
+const TRUNKING = 'https://trunking.twilio.com/v1';
 
 /** Twilio bundle statuses → ours. Anything we don't know is "pending" — never "approved". */
 export function kycFromBundles(bundles: readonly { sid: string | null; status: string | null }[]): KycResult {
@@ -118,6 +125,18 @@ export function twilioClient(creds: TwilioCreds, fetchImpl: Fetch = fetch): Twil
       if (!sid) throw new Error('Twilio did not place the call');
       return { sid };
     },
+    async createSipTrunk(input) {
+      const trunk = await post(`${TRUNKING}/Trunks`, { FriendlyName: input.friendlyName, DomainName: `${input.domainPrefix}.pstn.twilio.com` });
+      const trunkSid = str(trunk.json?.sid);
+      const domain = str(trunk.json?.domain_name) ?? `${input.domainPrefix}.pstn.twilio.com`;
+      if (!trunkSid) throw new Error('Twilio did not create the trunk');
+      const list = await post(`${acct}/SIP/CredentialLists.json`, { FriendlyName: `${input.friendlyName} (AI calls)` });
+      const listSid = str(list.json?.sid);
+      if (!listSid) throw new Error('Twilio did not create the credential list');
+      await post(`${acct}/SIP/CredentialLists/${encodeURIComponent(listSid)}/Credentials.json`, { Username: input.username, Password: input.password });
+      await post(`${TRUNKING}/Trunks/${encodeURIComponent(trunkSid)}/CredentialLists`, { CredentialListSid: listSid });
+      return { trunkSid, domain };
+    },
   };
 }
 
@@ -153,6 +172,9 @@ export function stubTwilioClient(): TwilioApi {
     },
     async placeTestCall() {
       return { sid: `CAstub${randomInt(0, 1e9)}` };
+    },
+    async createSipTrunk(input) {
+      return { trunkSid: `TKstub${randomInt(0, 1e9)}`, domain: `${input.domainPrefix}.pstn.twilio.com` };
     },
   };
 }

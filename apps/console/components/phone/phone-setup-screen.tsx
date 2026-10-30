@@ -1,10 +1,10 @@
 import Link from 'next/link';
-import { forwardingCodes, FORWARD_SECONDS, getMyPhone, getPhoneSetup, PhoneError, type KycStatus, type PhoneSetupView } from '@repo/core/phone';
+import { aiCallsStatus, forwardingCodes, FORWARD_SECONDS, getMyPhone, getPhoneSetup, PhoneError, voiceFromEnv, type KycStatus, type PhoneSetupView } from '@repo/core/phone';
 import { tokenKeysFromEnv } from '@repo/core/integrations';
 import contactStyles from '@/components/contacts/contacts.module.css';
 import { getConsoleDb } from '../../lib/db';
 import { requireConsoleAccess } from '../../lib/require-console-access';
-import { ConnectTwilioForm, DisconnectTwilio, GetNumberButton, KycCheckButton, ReleaseNumberButton } from './phone-owner-controls';
+import { ConnectTwilioForm, DisconnectTwilio, GetNumberButton, KycCheckButton, ReleaseNumberButton, SetUpAiCallsButton } from './phone-owner-controls';
 import { MyPhoneSteps } from './my-phone-steps';
 import styles from './phone.module.css';
 
@@ -45,6 +45,7 @@ export async function PhoneSetupScreen() {
     return <p role="alert">{err instanceof PhoneError ? err.message : 'Could not load the phone setup.'}</p>;
   }
   const me = await getMyPhone(getConsoleDb(), session.actor, { keys });
+  const ai = await aiCallsStatus(getConsoleDb(), session.actor, voiceFromEnv().voice);
   const a = view.account;
   const approved = a?.kycStatus === 'approved';
   const live = view.agents.filter((g) => g.number?.live).length;
@@ -192,6 +193,33 @@ export async function PhoneSetupScreen() {
               </p>
             </>
           )}
+        </section>
+
+        {/* 4. AI calls (ADR 0072) */}
+        <section className={`${styles.step} ${approved && view.agents.some((g) => g.number) ? '' : styles.stepOff}`} aria-labelledby="s4">
+          <div className={styles.stepHead}>
+            <span className={`${styles.stepNum} ${ai.total > 0 && ai.registered === ai.total ? styles.stepDone : ''}`}>{ai.total > 0 && ai.registered === ai.total ? '✓' : '4'}</span>
+            <h2 id="s4" className={styles.stepTitle}>AI calls back</h2>
+            <span className={styles.stepRight}>
+              {!ai.configured ? <span className={styles.pill}>Not on this server yet</span> : <span className={`${styles.pill} ${ai.registered === ai.total && ai.total ? styles.ok : ''}`}>{ai.registered} of {ai.total} numbers ready</span>}
+            </span>
+          </div>
+          <p className={styles.muted}>
+            The AI can call a missed caller back from the agent’s number, ask what they need and offer a call back. It runs only while “AI calls back” is on in Skills for the agency and that agent.
+            {ai.stub ? ' (Dev stub: no real calls are made.)' : ''}
+          </p>
+          {!ai.configured ? (
+            <p className={`${styles.note} ${styles.noteWarn}`}>
+              <span className={styles.glyph} aria-hidden>construction</span>
+              <span>AI calls need the platform’s Retell key on this server (RETELL_API_KEY and RETELL_AGENT_ID).</span>
+            </p>
+          ) : view.canManage && approved && ai.total > 0 && ai.registered < ai.total ? (
+            <div className={styles.row}>
+              <SetUpAiCallsButton again={ai.trunk} />
+              <span className={styles.muted}>Makes a SIP trunk on your Twilio account (once) so the AI can call from your agents’ numbers. Their incoming calls still come here.</span>
+            </div>
+          ) : null}
+          {ai.errors.length ? <p className={`${styles.note} ${styles.noteBad}`}>{ai.errors[0]}</p> : null}
         </section>
 
         {me.number ? (

@@ -27,7 +27,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "echo \"no lint yet\"",
-    "search:backfill": "tsx src/search/backfill-cli.ts"
+    "search:backfill": "tsx src/search/backfill-cli.ts",
+    "retell:setup": "tsx src/retell/setup-cli.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

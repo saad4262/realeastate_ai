@@ -9,7 +9,7 @@ import { authoriseCronRequest } from '@repo/core/schedules';
 import { templateSendDepsFromEnv } from '@repo/core/template-email';
 import { runWorkflowTick } from '@repo/core/workflows';
 import { runDealSync } from '@repo/core/deals';
-import { phoneDepsFromEnv, refreshDueKyc } from '@repo/core/phone';
+import { phoneDepsFromEnv, refreshDueKyc, runDueAiCallbacks, voiceFromEnv } from '@repo/core/phone';
 import { workflowDraftWriterFromEnv } from '@repo/ai/workflow-draft';
 import { workflowDeciderFromEnv } from '@repo/ai/workflow-decide';
 import { getWebDb } from '../../../../lib/db';
@@ -77,8 +77,13 @@ async function handler(request: NextRequest) {
       error: err instanceof Error ? err.message : 'phone check failed',
     }));
 
+    // The AI call back (ADR 0072): calls that are due, inside calling hours, checked again before each.
+    const aiCalls = await runDueAiCallbacks(getWebDb(), voiceFromEnv().voice).catch((err: unknown) => ({
+      error: err instanceof Error ? err.message : 'ai call tick failed',
+    }));
+
     // Counts only — this is read from a cron log.
-    return NextResponse.json({ ok: true, workflows, scheduled, reminders, zoomAlerts, deals, platformEmails, phoneKyc }, { headers: { 'cache-control': 'no-store' } });
+    return NextResponse.json({ ok: true, workflows, scheduled, reminders, zoomAlerts, deals, platformEmails, phoneKyc, aiCalls }, { headers: { 'cache-control': 'no-store' } });
   } catch (err) {
     return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : 'tick failed' }, { status: 503 });
   }

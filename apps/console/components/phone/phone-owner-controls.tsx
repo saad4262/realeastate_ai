@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/toast';
-import { connectTwilioAction, disconnectTwilioAction, getNumberAction, refreshKycAction, releaseNumberAction } from '@/lib/phone-actions';
+import { connectTwilioAction, disconnectTwilioAction, getNumberAction, refreshKycAction, releaseNumberAction, setUpAiCallsAction } from '@/lib/phone-actions';
 import styles from './phone.module.css';
 
 /**
@@ -90,6 +90,15 @@ export function KycCheckButton() {
   return (
     <button type="button" className={styles.btn} disabled={pending} onClick={() => act(() => refreshKycAction(), (s) => (s === 'approved' ? 'Approved by Twilio' : 'Checked: not approved yet'), 'Could not check')}>
       {pending ? 'Checking…' : 'Check now'}
+    </button>
+  );
+}
+
+export function SetUpAiCallsButton({ again }: { again: boolean }) {
+  const { pending, act } = useAct();
+  return (
+    <button type="button" className={again ? styles.btn : styles.btnPrimary} disabled={pending} onClick={() => act(() => setUpAiCallsAction(), (s) => `AI calls: ${s ?? 'ready'}`, 'Not set up')}>
+      {pending ? 'Setting up…' : again ? 'Set up the new numbers' : 'Set up AI calls'}
     </button>
   );
 }

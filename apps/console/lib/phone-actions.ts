@@ -9,6 +9,8 @@ import {
   markMissedCallHandled,
   PhoneError,
   saveMissedCallSettings,
+  setUpAiCalls,
+  voiceFromEnv,
   type MissedCallSettingsInput,
   phoneDepsFromEnv,
   refreshCallerId,
@@ -148,6 +150,17 @@ export async function forwardingTestStatusAction(): Promise<PhoneActionResult> {
     return { ok: true, status };
   } catch (err) {
     return failure(err, 'Could not read the test');
+  }
+}
+
+export async function setUpAiCallsAction(): Promise<PhoneActionResult> {
+  const who = await actor();
+  try {
+    const r = await setUpAiCalls(getConsoleDb(), who, phoneDepsFromEnv(), voiceFromEnv().voice);
+    refresh();
+    return { ok: true, status: r.failed ? `${r.registered} ready, ${r.failed} refused` : `${r.registered} numbers ready` };
+  } catch (err) {
+    return failure(err, 'Could not set up AI calls');
   }
 }
 
