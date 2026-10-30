@@ -342,12 +342,19 @@ async function pause(db: Db, wf: WorkflowRow, reason: string): Promise<void> {
 }
 
 /** What the tick needs from outside core: the AI behind "AI decides" (ADR 0067), or null where it is not set up. */
-export type WorkflowTickDeps = { decider?: WorkflowDecider | null; env?: NodeJS.ProcessEnv };
+export type WorkflowTickDeps = {
+  decider?: WorkflowDecider | null;
+  env?: NodeJS.ProcessEnv;
+  /** false: only claim and run events — the minute tick's later rounds, the scans having run in its first. */
+  scans?: boolean;
+};
 
 export async function runWorkflowTick(db: Db, now = new Date(), limit = 50, deps: WorkflowTickDeps = {}): Promise<WorkflowTickReport> {
   const report: WorkflowTickReport = { events: 0, runs: 0, skipped: 0, paused: 0, noReplyEvents: 0, scanned: null };
-  report.noReplyEvents = await scanNoReply(db, now);
-  report.scanned = await runTriggerScans(db, now);
+  if (deps.scans !== false) {
+    report.noReplyEvents = await scanNoReply(db, now);
+    report.scanned = await runTriggerScans(db, now);
+  }
   const events = await claimEvents(db, now, limit);
   const workflows = new Map<string, WorkflowRow[]>();
   const owners = new Map<string, Actor | null>();

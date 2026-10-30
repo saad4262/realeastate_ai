@@ -57,6 +57,7 @@ export {
   NOTIFICATION_KIND_REMINDER,
   REMINDER_KIND,
   reminderRecipients,
+  REMINDER_BATCH,
   runReminderTick,
   startsIn,
   zoomLinkMissing,

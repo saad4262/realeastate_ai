@@ -39,7 +39,9 @@ import { ACTIVE_STATUSES, APPOINTMENT_TYPE_LABELS, type AppointmentType } from '
 
 export const REMINDER_KIND = 'appointment_reminder';
 export const NOTIFICATION_KIND_REMINDER = 'meeting_reminder';
-const BATCH = 25;
+/** How many reminders one round claims (the minute tick drains in rounds of this). */
+export const REMINDER_BATCH = 25;
+const BATCH = REMINDER_BATCH;
 
 export type ReminderDeps = {
   /** Staff email (platform → member). Null: bell only. */

@@ -77,14 +77,16 @@
     "./documents/schema": "./src/documents/document-schema.ts",
     "./documents/tick": "./src/documents/tick-entry.ts",
     "./opportunities": "./src/opportunities/index.ts",
-    "./phone": "./src/phone/index.ts"
+    "./phone": "./src/phone/index.ts",
+    "./cron": "./src/cron/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "echo \"no lint yet\"",
     "test": "vitest run",
     "geo:backfill": "tsx src/geo/backfill.ts",
-    "contacts:backfill": "tsx src/contacts/backfill-cli.ts"
+    "contacts:backfill": "tsx src/contacts/backfill-cli.ts",
+    "phone:repoint": "tsx src/phone/repoint-cli.ts"
   },
   "dependencies": {
     "@repo/db": "workspace:*",
