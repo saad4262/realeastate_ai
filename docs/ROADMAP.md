@@ -321,8 +321,10 @@ forwarding tests. Voyage key and the temporary domain arrive at the same time (c
 - [x] **3.1 Twilio connector + SMS threads in the inbox** (#1, #8 SMS): API key, KYC status, a number per
   agent, caller ID verification, forwarding guide and test call. Mock: `twilio-setup.html`. Built 2026-10-30,
   ADR 0070, migration 0071 NOT applied, real keys not yet (dev stub `PHONE_STUB=1`); TEST-PLAN BX.
-- [ ] **3.2 Missed call → greeting → SMS → CRM lookup → alert the agent** (#28), the Missed Calls page and
-  its settings (SMS template, greeting, calling hours, limits). Mock: `missed-calls.html`.
+- [x] **3.2 Missed call → greeting → SMS → CRM lookup → alert the agent** (#28), the Missed Calls page and
+  its settings (SMS template, greeting, calling hours, limits). Mock: `missed-calls.html`. Built 2026-10-30, ADR
+  0071, migration 0072 NOT applied; skill `missed_call_text` (agency + agent); calling hours move to 3.3 (they
+  only govern AI calls); TEST-PLAN BY.
 - [ ] **3.3 Retell AI callback** from the agent's verified number; recording, transcript and summary on the
   contact (#9, #28).
 - [ ] **3.4 SMS everywhere:** matched buyers, bulk SMS (consent + STOP), the workflow "Send SMS" action and

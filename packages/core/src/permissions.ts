@@ -315,6 +315,8 @@ export type Action =
   | 'sms:read'
   /** Text from a number: only the agent whose number it is — the text goes out in their name. */
   | 'sms:send'
+  /** Mark a missed call dealt with (ADR 0071; `ownerId` = whose number): that agent, or owners and admins. */
+  | 'missed_call:handle'
   /** See the agency's email templates (ADR 0022). Any active member. */
   | 'email_template:read'
   /**
@@ -796,6 +798,9 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       return sameAgency(actor, resource) && mayWrite(actor) && Boolean(resource.ownerId) && actor.userId === resource.ownerId;
     case 'sms:read':
       if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      return isAgencyAdmin(actor) || (Boolean(resource.ownerId) && actor.userId === resource.ownerId);
+    case 'missed_call:handle':
+      if (!sameAgency(actor, resource) || !mayWrite(actor)) return false;
       return isAgencyAdmin(actor) || (Boolean(resource.ownerId) && actor.userId === resource.ownerId);
 
     case 'skill_switch:read':

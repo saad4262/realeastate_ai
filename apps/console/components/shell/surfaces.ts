@@ -71,6 +71,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
         items: [
           { href: '/leads', label: 'Leads', icon: 'filter_alt', count: 'newOffers' },
           { href: '/inbox', label: 'Inbox', icon: 'mail', count: 'unreadMail', countLabel: 'unread' },
+          { href: '/missed-calls', label: 'Missed calls', icon: 'phone_missed' },
           { href: '/calendar', label: 'Calendar', icon: 'calendar_today' },
           { href: '/messages', label: 'Team messages', icon: 'forum', count: 'unreadTeam', countLabel: 'unread' },
         ],
@@ -137,6 +138,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
         items: [
           { href: '/my-leads', label: 'Leads', icon: 'person_search' },
           { href: '/my-inbox', label: 'Inbox', icon: 'mail', count: 'unreadMail', countLabel: 'unread' },
+          { href: '/my-missed-calls', label: 'Missed calls', icon: 'phone_missed' },
           { href: '/my-calendar', label: 'Calendar', icon: 'event' },
           { href: '/my-messages', label: 'Team messages', icon: 'forum', count: 'unreadTeam', countLabel: 'unread' },
         ],

@@ -4,7 +4,7 @@ import { OPPORTUNITY_KINDS } from '../opportunities/detectors';
 import { dropSwitchedOff } from '../opportunities/scan';
 import { ACTION_TYPES } from '../workflows/catalog';
 import { PLATFORM_SKILLS, SKILL_GROUPS, SKILL_KEYS, SKILL_OF_OPPORTUNITY, SKILL_OF_TOOL, SKILL_OF_WORKFLOW_STEP, skillOffMessage, skillsForHolder, skillsForToolCall } from './catalog';
-import { skillsOffOf } from './switches';
+import { pairedSkillOn, skillsOffOf } from './switches';
 
 describe('the platform skills catalog (ADR 0058)', () => {
   it('has one entry per key, each in a known group, in key order', () => {
@@ -64,6 +64,28 @@ describe('a skill runs only once it is switched on (ADR 0069)', () => {
   });
   it('never lists an agency-only skill as off for an agent (it is not theirs to hold)', () => {
     expect(skillsOffOf('personal', new Set())).not.toContain('team_management');
+  });
+});
+
+describe('a pair skill needs the agency’s switch and the agent’s (ADR 0069 §4)', () => {
+  const agencyOn = { userId: null, enabled: true };
+  const mine = { userId: 'sarah', enabled: true };
+  it('runs for an agent only with both on', () => {
+    expect(pairedSkillOn([agencyOn, mine], 'sarah', 'agent')).toBe(true);
+    expect(pairedSkillOn([agencyOn], 'sarah', 'agent')).toBe(false);
+    expect(pairedSkillOn([mine], 'sarah', 'agent')).toBe(false);
+    expect(pairedSkillOn([agencyOn, { userId: 'ali', enabled: true }], 'sarah', 'agent')).toBe(false);
+    expect(pairedSkillOn([{ userId: null, enabled: false }, mine], 'sarah', 'agent')).toBe(false);
+  });
+  it('runs for an owner or admin on the agency’s switch alone', () => {
+    expect(pairedSkillOn([agencyOn], 'owner', 'owner')).toBe(true);
+    expect(pairedSkillOn([], 'owner', 'owner')).toBe(false);
+  });
+  it('marks Missed call text as a pair skill that needs Twilio', () => {
+    const s = PLATFORM_SKILLS.find((x) => x.key === 'missed_call_text')!;
+    expect(s.pair).toBe(true);
+    expect(s.needs).toBe('Twilio');
+    expect(s.group).toBe('Phone & SMS');
   });
 });
 

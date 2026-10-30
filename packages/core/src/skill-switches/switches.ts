@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { skillSwitch, user, type DbOrTx } from '@repo/db';
 import { can, isAgencyAdminRole, type Actor, type MembershipRole } from '../permissions';
 import { platformSkill, skillOffMessage, skillsForHolder, type PlatformSkill, type SkillKey, type SwitchHolder } from './catalog';
@@ -49,7 +49,28 @@ export type SkillSwitchView = PlatformSkill & {
   /** Who last changed it and when; null while it has never been switched (off until then). */
   changedBy: string | null;
   changedAt: Date | null;
+  /** A `pair` skill seen by an agent: whether the agency has it on too (both are needed). */
+  agencyOn?: boolean;
 };
+
+/**
+ * A `pair` skill (ADR 0069 §4) runs for this person only when the agency's switch is on and — for anyone
+ * but an owner or admin, whose switch IS the agency's — their own too. Pure: the switched-on rows in.
+ */
+export function pairedSkillOn(rows: readonly { userId: string | null; enabled: boolean }[], userId: string, role: MembershipRole | null | undefined): boolean {
+  const agencyOn = rows.some((r) => r.userId === null && r.enabled);
+  if (!agencyOn || !role) return false;
+  return isAgencyAdminRole(role) || rows.some((r) => r.userId === userId && r.enabled);
+}
+
+/** For a machine path (a webhook): is this `pair` skill on for this member of this agency? */
+export async function isPairedSkillOn(db: DbOrTx, agencyId: string, userId: string, role: MembershipRole | null | undefined, key: SkillKey): Promise<boolean> {
+  const rows = await db
+    .select({ userId: skillSwitch.userId, enabled: skillSwitch.enabled })
+    .from(skillSwitch)
+    .where(and(eq(skillSwitch.agencyId, agencyId), eq(skillSwitch.skillKey, key), or(isNull(skillSwitch.userId), eq(skillSwitch.userId, userId))));
+  return pairedSkillOn(rows, userId, role);
+}
 
 /** The switches this person holds, in catalog order. */
 export async function listSkillSwitches(db: DbOrTx, actor: Actor): Promise<{ holder: SwitchHolder; skills: SkillSwitchView[] }> {
@@ -61,11 +82,23 @@ export async function listSkillSwitches(db: DbOrTx, actor: Actor): Promise<{ hol
     .leftJoin(user, eq(user.id, skillSwitch.changedBy))
     .where(holderWhere(actor));
   const byKey = new Map(rows.map((r) => [r.key, r]));
+  // An agent's `pair` skills also need the agency's switch: say which way the agency has it.
+  const pairKeys = holder === 'personal' ? skillsForHolder(holder).filter((s) => s.pair).map((s) => s.key) : [];
+  const agencyOnKeys = new Set(
+    pairKeys.length
+      ? (
+          await db
+            .select({ key: skillSwitch.skillKey })
+            .from(skillSwitch)
+            .where(and(eq(skillSwitch.agencyId, actor.agencyId), isNull(skillSwitch.userId), eq(skillSwitch.enabled, true), inArray(skillSwitch.skillKey, pairKeys)))
+        ).map((r) => r.key)
+      : [],
+  );
   return {
     holder,
     skills: skillsForHolder(holder).map((s) => {
       const r = byKey.get(s.key);
-      return { ...s, on: r ? r.enabled : false, changedBy: r?.by ?? null, changedAt: r?.at ?? null };
+      return { ...s, on: r ? r.enabled : false, changedBy: r?.by ?? null, changedAt: r?.at ?? null, ...(s.pair && holder === 'personal' ? { agencyOn: agencyOnKeys.has(s.key) } : {}) };
     }),
   };
 }

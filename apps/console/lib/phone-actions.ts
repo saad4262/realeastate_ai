@@ -6,7 +6,10 @@ import {
   disconnectTwilio,
   getMyPhone,
   getNumberForAgent,
+  markMissedCallHandled,
   PhoneError,
+  saveMissedCallSettings,
+  type MissedCallSettingsInput,
   phoneDepsFromEnv,
   refreshCallerId,
   refreshKyc,
@@ -145,6 +148,28 @@ export async function forwardingTestStatusAction(): Promise<PhoneActionResult> {
     return { ok: true, status };
   } catch (err) {
     return failure(err, 'Could not read the test');
+  }
+}
+
+export async function saveMissedCallSettingsAction(input: MissedCallSettingsInput): Promise<PhoneActionResult> {
+  const who = await actor();
+  try {
+    await saveMissedCallSettings(getConsoleDb(), who, input);
+    revalidatePath('/missed-calls/settings');
+    return { ok: true };
+  } catch (err) {
+    return failure(err, 'Could not save the settings');
+  }
+}
+
+export async function markMissedCallHandledAction(callId: string, handled: boolean): Promise<PhoneActionResult> {
+  const who = await actor();
+  try {
+    await markMissedCallHandled(getConsoleDb(), who, callId, handled);
+    for (const p of ['/missed-calls', '/my-missed-calls']) revalidatePath(p);
+    return { ok: true };
+  } catch (err) {
+    return failure(err, 'Could not change it');
   }
 }
 

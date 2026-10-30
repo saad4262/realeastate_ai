@@ -27,15 +27,17 @@ export const SKILL_KEYS = [
   'knowledge_answers',
   'team_meetings',
   'team_management',
+  'missed_call_text',
 ] as const;
 
 export type SkillKey = (typeof SKILL_KEYS)[number];
 
-export const SKILL_GROUPS = ['Communication', 'Listings', 'CRM & matching', 'Opportunities', 'Insights', 'Knowledge & team'] as const;
+export const SKILL_GROUPS = ['Communication', 'Phone & SMS', 'Listings', 'CRM & matching', 'Opportunities', 'Insights', 'Knowledge & team'] as const;
 export type SkillGroup = (typeof SKILL_GROUPS)[number];
 
 /** What a group's heading says under it, when it needs a word. */
 export const SKILL_GROUP_NOTES: Partial<Record<SkillGroup, string>> = {
+  'Phone & SMS': 'Texts and calls to your customers. Each runs for an agent only when the agency and that agent have both switched it on.',
   Opportunities: 'The platform spots these by itself and puts them in front of the right person.',
 };
 
@@ -53,6 +55,11 @@ export type PlatformSkill = {
   level: 'auto' | 'approval';
   /** The connector it uses, by label (shown, not enforced here — the tools ask "Connect … first"). */
   needs?: string;
+  /**
+   * Runs for an agent only when the agency's switch AND the agent's own are on (ADR 0069 §4): it reaches
+   * customers on the agency's bill in the agent's name. An owner or admin needs only the agency's.
+   */
+  pair?: true;
 };
 
 export const PLATFORM_SKILLS: readonly PlatformSkill[] = Object.freeze([
@@ -75,6 +82,7 @@ export const PLATFORM_SKILLS: readonly PlatformSkill[] = Object.freeze([
   { key: 'knowledge_answers', group: 'Knowledge & team', icon: 'menu_book', name: 'Answers from documents', description: "The assistant answers from the agency's procedures and the documents on contacts and listings, and says which one.", scope: 'both', level: 'auto' },
   { key: 'team_meetings', group: 'Knowledge & team', icon: 'video_call', name: 'Team meetings', description: 'Book a meeting with colleagues by asking, with a Zoom link.', scope: 'both', level: 'approval', needs: 'Zoom' },
   { key: 'team_management', group: 'Knowledge & team', icon: 'manage_accounts', name: 'Team management by the assistant', description: 'Invite, change or remove an agent by asking. The Team page works either way.', scope: 'agency', level: 'approval' },
+  { key: 'missed_call_text', group: 'Phone & SMS', icon: 'sms', name: 'Missed call text', description: "A caller an agent missed gets the agency's approved text from that agent's number straight away. Once per caller a day; never anyone who replied STOP.", scope: 'both', level: 'auto', needs: 'Twilio', pair: true },
 ] satisfies PlatformSkill[]);
 
 const BY_KEY = new Map(PLATFORM_SKILLS.map((s) => [s.key, s]));

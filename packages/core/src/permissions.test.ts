@@ -1038,6 +1038,14 @@ describe('phone and sms', () => {
     expect(can({ ...m('viewer', 'read_only') }, 'sms:send', { type: 'sms', agencyId: agencyA, ownerId: 'viewer' })).toBe(false);
     expect(can({ ...owner, via: 'platform' }, 'phone:manage', agencyPhone)).toBe(false);
   });
+
+  it("lets the agent, or an owner or admin, mark the agent's missed call handled — not a colleague (ADR 0071)", () => {
+    expect(can(sarah, 'missed_call:handle', sarahs('phone_call'))).toBe(true);
+    expect(can(owner, 'missed_call:handle', sarahs('phone_call'))).toBe(true);
+    expect(can(ali, 'missed_call:handle', sarahs('phone_call'))).toBe(false);
+    expect(can(viewer, 'missed_call:handle', { type: 'phone_call', agencyId: agencyA, ownerId: 'viewer' })).toBe(false);
+    expect(can(rival, 'missed_call:handle', sarahs('phone_call'))).toBe(false);
+  });
 });
 
 /** The platform skills' switches (ADR 0058): the agency's belong to its owners and admins, everyone else holds their own. */

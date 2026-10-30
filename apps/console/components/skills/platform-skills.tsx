@@ -101,7 +101,18 @@ function SkillCard({ skill: s, holder, mayManage }: { skill: SkillSwitchView; ho
             <span className={styles.tagGlyph} aria-hidden>hub</span>Needs {s.needs}
           </span>
         ) : null}
+        {s.pair ? (
+          <span className={styles.tag}>
+            <span className={styles.tagGlyph} aria-hidden>group</span>Agency + agent
+          </span>
+        ) : null}
       </div>
+      {s.pair && holder === 'personal' ? (
+        <p className={styles.cardText}>
+          {s.agencyOn ? 'The agency has it on. It runs for you once you switch yours on.' : 'The agency has it off, so it stays off for you too until an owner or admin switches it on.'}
+        </p>
+      ) : null}
+      {s.pair && holder === 'agency' ? <p className={styles.cardText}>Each agent switches it on for themselves too.</p> : null}
       <div className={styles.foot}>
         <span className={s.on ? styles.state : styles.stateOff}>{s.on ? 'On' : 'Off: the assistant and automations won’t use it'}</span>
         <span>

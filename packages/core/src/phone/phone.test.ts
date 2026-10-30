@@ -8,6 +8,7 @@ import { displayAu, forwardingCodes, isAuMobile, smsKeyword, toAuE164, verifyWeb
 import { connectTwilio, PhoneError, providerFailure, type PhoneDeps } from './setup';
 import { kycFromBundles, twilioClient } from './twilio';
 import { handleTwilioWebhook } from './webhooks';
+import { decideMissedCallText, DEFAULT_MISSED_CALL_SETTINGS, firstName, NO_TEXT_GREETING, renderMissedCallTemplate, unknownFields } from './missed-calls';
 
 const keys = tokenKeysFromEnv({ INTEGRATION_TOKEN_KEY: randomBytes(32).toString('base64') } as NodeJS.ProcessEnv)!;
 const otherKeys = tokenKeysFromEnv({ INTEGRATION_TOKEN_KEY: randomBytes(32).toString('base64') } as NodeJS.ProcessEnv)!;
@@ -121,6 +122,39 @@ describe('connecting the agency’s Twilio', () => {
   it('says the server is not set up when there is no key to encrypt with', async () => {
     const err = await connectTwilio(noDb, owner, { accountSid: '', apiKeySid: '', apiKeySecret: '' }, { ...deps(fakeFetch([])), keys: null }).catch((e: unknown) => e);
     expect((err as PhoneError).code).toBe('not_configured');
+  });
+});
+
+describe('a missed call’s text (ADR 0071)', () => {
+  const base = { skillOn: true, from: '+61400123456', optedOut: false, textedToday: false, agentTextsToday: 0, agencyTextsToday: 0, limits: { perAgent: 50, perAgency: 300 } };
+
+  it('sends only when every rule allows it, and otherwise names the first reason', () => {
+    expect(decideMissedCallText(base)).toBe('send');
+    expect(decideMissedCallText({ ...base, skillOn: false })).toBe('skill_off');
+    expect(decideMissedCallText({ ...base, from: null })).toBe('private');
+    expect(decideMissedCallText({ ...base, from: '+61395551234' })).toBe('not_mobile');
+    expect(decideMissedCallText({ ...base, optedOut: true })).toBe('opted_out');
+    expect(decideMissedCallText({ ...base, textedToday: true })).toBe('repeat');
+    expect(decideMissedCallText({ ...base, agentTextsToday: 50 })).toBe('limit');
+    expect(decideMissedCallText({ ...base, agencyTextsToday: 300 })).toBe('limit');
+  });
+
+  it('never texts with the skill off, whatever else is true', () => {
+    expect(decideMissedCallText({ ...base, skillOn: false, from: null, optedOut: true })).toBe('skill_off');
+  });
+
+  it('fills only the three fields, with a first name or "there"', () => {
+    const out = renderMissedCallTemplate(DEFAULT_MISSED_CALL_SETTINGS.smsTemplate, { first_name: firstName('John Smith', 'there'), agent_first_name: firstName('Sarah Khan', 'the agent'), agency_name: 'Pakenham Realty' });
+    expect(out).toBe("Hi John, Sarah from Pakenham Realty here. Sorry I missed your call! What can I help with? Reply here or I'll call you back shortly.");
+    expect(firstName(null, 'there')).toBe('there');
+    expect(firstName('sarah@agency.test', 'the agent')).toBe('the agent');
+    expect(renderMissedCallTemplate('Hi {{ first_name }}, {{price}}', { first_name: 'Jo', agent_first_name: '', agency_name: '' })).toBe('Hi Jo, {{price}}');
+  });
+
+  it('finds a field the owner made up, so it is refused on save', () => {
+    expect(unknownFields('Hi {{first_name}} about {{price}} and {{ agency_name }}')).toEqual(['price']);
+    expect(unknownFields(DEFAULT_MISSED_CALL_SETTINGS.greeting)).toEqual([]);
+    expect(unknownFields(NO_TEXT_GREETING)).toEqual([]);
   });
 });
 

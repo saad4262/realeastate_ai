@@ -1,6 +1,6 @@
 import { type NextRequest } from 'next/server';
 import { tokenKeysFromEnv } from '@repo/core/integrations';
-import { handleTwilioWebhook } from '@repo/core/phone';
+import { handleTwilioWebhook, phoneDepsFromEnv } from '@repo/core/phone';
 import { getWebDb } from '../../../../../../lib/db';
 
 export const runtime = 'nodejs';
@@ -29,7 +29,8 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
     form?.forEach((v, k) => {
       if (typeof v === 'string') params[k] = v.slice(0, 4000);
     });
-    const result = await handleTwilioWebhook({ db: getWebDb, token, kind, params, keys });
+    const env = phoneDepsFromEnv();
+    const result = await handleTwilioWebhook({ db: getWebDb, token, kind, params, keys, client: env.client, webhookBase: env.webhookBase });
     return new Response(result.body, { status: result.status, headers: { 'content-type': result.contentType, 'cache-control': 'no-store' } });
   } catch (err) {
     // A 5xx makes Twilio retry a status callback; an incoming call just hears nothing.

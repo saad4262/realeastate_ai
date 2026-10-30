@@ -39,6 +39,8 @@ const OWN_AGENCY = [
   'sms_read',
   'sms_opt_out',
   'phone_call',
+  // ADR 0071: the agency's missed-call settings (greeting, text, ceilings).
+  'missed_call_setting',
   'deal',
   'deal_condition',
   'deal_event',

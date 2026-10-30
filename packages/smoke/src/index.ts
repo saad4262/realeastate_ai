@@ -244,6 +244,28 @@ import { assistantDeps, runAssistantTurn, type AssistantEvent } from '@repo/ai/a
 import { DASHBOARD_EVALS } from '@repo/ai/evals/dashboard-phrases';
 import { listWaitingDrafts, runWorkflowTick, saveWorkflow, setWorkflowStatus } from '@repo/core/workflows';
 import { isSkillOn, setSkillSwitch, skillsOffForActor } from '@repo/core/skill-switches';
+import {
+  connectTwilio,
+  DEFAULT_MISSED_CALL_SETTINGS,
+  getMissedCall,
+  getNumberForAgent,
+  listMissedCalls,
+  markMissedCallHandled,
+  saveMissedCallSettings,
+  getPhoneSetup,
+  getSmsConversation,
+  handleTwilioWebhook,
+  listSmsConversations,
+  PhoneError,
+  refreshCallerId,
+  releaseAgentNumber,
+  sendSms,
+  startCallerIdCheck,
+  startForwardingTest,
+  stubTwilioClient,
+  webhookToken,
+  type PhoneDeps,
+} from '@repo/core/phone';
 import { skillsForHolder } from '@repo/core/skill-switches/catalog';
 import {
   cancelImport,
@@ -7187,6 +7209,161 @@ async function main() {
       await runWorkflowTick(t, evening);
       assert((await runsOf(t, wf.id)).length === 3, 'turned on again but did not run');
       return 'template saved only on Approve (agency-wide); card reads "If Parramatta / Wait until the next 9:00 am / Sydney"; 8 pm lead → email due 09:00 next morning, not sent early; Bondi → no run; 5 km radius: Bondi no, Parramatta yes; paused → no run, on → runs';
+    }),
+  );
+
+  // ── ADR 0070: Phone & SMS on the stub Twilio (needs migration 0071) ──────────────────────────
+  group('Phone & SMS (ADR 0070)');
+
+  await check('phone: connect → a number → caller ID → forwarding test → a text in, read, replied → STOP holds → a missed call is kept → release (stub Twilio)', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const a1 = f.actor('a1');
+      const a2 = f.actor('a2');
+      const deps: PhoneDeps = { keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test' };
+      await t.execute(sql`update "user" set phone = '0412 111 222' where id = ${f.people.a1}`);
+
+      // Connect: only an owner or admin; the secret is stored encrypted.
+      const refused = await connectTwilio(t, a1, { accountSid: '', apiKeySid: '', apiKeySecret: '' }, deps).catch((e: unknown) => e);
+      assert(refused instanceof PhoneError && refused.code === 'forbidden', 'an agent connected Twilio');
+      const c = await connectTwilio(t, owner, { accountSid: 'ACsmoke', apiKeySid: 'SKsmoke', apiKeySecret: 'plain-secret-smoke' }, deps);
+      assert(c.kycStatus === 'approved', `kyc: ${c.kycStatus}`);
+      const [acct] = await t.execute<{ s: string }>(sql`select api_key_secret as s from phone_account where agency_id = ${f.agencyId}`);
+      assert(acct?.s.startsWith('v1.') && !acct.s.includes('plain-secret-smoke'), 'the secret is stored in the clear');
+
+      // A number for A1, with their profile mobile as the caller ID to verify.
+      const n = await getNumberForAgent(t, owner, f.people.a1, deps);
+      assert(n.callerId === '0412 111 222' && n.callerIdStatus === 'none' && !n.live, `number: ${JSON.stringify(n)}`);
+      const twice = await getNumberForAgent(t, owner, f.people.a1, deps).catch((e: unknown) => e);
+      assert(twice instanceof PhoneError, 'a second number for the same agent');
+
+      // A1's phone side: the owner may not do it for them.
+      const notTheirs = await startCallerIdCheck(t, owner, '0412 111 222', deps).catch((e: unknown) => e);
+      assert(notTheirs instanceof PhoneError, 'the owner started a caller-ID check on a number that is not theirs');
+      const code = await startCallerIdCheck(t, a1, '0412 111 222', deps);
+      assert(code.code === '123456', `code: ${JSON.stringify(code)}`);
+      assert((await refreshCallerId(t, a1, deps)).status === 'verified', 'not verified');
+      assert((await startForwardingTest(t, a1, deps)).status === 'passed', 'the stub test did not pass');
+      const setup = await getPhoneSetup(t, owner, deps);
+      assert(setup.agents.find((g) => g.userId === f.people.a1)?.number?.live === true, 'A1 not live on the owner’s table');
+
+      // A text in, twice (Twilio retries): kept once, the agent told once.
+      const token = webhookToken(n.id, testKeys);
+      const smsIn = (sid: string, body: string, from = '+61400123456') =>
+        handleTwilioWebhook({ db: () => t, token, kind: 'sms', params: { From: from, To: '+61480000000', Body: body, MessageSid: sid }, keys: testKeys });
+      const r1 = await smsIn(`SMin1${f.tag}`, 'Hi, is it still available?');
+      await smsIn(`SMin1${f.tag}`, 'Hi, is it still available?');
+      assert(r1.status === 200 && r1.contentType.startsWith('text/xml'), `webhook: ${r1.status}`);
+      assert((await count(t, sql`select count(*)::int as n from sms_message where phone_number_id = ${n.id} and direction = 'in'`)) === 1, 'a retried text was kept twice');
+      assert((await count(t, sql`select count(*)::int as n from notification where user_id = ${f.people.a1} and kind = 'sms'`)) === 1, 'A1 not told once');
+
+      // Who sees it: A1 and the owner; not A2.
+      const mine = await listSmsConversations(t, a1);
+      assert(mine.length === 1 && mine[0]!.unread, `A1 list: ${JSON.stringify(mine)}`);
+      assert((await listSmsConversations(t, owner)).length === 1, 'the owner does not see it');
+      assert((await listSmsConversations(t, a2)).length === 0, 'A2 sees a colleague’s texts');
+      const a2Open = await getSmsConversation(t, a2, n.id, '+61400123456').catch((e: unknown) => e);
+      assert(a2Open instanceof PhoneError, 'A2 opened a colleague’s conversation');
+      const conv = await getSmsConversation(t, a1, n.id, '+61400123456');
+      assert(conv.messages.length === 1 && conv.canSend, `conversation: ${JSON.stringify({ n: conv.messages.length, canSend: conv.canSend })}`);
+      assert(!(await listSmsConversations(t, a1))[0]!.unread, 'still unread after opening');
+      assert(!(await getSmsConversation(t, owner, n.id, '+61400123456')).canSend, 'the owner may reply from A1’s number');
+
+      // A reply, then STOP holds, then START lifts it.
+      await sendSms(t, a1, { to: '0400 123 456', body: 'Yes it is. Would you like to see it?' }, deps);
+      const [out] = await t.execute<{ status: string }>(sql`select status from sms_message where phone_number_id = ${n.id} and direction = 'out'`);
+      assert(out?.status === 'sent', `sent: ${out?.status}`);
+      await smsIn(`SMin2${f.tag}`, 'STOP');
+      const blocked = await sendSms(t, a1, { to: '0400 123 456', body: 'One more thing' }, deps).catch((e: unknown) => e);
+      assert(blocked instanceof PhoneError && /replied STOP/.test(blocked.message), 'texted a number that replied STOP');
+      await smsIn(`SMin3${f.tag}`, 'start');
+      await sendSms(t, a1, { to: '0400 123 456', body: 'Thanks for coming back' }, deps);
+      const landline = await sendSms(t, a1, { to: '03 9555 1234', body: 'x' }, deps).catch((e: unknown) => e);
+      assert(landline instanceof PhoneError, 'texted a landline');
+
+      // A missed call: kept, the agent told, the caller hears the greeting — and no text goes out by itself.
+      const outBefore = await count(t, sql`select count(*)::int as n from sms_message where phone_number_id = ${n.id} and direction = 'out'`);
+      const v = await handleTwilioWebhook({ db: () => t, token, kind: 'voice', params: { CallSid: `CAmiss${f.tag}`, From: '+61400999000' }, keys: testKeys });
+      assert(v.status === 200 && /<Say[^>]*>Sorry, .* can&apos;t take your call/.test(v.body), `voice: ${v.body}`);
+      assert((await count(t, sql`select count(*)::int as n from phone_call where phone_number_id = ${n.id} and kind = 'missed'`)) === 1, 'missed call not kept');
+      assert((await count(t, sql`select count(*)::int as n from sms_message where phone_number_id = ${n.id} and direction = 'out'`)) === outBefore, 'a text went out by itself');
+
+      // The forwarding test coming back through the real webhook path.
+      const [test] = await t.execute<{ id: string; e164: string }>(sql`
+        insert into phone_call (agency_id, phone_number_id, kind, call_sid, status)
+        values (${f.agencyId}, ${n.id}, 'test', ${`CAtest${f.tag}`}, 'calling') returning id, (select e164 from phone_number where id = ${n.id}) as e164`);
+      await handleTwilioWebhook({ db: () => t, token, kind: 'voice', params: { CallSid: `CAback${f.tag}`, From: test!.e164 }, keys: testKeys });
+      const [tested] = await t.execute<{ status: string }>(sql`select status from phone_call where id = ${test!.id}`);
+      assert(tested?.status === 'passed', `test call: ${tested?.status}`);
+
+      // A token this server did not make is refused before anything is read.
+      const bad = await handleTwilioWebhook({ db: () => t, token: webhookToken(n.id, tokenKeysFromEnv({ INTEGRATION_TOKEN_KEY: randomBytes(32).toString('base64') } as NodeJS.ProcessEnv)!), kind: 'sms', params: {}, keys: testKeys });
+      assert(bad.status === 403, `bad token: ${bad.status}`);
+
+      await releaseAgentNumber(t, owner, n.id, deps);
+      assert((await getPhoneSetup(t, owner, deps)).agents.find((g) => g.userId === f.people.a1)?.number === null, 'released number still shown');
+      return 'connect (owner only, secret encrypted) → number with profile mobile → code 123456 → verified → test passed → live; text in once (retry ignored), told once; A1 + owner see it, A2 refused; reply sent; STOP blocks, START lifts; landline refused; missed call kept with greeting, no text by itself; webhook test pass; bad token 403; released';
+    }),
+  );
+
+  await check('missed calls (ADR 0071): texted only with both switches on, in the owner’s words, once a day; settings and “handled” are guarded', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const a1 = f.actor('a1');
+      const a2 = f.actor('a2');
+      const deps: PhoneDeps = { keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test' };
+      await connectTwilio(t, owner, { accountSid: '', apiKeySid: '', apiKeySecret: '' }, deps);
+      const n = await getNumberForAgent(t, owner, f.people.a1, deps);
+      const token = webhookToken(n.id, testKeys);
+      const missed = (sid: string, from = '+61400555111') =>
+        handleTwilioWebhook({ db: () => t, token, kind: 'voice', params: { CallSid: sid, From: from }, keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test' });
+      const outTexts = () => count(t, sql`select count(*)::int as n from sms_message where phone_number_id = ${n.id} and kind = 'missed_call_text'`);
+      // The fixture switches every skill on; start from "nobody switched it on".
+      await t.execute(sql`delete from skill_switch where agency_id = ${f.agencyId} and skill_key = 'missed_call_text'`);
+
+      // Off: kept, listed, greeting promises nothing, no text.
+      const v0 = await missed(`CAoff${f.tag}`);
+      assert(/They&apos;ll get back to you soon/.test(v0.body), `greeting with the skill off: ${v0.body}`);
+      assert((await outTexts()) === 0, 'texted with the skill off');
+
+      // Settings: owners only; a made-up field refused.
+      const agentSave = await saveMissedCallSettings(t, a1, { ...DEFAULT_MISSED_CALL_SETTINGS }).catch((e: unknown) => e);
+      assert(agentSave instanceof PhoneError && agentSave.code === 'forbidden', 'an agent changed the settings');
+      const madeUp = await saveMissedCallSettings(t, owner, { ...DEFAULT_MISSED_CALL_SETTINGS, smsTemplate: 'Hi {{first_name}}, the price is {{price}}' }).catch((e: unknown) => e);
+      assert(madeUp instanceof PhoneError && /\{\{price\}\}/.test(madeUp.message), 'a made-up field was saved');
+      await saveMissedCallSettings(t, owner, { ...DEFAULT_MISSED_CALL_SETTINGS, smsTemplate: 'Hi {{first_name}}, {{agent_first_name}} here, sorry I missed you!' });
+
+      // The agency's switch alone is not enough for an agent; both is.
+      await setSkillSwitch(t, owner, 'missed_call_text', true);
+      await missed(`CAagency${f.tag}`, '+61400555222');
+      assert((await outTexts()) === 0, 'texted with only the agency’s switch on');
+      await setSkillSwitch(t, a1, 'missed_call_text', true);
+      const v1 = await missed(`CAboth${f.tag}`, '+61400555333');
+      assert(/We&apos;ll text you straight away/.test(v1.body), `greeting before a text: ${v1.body}`);
+      const [txt] = await t.execute<{ body: string; status: string }>(sql`select body, status from sms_message where phone_number_id = ${n.id} and kind = 'missed_call_text'`);
+      assert(txt?.body === 'Hi there, a1 here, sorry I missed you!' && txt.status === 'sent', `text: ${JSON.stringify(txt)}`);
+
+      // Same caller again today: not texted twice. A landline: not texted.
+      await missed(`CAagain${f.tag}`, '+61400555333');
+      await missed(`CAland${f.tag}`, '+61395551234');
+      assert((await outTexts()) === 1, 'texted the same caller twice in a day, or a landline');
+      const list = await listMissedCalls(t, a1);
+      const outcomes = list.rows.map((r) => r.outcome).sort();
+      assert(JSON.stringify(outcomes) === JSON.stringify(['not_mobile', 'repeat', 'skill_off', 'skill_off', 'texted']), `outcomes: ${outcomes.join(',')}`);
+      assert(list.counts.texted === 1 && list.counts.waiting === 5, `counts: ${JSON.stringify(list.counts)}`);
+
+      // Who sees and who may mark it handled.
+      assert((await listMissedCalls(t, a2)).rows.length === 0, 'A2 sees a colleague’s missed calls');
+      assert((await listMissedCalls(t, owner)).rows.length === 5, 'the owner does not see them');
+      const id = list.rows.find((r) => r.outcome === 'texted')!.id;
+      const a2Mark = await markMissedCallHandled(t, a2, id).catch((e: unknown) => e);
+      assert(a2Mark instanceof PhoneError, 'A2 marked a colleague’s call handled');
+      await markMissedCallHandled(t, a1, id);
+      const d = await getMissedCall(t, owner, id);
+      assert(d.handledAt && d.text?.body.startsWith('Hi there') && d.canHandle, `detail: ${JSON.stringify({ h: d.handledAt, t: d.text?.body })}`);
+      return 'off → kept, "They’ll get back to you soon", no text; agent can’t save settings; {{price}} refused; agency only → no text; both → "Hi there, a1 here…" sent; same caller again / landline → not texted; A2 sees none, owner 5; A2 can’t mark handled, A1 can';
     }),
   );
 

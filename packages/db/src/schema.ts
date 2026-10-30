@@ -2698,11 +2698,42 @@ export const phoneCall = pgTable(
     contactId: uuid('contact_id').references((): AnyPgColumn => contact.id, { onDelete: 'set null' }),
     /** test: calling | passed | failed. missed: received. */
     status: varchar('status', { length: 12 }).notNull(),
+    /**
+     * A missed call (ADR 0071): what the platform did — `texted`, or why it did not: `skill_off`,
+     * `private`, `not_mobile`, `opted_out`, `repeat`, `limit`, `text_failed`.
+     */
+    outcome: varchar('outcome', { length: 16 }),
+    /** The missed-call text it sent, if any. */
+    smsMessageId: uuid('sms_message_id').references((): AnyPgColumn => smsMessage.id, { onDelete: 'set null' }),
+    /** A person marked it dealt with. */
+    handledAt: timestamp('handled_at', { withTimezone: true }),
+    handledBy: uuid('handled_by').references(() => user.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('phone_call_number_idx').on(t.phoneNumberId, desc(t.createdAt))],
+  (t) => [
+    index('phone_call_number_idx').on(t.phoneNumberId, desc(t.createdAt)),
+    /** The Missed calls page: an agency's missed calls, newest first. */
+    index('phone_call_agency_missed_idx').on(t.agencyId, desc(t.createdAt)).where(sql`kind = 'missed'`),
+  ],
 );
+
+/**
+ * How the agency answers a missed call (ADR 0071): the greeting a forwarded caller hears, the text they
+ * get, and the daily ceilings. One row per agency; no row = the defaults in core. Whether anything is
+ * sent at all is the "Missed call text" skill's (ADR 0069), never this row's.
+ */
+export const missedCallSetting = pgTable('missed_call_setting', {
+  agencyId: uuid('agency_id')
+    .primaryKey()
+    .references(() => agency.id, { onDelete: 'cascade' }),
+  greeting: text('greeting').notNull(),
+  smsTemplate: text('sms_template').notNull(),
+  textsPerAgentDay: integer('texts_per_agent_day').notNull(),
+  textsPerAgencyDay: integer('texts_per_agency_day').notNull(),
+  updatedBy: uuid('updated_by').references(() => user.id, { onDelete: 'set null' }),
+  ...timestamps,
+});
 
 export type User = typeof user.$inferSelect;
 export type Agency = typeof agency.$inferSelect;

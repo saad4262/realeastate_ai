@@ -1,15 +1,16 @@
 import { and, desc, eq, gt, sql } from 'drizzle-orm';
 import { membership, notification, phoneCall, phoneNumber, smsMessage, smsOptOut, user, type Db } from '@repo/db';
 import type { TokenKeys } from '../integrations/crypto';
-import { displayAu, smsKeyword, SMS_MAX_LENGTH, toAuE164, verifyWebhookToken, WEBHOOK_KINDS, xmlEscape, type WebhookKind } from './format';
-import { contactByPhone, textsPathFor } from './setup';
+import { displayAu, smsKeyword, SMS_MAX_LENGTH, toAuE164, verifyWebhookToken, WEBHOOK_KINDS, type WebhookKind } from './format';
+import { recordMissedCall } from './missed-calls';
+import { contactByPhone, phoneDepsFromEnv, textsPathFor, type PhoneDeps } from './setup';
 
 /**
  * What Twilio tells us (ADR 0070), on `/api/phone/twilio/<token>/<kind>` of the web app:
  * - `sms`: a text to an agent's number — kept in its conversation, STOP/START honoured, the agent told;
  * - `sms-status`: what became of a text we sent;
  * - `voice`: a call to an agent's number — the forwarding test coming back, or a caller the agent
- *   missed (kept and told; Phase 3.2 adds the text and the AI call back, each behind its skill);
+ *   missed (kept and told, and texted only behind the "Missed call text" skill: missed-calls.ts);
  * - `caller-id`: Twilio's answer on an agent's mobile verification.
  *
  * The token in the URL is the only credential (a bring-your-own API key gives us no Auth Token to check
@@ -40,6 +41,10 @@ export async function handleTwilioWebhook(opts: {
   kind: string;
   params: Record<string, string>;
   keys: TokenKeys | null;
+  /** Sends a missed-call text. Default: the env's (the dev stub when PHONE_STUB=1). */
+  client?: PhoneDeps['client'];
+  /** For the missed-call text's delivery callback. */
+  webhookBase?: string | null;
   now?: Date;
 }): Promise<TwilioWebhookResult> {
   if (!opts.keys) return plain(503, 'not configured');
@@ -126,30 +131,10 @@ export async function handleTwilioWebhook(opts: {
         return ok('<Hangup/>');
       }
       if (n.status !== 'active') return ok('<Hangup/>');
-      // A caller the agent did not answer. Kept and told; Phase 3.2 texts and calls back, behind its skills.
-      const who = from ? await contactByPhone(db, n.agencyId, from) : null;
-      await db.transaction(async (tx) => {
-        const [row] = await tx
-          .insert(phoneCall)
-          .values({ agencyId: n.agencyId, phoneNumberId: n.id, kind: 'missed', callSid, fromE164: from, contactId: who?.id ?? null, status: 'received' })
-          .onConflictDoNothing({ target: phoneCall.callSid })
-          .returning({ id: phoneCall.id });
-        if (!row) return;
-        const name = who?.name ?? (from ? displayAu(from) : 'a private number');
-        await tx
-          .insert(notification)
-          .values({
-            userId: n.userId,
-            agencyId: n.agencyId,
-            kind: 'missed_call',
-            title: `Missed call from ${name}`.slice(0, 300),
-            ...(from ? { href: `${textsPathFor(n.role)}?n=${n.id}&with=${encodeURIComponent(from)}` } : {}),
-            dedupeKey: `call:${callSid}`,
-          })
-          .onConflictDoNothing();
-      });
-      const first = (n.agentName || '').split(/[\s@]/)[0] || 'the agent';
-      return ok(`<Say language="en-AU">${xmlEscape(`Sorry, ${first} can't take your call right now. They'll get back to you soon.`)}</Say><Hangup/>`);
+      // A caller the agent did not answer (ADR 0071): kept, the agent told, and texted only while the
+      // "Missed call text" skill is on for the agency and the agent.
+      const deps: PhoneDeps = { keys: opts.keys, client: opts.client ?? phoneDepsFromEnv().client, webhookBase: opts.webhookBase ?? null };
+      return ok(await recordMissedCall(db, { id: n.id, agencyId: n.agencyId, userId: n.userId, e164: n.e164, agentName: n.agentName, role: n.role }, callSid, from, deps));
     }
 
     case 'caller-id': {

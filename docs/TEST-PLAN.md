@@ -1812,3 +1812,22 @@ account whose AU business bundle is approved, PHONE_WEBHOOK_BASE = the web app's
 | BX17 | New text to a landline (03…) | Refused: Australian mobiles only. |
 | BX18 | Release Sarah's number (confirm) | Gone from the table; her old texts still readable; texts to it are not kept. |
 | BX19 | A webhook URL with a changed token | 403, nothing written. |
+
+## BY — Missed calls: the text behind its skill, the page, the settings (ADR 0071)
+
+Needs migrations **0071** and **0072**, and BX done (Sarah has a live number). `PHONE_STUB=1` works for
+everything except a real forwarded call (use real Twilio for BY2–BY6, or the smoke check).
+
+| # | Case | Expected |
+|---|---|---|
+| BY1 | Sidebar → Daily work | "Missed calls" on both the agency console and the agent desk. |
+| BY2 | Skills: Missed call text off. Call Sarah's mobile, don't answer | Caller hears "…They'll get back to you soon." No text. Missed calls lists it: "Listed only: Missed call text is off". Sarah's bell rings. |
+| BY3 | Owner switches Missed call text on (agency) only; call again from another mobile | Still no text: Sarah's own switch is off. Her Skills card says "The agency has it on…". |
+| BY4 | Sarah switches hers on; call from a mobile | Caller hears "…We'll text you straight away." and gets the owner's text from Sarah's Twilio number. Row: "Texted · waiting for a reply". |
+| BY5 | Same caller again the same day | Not texted again: "already texted today". |
+| BY6 | Caller replies to the text | Row: "Replied by text · in Texts"; the call's page shows the reply; Open the texts goes to the conversation. |
+| BY7 | Call from a landline, and from a private number | Not texted: "not a mobile" / "private number". |
+| BY8 | Owner → Missed calls → Settings: change the text to use {{price}} | Refused, naming {{price}}. With only the three fields: saved; the preview shows it filled. |
+| BY9 | Settings: texts per agent a day = 1; two new callers | The second is "daily limit reached". |
+| BY10 | Sarah opens a call → Mark as handled | "Handled by Sarah"; Not handled filter hides it. Ali cannot open or mark it; the owner can. |
+| BY11 | Agent → Missed calls | Only their own calls; no Settings tab. |
