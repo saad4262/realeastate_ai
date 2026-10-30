@@ -458,6 +458,38 @@ export async function startForwardingTest(db: Db, actor: Actor, deps: PhoneDeps)
   return { status };
 }
 
+// ── A domain cutover ────────────────────────────────────────────────────────
+
+/**
+ * Every active number, in every agency, pointed at this server's webhook URLs (PHONE_WEBHOOK_BASE).
+ * A number keeps the URLs it was bought with, so after the web domain changes Twilio would keep
+ * calling the old one: run this (`phone:repoint`) right after the cutover. A platform job — no actor;
+ * the CLI is the door. One agency's failure does not stop the rest.
+ */
+export async function repointNumberWebhooks(db: Db, deps: PhoneDeps): Promise<{ agencies: number; numbers: number; failed: { agencyId: string; error: string }[] }> {
+  const keys = needKeys(deps);
+  const base = needBase(deps);
+  const report = { agencies: 0, numbers: 0, failed: [] as { agencyId: string; error: string }[] };
+  const accounts = await db.select({ agencyId: phoneAccount.agencyId }).from(phoneAccount).where(eq(phoneAccount.status, 'connected'));
+  for (const a of accounts) {
+    report.agencies += 1;
+    try {
+      const { client } = await agencyTwilio(db, a.agencyId, deps);
+      const nums = await db
+        .select({ id: phoneNumber.id, sid: phoneNumber.numberSid })
+        .from(phoneNumber)
+        .where(and(eq(phoneNumber.agencyId, a.agencyId), eq(phoneNumber.status, 'active')));
+      for (const n of nums) {
+        await client.setNumberWebhooks(n.sid, { smsUrl: webhookUrl(base, n.id, 'sms', keys), voiceUrl: webhookUrl(base, n.id, 'voice', keys) });
+        report.numbers += 1;
+      }
+    } catch (err) {
+      report.failed.push({ agencyId: a.agencyId, error: providerFailure(err, 'Twilio refused the saved key.').message });
+    }
+  }
+  return report;
+}
+
 // ── Shared lookups ──────────────────────────────────────────────────────────
 
 /** The agency's contact with this phone number, if exactly one is clear (oldest live one wins). */

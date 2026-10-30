@@ -40,6 +40,7 @@ Nothing below is optional for production. Each line names what proves it is done
 - [ ] **Domain** bought and on Vercel: apex/`www` → `apps/web`; `agents.` and `agency.` →
       `apps/console` (one project, two hosts). `NEXT_PUBLIC_AGENT_URL`, `NEXT_PUBLIC_AGENCY_URL`,
       `COOKIE_DOMAIN=.<domain>` set; signing in on one host is signed in on the other.
+      Step by step, with Cloudflare DNS and every service that knows the domain: `docs/DNS-CUTOVER.md`.
 - [ ] **Admin console** (ADR 0049): `admin.` → the same console project (or, while hosts are
       `*.vercel.app`, one more console project with `CONSOLE_SURFACE_OVERRIDE=admin`);
       `NEXT_PUBLIC_ADMIN_URL` set; migration 0057 applied; the first admin made with
@@ -487,6 +488,12 @@ surface — saved-search alerts, agents' skills, template-email batches, the
 assistant's scheduled actions, appointment sync. Full reasoning in
 `apps/web/CRON.md`. Needs `CRON_SECRET` on the web project (Production);
 Vercel sends it as `Authorization: Bearer`.
+
+The every-minute tick, `/api/cron/minute` (ADR 0035), runs its jobs in rounds against a 45 s budget
+(ADR 0073): every job gets one round, then the full queues drain until the budget is spent. Its log is
+`{ ok, ms, budgetMs, jobs: { workflows, scheduled, reminders, aiCalls, platformEmails, zoomAlerts, deals,
+phoneKyc } }`, each with `rounds`, `ms`, `more` and totals. A job with `more: true` tick after tick is
+falling behind: look at its `ms` before raising a batch size (`MINUTE_BATCH` in `packages/core/src/cron`).
 
 The shortest gap anywhere is 10 minutes — saved searches
 (`MIN_INTERVAL_MINUTES`) and skills (`MIN_SKILL_INTERVAL_MINUTES`, migration

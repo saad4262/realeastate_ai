@@ -85,6 +85,13 @@ describe('the Twilio client', () => {
     expect(Object.fromEntries(body)).toMatchObject({ PhoneNumber: '+61480999888', BundleSid: 'BU1', SmsUrl: 'https://s/sms', VoiceUrl: 'https://s/voice' });
   });
 
+  it('re-points a number’s texts and calls at new URLs (a domain cutover)', async () => {
+    const f = fakeFetch([{ status: 200, body: { sid: 'PN1' } }]);
+    await twilioClient(creds, f.impl).setNumberWebhooks('PN1', { smsUrl: 'https://new.example/sms', voiceUrl: 'https://new.example/voice' });
+    expect(f.calls[0]!.url).toBe(`https://api.twilio.com/2010-04-01/Accounts/${creds.accountSid}/IncomingPhoneNumbers/PN1.json`);
+    expect(Object.fromEntries(new URLSearchParams(f.calls[0]!.body))).toMatchObject({ SmsUrl: 'https://new.example/sms', VoiceUrl: 'https://new.example/voice', SmsMethod: 'POST', VoiceMethod: 'POST' });
+  });
+
   it('turns a refused key into a message without the key', async () => {
     const f = fakeFetch([{ status: 401, body: { code: 20003, message: 'Authenticate' } }]);
     const err = await twilioClient(creds, f.impl).account().catch((e: unknown) => e);

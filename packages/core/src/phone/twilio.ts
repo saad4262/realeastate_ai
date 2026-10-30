@@ -29,6 +29,8 @@ export interface TwilioApi {
   findMobileNumber(): Promise<string | null>;
   buyNumber(input: { e164: string; bundleSid: string; smsUrl: string; voiceUrl: string }): Promise<{ sid: string; e164: string }>;
   releaseNumber(numberSid: string): Promise<void>;
+  /** Points a number's texts and calls at new webhook URLs (a domain cutover, ADR 0070). */
+  setNumberWebhooks(numberSid: string, urls: { smsUrl: string; voiceUrl: string }): Promise<void>;
   sendSms(input: { from: string; to: string; body: string; statusUrl: string | null }): Promise<{ sid: string; status: string }>;
   /** Twilio calls the mobile and asks for the code it returns here, which the person keys in. */
   startCallerId(input: { e164: string; name: string; statusUrl: string | null }): Promise<{ validationCode: string }>;
@@ -102,6 +104,9 @@ export function twilioClient(creds: TwilioCreds, fetchImpl: Fetch = fetch): Twil
     async releaseNumber(numberSid) {
       await call(fetchImpl, 'Twilio', `${acct}/IncomingPhoneNumbers/${encodeURIComponent(numberSid)}.json`, { method: 'DELETE', headers: auth }, [404]);
     },
+    async setNumberWebhooks(numberSid, urls) {
+      await post(`${acct}/IncomingPhoneNumbers/${encodeURIComponent(numberSid)}.json`, { SmsUrl: urls.smsUrl, SmsMethod: 'POST', VoiceUrl: urls.voiceUrl, VoiceMethod: 'POST' });
+    },
     async sendSms(input) {
       const r = await post(`${acct}/Messages.json`, { From: input.from, To: input.to, Body: input.body, StatusCallback: input.statusUrl ?? undefined });
       const sid = str(r.json?.sid);
@@ -161,6 +166,7 @@ export function stubTwilioClient(): TwilioApi {
       return { sid: `PNstub${randomInt(0, 1e9)}`, e164: input.e164 };
     },
     async releaseNumber() {},
+    async setNumberWebhooks() {},
     async sendSms() {
       return { sid: `SMstub${randomInt(0, 1e9)}`, status: 'sent' };
     },
