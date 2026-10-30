@@ -62,7 +62,8 @@ describe('asking — never failing the run', () => {
   /** Switch rows from `select`, words and budget rows from `execute`. */
   const fakeDb = (o: { switchOff?: boolean; text?: string | null; spent?: number }) =>
     ({
-      select: () => ({ from: () => ({ where: () => ({ limit: async () => (o.switchOff ? [{ enabled: false }] : []) }) }) }),
+      // The owner switched AI decisions on — or off. (No row at all is off too, ADR 0069.)
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ enabled: !o.switchOff }] }) }) }),
       execute: async (q: { queryChunks?: unknown[] }) => {
         const s = JSON.stringify(q.queryChunks ?? '');
         if (s.includes('ai_run')) return [{ agency: String(o.spent ?? 0), total: '0' }];

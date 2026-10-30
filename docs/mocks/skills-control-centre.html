@@ -173,7 +173,7 @@
     <div class="head">
       <div>
         <h1>Skills</h1>
-        <p class="sub" id="lead">Everything the platform and the assistant can do for the agency. A skill that is off is off everywhere: on its page, in automations and in the assistant.</p>
+        <p class="sub" id="lead">Everything the platform and the assistant can do for the agency. Nothing runs until it is switched on here. A skill that is off is off everywhere: on its page, in automations and in the assistant.</p>
         <span class="who" id="who"><span class="ms sm">apartment</span><span>Switches here are for the whole agency</span></span>
       </div>
       <button type="button" class="btn primary"><span class="ms sm">chat</span>Ask the assistant</button>
@@ -201,7 +201,7 @@
       </div>
       <div class="note" id="agency-note">
         <span class="ms">info</span>
-        <span>Agents have their own switches for the skills they can use. They never see skills marked <span class="tag ag">Agency only</span>. A skill always works within what that person may see.</span>
+        <span>Agents have their own switches for the skills they can use. They never see skills marked <span class="tag ag">Agency only</span>. A skill always works within what that person may see. A skill marked <span class="tag"><span class="ms sm">group</span>Agency + agent</span> runs for an agent only when the agency <b>and</b> that agent have both switched it on.</span>
       </div>
     </section>
 
@@ -251,10 +251,16 @@
 <script>
 // scope: 'both' = agency and agents (each on their own data); 'agency' = agency only (reads the whole agency).
 // level: g = runs by itself (🟢), y = needs your approval before anything is sent or changed (🟡).
+// Every skill is OFF until switched on (ADR 0069); fresh = never switched yet. pair = needs the agency's AND the agent's switch.
 const SKILLS = [
   { cat: 'Communication', items: [
     { id: 'bulk', icon: 'forward_to_inbox', name: 'Bulk email', desc: 'Email a filtered list of contacts. Respects consent and unsubscribes.', scope: 'both', level: 'y', on: true },
     { id: 'drafts', icon: 'edit_note', name: 'AI email drafts', desc: 'The assistant writes the email. You read it, then send it.', scope: 'both', level: 'y', on: true, needs: 'Gmail' },
+    { id: 'wfmail', icon: 'outgoing_mail', name: 'Workflow emails', desc: 'A workflow sends one of your approved email templates to a contact by itself. Off: that step is skipped.', scope: 'both', level: 'g', on: true },
+  ]},
+  { cat: 'Phone & SMS', sub: 'Texts and calls to your customers. Off for everyone until the agency and each agent switch them on.', items: [
+    { id: 'mctext', icon: 'sms', name: 'Missed call text', desc: 'A caller an agent missed gets an approved text from that agent straight away.', scope: 'both', level: 'g', on: false, fresh: true, needs: 'Twilio', pair: true },
+    { id: 'aicall', icon: 'smart_toy', name: 'AI calls back', desc: "The AI calls a missed caller back from the agent's own number, asks what they need and offers a call back. No prices, no promises.", scope: 'both', level: 'g', on: false, fresh: true, needs: 'Twilio', pair: true },
   ]},
   { cat: 'Listings', items: [
     { id: 'copy', icon: 'description', name: 'AI listing copy', desc: 'A first draft of the listing description from its details. Goes live only after approval.', scope: 'both', level: 'y', on: true },
@@ -326,9 +332,11 @@ function render() {
           ${s.level === 'g' ? '<span class="tag g"><span class="ms sm">bolt</span>Runs by itself</span>' : '<span class="tag y"><span class="ms sm">how_to_reg</span>Needs your approval</span>'}
           ${s.scope === 'agency' ? '<span class="tag ag"><span class="ms sm">apartment</span>Agency only</span>' : ''}
           ${s.needs ? `<span class="tag"><span class="ms sm">hub</span>Needs ${s.needs}</span>` : ''}
+          ${s.pair ? '<span class="tag"><span class="ms sm">group</span>Agency + agent</span>' : ''}
         </div>
-        <div class="foot"><span class="state ${on ? '' : 'off'}">${on ? 'On' : 'Off: the assistant and automations won’t use it'}</span>
-          <span>${view === 'agency' ? 'Changed by Priya M. · 3 days ago' : 'Your switch'}</span></div>`;
+        <div class="foot"><span class="state ${on ? '' : 'off'}">${on ? 'On' : 'Off: nothing runs'}</span>
+          <span>${s.fresh && !on ? 'Off until you switch it on' : view === 'agency' ? 'Changed by Priya M. · 3 days ago' : 'Your switch'}</span></div>
+        ${s.pair && view === 'agent' ? `<div class="foot" style="border-top:0;padding-top:0"><span>Agency: ${s.on ? 'on' : 'off'}${s.on ? '' : ', so this stays off for you too'}</span></div>` : ''}`;
       g.appendChild(card);
     }
     cats.appendChild(g);
@@ -353,6 +361,7 @@ document.addEventListener('click', e => {
   if (sw && sw.dataset.id) {
     for (const c of SKILLS) for (const s of c.items) if (s.id === sw.dataset.id) {
       if (view === 'agency') s.on = !s.on; else agentOn[s.id] = !agentOn[s.id];
+      s.fresh = false;
     }
     render(); return;
   }

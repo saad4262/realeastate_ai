@@ -4,10 +4,18 @@ import { can, isAgencyAdminRole, type Actor, type MembershipRole } from '../perm
 import { platformSkill, skillOffMessage, skillsForHolder, type PlatformSkill, type SkillKey, type SwitchHolder } from './catalog';
 
 /**
- * The platform skills' switches (ADR 0058). A row is an exception: no row = on. The agency's switch
- * (`user_id` null) is its owners' and admins'; every other member has their own. Neither overrides the
- * other, and a switch never widens anything — each skill still works only within `can()`.
+ * The platform skills' switches (ADR 0058). No row = OFF (ADR 0069): a skill runs only once its holder
+ * has switched it on. The agency's switch (`user_id` null) is its owners' and admins'; every other
+ * member has their own. Neither overrides the other, and a switch never widens anything — each skill
+ * still works only within `can()`.
  */
+
+/** Of the skills a holder has, the ones not switched on. Pure: a missing row is off. */
+export function skillsOffOf(holder: SwitchHolder, onKeys: ReadonlySet<string>): SkillKey[] {
+  return skillsForHolder(holder)
+    .map((s) => s.key)
+    .filter((k) => !onKeys.has(k));
+}
 
 export class SkillSwitchError extends Error {
   constructor(
@@ -38,7 +46,7 @@ function holderWhere(actor: Actor) {
 
 export type SkillSwitchView = PlatformSkill & {
   on: boolean;
-  /** Who last changed it and when; null while it has never been changed (on by default). */
+  /** Who last changed it and when; null while it has never been switched (off until then). */
   changedBy: string | null;
   changedAt: Date | null;
 };
@@ -57,14 +65,14 @@ export async function listSkillSwitches(db: DbOrTx, actor: Actor): Promise<{ hol
     holder,
     skills: skillsForHolder(holder).map((s) => {
       const r = byKey.get(s.key);
-      return { ...s, on: r ? r.enabled : true, changedBy: r?.by ?? null, changedAt: r?.at ?? null };
+      return { ...s, on: r ? r.enabled : false, changedBy: r?.by ?? null, changedAt: r?.at ?? null };
     }),
   };
 }
 
 /**
- * Is this skill on for this person? An `agency` skill is not one an agent holds, so it never gates
- * them (their role already keeps them from what it does). Fails open only on that, never on an error.
+ * Has this person's holder switched this skill on? No row = off (ADR 0069). An `agency` skill is not
+ * one an agent holds, so it never gates them (their role already keeps them from what it does).
  */
 export async function isSkillOn(db: DbOrTx, actor: Actor, key: SkillKey): Promise<boolean> {
   if (!actor.agencyId) return false;
@@ -75,7 +83,7 @@ export async function isSkillOn(db: DbOrTx, actor: Actor, key: SkillKey): Promis
     .from(skillSwitch)
     .where(and(holderWhere(actor), eq(skillSwitch.skillKey, key)))
     .limit(1);
-  return row ? row.enabled : true;
+  return row?.enabled === true;
 }
 
 /** Throws the refusal the person sees when the skill is off. */
@@ -109,21 +117,22 @@ export async function skillsOffFor(
   const off = new Set<string>();
   if (!people.length) return off;
   const agencies = [...new Set(people.map((p) => p.agencyId))];
+  // The switches that are ON; everything else a holder has is off (ADR 0069).
   const rows = await db
     .select({ agencyId: skillSwitch.agencyId, userId: skillSwitch.userId, key: skillSwitch.skillKey })
     .from(skillSwitch)
-    .where(and(inArray(skillSwitch.agencyId, agencies), eq(skillSwitch.enabled, false)));
-  if (!rows.length) return off;
-  const agencyOff = new Map<string, Set<string>>();
-  const personalOff = new Map<string, Set<string>>();
+    .where(and(inArray(skillSwitch.agencyId, agencies), eq(skillSwitch.enabled, true)));
+  const agencyOn = new Map<string, Set<string>>();
+  const personalOn = new Map<string, Set<string>>();
   for (const r of rows) {
     const k = r.userId ? `${r.agencyId}|${r.userId}` : r.agencyId;
-    const map = r.userId ? personalOff : agencyOff;
+    const map = r.userId ? personalOn : agencyOn;
     map.set(k, (map.get(k) ?? new Set()).add(r.key));
   }
   for (const p of people) {
-    const keys = holderOf(p.role) === 'agency' ? agencyOff.get(p.agencyId) : personalOff.get(`${p.agencyId}|${p.userId}`);
-    for (const key of keys ?? []) off.add(`${p.agencyId}|${p.userId}|${key}`);
+    const holder = holderOf(p.role);
+    const on = (holder === 'agency' ? agencyOn.get(p.agencyId) : personalOn.get(`${p.agencyId}|${p.userId}`)) ?? new Set<string>();
+    for (const key of skillsOffOf(holder, on)) off.add(`${p.agencyId}|${p.userId}|${key}`);
   }
   return off;
 }
@@ -134,7 +143,6 @@ export async function skillsOffForActor(db: DbOrTx, actor: Actor): Promise<Reado
   const rows = await db
     .select({ key: skillSwitch.skillKey })
     .from(skillSwitch)
-    .where(and(holderWhere(actor), eq(skillSwitch.enabled, false)));
-  const visible = new Set(skillsForHolder(holderOf(actor.membershipRole)).map((s) => s.key));
-  return new Set(rows.map((r) => r.key as SkillKey).filter((k) => visible.has(k)));
+    .where(and(holderWhere(actor), eq(skillSwitch.enabled, true)));
+  return new Set(skillsOffOf(holderOf(actor.membershipRole), new Set(rows.map((r) => r.key))));
 }

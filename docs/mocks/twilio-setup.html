@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phone & SMS Setup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300..600,0..1&display=swap" rel="stylesheet" />
+<!--
+  Mock for ROADMAP Phase 3.1 — Phone & SMS setup: the agency brings its own Twilio, the app buys a number
+  per agent, each agent verifies their mobile (Verified Caller ID) and turns on Call Forwarding on No Answer.
+  Console tokens (apps/console/app/globals.css). Every name, number and code is SAMPLE data; carrier codes
+  are checked per carrier before the build. The bar at the top exists only in the mock.
+  #agent opens the agent's view.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff;
+    --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff;
+    --emerald: #059669; --emerald-subtle: #ecfdf5;
+    --rose: #e11d48; --rose-subtle: #fff1f2;
+    --amber: #d97706; --amber-subtle: #fffbeb;
+    --violet: #6d28d9; --violet-subtle: #f5f3ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .ms { font-family: 'Material Symbols Outlined'; font-size: 20px; line-height: 1; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 400; }
+  .ms.sm { font-size: 16px; width: 16px; height: 16px; }
+  button, input, select { font: inherit; }
+  [hidden] { display: none !important; }
+
+  .mockbar { position: sticky; top: 0; z-index: 30; display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+  .mockbar b { color: #fff; }
+  .seg { display: inline-flex; background: #1e293b; border-radius: 8px; padding: 2px; flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; }
+
+  .shell { display: flex; min-height: calc(100vh - 36px); }
+  aside { width: 240px; flex: none; border-right: 1px solid var(--border-default); padding: 16px 12px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 16px; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--text-primary); color: #fff; display: grid; place-items: center; font: 700 12px 'Plus Jakarta Sans'; }
+  .brand small { display: block; color: var(--text-muted); font-size: 11px; }
+  .gh { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px 4px; }
+  .nl { display: flex; gap: 12px; align-items: center; padding: 7px 12px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; }
+  .nl.on { background: #fff; color: var(--sapphire); border: 1px solid var(--border-default); font-weight: 500; }
+
+  main { flex: 1; min-width: 0; padding: 22px 32px 64px; max-width: 1000px; }
+  .back { color: var(--text-secondary); text-decoration: none; display: inline-flex; gap: 4px; align-items: center; font-size: 12.5px; }
+  h2 { font: 600 19px/26px 'Plus Jakarta Sans'; margin: 10px 0 4px; }
+  h3 { font: 600 14.5px/20px 'Plus Jakarta Sans'; margin: 0; }
+  .lead { color: var(--text-secondary); margin: 0 0 16px; max-width: 70ch; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--sapphire-subtle); color: var(--sapphire); }
+  .muted { color: var(--text-muted); font-size: 12px; }
+
+  .how { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+  .how div { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; padding: 10px 12px; font-size: 12.5px; color: var(--text-secondary); }
+  .how b { display: block; color: var(--text-primary); font-size: 13px; margin-bottom: 2px; }
+  .how .k { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--text-primary); color: #fff; font-size: 11px; font-weight: 600; margin-bottom: 6px; }
+
+  .card { background: #fff; border: 1px solid var(--border-default); border-radius: 14px; margin-top: 12px; overflow: hidden; }
+  .card.off { opacity: .55; }
+  .chd { display: flex; gap: 10px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border-default); }
+  .chd .num { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--border-strong); font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+  .chd .num.done { background: var(--emerald); border-color: var(--emerald); color: #fff; }
+  .chd .st { margin-left: auto; }
+  .cbd { padding: 14px 16px; display: grid; gap: 12px; }
+
+  .pill { display: inline-flex; gap: 5px; align-items: center; font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; }
+  .pill.ok { background: var(--emerald-subtle); color: var(--emerald); }
+  .pill.wait { background: var(--amber-subtle); color: var(--amber); }
+  .pill.bad { background: var(--rose-subtle); color: var(--rose); }
+  .pill.none { background: var(--surface-canvas); color: var(--text-muted); border: 1px solid var(--border-default); }
+
+  .check { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+  .check li { display: flex; gap: 8px; align-items: flex-start; }
+  .check .ms { color: var(--text-muted); }
+  .check .ok .ms { color: var(--emerald); }
+  .check .bad .ms { color: var(--rose); }
+  .fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  label.f { display: grid; gap: 4px; font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+  .in { border: 1px solid var(--border-default); border-radius: 8px; padding: 7px 10px; background: #fff; color: var(--text-primary); width: 100%; }
+  .note { display: flex; gap: 8px; align-items: flex-start; padding: 9px 12px; border-radius: 10px; font-size: 12.5px; }
+  .note.amber { background: var(--amber-subtle); color: #92400e; }
+  .note.blue { background: var(--sapphire-subtle); color: #1e40af; }
+  .note.green { background: var(--emerald-subtle); color: #065f46; }
+  .note.violet { background: var(--violet-subtle); color: #5b21b6; }
+
+  .btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-default); background: #fff; color: var(--text-primary); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; text-decoration: none; }
+  .btn.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .btn.ai { background: var(--violet); color: #fff; border-color: var(--violet); }
+  .btn.link { border: 0; padding: 0; color: var(--sapphire); background: none; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn:focus-visible, .in:focus-visible, .seg button:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); padding: 8px 10px; border-bottom: 1px solid var(--border-default); }
+  td { padding: 10px; border-bottom: 1px solid var(--border-default); vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+  .tw { overflow-x: auto; }
+  .mono { font-variant-numeric: tabular-nums; }
+
+  /* Agent stepper */
+  .steps { display: flex; gap: 8px; margin: 4px 0 4px; flex-wrap: wrap; }
+  .steps span { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--border-default); background: #fff; color: var(--text-secondary); }
+  .steps span.on { border-color: var(--text-primary); color: var(--text-primary); font-weight: 600; }
+  .steps span.done { color: var(--emerald); border-color: #a7f3d0; background: var(--emerald-subtle); }
+  .code { display: flex; gap: 6px; }
+  .code b { display: grid; place-items: center; width: 38px; height: 46px; border: 1px solid var(--border-strong); border-radius: 8px; font: 700 22px 'Plus Jakarta Sans'; background: #fff; }
+  .dial { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--surface-canvas); border: 1px dashed var(--border-strong); border-radius: 10px; padding: 12px 14px; }
+  .dial code { font: 600 18px/24px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .02em; }
+  .timeline { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+  .timeline li { display: flex; gap: 10px; align-items: center; }
+  .timeline .ms { color: var(--text-muted); }
+  .timeline .ok .ms { color: var(--emerald); }
+  .spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border-strong); border-top-color: var(--sapphire); animation: spin .8s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+  @media (max-width: 860px) { aside { display: none; } main { padding: 18px 16px 48px; } .how { grid-template-columns: 1fr 1fr; } .fields { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>MOCK · sample data</b>
+  <span>View:</span>
+  <div class="seg" role="group" aria-label="View">
+    <button type="button" data-view="owner" aria-pressed="true">Agency owner</button>
+    <button type="button" data-view="agent" aria-pressed="false">Agent (Sarah)</button>
+  </div>
+  <span data-for="owner">Twilio:</span>
+  <div class="seg" role="group" aria-label="Twilio state" data-for="owner">
+    <button type="button" data-ostate="none" aria-pressed="false">Not connected</button>
+    <button type="button" data-ostate="review" aria-pressed="false">Twilio reviewing</button>
+    <button type="button" data-ostate="fix" aria-pressed="false">Twilio asked for a fix</button>
+    <button type="button" data-ostate="ready" aria-pressed="true">Approved · numbers</button>
+  </div>
+  <span data-for="agent">Step:</span>
+  <div class="seg" role="group" aria-label="Agent step" data-for="agent">
+    <button type="button" data-astep="1" aria-pressed="true">1 Verify mobile</button>
+    <button type="button" data-astep="2" aria-pressed="false">2 Forwarding</button>
+    <button type="button" data-astep="3" aria-pressed="false">3 Test call</button>
+    <button type="button" data-astep="4" aria-pressed="false">Done</button>
+  </div>
+</div>
+
+<div class="shell">
+  <aside aria-label="Sidebar">
+    <div class="brand"><div class="logo">PR</div><div><b>Pakenham Realty</b><small id="who">Agency console</small></div></div>
+    <div class="gh">Daily work</div>
+    <div class="nl"><span class="ms">filter_alt</span>Leads</div>
+    <div class="nl"><span class="ms">mail</span>Inbox</div>
+    <div class="nl"><span class="ms">phone_missed</span>Missed calls</div>
+    <div class="nl"><span class="ms">calendar_today</span>Calendar</div>
+    <div class="gh">People</div>
+    <div class="gh">Properties</div>
+    <div class="gh">Marketing</div>
+    <div class="gh">Automation</div>
+    <div class="gh">Settings</div>
+    <div class="nl on"><span class="ms" style="font-variation-settings:'FILL' 1">hub</span>Connectors</div>
+  </aside>
+
+  <!-- ===================== OWNER ===================== -->
+  <main id="owner">
+    <a class="back" href="#"><span class="ms sm">arrow_back</span>Connectors</a>
+    <div class="row"><h2>Phone &amp; SMS</h2><span class="badge">Twilio</span></div>
+    <p class="lead">When an agent misses a call, the caller gets a text straight away and the AI calls them back. Agents keep their own phones. Only the calls they miss come here.</p>
+
+    <div class="how" aria-label="How it works">
+      <div><span class="k">1</span><b>Connect your Twilio</b>Your own Twilio account. Twilio bills you directly.</div>
+      <div><span class="k">2</span><b>Twilio checks your business</b>Australian numbers need it. Usually a few business days.</div>
+      <div><span class="k">3</span><b>A number for each agent</b>We buy them for you once Twilio approves.</div>
+      <div><span class="k">4</span><b>Each agent: 5 minutes</b>Verify their mobile, turn on forwarding, test call.</div>
+    </div>
+
+    <!-- Step 1: connect -->
+    <section class="card" aria-labelledby="s1">
+      <div class="chd"><span class="num" id="n1">1</span><h3 id="s1">Connect your Twilio account</h3><span class="st" id="st1"></span></div>
+      <div class="cbd" id="c1-none">
+        <div class="note blue"><span class="ms sm">checklist</span><div><b>Have these ready (about 15 minutes in Twilio):</b>
+          <ul class="check" style="margin-top:6px">
+            <li><span class="ms sm">badge</span>Your ABN or ACN</li>
+            <li><span class="ms sm">description</span>ASIC company extract, the long form (from the ASIC website)</li>
+            <li><span class="ms sm">home_work</span>Your business address in Australia (not a PO Box) and a bill or lease that shows it</li>
+            <li><span class="ms sm">id_card</span>ID of the person signing up (passport or driver licence)</li>
+            <li><span class="ms sm">credit_card</span>A card for Twilio. A free trial account can't text your customers.</li>
+          </ul></div></div>
+        <div class="row">
+          <a class="btn" href="#"><span class="ms sm">open_in_new</span>Open Twilio sign-up</a>
+          <button class="btn ai" type="button"><span class="ms sm">auto_awesome</span>Walk me through it</button>
+          <span class="muted">The assistant goes step by step with you and checks each one.</span>
+        </div>
+        <div class="fields">
+          <label class="f">Account SID<input class="in" placeholder="AC…" value="" /></label>
+          <label class="f">API key SID<input class="in" placeholder="SK…" /></label>
+          <label class="f">API key secret<input class="in" type="password" placeholder="••••••••" /></label>
+        </div>
+        <div class="row">
+          <button class="btn primary" type="button" data-go="review"><span class="ms sm">link</span>Connect</button>
+          <span class="muted">Use an API key, not your Twilio password. It's stored encrypted, and you can remove it in Twilio at any time.</span>
+        </div>
+      </div>
+      <div class="cbd" id="c1-done" hidden>
+        <div class="row"><span class="pill ok"><span class="ms sm">check_circle</span>Connected</span><span>Twilio account <b>Pakenham Realty Pty Ltd</b></span><span class="muted">· connected by you, 27 Oct</span><button class="btn link" type="button" style="margin-left:auto">Disconnect</button></div>
+      </div>
+    </section>
+
+    <!-- Step 2: business check -->
+    <section class="card" aria-labelledby="s2" id="card2">
+      <div class="chd"><span class="num" id="n2">2</span><h3 id="s2">Twilio checks your business</h3><span class="st" id="st2"></span></div>
+      <div class="cbd" id="c2-none"><span class="muted">Starts when you connect. You upload the documents in Twilio. We show the status here.</span></div>
+      <div class="cbd" id="c2-review" hidden>
+        <div class="note amber"><span class="ms sm">hourglass_top</span><div><b>Twilio is reviewing your documents.</b> It usually takes a few business days. We check every hour and email you as soon as it's approved. You don't need to keep this page open.</div></div>
+        <ul class="check">
+          <li class="ok"><span class="ms sm">check_circle</span>ABN 12 345 678 901 · Pakenham Realty Pty Ltd</li>
+          <li class="ok"><span class="ms sm">check_circle</span>ASIC company extract</li>
+          <li class="ok"><span class="ms sm">check_circle</span>Address: 12 Main Street, Pakenham VIC 3810</li>
+          <li class="ok"><span class="ms sm">check_circle</span>ID of the authorised person</li>
+        </ul>
+      </div>
+      <div class="cbd" id="c2-fix" hidden>
+        <div class="note" style="background:var(--rose-subtle);color:#9f1239"><span class="ms sm">error</span><div><b>Twilio needs one more thing.</b> Their message: "The proof of address must be dated within the last 3 months." Upload a newer bill in Twilio, and we'll pick it up from there.</div></div>
+        <ul class="check">
+          <li class="ok"><span class="ms sm">check_circle</span>ABN 12 345 678 901 · Pakenham Realty Pty Ltd</li>
+          <li class="ok"><span class="ms sm">check_circle</span>ASIC company extract</li>
+          <li class="bad"><span class="ms sm">cancel</span>Proof of address: the bill is older than 3 months</li>
+          <li class="ok"><span class="ms sm">check_circle</span>ID of the authorised person</li>
+        </ul>
+        <div class="row"><a class="btn" href="#"><span class="ms sm">open_in_new</span>Fix it in Twilio</a><button class="btn ai" type="button"><span class="ms sm">auto_awesome</span>What do I upload?</button></div>
+      </div>
+      <div class="cbd" id="c2-ready" hidden>
+        <div class="row"><span class="pill ok"><span class="ms sm">verified</span>Approved</span><span>Twilio approved Pakenham Realty Pty Ltd on 28 Oct.</span></div>
+      </div>
+    </section>
+
+    <!-- Step 3: numbers -->
+    <section class="card" aria-labelledby="s3" id="card3">
+      <div class="chd"><span class="num" id="n3">3</span><h3 id="s3">A number for each agent</h3><span class="st" id="st3"></span></div>
+      <div class="cbd" id="c3-wait"><span class="muted"><span class="ms sm" style="vertical-align:-3px">lock</span> Available once Twilio approves your business.</span></div>
+      <div class="cbd" id="c3-ready" hidden>
+        <p class="muted" style="margin:0">Each agent gets their own Australian mobile number on your Twilio account. It's how we know whose call was missed. Their missed calls forward to it, and texts to callers come from it. Twilio's monthly price is shown before you confirm.</p>
+        <div class="tw"><table>
+          <thead><tr><th>Agent</th><th>Their mobile</th><th>Twilio number</th><th>Forwarding</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><b>Sarah Khan</b></td><td class="mono">0412 111 222 <span class="pill ok" title="Verified caller ID">verified</span></td><td class="mono">0480 999 888</td><td><span class="pill ok">tested 28 Oct</span></td><td><span class="pill ok"><span class="ms sm">phone_in_talk</span>Live</span></td><td></td></tr>
+            <tr><td><b>Ali Reza</b></td><td class="mono">0413 222 333 <span class="pill wait">not verified</span></td><td class="mono">0480 999 777</td><td><span class="pill none">not yet</span></td><td><span class="pill wait">Waiting on Ali</span></td><td><button class="btn link" type="button">Remind Ali</button></td></tr>
+            <tr><td><b>Mia Chen</b></td><td class="mono">0414 333 444</td><td class="muted">—</td><td class="muted">—</td><td><span class="pill none">No number</span></td><td><button class="btn" type="button"><span class="ms sm">add_call</span>Get a number</button></td></tr>
+          </tbody>
+        </table></div>
+        <div class="note violet"><span class="ms sm">info</span><div>Each agent finishes on their own phone under <b>Connectors → My phone</b>: verify their mobile so AI callbacks show their real number, turn on forwarding, and run a test call. Missed calls start working for an agent once their test call passes.</div></div>
+        <div class="note amber"><span class="ms sm">toggle_off</span><div><b>Nothing is texted or called yet.</b> Connecting only sets up the phones. Switch on <b>Missed call text</b> and <b>AI calls back</b> in Skills for the agency. Each agent switches them on for themselves too.</div></div>
+        <div class="row"><a class="btn primary" href="skills-control-centre.html"><span class="ms sm">auto_awesome</span>Open Skills</a><a class="btn" href="missed-calls.html#settings"><span class="ms sm">tune</span>Missed call settings</a><span class="muted">The text, the greeting, how the AI calls back, calling hours and limits.</span></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================== AGENT ===================== -->
+  <main id="agent" hidden>
+    <a class="back" href="#"><span class="ms sm">arrow_back</span>Connectors</a>
+    <div class="row"><h2>My phone</h2><span class="badge">Missed calls</span></div>
+    <p class="lead">Keep using your phone as normal. If you miss a call, the caller gets a text from you straight away, and the AI calls them back from <b>your</b> number. You'll get the summary.</p>
+    <div class="steps" id="steps">
+      <span data-s="1"><span class="ms sm">verified_user</span>1 Verify your mobile</span>
+      <span data-s="2"><span class="ms sm">phone_forwarded</span>2 Forward missed calls</span>
+      <span data-s="3"><span class="ms sm">ring_volume</span>3 Test call</span>
+    </div>
+    <p class="muted" style="margin:0 0 4px">Your Twilio number: <b class="mono">0480 999 888</b> (set up by Pakenham Realty)</p>
+
+    <section class="card" id="a1">
+      <div class="chd"><span class="num">1</span><h3>Verify your mobile</h3></div>
+      <div class="cbd">
+        <p style="margin:0">When the AI calls someone back for you, they'll see <b class="mono">0412 111 222</b>, your number, not a strange one. They're much more likely to answer.</p>
+        <div class="row"><button class="btn primary" type="button" id="callme"><span class="ms sm">call</span>Call me with a code</button><span class="muted">Twilio calls 0412 111 222 now.</span></div>
+        <div id="codebox" hidden>
+          <p style="margin:0 0 8px">Answer the call and type this code on your phone's keypad:</p>
+          <div class="code" aria-label="Code 4 8 2 7 1 9"><b>4</b><b>8</b><b>2</b><b>7</b><b>1</b><b>9</b></div>
+          <p class="muted" style="margin:8px 0 0"><span class="spinner" style="vertical-align:-3px"></span> Waiting for you to enter it…</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="a2" hidden>
+      <div class="chd"><span class="num done"><span class="ms sm">check</span></span><h3>Mobile verified</h3><span class="st"><span class="pill ok">0412 111 222</span></span></div>
+      <div class="chd" style="border-top:0"><span class="num">2</span><h3>Forward the calls you miss</h3></div>
+      <div class="cbd">
+        <div class="row"><label class="f" style="min-width:220px">Your mobile carrier
+          <select class="in"><option>Telstra</option><option>Optus</option><option>Vodafone</option><option>Other / not sure</option></select></label>
+          <label class="f">Ring for before forwarding
+          <select class="in"><option>15 seconds</option><option selected>20 seconds</option><option>30 seconds</option></select></label></div>
+        <p style="margin:0">On your mobile, open the phone keypad, type this and press call:</p>
+        <div class="dial"><code>**61*0480999888**20#</code><button class="btn" type="button"><span class="ms sm">content_copy</span>Copy</button><span class="muted">Your phone shows "Call forwarding activated".</span></div>
+        <div class="note amber"><span class="ms sm">voicemail</span><div><b>This replaces your voicemail.</b> A caller you miss hears a short message from Pakenham Realty and gets a text instead. To turn it off later, dial <b class="mono">##61#</b>. Your carrier may charge a forwarded call like a normal call. Most unlimited plans include it.</div></div>
+        <div class="row"><button class="btn primary" type="button" data-go-step="3">I've dialled it</button><button class="btn ai" type="button"><span class="ms sm">auto_awesome</span>It didn't work</button></div>
+      </div>
+    </section>
+
+    <section class="card" id="a3" hidden>
+      <div class="chd"><span class="num">3</span><h3>Test call</h3></div>
+      <div class="cbd">
+        <p style="margin:0">We'll call your mobile from a test number. <b>Don't answer it.</b> Let it ring out, and we'll check the call reaches us.</p>
+        <div class="row"><button class="btn primary" type="button" id="testbtn"><span class="ms sm">ring_volume</span>Start test call</button></div>
+        <ul class="timeline" id="tl" hidden>
+          <li data-t="0"><span class="ms sm">ring_volume</span>Calling 0412 111 222… don't answer</li>
+          <li data-t="1"><span class="ms sm">phone_forwarded</span>Forwarded to 0480 999 888 after 20 seconds</li>
+          <li data-t="2"><span class="ms sm">record_voice_over</span>The caller heard the greeting</li>
+          <li data-t="3"><span class="ms sm">sms</span>The text was sent (to the test number, not a customer)</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card" id="a4" hidden>
+      <div class="cbd">
+        <div class="note green"><span class="ms sm">check_circle</span><div><b>Your phone is set up.</b> Verified 0412 111 222 · forwarding tested 28 Oct, 4:12 pm. Your missed calls now show under <b>Missed calls</b>.</div></div>
+        <div class="note amber"><span class="ms sm">toggle_off</span><div><b>Last step: switch on what should happen.</b> In Skills, turn on <b>Missed call text</b> and, if you want it, <b>AI calls back</b>. The agency has both on. Until you switch them on, nobody gets a text or a call from you.</div></div>
+        <div class="row"><a class="btn primary" href="skills-control-centre.html#agent"><span class="ms sm">auto_awesome</span>Open my Skills</a><a class="btn" href="missed-calls.html#agent"><span class="ms sm">phone_missed</span>Open Missed calls</a><button class="btn" type="button" data-go-step="3"><span class="ms sm">replay</span>Test again</button><span class="muted">Changed phones or carrier? Do steps 2 and 3 again.</span></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+let view = location.hash === '#agent' ? 'agent' : 'owner';
+let ostate = 'ready';
+let astep = 1;
+const pill = (cls, icon, text) => `<span class="pill ${cls}"><span class="ms sm">${icon}</span>${text}</span>`;
+function render() {
+  document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.view === view));
+  document.querySelectorAll('[data-for]').forEach((el) => (el.hidden = el.dataset.for !== view));
+  document.getElementById('owner').hidden = view !== 'owner';
+  document.getElementById('agent').hidden = view !== 'agent';
+  document.getElementById('who').textContent = view === 'owner' ? 'Agency console' : 'Sarah Khan · Agent';
+
+  document.querySelectorAll('[data-ostate]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.ostate === ostate));
+  const connected = ostate !== 'none';
+  const ready = ostate === 'ready';
+  document.getElementById('c1-none').hidden = connected;
+  document.getElementById('c1-done').hidden = !connected;
+  document.getElementById('n1').className = 'num' + (connected ? ' done' : '');
+  document.getElementById('n1').innerHTML = connected ? '<span class="ms sm">check</span>' : '1';
+  document.getElementById('st1').innerHTML = connected ? pill('ok', 'check_circle', 'Connected') : pill('none', 'link_off', 'Not connected');
+  ['none', 'review', 'fix', 'ready'].forEach((s) => (document.getElementById('c2-' + s).hidden = s !== ostate));
+  document.getElementById('card2').classList.toggle('off', !connected);
+  document.getElementById('n2').className = 'num' + (ready ? ' done' : '');
+  document.getElementById('n2').innerHTML = ready ? '<span class="ms sm">check</span>' : '2';
+  document.getElementById('st2').innerHTML = { none: '', review: pill('wait', 'hourglass_top', 'Reviewing'), fix: pill('bad', 'error', 'Needs a fix'), ready: pill('ok', 'verified', 'Approved') }[ostate];
+  document.getElementById('c3-wait').hidden = ready;
+  document.getElementById('c3-ready').hidden = !ready;
+  document.getElementById('card3').classList.toggle('off', !ready);
+  document.getElementById('st3').innerHTML = ready ? pill('ok', 'phone_in_talk', '1 of 3 live') : '';
+
+  document.querySelectorAll('[data-astep]').forEach((b) => b.setAttribute('aria-pressed', Number(b.dataset.astep) === astep));
+  document.querySelectorAll('#steps [data-s]').forEach((s) => {
+    const n = Number(s.dataset.s);
+    s.className = n < astep ? 'done' : n === astep ? 'on' : '';
+  });
+  ['a1', 'a2', 'a3', 'a4'].forEach((id, i) => (document.getElementById(id).hidden = astep !== i + 1));
+  document.getElementById('codebox').hidden = true;
+  document.getElementById('tl').hidden = true;
+  document.getElementById('testbtn').disabled = false;
+}
+document.addEventListener('click', (e) => {
+  const v = e.target.closest('[data-view]');
+  if (v) { view = v.dataset.view; render(); return; }
+  const o = e.target.closest('[data-ostate]');
+  if (o) { ostate = o.dataset.ostate; render(); return; }
+  const a = e.target.closest('[data-astep]');
+  if (a) { astep = Number(a.dataset.astep); render(); return; }
+  const g = e.target.closest('[data-go]');
+  if (g) { ostate = g.dataset.go; render(); return; }
+  const gs = e.target.closest('[data-go-step]');
+  if (gs) { astep = Number(gs.dataset.goStep); render(); return; }
+  if (e.target.closest('#callme')) {
+    document.getElementById('codebox').hidden = false;
+    setTimeout(() => { astep = 2; render(); }, 2200);
+    return;
+  }
+  if (e.target.closest('#testbtn')) {
+    const tl = document.getElementById('tl');
+    tl.hidden = false; e.target.closest('#testbtn').disabled = true;
+    const items = [...tl.querySelectorAll('li')];
+    items.forEach((li) => li.classList.remove('ok'));
+    items.forEach((li, i) => setTimeout(() => li.classList.add('ok'), 700 * (i + 1)));
+    setTimeout(() => { astep = 4; render(); }, 700 * items.length + 600);
+  }
+});
+render();
+</script>
+</body>
+</html>

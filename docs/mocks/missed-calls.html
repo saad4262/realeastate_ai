@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Missed Calls</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300..600,0..1&display=swap" rel="stylesheet" />
+<!--
+  Mock for ROADMAP Phase 3.2 / 3.3 — the Missed calls page (Daily work), one call's detail (greeting → text →
+  AI call back → summary → lead updated → agent alerted) and the owner's settings.
+  Console tokens (apps/console/app/globals.css). Every name, number, time and count is SAMPLE data. In the
+  build, counts come from SQL; the AI summary quotes the call and never works out a figure (non-negotiable 4).
+  The bar at the top exists only in the mock. #call opens a call, #settings the settings, #agent the agent view.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff;
+    --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff;
+    --emerald: #059669; --emerald-subtle: #ecfdf5;
+    --rose: #e11d48; --rose-subtle: #fff1f2;
+    --amber: #d97706; --amber-subtle: #fffbeb;
+    --violet: #6d28d9; --violet-subtle: #f5f3ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .ms { font-family: 'Material Symbols Outlined'; font-size: 20px; line-height: 1; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 400; }
+  .ms.sm { font-size: 16px; width: 16px; height: 16px; }
+  button, input, select, textarea { font: inherit; }
+  [hidden] { display: none !important; }
+
+  .mockbar { position: sticky; top: 0; z-index: 30; display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+  .mockbar b { color: #fff; }
+  .seg { display: inline-flex; background: #1e293b; border-radius: 8px; padding: 2px; flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; }
+
+  .shell { display: flex; min-height: calc(100vh - 36px); }
+  aside { width: 240px; flex: none; border-right: 1px solid var(--border-default); padding: 16px 12px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 16px; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--text-primary); color: #fff; display: grid; place-items: center; font: 700 12px 'Plus Jakarta Sans'; }
+  .brand small { display: block; color: var(--text-muted); font-size: 11px; }
+  .gh { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px 4px; }
+  .nl { display: flex; gap: 12px; align-items: center; padding: 7px 12px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; }
+  .nl.on { background: #fff; color: var(--sapphire); border: 1px solid var(--border-default); font-weight: 500; }
+  .nl .n { margin-left: auto; font-size: 11px; background: var(--rose-subtle); color: var(--rose); padding: 0 7px; border-radius: 999px; }
+
+  main { flex: 1; min-width: 0; padding: 22px 32px 64px; max-width: 1080px; }
+  .back { color: var(--text-secondary); text-decoration: none; display: inline-flex; gap: 4px; align-items: center; font-size: 12.5px; cursor: pointer; background: none; border: 0; padding: 0; }
+  h2 { font: 600 19px/26px 'Plus Jakarta Sans'; margin: 10px 0 4px; }
+  h3 { font: 600 14.5px/20px 'Plus Jakarta Sans'; margin: 0; }
+  .lead { color: var(--text-secondary); margin: 0 0 14px; max-width: 75ch; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .muted { color: var(--text-muted); font-size: 12px; }
+  .mono { font-variant-numeric: tabular-nums; }
+
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-default); margin-bottom: 14px; }
+  .tabs button { border: 0; background: none; padding: 8px 12px; color: var(--text-secondary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500; }
+  .tabs button[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--text-primary); }
+
+  .tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 14px; }
+  .tile { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; padding: 10px 12px; }
+  .tile b { display: block; font: 600 22px/28px 'Plus Jakarta Sans'; }
+  .tile span { font-size: 12px; color: var(--text-secondary); }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chip { border: 1px solid var(--border-default); background: #fff; border-radius: 999px; padding: 4px 11px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .sel { border: 1px solid var(--border-default); border-radius: 999px; padding: 4px 10px; background: #fff; font-size: 12px; color: var(--text-secondary); }
+
+  .card { background: #fff; border: 1px solid var(--border-default); border-radius: 14px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); padding: 9px 12px; border-bottom: 1px solid var(--border-default); background: #fff; }
+  td { padding: 11px 12px; border-bottom: 1px solid var(--border-default); vertical-align: middle; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--surface-canvas); }
+  tr:last-child td { border-bottom: 0; }
+  .tw { overflow-x: auto; }
+  .who b { display: block; }
+  .who span { font-size: 12px; color: var(--text-muted); }
+
+  .pill { display: inline-flex; gap: 5px; align-items: center; font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+  .pill.hi { background: var(--rose-subtle); color: var(--rose); }
+  .pill.md { background: var(--amber-subtle); color: var(--amber); }
+  .pill.lo { background: var(--emerald-subtle); color: var(--emerald); }
+  .pill.no { background: var(--surface-canvas); color: var(--text-muted); border: 1px solid var(--border-default); }
+  .pill.role { background: var(--sapphire-subtle); color: var(--sapphire); }
+  .status { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--text-secondary); }
+  .status .ms { color: var(--text-muted); }
+  .status.ok .ms { color: var(--emerald); }
+  .status.warn .ms { color: var(--amber); }
+  .status.ai .ms { color: var(--violet); }
+
+  .btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-default); background: #fff; color: var(--text-primary); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; text-decoration: none; }
+  .btn.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .btn:focus-visible, .chip:focus-visible, .tabs button:focus-visible, tbody tr:focus-visible, .in:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+
+  /* Detail */
+  .detail { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
+  .pane { background: #fff; border: 1px solid var(--border-default); border-radius: 14px; padding: 14px 16px; }
+  .pane + .pane { margin-top: 12px; }
+  .tl { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 0; }
+  .tl li { display: grid; grid-template-columns: 64px 24px 1fr; gap: 8px; padding: 8px 0; border-bottom: 1px dashed var(--border-default); }
+  .tl li:last-child { border-bottom: 0; }
+  .tl time { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; padding-top: 1px; }
+  .tl .ms { color: var(--text-secondary); }
+  .tl .quote { margin-top: 4px; padding: 7px 10px; background: var(--surface-canvas); border-radius: 8px; font-size: 12.5px; color: var(--text-secondary); }
+  .player { display: flex; gap: 10px; align-items: center; margin-top: 6px; padding: 6px 10px; border: 1px solid var(--border-default); border-radius: 999px; width: fit-content; font-size: 12px; color: var(--text-secondary); }
+  .bar { width: 160px; height: 4px; border-radius: 4px; background: var(--border-default); position: relative; }
+  .bar::after { content: ''; position: absolute; inset: 0 70% 0 0; background: var(--violet); border-radius: 4px; }
+
+  .ai { border: 1px solid #ddd6fe; border-radius: 14px; overflow: hidden; background: #fff; margin-top: 12px; }
+  .aihead { display: flex; gap: 8px; align-items: center; padding: 10px 14px; background: var(--violet-subtle); color: var(--violet); font-weight: 600; font-size: 13px; flex-wrap: wrap; }
+  .aihead .tag { margin-left: auto; font-weight: 500; font-size: 11.5px; color: #7c3aed; }
+  .aibody { padding: 12px 14px; display: grid; gap: 10px; }
+  .sum { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+  .cite { font-size: 11px; color: var(--violet); background: var(--violet-subtle); border-radius: 4px; padding: 0 5px; margin-left: 4px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  details summary { cursor: pointer; color: var(--sapphire); font-size: 12.5px; }
+  .tx { margin-top: 8px; display: grid; gap: 6px; font-size: 12.5px; }
+  .tx p { margin: 0; }
+  .tx b { display: inline-block; min-width: 44px; color: var(--text-secondary); }
+  .tx .t { color: var(--text-muted); font-size: 11px; margin-right: 6px; font-variant-numeric: tabular-nums; }
+
+  .kv { display: grid; gap: 8px; font-size: 12.5px; }
+  .kv div { display: flex; justify-content: space-between; gap: 10px; }
+  .kv span { color: var(--text-muted); }
+  .stack { display: grid; gap: 8px; }
+  .stack .btn { justify-content: center; }
+
+  /* Settings */
+  .set { display: grid; gap: 12px; max-width: 820px; }
+  .set .pane h3 { margin-bottom: 4px; }
+  .set p.h { margin: 0 0 10px; color: var(--text-secondary); font-size: 12.5px; }
+  label.f { display: grid; gap: 4px; font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+  .in { border: 1px solid var(--border-default); border-radius: 8px; padding: 7px 10px; background: #fff; color: var(--text-primary); width: 100%; }
+  textarea.in { min-height: 66px; resize: vertical; line-height: 20px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .preview { margin-top: 8px; display: flex; gap: 8px; align-items: flex-start; }
+  .bubble { background: #e9e9eb; border-radius: 16px 16px 16px 4px; padding: 8px 12px; max-width: 360px; font-size: 13px; }
+  .merge { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+  .merge code { background: var(--surface-canvas); border: 1px solid var(--border-default); border-radius: 4px; padding: 0 4px; }
+  .toggle { display: flex; gap: 10px; align-items: flex-start; }
+  .sw { flex: none; width: 36px; height: 20px; border-radius: 999px; background: var(--border-strong); position: relative; border: 0; cursor: pointer; margin-top: 1px; }
+  .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; }
+  .sw[aria-checked="true"] { background: var(--emerald); }
+  .sw[aria-checked="true"]::after { left: 18px; }
+  .bounds { margin: 8px 0 0; padding: 10px 12px 10px 30px; background: var(--violet-subtle); border-radius: 10px; color: #5b21b6; font-size: 12.5px; display: grid; gap: 3px; }
+  .lock { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--text-secondary); }
+  .lock .ms { color: var(--text-muted); }
+
+  @media (max-width: 960px) { .detail { grid-template-columns: 1fr; } .tiles { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 860px) { aside { display: none; } main { padding: 18px 16px 48px; } .tiles { grid-template-columns: 1fr 1fr; } .grid2, .grid4 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>MOCK · sample data</b>
+  <span>View:</span>
+  <div class="seg" role="group" aria-label="View">
+    <button type="button" data-view="owner" aria-pressed="true">Agency owner</button>
+    <button type="button" data-view="agent" aria-pressed="false">Agent (Sarah)</button>
+  </div>
+  <span>Screen:</span>
+  <div class="seg" role="group" aria-label="Screen">
+    <button type="button" data-screen="list" aria-pressed="true">List</button>
+    <button type="button" data-screen="call" aria-pressed="false">One call</button>
+    <button type="button" data-screen="settings" aria-pressed="false" data-owneronly>Settings</button>
+  </div>
+</div>
+
+<div class="shell">
+  <aside aria-label="Sidebar">
+    <div class="brand"><div class="logo">PR</div><div><b>Pakenham Realty</b><small id="who">Agency console</small></div></div>
+    <div class="gh">Home</div>
+    <div class="gh">Daily work</div>
+    <div class="nl"><span class="ms">filter_alt</span>Leads</div>
+    <div class="nl"><span class="ms">mail</span>Inbox</div>
+    <div class="nl on"><span class="ms" style="font-variation-settings:'FILL' 1">phone_missed</span>Missed calls<span class="n" id="navn">3</span></div>
+    <div class="nl"><span class="ms">calendar_today</span>Calendar</div>
+    <div class="nl"><span class="ms">forum</span>Team messages</div>
+    <div class="gh">People</div>
+    <div class="gh">Properties</div>
+    <div class="gh">Marketing</div>
+    <div class="gh">Automation</div>
+    <div class="gh">Settings</div>
+  </aside>
+
+  <main>
+    <!-- ===================== LIST ===================== -->
+    <section id="list">
+      <h2>Missed calls</h2>
+      <p class="lead" id="listlead">Calls your team didn't answer. Every caller got a text, and the AI called back the ones it's allowed to. Open one to see what was said.</p>
+      <div class="tabs" role="tablist" id="tabs">
+        <button role="tab" aria-selected="true" data-screen="list">Calls</button>
+        <button role="tab" aria-selected="false" data-screen="settings" data-owneronly>Settings</button>
+      </div>
+      <div class="tiles" aria-label="This week">
+        <div class="tile"><b id="t1">14</b><span>Missed this week</span></div>
+        <div class="tile"><b id="t2">14</b><span>Got a text</span></div>
+        <div class="tile"><b id="t3">9</b><span>AI called back</span></div>
+        <div class="tile"><b id="t4">6</b><span>Qualified</span></div>
+        <div class="tile"><b id="t5">3</b><span>Waiting on an agent</span></div>
+      </div>
+      <div class="filters">
+        <button class="chip" type="button" aria-pressed="false">Today</button>
+        <button class="chip" type="button" aria-pressed="true">This week</button>
+        <button class="chip" type="button" aria-pressed="false">Waiting on an agent</button>
+        <span class="sel" data-owneronly>All agents ▾</span>
+        <span class="sel">Any priority ▾</span>
+      </div>
+      <div class="card tw">
+        <table>
+          <thead><tr><th>Caller</th><th>When</th><th data-owneronly>Agent</th><th>Priority</th><th>What happened</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <p class="muted" style="margin-top:10px">Priority is set by the AI from what the caller said, or "—" when nobody spoke to them yet. Callers who replied STOP get no more texts or AI calls. A text or an AI call happens only while its skill is on in Skills for the agency and that agent.</p>
+    </section>
+
+    <!-- ===================== ONE CALL ===================== -->
+    <section id="call" hidden>
+      <button class="back" type="button" data-screen="list"><span class="ms sm">arrow_back</span>Missed calls</button>
+      <div class="row"><h2>John Smith</h2><span class="pill role">Buyer</span><span class="pill hi">High</span><span class="muted">Tue 28 Oct, 7:42 pm · missed by Sarah Khan</span></div>
+
+      <div class="detail" style="margin-top:12px">
+        <div>
+          <div class="pane">
+            <h3>What happened</h3>
+            <ol class="tl">
+              <li><time>7:42 pm</time><span class="ms sm">phone_missed</span><div><b>Missed call</b> to Sarah's mobile 0412 111 222. It rang 20 seconds and was forwarded.</div></li>
+              <li><time>7:42 pm</time><span class="ms sm">record_voice_over</span><div><b>Heard the greeting</b><div class="quote">"Sorry, Sarah can't take your call right now. We'll text you straight away."</div></div></li>
+              <li><time>7:43 pm</time><span class="ms sm">sms</span><div><b>Text sent</b> from 0480 999 888 (Sarah's Twilio number)<div class="quote">"Hi John, Sarah from Pakenham Realty here. Sorry I missed your call! What can I help with? Reply here or I'll call you back shortly."</div></div></li>
+              <li><time>7:45 pm</time><span class="ms sm" style="color:var(--violet)">smart_toy</span><div><b>AI called John back</b> from 0412 111 222 (Sarah's own number) · 3 min 12 s
+                <div class="player"><span class="ms sm">play_arrow</span><span class="bar"></span><span class="mono">0:58 / 3:12</span></div></div></li>
+              <li><time>7:48 pm</time><span class="ms sm">person_check</span><div><b>CRM updated:</b> the summary is on John's contact, the lead is <b>Hot</b>, next action "Book Saturday inspection"</div></li>
+              <li><time>7:48 pm</time><span class="ms sm">notifications_active</span><div><b>Sarah alerted</b> in the app and by email</div></li>
+              <li><time>8:02 pm</time><span class="ms sm">chat</span><div><b>John replied by text:</b> "Thanks, Saturday 10am works" · <a href="#" style="color:var(--sapphire)">open in Inbox</a></div></li>
+            </ol>
+          </div>
+
+          <section class="ai" aria-label="AI summary">
+            <div class="aihead"><span class="ms">auto_awesome</span>What John said<span class="tag">Written by the AI from the call · check it before you act</span></div>
+            <div class="aibody">
+              <ul class="sum">
+                <li>He's calling about <b>14 Smith Street, Pakenham</b> and wants to inspect it this Saturday morning. <span class="cite">0:24</span></li>
+                <li>He has finance pre-approval. He said his budget is "around seven-fifty". <span class="cite">1:05</span></li>
+                <li>He's also open to other 3-bedroom houses in Pakenham. <span class="cite">1:40</span></li>
+                <li>Best time to call him: weekdays after 5 pm. <span class="cite">2:40</span></li>
+              </ul>
+              <div class="muted">The AI asked questions and offered a call back from Sarah. It gave no prices or promises.</div>
+              <details>
+                <summary>Read the transcript</summary>
+                <div class="tx">
+                  <p><span class="t">0:00</span><b>AI</b> Hi John, this is the AI assistant for Sarah Khan at Pakenham Realty. This call may be recorded. You called Sarah a few minutes ago. How can we help?</p>
+                  <p><span class="t">0:24</span><b>John</b> Yeah, hi, it's about the house on Smith Street, number 14. Can I see it Saturday morning?</p>
+                  <p><span class="t">0:31</span><b>AI</b> I'll pass that to Sarah so she can confirm a time with you. Are you looking to buy soon?</p>
+                  <p><span class="t">1:05</span><b>John</b> We've got pre-approval, budget's around seven-fifty.</p>
+                  <p class="muted">… 2 min more</p>
+                </div>
+              </details>
+            </div>
+          </section>
+        </div>
+
+        <div>
+          <div class="pane">
+            <h3 style="margin-bottom:10px">John Smith</h3>
+            <div class="kv">
+              <div><span>Phone</span><b class="mono">0400 123 456</b></div>
+              <div><span>In the CRM since</span><b>Mar 2025</b></div>
+              <div><span>Looking for</span><b>House · 3 bed · Pakenham</b></div>
+              <div><span>Price range</span><b>up to $750,000</b></div>
+              <div><span>Agent</span><b>Sarah Khan</b></div>
+              <div><span>Marketing consent</span><b>Yes</b></div>
+            </div>
+          </div>
+          <div class="pane">
+            <div class="stack">
+              <a class="btn primary" href="#"><span class="ms sm">call</span>Call John</a>
+              <button class="btn" type="button"><span class="ms sm">event</span>Book the inspection</button>
+              <button class="btn" type="button"><span class="ms sm">sms</span>Text John</button>
+              <button class="btn" type="button"><span class="ms sm">person</span>Open contact</button>
+              <button class="btn" type="button"><span class="ms sm">task_alt</span>Mark as handled</button>
+              <button class="btn" type="button" data-owneronly><span class="ms sm">swap_horiz</span>Give to another agent</button>
+            </div>
+          </div>
+          <p class="muted" style="margin-top:10px">The price range is John's saved brief from the CRM, not something the AI worked out.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== SETTINGS (owner) ===================== -->
+    <section id="settings" hidden>
+      <h2>Missed calls</h2>
+      <p class="lead">How missed calls are handled for every agent. Whether anything runs at all is decided in <b>Skills</b>: nothing is texted or called until a skill is switched on there.</p>
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="false" data-screen="list">Calls</button>
+        <button role="tab" aria-selected="true" data-screen="settings">Settings</button>
+      </div>
+      <div class="set">
+        <div class="pane">
+          <h3>Switched on in Skills</h3>
+          <p class="h">Each runs for an agent only when the agency <b>and</b> that agent have switched it on.</p>
+          <div class="kv">
+            <div><span><span class="ms sm" style="vertical-align:-3px">sms</span> Missed call text</span><b><span class="pill lo">Agency: on</span> · 2 of 3 agents on</b></div>
+            <div><span><span class="ms sm" style="vertical-align:-3px">smart_toy</span> AI calls back</span><b><span class="pill lo">Agency: on</span> · 1 of 3 agents on</b></div>
+          </div>
+          <div class="row" style="margin-top:12px"><a class="btn" href="skills-control-centre.html"><span class="ms sm">auto_awesome</span>Manage in Skills</a><span class="muted">Ali Reza has both off, so his missed calls are only listed here. No text, no call.</span></div>
+        </div>
+        <div class="pane">
+          <h3>What the caller hears</h3>
+          <p class="h">Played when a missed call is forwarded to us. It replaces the agent's voicemail.</p>
+          <label class="f">Greeting<textarea class="in">Sorry, {{agent_first_name}} can't take your call right now. We'll text you straight away.</textarea></label>
+          <div class="merge">Read out in an Australian English voice.</div>
+        </div>
+
+        <div class="pane">
+          <h3>The text</h3>
+          <p class="h">Only while "Missed call text" is on in Skills. Sent from the agent's Twilio number within a minute. An approved message, never written by the AI.</p>
+          <label class="f">Message<textarea class="in" id="smsin">Hi {{first_name}}, {{agent_first_name}} from {{agency_name}} here. Sorry I missed your call! What can I help with? Reply here or I'll call you back shortly.</textarea></label>
+          <div class="merge">Fields: <code>{{first_name}}</code> (or "there" for a new caller) <code>{{agent_first_name}}</code> <code>{{agency_name}}</code></div>
+          <div class="preview"><span class="ms" style="color:var(--text-muted)">smartphone</span><div class="bubble" id="smsprev"></div></div>
+        </div>
+
+        <div class="pane">
+          <h3>How the AI calls back</h3>
+          <p class="h">Only while "AI calls back" is on in Skills. It calls from the agent's own verified number.</p>
+          <ul class="bounds">
+            <li>It says it's an AI assistant for the agent, and that the call may be recorded.</li>
+            <li>It asks what the call is about, what they're looking for and the best time to call, then offers a call back from the agent.</li>
+            <li>It never gives prices, valuations or promises, and never books anything by itself.</li>
+            <li>It only calls people who just called you, never a list.</li>
+          </ul>
+          <div class="grid2" style="margin-top:12px">
+            <label class="f">Call back after the text<select class="in"><option>1 minute</option><option selected>2 minutes</option><option>5 minutes</option><option>10 minutes</option></select></label>
+            <label class="f">If they don't answer<select class="in"><option selected>Text once more, no second call</option><option>Leave it to the agent</option></select></label>
+          </div>
+        </div>
+
+        <div class="pane">
+          <h3>Calling hours</h3>
+          <p class="h">The text goes straight away at any hour. AI calls wait for these hours. A 10 pm missed call is called back at 8 am.</p>
+          <div class="grid4">
+            <label class="f">Mon–Fri<input class="in" value="8:00 am – 8:00 pm" /></label>
+            <label class="f">Saturday<input class="in" value="9:00 am – 5:00 pm" /></label>
+            <label class="f">Sunday<input class="in" value="No AI calls" /></label>
+            <label class="f">Public holidays<input class="in" value="No AI calls" /></label>
+          </div>
+        </div>
+
+        <div class="pane">
+          <h3>Limits</h3>
+          <p class="h">So a fault or a flood of calls can't run up your Twilio bill.</p>
+          <div class="grid4">
+            <label class="f">Texts per agent a day<input class="in" value="50" /></label>
+            <label class="f">AI calls per agent a day<input class="in" value="20" /></label>
+            <label class="f">Texts per agency a day<input class="in" value="300" /></label>
+            <label class="f">AI calls per agency a day<input class="in" value="100" /></label>
+          </div>
+          <div class="grid2" style="margin-top:12px">
+            <div class="lock"><span class="ms sm">lock</span>One text and one AI call per caller in 24 hours</div>
+            <div class="lock"><span class="ms sm">lock</span>Nobody who replied STOP</div>
+          </div>
+        </div>
+
+        <div class="pane">
+          <h3>Who is told</h3>
+          <div class="grid2">
+            <label class="f">The agent<select class="in"><option selected>In the app and by email</option><option>In the app only</option></select></label>
+            <label class="f">High priority calls<select class="in"><option selected>Also tell the owner</option><option>Agent only</option></select></label>
+          </div>
+        </div>
+
+        <div class="row"><button class="btn primary" type="button"><span class="ms sm">save</span>Save</button><span class="muted">Applies to the next missed call.</span></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+const CALLS = [
+  { name: 'John Smith', sub: '0400 123 456', role: 'Buyer', when: 'Tue 7:42 pm', agent: 'Sarah Khan', pr: ['hi', 'High'], st: ['ai', 'smart_toy', 'AI spoke to him: wants a Saturday inspection'], open: true },
+  { name: 'New caller', sub: '0423 555 019', role: '', when: 'Tue 9:58 pm', agent: 'Sarah Khan', pr: ['no', '—'], st: ['warn', 'schedule', 'Texted · AI calls at 8:00 am (calling hours)'] },
+  { name: 'Margaret Lee', sub: '0411 908 220', role: 'Seller', when: 'Tue 2:15 pm', agent: 'Ali Reza', pr: ['hi', 'High'], st: ['ai', 'smart_toy', 'AI spoke to her: wants an appraisal'] },
+  { name: 'David Brown', sub: '0432 700 815', role: 'Tenant', when: 'Tue 11:05 am', agent: 'Mia Chen', pr: ['md', 'Medium'], st: ['warn', 'phone_disabled', "AI couldn't reach him · texted again"] },
+  { name: 'Priya Natarajan', sub: '0400 111 222', role: 'Buyer', when: 'Tue 10:20 am', agent: 'Sarah Khan', pr: ['lo', 'Low'], st: ['ok', 'chat', 'Replied by text · in the Inbox'] },
+  { name: 'Unknown', sub: '0499 000 111', role: '', when: 'Tue 9:00 am', agent: 'Ali Reza', pr: ['no', '—'], st: ['', 'block', 'Replied STOP · no AI call'] },
+  { name: 'Tom Wilson', sub: '0455 310 662', role: 'Buyer', when: 'Mon 4:30 pm', agent: 'Ali Reza', pr: ['md', 'Medium'], st: ['ok', 'task_alt', 'Handled by Ali · called him back'] },
+  { name: 'Grace Park', sub: '0466 204 518', role: 'Buyer', when: 'Mon 1:10 pm', agent: 'Ali Reza', pr: ['no', '—'], st: ['', 'toggle_off', 'Listed only: Ali has the skills off in Skills'] },
+];
+let view = 'owner';
+let screen = 'list';
+if (location.hash === '#call') screen = 'call';
+if (location.hash === '#settings') screen = 'settings';
+if (location.hash === '#agent') view = 'agent';
+
+function rows() {
+  const mine = view === 'agent' ? CALLS.filter((c) => c.agent === 'Sarah Khan') : CALLS;
+  document.getElementById('rows').innerHTML = mine.map((c, i) => `
+    <tr tabindex="0" data-open="${i}">
+      <td class="who"><b>${c.name}</b><span class="mono">${c.sub}</span></td>
+      <td class="mono">${c.when}</td>
+      ${view === 'owner' ? `<td>${c.agent}</td>` : ''}
+      <td><span class="pill ${c.pr[0]}">${c.pr[1]}</span>${c.role ? ` <span class="pill role">${c.role}</span>` : ''}</td>
+      <td><span class="status ${c.st[0]}"><span class="ms sm">${c.st[1]}</span>${c.st[2]}</span></td>
+    </tr>`).join('');
+  const t = view === 'agent' ? [6, 6, 4, 3, 1] : [14, 14, 9, 6, 3];
+  t.forEach((n, i) => (document.getElementById('t' + (i + 1)).textContent = n));
+  document.getElementById('navn').textContent = view === 'agent' ? '1' : '3';
+}
+function smsPreview() {
+  const v = document.getElementById('smsin').value;
+  document.getElementById('smsprev').textContent = v.replace('{{first_name}}', 'John').replace('{{agent_first_name}}', 'Sarah').replace('{{agency_name}}', 'Pakenham Realty');
+}
+function render() {
+  if (view === 'agent' && screen === 'settings') screen = 'list';
+  document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.view === view));
+  document.querySelectorAll('.mockbar [data-screen]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.screen === screen));
+  document.querySelectorAll('[data-owneronly]').forEach((el) => (el.hidden = view !== 'owner'));
+  ['list', 'call', 'settings'].forEach((s) => (document.getElementById(s).hidden = s !== screen));
+  document.getElementById('who').textContent = view === 'owner' ? 'Agency console' : 'Sarah Khan · Agent';
+  document.getElementById('listlead').textContent = view === 'owner'
+    ? "Calls your team didn't answer. Every caller got a text, and the AI called back the ones it's allowed to. Open one to see what was said."
+    : "Calls you didn't answer. Every caller got a text from you, and the AI called back the ones it's allowed to. Open one to see what was said.";
+  rows();
+  smsPreview();
+  window.scrollTo(0, 0);
+}
+document.addEventListener('click', (e) => {
+  const v = e.target.closest('[data-view]');
+  if (v) { view = v.dataset.view; render(); return; }
+  const s = e.target.closest('[data-screen]');
+  if (s) { screen = s.dataset.screen; render(); return; }
+  const r = e.target.closest('[data-open]');
+  if (r) { screen = 'call'; render(); return; }
+  const sw = e.target.closest('.sw');
+  if (sw) sw.setAttribute('aria-checked', sw.getAttribute('aria-checked') !== 'true');
+  const c = e.target.closest('.filters .chip');
+  if (c) c.setAttribute('aria-pressed', c.getAttribute('aria-pressed') !== 'true');
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.closest('[data-open]')) { screen = 'call'; render(); }
+});
+document.getElementById('smsin').addEventListener('input', smsPreview);
+render();
+</script>
+</body>
+</html>

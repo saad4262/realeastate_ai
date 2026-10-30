@@ -1770,3 +1770,17 @@ No migration for the page; the seven entries on ADR 0066/0067 triggers need **00
 | BV4 | Back on the tab | That card shows "1 like this on". |
 | BV5 | An agent → My Skills → Automations | No library. |
 | BV6 | An admin (not owner) | Sees the library like an owner. |
+## BW — Every skill off until switched on (ADR 0069)
+
+Needs migration **0070**. Before applying it, note one agency with an active workflow that sends a template email.
+
+| # | Case | Expected |
+|---|---|---|
+| BW1 | After 0070, owner → Skills → Platform skills | Every card Off, "Off until you switch it on", except Workflow emails for the agency noted above (On). The note says nothing runs until switched on. |
+| BW2 | Owner asks the assistant "make me a dashboard of new leads" | Refused: "Dashboards" is switched off for the agency; it offers to switch it on. Approve the card: Dashboards On, ask again, it works. |
+| BW3 | Agent → My Skills | Every card Off. The agency switching a skill on changes nothing here. |
+| BW4 | The noted workflow fires (its trigger) | Its template email goes, as before. |
+| BW5 | Owner turns Workflow emails off, then the workflow fires | The run is "skipped": "Workflow emails" is switched off in Skills. No email. |
+| BW6 | A workflow "wait 1 day, then send template": fire it, then switch Workflow emails off before the day ends | Next day the step fails with "switched off … This step did not run." No email. |
+| BW7 | A workflow that drafts an AI email, AI email drafts off | Run skipped, naming AI email drafts. |
+| BW8 | Opportunity scan (hourly) with every opportunity skill off | No new opportunities for that person; switch Cold contact alerts on, next scan finds them. |

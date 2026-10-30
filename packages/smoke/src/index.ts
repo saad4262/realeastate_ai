@@ -243,6 +243,8 @@ import {
 import { assistantDeps, runAssistantTurn, type AssistantEvent } from '@repo/ai/assistant';
 import { DASHBOARD_EVALS } from '@repo/ai/evals/dashboard-phrases';
 import { listWaitingDrafts, runWorkflowTick, saveWorkflow, setWorkflowStatus } from '@repo/core/workflows';
+import { isSkillOn, setSkillSwitch, skillsOffForActor } from '@repo/core/skill-switches';
+import { skillsForHolder } from '@repo/core/skill-switches/catalog';
 import {
   cancelImport,
   createImport,
@@ -3509,6 +3511,14 @@ async function main() {
         values (${uid}, ${agencyId}, ${roles[k as keyof typeof roles]}::membership_role, 'active')
       `);
     }
+    // No switch = off (ADR 0069). Every skill on here, so the checks exercise what each one does; the
+    // default itself has its own check, which deletes these.
+    const keysOf = (holder: 'agency' | 'personal') => sql.raw(`array[${skillsForHolder(holder).map((s) => `'${s.key}'`).join(',')}]::text[]`);
+    await t.execute(sql`insert into skill_switch (agency_id, user_id, skill_key, enabled) select ${agencyId}::uuid, null, k, true from unnest(${keysOf('agency')}) k`);
+    await t.execute(sql`
+      insert into skill_switch (agency_id, user_id, skill_key, enabled)
+      select ${agencyId}::uuid, u, k, true
+      from unnest(${sql.raw(`array['${people.a1}','${people.a2}','${people.viewer}']::uuid[]`)}) u cross join unnest(${keysOf('personal')}) k`);
     const [prop] = await t.execute<{ id: string }>(sql`
       insert into property (street_number, street, suburb, state, postcode)
       values ('1', 'Smoke Street', 'Pakenham', 'VIC', '3810') returning id
@@ -6992,6 +7002,24 @@ async function main() {
       const [r] = await t.execute<{ lead_id: string }>(sql`select lead_id from workflow_run where workflow_id = ${w.workflowId}`);
       assert(r?.lead_id === mine.id, 'ran on the wrong lead');
       return 'a colleague’s lead and another agency’s lead: no run; their own: one run';
+    }),
+  );
+
+  await check('a skill nobody switched on is off (ADR 0069): the person is refused, a workflow step that needs it is skipped, switching it on is what lets it run', async () =>
+    inRollback(async (t) => {
+      const w = await workflowFixture(t, { trigger: { kind: 'lead.created' }, conditions: [], actions: [{ type: 'draft_email', instructions: 'Thank them' }] });
+      await t.execute(sql`delete from skill_switch where agency_id = ${w.f.agencyId} and user_id = ${w.f.people.a1}`);
+      assert(!(await isSkillOn(t, w.actor, 'ai_email_drafts')), 'on with no switch');
+      assert((await skillsOffForActor(t, w.actor)).has('dashboards'), 'dashboards not off for the assistant');
+      const { id: buyer } = await createContact(t, w.actor, { name: 'Off Buyer', email: `off.${w.f.tag}@smoke.test` });
+      await createManualLead(t, w.actor, { contactId: buyer, listingId: w.listingId, kind: 'enquiry', message: null });
+      await runWorkflowTick(t, new Date());
+      const [run] = await runsOf(t, w.workflowId);
+      assert(run?.status === 'skipped' && /AI email drafts.*switched off in Skills/.test(run.error ?? ''), `run: ${JSON.stringify(run)}`);
+      await setSkillSwitch(t, w.actor, 'ai_email_drafts', true);
+      assert(await isSkillOn(t, w.actor, 'ai_email_drafts'), 'still off after switching on');
+      assert(await isSkillOn(t, w.f.actor('a2'), 'ai_email_drafts'), "A2's own switch was changed");
+      return 'no row: off (refused, run skipped "AI email drafts is switched off in Skills"); on after switching; A2 untouched';
     }),
   );
 

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { ASSISTANT_TOOL_NAMES } from '../assistant/schema';
 import { OPPORTUNITY_KINDS } from '../opportunities/detectors';
 import { dropSwitchedOff } from '../opportunities/scan';
-import { PLATFORM_SKILLS, SKILL_GROUPS, SKILL_KEYS, SKILL_OF_OPPORTUNITY, SKILL_OF_TOOL, skillOffMessage, skillsForHolder, skillsForToolCall } from './catalog';
+import { ACTION_TYPES } from '../workflows/catalog';
+import { PLATFORM_SKILLS, SKILL_GROUPS, SKILL_KEYS, SKILL_OF_OPPORTUNITY, SKILL_OF_TOOL, SKILL_OF_WORKFLOW_STEP, skillOffMessage, skillsForHolder, skillsForToolCall } from './catalog';
+import { skillsOffOf } from './switches';
 
 describe('the platform skills catalog (ADR 0058)', () => {
   it('has one entry per key, each in a known group, in key order', () => {
@@ -34,9 +36,34 @@ describe('the platform skills catalog (ADR 0058)', () => {
     for (const kind of OPPORTUNITY_KINDS) expect(SKILL_KEYS).toContain(SKILL_OF_OPPORTUNITY[kind]);
   });
 
+  it('gates every workflow step that reaches a contact, and only real steps (ADR 0069)', () => {
+    for (const [step, key] of Object.entries(SKILL_OF_WORKFLOW_STEP)) {
+      expect(ACTION_TYPES).toContain(step);
+      expect(SKILL_KEYS).toContain(key);
+    }
+    expect(SKILL_OF_WORKFLOW_STEP.send_template_email).toBe('workflow_emails');
+    expect(SKILL_OF_WORKFLOW_STEP.draft_email).toBe('ai_email_drafts');
+  });
+
   it('says whose switch it is and where to turn it back on', () => {
     expect(skillOffMessage('dashboards', 'agency')).toMatch(/for the agency in Skills.*owner or admin/);
     expect(skillOffMessage('dashboards', 'personal')).toMatch(/for you in Skills/);
+  });
+});
+
+describe('a skill runs only once it is switched on (ADR 0069)', () => {
+  it('treats a holder with no switches at all as having every one of their skills off', () => {
+    expect(skillsOffOf('agency', new Set())).toEqual(PLATFORM_SKILLS.map((s) => s.key));
+    expect(skillsOffOf('personal', new Set())).toEqual(skillsForHolder('personal').map((s) => s.key));
+  });
+  it('leaves out only the skills switched on', () => {
+    const off = skillsOffOf('personal', new Set(['dashboards', 'workflow_emails']));
+    expect(off).not.toContain('dashboards');
+    expect(off).not.toContain('workflow_emails');
+    expect(off).toContain('bulk_email');
+  });
+  it('never lists an agency-only skill as off for an agent (it is not theirs to hold)', () => {
+    expect(skillsOffOf('personal', new Set())).not.toContain('team_management');
   });
 });
 

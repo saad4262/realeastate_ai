@@ -4,6 +4,7 @@ import { agency, assistantTask, notification, proposedAction, workflow, workflow
 import { can, type Actor } from '../permissions';
 import { activeMemberActor } from '../team/member-actor';
 import { isSkillOn } from '../skill-switches/switches';
+import { platformSkill, SKILL_OF_WORKFLOW_STEP } from '../skill-switches/catalog';
 import { activateTask } from '../assistant/task-state';
 import type { FrozenArgs } from '../assistant/actions';
 import type { ProposalCard } from '../assistant/schema';
@@ -444,9 +445,14 @@ async function runOne(db: Db, wf: WorkflowRow, ev: EventRow, facts: Facts, owner
     if (z?.tz) timeZone = z.tz;
   }
   let steps = stepsFor(wf, chosen, facts, merge, now, timeZone);
-  // A step the model writes runs only while its owner has AI email drafts on (ADR 0058).
-  if (!('problem' in steps) && chosen.actions.some((a) => a.type === 'draft_email') && !(await isSkillOn(db, owner, 'ai_email_drafts'))) {
-    steps = { problem: '“AI email drafts” is switched off in Skills' };
+  // A step that reaches a contact runs only while its owner has that skill switched on (ADR 0058, 0069).
+  if (!('problem' in steps)) {
+    for (const key of new Set(chosen.actions.map((a) => SKILL_OF_WORKFLOW_STEP[a.type]).filter((k) => k !== undefined))) {
+      if (!(await isSkillOn(db, owner, key))) {
+        steps = { problem: `“${platformSkill(key).name}” is switched off in Skills` };
+        break;
+      }
+    }
   }
 
   return db.transaction(async (tx) => {

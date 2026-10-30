@@ -59,10 +59,11 @@ export async function PlatformSkills({ actor, basePath, filter }: { actor: Actor
           {holder === 'agency' ? 'info' : 'shield_person'}
         </span>
         <span>
+          {'Nothing here runs until it is switched on. '}
           {holder === 'agency'
             ? 'Agents have their own switches for the skills they can use, and theirs and the agency’s never change each other. Agents never see skills marked Agency only. Every skill works only within what that person may see.'
             : 'Every skill here works on your own work only: your leads, contacts and emails. Your switches change nothing for anyone else.'}
-          {mayManage ? ' You can also ask the assistant: “turn off cold contact alerts”.' : ' You may look but not change these.'}
+          {mayManage ? ' You can also ask the assistant: “turn on cold contact alerts”.' : ' You may look but not change these.'}
         </span>
       </p>
     </>
@@ -110,7 +111,7 @@ function SkillCard({ skill: s, holder, mayManage }: { skill: SkillSwitchView; ho
               <LocalTime iso={s.changedAt.toISOString()} style="short" />
             </>
           ) : (
-            'On by default'
+            'Off until you switch it on'
           )}
         </span>
       </div>

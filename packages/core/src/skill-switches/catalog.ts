@@ -1,14 +1,16 @@
 import type { OpportunityKind } from '../opportunities/detectors';
 
 /**
- * The platform skills (ADR 0058): every built capability a person may switch off. Fixed in code —
- * a new one is an entry here plus the gate that honours it, both reviewed. Pure data, no database,
- * so the console's page, the assistant and the tests read the same list.
+ * The platform skills (ADR 0058): every built capability, each with an on/off switch. Every one is
+ * OFF until its holder switches it on (ADR 0069). Fixed in code — a new one is an entry here plus the
+ * gate that honours it, both reviewed. Pure data, no database, so the console's page, the assistant
+ * and the tests read the same list.
  */
 
 export const SKILL_KEYS = [
   'bulk_email',
   'ai_email_drafts',
+  'workflow_emails',
   'ai_listing_copy',
   'property_summaries',
   'buyer_matching',
@@ -56,6 +58,7 @@ export type PlatformSkill = {
 export const PLATFORM_SKILLS: readonly PlatformSkill[] = Object.freeze([
   { key: 'bulk_email', group: 'Communication', icon: 'forward_to_inbox', name: 'Bulk email', description: 'Email a filtered list of contacts. Respects consent and unsubscribes.', scope: 'both', level: 'approval' },
   { key: 'ai_email_drafts', group: 'Communication', icon: 'edit_note', name: 'AI email drafts', description: 'The assistant (or a workflow) writes the email. You read it, then send it.', scope: 'both', level: 'approval' },
+  { key: 'workflow_emails', group: 'Communication', icon: 'outgoing_mail', name: 'Workflow emails', description: 'A workflow sends one of your approved email templates to a contact by itself. Off: that step is skipped.', scope: 'both', level: 'auto' },
   { key: 'ai_listing_copy', group: 'Listings', icon: 'description', name: 'AI listing copy', description: 'A first draft of a listing and its description from what you tell the assistant. Goes live only after approval.', scope: 'both', level: 'approval' },
   { key: 'property_summaries', group: 'Listings', icon: 'summarize', name: 'Property summaries', description: 'A short summary of everything on a property’s page, on a button. Every point links to the record it came from.', scope: 'both', level: 'auto' },
   { key: 'buyer_matching', group: 'CRM & matching', icon: 'person_search', name: 'Buyer matching', description: "A new listing that fits a buyer's brief alerts that buyer's agent.", scope: 'both', level: 'auto' },
@@ -130,6 +133,15 @@ export function skillsForToolCall(tool: string, input: unknown): SkillKey[] {
   }
   return keys;
 }
+
+/**
+ * The workflow steps that reach a contact, and the skill each needs on (ADR 0069). Checked when the
+ * run is made AND again when the step runs, so a switch turned off during a `wait` still stops it.
+ */
+export const SKILL_OF_WORKFLOW_STEP: Readonly<Record<string, SkillKey>> = Object.freeze({
+  send_template_email: 'workflow_emails',
+  draft_email: 'ai_email_drafts',
+});
 
 /** The opportunity detector behind each kind. */
 export const SKILL_OF_OPPORTUNITY: Readonly<Record<OpportunityKind, SkillKey>> = Object.freeze({

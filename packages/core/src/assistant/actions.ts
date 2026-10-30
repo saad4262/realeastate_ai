@@ -47,7 +47,8 @@ import { buildReminderEmail } from '../email/team-notices';
 import type { ToolContext, ToolOutcome } from './tools';
 import { runListingAction, type FrozenPin } from './listing-tools';
 import { runSkillAction, runSwitchSkill } from './skill-tools';
-import type { SkillKey } from '../skill-switches/catalog';
+import { SKILL_OF_WORKFLOW_STEP, skillOffMessage, type SkillKey } from '../skill-switches/catalog';
+import { holderOf, isSkillOn } from '../skill-switches/switches';
 import { runWorkflowAction } from './workflow-tools';
 import { runTemplateAction } from './template-tools';
 import type { WorkflowSpec } from '../workflows/catalog';
@@ -1078,6 +1079,13 @@ export async function runScheduledActions(
         const actor = await activeMemberActor(tx, row.userId, row.agencyId);
         if (!actor || !can(actor, 'proposed_action:decide', actionResource(row))) {
           await failRow(tx as unknown as Db, actor, row, 'The person who approved this is no longer an active member who may make this change, so it did not run.', now);
+          return { kind: 'failed' as const };
+        }
+        // A workflow step that reaches a contact needs its skill on NOW, not only when the run was made:
+        // a switch turned off during a `wait` stops it (ADR 0069).
+        const stepSkill = row.origin === 'workflow' ? SKILL_OF_WORKFLOW_STEP[row.tool] : undefined;
+        if (stepSkill && !(await isSkillOn(tx, actor, stepSkill))) {
+          await failRow(tx as unknown as Db, actor, row, `${skillOffMessage(stepSkill, holderOf(actor.membershipRole))} This step did not run.`, now);
           return { kind: 'failed' as const };
         }
         // A workflow's step (ADR 0041) acts for the workflow: its changes never trigger another workflow.

@@ -277,13 +277,55 @@ The agent sidebar uses the same groups.
   BS — agents only their own addresses and records, a Properties list, the summary on a button and never saved, tabs)
   with everything on it: owners, enquiries, appraisals, offers, documents, pipeline, an AI summary (#10, #6).
 
-### Phase 3 — Phone + SMS (needs the client's Twilio answers)
-Setup is being settled with the client by the user (2026-10-27). Recommended: the platform's own Twilio
-account with a subaccount per agency ("Get a number" in Connectors), and bring-your-own Twilio later as an
-option. Missed calls reach Twilio by no-answer forwarding from the agency's existing numbers.
-- [ ] **3.1 Twilio integration + SMS threads in the inbox** (#1, #8 SMS).
-- [ ] **3.2 Missed call → SMS → qualify → alert the agent** (#28), plus a Missed Calls page. Mock first.
-- [ ] **3.3 Call recording, transcript and summary; AI voice callback** where it is legal (#9, #28).
+### Phase 3 — Phone + SMS: Call Forwarding + Verified Caller ID
+Decided 2026-10-29 (the user, with the client): **each agency brings its own Twilio account**, and the
+platform's own **Retell** account runs the AI calls. Agents keep their own phones and SIM cards; only the
+calls they miss reach Twilio. The flow:
+1. **Connect.** The owner connects the agency's Twilio under Connectors with an API key (Account SID +
+   API key SID + secret), stored encrypted like the other integrations (`INTEGRATION_TOKEN_KEY`). One Twilio
+   account per agency, never per agent.
+2. **Business check.** Twilio's Australian KYC (ABN/ACN, ASIC long-form company extract, an AU address
+   that is not a PO Box plus proof, the authorised person's ID) is done by the agency in Twilio. The app
+   reads the status, says what is missing, and emails the owner when it is approved.
+3. **Numbers.** Only after approval, the app buys **one AU mobile number per agent** through that key (so it
+   knows whose call was missed), and sets its SMS/voice webhooks and the SIP trunk to Retell.
+4. **Verified Caller ID.** Each agent verifies their own mobile in Twilio (Twilio calls, the agent keys the
+   code the app shows), so the AI's callback shows the agent's real number.
+5. **Forwarding.** The agent turns on Call Forwarding on No Answer to their Twilio number (the app shows
+   their carrier's code), then the app runs a test call.
+6. **A missed call.** The caller hears a short greeting (forwarding replaces voicemail) → a template SMS
+   from the Twilio number → CRM lookup by phone → Retell calls back from the agent's real number within
+   calling hours → transcript, summary and lead update on the contact → the agent is alerted. SMS replies
+   land in the contact's inbox thread.
+
+Agreed corrections: SMS cannot use a verified caller ID, so texts come from the Twilio number and name the
+agent; numbers can be bought only after KYC approval; one number per agent; the forwarded caller hears a
+greeting. **Test first:** a verified caller ID on outbound SIP calls on Australian networks (fallback: the
+callback comes from the Twilio number). **Later option:** platform-managed numbers (a Twilio subaccount per
+agency) once Stripe billing exists.
+
+**Open decision for the ADR — non-negotiable 7.** The AI callback is model-written speech reaching a third
+party with no human in between. Proposed bounds: off by default and turned on by the owner; the AI says it
+is an AI assistant for the agent; it only asks what the call is about and offers a callback time, and never
+gives prices, valuations or promises; a recording notice starts every call; one text and one AI call per
+caller per 24 h; only people who called; nobody who replied STOP. The SMS is a template the owner approves.
+
+**Skills (ADR 0069, the client 2026-10-29):** every automation lives in Skills and runs only when switched
+on. Phase 3 adds two skills, Missed call text and AI calls back, that run for an agent only when the agency's
+switch AND the agent's own are on. Connecting Twilio sets up phones only; nothing is texted or called before.
+
+Mocks (awaiting the client's approval): `docs/mocks/twilio-setup.html`, `docs/mocks/missed-calls.html`,
+`docs/mocks/skills-control-centre.html` (updated).
+Waiting on the client: a test Twilio account with KYC approved, the Retell API key, a real mobile for
+forwarding tests. Voyage key and the temporary domain arrive at the same time (config only).
+- [ ] **3.1 Twilio connector + SMS threads in the inbox** (#1, #8 SMS): API key, KYC status, a number per
+  agent, caller ID verification, forwarding guide and test call. Mock: `twilio-setup.html`.
+- [ ] **3.2 Missed call → greeting → SMS → CRM lookup → alert the agent** (#28), the Missed Calls page and
+  its settings (SMS template, greeting, calling hours, limits). Mock: `missed-calls.html`.
+- [ ] **3.3 Retell AI callback** from the agent's verified number; recording, transcript and summary on the
+  contact (#9, #28).
+- [ ] **3.4 SMS everywhere:** matched buyers, bulk SMS (consent + STOP), the workflow "Send SMS" action and
+  the "Missed call" trigger (#5, #8, #27).
 
 ### Phase 4 — Automation engine (#27, #7)
 - [x] **4.1 More triggers** (built 2026-10-28, ADR 0066, migration 0069 NOT applied, not committed; TEST-PLAN BT —
