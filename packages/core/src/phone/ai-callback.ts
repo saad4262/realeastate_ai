@@ -117,7 +117,7 @@ export async function runDueAiCallbacks(
   const claimed = await db.execute<Claimed>(sql`
     update phone_call set ai_status = 'calling', updated_at = now()
     where id in (
-      select id from phone_call where ai_status = 'scheduled' and ai_due_at <= ${now}
+      select id from phone_call where ai_status = 'scheduled' and ai_due_at <= ${now.toISOString()}::timestamptz
       ${only.agencyId ? sql`and agency_id = ${only.agencyId}` : sql``}
       order by ai_due_at limit ${limit} for update skip locked)
     returning id, agency_id, phone_number_id, from_e164, contact_id, created_at, handled_at`);
