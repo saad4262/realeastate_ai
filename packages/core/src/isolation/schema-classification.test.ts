@@ -32,6 +32,13 @@ const OWN_AGENCY = [
   'agent_skill',
   'skill_run',
   'skill_switch',
+  // ADR 0070: Phone & SMS — the agency's Twilio, its agents' numbers, their texts, reads, opt-outs and calls.
+  'phone_account',
+  'phone_number',
+  'sms_message',
+  'sms_read',
+  'sms_opt_out',
+  'phone_call',
   'deal',
   'deal_condition',
   'deal_event',

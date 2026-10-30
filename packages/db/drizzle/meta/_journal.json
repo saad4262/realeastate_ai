@@ -498,6 +498,13 @@
       "when": 1793179357448,
       "tag": "0070_skills_default_off",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1793340661937,
+      "tag": "0071_phone_sms",
+      "breakpoints": true
     }
   ]
 }

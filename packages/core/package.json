@@ -76,7 +76,8 @@
     "./documents": "./src/documents/index.ts",
     "./documents/schema": "./src/documents/document-schema.ts",
     "./documents/tick": "./src/documents/tick-entry.ts",
-    "./opportunities": "./src/opportunities/index.ts"
+    "./opportunities": "./src/opportunities/index.ts",
+    "./phone": "./src/phone/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

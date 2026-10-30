@@ -13,6 +13,8 @@ import { holderOf, isSkillOn, skillOffMessage } from '@repo/core/skill-switches'
 import { getConsoleDb } from '../../lib/db';
 import { loadActorContext, loadListingActor } from '../../lib/load-actor';
 import { requireConsoleAccess } from '../../lib/require-console-access';
+import Link from 'next/link';
+import phoneStyles from '@/components/phone/phone.module.css';
 import { InboxView, type InboxViewProps } from './inbox-view';
 import styles from './inbox.module.css';
 
@@ -101,6 +103,12 @@ export async function InboxPage({
   }
 
   return (
+    <>
+    {/* ADR 0070: texts on the agents' Twilio numbers live beside email. */}
+    <nav className={phoneStyles.row} aria-label="Inbox" style={{ marginBottom: '0.75rem' }}>
+      <span className={phoneStyles.btnPrimary} aria-current="page">Email</span>
+      <Link href={`${basePath}/texts`} className={phoneStyles.btn}>Texts</Link>
+    </nav>
     <InboxView
       basePath={basePath}
       folder={folder}
@@ -116,5 +124,6 @@ export async function InboxPage({
       mayCompose={can(who, 'mail:compose', { type: 'contact', agencyId: who.agencyId ?? undefined, ownerId: who.userId })}
       {...(assist ? { assist } : {})}
     />
+    </>
   );
 }

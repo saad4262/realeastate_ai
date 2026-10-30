@@ -318,8 +318,9 @@ Mocks (awaiting the client's approval): `docs/mocks/twilio-setup.html`, `docs/mo
 `docs/mocks/skills-control-centre.html` (updated).
 Waiting on the client: a test Twilio account with KYC approved, the Retell API key, a real mobile for
 forwarding tests. Voyage key and the temporary domain arrive at the same time (config only).
-- [ ] **3.1 Twilio connector + SMS threads in the inbox** (#1, #8 SMS): API key, KYC status, a number per
-  agent, caller ID verification, forwarding guide and test call. Mock: `twilio-setup.html`.
+- [x] **3.1 Twilio connector + SMS threads in the inbox** (#1, #8 SMS): API key, KYC status, a number per
+  agent, caller ID verification, forwarding guide and test call. Mock: `twilio-setup.html`. Built 2026-10-30,
+  ADR 0070, migration 0071 NOT applied, real keys not yet (dev stub `PHONE_STUB=1`); TEST-PLAN BX.
 - [ ] **3.2 Missed call → greeting → SMS → CRM lookup → alert the agent** (#28), the Missed Calls page and
   its settings (SMS template, greeting, calling hours, limits). Mock: `missed-calls.html`.
 - [ ] **3.3 Retell AI callback** from the agent's verified number; recording, transcript and summary on the

@@ -1784,3 +1784,31 @@ Needs migration **0070**. Before applying it, note one agency with an active wor
 | BW6 | A workflow "wait 1 day, then send template": fire it, then switch Workflow emails off before the day ends | Next day the step fails with "switched off … This step did not run." No email. |
 | BW7 | A workflow that drafts an AI email, AI email drafts off | Run skipped, naming AI email drafts. |
 | BW8 | Opportunity scan (hourly) with every opportunity skill off | No new opportunities for that person; switch Cold contact alerts on, next scan finds them. |
+
+## BX — Phone & SMS: Twilio, numbers, caller ID, forwarding, texts (ADR 0070)
+
+Needs migration **0071** and INTEGRATION_TOKEN_KEY on both projects. With no real Twilio yet, set
+`PHONE_STUB=1` (dev only): every step succeeds and nothing leaves the machine. With real keys: a Twilio
+account whose AU business bundle is approved, PHONE_WEBHOOK_BASE = the web app's https URL (a tunnel in dev).
+
+| # | Case | Expected |
+|---|---|---|
+| BX1 | Owner → Connectors | A "Phone & SMS" card; it opens /settings/phone with three steps. An agent's Connectors shows "My phone". |
+| BX2 | Connect with an Account SID "AC123" | Refused before Twilio is called: "The Account SID starts with AC and has 34 characters." (Stub: anything goes.) |
+| BX3 | Connect with a wrong secret (real Twilio) | "Twilio did not accept this key…". Nothing saved. |
+| BX4 | Connect with a good key | Step 1 Connected, shows the Twilio account's name; step 2 shows Twilio's status (stub: Approved). |
+| BX5 | Business not approved → Check now | Status and Twilio's note; "Get a number" stays locked. |
+| BX6 | Approved → Get a number for Sarah (confirm) | A 04… number in her row; "Waiting on Sarah". Twilio shows the number with our SMS and Voice URLs. |
+| BX7 | An agent opens /settings/phone (agency host) or tries Get a number | Refused: only owners and admins. |
+| BX8 | Sarah → My phone → Call me with a code | A 6-digit code shows; Twilio calls her; she keys it; the page says verified (stub: code 123456, verified on the next check). |
+| BX9 | Step 2: pick network and 20 s | The code `**61*0480…**20#` and the off code `##61#`; the voicemail warning. |
+| BX10 | Step 3: Start test call, don't answer | "Ringing…", then "Forwarding works"; the owner's table shows "tested" and Live. (Stub: passes at once.) |
+| BX11 | Someone calls Sarah's mobile, she doesn't answer | Caller hears "Sorry, Sarah can't take your call right now…". Sarah's bell: "Missed call from …". No text, no AI call. |
+| BX12 | Someone texts Sarah's Twilio number | Inbox → Texts shows the conversation, unread; her bell rings; the contact's name if the number matches one. |
+| BX13 | Sarah replies from the conversation | Sent; status goes sent → delivered (real Twilio). |
+| BX14 | They text STOP; Sarah replies | Refused: replied STOP. They text START; she can text again. |
+| BX15 | Owner → Inbox → Texts | Every agent's conversations, labelled by number; no reply box: "Only Sarah can reply from their number." |
+| BX16 | Ali → Inbox → Texts | Only his own; Sarah's conversation link refused. |
+| BX17 | New text to a landline (03…) | Refused: Australian mobiles only. |
+| BX18 | Release Sarah's number (confirm) | Gone from the table; her old texts still readable; texts to it are not kept. |
+| BX19 | A webhook URL with a changed token | 403, nothing written. |

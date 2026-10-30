@@ -992,6 +992,54 @@ describe('documents and the knowledge base (ADR 0053)', () => {
   });
 });
 
+/** Phone & SMS (ADR 0070): the agency's Twilio is its owners' and admins'; a number's phone side and texts are its agent's. */
+describe('phone and sms', () => {
+  const m = (userId: string, membershipRole: Actor['membershipRole']): Actor => ({ userId, agencyId: agencyA, membershipRole });
+  const owner = m('owner', 'owner');
+  const admin = m('admin', 'admin');
+  const sarah = m('sarah', 'agent');
+  const ali = m('ali', 'agent');
+  const viewer = m('viewer', 'read_only');
+  const rival: Actor = { userId: 'rival', agencyId: agencyB, membershipRole: 'owner' };
+  const agencyPhone = { type: 'phone', agencyId: agencyA };
+  const sarahs = (type: string) => ({ type, agencyId: agencyA, ownerId: 'sarah' });
+
+  it("lets only owners and admins connect the agency's Twilio and get numbers", () => {
+    expect(can(owner, 'phone:manage', agencyPhone)).toBe(true);
+    expect(can(admin, 'phone:manage', agencyPhone)).toBe(true);
+    expect(can(sarah, 'phone:manage', agencyPhone)).toBe(false);
+    expect(can(rival, 'phone:manage', agencyPhone)).toBe(false);
+  });
+
+  it('lets every member see the setup, never another agency', () => {
+    expect(can(sarah, 'phone:read', agencyPhone)).toBe(true);
+    expect(can(viewer, 'phone:read', agencyPhone)).toBe(true);
+    expect(can(rival, 'phone:read', agencyPhone)).toBe(false);
+  });
+
+  it("lets only the agent set up their own number's phone side and text from it — not a colleague, not the owner", () => {
+    expect(can(sarah, 'phone:own', sarahs('phone_number'))).toBe(true);
+    expect(can(sarah, 'sms:send', sarahs('sms'))).toBe(true);
+    expect(can(ali, 'phone:own', sarahs('phone_number'))).toBe(false);
+    expect(can(ali, 'sms:send', sarahs('sms'))).toBe(false);
+    expect(can(owner, 'phone:own', sarahs('phone_number'))).toBe(false);
+    expect(can(owner, 'sms:send', sarahs('sms'))).toBe(false);
+  });
+
+  it("lets the agent and the agency's owners and admins read a number's texts, and no colleague", () => {
+    expect(can(sarah, 'sms:read', sarahs('sms'))).toBe(true);
+    expect(can(owner, 'sms:read', sarahs('sms'))).toBe(true);
+    expect(can(admin, 'sms:read', sarahs('sms'))).toBe(true);
+    expect(can(ali, 'sms:read', sarahs('sms'))).toBe(false);
+    expect(can(rival, 'sms:read', sarahs('sms'))).toBe(false);
+  });
+
+  it('refuses a read-only member and the platform view anything that sends or changes', () => {
+    expect(can({ ...m('viewer', 'read_only') }, 'sms:send', { type: 'sms', agencyId: agencyA, ownerId: 'viewer' })).toBe(false);
+    expect(can({ ...owner, via: 'platform' }, 'phone:manage', agencyPhone)).toBe(false);
+  });
+});
+
 /** The platform skills' switches (ADR 0058): the agency's belong to its owners and admins, everyone else holds their own. */
 describe('skill switches', () => {
   const m = (userId: string, membershipRole: Actor['membershipRole']): Actor => ({ userId, agencyId: agencyA, membershipRole });

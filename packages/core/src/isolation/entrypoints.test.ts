@@ -60,6 +60,10 @@ const PUBLIC_ROUTES: Record<string, { why: string; guard: RegExp }> = {
     guard: /handleZoomWebhook\(/,
   },
   'apps/web/app/api/revalidate/route.ts': { why: 'cache revalidation from the console, shared secret', guard: /REVALIDATE_SECRET/ },
+  'apps/web/app/api/phone/twilio/[token]/[kind]/route.ts': {
+    why: 'Twilio webhooks for the agents’ numbers (ADR 0070): the per-number HMAC token in the URL is checked in core before anything is read',
+    guard: /handleTwilioWebhook\(/,
+  },
   'apps/web/app/unsubscribe/route.ts': { why: 'one-click unsubscribe from an email, signed token', guard: /verify(Contact)?UnsubscribeToken\(/ },
 };
 

@@ -2543,6 +2543,167 @@ export const listingImportRow = pgTable(
   ],
 );
 
+// ── Phone & SMS (docs/adr/0070) ─────────────────────────────────────────────
+
+/**
+ * The agency's own Twilio account (bring-your-own, ADR 0070). One per agency. The API key secret is
+ * encrypted like an integration token (AES-256-GCM, `<id>:twilio_api_secret` as AAD); the SIDs are
+ * identifiers, not secrets. KYC is the agency's Twilio regulatory bundle, read back from Twilio.
+ */
+export const phoneAccount = pgTable('phone_account', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  agencyId: uuid('agency_id')
+    .notNull()
+    .unique()
+    .references(() => agency.id, { onDelete: 'cascade' }),
+  accountSid: varchar('account_sid', { length: 64 }).notNull(),
+  apiKeySid: varchar('api_key_sid', { length: 64 }).notNull(),
+  apiKeySecret: text('api_key_secret').notNull(),
+  /** Twilio's name for the account, to show which one is connected. */
+  friendlyName: text('friendly_name'),
+  /** unknown | none | pending | needs_fix | approved. From Twilio's regulatory bundles for AU mobile numbers. */
+  kycStatus: varchar('kyc_status', { length: 16 }).notNull().default('unknown'),
+  /** The approved bundle numbers are bought under. */
+  bundleSid: varchar('bundle_sid', { length: 64 }),
+  /** Twilio's words when it needs a fix — shown to the owner. */
+  kycNote: text('kyc_note'),
+  kycCheckedAt: timestamp('kyc_checked_at', { withTimezone: true }),
+  /** connected | error (the key stopped working). */
+  status: varchar('status', { length: 12 }).notNull().default('connected'),
+  error: text('error'),
+  connectedBy: uuid('connected_by').references(() => user.id, { onDelete: 'set null' }),
+  ...timestamps,
+});
+
+/**
+ * One agent's Twilio number on the agency's account (ADR 0070): their missed calls forward to it and
+ * texts to their callers come from it. `callerId*` is the agent's own mobile, verified in Twilio so a
+ * call back shows their real number.
+ */
+export const phoneNumber = pgTable(
+  'phone_number',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    /** E.164, e.g. +61480999888. */
+    e164: varchar('e164', { length: 20 }).notNull(),
+    numberSid: varchar('number_sid', { length: 64 }).notNull().unique(),
+    /** The agent's own mobile in E.164 — what they verify as their caller ID. */
+    callerIdE164: varchar('caller_id_e164', { length: 20 }),
+    /** none | pending | verified. */
+    callerIdStatus: varchar('caller_id_status', { length: 12 }).notNull().default('none'),
+    callerIdCheckedAt: timestamp('caller_id_checked_at', { withTimezone: true }),
+    /** When a test call reached this number by the agent's no-answer forwarding. */
+    forwardingTestedAt: timestamp('forwarding_tested_at', { withTimezone: true }),
+    /** active | released. A released number is kept for its messages' history. */
+    status: varchar('status', { length: 12 }).notNull().default('active'),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('phone_number_agent_idx').on(t.agencyId, t.userId).where(sql`status = 'active'`),
+    index('phone_number_e164_idx').on(t.e164),
+  ],
+);
+
+/** One text, in or out, on an agent's Twilio number (ADR 0070). A conversation is (number, counterpart). */
+export const smsMessage = pgTable(
+  'sms_message',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    phoneNumberId: uuid('phone_number_id')
+      .notNull()
+      .references(() => phoneNumber.id, { onDelete: 'cascade' }),
+    /** The other side, E.164. */
+    counterpart: varchar('counterpart', { length: 20 }).notNull(),
+    contactId: uuid('contact_id').references((): AnyPgColumn => contact.id, { onDelete: 'set null' }),
+    direction: mailDirectionEnum('direction').notNull(),
+    body: text('body').notNull(),
+    /** received | queued | sent | delivered | failed | undelivered. */
+    status: varchar('status', { length: 12 }).notNull(),
+    /** Twilio's message SID. Unique: a webhook delivered twice is a no-op. */
+    providerSid: varchar('provider_sid', { length: 64 }).unique(),
+    error: text('error'),
+    sentBy: uuid('sent_by').references(() => user.id, { onDelete: 'set null' }),
+    /** What composed it (null = a person). e.g. `missed_call_text` (Phase 3.2). */
+    kind: varchar('kind', { length: 32 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('sms_message_conv_idx').on(t.phoneNumberId, t.counterpart, t.createdAt),
+    index('sms_message_agency_idx').on(t.agencyId, desc(t.createdAt)),
+    index('sms_message_contact_idx').on(t.contactId),
+  ],
+);
+
+/** When each member last opened each SMS conversation. Unread is per person, like `mail_read`. */
+export const smsRead = pgTable(
+  'sms_read',
+  {
+    phoneNumberId: uuid('phone_number_id')
+      .notNull()
+      .references(() => phoneNumber.id, { onDelete: 'cascade' }),
+    counterpart: varchar('counterpart', { length: 20 }).notNull(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    lastReadAt: timestamp('last_read_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.phoneNumberId, t.counterpart, t.userId] })],
+);
+
+/** A number that replied STOP to one agency: it is never texted by that agency again until it replies START. */
+export const smsOptOut = pgTable(
+  'sms_opt_out',
+  {
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    e164: varchar('e164', { length: 20 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.agencyId, t.e164] })],
+);
+
+/**
+ * A call on an agent's Twilio number (ADR 0070): `test` — the forwarding test the app placed;
+ * `missed` — a real caller the agent did not answer, forwarded here (Phase 3.2 acts on these).
+ */
+export const phoneCall = pgTable(
+  'phone_call',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    phoneNumberId: uuid('phone_number_id')
+      .notNull()
+      .references(() => phoneNumber.id, { onDelete: 'cascade' }),
+    kind: varchar('kind', { length: 12 }).notNull(),
+    /** The call Twilio placed (a test) or received. Unique: a webhook twice is a no-op. */
+    callSid: varchar('call_sid', { length: 64 }).unique(),
+    /** The caller, E.164 (a test's own Twilio number). */
+    fromE164: varchar('from_e164', { length: 20 }),
+    contactId: uuid('contact_id').references((): AnyPgColumn => contact.id, { onDelete: 'set null' }),
+    /** test: calling | passed | failed. missed: received. */
+    status: varchar('status', { length: 12 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('phone_call_number_idx').on(t.phoneNumberId, desc(t.createdAt))],
+);
+
 export type User = typeof user.$inferSelect;
 export type Agency = typeof agency.$inferSelect;
 export type Listing = typeof listing.$inferSelect;

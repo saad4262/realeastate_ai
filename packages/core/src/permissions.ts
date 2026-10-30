@@ -299,6 +299,22 @@ export type Action =
   | 'skill_switch:manage'
   /** Set a deal's commission and mark the agent's share paid (ADR 0064): the agency's call — owners and admins. */
   | 'deal:commission'
+  /**
+   * Phone & SMS (ADR 0070). `phone:manage`: the agency's Twilio — connect it, check its business
+   * verification, get or release an agent's number. Owners and admins (it is the agency's bill).
+   */
+  | 'phone:manage'
+  /** See the phone setup: any active member (an agent sees their own number; owners and admins every one). */
+  | 'phone:read'
+  /**
+   * Set up one number's phone side — verify the mobile as caller ID, run the forwarding test.
+   * Only the agent whose number it is (`ownerId`): it calls their mobile, in their name.
+   */
+  | 'phone:own'
+  /** Read the texts on a number (`ownerId` = whose number): that agent, or the agency's owners and admins. */
+  | 'sms:read'
+  /** Text from a number: only the agent whose number it is — the text goes out in their name. */
+  | 'sms:send'
   /** See the agency's email templates (ADR 0022). Any active member. */
   | 'email_template:read'
   /**
@@ -770,6 +786,17 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
 
     case 'deal:commission':
       return sameAgency(actor, resource) && isAgencyAdmin(actor) && mayWrite(actor);
+
+    case 'phone:manage':
+      return sameAgency(actor, resource) && isAgencyAdmin(actor) && mayWrite(actor);
+    case 'phone:read':
+      return sameAgency(actor, resource) && Boolean(actor.membershipRole);
+    case 'phone:own':
+    case 'sms:send':
+      return sameAgency(actor, resource) && mayWrite(actor) && Boolean(resource.ownerId) && actor.userId === resource.ownerId;
+    case 'sms:read':
+      if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      return isAgencyAdmin(actor) || (Boolean(resource.ownerId) && actor.userId === resource.ownerId);
 
     case 'skill_switch:read':
     case 'skill_switch:manage': {

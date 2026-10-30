@@ -9,6 +9,7 @@ import { authoriseCronRequest } from '@repo/core/schedules';
 import { templateSendDepsFromEnv } from '@repo/core/template-email';
 import { runWorkflowTick } from '@repo/core/workflows';
 import { runDealSync } from '@repo/core/deals';
+import { phoneDepsFromEnv, refreshDueKyc } from '@repo/core/phone';
 import { workflowDraftWriterFromEnv } from '@repo/ai/workflow-draft';
 import { workflowDeciderFromEnv } from '@repo/ai/workflow-decide';
 import { getWebDb } from '../../../../lib/db';
@@ -71,8 +72,13 @@ async function handler(request: NextRequest) {
       error: err instanceof Error ? err.message : 'platform email tick failed',
     }));
 
+    // Phone & SMS (ADR 0070): agencies waiting on Twilio's business check, each asked at most hourly.
+    const phoneKyc = await refreshDueKyc(getWebDb(), phoneDepsFromEnv()).catch((err: unknown) => ({
+      error: err instanceof Error ? err.message : 'phone check failed',
+    }));
+
     // Counts only — this is read from a cron log.
-    return NextResponse.json({ ok: true, workflows, scheduled, reminders, zoomAlerts, deals, platformEmails }, { headers: { 'cache-control': 'no-store' } });
+    return NextResponse.json({ ok: true, workflows, scheduled, reminders, zoomAlerts, deals, platformEmails, phoneKyc }, { headers: { 'cache-control': 'no-store' } });
   } catch (err) {
     return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : 'tick failed' }, { status: 503 });
   }
