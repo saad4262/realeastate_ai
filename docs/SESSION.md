@@ -1,3 +1,22 @@
+## 2026-10-29/30 — Claude Code — Accounts plan, Skills default off, Phone & SMS 3.1–3.3, cron batching, DNS checklist (branch feat/sidebar-groups → merged to main by the user)
+
+- The user (Roman Urdu + the client's pasted messages): which accounts the client must provide (list agreed; Twilio
+  bring-your-own per agency; Retell; Voyage; temporary domain; Xero, Stripe, ads pending); the Call Forwarding +
+  Verified Caller ID design; then "every automation in Skills, OFF until switched on".
+- Decisions (the user): all skills default off; phone skills need the agency's AND the agent's switch; existing
+  template workflows keep sending (migration 0070, held); mocks twilio-setup / missed-calls / skills approved by the
+  client 2026-10-29.
+- Built: ADR 0069 (skills default off, Workflow emails, re-check at step time), ADR 0070 (Twilio connector, numbers,
+  caller ID, forwarding test, texts, webhooks with per-number HMAC tokens), ADR 0071 (missed call text, Missed Calls
+  page, settings), ADR 0072 (Retell AI call back, calling hours, SIP trunk, Retell webhook), ADR 0073 (minute tick in
+  rounds against a 45 s budget), docs/DNS-CUTOVER.md + `phone:repoint`, docs/HANDOFF.md.
+- Migrations: 0071, 0072, 0073 applied BY HAND at the user's go (unrecorded, idempotent, each run twice); 0069 not
+  applied; 0070 on hold. A fake test agency (owner + agent) made at the user's go for browser checks — keep until go-live.
+- Found: a raw-SQL Date parameter that would have broken every AI tick (smoke on the real DB caught it); the dev
+  server rewrites next-env.d.ts; old dev servers outlive TaskStop.
+- Not done: real-key tests (the user's choice), 3.4, Phase 4 rest. The user merged everything to main and pushed.
+- Next exact step: ask whether production redeployed from main; decide 0069 (needed by main) and 0070; then 3.4.
+
 ## 2026-10-27 — Claude Code — Roadmap plan, ADR 0057 sidebar groups, ADR 0058 Skills Control Centre (branch feat/sidebar-groups)
 
 - The user (Roman Urdu + pasted English): plan the client's 28 skills step by step; decisions in ROADMAP Part 3 (Phase 1 first,

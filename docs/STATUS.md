@@ -1,4 +1,13 @@
 # Status
+- **2026-10-30 — handoff to another laptop: read `docs/HANDOFF.md` first.** Everything through `fcbf35e` is merged
+  into `main` and pushed (by the user). Built since 2026-10-28: Skills default OFF + Workflow emails + pair skills
+  (ADR 0069, migration 0070 ON HOLD), Phone & SMS 3.1–3.3 (ADR 0070–0072; migrations 0071–0073 APPLIED BY HAND,
+  unrecorded, idempotent), minute-tick batching (ADR 0073, no migration), `docs/DNS-CUTOVER.md` + `phone:repoint`.
+  Drizzle's last recorded migration is 0068; **0069 is NOT applied though `main` needs it** (`completeAppointment`
+  emits `appointment.completed`) — if production redeployed from `main`, completing an appointment fails and every
+  skill is off: the user decides 0069/0070 first. Checks: core 1466 pass (3 = pre-existing Windows/imports), the
+  Phone & SMS smoke group 3/3 on the real DB (rolled back), browser walk of 3.1–3.3 on the test agency with stub
+  Twilio + Retell. Real keys not tested (the user's choice). **Next:** the 0069/0070 decision, then ROADMAP 3.4.
 - **Automation Library (ADR 0068, 2026-10-28), ROADMAP 4.3, on `feat/sidebar-groups` (not committed). No migration.**
   Core `workflows/library.ts` (10 entries: words for the card and the assistant's box, never a spec; likeThisOn);
   WorkflowSummary gains triggerKind/decides. Console: the library at the top of the agency's Automations tab (owners

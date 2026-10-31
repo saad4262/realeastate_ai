@@ -12,36 +12,36 @@ The brief's numbering skips #20 and #25. The brief marks some items "Yellow = in
 
 ## Part 1 — Status summary
 
-| # | Skill | Done | State |
+| # | Skill | Done | State (2026-10-30) |
 |---|---|---|---|
-| 1 | Inbox | 35% | Email works; no SMS, calls, or reading the agent's Gmail |
-| 2 | AI Business Intelligence Agent | 65% | ~60 tools + documents; proactive opportunities built (ADR 0054), migration 0062 not applied |
-| 3 | Advanced CRM | 70% | Contacts + roles + buyer requirements (ADR 0055); no prospect/past-client/referral roles, no transactions |
+| 1 | Inbox | 55% | Email + inbox assistant (ADR 0062) + SMS texts on agents' Twilio numbers (ADR 0070); no Outlook, no reading the agent's Gmail |
+| 2 | AI Business Intelligence Agent | 70% | ~60 tools + documents + proactive opportunities (ADR 0054) + find_buyers (ADR 0059) |
+| 3 | Advanced CRM | 80% | Contacts, roles incl. prospect / past client / referral partner (ADR 0061), buyer requirements, property page (ADR 0065) |
 | 4 | AI Contact Import | 65% | CSV/Excel/Sheets + dedupe + AI mapping and row fixes (ADR 0056); no CRM connectors |
-| 5 | Smart Buyer Matching | 55% | Alert on a new listing (ADR 0055 §6) + the assistant lists the buyers for a listing (ADR 0059); no email to them yet |
-| 6 | Seller Prospecting & Appraisals | 10% | `recent_sales` comparables only |
-| 7 | Automated Follow-Ups | 45% | Via workflows (#27) |
-| 8 | Email Marketing & Campaigns | 55% | Bulk email works; no AI segments, no SMS |
-| 9 | AI Call & Voice Intelligence | 0% | No phone provider |
-| 10 | Property & Customer Intelligence | 25% | Foundations only |
-| 11 | Agency Knowledge Base | 45% | Built (ADR 0053): /knowledge, assistant answers from it; migration 0061 not applied |
+| 5 | Smart Buyer Matching | 75% | Alert on a new listing + find_buyers + Matching buyers tab with email/task (ADR 0060); no SMS to them yet (3.4) |
+| 6 | Seller Prospecting & Appraisals | 10% | `recent_sales` comparables only (property data provider not chosen) |
+| 7 | Automated Follow-Ups | 50% | Via workflows (#27), now with more triggers |
+| 8 | Email Marketing & Campaigns | 55% | Bulk email works; no AI segments; bulk SMS is 3.4 |
+| 9 | AI Call & Voice Intelligence | 40% | AI call back with transcript, recording, summary (ADR 0072, PROVISIONAL until real Retell keys) |
+| 10 | Property & Customer Intelligence | 40% | Property page with everything on it + AI summary (ADR 0065) |
+| 11 | Agency Knowledge Base | 45% | Built (ADR 0053): /knowledge, assistant answers from it |
 | 12 | Team Collaboration | 40% | Messages, meetings, reassignment |
-| 13 | Digital Documents | 45% | Built (ADR 0053): on contacts + listings, read (text/Word/scans), searched by the assistant; no e-sign |
-| 14 | Transaction Management | 10% | Listing status only |
+| 13 | Digital Documents | 45% | On contacts + listings, read, searched; no e-sign |
+| 14 | Transaction Management | 60% | Deal pipeline, 7 stages, conditions, settle (ADR 0063) |
 | 15 | Property Management | 5% | Rent listings + landlord/tenant roles only |
-| 16 | Custom Dashboard Intelligence (URL) | 50% | Built; no commission/revenue data |
+| 16 | Custom Dashboard Intelligence (URL) | 65% | Built, with commission/revenue measures (ADR 0064) |
 | 17 | AI Marketing Studio | 15% | Listing copy drafts only |
 | 18 | Agency Funnel Builder | 10% | Public site exists; no builder |
-| 19 | Integrations & Open API | 25% | 5 providers; no public API/webhooks |
-| 21 | Natural-Language Search | 65% | Listings/notes/emails, and the brief's own example now works: buyers by suburb, price, beds, type (ADR 0059) |
-| 22 | AI Custom Dashboards | 65% | Strongest part |
+| 19 | Integrations & Open API | 35% | Google, Zoom, Gmail send, Sheets, Reviews, Resend, Twilio (bring-your-own), Retell; no public API/webhooks |
+| 21 | Natural-Language Search | 65% | Listings/notes/emails + buyers by brief (ADR 0059); smart search needs the Voyage key |
+| 22 | AI Custom Dashboards | 75% | Strongest part; revenue measures now in |
 | 23 | AI Voice-Controlled Platform | 10% | Commands work by text; no voice input |
 | 24 | Recruitment & Agent Onboarding | 50% | Invite wizard + offboarding |
-| 26 | AI Social Media & Advertising Studio | 0% | — |
-| 27 | AI Automation Engine | 35% | Engine built; no visual builder, few triggers |
-| 28 | AI Missed Call — Voice & Text | 0% | No phone/SMS provider |
+| 26 | AI Social Media & Advertising Studio | 0% | Pending (the user, 2026-10-29) |
+| 27 | AI Automation Engine | 55% | 13 triggers, AI decides, Automation Library, every automation behind a Skills switch (ADR 0066–0069) |
+| 28 | AI Missed Call — Voice & Text | 80% | Forwarding, greeting, text behind a skill, AI call back, Missed Calls page (ADR 0070–0072) |
 
-**Whole platform: ~33–35%** (was ~28–30% before ADR 0053–0056). The foundation is solid — auth, tenant isolation, `can()`
+**Whole platform: ~45%** (was ~33–35% on 2026-10-27). Phases 1 and 2 done; 3 and 4 nearly; 5–7 not started. See docs/HANDOFF.md.
 permissions, platform admin, public site — so later work builds on it rather than around it.
 
 ### Built but not in the brief
