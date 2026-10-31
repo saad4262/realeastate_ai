@@ -6,6 +6,7 @@ import { ProviderError, type Fetch } from './provider-http';
 import { stateKey, type TokenKeys } from './crypto';
 import { googleAdapter, googleClientFromEnv } from './google-oauth';
 import { zoomAdapter, zoomClientFromEnv } from './zoom-oauth';
+import { microsoftAdapter, microsoftClientFromEnv } from './microsoft-oauth';
 import {
   PROVIDERS,
   requiredScopes,
@@ -128,6 +129,11 @@ export function realAdapterFor(provider: IntegrationProvider, env: NodeJS.Proces
   if (provider === 'zoom') {
     const client = zoomClientFromEnv(env);
     return client ? zoomAdapter(client, fetchImpl) : null;
+  }
+  // ADR 0076: Outlook mail and calendar share the one Microsoft Entra app.
+  if (provider === 'outlook_mail' || provider === 'outlook_calendar') {
+    const client = microsoftClientFromEnv(env);
+    return client ? microsoftAdapter(client, fetchImpl) : null;
   }
   return null;
 }

@@ -10,7 +10,7 @@
  * This file is the one place a scope changes.
  */
 
-export const INTEGRATION_PROVIDERS = ['google_calendar', 'zoom', 'google_sheets', 'google_reviews', 'gmail'] as const;
+export const INTEGRATION_PROVIDERS = ['google_calendar', 'zoom', 'google_sheets', 'google_reviews', 'gmail', 'outlook_mail', 'outlook_calendar'] as const;
 export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];
 export type IntegrationOwnerType = 'user' | 'agency';
 export type IntegrationStatus = 'connected' | 'expired' | 'error' | 'permission_missing';
@@ -71,6 +71,28 @@ export const PROVIDERS: Record<IntegrationProvider, ProviderInfo> = {
       { scope: 'openid email', why: 'To show which Google account is connected, and send from that address.' },
     ],
   },
+  // ADR 0076 (checked against learn.microsoft.com 2026-10-31): least privilege for sendMail and for events,
+  // for work/school and personal accounts alike. offline_access gives the refresh token.
+  outlook_mail: {
+    label: 'Outlook (send only)',
+    purpose: 'Emails you write to a contact here are sent from your Outlook and sit in its Sent Items. Your mailbox is never read.',
+    ownerTypes: ['user', 'agency'],
+    scopes: [
+      { scope: 'https://graph.microsoft.com/Mail.Send', why: 'To send the emails you write here from your Outlook. It cannot read, list or delete anything in your mailbox.' },
+      { scope: 'https://graph.microsoft.com/User.Read', why: 'To show which Microsoft account is connected, and send from that address.' },
+      { scope: 'openid email offline_access', why: 'To stay connected without asking you to sign in every hour.' },
+    ],
+  },
+  outlook_calendar: {
+    label: 'Outlook Calendar',
+    purpose: 'Appointments you book here appear in your Outlook Calendar and stay in step with it.',
+    ownerTypes: ['user'],
+    scopes: [
+      { scope: 'https://graph.microsoft.com/Calendars.ReadWrite', why: 'To add, move and cancel the events for appointments you book here, and to notice if you move one in Outlook. Only those events are read or changed.' },
+      { scope: 'https://graph.microsoft.com/User.Read', why: 'To show which Microsoft account is connected.' },
+      { scope: 'openid email offline_access', why: 'To stay connected without asking you to sign in every hour.' },
+    ],
+  },
   google_reviews: {
     label: 'Google Business Profile (reviews)',
     purpose: "Show the agency's Google rating and reviews, and match a review to a contact once confirmed.",
@@ -95,10 +117,25 @@ const SCOPE_ALIASES: Record<string, string> = {
   'https://www.googleapis.com/auth/userinfo.profile': 'profile',
 };
 
+/** ADR 0076: Microsoft's providers. They share one Entra app and Microsoft's own scope spelling. */
+export const MICROSOFT_PROVIDERS: readonly IntegrationProvider[] = ['outlook_mail', 'outlook_calendar'];
+const GRAPH = 'https://graph.microsoft.com/';
+/** Microsoft does not reliably list these in a token's `scope`; they are asked for, not checked. */
+const MICROSOFT_UNREPORTED = new Set(['openid', 'email', 'profile', 'offline_access']);
+
+/** One spelling per scope: Google's long OIDC names, and Microsoft's Graph scopes with or without the prefix, any case. */
+function scopeKey(provider: IntegrationProvider, s: string): string {
+  if (!MICROSOFT_PROVIDERS.includes(provider)) return SCOPE_ALIASES[s] ?? s;
+  const t = s.toLowerCase();
+  return t.startsWith(GRAPH) ? t.slice(GRAPH.length) : t;
+}
+
 /** Which required scopes a grant is missing. Empty means all of them were granted. */
 export function missingScopes(provider: IntegrationProvider, granted: readonly string[]): string[] {
-  const have = new Set(granted.flatMap((g) => g.split(' ')).map((s) => SCOPE_ALIASES[s] ?? s));
-  return requiredScopes(provider).filter((s) => !have.has(s));
+  const have = new Set(granted.flatMap((g) => g.split(' ')).map((s) => scopeKey(provider, s)));
+  return requiredScopes(provider).filter(
+    (s) => !(MICROSOFT_PROVIDERS.includes(provider) && MICROSOFT_UNREPORTED.has(s)) && !have.has(scopeKey(provider, s)),
+  );
 }
 
 export const STATUS_LABELS: Record<IntegrationStatus | 'not_connected', string> = {

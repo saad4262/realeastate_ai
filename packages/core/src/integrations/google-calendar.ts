@@ -38,7 +38,12 @@ export type CalendarEventSeen =
   | { kind: 'gone' };
 
 export type CalendarApi = {
-  upsert(token: string, event: CalendarEventInput): Promise<CalendarEventRef>;
+  /**
+   * Create the appointment's event, or update it. `existingId` (ADR 0076): the event id already stored for
+   * this appointment on this account — Outlook chooses its own ids, so it needs one to update in place;
+   * Google's ids are ours (`eventIdFor`) and it ignores it.
+   */
+  upsert(token: string, event: CalendarEventInput, existingId?: string | null): Promise<CalendarEventRef>;
   setTitle(token: string, eventId: string, title: string): Promise<CalendarEventRef>;
   remove(token: string, eventId: string): Promise<void>;
   get(token: string, eventId: string, etag: string | null): Promise<CalendarEventSeen>;
