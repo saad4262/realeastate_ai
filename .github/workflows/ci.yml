@@ -1,0 +1,31 @@
+# Every push: typecheck, lint, unit tests. The same three commands as on a laptop.
+# No secrets are given to this job, on purpose: `pnpm test` runs with the network blocked
+# (@repo/config/test-offline) and must never need a key or a database. A test that does is a bug.
+# `pnpm smoke` (live DB) is not run here — it is run by hand, with the user's go.
+name: CI
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
