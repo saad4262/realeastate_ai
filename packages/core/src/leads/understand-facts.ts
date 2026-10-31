@@ -184,16 +184,19 @@ export function verifyUnderstanding(raw: RawUnderstanding, source: string): Unde
 
 /** The buyer brief the kept facts make, for the approval card — or null when they say nothing a brief can hold. */
 export function briefFrom(u: Pick<Understanding, 'intent' | 'facts'>): BuyerRequirementInput | null {
-  const one = <F extends KeptFact['field']>(field: F) => u.facts.find((f) => f.field === field) as Extract<KeptFact, { field: F }> | undefined;
-  const brief: BuyerRequirementInput = {
-    channel: u.intent === 'tenant' ? 'rent' : 'sale',
-    ...(one('price_from') ? { priceMin: one('price_from')!.value } : {}),
-    ...(one('price_to') ? { priceMax: one('price_to')!.value } : {}),
-    ...(one('bedrooms') ? { minBedrooms: one('bedrooms')!.value } : {}),
-    ...(one('bathrooms') ? { minBathrooms: one('bathrooms')!.value } : {}),
-    ...(one('suburbs') ? { suburbs: one('suburbs')!.value } : {}),
-    ...(one('property_type') ? { propertyTypes: [one('property_type')!.value] } : {}),
+  const num = (field: 'price_from' | 'price_to' | 'bedrooms' | 'bathrooms') => {
+    const f = u.facts.find((x) => x.field === field);
+    return f && typeof f.value === 'number' ? f.value : undefined;
   };
+  const suburbs = u.facts.find((x) => x.field === 'suburbs');
+  const type = u.facts.find((x) => x.field === 'property_type');
+  const brief: BuyerRequirementInput = { channel: u.intent === 'tenant' ? 'rent' : 'sale' };
+  if (num('price_from') !== undefined) brief.priceMin = num('price_from');
+  if (num('price_to') !== undefined) brief.priceMax = num('price_to');
+  if (num('bedrooms') !== undefined) brief.minBedrooms = num('bedrooms');
+  if (num('bathrooms') !== undefined) brief.minBathrooms = num('bathrooms');
+  if (suburbs && Array.isArray(suburbs.value)) brief.suburbs = suburbs.value;
+  if (type && typeof type.value === 'string') brief.propertyTypes = [type.value];
   const says = Object.keys(brief).some((k) => k !== 'channel');
   return says ? brief : null;
 }
