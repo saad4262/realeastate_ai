@@ -153,8 +153,8 @@ profile — set the 60/40 split in Agents & Team before BR. Never seed at a real
 
 ## 7. What to do next, in order (the user's order, 2026-10-31)
 
-0. **Phase 4.5 "AI understands" (ADR 0078)** is built on `feat/ai-understands`, migration 0078 applied: run the smoke
-   group "AI understands (ADR 0078)" on the user's go, then merge. TEST-PLAN CD (uses the real model).
+0. **Phase 4.5 "AI understands" (ADR 0078)** is merged (migration 0078 applied, smoke green). TEST-PLAN CD (uses the
+   real model) is for the final browser walk.
 1. **Phase 5.2 Outlook (ADR 0076)** is merged (migration 0077 applied, smoke 6/6, 6/6, 5/5). Real Microsoft needs
    the Entra app (DEPLOY.md). The 4.4 triggers mock is with the client (`workflow-triggers-2.html`).
 2. When the client answers: **3.4 part 2** (§3), then **4.6/4.7 Control Centre**.
