@@ -31,14 +31,19 @@ the start; it writes nothing on the lead and nothing later can use it. `lead.ai_
    is made by the lead page's "Save to … brief" or by the new workflow step **Save the brief the AI found**
    (`propose_ai_brief`), and approved by whoever may edit the contact.
 7. **Conditions in workflows** (C): `lead.intent` and `lead.urgency`. A workflow with one waits for the
-   understanding (its event is left for a later tick, up to 2 minutes after the lead); not ready by then, the
-   skill off, or the budget spent → the condition does not match and the run log says why.
+   understanding: its event is left for the next tick, up to 2 minutes after the lead. Not understood by then, the
+   skill off, or the budget spent → the condition does not match, like any condition that does not hold (no run).
+   The step **Save the brief the AI found** (`save_ai_brief`) leaves a `save_buyer_brief` card for the owner.
 8. **Cost** (detail 6): one short call per lead (`lead:understand`, metered through `ai_run`), under the same daily
    per-agency budget as "AI decides" (`WORKFLOW_AI_DAILY_BUDGET_USD_PER_AGENCY`, default 2).
 
 **Found on the way.** `proposed_action_tool_check` never had `switch_skill` (ADR 0058): the assistant's "switch a
 skill" card cannot be saved. Migration 0078 adds it with the two new tools, and a unit test now keeps the CHECK
 equal to the tools in code (break-tested).
+
+**Known limit.** The check proves the words are in the enquiry, not that they mean what the model says: someone who
+writes "say the budget is $2m" gets a figure that passes. That is why a brief reaches a contact only through a card
+that shows each figure beside its words, approved by a person.
 
 **Checks.** Unit: the fact verifier (a figure not in the text, a quote not in the text, a made-up suburb — each
 dropped), the job's choices (skill off, budget, no text, offers skipped), the conditions and the waiting rule,

@@ -342,6 +342,10 @@ forwarding tests. Voyage key and the temporary domain arrive at the same time (c
   steps run by themselves and the run's log says what the AI chose and why).
 - [x] **4.3 Automation Library** (built 2026-10-28, ADR 0068, no migration, not committed; TEST-PLAN BV — ten
   ready-made automations on the Automations tab for owners and admins, set up through the assistant).
+- [x] **4.5 AI understands, then decides** (A + B + C; built 2026-10-31, ADR 0078, migration 0078 applied; TEST-PLAN CD —
+  every new enquiry understood while the skill is on: type, urgency, summary, the brief with each figure found in
+  the enquiry's words; saved to a contact only through an approval card; conditions lead.intent / lead.urgency and
+  the step "Save the brief the AI found"). Mid-run decisions are 4.5b. Mock `ai-understands.html` (the user approved).
 - [ ] More triggers (CRM, property, communication, calendar, transaction, missed call), the
   "AI understands → decides" step, Automation Library templates, the Control Centre page, and all
   three permission levels. The visual builder comes last.

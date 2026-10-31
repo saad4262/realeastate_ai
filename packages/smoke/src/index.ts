@@ -56,6 +56,9 @@ import {
   notifyNewLead,
   updateLeadStatus,
   listLeadAssignees,
+  runLeadUnderstanding,
+  proposeBriefCard,
+  type LeadUnderstander,
 } from '@repo/core/leads';
 import { can, type Actor, type MembershipRole } from '@repo/core/permissions';
 import {
@@ -7509,6 +7512,61 @@ async function main() {
   );
 
   // ── ADR 0042: open questions on an agency's data (needs migration 0052) ──────────────────────
+  // ── ADR 0078: "AI understands" every new enquiry (needs migration 0078) ─────────────────────────
+  group('AI understands (ADR 0078)');
+
+  await check('a new enquiry understood on a fake model: figures kept only with their words; the brief reaches the contact only through an approved card; a workflow on urgency runs, one on a lead not yet understood waits', () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const msg = 'We sold and must buy within the month. 3 or 4 bedrooms in Pakenham, budget $750k to $820k.';
+      const newLead = async (email: string) =>
+        (await t.execute<{ id: string; contact_id: string }>(sql`
+          insert into lead (property_id, agency_id, name, email, message, kind, assigned_to)
+          values (${f.propertyId}, ${f.agencyId}, 'Priya', ${email}, ${msg}, 'enquiry', ${f.people.a1}) returning id, contact_id`))[0]!;
+      const l = await newLead(`ai.${f.tag}@smoke.test`);
+      const fake: LeadUnderstander = async () => ({
+        intent: 'buyer', intent_why: 'They must buy.', urgency: 'high', urgency_why: 'Already sold.', summary: 'Wants 3–4 bed in Pakenham.',
+        facts: [
+          { field: 'price_from', value: 750000, quote: '$750k' },
+          { field: 'price_to', value: 820000, quote: '$820k' },
+          { field: 'bedrooms', value: 3, quote: '3 or 4 bedrooms' },
+          { field: 'suburbs', value: ['Pakenham'], quote: 'Pakenham' },
+          { field: 'bathrooms', value: 2, quote: '2 bathrooms' },
+        ],
+      });
+      const job = await runLeadUnderstanding(t, fake, new Date(), 10, { agencyId: f.agencyId });
+      const [row] = await t.execute<{ ai_status: string; ai_intent: string; ai_urgency: string; ai_qualification: { facts: { field: string }[]; dropped: { field: string }[] } }>(sql`
+        select ai_status, ai_intent, ai_urgency, ai_qualification from lead where id = ${l.id}`);
+      assert(job.done >= 1 && row?.ai_status === 'done' && row.ai_intent === 'buyer' && row.ai_urgency === 'high', `understood: ${JSON.stringify(job)} ${JSON.stringify(row)}`);
+      assert(row!.ai_qualification.facts.length === 4 && row!.ai_qualification.dropped.map((d) => d.field).join() === 'bathrooms', `kept/dropped: ${JSON.stringify(row!.ai_qualification)}`);
+
+      // The brief: refused to someone who may not change the contact; a card for the owner, saved only on Approve.
+      const refused = await proposeBriefCard(t, f.actor('viewer'), { leadId: l.id, key: `v-${f.tag}`, origin: 'assistant' });
+      assert('briefError' in refused, `the read-only member got a card: ${JSON.stringify(refused)}`);
+      const before = await count(t, sql`select count(*)::int as n from buyer_requirement where contact_id = ${l.contact_id}`);
+      const card = await proposeBriefCard(t, f.actor('owner'), { leadId: l.id, key: `o-${f.tag}`, origin: 'assistant' });
+      assert('cardId' in card, `owner: ${JSON.stringify(card)}`);
+      assert((await count(t, sql`select count(*)::int as n from buyer_requirement where contact_id = ${l.contact_id}`)) === before, 'a brief was saved before approval');
+      const approved = await approveProposedAction(t, f.actor('owner'), (card as { cardId: string }).cardId);
+      assert(approved.outcome === 'done', `approve: ${JSON.stringify(approved)}`);
+      const [br] = await t.execute<{ price_min: string; price_max: string; min_bedrooms: number; suburbs: string[] }>(sql`
+        select price_min::text, price_max::text, min_bedrooms, suburbs from buyer_requirement where contact_id = ${l.contact_id} order by created_at desc limit 1`);
+      assert(Number(br?.price_min) === 750000 && Number(br?.price_max) === 820000 && br?.min_bedrooms === 3 && br.suburbs.join() === 'Pakenham', `brief: ${JSON.stringify(br)}`);
+      assert((await count(t, sql`select count(*)::int as n from contact_role where contact_id = ${l.contact_id} and role = 'buyer'`)) === 1, 'no buyer role');
+
+      // A workflow on urgency: runs for the understood lead; waits for a second one not understood yet.
+      const { id: wf } = await saveWorkflow(t, f.actor('owner'), { name: `Urgent ${f.tag}`, scope: 'agency', spec: { trigger: { kind: 'lead.created' }, conditions: [{ field: 'lead.urgency', op: 'eq', values: ['high'] }], actions: [{ type: 'remind_owner', text: 'Call them tonight' }] } });
+      const l2 = await newLead(`ai2.${f.tag}@smoke.test`);
+      for (const id of [l.id, l2.id]) {
+        await t.execute(sql`insert into workflow_event (agency_id, kind, lead_id, origin, data) values (${f.agencyId}, 'lead.created', ${id}, 'website', '{"source":"website"}'::jsonb)`);
+      }
+      const tick = await runWorkflowTick(t, new Date(), 50, { scans: false });
+      const runs = await t.execute<{ lead_id: string }>(sql`select lead_id from workflow_run where workflow_id = ${wf}`);
+      assert(runs.length === 1 && runs[0]!.lead_id === l.id && tick.waiting >= 1, `runs ${JSON.stringify(runs)}, waiting ${tick.waiting}`);
+      return 'understood (4 facts kept, bathrooms left out); viewer refused; card → approved → brief $750k–$820k, 3+, Pakenham, buyer role; urgency workflow ran once, the second lead waits';
+    }),
+  );
+
   group('Open questions (ADR 0042)');
 
   /** Two agencies from contactFixture, and a conversation in A with a reply whose words must never reach the model. */

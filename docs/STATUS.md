@@ -1,4 +1,13 @@
 # Status
+- **2026-10-31 — ROADMAP 4.5 "AI understands" (ADR 0078) built on `feat/ai-understands`, migration 0078 APPLIED (79). Not merged.**
+  Also fixed: `switch_skill` cards could never be saved (missing from proposed_action_tool_check since ADR 0058) — the
+  migration adds it; `tool-check.test.ts` now keeps the CHECK equal to the tools in code. Built: the fact verifier
+  (a figure kept only when its quote is in the enquiry and the figure is in the quote), the minute job (first in the
+  tick; skill on, shared budget, never offers), packages/ai lead-understand@v1 (fake client in tests), the
+  save_buyer_brief card (contact:update when proposed and approved), conditions lead.intent / lead.urgency with a
+  2-minute wait, the step save_ai_brief, Leads chips / filters / "What the AI found" / "Save to their brief".
+  Checks: core 1537 + ai 335 (see commit), typecheck all, lint; break-tests (quote rule, tool CHECK, waiting rule).
+  Smoke "AI understands (ADR 0078)" written — not run yet. Known limit in the ADR (planted words pass; the card is the guard).
 - **2026-10-31 — ROADMAP 5.2 Outlook (ADR 0076), migration 0077 APPLIED (78 recorded), merged to `main`.**
   Microsoft sign-in (common tenant, PKCE, rotating refresh tokens, no per-app revoke → the card says remove it under
   the Microsoft account); Outlook mail = Gmail's MIME via Graph sendMail; Outlook Calendar via the same CalendarApi
