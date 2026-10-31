@@ -352,7 +352,8 @@ forwarding tests. Voyage key and the temporary domain arrive at the same time (c
 
 **Version 1 / version 2 (the user, 2026-10-31):** Phase 6 (Marketing, all of it), Xero and the CRM connectors
 are **version 2** — not built now. Everything else on this list is version 1: 3.4, the rest of Phase 4, the
-public API + webhooks, Outlook, and Phase 7.
+public API + webhooks, Outlook. **Phase 7 moved to version 2 (the user, later on 2026-10-31)** — its four mocks are
+approved by the user, no code until version 2.
 
 ### Phase 5 — Open platform (#19)
 - [ ] Public API + webhooks. (v1)
@@ -365,9 +366,11 @@ public API + webhooks, Outlook, and Phase 7.
 - [ ] Marketing Studio + agency branding → Social & Ads (budget changes need explicit approval) →
   Funnel Builder.
 
-### Phase 7 — The rest
+### Phase 7 — The rest — **Version 2**
 - [ ] Voice control (#23), Property Management (#15), recruitment pipeline + training (#24),
-  team workload board (#12).
+  team workload board (#12). Mocks approved by the user 2026-10-31 (internal, not the client):
+  `voice-control.html`, `property-management.html`, `recruitment-training.html`, `team-workload.html`
+  (`docs/mocks/README.md` records each decision). Build after version 1 goes live.
 
 ### Technical debt (known flaws; an ADR each before the fix)
 Both items below: FIXED by ADR 0075 (option A, the user 2026-10-31), deployed, migrations 0075 + 0076 applied.

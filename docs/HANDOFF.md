@@ -13,21 +13,24 @@ next". Keep it current, or replace it with your own at your handoff.
 3. `ARCHITECTURE.md` — how the app is built (rendering, data fetching, verification discipline).
 4. `docs/ROADMAP.md` — the client's 28 skills (Part 4 = the brief, nothing dropped), status (Part 1), the work
    order (Part 3), version 1 / version 2, technical debt.
-5. `docs/STATUS.md` top entries and `docs/SESSION.md` top entry.
-6. The ADR of whatever you touch (`docs/adr/`; 0057–0075 are this period's).
+5. `docs/STATUS.md` (one screen) and the top entry of `docs/SESSION.md`. Older history: `docs/archive/`.
+6. The ADR of whatever you touch (`docs/adr/`; 0057–0078 are this period's).
 
 ---
 
 ## 1. Where things stand (2026-10-31)
 
-- **`main` = `a8b3b89`**, pushed and deployed (the user verified web and console live after `206f30c`).
-- **Database: 77 migrations recorded (0000–0076). Nothing pending.** Both laptops use the same `DATABASE_URL`.
+- **`main` = `d3eb906`**, pushed and deployed. `chore/tech-debt` (CI, docs trim, smoke reds, Phase 7 mocks) waits
+  for the user's go to merge.
+- **Database: 79 migrations recorded (0000–0078). Nothing pending.** Both laptops use the same `DATABASE_URL`.
 - **Every skill is OFF until someone switches it on** (ADR 0069, the client's decision). Only "Missed call text" and
   "AI call back" are on (the phone test agency). Owners switch on the rest under Skills; tell agencies this.
-- **Waiting on the client** (the user is chasing): approval of two mocks, shared as private Artifacts —
-  SMS rules (5 decisions) `https://claude.ai/artifact/74QvqkPBjaLQSKnXCv5NE2` (`docs/mocks/sms-everywhere.html`) and
-  Control Centre (4 decisions) `https://claude.ai/artifact/7FwmtFRuuNxLo2TNYhLQDh` (`docs/mocks/control-centre.html`);
-  the keys (Twilio test account with KYC, Retell, Voyage) and the temporary domain.
+- **Waiting on the client** (the user is chasing): 14 decisions in three mocks, shared as private Artifacts —
+  SMS rules (5) `https://claude.ai/artifact/74QvqkPBjaLQSKnXCv5NE2` (`docs/mocks/sms-everywhere.html`),
+  Control Centre (4) `https://claude.ai/artifact/7FwmtFRuuNxLo2TNYhLQDh` (`docs/mocks/control-centre.html`),
+  4.4 triggers (5) `https://claude.ai/artifact/GGfV8uDiRYNhHHPw4WD9cE` (`docs/mocks/workflow-triggers-2.html`);
+  the keys (Twilio test account with KYC, Retell, Voyage, the Microsoft Entra app) and the temporary domain.
+- **CI:** `.github/workflows/ci.yml` runs typecheck, lint and `pnpm test` on every push, with no secrets.
 
 ---
 
@@ -59,16 +62,17 @@ next". Keep it current, or replace it with your own at your handoff.
 ## 3. The roadmap — what is done, what is left
 
 **Version 2, not now (the user, 2026-10-31):** Phase 6 Marketing (Studio, Social & Ads, Funnel Builder), Xero, CRM
-connectors. Everything else is version 1.
+connectors, and **Phase 7** (its four mocks are approved by the user; no code until version 2). Everything else is
+version 1.
 
 | Phase | Done | Left (version 1) |
 |---|---|---|
 | 1. Finish what is half built | 1.1–1.6 ✅ (ADR 0057–0062) | — |
 | 2. Money | 2.1–2.3 ✅ (ADR 0063–0065) | — |
 | 3. Phone + SMS | 3.1–3.3 ✅ on the stub (ADR 0070–0072); 3.4 part 1 ✅ (ADR 0074: templates by channel, `call.missed`) | 3.4 part 2 — waits for the client's 5 SMS rules |
-| 4. Automation engine | 4.1–4.3 ✅ (ADR 0066–0068) | 4.4 more triggers · 4.5 AI decides beyond the first step · 4.6/4.7 Control Centre + permission levels (wait for the client's 4 decisions) · 4.8 visual builder (last) |
-| 5. Open platform | — | 5.1 public API + webhooks (the user's decisions first) · 5.2 Outlook |
-| 7. The rest | — | voice control · Property Management · recruitment + training · team workload board (mock each) |
+| 4. Automation engine | 4.1–4.3 ✅ (ADR 0066–0068); 4.5 ✅ (ADR 0078) | 4.4 more triggers (the client's 5 decisions) · 4.6/4.7 Control Centre + permission levels (the client's 4 decisions) · 4.8 visual builder (last) |
+| 5. Open platform | 5.2 Outlook ✅ (ADR 0076; real Microsoft needs the Entra app) | 5.1 public API + webhooks (the user's decisions first) |
+| 7. The rest — **version 2** | four mocks approved by the user | built after version 1 goes live |
 
 Also done: Skills default off (ADR 0069), minute-tick batching (ADR 0073), DNS cutover checklist, and the
 **technical debt fixed by ADR 0075** — one address, several agencies (§4).
@@ -99,7 +103,7 @@ them" on Matching buyers, the step, the SMS template editor; the rules at prepar
 
 - **The dev database IS the production database** (Supabase, Sydney). Anything you run against `DATABASE_URL`
   touches live data. Use rolled-back transactions for experiments; smoke checks do this (`inRollback`).
-- 77 recorded (0000–0076). 0074: `email_template.channel` + `call.missed`. 0075: the listing's own facts (seven
+- 79 recorded (0000–0078). 0074: `email_template.channel` + `call.missed`. 0075: the listing's own facts (seven
   columns, backfilled) + `deal_open_agency_property_idx`. 0076: the old one-deal-per-address index dropped.
 - **ADR 0075 in one line:** `property` is one shared row per address; a listing never rewrites it (facts only
   filled where empty, the pin moved only when no other agency uses the address); each ad's facts live on the
@@ -158,9 +162,10 @@ profile — set the 60/40 split in Agents & Team before BR. Never seed at a real
 1. **Phase 5.2 Outlook (ADR 0076)** is merged (migration 0077 applied, smoke 6/6, 6/6, 5/5). Real Microsoft needs
    the Entra app (DEPLOY.md). The 4.4 triggers mock is with the client (`workflow-triggers-2.html`).
 2. When the client answers: **3.4 part 2** (§3), then **4.6/4.7 Control Centre**.
-3. Meanwhile, not waiting on anyone: 4.5, 5.2 Outlook, the Phase 7 mocks; 5.1 after the user's API decisions.
+3. Meanwhile, not waiting on anyone: 5.1 after the user's API decisions. (4.5, 5.2 and the Phase 7 mocks are done;
+   Phase 7 itself is version 2.)
 4. When keys arrive: Voyage backfill; `retell:setup`; BX/BY/BZ with real Twilio + Retell.
-5. At the very end the user walks the browser tests: TEST-PLAN **BN–BZ, CA, CB**.
+5. At the very end the user walks the browser tests: TEST-PLAN **BN–BZ, CA–CD**.
 6. Go-live: `docs/DEPLOY.md` + `docs/DNS-CUTOVER.md`; Google verification, Zoom Marketplace, privacy policy/terms
    (lawyer), delete the test agencies (ask first).
 
