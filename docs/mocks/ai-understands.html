@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI Understands Enquiries</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300..600,0..1&display=swap" rel="stylesheet" />
+<!--
+  Mock for ROADMAP Phase 4.5 (A + B + C) — "AI understands, then decides". For the USER's review (not the client).
+  The user's decisions (2026-10-31): A + B + C now, mid-run decisions later (4.5b); the brief the AI found reaches
+  the contact only through an approval card; understanding runs on every new enquiry while the skill is on.
+  Console tokens. Every name, figure and quote is SAMPLE data. Non-negotiable 4: every number shown as "found"
+  is a span of the enquiry's own words, located by code — a value the code cannot find in the text is dropped.
+  #rules (default), #leads, #lead, #card, #workflow, #skill; &agent the agent view.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff;
+    --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff;
+    --emerald: #059669; --emerald-subtle: #ecfdf5;
+    --rose: #e11d48; --rose-subtle: #fff1f2;
+    --amber: #d97706; --amber-subtle: #fffbeb;
+    --violet: #6d28d9; --violet-subtle: #f5f3ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .ms { font-family: 'Material Symbols Outlined'; font-size: 20px; line-height: 1; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 400; }
+  .ms.sm { font-size: 16px; width: 16px; height: 16px; }
+  button, input, select, textarea { font: inherit; }
+  [hidden] { display: none !important; }
+
+  .mockbar { position: sticky; top: 0; z-index: 30; display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+  .mockbar b { color: #fff; }
+  .seg { display: inline-flex; background: #1e293b; border-radius: 8px; padding: 2px; flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; }
+  .seg button:focus-visible, .chip:focus-visible, .btn:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+
+  .shell { display: flex; min-height: calc(100vh - 36px); }
+  aside { width: 240px; flex: none; border-right: 1px solid var(--border-default); padding: 16px 12px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 16px; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--text-primary); color: #fff; display: grid; place-items: center; font: 700 12px 'Plus Jakarta Sans'; }
+  .brand small { display: block; color: var(--text-muted); font-size: 11px; }
+  .gh { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px 4px; }
+  .nl { display: flex; gap: 12px; align-items: center; padding: 7px 12px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; }
+  .nl.on { background: #fff; color: var(--sapphire); border: 1px solid var(--border-default); font-weight: 500; }
+
+  main { flex: 1; min-width: 0; padding: 22px 32px 64px; max-width: 1120px; }
+  h2 { font: 600 19px/26px 'Plus Jakarta Sans'; margin: 10px 0 4px; text-wrap: balance; }
+  h3 { font: 600 14.5px/20px 'Plus Jakarta Sans'; margin: 0; }
+  .lead { color: var(--text-secondary); margin: 0 0 14px; max-width: 78ch; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .muted { color: var(--text-muted); font-size: 12px; }
+  .crumb { color: var(--text-muted); font-size: 12px; }
+  .stack { display: grid; gap: 12px; }
+  .pane { background: #fff; border: 1px solid var(--border-default); border-radius: 14px; padding: 14px 16px; }
+  .pane p.h { margin: 6px 0 0; color: var(--text-secondary); font-size: 12.5px; }
+  .rules { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 3px; color: var(--text-secondary); font-size: 12.5px; }
+
+  .pill { display: inline-flex; gap: 5px; align-items: center; font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+  .pill.ok { background: var(--emerald-subtle); color: var(--emerald); }
+  .pill.wait { background: var(--amber-subtle); color: var(--amber); }
+  .pill.skip { background: var(--surface-canvas); color: var(--text-secondary); border: 1px solid var(--border-default); }
+  .pill.urgent { background: var(--rose-subtle); color: var(--rose); }
+  .intent { display: inline-flex; gap: 4px; align-items: center; font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: var(--violet-subtle); color: var(--violet); white-space: nowrap; }
+  .intent .ms { font-size: 14px; width: 14px; height: 14px; }
+  .ai { font-size: 10.5px; color: var(--violet); font-weight: 600; letter-spacing: .03em; }
+
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; align-items: center; }
+  .chip { border: 1px solid var(--border-default); background: #fff; border-radius: 999px; padding: 4px 11px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+
+  .card { background: #fff; border: 1px solid var(--border-default); border-radius: 14px; overflow: hidden; }
+  .tw { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); padding: 9px 12px; border-bottom: 1px solid var(--border-default); white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border-default); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  tbody.click tr { cursor: pointer; }
+  tbody.click tr:hover { background: var(--surface-canvas); }
+  .who b { display: block; font-weight: 500; }
+  .who span { font-size: 12px; color: var(--text-muted); }
+  .sum { font-size: 12.5px; color: var(--text-secondary); margin-top: 4px; max-width: 52ch; }
+
+  .btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-default); background: #fff; color: var(--text-primary); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; }
+  .btn.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .btn.sm { padding: 4px 9px; font-size: 12.5px; }
+
+  .detail { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; align-items: start; }
+  .msg { background: var(--surface-canvas); border: 1px solid var(--border-default); border-radius: 10px; padding: 10px 12px; font-size: 13px; color: var(--text-secondary); }
+  .msg mark { background: #ede9fe; color: #4c1d95; border-radius: 3px; padding: 0 2px; }
+  .aibox { border: 1px solid #ddd6fe; border-radius: 14px; overflow: hidden; background: #fff; }
+  .aihead { display: flex; gap: 8px; align-items: center; padding: 10px 14px; background: var(--violet-subtle); color: var(--violet); font-weight: 600; font-size: 13px; flex-wrap: wrap; }
+  .aihead .tag { margin-left: auto; font-weight: 500; font-size: 11.5px; }
+  .aibody { padding: 12px 14px; display: grid; gap: 12px; }
+  .kv { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 6px 12px; font-size: 13px; }
+  .kv span { color: var(--text-muted); font-size: 12px; }
+  .facts { display: grid; gap: 6px; }
+  .fact { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; font-size: 13px; padding: 6px 0; border-bottom: 1px dashed var(--border-default); }
+  .fact:last-child { border-bottom: 0; }
+  .fact span.k { color: var(--text-muted); font-size: 12px; }
+  .fact q { font-size: 12px; color: var(--violet); }
+  .fact.dropped { color: var(--text-muted); text-decoration: line-through; }
+
+  .diff { display: grid; gap: 0; border: 1px solid var(--border-default); border-radius: 10px; overflow: hidden; }
+  .diff div { display: grid; grid-template-columns: 110px 1fr 1fr; gap: 10px; padding: 8px 12px; font-size: 13px; border-bottom: 1px solid var(--border-default); }
+  .diff div:last-child { border-bottom: 0; }
+  .diff .hd { background: var(--surface-canvas); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); }
+  .diff .new { color: var(--emerald); font-weight: 500; }
+  .diff .k { color: var(--text-muted); font-size: 12px; }
+
+  .flow { display: grid; }
+  .node { display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 9px 0; position: relative; }
+  .node + .node::before { content: ''; position: absolute; left: 16px; top: -6px; height: 12px; border-left: 2px dashed var(--border-strong); }
+  .node .ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-canvas); border: 1px solid var(--border-default); color: var(--text-secondary); }
+  .node.ai .ic { background: var(--violet-subtle); color: var(--violet); border-color: #ddd6fe; }
+  .node b { display: block; }
+  .node span { font-size: 12.5px; color: var(--text-secondary); }
+  .newtag { font-size: 10.5px; font-weight: 600; color: var(--sapphire); background: var(--sapphire-subtle); border-radius: 999px; padding: 0 7px; margin-left: 6px; }
+
+  .sw { flex: none; width: 36px; height: 20px; border-radius: 999px; background: var(--border-strong); position: relative; border: 0; cursor: pointer; }
+  .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; }
+  .sw[aria-checked="true"] { background: var(--emerald); }
+  .sw[aria-checked="true"]::after { left: 18px; }
+  @media (prefers-reduced-motion: reduce) { .sw::after { transition: none; } }
+
+  .note { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; }
+  .note.info { background: var(--sapphire-subtle); color: #1e40af; }
+  .note.warn { background: var(--amber-subtle); color: #92400e; }
+  .note .ms { flex: none; }
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #0f172a; color: #fff; padding: 9px 14px; border-radius: 10px; font-size: 12.5px; z-index: 50; }
+
+  @media (max-width: 960px) { .detail { grid-template-columns: 1fr; } }
+  @media (max-width: 860px) { aside { display: none; } main { padding: 18px 16px 48px; } .kv, .fact, .diff div { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>MOCK · sample data · for your review</b>
+  <span>View:</span>
+  <div class="seg" role="group" aria-label="View">
+    <button type="button" data-view="owner" aria-pressed="true">Agency owner</button>
+    <button type="button" data-view="agent" aria-pressed="false">Agent (Sarah)</button>
+  </div>
+  <span>Screen:</span>
+  <div class="seg" role="group" aria-label="Screen">
+    <button type="button" data-screen="rules" aria-pressed="true">Details to settle</button>
+    <button type="button" data-screen="leads" aria-pressed="false">1 · Leads</button>
+    <button type="button" data-screen="lead" aria-pressed="false">2 · One lead</button>
+    <button type="button" data-screen="card" aria-pressed="false">3 · Save the brief</button>
+    <button type="button" data-screen="workflow" aria-pressed="false">4 · Workflows</button>
+    <button type="button" data-screen="skill" aria-pressed="false" data-owneronly>5 · The skill</button>
+  </div>
+</div>
+
+<div class="shell">
+  <aside aria-label="Sidebar">
+    <div class="brand"><div class="logo">PR</div><div><b>Pakenham Realty</b><small id="who">Agency console</small></div></div>
+    <div class="gh">Home</div>
+    <div class="gh">Daily work</div>
+    <div class="nl on"><span class="ms" style="font-variation-settings:'FILL' 1">filter_alt</span>Leads</div>
+    <div class="nl"><span class="ms">mail</span>Inbox</div>
+    <div class="gh">People</div>
+    <div class="gh">Automation</div>
+    <div class="nl"><span class="ms">bolt</span>Skills</div>
+  </aside>
+
+  <main>
+    <!-- ===================== DETAILS ===================== -->
+    <section id="rules">
+      <p class="crumb">Phase 4.5 · AI understands, then decides · for your review</p>
+      <h2>What is decided, and six details to settle</h2>
+      <p class="lead">Your decisions are in; these smaller ones shape the ADR. Each has a suggestion — say yes, or change it. Screens 1–5 show them in place.</p>
+      <div class="stack">
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>Decided (2026-10-31)</h3><span class="pill ok">Decided</span></div>
+          <ul class="rules">
+            <li>A + B + C now: understand every new enquiry, save what it found only through an approval card, conditions on what it understood. Mid-run decisions later (4.5b).</li>
+            <li>Runs on every new enquiry while the skill “AI understands enquiries” is on (off until switched on).</li>
+          </ul>
+        </div>
+        <div class="pane"><h3>1 · Which leads</h3><p class="h">Enquiries, inspection requests and appraisal requests — from the website and recorded by hand. Never private offers (they are owners’ and admins’ only). <b>Suggested.</b></p></div>
+        <div class="pane"><h3>2 · What it reads</h3><p class="h">The enquiry’s message and the first email in its conversation, if any — as 4.2 does. Not notes, not other records. Later emails do not re-run it (that is 4.5b).</p></div>
+        <div class="pane"><h3>3 · What it says</h3><p class="h">Type: buyer, seller, landlord, tenant, investor or general — or “not sure”. Urgency: high or normal, with one sentence why. A one-line summary. For a buyer: price from / to, bedrooms, bathrooms, suburbs, property type, timeline. For a seller: the address of their own home and when.</p></div>
+        <div class="pane"><h3>4 · Numbers are found, never made</h3><p class="h">Every figure must be found by code in the enquiry’s own words (“$750k”, “3 bed”); a figure it cannot find is left out and the panel says so. “Around 800” is kept only as written words in the summary, never as a price. <b>Suggested — this is non-negotiable 4.</b></p></div>
+        <div class="pane"><h3>5 · Who sees it</h3><p class="h">Whoever may see the lead sees what the AI understood. Saving the brief needs the same permission as editing the contact; the card goes to the lead’s agent (or the workflow’s owner).</p></div>
+        <div class="pane"><h3>6 · Cost</h3><p class="h">One short call per enquiry, under the agency’s daily AI budget (the same pool as “AI decides”, default $2 a day). Out of budget: the lead simply shows no chips that day, and a workflow condition on it does not match.</p></div>
+      </div>
+    </section>
+
+    <!-- ===================== LEADS ===================== -->
+    <section id="leads" hidden>
+      <p class="crumb">Daily work · Leads</p>
+      <h2>Leads</h2>
+      <div class="filters">
+        <button class="chip" type="button" aria-pressed="true" data-f="all">All</button>
+        <button class="chip" type="button" aria-pressed="false" data-f="Buyer">Buyers</button>
+        <button class="chip" type="button" aria-pressed="false" data-f="Seller">Sellers</button>
+        <button class="chip" type="button" aria-pressed="false" data-f="urgent">Urgent</button>
+        <span class="muted">AI chips appear while “AI understands enquiries” is on.</span>
+      </div>
+      <div class="card tw">
+        <table>
+          <thead><tr><th>Lead</th><th>What the AI understood</th><th>Listing</th><th>Agent</th><th>Received</th></tr></thead>
+          <tbody class="click" id="leadrows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===================== ONE LEAD ===================== -->
+    <section id="lead" hidden>
+      <p class="crumb">Leads · Priya Shah</p>
+      <h2>Priya Shah <span class="intent"><span class="ms">home</span>Buyer</span> <span class="pill urgent">Urgent</span></h2>
+      <p class="lead">Enquiry on 27 Lakeside Blvd, Pakenham · from the website · Today 9:42 pm · Sarah Lee</p>
+      <div class="detail">
+        <div class="stack">
+          <div class="pane">
+            <h3>The enquiry</h3>
+            <div class="msg" style="margin-top:8px">Hi, we’ve sold our place and need to buy within <mark>the next month</mark>. Looking for <mark>3 or 4 bedrooms</mark> in <mark>Pakenham</mark> or <mark>Officer</mark>, a <mark>house</mark> with a yard, budget <mark>$750k to $820k</mark>. Can we see Lakeside this weekend?</div>
+          </div>
+          <div class="aibox">
+            <div class="aihead"><span class="ms sm">psychology</span>What the AI understood <span class="tag">Written by the AI · each figure found in the enquiry</span></div>
+            <div class="aibody">
+              <div class="kv">
+                <span>Type</span><div><span class="intent"><span class="ms">home</span>Buyer</span> <span class="muted">— “need to buy within the next month”</span></div>
+                <span>Urgency</span><div><span class="pill urgent">High</span> <span class="muted">They have already sold and want to buy within a month.</span></div>
+                <span>Summary</span><div>Sold their home; wants a 3–4 bed house in Pakenham or Officer, $750k–$820k, within a month; asks to inspect Lakeside this weekend.</div>
+              </div>
+              <div>
+                <h3 style="font-size:13px;margin-bottom:4px">Brief found in the enquiry</h3>
+                <div class="facts">
+                  <div class="fact"><span class="k">Price from</span><b>$750,000</b><q>“$750k”</q></div>
+                  <div class="fact"><span class="k">Price to</span><b>$820,000</b><q>“$820k”</q></div>
+                  <div class="fact"><span class="k">Bedrooms</span><b>3+</b><q>“3 or 4 bedrooms”</q></div>
+                  <div class="fact"><span class="k">Suburbs</span><b>Pakenham, Officer</b><q>“Pakenham or Officer”</q></div>
+                  <div class="fact"><span class="k">Type</span><b>House</b><q>“a house”</q></div>
+                  <div class="fact"><span class="k">Timeline</span><b>Within a month</b><q>“the next month”</q></div>
+                  <div class="fact dropped"><span class="k">Bathrooms</span><span>2 — not in the enquiry, left out</span><span></span></div>
+                </div>
+              </div>
+              <div class="row" style="justify-content:flex-end">
+                <button class="btn" type="button" data-toast="Hidden for this lead — nothing is saved anywhere">Not right</button>
+                <button class="btn primary" type="button" data-screen="card"><span class="ms sm">person_add</span>Save to Priya’s brief…</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="pane">
+            <h3>Why “Urgent”</h3>
+            <p class="h">The AI rates urgency from the enquiry alone. A workflow may act on it — for example tell the on-call agent at once (screen 4).</p>
+          </div>
+          <div class="note info"><span class="ms sm">info</span><span>Nothing here changes Priya’s contact until someone approves the card. The AI never writes a figure: each one above is the enquiry’s own words, found by the platform.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== CARD ===================== -->
+    <section id="card" hidden>
+      <p class="crumb">Waiting for approval</p>
+      <h2>Save Priya Shah’s brief</h2>
+      <p class="lead">From her enquiry on 27 Lakeside Blvd, by the AI (each figure found in her words) — waiting for Sarah. Matching buyers uses this brief once it is saved.</p>
+      <div class="pane">
+        <div class="diff">
+          <div class="hd"><span>Field</span><span>Now</span><span>After</span></div>
+          <div><span class="k">Role</span><span>—</span><span class="new">Buyer</span></div>
+          <div><span class="k">Price</span><span>—</span><span class="new">$750,000 – $820,000</span></div>
+          <div><span class="k">Bedrooms</span><span>—</span><span class="new">3+</span></div>
+          <div><span class="k">Suburbs</span><span>—</span><span class="new">Pakenham, Officer</span></div>
+          <div><span class="k">Type</span><span>—</span><span class="new">House</span></div>
+          <div><span class="k">Next action</span><span>—</span><span class="new">Buying within a month — follow up this week</span></div>
+        </div>
+        <p class="muted" style="margin:10px 0 0">If Priya already has a brief, the card shows it under “Now” and saving adds a second one (up to the usual three); it never overwrites one.</p>
+        <div class="row" style="justify-content:flex-end;margin-top:12px">
+          <button class="btn" type="button" data-toast="Not saved; the card closes">Reject</button>
+          <button class="btn" type="button" data-toast="Opens the contact’s brief form with these values filled">Edit first</button>
+          <button class="btn primary" type="button" data-toast="Saved to Priya’s contact — matching starts with the next listing">Approve</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== WORKFLOW ===================== -->
+    <section id="workflow" hidden>
+      <p class="crumb">Automation · Skills · Automations</p>
+      <h2>Workflows that use what the AI understood</h2>
+      <p class="lead">Two new conditions (lead type, urgency) and one new step (save the brief — always a card for approval). Made by asking the assistant, as before.</p>
+      <div class="stack">
+        <div class="pane">
+          <div class="row" style="justify-content:space-between;margin-bottom:4px"><b>Urgent enquiries after hours</b><span class="pill ok">Active</span></div>
+          <div class="flow">
+            <div class="node"><div class="ic"><span class="ms sm">mail</span></div><div><b>When a new lead arrives from the website</b></div></div>
+            <div class="node ai"><div class="ic"><span class="ms sm">psychology</span></div><div><b>Only if the AI rated it urgent <span class="newtag">New condition</span></b><span>Urgency is high</span></div></div>
+            <div class="node"><div class="ic"><span class="ms sm">forum</span></div><div><b>Message the on-call agent</b><span>“Urgent: {{contact_name}} — call tonight”</span></div></div>
+          </div>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between;margin-bottom:4px"><b>New buyer enquiries</b><span class="pill ok">Active</span></div>
+          <div class="flow">
+            <div class="node"><div class="ic"><span class="ms sm">mail</span></div><div><b>When a new lead arrives</b></div></div>
+            <div class="node ai"><div class="ic"><span class="ms sm">psychology</span></div><div><b>Only if the AI understood a buyer <span class="newtag">New condition</span></b><span>Lead type is buyer</span></div></div>
+            <div class="node ai"><div class="ic"><span class="ms sm">person_add</span></div><div><b>Save the brief the AI found — for the agent to approve <span class="newtag">New step</span></b><span>A card like screen 3; nothing changes until approved</span></div></div>
+            <div class="node"><div class="ic"><span class="ms sm">task_alt</span></div><div><b>Set the next action</b><span>“Send matches” in 1 day</span></div></div>
+          </div>
+        </div>
+        <div class="note warn"><span class="ms sm">schedule</span><span>Understanding takes a few seconds. A workflow with an AI condition waits for it (up to 2 minutes); if it is not ready, the skill is off or the budget is spent, the condition does not match and the run log says why.</span></div>
+      </div>
+    </section>
+
+    <!-- ===================== SKILL ===================== -->
+    <section id="skill" hidden>
+      <p class="crumb">Automation · Skills · AI skills</p>
+      <h2>Skills</h2>
+      <div class="pane">
+        <div class="row" style="justify-content:space-between;align-items:flex-start">
+          <div style="max-width:70ch">
+            <h3>AI understands enquiries <span class="newtag">New</span></h3>
+            <p class="h">The AI reads each new enquiry and says what kind of person it is, how urgent, a one-line summary, and the brief in their own words. Shown on Leads; usable in workflows; saved to a contact only when someone approves. One short call per enquiry, within the agency’s daily AI budget.</p>
+          </div>
+          <button class="sw" type="button" role="switch" aria-checked="false" aria-label="AI understands enquiries" id="skillsw"></button>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const LEADS = [
+  { name: 'Priya Shah', note: 'Website · enquiry', intent: 'Buyer', icon: 'home', urgent: true, sum: 'Sold their home; wants a 3–4 bed house in Pakenham or Officer, $750k–$820k, within a month.', listing: '27 Lakeside Blvd', agent: 'Sarah', at: '9:42 pm', open: true },
+  { name: 'Mark Ellis', note: 'Website · appraisal request', intent: 'Seller', icon: 'sell', urgent: false, sum: 'Thinking of selling their home on Rosewood Ct in the next few months; wants to know what it is worth.', listing: '—', agent: 'Omar', at: '8:15 pm' },
+  { name: 'Anika Rao', note: 'Website · enquiry', intent: 'Tenant', icon: 'key', urgent: false, sum: 'Asks whether Station St is available to rent; a family of four.', listing: '14 Station St', agent: 'Sarah', at: '6:02 pm' },
+  { name: 'Ben Ford', note: 'By hand · inspection', intent: 'Not sure', icon: 'help', urgent: false, sum: 'Asks for the inspection times only.', listing: '27 Lakeside Blvd', agent: 'James', at: '2:30 pm' },
+  { name: 'Ella Green', note: 'Website · enquiry', intent: null, sum: null, listing: '8 Rosewood Ct', agent: 'Omar', at: '2:10 pm', reading: true },
+];
+let view = 'owner', screen = 'rules', filter = 'all';
+
+function renderLeads() {
+  let rows = view === 'agent' ? LEADS.filter((l) => l.agent === 'Sarah') : LEADS;
+  if (filter === 'urgent') rows = rows.filter((l) => l.urgent);
+  else if (filter !== 'all') rows = rows.filter((l) => l.intent === filter);
+  document.getElementById('leadrows').innerHTML = rows.map((l) => `<tr tabindex="0" data-open="${l.open ? '1' : ''}">
+      <td class="who"><b>${l.name}</b><span>${l.note}</span></td>
+      <td>${l.reading ? '<span class="pill skip">Reading…</span>' : `<div class="row" style="gap:6px"><span class="intent"><span class="ms">${l.icon}</span>${l.intent}</span>${l.urgent ? '<span class="pill urgent">Urgent</span>' : ''}<span class="ai">AI</span></div><div class="sum">${l.sum}</div>`}</td>
+      <td>${l.listing}</td><td>${l.agent}</td><td>${l.at}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No leads for this filter.</td></tr>';
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.hidden = true), 2400);
+}
+
+function go(s) {
+  if (view === 'agent' && s === 'skill') s = 'leads';
+  screen = s;
+  document.querySelectorAll('main > section').forEach((x) => (x.hidden = x.id !== s));
+  document.querySelectorAll('.mockbar [data-screen]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.screen === s));
+  document.querySelectorAll('[data-owneronly]').forEach((el) => (el.hidden = view === 'agent'));
+  document.getElementById('who').textContent = view === 'agent' ? 'Agent console · Sarah Lee' : 'Agency console';
+  try { history.replaceState(null, '', '#' + s); } catch (e) { /* ignore */ }
+  renderLeads();
+  window.scrollTo(0, 0);
+}
+
+document.addEventListener('click', (e) => {
+  const v = e.target.closest('[data-view]');
+  if (v) { view = v.dataset.view; document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', b === v)); go(screen); return; }
+  const s = e.target.closest('[data-screen]');
+  if (s) { go(s.dataset.screen); return; }
+  const f = e.target.closest('[data-f]');
+  if (f) { filter = f.dataset.f; document.querySelectorAll('[data-f]').forEach((b) => b.setAttribute('aria-pressed', b === f)); renderLeads(); return; }
+  const row = e.target.closest('tr[data-open]');
+  if (row) { if (row.dataset.open) go('lead'); else toast('In the build every lead opens; the mock has one'); return; }
+  if (e.target.closest('#skillsw')) { const sw = document.getElementById('skillsw'); sw.setAttribute('aria-checked', sw.getAttribute('aria-checked') !== 'true'); return; }
+  const tt = e.target.closest('[data-toast]');
+  if (tt) toast(tt.dataset.toast);
+});
+document.addEventListener('keydown', (e) => {
+  const row = e.target.closest && e.target.closest('tr[data-open]');
+  if (row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); row.click(); }
+});
+
+const h = (location.hash || '').slice(1).split('&');
+if (h.includes('agent')) { view = 'agent'; document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.view === 'agent')); }
+go(['rules', 'leads', 'lead', 'card', 'workflow', 'skill'].includes(h[0]) ? h[0] : 'rules');
+</script>
+</body>
+</html>
