@@ -8,7 +8,7 @@ import { OPEN_FORMATS, OPEN_VIZ, QUERY_MAX_CHARS } from '@repo/core/open-query';
 import { CONTACT_ROLES } from '@repo/core/contacts/schema';
 import { INTEGRATION_PROVIDERS } from '@repo/core/integrations/providers';
 import { SKILL_KEYS } from '@repo/core/skill-switches/catalog';
-import { DEAL_SIDES, DEAL_TRIGGER_STAGES, TRIGGER_KINDS } from '@repo/core/workflows/catalog';
+import { CALLER_KINDS, DEAL_SIDES, DEAL_TRIGGER_STAGES, TRIGGER_KINDS } from '@repo/core/workflows/catalog';
 import { DEAL_STAGES } from '@repo/core/deals/stages';
 
 /**
@@ -236,6 +236,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
             who: { type: 'string', enum: [...DEAL_SIDES], description: 'deal.stage_reached and deal.settled: whose contact the steps act on, the vendor (default) or the buyer.' },
             hours: { type: 'integer', description: 'Required for appointment.upcoming: 1 to 72 hours before it starts (a day = 24).' },
             years: { type: 'integer', description: 'Required for sale.anniversary: 1 to 20.' },
+            caller: { type: 'string', enum: [...CALLER_KINDS], description: 'call.missed, optional: known = a caller already in Contacts, new = a number nobody has (then only remind_owner and message_colleagues — there is no contact), omitted = either.' },
           },
           required: ['kind'],
         },

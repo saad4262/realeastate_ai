@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Control Centre</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300..600,0..1&display=swap" rel="stylesheet" />
+<!--
+  Mock for ROADMAP Phase 4.6 + 4.7 — the Control Centre (Automation group): today's counts, everything the
+  automations did across workflows, skills, Phone & SMS and opportunities, one event's full trail (trigger →
+  what the AI understood → decided → did → who approved → result), what waits for approval, and the three
+  permission levels (automatic / needs approval / people only) for every kind of step.
+  Console tokens (apps/console/app/globals.css). Every name, number, time and count is SAMPLE data. In the
+  build, every count comes from SQL (non-negotiable 4); the AI's words are quoted from what it returned and
+  labelled as the AI's. The bar at the top exists only in the mock.
+  #rules (default), #today, #event, #approvals, #levels open those screens; &agent the agent view.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff;
+    --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff;
+    --emerald: #059669; --emerald-subtle: #ecfdf5;
+    --rose: #e11d48; --rose-subtle: #fff1f2;
+    --amber: #d97706; --amber-subtle: #fffbeb;
+    --violet: #6d28d9; --violet-subtle: #f5f3ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .ms { font-family: 'Material Symbols Outlined'; font-size: 20px; line-height: 1; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 400; }
+  .ms.sm { font-size: 16px; width: 16px; height: 16px; }
+  button, input, select, textarea { font: inherit; }
+  [hidden] { display: none !important; }
+
+  .mockbar { position: sticky; top: 0; z-index: 30; display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+  .mockbar b { color: #fff; }
+  .seg { display: inline-flex; background: #1e293b; border-radius: 8px; padding: 2px; flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; }
+
+  .shell { display: flex; min-height: calc(100vh - 36px); }
+  aside { width: 240px; flex: none; border-right: 1px solid var(--border-default); padding: 16px 12px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 16px; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--text-primary); color: #fff; display: grid; place-items: center; font: 700 12px 'Plus Jakarta Sans'; }
+  .brand small { display: block; color: var(--text-muted); font-size: 11px; }
+  .gh { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px 4px; }
+  .nl { display: flex; gap: 12px; align-items: center; padding: 7px 12px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; }
+  .nl.on { background: #fff; color: var(--sapphire); border: 1px solid var(--border-default); font-weight: 500; }
+  .nl .n { margin-left: auto; font-size: 11px; background: var(--amber-subtle); color: var(--amber); padding: 0 7px; border-radius: 999px; font-weight: 600; }
+  .nl .new { margin-left: auto; font-size: 10.5px; background: var(--sapphire-subtle); color: var(--sapphire); padding: 0 7px; border-radius: 999px; font-weight: 600; }
+
+  main { flex: 1; min-width: 0; padding: 22px 32px 64px; max-width: 1120px; }
+  h2 { font: 600 19px/26px 'Plus Jakarta Sans'; margin: 10px 0 4px; }
+  h3 { font: 600 14.5px/20px 'Plus Jakarta Sans'; margin: 0; }
+  .lead { color: var(--text-secondary); margin: 0 0 14px; max-width: 78ch; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .muted { color: var(--text-muted); font-size: 12px; }
+  .mono { font-variant-numeric: tabular-nums; }
+  .crumb { color: var(--text-muted); font-size: 12px; }
+
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-default); margin-bottom: 14px; overflow-x: auto; }
+  .tabs button { border: 0; background: none; padding: 8px 12px; color: var(--text-secondary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500; white-space: nowrap; }
+  .tabs button[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--text-primary); }
+  .tabs .cnt { font-size: 11px; background: var(--amber-subtle); color: var(--amber); border-radius: 999px; padding: 0 6px; margin-left: 4px; }
+
+  .tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .tile { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; padding: 10px 12px; text-align: left; cursor: pointer; }
+  .tile b { display: block; font: 600 22px/28px 'Plus Jakarta Sans'; }
+  .tile span { font-size: 12px; color: var(--text-secondary); }
+  .tile.warn b { color: var(--amber); }
+  .tile.bad b { color: var(--rose); }
+  .tile[aria-pressed="true"] { border-color: var(--text-primary); box-shadow: inset 0 0 0 1px var(--text-primary); }
+
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; align-items: center; }
+  .chip { border: 1px solid var(--border-default); background: #fff; border-radius: 999px; padding: 4px 11px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .sel { border: 1px solid var(--border-default); border-radius: 999px; padding: 4px 10px; background: #fff; font-size: 12px; color: var(--text-secondary); }
+
+  .card { background: #fff; border: 1px solid var(--border-default); border-radius: 14px; overflow: hidden; }
+  .tw { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); padding: 9px 12px; border-bottom: 1px solid var(--border-default); background: #fff; white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border-default); vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+  tbody.click tr { cursor: pointer; }
+  tbody.click tr:hover { background: var(--surface-canvas); }
+  .what b { display: block; font-weight: 500; }
+  .what span { font-size: 12px; color: var(--text-muted); }
+
+  .pill { display: inline-flex; gap: 5px; align-items: center; font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+  .pill.ok { background: var(--emerald-subtle); color: var(--emerald); }
+  .pill.wait { background: var(--amber-subtle); color: var(--amber); }
+  .pill.bad { background: var(--rose-subtle); color: var(--rose); }
+  .pill.skip { background: var(--surface-canvas); color: var(--text-secondary); border: 1px solid var(--border-default); }
+  .pill.ai { background: var(--violet-subtle); color: var(--violet); }
+  .src { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+  .src .ms { color: var(--text-muted); }
+
+  .lvl { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .lvl i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .lvl.auto i { background: var(--emerald); }
+  .lvl.approve i { background: var(--amber); }
+  .lvl.human i { background: var(--rose); }
+  .lvl.auto { color: var(--emerald); }
+  .lvl.approve { color: var(--amber); }
+  .lvl.human { color: var(--rose); }
+
+  .btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-default); background: #fff; color: var(--text-primary); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; text-decoration: none; }
+  .btn.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .btn.ghost { border-color: transparent; color: var(--text-secondary); }
+  .btn.sm { padding: 4px 9px; font-size: 12.5px; }
+  .btn:focus-visible, .chip:focus-visible, .tabs button:focus-visible, .tile:focus-visible, tbody.click tr:focus-visible, .sel:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+
+  .pane { background: #fff; border: 1px solid var(--border-default); border-radius: 14px; padding: 14px 16px; }
+  .pane + .pane { margin-top: 12px; }
+  .pane p.h { margin: 6px 0 0; color: var(--text-secondary); font-size: 12.5px; }
+  .stack { display: grid; gap: 12px; }
+  .detail { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
+
+  /* The trail */
+  .trail { list-style: none; margin: 10px 0 0; padding: 0; display: grid; }
+  .trail li { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; padding: 0 0 14px; position: relative; }
+  .trail li:not(:last-child)::before { content: ''; position: absolute; left: 14px; top: 30px; bottom: 0; border-left: 2px solid var(--border-default); }
+  .trail .dot { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--surface-canvas); border: 1px solid var(--border-default); color: var(--text-secondary); }
+  .trail .dot.ai { background: var(--violet-subtle); border-color: #ddd6fe; color: var(--violet); }
+  .trail .dot.ok { background: var(--emerald-subtle); border-color: #a7f3d0; color: var(--emerald); }
+  .trail .dot.wait { background: var(--amber-subtle); border-color: #fde68a; color: var(--amber); }
+  .trail .step { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); }
+  .trail b { display: block; font-weight: 600; margin-top: 1px; }
+  .trail p { margin: 3px 0 0; color: var(--text-secondary); font-size: 12.5px; }
+  .quote { margin-top: 6px; padding: 8px 10px; background: var(--surface-canvas); border-radius: 8px; font-size: 12.5px; color: var(--text-secondary); border-left: 3px solid var(--border-strong); }
+  .quote.ai { background: var(--violet-subtle); border-left-color: #c4b5fd; color: #4c1d95; }
+  .label { display: inline-block; margin-top: 4px; font-size: 11px; color: var(--violet); }
+  .kv { display: grid; gap: 8px; font-size: 12.5px; }
+  .kv div { display: flex; justify-content: space-between; gap: 10px; }
+  .kv span { color: var(--text-muted); }
+
+  /* Approvals */
+  .ap { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; }
+  .ap + .ap { border-top: 1px solid var(--border-default); padding-top: 12px; margin-top: 12px; }
+  .ap .ttl { font-weight: 600; }
+  .ap .sub { font-size: 12.5px; color: var(--text-secondary); margin-top: 2px; }
+
+  /* Levels */
+  .lvls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .lvlcard { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; padding: 12px 14px; }
+  .lvlcard p { margin: 6px 0 0; font-size: 12.5px; color: var(--text-secondary); }
+  .seglvl { display: inline-flex; border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; }
+  .seglvl button { border: 0; background: #fff; padding: 4px 9px; font-size: 12px; cursor: pointer; color: var(--text-secondary); display: inline-flex; gap: 5px; align-items: center; }
+  .seglvl button + button { border-left: 1px solid var(--border-default); }
+  .seglvl button[aria-pressed="true"] { background: var(--text-primary); color: #fff; }
+  .seglvl button:disabled { color: var(--border-strong); cursor: not-allowed; background: var(--surface-canvas); }
+  .seglvl button i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .floor { font-size: 11.5px; color: var(--text-muted); }
+
+  .note { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; }
+  .note.info { background: var(--sapphire-subtle); color: #1e40af; }
+  .note.warn { background: var(--amber-subtle); color: #92400e; }
+  .note .ms { flex: none; }
+  .rules { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 3px; color: var(--text-secondary); font-size: 12.5px; }
+
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #0f172a; color: #fff; padding: 9px 14px; border-radius: 10px; font-size: 12.5px; z-index: 50; }
+
+  @media (max-width: 1060px) { .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } .detail { grid-template-columns: 1fr; } }
+  @media (max-width: 860px) { aside { display: none; } main { padding: 18px 16px 48px; } .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .lvls { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>MOCK · sample data</b>
+  <span>View:</span>
+  <div class="seg" role="group" aria-label="View">
+    <button type="button" data-view="owner" aria-pressed="true">Agency owner</button>
+    <button type="button" data-view="agent" aria-pressed="false">Agent (Sarah)</button>
+  </div>
+  <span>Screen:</span>
+  <div class="seg" role="group" aria-label="Screen">
+    <button type="button" data-screen="rules" aria-pressed="true">Decisions to approve</button>
+    <button type="button" data-screen="today" aria-pressed="false">1 · Today</button>
+    <button type="button" data-screen="event" aria-pressed="false">2 · One event</button>
+    <button type="button" data-screen="approvals" aria-pressed="false">3 · Waiting for you</button>
+    <button type="button" data-screen="levels" aria-pressed="false" data-owneronly>4 · Permission levels</button>
+  </div>
+</div>
+
+<div class="shell">
+  <aside aria-label="Sidebar">
+    <div class="brand"><div class="logo">PR</div><div><b>Pakenham Realty</b><small id="who">Agency console</small></div></div>
+    <div class="gh">Home</div>
+    <div class="gh">Daily work</div>
+    <div class="gh">People</div>
+    <div class="gh">Properties</div>
+    <div class="gh">Marketing</div>
+    <div class="gh">Automation</div>
+    <div class="nl on" data-nav><span class="ms" style="font-variation-settings:'FILL' 1">monitoring</span>Control Centre<span class="n" id="navn">4</span></div>
+    <div class="nl"><span class="ms">bolt</span>Skills</div>
+    <div class="gh">Knowledge &amp; insights</div>
+    <div class="gh">Settings</div>
+  </aside>
+
+  <main>
+    <!-- ===================== DECISIONS ===================== -->
+    <section id="rules">
+      <p class="crumb">Phase 4.6 + 4.7 · Control Centre · for the client's approval</p>
+      <h2>Four decisions to approve</h2>
+      <p class="lead">The Control Centre shows everything the platform did by itself, and lets the agency decide how much it may do without asking. These choices shape it. The screens 1–4 in the bar above show them in place.</p>
+      <div class="stack">
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>1 · Who sees what</h3><span class="pill wait">To approve</span></div>
+          <p class="h">Owners and admins see everything the agency's automations did. An agent sees only what ran for them: their own workflows, their own skills, calls to their number, and anything waiting for their approval. Nobody sees another agency's.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>2 · Each kind of step has a floor</h3><span class="pill wait">To approve</span></div>
+          <p class="h">Every kind of step has the lowest level it may run at, set by the platform: a note or a task can be automatic; an email the AI wrote always needs approval; a contract, money or deleting records is for people only and the AI can only suggest it. An owner may <b>raise</b> a step's level for the agency (make an automatic one ask first) but never lower it below its floor. See screen 4.</p>
+          <p class="muted" style="margin:6px 0 0">Alternative: fixed levels, nobody changes them. Simpler, less control for the agency.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>3 · How long the record is kept</h3><span class="pill wait">To approve</span></div>
+          <p class="h">The full trail of every event (trigger, what the AI understood and decided, every step, who approved, the result) is kept for <b>12 months</b>, then deleted. Today, runs are kept 90 days.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>4 · Telling people about failures</h3><span class="pill wait">To approve</span></div>
+          <p class="h">Anything that failed (a send the provider refused, a broken workflow) puts a bell notification to the workflow's owner at once. Owners also get one email at 8 am listing yesterday's failures, only when there were any.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>Already true today</h3><span class="pill ok">Built</span></div>
+          <ul class="rules">
+            <li>Every automation is off until someone switches it on in Skills.</li>
+            <li>The AI never writes a figure; every number on this page comes from the database.</li>
+            <li>Words the AI wrote that go to a customer wait for a person, except the bounded AI call back the client agreed.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== TODAY ===================== -->
+    <section id="today" hidden>
+      <p class="crumb">Automation · Control Centre</p>
+      <h2>Control Centre</h2>
+      <p class="lead" id="todaylead">Everything the agency's automations did by themselves today, what is waiting for someone, and what went wrong. Open any line for its full trail.</p>
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-screen="today">Activity</button>
+        <button role="tab" aria-selected="false" data-screen="approvals">Waiting for approval <span class="cnt" id="tabcnt">4</span></button>
+        <button role="tab" aria-selected="false" data-screen="levels" data-owneronly>Permission levels</button>
+      </div>
+      <div class="filters">
+        <button class="chip" aria-pressed="true" data-period>Today</button>
+        <button class="chip" aria-pressed="false" data-period>Last 7 days</button>
+        <button class="chip" aria-pressed="false" data-period>Last 30 days</button>
+        <select class="sel" id="agentsel" aria-label="Agent"><option>Everyone</option><option>Sarah Lee</option><option>Omar Rahimi</option><option>James Tran</option></select>
+      </div>
+      <div class="tiles" id="tiles"></div>
+      <div class="filters">
+        <span class="muted">Show</span>
+        <button class="chip" aria-pressed="true" data-src="all">Everything</button>
+        <button class="chip" aria-pressed="false" data-src="Workflow">Workflows</button>
+        <button class="chip" aria-pressed="false" data-src="Phone & SMS">Phone &amp; SMS</button>
+        <button class="chip" aria-pressed="false" data-src="Opportunity">Opportunities</button>
+        <button class="chip" aria-pressed="false" data-src="Skill">Skills</button>
+      </div>
+      <div class="card tw">
+        <table>
+          <thead><tr><th>Time</th><th>What happened</th><th>From</th><th>Level</th><th>Result</th></tr></thead>
+          <tbody class="click" id="feed"></tbody>
+        </table>
+      </div>
+      <p class="muted" style="margin:8px 2px 0">Counts and the list come from the database. Kept for 12 months.</p>
+    </section>
+
+    <!-- ===================== ONE EVENT ===================== -->
+    <section id="event" hidden>
+      <button class="btn ghost sm" type="button" data-screen="today"><span class="ms sm">arrow_back</span>Control Centre</button>
+      <h2>New enquiry on 27 Lakeside Blvd → seller follow-up</h2>
+      <p class="lead">Workflow “Sort new enquiries” · Today 9:42 am · Priya Shah · <span class="pill wait">Waiting for approval</span></p>
+      <div class="detail">
+        <div class="pane">
+          <h3>What happened, step by step</h3>
+          <ol class="trail">
+            <li><div class="dot"><span class="ms sm">bolt</span></div><div><span class="step">Trigger</span><b>A new enquiry arrived from the website</b><p>9:42 am · Priya Shah · on 27 Lakeside Blvd, Pakenham</p><div class="quote">“Hi, we’re thinking of selling our place on Rosewood Ct in the next few months and would love to know what it’s worth. Is someone free next week?”</div></div></li>
+            <li><div class="dot"><span class="ms sm">filter_alt</span></div><div><span class="step">Conditions</span><b>All held</b><p>The listing is for sale · the enquiry is from the website</p></div></li>
+            <li><div class="dot ai"><span class="ms sm">psychology</span></div><div><span class="step">What the AI understood</span><b>A possible seller, not a buyer for this listing</b><div class="quote ai">“She says they are thinking of selling their own home on Rosewood Ct and asks what it is worth — that is a seller asking for an appraisal.”</div><span class="label">Written by the AI · quoted as it answered</span></div></li>
+            <li><div class="dot ai"><span class="ms sm">call_split</span></div><div><span class="step">Decided</span><b>Chose “Seller” of Buyer · Seller · Tenant · Not sure</b><p>The AI only picks one of the workflow’s own labels; it never writes a step.</p></div></li>
+            <li><div class="dot ok"><span class="ms sm">task_alt</span></div><div><span class="step">Did · <span class="lvl auto"><i></i>Automatic</span></span><b>Tagged Priya as Prospect and set a next action</b><p>“Call about an appraisal at Rosewood Ct” due tomorrow · assigned to Sarah Lee</p></div></li>
+            <li><div class="dot wait"><span class="ms sm">edit_note</span></div><div><span class="step">Did · <span class="lvl approve"><i></i>Needs approval</span></span><b>Wrote an appraisal invitation for Sarah to approve</b><p>A draft email. Nothing is sent until Sarah reads it and presses Send.</p><button class="btn sm" type="button" data-screen="approvals" style="margin-top:6px">Open the draft</button></div></li>
+            <li><div class="dot"><span class="ms sm">hourglass_top</span></div><div><span class="step">Result</span><b>Waiting for Sarah</b><p>If nobody acts in 7 days, the draft expires and Sarah is reminded once.</p></div></li>
+          </ol>
+        </div>
+        <div>
+          <div class="pane">
+            <h3>Details</h3>
+            <div class="kv" style="margin-top:10px">
+              <div><span>Automation</span><b>Sort new enquiries</b></div>
+              <div><span>Owner</span><b>Hannah Wells</b></div>
+              <div><span>Ran for</span><b>Sarah Lee</b></div>
+              <div><span>Contact</span><b>Priya Shah</b></div>
+              <div><span>AI used</span><b>Yes · one decision</b></div>
+              <div><span>Run id</span><b class="mono">run-7f3a</b></div>
+            </div>
+          </div>
+          <div class="pane">
+            <h3>Do something</h3>
+            <div class="stack" style="margin-top:10px">
+              <button class="btn" type="button" id="pauseBtn"><span class="ms sm">pause_circle</span>Pause this automation</button>
+              <button class="btn" type="button"><span class="ms sm">person</span>Open Priya Shah</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== APPROVALS ===================== -->
+    <section id="approvals" hidden>
+      <p class="crumb">Automation · Control Centre</p>
+      <h2>Waiting for approval</h2>
+      <p class="lead" id="aplead">Steps the automations prepared that need a person before they happen. Nothing here has been sent or changed yet.</p>
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="false" data-screen="today">Activity</button>
+        <button role="tab" aria-selected="true" data-screen="approvals">Waiting for approval <span class="cnt" id="tabcnt2">4</span></button>
+        <button role="tab" aria-selected="false" data-screen="levels" data-owneronly>Permission levels</button>
+      </div>
+      <div class="pane" id="aplist"></div>
+    </section>
+
+    <!-- ===================== LEVELS ===================== -->
+    <section id="levels" hidden>
+      <p class="crumb">Automation · Control Centre</p>
+      <h2>Permission levels</h2>
+      <p class="lead">How much each kind of step may do without asking. The platform sets the lowest level for each; you may make any step ask first, for the whole agency. Agents can't change these.</p>
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="false" data-screen="today">Activity</button>
+        <button role="tab" aria-selected="false" data-screen="approvals">Waiting for approval <span class="cnt">4</span></button>
+        <button role="tab" aria-selected="true" data-screen="levels">Permission levels</button>
+      </div>
+      <div class="lvls">
+        <div class="lvlcard"><span class="lvl auto"><i></i>Automatic</span><p>Runs by itself and is recorded here. Tasks, notes, tags, reminders, an approved template.</p></div>
+        <div class="lvlcard"><span class="lvl approve"><i></i>Needs approval</span><p>Prepared, then waits for a person. Anything the AI wrote for a customer, big changes to records.</p></div>
+        <div class="lvlcard"><span class="lvl human"><i></i>People only</span><p>The AI may suggest it; it can never do it. Money, contracts, legal steps, permissions, deleting records.</p></div>
+      </div>
+      <div class="card tw">
+        <table>
+          <thead><tr><th>Kind of step</th><th>Lowest allowed</th><th>This agency</th></tr></thead>
+          <tbody id="lvlrows"></tbody>
+        </table>
+      </div>
+      <div class="note info" style="margin-top:12px"><span class="ms sm">info</span><span>Raising a level applies to every workflow and skill at once, from the next run. A step already waiting keeps the level it was made with.</span></div>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+// Feed rows. level: auto | approve | human. result: ok | wait | skip | bad
+const FEED = [
+  { t: '9:42 am', what: 'New enquiry → seller follow-up', sub: 'Sort new enquiries · Priya Shah', src: 'Workflow', icon: 'account_tree', level: 'approve', result: 'wait', res: 'Waiting for Sarah', agent: 'Sarah', ai: true, open: true },
+  { t: '9:15 am', what: 'Missed call texted', sub: 'Missed call text · 0412 555 019', src: 'Phone & SMS', icon: 'sms', level: 'auto', result: 'ok', res: 'Texted from Sarah’s number', agent: 'Sarah' },
+  { t: '9:15 am', what: 'AI call back booked for 9:17 am', sub: 'AI calls back · 0412 555 019', src: 'Phone & SMS', icon: 'smart_toy', level: 'auto', result: 'ok', res: 'Called · summary on the contact', agent: 'Sarah', ai: true },
+  { t: '8:30 am', what: 'Buyer brief matched a new listing', sub: 'Buyer matching · 3 buyers for 14 Station St', src: 'Skill', icon: 'person_search', level: 'auto', result: 'ok', res: 'Omar told', agent: 'Omar' },
+  { t: '8:00 am', what: 'Sale anniversary: 5 years', sub: 'Opportunity · Mark Ellis, 9 Bay Rd', src: 'Opportunity', icon: 'cake', level: 'auto', result: 'ok', res: 'On James’s list', agent: 'James' },
+  { t: '7:58 am', what: 'Welcome email to a new contact', sub: 'Welcome new contacts · Anika Rao', src: 'Workflow', icon: 'account_tree', level: 'auto', result: 'skip', res: 'Skipped · Workflow emails is off for Omar', agent: 'Omar' },
+  { t: '7:40 am', what: 'Price-drop email to 12 buyers', sub: 'Bulk email · prepared by Hannah', src: 'Skill', icon: 'forward_to_inbox', level: 'approve', result: 'wait', res: 'Waiting for Hannah', agent: 'Hannah' },
+  { t: 'Yesterday 6:12 pm', what: 'Follow-up email after inspection', sub: 'After inspections · Ben Ford', src: 'Workflow', icon: 'account_tree', level: 'auto', result: 'bad', res: 'Failed · the email bounced', agent: 'Sarah' },
+  { t: 'Yesterday 5:03 pm', what: 'Suggested: mark 14 Station St settled', sub: 'Deal pipeline · contract conditions all met', src: 'Skill', icon: 'handshake', level: 'human', result: 'wait', res: 'Suggestion for Omar', agent: 'Omar', ai: false },
+];
+const RES = { ok: ['ok', 'check'], wait: ['wait', 'hourglass_top'], skip: ['skip', 'block'], bad: ['bad', 'error'] };
+const LVL = { auto: 'Automatic', approve: 'Needs approval', human: 'People only' };
+
+const APPROVALS = [
+  { ttl: 'Appraisal invitation to Priya Shah', sub: 'A draft email the AI wrote · from “Sort new enquiries” · 9:42 am', agent: 'Sarah', lvl: 'approve', primary: 'Read and send' },
+  { ttl: 'Price-drop email to 12 buyers', sub: 'Bulk email · template “Price update” · expires in 46 hours', agent: 'Hannah', lvl: 'approve', primary: 'Review and send' },
+  { ttl: 'Give 4 cold leads to James', sub: 'The assistant suggested it in chat · reassigns 4 leads', agent: 'Hannah', lvl: 'approve', primary: 'Review' },
+  { ttl: 'Mark 14 Station St settled', sub: 'People only · all four conditions are met; the deal still needs a person to settle it', agent: 'Omar', lvl: 'human', primary: 'Open the deal' },
+];
+
+// Kinds of step. floor and the agency's level.
+const KINDS = [
+  { name: 'Add a note, a tag, a next action', where: 'Workflows, assistant', floor: 'auto', now: 'auto' },
+  { name: 'Remind someone, message colleagues', where: 'Workflows', floor: 'auto', now: 'auto' },
+  { name: 'Send an approved email template', where: 'Workflows', floor: 'auto', now: 'auto' },
+  { name: 'Send an approved SMS template', where: 'Workflows (Phase 3.4)', floor: 'auto', now: 'approve' },
+  { name: 'Missed call text and AI call back', where: 'Phone & SMS', floor: 'auto', now: 'auto' },
+  { name: 'Assign a lead or a contact', where: 'Workflows, assistant', floor: 'auto', now: 'approve' },
+  { name: 'An email the AI wrote', where: 'Workflows, inbox, assistant', floor: 'approve', now: 'approve' },
+  { name: 'Bulk email or bulk SMS', where: 'Marketing', floor: 'approve', now: 'approve' },
+  { name: 'Change many records at once', where: 'Assistant, imports', floor: 'approve', now: 'approve' },
+  { name: 'Listing copy goes live', where: 'Listings', floor: 'approve', now: 'approve' },
+  { name: 'Settle a deal, set or pay commission', where: 'Pipeline, Finance', floor: 'human', now: 'human' },
+  { name: 'Contracts and legal documents', where: 'Documents', floor: 'human', now: 'human' },
+  { name: 'Team permissions, removing an agent', where: 'Agents & Team', floor: 'human', now: 'human' },
+  { name: 'Delete contacts or listings', where: 'Everywhere', floor: 'human', now: 'human' },
+];
+const ORDER = ['auto', 'approve', 'human'];
+
+let view = 'owner', screen = 'rules', src = 'all', tileFilter = null;
+
+const lvlTag = (l) => `<span class="lvl ${l}"><i></i>${LVL[l]}</span>`;
+const mineOnly = () => view === 'agent';
+const visibleFeed = () => FEED.filter((r) => !mineOnly() || r.agent === 'Sarah');
+
+function renderTiles() {
+  const rows = visibleFeed();
+  const n = (f) => rows.filter(f).length;
+  const tiles = [
+    { k: 'ran', label: 'ran by themselves', v: n((r) => r.result === 'ok'), cls: '' },
+    { k: 'tasks', label: 'tasks and reminders made', v: mineOnly() ? 2 : 6, cls: '' },
+    { k: 'mail', label: 'emails and texts sent', v: mineOnly() ? 3 : 11, cls: '' },
+    { k: 'opp', label: 'opportunities found', v: mineOnly() ? 1 : 3, cls: '' },
+    { k: 'wait', label: 'waiting for approval', v: n((r) => r.result === 'wait'), cls: 'warn' },
+    { k: 'bad', label: 'failed or skipped', v: n((r) => r.result === 'bad' || r.result === 'skip'), cls: 'bad' },
+  ];
+  document.getElementById('tiles').innerHTML = tiles.map((t) =>
+    `<button class="tile ${t.cls}" type="button" data-tile="${t.k}" aria-pressed="${tileFilter === t.k}"><b class="mono">${t.v}</b><span>${t.label}</span></button>`).join('');
+}
+
+function renderFeed() {
+  let rows = visibleFeed().filter((r) => src === 'all' || r.src === src);
+  if (tileFilter === 'wait') rows = rows.filter((r) => r.result === 'wait');
+  if (tileFilter === 'bad') rows = rows.filter((r) => r.result === 'bad' || r.result === 'skip');
+  if (tileFilter === 'ran') rows = rows.filter((r) => r.result === 'ok');
+  document.getElementById('feed').innerHTML = rows.length ? rows.map((r) => {
+    const [cls, icon] = RES[r.result];
+    return `<tr tabindex="0" data-open="${r.open ? 'event' : ''}">
+      <td class="mono" style="white-space:nowrap">${r.t}</td>
+      <td class="what"><b>${r.what}${r.ai ? ' <span class="pill ai" style="margin-left:4px">AI</span>' : ''}</b><span>${r.sub}</span></td>
+      <td><span class="src"><span class="ms sm">${r.icon}</span>${r.src}</span></td>
+      <td>${lvlTag(r.level)}</td>
+      <td><span class="pill ${cls}"><span class="ms sm">${icon}</span>${r.res}</span></td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="5" class="muted" style="padding:18px 12px">Nothing here for this filter.</td></tr>';
+}
+
+function renderApprovals() {
+  const rows = mineOnly() ? APPROVALS.filter((a) => a.agent === 'Sarah') : APPROVALS;
+  document.getElementById('aplist').innerHTML = rows.map((a) => `<div class="ap">
+      <div><div class="ttl">${a.ttl}</div><div class="sub">${a.sub}</div><div style="margin-top:6px">${lvlTag(a.lvl)}${mineOnly() ? '' : ` <span class="muted">· for ${a.agent}</span>`}</div></div>
+      <div class="row"><button class="btn sm" type="button" data-dismiss>${a.lvl === 'human' ? 'Not now' : 'Reject'}</button><button class="btn primary sm" type="button" data-approve>${a.primary}</button></div>
+    </div>`).join('') || '<p class="muted" style="margin:0">Nothing is waiting for you.</p>';
+  const c = String(rows.length);
+  ['tabcnt', 'tabcnt2', 'navn'].forEach((id) => { const el = document.getElementById(id); if (el) el.textContent = c; });
+  document.getElementById('aplead').textContent = mineOnly()
+    ? 'Steps your automations prepared that need you before they happen. Nothing here has been sent or changed yet.'
+    : 'Steps the automations prepared that need a person before they happen. Nothing here has been sent or changed yet.';
+}
+
+function renderLevels() {
+  document.getElementById('lvlrows').innerHTML = KINDS.map((k, i) => {
+    const btns = ORDER.map((l) => {
+      const below = ORDER.indexOf(l) < ORDER.indexOf(k.floor);
+      const human = k.floor === 'human' && l !== 'human';
+      return `<button type="button" data-kind="${i}" data-lvl="${l}" aria-pressed="${k.now === l}" ${below || human ? 'disabled title="Below the platform’s floor for this step"' : ''}><i style="background:var(--${l === 'auto' ? 'emerald' : l === 'approve' ? 'amber' : 'rose'})"></i>${LVL[l]}</button>`;
+    }).join('');
+    return `<tr><td class="what"><b>${k.name}</b><span>${k.where}</span></td><td>${lvlTag(k.floor)}</td><td><div class="seglvl" role="group" aria-label="${k.name}">${btns}</div>${k.now !== k.floor ? '<div class="floor">Raised by the agency</div>' : ''}</td></tr>`;
+  }).join('');
+}
+
+function render() {
+  document.querySelectorAll('main > section').forEach((s) => (s.hidden = s.id !== screen));
+  document.querySelectorAll('.mockbar [data-screen]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.screen === screen));
+  document.querySelectorAll('[data-owneronly]').forEach((el) => (el.hidden = view === 'agent'));
+  document.getElementById('who').textContent = view === 'agent' ? 'Agent console · Sarah Lee' : 'Agency console';
+  document.getElementById('agentsel').hidden = view === 'agent';
+  document.getElementById('todaylead').textContent = view === 'agent'
+    ? 'What ran for you today: your workflows, your skills, calls to your number, and what is waiting for you. Open any line for its full trail.'
+    : 'Everything the agency’s automations did by themselves today, what is waiting for someone, and what went wrong. Open any line for its full trail.';
+  renderTiles(); renderFeed(); renderApprovals(); renderLevels();
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.hidden = true), 2600);
+}
+
+function go(s) {
+  if (view === 'agent' && s === 'levels') s = 'today';
+  screen = s;
+  try { history.replaceState(null, '', '#' + s); } catch (e) { /* ignore */ }
+  render(); window.scrollTo(0, 0);
+}
+
+document.addEventListener('click', (e) => {
+  const v = e.target.closest('[data-view]');
+  if (v) { view = v.dataset.view; document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', b === v)); go(screen); return; }
+  const s = e.target.closest('[data-screen]');
+  if (s) { go(s.dataset.screen); return; }
+  const tile = e.target.closest('[data-tile]');
+  if (tile) { tileFilter = tileFilter === tile.dataset.tile ? null : tile.dataset.tile; renderTiles(); renderFeed(); return; }
+  const sc = e.target.closest('[data-src]');
+  if (sc) { src = sc.dataset.src; document.querySelectorAll('[data-src]').forEach((b) => b.setAttribute('aria-pressed', b === sc)); renderFeed(); return; }
+  const p = e.target.closest('[data-period]');
+  if (p) { document.querySelectorAll('[data-period]').forEach((b) => b.setAttribute('aria-pressed', b === p)); toast('Counts and the list follow the period'); return; }
+  const row = e.target.closest('tr[data-open]');
+  if (row) { if (row.dataset.open) go('event'); else toast('In the build every line opens its own trail; the mock has one'); return; }
+  const lv = e.target.closest('[data-kind]');
+  if (lv && !lv.disabled) { KINDS[Number(lv.dataset.kind)].now = lv.dataset.lvl; renderLevels(); toast('Saved for the whole agency, from the next run'); return; }
+  if (e.target.closest('[data-approve]')) { toast('Opens the step to read before it goes'); return; }
+  if (e.target.closest('[data-dismiss]')) { toast('Nothing is sent; the trail records who said no'); return; }
+  if (e.target.closest('#pauseBtn')) { toast('Paused — its owner sees it on the Automations tab'); return; }
+});
+document.addEventListener('keydown', (e) => {
+  const row = e.target.closest && e.target.closest('tr[data-open]');
+  if (row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); row.click(); }
+});
+
+const h = (location.hash || '').slice(1).split('&');
+if (h.includes('agent')) { view = 'agent'; document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.view === 'agent')); }
+if (['rules', 'today', 'event', 'approvals', 'levels'].includes(h[0])) screen = h[0];
+go(screen);
+</script>
+</body>
+</html>

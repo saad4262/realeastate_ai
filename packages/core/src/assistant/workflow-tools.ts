@@ -80,6 +80,10 @@ export function specFrom(ctx: Pick<ToolContext, 'handles'>, input: z.infer<typeo
       if (!t.years) return { problem: 'trigger: a sale anniversary needs years (1 to 20)' };
       trigger.years = t.years;
       break;
+    // ADR 0074
+    case 'call.missed':
+      if (t.caller) trigger.caller = t.caller;
+      break;
   }
   const conditions: Condition[] = [];
   for (const [i, c] of input.conditions.entries()) {

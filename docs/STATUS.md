@@ -1,4 +1,16 @@
 # Status
+- **2026-10-31 — ROADMAP 3.4 part 1 (ADR 0074), migration 0074 APPLIED (75 recorded), merged to `main`.**
+  `email_template.channel` (email/sms, CHECK); `mayUseTemplate` / `usableTemplateSql` / `listTemplates` default to
+  email, so no email path sends an SMS template; `template-email/sms.ts` (480 chars, STOP footer, SMS parts);
+  SMS templates through `createTemplate({ channel: 'sms' })`. Trigger `call.missed` (caller known/new/either,
+  `{{caller_phone}}`, a personal workflow on its owner's own calls, a new number only reminds), emitted by
+  `recordMissedCall` in the call's transaction (origin `system`); the assistant's create_workflow takes `caller`.
+  Checks: core 1491 + ai 331 pass; typecheck core/ai/db/smoke/console/web; break-tests red then green (channel
+  guard, scope, new-caller guard); 0074 dry-run twice in a rolled-back tx (sms in, fax refused, call.missed in,
+  a bogus kind refused). NOT checked: a real missed call emitting the event; no SMS template UI yet. Mocks for
+  the client: `sms-everywhere.html` (5 rules), `control-centre.html` (4 decisions, ROADMAP 4.6/4.7). Seed +
+  scoped deal sync for the phone test agency. **Next:** ADR 0075 — the shared property row and one open deal
+  per property across agencies (ROADMAP technical debt), before go-live.
 - **2026-10-31 — database state corrected: all 74 migrations (0000–0073) are applied and recorded. Nothing is
   pending; run no migration.** Checked read-only on the shared database (both laptops use the same `DATABASE_URL`):
   `workflow_event_kind_check` has `appointment.completed` and `workflow_run.decision` exists (0069); 0070 is

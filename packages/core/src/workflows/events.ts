@@ -20,6 +20,8 @@ export type WorkflowEventInput = {
   appointmentId?: string | null;
   actor?: Actor | null;
   data?: Record<string, string | number>;
+  /** `system`: something outside a person and the website caused it — a phone call (ADR 0074). */
+  origin?: 'system';
 };
 
 export function originOf(actor: Actor | null | undefined): 'person' | 'website' | 'workflow' {
@@ -36,7 +38,7 @@ export async function emitWorkflowEvent(tx: DbOrTx, e: WorkflowEventInput): Prom
     listingId: e.listingId ?? null,
     appointmentId: e.appointmentId ?? null,
     actorId: e.actor?.userId ?? null,
-    origin: originOf(e.actor),
+    origin: e.origin ?? originOf(e.actor),
     data: e.data ?? {},
     // The wall clock, not now(): several changes in one transaction share now(), and the tick takes
     // events in the order they happened (as team messages, ADR 0035).

@@ -2007,6 +2007,12 @@ export const emailTemplate = pgTable(
      * author (made by an agent). A template is ready when saved — there is no approval step.
      */
     agencyWide: boolean('agency_wide').notNull().default(false),
+    /**
+     * ADR 0074: `email` or `sms` (later others, e.g. WhatsApp). An SMS template has no subject (stored
+     * as ''). Every email path asks for `email` (`mayUseTemplate`, `usableTemplateSql`), so an SMS
+     * template is never sent as an email.
+     */
+    channel: varchar('channel', { length: 8 }).notNull().default('email'),
     ...timestamps,
   },
   (t) => [index('email_template_agency_idx').on(t.agencyId, t.status)],

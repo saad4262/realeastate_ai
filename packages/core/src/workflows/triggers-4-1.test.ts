@@ -37,9 +37,9 @@ describe('the new triggers in the catalog', () => {
     expect(triggerInWords(spec({ kind: 'appointment.upcoming', hours: 24, type: 'inspection' }).trigger)).toBe('1 day before an inspection starts');
     expect(triggerInWords(spec({ kind: 'sale.anniversary', years: 5 }).trigger)).toBe('5 years to the day after we sold an address — its owners and buyer');
   });
-  it('are all in the Automations tab’s guide, seven of them new', () => {
+  it('are all in the Automations tab’s guide, seven of them new (and ADR 0074’s missed call)', () => {
     expect(Object.keys(TRIGGER_GUIDE).sort()).toEqual([...TRIGGER_KINDS].sort());
-    expect(TRIGGER_KINDS.filter((k) => TRIGGER_GUIDE[k].isNew)).toHaveLength(7);
+    expect(TRIGGER_KINDS.filter((k) => TRIGGER_GUIDE[k].isNew && k !== 'call.missed')).toHaveLength(7);
   });
   it('are exactly what the database’s CHECK allows (the newest migration that sets it)', () => {
     const dir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../db/drizzle');

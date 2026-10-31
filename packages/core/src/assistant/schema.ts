@@ -8,7 +8,7 @@ import { QUERY_MAX_CHARS } from '../open-query/guard';
 import { AU_STATES, PROPERTY_TYPES } from '../listings/listing-schema';
 import { SKILL_KEYS } from '../skill-switches/catalog';
 import { DEAL_STAGES } from '../deals/stages';
-import { DEAL_SIDES, DEAL_TRIGGER_STAGES, TRIGGER_KINDS } from '../workflows/catalog';
+import { CALLER_KINDS, DEAL_SIDES, DEAL_TRIGGER_STAGES, TRIGGER_KINDS } from '../workflows/catalog';
 
 /**
  * The console assistant's contract (docs/adr/0025). Phase A: read tools only.
@@ -315,6 +315,8 @@ export const workflowTriggerInput = z
     hours: z.number().int().min(1).max(72).optional(),
     /** ADR 0066: sale.anniversary, 1–20. */
     years: z.number().int().min(1).max(20).optional(),
+    /** ADR 0074: call.missed — a contact's call, a new number's, or either (omitted). */
+    caller: z.enum(CALLER_KINDS).optional(),
   })
   .strict();
 export const workflowConditionInput = z

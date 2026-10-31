@@ -7,6 +7,7 @@ import { isPairedSkillOn } from '../skill-switches/switches';
 import { displayAu, isAuMobile, webhookUrl, xmlEscape } from './format';
 import { agencyTwilio, contactByPhone, PhoneError, providerFailure, textsPathFor, type PhoneDeps } from './setup';
 import { isOptedOut } from './sms';
+import { emitWorkflowEvent } from '../workflows/events';
 import { AI_REASON_WORDS, decideAiCallback, DEFAULT_CALLING_HOURS, nextCallableTime, readCallingHours, type AiSkipReason, type CallingHours, type VoiceAi } from './voice';
 
 /**
@@ -272,6 +273,14 @@ export async function recordMissedCall(db: Db, n: NumberRow, callSid: string, fr
       .onConflictDoNothing({ target: phoneCall.callSid })
       .returning({ id: phoneCall.id });
     if (!row) throw new DuplicateCall(); // Twilio sent this call twice: roll the text back too
+    // ADR 0074: the trigger "a call is missed", in the call's own transaction (the outbox, ADR 0041). Ids only.
+    await emitWorkflowEvent(tx, {
+      agencyId: n.agencyId,
+      kind: 'call.missed',
+      contactId: who?.id ?? null,
+      origin: 'system',
+      data: { agent: n.userId, caller: who ? 'known' : 'new', call: row.id },
+    });
     const name = who?.name ?? (from ? displayAu(from) : 'a private number');
     await tx
       .insert(notification)

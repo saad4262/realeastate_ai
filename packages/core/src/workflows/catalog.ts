@@ -24,6 +24,8 @@ export const TRIGGER_KINDS = [
   'appointment.completed',
   'appraisal.not_listed',
   'sale.anniversary',
+  // ADR 0074 (ROADMAP 3.4): a call an agent missed, forwarded to their Twilio number.
+  'call.missed',
 ] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 
@@ -35,6 +37,8 @@ export const DEAL_TRIGGER_STAGES = ['appraisal', 'listing', 'marketing', 'offers
 /** Which side of a deal a deal workflow acts on (ADR 0066, the user's decision 2): chosen per workflow. */
 export const DEAL_SIDES = ['vendor', 'buyer'] as const;
 export type DealSide = (typeof DEAL_SIDES)[number];
+/** ADR 0074: whether a missed caller is already a contact (`known`) or a number nobody has (`new`). Omitted: either. */
+export const CALLER_KINDS = ['known', 'new'] as const;
 export const TRIGGER_LIMITS = { upcomingHours: { min: 1, max: 72 }, notListedDays: { min: 1, max: 30 }, anniversaryYears: { min: 1, max: 20 } } as const;
 
 export const triggerSchema = z.discriminatedUnion('kind', [
@@ -57,6 +61,7 @@ export const triggerSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('appointment.completed'), type: z.enum(APPOINTMENT_TYPES).optional() }).strict(),
   z.object({ kind: z.literal('appraisal.not_listed'), days: z.number().int().min(TRIGGER_LIMITS.notListedDays.min).max(TRIGGER_LIMITS.notListedDays.max) }).strict(),
   z.object({ kind: z.literal('sale.anniversary'), years: z.number().int().min(TRIGGER_LIMITS.anniversaryYears.min).max(TRIGGER_LIMITS.anniversaryYears.max) }).strict(),
+  z.object({ kind: z.literal('call.missed'), caller: z.enum(CALLER_KINDS).optional() }).strict(),
 ]);
 export type Trigger = z.infer<typeof triggerSchema>;
 
@@ -75,7 +80,15 @@ export const TRIGGER_RECORDS: Record<TriggerKind, { lead: boolean; contact: bool
   'appointment.completed': { lead: false, contact: true, listing: false, appointment: true },
   'appraisal.not_listed': { lead: false, contact: true, listing: false, appointment: true },
   'sale.anniversary': { lead: false, contact: true, listing: true, appointment: false },
+  // The caller's contact when the number is in Contacts; none for a new number (see recordsOf).
+  'call.missed': { lead: false, contact: true, listing: false, appointment: false },
 };
+
+/** What THIS trigger gives a run: a missed call from a `new` number has no contact to act on. */
+export function recordsOf(t: Trigger): (typeof TRIGGER_RECORDS)[TriggerKind] {
+  const has = TRIGGER_RECORDS[t.kind];
+  return t.kind === 'call.missed' && t.caller === 'new' ? { ...has, contact: false } : has;
+}
 
 // ── Conditions ──────────────────────────────────────────────────────────────
 
@@ -254,7 +267,7 @@ export type WorkflowScope = 'mine' | 'agency';
  * after it. Null when the spec is usable. The message names the part, so it can be fixed.
  */
 export function specProblem(spec: WorkflowSpec, scope: WorkflowScope): string | null {
-  const has = TRIGGER_RECORDS[spec.trigger.kind];
+  const has = recordsOf(spec.trigger);
   for (const [i, c] of spec.conditions.entries()) {
     const rec = FIELD_RECORD[c.field];
     if (!has[rec]) return `Condition ${i + 1} (${c.field}): a “${TRIGGER_WORDS[spec.trigger.kind]}” workflow has no ${rec} to look at`;
@@ -285,10 +298,13 @@ export function specProblem(spec: WorkflowSpec, scope: WorkflowScope): string | 
 
 /** One list of steps: each needs a record its trigger has, assigning only agency-wide, no wait at the end. */
 function stepsProblem(actions: readonly WorkflowAction[], spec: WorkflowSpec, scope: WorkflowScope, prefix: string): string | null {
-  const has = TRIGGER_RECORDS[spec.trigger.kind];
+  const has = recordsOf(spec.trigger);
   for (const [i, a] of actions.entries()) {
     const need = ACTION_NEEDS[a.type];
-    if (need && !has[need]) return `${prefix}Action ${i + 1} (${ACTION_WORDS[a.type]}): a “${TRIGGER_WORDS[spec.trigger.kind]}” workflow has no ${need} to act on`;
+    if (need && !has[need]) {
+      if (spec.trigger.kind === 'call.missed' && need === 'contact') return `${prefix}Action ${i + 1} (${ACTION_WORDS[a.type]}): a call from a new number has no contact yet — remind someone to call back instead`;
+      return `${prefix}Action ${i + 1} (${ACTION_WORDS[a.type]}): a “${TRIGGER_WORDS[spec.trigger.kind]}” workflow has no ${need} to act on`;
+    }
     if (scope === 'mine' && AGENCY_ONLY_ACTIONS.includes(a.type)) return `${prefix}Action ${i + 1} (${ACTION_WORDS[a.type]}): only an agency-wide workflow (owners and admins) may assign`;
     if (a.type === 'wait_until') {
       const next = actions[i + 1];
@@ -308,7 +324,8 @@ function stepsProblem(actions: readonly WorkflowAction[], spec: WorkflowSpec, sc
 
 // ── Merge fields: filled from the database when an action runs, never by the model ─────────
 
-export const MERGE_FIELDS = ['contact_name', 'contact_first_name', 'listing_address', 'agent_name'] as const;
+/** `caller_phone` (ADR 0074): a missed caller's number as Australians write it — for "call back …". */
+export const MERGE_FIELDS = ['contact_name', 'contact_first_name', 'listing_address', 'agent_name', 'caller_phone'] as const;
 export type MergeValues = Partial<Record<(typeof MERGE_FIELDS)[number], string>>;
 
 /** `{{contact_first_name}}` → its value, or nothing when the record has none. Unknown fields stay as written. */
@@ -332,6 +349,7 @@ export const TRIGGER_WORDS: Record<TriggerKind, string> = {
   'appointment.completed': 'appointment completed',
   'appraisal.not_listed': 'appraisal not listed',
   'sale.anniversary': 'sale anniversary',
+  'call.missed': 'missed call',
 };
 
 export const ACTION_WORDS: Record<ActionType, string> = {
@@ -394,6 +412,8 @@ export function triggerInWords(t: Trigger): string {
       return `When an appraisal has had no listing for ${t.days} day${t.days === 1 ? '' : 's'} — the owner`;
     case 'sale.anniversary':
       return `${t.years === 1 ? 'A year' : `${t.years} years`} to the day after we sold an address — its owners and buyer`;
+    case 'call.missed':
+      return t.caller === 'new' ? 'When a call from a number not in Contacts is missed' : t.caller === 'known' ? 'When a call from a contact is missed' : 'When a call is missed';
   }
 }
 
@@ -403,7 +423,7 @@ const STAGE_WORDS: Record<(typeof DEAL_TRIGGER_STAGES)[number], string> = {
 
 // ── The guide on the Automations tab (ADR 0066, docs/mocks/workflow-triggers.html) ─────────
 
-export const TRIGGER_GROUPS = ['Leads and contacts', 'Deals', 'Listings and buyers', 'Appointments', 'Past clients'] as const;
+export const TRIGGER_GROUPS = ['Leads and contacts', 'Deals', 'Listings and buyers', 'Appointments', 'Past clients', 'Calls'] as const;
 export type TriggerGroup = (typeof TRIGGER_GROUPS)[number];
 export type TriggerGuide = { group: TriggerGroup; icon: string; title: string; description: string; example: string | null; isNew: boolean };
 
@@ -449,6 +469,11 @@ export const TRIGGER_GUIDE: Record<TriggerKind, TriggerGuide> = {
     group: 'Past clients', icon: 'cake', title: 'A sale’s anniversary', isNew: true,
     description: '1 to 20 years after we sold an address, on the day — to its owners and the deal’s buyer (never the vendor).',
     example: 'Every year on the day we sold their home, send past clients “Happy home anniversary”.',
+  },
+  'call.missed': {
+    group: 'Calls', icon: 'phone_missed', title: 'A call is missed', isNew: true,
+    description: 'A call an agent didn’t answer, forwarded to their number (Phone & SMS). From a contact, from a new number, or either. A new number has no contact yet, so only reminders and messages to colleagues.',
+    example: 'When I miss a call from a new number, remind me to call them back within the hour.',
   },
 };
 

@@ -1,4 +1,5 @@
 export * from './schema';
+export { smsParts, SMS_STOP_FOOTER, SMS_TEMPLATE_MAX, withStopFooter, type SmsParts } from './sms';
 export { CLIENT_ROLES, hasMarketingConsentSql, INFERRED_CONSENT_MONTHS } from './consent';
 export {
   createTemplate,
@@ -10,6 +11,7 @@ export {
   TemplateEmailError,
   usableTemplateSql,
   updateTemplate,
+  type AnyTemplateInput,
   type SavedFilter,
   type TemplateStatus,
   type TemplateView,

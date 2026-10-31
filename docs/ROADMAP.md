@@ -329,7 +329,9 @@ forwarding tests. Voyage key and the temporary domain arrive at the same time (c
   contact (#9, #28). Built 2026-10-30, ADR 0072, migration 0073 applied, Retell keys not yet (dev stub);
   calls from the agent's Twilio number for now (their mobile as caller ID is still to test); TEST-PLAN BZ.
 - [ ] **3.4 SMS everywhere:** matched buyers, bulk SMS (consent + STOP), the workflow "Send SMS" action and
-  the "Missed call" trigger (#5, #8, #27).
+  the "Missed call" trigger (#5, #8, #27). Part 1 built 2026-10-31 (ADR 0074, migration 0074 applied): templates
+  by channel (no email path sends an SMS one), SMS parts and the STOP footer, the `call.missed` trigger. Part 2
+  waits for the client's five rules (mock `sms-everywhere.html`).
 
 ### Phase 4 — Automation engine (#27, #7)
 - [x] **4.1 More triggers** (built 2026-10-28, ADR 0066, migration 0069 applied, committed; TEST-PLAN BT —

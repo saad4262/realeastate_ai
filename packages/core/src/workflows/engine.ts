@@ -9,6 +9,7 @@ import { activateTask } from '../assistant/task-state';
 import type { FrozenArgs } from '../assistant/actions';
 import type { ProposalCard } from '../assistant/schema';
 import { formatAddress } from '../listings/listing-schema';
+import { displayAu } from '../phone/format';
 import { actionInWords, isNear, renderMerge, specProblem, WORKFLOW_LIMITS, workflowSpecSchema, type Condition, type MergeValues, type Trigger, type TriggerKind, type ValuesCondition, type WorkflowSpec } from './catalog';
 import { windowFrom, type SendWindow } from './send-window';
 import { runTriggerScans, type ScanReport } from './scans';
@@ -63,10 +64,16 @@ export type Facts = {
   appointmentAgent: string | null;
   /** A deal event's agent (ADR 0066), from the event: whose deal it is, for a personal workflow's scope. */
   dealAgent?: string | null;
+  /** ADR 0074: a missed call's agent (whose number it reached) and the caller's number, from the call row. */
+  callAgent?: string | null;
+  callerPhone?: string | null;
 };
 
 async function loadFacts(db: Db, ev: EventRow): Promise<Facts> {
   const id = (v: string | null) => sql`${v}::uuid`;
+  const data = (ev.data ?? {}) as Record<string, unknown>;
+  // ADR 0074: a missed call's event carries its call row and the agent whose number it reached.
+  const callId = ev.kind === 'call.missed' && typeof data.call === 'string' ? data.call : null;
   const [r] = await db.execute<Record<string, unknown>>(sql`
     select l.id as lead_id, l.status::text as lead_status, l.kind::text as lead_kind, l.source as lead_source,
            l.assigned_to as lead_assignee, l.listing_id as lead_listing_id,
@@ -74,14 +81,16 @@ async function loadFacts(db: Db, ev: EventRow): Promise<Facts> {
            (select coalesce(array_agg(r.role::text), '{}') from contact_role r where r.contact_id = c.id) as contact_roles,
            li.id as listing_id, li.channel::text as listing_channel,
            p.unit, p.street_number, p.street, p.suburb, p.state, p.postcode, p.latitude, p.longitude,
-           a.id as appointment_id, a.type::text as appointment_type, a.assigned_agent_id as appointment_agent
+           a.id as appointment_id, a.type::text as appointment_type, a.assigned_agent_id as appointment_agent,
+           pc.from_e164 as caller_e164
     from (select 1) one
     left join lead l on l.id = ${id(ev.leadId)} and l.agency_id = ${ev.agencyId}
     left join appointment a on a.id = ${id(ev.appointmentId)} and a.agency_id = ${ev.agencyId}
     left join contact c on c.id = coalesce(${id(ev.contactId)}, l.contact_id, a.contact_id)
       and c.agency_id = ${ev.agencyId} and c.merged_into_id is null and c.archived_at is null
     left join listing li on li.id = coalesce(${id(ev.listingId)}, l.listing_id) and li.agency_id = ${ev.agencyId}
-    left join property p on p.id = li.property_id`);
+    left join property p on p.id = li.property_id
+    left join phone_call pc on pc.id = ${id(callId)} and pc.agency_id = ${ev.agencyId}`);
   const s = (k: string) => (r?.[k] === null || r?.[k] === undefined ? null : String(r[k]));
   const roles = r?.contact_roles;
   const coord = (k: string) => {
@@ -110,6 +119,8 @@ async function loadFacts(db: Db, ev: EventRow): Promise<Facts> {
     appointmentType: s('appointment_type'),
     appointmentAgent: s('appointment_agent'),
     dealAgent: typeof (ev.data as Record<string, unknown> | null)?.agent === 'string' ? ((ev.data as Record<string, string>).agent as string) : null,
+    callAgent: ev.kind === 'call.missed' && typeof data.agent === 'string' ? data.agent : null,
+    callerPhone: s('caller_e164') ? displayAu(s('caller_e164')) : null,
   };
 }
 
@@ -140,6 +151,9 @@ export function triggerMatches(t: Trigger, data: Record<string, unknown>): boole
       return Number(data.days) === t.days;
     case 'sale.anniversary':
       return Number(data.years) === t.years;
+    // ADR 0074
+    case 'call.missed':
+      return !t.caller || data.caller === t.caller;
   }
 }
 
@@ -209,6 +223,8 @@ export function inScope(owner: Actor, wf: { scope: string; agencyId: string }, f
   if (kind === 'deal.stage_reached' || kind === 'deal.settled') return f.dealAgent === owner.userId || onListing();
   if (kind === 'sale.anniversary') return f.contactAssignee === owner.userId || onListing();
   if (kind === 'buyer.matched') return Boolean(f.contactId) && f.contactAssignee === owner.userId;
+  // ADR 0074: a personal workflow acts on its owner's own missed calls — the number the call reached.
+  if (kind === 'call.missed') return Boolean(f.callAgent) && f.callAgent === owner.userId;
   if (f.leadId) return can(owner, 'lead:update', { type: 'lead', id: f.leadId, agencyId: f.agencyId, ...(f.leadAssignee ? { ownerId: f.leadAssignee } : {}), listingId: f.leadListingId });
   if (f.appointmentId) return f.appointmentAgent === owner.userId;
   if (f.contactId) return f.contactAssignee === owner.userId;
@@ -236,7 +252,7 @@ export function stepsFor(wf: { name: string }, spec: WorkflowSpec, f: Facts, mer
       continue;
     }
     const contactId = f.contactId;
-    const needContact = () => (contactId ? null : 'the contact is archived, merged or gone');
+    const needContact = () => (contactId ? null : spec.trigger.kind === 'call.missed' ? 'the caller is not in Contacts' : 'the contact is archived, merged or gone');
     let args: FrozenArgs;
     switch (a.type) {
       case 'add_note':
@@ -442,6 +458,7 @@ async function runOne(db: Db, wf: WorkflowRow, ev: EventRow, facts: Facts, owner
   const merge: MergeValues = {
     ...(facts.contactName ? { contact_name: facts.contactName, contact_first_name: facts.contactName.trim().split(/\s+/)[0] } : {}),
     ...(facts.listingAddress ? { listing_address: facts.listingAddress } : {}),
+    ...(facts.callerPhone ? { caller_phone: facts.callerPhone } : {}),
   };
   const [ownerRow] = await db.execute<{ name: string | null; email: string }>(sql`select name, email from "user" where id = ${wf.ownerId}`);
   if (ownerRow) merge.agent_name = ownerRow.name || ownerRow.email;

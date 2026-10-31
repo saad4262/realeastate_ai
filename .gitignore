@@ -14,3 +14,6 @@ coverage
 
 # Throwaway dev servers (NEXT_DIST_DIR)
 .next-*
+
+# Local-only test accounts script (holds a password) - never commit
+packages/smoke/src/test-accounts.ts

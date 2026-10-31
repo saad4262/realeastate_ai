@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SMS_TEMPLATE_MAX } from './sms';
 
 /**
  * Template email contracts (docs/adr/0022). Pure: the console's editor uses
@@ -66,6 +67,17 @@ export const templateInputSchema = z.object({
   body: mergeChecked(8000, 'email'),
 });
 export type TemplateInput = z.input<typeof templateInputSchema>;
+
+/** ADR 0074: which way a template reaches people. One table; a new channel is a new value. */
+export const TEMPLATE_CHANNELS = ['email', 'sms'] as const;
+export type TemplateChannel = (typeof TEMPLATE_CHANNELS)[number];
+
+/** An SMS template: a name and the words (no subject). The STOP footer is the app's, added on top (`sms.ts`). */
+export const smsTemplateInputSchema = z.object({
+  name: z.string().trim().min(2, 'Give the template a name').max(80),
+  body: mergeChecked(SMS_TEMPLATE_MAX, 'text'),
+});
+export type SmsTemplateInput = z.input<typeof smsTemplateInputSchema>;
 
 export const TEMPLATE_STATUS_LABELS = {
   draft: 'Draft',

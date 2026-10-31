@@ -14,7 +14,7 @@ const agent: Actor = { userId: 'agent', agencyId: A, membershipRole: 'agent' };
 const colleague: Actor = { userId: 'colleague', agencyId: A, membershipRole: 'agent' };
 const viewer: Actor = { userId: 'viewer', agencyId: A, membershipRole: 'read_only' };
 const rival: Actor = { userId: 'rival', agencyId: 'agency-b', membershipRole: 'owner' };
-const tpl = (createdBy: string, agencyWide: boolean, status = 'approved') => ({ agencyId: A, createdBy, agencyWide, status });
+const tpl = (createdBy: string, agencyWide: boolean, status = 'approved', channel = 'email') => ({ agencyId: A, createdBy, agencyWide, status, channel });
 
 describe('T1 — a template is usable by its author, or by everyone when it is the agency’s', () => {
   it('an agent’s own template: the agent only — not a colleague, not even an admin', () => {
@@ -30,6 +30,21 @@ describe('T1 — a template is usable by its author, or by everyone when it is t
   it('a retired template: nobody', () => {
     expect(mayUseTemplate(agent, tpl('agent', false, 'retired'))).toBe(false);
     expect(mayUseTemplate(owner, tpl('owner', true, 'retired'))).toBe(false);
+  });
+});
+
+describe('T1b — ADR 0074: an SMS template never goes out as an email', () => {
+  it('every email path (the default channel) refuses an SMS template, for every member', () => {
+    for (const a of [owner, admin, agent]) {
+      expect(mayUseTemplate(a, tpl('owner', true, 'approved', 'sms'))).toBe(false);
+      expect(mayUseTemplate(a, tpl('owner', true, 'approved', 'sms'), 'email')).toBe(false);
+    }
+  });
+  it('asked for SMS, an SMS template follows the same rules; an email template is refused', () => {
+    expect(mayUseTemplate(agent, tpl('owner', true, 'approved', 'sms'), 'sms')).toBe(true);
+    expect(mayUseTemplate(colleague, tpl('agent', false, 'approved', 'sms'), 'sms')).toBe(false);
+    expect(mayUseTemplate(agent, tpl('owner', true, 'retired', 'sms'), 'sms')).toBe(false);
+    expect(mayUseTemplate(agent, tpl('owner', true), 'sms')).toBe(false);
   });
 });
 
