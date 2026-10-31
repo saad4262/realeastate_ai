@@ -2,7 +2,9 @@
 
 **Status:** accepted, 2026-10-31 — the user chose option A. Built on `feat/property-per-agency`. Migration
 0075 (additive: listing facts + backfill + the per-agency deal index) APPLIED 2026-10-31 at the user's go (76
-recorded; 41 listings backfilled). 0076 (drops the old index) waits for the deploy; see "Deploy order".
+recorded; 41 listings backfilled). Code deployed as `206f30c` (the user verified web and console live, no sync
+errors). 0076 (drops the old index) APPLIED 2026-10-31 at the user's go after a rolled-back dry run (twice;
+two agencies' open deals on one address allowed, a second open deal of one agency refused) — 77 recorded.
 
 **Context.** `property` is one row per address, shared by every agency (non-negotiable 1: property ≠ listing;
 the address keeps its history across campaigns and agencies). Two flaws found 2026-10-31 while seeding:

@@ -533,6 +533,13 @@
       "when": 1793430086162,
       "tag": "0075_listing_facts_deal_per_agency",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1793432017079,
+      "tag": "0076_drop_old_deal_index",
+      "breakpoints": true
     }
   ]
 }

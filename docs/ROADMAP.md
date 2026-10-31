@@ -363,17 +363,16 @@ public API + webhooks, Outlook, and Phase 7.
   team workload board (#12).
 
 ### Technical debt (known flaws; an ADR each before the fix)
-Both items below: fixed by ADR 0075 (option A, the user 2026-10-31) on `feat/property-per-agency`; migrations
-0075/0076 not yet applied — see the ADR's deploy order.
+Both items below: FIXED by ADR 0075 (option A, the user 2026-10-31), deployed, migrations 0075 + 0076 applied.
 Found 2026-10-31 while seeding the phone test agency; the user confirmed both as critical for Australian
 open listings (one home listed by several agencies at once).
-- [ ] **A listing rewrites another agency's property.** `property` rows are shared by address across every
+- [x] **A listing rewrites another agency's property.** `property` rows are shared by address across every
   agency (`upsertProperty`). Creating or editing a listing at an address that already has a row overwrites
   that row's pin (a carried pin always wins, and a manual one clears `place_id` / `formatted_address`) and
   its provided physical facts (type, bedrooms, bathrooms, car spaces) — for every agency that uses it.
   Seen: a test listing at 27 Lakeside Blvd, Pakenham rewrote agency Alpha's row (Alpha's owner re-picks the
   address to restore Google's pin).
-- [ ] **One open deal per property across all agencies.** `deal`'s unique index is on `property_id` where
+- [x] **One open deal per property across all agencies.** `deal`'s unique index is on `property_id` where
   open, not on `(agency_id, property_id)`, and the sync's `on conflict (property_id) … do nothing` drops the
   second agency silently: its listing never gets a deal, a Pipeline card or Finance figures.
 
