@@ -1,7 +1,8 @@
 # 0078 — "AI understands" every new enquiry; what it found reaches a contact only through approval (Phase 4.5)
 
 **Status:** accepted, 2026-10-31 (the user approved `docs/mocks/ai-understands.html` and its six details). Migration
-0078 (additive). ROADMAP 4.5, parts A + B + C; mid-run decisions are 4.5b (later).
+0078 (additive) APPLIED 2026-10-31 at the user's go after a rolled-back dry run (twice; switch_skill refused before,
+saved after) — 79 recorded. ROADMAP 4.5, parts A + B + C; mid-run decisions are 4.5b (later).
 
 **Context.** The brief's engine is "IF → UNDERSTAND → DECIDE → ACT". ADR 0067 lets a workflow's AI pick one label at
 the start; it writes nothing on the lead and nothing later can use it. `lead.ai_intent`, `ai_summary` and
