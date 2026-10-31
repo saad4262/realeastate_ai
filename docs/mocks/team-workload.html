@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Team Workload Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300..600,0..1&display=swap" rel="stylesheet" />
+<!--
+  Mock for ROADMAP #12 (Team Collaboration), the missing half: shared task board, workload view, overdue overview,
+  daily tasks for every member. For the USER's review (not the client).
+  Built already: team messages and meetings, assignment, offboarding reassignment (ADR 0030), the agents widget
+  (ADR 0034), assistant tasks (ADR 0040: approved plans run by the tick — NOT a to-do list), reminders, a contact's
+  next action. Missing: a to-do that a person owns, shares and ticks off. This mock adds `task`.
+  Console tokens. Every name, date and figure is SAMPLE data; every count is SQL (#4).
+  #rules (default), #board, #today, #workload, #overdue, #handover, #recurring.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff;
+    --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff;
+    --emerald: #059669; --emerald-subtle: #ecfdf5;
+    --rose: #e11d48; --rose-subtle: #fff1f2;
+    --amber: #d97706; --amber-subtle: #fffbeb;
+    --violet: #6d28d9; --violet-subtle: #f5f3ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .ms { font-family: 'Material Symbols Outlined'; font-size: 20px; line-height: 1; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 400; }
+  .ms.sm { font-size: 16px; width: 16px; height: 16px; }
+  button { font: inherit; }
+  [hidden] { display: none !important; }
+
+  .mockbar { position: sticky; top: 0; z-index: 30; display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+  .mockbar b { color: #fff; }
+  .seg { display: inline-flex; background: #1e293b; border-radius: 8px; padding: 2px; flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; }
+  .seg button:focus-visible, .btn:focus-visible, .tk:focus-visible, .chk:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+
+  .shell { display: flex; min-height: calc(100vh - 36px); }
+  aside { width: 240px; flex: none; border-right: 1px solid var(--border-default); padding: 16px 12px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 16px; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--text-primary); color: #fff; display: grid; place-items: center; font: 700 12px 'Plus Jakarta Sans'; }
+  .brand small { display: block; color: var(--text-muted); font-size: 11px; }
+  .gh { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px 4px; }
+  .nl { display: flex; gap: 12px; align-items: center; padding: 7px 12px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; }
+  .nl.on { background: #fff; color: var(--sapphire); border: 1px solid var(--border-default); font-weight: 500; }
+  .nl .new { margin-left: auto; font-size: 10px; font-weight: 700; color: var(--violet); background: var(--violet-subtle); padding: 1px 6px; border-radius: 999px; }
+  .nl .count { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--rose); }
+
+  main { flex: 1; min-width: 0; padding: 22px 32px 64px; max-width: 1120px; }
+  h2 { font: 600 19px/26px 'Plus Jakarta Sans'; margin: 10px 0 4px; text-wrap: balance; }
+  h3 { font: 600 14.5px/20px 'Plus Jakarta Sans'; margin: 0; }
+  h4 { font-size: 12px; font-weight: 600; margin: 0 0 8px; color: var(--text-secondary); display: flex; justify-content: space-between; }
+  .lead { color: var(--text-secondary); margin: 0 0 14px; max-width: 74ch; }
+  .crumb { color: var(--text-muted); font-size: 12px; }
+  .muted { color: var(--text-muted); font-size: 12px; }
+  .stack { display: grid; gap: 12px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .pane { background: #fff; border: 1px solid var(--border-default); border-radius: 14px; padding: 14px 16px; }
+  .pane p.h { margin: 6px 0 0; color: var(--text-secondary); font-size: 12.5px; }
+  .pill { display: inline-flex; gap: 5px; align-items: center; font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+  .pill.ok { background: var(--emerald-subtle); color: var(--emerald); }
+  .pill.wait { background: var(--amber-subtle); color: var(--amber); }
+  .pill.bad { background: var(--rose-subtle); color: var(--rose); }
+  .pill.info { background: var(--sapphire-subtle); color: var(--sapphire); }
+  .pill.grey { background: #f1f5f9; color: var(--text-secondary); }
+  .pill.ai { background: var(--violet-subtle); color: var(--violet); }
+  .rules { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 3px; color: var(--text-secondary); font-size: 12.5px; }
+
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .fchip { border: 1px solid var(--border-default); background: #fff; border-radius: 999px; padding: 4px 11px; font-size: 12px; color: var(--text-secondary); }
+  .fchip.on { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .board { display: grid; grid-template-columns: repeat(4, minmax(210px, 1fr)); gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+  .col { background: #f1f5f9; border-radius: 12px; padding: 10px; display: grid; gap: 8px; align-content: start; min-height: 300px; }
+  .tk { background: #fff; border: 1px solid var(--border-default); border-radius: 10px; padding: 9px 10px; display: grid; gap: 5px; font-size: 12.5px; text-align: left; cursor: pointer; }
+  .tk b { font-size: 13px; font-weight: 600; }
+  .tk .meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .who { width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 10px; font-weight: 700; color: #fff; flex: none; }
+  .w-sl { background: #2563eb; } .w-jp { background: #059669; } .w-bt { background: #d97706; } .w-nr { background: #6d28d9; } .w-rt { background: #0f172a; }
+  .link { font-size: 11.5px; color: var(--sapphire); background: var(--sapphire-subtle); border-radius: 6px; padding: 1px 6px; }
+
+  .tablewrap { background: #fff; border: 1px solid var(--border-default); border-radius: 14px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11.5px; font-weight: 600; color: var(--text-muted); padding: 9px 12px; border-bottom: 1px solid var(--border-default); white-space: nowrap; }
+  th.num, td.num { text-align: right; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border-default); vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.hot { color: var(--rose); font-weight: 600; }
+  td small { display: block; color: var(--text-muted); font-size: 11.5px; }
+  .person { display: flex; gap: 8px; align-items: center; }
+
+  .two { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+  .list { display: grid; }
+  .li { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border-default); align-items: start; font-size: 13px; }
+  .li:last-child { border-bottom: 0; }
+  .li .why { display: block; color: var(--text-muted); font-size: 11.5px; }
+  .chk { width: 20px; height: 20px; border: 1.5px solid var(--border-strong); border-radius: 6px; background: #fff; cursor: pointer; padding: 0; }
+  .chk[aria-checked="true"] { background: var(--emerald); border-color: var(--emerald); }
+  .group { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); padding: 12px 0 2px; }
+
+  .card { border: 1px solid var(--border-default); border-radius: 14px; overflow: hidden; background: #fff; }
+  .card header { padding: 10px 14px; background: var(--surface-canvas); border-bottom: 1px solid var(--border-default); font-weight: 600; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .card .body { padding: 12px 14px; display: grid; gap: 10px; font-size: 13px; }
+  .card .body .f { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 10px; }
+  .card .body .f > span:first-child { color: var(--text-muted); font-size: 12px; }
+  .card footer { display: flex; gap: 8px; justify-content: flex-end; padding: 10px 14px; border-top: 1px solid var(--border-default); flex-wrap: wrap; }
+  .mail { border: 1px solid var(--border-default); border-radius: 10px; padding: 10px 12px; background: var(--surface-canvas); white-space: pre-line; font-size: 12.5px; color: var(--text-secondary); }
+  .label { font-size: 11px; color: var(--violet); font-weight: 600; display: flex; gap: 4px; align-items: center; margin-bottom: 4px; }
+  .btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-default); background: #fff; color: var(--text-primary); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; }
+  .btn.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .note { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; }
+  .note.info { background: var(--sapphire-subtle); color: #1e40af; }
+  .note.warn { background: var(--amber-subtle); color: #92400e; }
+  .note .ms { flex: none; }
+  .facts { display: grid; gap: 7px; font-size: 13px; }
+  .facts div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; }
+  .facts span { color: var(--text-muted); font-size: 12px; }
+
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #0f172a; color: #fff; padding: 9px 14px; border-radius: 10px; font-size: 12.5px; z-index: 50; }
+
+  @media (max-width: 960px) { .two { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 860px) { aside { display: none; } main { padding: 18px 16px 48px; } }
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>MOCK · sample data · for your review</b>
+  <span>Screen:</span>
+  <div class="seg" role="group" aria-label="Screen">
+    <button type="button" data-screen="rules" aria-pressed="true">Decisions</button>
+    <button type="button" data-screen="today" aria-pressed="false">1 · My day (agent)</button>
+    <button type="button" data-screen="board" aria-pressed="false">2 · Team tasks</button>
+    <button type="button" data-screen="workload" aria-pressed="false">3 · Workload</button>
+    <button type="button" data-screen="overdue" aria-pressed="false">4 · Overdue</button>
+    <button type="button" data-screen="handover" aria-pressed="false">5 · Hand over</button>
+    <button type="button" data-screen="recurring" aria-pressed="false">6 · Every week</button>
+  </div>
+</div>
+
+<div class="shell">
+  <aside aria-label="Sidebar">
+    <div class="brand"><div class="logo">PR</div><div><b>Pakenham Realty</b><small id="who">Agency console · Rebecca Tan, principal</small></div></div>
+    <div class="gh">Home</div>
+    <div class="nl" id="nav-today"><span class="ms">wb_sunny</span>My day<span class="new">NEW</span></div>
+    <div class="nl"><span class="ms">smart_toy</span>LocalAgent AI</div>
+    <div class="gh">Team</div>
+    <div class="nl" id="nav-tasks"><span class="ms">view_kanban</span>Team tasks<span class="new">NEW</span></div>
+    <div class="nl" id="nav-load"><span class="ms">balance</span>Workload<span class="count">7 overdue</span></div>
+    <div class="nl"><span class="ms">groups</span>Team</div>
+    <div class="nl"><span class="ms">forum</span>Messages</div>
+  </aside>
+
+  <main>
+    <!-- ===================== DECISIONS ===================== -->
+    <section id="rules" data-page data-nav="">
+      <p class="crumb">Phase 7 · Team workload board (#12) · for your review</p>
+      <h2>Team tasks and workload: six decisions</h2>
+      <p class="lead">Built already: team messages and meetings, assigning leads and contacts, handing everything over when someone leaves, reminders, a contact’s “next action”, and assistant plans that run by themselves. Missing: a to-do a person owns, shares and ticks off — and a view of who is carrying what.</p>
+      <div class="stack">
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>1 · One task list; a contact’s “next action” becomes a task</h3><span class="pill wait">Suggested</span></div>
+          <p class="h">A new <b>task</b>: what, who does it, when it is due, optionally linked to a contact, lead, listing, deal or tenancy, and who or what made it (a person, a workflow, an approved assistant card). Setting a contact’s next action makes a task on that contact; the contact still shows “Next: …” from its earliest open task. Existing next actions are copied in once, and the old column is dropped in a later deploy (the 0075 → 0076 pattern).</p>
+          <p class="muted" style="margin:6px 0 0">Alternative: keep “next action” separate and add tasks beside it — two lists of things to do, and the board would miss half the work.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>2 · My day: built by rules from what is already there</h3><span class="pill wait">Suggested</span></div>
+          <p class="h">Each member’s <b>My day</b>, at the top of Home, lists in a fixed order: urgent new leads → today’s appointments by time → overdue tasks, oldest first → tasks due today → leads not yet contacted → cards waiting for their approval. Each line says why it is there. A morning email at a time each person chooses (off by default). The order is a rule anyone can read, not the AI’s opinion.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>3 · Workload is counts, never a score</h3><span class="pill wait">Suggested — strongly</span></div>
+          <p class="h">Owners, admins and team leaders see per member: open tasks, overdue, leads not contacted, appointments this week, live listings, tenancies. Every number is a SQL count with a link to the rows behind it. No “busy score”, no productivity ranking, no colours that mark a person as slow — a count of things is information; a score of a person is a judgment the platform should not make. Agents see their own counts only.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>4 · Overdue: the person first, their leader after N days</h3><span class="pill wait">Suggested</span></div>
+          <p class="h">An overdue task shows in My day and the bell for its owner. If it is still open after the days the agency sets (3 suggested), it appears on the team leader’s Overdue list — not the whole office’s. From there the leader can reschedule, reassign or close it with a reason.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>5 · The AI helps with handovers and suggests moves; a person decides</h3><span class="pill wait">Suggested</span></div>
+          <p class="h">Reassigning (one task, or several at once) puts a card in front of the owner with a <b>handover note</b> the AI drafted from the contact’s timeline — labelled “Written by the AI”, holding no figures (a draft with one falls back to a template, as in the alert digest), editable, and sent only on approval. On the Workload page the assistant may <b>suggest</b> a move (“Ben has 2 overdue, Sarah has room this week”) from the counts it is handed; moving anything is the same card.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>6 · Daily and weekly tasks for every member</h3><span class="pill wait">Suggested</span></div>
+          <p class="h">Owners set up repeating tasks — “Every Monday 9:00: call last weekend’s open-home visitors”, “Every day: clear your approvals” — for everyone, a team, or one person. The minute tick creates them on time; each lands in that person’s My day. A workflow step “Create a task” joins the catalogue, so workflows can make tasks too.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>Not in this step</h3><span class="pill ok">Later</span></div>
+          <ul class="rules">
+            <li>Time tracking, timesheets, or hours per task.</li>
+            <li>Sharing a whole calendar with colleagues (appointments stay per person as now).</li>
+            <li>Sub-tasks and task dependencies; the assistant’s own plans stay as they are (ADR 0040).</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== MY DAY (AGENT) ===================== -->
+    <section id="today" data-page data-nav="nav-today" hidden>
+      <p class="crumb">Home · Ben Turner’s view · Mon 2 Nov</p>
+      <div class="row" style="justify-content:space-between"><h2>My day</h2><button class="btn" type="button" data-toast="Adds a task for you; link it to a contact, lead, listing, deal or tenancy"><span class="ms sm">add</span>Add a task</button></div>
+      <p class="lead">In this order every day: urgent leads, appointments, overdue, due today, not contacted, waiting for you. Each line says why it is here.</p>
+      <div class="two">
+        <div class="pane list">
+          <div class="group">Urgent new lead</div>
+          <div class="li"><span class="ms" style="color:var(--rose)">priority_high</span><span><b>Call Priya Shah</b> — wants to inspect 27 Lakeside Blvd before Saturday<span class="why">New lead, 7:12 am · understood as urgent · not contacted</span></span><button class="btn" type="button" data-toast="Opens the lead">Open</button></div>
+          <div class="group">Appointments</div>
+          <div class="li"><span class="ms">event</span><span><b>11:00 Appraisal</b> — 9 Bay Rd, Pakenham<span class="why">Your calendar</span></span><span class="muted">11:00</span></div>
+          <div class="li"><span class="ms">event</span><span><b>2:30 Inspection</b> — 27 Lakeside Blvd<span class="why">Your calendar</span></span><span class="muted">2:30</span></div>
+          <div class="group">Overdue</div>
+          <div class="li"><button class="chk" role="checkbox" aria-checked="false" aria-label="Done" type="button"></button><span><b>Send the Kellys the comparable sales</b> <span class="link">Contact · Kelly</span><span class="why">Due Thu 29 Oct · 4 days overdue · your task</span></span><span class="pill bad">4 days</span></div>
+          <div class="li"><button class="chk" role="checkbox" aria-checked="false" aria-label="Done" type="button"></button><span><b>Follow up Mark Ellis about the appraisal</b> <span class="link">Contact · Mark Ellis</span><span class="why">Was his next action · due Sat 31 Oct</span></span><span class="pill bad">2 days</span></div>
+          <div class="group">Due today</div>
+          <div class="li"><button class="chk" role="checkbox" aria-checked="false" aria-label="Done" type="button"></button><span><b>Call last weekend’s open-home visitors</b> <span class="link">Listing · 27 Lakeside Blvd</span><span class="why">Every Monday · set by Rebecca</span></span><span class="muted">9:00</span></div>
+          <div class="li"><button class="chk" role="checkbox" aria-checked="true" aria-label="Done" type="button"></button><span><s>Order the signboard for 14 Ridge Rd</s> <span class="link">Listing · 14 Ridge Rd</span><span class="why">From Sarah · done 8:40 am</span></span><span class="pill ok">Done</span></div>
+          <div class="group">Waiting for you</div>
+          <div class="li"><span class="ms">approval</span><span><b>2 cards to approve</b><span class="why">An email to a buyer, a reminder</span></span><button class="btn" type="button" data-toast="Opens Approvals">Review</button></div>
+        </div>
+        <div class="stack">
+          <div class="pane">
+            <h3>Your counts</h3>
+            <div class="facts" style="margin-top:10px">
+              <div><span>Open tasks</span>9</div>
+              <div><span>Overdue</span>2</div>
+              <div><span>Not contacted</span>1 lead</div>
+              <div><span>This week</span>6 appointments</div>
+            </div>
+            <p class="h">Only your own. Your leader sees the same numbers for you on Workload.</p>
+          </div>
+          <div class="note info"><span class="ms sm">mail</span><span>Morning email: off. Turn it on in Settings and pick a time — it sends this list, nothing else.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== TEAM BOARD ===================== -->
+    <section id="board" data-page data-nav="nav-tasks" hidden>
+      <p class="crumb">Team › Team tasks</p>
+      <div class="row" style="justify-content:space-between"><h2>Team tasks</h2><button class="btn primary" type="button" data-toast="What, who, when, and optionally a contact, lead, listing, deal or tenancy"><span class="ms sm">add</span>New task</button></div>
+      <div class="filters"><span class="fchip">Mine</span><span class="fchip on">Sales team</span><span class="fchip">Rentals</span><span class="fchip">Everyone</span><span class="fchip">Overdue only</span></div>
+      <div class="board">
+        <div class="col"><h4>To do <span>4</span></h4>
+          <button class="tk" type="button" data-toast="Opens the task"><b>Call last weekend’s open-home visitors</b><span class="meta"><span class="who w-bt">BT</span><span class="link">27 Lakeside Blvd</span><span class="muted">Today 9:00 · every Mon</span></span></button>
+          <button class="tk" type="button" data-toast="Opens the task"><b>Book photographer for 9 Bay Rd</b><span class="meta"><span class="who w-sl">SL</span><span class="link">9 Bay Rd</span><span class="muted">Wed 4 Nov</span></span></button>
+          <button class="tk" type="button" data-toast="Opens the task"><b>Prepare the auction-day run sheet</b><span class="meta"><span class="who w-jp">JP</span><span class="link">Deal · 3 Elm Ct</span><span class="muted">Fri 6 Nov</span></span></button>
+          <button class="tk" type="button" data-toast="Made by the workflow 'Uncontacted after 2 hours'"><b>Call Priya Shah</b><span class="meta"><span class="who w-bt">BT</span><span class="link">Lead</span><span class="pill ai">From a workflow</span></span></button>
+        </div>
+        <div class="col"><h4>Doing <span>2</span></h4>
+          <button class="tk" type="button" data-toast="Opens the task"><b>Vendor report for 27 Lakeside Blvd</b><span class="meta"><span class="who w-sl">SL</span><span class="link">27 Lakeside Blvd</span><span class="muted">Today</span></span></button>
+          <button class="tk" type="button" data-toast="Opens the task"><b>Chase the section 32 from the solicitor</b><span class="meta"><span class="who w-jp">JP</span><span class="link">14 Ridge Rd</span><span class="muted">Tue 3 Nov</span></span></button>
+        </div>
+        <div class="col"><h4>Waiting on someone <span>1</span></h4>
+          <button class="tk" type="button" data-toast="Waiting on: the vendor's signature"><b>Price change for 63 Kent St</b><span class="meta"><span class="who w-sl">SL</span><span class="link">63 Kent St</span><span class="muted">Waiting on the vendor</span></span></button>
+        </div>
+        <div class="col"><h4>Overdue <span>3</span></h4>
+          <button class="tk" type="button" data-toast="Opens the task"><b>Send the Kellys the comparable sales</b><span class="meta"><span class="who w-bt">BT</span><span class="link">Kelly</span><span class="pill bad">4 days</span></span></button>
+          <button class="tk" type="button" data-toast="Opens the task"><b>Follow up Mark Ellis</b><span class="meta"><span class="who w-bt">BT</span><span class="link">Mark Ellis</span><span class="pill bad">2 days</span></span></button>
+          <button class="tk" type="button" data-toast="Opens the task"><b>Update the buyer brief for the Nguyens</b><span class="meta"><span class="who w-jp">JP</span><span class="link">Nguyen</span><span class="pill bad">1 day</span></span></button>
+        </div>
+      </div>
+      <div class="note info" style="margin-top:12px"><span class="ms sm">info</span><span>Drag between columns; “Overdue” is not a column you drag into — a task is there because its date has passed. Agents see their team’s tasks; changing someone else’s needs the permission to (can()).</span></div>
+    </section>
+
+    <!-- ===================== WORKLOAD ===================== -->
+    <section id="workload" data-page data-nav="nav-load" hidden>
+      <p class="crumb">Team › Workload · owners, admins and team leaders</p>
+      <h2>Who is carrying what</h2>
+      <p class="lead">Counts only, each a link to its rows. No score, no ranking, no “slow” colour.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Member</th><th class="num">Open tasks</th><th class="num">Overdue</th><th class="num">Not contacted</th><th class="num">Appointments this week</th><th class="num">Live listings</th><th class="num">Tenancies</th></tr></thead>
+          <tbody>
+            <tr><td><span class="person"><span class="who w-sl">SL</span>Sarah Lee<small>&nbsp;Sales team leader</small></span></td><td class="num">6</td><td class="num">0</td><td class="num">0</td><td class="num">5</td><td class="num">7</td><td class="num">3</td></tr>
+            <tr><td><span class="person"><span class="who w-jp">JP</span>James Park</span></td><td class="num">8</td><td class="num">1</td><td class="num">0</td><td class="num">4</td><td class="num">3</td><td class="num">2</td></tr>
+            <tr><td><span class="person"><span class="who w-bt">BT</span>Ben Turner</span></td><td class="num">9</td><td class="num hot">2</td><td class="num">1</td><td class="num">6</td><td class="num">4</td><td class="num">0</td></tr>
+            <tr><td><span class="person"><span class="who w-nr">NR</span>Nadia Rossi<small>&nbsp;Rentals</small></span></td><td class="num">11</td><td class="num hot">4</td><td class="num">0</td><td class="num">8</td><td class="num">1</td><td class="num">31</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="two" style="margin-top:12px">
+        <div class="card">
+          <header><span class="ms sm">swap_horiz</span>A suggestion <span class="pill ai"><span class="ms sm">auto_awesome</span>From the assistant</span></header>
+          <div class="body">
+            <p style="margin:0">Ben’s two overdue follow-ups are both sales contacts. Sarah has none overdue and fewer appointments this week. Move them to Sarah?</p>
+            <div class="f"><span>Tasks</span><span>Send the Kellys the comparable sales · Follow up Mark Ellis</span></div>
+            <p class="muted" style="margin:0">The assistant was handed the counts in the table above; it worked nothing out itself.</p>
+          </div>
+          <footer><button class="btn" type="button" data-toast="Nothing moves">No</button><button class="btn primary" type="button" data-screen="handover">Prepare the handover</button></footer>
+        </div>
+        <div class="note warn"><span class="ms sm">balance</span><span>Red only marks a count over the agency’s own line (here: 2 or more overdue). It marks the tasks, not the person. The owner can change or turn off the line.</span></div>
+      </div>
+    </section>
+
+    <!-- ===================== OVERDUE ===================== -->
+    <section id="overdue" data-page data-nav="nav-load" hidden>
+      <p class="crumb">Team › Workload › Overdue · Rebecca Tan’s view (principal: every team)</p>
+      <h2>Overdue, past the agency’s line</h2>
+      <p class="lead">A task appears here once it has been overdue for 3 days (the agency’s setting). Before that, only its owner sees it. Team leaders see the same list for their own team; owners and admins see every team.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Task</th><th>Owner</th><th>Linked to</th><th class="num">Overdue</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><b>Send the Kellys the comparable sales</b><small>Made by Ben, 26 Oct</small></td><td><span class="person"><span class="who w-bt">BT</span>Ben Turner</span></td><td><span class="link">Contact · Kelly</span></td><td class="num">4 days</td><td><div class="row" style="justify-content:flex-end;gap:6px"><button class="btn" type="button" data-toast="Pick a new date; Ben is told">New date</button><button class="btn" type="button" data-screen="handover">Reassign</button><button class="btn" type="button" data-toast="Asks for a reason; kept on the contact's timeline">Close</button></div></td></tr>
+            <tr><td><b>Routine inspection report — 4/8 Main St</b><small>From a workflow, 27 Oct</small></td><td><span class="person"><span class="who w-nr">NR</span>Nadia Rossi</span></td><td><span class="link">Tenancy · 4/8 Main St</span></td><td class="num">3 days</td><td><div class="row" style="justify-content:flex-end;gap:6px"><button class="btn" type="button" data-toast="Pick a new date; Nadia is told">New date</button><button class="btn" type="button" data-screen="handover">Reassign</button><button class="btn" type="button" data-toast="Asks for a reason">Close</button></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note info" style="margin-top:12px"><span class="ms sm">notifications</span><span>Ben and Nadia were reminded in their own My day and bell from the first day. Nothing here is emailed to the whole office.</span></div>
+    </section>
+
+    <!-- ===================== HANDOVER ===================== -->
+    <section id="handover" data-page data-nav="nav-load" hidden>
+      <p class="crumb">Team › Workload › Reassign</p>
+      <h2>Hand two tasks from Ben to Sarah</h2>
+      <p class="lead">The note is a draft for Sarah, written from the two contacts’ timelines. It reaches her only when you approve.</p>
+      <div class="card" style="max-width:720px">
+        <header><span class="ms sm">swap_horiz</span>Reassign 2 tasks · Ben Turner → Sarah Lee <span class="pill wait" style="margin-left:auto">Waiting for your approval</span></header>
+        <div class="body">
+          <div class="f"><span>Tasks</span><span>Send the Kellys the comparable sales <span class="muted">(due 29 Oct)</span><br>Follow up Mark Ellis about the appraisal <span class="muted">(due 31 Oct)</span></span></div>
+          <div class="f"><span>New due</span><span>Tue 3 Nov <span class="muted">· change</span></span></div>
+          <div class="f"><span>Contacts</span><span>Stay with Ben <span class="muted">· tick to move them to Sarah too</span></span></div>
+          <div class="f"><span>Note to Sarah</span><div><div class="label"><span class="ms sm">auto_awesome</span>Written by the AI · edit before sending</div><div class="mail">The Kellys are selling their place in Officer and asked Ben for recent sales nearby before they choose an agent. They prefer email and are home after 5 pm.
+
+Mark Ellis had his appraisal at 9 Bay Rd last week and said he would decide after talking with his partner. He asked to be called rather than emailed.</div></div></div>
+          <p class="muted" style="margin:0">The note holds no prices or figures: a draft with one is replaced by a plain template. The comparable sales themselves come from SQL when Sarah prepares them.</p>
+        </div>
+        <footer><button class="btn" type="button" data-toast="Nothing moves">Not now</button><button class="btn" type="button" data-toast="Opens the note to edit">Edit</button><button class="btn primary" type="button" data-toast="Moved; Sarah gets the note, Ben is told">Approve: move and send the note</button></footer>
+      </div>
+    </section>
+
+    <!-- ===================== RECURRING ===================== -->
+    <section id="recurring" data-page data-nav="nav-tasks" hidden>
+      <p class="crumb">Team › Team tasks › Repeating · owners and admins</p>
+      <div class="row" style="justify-content:space-between"><h2>Tasks that repeat</h2><button class="btn primary" type="button" data-toast="What, how often, what time, for whom"><span class="ms sm">add</span>New repeating task</button></div>
+      <p class="lead">The minute tick makes each one on time, in that person’s My day. Nothing is sent to anyone outside the team.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Task</th><th>When</th><th>For</th><th>Linked to</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><b>Call last weekend’s open-home visitors</b></td><td>Every Monday, 9:00</td><td>Each listing’s agent</td><td>Each live listing with an open home last weekend</td><td class="muted">On</td></tr>
+            <tr><td><b>Clear your approvals</b></td><td>Every weekday, 8:30</td><td>Everyone</td><td>—</td><td class="muted">On</td></tr>
+            <tr><td><b>Check this week’s routine inspections are booked</b></td><td>Every Monday, 9:00</td><td>Rentals team</td><td>—</td><td class="muted">On</td></tr>
+            <tr><td><b>Vendor report for each live listing</b></td><td>Every Friday, 2:00 pm</td><td>Each listing’s agent</td><td>Each live sale listing</td><td class="muted">On</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note info" style="margin-top:12px"><span class="ms sm">account_tree</span><span>Workflows get a new step, “Create a task” (who, what, due in N hours/days), so “Lead not contacted in 2 hours → task for the assigned agent” works without the assistant.</span></div>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const SCREENS = ['rules', 'today', 'board', 'workload', 'overdue', 'handover', 'recurring'];
+const WHO = { today: 'Agent console · Ben Turner' };
+
+function go(s) {
+  document.querySelectorAll('.mockbar [data-screen]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.screen === s));
+  let nav = '';
+  document.querySelectorAll('[data-page]').forEach((p) => { p.hidden = p.id !== s; if (p.id === s) nav = p.dataset.nav; });
+  document.querySelectorAll('aside .nl').forEach((n) => n.classList.toggle('on', Boolean(n.id) && n.id === nav));
+  document.getElementById('who').textContent = WHO[s] || 'Agency console · Rebecca Tan, principal';
+  try { history.replaceState(null, '', '#' + s); } catch (e) { /* ignore */ }
+  window.scrollTo(0, 0);
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.hidden = true), 2600);
+}
+
+document.addEventListener('click', (e) => {
+  const s = e.target.closest('[data-screen]');
+  if (s) { go(s.dataset.screen); return; }
+  const c = e.target.closest('.chk');
+  if (c) { c.setAttribute('aria-checked', c.getAttribute('aria-checked') !== 'true'); return; }
+  const tt = e.target.closest('[data-toast]');
+  if (tt) toast(tt.dataset.toast);
+});
+
+const h = (location.hash || '').slice(1);
+go(SCREENS.includes(h) ? h : 'rules');
+</script>
+</body>
+</html>
