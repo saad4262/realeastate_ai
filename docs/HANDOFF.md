@@ -161,7 +161,8 @@ data (a connected account, Sam's number, texts, missed calls, one AI call).
    `RETELL_VERIFY_SIGNATURE=1` once a real delivery verifies.
 6. Go-live: `docs/DEPLOY.md` go-live checklist + `docs/DNS-CUTOVER.md` (temporary domain first); Google
    verification, Zoom Marketplace, privacy policy/terms text (lawyer), delete the test agency (ask first).
-7. Phases 5–7, each starting with the user's decisions (which CRM, which property-data provider, Outlook first).
+7. Phase 5 (public API + webhooks, Outlook) and Phase 7, each starting with the user's decisions. **Version 2,
+   not now (the user, 2026-10-31):** Phase 6 Marketing, Xero, CRM connectors.
 
 ### Plan: Phase 3.4 — SMS everywhere (ROADMAP 3.4; #5, #8, #27)
 

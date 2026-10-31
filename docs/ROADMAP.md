@@ -344,10 +344,15 @@ forwarding tests. Voyage key and the temporary domain arrive at the same time (c
   "AI understands → decides" step, Automation Library templates, the Control Centre page, and all
   three permission levels. The visual builder comes last.
 
-### Phase 5 — Open platform (#19)
-- [ ] Public API + webhooks; Outlook; Xero; CRM connectors (Rex, VaultRE, AgentBox) for #4.
+**Version 1 / version 2 (the user, 2026-10-31):** Phase 6 (Marketing, all of it), Xero and the CRM connectors
+are **version 2** — not built now. Everything else on this list is version 1: 3.4, the rest of Phase 4, the
+public API + webhooks, Outlook, and Phase 7.
 
-### Phase 6 — Marketing (#17 → #26 → #18)
+### Phase 5 — Open platform (#19)
+- [ ] Public API + webhooks; Outlook. (v1)
+- [ ] Xero; CRM connectors (Rex, VaultRE, AgentBox) for #4. **Version 2.**
+
+### Phase 6 — Marketing (#17 → #26 → #18) — **Version 2**
 - [ ] Marketing Studio + agency branding → Social & Ads (budget changes need explicit approval) →
   Funnel Builder.
 
