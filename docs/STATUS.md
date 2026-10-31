@@ -1,13 +1,13 @@
 # Status
-- **2026-10-31 — ROADMAP 5.2 Outlook (ADR 0076) built on `feat/outlook`, migration 0077 APPLIED (78 recorded). Not merged.**
+- **2026-10-31 — ROADMAP 5.2 Outlook (ADR 0076), migration 0077 APPLIED (78 recorded), merged to `main`.**
   Microsoft sign-in (common tenant, PKCE, rotating refresh tokens, no per-app revoke → the card says remove it under
   the Microsoft account); Outlook mail = Gmail's MIME via Graph sendMail; Outlook Calendar via the same CalendarApi
   (transactionId, UTC, update by stored id); `integration_choice` + `choice.ts` (one active mailbox / calendar per
   owner; connecting a second records the first as chosen; expired never swapped); sender.ts / send.ts / sync.ts
   provider-aware (a calendar switch moves only what is ahead); console cards, "In use" / "Use this one instead".
-  Checks: core 1519 + ai 331; typecheck all; break-tests (transactionId, Google-first default); smoke checks written
-  (Outlook Calendar in "Google Calendar and Zoom", Outlook mail in "Gmail send", integration_choice in Tenant
-  isolation) — NOT run yet. Real Microsoft: needs the Entra app (DEPLOY.md), PROVISIONAL until tried.
+  Checks: core 1519 + ai 331; typecheck all; break-tests (transactionId, Google-first default); smoke green —
+  "Google Calendar and Zoom" 6/6, "Gmail send" 6/6, "Tenant isolation" 5/5 (incl. the new Outlook checks). Real
+  Microsoft: needs the Entra app (DEPLOY.md), PROVISIONAL until tried; browser walk TEST-PLAN CC.
 - **2026-10-31 — smoke "Tenant isolation" 5/5 green** (SMOKE_ENABLED=true SMOKE_ONLY="Tenant isolation"): the new ADR
   0075 check (two agencies, one address) passes; "tokens and the sync job" fixed — its fixture gave agents the
   agency's Zoom, which the rule since 2026-10-22 (`f7cbc4d`) refuses; agents now connect their own and the check
