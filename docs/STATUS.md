@@ -5,7 +5,8 @@ how to work on either laptop is `docs/HANDOFF.md`. Overwrite this file at each h
 
 ## Milestone
 Version 1 is built except what waits on the client. `main` = `d3eb906` (4.5 "AI understands" merged), deployed.
-Branch `chore/tech-debt` (not merged yet): CI, this docs trim, the smoke reds, the four Phase 7 mocks.
+Branch `chore/tech-debt` (pushed, NOT merged): CI, this docs trim, the three smoke reds fixed, two team loaders,
+the four Phase 7 mocks.
 
 ## Database
 79 migrations recorded (0000–0078). Nothing pending. Dev database = production database (one `DATABASE_URL`).
@@ -13,7 +14,9 @@ Branch `chore/tech-debt` (not merged yet): CI, this docs trim, the smoke reds, t
 ## Checks
 - CI (`.github/workflows/ci.yml`, new): typecheck, lint, `pnpm test` on every push, no secrets given.
 - Unit: core 1537, ai 335, auth 9, ui 4 — all pass, offline.
-- Smoke: run by hand with the user's go, in named groups (`SMOKE_ENABLED=true SMOKE_ONLY="<group>"`).
+- Smoke: run by hand with the user's go, in named groups (`SMOKE_ENABLED=true SMOKE_ONLY="<group>"`). The three
+  known reds are fixed and each was seen red when broken: Console loaders 1/1, Search schedules 17/17, Email
+  conversations 7/7. A full run (the green baseline) has NOT been done since — the user's go first.
 
 ## Done this period (details in the ADRs and the archive)
 3.4 part 1 SMS templates + `call.missed` (ADR 0074) · one address, several agencies (ADR 0075, the technical debt) ·
@@ -30,7 +33,9 @@ Branch `chore/tech-debt` (not merged yet): CI, this docs trim, the smoke reds, t
   workload board. All four mocks approved by the user (internal, not the client); no code until version 2.
 
 ## Next
-1. Merge `chore/tech-debt` to `main` (the user's go).
+1. Merge `chore/tech-debt` to `main` (the user's go); then a full smoke run for the green baseline (the user's go).
+   Local-only branches `feat/crm-visibility` (8 commits) and `feat/crm-assistant-more` (18) are not on GitHub;
+   keep or delete is the user's call (their worktrees: `../realestate_ai-visibility`, `../realestate_ai-more`).
 2. When the client answers: 3.4 part 2, then 4.6/4.7, then 4.4.
 3. When keys arrive: Voyage backfill; `retell:setup`; TEST-PLAN BX/BY/BZ with real Twilio + Retell; Outlook (CC).
 4. Last: the user's browser walk (TEST-PLAN BN–BZ, CA–CD), then go-live (`docs/DEPLOY.md`, `docs/DNS-CUTOVER.md`).
