@@ -136,7 +136,7 @@ const WORKFLOW_ACTION_ITEM = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    type: { type: 'string', enum: ['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'send_template_email', 'draft_email', 'wait', 'wait_until'] },
+    type: { type: 'string', enum: ['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'send_template_email', 'draft_email', 'save_ai_brief', 'wait', 'wait_until'], description: 'save_ai_brief (ADR 0078): leave the person a card to approve with the buyer brief the AI found in the enquiry — it never saves by itself.' },
     text: { type: 'string', description: 'add_note / set_next_action / remind_owner: the exact words (merge fields allowed).' },
     in_days: { type: 'integer', description: 'set_next_action: due in N days (0–60).' },
     mail_me: { type: 'boolean', description: 'remind_owner: also email it to the person.' },
@@ -247,7 +247,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
             type: 'object',
             additionalProperties: false,
             properties: {
-              field: { type: 'string', enum: ['listing.suburb', 'listing.channel', 'lead.kind', 'lead.source', 'assignee', 'contact.role', 'appointment.type', 'contact.name', 'listing', 'listing.near'] },
+              field: { type: 'string', enum: ['listing.suburb', 'listing.channel', 'lead.kind', 'lead.source', 'assignee', 'contact.role', 'appointment.type', 'contact.name', 'listing', 'listing.near', 'lead.intent', 'lead.urgency'], description: 'lead.intent (buyer, seller, landlord, tenant, investor, general, not_sure) and lead.urgency (high, normal): what the AI understood of a new enquiry (needs the skill "AI understands enquiries" on).' },
               op: { type: 'string', enum: ['eq', 'in', 'not_in', 'contains', 'not_contains', 'within'], description: 'eq takes one value. contains / not_contains: contact.name only (any of the words appears in the name). within: listing.near only.' },
               values: { type: 'array', items: { type: 'string' }, description: 'channel: sale/rent; lead.kind: enquiry/inspection/appraisal; lead.source: website/manual; contact.role: buyer/seller/landlord/tenant/investor; assignee: M references; listing: P references from find_listings; suburb or contact.name: as the person said it; listing.near: ONE place name as the person said it (a suburb, a street address, a landmark) — the server finds it on the map, never give coordinates.' },
               km: { type: 'number', description: 'listing.near only: the distance the person said, in km (0.1 to 100). Ask if they did not say one.' },

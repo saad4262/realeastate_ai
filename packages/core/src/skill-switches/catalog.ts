@@ -153,6 +153,7 @@ export function skillsForToolCall(tool: string, input: unknown): SkillKey[] {
 export const SKILL_OF_WORKFLOW_STEP: Readonly<Record<string, SkillKey>> = Object.freeze({
   send_template_email: 'workflow_emails',
   draft_email: 'ai_email_drafts',
+  save_ai_brief: 'ai_understand_enquiries',
 });
 
 /** The opportunity detector behind each kind. */

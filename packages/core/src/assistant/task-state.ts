@@ -4,6 +4,7 @@ import { verifyListingAction } from './listing-tools';
 import { verifySkillAction, verifySwitchSkill } from './skill-tools';
 import { verifyWorkflowAction } from './workflow-tools';
 import { verifyTemplateAction } from './template-tools';
+import { verifySaveBuyerBrief } from '../leads/brief-card';
 import { nextInWindow, readWindow, type SendWindow } from '../workflows/send-window';
 import { AssistantError } from './conversations';
 
@@ -161,6 +162,8 @@ export async function verifyExecuted(
       return (await verifySkillAction(tx, args, result)) ? undefined : fail();
     case 'switch_skill':
       return (await verifySwitchSkill(tx, args, result)) ? undefined : fail();
+    case 'save_buyer_brief':
+      return (await verifySaveBuyerBrief(tx, args, result)) ? undefined : fail();
     case 'create_template':
       return (await verifyTemplateAction(tx, args, result)) ? undefined : fail();
     case 'invite_agent':

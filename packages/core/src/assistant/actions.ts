@@ -1,4 +1,5 @@
 import { and, asc, eq, gt, inArray, lt, lte, sql } from 'drizzle-orm';
+import { proposeBriefCard, runSaveBuyerBrief, type SaveBriefArgs } from '../leads/brief-card';
 import { SUSPENDED_AGENCY_IDS } from '../platform/access';
 import { assistantTask, emailBatch, proposedAction, user, type Db, type DbOrTx } from '@repo/db';
 import { notifyMyself } from '../notifications';
@@ -199,7 +200,11 @@ export type FrozenArgs =
       before: { enabled: boolean; emailMe: boolean; when: string; bodyMd: string };
     }
   /** ADR 0058: a platform skill's switch, the person's own (agency's or theirs); `before` = as the card showed it. */
-  | { tool: 'switch_skill'; skill: SkillKey; on: boolean; before: boolean };
+  | { tool: 'switch_skill'; skill: SkillKey; on: boolean; before: boolean }
+  /** ADR 0078: the brief the AI found in an enquiry, saved to the contact — only ever on approval. */
+  | SaveBriefArgs
+  /** ADR 0078: a workflow step that leaves a `save_buyer_brief` card for its owner; it changes nothing itself. */
+  | { tool: 'propose_ai_brief'; leadId: string; workflowName: string };
 
 /** The contacts whose timelines carry this action's audit lines. */
 function auditContacts(row: { contactId: string | null; args: unknown }): string[] {
@@ -417,6 +422,14 @@ async function execute(
       return runSkillAction(tx, actor, args, now);
     case 'switch_skill':
       return runSwitchSkill(tx, actor, args);
+    case 'save_buyer_brief':
+      // ADR 0078: contact:update again (createBuyerRequirement), then the brief and the buyer role.
+      return runSaveBuyerBrief(tx, actor, args);
+    case 'propose_ai_brief': {
+      // A card for the owner, never a change: what reaches the contact waits for their Approve.
+      const out = await proposeBriefCard(tx, actor, { leadId: args.leadId, key: rowId, origin: 'workflow', workflowName: args.workflowName }, now);
+      return { result: out };
+    }
     case 'create_workflow':
     case 'change_workflow':
       return runWorkflowAction(tx, actor, args);

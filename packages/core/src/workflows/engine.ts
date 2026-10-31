@@ -10,7 +10,7 @@ import type { FrozenArgs } from '../assistant/actions';
 import type { ProposalCard } from '../assistant/schema';
 import { formatAddress } from '../listings/listing-schema';
 import { displayAu } from '../phone/format';
-import { actionInWords, isNear, renderMerge, specProblem, WORKFLOW_LIMITS, workflowSpecSchema, type Condition, type MergeValues, type Trigger, type TriggerKind, type ValuesCondition, type WorkflowSpec } from './catalog';
+import { actionInWords, AI_CONDITION_FIELDS, isNear, renderMerge, specProblem, WORKFLOW_LIMITS, workflowSpecSchema, type Condition, type MergeValues, type Trigger, type TriggerKind, type ValuesCondition, type WorkflowSpec } from './catalog';
 import { windowFrom, type SendWindow } from './send-window';
 import { runTriggerScans, type ScanReport } from './scans';
 import { decideRun, stepsOfChoice, type RunDecision, type WorkflowDecider } from './decide';
@@ -31,7 +31,7 @@ import { decideRun, stepsOfChoice, type RunDecision, type WorkflowDecider } from
  * Nothing here sends, writes a note or changes a lead: the steps do, later, through the screens' code.
  */
 
-export type WorkflowTickReport = { events: number; runs: number; skipped: number; paused: number; noReplyEvents: number; scanned: ScanReport | null };
+export type WorkflowTickReport = { events: number; runs: number; skipped: number; paused: number; waiting: number; noReplyEvents: number; scanned: ScanReport | null };
 
 const LEASE_MS = 2 * 60_000;
 const DAY_MS = 86_400_000;
@@ -67,6 +67,11 @@ export type Facts = {
   /** ADR 0074: a missed call's agent (whose number it reached) and the caller's number, from the call row. */
   callAgent?: string | null;
   callerPhone?: string | null;
+  /** ADR 0078: what the AI understood of the lead, and whether it has looked yet (null: not yet). */
+  leadAiIntent?: string | null;
+  leadAiUrgency?: string | null;
+  leadAiStatus?: string | null;
+  leadCreatedAt?: Date | null;
 };
 
 async function loadFacts(db: Db, ev: EventRow): Promise<Facts> {
@@ -77,6 +82,7 @@ async function loadFacts(db: Db, ev: EventRow): Promise<Facts> {
   const [r] = await db.execute<Record<string, unknown>>(sql`
     select l.id as lead_id, l.status::text as lead_status, l.kind::text as lead_kind, l.source as lead_source,
            l.assigned_to as lead_assignee, l.listing_id as lead_listing_id,
+           l.ai_intent as lead_ai_intent, l.ai_urgency as lead_ai_urgency, l.ai_status as lead_ai_status, l.created_at as lead_created_at,
            c.id as contact_id, c.name as contact_name, c.assigned_to as contact_assignee,
            (select coalesce(array_agg(r.role::text), '{}') from contact_role r where r.contact_id = c.id) as contact_roles,
            li.id as listing_id, li.channel::text as listing_channel,
@@ -121,6 +127,10 @@ async function loadFacts(db: Db, ev: EventRow): Promise<Facts> {
     dealAgent: typeof (ev.data as Record<string, unknown> | null)?.agent === 'string' ? ((ev.data as Record<string, string>).agent as string) : null,
     callAgent: ev.kind === 'call.missed' && typeof data.agent === 'string' ? data.agent : null,
     callerPhone: s('caller_e164') ? displayAu(s('caller_e164')) : null,
+    leadAiIntent: s('lead_ai_intent'),
+    leadAiUrgency: s('lead_ai_urgency'),
+    leadAiStatus: s('lead_ai_status'),
+    leadCreatedAt: s('lead_created_at') ? new Date(s('lead_created_at')!) : null,
   };
 }
 
@@ -179,7 +189,25 @@ function fieldValues(c: ValuesCondition, f: Facts): string[] {
       return f.contactRoles;
     case 'appointment.type':
       return f.appointmentType ? [f.appointmentType] : [];
+    // ADR 0078: nothing understood yet (or the skill off, the budget spent) — the condition never matches.
+    case 'lead.intent':
+      return f.leadAiIntent ? [f.leadAiIntent] : [];
+    case 'lead.urgency':
+      return f.leadAiUrgency ? [f.leadAiUrgency] : [];
   }
+}
+
+/** How long a workflow with an AI condition waits for the lead to be understood (ADR 0078 §7). */
+export const AI_WAIT_MS = 2 * 60_000;
+
+/**
+ * Pure: should this event wait for "AI understands"? Only when one of its workflows has an AI condition, the
+ * lead has not been looked at yet, and it is younger than AI_WAIT_MS — after that it is judged as it is.
+ */
+export function waitsForUnderstanding(specs: readonly WorkflowSpec[], f: Pick<Facts, 'leadId' | 'leadAiStatus' | 'leadCreatedAt'>, now: Date): boolean {
+  if (!f.leadId || f.leadAiStatus || !f.leadCreatedAt) return false;
+  if (now.getTime() - f.leadCreatedAt.getTime() >= AI_WAIT_MS) return false;
+  return specs.some((s) => s.conditions.some((c) => !isNear(c) && AI_CONDITION_FIELDS.includes(c.field)));
 }
 
 const norm = (v: string) => v.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -290,6 +318,11 @@ export function stepsFor(wf: { name: string }, spec: WorkflowSpec, f: Facts, mer
         if (needContact()) return { problem: needContact()! };
         args = { tool: 'draft_email', contactId: contactId!, instructions: a.instructions, workflowName: wf.name };
         break;
+      case 'save_ai_brief':
+        // ADR 0078: a card for the owner when the step runs — nothing reaches the contact without their Approve.
+        if (!f.leadId) return { problem: 'the lead is gone' };
+        args = { tool: 'propose_ai_brief', leadId: f.leadId, workflowName: wf.name };
+        break;
     }
     steps.push({
       tool: args.tool,
@@ -302,7 +335,7 @@ export function stepsFor(wf: { name: string }, spec: WorkflowSpec, f: Facts, mer
   }
   return steps;
 }
-const ACTION_TOUCHES_CONTACT = new Set(['add_note', 'set_next_action', 'assign_contact', 'send_template_email', 'draft_email']);
+const ACTION_TOUCHES_CONTACT = new Set(['add_note', 'set_next_action', 'assign_contact', 'send_template_email', 'draft_email', 'save_ai_brief']);
 
 /** Claim a batch of unprocessed events (a short lease, so two ticks never take the same one). */
 async function claimEvents(db: Db, now: Date, limit: number): Promise<EventRow[]> {
@@ -366,7 +399,7 @@ export type WorkflowTickDeps = {
 };
 
 export async function runWorkflowTick(db: Db, now = new Date(), limit = 50, deps: WorkflowTickDeps = {}): Promise<WorkflowTickReport> {
-  const report: WorkflowTickReport = { events: 0, runs: 0, skipped: 0, paused: 0, noReplyEvents: 0, scanned: null };
+  const report: WorkflowTickReport = { events: 0, runs: 0, skipped: 0, paused: 0, waiting: 0, noReplyEvents: 0, scanned: null };
   if (deps.scans !== false) {
     report.noReplyEvents = await scanNoReply(db, now);
     report.scanned = await runTriggerScans(db, now);
@@ -398,6 +431,14 @@ export async function runWorkflowTick(db: Db, now = new Date(), limit = 50, deps
         }
         const candidates = workflows.get(key)!;
         const facts = candidates.length ? await loadFacts(db, ev) : null;
+        // ADR 0078 §7: a workflow with an AI condition waits (up to AI_WAIT_MS) for the lead to be understood —
+        // the event stays unprocessed, its claim set to lapse in a minute (the next tick, not this tick's next round).
+        const specs = candidates.map((w) => workflowSpecSchema.safeParse(w.spec)).flatMap((r) => (r.success ? [r.data] : []));
+        if (facts && waitsForUnderstanding(specs, facts, now)) {
+          await db.update(workflowEvent).set({ claimedAt: new Date(now.getTime() - LEASE_MS + 60_000) }).where(eq(workflowEvent.id, ev.id));
+          report.waiting += 1;
+          continue;
+        }
         for (const wf of candidates) {
           const r = await runOne(db, wf, ev, facts!, owners, now, deps);
           if (r === 'run') report.runs += 1;

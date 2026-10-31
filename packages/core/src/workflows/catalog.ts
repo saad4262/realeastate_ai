@@ -92,7 +92,10 @@ export function recordsOf(t: Trigger): (typeof TRIGGER_RECORDS)[TriggerKind] {
 
 // ── Conditions ──────────────────────────────────────────────────────────────
 
-export const CONDITION_FIELDS = ['listing.suburb', 'listing.channel', 'lead.kind', 'lead.source', 'assignee', 'contact.role', 'appointment.type', 'contact.name', 'listing'] as const;
+export const CONDITION_FIELDS = ['listing.suburb', 'listing.channel', 'lead.kind', 'lead.source', 'assignee', 'contact.role', 'appointment.type', 'contact.name', 'listing', 'lead.intent', 'lead.urgency'] as const;
+/** ADR 0078: what the AI understood of the enquiry. A workflow with one of these waits for it (engine.ts). */
+export const AI_CONDITION_FIELDS: readonly ConditionField[] = ['lead.intent', 'lead.urgency'];
+const LEAD_INTENT_VALUES = ['buyer', 'seller', 'landlord', 'tenant', 'investor', 'general', 'not_sure'] as const;
 export type ConditionField = (typeof CONDITION_FIELDS)[number];
 
 /** ADR 0048: within N km of a place the server geocoded — never coordinates from the model. */
@@ -110,6 +113,8 @@ export const CONDITION_VALUES: Record<ConditionField, readonly string[] | null> 
   'appointment.type': APPOINTMENT_TYPES,
   'contact.name': null,
   listing: null,
+  'lead.intent': LEAD_INTENT_VALUES,
+  'lead.urgency': ['high', 'normal'],
 };
 
 type RecordKind = 'lead' | 'contact' | 'listing' | 'appointment';
@@ -125,6 +130,8 @@ const FIELD_RECORD: Record<ConditionField | typeof NEAR_FIELD, RecordKind> = {
   'appointment.type': 'appointment',
   'contact.name': 'contact',
   listing: 'listing',
+  'lead.intent': 'lead',
+  'lead.urgency': 'lead',
   [NEAR_FIELD]: 'listing',
 };
 
@@ -168,6 +175,8 @@ export const ACTION_TYPES = [
   'message_colleagues',
   'send_template_email',
   'draft_email',
+  // ADR 0078: a card for the owner with the brief the AI found — nothing reaches the contact until approved.
+  'save_ai_brief',
   'wait',
   'wait_until',
 ] as const;
@@ -192,6 +201,7 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('send_template_email'), template_id: uuid }).strict(),
   /** What the AI should write about — the person's instructions. The email is a DRAFT for the owner (D1). */
   z.object({ type: z.literal('draft_email'), instructions: text(1000) }).strict(),
+  z.object({ type: z.literal('save_ai_brief') }).strict(),
   z.object({ type: z.literal('wait'), hours: z.number().int().min(1).max(720) }).strict(),
   /** ADR 0048, on the agency's clock: with `to`, a window (now if inside it); without, the next `from`. */
   z.object({ type: z.literal('wait_until'), from: hhmm, to: hhmm.optional(), days: z.array(z.enum(WEEKDAYS)).min(1).max(7).optional() }).strict(),
@@ -209,6 +219,7 @@ export const ACTION_NEEDS: Record<ActionType, 'lead' | 'contact' | null> = {
   message_colleagues: null,
   send_template_email: 'contact',
   draft_email: 'contact',
+  save_ai_brief: 'lead',
   wait: null,
   wait_until: null,
 };
@@ -362,6 +373,7 @@ export const ACTION_WORDS: Record<ActionType, string> = {
   message_colleagues: 'message colleagues',
   send_template_email: 'send an email template',
   draft_email: 'write an email draft for you to approve',
+  save_ai_brief: 'save the brief the AI found, for you to approve',
   wait: 'wait',
   wait_until: 'wait for a time',
 };
@@ -379,8 +391,10 @@ const FIELD_LABELS: Record<ConditionField, string> = {
   'appointment.type': 'the appointment type',
   'contact.name': 'the contact’s name',
   listing: 'the listing',
+  'lead.intent': 'what the AI understood they are',
+  'lead.urgency': 'how urgent the AI rated it',
 };
-const VALUE_WORDS: Record<string, string> = { sale: 'for sale', rent: 'for lease', enquiry: 'an enquiry', inspection: 'an inspection request', appraisal: 'an appraisal request' };
+const VALUE_WORDS: Record<string, string> = { sale: 'for sale', rent: 'for lease', enquiry: 'an enquiry', inspection: 'an inspection request', appraisal: 'an appraisal request', buyer: 'a buyer', seller: 'a seller', landlord: 'a landlord', tenant: 'a tenant', investor: 'an investor', general: 'a general question', not_sure: 'not sure', high: 'high', normal: 'normal' };
 
 export function triggerInWords(t: Trigger): string {
   switch (t.kind) {
@@ -521,6 +535,8 @@ export function actionInWords(a: WorkflowAction, names: Record<string, string> =
       return `Send the template “${names[a.template_id] ?? 'template'}” to the contact (only if they may receive it then)`;
     case 'draft_email':
       return `Write an email draft for you to approve, about: “${a.instructions}”`;
+    case 'save_ai_brief':
+      return 'Save the brief the AI found in the enquiry to the contact — a card for you to approve';
     case 'wait':
       return a.hours % 24 === 0 ? `Wait ${a.hours / 24} day${a.hours === 24 ? '' : 's'}` : `Wait ${a.hours} hour${a.hours === 1 ? '' : 's'}`;
     case 'wait_until':

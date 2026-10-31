@@ -163,6 +163,9 @@ function actionsFrom(ctx: Pick<ToolContext, 'handles'>, list: z.infer<typeof cre
         if (need('instructions')) return { problem: need('instructions')! };
         built = { type: a.type, instructions: a.instructions };
         break;
+      case 'save_ai_brief':
+        built = { type: a.type };
+        break;
       case 'wait':
         if (need('hours')) return { problem: need('hours')! };
         built = { type: a.type, hours: a.hours };
@@ -193,8 +196,9 @@ export async function proposeCreateWorkflow(ctx: ToolContext, input: z.infer<typ
   const spec = checked.spec;
   const words = specInWords(spec, await namesFor(ctx.db, ctx.actor.agencyId!, spec));
   const every = allActions(spec);
-  const byItself = every.filter((a) => a.type !== 'wait' && a.type !== 'wait_until' && a.type !== 'draft_email');
-  const waits = every.some((a) => a.type === 'draft_email');
+  // A draft email and the AI's brief (ADR 0078) wait for the person's Approve; everything else runs by itself.
+  const byItself = every.filter((a) => a.type !== 'wait' && a.type !== 'wait_until' && a.type !== 'draft_email' && a.type !== 'save_ai_brief');
+  const waits = every.some((a) => a.type === 'draft_email' || a.type === 'save_ai_brief');
   const lines: ProposalCard['lines'] = [
     { label: 'Name', value: input.name },
     { label: 'Acts on', value: input.scope === 'agency' ? 'The whole agency — every lead and contact' : 'Only your own leads and contacts (assigned to you, or on your listings)' },

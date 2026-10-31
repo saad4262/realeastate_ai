@@ -321,7 +321,7 @@ export const workflowTriggerInput = z
   .strict();
 export const workflowConditionInput = z
   .object({
-    field: z.enum(['listing.suburb', 'listing.channel', 'lead.kind', 'lead.source', 'assignee', 'contact.role', 'appointment.type', 'contact.name', 'listing', 'listing.near']),
+    field: z.enum(['listing.suburb', 'listing.channel', 'lead.kind', 'lead.source', 'assignee', 'contact.role', 'appointment.type', 'contact.name', 'listing', 'listing.near', 'lead.intent', 'lead.urgency']),
     op: z.enum(['eq', 'in', 'not_in', 'contains', 'not_contains', 'within']),
     /**
      * Words from the field's list, a suburb or name as the person said it, M references for `assignee`,
@@ -334,7 +334,7 @@ export const workflowConditionInput = z
   .strict();
 export const workflowActionInput = z
   .object({
-    type: z.enum(['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'send_template_email', 'draft_email', 'wait', 'wait_until']),
+    type: z.enum(['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'send_template_email', 'draft_email', 'save_ai_brief', 'wait', 'wait_until']),
     text: z.string().trim().min(1).max(2000).optional(),
     in_days: z.number().int().min(0).max(60).optional(),
     mail_me: z.boolean().optional(),
