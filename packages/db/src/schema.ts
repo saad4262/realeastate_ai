@@ -573,9 +573,19 @@ export const lead = pgTable(
      * could be added before the backfill.
      */
     contactId: uuid('contact_id').references((): AnyPgColumn => contact.id, { onDelete: 'set null' }),
+    /**
+     * ADR 0078 ("AI understands"): written by the understanding job, never by the model directly. `ai_intent`:
+     * buyer | seller | landlord | tenant | investor | general | not_sure. `ai_qualification`: the why's, the
+     * facts kept with the enquiry's words they were found in, and what was dropped. All CHECKed.
+     */
     aiSummary: text('ai_summary'),
     aiIntent: text('ai_intent'),
     aiQualification: jsonb('ai_qualification'),
+    /** high | normal. */
+    aiUrgency: varchar('ai_urgency', { length: 8 }),
+    /** done | not_sure | off | budget | no_text | failed — null until the job has looked at it. */
+    aiStatus: varchar('ai_status', { length: 12 }),
+    aiUnderstoodAt: timestamp('ai_understood_at', { withTimezone: true }),
     /** Full-text of the enquiry message (ADR 0031). Generated; never written. */
     searchTsv: tsvector('search_tsv').generatedAlwaysAs(sql`to_tsvector('english', coalesce(message, ''))`),
     ...timestamps,

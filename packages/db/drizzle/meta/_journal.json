@@ -547,6 +547,13 @@
       "when": 1793437687210,
       "tag": "0077_outlook",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1793446168306,
+      "tag": "0078_ai_understands",
+      "breakpoints": true
     }
   ]
 }
