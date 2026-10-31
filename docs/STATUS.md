@@ -1,4 +1,9 @@
 # Status
+- **2026-10-31 — smoke "Tenant isolation" 5/5 green** (SMOKE_ENABLED=true SMOKE_ONLY="Tenant isolation"): the new ADR
+  0075 check (two agencies, one address) passes; "tokens and the sync job" fixed — its fixture gave agents the
+  agency's Zoom, which the rule since 2026-10-22 (`f7cbc4d`) refuses; agents now connect their own and the check
+  asserts their Zoom meeting uses exactly that token. TEST-PLAN CA (ADR 0074) and CB (ADR 0075) added; HANDOFF
+  rewritten for either laptop. **Next:** Phase 4.4 triggers mock.
 - **2026-10-31 — ADR 0075 (ROADMAP technical debt): one address, several agencies. Built on `feat/property-per-agency`,
   merged to `main` (`206f30c`, deployed and verified by the user); migrations 0075 AND 0076 APPLIED (77 recorded;
   41 listings backfilled; only `deal_open_agency_property_idx` remains). Rollout complete.** Option A (the user): `listing` holds its ad's seven facts; `upsertProperty`

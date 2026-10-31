@@ -8270,7 +8270,13 @@ async function main() {
     inRollback(async (t) => {
       const { g, A, B } = await isolationFixture(t);
       const tokenOf = async (x: typeof A, i: number) => (await tokensForUse(t, testKeys, x.f.actor(i === 0 ? 'a1' : 'owner'), x.ids.accounts[i]!)).accessToken;
-      const [aCal, aZoom, bCal, bZoom] = [await tokenOf(A, 0), await tokenOf(A, 1), await tokenOf(B, 0), await tokenOf(B, 1)];
+      // Since f7cbc4d (2026-10-22) an agent books Zoom only through their own Zoom, never the agency's: each
+      // agency's a1 connects their own here, and their Zoom appointment must use exactly that token.
+      const ownZoom = async (x: typeof A) => {
+        const id = await g.connect(t, x.f.actor('a1'), 'zoom', 'user', x.f.people.a1, x.f.agencyId);
+        return (await tokensForUse(t, testKeys, x.f.actor('a1'), id)).accessToken;
+      };
+      const [aCal, aZoom, bCal, bZoom] = [await tokenOf(A, 0), await ownZoom(A), await tokenOf(B, 0), await ownZoom(B)];
       // Zoom appointments too, so both providers are exercised.
       const aZ = await scheduleAppointment(t, A.f.actor('a1'), A.ids.contacts[0]!, { title: 'Zoom A', type: 'zoom', ...slot(4) });
       const bZ = await scheduleAppointment(t, B.f.actor('a1'), B.ids.contacts[0]!, { title: 'Zoom B', type: 'zoom', ...slot(4) });

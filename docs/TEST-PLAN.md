@@ -1853,3 +1853,37 @@ Retell: calls are "placed" but nobody is rung.
 | BZ11 | The same caller again the same day | Not scheduled again: "already called back today". |
 | BZ12 | They don't answer | Row: "AI: no answer". No second call. |
 | BZ13 | A POST to /api/phone/retell/<wrong token> | 403, nothing written. With RETELL_VERIFY_SIGNATURE=1 and a bad signature: 401. |
+
+## CA — SMS everywhere, part 1: templates by channel, the "missed call" trigger (ADR 0074)
+
+Needs migration **0074** (applied 2026-10-31). There is no screen for SMS templates yet (part 2 waits for the
+client's five rules), so CA1–CA2 make one through core or the database. Phone test agency, `PHONE_STUB=1`.
+
+| # | Case | Expected |
+|---|---|---|
+| CA1 | Make an SMS template (core: `createTemplate(db, owner, { channel: 'sms', name: 'Missed you', body: 'Hi {{first_name}}' })`), then open Bulk email → Templates | It is NOT listed; the email templates are as before. |
+| CA2 | Bulk email: try to prepare a batch with the SMS template's id (or ask the assistant to email it) | Refused as a template you cannot send; nothing prepared. |
+| CA3 | Skills → Automations → "What can start a workflow" | A **Calls** group with "A call is missed", marked new. |
+| CA4 | Ask the assistant: "when I miss a call from a new number, remind me to call them back" | A workflow card: When a call from a number not in Contacts is missed → Remind you: "Call {{caller_phone}} back" (or similar). Approve. |
+| CA5 | Ask for the same with "add a note to the contact" | Refused: a call from a new number has no contact yet — remind someone instead. |
+| CA6 | A missed call (stub) from a number not in Contacts, to the agent who owns the workflow | Within a minute a reminder with the caller's number written out (0412 555 019). The run log shows it. |
+| CA7 | The same to another agent's number | The personal workflow does not run (only its owner's calls). |
+| CA8 | A missed call from a number that IS a contact, with the workflow set to "new" | Does not run. Set to "known" or either: it runs, and a note step is allowed. |
+
+## CB — One address, several agencies (ADR 0075)
+
+Needs migrations **0075 + 0076** (applied 2026-10-31). Two agencies you can sign in to (the phone test agency and
+Harbour Realty (TEST)) and a MADE-UP address — never a real one: the address row is shared by every agency.
+
+| # | Case | Expected |
+|---|---|---|
+| CB1 | Agency A: a new sale listing at "3 Testcase Rd, Pakenham VIC 3810", house, 3 bed, pin placed by hand; publish | As before. |
+| CB2 | Agency B: a listing at the same address typed differently ("3 Testcase Road"), townhouse, 4 bed, pin dragged elsewhere; publish | Saves. It joins the same address (one property). |
+| CB3 | A's listing: edit form, public page, search card | Still house, 3 bed, A's pin — B changed nothing of A's. |
+| CB4 | B's listing: the same three | Townhouse, 4 bed — B's own ad. |
+| CB5 | B edits its listing: 5 bed, drags the pin again | B shows 5 bed; A still shows 3 bed and its pin. |
+| CB6 | Public search, Pakenham, 4+ bed | B's listing only. |
+| CB7 | Pipeline in A and in B (within a minute, or the deal sync) | Each agency has its own deal card for the address. Neither sees the other's. |
+| CB8 | Properties → the address, in A and in B | Each shows its own ad's facts and its own deal; no offer or enquiry of the other agency. |
+| CB9 | B clears "bathrooms" on its form | B's ad shows the bathrooms the address was first given (A's), or none if it never had any; A unchanged. |
+| CB10 | Withdraw both test listings afterwards | Off the public site. |
