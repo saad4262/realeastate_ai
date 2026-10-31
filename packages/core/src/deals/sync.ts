@@ -27,7 +27,13 @@ end)`;
 /** How far back a sold listing or an appraisal still opens a deal — so switching this on does not fill the board with history. */
 const BACKFILL_DAYS = 60;
 
-export async function runDealSync(db: Db): Promise<DealSyncReport> {
+/**
+ * `agencyId` narrows every statement to one agency — for a manual run against a test agency on the shared
+ * database. The tick passes nothing and syncs every agency, as before.
+ */
+export async function runDealSync(db: Db, opts: { agencyId?: string } = {}): Promise<DealSyncReport> {
+  /** `and <col> = <agencyId>` when scoped, nothing otherwise. */
+  const only = (col: string) => (opts.agencyId ? sql`and ${sql.raw(col)} = ${opts.agencyId}::uuid` : sql``);
   const report: DealSyncReport = { linked: 0, opened: 0, appraisals: 0, moved: 0, withdrawn: 0, conditions: 0, reminders: 0 };
 
   // 1. An appraisal's deal meets its listing: the property's newest sale listing that no deal has yet.
@@ -39,7 +45,7 @@ export async function runDealSync(db: Db): Promise<DealSyncReport> {
       where li.channel = 'sale' and li.status <> 'withdrawn' and not exists (select 1 from deal x where x.listing_id = li.id)
       order by li.property_id, li.created_at desc
     ) l
-    where d.status = 'open' and d.listing_id is null and d.property_id = l.property_id and d.agency_id = l.agency_id
+    where d.status = 'open' and d.listing_id is null and d.property_id = l.property_id and d.agency_id = l.agency_id ${only('d.agency_id')}
     returning d.id`);
   report.linked = linked.length;
 
@@ -51,7 +57,7 @@ export async function runDealSync(db: Db): Promise<DealSyncReport> {
       from listing li
       where li.channel = 'sale'
         and (li.status in ('draft', 'pending', 'live', 'under_offer') or (li.status = 'sold' and li.sold_date > now() - make_interval(days => ${BACKFILL_DAYS})))
-        and li.agency_id not in ${SUSPENDED_AGENCY_IDS}
+        and li.agency_id not in ${SUSPENDED_AGENCY_IDS} ${only('li.agency_id')}
         and not exists (select 1 from deal d where d.listing_id = li.id)
     ), ins as (
       insert into deal (agency_id, property_id, listing_id, stage, agent_id, sale_price, contract_date)
@@ -78,7 +84,7 @@ export async function runDealSync(db: Db): Promise<DealSyncReport> {
         from appointment a where a.type = 'appraisal' and a.property_id is not null and a.status::text <> 'cancelled'
           and a.starts_at > now() - make_interval(days => ${BACKFILL_DAYS})
       ) x
-      where x.agency_id not in ${SUSPENDED_AGENCY_IDS}
+      where x.agency_id not in ${SUSPENDED_AGENCY_IDS} ${only('x.agency_id')}
         and not exists (select 1 from deal d where d.property_id = x.property_id and (d.status = 'open' or d.updated_at > now() - make_interval(days => ${BACKFILL_DAYS})))
       order by x.property_id, x.at desc
     ), ins as (
@@ -98,7 +104,7 @@ export async function runDealSync(db: Db): Promise<DealSyncReport> {
     with tgt as (
       select d.id, d.agency_id, d.stage as cur, ${LISTING_STAGE} as t, li.sold_price, li.sold_date
       from deal d join listing li on li.id = d.listing_id
-      where d.status = 'open'
+      where d.status = 'open' ${only('d.agency_id')}
     ), mv as (
       update deal d set
         stage = (${STAGES})[tgt.t + 1]::deal_stage,
@@ -120,7 +126,7 @@ export async function runDealSync(db: Db): Promise<DealSyncReport> {
       update deal d set status = 'withdrawn', updated_at = now()
       from listing li
       where li.id = d.listing_id and d.status = 'open' and li.status = 'withdrawn'
-        and array_position(${STAGES}, d.stage::text) - 1 < 5
+        and array_position(${STAGES}, d.stage::text) - 1 < 5 ${only('d.agency_id')}
       returning d.id, d.agency_id, d.stage
     )
     insert into deal_event (deal_id, agency_id, kind, from_stage, auto, note)
@@ -134,7 +140,7 @@ export async function runDealSync(db: Db): Promise<DealSyncReport> {
     select d.id, d.agency_id, c.kind, c.label, c.sort
     from deal d
     cross join (values ${sql.join(STANDARD_CONDITIONS.map((c, i) => sql`(${c.kind}::text, ${c.label}::text, ${i}::int)`), sql`, `)}) as c(kind, label, sort)
-    where d.status = 'open' and array_position(${STAGES}, d.stage::text) - 1 >= 5
+    where d.status = 'open' and array_position(${STAGES}, d.stage::text) - 1 >= 5 ${only('d.agency_id')}
       and not exists (select 1 from deal_condition x where x.deal_id = d.id)
     returning id`);
   report.conditions = conditions.length;
@@ -166,7 +172,7 @@ export async function runDealSync(db: Db): Promise<DealSyncReport> {
       due.key
     from due
     join membership m on m.user_id = due.user_id and m.agency_id = due.agency_id and m.status = 'active'
-    where due.agency_id not in ${SUSPENDED_AGENCY_IDS}
+    where due.agency_id not in ${SUSPENDED_AGENCY_IDS} ${only('due.agency_id')}
     on conflict do nothing
     returning id`);
   report.reminders = reminders.length;

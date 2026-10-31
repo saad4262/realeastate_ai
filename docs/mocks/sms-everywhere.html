@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SMS Everywhere</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300..600,0..1&display=swap" rel="stylesheet" />
+<!--
+  Mock for ROADMAP Phase 3.4 — SMS everywhere: SMS templates (email_template with a channel), Bulk SMS
+  (template → people → Prepare → review → Approve & Send), "Text them" on a listing's Matching buyers tab,
+  the workflow step "Send SMS" behind the pair skill "Workflow texts", the workflow trigger "Missed call",
+  and the agency number in Phone & SMS settings.
+  The user's decisions (2026-10-31): templates live in email_template with channel 'sms'; a text goes from the
+  contact's assigned agent's Twilio number, else the agency number; "Workflow texts" needs the agency's AND the
+  agent's switch.
+  Console tokens (apps/console/app/globals.css). Every name, number, time and count is SAMPLE data. In the
+  build, counts and segments come from code/SQL, never from a model (non-negotiable 4); templates are written by
+  people (non-negotiable 7). The bar at the top exists only in the mock.
+  #rules (default), #bulk, #review, #templates, #buyers, #workflow, #settings open those screens; &agent the agent view.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff;
+    --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff;
+    --emerald: #059669; --emerald-subtle: #ecfdf5;
+    --rose: #e11d48; --rose-subtle: #fff1f2;
+    --amber: #d97706; --amber-subtle: #fffbeb;
+    --violet: #6d28d9; --violet-subtle: #f5f3ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .ms { font-family: 'Material Symbols Outlined'; font-size: 20px; line-height: 1; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 400; }
+  .ms.sm { font-size: 16px; width: 16px; height: 16px; }
+  button, input, select, textarea { font: inherit; }
+  [hidden] { display: none !important; }
+
+  .mockbar { position: sticky; top: 0; z-index: 30; display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+  .mockbar b { color: #fff; }
+  .seg { display: inline-flex; background: #1e293b; border-radius: 8px; padding: 2px; flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; }
+
+  .shell { display: flex; min-height: calc(100vh - 36px); }
+  aside { width: 240px; flex: none; border-right: 1px solid var(--border-default); padding: 16px 12px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 16px; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--text-primary); color: #fff; display: grid; place-items: center; font: 700 12px 'Plus Jakarta Sans'; }
+  .brand small { display: block; color: var(--text-muted); font-size: 11px; }
+  .gh { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px 4px; }
+  .nl { display: flex; gap: 12px; align-items: center; padding: 7px 12px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; }
+  .nl.on { background: #fff; color: var(--sapphire); border: 1px solid var(--border-default); font-weight: 500; }
+  .nl .new { margin-left: auto; font-size: 10.5px; background: var(--sapphire-subtle); color: var(--sapphire); padding: 0 7px; border-radius: 999px; font-weight: 600; }
+
+  main { flex: 1; min-width: 0; padding: 22px 32px 64px; max-width: 1080px; }
+  h2 { font: 600 19px/26px 'Plus Jakarta Sans'; margin: 10px 0 4px; }
+  h3 { font: 600 14.5px/20px 'Plus Jakarta Sans'; margin: 0; }
+  .lead { color: var(--text-secondary); margin: 0 0 14px; max-width: 75ch; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .muted { color: var(--text-muted); font-size: 12px; }
+  .mono { font-variant-numeric: tabular-nums; }
+  .crumb { color: var(--text-muted); font-size: 12px; }
+
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-default); margin-bottom: 14px; overflow-x: auto; }
+  .tabs button { border: 0; background: none; padding: 8px 12px; color: var(--text-secondary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500; white-space: nowrap; }
+  .tabs button[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--text-primary); }
+
+  .steps { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 14px; padding: 0; list-style: none; }
+  .steps li { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--text-muted); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border-default); background: #fff; }
+  .steps li.on { color: var(--text-primary); border-color: var(--text-primary); font-weight: 600; }
+  .steps li.done { color: var(--emerald); border-color: #a7f3d0; background: var(--emerald-subtle); }
+
+  .pane { background: #fff; border: 1px solid var(--border-default); border-radius: 14px; padding: 14px 16px; }
+  .pane + .pane { margin-top: 12px; }
+  .pane h3 { margin-bottom: 4px; }
+  .pane p.h { margin: 0 0 10px; color: var(--text-secondary); font-size: 12.5px; }
+  .two { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; align-items: start; }
+
+  .card { background: #fff; border: 1px solid var(--border-default); border-radius: 14px; overflow: hidden; }
+  .tw { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); padding: 9px 12px; border-bottom: 1px solid var(--border-default); background: #fff; white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border-default); vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+  tr.skipped td { color: var(--text-muted); }
+  .who b { display: block; }
+  .who span { font-size: 12px; color: var(--text-muted); }
+
+  .pill { display: inline-flex; gap: 5px; align-items: center; font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+  .pill.ok { background: var(--emerald-subtle); color: var(--emerald); }
+  .pill.skip { background: var(--surface-canvas); color: var(--text-secondary); border: 1px solid var(--border-default); }
+  .pill.warn { background: var(--amber-subtle); color: var(--amber); }
+  .pill.sms { background: var(--violet-subtle); color: var(--violet); }
+  .pill.mail { background: var(--sapphire-subtle); color: var(--sapphire); }
+  .from { font-size: 12px; }
+  .from b { display: block; font-weight: 500; }
+  .from span { color: var(--text-muted); }
+  .from.fallback b { color: var(--amber); }
+
+  .btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-default); background: #fff; color: var(--text-primary); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; text-decoration: none; }
+  .btn.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .btn.ghost { border-color: transparent; color: var(--text-secondary); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn:focus-visible, .chip:focus-visible, .tabs button:focus-visible, .in:focus-visible, .sw:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+
+  label.f { display: grid; gap: 4px; font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+  .in { border: 1px solid var(--border-default); border-radius: 8px; padding: 7px 10px; background: #fff; color: var(--text-primary); width: 100%; }
+  textarea.in { min-height: 96px; resize: vertical; line-height: 20px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stack { display: grid; gap: 10px; }
+  .chip { border: 1px solid var(--border-default); background: #fff; border-radius: 999px; padding: 4px 11px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .merge { font-size: 11.5px; color: var(--text-muted); display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+  .merge code { background: var(--surface-canvas); border: 1px solid var(--border-default); border-radius: 4px; padding: 0 4px; cursor: pointer; }
+  .meter { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+  .meter.over { color: var(--rose); }
+
+  .phone { background: #f1f5f9; border: 1px solid var(--border-default); border-radius: 22px; padding: 14px 12px 18px; }
+  .phone .top { text-align: center; font-size: 11.5px; color: var(--text-muted); margin-bottom: 10px; }
+  .phone .top b { display: block; color: var(--text-primary); font-size: 12.5px; }
+  .bubble { background: #e5e5ea; border-radius: 16px 16px 16px 4px; padding: 8px 12px; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+  .bubble .foot { color: #475569; }
+
+  .note { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; }
+  .note.info { background: var(--sapphire-subtle); color: #1e40af; }
+  .note.warn { background: var(--amber-subtle); color: #92400e; }
+  .note.ok { background: var(--emerald-subtle); color: #065f46; }
+  .note .ms { flex: none; }
+  .rules { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 3px; color: var(--text-secondary); font-size: 12.5px; }
+
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
+  .tile { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; padding: 10px 12px; }
+  .tile b { display: block; font: 600 22px/28px 'Plus Jakarta Sans'; }
+  .tile span { font-size: 12px; color: var(--text-secondary); }
+
+  .toggle { display: flex; gap: 10px; align-items: flex-start; }
+  .sw { flex: none; width: 36px; height: 20px; border-radius: 999px; background: var(--border-strong); position: relative; border: 0; cursor: pointer; margin-top: 1px; }
+  .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; }
+  .sw[aria-checked="true"] { background: var(--emerald); }
+  .sw[aria-checked="true"]::after { left: 18px; }
+  .sw:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* Workflow */
+  .flow { display: grid; gap: 0; }
+  .node { display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 10px 0; position: relative; }
+  .node + .node::before { content: ''; position: absolute; left: 16px; top: -6px; height: 12px; border-left: 2px dashed var(--border-strong); }
+  .node .ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-canvas); border: 1px solid var(--border-default); color: var(--text-secondary); }
+  .node.trigger .ic { background: var(--rose-subtle); color: var(--rose); border-color: #fecdd3; }
+  .node.sms .ic { background: var(--violet-subtle); color: var(--violet); border-color: #ddd6fe; }
+  .node b { display: block; }
+  .node span { font-size: 12.5px; color: var(--text-secondary); }
+  .newtag { font-size: 10.5px; font-weight: 600; color: var(--sapphire); background: var(--sapphire-subtle); border-radius: 999px; padding: 0 7px; margin-left: 6px; }
+  .skill { display: grid; grid-template-columns: 40px 1fr auto; gap: 12px; align-items: start; }
+  .skill .ic { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--violet-subtle); color: var(--violet); }
+  .pair { display: grid; gap: 6px; font-size: 12.5px; }
+  .pair div { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+
+  /* Dialog */
+  .scrim { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); display: grid; place-items: center; padding: 16px; z-index: 40; }
+  .dialog { width: min(680px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: #fff; border-radius: 14px; box-shadow: 0 20px 50px rgba(15, 23, 42, .25); }
+  .dialog header { padding: 16px 18px 6px; }
+  .dialog header h2 { margin: 0; font-size: 17px; }
+  .dialog .body { padding: 8px 18px 14px; display: grid; gap: 12px; }
+  .dialog footer { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 18px; border-top: 1px solid var(--border-default); flex-wrap: wrap; }
+  .kv { display: grid; gap: 6px; font-size: 12.5px; }
+  .kv div { display: flex; justify-content: space-between; gap: 10px; }
+  .kv span { color: var(--text-muted); }
+
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #0f172a; color: #fff; padding: 9px 14px; border-radius: 10px; font-size: 12.5px; z-index: 50; }
+
+  @media (max-width: 960px) { .two { grid-template-columns: 1fr; } .tiles { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 860px) { aside { display: none; } main { padding: 18px 16px 48px; } .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>MOCK · sample data</b>
+  <span>View:</span>
+  <div class="seg" role="group" aria-label="View">
+    <button type="button" data-view="owner" aria-pressed="true">Agency owner</button>
+    <button type="button" data-view="agent" aria-pressed="false">Agent (Sarah)</button>
+  </div>
+  <span>Screen:</span>
+  <div class="seg" role="group" aria-label="Screen">
+    <button type="button" data-screen="rules" aria-pressed="true">Rules to approve</button>
+    <button type="button" data-screen="bulk" aria-pressed="false">1 · Bulk SMS</button>
+    <button type="button" data-screen="review" aria-pressed="false">2 · Review &amp; send</button>
+    <button type="button" data-screen="templates" aria-pressed="false">3 · SMS template</button>
+    <button type="button" data-screen="buyers" aria-pressed="false">4 · Text matched buyers</button>
+    <button type="button" data-screen="workflow" aria-pressed="false">5 · Workflow</button>
+    <button type="button" data-screen="settings" aria-pressed="false" data-owneronly>6 · Agency number</button>
+  </div>
+</div>
+
+<div class="shell">
+  <aside aria-label="Sidebar">
+    <div class="brand"><div class="logo">PR</div><div><b>Pakenham Realty</b><small id="who">Agency console</small></div></div>
+    <div class="gh">Home</div>
+    <div class="gh">Daily work</div>
+    <div class="nl"><span class="ms">filter_alt</span>Leads</div>
+    <div class="nl"><span class="ms">mail</span>Inbox</div>
+    <div class="nl"><span class="ms">phone_missed</span>Missed calls</div>
+    <div class="gh">People</div>
+    <div class="gh">Properties</div>
+    <div class="nl" data-nav="buyers"><span class="ms">home_work</span>Listings</div>
+    <div class="gh">Marketing</div>
+    <div class="nl"><span class="ms">forward_to_inbox</span>Bulk email</div>
+    <div class="nl" data-nav="bulk review templates"><span class="ms">sms</span>Bulk SMS<span class="new">New</span></div>
+    <div class="gh">Automation</div>
+    <div class="nl" data-nav="workflow"><span class="ms">bolt</span>Skills</div>
+    <div class="gh">Settings</div>
+    <div class="nl" data-nav="settings" data-owneronly><span class="ms">cable</span>Connectors</div>
+  </aside>
+
+  <main>
+    <!-- ===================== RULES TO APPROVE ===================== -->
+    <section id="rules">
+      <p class="crumb">Phase 3.4 · SMS everywhere · for the client's approval</p>
+      <h2>Five rules to approve</h2>
+      <p class="lead">Texts cost the agency money and fall under Australia's Spam Act, so these rules decide who gets a text, from which number, when, and how many. Please approve each one or say what to change. The screens 1–6 in the bar above show them in place.</p>
+
+      <div class="stack">
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>1 · The agency number</h3><span class="pill warn">To approve</span></div>
+          <p class="h" style="margin-top:6px">A text goes from the person's own agent's Twilio number. When that agent has no number yet, or nobody is assigned, it goes from the <b>agency number</b>: one of the agency's existing numbers that the owner picks in Phone &amp; SMS (the owner's own by default). If there is no agency number either, that person is skipped and the review says "No number to send from".</p>
+          <p class="muted" style="margin:0">Alternative: buy one extra number only for the agency, held by an admin account. Costs one more number a month. See screen 6.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>2 · Who may get a marketing text</h3><span class="pill warn">To approve</span></div>
+          <p class="h" style="margin-top:6px">The same rule as Bulk email: the person agreed to marketing, <b>or</b> enquired with the agency in the last 24 months, <b>or</b> is a client (seller, landlord, tenant). On top of that, for texts: an Australian mobile only, and never anyone who replied STOP to any of the agency's numbers. Every text ends with "Reply STOP to opt out", which cannot be removed. Consent and STOP are checked at Prepare and again at the moment each text goes.</p>
+          <p class="muted" style="margin:0">Alternative: texts only to people who gave recorded consent (stricter, fewer people reached). A one-to-one reply in a conversation is not marketing and is not affected.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>3 · Sending hours: 9 am to 8 pm</h3><span class="pill warn">To approve</span></div>
+          <p class="h" style="margin-top:6px">Bulk texts, texts to matched buyers and workflow texts go only between 9 am and 8 pm on the agency's time zone, the same hours the AI call back uses (the owner can change them in Missed calls → Settings). Anything approved outside those hours waits for the next morning. The instant missed-call text is not held back: the caller has just rung.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>4 · At most one automatic text per caller per 24 hours</h3><span class="pill warn">To approve</span></div>
+          <p class="h" style="margin-top:6px">If both "Missed call text" and a missed-call workflow with "Send SMS" are on, the caller gets only the first of them in any 24 hours, never two. Bulk texts and texts to matched buyers are a person's deliberate choice and are not capped this way; they still respect STOP, consent and the daily limit.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>5 · 100 texts per number per day</h3><span class="pill warn">To approve</span></div>
+          <p class="h" style="margin-top:6px">Each agent's number sends at most 100 texts a day, counting every kind together: missed-call texts, bulk, matched buyers and workflows. Past the limit, a text is skipped with "agent's daily limit reached" and nothing is sent. Bulk batches stay at 20 people each, as in Bulk email.</p>
+          <p class="muted" style="margin:0">The number 100 is a setting and can be raised or lowered.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>Already decided (2026-10-31)</h3><span class="pill ok">Decided</span></div>
+          <ul class="rules">
+            <li>SMS templates sit with the email templates in one list, each marked Email or SMS (later WhatsApp the same way). People write them; the AI never does.</li>
+            <li>A text comes from the person's assigned agent's number, else the agency number.</li>
+            <li>The workflow step "Send SMS" runs only when the agency's switch <b>and</b> the agent's own switch for "Workflow texts" are both on.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 1 · BULK SMS ===================== -->
+    <section id="bulk" hidden>
+      <p class="crumb">Marketing · Bulk SMS</p>
+      <h2>Bulk SMS</h2>
+      <p class="lead" id="bulklead">Text one of your SMS templates to a group of people. Each person gets it from <b>their own agent's number</b>; if their agent has no number yet, from the agency number. Nothing is sent until you press Approve &amp; Send.</p>
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-screen="bulk">New text</button>
+        <button role="tab" aria-selected="false" data-screen="templates">Templates</button>
+        <button role="tab" aria-selected="false">Sent</button>
+      </div>
+      <ol class="steps"><li class="on">1 · Template &amp; people</li><li>2 · Review</li><li>3 · Sent</li></ol>
+
+      <div class="two">
+        <div>
+          <div class="pane">
+            <h3>Template</h3>
+            <p class="h">Only SMS templates are listed here. Email templates stay in Bulk email.</p>
+            <select class="in" id="bulktpl" aria-label="SMS template">
+              <option value="open">Open home this Saturday (SMS)</option>
+              <option value="new">New listing near you (SMS)</option>
+              <option value="price">Price update (SMS)</option>
+            </select>
+          </div>
+          <div class="pane">
+            <h3>Who gets it</h3>
+            <p class="h">The same filters as Bulk email. Up to 20 people per batch.</p>
+            <div class="row" style="margin-bottom:10px">
+              <button class="chip" aria-pressed="true">Buyers</button>
+              <button class="chip" aria-pressed="false">Past clients</button>
+              <button class="chip" aria-pressed="false">Sellers</button>
+              <button class="chip" aria-pressed="false">Prospects</button>
+            </div>
+            <div class="grid2">
+              <label class="f">Suburb<input class="in" value="Pakenham, Officer" /></label>
+              <label class="f" id="agentfilter">Assigned agent<select class="in"><option>Anyone</option><option>Sarah Lee</option><option>Omar Rahimi</option><option>James Tran</option></select></label>
+            </div>
+            <p class="muted" style="margin:10px 0 0" id="bulkcount">8 people match · 20 per batch</p>
+          </div>
+        </div>
+        <div>
+          <div class="phone" aria-label="Preview for one person">
+            <div class="top"><b>Preview · Priya Shah</b>from Sarah's number 0480 012 345</div>
+            <div class="bubble" id="bulkbubble"></div>
+          </div>
+          <p class="muted" style="margin:8px 4px 0">Merge fields are filled per person. "Reply STOP to opt out" is added to every text and cannot be removed.</p>
+          <div class="row" style="margin-top:12px; justify-content:flex-end">
+            <button class="btn primary" type="button" data-go="review"><span class="ms sm">fact_check</span>Prepare &amp; review</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 2 · REVIEW ===================== -->
+    <section id="review" hidden>
+      <p class="crumb">Marketing · Bulk SMS</p>
+      <h2>Review before sending</h2>
+      <p class="lead">These are the people and numbers frozen at Prepare. Consent, STOP and limits are checked again at the moment each text goes. This batch expires in <b>48 hours</b> if nobody approves it.</p>
+      <ol class="steps"><li class="done">1 · Template &amp; people</li><li class="on">2 · Review</li><li>3 · Sent</li></ol>
+
+      <div class="tiles" aria-label="This batch">
+        <div class="tile"><b class="mono">5</b><span>will get the text</span></div>
+        <div class="tile"><b class="mono">3</b><span>skipped, each says why</span></div>
+        <div class="tile"><b class="mono">2</b><span>SMS parts each (161–306 characters)</span></div>
+        <div class="tile"><b class="mono">10</b><span>SMS parts in total, billed by Twilio</span></div>
+      </div>
+
+      <div class="card tw">
+        <table>
+          <thead><tr><th>Person</th><th>Mobile</th><th>Sent from</th><th>Status</th></tr></thead>
+          <tbody id="reviewrows"></tbody>
+        </table>
+      </div>
+
+      <div class="note info" style="margin-top:12px"><span class="ms sm">schedule</span><span>Texts go between <b>9 am and 8 pm</b> on the agency's time zone (the calling hours in Missed calls → Settings). Approved outside those hours, they wait for the next morning.</span></div>
+
+      <div class="row" style="margin-top:14px; justify-content:space-between">
+        <button class="btn ghost" type="button" data-go="bulk"><span class="ms sm">arrow_back</span>Back</button>
+        <div class="row">
+          <button class="btn" type="button">Discard</button>
+          <button class="btn primary" type="button" id="approve"><span class="ms sm">send</span>Approve &amp; Send 5 texts</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 3 · TEMPLATE ===================== -->
+    <section id="templates" hidden>
+      <p class="crumb">Marketing · Bulk SMS · Templates</p>
+      <h2>SMS template</h2>
+      <p class="lead">Written by a person, never by the AI. Templates sit with the email templates in one list, each marked <span class="pill mail">Email</span> or <span class="pill sms">SMS</span>, so later channels (WhatsApp) fit the same way.</p>
+
+      <div class="two">
+        <div class="pane stack">
+          <label class="f">Name<input class="in" value="Open home this Saturday" /></label>
+          <div class="row">
+            <span class="muted">Channel</span>
+            <button class="chip" aria-pressed="false">Email</button>
+            <button class="chip" aria-pressed="true">SMS</button>
+          </div>
+          <label class="f">Text
+            <textarea class="in" id="tplbody" maxlength="480">Hi {{first_name}}, open home at {{listing_address}} this Sat 10:30-11:00. Want me to save you a spot? - {{agent_first_name}}</textarea>
+          </label>
+          <div class="meter" id="meter"></div>
+          <div class="merge">Merge fields:
+            <code>{{first_name}}</code><code>{{agent_first_name}}</code><code>{{agency_name}}</code><code>{{listing_address}}</code><code>{{listing_price}}</code>
+          </div>
+          <div class="toggle" id="sharerow">
+            <button class="sw" role="switch" aria-checked="true" aria-label="Everyone in the agency can use it"></button>
+            <div><b>Everyone in the agency can use it</b><div class="muted">Off: only you. (Agents' own templates are only theirs.)</div></div>
+          </div>
+          <div class="row" style="justify-content:flex-end"><button class="btn primary" type="button">Save template</button></div>
+        </div>
+        <div>
+          <div class="phone">
+            <div class="top"><b>Preview</b>with sample values</div>
+            <div class="bubble" id="tplbubble"></div>
+          </div>
+          <ul class="rules">
+            <li>Up to 480 characters (3 SMS parts) before the footer.</li>
+            <li>The footer "Reply STOP to opt out" is added by the app and counted.</li>
+            <li>An emoji or a curly quote makes every part shorter (70 characters instead of 160) — the counter says so.</li>
+            <li>No link shorteners; a full link is fine.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 4 · MATCHED BUYERS ===================== -->
+    <section id="buyers" hidden>
+      <p class="crumb">Listings · 27 Lakeside Boulevard, Pakenham</p>
+      <h2>27 Lakeside Boulevard, Pakenham</h2>
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="false">Overview</button>
+        <button role="tab" aria-selected="true">Matching buyers <span class="muted">6</span></button>
+        <button role="tab" aria-selected="false">Deal</button>
+        <button role="tab" aria-selected="false">Documents</button>
+      </div>
+      <div class="row" style="justify-content:space-between; margin-bottom:10px">
+        <span class="muted" id="buyerslead">6 buyers whose brief fits this listing · 4 selected</span>
+        <div class="row">
+          <button class="btn" type="button"><span class="ms sm">mail</span>Email them</button>
+          <button class="btn primary" type="button" id="openText"><span class="ms sm">sms</span>Text them</button>
+          <button class="btn" type="button"><span class="ms sm">call</span>Call task</button>
+        </div>
+      </div>
+      <div class="card tw">
+        <table>
+          <thead><tr><th></th><th>Buyer</th><th>Wants</th><th>Agent</th><th>Text</th></tr></thead>
+          <tbody id="buyerrows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===================== 5 · WORKFLOW ===================== -->
+    <section id="workflow" hidden>
+      <p class="crumb">Automation · Skills</p>
+      <h2>Skills</h2>
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="true">Platform skills</button>
+        <button role="tab" aria-selected="false">AI skills</button>
+        <button role="tab" aria-selected="false">Automations</button>
+      </div>
+
+      <div class="pane">
+        <div class="skill">
+          <div class="ic"><span class="ms">sms</span></div>
+          <div>
+            <h3>Workflow texts <span class="newtag">New</span></h3>
+            <p class="h" style="margin:2px 0 8px">A workflow texts one of your SMS templates to a contact by itself, from their agent's number. Every text costs the agency, so it runs only when <b>the agency AND the agent</b> have it on. Off: that step is skipped and the run says why.</p>
+            <div class="pair" id="pair"></div>
+          </div>
+          <span class="pill skip" id="pairstate">Off</span>
+        </div>
+      </div>
+
+      <h3 style="margin:18px 0 8px">Example: an automation that uses both new pieces</h3>
+      <div class="pane">
+        <div class="row" style="justify-content:space-between; margin-bottom:6px">
+          <b>Missed call from a new number → text and a task</b>
+          <span class="pill ok">Active</span>
+        </div>
+        <div class="flow">
+          <div class="node trigger"><div class="ic"><span class="ms">phone_missed</span></div><div><b>When a call is missed <span class="newtag">New trigger</span></b><span>Only callers who are not in Contacts yet · any agent</span></div></div>
+          <div class="node"><div class="ic"><span class="ms">hourglass_top</span></div><div><b>Wait 30 minutes</b><span>Gives the agent time to call back themselves.</span></div></div>
+          <div class="node sms"><div class="ic"><span class="ms">sms</span></div><div><b>Send SMS <span class="newtag">New step</span></b><span>Template "Sorry we missed you" · from the agent's own number · needs Workflow texts on (agency + agent)</span></div></div>
+          <div class="node"><div class="ic"><span class="ms">task_alt</span></div><div><b>Remind the agent</b><span>"Call back {{caller}} today"</span></div></div>
+        </div>
+        <div class="note warn" style="margin-top:10px"><span class="ms sm">info</span><span>"Missed call text" (Phase 3.2) already texts every missed caller at once. If both are on, the app sends <b>one text per caller per 24 h</b>, whichever comes first — never two.</span></div>
+      </div>
+
+      <h3 style="margin:18px 0 8px">The run log says what happened</h3>
+      <div class="card tw">
+        <table>
+          <thead><tr><th>When</th><th>Contact</th><th>Step</th><th>Result</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">Today 10:42</td><td>0412 555 019</td><td>Send SMS</td><td><span class="pill ok">Sent from Sarah's number</span></td></tr>
+            <tr><td class="mono">Today 09:15</td><td>Mark Ellis</td><td>Send SMS</td><td><span class="pill skip">Skipped · Omar has Workflow texts off</span></td></tr>
+            <tr><td class="mono">Yesterday 18:03</td><td>0433 210 884</td><td>Send SMS</td><td><span class="pill skip">Skipped · replied STOP</span></td></tr>
+            <tr><td class="mono">Yesterday 21:40</td><td>Anika Rao</td><td>Send SMS</td><td><span class="pill warn">Waiting · outside 9 am–8 pm, goes at 9:00</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===================== 6 · AGENCY NUMBER ===================== -->
+    <section id="settings" hidden>
+      <p class="crumb">Settings · Connectors · Phone &amp; SMS</p>
+      <h2>Phone &amp; SMS</h2>
+      <p class="lead">Your Twilio is connected and approved. Each agent has their own number.</p>
+
+      <div class="pane">
+        <h3>Agency number <span class="newtag">New</span></h3>
+        <p class="h">Used only when a text should come from a person's agent but that agent has no number yet (or nobody is assigned). Pick one of your numbers. Replies to it land in the Inbox under the person, visible to owners and admins.</p>
+        <label class="f" style="max-width:420px">Agency number
+          <select class="in">
+            <option>0480 012 300 · Hannah Wells (owner)</option>
+            <option>0480 012 345 · Sarah Lee</option>
+            <option>0480 012 377 · Omar Rahimi</option>
+          </select>
+        </label>
+        <div class="note info" style="margin-top:10px"><span class="ms sm">lightbulb</span><span>Want a separate number just for the agency? Buy one under "Numbers" and give it to an admin account; it then appears in this list.</span></div>
+      </div>
+
+      <div class="pane">
+        <h3>Numbers</h3>
+        <div class="card tw" style="margin-top:8px">
+          <table>
+            <thead><tr><th>Agent</th><th>Twilio number</th><th>Texts today</th><th></th></tr></thead>
+            <tbody>
+              <tr><td>Hannah Wells (owner)</td><td class="mono">0480 012 300</td><td class="mono">4 / 100</td><td><span class="pill ok">Agency number</span></td></tr>
+              <tr><td>Sarah Lee</td><td class="mono">0480 012 345</td><td class="mono">17 / 100</td><td></td></tr>
+              <tr><td>Omar Rahimi</td><td class="mono">0480 012 377</td><td class="mono">0 / 100</td><td></td></tr>
+              <tr><td>James Tran</td><td class="muted">No number yet</td><td class="muted">—</td><td><button class="btn" type="button">Get a number</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted" style="margin:8px 0 0">The daily limit per number counts every text: missed-call texts, bulk, matched buyers and workflows together.</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- TEXT-THEM DIALOG -->
+<div class="scrim" id="textdlg" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-title">
+    <header><h2 id="dlg-title">Text buyers about 27 Lakeside Boulevard</h2><p class="muted" style="margin:4px 0 0">The listing's address and price are filled in from the listing as it is now and frozen at Prepare.</p></header>
+    <div class="body">
+      <label class="f">SMS template
+        <select class="in"><option>New listing near you (SMS)</option><option>Open home this Saturday (SMS)</option></select>
+      </label>
+      <div class="phone"><div class="top"><b>Preview · Priya Shah</b>from Sarah's number</div><div class="bubble" id="dlgbubble"></div></div>
+      <div class="kv">
+        <div><span>Selected</span><b class="mono">4</b></div>
+        <div><span>Will get the text</span><b class="mono">3</b></div>
+        <div><span>Skipped</span><b>Tom Ashby — replied STOP</b></div>
+        <div><span>Sent from</span><b>Each buyer's agent's number (James's buyer: agency number)</b></div>
+      </div>
+      <div class="note info"><span class="ms sm">verified_user</span><span>Same rules as "Email them": only people who agreed to marketing, enquired in the last 24 months, or are clients — plus, for texts, an Australian mobile and nobody who replied STOP.</span></div>
+    </div>
+    <footer>
+      <button class="btn" type="button" id="closeText">Cancel</button>
+      <button class="btn primary" type="button" id="prepareText"><span class="ms sm">fact_check</span>Prepare &amp; review</button>
+    </footer>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const AGENT_NUM = { Sarah: '0480 012 345', Omar: '0480 012 377', Hannah: '0480 012 300' };
+const AGENCY_NUM = '0480 012 300';
+
+// Review rows. from: agent | agency | none. status: ok | consent | stop | landline | limit
+const PEOPLE = [
+  { name: 'Priya Shah', note: 'Buyer · Pakenham', mobile: '0412 555 101', agent: 'Sarah', status: 'ok' },
+  { name: 'Daniel Moore', note: 'Buyer · Officer', mobile: '0423 555 202', agent: 'Sarah', status: 'ok' },
+  { name: 'Mei Lin', note: 'Buyer · Pakenham', mobile: '0434 555 303', agent: 'Omar', status: 'ok' },
+  { name: 'Grace Kelly', note: 'Buyer · Pakenham', mobile: '0445 555 404', agent: 'James', status: 'ok' },
+  { name: 'Ravi Kumar', note: 'Buyer · Officer', mobile: '0456 555 505', agent: null, status: 'ok' },
+  { name: 'Tom Ashby', note: 'Buyer · Pakenham', mobile: '0467 555 606', agent: 'Omar', status: 'stop' },
+  { name: 'Lucy Park', note: 'Buyer · Officer', mobile: '(03) 5941 2210', agent: 'Sarah', status: 'landline' },
+  { name: 'Ben Ford', note: 'Buyer · Pakenham', mobile: '0478 555 707', agent: 'Sarah', status: 'consent' },
+];
+const SKIP = {
+  stop: 'Skipped · replied STOP',
+  landline: 'Skipped · not a mobile',
+  consent: 'Skipped · no marketing consent',
+  limit: "Skipped · agent's daily limit reached",
+};
+
+const BUYERS = [
+  { name: 'Priya Shah', wants: 'Buying · to $780,000 · 3+ bed · Pakenham', agent: 'Sarah', mine: true, sms: 'ok' },
+  { name: 'Daniel Moore', wants: 'Buying · to $820,000 · 4 bed · Officer, Pakenham', agent: 'Sarah', mine: true, sms: 'ok' },
+  { name: 'Grace Kelly', wants: 'Buying · to $760,000 · 3 bed · Pakenham', agent: 'James', mine: false, sms: 'agency' },
+  { name: 'Tom Ashby', wants: 'Buying · from $650,000 · 3+ bed · Pakenham', agent: 'Omar', mine: false, sms: 'stop' },
+  { name: 'Lucy Park', wants: 'Buying · to $800,000 · 3 bed · Officer', agent: 'Sarah', mine: true, sms: 'landline' },
+  { name: 'Ben Ford', wants: 'Buying · to $790,000 · 3 bed · Pakenham', agent: 'Sarah', mine: true, sms: 'consent' },
+];
+
+const TPL = {
+  open: 'Hi {{first_name}}, open home at {{listing_address}} this Sat 10:30-11:00. Want me to save you a spot? - {{agent_first_name}}',
+  new: 'Hi {{first_name}}, a new {{listing_beds}}-bed in {{listing_suburb}} just listed at {{listing_price}}: {{listing_address}}. Keen for a look? - {{agent_first_name}}, {{agency_name}}',
+  price: 'Hi {{first_name}}, {{listing_address}} is now {{listing_price}}. Happy to arrange a private inspection. - {{agent_first_name}}',
+};
+const SAMPLE = { first_name: 'Priya', agent_first_name: 'Sarah', agency_name: 'Pakenham Realty', listing_address: '27 Lakeside Blvd, Pakenham', listing_price: '$765,000', listing_beds: '3', listing_suburb: 'Pakenham' };
+const FOOTER = '\nReply STOP to opt out';
+
+let view = 'owner', screen = 'rules';
+const pairState = { agency: true, agent: false };
+
+const fill = (t) => t.replace(/\{\{(\w+)\}\}/g, (_, k) => SAMPLE[k] ?? `{{${k}}}`);
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const bubble = (t) => `${esc(fill(t))}<span class="foot">${esc(FOOTER)}</span>`;
+
+// SMS parts: GSM-7 is 160 (153 per part when split); anything else is UCS-2, 70 (67).
+function parts(text) {
+  const gsm = /^[A-Za-z0-9 \n\r@£$¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ!"#¤%&'()*+,\-./:;<=>?¡ÄÖÑÜ§¿äöñüà^{}\\\[~\]|€]*$/.test(text);
+  const one = gsm ? 160 : 70, many = gsm ? 153 : 67;
+  const n = text.length <= one ? 1 : Math.ceil(text.length / many);
+  return { n, gsm, len: text.length };
+}
+
+function fromCell(p) {
+  const num = p.agent && AGENT_NUM[p.agent];
+  if (num) return `<div class="from"><b>${p.agent}'s number</b><span class="mono">${num}</span></div>`;
+  const why = p.agent ? `${p.agent} has no number yet` : 'No agent assigned';
+  return `<div class="from fallback"><b>Agency number</b><span>${why} · <span class="mono">${AGENCY_NUM}</span></span></div>`;
+}
+
+function renderReview() {
+  const rows = view === 'agent' ? PEOPLE.filter((p) => p.agent === 'Sarah') : PEOPLE;
+  document.getElementById('reviewrows').innerHTML = rows.map((p) => {
+    const ok = p.status === 'ok';
+    return `<tr class="${ok ? '' : 'skipped'}">
+      <td class="who"><b>${p.name}</b><span>${p.note}</span></td>
+      <td class="mono">${p.mobile}</td>
+      <td>${ok ? fromCell(p) : '<span class="muted">—</span>'}</td>
+      <td>${ok ? '<span class="pill ok"><span class="ms sm">check</span>Will be sent</span>' : `<span class="pill skip"><span class="ms sm">block</span>${SKIP[p.status]}</span>`}</td>
+    </tr>`;
+  }).join('');
+  const okN = rows.filter((p) => p.status === 'ok').length;
+  document.getElementById('approve').innerHTML = `<span class="ms sm">send</span>Approve &amp; Send ${okN} text${okN === 1 ? '' : 's'}`;
+  const tiles = document.querySelectorAll('#review .tile b');
+  const each = parts(fill(TPL[document.getElementById('bulktpl').value]) + FOOTER).n;
+  tiles[0].textContent = okN; tiles[1].textContent = rows.length - okN; tiles[2].textContent = each; tiles[3].textContent = okN * each;
+  tiles[2].nextElementSibling.textContent = `SMS part${each === 1 ? '' : 's'} each`;
+}
+
+function renderBuyers() {
+  const rows = view === 'agent' ? BUYERS.filter((b) => b.mine) : BUYERS;
+  const cell = {
+    ok: '<span class="pill ok">Agent\'s number</span>',
+    agency: '<span class="pill warn">Agency number</span>',
+    stop: '<span class="pill skip">Replied STOP</span>',
+    landline: '<span class="pill skip">Not a mobile</span>',
+    consent: '<span class="pill skip">No consent</span>',
+  };
+  document.getElementById('buyerrows').innerHTML = rows.map((b, i) => `<tr>
+      <td><input type="checkbox" ${i < 4 ? 'checked' : ''} aria-label="Select ${b.name}" /></td>
+      <td class="who"><b>${b.name}</b></td><td>${b.wants}</td><td>${b.agent}</td><td>${cell[b.sms]}</td></tr>`).join('');
+  document.getElementById('buyerslead').textContent = view === 'agent'
+    ? `${rows.length} of your buyers fit this listing · each is texted from your number`
+    : `6 buyers whose brief fits this listing · 4 selected`;
+}
+
+function renderPair() {
+  const a = pairState.agency, g = pairState.agent;
+  const isAgent = view === 'agent';
+  document.getElementById('pair').innerHTML = `
+    <div><span>Agency switch <span class="muted">(owner or admin)</span></span>
+      <button class="sw" role="switch" data-pair="agency" aria-checked="${a}" ${isAgent ? 'disabled' : ''} aria-label="Agency switch"></button></div>
+    <div><span>${isAgent ? 'Your own switch' : "Sarah's switch"} <span class="muted">(${isAgent ? 'you' : 'each agent sets their own'})</span></span>
+      <button class="sw" role="switch" data-pair="agent" aria-checked="${g}" ${isAgent ? '' : 'disabled'} aria-label="Agent switch"></button></div>
+    <div class="muted">${a && g ? 'Running for Sarah.' : !a ? 'Off for everyone until the agency turns it on.' : isAgent ? 'The agency has it on — turn yours on to let workflows text your contacts.' : 'The agency has it on; Sarah has not turned hers on, so her contacts are not texted.'}</div>`;
+  const st = document.getElementById('pairstate');
+  st.textContent = a && g ? 'On' : a ? 'Agency on' : 'Off';
+  st.className = 'pill ' + (a && g ? 'ok' : a ? 'warn' : 'skip');
+}
+
+function renderTemplate() {
+  const t = document.getElementById('tplbody').value;
+  const full = fill(t) + FOOTER;
+  const p = parts(full);
+  const m = document.getElementById('meter');
+  m.className = 'meter' + (t.length > 480 ? ' over' : '');
+  m.innerHTML = `<span>${t.length} / 480 characters · with sample values and the footer: ${p.len}</span><span>${p.n} SMS part${p.n === 1 ? '' : 's'}${p.gsm ? '' : ' · special characters: 70 per part'}</span>`;
+  document.getElementById('tplbubble').innerHTML = bubble(t);
+}
+
+function render() {
+  document.querySelectorAll('main > section').forEach((s) => (s.hidden = s.id !== screen));
+  document.querySelectorAll('[data-screen]').forEach((b) => {
+    if (b.closest('.mockbar')) b.setAttribute('aria-pressed', b.dataset.screen === screen);
+  });
+  document.querySelectorAll('[data-owneronly]').forEach((el) => (el.hidden = view === 'agent'));
+  document.querySelectorAll('.nl[data-nav]').forEach((n) => n.classList.toggle('on', n.dataset.nav.split(' ').includes(screen)));
+  document.getElementById('who').textContent = view === 'agent' ? 'Agent console · Sarah Lee' : 'Agency console';
+  document.getElementById('agentfilter').hidden = view === 'agent';
+  document.getElementById('sharerow').hidden = view === 'agent';
+  document.getElementById('bulkcount').textContent = view === 'agent' ? '4 of your contacts match · 20 per batch' : '8 people match · 20 per batch';
+  document.getElementById('bulklead').innerHTML = view === 'agent'
+    ? 'Text one of your SMS templates to your own contacts, from <b>your number</b>. Nothing is sent until you press Approve &amp; Send.'
+    : "Text one of your SMS templates to a group of people. Each person gets it from <b>their own agent's number</b>; if their agent has no number yet, from the agency number. Nothing is sent until you press Approve &amp; Send.";
+  document.getElementById('bulkbubble').innerHTML = bubble(TPL[document.getElementById('bulktpl').value]);
+  document.getElementById('dlgbubble').innerHTML = bubble(TPL.new);
+  renderReview(); renderBuyers(); renderPair(); renderTemplate();
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.hidden = true), 2600);
+}
+
+function go(s) {
+  if (view === 'agent' && s === 'settings') s = 'bulk';
+  screen = s; history.replaceState(null, '', '#' + s + (view === 'agent' ? '&agent' : '')); render(); window.scrollTo(0, 0);
+}
+
+document.addEventListener('click', (e) => {
+  const v = e.target.closest('[data-view]');
+  if (v) {
+    view = v.dataset.view;
+    document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', b === v));
+    go(screen); return;
+  }
+  const s = e.target.closest('[data-screen]');
+  if (s && s.dataset.screen) { go(s.dataset.screen); return; }
+  const g = e.target.closest('[data-go]');
+  if (g) { go(g.dataset.go); return; }
+  const p = e.target.closest('[data-pair]');
+  if (p && !p.disabled) { pairState[p.dataset.pair] = !pairState[p.dataset.pair]; renderPair(); return; }
+  const sw = e.target.closest('.sw:not([data-pair])');
+  if (sw) { sw.setAttribute('aria-checked', sw.getAttribute('aria-checked') !== 'true'); return; }
+  const chip = e.target.closest('.chip');
+  if (chip) { chip.setAttribute('aria-pressed', chip.getAttribute('aria-pressed') !== 'true'); return; }
+  if (e.target.closest('#openText')) { document.getElementById('textdlg').hidden = false; return; }
+  if (e.target.closest('#closeText') || e.target.id === 'textdlg') { document.getElementById('textdlg').hidden = true; return; }
+  if (e.target.closest('#prepareText')) { document.getElementById('textdlg').hidden = true; go('review'); toast('Batch prepared — review it and Approve & Send'); return; }
+  if (e.target.closest('#approve')) { toast('Sending — each text is checked again for consent, STOP and limits as it goes'); return; }
+  if (e.target.closest('.merge code')) {
+    const ta = document.getElementById('tplbody');
+    const at = ta.selectionStart ?? ta.value.length;
+    ta.value = ta.value.slice(0, at) + e.target.textContent + ta.value.slice(at);
+    renderTemplate(); return;
+  }
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.getElementById('textdlg').hidden = true; });
+document.getElementById('tplbody').addEventListener('input', renderTemplate);
+document.getElementById('bulktpl').addEventListener('change', render);
+
+const h = location.hash.slice(1).split('&');
+if (h.includes('agent')) {
+  view = 'agent';
+  document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.view === 'agent'));
+}
+if (['rules', 'bulk', 'review', 'templates', 'buyers', 'workflow', 'settings'].includes(h[0])) screen = h[0];
+go(screen);
+</script>
+</body>
+</html>
