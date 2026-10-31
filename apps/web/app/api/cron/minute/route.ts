@@ -9,6 +9,7 @@ import { authoriseCronRequest } from '@repo/core/schedules';
 import { templateSendDepsFromEnv } from '@repo/core/template-email';
 import { workflowDraftWriterFromEnv } from '@repo/ai/workflow-draft';
 import { workflowDeciderFromEnv } from '@repo/ai/workflow-decide';
+import { leadUnderstanderFromEnv } from '@repo/ai/lead-understand';
 import { getWebDb } from '../../../../lib/db';
 
 export const runtime = 'nodejs';
@@ -42,6 +43,7 @@ async function handler(request: NextRequest) {
     const jobs = minuteJobs(db, {
       // "AI decides" (ADR 0067): packages/ai's model; without a key every decision is "Not sure".
       decider: workflowDeciderFromEnv(db),
+      understander: leadUnderstanderFromEnv(db),
       scheduled: {
         sync: syncDepsFromEnv(),
         templateSend: send.ok ? send.deps : null,

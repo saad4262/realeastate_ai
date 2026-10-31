@@ -5,6 +5,7 @@ import { runDealSync } from '../deals';
 import { refreshDueKyc, runDueAiCallbacks, type PhoneDeps, type VoiceAi } from '../phone';
 import { deliverPlatformEmails, type PlatformMailDeps } from '../platform';
 import { runWorkflowTick, type WorkflowTickDeps } from '../workflows';
+import { runLeadUnderstanding, type LeadUnderstander } from '../leads/understand';
 import type { TickJob } from './tick';
 
 /**
@@ -14,6 +15,7 @@ import type { TickJob } from './tick';
  */
 
 export const MINUTE_BATCH = {
+  understandLeads: 10,
   workflowEvents: 50,
   scheduledActions: 10,
   platformEmails: 100,
@@ -24,6 +26,8 @@ export const MINUTE_BATCH = {
 export type MinuteDeps = {
   /** A workflow's "AI decides" (packages/ai); null: every decision is "Not sure". */
   decider: WorkflowTickDeps['decider'];
+  /** "AI understands" (ADR 0078, packages/ai); null: new leads are marked "off". */
+  understander: LeadUnderstander | null;
   scheduled: Parameters<typeof runScheduledActions>[1];
   reminders: ReminderDeps;
   zoomAlerts: Pick<ReminderDeps, 'notice'>;
@@ -35,7 +39,16 @@ export type MinuteDeps = {
 export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new Date()): TickJob[] {
   return [
     {
-      // First: a run's first step is then due in this same tick, below.
+      // ADR 0078, before the workflows: a workflow with an AI condition then finds the lead understood this tick.
+      name: 'understandLeads',
+      mode: 'drain',
+      run: async () => {
+        const r = await runLeadUnderstanding(db, deps.understander, now(), MINUTE_BATCH.understandLeads);
+        return { result: r, more: r.claimed >= MINUTE_BATCH.understandLeads };
+      },
+    },
+    {
+      // A run's first step is then due in this same tick, below.
       name: 'workflows',
       mode: 'drain',
       run: async (round) => {

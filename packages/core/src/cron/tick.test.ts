@@ -113,8 +113,8 @@ describe('the tick runner (ADR 0073)', () => {
 describe('the minute jobs', () => {
   const noDb = new Proxy({}, { get: () => { throw new Error('the database was reached'); } }) as unknown as Db;
   it('puts the time-critical jobs first and builds without touching the database', () => {
-    const jobs = minuteJobs(noDb, { decider: null, scheduled: {}, reminders: {}, zoomAlerts: {}, platformMail: null, phone: { keys: null, client: () => { throw new Error('x'); }, webhookBase: null }, voice: null });
-    expect(jobs.map((j) => j.name)).toEqual(['workflows', 'scheduled', 'reminders', 'aiCalls', 'platformEmails', 'zoomAlerts', 'deals', 'phoneKyc']);
+    const jobs = minuteJobs(noDb, { decider: null, understander: null, scheduled: {}, reminders: {}, zoomAlerts: {}, platformMail: null, phone: { keys: null, client: () => { throw new Error('x'); }, webhookBase: null }, voice: null });
+    expect(jobs.map((j) => j.name)).toEqual(['understandLeads', 'workflows', 'scheduled', 'reminders', 'aiCalls', 'platformEmails', 'zoomAlerts', 'deals', 'phoneKyc']);
     expect(jobs.find((j) => j.name === 'scheduled')!.concurrency).toBe(2);
     expect(jobs.find((j) => j.name === 'phoneKyc')!.everyMinutes).toBe(5);
     expect(MINUTE_BATCH.scheduledActions).toBeGreaterThan(0);

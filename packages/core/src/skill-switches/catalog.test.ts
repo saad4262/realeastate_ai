@@ -12,12 +12,13 @@ describe('the platform skills catalog (ADR 0058)', () => {
     for (const s of PLATFORM_SKILLS) expect(SKILL_GROUPS).toContain(s.group);
   });
 
-  it('keeps the three skills that read the whole agency away from everyone else', () => {
+  it('keeps the skills that act for the whole agency away from everyone else', () => {
     const agencyOnly = PLATFORM_SKILLS.filter((s) => s.scope === 'agency').map((s) => s.key);
-    expect(agencyOnly).toEqual(['agency_performance', 'team_activity', 'team_management']);
+    // ADR 0078: "AI understands enquiries" runs on every lead of the agency, by the agency's switch.
+    expect(agencyOnly).toEqual(['ai_understand_enquiries', 'agency_performance', 'team_activity', 'team_management']);
     expect(skillsForHolder('agency')).toHaveLength(PLATFORM_SKILLS.length);
     expect(skillsForHolder('personal').map((s) => s.key)).not.toEqual(expect.arrayContaining(agencyOnly));
-    expect(skillsForHolder('personal')).toHaveLength(PLATFORM_SKILLS.length - 3);
+    expect(skillsForHolder('personal')).toHaveLength(PLATFORM_SKILLS.length - 4);
   });
 
   it('gates only tools that exist, and never the tools that switch a skill back on', () => {
