@@ -1,8 +1,8 @@
-# Handoff — 2026-10-30 (to the Claude on the other laptop)
+# Handoff — 2026-10-30, database state corrected 2026-10-31 (to the Claude on the other laptop)
 
 You are taking over from the Claude that built Phases 1–4.3, the Skills rework, Phone & SMS (3.1–3.3), the
 minute-tick batching and the DNS checklist. This file is everything you need that is not obvious from the code.
-Read it fully once, then follow "Your first hour". Keep it current, or replace it with your own at your handoff.
+Read it fully once, then follow §7 "What to do next". Keep it current, or replace it with your own at your handoff.
 
 ---
 
@@ -19,28 +19,25 @@ Read it fully once, then follow "Your first hour". Keep it current, or replace i
 
 ---
 
-## 1. 🔴 Your first hour: a decision the user must make (do not decide it yourself)
+## 1. Database: nothing pending (corrected 2026-10-31)
 
-**Everything is merged into `main` and pushed to `origin/main`** (the user did this; last commit `fcbf35e`).
-Production on Vercel has deployed from `main` before (2026-10-16). If it deployed again, production now runs code
-that needs database changes that are NOT applied:
+An earlier version of this file said 0069 was not applied and 0070 was on hold. **That was wrong.** Checked on
+the database 2026-10-31 (read-only; both laptops use the same `DATABASE_URL`):
 
-| Code on `main` | Needs | DB state | If production runs it |
-|---|---|---|---|
-| `completeAppointment` emits `appointment.completed` (ADR 0066) | migration **0069** (widens `workflow_event_kind_check`) | **not applied** | **completing an appointment fails** (CHECK violation, whole transaction rolls back) |
-| Skills default OFF (ADR 0069) | migration **0070** keeps "Workflow emails" on for active template workflows | **on hold** (the user's order) | every skill of every agency is OFF; existing workflow template emails stop |
-| Phone & SMS, missed calls, AI call back | 0071, 0072, 0073 | applied (by hand) | fine |
+| Migration | State |
+|---|---|
+| 0000–0073 | **all 74 recorded** in `drizzle.__drizzle_migrations` |
+| 0069 (workflow triggers + `workflow_run.decision`) | applied: `workflow_event_kind_check` includes `appointment.completed`; the column exists |
+| 0070 (skills default off, keeps Workflow emails on) | recorded; no active workflow sends a template email, so it had nothing to keep on |
+| 0071–0073 (phone tables, missed-call settings, AI call back) | applied: tables, columns and RLS on `missed_call_setting` all present |
 
-Do this, in order:
+So completing an appointment works with `main`'s code, and **no migration is waiting. Do not run any.** The next
+migration is a new one (0074, Phase 3.4) and, like every migration, only on the user's explicit go.
 
-1. Ask the user (in Roman Urdu) whether production redeployed from `main` after 2026-10-29 (Vercel → web and
-   console projects → Deployments). Do not guess.
-2. If yes, tell them plainly: appointment completion is broken until 0069 is applied, and every skill is off for
-   every agency (0070 only preserves workflow emails; the default-off itself is the code).
-3. Recommend: apply **0069 now** (additive: widens a CHECK, adds a nullable column; safe), and ask whether to apply
-   **0070** too (the hold's reason — "don't turn skills off before the client approves" — is moot once the code is
-   live; the client approved the mocks and the logic on 2026-10-29). Only on their explicit go.
-4. Apply with a rolled-back dry run first (see §6 "Applying a migration"), then for real.
+**What IS live, by the client's decision (ADR 0069): every skill is OFF until someone switches it on.** Today only
+"Missed call text" and "AI call back" have switched-on rows (for the test agency). Every agency owner must turn
+on the skills they want under Skills (agency switch; agents switch their own), or the assistant refuses those
+tools and the automations do not run. Tell the client this before agencies use production.
 
 ---
 
@@ -98,16 +95,11 @@ transcript, recording and a labelled summary. Webhooks are authenticated by an H
 
 - **The dev database IS the production database** (Supabase, Sydney `ap-southeast-2`). Anything you run against
   `DATABASE_URL` touches live data. Use rolled-back transactions for experiments; smoke checks do this (`inRollback`).
-- `drizzle.__drizzle_migrations`: last **recorded** = **0068**.
-- **0069** (workflow triggers + `workflow_run.decision`): written, **NOT applied** — see §1.
-- **0070** (skills default off, keeps Workflow emails on): written, **ON HOLD** — only on the user's go.
-- **0071, 0072, 0073** (phone tables, missed-call settings, AI call back): **applied BY HAND** on 2026-10-30 with the
-  user's go, **NOT recorded** in drizzle. They are written idempotent (`IF NOT EXISTS`, guarded constraints), so a
-  later `pnpm --filter @repo/db db:migrate` that runs 0069 → 0070 → 0071 → 0072 → 0073 re-runs them harmlessly.
-- **Never record 0071–0073 by hand** in `__drizzle_migrations`: drizzle runs only migrations newer than the newest
-  recorded one, so it would then SKIP 0069 and 0070 forever.
-- `db:migrate` applies **all** pending migrations at once — so while 0070 is on hold, you cannot use it. To apply
-  only one, run its SQL by hand (§6), and keep it idempotent.
+- `drizzle.__drizzle_migrations`: **all 74 recorded (0000–0073)**, checked 2026-10-31. Nothing is pending (§1).
+- The next migration is applied the normal way: a rolled-back dry run (§6), then
+  `pnpm --filter @repo/db db:migrate` on the user's go. Afterwards check it is recorded (75 rows).
+- **Never insert rows into `__drizzle_migrations` by hand:** drizzle runs only migrations newer than the newest
+  recorded one, so a hand-recorded later migration makes it skip earlier ones forever.
 
 ## 5. Accounts, keys and environment
 
@@ -161,7 +153,7 @@ data (a connected account, Sam's number, texts, missed calls, one AI call).
 
 ## 7. What to do next, in order
 
-1. **§1 decision** (0069 / 0070 / production).
+1. **Tell the client** that every skill is off until an owner switches it on (§1). No migration decision is pending.
 2. **Phase 3.4 — SMS everywhere** (plan below). Mock first.
 3. **Phase 4 — the rest** (plan below). Mock first.
 4. Meanwhile the user walks TEST-PLAN **BN–BZ** in a browser (they have not walked most of them).
@@ -182,7 +174,7 @@ Scope (each reuses Phone & SMS; nothing new from providers):
   ask whether it should be a `pair` skill — it costs the agency per text), checked at run AND at step time
   (`SKILL_OF_WORKFLOW_STEP`).
 - **Workflow trigger "Missed call"**: `recordMissedCall` emits `missed_call` (needs a migration widening
-  `workflow_event_kind_check` again — 0074, idempotent, and remember 0069 must go first).
+  `workflow_event_kind_check` again — 0074, idempotent; 0069 is already applied).
 Rules that must hold: marketing SMS only to contacts with marketing consent (Spam Act) — a one-to-one reply in a
 conversation is not marketing; never a STOP number; Australian mobiles only; ≤ 480 chars for templates; templates
 are human-written (non-negotiable 7); limits per agent and agency per day; dev safety like `EMAIL_DEV_ALLOWLIST`
@@ -225,5 +217,5 @@ visual builder comes last. Mock first; the Control Centre is the biggest piece o
 - The client's roadmap and decisions are in `docs/ROADMAP.md` Part 3–4 (keep them there).
 - Accounts plan (2026-10-29): the client gives the temporary domain, Voyage, Retell and a test Twilio; Vercel Pro
   and Supabase Pro exist; Twilio is bring-your-own per agency; Xero, Stripe (platform billing) and ads are pending.
-- Migration holds as in §4; the test agency as in §6.
+- Migrations: all 74 applied and recorded (§1, §4); the test agency as in §6.
 - Do not change the email sender domain.

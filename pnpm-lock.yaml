@@ -221,13 +221,13 @@ importers:
         specifier: 18.1.5
         version: 18.1.5
       mammoth:
-        specifier: ^1.13.0
+        specifier: 1.13.0
         version: 1.13.0
       read-excel-file:
         specifier: 9.3.10
         version: 9.3.10
       unpdf:
-        specifier: ^1.9.1
+        specifier: 1.9.1
         version: 1.9.1
       zod:
         specifier: ^3.24.1

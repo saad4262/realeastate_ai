@@ -320,22 +320,22 @@ Waiting on the client: a test Twilio account with KYC approved, the Retell API k
 forwarding tests. Voyage key and the temporary domain arrive at the same time (config only).
 - [x] **3.1 Twilio connector + SMS threads in the inbox** (#1, #8 SMS): API key, KYC status, a number per
   agent, caller ID verification, forwarding guide and test call. Mock: `twilio-setup.html`. Built 2026-10-30,
-  ADR 0070, migration 0071 NOT applied, real keys not yet (dev stub `PHONE_STUB=1`); TEST-PLAN BX.
+  ADR 0070, migration 0071 applied, real keys not yet (dev stub `PHONE_STUB=1`); TEST-PLAN BX.
 - [x] **3.2 Missed call → greeting → SMS → CRM lookup → alert the agent** (#28), the Missed Calls page and
   its settings (SMS template, greeting, calling hours, limits). Mock: `missed-calls.html`. Built 2026-10-30, ADR
-  0071, migration 0072 NOT applied; skill `missed_call_text` (agency + agent); calling hours move to 3.3 (they
+  0071, migration 0072 applied; skill `missed_call_text` (agency + agent); calling hours move to 3.3 (they
   only govern AI calls); TEST-PLAN BY.
 - [x] **3.3 Retell AI callback** from the agent's verified number; recording, transcript and summary on the
-  contact (#9, #28). Built 2026-10-30, ADR 0072, migration 0073 NOT applied, Retell keys not yet (dev stub);
+  contact (#9, #28). Built 2026-10-30, ADR 0072, migration 0073 applied, Retell keys not yet (dev stub);
   calls from the agent's Twilio number for now (their mobile as caller ID is still to test); TEST-PLAN BZ.
 - [ ] **3.4 SMS everywhere:** matched buyers, bulk SMS (consent + STOP), the workflow "Send SMS" action and
   the "Missed call" trigger (#5, #8, #27).
 
 ### Phase 4 — Automation engine (#27, #7)
-- [x] **4.1 More triggers** (built 2026-10-28, ADR 0066, migration 0069 NOT applied, not committed; TEST-PLAN BT —
+- [x] **4.1 More triggers** (built 2026-10-28, ADR 0066, migration 0069 applied, committed; TEST-PLAN BT —
   deal stage / settled with the side chosen per workflow, buyer match, before / after an appointment, appraisal
   not listed, sale anniversary; the email rule unchanged). Missed call comes with Phase 3.
-- [x] **4.2 AI decides** (built 2026-10-28, ADR 0067, column in migration 0069 NOT applied, not committed; TEST-PLAN
+- [x] **4.2 AI decides** (built 2026-10-28, ADR 0067, column in migration 0069 applied, committed; TEST-PLAN
   BU — one decision at the start, from the enquiry and its latest email; the workflow's own steps are "Not sure";
   steps run by themselves and the run's log says what the AI chose and why).
 - [x] **4.3 Automation Library** (built 2026-10-28, ADR 0068, no migration, not committed; TEST-PLAN BV — ten

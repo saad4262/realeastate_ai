@@ -1,3 +1,18 @@
+## 2026-10-31 — Claude Code (Mac) — handoff pulled; database state corrected (branch feat/dashboard-update = origin/main)
+
+- The user: pull the other laptop's handoff (92224b0), correct the migration warning (the user verified the DB;
+  both laptops use the same database URL), run no migration, run `pnpm test`, commit docs + the lockfile.
+- Checked read-only: 74 migrations recorded (0000–0073); 0069's CHECK and column present; 0070 recorded (no
+  active template-email workflow); 0071–0073's tables, columns and RLS present. The "0069 not applied / 0070 on
+  hold" warning was wrong; HANDOFF §1/§4/§7/§9, STATUS and ROADMAP 3.1–3.3 / 4.1–4.2 corrected.
+- Noted: all skills are OFF by default (ADR 0069, the client's decision); only Missed call text and AI call back
+  are on (test agency); owners switch on the rest. `pnpm-lock.yaml`: specifiers for mammoth/unpdf now match the
+  pinned versions in packages/core/package.json.
+- `main` is checked out in the `realestate_ai-crm2` worktree, so this work is on `feat/dashboard-update`
+  (fast-forwarded to origin/main). NOT pushed.
+- Next exact step: the user walks TEST-PLAN BN–BZ; then the 3.4 mock (`docs/mocks/sms-everywhere.html`) after the
+  three questions in HANDOFF §7.
+
 ## 2026-10-29/30 — Claude Code — Accounts plan, Skills default off, Phone & SMS 3.1–3.3, cron batching, DNS checklist (branch feat/sidebar-groups → merged to main by the user)
 
 - The user (Roman Urdu + the client's pasted messages): which accounts the client must provide (list agreed; Twilio
