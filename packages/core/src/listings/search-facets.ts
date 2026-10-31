@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import { listing, property, type Db } from '@repo/db';
 import type { ListingChannel } from './listing-schema';
 import { publicListing } from './search-listings';
+import { adFacts } from './facts';
 
 /**
  * What the search filters may offer, taken from what is actually listed.
@@ -123,18 +124,18 @@ export async function searchFacets(db: Db): Promise<SearchFacets> {
       suburbs: sql<string[]>`array_agg(distinct ${property.suburb})`,
 
       saleTotal: sql<string>`count(*) filter (where ${listing.channel} = 'sale')`,
-      saleBedrooms: agg(sql`${property.bedrooms}`, 'sale'),
-      saleBathrooms: agg(sql`${property.bathrooms}`, 'sale'),
-      saleCarSpaces: agg(sql`${property.carSpaces}`, 'sale'),
-      saleTypes: agg(sql`${property.propertyType}`, 'sale'),
+      saleBedrooms: agg(sql`${adFacts.bedrooms}`, 'sale'),
+      saleBathrooms: agg(sql`${adFacts.bathrooms}`, 'sale'),
+      saleCarSpaces: agg(sql`${adFacts.carSpaces}`, 'sale'),
+      saleTypes: agg(sql`${adFacts.propertyType}`, 'sale'),
       salePriceMin: sql<string | null>`min(${listing.priceFrom}) filter (where ${listing.channel} = 'sale')`,
       salePriceMax: sql<string | null>`max(${saleTop}) filter (where ${listing.channel} = 'sale')`,
 
       rentTotal: sql<string>`count(*) filter (where ${listing.channel} = 'rent')`,
-      rentBedrooms: agg(sql`${property.bedrooms}`, 'rent'),
-      rentBathrooms: agg(sql`${property.bathrooms}`, 'rent'),
-      rentCarSpaces: agg(sql`${property.carSpaces}`, 'rent'),
-      rentTypes: agg(sql`${property.propertyType}`, 'rent'),
+      rentBedrooms: agg(sql`${adFacts.bedrooms}`, 'rent'),
+      rentBathrooms: agg(sql`${adFacts.bathrooms}`, 'rent'),
+      rentCarSpaces: agg(sql`${adFacts.carSpaces}`, 'rent'),
+      rentTypes: agg(sql`${adFacts.propertyType}`, 'rent'),
       rentPriceMin: sql<string | null>`min(${listing.rentPw}) filter (where ${listing.channel} = 'rent')`,
       rentPriceMax: sql<string | null>`max(${listing.rentPw}) filter (where ${listing.channel} = 'rent')`,
     })

@@ -526,6 +526,13 @@
       "when": 1793428685161,
       "tag": "0074_sms_channel_missed_call",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1793430086162,
+      "tag": "0075_listing_facts_deal_per_agency",
+      "breakpoints": true
     }
   ]
 }

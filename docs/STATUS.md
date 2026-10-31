@@ -1,4 +1,12 @@
 # Status
+- **2026-10-31 — ADR 0075 (ROADMAP technical debt): one address, several agencies. Built on `feat/property-per-agency`,
+  merged to `main`; migration 0075 APPLIED (76 recorded, 41 listings backfilled, both deal indexes present);
+  0076 (drop the old index) NOT applied and not in the journal — waits for the user's go after the deploy.** Option A (the user): `listing` holds its ad's seven facts; `upsertProperty`
+  never overwrites an existing address (facts only filled, pin moved only when nobody else uses the address);
+  every read through `listings/facts.ts` (listing first); deal sync per agency. Checks: core 1498 + ai 331;
+  typecheck all; break-tests red/green (source-scan guard, deal conflict); rolled-back real-DB run of 0075+0076
+  with two agencies on one address — 8/8 PASS. Smoke check in "Tenant isolation" written, not run.
+  **Next:** the user confirms the Vercel deploy is live → their go → add + apply 0076.
 - **2026-10-31 — ROADMAP 3.4 part 1 (ADR 0074), migration 0074 APPLIED (75 recorded), merged to `main`.**
   `email_template.channel` (email/sms, CHECK); `mayUseTemplate` / `usableTemplateSql` / `listTemplates` default to
   email, so no email path sends an SMS template; `template-email/sms.ts` (480 chars, STOP footer, SMS parts);

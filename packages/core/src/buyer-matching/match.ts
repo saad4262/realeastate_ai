@@ -72,10 +72,11 @@ export const LISTING_EXPRS: FitExprs = {
   channel: LISTING_CHANNEL,
   low: { v: sql`pr.low`, nullable: true },
   high: { v: sql`pr.high`, nullable: true },
-  bedrooms: { v: sql`p.bedrooms`, nullable: true },
-  bathrooms: { v: sql`p.bathrooms`, nullable: true },
+  // ADR 0075: the listing's own facts, the address's where the ad leaves one blank.
+  bedrooms: { v: sql`coalesce(li.bedrooms, p.bedrooms)`, nullable: true },
+  bathrooms: { v: sql`coalesce(li.bathrooms, p.bathrooms)`, nullable: true },
   suburb: { v: sql`p.suburb`, nullable: true },
-  propertyType: { v: sql`p.property_type`, nullable: true },
+  propertyType: { v: sql`coalesce(li.property_type, p.property_type)`, nullable: true },
 };
 
 const AUD = new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', maximumFractionDigits: 0 });

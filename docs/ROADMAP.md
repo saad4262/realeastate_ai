@@ -363,6 +363,8 @@ public API + webhooks, Outlook, and Phase 7.
   team workload board (#12).
 
 ### Technical debt (known flaws; an ADR each before the fix)
+Both items below: fixed by ADR 0075 (option A, the user 2026-10-31) on `feat/property-per-agency`; migrations
+0075/0076 not yet applied — see the ADR's deploy order.
 Found 2026-10-31 while seeding the phone test agency; the user confirmed both as critical for Australian
 open listings (one home listed by several agencies at once).
 - [ ] **A listing rewrites another agency's property.** `property` rows are shared by address across every

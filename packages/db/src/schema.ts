@@ -431,6 +431,19 @@ export const listing = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }),
     source: listingSourceEnum('source').notNull().default('portal'),
     externalRef: varchar('external_ref', { length: 128 }),
+    /**
+     * ADR 0075: the facts AS ADVERTISED by this listing. The address (`property`) is shared by every agency
+     * and a listing never rewrites it; two agencies listing one home each say what their own ad says. Read
+     * as `coalesce(listing.x, property.x)` (`listings/facts.ts`): a fact this ad leaves blank falls back to
+     * what is known about the address.
+     */
+    propertyType: varchar('property_type', { length: 64 }),
+    bedrooms: integer('bedrooms'),
+    bathrooms: numeric('bathrooms', { precision: 3, scale: 1 }),
+    carSpaces: integer('car_spaces'),
+    landAreaSqm: numeric('land_area_sqm', { precision: 12, scale: 2 }),
+    buildingAreaSqm: numeric('building_area_sqm', { precision: 12, scale: 2 }),
+    yearBuilt: integer('year_built'),
     ...timestamps,
   },
   (t) => [
@@ -1895,7 +1908,8 @@ export const deal = pgTable(
     ...timestamps,
   },
   (t) => [
-    uniqueIndex('deal_open_property_idx').on(t.propertyId).where(sql`status = 'open'`),
+    // ADR 0075: one open deal per address PER AGENCY — several agencies may sell one home (open listings).
+    uniqueIndex('deal_open_agency_property_idx').on(t.agencyId, t.propertyId).where(sql`status = 'open'`),
     index('deal_agency_status_stage_idx').on(t.agencyId, t.status, t.stage),
     index('deal_listing_idx').on(t.listingId),
   ],

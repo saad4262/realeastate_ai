@@ -103,7 +103,8 @@ export const OPEN_DATASETS: readonly Dataset[] = [
         listing.price_from, listing.price_to, listing.price_display, listing.rent_pw, listing.sold_price, listing.sold_date,
         listing.published_at, listing.auction_date, listing.created_at, ${leadAgentIdSql(sql`listing.id`)} as agent_id,
         concat_ws(' ', nullif(concat_ws('/', pr.unit, pr.street_number), ''), pr.street) as address, pr.suburb, pr.postcode,
-        pr.property_type, pr.bedrooms, pr.bathrooms, pr.land_area_sqm, ${text(sql`listing.headline`)} as headline
+        coalesce(listing.property_type, pr.property_type) as property_type, coalesce(listing.bedrooms, pr.bedrooms) as bedrooms,
+        coalesce(listing.bathrooms, pr.bathrooms) as bathrooms, coalesce(listing.land_area_sqm, pr.land_area_sqm) as land_area_sqm, ${text(sql`listing.headline`)} as headline
       from listing join property pr on pr.id = listing.property_id
       where ${and(...listingScopeFilters(actor))}`,
   },
@@ -136,7 +137,8 @@ export const OPEN_DATASETS: readonly Dataset[] = [
       { name: 'days_on_market', type: 'numeric', about: 'days from going live to the sale (null: never live, or no dates)' },
     ],
     build: (_db, actor) => sql`select listing.id as listing_id, listing.sold_date, listing.sold_price, listing.sold_price is not null as price_disclosed,
-        ${leadAgentIdSql(sql`listing.id`)} as agent_id, pr.suburb, pr.postcode, pr.property_type, pr.bedrooms,
+        ${leadAgentIdSql(sql`listing.id`)} as agent_id, pr.suburb, pr.postcode, coalesce(listing.property_type, pr.property_type) as property_type,
+        coalesce(listing.bedrooms, pr.bedrooms) as bedrooms,
         case when listing.published_at is not null and listing.published_at <= listing.sold_date
              then round(extract(epoch from (listing.sold_date - listing.published_at)) / 86400, 1) end as days_on_market
       from listing join property pr on pr.id = listing.property_id
@@ -165,8 +167,9 @@ export const OPEN_DATASETS: readonly Dataset[] = [
     ],
     build: (db, actor, text) => sql`select lead.id as lead_id, lead.created_at, lead.kind::text as kind, lead.status::text as status,
         lead.source, lead.offer_amount, lead.assigned_to as agent_id, lead.listing_id, lead.contact_id, lead.name as contact_name,
-        lead.email as contact_email, lead.phone as contact_phone, pr.suburb, pr.property_type, pr.bedrooms, ${text(sql`lead.message`)} as message
-      from lead join property pr on pr.id = lead.property_id
+        lead.email as contact_email, lead.phone as contact_phone, pr.suburb, coalesce(ll.property_type, pr.property_type) as property_type,
+        coalesce(ll.bedrooms, pr.bedrooms) as bedrooms, ${text(sql`lead.message`)} as message
+      from lead join property pr on pr.id = lead.property_id left join listing ll on ll.id = lead.listing_id
       where ${and(...leadScopeFilters(db, actor))}`,
   },
   {

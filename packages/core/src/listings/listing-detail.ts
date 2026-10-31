@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, exists, gte, inArray, notExists, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, gte, inArray, notExists, sql, type AnyColumn } from 'drizzle-orm';
 import {
   agency,
   agentProfile,
@@ -11,6 +11,7 @@ import {
 } from '@repo/db';
 import { formatAddress, type ListingChannel, type ListingStatus } from './listing-schema';
 import { publicListing } from './search-listings';
+import type { FactColumn } from './facts';
 
 /**
  * The three reads behind the parts of a listing page that are not the listing.
@@ -270,6 +271,12 @@ const num = (v: string | number | null): number | null => {
  * One statement. Two correlated EXISTS rather than counting every listing at
  * the address, because both questions are answered by the first matching row.
  */
+/** The newest ad's fact at the property in this query's row (constants only), else the address's own. */
+const lastAdSql = (col: FactColumn, own: AnyColumn) =>
+  sql`coalesce((select ${sql.raw(`x.${col}`)} from listing x where x.property_id = ${property.id} order by x.created_at desc limit 1), ${own})`;
+const lastAdText = (col: FactColumn, own: AnyColumn) => sql<string | null>`${lastAdSql(col, own)}`;
+const lastAdNumber = (col: FactColumn, own: AnyColumn) => sql<number | null>`${lastAdSql(col, own)}`;
+
 export async function getOffMarketProperty(
   db: Db,
   propertyId: string,
@@ -291,11 +298,12 @@ export async function getOffMarketProperty(
       suburb: property.suburb,
       state: property.state,
       postcode: property.postcode,
-      propertyType: property.propertyType,
-      bedrooms: property.bedrooms,
-      bathrooms: property.bathrooms,
-      carSpaces: property.carSpaces,
-      landAreaSqm: property.landAreaSqm,
+      // ADR 0075: what the newest ad at this address said, the address's own facts where it said nothing.
+      propertyType: lastAdText('property_type', property.propertyType),
+      bedrooms: lastAdNumber('bedrooms', property.bedrooms),
+      bathrooms: lastAdText('bathrooms', property.bathrooms),
+      carSpaces: lastAdNumber('car_spaces', property.carSpaces),
+      landAreaSqm: lastAdText('land_area_sqm', property.landAreaSqm),
       latitude: property.latitude,
       longitude: property.longitude,
     })

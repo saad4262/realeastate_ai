@@ -3,6 +3,7 @@ import { agency, listing, property, type Db } from '@repo/db';
 import type { Near } from '../geo/place-schema';
 import { SUSPENDED_AGENCY_IDS } from '../platform/access';
 import { formatAddress, type ListingChannel, type SearchSort } from './listing-schema';
+import { adFacts } from './facts';
 
 /**
  * A listing as a card shows it.
@@ -182,11 +183,11 @@ function selection(near: Near | undefined) {
     suburb: property.suburb,
     state: property.state,
     postcode: property.postcode,
-    bedrooms: property.bedrooms,
-    bathrooms: property.bathrooms,
-    carSpaces: property.carSpaces,
-    propertyType: property.propertyType,
-    landAreaSqm: property.landAreaSqm,
+    bedrooms: adFacts.bedrooms,
+    bathrooms: adFacts.bathrooms,
+    carSpaces: adFacts.carSpaces,
+    propertyType: adFacts.propertyType,
+    landAreaSqm: adFacts.landAreaSqm,
     latitude: property.latitude,
     longitude: property.longitude,
     distanceKm: distanceExpr(near),
@@ -299,17 +300,17 @@ function baseFilters(query: PublicSearchQuery): SQL[] {
 
   // Suburb and radius are decided together in locationFilter below, because
   // they combine rather than stack.
-  if (query.bedrooms !== undefined) filters.push(gte(property.bedrooms, query.bedrooms));
+  if (query.bedrooms !== undefined) filters.push(gte(adFacts.bedrooms, query.bedrooms));
   if (query.bathrooms !== undefined) {
-    filters.push(gte(property.bathrooms, String(query.bathrooms)));
+    filters.push(gte(adFacts.bathrooms, String(query.bathrooms)));
   }
-  if (query.carSpaces !== undefined) filters.push(gte(property.carSpaces, query.carSpaces));
+  if (query.carSpaces !== undefined) filters.push(gte(adFacts.carSpaces, query.carSpaces));
   if (query.landFrom !== undefined) {
-    filters.push(gte(property.landAreaSqm, String(query.landFrom)));
+    filters.push(gte(adFacts.landAreaSqm, String(query.landFrom)));
   }
   if (query.propertyType) {
     filters.push(
-      eq(sql`lower(coalesce(${property.propertyType}, ''))`, query.propertyType.trim().toLowerCase()),
+      eq(sql`lower(coalesce(${adFacts.propertyType}, ''))`, query.propertyType.trim().toLowerCase()),
     );
   }
 
@@ -522,10 +523,10 @@ export async function liveSuburbs(db: Db): Promise<string[]> {
  */
 export async function livePropertyTypes(db: Db): Promise<string[]> {
   const rows = await db
-    .selectDistinct({ propertyType: property.propertyType })
+    .selectDistinct({ propertyType: adFacts.propertyType })
     .from(listing)
     .innerJoin(property, eq(property.id, listing.propertyId))
-    .where(and(publicListing(), sql`${property.propertyType} is not null`))
-    .orderBy(property.propertyType);
+    .where(and(publicListing(), sql`${adFacts.propertyType} is not null`))
+    .orderBy(adFacts.propertyType);
   return rows.map((r) => r.propertyType).filter((t): t is string => Boolean(t));
 }

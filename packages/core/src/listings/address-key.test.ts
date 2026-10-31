@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DbOrTx } from '@repo/db';
+import { PgDialect } from 'drizzle-orm/pg-core';
+import type { SQL } from 'drizzle-orm';
 import { addressKey } from './address-key';
 import { upsertProperty } from './property-resolver';
 
@@ -45,7 +47,7 @@ describe('addressKey keeps different dwellings apart', () => {
  * new listing carries that history rather than starting a second house.
  */
 describe('upsertProperty reuses the property a re-listing agency describes differently', () => {
-  function fake(candidates: unknown[]) {
+  function fake(candidates: unknown[], opts: { usedByAnotherAgency?: boolean } = {}) {
     const writes: string[] = [];
     const sets: Record<string, unknown>[] = [];
     const chain: Record<string, unknown> = {};
@@ -54,7 +56,8 @@ describe('upsertProperty reuses the property a re-listing agency describes diffe
       sets.push(v);
       return chain;
     };
-    chain.execute = () => Promise.resolve([]);
+    // The advisory lock, then (ADR 0075) "is this address used by another agency?".
+    chain.execute = () => Promise.resolve([{ used: Boolean(opts.usedByAnotherAgency) }]);
     chain.update = () => {
       writes.push('update');
       return chain;
@@ -114,20 +117,45 @@ describe('upsertProperty reuses the property a re-listing agency describes diffe
       null,
     );
     const written = sets[0] ?? {};
-    expect(written.bedrooms).toBe(4);
+    expect(written).toHaveProperty('bedrooms');
     for (const blank of ['bathrooms', 'carSpaces', 'landAreaSqm', 'buildingAreaSqm', 'yearBuilt', 'propertyType']) {
       expect(written).not.toHaveProperty(blank);
     }
   });
 
-  it('still lets an agent clear a field on the property their own listing stands on', async () => {
+  /** ADR 0075: the address is shared; an ad's facts live on its listing and never rewrite the address. */
+  it('never overwrites a fact the address has: it only fills an empty one (coalesce), and never writes a blank', async () => {
     const { db, sets } = fake([soldBefore]);
-    await upsertProperty(
-      db,
-      { unit: '32', streetNumber: '6E', street: 'Henry Street', ...base, state: 'VIC' },
-      null,
-      { editingPropertyId: 'p-sold-2025' },
-    );
-    expect(sets[0]).toMatchObject({ bedrooms: null, landAreaSqm: null });
+    await upsertProperty(db, { unit: '32', streetNumber: '6E', street: 'Henry Street', ...base, state: 'VIC', bedrooms: 3 }, null, { agencyId: 'agency-b' });
+    const written = sets[0] ?? {};
+    expect(written.bedrooms).not.toBe(3);
+    const q = new PgDialect().sqlToQuery(written.bedrooms as SQL);
+    expect(q.sql).toMatch(/^coalesce\("property"\."bedrooms", \$1\)$/);
+    expect(q.params).toEqual([3]);
+    expect(Object.values(written)).not.toContain(null);
+  });
+
+  const pin = { latitude: '-38.000001', longitude: '145.000001', placeId: null, formattedAddress: null, geocodedAt: new Date(), geocodeSource: 'manual' as const };
+  const dragged = { unit: '32', streetNumber: '6E', street: 'Henry Street', ...base, state: 'VIC' as const, latitude: -38.000001, longitude: 145.000001 };
+
+  it('does not move the pin of an address another agency uses — even a pin the agent dragged', async () => {
+    const { db, sets } = fake([soldBefore], { usedByAnotherAgency: true });
+    await upsertProperty(db, dragged, pin, { agencyId: 'agency-b' });
+    expect(sets[0]).not.toHaveProperty('latitude');
+  });
+
+  it('moves it when nobody else is at the address, and fills an address that has no pin', async () => {
+    const own = fake([soldBefore], { usedByAnotherAgency: false });
+    await upsertProperty(own.db, dragged, pin, { agencyId: 'agency-a' });
+    expect(own.sets[0]).toMatchObject({ latitude: '-38.000001' });
+    const empty = fake([{ ...soldBefore, latitude: null }], { usedByAnotherAgency: true });
+    await upsertProperty(empty.db, { unit: '32', streetNumber: '6E', street: 'Henry Street', ...base, state: 'VIC' }, pin, { agencyId: 'agency-b' });
+    expect(empty.sets[0]).toMatchObject({ latitude: '-38.000001' });
+  });
+
+  it('without the saving agency, a carried pin never moves an existing one', async () => {
+    const { db, sets } = fake([soldBefore], { usedByAnotherAgency: false });
+    await upsertProperty(db, dragged, pin);
+    expect(sets[0]).not.toHaveProperty('latitude');
   });
 });

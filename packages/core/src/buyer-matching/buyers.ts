@@ -54,7 +54,8 @@ export async function listingTarget(db: DbOrTx, agencyId: string, listingId: str
   if (!UUID.test(listingId)) return null;
   const [li] = await db.execute<{ channel: string; low: string | null; high: string | null; bedrooms: number | null; bathrooms: string | null; property_type: string | null; suburb: string | null; address: string }>(sql`
     select ${LISTING_CHANNEL} as channel, pr.low::text as low, pr.high::text as high,
-      p.bedrooms, p.bathrooms::text as bathrooms, p.property_type, p.suburb,
+      coalesce(li.bedrooms, p.bedrooms) as bedrooms, coalesce(li.bathrooms, p.bathrooms)::text as bathrooms,
+      coalesce(li.property_type, p.property_type) as property_type, p.suburb,
       concat_ws(', ', nullif(trim(concat(case when p.unit is not null then p.unit || '/' end, concat_ws(' ', p.street_number, p.street))), ''), p.suburb) as address
     from listing li join property p on p.id = li.property_id ${LISTING_PRICE_RANGE}
     where li.id = ${listingId} and li.agency_id = ${agencyId}`);

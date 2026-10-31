@@ -276,7 +276,8 @@ export async function detectBuyerMatches(db: DbOrTx): Promise<Detected[]> {
       br.min_bedrooms as br_min_bedrooms, br.min_bathrooms::text as br_min_bathrooms,
       br.suburbs as br_suburbs, br.property_types as br_property_types,
       concat_ws(', ', nullif(trim(concat(case when p.unit is not null then p.unit || '/' end, concat_ws(' ', p.street_number, p.street))), ''), p.suburb) as address,
-      li.price_display, p.bedrooms, p.bathrooms::text as bathrooms, p.property_type, li.published_at
+      li.price_display, coalesce(li.bedrooms, p.bedrooms) as bedrooms, coalesce(li.bathrooms, p.bathrooms)::text as bathrooms,
+      coalesce(li.property_type, p.property_type) as property_type, li.published_at
     from buyer_requirement br
     join contact c on c.id = br.contact_id and c.agency_id = br.agency_id
     join listing li on li.agency_id = br.agency_id and li.channel::text = br.channel::text
@@ -292,10 +293,10 @@ export async function detectBuyerMatches(db: DbOrTx): Promise<Detected[]> {
       and c.assigned_to is not null and c.archived_at is null and c.merged_into_id is null
       and (br.price_min is null or (pr.high is not null and pr.high >= br.price_min))
       and (br.price_max is null or (pr.low is not null and pr.low <= br.price_max))
-      and (br.min_bedrooms is null or p.bedrooms >= br.min_bedrooms)
-      and (br.min_bathrooms is null or p.bathrooms >= br.min_bathrooms)
+      and (br.min_bedrooms is null or coalesce(li.bedrooms, p.bedrooms) >= br.min_bedrooms)
+      and (br.min_bathrooms is null or coalesce(li.bathrooms, p.bathrooms) >= br.min_bathrooms)
       and (cardinality(br.suburbs) = 0 or exists (select 1 from unnest(br.suburbs) s where lower(s) = lower(p.suburb)))
-      and (cardinality(br.property_types) = 0 or lower(p.property_type) = any (br.property_types))
+      and (cardinality(br.property_types) = 0 or lower(coalesce(li.property_type, p.property_type)) = any (br.property_types))
       and not exists (select 1 from lead l where l.contact_id = c.id and l.listing_id = li.id)
       and ${recipientOk(sql`c.assigned_to`, sql`br.agency_id`)}
     order by li.published_at desc

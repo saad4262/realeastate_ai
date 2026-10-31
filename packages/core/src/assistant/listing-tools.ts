@@ -14,6 +14,7 @@ import { AssistantError } from './conversations';
 import { figuresIn, NOTHING_YET, refused, UNKNOWN_REF } from './write-tools';
 import type { createListingDraftInput, ProposalCard, submitListingInput, updateListingInput, withdrawListingInput } from './schema';
 import type { ToolContext, ToolOutcome } from './tools';
+import { adFacts } from '../listings/facts';
 
 /**
  * Listings by the assistant (ADR 0040 part 2 §4). Each tool only PROPOSES a card built from the
@@ -200,13 +201,13 @@ async function loadEditing(db: DbOrTx, agencyId: string, listingId: string): Pro
       suburb: property.suburb,
       state: property.state,
       postcode: property.postcode,
-      propertyType: property.propertyType,
-      bedrooms: property.bedrooms,
-      bathrooms: property.bathrooms,
-      carSpaces: property.carSpaces,
-      landAreaSqm: property.landAreaSqm,
-      buildingAreaSqm: property.buildingAreaSqm,
-      yearBuilt: property.yearBuilt,
+      propertyType: adFacts.propertyType,
+      bedrooms: adFacts.bedrooms,
+      bathrooms: adFacts.bathrooms,
+      carSpaces: adFacts.carSpaces,
+      landAreaSqm: adFacts.landAreaSqm,
+      buildingAreaSqm: adFacts.buildingAreaSqm,
+      yearBuilt: adFacts.yearBuilt,
     })
     .from(listing)
     .innerJoin(property, eq(property.id, listing.propertyId))

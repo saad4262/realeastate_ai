@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gte, isNotNull, or, sql, type SQL } from 'drizzle-o
 import { agency, listing, property, type Db } from '@repo/db';
 import { formatAddress } from './listing-schema';
 import type { Near } from '../geo/place-schema';
+import { adFacts } from './facts';
 
 /**
  * What has recently SOLD in an area.
@@ -160,9 +161,9 @@ export async function recentSales(db: Db, query: RecentSalesQuery): Promise<Rece
       ? sql`upper(${property.state}) = upper(${query.state})`
       : undefined;
   if (query.since) filters.push(gte(listing.soldDate, query.since));
-  if (query.bedrooms !== undefined) filters.push(sql`${property.bedrooms} >= ${query.bedrooms}`);
+  if (query.bedrooms !== undefined) filters.push(sql`${adFacts.bedrooms} >= ${query.bedrooms}`);
   if (query.propertyType) {
-    filters.push(sql`lower(${property.propertyType}) = lower(${query.propertyType})`);
+    filters.push(sql`lower(${adFacts.propertyType}) = lower(${query.propertyType})`);
   }
   if (centre) {
     // geom is the generated geography column, GiST-indexed (migration 0006).
@@ -189,10 +190,10 @@ export async function recentSales(db: Db, query: RecentSalesQuery): Promise<Rece
       soldPrice: listing.soldPrice,
       soldDate: listing.soldDate,
       agencyName: agency.name,
-      bedrooms: property.bedrooms,
-      bathrooms: property.bathrooms,
-      carSpaces: property.carSpaces,
-      propertyType: property.propertyType,
+      bedrooms: adFacts.bedrooms,
+      bathrooms: adFacts.bathrooms,
+      carSpaces: adFacts.carSpaces,
+      propertyType: adFacts.propertyType,
       latitude: property.latitude,
       longitude: property.longitude,
       priceDisplay: listing.priceDisplay,

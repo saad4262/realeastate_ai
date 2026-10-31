@@ -190,11 +190,12 @@ export async function financeReport(db: DbOrTx, actor: Actor, opts: { period: Fi
     sale_price: string | null; settlement_date: string | null; paid_on: string | null; status: string; stage: string;
     commission: string | null; split: string | null; split_from_profile: boolean; agent_share: string | null; agency_share: string | null; gst: string | null;
   }>(sql`
-    select d.id, d.listing_id, concat_ws(', ', nullif(trim(concat_ws(' ', p.street_number, p.street)), ''), p.suburb) as address, p.suburb, p.property_type,
+    select d.id, d.listing_id, concat_ws(', ', nullif(trim(concat_ws(' ', p.street_number, p.street)), ''), p.suburb) as address, p.suburb, coalesce(dl.property_type, p.property_type) as property_type,
       d.agent_id, coalesce(u.name, u.email) as agent_name, d.sale_price::text, d.settlement_date::text, d.commission_paid_on::text as paid_on, d.status, d.stage::text as stage,
       ${COMMISSION_COLUMNS}
     from deal d
     join property p on p.id = d.property_id
+    left join listing dl on dl.id = d.listing_id
     left join "user" u on u.id = d.agent_id
     ${COMMISSION_JOINS}
     where d.agency_id = ${agencyId}

@@ -6,7 +6,7 @@ import { AUTO_NOTES, DEAL_REMINDER_DAYS, DEAL_STAGES, STANDARD_CONDITIONS } from
 /**
  * The deal sync (ADR 0063 §4), run by the every-minute tick: deals are opened and moved FROM what the
  * platform already knows — an appraisal, a listing's status, an offer — in SQL, never from a model. Every
- * statement is idempotent (one open deal per property, a deal only ever moved forward, reminders deduped),
+ * statement is idempotent (one open deal per property per agency — ADR 0075 — a deal only ever moved forward, reminders deduped),
  * so an overlapping run, a retry or a manual curl changes nothing twice. Sales only (ADR 0063 §2).
  */
 
@@ -40,10 +40,11 @@ export async function runDealSync(db: Db, opts: { agencyId?: string } = {}): Pro
   const linked = await db.execute<{ id: string }>(sql`
     update deal d set listing_id = l.id, updated_at = now()
     from (
-      select distinct on (li.property_id) li.id, li.property_id, li.agency_id
+      -- ADR 0075: per agency — several agencies may list one address, each with its own deal.
+      select distinct on (li.agency_id, li.property_id) li.id, li.property_id, li.agency_id
       from listing li
       where li.channel = 'sale' and li.status <> 'withdrawn' and not exists (select 1 from deal x where x.listing_id = li.id)
-      order by li.property_id, li.created_at desc
+      order by li.agency_id, li.property_id, li.created_at desc
     ) l
     where d.status = 'open' and d.listing_id is null and d.property_id = l.property_id and d.agency_id = l.agency_id ${only('d.agency_id')}
     returning d.id`);
@@ -64,7 +65,7 @@ export async function runDealSync(db: Db, opts: { agencyId?: string } = {}): Pro
       select agency_id, property_id, listing_id, (${STAGES})[t + 1]::deal_stage, agent_id,
         case when t = 5 then sold_price end, case when t = 5 then sold_date::date end
       from cand where t is not null
-      on conflict (property_id) where status = 'open' do nothing
+      on conflict (agency_id, property_id) where status = 'open' do nothing
       returning id, agency_id, stage
     )
     insert into deal_event (deal_id, agency_id, kind, to_stage, auto, note)
@@ -75,7 +76,7 @@ export async function runDealSync(db: Db, opts: { agencyId?: string } = {}): Pro
   // 3. An appraisal (a lead of that kind, or an appraisal appointment) on a property with no open deal opens one at Appraisal.
   const appraisals = await db.execute<{ id: string }>(sql`
     with cand as (
-      select distinct on (x.property_id) x.agency_id, x.property_id, x.agent_id, x.contact_id
+      select distinct on (x.agency_id, x.property_id) x.agency_id, x.property_id, x.agent_id, x.contact_id
       from (
         select l.agency_id, l.property_id, l.assigned_to as agent_id, l.contact_id, l.created_at as at
         from lead l where l.kind = 'appraisal' and l.property_id is not null and l.created_at > now() - make_interval(days => ${BACKFILL_DAYS})
@@ -85,12 +86,12 @@ export async function runDealSync(db: Db, opts: { agencyId?: string } = {}): Pro
           and a.starts_at > now() - make_interval(days => ${BACKFILL_DAYS})
       ) x
       where x.agency_id not in ${SUSPENDED_AGENCY_IDS} ${only('x.agency_id')}
-        and not exists (select 1 from deal d where d.property_id = x.property_id and (d.status = 'open' or d.updated_at > now() - make_interval(days => ${BACKFILL_DAYS})))
-      order by x.property_id, x.at desc
+        and not exists (select 1 from deal d where d.agency_id = x.agency_id and d.property_id = x.property_id and (d.status = 'open' or d.updated_at > now() - make_interval(days => ${BACKFILL_DAYS})))
+      order by x.agency_id, x.property_id, x.at desc
     ), ins as (
       insert into deal (agency_id, property_id, stage, agent_id, vendor_contact_id)
       select agency_id, property_id, 'appraisal', agent_id, contact_id from cand
-      on conflict (property_id) where status = 'open' do nothing
+      on conflict (agency_id, property_id) where status = 'open' do nothing
       returning id, agency_id
     )
     insert into deal_event (deal_id, agency_id, kind, to_stage, auto, note)

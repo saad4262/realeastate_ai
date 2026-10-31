@@ -10,17 +10,13 @@ export function money(value: number | undefined): string | null {
 }
 
 /**
- * The physical attributes of a dwelling, as opposed to the ad over it.
+ * The physical attributes the form states, every field, blanks as NULL.
  *
- * Shared by create and update because they are facts about the place, not the
- * campaign: a fourth bedroom added between two listings is true for both.
- *
- * Every field, blanks as NULL. Right for a new property, and for an agent
- * editing the property their own listing already stands on — clearing a wrong
- * bedroom count has to be possible. NOT right for joining a property somebody
- * else described; see `providedPhysicalFields`.
+ * ADR 0075: these are written to the LISTING (the facts as this ad states them — clearing a wrong
+ * bedroom count is the agent's to do), and to a property row only when the row is new. The address is
+ * shared by every agency; see `providedPhysicalFields` for what a listing may add to an existing one.
  */
-function physicalFields(p: PropertyDraft) {
+export function physicalFields(p: PropertyDraft) {
   return {
     propertyType: p.propertyType || null,
     bedrooms: p.bedrooms ?? null,
@@ -33,13 +29,8 @@ function physicalFields(p: PropertyDraft) {
 }
 
 /**
- * Only the facts this draft actually states.
- *
- * For a listing joining an EXISTING property — another agency re-listing a
- * house, or an edit that moves a listing onto an address already on file. A
- * field left blank on the new ad means "not given", not "this house has none":
- * writing it as NULL erased the bedrooms, land size and so on that the earlier
- * agency recorded, from the property every listing at the address reads.
+ * Only the facts this draft actually states — for an EXISTING property, where (ADR 0075) a listing may
+ * only fill a fact the address does not have yet, never change one. A blank on the ad means "not given".
  */
 function providedPhysicalFields(p: PropertyDraft) {
   const all = physicalFields(p);
@@ -144,18 +135,29 @@ export async function resolvePin(db: Db, p: PropertyDraft): Promise<ResolvedPin>
  * nothing else; the second waits, then finds the first one's row. It releases
  * itself at commit or rollback.
  */
+/** ADR 0075: anything of ANOTHER agency at this address — then its pin is not ours to move. One query. */
+export async function usedByAnotherAgency(tx: DbOrTx, propertyId: string, agencyId: string): Promise<boolean> {
+  const [r] = await tx.execute<{ used: boolean }>(sql`select (
+    exists (select 1 from listing where property_id = ${propertyId} and agency_id <> ${agencyId})
+    or exists (select 1 from deal where property_id = ${propertyId} and agency_id <> ${agencyId})
+    or exists (select 1 from appointment where property_id = ${propertyId} and agency_id <> ${agencyId})
+    or exists (select 1 from lead where property_id = ${propertyId} and agency_id <> ${agencyId})
+    or exists (select 1 from contact_property cp join contact c on c.id = cp.contact_id where cp.property_id = ${propertyId} and c.agency_id <> ${agencyId})
+  ) as used`);
+  return Boolean(r?.used);
+}
+
 export async function upsertProperty(
   tx: DbOrTx,
   p: PropertyDraft,
   pin: ResolvedPin,
   opts: {
     /**
-     * The property the listing being edited stands on now. When the address
-     * still resolves to it, blanks clear fields — the agent is correcting their
-     * own record. Anything else is joining a property, and only what the draft
-     * states is written.
+     * ADR 0075: the agency saving. A pin it carries moves an existing address's pin only while no OTHER
+     * agency has anything at that address (a listing, a deal, an appointment, a lead, a contact's link).
+     * Omitted: the pin is only ever written to an address that has none.
      */
-    editingPropertyId?: string;
+    agencyId?: string;
     /**
      * Use an existing property exactly as it is. For a contact's address
      * (ADR 0018): tying a person to a home is not a statement about the home,
@@ -195,23 +197,19 @@ export async function upsertProperty(
   if (existing && opts.leaveExisting) return existing.id;
 
   if (existing) {
-    // A pin the caller is carrying always wins: it is either the one the
-    // autocomplete just resolved or the one the agent dragged, and both are
-    // newer than whatever is in the row. Otherwise a pin is only written when
-    // this row has never had one — writing on every edit would quietly discard
-    // a pin somebody placed by hand while they were fixing a typo elsewhere.
+    // ADR 0075: the address is shared by every agency and a listing never rewrites it. Facts: only the
+    // ones the address does not have yet are filled (the ad's own facts live on the listing). Pin: an
+    // address with none takes it; a pin the caller carries (the autocomplete's, or one the agent dragged)
+    // moves it only while no other agency has anything at this address.
     const carriesPin = p.latitude !== undefined && p.longitude !== undefined;
-    const write = carriesPin || existing.latitude === null ? pin : null;
+    const write = existing.latitude === null || (carriesPin && opts.agencyId !== undefined && !(await usedByAnotherAgency(tx, existing.id, opts.agencyId))) ? pin : null;
+    const fill = Object.fromEntries(
+      Object.entries(providedPhysicalFields(p)).map(([k, v]) => [k, sql`coalesce(${property[k as keyof ReturnType<typeof physicalFields>]}, ${v})`]),
+    );
 
     await tx
       .update(property)
-      .set({
-        ...(existing.id === opts.editingPropertyId
-          ? physicalFields(p)
-          : providedPhysicalFields(p)),
-        ...(write ?? {}),
-        updatedAt: sql`now()`,
-      })
+      .set({ ...fill, ...(write ?? {}), updatedAt: sql`now()` })
       .where(eq(property.id, existing.id));
 
     return existing.id;

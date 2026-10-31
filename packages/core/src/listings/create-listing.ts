@@ -7,7 +7,7 @@ import {
   toListingError,
   type CreateListingInput,
 } from './listing-schema';
-import { money, resolvePin, upsertProperty, type ResolvedPin } from './property-resolver';
+import { money, physicalFields, resolvePin, upsertProperty, type ResolvedPin } from './property-resolver';
 
 const FORBIDDEN = new ListingError(
   'forbidden',
@@ -71,10 +71,9 @@ export async function createListing(
    * problem because nothing had reported an error.
    */
   return db.transaction(async (tx) => {
-    // Find or create the address and keep its physical facts current. Shared
-    // with updateListing so the two can never disagree about what counts as
-    // the same dwelling.
-    const propertyId = await upsertProperty(tx, draft.property, pin);
+    // Find or create the address. Shared with updateListing so the two can never disagree about what
+    // counts as the same dwelling. ADR 0075: it never rewrites an address another agency uses.
+    const propertyId = await upsertProperty(tx, draft.property, pin, { agencyId });
 
     const [created] = await tx
       .insert(listing)
@@ -93,6 +92,8 @@ export async function createListing(
         availableFrom: l.availableFrom ?? null,
         auctionDate: l.auctionDate ?? null,
         source: 'portal',
+        // ADR 0075: the facts as this ad states them.
+        ...physicalFields(draft.property),
       })
       .returning({ id: listing.id });
 

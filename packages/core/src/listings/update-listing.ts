@@ -8,7 +8,7 @@ import {
   updateListingInputSchema,
   type UpdateListingInput,
 } from './listing-schema';
-import { money, resolvePin, upsertProperty, type ResolvedPin } from './property-resolver';
+import { money, physicalFields, resolvePin, upsertProperty, type ResolvedPin } from './property-resolver';
 
 export type UpdateListingResult = {
   listingId: string;
@@ -90,9 +90,8 @@ export async function updateListing(
    * listing pointing at the new address with the old agents — or with none.
    */
   return db.transaction(async (tx) => {
-    const propertyId = await upsertProperty(tx, draft.property, pin, {
-      editingPropertyId: target.propertyId,
-    });
+    // ADR 0075: the address is shared and never rewritten by an ad; the ad's facts go on the listing below.
+    const propertyId = await upsertProperty(tx, draft.property, pin, { agencyId: target.agencyId });
 
     const [row] = await tx
       .update(listing)
@@ -108,6 +107,8 @@ export async function updateListing(
         rentPw: money(l.rentPw),
         availableFrom: l.availableFrom ?? null,
         auctionDate: l.auctionDate ?? null,
+        // ADR 0075: the facts as this ad states them — blanks clear them (the agent correcting their own ad).
+        ...physicalFields(draft.property),
         updatedAt: sql`now()`,
       })
       // Scoped by agency as well as id: a stale listing id from another agency

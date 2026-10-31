@@ -2,6 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { lead, listing, mailThread, property, type Db } from '@repo/db';
 import { formatAddress } from '../listings/listing-schema';
 import type { LeadKind, LeadStatus } from './list-leads';
+import { adFacts } from '../listings/facts';
 
 /**
  * Everything an agent needs to know about a lead at a glance — what kind of
@@ -76,11 +77,11 @@ export async function loadLeadContext(db: Db, leadId: string): Promise<LeadConte
       suburb: property.suburb,
       state: property.state,
       postcode: property.postcode,
-      propertyType: property.propertyType,
-      bedrooms: property.bedrooms,
-      bathrooms: property.bathrooms,
-      carSpaces: property.carSpaces,
-      landAreaSqm: property.landAreaSqm,
+      propertyType: adFacts.propertyType,
+      bedrooms: adFacts.bedrooms,
+      bathrooms: adFacts.bathrooms,
+      carSpaces: adFacts.carSpaces,
+      landAreaSqm: adFacts.landAreaSqm,
       listingId: listing.id,
       headline: listing.headline,
       priceDisplay: listing.priceDisplay,

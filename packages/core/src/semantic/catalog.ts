@@ -10,6 +10,7 @@ import { emailOwnerSql } from '../mail/owner';
 import { leadAgentIdSql, listingScopeFilters } from '../listings/scope';
 import { contactScopeFilters } from '../contacts/visibility';
 import type { WidgetFormat } from '../widgets/detail';
+import { adFacts } from '../listings/facts';
 
 /**
  * The semantic catalog (ADR 0036 §1, §4): every dataset, measure and dimension a
@@ -116,8 +117,8 @@ const LISTING_FROM = sql`listing
 
 const PROPERTY_DIMENSIONS = {
   suburb: { label: 'Suburb', about: 'the property’s suburb', expr: sql`coalesce(nullif(${property.suburb}, ''), 'Not stated')` },
-  property_type: { label: 'Property type', about: 'house, apartment, townhouse…', expr: sql`coalesce(nullif(${property.propertyType}, ''), 'Not stated')` },
-  bedrooms: { label: 'Bedrooms', about: 'number of bedrooms', expr: sql`coalesce(${property.bedrooms}::text, 'Not stated')` },
+  property_type: { label: 'Property type', about: 'house, apartment, townhouse…', expr: sql`coalesce(nullif(${adFacts.propertyType}, ''), 'Not stated')` },
+  bedrooms: { label: 'Bedrooms', about: 'number of bedrooms', expr: sql`coalesce(${adFacts.bedrooms}::text, 'Not stated')` },
 } satisfies Record<string, DimensionDef>;
 
 const LEAD_KIND_LABELS = { enquiry: 'Enquiry', inspection: 'Inspection request', appraisal: 'Appraisal request', agency: 'Agency address', offer: 'Offer' };
@@ -250,6 +251,7 @@ export const DATASETS = {
     permission: 'lead:read',
     from: sql`lead
       join property on property.id = lead.property_id
+      left join listing on listing.id = lead.listing_id
       left join "user" agent_user on agent_user.id = lead.assigned_to`,
     scope: ({ db, actor }) => leadScopeFilters(db as never, actor),
     always: [sql`${lead.kind} <> 'offer'`],

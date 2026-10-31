@@ -179,9 +179,15 @@ export async function getPropertyView(db: DbOrTx, actor: Actor, propertyId: stri
       id: string; address: string; suburb: string; state: string; postcode: string; property_type: string | null; bedrooms: number | null; bathrooms: string | null;
       car_spaces: number | null; land_area_sqm: string | null; building_area_sqm: string | null; year_built: number | null; time_zone: string | null;
     }>(sql`
-      select p.id, ${PROPERTY_ADDRESS_SQL} as address, p.suburb, p.state, p.postcode, p.property_type, p.bedrooms, p.bathrooms::text, p.car_spaces,
-        p.land_area_sqm::text, p.building_area_sqm::text, p.year_built, (select ag.time_zone from agency ag where ag.id = ${agencyId}) as time_zone
-      from property p where p.id = ${propertyId}`),
+      select p.id, ${PROPERTY_ADDRESS_SQL} as address, p.suburb, p.state, p.postcode,
+        coalesce(fl.property_type, p.property_type) as property_type, coalesce(fl.bedrooms, p.bedrooms) as bedrooms,
+        coalesce(fl.bathrooms, p.bathrooms)::text as bathrooms, coalesce(fl.car_spaces, p.car_spaces) as car_spaces,
+        coalesce(fl.land_area_sqm, p.land_area_sqm)::text as land_area_sqm, coalesce(fl.building_area_sqm, p.building_area_sqm)::text as building_area_sqm,
+        coalesce(fl.year_built, p.year_built) as year_built, (select ag.time_zone from agency ag where ag.id = ${agencyId}) as time_zone
+      from property p
+      -- ADR 0075: this agency's own newest ad at the address says what the home is; the address fills the gaps.
+      left join lateral (select x.* from listing x where x.property_id = p.id and x.agency_id = ${agencyId} order by x.created_at desc limit 1) fl on true
+      where p.id = ${propertyId}`),
     db.execute<{
       id: string; channel: string; status: string; price_display: string | null; price_from: string | null; price_to: string | null; rent_pw: string | null;
       sold_price: string | null; sold_date: string | null; published_at: string | null; created_at: string; agent_name: string | null;
@@ -447,7 +453,8 @@ export async function listProperties(
     id: string; address: string; property_type: string | null; bedrooms: number | null; deal_stage: DealStage | null; deal_status: DealStatus | null;
     listing_status: string | null; owner_name: string | null; enquiries: number; last_at: string | null;
   }>(sql`
-    select p.id, ${PROPERTY_ADDRESS_SQL} as address, p.property_type, p.bedrooms, od.stage as deal_stage, od.status as deal_status, ll.status::text as listing_status,
+    select p.id, ${PROPERTY_ADDRESS_SQL} as address, coalesce(ll.property_type, p.property_type) as property_type,
+      coalesce(ll.bedrooms, p.bedrooms) as bedrooms, od.stage as deal_stage, od.status as deal_status, ll.status::text as listing_status,
       (select c.name from contact_property cp join contact c on c.id = cp.contact_id
         where cp.property_id = p.id and cp.relation in ('owner', 'vendor', 'landlord') and c.id in (${contacts}) order by cp.created_at limit 1) as owner_name,
       (select count(*)::int from lead l where l.property_id = p.id and ${leadVisibleSql(actor)}) as enquiries,
@@ -458,7 +465,7 @@ export async function listProperties(
     from property p
     left join lateral (select d.stage, d.status, d.updated_at from deal d where d.property_id = p.id and ${visibleDealsSql(actor)}
       order by (d.status = 'open') desc, d.updated_at desc limit 1) od on true
-    left join lateral (select li.status, li.updated_at from listing li where li.property_id = p.id and li.agency_id = ${agencyId}
+    left join lateral (select li.status, li.updated_at, li.property_type, li.bedrooms from listing li where li.property_id = p.id and li.agency_id = ${agencyId}
       order by li.created_at desc limit 1) ll on true
     where p.id in (${visiblePropertyIdsSql(actor)}) ${search} ${filter}
     order by last_at desc nulls last, p.id

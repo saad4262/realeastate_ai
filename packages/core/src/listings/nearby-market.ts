@@ -137,8 +137,8 @@ export async function nearbyMarket(
     // anything — it drops out here rather than appearing at distance zero.
     sql`ST_DWithin(p.geom, ${centre}, ${withinMetres})`,
   ];
-  if (query.bedrooms !== undefined) filters.push(sql`p.bedrooms >= ${query.bedrooms}`);
-  if (query.propertyType) filters.push(sql`lower(p.property_type) = lower(${query.propertyType})`);
+  if (query.bedrooms !== undefined) filters.push(sql`coalesce(l.bedrooms, p.bedrooms) >= ${query.bedrooms}`);
+  if (query.propertyType) filters.push(sql`lower(coalesce(l.property_type, p.property_type)) = lower(${query.propertyType})`);
 
   const where = sql.join(filters, sql` and `);
 
@@ -149,7 +149,8 @@ export async function nearbyMarket(
         l.price_display,
         p.suburb, p.state, p.postcode,
         p.unit, p.street_number, p.street,
-        p.bedrooms, p.bathrooms, p.car_spaces, p.property_type,
+        coalesce(l.bedrooms, p.bedrooms) as bedrooms, coalesce(l.bathrooms, p.bathrooms) as bathrooms,
+        coalesce(l.car_spaces, p.car_spaces) as car_spaces, coalesce(l.property_type, p.property_type) as property_type,
         ${price} as price,
         round((ST_Distance(p.geom, ${centre}) / 1000)::numeric, 2) as distance_km
       from listing l

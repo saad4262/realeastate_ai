@@ -8,6 +8,7 @@ import {
   type ListingForEdit,
   type ListingStatus,
 } from './listing-schema';
+import { adFacts } from './facts';
 
 export type ListingRow = {
   id: string;
@@ -82,10 +83,10 @@ const SELECTION = {
   suburb: property.suburb,
   state: property.state,
   postcode: property.postcode,
-  bedrooms: property.bedrooms,
-  bathrooms: property.bathrooms,
-  carSpaces: property.carSpaces,
-  propertyType: property.propertyType,
+  bedrooms: adFacts.bedrooms,
+  bathrooms: adFacts.bathrooms,
+  carSpaces: adFacts.carSpaces,
+  propertyType: adFacts.propertyType,
   agencyName: agency.name,
   /**
    * Agent names inline instead of a second query keyed by listing id — that
@@ -317,13 +318,13 @@ export async function getListingForEdit(
       suburb: property.suburb,
       state: property.state,
       postcode: property.postcode,
-      propertyType: property.propertyType,
-      bedrooms: property.bedrooms,
-      bathrooms: property.bathrooms,
-      carSpaces: property.carSpaces,
-      landAreaSqm: property.landAreaSqm,
-      buildingAreaSqm: property.buildingAreaSqm,
-      yearBuilt: property.yearBuilt,
+      propertyType: adFacts.propertyType,
+      bedrooms: adFacts.bedrooms,
+      bathrooms: adFacts.bathrooms,
+      carSpaces: adFacts.carSpaces,
+      landAreaSqm: adFacts.landAreaSqm,
+      buildingAreaSqm: adFacts.buildingAreaSqm,
+      yearBuilt: adFacts.yearBuilt,
       latitude: property.latitude,
       longitude: property.longitude,
       placeId: property.placeId,

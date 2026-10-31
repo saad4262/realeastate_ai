@@ -36,6 +36,7 @@ import {
   getAgencyListing,
   getListingForEdit,
   updateListing,
+  createListing,
   type PublicSearchQuery,
 } from '@repo/core/listings';
 import {
@@ -243,6 +244,7 @@ import {
 import { assistantDeps, runAssistantTurn, type AssistantEvent } from '@repo/ai/assistant';
 import { DASHBOARD_EVALS } from '@repo/ai/evals/dashboard-phrases';
 import { listWaitingDrafts, runWorkflowTick, saveWorkflow, setWorkflowStatus } from '@repo/core/workflows';
+import { runDealSync } from '@repo/core/deals';
 import { isSkillOn, setSkillSwitch, skillsOffForActor } from '@repo/core/skill-switches';
 import {
   connectTwilio,
@@ -7956,6 +7958,36 @@ async function main() {
     ['assistant_turn', 'conversation_id', 'assistant_conversation'],
     ['listing_import_row', 'import_id', 'listing_import'],
   ];
+
+  /**
+   * ADR 0075: two agencies list one home. The address is shared and neither ad rewrites it — not its facts,
+   * not its pin, not even a pin the second agent drags; each form shows its own ad; each agency gets its own
+   * open deal. Needs migrations 0075 + 0076.
+   */
+  await check('two agencies on one address: no agency rewrites the other\'s property, each ad keeps its facts, a deal each (ADR 0075)', () =>
+    inRollback(async (t) => {
+      const fa = await contactFixture(t);
+      const fb = await contactFixture(t);
+      const A = fa.actor('owner');
+      const B = fb.actor('owner');
+      const addr = { streetNumber: '5', street: `Smoke ${fa.tag} Ct`, suburb: 'Pakenham', state: 'VIC', postcode: '3810', pinSource: 'manual' };
+      const ad = (headline: string) => ({ channel: 'sale', headline, priceDisplay: '$700,000', priceFrom: 700000, priceTo: 700000 });
+      const la = await createListing(t, A, { property: { ...addr, propertyType: 'house', bedrooms: 3, latitude: -38.07, longitude: 145.48 }, listing: ad('A') });
+      const lb = await createListing(t, B, { property: { ...addr, propertyType: 'townhouse', bedrooms: 4, latitude: -38.09, longitude: 145.5 }, listing: ad('B') });
+      assert(la.propertyId === lb.propertyId, 'both on one address row');
+      await updateListing(t, B, lb.listingId, { property: { ...addr, propertyType: 'townhouse', bedrooms: 5, latitude: -38.1, longitude: 145.6 }, listing: ad('B') });
+      const [p] = await t.execute<{ bedrooms: number; property_type: string; latitude: string }>(sql`select bedrooms, property_type, latitude::text from property where id = ${la.propertyId}`);
+      assert(p?.bedrooms === 3 && p.property_type === 'house' && p.latitude === '-38.070000', `B rewrote A's address: ${JSON.stringify(p)}`);
+      const [ea, eb] = await Promise.all([getListingForEdit(t, A, la.listingId), getListingForEdit(t, B, lb.listingId)]);
+      assert(ea?.property.bedrooms === 3 && ea.property.propertyType === 'house', `A's form: ${JSON.stringify(ea?.property)}`);
+      assert(eb?.property.bedrooms === 5 && eb.property.propertyType === 'townhouse', `B's form: ${JSON.stringify(eb?.property)}`);
+      await runDealSync(t, { agencyId: A.agencyId });
+      await runDealSync(t, { agencyId: B.agencyId });
+      const [d] = await t.execute<{ n: number; agencies: number }>(sql`select count(*)::int as n, count(distinct agency_id)::int as agencies from deal where property_id = ${la.propertyId} and status = 'open'`);
+      assert(d?.n === 2 && d.agencies === 2, `open deals on the address: ${JSON.stringify(d)}`);
+      return 'one address row untouched by the second agency; A shows 3-bed house, B 5-bed townhouse; two open deals';
+    }),
+  );
 
   /** One hash per table over everything agency X owns — before and after must match. */
   async function agencySnapshot(t: Db, agencyId: string): Promise<Record<string, string>> {

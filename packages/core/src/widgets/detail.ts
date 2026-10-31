@@ -141,7 +141,7 @@ export async function salesDetail(ctx: WidgetContext, range: WidgetRange, metric
     ctx,
     sql`with base as (
         select listing.sold_price as price, listing.sold_date as d, listing.published_at as pub, p.suburb,
-               coalesce(nullif(p.property_type, ''), 'Not stated') as ptype,
+               coalesce(nullif(coalesce(listing.property_type, p.property_type), ''), 'Not stated') as ptype,
                coalesce(u.name, u.email, 'No agent') as agent,
                listing.sold_date >= ${iso(cur.from)}::timestamptz as is_cur
         from listing
@@ -314,7 +314,7 @@ export async function listingsDetail(ctx: WidgetContext): Promise<WidgetDetail> 
     ctx,
     sql`with base as (
         select listing.status::text as status, listing.channel::text as channel, listing.price_from as price, listing.published_at as pub, p.suburb,
-               coalesce(nullif(p.property_type, ''), 'Not stated') as ptype,
+               coalesce(nullif(coalesce(listing.property_type, p.property_type), ''), 'Not stated') as ptype,
                coalesce(u.name, u.email, 'No agent') as agent
         from listing
         join property p on p.id = listing.property_id

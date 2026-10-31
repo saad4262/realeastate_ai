@@ -65,7 +65,8 @@ describe('a listing matched from its own columns (ADR 0060)', () => {
     expect(q.sql).toContain(`br.channel::text = (case when li.channel::text in ('rent', 'leased') then 'rent' else 'sale' end)`);
     expect(q.sql).toContain('(pr.high is null or (br.price_min is null or br.price_min <= pr.high))');
     expect(q.sql).toContain('(pr.low is null or (br.price_max is null or br.price_max >= pr.low))');
-    expect(q.sql).toContain('(p.bedrooms is null or (br.min_bedrooms is null or br.min_bedrooms <= p.bedrooms))');
+    // ADR 0075: the listing's own bedrooms, the address's where the ad leaves them blank.
+    expect(q.sql).toContain('(coalesce(li.bedrooms, p.bedrooms) is null or (br.min_bedrooms is null or br.min_bedrooms <= coalesce(li.bedrooms, p.bedrooms)))');
     expect(q.sql).toContain('(p.suburb is null or (cardinality(br.suburbs) = 0 or exists (select 1 from unnest(br.suburbs) s where lower(s) = lower(p.suburb))))');
     expect(q.params).toEqual([]);
   });
