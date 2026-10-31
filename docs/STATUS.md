@@ -12,7 +12,11 @@ the four Phase 7 mocks.
 79 migrations recorded (0000–0078). Nothing pending. Dev database = production database (one `DATABASE_URL`).
 
 ## Checks
-- CI (`.github/workflows/ci.yml`, new): typecheck, lint, `pnpm test` on every push, no secrets given.
+- CI (`.github/workflows/ci.yml`, new): typecheck, lint, `pnpm test` on every push, no secrets given; Node from
+  `.nvmrc` (now 22). Green on GitHub for `48ab812` (2.5 min). Its first runs caught two things the Mac hid:
+  `packages/config` lacked `@types/node` (a stray copy in the home folder covered it), and unpdf needs Node 22+
+  (`Iterator`). **Check Vercel → each project → Settings → Node.js Version is 22 or later**, or PDF reading
+  (ADR 0053) fails in production.
 - Unit: core 1537, ai 335, auth 9, ui 4 — all pass, offline.
 - Smoke: run by hand with the user's go, in named groups (`SMOKE_ENABLED=true SMOKE_ONLY="<group>"`). The three
   known reds are fixed and each was seen red when broken: Console loaders 1/1, Search schedules 17/17, Email
