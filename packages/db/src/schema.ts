@@ -1315,6 +1315,9 @@ export const integrationProviderEnum = pgEnum('integration_provider', [
   'google_sheets',
   'google_reviews',
   'gmail',
+  // ADR 0076: Microsoft's, beside Google's.
+  'outlook_mail',
+  'outlook_calendar',
 ]);
 export const integrationOwnerTypeEnum = pgEnum('integration_owner_type', ['user', 'agency']);
 /** No row means "not connected". */
@@ -2805,6 +2808,30 @@ export type Membership = typeof membership.$inferSelect;
  * shown with Google's attribution. Unique per agency for now (one listing
  * per agency, decided Q6); a table so several offices can come later.
  */
+/**
+ * ADR 0076: which connected provider is ACTIVE for a purpose, per owner — a person (or the agency) may connect
+ * both Gmail and Outlook, or both calendars, and uses one of each. No row: the only one connected; both and no
+ * row: Google (connecting a second one never switches by itself). Server only (RLS on, no grants).
+ */
+export const integrationChoice = pgTable(
+  'integration_choice',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    ownerType: integrationOwnerTypeEnum('owner_type').notNull(),
+    /** A user id, or the agency id when ownerType is 'agency' (as integration_account). */
+    ownerId: uuid('owner_id').notNull(),
+    /** mail | calendar (CHECK). */
+    purpose: varchar('purpose', { length: 16 }).notNull(),
+    provider: integrationProviderEnum('provider').notNull(),
+    chosenBy: uuid('chosen_by').references(() => user.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('integration_choice_owner_idx').on(t.agencyId, t.ownerType, t.ownerId, t.purpose)],
+);
+
 export const agencyGooglePlace = pgTable(
   'agency_google_place',
   {

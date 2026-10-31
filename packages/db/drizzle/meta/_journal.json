@@ -540,6 +540,13 @@
       "when": 1793432017079,
       "tag": "0076_drop_old_deal_index",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1793437687210,
+      "tag": "0077_outlook",
+      "breakpoints": true
     }
   ]
 }

@@ -27,6 +27,8 @@ const OWN_AGENCY = [
   'activity',
   'appointment',
   'integration_account',
+  // ADR 0076: which of an owner's connected mailboxes / calendars is active — the owner's agency's row.
+  'integration_choice',
   'ai_run',
   'skill',
   'agent_skill',
