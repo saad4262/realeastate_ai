@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Property Management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300..600,0..1&display=swap" rel="stylesheet" />
+<!--
+  Mock for ROADMAP Phase 7 (#15 Property Management), for the USER's review (not the client).
+  What exists today: rent listings (rent_pw, available_from, channel 'leased'), landlord/tenant contact roles and
+  property relations, the 'inspection' appointment type. What this adds: a tenancy on the PROPERTY (never the
+  listing — non-negotiable 1), routine inspections, repairs, lease ends. Money (rent, trust account, bond,
+  statements) stays in the agency's property management software.
+  Console tokens. Every name, date and figure is SAMPLE data; every figure on screen comes from SQL (#4).
+  #rules (default), #portfolio, #tenancy, #inspection, #repair, #report, #renewal.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff;
+    --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff;
+    --emerald: #059669; --emerald-subtle: #ecfdf5;
+    --rose: #e11d48; --rose-subtle: #fff1f2;
+    --amber: #d97706; --amber-subtle: #fffbeb;
+    --violet: #6d28d9; --violet-subtle: #f5f3ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .ms { font-family: 'Material Symbols Outlined'; font-size: 20px; line-height: 1; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 400; }
+  .ms.sm { font-size: 16px; width: 16px; height: 16px; }
+  button { font: inherit; }
+  [hidden] { display: none !important; }
+
+  .mockbar { position: sticky; top: 0; z-index: 30; display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+  .mockbar b { color: #fff; }
+  .seg { display: inline-flex; background: #1e293b; border-radius: 8px; padding: 2px; flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; }
+  .seg button:focus-visible, .btn:focus-visible, .tab:focus-visible, .linkrow:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+
+  .shell { display: flex; min-height: calc(100vh - 36px); }
+  aside { width: 240px; flex: none; border-right: 1px solid var(--border-default); padding: 16px 12px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 16px; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--text-primary); color: #fff; display: grid; place-items: center; font: 700 12px 'Plus Jakarta Sans'; }
+  .brand small { display: block; color: var(--text-muted); font-size: 11px; }
+  .gh { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px 4px; }
+  .nl { display: flex; gap: 12px; align-items: center; padding: 7px 12px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; }
+  .nl.on { background: #fff; color: var(--sapphire); border: 1px solid var(--border-default); font-weight: 500; }
+  .nl .new { margin-left: auto; font-size: 10px; font-weight: 700; color: var(--violet); background: var(--violet-subtle); padding: 1px 6px; border-radius: 999px; }
+
+  main { flex: 1; min-width: 0; padding: 22px 32px 64px; max-width: 1060px; }
+  h2 { font: 600 19px/26px 'Plus Jakarta Sans'; margin: 10px 0 4px; text-wrap: balance; }
+  h3 { font: 600 14.5px/20px 'Plus Jakarta Sans'; margin: 0; }
+  .lead { color: var(--text-secondary); margin: 0 0 14px; max-width: 74ch; }
+  .crumb { color: var(--text-muted); font-size: 12px; }
+  .muted { color: var(--text-muted); font-size: 12px; }
+  .stack { display: grid; gap: 12px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .pane { background: #fff; border: 1px solid var(--border-default); border-radius: 14px; padding: 14px 16px; }
+  .pane p.h { margin: 6px 0 0; color: var(--text-secondary); font-size: 12.5px; }
+  .pill { display: inline-flex; gap: 5px; align-items: center; font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+  .pill.ok { background: var(--emerald-subtle); color: var(--emerald); }
+  .pill.wait { background: var(--amber-subtle); color: var(--amber); }
+  .pill.bad { background: var(--rose-subtle); color: var(--rose); }
+  .pill.info { background: var(--sapphire-subtle); color: var(--sapphire); }
+  .pill.grey { background: #f1f5f9; color: var(--text-secondary); }
+  .pill.ai { background: var(--violet-subtle); color: var(--violet); }
+  .rules { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 3px; color: var(--text-secondary); font-size: 12.5px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .kpi { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; padding: 10px 12px; }
+  .kpi b { display: block; font: 600 20px/26px 'Plus Jakarta Sans'; font-variant-numeric: tabular-nums; }
+  .kpi span { color: var(--text-secondary); font-size: 12px; }
+
+  .tablewrap { background: #fff; border: 1px solid var(--border-default); border-radius: 14px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11.5px; font-weight: 600; color: var(--text-muted); padding: 9px 12px; border-bottom: 1px solid var(--border-default); white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border-default); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .linkrow { cursor: pointer; }
+  .linkrow:hover td { background: #f8fafc; }
+  td small { display: block; color: var(--text-muted); font-size: 11.5px; }
+
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-default); margin: 12px 0; overflow-x: auto; }
+  .tab { border: 0; background: none; padding: 8px 12px; color: var(--text-secondary); border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; }
+  .tab[aria-selected="true"] { color: var(--text-primary); border-color: var(--text-primary); font-weight: 600; }
+  .two { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+  .facts { display: grid; gap: 7px; font-size: 13px; }
+  .facts div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; }
+  .facts span { color: var(--text-muted); font-size: 12px; }
+  .tl { display: grid; gap: 0; }
+  .tl div { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border-default); font-size: 13px; }
+  .tl div:last-child { border-bottom: 0; }
+  .tl .ms { color: var(--text-muted); }
+
+  .card { border: 1px solid var(--border-default); border-radius: 14px; overflow: hidden; background: #fff; }
+  .card header { padding: 10px 14px; background: var(--surface-canvas); border-bottom: 1px solid var(--border-default); font-weight: 600; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .card .body { padding: 12px 14px; display: grid; gap: 8px; font-size: 13px; }
+  .card .body .f { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 10px; }
+  .card .body .f > span:first-child { color: var(--text-muted); font-size: 12px; }
+  .card footer { display: flex; gap: 8px; justify-content: flex-end; padding: 10px 14px; border-top: 1px solid var(--border-default); flex-wrap: wrap; }
+  .mail { border: 1px solid var(--border-default); border-radius: 10px; padding: 10px 12px; background: var(--surface-canvas); white-space: pre-line; font-size: 12.5px; color: var(--text-secondary); }
+  .blank { display: inline-block; min-width: 90px; border-bottom: 2px dashed var(--amber); color: var(--amber); font-weight: 600; padding: 0 4px; }
+  .checks { display: grid; gap: 5px; }
+  .checks div { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; }
+  .checks .ms { color: var(--emerald); flex: none; }
+  .btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-default); background: #fff; color: var(--text-primary); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; }
+  .btn.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .note { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; }
+  .note.info { background: var(--sapphire-subtle); color: #1e40af; }
+  .note.warn { background: var(--amber-subtle); color: #92400e; }
+  .note.bad { background: var(--rose-subtle); color: #9f1239; }
+  .note .ms { flex: none; }
+  .quote { border-left: 3px solid var(--border-strong); padding: 6px 12px; color: var(--text-secondary); font-size: 13px; margin: 0; }
+  mark { background: var(--violet-subtle); color: var(--violet); border-radius: 3px; padding: 0 2px; }
+
+  .phone { width: 340px; max-width: 100%; margin: 0 auto; border: 10px solid #0f172a; border-radius: 34px; background: #fff; overflow: hidden; }
+  .phone .top { padding: 12px 16px; border-bottom: 1px solid var(--border-default); font-weight: 600; display: flex; gap: 8px; align-items: center; }
+  .phone .mid { padding: 16px; display: grid; gap: 12px; }
+  .field { display: grid; gap: 5px; font-size: 12.5px; font-weight: 500; }
+  .input { border: 1px solid var(--border-default); border-radius: 10px; padding: 9px 11px; color: var(--text-secondary); font-weight: 400; min-height: 40px; }
+  .input.area { min-height: 84px; color: var(--text-primary); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { border: 1px solid var(--border-default); border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 400; }
+  .chip.on { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #0f172a; color: #fff; padding: 9px 14px; border-radius: 10px; font-size: 12.5px; z-index: 50; }
+
+  @media (max-width: 960px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .two { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 860px) { aside { display: none; } main { padding: 18px 16px 48px; } }
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>MOCK · sample data · for your review</b>
+  <span>Screen:</span>
+  <div class="seg" role="group" aria-label="Screen">
+    <button type="button" data-screen="rules" aria-pressed="true">Decisions</button>
+    <button type="button" data-screen="portfolio" aria-pressed="false">1 · Rentals</button>
+    <button type="button" data-screen="tenancy" aria-pressed="false">2 · One tenancy</button>
+    <button type="button" data-screen="inspection" aria-pressed="false">3 · Routine inspection</button>
+    <button type="button" data-screen="report" aria-pressed="false">4 · Tenant reports a repair</button>
+    <button type="button" data-screen="repair" aria-pressed="false">5 · The repair, understood</button>
+    <button type="button" data-screen="renewal" aria-pressed="false">6 · Lease ending</button>
+  </div>
+</div>
+
+<div class="shell">
+  <aside aria-label="Sidebar">
+    <div class="brand"><div class="logo">PR</div><div><b>Pakenham Realty</b><small>Agent console · Sarah Lee</small></div></div>
+    <div class="gh">Home</div>
+    <div class="nl"><span class="ms">space_dashboard</span>Overview</div>
+    <div class="nl"><span class="ms">smart_toy</span>LocalAgent AI</div>
+    <div class="gh">Daily work</div>
+    <div class="nl"><span class="ms">filter_alt</span>Leads</div>
+    <div class="nl"><span class="ms">group</span>Contacts</div>
+    <div class="nl"><span class="ms">home_work</span>Listings</div>
+    <div class="nl on"><span class="ms" style="font-variation-settings:'FILL' 1">key</span>Rentals<span class="new">NEW</span></div>
+    <div class="nl"><span class="ms">calendar_today</span>Calendar</div>
+  </aside>
+
+  <main>
+    <!-- ===================== DECISIONS ===================== -->
+    <section id="rules" data-page>
+      <p class="crumb">Phase 7 · Property Management (#15) · for your review</p>
+      <h2>Rentals: six decisions</h2>
+      <p class="lead">Today the platform advertises rentals and tags landlords and tenants, then stops at “Leased”. This adds what a property manager does every week afterwards — the tenancy, routine inspections, repairs, the lease ending — on the same contacts, calendar, approval cards and workflows. The money does not move here.</p>
+      <div class="stack">
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>1 · People and property here; money stays in their PM software</h3><span class="pill wait">Suggested — strongly</span></div>
+          <p class="h">Rent collection, the trust account, bond lodgement, landlord statements and paying tradespeople stay in the agency’s property management software (PropertyMe, Console Cloud, PropertyTree…). Trust accounting is regulated and audited every year in each state; getting a cent wrong is a licensing matter. The platform records the rent and the bond <b>as facts typed in by a person</b>, to show them — it never holds or moves money.</p>
+          <p class="muted" style="margin:6px 0 0">Alternative: build trust accounting. Months of work, an auditor’s sign-off, state by state — and agencies that manage rentals already pay for software that does it.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>2 · A tenancy belongs to the property, not the listing</h3><span class="pill wait">Suggested</span></div>
+          <p class="h">A new record, the <b>tenancy</b>: the property, its landlord(s), its tenant(s), the lease start and end, the rent per week, the bond (amount and reference), and the property manager. Marking a rent listing “Leased” offers a card that starts one from the listing’s rent and the applicant you chose; existing tenancies come in by hand or a CSV import. The listing stays the advertisement; the property outlives both (non-negotiable 1).</p>
+          <p class="muted" style="margin:6px 0 0">Alternative: wait for a PropertyMe / Console Cloud connector and read tenancies from there. That is a connector, and connectors are version 2.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>3 · Routine inspections: the agency enters its state’s rules, the platform checks them</h3><span class="pill wait">Suggested</span></div>
+          <p class="h">In Settings the agency sets the notice it gives (days), how far apart inspections must be (months) and how long after the lease starts the first may be. Booking an inspection checks the date against those numbers and shows each check; the entry notice to the tenant is an email on an approval card. After the visit the manager adds notes and photos on the phone; the AI drafts a short report for the landlord — a draft, sent only by approval (non-negotiable 7).</p>
+          <p class="muted" style="margin:6px 0 0">We do not write the law into the code: the rules differ by state and change. The numbers in the mock are samples the agency would confirm.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>4 · Repairs: tenants report by a private link; spending is a person’s decision</h3><span class="pill wait">Suggested</span></div>
+          <p class="h">Each tenancy has a private “Report a repair” link (in the welcome email and on request) — no account, no password. The report arrives like an enquiry and the AI reads it as in 4.5: what is wrong, and whether it looks <b>urgent</b> (no hot water, a gas smell, a burst pipe…). An urgent one alerts the manager at once. Telling the landlord and asking a tradesperson to quote is an approval card. Agreeing a price or approving a quote is <b>human only</b> — the AI never agrees to spend the landlord’s money.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>5 · Lease ending: a nudge, real figures, no rent suggested</h3><span class="pill wait">Suggested</span></div>
+          <p class="h">A new workflow trigger, “N days before a lease ends” (the agency picks N; 90 suggested, to leave room for the notice periods). It makes a task and a card: an email asking the landlord whether to offer a renewal, with recent leases nearby <b>from our own leased listings (SQL)</b>. The AI writes the words only; the new rent, if any, is a blank the manager fills. Rent-increase and notice-to-vacate notices use the state’s official forms — not in this step.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>6 · Who, and how it is switched on</h3><span class="pill wait">Suggested</span></div>
+          <p class="h">Each tenancy has a property manager — any member, like the agent on a listing (a tenancy_manager link, not a new role). Managers see their tenancies; owners and admins see all; everything goes through can(). The Rentals area appears when the agency switches on the skill “Property management” — off until switched on (ADR 0069), so sales-only agencies never see it.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>Not in this step</h3><span class="pill ok">Later</span></div>
+          <ul class="rules">
+            <li>Money: rent, arrears, the trust account, bond lodgement, statements, paying invoices — in their PM software.</li>
+            <li>A connector to PropertyMe / Console Cloud / PropertyTree (version 2, with the CRM connectors).</li>
+            <li>Rental applications and tenant screening; logins for tenants or landlords.</li>
+            <li>The state’s official forms (rent increase, notice to vacate, condition report).</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== PORTFOLIO ===================== -->
+    <section id="portfolio" data-page hidden>
+      <p class="crumb">Rentals</p>
+      <div class="row" style="justify-content:space-between"><h2>Rentals</h2><div class="row"><button class="btn" type="button" data-toast="CSV: address, landlord, tenants, lease dates, rent, bond — checked before anything is saved"><span class="ms sm">upload</span>Import tenancies</button><button class="btn primary" type="button" data-toast="Adds a tenancy by hand"><span class="ms sm">add</span>Add a tenancy</button></div></div>
+      <p class="lead">What needs a property manager this week. Every count is a query; click a row to open the tenancy.</p>
+      <div class="kpis">
+        <div class="kpi"><b>5</b><span>Managed</span></div>
+        <div class="kpi"><b>1</b><span>Vacant</span></div>
+        <div class="kpi"><b>2</b><span>Leases ending in 90 days</span></div>
+        <div class="kpi"><b>2</b><span>Inspections due in 14 days</span></div>
+        <div class="kpi"><b>2</b><span>Open repairs <span class="pill bad" style="margin-left:4px">1 urgent</span></span></div>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Property</th><th>Landlord</th><th>Tenants</th><th>Rent</th><th>Lease ends</th><th>Next inspection</th><th>Repairs</th><th>Manager</th></tr></thead>
+          <tbody>
+            <tr class="linkrow" tabindex="0" data-screen="tenancy"><td><b>12 Station St</b><small>Pakenham</small></td><td>Helen Murray</td><td>Tom &amp; Aisha Reid</td><td class="num">$520 pw</td><td class="num">12 Dec 2026<small><span class="pill wait">in 42 days</span></small></td><td class="num">9 Nov<small>Notice sent</small></td><td><span class="pill bad">1 urgent</span></td><td>Sarah Lee</td></tr>
+            <tr class="linkrow" tabindex="0" data-screen="renewal"><td><b>63 Henry Rd</b><small>Pakenham</small></td><td>Kerry &amp; Paul Webb</td><td>Liam O’Brien</td><td class="num">$585 pw</td><td class="num">15 Jan 2027<small><span class="pill wait">in 76 days</span></small></td><td class="num">Due 11 Nov<small><span class="pill wait">Not booked</span></small></td><td><span class="pill grey">1 routine</span></td><td>Sarah Lee</td></tr>
+            <tr><td><b>4/8 Main St</b><small>Pakenham</small></td><td>Daniel Cho</td><td>Mia Nguyen</td><td class="num">$410 pw</td><td class="num">30 Jun 2027</td><td class="num">3 Feb 2027</td><td class="muted">—</td><td>James Park</td></tr>
+            <tr><td><b>15 Gardiner Way</b><small>Beaconsfield</small></td><td>Joan Hill</td><td>Sam &amp; Ella Kerr</td><td class="num">$495 pw</td><td class="num">28 Feb 2027</td><td class="num">12 Dec</td><td class="muted">—</td><td>James Park</td></tr>
+            <tr><td><b>9 Oak Ct</b><small>Officer</small></td><td>Rajesh Patel</td><td><span class="pill info">Vacant · advertised</span></td><td class="num">$560 pw<small>asking</small></td><td class="muted">—</td><td class="muted">—</td><td class="muted">—</td><td>Sarah Lee</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note info" style="margin-top:12px"><span class="ms sm">info</span><span>9 Oak Ct is a live rent listing. When it is marked “Leased”, a card offers to start the tenancy from the listing’s rent and the applicant chosen — a person checks the dates and the bond before it is saved.</span></div>
+    </section>
+
+    <!-- ===================== ONE TENANCY ===================== -->
+    <section id="tenancy" data-page hidden>
+      <p class="crumb">Rentals › 12 Station St, Pakenham</p>
+      <div class="row" style="justify-content:space-between"><h2>12 Station St, Pakenham</h2><span class="pill ok">Leased · periodic from 12 Dec unless renewed</span></div>
+      <div class="tabs" role="tablist"><button class="tab" role="tab" aria-selected="true" type="button">Overview</button><button class="tab" role="tab" aria-selected="false" type="button" data-screen="inspection">Inspections</button><button class="tab" role="tab" aria-selected="false" type="button" data-screen="repair">Repairs <span class="pill bad">1</span></button><button class="tab" role="tab" aria-selected="false" type="button">Messages</button><button class="tab" role="tab" aria-selected="false" type="button">Documents</button></div>
+      <div class="two">
+        <div class="pane">
+          <h3>The tenancy</h3>
+          <div class="facts" style="margin-top:10px">
+            <div><span>Landlord</span>Helen Murray · 0417 220 381</div>
+            <div><span>Tenants</span>Tom Reid · Aisha Reid</div>
+            <div><span>Lease</span>12 Dec 2025 – 12 Dec 2026 (12 months)</div>
+            <div><span>Rent</span>$520 per week <span class="muted">· entered by Sarah, 12 Dec 2025</span></div>
+            <div><span>Bond</span>$2,080 · RTBA ref. 4417-2209 <span class="muted">· held by the RTBA, not us</span></div>
+            <div><span>Manager</span>Sarah Lee</div>
+            <div><span>Repair link</span><span class="row" style="gap:6px">site.com.au/repair/•••••• <button class="btn" type="button" style="padding:3px 8px" data-toast="Copied. Sent in the welcome email; a new link can replace it">Copy</button></span></div>
+          </div>
+          <div class="note warn" style="margin-top:12px"><span class="ms sm">payments</span><span>Rent paid, arrears and the bond’s lodgement are in the agency’s PM software. Figures here are what a person typed, shown for reference.</span></div>
+        </div>
+        <div class="pane">
+          <h3>What happened</h3>
+          <div class="tl" style="margin-top:6px">
+            <div><span class="ms sm">build</span><span><b>Repair reported</b> — no hot water <span class="pill bad">Urgent</span></span><span class="muted">Fri 7:48 pm</span></div>
+            <div><span class="ms sm">mail</span><span>Entry notice for the 9 Nov inspection sent to Tom and Aisha <span class="muted">· approved by Sarah</span></span><span class="muted">26 Oct</span></div>
+            <div><span class="ms sm">fact_check</span><span>Routine inspection — report sent to Helen <span class="muted">· AI draft, edited and approved by Sarah</span></span><span class="muted">14 May</span></div>
+            <div><span class="ms sm">key</span><span>Tenancy started from the 12 Station St rent listing</span><span class="muted">12 Dec 2025</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== INSPECTION ===================== -->
+    <section id="inspection" data-page hidden>
+      <p class="crumb">Rentals › 63 Henry Rd › Inspections</p>
+      <h2>Book a routine inspection</h2>
+      <p class="lead">The manager picks a time; the platform checks it against the agency’s rules and shows each check; the entry notice to the tenant is a card.</p>
+      <div class="two">
+        <div class="card">
+          <header><span class="ms sm">event</span>Routine inspection · 63 Henry Rd, Pakenham <span class="pill wait" style="margin-left:auto">Waiting for your approval</span></header>
+          <div class="body">
+            <div class="f"><span>When</span><span>Wed 11 Nov 2026, 10:00–10:30</span></div>
+            <div class="f"><span>Tenant</span><span>Liam O’Brien · liam.obrien@example.com</span></div>
+            <div class="f"><span>Checks</span>
+              <div class="checks">
+                <div><span class="ms sm">check_circle</span>11 days’ notice if sent today — the agency’s rule is at least 7</div>
+                <div><span class="ms sm">check_circle</span>Last routine inspection 12 May 2026 — the agency’s rule is at least 6 months apart</div>
+                <div><span class="ms sm">check_circle</span>Lease started 15 Jan 2026 — the agency’s rule is none in the first 3 months</div>
+              </div>
+            </div>
+            <div class="f"><span>Entry notice</span><div class="mail">Hi Liam,
+
+This is notice that we will carry out a routine inspection of 63 Henry Rd, Pakenham on Wednesday 11 November 2026 between 10:00 and 10:30 am.
+
+You are welcome to be present but do not need to be. If the time is difficult, reply and we will try to find another.
+
+Sarah Lee
+Pakenham Realty</div></div>
+          </div>
+          <footer><button class="btn" type="button" data-toast="Nothing is booked or sent">Not now</button><button class="btn" type="button" data-toast="Opens the email to edit">Edit</button><button class="btn primary" type="button" data-toast="Booked on Sarah's calendar; notice sent and kept on the tenancy">Approve: book and send</button></footer>
+        </div>
+        <div class="stack">
+          <div class="pane">
+            <h3>Agency rules · Settings › Rentals</h3>
+            <div class="facts" style="margin-top:10px">
+              <div><span>Notice</span>at least 7 days</div>
+              <div><span>Apart</span>at least 6 months</div>
+              <div><span>First</span>not in the first 3 months</div>
+            </div>
+            <p class="h">Entered by the agency for its state; the platform checks a booking against these numbers, it does not decide them.</p>
+          </div>
+          <div class="pane">
+            <h3>After the visit</h3>
+            <p class="h">On the phone: notes, photos room by room. Then “Write the report” — the AI drafts a short report for the landlord from the notes; it is a draft on a card, edited and sent by the manager.</p>
+          </div>
+        </div>
+      </div>
+      <div class="note bad" style="margin-top:12px"><span class="ms sm">block</span><span>A date that fails a check cannot be booked from the card: “4 Nov gives 4 days’ notice — the agency’s rule is at least 7.”</span></div>
+    </section>
+
+    <!-- ===================== TENANT'S REPORT ===================== -->
+    <section id="report" data-page hidden>
+      <p class="crumb">The tenant’s phone · site.com.au/repair/••••••</p>
+      <h2>Tom reports a repair</h2>
+      <p class="lead">The private link from the welcome email. No account; the link knows the property. It is the public site, in the agency’s name.</p>
+      <div class="phone">
+        <div class="top"><span class="ms">build</span>Report a repair</div>
+        <div class="mid">
+          <div><b>12 Station St, Pakenham</b><div class="muted">Managed by Pakenham Realty</div></div>
+          <div class="note bad"><span class="ms sm">warning</span><span>Danger to anyone — fire, a gas smell you can’t stop, a live wire? Call 000 first. Then call us on 03 5941 0000.</span></div>
+          <label class="field">Your name<div class="input">Tom Reid</div></label>
+          <label class="field">What’s wrong<div class="input area">No hot water since this morning, the heater is showing an error light E4. We have a 2 year old.</div></label>
+          <div class="field">Where<div class="chips"><span class="chip">Kitchen</span><span class="chip">Bathroom</span><span class="chip on">Laundry</span><span class="chip">Outside</span><span class="chip">Other</span></div></div>
+          <label class="field">Photos<div class="input"><span class="ms sm">add_a_photo</span> 1 photo added</div></label>
+          <label class="field">Best way to reach you<div class="input">0423 118 762</div></label>
+          <button class="btn primary" type="button" style="justify-content:center" data-screen="repair">Send to Pakenham Realty</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== REPAIR, UNDERSTOOD ===================== -->
+    <section id="repair" data-page hidden>
+      <p class="crumb">Rentals › 12 Station St › Repairs</p>
+      <h2>No hot water — understood, and waiting for Sarah</h2>
+      <p class="lead">The report arrives like an enquiry. The AI reads it (as in 4.5) and sorts it; Sarah was alerted at once because it looks urgent. The two messages below go only when she approves them.</p>
+      <div class="two">
+        <div class="stack">
+          <div class="pane">
+            <div class="row" style="justify-content:space-between"><h3>Tom Reid · Fri 30 Oct, 7:48 pm</h3><span class="muted">Laundry · 1 photo</span></div>
+            <p class="quote" style="margin-top:8px">“<mark>No hot water</mark> since this morning, the heater is showing an error light E4. We have a 2 year old.”</p>
+            <div class="row" style="margin-top:10px"><span class="pill ai"><span class="ms sm">auto_awesome</span>AI understood</span><span class="pill bad">Urgent</span><span class="pill grey">Hot water · plumbing</span></div>
+            <p class="h">Urgent because of the words marked: “no hot water” is on the agency’s urgent list. The AI does not diagnose the heater.</p>
+          </div>
+          <div class="note warn"><span class="ms sm">payments</span><span><b>Spending is a person’s decision.</b> The AI asks for a quote; it never accepts one. When the quote arrives, Sarah records Helen’s answer — that step has no AI button.</span></div>
+        </div>
+        <div class="card">
+          <header><span class="ms sm">send</span>Two messages about this repair <span class="pill wait" style="margin-left:auto">Waiting for your approval</span></header>
+          <div class="body">
+            <div class="f"><span>To landlord</span><div class="mail">Hi Helen,
+
+Tom and Aisha at 12 Station St have reported no hot water since this morning (the heater shows an error, E4). They have a young child, so we are treating it as urgent.
+
+We have asked Pakenham Plumbing to attend and quote. We will send you the quote to approve before any work beyond the call-out.
+
+Sarah</div></div>
+            <div class="f"><span>To plumber</span><div class="mail">Pakenham Plumbing — please attend 12 Station St, Pakenham: no hot water, heater showing E4. Tenant Tom Reid, 0423 118 762. Please quote before any repair. Photo attached.</div></div>
+          </div>
+          <footer><button class="btn" type="button" data-toast="Nothing is sent">Not now</button><button class="btn" type="button" data-toast="Opens both to edit">Edit</button><button class="btn primary" type="button" data-toast="Both sent; Tom gets a text saying a plumber has been asked">Approve: send both</button></footer>
+        </div>
+      </div>
+      <div class="note info" style="margin-top:12px"><span class="ms sm">info</span><span>The tradespeople list (name, trade, email, phone) is the agency’s own, in Settings › Rentals. The call-out wording above is the agency’s template; the AI fills in the property and the problem.</span></div>
+    </section>
+
+    <!-- ===================== RENEWAL ===================== -->
+    <section id="renewal" data-page hidden>
+      <p class="crumb">Rentals › 63 Henry Rd › Lease ending</p>
+      <h2>Liam’s lease ends in 76 days</h2>
+      <p class="lead">The workflow “90 days before a lease ends” made a task and this card. The figures are our own leased listings nearby, from SQL; the AI wrote the words and left the rent blank.</p>
+      <div class="two">
+        <div class="card">
+          <header><span class="ms sm">mail</span>Ask Kerry and Paul about a renewal <span class="pill wait" style="margin-left:auto">Waiting for your approval</span></header>
+          <div class="body">
+            <div class="f"><span>To</span><span>Kerry &amp; Paul Webb</span></div>
+            <div class="f"><span>Email</span><div class="mail">Hi Kerry and Paul,
+
+Liam’s lease at 63 Henry Rd ends on 15 January 2027. He has looked after the home well and paid on time, and he would like to stay.
+
+Would you like us to offer him a new 12-month lease? We suggest a rent of <span class="blank">$ ___ pw</span> — recent leases nearby are below.
+
+Sarah Lee
+Pakenham Realty</div></div>
+            <div class="f"><span>Recent leases</span>
+              <table style="font-size:12.5px">
+                <thead><tr><th>Address</th><th>Beds</th><th>Leased</th><th>Rent</th></tr></thead>
+                <tbody>
+                  <tr><td>5 Clyde Rd, Pakenham</td><td class="num">3</td><td class="num">12 Sep 2026</td><td class="num">$590 pw</td></tr>
+                  <tr><td>21 Bald Hill Rd, Pakenham</td><td class="num">3</td><td class="num">2 Aug 2026</td><td class="num">$560 pw</td></tr>
+                  <tr><td>8 Rogers St, Pakenham</td><td class="num">3</td><td class="num">27 Jun 2026</td><td class="num">$600 pw</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <footer><button class="btn" type="button" data-toast="Nothing is sent">Not now</button><button class="btn" type="button" data-toast="Opens the email to edit">Edit</button><button class="btn primary" type="button" disabled style="opacity:.45;cursor:not-allowed" title="Fill in the rent first">Approve: send</button></footer>
+        </div>
+        <div class="stack">
+          <div class="pane">
+            <h3>Where the words come from</h3>
+            <p class="h">“Looked after the home well” comes from the inspection notes; “paid on time” only if the manager ticks it — the platform does not see rent payments. The AI is handed the dates and these facts; it is not handed, and does not write, a rent.</p>
+          </div>
+          <div class="note warn"><span class="ms sm">edit_note</span><span>Approve stays off until the manager types the rent. A rent increase to the tenant uses the state’s official form — not in this step.</span></div>
+          <div class="note info"><span class="ms sm">dataset</span><span>Recent leases: 3-bed houses this agency leased in the last 6 months within 3 km, from our listings. If there are none, the table says so; nothing is estimated.</span></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const SCREENS = ['rules', 'portfolio', 'tenancy', 'inspection', 'report', 'repair', 'renewal'];
+
+function go(s) {
+  document.querySelectorAll('.mockbar [data-screen]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.screen === s));
+  document.querySelectorAll('[data-page]').forEach((p) => (p.hidden = p.id !== s));
+  try { history.replaceState(null, '', '#' + s); } catch (e) { /* ignore */ }
+  window.scrollTo(0, 0);
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.hidden = true), 2400);
+}
+
+document.addEventListener('click', (e) => {
+  const s = e.target.closest('[data-screen]');
+  if (s) { go(s.dataset.screen); return; }
+  const tt = e.target.closest('[data-toast]');
+  if (tt) toast(tt.dataset.toast);
+});
+document.addEventListener('keydown', (e) => {
+  const r = e.target.closest && e.target.closest('tr[data-screen]');
+  if (r && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); go(r.dataset.screen); }
+});
+
+const h = (location.hash || '').slice(1);
+go(SCREENS.includes(h) ? h : 'rules');
+</script>
+</body>
+</html>
