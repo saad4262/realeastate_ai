@@ -96,7 +96,9 @@ export function microsoftAdapter(client: MicrosoftClient, fetchImpl: Fetch = fet
       }
     },
     async revoke() {
-      // No per-app revocation for delegated grants (see the header). Our copy is deleted by the caller.
+      // No per-app revocation for delegated grants (see the header): say so, so the screen tells the person to
+      // remove the app under their Microsoft account. Our copy is deleted by the caller either way.
+      throw new ProviderError('failed', 'Microsoft has no way for an app to revoke its own access');
     },
   };
 }

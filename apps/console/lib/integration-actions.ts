@@ -7,6 +7,7 @@ import {
   disconnectAndRevoke,
   IntegrationError,
   isIntegrationProvider,
+  setActiveProvider,
   startConnect,
   tokenKeysFromEnv,
 } from '@repo/core/integrations';
@@ -56,6 +57,26 @@ export async function connectIntegrationAction(formData: FormData): Promise<void
     redirect(`${path}?error=${encodeURIComponent(message)}`);
   }
   redirect(url);
+}
+
+/**
+ * Form action (ADR 0076): "Use this one instead" — make a connected mailbox or calendar the active one. can()
+ * decides inside core (a person for their own, an owner or admin for the agency's).
+ */
+export async function chooseIntegrationAction(formData: FormData): Promise<void> {
+  const who = await actor();
+  const { path } = await settingsPath();
+  let message: string;
+  try {
+    const { provider, ownerType } = parse(formData);
+    const { purpose } = await setActiveProvider(getConsoleDb(), who, { provider, ownerType });
+    message = `chosen=${provider}&purpose=${purpose}`;
+  } catch (err) {
+    message = `error=${encodeURIComponent(err instanceof IntegrationError ? err.message : 'Could not switch')}`;
+  }
+  revalidatePath('/settings/integrations');
+  revalidatePath('/my-integrations');
+  redirect(`${path}?${message}`);
 }
 
 /** Form action: tell the provider, then delete the connection and every token it held. */

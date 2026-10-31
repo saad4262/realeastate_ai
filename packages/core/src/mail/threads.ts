@@ -494,7 +494,8 @@ export async function getMailThread(db: Db, actor: Actor, threadId: string): Pro
       attachments: Array.isArray(m.attachments) ? (m.attachments as AttachmentNote[]) : [],
       error: m.error,
       sentVia: m.direction === 'out' && m.sentVia ? sentViaLabel(m) : null,
-      failedViaGmail: m.direction === 'out' && m.status === 'failed' && m.sentVia === 'gmail',
+      // A mailbox send that failed (Gmail, or Outlook — ADR 0076): offers "send from the platform address instead".
+      failedViaGmail: m.direction === 'out' && m.status === 'failed' && (m.sentVia === 'gmail' || m.sentVia === 'outlook'),
       createdAt: new Date(m.createdAt),
     })),
     maySend: maySendOnThread(actor, facts),

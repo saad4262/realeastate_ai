@@ -191,6 +191,8 @@ import {
   ProviderError,
   type Fetch,
   type GmailApi,
+  setActiveProvider,
+  type OutlookMailApi,
 } from '@repo/core/integrations';
 import {
   addSkillToMine,
@@ -4519,6 +4521,8 @@ async function main() {
   const ALL = {
     google_calendar: ['https://www.googleapis.com/auth/calendar.events.owned', 'openid', 'email'],
     zoom: ['meeting:write:meeting', 'meeting:update:meeting', 'meeting:delete:meeting', 'user:read:user'],
+    // ADR 0076: as Microsoft spells them in a token's `scope`.
+    outlook_calendar: ['https://graph.microsoft.com/Calendars.ReadWrite', 'https://graph.microsoft.com/User.Read', 'openid', 'email'],
   };
 
   await check('stored tokens are ciphertext, and no screen read ever returns one', async () => {
@@ -4757,6 +4761,8 @@ async function main() {
   function fakeProviders() {
     const calls: { method: string; url: string; auth: string; body: string }[] = [];
     const events = new Map<string, { start: string; end: string; summary: string; etag: string; cancelled: boolean }>();
+    // ADR 0076: a fake Outlook Calendar — Graph chooses the ids; a create carries our transactionId.
+    const outlookEvents = new Map<string, { start: string; end: string; subject: string; etag: string; transactionId: string | null }>();
     const meetings = new Map<string, { start: string; duration: number; topic: string }>();
     const state = { revokeRefresh: false, issued: 0, etags: 0, meetingSeq: 80000000000 };
     const valid = new Set<string>();
@@ -4769,7 +4775,7 @@ async function main() {
       const auth = headers.get('authorization') ?? '';
       const body = init?.body ? String(init.body) : '';
       calls.push({ method, url: url.toString(), auth, body });
-      if (url.href === 'https://oauth2.googleapis.com/token' || url.href === 'https://zoom.us/oauth/token') {
+      if (url.href === 'https://oauth2.googleapis.com/token' || url.href === 'https://zoom.us/oauth/token' || url.href === 'https://login.microsoftonline.com/common/oauth2/v2.0/token') {
         if (state.revokeRefresh) return reply(400, { error: 'invalid_grant' });
         const token = `renewed-${++state.issued}`;
         valid.add(token);
@@ -4801,6 +4807,31 @@ async function main() {
         if (headers.get('if-none-match') === ev.etag) return reply(304);
         return reply(200, { id, etag: ev.etag, status: ev.cancelled ? 'cancelled' : 'confirmed', start: { dateTime: ev.start }, end: { dateTime: ev.end } });
       }
+      if (url.host === 'graph.microsoft.com' && url.pathname.startsWith('/v1.0/me/events')) {
+        const id = decodeURIComponent(url.pathname.split('/events')[1]?.replace(/^\//, '') ?? '');
+        const etag = () => `W/"o${++state.etags}"`;
+        if (method === 'POST') {
+          const e = JSON.parse(body);
+          const dup = [...outlookEvents.entries()].find(([, v]) => v.transactionId && v.transactionId === e.transactionId);
+          if (dup) return reply(201, { id: dup[0], '@odata.etag': dup[1].etag });
+          const newId = `AAMkSmoke${randomUUID().replace(/-/g, '')}=`;
+          const v = { start: e.start.dateTime, end: e.end.dateTime, subject: e.subject, etag: etag(), transactionId: e.transactionId ?? null };
+          outlookEvents.set(newId, v);
+          return reply(201, { id: newId, '@odata.etag': v.etag });
+        }
+        const ev = outlookEvents.get(id);
+        if (!ev) return reply(404, { error: { code: 'ErrorItemNotFound' } });
+        if (method === 'PATCH') {
+          const e = JSON.parse(body);
+          Object.assign(ev, { ...(e.start ? { start: e.start.dateTime } : {}), ...(e.end ? { end: e.end.dateTime } : {}), ...(e.subject ? { subject: e.subject } : {}), etag: etag() });
+          return reply(200, { id, '@odata.etag': ev.etag });
+        }
+        if (method === 'DELETE') {
+          outlookEvents.delete(id);
+          return reply(204);
+        }
+        return reply(200, { id, '@odata.etag': ev.etag, start: { dateTime: ev.start, timeZone: 'UTC' }, end: { dateTime: ev.end, timeZone: 'UTC' }, isCancelled: false });
+      }
       if (url.host === 'api.zoom.us') {
         if (method === 'POST') {
           const m = JSON.parse(body);
@@ -4826,15 +4857,15 @@ async function main() {
       keys: testKeys,
       fetch: fetchImpl,
       // Real adapters (for renewal), never the stub: these are not stub tokens.
-      env: { ...process.env, NODE_ENV: 'development', INTEGRATIONS_STUB: '', GOOGLE_OAUTH_CLIENT_ID: 'smoke', GOOGLE_OAUTH_CLIENT_SECRET: 'smoke', ZOOM_OAUTH_CLIENT_ID: 'smoke', ZOOM_OAUTH_CLIENT_SECRET: 'smoke' } as NodeJS.ProcessEnv,
+      env: { ...process.env, NODE_ENV: 'development', INTEGRATIONS_STUB: '', GOOGLE_OAUTH_CLIENT_ID: 'smoke', GOOGLE_OAUTH_CLIENT_SECRET: 'smoke', ZOOM_OAUTH_CLIENT_ID: 'smoke', ZOOM_OAUTH_CLIENT_SECRET: 'smoke', MICROSOFT_CLIENT_ID: 'smoke', MICROSOFT_CLIENT_SECRET: 'smoke' } as NodeJS.ProcessEnv,
     };
     /** Connect a provider for someone, with an access token the fake accepts. */
-    const connect = async (t: Db, who: Actor, provider: 'google_calendar' | 'zoom', ownerType: 'user' | 'agency', ownerId: string, agencyId: string) => {
+    const connect = async (t: Db, who: Actor, provider: 'google_calendar' | 'zoom' | 'outlook_calendar', ownerType: 'user' | 'agency', ownerId: string, agencyId: string) => {
       const g = granted(ALL[provider]);
       valid.add(g.accessToken);
       return (await saveConnection(t, testKeys, who, { provider, ownerType, ownerId, agencyId }, g)).id;
     };
-    return { fetchImpl, deps, calls, events, meetings, state, valid, connect };
+    return { fetchImpl, deps, calls, events, outlookEvents, meetings, state, valid, connect };
   }
 
   async function inRollback(body: (t: Db) => Promise<string>): Promise<string> {
@@ -5024,6 +5055,45 @@ async function main() {
   );
 
   // ------------------------------------------------------------ skills --
+  /**
+   * ADR 0076 on the fakes: an agent with both calendars uses Google's until they choose; choosing Outlook moves
+   * an appointment still ahead (deleted from Google, created in Outlook with our transactionId) and keeps it
+   * there; once it is done it stays in Outlook even after switching back.
+   */
+  await check('Outlook Calendar (ADR 0076): Google until chosen; choosing Outlook moves what is ahead; a done one stays put', () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const g = fakeProviders();
+      const gc = (): number => g.events.size;
+      const oc = (): number => g.outlookEvents.size;
+      const a1 = f.actor('a1');
+      await g.connect(t, a1, 'google_calendar', 'user', f.people.a1, f.agencyId);
+      await g.connect(t, a1, 'outlook_calendar', 'user', f.people.a1, f.agencyId);
+      const { id } = await scheduleAppointment(t, a1, f.contacts.p1, { title: 'Appraisal', type: 'appraisal', ...slot(6) });
+      await syncAppointment(t, g.deps, id);
+      const row = async () => (await t.execute<{ provider: string | null; event: string | null; state: string | null }>(sql`
+        select external_calendar_provider as provider, external_calendar_id as event, calendar_sync_state as state from appointment where id = ${id}`))[0]!;
+      let r = await row();
+      assert(r.provider === 'google_calendar' && gc() === 1 && oc() === 0, `before choosing: ${JSON.stringify(r)} google ${gc()} outlook ${oc()}`);
+      await setActiveProvider(t, a1, { provider: 'outlook_calendar', ownerType: 'user' });
+      await syncAppointment(t, g.deps, id);
+      r = await row();
+      const created = [...g.outlookEvents.values()][0];
+      assert(r.provider === 'outlook_calendar' && r.state === 'synced' && gc() === 0 && oc() === 1, `after choosing Outlook: ${JSON.stringify(r)} google ${gc()} outlook ${oc()}`);
+      assert(created?.transactionId === id && r.event !== null && g.outlookEvents.has(r.event ?? ''), `outlook event: ${JSON.stringify(created)}`);
+      // Another agency's agent cannot make someone else's calendar active.
+      const refused = await setActiveProvider(t, f.actor('a2'), { provider: 'outlook_calendar', ownerType: 'user' }).then(() => 'ok', (e: Error) => e.message);
+      assert(refused !== 'ok', 'a2 has no Outlook Calendar yet was allowed to choose it');
+      await completeAppointment(t, a1, id, { outcome: 'ok' });
+      await syncAppointment(t, g.deps, id);
+      await setActiveProvider(t, a1, { provider: 'google_calendar', ownerType: 'user' });
+      await syncAppointment(t, g.deps, id);
+      r = await row();
+      assert(r.provider === 'outlook_calendar' && gc() === 0 && g.outlookEvents.get(r.event!)?.subject.startsWith('✓'), `done one moved or not marked: ${JSON.stringify(r)} google ${gc()}`);
+      return 'Google first; Outlook chosen → moved (transactionId kept); done → marked ✓ in Outlook and not moved back';
+    }),
+  );
+
   group('Skills');
 
   /** The two built-in library skills, by slug — seeded by migration 0025. */
@@ -7945,6 +8015,8 @@ async function main() {
     'activity', 'appointment', 'integration_account', 'ai_run', 'skill', 'agent_skill', 'skill_run', 'contact_filter',
     'email_template', 'email_batch', 'assistant_conversation', 'proposed_action', 'dashboard', 'listing_import',
     'agency_google_place', 'search_embedding',
+    // ADR 0076: which connected mailbox / calendar is active.
+    'integration_choice',
   ] as const;
   const CHILD_TABLES: [string, string, string][] = [
     ['team_member', 'team_id', 'team'],
@@ -9212,6 +9284,7 @@ async function main() {
    * switch allows) → platform — and a Gmail failure never switches silently.
    */
   const GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.send', 'openid', 'email'];
+  const OUTLOOK_SCOPES = ['https://graph.microsoft.com/Mail.Send', 'https://graph.microsoft.com/User.Read', 'openid', 'email'];
   function fakeGmail(opts: { fail?: () => Error } = {}) {
     const sent: { token: string; raw: string }[] = [];
     const api: GmailApi = {
@@ -9223,7 +9296,18 @@ async function main() {
     };
     return { api, sent };
   }
-  async function gmailFixture(t: Db, gmail: ReturnType<typeof fakeGmail>) {
+  // ADR 0076: a fake Outlook beside the fake Gmail.
+  function fakeOutlook() {
+    const sent: { token: string; raw: string }[] = [];
+    const api: OutlookMailApi = {
+      async send(token, raw) {
+        sent.push({ token, raw });
+        return { id: `o-${sent.length}` };
+      },
+    };
+    return { api, sent };
+  }
+  async function gmailFixture(t: Db, gmail: ReturnType<typeof fakeGmail>, outlook = fakeOutlook()) {
     const f = await contactFixture(t);
     const [th] = await t.execute<{ id: string }>(sql`
       select id from mail_thread where lead_id = (select id from lead where contact_id = ${f.contacts.p2} and kind <> 'offer' limit 1)`);
@@ -9233,16 +9317,50 @@ async function main() {
       mailer: { sender: { from: { email: 'platform@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport },
       config,
       env: { ...process.env, NODE_ENV: 'development', EMAIL_DEV_ALLOWLIST: '@smoke.test' } as NodeJS.ProcessEnv,
-      gmail: { keys: testKeys, api: gmail.api },
+      gmail: { keys: testKeys, api: gmail.api, outlookApi: outlook.api },
     };
-    const connect = (who: 'owner' | 'a1' | 'a2', ownerType: 'user' | 'agency', label: string) =>
-      saveConnection(t, testKeys, f.actor(who), { provider: 'gmail', ownerType, ownerId: ownerType === 'user' ? f.people[who] : f.agencyId, agencyId: f.agencyId }, granted(GMAIL_SCOPES, label));
+    const connect = (who: 'owner' | 'a1' | 'a2', ownerType: 'user' | 'agency', label: string, provider: 'gmail' | 'outlook_mail' = 'gmail') =>
+      saveConnection(t, testKeys, f.actor(who), { provider, ownerType, ownerId: ownerType === 'user' ? f.people[who] : f.agencyId, agencyId: f.agencyId }, granted(provider === 'gmail' ? GMAIL_SCOPES : OUTLOOK_SCOPES, label));
     const row = async (messageId: string) =>
       (await t.execute<{ status: string; sent_via: string | null; sender_account_id: string | null; provider_id: string | null; from_email: string; error: string | null }>(sql`
         select status, sent_via, sender_account_id, provider_id, from_email, error from mail_message where id = ${messageId}`))[0]!;
     return { f, thread: th!.id, transport, deps, connect, row, replyAddress: threadReplyAddress(th!.id, config) };
   }
   const headerOf = (raw: string, name: string) => raw.split('\r\n\r\n')[0]!.split('\r\n').find((h) => h.startsWith(`${name}: `)) ?? '';
+
+  await check('Outlook (ADR 0076): Gmail until chosen; chosen, mail leaves through Outlook as outlook; expired, never swapped for Gmail', async () =>
+    inRollback(async (t) => {
+      const gmail = fakeGmail();
+      const outlook = fakeOutlook();
+      const x = await gmailFixture(t, gmail, outlook);
+      const gsent = (): number => gmail.sent.length;
+      const osent = (): number => outlook.sent.length;
+      await x.connect('a2', 'user', `a2.gmail.${x.f.tag}@gmail.com`);
+      const own = await x.connect('a2', 'user', `a2.${x.f.tag}@agency.onmicrosoft.com`, 'outlook_mail');
+      const first = await sendThreadReply(t, x.deps, x.f.actor('a2'), x.thread, { body: 'Before choosing' });
+      assert((await x.row(first.messageId)).sent_via === 'gmail' && osent() === 0, 'both connected, nothing chosen: not Gmail');
+      await setActiveProvider(t, x.f.actor('a2'), { provider: 'outlook_mail', ownerType: 'user' });
+      const before = await getMailThread(t, x.f.actor('a2'), x.thread);
+      assert(before.sendFrom === `Sent from your Outlook (a2.${x.f.tag}@agency.onmicrosoft.com)`, `composer line: ${before.sendFrom}`);
+      const out = await sendThreadReply(t, x.deps, x.f.actor('a2'), x.thread, { body: 'From Outlook' });
+      const r = await x.row(out.messageId);
+      assert(out.status === 'sent' && r.sent_via === 'outlook' && r.sender_account_id === own.id && r.provider_id === 'outlook:o-1' && r.from_email === `a2.${x.f.tag}@agency.onmicrosoft.com`, `row: ${JSON.stringify(r)}`);
+      assert(osent() === 1 && gsent() === 1 && headerOf(outlook.sent[0]!.raw, 'Reply-To').endsWith(`<${x.replyAddress}>`), `outlook ${osent()}, gmail ${gsent()}`);
+      // Expired: the platform sends it and says why — Gmail is NOT used behind the person's back.
+      await t.execute(sql`update integration_account set status = 'expired' where id = ${own.id}`);
+      const later = await getMailThread(t, x.f.actor('a2'), x.thread);
+      assert(/your Outlook connection expired/.test(later.sendFrom ?? ''), `composer line when expired: ${later.sendFrom}`);
+      const third = await sendThreadReply(t, x.deps, x.f.actor('a2'), x.thread, { body: 'Expired' });
+      assert((await x.row(third.messageId)).sent_via === 'resend' && gsent() === 1 && osent() === 1, 'an expired Outlook was swapped for Gmail');
+      // Connecting a SECOND mailbox never switches by itself: a1 had Outlook, then connects Gmail — still Outlook.
+      await x.connect('a1', 'user', `a1.${x.f.tag}@outlook.com`, 'outlook_mail');
+      await x.connect('a1', 'user', `a1.gmail.${x.f.tag}@gmail.com`);
+      const a1Line = (await getMailThread(t, x.f.actor('owner'), x.thread)).sendFrom;
+      const [a1Choice] = await t.execute<{ provider: string }>(sql`select provider::text as provider from integration_choice where owner_id = ${x.f.people.a1} and purpose = 'mail'`);
+      assert(a1Choice?.provider === 'outlook_mail', `a1 connected Gmail second and was switched: ${JSON.stringify(a1Choice)} (${a1Line})`);
+      return 'Gmail first; Outlook chosen → sent via outlook with the signed Reply-To; expired → the platform, never Gmail; a second mailbox never switches by itself';
+    }),
+  );
 
   await check('own Gmail first: From is the agent’s Gmail, Reply-To the signed thread address, recorded as gmail; the platform is not used', async () =>
     inRollback(async (t) => {

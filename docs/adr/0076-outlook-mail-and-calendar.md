@@ -32,8 +32,9 @@ personal (Outlook.com / Hotmail) accounts both; no mock.
    engine already takes). `mail/sender.ts` and `appointments/sync.ts` pick the ACTIVE provider; Microsoft's
    errors map to ours (401 → expired, 403 → permission missing, 429 → retry later with Retry-After).
 3. **One active of each, per owner** — a table `integration_choice (agency_id, owner_type, owner_id, purpose
-   'mail' | 'calendar', provider)`, unique per owner and purpose. No row: the only one connected; both connected
-   and no row: Google (today's behaviour — connecting a second one never switches by itself). The card of the
+   'mail' | 'calendar', provider)`, unique per owner and purpose. No row: the only one connected. Connecting a
+   second one records the first as chosen (in the connect's transaction), so it never switches by itself; both
+   connected with no row (not reachable that way) falls to Google. The card of the
    other one says "Use this one instead". The agency mailbox follows the same rule (owners and admins choose;
    the "members may send from the agency mailbox" switch covers whichever is active).
 4. **Switching the calendar** moves what is still ahead: each future appointment mirrored in the old calendar is

@@ -1,5 +1,5 @@
 import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
-import { appointment, contact, membership, property, type CalendarConflict, type DbOrTx } from '@repo/db';
+import { appointment, contact, integrationAccount, membership, property, type CalendarConflict, type DbOrTx } from '@repo/db';
 import type { Actor, MembershipRole } from '../permissions';
 import { formatAddress } from '../listings/listing-schema';
 import {
@@ -9,6 +9,9 @@ import {
   type CalendarEventInput,
 } from '../integrations/google-calendar';
 import { IntegrationError, resolveIntegration } from '../integrations/accounts';
+import { resolveActive } from '../integrations/choice';
+import { PROVIDERS } from '../integrations/providers';
+import { outlookCalendarApi, stubOutlookCalendarApi } from '../integrations/outlook-calendar';
 import { tokenKeysFromEnv, type TokenKeys } from '../integrations/crypto';
 import { isStubToken, stubEnabled } from '../integrations/oauth';
 import { ProviderError, type Fetch } from '../integrations/provider-http';
@@ -49,6 +52,8 @@ export type SyncDeps = {
   now?: () => Date;
   /** Tests and the smoke suite inject fakes; otherwise chosen per token (stub or real). */
   calendarApi?: CalendarApi;
+  /** ADR 0076: Outlook Calendar's fake (tests, smoke); otherwise chosen per token (stub or real). */
+  outlookCalendarApi?: CalendarApi;
   zoomApi?: ZoomApi;
 };
 
@@ -76,14 +81,20 @@ export type SyncOutcome = {
   zoom: SyncState | null;
 };
 
-function calendarApiFor(deps: SyncDeps, token: string): CalendarApi {
-  if (deps.calendarApi) return deps.calendarApi;
+/** The calendar API for an event's provider (ADR 0076: Google's or Outlook's). */
+function calendarApiFor(deps: SyncDeps, token: string, provider: CalendarProvider = 'google_calendar'): CalendarApi {
+  const outlook = provider === 'outlook_calendar';
+  const seam = outlook ? deps.outlookCalendarApi : deps.calendarApi;
+  if (seam) return seam;
   if (isStubToken(token)) {
     if (!stubEnabled(deps.env ?? process.env)) throw new ProviderError('failed', 'The pretend provider is off on this server');
-    return stubCalendarApi();
+    return outlook ? stubOutlookCalendarApi() : stubCalendarApi();
   }
-  return googleCalendarApi(deps.fetch ?? fetch);
+  return outlook ? outlookCalendarApi(deps.fetch ?? fetch) : googleCalendarApi(deps.fetch ?? fetch);
 }
+
+type CalendarProvider = 'google_calendar' | 'outlook_calendar';
+const calendarProvider = (v: string | null | undefined): CalendarProvider => (v === 'outlook_calendar' ? 'outlook_calendar' : 'google_calendar');
 
 function zoomApiFor(deps: SyncDeps, token: string): ZoomApi {
   if (deps.zoomApi) return deps.zoomApi;
@@ -95,7 +106,7 @@ function zoomApiFor(deps: SyncDeps, token: string): ZoomApi {
 }
 
 /** A sentence for the agent from whatever went wrong — never a token, never a provider body. */
-export function syncErrorMessage(provider: 'Google Calendar' | 'Zoom', err: unknown): string {
+export function syncErrorMessage(provider: 'Google Calendar' | 'Outlook Calendar' | 'Zoom', err: unknown): string {
   if (err instanceof IntegrationError) {
     if (err.code === 'expired') return `${provider} needs reconnecting — open Integrations, reconnect, then Retry.`;
     if (err.code === 'not_found') return `${provider} is no longer connected for this agent.`;
@@ -127,6 +138,7 @@ type Loaded = {
   assignedAgentId: string | null;
   agentRole: MembershipRole | null;
   externalCalendarId: string | null;
+  externalCalendarProvider: string | null;
   externalCalendarAccountId: string | null;
   calendarSyncState: string | null;
   zoomMeetingId: string | null;
@@ -165,6 +177,7 @@ async function load(db: DbOrTx, id: string): Promise<Loaded | null> {
       assignedAgentId: appointment.assignedAgentId,
       agentRole: membership.role,
       externalCalendarId: appointment.externalCalendarId,
+      externalCalendarProvider: appointment.externalCalendarProvider,
       externalCalendarAccountId: appointment.externalCalendarAccountId,
       calendarSyncState: appointment.calendarSyncState,
       zoomMeetingId: appointment.zoomMeetingId,
@@ -320,9 +333,11 @@ async function syncZoom(db: DbOrTx, deps: SyncDeps, a: Loaded, agent: Actor | nu
 }
 
 async function syncCalendar(db: DbOrTx, deps: SyncDeps, a: Loaded, agent: Actor | null): Promise<SyncState | null> {
-  const hasEvent = a.externalCalendarId !== null && a.calendarSyncState !== 'removed';
+  let hasEvent = a.externalCalendarId !== null && a.calendarSyncState !== 'removed';
+  // ADR 0076: the calendar that holds the event; a new event goes to the agent's ACTIVE calendar.
+  let provider = calendarProvider(a.externalCalendarProvider);
   const fail = async (err: unknown): Promise<SyncState> => {
-    await db.update(appointment).set({ calendarSyncState: 'failed', calendarSyncError: syncErrorMessage('Google Calendar', err) }).where(eq(appointment.id, a.id));
+    await db.update(appointment).set({ calendarSyncState: 'failed', calendarSyncError: syncErrorMessage(PROVIDERS[provider].label as 'Google Calendar' | 'Outlook Calendar', err) }).where(eq(appointment.id, a.id));
     return 'failed';
   };
   // Nothing to remove and nothing to add.
@@ -332,10 +347,30 @@ async function syncCalendar(db: DbOrTx, deps: SyncDeps, a: Loaded, agent: Actor 
   }
   if (!agent) return hasEvent ? fail(new IntegrationError('not_found', 'no agent')) : null;
 
-  // Which connection: the one that wrote the event; for a new event, the agent's own calendar.
+  // Which connection: the one that wrote the event; for a new event, the agent's own active calendar.
   let accountId = hasEvent ? a.externalCalendarAccountId : null;
-  if (!hasEvent) {
-    const r = await resolveIntegration(db, agent, 'google_calendar');
+  if (!deps.keys && hasEvent) return fail(new IntegrationError('unavailable', 'integrations are not set up on this server'));
+
+  // ADR 0076 §4: the agent switched calendars — an appointment still ahead moves to the active one (deleted
+  // from the old calendar, created in the new). Past ones, and anything cancelled or done, stay where they are.
+  if (hasEvent && deps.keys && active(a) && a.startsAt.getTime() > (deps.now?.() ?? new Date()).getTime()) {
+    const now = await resolveActive(db, agent, 'calendar');
+    if (now.accountId && now.provider !== provider) {
+      const oldAccount = accountId;
+      const oldProvider = provider;
+      if (oldAccount) {
+        await withAccessToken(db, deps.keys, agent, oldAccount, deps, (t) => calendarApiFor(deps, t, oldProvider).remove(t, a.externalCalendarId!)).catch(() => {
+          // The old calendar is unreachable (disconnected, expired): the new one still gets the event.
+        });
+      }
+      hasEvent = false;
+      provider = now.provider as CalendarProvider;
+      accountId = now.accountId;
+    }
+  }
+  if (!hasEvent && !accountId) {
+    const r = await resolveActive(db, agent, 'calendar');
+    provider = r.provider as CalendarProvider;
     accountId = r.accountId;
     if (!accountId) {
       // Never connected: not mirrored, and nothing to warn about. Connected but unusable: say so.
@@ -343,21 +378,22 @@ async function syncCalendar(db: DbOrTx, deps: SyncDeps, a: Loaded, agent: Actor 
         await db.update(appointment).set({ calendarSyncState: null, calendarSyncError: null }).where(eq(appointment.id, a.id));
         return null;
       }
-      return fail(new IntegrationError(r.requirement.state === 'expired' ? 'expired' : 'unavailable', 'Google Calendar is not usable — open Integrations'));
+      return fail(new IntegrationError(r.requirement.state === 'expired' ? 'expired' : 'unavailable', `${PROVIDERS[provider].label} is not usable — open Integrations`));
     }
   }
-  if (!accountId) return fail(new IntegrationError('not_found', 'The Google Calendar connection that holds this event was disconnected'));
+  if (!accountId) return fail(new IntegrationError('not_found', `The ${PROVIDERS[provider].label} connection that holds this event was disconnected`));
   if (!deps.keys) return fail(new IntegrationError('unavailable', 'integrations are not set up on this server'));
   const keys = deps.keys;
+  const eventId = hasEvent ? a.externalCalendarId : null;
 
   try {
     if (active(a)) {
-      const ev = await withAccessToken(db, keys, agent, accountId, deps, (t) => calendarApiFor(deps, t).upsert(t, eventInput(a)));
+      const ev = await withAccessToken(db, keys, agent, accountId, deps, (t) => calendarApiFor(deps, t, provider).upsert(t, eventInput(a), eventId));
       await db
         .update(appointment)
         .set({
           externalCalendarId: ev.id,
-          externalCalendarProvider: 'google_calendar',
+          externalCalendarProvider: provider,
           externalCalendarAccountId: accountId,
           externalCalendarEtag: ev.etag,
           calendarSyncState: 'synced',
@@ -370,7 +406,7 @@ async function syncCalendar(db: DbOrTx, deps: SyncDeps, a: Loaded, agent: Actor 
       return 'synced';
     }
     if (a.status === 'cancelled') {
-      await withAccessToken(db, keys, agent, accountId, deps, (t) => calendarApiFor(deps, t).remove(t, a.externalCalendarId!));
+      await withAccessToken(db, keys, agent, accountId, deps, (t) => calendarApiFor(deps, t, provider).remove(t, a.externalCalendarId!));
       await db
         .update(appointment)
         .set({ calendarSyncState: 'removed', calendarSyncedAt: sql`now()`, calendarSyncError: null, calendarConflict: null, externalCalendarEtag: null })
@@ -379,7 +415,7 @@ async function syncCalendar(db: DbOrTx, deps: SyncDeps, a: Loaded, agent: Actor 
       return 'removed';
     }
     // Completed: keep the event as a record, marked done.
-    const ev = await withAccessToken(db, keys, agent, accountId, deps, (t) => calendarApiFor(deps, t).setTitle(t, a.externalCalendarId!, `✓ ${a.title}`));
+    const ev = await withAccessToken(db, keys, agent, accountId, deps, (t) => calendarApiFor(deps, t, provider).setTitle(t, a.externalCalendarId!, `✓ ${a.title}`));
     await db
       .update(appointment)
       .set({ externalCalendarEtag: ev.etag, calendarSyncState: 'synced', calendarSyncedAt: sql`now()`, calendarSyncError: null, calendarConflict: null })
@@ -503,7 +539,7 @@ export async function checkCalendarEvent(
   const accountId = a.externalCalendarAccountId;
   const eventId = a.externalCalendarId;
   try {
-    const seen = await withAccessToken(db, deps.keys, agent, accountId, deps, (t) => calendarApiFor(deps, t).get(t, eventId, row?.etag ?? null));
+    const seen = await withAccessToken(db, deps.keys, agent, accountId, deps, (t) => calendarApiFor(deps, t, calendarProvider(a.externalCalendarProvider)).get(t, eventId, row?.etag ?? null));
     if (seen.kind === 'unchanged') {
       await db.update(appointment).set({ calendarCheckedAt: now }).where(eq(appointment.id, a.id));
       return 'unchanged';
@@ -559,7 +595,10 @@ export async function removeProviderItemAs(
 ): Promise<void> {
   if (!deps.keys) throw new IntegrationError('unavailable', 'integrations are not set up on this server');
   if (item.kind === 'calendar') {
-    await withAccessToken(db, deps.keys, actor, item.accountId, deps, (t) => calendarApiFor(deps, t).remove(t, item.eventId));
+    // ADR 0076: the account says whose calendar it is, Google's or Outlook's.
+    const [acct] = await db.select({ provider: integrationAccount.provider }).from(integrationAccount).where(eq(integrationAccount.id, item.accountId)).limit(1);
+    const provider = calendarProvider(acct?.provider);
+    await withAccessToken(db, deps.keys, actor, item.accountId, deps, (t) => calendarApiFor(deps, t, provider).remove(t, item.eventId));
   } else {
     await withAccessToken(db, deps.keys, actor, item.accountId, deps, (t) => zoomApiFor(deps, t).remove(t, item.meetingId));
   }

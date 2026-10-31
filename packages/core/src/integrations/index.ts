@@ -55,3 +55,8 @@ export { CALENDAR_EVENTS_URL, eventIdFor, googleCalendarApi, stubCalendarApi, ty
 export { stubZoomApi, zoomMeetingsApi, type ZoomApi, type ZoomMeetingInput, type ZoomMeetingRef } from './zoom-meetings';
 export { fakeFetch } from './fake-fetch';
 export { buildMime, gmailApi, gmailError, GMAIL_SEND_URL, stubGmailApi, stubGmailSent, type GmailApi } from './gmail';
+// ADR 0076: Outlook, and which mailbox / calendar is active.
+export { accountFromIdToken, microsoftAdapter, microsoftClientFromEnv, MICROSOFT_AUTHORIZE_URL, MICROSOFT_TOKEN_URL, type MicrosoftClient } from './microsoft-oauth';
+export { outlookCalendarApi, OUTLOOK_EVENTS_URL, stubOutlookCalendarApi } from './outlook-calendar';
+export { outlookError, outlookMailApi, OUTLOOK_SEND_URL, stubOutlookMailApi, stubOutlookSent, type OutlookMailApi } from './outlook-mail';
+export { chosenProvider, pickActive, purposeOf, PURPOSE_PROVIDERS, PURPOSES, resolveActive, setActiveProvider, type Purpose } from './choice';

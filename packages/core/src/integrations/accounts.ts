@@ -1,6 +1,7 @@
-import { and, eq, or, sql } from 'drizzle-orm';
-import { integrationAccount, type Db, type DbOrTx } from '@repo/db';
+import { and, eq, inArray, or, sql } from 'drizzle-orm';
+import { integrationAccount, integrationChoice, type Db, type DbOrTx } from '@repo/db';
 import { can, type Actor, type Resource } from '../permissions';
+import { forgetChoice, pickActive, purposeOf, PURPOSE_PROVIDERS } from './choice';
 import { decryptToken, encryptToken, type TokenKeys } from './crypto';
 import {
   missingScopes,
@@ -137,6 +138,11 @@ export type IntegrationSlot = {
   account: IntegrationAccountView | null;
   /** Decided by can(): may this actor connect / disconnect THIS slot. */
   mayManage: boolean;
+  /**
+   * ADR 0076, for a connected mailbox or calendar: whether it is the ACTIVE one, and whether the owner has the
+   * other one connected too (so "Use this one instead" makes sense). Absent for every other provider.
+   */
+  choice?: { active: boolean; alternative: boolean };
 };
 
 /**
@@ -149,6 +155,19 @@ export async function listIntegrationSlots(db: Db, actor: Actor, now = new Date(
     throw new IntegrationError('forbidden', 'You do not have permission to view integrations');
   }
   const rows = await visibleRows(db, actor);
+  // ADR 0076: the owners' choices between Google and Microsoft — one more statement.
+  const choices = await db
+    .select({ ownerType: integrationChoice.ownerType, purpose: integrationChoice.purpose, provider: integrationChoice.provider })
+    .from(integrationChoice)
+    .where(
+      and(
+        eq(integrationChoice.agencyId, actor.agencyId),
+        or(
+          and(eq(integrationChoice.ownerType, 'user'), eq(integrationChoice.ownerId, actor.userId)),
+          and(eq(integrationChoice.ownerType, 'agency'), eq(integrationChoice.ownerId, actor.agencyId)),
+        ),
+      ),
+    );
   const slots: IntegrationSlot[] = [];
   for (const provider of Object.keys(PROVIDERS) as IntegrationProvider[]) {
     for (const ownerType of PROVIDERS[provider].ownerTypes) {
@@ -156,11 +175,19 @@ export async function listIntegrationSlots(db: Db, actor: Actor, now = new Date(
       const resource = integrationResource({ agencyId: actor.agencyId, ownerType, ownerId });
       if (!can(actor, 'integration:read', resource)) continue;
       const row = rows.find((r) => r.provider === provider && r.ownerType === ownerType);
+      const purpose = purposeOf(provider);
+      let choice: IntegrationSlot['choice'];
+      if (row && purpose) {
+        const mine = rows.filter((r) => r.ownerType === ownerType && purposeOf(r.provider as IntegrationProvider) === purpose).map((r) => ({ provider: r.provider as IntegrationProvider }));
+        const chosen = (choices.find((c) => c.ownerType === ownerType && c.purpose === purpose)?.provider as IntegrationProvider | undefined) ?? null;
+        choice = { active: pickActive(mine, chosen, purpose)?.provider === provider, alternative: mine.length > 1 };
+      }
       slots.push({
         provider,
         ownerType,
         account: row ? toView(row, now) : null,
         mayManage: can(actor, 'integration:manage', resource),
+        ...(choice ? { choice } : {}),
       });
     }
   }
@@ -343,8 +370,30 @@ export async function saveConnection(
           : null,
       })
       .where(eq(integrationAccount.id, id));
+    await keepWhatIsInUse(tx, target);
     return { id, status, missingScopes: missing };
   });
+}
+
+/**
+ * ADR 0076: connecting a SECOND mailbox / calendar never switches by itself. When the owner already had the
+ * other one connected and had chosen nothing, the one they had is recorded as chosen — in the connect's own
+ * transaction — so "both connected, nothing chosen → Google" can never flip an Outlook user to a new Gmail.
+ */
+async function keepWhatIsInUse(tx: DbOrTx, target: { provider: IntegrationProvider; ownerType: IntegrationOwnerType; ownerId: string; agencyId: string }): Promise<void> {
+  const purpose = purposeOf(target.provider);
+  if (!purpose) return;
+  const others = PURPOSE_PROVIDERS[purpose].filter((p) => p !== target.provider);
+  const [had] = await tx
+    .select({ provider: integrationAccount.provider })
+    .from(integrationAccount)
+    .where(and(eq(integrationAccount.agencyId, target.agencyId), eq(integrationAccount.ownerType, target.ownerType), eq(integrationAccount.ownerId, target.ownerId), inArray(integrationAccount.provider, [...others])))
+    .limit(1);
+  if (!had) return;
+  await tx
+    .insert(integrationChoice)
+    .values({ agencyId: target.agencyId, ownerType: target.ownerType, ownerId: target.ownerId, purpose, provider: had.provider })
+    .onConflictDoNothing();
 }
 
 /**
@@ -361,17 +410,23 @@ export async function disconnectIntegration(
   if (!can(actor, 'integration:manage', integrationResource({ agencyId: actor.agencyId, ownerType: slot.ownerType, ownerId }))) {
     throw new IntegrationError('forbidden', 'You may not disconnect this integration');
   }
-  const gone = await db
-    .delete(integrationAccount)
-    .where(
-      and(
-        eq(integrationAccount.provider, slot.provider),
-        eq(integrationAccount.ownerType, slot.ownerType),
-        eq(integrationAccount.ownerId, ownerId),
-        eq(integrationAccount.agencyId, actor.agencyId),
-      ),
-    )
-    .returning({ id: integrationAccount.id });
+  const agencyId = actor.agencyId;
+  // The account and (ADR 0076) the choice that named it go together, so what is left becomes active.
+  const gone = await (db as Db).transaction(async (tx) => {
+    const rows = await tx
+      .delete(integrationAccount)
+      .where(
+        and(
+          eq(integrationAccount.provider, slot.provider),
+          eq(integrationAccount.ownerType, slot.ownerType),
+          eq(integrationAccount.ownerId, ownerId),
+          eq(integrationAccount.agencyId, agencyId),
+        ),
+      )
+      .returning({ id: integrationAccount.id });
+    await forgetChoice(tx, agencyId, slot.ownerType, ownerId, slot.provider);
+    return rows;
+  });
   return { removed: gone.length > 0 };
 }
 

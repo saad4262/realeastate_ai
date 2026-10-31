@@ -720,12 +720,14 @@ async function checkConnections(
   // Gmail is usable only as `resolveSender` would use it — it knows the agency's
   // "members may send from the agency Gmail" switch (ADR 0026), which a plain
   // connection check does not.
-  const gmail = input.providers.includes('gmail') ? await resolveSender(ctx.db, ctx.actor) : null;
-  const results = check.results.map((r) =>
-    r.provider === 'gmail' && gmail
-      ? { ...r, state: gmail.via === 'gmail' ? ('connected' as const) : r.state === 'connected' ? ('not_connected' as const) : r.state, ownerType: gmail.via === 'gmail' ? gmail.ownerType : r.ownerType }
-      : r,
-  );
+  // ADR 0076: the same for Outlook — a mailbox counts only when it is the ACTIVE one that would send.
+  const mailboxes = input.providers.some((p) => p === 'gmail' || p === 'outlook_mail') ? await resolveSender(ctx.db, ctx.actor) : null;
+  const viaOf = { gmail: 'gmail', outlook_mail: 'outlook' } as const;
+  const results = check.results.map((r) => {
+    if ((r.provider !== 'gmail' && r.provider !== 'outlook_mail') || !mailboxes) return r;
+    const used = mailboxes.via !== 'resend' && mailboxes.via === viaOf[r.provider] ? mailboxes : null;
+    return { ...r, state: used ? ('connected' as const) : r.state === 'connected' ? ('not_connected' as const) : r.state, ownerType: used ? used.ownerType : r.ownerType };
+  });
   const rows = results.map((r) => ({
     provider: r.provider,
     label: PROVIDERS[r.provider].label,

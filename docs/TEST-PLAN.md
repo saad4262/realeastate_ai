@@ -1887,3 +1887,23 @@ Harbour Realty (TEST)) and a MADE-UP address — never a real one: the address r
 | CB8 | Properties → the address, in A and in B | Each shows its own ad's facts and its own deal; no offer or enquiry of the other agency. |
 | CB9 | B clears "bathrooms" on its form | B's ad shows the bathrooms the address was first given (A's), or none if it never had any; A unchanged. |
 | CB10 | Withdraw both test listings afterwards | Off the public site. |
+
+## CC — Outlook: send from Outlook, Outlook Calendar, one of each in use (ADR 0076)
+
+Needs migration **0077** (applied 2026-10-31). Real Microsoft needs `MICROSOFT_CLIENT_ID` / `_SECRET` (the Entra
+app, DEPLOY.md); without them `INTEGRATIONS_STUB=1` (dev) gives the pretend consent page. Try one Microsoft 365
+(work) account and one Outlook.com (personal) account.
+
+| # | Case | Expected |
+|---|---|---|
+| CC1 | Agent → My integrations | Two new cards: Outlook (send only), Outlook Calendar — each saying what it asks for and why. |
+| CC2 | Connect Outlook (send only) with a personal Outlook.com account | Microsoft's account picker, then consent; back on the page "connected", the account shown. |
+| CC3 | With no Gmail: reply on a conversation | The composer says "Sent from your Outlook (…)"; the email arrives from that address and is in Outlook's Sent Items; a reply from the buyer still comes back into the conversation. |
+| CC4 | Connect Gmail too | With both connected and nothing chosen Gmail is in use: Gmail's card says "In use", Outlook's has "Use this one instead". |
+| CC5 | Press "Use this one instead" on Outlook | Banner "Outlook (send only) is now the one in use"; the next reply goes from Outlook. |
+| CC6 | Disconnect Outlook | Gmail is in use again; the banner says to remove the app under your Microsoft account too. |
+| CC7 | Connect Outlook Calendar (and Google Calendar), book an appointment next week | It appears in Google Calendar (nothing chosen yet). |
+| CC8 | Use Outlook Calendar instead | Within a sync the appointment leaves Google and appears in Outlook; a past appointment stays in Google. |
+| CC9 | Move the event in Outlook | The appointment shows the conflict, as with Google. Complete it: the Outlook event's title gets ✓. |
+| CC10 | Expire the Outlook connection (revoke it in Microsoft) then send | The composer says your Outlook connection expired; the email goes from the platform address, never silently from Gmail. |
+| CC11 | Owner → Settings → Integrations: the agency's Outlook (send only) | Connectable by owners/admins only; an agent's page has no button for it. |

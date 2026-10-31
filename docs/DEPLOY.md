@@ -54,6 +54,9 @@ Nothing below is optional for production. Each line names what proves it is done
       5 minutes with `ok: true`. Only then set `ASSISTANT_SCHEDULING=1` (ADR 0025 decision 8).
 - [ ] `INTEGRATION_OAUTH_RETURN_BASE` = the agency console's https URL (no localhost hop in
       production) and `ZOOM_OAUTH_RETURN_BASE` unset (no tunnel).
+- [ ] **Microsoft Entra app** (ADR 0076): production redirect URI registered, `MICROSOFT_CLIENT_ID/_SECRET`
+      on console and web, the secret's expiry in the calendar, **publisher verification** done. Proven by:
+      connecting a Microsoft 365 account and an Outlook.com account, each without an "unverified" warning.
 
 **Database**
 - [ ] A **separate Supabase project in Sydney** (`ap-southeast-2`) for production — never the
@@ -390,6 +393,23 @@ The read-back runs inside the existing 5-minute cron tick — nothing extra to s
 which lives in the WEB project, so the web project needs `INTEGRATION_TOKEN_KEY` (the
 same value as the console) as well as the four client variables. Without them the tick
 skips the read-back and the console still syncs on every change.
+
+### Outlook mail and calendar (console + web cron; docs/adr/0076)
+
+    MICROSOFT_CLIENT_ID / _SECRET      Microsoft Entra admin center → App registrations → New:
+                                       "Accounts in any organizational directory (any Microsoft
+                                       Entra ID tenant) and personal Microsoft accounts". Platform:
+                                       Web, redirect URI the same single route as Google's
+                                       (`https://agency.<domain>/api/integrations/oauth/return`).
+                                       API permissions (Microsoft Graph, Delegated): Mail.Send,
+                                       Calendars.ReadWrite, User.Read, offline_access, openid, email.
+                                       Certificates & secrets → New client secret. Console AND web.
+
+The client secret EXPIRES (at most 24 months): put the date in the calendar and rotate it before.
+Before real customers: **publisher verification** (a Microsoft Partner Network ID tied to the domain) —
+without it the consent screen says "unverified" and many organisations need an IT admin to approve the app.
+Microsoft has no per-app revoke: a disconnect deletes our tokens and tells the person to remove the app under
+their Microsoft account. Each person chooses which of Gmail / Outlook (and Google / Outlook Calendar) is in use.
 
 ### Meeting reminders (web cron; docs/adr/0032)
 

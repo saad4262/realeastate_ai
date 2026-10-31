@@ -153,8 +153,9 @@ profile — set the 60/40 split in Agents & Team before BR. Never seed at a real
 
 ## 7. What to do next, in order (the user's order, 2026-10-31)
 
-1. **Phase 4.4 — more triggers: mock** (`docs/mocks/`), so the client reviews it with the SMS and Control Centre
-   mocks. Then ADR, code, TEST-PLAN.
+1. **Phase 5.2 Outlook (ADR 0076)** is built on `feat/outlook`, migration 0077 applied: run its smoke groups on the
+   user's go ("Google Calendar and Zoom", "Gmail send", "Tenant isolation"), then merge. Real Microsoft needs the
+   Entra app (DEPLOY.md). The 4.4 triggers mock is with the client (`workflow-triggers-2.html`).
 2. When the client answers: **3.4 part 2** (§3), then **4.6/4.7 Control Centre**.
 3. Meanwhile, not waiting on anyone: 4.5, 5.2 Outlook, the Phase 7 mocks; 5.1 after the user's API decisions.
 4. When keys arrive: Voyage backfill; `retell:setup`; BX/BY/BZ with real Twilio + Retell.

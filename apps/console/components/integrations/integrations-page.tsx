@@ -58,6 +58,7 @@ export async function IntegrationsPage({
   }
 
   const connected = first(sp.connected);
+  const chosen = first(sp.chosen);
   const missing = first(sp.missing);
   const disconnected = first(sp.disconnected);
   const unrevoked = first(sp.unrevoked) === '1';
@@ -128,9 +129,19 @@ export async function IntegrationsPage({
             : `${PROVIDERS[connected].label} connected.`}
         </p>
       ) : null}
+      {chosen && isIntegrationProvider(chosen) ? (
+        <p className={styles.bannerOk} role="status">
+          {PROVIDERS[chosen].label} is now the one in use.
+          {first(sp.purpose) === 'calendar' ? ' Appointments still ahead move to it at their next sync; past ones stay where they are.' : ' Emails you send from now on go through it.'}
+        </p>
+      ) : null}
       {disconnected && isIntegrationProvider(disconnected) ? (
         <p className={styles.bannerOk} role="status">{PROVIDERS[disconnected].label} disconnected — its stored access was deleted.
-          {unrevoked ? ` ${PROVIDERS[disconnected].label} did not confirm, so also remove this app under your ${disconnected === 'zoom' ? 'Zoom' : 'Google'} account's connected apps.` : ''}</p>
+          {unrevoked
+            ? disconnected === 'outlook_mail' || disconnected === 'outlook_calendar'
+              ? ' Microsoft offers no way for an app to remove its own access, so also remove this app under your Microsoft account’s app permissions (or ask your IT admin).'
+              : ` ${PROVIDERS[disconnected].label} did not confirm, so also remove this app under your ${disconnected === 'zoom' ? 'Zoom' : 'Google'} account's connected apps.`
+            : ''}</p>
       ) : null}
       {error ? <p className={styles.bannerBad} role="alert">{error}</p> : null}
       {!configured ? (

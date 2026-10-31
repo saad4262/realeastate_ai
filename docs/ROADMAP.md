@@ -351,7 +351,10 @@ are **version 2** — not built now. Everything else on this list is version 1: 
 public API + webhooks, Outlook, and Phase 7.
 
 ### Phase 5 — Open platform (#19)
-- [ ] Public API + webhooks; Outlook. (v1)
+- [ ] Public API + webhooks. (v1)
+- [x] **5.2 Outlook** (built 2026-10-31, ADR 0076, migration 0077 applied; TEST-PLAN CC — send from Outlook,
+  Outlook Calendar mirror, work and personal Microsoft accounts, one of each in use per person, a calendar
+  switch moving only what is ahead). Real Microsoft needs the Entra app (DEPLOY.md) — PROVISIONAL until tried.
 - [ ] Xero; CRM connectors (Rex, VaultRE, AgentBox) for #4. **Version 2.**
 
 ### Phase 6 — Marketing (#17 → #26 → #18) — **Version 2**

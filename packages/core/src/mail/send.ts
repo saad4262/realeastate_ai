@@ -14,7 +14,7 @@ import { contactUnsubscribeUrl } from '../email/unsubscribe';
 import { devAllowlistProblem } from '../email/limits';
 import { mailConfigFromEnv } from './address';
 import { replyInputSchema } from './mail-schema';
-import { resolveSender } from './sender';
+import { MAILBOX_NAME, resolveSender, type MailboxVia } from './sender';
 import { activeMemberActor } from '../team/member-actor';
 import { tokenKeysFromEnv, type TokenKeys } from '../integrations/crypto';
 import { withAccessToken } from '../integrations/tokens';
@@ -22,6 +22,7 @@ import { IntegrationError } from '../integrations/accounts';
 import { isStubToken, stubEnabled } from '../integrations/oauth';
 import { ProviderError, type Fetch } from '../integrations/provider-http';
 import { buildMime, gmailApi, stubGmailApi, type GmailApi } from '../integrations/gmail';
+import { outlookMailApi, stubOutlookMailApi, type OutlookMailApi } from '../integrations/outlook-mail';
 import {
   loadThreadAccess,
   MailError,
@@ -54,10 +55,10 @@ export type MailDeps = {
   /** For the development allowlist; defaults to process.env. A test seam. */
   env?: NodeJS.ProcessEnv;
   /**
-   * Sending through a connected Gmail (ADR 0026). Absent: every message goes
-   * from the platform sender. `api` is the test seam (a fake Gmail).
+   * Sending through a connected mailbox — Gmail (ADR 0026) or Outlook (ADR 0076). Absent: every message goes
+   * from the platform sender. `api` / `outlookApi` are the test seams (a fake Gmail, a fake Outlook).
    */
-  gmail?: { keys: TokenKeys; api?: GmailApi; fetch?: Fetch; now?: () => Date };
+  gmail?: { keys: TokenKeys; api?: GmailApi; outlookApi?: OutlookMailApi; fetch?: Fetch; now?: () => Date };
   /**
    * The public site and the unsubscribe secret, for the opt-out link a NEW
    * email to a contact carries (ADR 0035 §1). Absent: such an email is not sent.
@@ -309,7 +310,7 @@ export async function deliverOutbound(
       ? { email: m.authorEmail, name: author }
       : { email: sender.from.email, name: agencyName };
 
-  // Gmail or the platform, decided now, AFTER the transaction that recorded the row.
+  // A connected mailbox (Gmail or Outlook) or the platform, decided now, AFTER the transaction that recorded the row.
   const gmail = await gmailRoute(db, deps, m, opts);
 
   /*
@@ -318,12 +319,12 @@ export async function deliverOutbound(
    * sweeper, a webhook delivered twice) finds it taken and sends nothing. A
    * claim left by a delivery that died is taken over after the stale window —
    * through the platform with the SAME idempotency key, so Resend sends it at
-   * most once; Gmail has no such key, so a message that may already have left
-   * through Gmail is never sent again: it is marked failed, saying so.
+   * most once; Gmail and Outlook have no such key, so a message that may already
+   * have left through a mailbox is never sent again: it is marked failed, saying so.
    */
   const crashed = m.sendStartedAt !== null;
-  if (crashed && m.sentVia === 'gmail') {
-    const reason = 'This may already have been sent from Gmail (the send was interrupted). Check the Sent folder before sending it again.';
+  if (crashed && (m.sentVia === 'gmail' || m.sentVia === 'outlook')) {
+    const reason = `This may already have been sent from ${MAILBOX_NAME[m.sentVia]} (the send was interrupted). Check the Sent folder before sending it again.`;
     await db
       .update(mailMessage)
       .set({ status: 'failed', error: reason, updatedAt: sql`now()` })
@@ -332,7 +333,7 @@ export async function deliverOutbound(
   }
   const [claimed] = await db
     .update(mailMessage)
-    .set({ sendStartedAt: sql`now()`, sentVia: gmail ? 'gmail' : 'resend', updatedAt: sql`now()` })
+    .set({ sendStartedAt: sql`now()`, sentVia: gmail ? gmail.choice.via : 'resend', updatedAt: sql`now()` })
     .where(
       and(
         eq(mailMessage.id, messageId),
@@ -374,7 +375,7 @@ export async function deliverOutbound(
   // How it left (or tried to): shown on the message, and what decides the
   // "Send from the platform address instead" button. Never switched silently.
   const via = gmail
-    ? { sentVia: 'gmail', senderAccountId: gmail.choice.accountId, fromEmail: gmail.choice.address }
+    ? { sentVia: gmail.choice.via, senderAccountId: gmail.choice.accountId, fromEmail: gmail.choice.address }
     : { sentVia: 'resend', senderAccountId: null, fromEmail: sender.from.email };
 
   if (result.ok) {
@@ -400,10 +401,10 @@ export async function deliverOutbound(
   return { messageId, status: 'failed', error: result.error };
 }
 
-type GmailRoute = { actor: Actor; choice: Extract<Awaited<ReturnType<typeof resolveSender>>, { via: 'gmail' }> };
+type GmailRoute = { actor: Actor; choice: Extract<Awaited<ReturnType<typeof resolveSender>>, { via: MailboxVia }> };
 
 /**
- * Whether this message goes through a Gmail, and whose — or null for the
+ * Whether this message goes through a connected mailbox (Gmail or Outlook), and whose — or null for the
  * platform sender. Only one-to-one mail written by a person who is still an
  * active member, and only when that person may use the account.
  */
@@ -418,10 +419,10 @@ async function gmailRoute(
   const actor = await activeMemberActor(db, m.sentBy, m.agencyId);
   if (!actor) return null;
   const choice = await resolveSender(db, actor);
-  return choice.via === 'gmail' ? { actor, choice } : null;
+  return choice.via !== 'resend' ? { actor, choice } : null;
 }
 
-/** One send through Gmail, as the author; every failure becomes a sentence with what to do next. */
+/** One send through the author's mailbox (Gmail or Outlook); every failure becomes a sentence with what to do next. */
 async function sendViaGmail(
   db: Db,
   deps: MailDeps,
@@ -431,24 +432,32 @@ async function sendViaGmail(
   const g = deps.gmail!;
   const env = deps.env ?? process.env;
   const raw = buildMime(email);
+  const via = route.choice.via;
+  const name = MAILBOX_NAME[via];
   try {
     const sent = await withAccessToken(db, g.keys, route.actor, route.choice.accountId, { env, ...(g.fetch ? { fetch: g.fetch } : {}), ...(g.now ? { now: g.now } : {}) }, (token) => {
-      const api = g.api ?? (isStubToken(token) ? (stubEnabled(env) ? stubGmailApi() : null) : gmailApi(g.fetch ?? fetch));
+      // ADR 0076: the same MIME, through whichever mailbox is active. A test seam wins; a stub token only
+      // ever goes to the stub, and only where the stub is on.
+      const stub = isStubToken(token) ? stubEnabled(env) : null;
+      const api =
+        via === 'outlook'
+          ? g.outlookApi ?? (stub === null ? outlookMailApi(g.fetch ?? fetch) : stub ? stubOutlookMailApi() : null)
+          : g.api ?? (stub === null ? gmailApi(g.fetch ?? fetch) : stub ? stubGmailApi() : null);
       if (!api) throw new ProviderError('failed', 'The pretend provider is off on this server');
       return api.send(token, raw);
     });
-    // Namespaced: provider_id is unique across both transports.
-    return { ok: true, id: `gmail:${sent.id}` };
+    // Namespaced: provider_id is unique across every transport.
+    return { ok: true, id: `${via}:${sent.id}` };
   } catch (err) {
     const after = ' — retry, or send from the platform address instead';
     if (err instanceof IntegrationError && err.code === 'expired') {
-      return { ok: false, error: 'Your Gmail connection expired — reconnect it, or send from the platform address', retryable: false };
+      return { ok: false, error: `Your ${name} connection expired — reconnect it, or send from the platform address`, retryable: false };
     }
     if (err instanceof ProviderError && err.kind === 'rate_limited') {
-      return { ok: false, error: `Gmail's sending limit was reached${after}`, retryable: true };
+      return { ok: false, error: `${name}'s sending limit was reached${after}`, retryable: true };
     }
-    const why = err instanceof ProviderError || err instanceof IntegrationError ? err.message : 'Gmail could not be reached';
-    return { ok: false, error: `Gmail did not send it (${why})${after}`, retryable: true };
+    const why = err instanceof ProviderError || err instanceof IntegrationError ? err.message : `${name} could not be reached`;
+    return { ok: false, error: `${name} did not send it (${why})${after}`, retryable: true };
   }
 }
 

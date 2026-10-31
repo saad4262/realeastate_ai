@@ -8,7 +8,7 @@ import {
 import Link from 'next/link';
 import { LocalTime } from '@repo/ui';
 import contactStyles from '@/components/contacts/contacts.module.css';
-import { connectIntegrationAction, disconnectIntegrationAction } from '@/lib/integration-actions';
+import { chooseIntegrationAction, connectIntegrationAction, disconnectIntegrationAction } from '@/lib/integration-actions';
 import { ConfirmSubmit } from './confirm-submit';
 import styles from './integrations.module.css';
 
@@ -57,6 +57,9 @@ const ICONS: Partial<Record<IntegrationSlot['provider'], string>> = {
   google_sheets: 'table_chart',
   gmail: 'mail',
   google_reviews: 'reviews',
+  // ADR 0076: the console's own glyphs, never a brand logo.
+  outlook_mail: 'outgoing_mail',
+  outlook_calendar: 'event',
 };
 
 /** The card's icon tile; the dot says "connected" at a glance, the pill beside it says it in words. */
@@ -111,6 +114,15 @@ export function IntegrationCard({ slot, compact = false }: { slot: IntegrationSl
         </div>
         <div className={styles.cardSide}>
           {state !== 'not_connected' ? <StatusPill state={state} /> : null}
+          {/* ADR 0076: with Google's and Microsoft's both connected, one of each is in use. */}
+          {slot.choice?.alternative && slot.choice.active ? <span className={styles.level}>In use</span> : null}
+          {slot.choice?.alternative && !slot.choice.active && slot.mayManage ? (
+            <form action={chooseIntegrationAction}>
+              <input type="hidden" name="provider" value={slot.provider} />
+              <input type="hidden" name="ownerType" value={slot.ownerType} />
+              <button type="submit" className={contactStyles.btnGhost}>Use this one instead</button>
+            </form>
+          ) : null}
           {slot.mayManage && state !== 'connected' ? (
             <ConnectButton provider={slot.provider} ownerType={slot.ownerType} label={a ? 'Reconnect' : 'Connect'} />
           ) : null}
