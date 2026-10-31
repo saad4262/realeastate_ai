@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>More Workflow Triggers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300..600,0..1&display=swap" rel="stylesheet" />
+<!--
+  Mock for ROADMAP Phase 4.4 — more workflow triggers, round 2 (round 1 was ADR 0066, workflow-triggers.html).
+  Skills → Automations → "What can start a workflow" with twelve new triggers built from what the platform already
+  records, the ones that need something first, example automations and the assistant's card.
+  Console tokens (apps/console/app/globals.css). Every name, number, time and template is SAMPLE data. Counts and
+  every figure in a run come from SQL (non-negotiable 4); templates are written by people (non-negotiable 7).
+  #rules (default), #catalogue, #examples, #card open those screens.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff;
+    --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff;
+    --emerald: #059669; --emerald-subtle: #ecfdf5;
+    --rose: #e11d48; --rose-subtle: #fff1f2;
+    --amber: #d97706; --amber-subtle: #fffbeb;
+    --violet: #6d28d9; --violet-subtle: #f5f3ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .ms { font-family: 'Material Symbols Outlined'; font-size: 20px; line-height: 1; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 400; }
+  .ms.sm { font-size: 16px; width: 16px; height: 16px; }
+  button, input, select, textarea { font: inherit; }
+  [hidden] { display: none !important; }
+
+  .mockbar { position: sticky; top: 0; z-index: 30; display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+  .mockbar b { color: #fff; }
+  .seg { display: inline-flex; background: #1e293b; border-radius: 8px; padding: 2px; flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; }
+
+  .shell { display: flex; min-height: calc(100vh - 36px); }
+  aside { width: 240px; flex: none; border-right: 1px solid var(--border-default); padding: 16px 12px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 16px; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--text-primary); color: #fff; display: grid; place-items: center; font: 700 12px 'Plus Jakarta Sans'; }
+  .brand small { display: block; color: var(--text-muted); font-size: 11px; }
+  .gh { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px 4px; }
+  .nl { display: flex; gap: 12px; align-items: center; padding: 7px 12px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; }
+  .nl.on { background: #fff; color: var(--sapphire); border: 1px solid var(--border-default); font-weight: 500; }
+
+  main { flex: 1; min-width: 0; padding: 22px 32px 64px; max-width: 1120px; }
+  h2 { font: 600 19px/26px 'Plus Jakarta Sans'; margin: 10px 0 4px; }
+  h3 { font: 600 14.5px/20px 'Plus Jakarta Sans'; margin: 0; }
+  .lead { color: var(--text-secondary); margin: 0 0 14px; max-width: 78ch; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .muted { color: var(--text-muted); font-size: 12px; }
+  .crumb { color: var(--text-muted); font-size: 12px; }
+  .stack { display: grid; gap: 12px; }
+
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-default); margin-bottom: 14px; overflow-x: auto; }
+  .tabs button { border: 0; background: none; padding: 8px 12px; color: var(--text-secondary); cursor: default; border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500; white-space: nowrap; }
+  .tabs button[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--text-primary); }
+
+  .pane { background: #fff; border: 1px solid var(--border-default); border-radius: 14px; padding: 14px 16px; }
+  .pane p.h { margin: 6px 0 0; color: var(--text-secondary); font-size: 12.5px; }
+  .pill { display: inline-flex; gap: 5px; align-items: center; font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+  .pill.ok { background: var(--emerald-subtle); color: var(--emerald); }
+  .pill.wait { background: var(--amber-subtle); color: var(--amber); }
+  .pill.skip { background: var(--surface-canvas); color: var(--text-secondary); border: 1px solid var(--border-default); }
+  .pill.new { background: var(--sapphire-subtle); color: var(--sapphire); }
+  .rules { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 3px; color: var(--text-secondary); font-size: 12.5px; }
+
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
+  .chip { border: 1px solid var(--border-default); background: #fff; border-radius: 999px; padding: 4px 11px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .chip:focus-visible, .seg button:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+
+  .group { margin-bottom: 18px; }
+  .group > h3 { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .group > h3 .cnt { font: 500 12px Inter; color: var(--text-muted); }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .trig { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; padding: 12px 14px; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; }
+  .trig.isnew { border-color: #bfdbfe; }
+  .trig .ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-canvas); color: var(--text-secondary); border: 1px solid var(--border-default); }
+  .trig.isnew .ic { background: var(--sapphire-subtle); color: var(--sapphire); border-color: #bfdbfe; }
+  .trig b { display: block; font-weight: 600; }
+  .trig p { margin: 3px 0 0; font-size: 12.5px; color: var(--text-secondary); }
+  .trig .ex { margin-top: 6px; font-size: 12px; color: var(--violet); }
+  .trig .ex::before { content: '“'; } .trig .ex::after { content: '”'; }
+  .trig .opt { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .trig .opt span { font-size: 11px; background: var(--surface-canvas); border: 1px solid var(--border-default); border-radius: 6px; padding: 1px 6px; color: var(--text-secondary); }
+  .trig.later { background: var(--surface-canvas); border-style: dashed; }
+  .trig.later .ic { background: #fff; }
+
+  .flow { display: grid; }
+  .node { display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 9px 0; position: relative; }
+  .node + .node::before { content: ''; position: absolute; left: 16px; top: -6px; height: 12px; border-left: 2px dashed var(--border-strong); }
+  .node .ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-canvas); border: 1px solid var(--border-default); color: var(--text-secondary); }
+  .node.trigger .ic { background: var(--sapphire-subtle); color: var(--sapphire); border-color: #bfdbfe; }
+  .node b { display: block; }
+  .node span { font-size: 12.5px; color: var(--text-secondary); }
+  .examples { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+
+  .chat { display: grid; gap: 10px; max-width: 720px; }
+  .bubble { padding: 10px 12px; border-radius: 12px; font-size: 13px; }
+  .bubble.me { background: var(--text-primary); color: #fff; justify-self: end; max-width: 80%; border-radius: 12px 12px 4px 12px; }
+  .cardx { border: 1px solid var(--border-default); background: #fff; border-radius: 14px; overflow: hidden; }
+  .cardx header { padding: 10px 14px; background: var(--surface-canvas); border-bottom: 1px solid var(--border-default); display: flex; gap: 8px; align-items: center; font-weight: 600; }
+  .cardx .body { padding: 12px 14px; display: grid; gap: 6px; font-size: 13px; }
+  .cardx .body div { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 10px; }
+  .cardx .body span { color: var(--text-muted); font-size: 12px; }
+  .cardx footer { display: flex; gap: 8px; justify-content: flex-end; padding: 10px 14px; border-top: 1px solid var(--border-default); }
+  .btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-default); background: #fff; color: var(--text-primary); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; }
+  .btn.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .note { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; }
+  .note.warn { background: var(--amber-subtle); color: #92400e; }
+  .note.info { background: var(--sapphire-subtle); color: #1e40af; }
+  .note .ms { flex: none; }
+
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #0f172a; color: #fff; padding: 9px 14px; border-radius: 10px; font-size: 12.5px; z-index: 50; }
+
+  @media (max-width: 960px) { .grid, .examples { grid-template-columns: 1fr; } }
+  @media (max-width: 860px) { aside { display: none; } main { padding: 18px 16px 48px; } }
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>MOCK · sample data</b>
+  <span>Screen:</span>
+  <div class="seg" role="group" aria-label="Screen">
+    <button type="button" data-screen="rules" aria-pressed="true">Decisions to approve</button>
+    <button type="button" data-screen="catalogue" aria-pressed="false">1 · What can start a workflow</button>
+    <button type="button" data-screen="examples" aria-pressed="false">2 · Example automations</button>
+    <button type="button" data-screen="card" aria-pressed="false">3 · Made through the assistant</button>
+  </div>
+</div>
+
+<div class="shell">
+  <aside aria-label="Sidebar">
+    <div class="brand"><div class="logo">PR</div><div><b>Pakenham Realty</b><small>Agency console</small></div></div>
+    <div class="gh">Home</div>
+    <div class="gh">Daily work</div>
+    <div class="gh">People</div>
+    <div class="gh">Properties</div>
+    <div class="gh">Marketing</div>
+    <div class="gh">Automation</div>
+    <div class="nl"><span class="ms">monitoring</span>Control Centre</div>
+    <div class="nl on"><span class="ms" style="font-variation-settings:'FILL' 1">bolt</span>Skills</div>
+    <div class="gh">Settings</div>
+  </aside>
+
+  <main>
+    <!-- ===================== DECISIONS ===================== -->
+    <section id="rules">
+      <p class="crumb">Phase 4.4 · More workflow triggers · for the client's approval</p>
+      <h2>Twelve new triggers, five decisions</h2>
+      <p class="lead">Fourteen things can start a workflow today. These twelve more come from the brief and use only what the platform already records, so they need no new account or provider. Screen 1 shows them all; screen 2 shows automations an agency might build with them.</p>
+      <div class="stack">
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>1 · Build all twelve in this round</h3><span class="pill wait">To approve</span></div>
+          <p class="h">Contacts: gets a role, brief added or changed, goes quiet, unsubscribes. Leads: assigned, not contacted in time. Listings: price changes, an open home finishes. Email: a customer writes in. Calendar: an appointment is cancelled. Deals: an offer comes in, settlement is near. Or pick the ones you want first.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>2 · What counts as "contacted" for a new lead</h3><span class="pill wait">To approve</span></div>
+          <p class="h">A lead counts as contacted once any of these happens: an email or text is sent to them from the platform, a call is logged, an appointment is booked, or someone marks the lead "contacted". The agency picks the time: 1 to 72 hours.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>3 · "Goes quiet" means nothing for N days</h3><span class="pill wait">To approve</span></div>
+          <p class="h">No email in or out, no text, no call, no note, no appointment, no enquiry for N days (30 to 365; 90 suggested). Archived contacts and anyone unsubscribed never count. Each contact starts a workflow once per quiet spell.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>4 · Someone unsubscribes: inside steps only</h3><span class="pill wait">To approve</span></div>
+          <p class="h">A workflow on "unsubscribes" may only do things inside the agency: a note, a task, a reminder, tell a colleague. It can never email or text that person — the platform refuses such a step for this trigger.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>5 · "Price changes" means the numbers</h3><span class="pill wait">To approve</span></div>
+          <p class="h">The trigger fires when the listing's price numbers change (price from / to, or rent per week), up, down or either — not when only the wording changes ("Offers over" to "Expressions of interest"). A drop by at least a set percentage can be a condition.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>Not in this round — each needs something first</h3><span class="pill skip">Later</span></div>
+          <ul class="rules">
+            <li><b>An email bounces</b> — needs bounce events from the email provider (Resend webhooks).</li>
+            <li><b>A no-show</b> — needs a "didn't come" outcome on appointments.</li>
+            <li><b>Someone attended an open home</b> — needs attendance recorded at open homes.</li>
+            <li><b>The AI spots a likely seller</b> — part of Phase 4.5 ("AI understands, then decides").</li>
+            <li><b>Marketing triggers</b> (campaign published, cost per lead) — version 2, with the Marketing Studio.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== CATALOGUE ===================== -->
+    <section id="catalogue" hidden>
+      <p class="crumb">Automation · Skills · Automations</p>
+      <h2>Skills</h2>
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="false">Platform skills</button>
+        <button role="tab" aria-selected="false">AI skills</button>
+        <button role="tab" aria-selected="true">Automations</button>
+      </div>
+      <h3 style="margin-bottom:4px">What can start a workflow</h3>
+      <p class="lead">Ask the assistant for any of these in your own words. <span id="countline"></span></p>
+      <div class="filters">
+        <button class="chip" type="button" aria-pressed="true" data-f="all">All</button>
+        <button class="chip" type="button" aria-pressed="false" data-f="new">New in this round</button>
+        <button class="chip" type="button" aria-pressed="false" data-f="later">Later</button>
+      </div>
+      <div id="groups"></div>
+    </section>
+
+    <!-- ===================== EXAMPLES ===================== -->
+    <section id="examples" hidden>
+      <p class="crumb">Automation · Skills · Automations</p>
+      <h2>Example automations</h2>
+      <p class="lead">What an agency might build with the new triggers. Each is made by asking the assistant and approved on a card; each step keeps its own rules (consent, unsubscribes, sending hours, skills switched on).</p>
+      <div class="examples" id="exlist"></div>
+    </section>
+
+    <!-- ===================== CARD ===================== -->
+    <section id="card" hidden>
+      <p class="crumb">LocalAgent AI</p>
+      <h2>Made through the assistant</h2>
+      <p class="lead">Nothing new to learn: the person asks, the assistant shows the workflow in words, the person approves.</p>
+      <div class="chat">
+        <div class="bubble me">If a new lead hasn't been contacted within 2 hours, remind the agent and tell me</div>
+        <div class="cardx">
+          <header><span class="ms sm">account_tree</span>New workflow · Leads not contacted in 2 hours</header>
+          <div class="body">
+            <div><span>When</span><b>A new lead has not been contacted for 2 hours</b></div>
+            <div><span>Only if</span>The lead is from the website</div>
+            <div><span>Then</span>Remind the assigned agent: “Call {{contact_name}} about {{listing_address}}”</div>
+            <div><span></span>Message Hannah Wells: “{{contact_name}} hasn't been contacted yet”</div>
+            <div><span>Counts as contacted</span><span style="color:var(--text-secondary)">an email or text sent, a call logged, an appointment booked, or marked contacted</span></div>
+            <div><span>For</span>The whole agency (owners and admins may make this)</div>
+          </div>
+          <footer><button class="btn" type="button" data-toast="Not saved">Not now</button><button class="btn primary" type="button" data-toast="Saved and switched on — it starts with the next lead">Approve</button></footer>
+        </div>
+        <div class="bubble me">When someone unsubscribes, email them a goodbye</div>
+        <div class="note warn"><span class="ms sm">block</span><span>The assistant says: “A workflow on an unsubscribe can't email or text that person — they asked us to stop. I can add a note and remind their agent instead. Want that?”</span></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+// Existing triggers (ADR 0041, 0066, 0074) and this round's. later: needs something first.
+const T = [
+  // Leads and contacts
+  { g: 'Leads and contacts', icon: 'mail', t: 'A new lead arrives', d: 'From the website or recorded by hand.' },
+  { g: 'Leads and contacts', icon: 'swap_horiz', t: 'A lead’s status changes', d: 'New, contacted, qualified, closed.' },
+  { g: 'Leads and contacts', icon: 'schedule', t: 'No reply for N days', d: 'A buyer’s message still unanswered.' },
+  { g: 'Leads and contacts', icon: 'person_add', t: 'A contact is added', d: 'By hand or by an import.' },
+  { g: 'Leads and contacts', icon: 'assignment_ind', t: 'A lead is assigned', d: 'Given to an agent, by a person, a workflow or the assistant.', ex: 'When a lead is given to me, add it to my call list for today.', opt: ['to anyone / to a chosen agent'], isNew: true },
+  { g: 'Leads and contacts', icon: 'timer', t: 'A new lead not contacted in N hours', d: '1 to 72 hours with no email or text sent, no call logged, no appointment, not marked contacted.', ex: 'If a lead isn’t contacted in 2 hours, remind the agent and tell me.', opt: ['1–72 hours', 'website / by hand'], isNew: true },
+  { g: 'Leads and contacts', icon: 'label', t: 'A contact gets a role', d: 'Becomes a buyer, seller, landlord, tenant, investor, prospect, past client or referral partner.', ex: 'When someone becomes a past client, set a check-in for 6 months.', opt: ['which role'], isNew: true },
+  { g: 'Leads and contacts', icon: 'manage_search', t: 'A buyer’s brief is added or changed', d: 'Their price, bedrooms, suburbs or type — the brief that matching uses.', ex: 'When a buyer’s brief changes, remind their agent to send fresh matches.', isNew: true },
+  { g: 'Leads and contacts', icon: 'bedtime', t: 'A contact goes quiet for N days', d: 'Nothing in or out for 30 to 365 days. Never archived or unsubscribed contacts.', ex: 'When a past client goes quiet for 6 months, remind me to call.', opt: ['30–365 days', 'a role'], isNew: true },
+  { g: 'Leads and contacts', icon: 'unsubscribe', t: 'Someone unsubscribes', d: 'From marketing email. Only inside steps — a note, a task, a reminder. Never an email or a text to them.', ex: 'When a seller unsubscribes, tell their agent.', isNew: true },
+  // Email
+  { g: 'Email', icon: 'mark_email_unread', t: 'A customer writes in', d: 'A new email from a contact arrives in their conversation (needs inbound email set up).', ex: 'When a past client emails, flag it for their agent.', opt: ['a role', 'the first email only / every email'], isNew: true },
+  { g: 'Email', icon: 'report', t: 'An email bounces', d: 'Needs bounce events from the email provider first.', later: true },
+  // Listings
+  { g: 'Listings and buyers', icon: 'sell', t: 'A listing’s status changes', d: 'Live, under offer, sold, withdrawn.' },
+  { g: 'Listings and buyers', icon: 'join_inner', t: 'A new listing fits a buyer’s brief', d: 'Once for each buyer whose brief it fits.' },
+  { g: 'Listings and buyers', icon: 'trending_down', t: 'A listing’s price changes', d: 'The price numbers, not just the wording. Up, down or either; optionally by at least a percentage.', ex: 'When a price drops by 5% or more, send matched buyers the “Price update” template in office hours.', opt: ['up / down / either', 'at least N%'], isNew: true },
+  { g: 'Listings and buyers', icon: 'door_open', t: 'An open home finishes', d: 'N hours after an open home’s end time (0 to 48).', ex: 'Two hours after an open home, remind me to call this week’s enquirers.', opt: ['0–48 hours after'], isNew: true },
+  { g: 'Listings and buyers', icon: 'how_to_reg', t: 'Someone attended an open home', d: 'Needs attendance recorded at open homes first.', later: true },
+  // Appointments
+  { g: 'Appointments', icon: 'event_available', t: 'An appointment is booked', d: 'Optionally one type.' },
+  { g: 'Appointments', icon: 'alarm', t: 'N hours before an appointment', d: '1 to 72 hours before it starts.' },
+  { g: 'Appointments', icon: 'task_alt', t: 'An appointment is completed', d: 'When it is marked done.' },
+  { g: 'Appointments', icon: 'hourglass_bottom', t: 'An appraisal with no listing after N days', d: 'Nothing listed at that address since.' },
+  { g: 'Appointments', icon: 'event_busy', t: 'An appointment is cancelled', d: 'By the agent, or by the contact through the invitation.', ex: 'When an appraisal is cancelled, remind me to rebook within a week.', opt: ['a type'], isNew: true },
+  { g: 'Appointments', icon: 'person_off', t: 'A no-show', d: 'Needs a “didn’t come” outcome on appointments first.', later: true },
+  // Deals
+  { g: 'Deals', icon: 'flag', t: 'A deal reaches a stage', d: 'Any of the seven. The vendor or the buyer.' },
+  { g: 'Deals', icon: 'handshake', t: 'A deal settles', d: 'When someone presses Settle.' },
+  { g: 'Deals', icon: 'request_quote', t: 'An offer comes in', d: 'An offer recorded on a listing or a private offer on an address. Owners and admins only — agents never see offers.', ex: 'When an offer comes in, tell me and the listing agent at once.', isNew: true, agencyOnly: true },
+  { g: 'Deals', icon: 'event_upcoming', t: 'N days before settlement', d: '1 to 60 days before a deal’s settlement date. The vendor or the buyer.', ex: 'Seven days before settlement, email the buyer our moving checklist.', opt: ['1–60 days', 'vendor / buyer'], isNew: true },
+  // Past clients, calls
+  { g: 'Past clients', icon: 'cake', t: 'A sale’s anniversary', d: '1 to 20 years after we sold an address.' },
+  { g: 'Calls', icon: 'phone_missed', t: 'A call is missed', d: 'From a contact, a new number or either.' },
+  // AI
+  { g: 'AI', icon: 'psychology', t: 'The AI spots a likely seller', d: 'Part of Phase 4.5, “AI understands, then decides”.', later: true },
+];
+const GROUP_ORDER = ['Leads and contacts', 'Email', 'Listings and buyers', 'Appointments', 'Deals', 'Past clients', 'Calls', 'AI'];
+
+const EXAMPLES = [
+  { name: 'Leads not contacted in 2 hours', trig: ['timer', 'A new lead has not been contacted for 2 hours'], steps: [['notifications', 'Remind the assigned agent'], ['forum', 'Message the principal']] },
+  { name: 'Price drop to matched buyers', trig: ['trending_down', 'A listing’s price drops by 5% or more'], steps: [['schedule', 'Wait until 9 am–5 pm, Mon–Fri'], ['forward_to_inbox', 'Send “Price update” to buyers whose brief fits (consent checked)']] },
+  { name: 'Settlement week', trig: ['event_upcoming', '7 days before settlement — the buyer'], steps: [['forward_to_inbox', 'Send “Moving checklist”'], ['notifications', 'Remind the agent to book the final inspection']] },
+  { name: 'Unsubscribed seller', trig: ['unsubscribe', 'Someone unsubscribes — a seller'], steps: [['sticky_note_2', 'Add a note: “Unsubscribed from marketing”'], ['notifications', 'Remind their agent to call personally']] },
+  { name: 'Quiet past clients', trig: ['bedtime', 'A past client goes quiet for 180 days'], steps: [['task_alt', 'Set the next action “Check-in call” in 2 days']] },
+  { name: 'Open home follow-up', trig: ['door_open', '2 hours after an open home'], steps: [['notifications', 'Remind me to call this week’s enquirers on that listing']] },
+];
+
+let screen = 'rules', filter = 'all';
+
+function renderCatalogue() {
+  const shown = T.filter((x) => filter === 'all' || (filter === 'new' ? x.isNew : x.later));
+  const nNew = T.filter((x) => x.isNew).length, nNow = T.filter((x) => !x.isNew && !x.later).length;
+  document.getElementById('countline').textContent = `${nNow} today · ${nNew} new in this round · ${T.filter((x) => x.later).length} later.`;
+  document.getElementById('groups').innerHTML = GROUP_ORDER.map((g) => {
+    const items = shown.filter((x) => x.g === g);
+    if (!items.length) return '';
+    return `<div class="group"><h3>${g} <span class="cnt">${items.length}</span></h3><div class="grid">${items.map((x) => `
+      <div class="trig ${x.isNew ? 'isnew' : ''} ${x.later ? 'later' : ''}">
+        <div class="ic"><span class="ms sm">${x.icon}</span></div>
+        <div>
+          <b>${x.t} ${x.isNew ? '<span class="pill new">New</span>' : ''}${x.later ? '<span class="pill skip">Later</span>' : ''}${x.agencyOnly ? ' <span class="pill skip">Owners and admins</span>' : ''}</b>
+          <p>${x.d}</p>
+          ${x.opt ? `<div class="opt">${x.opt.map((o) => `<span>${o}</span>`).join('')}</div>` : ''}
+          ${x.ex ? `<div class="ex">${x.ex}</div>` : ''}
+        </div>
+      </div>`).join('')}</div></div>`;
+  }).join('');
+}
+
+function renderExamples() {
+  document.getElementById('exlist').innerHTML = EXAMPLES.map((e) => `<div class="pane">
+      <div class="row" style="justify-content:space-between;margin-bottom:4px"><b>${e.name}</b><span class="pill ok">Example</span></div>
+      <div class="flow">
+        <div class="node trigger"><div class="ic"><span class="ms sm">${e.trig[0]}</span></div><div><b>When</b><span>${e.trig[1]}</span></div></div>
+        ${e.steps.map((s) => `<div class="node"><div class="ic"><span class="ms sm">${s[0]}</span></div><div><b>Then</b><span>${s[1]}</span></div></div>`).join('')}
+      </div>
+    </div>`).join('');
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.hidden = true), 2400);
+}
+
+function go(s) {
+  screen = s;
+  document.querySelectorAll('main > section').forEach((x) => (x.hidden = x.id !== s));
+  document.querySelectorAll('.mockbar [data-screen]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.screen === s));
+  try { history.replaceState(null, '', '#' + s); } catch (e) { /* ignore */ }
+  window.scrollTo(0, 0);
+}
+
+document.addEventListener('click', (e) => {
+  const s = e.target.closest('[data-screen]');
+  if (s) { go(s.dataset.screen); return; }
+  const f = e.target.closest('[data-f]');
+  if (f) { filter = f.dataset.f; document.querySelectorAll('[data-f]').forEach((b) => b.setAttribute('aria-pressed', b === f)); renderCatalogue(); return; }
+  const tt = e.target.closest('[data-toast]');
+  if (tt) toast(tt.dataset.toast);
+});
+
+renderCatalogue(); renderExamples();
+const h = (location.hash || '').slice(1);
+go(['rules', 'catalogue', 'examples', 'card'].includes(h) ? h : 'rules');
+</script>
+</body>
+</html>
