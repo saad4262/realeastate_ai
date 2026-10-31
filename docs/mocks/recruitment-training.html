@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Recruitment and Training</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300..600,0..1&display=swap" rel="stylesheet" />
+<!--
+  Mock for ROADMAP #24 (Recruitment & Agent Onboarding), the missing half: recruitment pipeline, training, office
+  assignment. For the USER's review (not the client).
+  Built already: the invite wizard (licence no./class/expiry, permissions), edit/remove member (ADR 0033), departure
+  with reassignment (ADR 0030), the knowledge base (ADR 0053). This mock adds candidates (NOT contacts), training
+  paths made of the agency's own knowledge documents and sign-offs, the office step, and licence/CPD reminders.
+  Console tokens. Every name, date and figure is SAMPLE data; counts and hours are SQL sums (#4).
+  #rules (default), #pipeline, #candidate, #invite, #paths, #mine, #licences.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff;
+    --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff;
+    --emerald: #059669; --emerald-subtle: #ecfdf5;
+    --rose: #e11d48; --rose-subtle: #fff1f2;
+    --amber: #d97706; --amber-subtle: #fffbeb;
+    --violet: #6d28d9; --violet-subtle: #f5f3ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .ms { font-family: 'Material Symbols Outlined'; font-size: 20px; line-height: 1; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 400; }
+  .ms.sm { font-size: 16px; width: 16px; height: 16px; }
+  button { font: inherit; }
+  [hidden] { display: none !important; }
+
+  .mockbar { position: sticky; top: 0; z-index: 30; display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+  .mockbar b { color: #fff; }
+  .seg { display: inline-flex; background: #1e293b; border-radius: 8px; padding: 2px; flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; }
+  .seg button:focus-visible, .btn:focus-visible, .tab:focus-visible, .cand:focus-visible { outline: 2px solid var(--sapphire); outline-offset: 2px; }
+
+  .shell { display: flex; min-height: calc(100vh - 36px); }
+  aside { width: 240px; flex: none; border-right: 1px solid var(--border-default); padding: 16px 12px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 16px; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--text-primary); color: #fff; display: grid; place-items: center; font: 700 12px 'Plus Jakarta Sans'; }
+  .brand small { display: block; color: var(--text-muted); font-size: 11px; }
+  .gh { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px 4px; }
+  .nl { display: flex; gap: 12px; align-items: center; padding: 7px 12px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; }
+  .nl.on { background: #fff; color: var(--sapphire); border: 1px solid var(--border-default); font-weight: 500; }
+  .nl .new { margin-left: auto; font-size: 10px; font-weight: 700; color: var(--violet); background: var(--violet-subtle); padding: 1px 6px; border-radius: 999px; }
+
+  main { flex: 1; min-width: 0; padding: 22px 32px 64px; max-width: 1100px; }
+  h2 { font: 600 19px/26px 'Plus Jakarta Sans'; margin: 10px 0 4px; text-wrap: balance; }
+  h3 { font: 600 14.5px/20px 'Plus Jakarta Sans'; margin: 0; }
+  h4 { font-size: 12px; font-weight: 600; margin: 0 0 8px; color: var(--text-secondary); display: flex; justify-content: space-between; }
+  .lead { color: var(--text-secondary); margin: 0 0 14px; max-width: 74ch; }
+  .crumb { color: var(--text-muted); font-size: 12px; }
+  .muted { color: var(--text-muted); font-size: 12px; }
+  .stack { display: grid; gap: 12px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .pane { background: #fff; border: 1px solid var(--border-default); border-radius: 14px; padding: 14px 16px; }
+  .pane p.h { margin: 6px 0 0; color: var(--text-secondary); font-size: 12.5px; }
+  .pill { display: inline-flex; gap: 5px; align-items: center; font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+  .pill.ok { background: var(--emerald-subtle); color: var(--emerald); }
+  .pill.wait { background: var(--amber-subtle); color: var(--amber); }
+  .pill.bad { background: var(--rose-subtle); color: var(--rose); }
+  .pill.info { background: var(--sapphire-subtle); color: var(--sapphire); }
+  .pill.grey { background: #f1f5f9; color: var(--text-secondary); }
+  .pill.ai { background: var(--violet-subtle); color: var(--violet); }
+  .rules { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 3px; color: var(--text-secondary); font-size: 12.5px; }
+
+  .board { display: grid; grid-template-columns: repeat(5, minmax(180px, 1fr)); gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+  .col { background: #f1f5f9; border-radius: 12px; padding: 10px; display: grid; gap: 8px; align-content: start; min-height: 260px; }
+  .cand { background: #fff; border: 1px solid var(--border-default); border-radius: 10px; padding: 9px 10px; display: grid; gap: 4px; font-size: 12.5px; cursor: pointer; text-align: left; }
+  .cand b { font-size: 13px; }
+  .cand .muted { font-size: 11.5px; }
+
+  .tablewrap { background: #fff; border: 1px solid var(--border-default); border-radius: 14px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11.5px; font-weight: 600; color: var(--text-muted); padding: 9px 12px; border-bottom: 1px solid var(--border-default); white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border-default); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td small { display: block; color: var(--text-muted); font-size: 11.5px; }
+
+  .two { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+  .facts { display: grid; gap: 7px; font-size: 13px; }
+  .facts div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; }
+  .facts span { color: var(--text-muted); font-size: 12px; }
+  .quote { border-left: 3px solid var(--border-strong); padding: 4px 10px; color: var(--text-secondary); font-size: 12px; margin: 4px 0 0; }
+  .found { display: grid; gap: 10px; margin-top: 8px; }
+  .found > div { font-size: 13px; }
+
+  .card { border: 1px solid var(--border-default); border-radius: 14px; overflow: hidden; background: #fff; }
+  .card header { padding: 10px 14px; background: var(--surface-canvas); border-bottom: 1px solid var(--border-default); font-weight: 600; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .card .body { padding: 12px 14px; display: grid; gap: 8px; font-size: 13px; }
+  .card .body .f { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 10px; }
+  .card .body .f > span:first-child { color: var(--text-muted); font-size: 12px; }
+  .card footer { display: flex; gap: 8px; justify-content: flex-end; padding: 10px 14px; border-top: 1px solid var(--border-default); flex-wrap: wrap; }
+  .mail { border: 1px solid var(--border-default); border-radius: 10px; padding: 10px 12px; background: var(--surface-canvas); white-space: pre-line; font-size: 12.5px; color: var(--text-secondary); }
+  .btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-default); background: #fff; color: var(--text-primary); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; }
+  .btn.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+  .note { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; }
+  .note.info { background: var(--sapphire-subtle); color: #1e40af; }
+  .note.warn { background: var(--amber-subtle); color: #92400e; }
+  .note.bad { background: var(--rose-subtle); color: #9f1239; }
+  .note .ms { flex: none; }
+
+  .wizard { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 0; background: #fff; border: 1px solid var(--border-default); border-radius: 14px; overflow: hidden; }
+  .steps { background: var(--surface-canvas); border-right: 1px solid var(--border-default); padding: 12px; display: grid; gap: 4px; align-content: start; font-size: 12.5px; }
+  .steps div { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 8px; color: var(--text-secondary); }
+  .steps div.done .ms { color: var(--emerald); }
+  .steps div.on { background: #fff; border: 1px solid var(--border-default); color: var(--text-primary); font-weight: 600; }
+  .wbody { padding: 16px; display: grid; gap: 12px; }
+  .field { display: grid; gap: 5px; font-size: 12.5px; font-weight: 500; }
+  .input { border: 1px solid var(--border-default); border-radius: 10px; padding: 8px 11px; color: var(--text-primary); font-weight: 400; display: flex; justify-content: space-between; align-items: center; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .path { display: grid; gap: 0; }
+  .item { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border-default); align-items: start; font-size: 13px; }
+  .item:last-child { border-bottom: 0; }
+  .item .ms { color: var(--text-muted); }
+  .item.done .ms.state { color: var(--emerald); }
+  .bar { height: 6px; background: #f1f5f9; border-radius: 999px; overflow: hidden; width: 120px; }
+  .bar i { display: block; height: 100%; background: var(--emerald); }
+  .ask { border: 1px solid var(--border-default); border-radius: 12px; padding: 12px; background: var(--surface-canvas); display: grid; gap: 8px; font-size: 13px; }
+  .ask .me { justify-self: end; background: var(--text-primary); color: #fff; padding: 7px 11px; border-radius: 12px 12px 4px 12px; max-width: 90%; }
+  .ask .bot { background: #fff; border: 1px solid var(--border-default); padding: 9px 12px; border-radius: 12px 12px 12px 4px; }
+  .cite { display: inline-block; font-size: 11px; font-weight: 600; color: var(--sapphire); background: var(--sapphire-subtle); border-radius: 4px; padding: 0 5px; }
+
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #0f172a; color: #fff; padding: 9px 14px; border-radius: 10px; font-size: 12.5px; z-index: 50; }
+
+  @media (max-width: 960px) { .two { grid-template-columns: minmax(0, 1fr); } .wizard { grid-template-columns: minmax(0, 1fr); } .steps { border-right: 0; border-bottom: 1px solid var(--border-default); } }
+  @media (max-width: 860px) { aside { display: none; } main { padding: 18px 16px 48px; } .grid2 { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>MOCK · sample data · for your review</b>
+  <span>Screen:</span>
+  <div class="seg" role="group" aria-label="Screen">
+    <button type="button" data-screen="rules" aria-pressed="true">Decisions</button>
+    <button type="button" data-screen="pipeline" aria-pressed="false">1 · Recruitment</button>
+    <button type="button" data-screen="candidate" aria-pressed="false">2 · A candidate</button>
+    <button type="button" data-screen="invite" aria-pressed="false">3 · Hired: the invite</button>
+    <button type="button" data-screen="paths" aria-pressed="false">4 · Training paths</button>
+    <button type="button" data-screen="mine" aria-pressed="false">5 · My training (agent)</button>
+    <button type="button" data-screen="licences" aria-pressed="false">6 · Licences &amp; CPD</button>
+  </div>
+</div>
+
+<div class="shell">
+  <aside aria-label="Sidebar">
+    <div class="brand"><div class="logo">PR</div><div><b>Pakenham Realty</b><small id="who">Agency console · Rebecca Tan, principal</small></div></div>
+    <div class="gh">Home</div>
+    <div class="nl"><span class="ms">space_dashboard</span>Overview</div>
+    <div class="nl"><span class="ms">smart_toy</span>LocalAgent AI</div>
+    <div class="gh">Team</div>
+    <div class="nl" id="nav-team"><span class="ms">groups</span>Team</div>
+    <div class="nl" id="nav-rec"><span class="ms">person_search</span>Recruitment<span class="new">NEW</span></div>
+    <div class="nl" id="nav-train"><span class="ms">school</span>Training<span class="new">NEW</span></div>
+    <div class="gh">Knowledge &amp; insights</div>
+    <div class="nl"><span class="ms">menu_book</span>Knowledge base</div>
+  </aside>
+
+  <main>
+    <!-- ===================== DECISIONS ===================== -->
+    <section id="rules" data-page data-nav="">
+      <p class="crumb">Phase 7 · Recruitment &amp; training (#24) · for your review</p>
+      <h2>Recruitment and training: six decisions</h2>
+      <p class="lead">Already built: the invite wizard with the licence, editing and removing a member, and handing over leads and listings when someone leaves. Missing, per the ROADMAP: finding people before they are invited, training them once they are in, and putting them in an office.</p>
+      <div class="stack">
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>1 · Candidates are not contacts</h3><span class="pill wait">Suggested — strongly</span></div>
+          <p class="h">A new <b>candidate</b> record with its own stages: Talking → Interview → Offer → Accepted (or Not going ahead). Contacts are customers: every agent can search them, they get marketing, and the assistant reads them. A person applying for a job must not show up in an agent’s contact search or a bulk email. Candidates are seen only by owners, admins and anyone given the new permission <b>Recruit</b>.</p>
+          <p class="muted" style="margin:6px 0 0">Alternative: a “candidate” tag on contacts — less to build, but a colleague-to-be’s CV would sit beside the buyers, and every contact rule would need an exception.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>2 · The AI never scores, ranks or rejects a person</h3><span class="pill wait">Suggested — strongly</span></div>
+          <p class="h">The AI may summarise a CV (each line shown beside the CV words it came from, as in 4.5) and draft emails — invitations to interview, a polite “not this time” — always on an approval card. It gives no score, no “best fit”, no order. Who is hired is a person’s decision, written down by a person. A model that ranks people can carry bias the agency would answer for under discrimination law.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>3 · Kept only as long as needed</h3><span class="pill wait">Suggested</span></div>
+          <p class="h">Someone not hired is deleted, with their CV, after a period the agency sets (12 months suggested). A card asks first, a month before, so a promising “not yet” can be kept with a reason. The Australian Privacy Principles expect personal information to be destroyed once it is no longer needed.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>4 · Accepted → the invite wizard you already have, plus Office &amp; team and Training</h3><span class="pill wait">Suggested</span></div>
+          <p class="h">“Invite to the team” opens the existing wizard filled in from the candidate (name, email, licence). Two steps are new: <b>Office &amp; team</b> (an office is required when the agency has more than one), and a <b>training path</b> to start on day one. Moving an existing member to another office is the same step from their Team page; their listings keep their office unless the owner ticks them over.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>5 · Training is the agency’s own knowledge, in order, with sign-offs</h3><span class="pill wait">Suggested</span></div>
+          <p class="h">A <b>training path</b> is a list the owner builds: read a knowledge-base document (ticked when opened and marked read), do something real (shadow an appraisal, run an open home) <b>signed off by a mentor</b>, or ask the assistant — which already answers from the knowledge base with page references. No quizzes and no AI-written lessons in this step: the agency’s own documents are the source.</p>
+          <p class="muted" style="margin:6px 0 0">Later, if wanted: AI-written questions from a document, kept as drafts until the owner approves them.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>6 · Licences and CPD: reminders, not judgments</h3><span class="pill wait">Suggested</span></div>
+          <p class="h">The licence expiry already stored gets reminders to the agent and the owner (60 and 14 days before). Training done elsewhere — a course, a seminar — is logged with its hours by the agent; the hours are added up by SQL against the yearly number <b>the agency enters for its state</b>. A licence is ticked “checked on the state’s public register” by a person, with the date — the platform does not read the register. Recruitment is a skill, off until switched on; Training is available to every agency.</p>
+        </div>
+        <div class="pane">
+          <div class="row" style="justify-content:space-between"><h3>Not in this step</h3><span class="pill ok">Later</span></div>
+          <ul class="rules">
+            <li>Posting job ads to SEEK or LinkedIn; an applicant form on the public site.</li>
+            <li>Employment contracts and e-signing; pay and payroll; police or reference checks.</li>
+            <li>AI-written quizzes or lessons; video courses.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== PIPELINE ===================== -->
+    <section id="pipeline" data-page data-nav="nav-rec" hidden>
+      <p class="crumb">Team › Recruitment · owners, admins and people with Recruit</p>
+      <div class="row" style="justify-content:space-between"><h2>Recruitment</h2><button class="btn primary" type="button" data-toast="Name, email, phone, where they came from, a CV (optional)"><span class="ms sm">person_add</span>Add a candidate</button></div>
+      <p class="lead">People the agency is talking to about a job. Not contacts: no agent search, no marketing, no assistant answers about them outside this page.</p>
+      <div class="board">
+        <div class="col"><h4>Talking <span>3</span></h4>
+          <button class="cand" type="button" data-toast="Opens the candidate"><b>Ryan Walsh</b><span class="muted">Referral · Ben Turner</span><span class="pill grey">No licence yet</span></button>
+          <button class="cand" type="button" data-toast="Opens the candidate"><b>Zara Ahmed</b><span class="muted">Walked in · 26 Oct</span><span class="pill info">Agent’s representative</span></button>
+          <button class="cand" type="button" data-toast="Opens the candidate"><b>Lucas Romano</b><span class="muted">LinkedIn message</span><span class="pill info">Licensed estate agent</span></button>
+        </div>
+        <div class="col"><h4>Interview <span>2</span></h4>
+          <button class="cand" type="button" data-screen="candidate"><b>Hannah Brooks</b><span class="muted">SEEK ad · Tue 3 Nov, 10:00</span><span class="pill info">Agent’s representative</span></button>
+          <button class="cand" type="button" data-toast="Opens the candidate"><b>Daniel Okafor</b><span class="muted">Referral · Sarah Lee · Thu 5 Nov</span><span class="pill info">Licensed estate agent</span></button>
+        </div>
+        <div class="col"><h4>Offer <span>1</span></h4>
+          <button class="cand" type="button" data-toast="Opens the candidate"><b>Chloe Nguyen</b><span class="muted">Offer sent 28 Oct</span><span class="pill info">Agent’s representative</span></button>
+        </div>
+        <div class="col"><h4>Accepted <span>1</span></h4>
+          <button class="cand" type="button" data-screen="invite"><b>Olivia Grant</b><span class="muted">Starts Mon 16 Nov</span><span class="pill wait">Invite not sent</span></button>
+        </div>
+        <div class="col"><h4>Not going ahead <span>2</span></h4>
+          <button class="cand" type="button" data-toast="Deleted on 20 Sep 2027 unless kept — a card asks a month before"><b>Emma Fitzgerald</b><span class="muted">Chose another agency</span><span class="muted">Deleted Sep 2027</span></button>
+          <button class="cand" type="button" data-toast="Kept: 'wants to apply again after her licence course' — Rebecca"><b>Grace Liu</b><span class="muted">Not yet licensed</span><span class="pill grey">Kept · reason given</span></button>
+        </div>
+      </div>
+      <div class="note info" style="margin-top:12px"><span class="ms sm">info</span><span>Drag a card to move it. Moving to “Not going ahead” asks for a reason (only the agency sees it) and offers a polite email on a card.</span></div>
+    </section>
+
+    <!-- ===================== CANDIDATE ===================== -->
+    <section id="candidate" data-page data-nav="nav-rec" hidden>
+      <p class="crumb">Team › Recruitment › Hannah Brooks</p>
+      <div class="row" style="justify-content:space-between"><h2>Hannah Brooks</h2><span class="pill info">Interview · Tue 3 Nov, 10:00</span></div>
+      <div class="two">
+        <div class="stack">
+          <div class="pane">
+            <h3>Details</h3>
+            <div class="facts" style="margin-top:10px">
+              <div><span>From</span>SEEK ad “Sales agent — Pakenham”, 21 Oct</div>
+              <div><span>Email · phone</span>hannah.brooks@example.com · 0431 552 908</div>
+              <div><span>Licence</span>Agent’s representative · no. 0812 4471 <span class="pill wait">Not checked yet</span></div>
+              <div><span>CV</span>Hannah-Brooks-CV.pdf <span class="muted">· private: Recruit only</span></div>
+              <div><span>Looked after by</span>Rebecca Tan</div>
+            </div>
+            <div class="row" style="margin-top:12px"><button class="btn" type="button" data-toast="Opens the state's public register in a new tab; you tick it once checked">Check on the public register</button><button class="btn" type="button" data-toast="Asks for the date and who checked">Mark as checked</button></div>
+          </div>
+          <div class="pane">
+            <div class="row" style="justify-content:space-between"><h3>What the CV says</h3><span class="pill ai"><span class="ms sm">auto_awesome</span>AI summary</span></div>
+            <div class="found">
+              <div><b>Now:</b> sales associate at a Berwick agency, since 2024<p class="quote">“Sales Associate, Berwick, March 2024 – present”</p></div>
+              <div><b>Before:</b> retail store manager<p class="quote">“Store Manager … team of 9”</p></div>
+              <div><b>Says she has done:</b> open homes, buyer follow-up, CRM data entry<p class="quote">“ran Saturday open homes … followed up buyer enquiries … kept the CRM up to date”</p></div>
+            </div>
+            <p class="h">A summary only: no score, no ranking, no “fit”. A line the AI cannot point to in the CV is not shown.</p>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="pane">
+            <h3>Notes</h3>
+            <p class="h"><b>Rebecca, 23 Oct:</b> Phone chat, 20 min. Keen on Pakenham, lives in Officer. Wants to move from associate to her own listings in a year.</p>
+          </div>
+          <div class="card">
+            <header><span class="ms sm">mail</span>Confirm the interview <span class="pill wait" style="margin-left:auto">Waiting for your approval</span></header>
+            <div class="body">
+              <div class="mail">Hi Hannah,
+
+Thanks for the chat on Friday. We would love to meet you properly — Tuesday 3 November at 10:00 at our office, 48 Main St, Pakenham. It will take about 45 minutes.
+
+Please bring your licence. Reply if the time does not suit.
+
+Rebecca Tan
+Pakenham Realty</div>
+            </div>
+            <footer><button class="btn" type="button" data-toast="Nothing is sent">Not now</button><button class="btn" type="button" data-toast="Opens the email to edit">Edit</button><button class="btn primary" type="button" data-toast="Sent; the interview is on Rebecca's calendar">Approve: send and book</button></footer>
+          </div>
+          <div class="note warn"><span class="ms sm">gavel</span><span>Moving Hannah to Offer, Accepted or Not going ahead is a button only a person presses. The assistant cannot move a candidate.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== INVITE ===================== -->
+    <section id="invite" data-page data-nav="nav-team" hidden>
+      <p class="crumb">Team › Invite · from the candidate Olivia Grant</p>
+      <h2>Invite Olivia to the team</h2>
+      <p class="lead">The wizard you have today, filled in from her candidate record. Two steps are new.</p>
+      <div class="wizard">
+        <div class="steps">
+          <div class="done"><span class="ms sm">check_circle</span>Who <span class="muted">· from candidate</span></div>
+          <div class="done"><span class="ms sm">check_circle</span>Licence <span class="muted">· from candidate</span></div>
+          <div class="done"><span class="ms sm">check_circle</span>Role &amp; permissions</div>
+          <div class="on"><span class="ms sm">apartment</span>Office &amp; team <span class="pill ai">New</span></div>
+          <div><span class="ms sm">school</span>Training <span class="pill ai">New</span></div>
+          <div><span class="ms sm">send</span>Send</div>
+        </div>
+        <div class="wbody">
+          <div class="grid2">
+            <label class="field">Office<div class="input">Pakenham — 48 Main St <span class="ms sm">expand_more</span></div></label>
+            <label class="field">Team<div class="input">Sales — Sarah Lee’s team <span class="ms sm">expand_more</span></div></label>
+          </div>
+          <label class="field">Mentor (signs off her training)<div class="input">Sarah Lee <span class="ms sm">expand_more</span></div></label>
+          <label class="field">Training path from day one<div class="input">New agent — first 30 days (8 steps) <span class="ms sm">expand_more</span></div></label>
+          <div class="note info"><span class="ms sm">info</span><span>The office decides which office’s leads, listings and dashboards she sees by default. Required because Pakenham Realty has two offices (Pakenham, Officer).</span></div>
+          <div class="row" style="justify-content:flex-end"><button class="btn" type="button">Back</button><button class="btn primary" type="button" data-toast="Next: Send — the invite email goes on Mon 16 Nov, or now">Next</button></div>
+        </div>
+      </div>
+      <div class="pane" style="margin-top:12px">
+        <h3>Moving someone who is already in the team</h3>
+        <p class="h">Team › James Park › “Change office”: the same Office &amp; team step, then a list of his live listings with a tick each — “move to the new office too”. Unticked listings stay with their office. Leads and contacts follow the agent as now.</p>
+      </div>
+    </section>
+
+    <!-- ===================== TRAINING PATHS (OWNER) ===================== -->
+    <section id="paths" data-page data-nav="nav-train" hidden>
+      <p class="crumb">Training · owners and admins build; every member follows</p>
+      <div class="row" style="justify-content:space-between"><h2>New agent — first 30 days</h2><button class="btn" type="button" data-toast="Add: a knowledge document, a task signed off by a mentor, or a question for the assistant"><span class="ms sm">add</span>Add a step</button></div>
+      <p class="lead">Built from the agency’s knowledge base and real work. Who is on it, and how far along, is shown on the right.</p>
+      <div class="two">
+        <div class="pane path">
+          <div class="item"><span class="ms">description</span><span><b>Read:</b> Our office procedures <span class="muted">· Knowledge base, 14 pages</span></span><span class="pill grey">Week 1</span></div>
+          <div class="item"><span class="ms">description</span><span><b>Read:</b> Privacy and the Spam Act — what we may send <span class="muted">· Knowledge base</span></span><span class="pill grey">Week 1</span></div>
+          <div class="item"><span class="ms">description</span><span><b>Read:</b> Handling an enquiry: our scripts <span class="muted">· Knowledge base</span></span><span class="pill grey">Week 1</span></div>
+          <div class="item"><span class="ms">forum</span><span><b>Ask the assistant:</b> “What do we do when a buyer asks for the vendor’s lowest price?” <span class="muted">· it answers from the knowledge base, with pages</span></span><span class="pill grey">Week 1</span></div>
+          <div class="item"><span class="ms">visibility</span><span><b>Do:</b> Shadow an appraisal <span class="muted">· mentor signs off</span></span><span class="pill grey">Week 2</span></div>
+          <div class="item"><span class="ms">door_open</span><span><b>Do:</b> Run a Saturday open home with the listing agent <span class="muted">· mentor signs off</span></span><span class="pill grey">Week 3</span></div>
+          <div class="item"><span class="ms">call</span><span><b>Do:</b> Call back 10 buyer enquiries, notes in the CRM <span class="muted">· mentor signs off</span></span><span class="pill grey">Week 3</span></div>
+          <div class="item"><span class="ms">verified</span><span><b>Do:</b> First appraisal on your own <span class="muted">· mentor signs off</span></span><span class="pill grey">Week 4</span></div>
+        </div>
+        <div class="stack">
+          <div class="pane">
+            <h3>Who is on it</h3>
+            <div class="tablewrap" style="border:0;margin-top:6px">
+              <table>
+                <tbody>
+                  <tr><td>Olivia Grant<small>Starts 16 Nov</small></td><td class="num">0 of 8</td><td><div class="bar"><i style="width:0%"></i></div></td></tr>
+                  <tr><td>James Park<small>Started 5 Oct · mentor Sarah</small></td><td class="num">6 of 8</td><td><div class="bar"><i style="width:75%"></i></div></td></tr>
+                  <tr><td>Ben Turner<small>Started 21 Sep · mentor Sarah</small></td><td class="num">8 of 8</td><td><span class="pill ok">Finished 24 Oct</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="note info"><span class="ms sm">info</span><span>Counts are ticks and sign-offs added up (SQL). The AI writes no lessons and no questions here; the documents are the agency’s own.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== MY TRAINING (AGENT) ===================== -->
+    <section id="mine" data-page data-nav="nav-train" hidden>
+      <p class="crumb">Training · James Park’s view</p>
+      <div class="row" style="justify-content:space-between"><h2>My training</h2><span class="pill info">6 of 8 · mentor Sarah Lee</span></div>
+      <div class="two">
+        <div class="pane path">
+          <div class="item done"><span class="ms state">check_circle</span><span><b>Read:</b> Our office procedures</span><span class="muted">7 Oct</span></div>
+          <div class="item done"><span class="ms state">check_circle</span><span><b>Read:</b> Privacy and the Spam Act — what we may send</span><span class="muted">7 Oct</span></div>
+          <div class="item done"><span class="ms state">check_circle</span><span><b>Read:</b> Handling an enquiry: our scripts</span><span class="muted">8 Oct</span></div>
+          <div class="item done"><span class="ms state">check_circle</span><span><b>Ask the assistant</b> about the vendor’s lowest price</span><span class="muted">8 Oct</span></div>
+          <div class="item done"><span class="ms state">check_circle</span><span><b>Shadow an appraisal</b> <span class="muted">· signed off by Sarah: “Asked good questions about the extension.”</span></span><span class="muted">15 Oct</span></div>
+          <div class="item done"><span class="ms state">check_circle</span><span><b>Run an open home</b> <span class="muted">· signed off by Sarah</span></span><span class="muted">24 Oct</span></div>
+          <div class="item"><span class="ms state">radio_button_unchecked</span><span><b>Call back 10 buyer enquiries</b> <span class="muted">· 7 calls logged so far</span></span><button class="btn" type="button" data-toast="Asks Sarah to sign off; she sees the 7 (or 10) calls from the CRM">Ask for sign-off</button></div>
+          <div class="item"><span class="ms state">radio_button_unchecked</span><span><b>First appraisal on your own</b></span><span class="muted">Week 4</span></div>
+        </div>
+        <div class="stack">
+          <div class="ask">
+            <div class="me">What do we do when a buyer asks for the vendor’s lowest price?</div>
+            <div class="bot">We never disclose the vendor’s bottom price, even if asked directly. Say the vendor is open to offers and ask the buyer what they would like to put forward in writing. Pass every offer to the vendor <span class="cite">D1 p.6</span><br><br>If the buyer insists, the listing agent takes over the call <span class="cite">D3 p.2</span></div>
+          </div>
+          <p class="muted" style="margin:0">The assistant’s answers come from the knowledge base with page references, as today (ADR 0053).</p>
+          <div class="note warn"><span class="ms sm">info</span><span>“7 calls logged” is a count of James’s call notes on buyer leads since the step started (SQL), so Sarah signs off what actually happened.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== LICENCES & CPD ===================== -->
+    <section id="licences" data-page data-nav="nav-team" hidden>
+      <p class="crumb">Team › Licences &amp; CPD · owners and admins</p>
+      <div class="row" style="justify-content:space-between"><h2>Licences &amp; CPD</h2><button class="btn" type="button" data-toast="The yearly hours the agency enters for its state, and when the year starts"><span class="ms sm">settings</span>Yearly CPD hours: 12 · from 1 Jul</button></div>
+      <p class="lead">From what each member’s invite and Team page already store. Reminders go to the member and the owner 60 and 14 days before a licence expires.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Member</th><th>Licence</th><th>Expires</th><th>Checked on the register</th><th>CPD this year</th></tr></thead>
+          <tbody>
+            <tr><td>Rebecca Tan<small>Principal</small></td><td>Licensed estate agent</td><td class="num">30 Jun 2027</td><td>3 Jul 2026 · Rebecca</td><td class="num">9 of 12 h</td></tr>
+            <tr><td>Sarah Lee</td><td>Licensed estate agent</td><td class="num">14 Dec 2026<small><span class="pill wait">in 44 days · reminded</span></small></td><td>2 Jan 2026 · Rebecca</td><td class="num">12 of 12 h <span class="pill ok">Done</span></td></tr>
+            <tr><td>James Park</td><td>Agent’s representative</td><td class="num">4 Oct 2027</td><td>3 Oct 2026 · Rebecca</td><td class="num">2 of 12 h</td></tr>
+            <tr><td>Ben Turner</td><td>Agent’s representative</td><td class="num">20 Sep 2027</td><td><span class="pill bad">Not checked</span></td><td class="num">4 of 12 h</td></tr>
+            <tr><td>Olivia Grant<small>Starts 16 Nov</small></td><td>Agent’s representative</td><td class="num">8 Aug 2027</td><td>29 Oct 2026 · Rebecca</td><td class="num">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="two" style="margin-top:12px">
+        <div class="pane">
+          <h3>Log training done elsewhere</h3>
+          <p class="h">The member adds it from their profile: what, when, hours, an optional certificate (a private document). The hours are added up; nothing is estimated.</p>
+          <div class="facts" style="margin-top:10px">
+            <div><span>James, 20 Oct</span>Underquoting and the law — online seminar · 2 h · certificate.pdf</div>
+          </div>
+        </div>
+        <div class="note info"><span class="ms sm">info</span><span>The 12 hours and the 1 July start are samples the agency enters for its own state; the platform does not decide what the law requires. A licence is checked on the register by a person, who ticks it with the date.</span></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const SCREENS = ['rules', 'pipeline', 'candidate', 'invite', 'paths', 'mine', 'licences'];
+
+function go(s) {
+  document.querySelectorAll('.mockbar [data-screen]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.screen === s));
+  let nav = '';
+  document.querySelectorAll('[data-page]').forEach((p) => { p.hidden = p.id !== s; if (p.id === s) nav = p.dataset.nav; });
+  document.querySelectorAll('aside .nl').forEach((n) => n.classList.toggle('on', n.id && n.id === nav));
+  document.getElementById('who').textContent = s === 'mine' ? 'Agent console · James Park' : 'Agency console · Rebecca Tan, principal';
+  try { history.replaceState(null, '', '#' + s); } catch (e) { /* ignore */ }
+  window.scrollTo(0, 0);
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.hidden = true), 2600);
+}
+
+document.addEventListener('click', (e) => {
+  const s = e.target.closest('[data-screen]');
+  if (s) { go(s.dataset.screen); return; }
+  const tt = e.target.closest('[data-toast]');
+  if (tt) toast(tt.dataset.toast);
+});
+
+const h = (location.hash || '').slice(1);
+go(SCREENS.includes(h) ? h : 'rules');
+</script>
+</body>
+</html>
