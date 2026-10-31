@@ -3410,14 +3410,21 @@ async function main() {
     return `${steps.join('; ')} (rolled back)`;
   });
 
-  await check("an agent's inbox holds only their own leads' conversations", async () => {
+  await check("an agent's inbox holds only their own conversations", async () => {
     /**
      * `listMailThreads` narrows a non-admin in SQL (ADR 0014's rule, carried
      * over). Dev data alone cannot prove it: when the agency's only other
      * thread is an offer, the offer rule hides it and the narrowing is never
      * asked. So, inside a transaction that is always rolled back, an enquiry is
      * planted that is NOT theirs — unassigned, through no listing — and it must
-     * not appear, while the count must still match their leads counted in SQL.
+     * not appear, while the count must still match what they may see in SQL.
+     *
+     * Since ADR 0018 the inbox also holds mail to the agency address from a
+     * contact (no lead): an agent sees those for contacts they may see. This
+     * check counted lead threads only and went red on real data the day the
+     * first such thread arrived. So a lead-less thread is planted too, for a
+     * contact who is nobody's — it must stay out unless the agent may read every
+     * contact.
      */
     const [agent] = await db.execute<{ user_id: string; agency_id: string; role: string }>(sql`
       select m.user_id, m.agency_id, m.role::text from membership m
@@ -3449,27 +3456,49 @@ async function main() {
           from lead where agency_id = ${agent.agency_id} limit 1
           returning id
         `);
+        const [nobodys] = await tx.execute<{ id: string }>(sql`
+          insert into contact (agency_id, name, email)
+          values (${agent.agency_id}, 'Smoke Nobody''s Contact', 'nobodys.contact@example.com')
+          returning id
+        `);
+        const [contactThread] = await tx.execute<{ id: string }>(sql`
+          insert into mail_thread (agency_id, subject, contact_email, contact_name, contact_id)
+          values (${agent.agency_id}, 'Smoke: to the agency address', 'nobodys.contact@example.com',
+                  'Smoke Nobody''s Contact', ${nobodys!.id})
+          returning id
+        `);
         const page = await listMailThreads(t, actor, { limit: 500 });
         const [truth] = await tx.execute<{ n: string }>(sql`
-          select count(*) as n from mail_thread th join lead l on l.id = th.lead_id
-          where th.agency_id = ${agent.agency_id} and l.kind <> 'offer'
-            and (l.assigned_to = ${agent.user_id}
-                 or l.listing_id in (select listing_id from listing_agent where user_id = ${agent.user_id}))
+          select count(*) as n from mail_thread th left join lead l on l.id = th.lead_id
+          where th.agency_id = ${agent.agency_id}
+            and ((th.lead_id is not null and l.kind <> 'offer'
+                  and (l.assigned_to = ${agent.user_id}
+                       or l.listing_id in (select listing_id from listing_agent where user_id = ${agent.user_id})))
+              or (th.lead_id is null and th.contact_id in (${visibleContactIdsSql(actor)})))
         `);
         assert(
           !page.rows.some((r) => r.leadId === planted!.id),
           "an enquiry that is not the agent's reached their inbox",
         );
+        const seesAllContacts = can(actor, 'contact:read_all', { type: 'contact', agencyId: agent.agency_id });
+        assert(
+          page.rows.some((r) => r.id === contactThread!.id) === seesAllContacts,
+          seesAllContacts
+            ? 'an agent who may read every contact did not see mail from one'
+            : "mail from a contact who is nobody's reached an agent's inbox",
+        );
         assert(
           page.counts.total === Number(truth?.n ?? 0),
-          `the agent's inbox counts ${page.counts.total}, their leads number ${truth?.n}`,
+          `the agent's inbox counts ${page.counts.total}, they may see ${truth?.n}`,
         );
         assert(!page.folders.offers && !page.folders.general, 'an agent was offered the Offers or Agency mailbox folder');
         assert(
-          page.rows.every((r) => r.leadKind !== 'offer' && r.leadId !== null),
-          'an offer or agency-address thread reached an agent',
+          page.rows.every((r) => r.leadKind !== 'offer'),
+          'an offer thread reached an agent',
         );
-        detail = `${page.counts.total} conversation(s), all theirs; a planted enquiry that is not theirs stayed out`;
+        detail =
+          `${page.counts.total} conversation(s), all theirs; a planted enquiry that is not theirs stayed out; ` +
+          `mail from nobody's contact ${seesAllContacts ? 'shown (they may read every contact)' : 'stayed out'}`;
         throw ROLLBACK;
       });
     } catch (err) {
@@ -11323,26 +11352,25 @@ async function main() {
 
   await check('the cron tick is strictly faster than the shortest interval', async () => {
     /**
-     * The tick is the GitHub Actions workflow, not Vercel Cron.
+     * The tick is Vercel Cron, in `apps/web/vercel.json`.
      *
-     * Hobby fails the deployment for any cron that runs more than daily, so
-     * since 2ad2629 `.github/workflows/alerts-cron.yml` carries the real
-     * cadence and `apps/web/vercel.json` only a daily floor for when GitHub
-     * disables a quiet repository's schedules (apps/web/CRON.md). This check
-     * kept reading vercel.json and failing on the floor's "0 3 * * *" — so it
-     * reads the workflow for the cadence, and asks vercel.json only that the
-     * floor is still there.
+     * From 2ad2629 to the move to Vercel Pro (2026-10-10, apps/web/CRON.md) the cadence lived in
+     * `.github/workflows/alerts-cron.yml` (Hobby allowed only a daily cron);
+     * that workflow is gone and this check kept reading it, red on every run.
+     * The schedules are back in vercel.json, so this reads them there.
      */
     const root = resolve(process.cwd(), '../..');
-    const workflow = readFileSync(join(root, '.github/workflows/alerts-cron.yml'), 'utf8');
-    const crons = [...workflow.matchAll(/^\s*-\s*cron:\s*['"]([^'"]+)['"]/gm)].map((m) => m[1]);
-    assert(crons.length > 0, '.github/workflows/alerts-cron.yml declares no schedule');
+    const vercelJson = JSON.parse(
+      readFileSync(join(root, 'apps/web/vercel.json'), 'utf8'),
+    ) as { crons?: { path: string; schedule: string }[] };
+    const alerts = vercelJson.crons?.find((c) => c.path === '/api/cron/alerts');
+    assert(alerts, 'apps/web/vercel.json has no cron for /api/cron/alerts — no saved search would ever run');
 
     // Only the every-N-minutes form is understood, which is the only form
     // this endpoint has ever used. Anything else should fail loudly here
     // rather than be assumed fine.
-    const every = /^\*\/(\d+) \* \* \* \*$/.exec(crons[0] ?? '');
-    assert(every, `cannot read the tick from "${crons[0]}"`);
+    const every = /^\*\/(\d+) \* \* \* \*$/.exec(alerts.schedule);
+    assert(every, `cannot read the tick from "${alerts.schedule}"`);
 
     const tickMinutes = Number(every[1]);
     assert(
@@ -11351,17 +11379,9 @@ async function main() {
         `${MIN_INTERVAL_MINUTES} min — a schedule that falls behind can never catch up`,
     );
 
-    const vercelJson = JSON.parse(
-      readFileSync(join(root, 'apps/web/vercel.json'), 'utf8'),
-    ) as { crons?: { path: string; schedule: string }[] };
-    assert(
-      vercelJson.crons?.some((c) => c.path === '/api/cron/alerts'),
-      'apps/web/vercel.json lost the daily floor for /api/cron/alerts',
-    );
-
-    return `tick ${tickMinutes} min (GitHub Actions) vs floor ${MIN_INTERVAL_MINUTES} min (${(
+    return `tick ${tickMinutes} min (Vercel Cron) vs shortest schedule ${MIN_INTERVAL_MINUTES} min (${(
       MIN_INTERVAL_MINUTES / tickMinutes
-    ).toFixed(1)}:1 catch-up), daily Vercel floor present`;
+    ).toFixed(1)}:1 catch-up)`;
   });
 
   await check('no live schedule has a cursor stuck in the past', async () => {
