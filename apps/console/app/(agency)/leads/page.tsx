@@ -36,7 +36,11 @@ export default async function LeadsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const session = await requireConsoleAccess('agency');
-  const kind = parseKind((await searchParams).kind);
+  const sp = await searchParams;
+  const kind = parseKind(sp.kind);
+  // ADR 0078: Buyers / Sellers / Urgent, as the AI understood them.
+  const aiRaw = Array.isArray(sp.ai) ? sp.ai[0] : sp.ai;
+  const ai = aiRaw === 'buyer' || aiRaw === 'seller' || aiRaw === 'urgent' ? aiRaw : undefined;
 
   let result: LeadPage = {
     rows: [],
@@ -52,6 +56,7 @@ export default async function LeadsPage({
     [result, assignees] = await Promise.all([
       listAgencyLeads(getConsoleDb(), session.actor, {
         ...(kind ? { kind } : {}),
+      ...(ai === 'urgent' ? { aiUrgent: true } : ai ? { aiIntent: ai } : {}),
         limit: 50,
       }),
       listLeadAssignees(getConsoleDb(), session.actor),
@@ -78,6 +83,7 @@ export default async function LeadsPage({
 
   return (
     <LeadTable
+      ai={ai}
       /**
        * Where an offer's address can be read in full. The public property page
        * lives on the other host, so the console cannot route to it relatively —

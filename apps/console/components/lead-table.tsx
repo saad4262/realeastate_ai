@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { LeadAssignee, LeadCounts, LeadKind, LeadRow } from '@repo/core/leads';
 import { LeadAssignControl, LeadStatusControl } from './lead-triage';
+import { LeadAiBlock } from './leads/lead-ai';
 import styles from './lead-table.module.css';
 
 /**
@@ -59,7 +60,10 @@ export function LeadTable({
   title = 'Leads',
   subtitle,
   compact = false,
+  ai,
 }: {
+  /** ADR 0078: the "what the AI understood" filter in the URL. */
+  ai?: 'buyer' | 'seller' | 'urgent';
   /**
    * Just the table — no heading, no tabs. For one person's leads on their
    * contact profile (ADR 0018), where the profile is the heading.
@@ -132,6 +136,21 @@ export function LeadTable({
               </Link>
             ))}
           </nav>
+          {/* ADR 0078: filters on what the AI understood — shown once any lead has been understood, or one is on. */}
+          {ai || rows.some((r) => r.ai) ? (
+            <nav className={styles.tabs} aria-label="What the AI understood">
+              {([['buyer', 'Buyers'], ['seller', 'Sellers'], ['urgent', 'Urgent']] as const).map(([key, label]) => (
+                <Link
+                  key={key}
+                  href={ai === key ? basePath : `${basePath}?ai=${key}`}
+                  className={`${styles.tab} ${ai === key ? styles.tabOn : ''}`}
+                  aria-current={ai === key ? 'page' : undefined}
+                >
+                  {label} <span className={styles.tabCount}>AI</span>
+                </Link>
+              ))}
+            </nav>
+          ) : null}
         </>
       )}
 
@@ -211,6 +230,8 @@ export function LeadTable({
                       <span className={styles.addr}>{r.address}</span>
                     )}
                     {r.message ? <div className={styles.msg}>{r.message}</div> : null}
+                    {/* ADR 0078: what the AI understood — labelled as the AI's; saving the brief is a card. */}
+                    <LeadAiBlock leadId={r.id} ai={r.ai} status={r.aiStatus} mayPropose={r.mayUpdate} surface={basePath.startsWith('/my-') ? 'agent' : 'agency'} />
                   </td>
                   <td>
                     {/*

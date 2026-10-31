@@ -30,7 +30,11 @@ export default async function AgentLeadsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const session = await requireConsoleAccess('agent');
-  const kind = parseKind((await searchParams).kind);
+  const sp = await searchParams;
+  const kind = parseKind(sp.kind);
+  // ADR 0078: Buyers / Sellers / Urgent, as the AI understood them.
+  const aiRaw = Array.isArray(sp.ai) ? sp.ai[0] : sp.ai;
+  const ai = aiRaw === 'buyer' || aiRaw === 'seller' || aiRaw === 'urgent' ? aiRaw : undefined;
 
   let result: LeadPage = {
     rows: [],
@@ -46,6 +50,7 @@ export default async function AgentLeadsPage({
     const actor = (await loadListingActor(session.actor.userId)) ?? session.actor;
     result = await listAgencyLeads(getConsoleDb(), actor, {
       ...(kind ? { kind } : {}),
+      ...(ai === 'urgent' ? { aiUrgent: true } : ai ? { aiIntent: ai } : {}),
       limit: 50,
     });
   } catch (err) {
@@ -62,6 +67,7 @@ export default async function AgentLeadsPage({
 
   return (
     <LeadTable
+      ai={ai}
       basePath="/my-leads"
       inboxPath="/my-inbox"
       title="My leads"

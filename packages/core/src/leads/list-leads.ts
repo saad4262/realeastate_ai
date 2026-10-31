@@ -14,6 +14,7 @@ import {
 } from '@repo/db';
 import { can, type Actor, type MembershipRole } from '../permissions';
 import { formatAddress } from '../listings/listing-schema';
+import type { StoredUnderstanding } from './understand';
 
 /** Derived from the enums, never re-typed (#8). */
 export type LeadKind = (typeof leadKindEnum.enumValues)[number];
@@ -56,6 +57,22 @@ export type LeadRow = {
    * row's assignee as its owner, so the table never compares roles (#2).
    */
   mayUpdate: boolean;
+  /**
+   * ADR 0078: what the AI understood of it, labelled as the AI's on every screen — or null while nothing was
+   * (skill off, not yet, no text…). `status` says which.
+   */
+  ai: LeadAiView | null;
+  aiStatus: string | null;
+};
+
+export type LeadAiView = {
+  intent: string;
+  urgency: string | null;
+  summary: string | null;
+  intentWhy: string | null;
+  urgencyWhy: string | null;
+  facts: { field: string; value: number | string | string[]; quote: string }[];
+  dropped: { field: string; value: string; why: string }[];
 };
 
 /** The tab counts, over the whole inbox rather than the page. */
@@ -87,6 +104,10 @@ export type ListLeadsOptions = {
   kind?: LeadKind;
   /** One person's leads, for their contact profile (ADR 0018). Still scoped as below. */
   contactId?: string;
+  /** ADR 0078: only leads the AI understood as this kind of person. */
+  aiIntent?: string;
+  /** ADR 0078: only leads the AI rated urgent. */
+  aiUrgent?: boolean;
   limit?: number;
   offset?: number;
 };
@@ -184,6 +205,9 @@ export async function listAgencyLeads(
   const filters = leadScopeFilters(db, actor);
   if (opts.kind) filters.push(eq(lead.kind, opts.kind));
   if (opts.contactId) filters.push(eq(lead.contactId, opts.contactId));
+  // ADR 0078: what the AI understood, as filters (Leads: Buyers, Sellers, Urgent).
+  if (opts.aiIntent) filters.push(eq(lead.aiIntent, opts.aiIntent));
+  if (opts.aiUrgent) filters.push(eq(lead.aiUrgency, 'high'));
 
   const rows = await db
     .select({
@@ -208,6 +232,11 @@ export async function listAgencyLeads(
       suburb: property.suburb,
       state: property.state,
       postcode: property.postcode,
+      aiIntent: lead.aiIntent,
+      aiUrgency: lead.aiUrgency,
+      aiSummary: lead.aiSummary,
+      aiQualification: lead.aiQualification,
+      aiStatus: lead.aiStatus,
       totalCount: sql<number>`count(*) over()`,
       unreadCount: sql<number>`count(*) filter (where ${lead.status} = 'new') over()`,
       offerCount: sql<number>`count(*) filter (where ${lead.kind} = 'offer') over()`,
@@ -255,6 +284,8 @@ export async function listAgencyLeads(
         listingId: r.listingId,
         ...(r.assignedTo ? { ownerId: r.assignedTo } : {}),
       }),
+      ai: aiView(r),
+      aiStatus: r.aiStatus ?? null,
     })),
     counts: {
       /**
@@ -326,4 +357,19 @@ export async function listLeadAssignees(db: Db, actor: Actor): Promise<LeadAssig
       mayTakeOffers: can(them, 'lead:read_offer', resource),
     };
   });
+}
+
+/** The AI's understanding as a screen shows it, or null when there is none to show. Pure. */
+function aiView(r: { aiIntent: string | null; aiUrgency: string | null; aiSummary: string | null; aiQualification: unknown; aiStatus: string | null }): LeadAiView | null {
+  if (!r.aiIntent || (r.aiStatus !== 'done' && r.aiStatus !== 'not_sure')) return null;
+  const q = (r.aiQualification ?? {}) as Partial<StoredUnderstanding>;
+  return {
+    intent: r.aiIntent,
+    urgency: r.aiUrgency,
+    summary: r.aiSummary,
+    intentWhy: q.intentWhy ?? null,
+    urgencyWhy: q.urgencyWhy ?? null,
+    facts: Array.isArray(q.facts) ? q.facts : [],
+    dropped: Array.isArray(q.dropped) ? q.dropped : [],
+  };
 }

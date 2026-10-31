@@ -39,3 +39,5 @@ export { createManualLead, MANUAL_LEAD_KINDS, type ManualLeadKind } from './crea
 // ADR 0078: "AI understands" every new enquiry.
 export { LEAD_UNDERSTAND_FEATURE, LEAD_UNDERSTAND_SKILL, runLeadUnderstanding, UNDERSTOOD_KINDS, type LeadAiStatus, type LeadUnderstander, type StoredUnderstanding, type UnderstandReport } from './understand';
 export { amountsIn, briefFrom, countsIn, FACT_FIELDS, LEAD_INTENTS, LEAD_URGENCIES, rawUnderstandingSchema, verifyUnderstanding, type KeptFact, type LeadIntent, type LeadUrgency, type RawUnderstanding, type Understanding } from './understand-facts';
+export { BRIEF_CARD_DAYS, proposeBriefCard, runSaveBuyerBrief, type SaveBriefArgs } from './brief-card';
+export type { LeadAiView } from './list-leads';
