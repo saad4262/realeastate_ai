@@ -3,10 +3,10 @@
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import {
+  addCustomer,
   assignContact,
   ContactError,
   createBuyerRequirement,
-  createContact,
   createNote,
   deleteBuyerRequirement,
   deleteNote,
@@ -22,8 +22,8 @@ import {
   updateBuyerRequirement,
   updateContact,
   updateNote,
+  type AddCustomerInput,
   type BuyerRequirementInput,
-  type CreateContactInput,
   type RequirementStatus,
   type LinkNewAddressInput,
   type LinkPropertyInput,
@@ -38,6 +38,11 @@ import { requireActionUserId } from './auth-account';
 
 export type ContactActionResult =
   | { ok: true; id: string }
+  | { ok: false; error: string; existingId?: string };
+
+export type AddCustomerResult =
+  | { ok: true; id: string; outcome: 'created' }
+  | { ok: true; id: string; outcome: 'filled'; filled: string[]; offered: string[]; visible: boolean }
   | { ok: false; error: string; existingId?: string };
 
 /**
@@ -65,7 +70,7 @@ function refresh(id?: string) {
   }
 }
 
-function failure(err: unknown, fallback: string): ContactActionResult {
+function failure(err: unknown, fallback: string): Extract<ContactActionResult, { ok: false }> {
   if (err instanceof ContactError) {
     return { ok: false, error: err.message, ...(err.existingId ? { existingId: err.existingId } : {}) };
   }
@@ -73,14 +78,22 @@ function failure(err: unknown, fallback: string): ContactActionResult {
   return { ok: false, error: fallback };
 }
 
-export async function createContactAction(input: CreateContactInput): Promise<ContactActionResult> {
+/**
+ * Add customer (ADR 0079). Someone the agency already has (same email) is not refused: their profile
+ * gets what it was missing, and the form is told what happened — and sent to the profile only if this
+ * person may open it.
+ */
+export async function createContactAction(input: AddCustomerInput): Promise<AddCustomerResult> {
   const who = await actor();
   try {
-    const { id } = await createContact(getConsoleDb(), who, input);
-    refresh(id);
-    // An admin adding a contact for somebody else tells them (not themselves).
-    if (input.assignedTo) emailAssigneeAfter(id, input.assignedTo, who.userId);
-    return { ok: true, id };
+    const saved = await addCustomer(getConsoleDb(), who, input);
+    refresh(saved.id);
+    if (saved.outcome === 'created') {
+      // An admin adding a contact for somebody else tells them (not themselves).
+      if (input.assignedTo) emailAssigneeAfter(saved.id, input.assignedTo, who.userId);
+      return { ok: true, id: saved.id, outcome: 'created' };
+    }
+    return { ok: true, id: saved.id, outcome: 'filled', filled: saved.filled, offered: saved.offered, visible: saved.visible };
   } catch (err) {
     return failure(err, 'Could not add the contact');
   }

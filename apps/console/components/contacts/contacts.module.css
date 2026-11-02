@@ -58,6 +58,8 @@
   background: var(--surface-canvas); color: var(--text-secondary); border: 1px solid var(--border-default);
 }
 .chipInferred { composes: chip; border-style: dashed; color: var(--text-muted); }
+/* ADR 0079: a starting detail the profile still lacks. */
+.chipMissing { composes: chip; background: var(--amber-subtle); color: var(--amber); border-color: transparent; }
 
 .when { color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 

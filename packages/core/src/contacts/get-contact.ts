@@ -2,7 +2,7 @@ import { and, eq, isNull, ne, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { contact, user, type Db, type DbOrTx } from '@repo/db';
 import { can, type Actor } from '../permissions';
-import type { ContactRoleKind, ContactSource } from './contact-schema';
+import { missingDetails, type ContactRoleKind, type ContactSource, type MissingDetail } from './contact-schema';
 import { CONTACT_NOT_FOUND, roleArray } from './list-contacts';
 import {
   contactAccessColumns,
@@ -27,6 +27,12 @@ export async function loadContactHead(db: DbOrTx, actor: Actor, contactId: strin
       email: contact.email,
       phone: contact.phone,
       phoneKey: contact.phoneKey,
+      addressLine: contact.addressLine,
+      addressSuburb: contact.addressSuburb,
+      addressState: contact.addressState,
+      addressPostcode: contact.addressPostcode,
+      addressLatitude: contact.addressLatitude,
+      addressLongitude: contact.addressLongitude,
       source: contact.source,
       assignedTo: contact.assignedTo,
       assigneeName: assignee.name,
@@ -84,6 +90,17 @@ export type ContactView = {
   name: string;
   email: string | null;
   phone: string | null;
+  /** Where they live (ADR 0079): the parts, and the pin when the address picker gave one. */
+  address: {
+    line: string | null;
+    suburb: string | null;
+    state: string | null;
+    postcode: string | null;
+    latitude: number | null;
+    longitude: number | null;
+  };
+  /** Starting details the profile still lacks — shown as "missing", never refused. */
+  missing: MissingDetail[];
   source: ContactSource;
   roles: ContactRoleKind[];
   /** Tags read off what the person did, not chosen by anyone — shown as such. */
@@ -151,6 +168,15 @@ export async function getContact(
     name: row.name,
     email: row.email,
     phone: row.phone,
+    address: {
+      line: row.addressLine,
+      suburb: row.addressSuburb,
+      state: row.addressState,
+      postcode: row.addressPostcode,
+      latitude: row.addressLatitude === null ? null : Number(row.addressLatitude),
+      longitude: row.addressLongitude === null ? null : Number(row.addressLongitude),
+    },
+    missing: missingDetails(row),
     source: row.source as ContactSource,
     roles: roleArray(row.roles),
     inferredRoles: roleArray(row.inferredRoles),

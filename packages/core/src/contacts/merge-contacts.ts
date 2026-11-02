@@ -58,6 +58,13 @@ export async function mergeContacts(
       update contact s set
         email = coalesce(s.email, l.email),
         phone = coalesce(s.phone, l.phone),
+        -- ADR 0079: the address moves as one, and only onto a survivor with none.
+        address_line = CASE WHEN s.address_line IS NULL AND s.address_suburb IS NULL AND s.address_postcode IS NULL THEN l.address_line ELSE s.address_line END,
+        address_suburb = CASE WHEN s.address_line IS NULL AND s.address_suburb IS NULL AND s.address_postcode IS NULL THEN l.address_suburb ELSE s.address_suburb END,
+        address_state = CASE WHEN s.address_line IS NULL AND s.address_suburb IS NULL AND s.address_postcode IS NULL THEN l.address_state ELSE s.address_state END,
+        address_postcode = CASE WHEN s.address_line IS NULL AND s.address_suburb IS NULL AND s.address_postcode IS NULL THEN l.address_postcode ELSE s.address_postcode END,
+        address_latitude = CASE WHEN s.address_line IS NULL AND s.address_suburb IS NULL AND s.address_postcode IS NULL THEN l.address_latitude ELSE s.address_latitude END,
+        address_longitude = CASE WHEN s.address_line IS NULL AND s.address_suburb IS NULL AND s.address_postcode IS NULL THEN l.address_longitude ELSE s.address_longitude END,
         assigned_to = coalesce(s.assigned_to, l.assigned_to),
         updated_at = now()
       from contact l

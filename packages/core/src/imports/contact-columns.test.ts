@@ -31,6 +31,10 @@ describe('normalizeContactRow', () => {
       name: 'Sara Khan',
       email: 'sara@example.com',
       phone: null,
+      addressLine: null,
+      addressSuburb: null,
+      addressState: null,
+      addressPostcode: null,
       roles: ['buyer', 'seller', 'investor'],
       assignedEmail: null,
       note: null,
@@ -74,5 +78,43 @@ describe('who may import contacts (contact_import:create)', () => {
     expect(can({ userId: 'u', agencyId: 'a', membershipRole: 'owner' }, 'contact_import:create', r)).toBe(true);
     expect(can({ userId: 'u', agencyId: 'a', membershipRole: 'read_only' }, 'contact_import:create', r)).toBe(false);
     expect(can({ userId: 'u', agencyId: 'b', membershipRole: 'owner' }, 'contact_import:create', r)).toBe(false);
+  });
+});
+
+describe('the address columns (ADR 0079)', () => {
+  const tz = 'Australia/Sydney';
+
+  it('maps the usual header names', () => {
+    expect(contactAutoMap(['Name', 'Email', 'Street Address', 'City', 'State', 'Post Code'])).toMatchObject({ address: 2, suburb: 3, state: 4, postcode: 5 });
+    expect(contactAutoMap(['Name', 'Email', 'Address', 'Suburb', 'Zip'])).toMatchObject({ address: 2, suburb: 3, postcode: 4 });
+  });
+
+  const m = { name: 0, email: 1, address: 2, suburb: 3, state: 4, postcode: 5 };
+  const read = (address: string, suburb: string, state: string, postcode: string) => normalizeContactRow(['Sara', 'sara@example.com', address, suburb, state, postcode], m, tz);
+
+  it('keeps the address as written and reads a state name', () => {
+    expect(read(' 3/12  Campbell Parade ', 'Bondi Beach', 'New South Wales', '2026').row).toMatchObject({
+      addressLine: '3/12 Campbell Parade',
+      addressSuburb: 'Bondi Beach',
+      addressState: 'NSW',
+      addressPostcode: '2026',
+    });
+    expect(read('', '', 'n.s.w.', '').row?.addressState).toBe('NSW');
+  });
+
+  it('puts back the leading zero a spreadsheet drops from a Darwin postcode', () => {
+    expect(read('', 'Darwin', 'NT', '800').row?.addressPostcode).toBe('0800');
+    expect(read('', '', '', '2026.0').row?.addressPostcode).toBe('2026');
+  });
+
+  it('an address is not required — the profile shows it as missing', () => {
+    const { row: r, errors } = read('', '', '', '');
+    expect(errors).toEqual([]);
+    expect(r).toMatchObject({ addressLine: null, addressSuburb: null, addressState: null, addressPostcode: null });
+  });
+
+  it('a wrong state or postcode is a problem on its own column', () => {
+    expect(read('', '', 'Ontario', '').errors).toEqual([{ column: 'State', message: expect.stringMatching(/not an Australian state/) }]);
+    expect(read('', '', '', 'SW1A').errors).toEqual([{ column: 'Postcode', message: expect.stringMatching(/four digits/) }]);
   });
 });

@@ -922,6 +922,19 @@ export const contact = pgTable(
      * suggestions only, never for an automatic merge.
      */
     phoneKey: text('phone_key').generatedAlwaysAs(sql`public.au_phone_key(phone)`),
+    /**
+     * Where this person lives (ADR 0079) — their own address, not a property:
+     * it never makes or touches a `property` row (`contact_property` is for
+     * homes they own, sell or rent). The street part ("3/12 Campbell Parade");
+     * an import with one address column puts the whole address here.
+     */
+    addressLine: text('address_line'),
+    addressSuburb: text('address_suburb'),
+    addressState: varchar('address_state', { length: 8 }),
+    addressPostcode: varchar('address_postcode', { length: 8 }),
+    /** The picker's pin when it gave one; never geocoded on the server. */
+    addressLatitude: numeric('address_latitude', { precision: 9, scale: 6 }),
+    addressLongitude: numeric('address_longitude', { precision: 9, scale: 6 }),
     /** The agent whose contact this is. They may edit it in full. */
     assignedTo: uuid('assigned_to').references(() => user.id, { onDelete: 'set null' }),
     /** Flagged by an offboarding (ADR 0030 §5): its person left and it waits in the "Needs an owner" queue. */

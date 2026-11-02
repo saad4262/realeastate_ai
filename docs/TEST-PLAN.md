@@ -1949,3 +1949,21 @@ With a REAL Twilio key in dev, only mobiles on `SMS_DEV_ALLOWLIST` get a text.
 | CE11 | Miss a call from a known contact | The missed-call text, and the workflow's text — at most 3 automatic texts to that caller in 24 hours; a 4th is skipped "Already sent the most automatic texts allowed today". |
 | CE12 | Workflow texts off for the agent whose number would send it | The step's text is skipped "Workflow texts is off in Skills…"; nothing is sent. |
 | CE13 | Reply STOP to one of the texts, then prepare again | That person is skipped "Replied STOP" — at Prepare and at the moment of sending. |
+
+## CF — Customer profile: four starting details, the same person on one profile (ADR 0079)
+
+Needs migration **0080** (not applied yet — the user's go). Agency: `agency.*/customers`; an agent: `agents.*/my-contacts`.
+Use alias emails only (`you+cf1@…`).
+
+| # | Case | Expected |
+|---|---|---|
+| CF1 | Customers → Add, leave Phone empty | "Give their phone number"; nothing saved. Same for email, street address, suburb, postcode. Name, Email, Phone, Street address, Suburb and Postcode carry a *. |
+| CF2 | Add: type "12 Campbell Pa…" in Find the address, pick the suggestion | Street address, Suburb, State and Postcode fill in, "Located — check the fields below"; Add contact opens the profile with Address "12 Campbell Parade, Bondi Beach NSW 2026". |
+| CF3 | Edit that profile, change the suburb by hand, Save | Saved; the timeline says "Changed: address". |
+| CF4 | Add again with the SAME email, a different phone and address, a new role | Toast "Already a customer: …" — "Added what their profile was missing. Kept their phone, address — yours is on their timeline."; the profile's phone and address are unchanged; the timeline has "Different details given" with the new values and "Role added". No second person in the list. |
+| CF5 | As an agent, Add a customer whose email belongs to another agent's contact | Toast "Already a customer…"; you land on your list, not their profile (you may not see it). As the owner, that profile shows what was missing filled in ("Missing details added"). |
+| CF6 | Customers list | Under each person's email/phone: their suburb; amber chips "Phone missing" / "Address missing" where empty. Search "Bondi" finds people who live there. |
+| CF7 | An enquiry from the website by a new person | Their profile shows "Address missing" (and "Phone missing" if they gave none) — never refused. |
+| CF8 | Customers → Import a CSV with Street address, Suburb, State ("New South Wales"), Postcode, one row whose email is already a customer and one email twice | The mapping matches the four address columns; Check every row: both repeats are "ready" with "Already a customer…" / "Same email as row N — added to the same profile"; after Add: "N added · M added to a profile you already had"; the existing person keeps their name and phone, gets the blank address filled and the note added. |
+| CF9 | Import a row with postcode "800", state "NT" | Imported as 0800. A postcode "SW1A" is a problem on the Postcode column. |
+| CF10 | Merge two people (Possible duplicates) where only the one being merged away has an address | The survivor now has that address. |

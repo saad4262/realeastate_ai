@@ -8,6 +8,8 @@ import {
   type ContactListQuery,
   type ContactRoleKind,
   type ContactSource,
+  type MissingDetail,
+  missingDetails,
 } from './contact-schema';
 import { auPhoneKey } from './phone';
 import { visibleContactIdsSql } from './visibility';
@@ -34,6 +36,10 @@ export type ContactRow = {
   name: string;
   email: string | null;
   phone: string | null;
+  /** "Bondi Beach NSW 2026" — the place only; the street is on the profile. */
+  place: string | null;
+  /** Starting details still to get (ADR 0079). */
+  missing: MissingDetail[];
   roles: ContactRoleKind[];
   source: ContactSource;
   assignedTo: string | null;
@@ -90,6 +96,9 @@ export function contactQueryFilters(actor: Actor, query: Partial<ContactListQuer
         sql`${contact.name} ilike ${pattern}`,
         sql`${contact.email} ilike ${pattern}`,
         sql`${contact.phone} ilike ${pattern}`,
+        // ADR 0079: "Parramatta" finds the people who live there.
+        sql`${contact.addressSuburb} ilike ${pattern}`,
+        sql`${contact.addressLine} ilike ${pattern}`,
         ...(key ? [eq(contact.phoneKey, key)] : []),
       )!,
     );
@@ -139,6 +148,10 @@ export async function listContacts(
       name: contact.name,
       email: contact.email,
       phone: contact.phone,
+      addressLine: contact.addressLine,
+      addressSuburb: contact.addressSuburb,
+      addressState: contact.addressState,
+      addressPostcode: contact.addressPostcode,
       source: contact.source,
       assignedTo: contact.assignedTo,
       assigneeName: assignee.name,
@@ -163,6 +176,8 @@ export async function listContacts(
       name: r.name,
       email: r.email,
       phone: r.phone,
+      place: [r.addressSuburb, r.addressState, r.addressPostcode].filter(Boolean).join(' ') || null,
+      missing: missingDetails(r),
       roles: roleArray(r.roles),
       source: r.source as ContactSource,
       assignedTo: r.assignedTo,

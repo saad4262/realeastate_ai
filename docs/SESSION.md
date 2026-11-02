@@ -3,6 +3,23 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-02 (later) — Claude Code (Mac) — ADR 0079: the customer profile
+- Goal (the user, in Urdu): agencies add their old customers; every profile starts with name, email, phone and
+  address and collects the rest over time; the same person again lands on the same profile.
+- Decisions (the user, four answers, all the recommended option): same email = same person automatically, same phone
+  = a suggestion (as ADR 0018); fill blanks, never overwrite, the other value on the timeline; an import row without
+  phone/address still imports and shows "missing"; a full address with the map picker.
+- Done on `feat/customer-profile` (from `feat/sms-part2`): migration 0080 (`contact.address_*`); `addCustomerSchema`,
+  `planFill`, `addOrFillContact`, `addCustomer`; import address columns + fill instead of skip; form picker; profile,
+  list, search; merge carries the address; ADR 0079; TEST-PLAN CF; smoke group "Customer profile (ADR 0079)" + the
+  import check rewritten. Unit core 1579 (+23), ai 335; typecheck 10/10; console build OK; lint 0. Break-tests: an
+  overwriting `planFill` and a missing `contact:create` check each went red, then green. The single-table-subquery
+  guard caught an interpolated `contact.id` in the fill's roles subquery — written out.
+- 0080: rolled-back dry run clean (twice; 10 contacts; then a read-only check: 0 address columns, 80 recorded). NOT applied.
+- Left unfinished (exact next step): the user's go to apply 0080 → the two smoke groups → TEST-PLAN CF → push/merge
+  the three branches in order.
+- Risks / watch: `feat/customer-profile` reads the new columns — never deploy it before 0080.
+
 ## 2026-11-02 — Claude Code (Mac) — this laptop caught up; Retell agent; ADR 0074 part 2 (SMS everywhere)
 - Goal: catch the Mac up after a week on the other laptop; Retell keys; then 3.4 part 2 on the user's answers.
 - Done: `retell:setup` against the Vercel web domain (`RETELL_AGENT_ID=agent_93b24a5de57c293fe91e59d943`, set in the

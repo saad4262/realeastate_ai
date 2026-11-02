@@ -5,6 +5,7 @@ import {
   CONTACT_PROPERTY_RELATION_LABELS,
   CONTACT_ROLE_LABELS,
   CONTACT_SOURCE_LABELS,
+  formatContactAddress,
   REQUIREMENT_CHANNEL_LABELS,
   type BuyerRequirementView,
   type ContactAssignee,
@@ -169,6 +170,12 @@ export function OverviewTab({
       name: c.name,
       email: c.email ?? '',
       phone: c.phone ?? '',
+      addressLine: c.address.line ?? '',
+      addressSuburb: c.address.suburb ?? '',
+      addressState: c.address.state ?? '',
+      addressPostcode: c.address.postcode ?? '',
+      addressLatitude: c.address.latitude,
+      addressLongitude: c.address.longitude,
       roles: c.roles,
       nextAction: c.nextAction ?? '',
       nextActionAt: '',
@@ -194,9 +201,15 @@ export function OverviewTab({
         <div className={styles.profile}>
           <dl className={styles.facts}>
             <dt>Email</dt>
-            <dd>{c.email ? <a href={`mailto:${c.email}`}>{c.email}</a> : <span className={styles.muted}>—</span>}</dd>
+            <dd>{c.email ? <a href={`mailto:${c.email}`}>{c.email}</a> : <span className={styles.chipMissing}>Email missing</span>}</dd>
             <dt>Phone</dt>
-            <dd>{c.phone ? <a href={`tel:${c.phone}`}>{c.phone}</a> : <span className={styles.muted}>—</span>}</dd>
+            <dd>{c.phone ? <a href={`tel:${c.phone}`}>{c.phone}</a> : <span className={styles.chipMissing}>Phone missing</span>}</dd>
+            <dt>Address</dt>
+            <dd>
+              {formatContactAddress({ addressLine: c.address.line, addressSuburb: c.address.suburb, addressState: c.address.state, addressPostcode: c.address.postcode }) ?? (
+                <span className={styles.chipMissing}>Address missing</span>
+              )}
+            </dd>
             <dt>Roles</dt>
             <dd>
               {c.roles.length ? (
@@ -343,6 +356,9 @@ export function OverviewTab({
 
 const ICON: Record<TimelineItem['type'], string> = { lead: '✉︎', email: '↔', note: '✎', activity: '•' };
 
+const DETAIL_WORDS: Record<string, string> = { name: 'Name', phone: 'Phone', address: 'Address', nextAction: 'Next action' };
+const detailWord = (f: unknown) => (typeof f === 'string' ? (DETAIL_WORDS[f] ?? f) : '');
+
 function activityText(item: Extract<TimelineItem, { type: 'activity' }>): string | null {
   const p = item.payload;
   switch (item.kind) {
@@ -353,6 +369,16 @@ function activityText(item: Extract<TimelineItem, { type: 'activity' }>): string
         : null;
     case 'contact_updated':
       return Array.isArray(p.fields) ? `Changed: ${p.fields.join(', ')}` : null;
+    // ADR 0079: the same person added again.
+    case 'details_added':
+      return Array.isArray(p.fields) ? `${p.fields.map(detailWord).join(', ')}${p.via === 'import' ? ' — from an import' : ''}` : null;
+    case 'details_offered':
+      return Array.isArray(p.offered)
+        ? `${(p.offered as { field?: unknown; value?: unknown }[])
+            .filter((o) => typeof o.field === 'string' && typeof o.value === 'string')
+            .map((o) => `${detailWord(o.field as string)}: ${o.value as string}`)
+            .join(' · ')} — kept what was already on the profile${p.via === 'import' ? ' (from an import)' : ''}`
+        : null;
     case 'property_linked':
       return [
         typeof p.address === 'string' ? p.address : null,

@@ -199,7 +199,7 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
           <h2 style={{ marginTop: 0, fontSize: '1rem' }}>Match the columns</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
             For each of our fields, pick the column in your file.{' '}
-            {view.kind === 'contacts' ? 'A name (full, or first and last) and an email or a phone are needed.' : 'Fields marked * are required.'}
+            {view.kind === 'contacts' ? 'A name (full, or first and last) and an email or a phone are needed. Map the address too if the file has it — a profile without one shows it as missing.' : 'Fields marked * are required.'}
           </p>
           {view.aiMapped.length ? (
             <p role="note" style={{ fontSize: '0.875rem', padding: '0.5rem 0.75rem', borderRadius: '0.5rem', background: 'var(--surface-subtle, rgba(127,127,127,0.08))' }}>
@@ -272,8 +272,15 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
         <h2 style={{ marginTop: 0, fontSize: '1rem' }}>Rows</h2>
         <p style={{ margin: 0, fontSize: '0.875rem' }}>
           {c.pending ? `${c.pending} still to check · ` : ''}
-          {c.valid} ready · {c.error} with problems · {c.duplicate} duplicates (skipped{view.updateDuplicates ? ', updated' : ''}) ·{' '}
-          {c.imported} imported · {c.updated} updated · {c.failed} failed
+          {view.kind === 'contacts' ? (
+            // ADR 0079: a person the agency already has is not a duplicate to skip — the row adds to their profile.
+            <>{c.valid} ready · {c.error} with problems · {c.imported} added · {c.updated} added to a profile you already had · {c.failed} failed</>
+          ) : (
+            <>
+              {c.valid} ready · {c.error} with problems · {c.duplicate} duplicates (skipped{view.updateDuplicates ? ', updated' : ''}) ·{' '}
+              {c.imported} imported · {c.updated} updated · {c.failed} failed
+            </>
+          )}
           {c.photosDone + c.photosFailed + c.photosPending ? ` · photos: ${c.photosDone} in, ${c.photosFailed} failed, ${c.photosPending} to go` : ''}
         </p>
         <RunProgress view={view} />
@@ -291,7 +298,7 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
             ) : null}
             <button type="button" style={btn} disabled={!c.valid && !(update && c.duplicate)} onClick={() => act(() => startImportAction(id, update))}>
               {view.kind === 'contacts'
-                ? `Add ${c.valid} ${c.valid === 1 ? 'contact' : 'contacts'}`
+                ? `Add ${c.valid} ${c.valid === 1 ? 'row' : 'rows'} — people you already have get what is missing, nothing is overwritten`
                 : `Import ${c.valid} ${c.valid === 1 ? 'listing' : 'listings'}${update && c.duplicate ? ` and update ${c.duplicate}` : ''}`}
             </button>
           </div>

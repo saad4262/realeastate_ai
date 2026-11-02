@@ -47,6 +47,8 @@ const CleanOutput = z.object({
 /** What each field holds, for the mapping prompt. */
 const FIELD_HINTS: Record<ContactImportField, string> = {
   ...CONTACT_FIELD_LABELS,
+  address: 'Where the person lives: the street part, or the whole address when the file has one address column',
+  suburb: 'The suburb or town of where the person lives',
   roles: 'The kind of client: buyer, seller, landlord, tenant or investor',
   assigned_email: 'The email of the agency’s agent responsible for this person',
   next_action_date: 'When to follow up (a date)',

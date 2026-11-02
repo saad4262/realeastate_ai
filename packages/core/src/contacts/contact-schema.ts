@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PROPERTY_TYPES, propertyDraftSchema, type PropertyType } from '../listings/listing-schema';
+import { AU_STATES, PROPERTY_TYPES, propertyDraftSchema, type PropertyType } from '../listings/listing-schema';
 
 /**
  * The contracts for contacts (docs/adr/0018).
@@ -75,6 +75,9 @@ export const ACTIVITY_KINDS = [
   'requirement_added',
   'requirement_updated',
   'requirement_removed',
+  // ADR 0079: the same person added again (Add customer, an import) — blanks filled, other values offered.
+  'details_added',
+  'details_offered',
 ] as const;
 export const activityKindSchema = z.enum(ACTIVITY_KINDS);
 export type ActivityKind = z.infer<typeof activityKindSchema>;
@@ -134,6 +137,8 @@ export const ACTIVITY_LABELS: Record<ActivityKind, string> = {
   requirement_added: 'Requirements added',
   requirement_updated: 'Requirements changed',
   requirement_removed: 'Requirements removed',
+  details_added: 'Missing details added',
+  details_offered: 'Different details given',
 };
 
 export const CONTACT_SOURCE_LABELS: Record<ContactSource, string> = {
@@ -152,6 +157,58 @@ const optionalText = (max: number) =>
     .max(max)
     .optional()
     .transform((v) => (v ? v : undefined));
+
+/**
+ * Where a person lives (ADR 0079) — every part optional here; the Add customer form asks for them.
+ * The pin is kept only when the address picker gave one; the server never geocodes a home address.
+ */
+const contactAddressShape = {
+  addressLine: optionalText(200),
+  addressSuburb: optionalText(120),
+  addressState: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v ? v.toUpperCase() : undefined))
+    .pipe(z.enum(AU_STATES).optional()),
+  addressPostcode: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v ? v : undefined))
+    .pipe(z.string().regex(/^\d{4}$/, 'Postcode must be 4 digits').optional()),
+  addressLatitude: z.coerce.number().min(-90).max(90).optional(),
+  addressLongitude: z.coerce.number().min(-180).max(180).optional(),
+};
+
+/** The address parts as stored, for the two helpers below. */
+export type ContactAddressParts = {
+  addressLine: string | null;
+  addressSuburb: string | null;
+  addressState: string | null;
+  addressPostcode: string | null;
+};
+
+/** One line for a person, list or timeline: "3/12 Campbell Parade, Bondi Beach NSW 2026". Null when there is none. */
+export function formatContactAddress(a: ContactAddressParts): string | null {
+  const place = [a.addressSuburb, a.addressState, a.addressPostcode].filter(Boolean).join(' ');
+  return [a.addressLine, place].filter(Boolean).join(', ') || null;
+}
+
+/** Any part counts as having an address: an old file may have held only a suburb. */
+export function hasContactAddress(a: ContactAddressParts): boolean {
+  return Boolean(a.addressLine || a.addressSuburb || a.addressPostcode);
+}
+
+/** The starting details a profile still lacks (ADR 0079 §3) — shown as "missing", never refused. */
+export type MissingDetail = 'email' | 'phone' | 'address';
+export function missingDetails(c: ContactAddressParts & { email: string | null; phone: string | null }): MissingDetail[] {
+  const out: MissingDetail[] = [];
+  if (!c.email) out.push('email');
+  if (!c.phone) out.push('phone');
+  if (!hasContactAddress(c)) out.push('address');
+  return out;
+}
 
 /**
  * One person's details, as a form sends them. Phone is not shaped by a regex —
@@ -184,21 +241,36 @@ export const contactFieldsSchema = z.object({
    */
   marketingConsent: z.boolean().default(false),
   marketingConsentNote: optionalText(300),
+  ...contactAddressShape,
 });
 
-export const createContactSchema = contactFieldsSchema
-  .extend({
-    /** An admin may hand it to somebody; anybody else's new contact is their own. */
-    assignedTo: z.string().uuid().optional(),
-  })
-  .refine((v) => v.email || v.phone, {
-    message: 'Give an email or a phone number, so they can be reached',
-    path: ['email'],
-  });
+const createContactFields = contactFieldsSchema.extend({
+  /** An admin may hand it to somebody; anybody else's new contact is their own. */
+  assignedTo: z.string().uuid().optional(),
+});
+
+export const createContactSchema = createContactFields.refine((v) => v.email || v.phone, {
+  message: 'Give an email or a phone number, so they can be reached',
+  path: ['email'],
+});
+
+/**
+ * The Add customer form (ADR 0079 §2): name, email, phone and address, all four. Only this form —
+ * an enquiry, an import row or the assistant still need just a name and an email or a phone, and
+ * Edit asks for none of them (a contact from an enquiry has no address to give).
+ */
+export const addCustomerSchema = createContactFields.superRefine((v, ctx) => {
+  if (!v.email) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Give their email', path: ['email'] });
+  if (!v.phone) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Give their phone number', path: ['phone'] });
+  if (!v.addressLine) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Give their street address', path: ['addressLine'] });
+  if (!v.addressSuburb) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Give their suburb', path: ['addressSuburb'] });
+  if (!v.addressPostcode) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Give their postcode', path: ['addressPostcode'] });
+});
 
 export const updateContactSchema = contactFieldsSchema;
 
 export type CreateContactInput = z.input<typeof createContactSchema>;
+export type AddCustomerInput = z.input<typeof addCustomerSchema>;
 export type UpdateContactInput = z.input<typeof updateContactSchema>;
 
 /** The directory's filters, from the URL. Anything unrecognised is dropped, not refused. */

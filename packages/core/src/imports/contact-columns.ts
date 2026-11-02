@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CONTACT_ROLES, type ContactRoleKind } from '../contacts/contact-schema';
+import { AU_STATES } from '../listings/listing-schema';
 import { localInputToInstant } from '../time/local-input';
 
 /**
@@ -8,7 +9,7 @@ import { localInputToInstant } from '../time/local-input';
  * Marketing consent is never a column: an imported list is not consent.
  */
 
-export const CONTACT_IMPORT_FIELDS = ['name', 'first_name', 'last_name', 'email', 'phone', 'roles', 'assigned_email', 'note', 'next_action', 'next_action_date'] as const;
+export const CONTACT_IMPORT_FIELDS = ['name', 'first_name', 'last_name', 'email', 'phone', 'address', 'suburb', 'state', 'postcode', 'roles', 'assigned_email', 'note', 'next_action', 'next_action_date'] as const;
 export type ContactImportField = (typeof CONTACT_IMPORT_FIELDS)[number];
 
 export const CONTACT_FIELD_LABELS: Record<ContactImportField, string> = {
@@ -17,6 +18,10 @@ export const CONTACT_FIELD_LABELS: Record<ContactImportField, string> = {
   last_name: 'Last name',
   email: 'Email',
   phone: 'Phone',
+  address: 'Street address',
+  suburb: 'Suburb',
+  state: 'State',
+  postcode: 'Postcode',
   roles: 'Roles (buyer, seller…)',
   assigned_email: 'Assigned agent’s email',
   note: 'Note',
@@ -36,6 +41,10 @@ const SYNONYMS: Record<string, ContactImportField> = {
   last: 'last_name', lastname: 'last_name', surname: 'last_name', family_name: 'last_name',
   email_address: 'email', e_mail: 'email', mail: 'email',
   mobile: 'phone', mobile_phone: 'phone', phone_number: 'phone', mobile_number: 'phone', telephone: 'phone', tel: 'phone',
+  street: 'address', street_address: 'address', address_line_1: 'address', address_1: 'address', address1: 'address', home_address: 'address', postal_address: 'address', residential_address: 'address',
+  city: 'suburb', town: 'suburb', locality: 'suburb', address_suburb: 'suburb',
+  address_state: 'state', region: 'state',
+  post_code: 'postcode', postal_code: 'postcode', zip: 'postcode', zip_code: 'postcode', zipcode: 'postcode', pcode: 'postcode',
   role: 'roles', type: 'roles', contact_type: 'roles', tags: 'roles', category: 'roles',
   agent: 'assigned_email', agent_email: 'assigned_email', assigned_to: 'assigned_email', owner: 'assigned_email',
   notes: 'note', comment: 'note', comments: 'note',
@@ -89,6 +98,11 @@ export type NormalizedContact = {
   name: string;
   email: string | null;
   phone: string | null;
+  /** ADR 0079: where they live — kept as written, never geocoded. */
+  addressLine: string | null;
+  addressSuburb: string | null;
+  addressState: string | null;
+  addressPostcode: string | null;
   roles: ContactRoleKind[];
   assignedEmail: string | null;
   note: string | null;
@@ -97,6 +111,35 @@ export type NormalizedContact = {
 };
 
 export type CellError = { column: string; message: string };
+
+const STATE_NAMES: Record<string, (typeof AU_STATES)[number]> = {
+  'new south wales': 'NSW',
+  victoria: 'VIC',
+  queensland: 'QLD',
+  'western australia': 'WA',
+  'south australia': 'SA',
+  tasmania: 'TAS',
+  'australian capital territory': 'ACT',
+  'northern territory': 'NT',
+};
+
+/** "nsw", "N.S.W." or "New South Wales" → `NSW`; anything else, null. */
+function auState(raw: string): (typeof AU_STATES)[number] | null {
+  const short = raw.replace(/[.\s]/g, '').toUpperCase();
+  if ((AU_STATES as readonly string[]).includes(short)) return short as (typeof AU_STATES)[number];
+  return STATE_NAMES[raw.trim().toLowerCase().replace(/\s+/g, ' ')] ?? null;
+}
+
+/**
+ * Four digits, or null. A spreadsheet stores a Darwin postcode as the number 800 — the leading zero
+ * is put back; "2026.0" is a number cell too.
+ */
+function auPostcode(raw: string): string | null {
+  const t = raw.trim().replace(/\.0+$/, '');
+  if (/^\d{4}$/.test(t)) return t;
+  if (/^\d{3}$/.test(t)) return `0${t}`;
+  return null;
+}
 const EMAIL = z.string().email();
 
 /** One row → a contact, or every reason it cannot be one, against its column. */
@@ -118,6 +161,17 @@ export function normalizeContactRow(cells: readonly string[], mapping: ContactIm
   const phone = get('phone') || null;
   if (phone && phone.length > 40) err('phone', 'The phone number is longer than 40 characters');
   if (!email && !phone) err('email', 'No email and no phone — a contact needs one of them');
+
+  const addressLine = get('address').replace(/\s+/g, ' ') || null;
+  if (addressLine && addressLine.length > 200) err('address', 'The address is longer than 200 characters');
+  const addressSuburb = get('suburb').replace(/\s+/g, ' ') || null;
+  if (addressSuburb && addressSuburb.length > 120) err('suburb', 'The suburb is longer than 120 characters');
+  const stateRaw = get('state');
+  const addressState = stateRaw ? auState(stateRaw) : null;
+  if (stateRaw && !addressState) err('state', `“${stateRaw}” is not an Australian state — use ${AU_STATES.join(', ')}`);
+  const postcodeRaw = get('postcode');
+  const addressPostcode = postcodeRaw ? auPostcode(postcodeRaw) : null;
+  if (postcodeRaw && !addressPostcode) err('postcode', `“${postcodeRaw}” is not a postcode — four digits, e.g. 2026`);
 
   const roles: ContactRoleKind[] = [];
   for (const part of get('roles').split(/[,;|/]/).map((r) => r.trim().toLowerCase()).filter(Boolean)) {
@@ -141,7 +195,7 @@ export function normalizeContactRow(cells: readonly string[], mapping: ContactIm
   }
   if (errors.length) return { row: null, errors };
   return {
-    row: { name, email, phone, roles, assignedEmail: assigned || null, note: note || null, nextAction: nextAction || null, nextActionAt },
+    row: { name, email, phone, addressLine, addressSuburb, addressState, addressPostcode, roles, assignedEmail: assigned || null, note: note || null, nextAction: nextAction || null, nextActionAt },
     errors,
   };
 }

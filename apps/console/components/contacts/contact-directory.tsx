@@ -8,9 +8,12 @@ import {
   type ContactAssignee,
   type ContactListQuery,
   type ContactPage,
+  type MissingDetail,
 } from '@repo/core/contacts';
 import { SaveFilterForm } from '@/components/bulk-email/islands';
 import styles from './contacts.module.css';
+
+const MISSING_WORDS: Record<MissingDetail, string> = { email: 'Email missing', phone: 'Phone missing', address: 'Address missing' };
 
 const WHEN = new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
 
@@ -84,7 +87,7 @@ export function ContactDirectory({
           type="search"
           name="q"
           defaultValue={query.q ?? ''}
-          placeholder="Search name, email or phone"
+          placeholder="Search name, email, phone or suburb"
           aria-label="Search contacts"
         />
         <select className={styles.select} name="role" defaultValue={query.role ?? ''} aria-label="Role">
@@ -165,7 +168,14 @@ export function ContactDirectory({
                   <td className={styles.reach}>
                     {c.email ? <div><a href={`mailto:${c.email}`}>{c.email}</a></div> : null}
                     {c.phone ? <div><a href={`tel:${c.phone}`}>{c.phone}</a></div> : null}
-                    {!c.email && !c.phone ? <span className={styles.muted}>—</span> : null}
+                    {c.place ? <div className={styles.muted}>{c.place}</div> : null}
+                    {c.missing.length ? (
+                      <div className={styles.chips} style={{ marginTop: '0.25rem' }}>
+                        {c.missing.map((m) => (
+                          <span key={m} className={styles.chipMissing}>{MISSING_WORDS[m]}</span>
+                        ))}
+                      </div>
+                    ) : null}
                   </td>
                   <td>
                     {c.roles.length ? (

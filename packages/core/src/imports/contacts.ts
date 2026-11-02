@@ -2,8 +2,7 @@ import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { contact, listingImport, listingImportRow, membership, user, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { ContactError } from '../contacts/list-contacts';
-import { createContact } from '../contacts/write-contacts';
-import { createNote } from '../contacts/notes';
+import { addOrFillContact } from '../contacts/write-contacts';
 import { auPhoneKey } from '../contacts/phone';
 import { normalizeContactRow, type CellError, type ContactImportMapping, type NormalizedContact } from './contact-columns';
 import { applyFix, IMPORT_CLEAN_FEATURE, IMPORT_MAP_FEATURE, rowToClean, type RowCleaner, type RowFix, type RowToClean } from './contact-ai';
@@ -12,7 +11,8 @@ import { agencyTimeZone } from '../widgets/registry';
 /**
  * Contacts import (ADR 0029 amendment, "Contacts import"): the listing import's job with its own
  * columns (contact-columns.ts), dry run and import step. Every check is the contact form's own
- * (`createContact` parses each row again); marketing consent is never imported.
+ * (`addOrFillContact` parses each row again); marketing consent is never imported. A person the
+ * agency already has is not skipped: the row adds what their profile lacks (ADR 0079 §5).
  */
 
 type ImportRow = typeof listingImport.$inferSelect;
@@ -77,9 +77,10 @@ async function cleanFailingRows(db: Db, imp: ImportRow, checked: Checked[], clea
 }
 
 /**
- * Dry run, one chunk: normalise, then duplicates for the whole chunk in three statements — an email
- * a contact of the agency already has (skipped, without naming them), the same email earlier in the
- * file (skipped), the same phone as a contact (a warning only).
+ * Dry run, one chunk: normalise, then the same people for the whole chunk in three statements — an
+ * email a contact of the agency already has, or the same email earlier in the file, adds to that one
+ * profile (ADR 0079, a warning says so, without naming them); the same phone as a contact is a warning
+ * only (a shared phone can be two people).
  */
 export async function validateContactChunk(
   db: Db,
@@ -123,8 +124,11 @@ export async function validateContactChunk(
         .select({ rowNumber: listingImportRow.rowNumber, email: sql<string>`${listingImportRow.normalized}->>'email'` })
         .from(listingImportRow)
         .where(and(eq(listingImportRow.importId, imp.id), inArray(listingImportRow.status, ['valid', 'duplicate']), inArray(sql`${listingImportRow.normalized}->>'email'`, emails)))
+        .orderBy(asc(listingImportRow.rowNumber))
     : [];
-  const seen = new Map(earlier.map((e) => [e.email, e.rowNumber]));
+  // The first row with each email: later ones add to the profile it makes.
+  const seen = new Map<string, number>();
+  for (const e of earlier) if (!seen.has(e.email)) seen.set(e.email, e.rowNumber);
 
   await db.transaction(async (tx) => {
     for (const c of checked) {
@@ -137,9 +141,9 @@ export async function validateContactChunk(
       const exists = email ? held.has(email) : false;
       const phoneKey = auPhoneKey(c.row.phone);
       const found = exists
-        ? [{ column: 'Email', message: 'This email is already a contact in your agency — skipped' }]
+        ? [{ column: 'Email', message: 'Already a customer of your agency — this row adds what their profile is missing and changes nothing already there' }]
         : inFile
-          ? [{ column: 'Email', message: `Same email as row ${inFile} — skipped` }]
+          ? [{ column: 'Email', message: `Same email as row ${inFile} — added to the same profile` }]
           : phoneKey && phones.has(phoneKey)
             ? [{ column: 'Phone', message: 'Same phone as a contact already in your agency — they may be the same person (merge from the contact’s page)' }]
             : [];
@@ -147,7 +151,7 @@ export async function validateContactChunk(
       const warnings = [...(c.aiChanges ?? []), ...found];
       await tx
         .update(listingImportRow)
-        .set({ status: exists || inFile ? 'duplicate' : 'valid', normalized: c.row, errors: [], warnings, updatedAt: sql`now()` })
+        .set({ status: 'valid', normalized: c.row, errors: [], warnings, updatedAt: sql`now()` })
         .where(eq(listingImportRow.id, c.id));
       if (email && !exists && !inFile) seen.set(email, c.rowNumber);
     }
@@ -156,9 +160,10 @@ export async function validateContactChunk(
 }
 
 /**
- * Import, one chunk, AS THE UPLOADER: each row its own savepoint through `createContact` (which
- * asks `contact:create` again and refuses an email someone added meanwhile), its note, and — for
- * someone who may assign — the agent in the file. Duplicates are never imported.
+ * Import, one chunk, AS THE UPLOADER: each row its own savepoint through `addOrFillContact` (which
+ * asks `contact:create` again), its note, and — for someone who may assign — the agent in the file.
+ * A row whose email the agency has (or an earlier row made) fills that profile's blanks: `updated`,
+ * never a second person and never an overwrite (ADR 0079 §5).
  */
 export async function importContactChunk(db: Db, actor: Actor, imp: ImportRow): Promise<{ status: 'importing' | 'done'; processed: number }> {
   const rows = await db
@@ -193,26 +198,38 @@ export async function importContactChunk(db: Db, actor: Actor, imp: ImportRow): 
         else warnings.push({ column: 'Assigned agent’s email', message: `Agent not found: ${n.assignedEmail} — unassigned` });
       }
       try {
-        const id = await tx.transaction(async (sp) => {
-          const spDb = sp as unknown as Db;
-          const made = await createContact(
-            spDb,
+        const saved = await tx.transaction(async (sp) =>
+          addOrFillContact(
+            sp as unknown as Db,
             actor,
             {
               name: n.name,
               ...(n.email ? { email: n.email } : {}),
               ...(n.phone ? { phone: n.phone } : {}),
+              // Rows checked before ADR 0079 have no address keys.
+              ...(n.addressLine ? { addressLine: n.addressLine } : {}),
+              ...(n.addressSuburb ? { addressSuburb: n.addressSuburb } : {}),
+              ...(n.addressState ? { addressState: n.addressState } : {}),
+              ...(n.addressPostcode ? { addressPostcode: n.addressPostcode } : {}),
               roles: n.roles,
               ...(n.nextAction ? { nextAction: n.nextAction } : {}),
               ...(n.nextActionAt ? { nextActionAt: n.nextActionAt } : {}),
               ...(assignedTo ? { assignedTo } : {}),
+              ...(n.note ? { note: n.note } : {}),
             },
-            { source: 'import' },
-          );
-          if (n.note) await createNote(spDb, actor, made.id, n.note);
-          return made.id;
-        });
-        await tx.update(listingImportRow).set({ status: 'imported', contactId: id, warnings, updatedAt: sql`now()` }).where(eq(listingImportRow.id, r.id));
+            { source: 'import', schema: 'contact' },
+          ),
+        );
+        if (saved.outcome === 'filled') {
+          if (assignedTo) warnings.push({ column: 'Assigned agent’s email', message: 'Already a customer — who they are assigned to was not changed' });
+          if (saved.offered.length) {
+            warnings.push({ column: 'Row', message: `Kept the profile’s ${saved.offered.join(', ')}; this row’s is on their timeline` });
+          }
+        }
+        await tx
+          .update(listingImportRow)
+          .set({ status: saved.outcome === 'created' ? 'imported' : 'updated', contactId: saved.id, warnings, updatedAt: sql`now()` })
+          .where(eq(listingImportRow.id, r.id));
       } catch (err) {
         const message = err instanceof ContactError ? err.message : 'Could not add this contact';
         if (!(err instanceof ContactError)) console.error('[import] contact row failed', r.rowNumber, err instanceof Error ? err.message : err);

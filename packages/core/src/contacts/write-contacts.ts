@@ -7,6 +7,7 @@ import {
   contact,
   contactRole,
   membership,
+  note,
   user,
   type Db,
   type DbOrTx,
@@ -14,18 +15,25 @@ import {
 import { can, type Actor, type MembershipRole } from '../permissions';
 import {
   CONTACT_ROLES,
+  addCustomerSchema,
   contactFieldsSchema,
   createContactSchema,
+  formatContactAddress,
+  hasContactAddress,
   nextActionSchema,
+  noteBodySchema,
   updateContactSchema,
   type NextActionInput,
   type ActivityKind,
+  type AddCustomerInput,
+  type ContactAddressParts,
   type CreateContactInput,
   type UpdateContactInput,
   type ContactRoleKind,
 } from './contact-schema';
 import { loadContactHead } from './get-contact';
 import { CONTACT_NOT_FOUND, ContactError, roleArray } from './list-contacts';
+import { auPhoneKey } from './phone';
 import { contactResource } from './visibility';
 
 /**
@@ -76,6 +84,26 @@ async function holderOf(db: DbOrTx, agencyId: string, email: string): Promise<st
 
 const duplicate = (id?: string) =>
   new ContactError('duplicate', 'A contact with that email already exists', id);
+
+/** The address parts as the columns take them: a part left out is null, and the pin only with both halves. */
+function addressColumns(v: {
+  addressLine?: string;
+  addressSuburb?: string;
+  addressState?: string;
+  addressPostcode?: string;
+  addressLatitude?: number;
+  addressLongitude?: number;
+}) {
+  const pinned = v.addressLatitude !== undefined && v.addressLongitude !== undefined;
+  return {
+    addressLine: v.addressLine ?? null,
+    addressSuburb: v.addressSuburb ?? null,
+    addressState: v.addressState ?? null,
+    addressPostcode: v.addressPostcode ?? null,
+    addressLatitude: pinned ? v.addressLatitude!.toFixed(6) : null,
+    addressLongitude: pinned ? v.addressLongitude!.toFixed(6) : null,
+  };
+}
 
 /** Somebody a contact can be given to: an active member who could then work it. */
 export type ContactAssignee = { userId: string; name: string };
@@ -181,6 +209,7 @@ export async function createContact(
           name: v.name,
           email: v.email ?? null,
           phone: v.phone ?? null,
+          ...addressColumns(v),
           source: opts.source ?? 'manual',
           assignedTo,
           nextAction: v.nextAction ?? null,
@@ -219,6 +248,208 @@ export async function createContact(
   }
 }
 
+/** What adding somebody did: a new profile, or blanks filled on the one they already had (ADR 0079 §5). */
+export type SavedContact =
+  | { id: string; outcome: 'created' }
+  | {
+      id: string;
+      outcome: 'filled';
+      /** What was blank and is now set: `name`, `phone`, `address`, `nextAction`, `roles`, `consent`, `note`. */
+      filled: string[];
+      /** What was already set and given differently — kept as it was, recorded on the timeline. */
+      offered: string[];
+      /** May this person open the profile? Only then does a screen link to it. */
+      visible: boolean;
+    };
+
+/** How a person's name reads when nobody gave one: the database's fallback (migration 0020). */
+const placeholderName = (row: { name: string; email: string | null }) =>
+  row.name === 'Unknown' || (row.email !== null && row.name.toLowerCase() === row.email.toLowerCase());
+
+/**
+ * Add a person — or, when their email is already on a contact, add to that profile instead (ADR 0079 §5):
+ * the same person always lands on one profile. A blank is filled; a value already there is never
+ * overwritten (an old spreadsheet must not undo what an agent typed) and the other value is recorded on
+ * the timeline. Roles are added, a note becomes a note, a next action fills only a blank one, and the
+ * assignee never changes — that is `contact:assign`, its own act.
+ *
+ * The rule is `contact:create` either way (§6): adding what you know about a person is the same act
+ * whether or not the agency already had them, and it reveals nothing from their profile — `visible`
+ * says whether the caller may be sent to it.
+ *
+ * `schema`: the Add customer form asks for all four starting details; an import row, only what
+ * `createContactSchema` asks.
+ */
+export async function addOrFillContact(
+  db: Db,
+  actor: Actor,
+  input: AddCustomerInput & { note?: string },
+  opts: { source: 'manual' | 'import'; schema: 'add_customer' | 'contact' },
+): Promise<SavedContact> {
+  if (!actor.agencyId || !can(actor, 'contact:create', { type: 'contact', agencyId: actor.agencyId })) {
+    throw new ContactError('forbidden', 'You cannot add contacts');
+  }
+  const parsed = (opts.schema === 'add_customer' ? addCustomerSchema : createContactSchema).safeParse(input);
+  if (!parsed.success) throw new ContactError('invalid', firstIssue(parsed.error));
+  const v = parsed.data;
+  const noteText = input.note?.trim() ? noteBodySchema.parse(input.note) : null;
+
+  const holder = v.email ? await holderOf(db, actor.agencyId, v.email) : undefined;
+  if (!holder) {
+    try {
+      const made = await createContact(db, actor, input, { source: opts.source });
+      if (noteText) await db.insert(note).values({ agencyId: actor.agencyId, contactId: made.id, authorId: actor.userId, body: noteText });
+      return { id: made.id, outcome: 'created' };
+    } catch (err) {
+      // Somebody added the same email a moment ago: then it is theirs to fill, like any other.
+      if (!(err instanceof ContactError && err.code === 'duplicate' && err.existingId)) throw err;
+      return fillContact(db, actor, err.existingId, v, noteText, opts.source);
+    }
+  }
+  return fillContact(db, actor, holder, v, noteText, opts.source);
+}
+
+/** What `fillContact` reads of the profile being added to. */
+export type FillTarget = ContactAddressParts & {
+  name: string;
+  email: string | null;
+  phone: string | null;
+  nextAction: string | null;
+  marketingConsentAt: Date | string | null;
+  emailOptOutAt: Date | string | null;
+  roles: unknown;
+};
+
+/**
+ * The decision, apart from the database (ADR 0079 §5): set what is blank, offer what differs, never
+ * overwrite. `filled` names what changed (name only when the profile's was the email or "Unknown"
+ * fallback); `offered` carries the other values for the timeline. Consent is recorded only when there
+ * is none and they never opted out — an opt-out is theirs to undo.
+ */
+export function planFill(row: FillTarget, v: z.output<typeof createContactSchema>) {
+  const filled: string[] = [];
+  const offered: { field: string; value: string }[] = [];
+  const set: Partial<typeof contact.$inferInsert> = {};
+
+  const sameName = v.name.toLowerCase() === row.name.toLowerCase();
+  if (!sameName && placeholderName(row)) {
+    set.name = v.name;
+    filled.push('name');
+  } else if (!sameName) {
+    offered.push({ field: 'name', value: v.name });
+  }
+
+  if (v.phone && !row.phone) {
+    set.phone = v.phone;
+    filled.push('phone');
+  } else if (v.phone && row.phone) {
+    // `0412 345 678` and `+61 412 345 678` are one number; only a different one is news.
+    const same = (auPhoneKey(v.phone) ?? v.phone) === (auPhoneKey(row.phone) ?? row.phone);
+    if (!same) offered.push({ field: 'phone', value: v.phone });
+  }
+
+  const incoming = addressColumns(v);
+  const newAddress = formatContactAddress(incoming);
+  if (newAddress && !hasContactAddress(row)) {
+    Object.assign(set, incoming);
+    filled.push('address');
+  } else if (newAddress && newAddress.toLowerCase() !== (formatContactAddress(row) ?? '').toLowerCase()) {
+    offered.push({ field: 'address', value: newAddress });
+  }
+
+  if (v.nextAction && !row.nextAction) {
+    set.nextAction = v.nextAction;
+    set.nextActionAt = v.nextActionAt ?? null;
+    filled.push('nextAction');
+  }
+
+  const recordConsent = Boolean(v.marketingConsent && !row.marketingConsentAt && !row.emailOptOutAt);
+  if (recordConsent) filled.push('consent');
+
+  const had = roleArray(row.roles);
+  const addRoles = v.roles.filter((r) => !had.includes(r));
+  if (addRoles.length) filled.push('roles');
+
+  return { set, filled, offered, addRoles, recordConsent };
+}
+
+async function fillContact(
+  db: Db,
+  actor: Actor,
+  contactId: string,
+  v: z.output<typeof createContactSchema>,
+  noteText: string | null,
+  via: 'manual' | 'import',
+): Promise<SavedContact> {
+  const agencyId = actor.agencyId!;
+  const result = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({
+        name: contact.name,
+        email: contact.email,
+        phone: contact.phone,
+        addressLine: contact.addressLine,
+        addressSuburb: contact.addressSuburb,
+        addressState: contact.addressState,
+        addressPostcode: contact.addressPostcode,
+        nextAction: contact.nextAction,
+        marketingConsentAt: contact.marketingConsentAt,
+        emailOptOutAt: contact.emailOptOutAt,
+        // Written out, not interpolated: a single-table select drops the table name (single-table-subquery.test.ts).
+        roles: sql<unknown>`(select array_agg(r.role) from contact_role r where r.contact_id = contact.id)`,
+      })
+      .from(contact)
+      .where(and(eq(contact.id, contactId), eq(contact.agencyId, agencyId), sql`${contact.mergedIntoId} is null`))
+      .for('update')
+      .limit(1);
+    if (!row) throw CONTACT_NOT_FOUND();
+
+    const plan = planFill(row, v);
+    const { filled, offered, addRoles } = plan;
+    if (Object.keys(plan.set).length || plan.recordConsent) {
+      await tx
+        .update(contact)
+        .set({
+          ...plan.set,
+          ...(plan.recordConsent
+            ? { marketingConsentAt: sql`now()`, marketingConsentBy: actor.userId, marketingConsentNote: v.marketingConsentNote ?? null }
+            : {}),
+          updatedAt: sql`now()`,
+        })
+        .where(and(eq(contact.id, contactId), eq(contact.agencyId, agencyId)));
+    }
+    if (addRoles.length) {
+      await tx
+        .insert(contactRole)
+        .values(addRoles.map((role) => ({ contactId, role, source: 'manual' as const, createdBy: actor.userId })))
+        .onConflictDoNothing();
+    }
+    if (noteText) {
+      await tx.insert(note).values({ agencyId, contactId, authorId: actor.userId, body: noteText });
+      filled.push('note');
+    }
+
+    const detailFields = filled.filter((f) => f !== 'roles' && f !== 'note' && f !== 'consent');
+    if (detailFields.length) await recordActivity(tx, actor, agencyId, contactId, 'details_added', { fields: detailFields, via });
+    if (offered.length) await recordActivity(tx, actor, agencyId, contactId, 'details_offered', { offered, via });
+    for (const role of addRoles) await recordActivity(tx, actor, agencyId, contactId, 'role_added', { role, via });
+    if (plan.recordConsent) await recordActivity(tx, actor, agencyId, contactId, 'consent_recorded', { note: v.marketingConsentNote ?? null, via });
+    return { filled, offered: offered.map((o) => o.field) };
+  });
+
+  const head = await loadContactHead(db, actor, contactId);
+  const visible = Boolean(head && can(actor, 'contact:read', contactResource(head.facts)));
+  return { id: contactId, outcome: 'filled', ...result, visible };
+}
+
+/**
+ * The Add customer form (ADR 0079): name, email, phone and address required; an email the agency
+ * already has adds to that person's profile instead of being refused.
+ */
+export function addCustomer(db: Db, actor: Actor, input: AddCustomerInput): Promise<SavedContact> {
+  return addOrFillContact(db, actor, input, { source: 'manual', schema: 'add_customer' });
+}
+
 /**
  * Change a contact's details, roles, next action and consent: an admin, or the
  * member it is assigned to. The roles sent are the whole set — a tag left out
@@ -249,10 +480,13 @@ export async function updateContact(
     if (existing && existing !== row.id) throw duplicate(existing);
   }
 
+  const address = addressColumns(v);
   const before = {
     name: row.name,
     email: row.email,
     phone: row.phone,
+    address: formatContactAddress(row),
+    pin: row.addressLatitude && row.addressLongitude ? `${Number(row.addressLatitude).toFixed(6)},${Number(row.addressLongitude).toFixed(6)}` : null,
     nextAction: row.nextAction,
     nextActionAt: row.nextActionAt ? new Date(row.nextActionAt).toISOString() : null,
   };
@@ -260,10 +494,14 @@ export async function updateContact(
     name: v.name,
     email,
     phone: v.phone ?? null,
+    address: formatContactAddress(address),
+    pin: address.addressLatitude && address.addressLongitude ? `${address.addressLatitude},${address.addressLongitude}` : null,
     nextAction: v.nextAction ?? null,
     nextActionAt: v.nextActionAt ? v.nextActionAt.toISOString() : null,
   };
-  const changed = (Object.keys(after) as (keyof typeof after)[]).filter((k) => before[k] !== after[k]);
+  // A moved pin alone is part of the address change, not a field of its own on the timeline.
+  const diff = (Object.keys(after) as (keyof typeof after)[]).filter((k) => before[k] !== after[k]);
+  const changed = [...new Set(diff.map((k) => (k === 'pin' ? 'address' : k)))];
 
   const hadRoles = roleArray(row.roles);
   const added = v.roles.filter((r) => !hadRoles.includes(r));
@@ -285,6 +523,7 @@ export async function updateContact(
           name: after.name,
           email: after.email,
           phone: after.phone,
+          ...address,
           nextAction: after.nextAction,
           nextActionAt: v.nextActionAt ?? null,
           ...(consentChange === 'recorded'

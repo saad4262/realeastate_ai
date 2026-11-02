@@ -59,7 +59,7 @@ describe('the row cleaner', () => {
   it('an unknown field name costs that entry, not the answer', async () => {
     const cleaner = createRowCleaner({ apiKey: 'x', db: fakeDb().db, client: fakeClient({ rows: [{ rowNumber: 3, fixes: [{ field: 'note', value: 'x' }, { field: 'phone', value: '0412 345 678' }] }] }).client, env });
     expect(await cleaner.clean({ rows: [], ...who })).toEqual([{ rowNumber: 3, values: { phone: '0412 345 678' } }]);
-    const mapper = createColumnMapper({ apiKey: 'x', db: fakeDb().db, client: fakeClient({ columns: [{ field: 'address', column: 4 }, { field: 'email', column: 1 }] }).client, env });
+    const mapper = createColumnMapper({ apiKey: 'x', db: fakeDb().db, client: fakeClient({ columns: [{ field: 'favourite_colour', column: 4 }, { field: 'email', column: 1 }] }).client, env });
     expect(await mapper.suggest({ headers: [], samples: [], ...who })).toEqual({ email: 1 });
   });
 

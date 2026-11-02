@@ -13,6 +13,8 @@ export {
 } from './get-contact';
 export {
   createContact,
+  addCustomer,
+  addOrFillContact,
   updateContact,
   assignContact,
   setContactArchived,
@@ -26,6 +28,7 @@ export {
   type ContactAssignee,
   type ContactDetails,
   type ContactDetailsPatch,
+  type SavedContact,
 } from './write-contacts';
 export { mergeContacts } from './merge-contacts';
 export { backfillContacts, type BackfillReport } from './backfill';

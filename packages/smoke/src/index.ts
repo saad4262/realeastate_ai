@@ -154,6 +154,7 @@ import {
   updateNote,
   visibleContactIdsSql,
   createContact,
+  addCustomer,
   type ContactView,
 } from '@repo/core/contacts';
 import {
@@ -7554,6 +7555,53 @@ async function main() {
     }),
   );
 
+  // ── ADR 0079: the customer profile — four starting details; the same person lands on one profile (needs 0080) ──
+  group('Customer profile (ADR 0079)');
+
+  await check('Add customer: name, email, phone and address required; the same email adds to that profile (blanks only, the rest on the timeline, linked only for someone who may see it); a read-only member refused; a merge carries the address', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const a1 = f.actor('a1');
+      const full = { name: 'Nora New', email: `nora.${f.tag}@smoke.test`, phone: '0412 777 001', addressLine: '12 Campbell Parade', addressSuburb: 'Bondi Beach', addressState: 'NSW', addressPostcode: '2026', addressLatitude: -33.891, addressLongitude: 151.277 };
+
+      // All four, or nothing is written.
+      const noPhone = await addCustomer(t, owner, { ...full, phone: '' }).catch((e: unknown) => e as Error);
+      assert(noPhone instanceof Error && /phone/.test(noPhone.message), `without a phone: ${String(noPhone)}`);
+      const viewer = await addCustomer(t, f.actor('viewer'), full).catch((e: unknown) => e as Error);
+      assert(viewer instanceof Error && /cannot add/.test(viewer.message), `read-only: ${String(viewer)}`);
+      const made = await addCustomer(t, owner, full);
+      assert(made.outcome === 'created', `first add: ${JSON.stringify(made)}`);
+      const [nora] = await t.execute<{ address_line: string; address_suburb: string; address_postcode: string; address_latitude: string; source: string }>(sql`
+        select address_line, address_suburb, address_postcode, address_latitude, source from contact where id = ${made.id}`);
+      assert(nora?.address_line === '12 Campbell Parade' && nora.address_suburb === 'Bondi Beach' && nora.address_postcode === '2026' && Number(nora.address_latitude) === -33.891 && nora.source === 'manual', `stored: ${JSON.stringify(nora)}`);
+
+      // A1 adds P2 (A2's — A1 cannot see them) by email: their blanks fill, their name stays, and A1 is not sent to the profile.
+      const p2 = await addCustomer(t, a1, { ...full, name: 'Pat Two', email: `P2.${f.tag}@smoke.test`, phone: '0412 777 002' });
+      assert(p2.outcome === 'filled' && p2.id === f.contacts.p2 && !p2.visible, `P2 by A1: ${JSON.stringify(p2)}`);
+      assert(p2.outcome === 'filled' && p2.filled.join() === 'phone,address' && p2.offered.join() === 'name', `P2 filled/offered: ${JSON.stringify(p2)}`);
+      const [p2row] = await t.execute<{ name: string; phone: string; address_suburb: string; assigned_to: string | null }>(sql`
+        select name, phone, address_suburb, assigned_to from contact where id = ${f.contacts.p2}`);
+      assert(p2row?.name === 'P2' && p2row.phone === '0412 777 002' && p2row.address_suburb === 'Bondi Beach', `P2 after: ${JSON.stringify(p2row)}`);
+      assert((await count(t, sql`select count(*)::int as n from contact where agency_id = ${f.agencyId} and lower(email) = ${`p2.${f.tag}@smoke.test`}`)) === 1, 'a second P2 was made');
+
+      // Again, differently: nothing is overwritten; the other phone and address go on the timeline. The owner may open it.
+      const again = await addCustomer(t, owner, { ...full, name: 'P2', email: `p2.${f.tag}@smoke.test`, phone: '+61 412 777 999', addressLine: '1 Other St', addressSuburb: 'Manly', addressPostcode: '2095' });
+      assert(again.outcome === 'filled' && again.visible && again.filled.length === 0 && again.offered.join() === 'phone,address', `again: ${JSON.stringify(again)}`);
+      const [kept] = await t.execute<{ phone: string; address_suburb: string }>(sql`select phone, address_suburb from contact where id = ${f.contacts.p2}`);
+      assert(kept?.phone === '0412 777 002' && kept.address_suburb === 'Bondi Beach', `overwritten: ${JSON.stringify(kept)}`);
+      const offered = await t.execute<{ payload: { offered: { field: string; value: string }[] } }>(sql`
+        select payload from activity where contact_id = ${f.contacts.p2} and kind = 'details_offered' order by created_at desc, id desc limit 1`);
+      assert(offered[0]?.payload.offered.some((o) => o.field === 'address' && o.value === '1 Other St, Manly NSW 2095'), `timeline: ${JSON.stringify(offered)}`);
+
+      // Merge: a survivor without an address takes the loser's whole address; with one, keeps its own.
+      await mergeContacts(t, owner, f.contacts.p6, made.id);
+      const [p6] = await t.execute<{ address_line: string | null; address_suburb: string | null }>(sql`select address_line, address_suburb from contact where id = ${f.contacts.p6}`);
+      assert(p6?.address_line === '12 Campbell Parade' && p6.address_suburb === 'Bondi Beach', `merge: ${JSON.stringify(p6)}`);
+      return 'four required; P2 filled by A1 (not visible), name kept; a second try overwrote nothing and logged phone + address; merge carried the address';
+    }),
+  );
+
   // ── ADR 0074 part 2: SMS everywhere — the five rules (needs migration 0079) ─────────────────────
   group('SMS everywhere (ADR 0074)');
 
@@ -10177,28 +10225,31 @@ async function main() {
   // ------------------------------------------------- imports, Phase 3 --
   group('Imports: contacts and Google Sheets');
 
-  await check('a contacts import (ADR 0029 amendment): new rows added as the uploader with source "import"; an existing email and a repeat in the file skipped; consent never imported', async () =>
+  await check('a contacts import (ADR 0029 amendment, ADR 0079): new rows added as the uploader with source "import"; an existing email and a repeat in the file add to that one profile — blanks filled, nothing overwritten; consent never imported', async () =>
     inRollback(async (t) => {
       const f = await contactFixture(t);
       const a1 = f.actor('a1');
-      // P1 already has p1.<tag>@smoke.test — the file repeats it, and a new person twice.
+      // P1 already has p1.<tag>@smoke.test (no phone, no address) — the file repeats it, and a new person twice.
       const csv = [
-        'First name,Last name,Email,Mobile,Type,Agent,Notes,Marketing consent',
-        `Nina,New,nina.${f.tag}@smoke.test,0412 000 111,buyer,owner.${f.tag}@smoke.test,Wants 3 beds,yes`,
-        `Already,There,P1.${f.tag}@SMOKE.TEST,,seller,,,yes`,
-        `Nina,Again,nina.${f.tag}@smoke.test,,buyer,,,`,
-        `No,Way,,,buyer,,,`,
-        `Phil,Phone,,0499 000 222,landlord,,,`,
+        'First name,Last name,Email,Mobile,Street address,Suburb,State,Postcode,Type,Agent,Notes,Marketing consent',
+        `Nina,New,nina.${f.tag}@smoke.test,0412 000 111,12 Campbell Parade,Bondi Beach,NSW,2026,buyer,owner.${f.tag}@smoke.test,Wants 3 beds,yes`,
+        `Already,There,P1.${f.tag}@SMOKE.TEST,0412 999 888,5 Old Rd,Manly,new south wales,2095,seller,,Called in 2019,yes`,
+        `Nina,Again,nina.${f.tag}@smoke.test,0499 111 000,,,,,seller,,,`,
+        `No,Way,,,,,,,buyer,,,`,
+        `Phil,Phone,,0499 000 222,,,,,landlord,,,`,
       ].join('\n');
       const imp = await createImport(t, a1, { fileName: `contacts-${f.tag}.csv`, text: csv, kind: 'contacts' });
       await startDryRun(t, a1, imp.id);
       await driveImport(t, a1, imp.id, {}, ['validated']);
       const rows = await importReport(t, a1, imp.id, { limit: 50 });
       const st = rows.map((r) => `${r.rowNumber}:${r.status}`).join(',');
-      assert(st === '2:valid,3:duplicate,4:duplicate,5:error,6:valid', `after the check: ${st}`);
-      assert(!JSON.stringify(rows[1]).includes('P1') && /already a contact/.test(JSON.stringify(rows[1]!.warnings)), `existing email: ${JSON.stringify(rows[1])}`);
+      assert(st === '2:valid,3:valid,4:valid,5:error,6:valid', `after the check: ${st}`);
+      assert(!JSON.stringify(rows[1]).includes('"P1"') && /Already a customer/.test(JSON.stringify(rows[1]!.warnings)), `existing email: ${JSON.stringify(rows[1])}`);
+      assert(/Same email as row 2/.test(JSON.stringify(rows[2]!.warnings)), `repeat in the file: ${JSON.stringify(rows[2])}`);
       await startImport(t, a1, imp.id);
       await driveImport(t, a1, imp.id, {}, ['done']);
+      const done = (await importReport(t, a1, imp.id, { limit: 50 })).map((r) => `${r.rowNumber}:${r.status}`).join(',');
+      assert(done === '2:imported,3:updated,4:updated,5:error,6:imported', `after the import: ${done}`);
       const made = await t.execute<{ name: string; source: string; assigned_to: string; consent: string | null; notes: number }>(sql`
         select c.name, c.source, c.assigned_to, c.marketing_consent_at as consent,
                (select count(*)::int from note n where n.contact_id = c.id) as notes
@@ -10207,9 +10258,29 @@ async function main() {
       assert(made.find((m) => m.name === 'Nina New')?.notes === 1, 'the note was not added');
       const after = await importReport(t, a1, imp.id, { limit: 50 });
       assert(/Only an owner or admin assigns/.test(JSON.stringify(after.find((r) => r.rowNumber === 2)?.warnings)), 'an agent’s Agent column was not refused with a warning');
-      const [p1] = await t.execute<{ name: string }>(sql`select name from contact where id = ${f.contacts.p1}`);
-      assert(p1?.name === 'P1', 'the existing contact was changed');
-      return '2 added (source import, A1’s, no consent, note kept); existing email and in-file repeat skipped; a row without email/phone refused; existing contact untouched';
+      assert(/Kept the profile’s name/.test(JSON.stringify(after.find((r) => r.rowNumber === 3)?.warnings)), 'row 3 did not say the name was kept');
+
+      // ADR 0079: P1 — the name stays, the blanks are filled, the role and the note are added, the assignee and consent untouched.
+      const [p1] = await t.execute<{ name: string; phone: string | null; address_line: string | null; address_suburb: string | null; address_state: string | null; address_postcode: string | null; assigned_to: string | null; consent: string | null; roles: string[]; notes: number }>(sql`
+        select name, phone, address_line, address_suburb, address_state, address_postcode, assigned_to, marketing_consent_at as consent,
+               (select array_agg(role::text order by role) from contact_role where contact_id = contact.id) as roles,
+               (select count(*)::int from note n where n.contact_id = contact.id) as notes
+        from contact where id = ${f.contacts.p1}`);
+      assert(p1?.name === 'P1', `P1's name was overwritten: ${p1?.name}`);
+      assert(p1?.phone === '0412 999 888' && p1.address_line === '5 Old Rd' && p1.address_suburb === 'Manly' && p1.address_state === 'NSW' && p1.address_postcode === '2095', `P1's blanks: ${JSON.stringify(p1)}`);
+      assert(p1?.roles.includes('seller') && p1.notes === 1 && p1.consent === null, `P1's role/note/consent: ${JSON.stringify(p1)}`);
+      // Nina: one profile; the second row's other phone is kept off it and put on the timeline.
+      const nina = await t.execute<{ id: string; phone: string; roles: string[] }>(sql`
+        select id, phone, (select array_agg(role::text order by role) from contact_role where contact_id = contact.id) as roles
+        from contact where agency_id = ${f.agencyId} and email = ${`nina.${f.tag}@smoke.test`}`);
+      assert(nina.length === 1 && nina[0]!.phone === '0412 000 111' && nina[0]!.roles.join() === 'buyer,seller', `Nina: ${JSON.stringify(nina)}`);
+      const acts = await t.execute<{ contact_id: string; kind: string; payload: { fields?: string[]; offered?: { field: string; value: string }[]; via?: string } }>(sql`
+        select contact_id, kind, payload from activity where agency_id = ${f.agencyId} and kind in ('details_added', 'details_offered')`);
+      const p1Added = acts.find((a) => a.contact_id === f.contacts.p1 && a.kind === 'details_added');
+      assert(p1Added?.payload.fields?.join() === 'phone,address' && p1Added.payload.via === 'import', `P1 details_added: ${JSON.stringify(acts)}`);
+      const ninaOffered = acts.find((a) => a.contact_id === nina[0]!.id && a.kind === 'details_offered');
+      assert(ninaOffered?.payload.offered?.some((o) => o.field === 'phone' && o.value === '0499 111 000'), `Nina details_offered: ${JSON.stringify(acts)}`);
+      return '2 added (source import, A1’s, no consent, note kept); P1 and Nina’s repeat added to their own profiles: blanks filled, name/phone kept, the others on the timeline; a row without email/phone refused';
     }),
   );
 
