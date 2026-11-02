@@ -7,6 +7,15 @@ import { isPairedSkillOn } from '../skill-switches/switches';
 import { displayAu, isAuMobile, webhookUrl, xmlEscape } from './format';
 import { agencyTwilio, contactByPhone, PhoneError, providerFailure, textsPathFor, type PhoneDeps } from './setup';
 import { isOptedOut } from './sms';
+import {
+  autoTextsToCallerToday,
+  DEFAULT_AUTO_TEXTS_PER_CALLER_DAY,
+  DEFAULT_SMS_HOURS,
+  DEFAULT_TEXTS_PER_NUMBER_DAY,
+  readSmsHours,
+  textsFromNumberToday,
+  type SmsHours,
+} from './sms-rules';
 import { emitWorkflowEvent } from '../workflows/events';
 import { AI_REASON_WORDS, decideAiCallback, DEFAULT_CALLING_HOURS, nextCallableTime, readCallingHours, type AiSkipReason, type CallingHours, type VoiceAi } from './voice';
 
@@ -14,8 +23,9 @@ import { AI_REASON_WORDS, decideAiCallback, DEFAULT_CALLING_HOURS, nextCallableT
  * Missed calls (ADR 0071, Phase 3.2). A caller an agent did not answer is forwarded to the agent's
  * Twilio number: the platform keeps the call, the caller hears a greeting, and — only while the
  * "Missed call text" skill is on for the agency AND that agent (ADR 0069) — gets the agency's approved
- * text from the agent's number. Never more than once per caller a day, never to anyone who replied STOP,
- * never past the daily ceilings. The text is the owner's template with three fields filled; no model
+ * text from the agent's number. Never more than the automatic texts a caller may get in a day (ADR 0074 part 2,
+ * rule 4: 3, with workflow texts), never to anyone who replied STOP, never past the daily ceilings (and rule 5's
+ * per-number one). The text is the owner's template with three fields filled; no model
  * writes it (non-negotiable 7).
  */
 
@@ -31,6 +41,10 @@ export const DEFAULT_MISSED_CALL_SETTINGS: Omit<MissedCallSettings, 'updatedAt' 
   callingHours: DEFAULT_CALLING_HOURS,
   aiCallsPerAgentDay: 20,
   aiCallsPerAgencyDay: 100,
+  agencyNumberId: null,
+  smsHours: DEFAULT_SMS_HOURS,
+  autoTextsPerCallerDay: DEFAULT_AUTO_TEXTS_PER_CALLER_DAY,
+  textsPerNumberDay: DEFAULT_TEXTS_PER_NUMBER_DAY,
 };
 
 export const AI_CALL_AFTER_MINUTES = [1, 2, 5, 10] as const;
@@ -47,6 +61,11 @@ export type MissedCallSettings = {
   callingHours: CallingHours;
   aiCallsPerAgentDay: number;
   aiCallsPerAgencyDay: number;
+  /** ADR 0074 part 2: rule 1's agency number (null = the owner's), rule 3's hours, rules 4 and 5's caps. */
+  agencyNumberId: string | null;
+  smsHours: SmsHours;
+  autoTextsPerCallerDay: number;
+  textsPerNumberDay: number;
   updatedAt: Date | null;
   isDefault: boolean;
 };
@@ -83,6 +102,13 @@ const settingsSchema = z.object({
     .default(DEFAULT_CALLING_HOURS),
   aiCallsPerAgentDay: z.coerce.number().int().min(1).max(200).default(20),
   aiCallsPerAgencyDay: z.coerce.number().int().min(1).max(2000).default(100),
+  agencyNumberId: z.string().uuid().nullable().default(null),
+  smsHours: z
+    .tuple([z.coerce.number().int().min(0).max(23), z.coerce.number().int().min(1).max(24)])
+    .refine(([a, b]) => a < b, 'Texting hours must end after they start.')
+    .default(DEFAULT_SMS_HOURS),
+  autoTextsPerCallerDay: z.coerce.number().int().min(1, 'At least one automatic text a day.').max(10, 'At most 10 automatic texts to one caller a day.').default(DEFAULT_AUTO_TEXTS_PER_CALLER_DAY),
+  textsPerNumberDay: z.coerce.number().int().min(1).max(1000).default(DEFAULT_TEXTS_PER_NUMBER_DAY),
 });
 export type MissedCallSettingsInput = z.input<typeof settingsSchema>;
 
@@ -98,6 +124,10 @@ export async function loadMissedCallSettings(db: DbOrTx, agencyId: string): Prom
         callingHours: readCallingHours(row.callingHours),
         aiCallsPerAgentDay: row.aiCallsPerAgentDay,
         aiCallsPerAgencyDay: row.aiCallsPerAgencyDay,
+        agencyNumberId: row.agencyNumberId,
+        smsHours: readSmsHours(row.smsHours),
+        autoTextsPerCallerDay: row.autoTextsPerCallerDay,
+        textsPerNumberDay: row.textsPerNumberDay,
         updatedAt: row.updatedAt,
         isDefault: false,
       }
@@ -116,11 +146,36 @@ export async function saveMissedCallSettings(db: DbOrTx, actor: Actor, input: Mi
   if (!parsed.success) throw new PhoneError('invalid', parsed.error.issues[0]?.message ?? 'Check the values.');
   const bad = [...unknownFields(parsed.data.greeting), ...unknownFields(parsed.data.smsTemplate)];
   if (bad.length) throw new PhoneError('invalid', `Unknown field {{${bad[0]}}}. You can use {{first_name}}, {{agent_first_name}} and {{agency_name}}.`);
+  // Rule 1: the agency number is one of this agency's own active numbers, or none (the owner's).
+  if (parsed.data.agencyNumberId) {
+    const [n] = await db
+      .select({ id: phoneNumber.id })
+      .from(phoneNumber)
+      .where(and(eq(phoneNumber.id, parsed.data.agencyNumberId), eq(phoneNumber.agencyId, actor.agencyId), eq(phoneNumber.status, 'active')))
+      .limit(1);
+    if (!n) throw new PhoneError('invalid', 'Pick one of the agency’s own numbers.');
+  }
   const values = { ...parsed.data, updatedBy: actor.userId };
   await db
     .insert(missedCallSetting)
     .values({ agencyId: actor.agencyId, ...values })
     .onConflictDoUpdate({ target: missedCallSetting.agencyId, set: { ...values, updatedAt: sql`now()` } });
+}
+
+/**
+ * Rule 1's choices for the settings page (ADR 0074 part 2): the agency's active numbers, each with its agent,
+ * owners first — the owner picks which one texts people whose agent has no number.
+ */
+export async function agencyNumberChoices(db: DbOrTx, actor: Actor): Promise<{ id: string; display: string; agentName: string; isOwner: boolean }[]> {
+  if (!actor.agencyId || !can(actor, 'phone:read', { type: 'phone', agencyId: actor.agencyId })) throw new PhoneError('forbidden', 'You do not have access to the phone setup.');
+  const rows = await db.execute<{ id: string; e164: string; name: string; is_owner: boolean }>(sql`
+    select pn.id, pn.e164, coalesce(u.name, u.email) as name, (m.role = 'owner') as is_owner
+    from phone_number pn
+    join "user" u on u.id = pn.user_id
+    left join membership m on m.user_id = pn.user_id and m.agency_id = pn.agency_id and m.status = 'active'
+    where pn.agency_id = ${actor.agencyId} and pn.status = 'active'
+    order by (m.role = 'owner') desc nulls last, 3`);
+  return rows.map((r) => ({ id: r.id, display: displayAu(r.e164), agentName: r.name, isOwner: r.is_owner === true || (r.is_owner as unknown) === 't' }));
 }
 
 /**
@@ -153,7 +208,7 @@ export const OUTCOME_WORDS: Record<MissedCallOutcome, string> = {
   private: 'Not texted: private number',
   not_mobile: 'Not texted: not a mobile',
   opted_out: 'Not texted: they replied STOP',
-  repeat: 'Not texted: already texted today',
+  repeat: 'Not texted: already sent the most automatic texts for today',
   limit: 'Not texted: daily limit reached',
   text_failed: 'The text failed',
 };
@@ -163,17 +218,20 @@ export function decideMissedCallText(f: {
   skillOn: boolean;
   from: string | null;
   optedOut: boolean;
-  textedToday: boolean;
+  /** Rule 4: automatic texts (missed call + workflow) this caller already had from the agency in 24 h. */
+  autoTextsToday: number;
   agentTextsToday: number;
   agencyTextsToday: number;
-  limits: { perAgent: number; perAgency: number };
+  /** Rule 5: texts of every kind from this number in 24 h. */
+  numberTextsToday: number;
+  limits: { perAgent: number; perAgency: number; perCaller: number; perNumber: number };
 }): 'send' | Exclude<MissedCallOutcome, 'texted' | 'text_failed'> {
   if (!f.skillOn) return 'skill_off';
   if (!f.from) return 'private';
   if (!isAuMobile(f.from)) return 'not_mobile';
   if (f.optedOut) return 'opted_out';
-  if (f.textedToday) return 'repeat';
-  if (f.agentTextsToday >= f.limits.perAgent || f.agencyTextsToday >= f.limits.perAgency) return 'limit';
+  if (f.autoTextsToday >= f.limits.perCaller) return 'repeat';
+  if (f.agentTextsToday >= f.limits.perAgent || f.agencyTextsToday >= f.limits.perAgency || f.numberTextsToday >= f.limits.perNumber) return 'limit';
   return 'send';
 }
 
@@ -194,21 +252,21 @@ export async function recordMissedCall(db: Db, n: NumberRow, callSid: string, fr
   const skillOn = await isPairedSkillOn(db, n.agencyId, n.userId, n.role, 'missed_call_text');
   let decision: ReturnType<typeof decideMissedCallText> = 'skill_off';
   if (skillOn) {
-    const [[agentN], [agencyN], [repeat]] = await Promise.all([
+    const [[agentN], [agencyN], autoToday, numberToday] = await Promise.all([
       db.select({ n: count() }).from(smsMessage).where(and(eq(smsMessage.phoneNumberId, n.id), eq(smsMessage.kind, 'missed_call_text'), gt(smsMessage.createdAt, day))),
       db.select({ n: count() }).from(smsMessage).where(and(eq(smsMessage.agencyId, n.agencyId), eq(smsMessage.kind, 'missed_call_text'), gt(smsMessage.createdAt, day))),
-      from
-        ? db.select({ n: count() }).from(smsMessage).where(and(eq(smsMessage.phoneNumberId, n.id), eq(smsMessage.counterpart, from), eq(smsMessage.kind, 'missed_call_text'), gt(smsMessage.createdAt, day)))
-        : Promise.resolve([{ n: 0 }]),
+      from ? autoTextsToCallerToday(db, n.agencyId, from) : Promise.resolve(0),
+      textsFromNumberToday(db, n.id),
     ]);
     decision = decideMissedCallText({
       skillOn,
       from,
       optedOut: from ? await isOptedOut(db, n.agencyId, from) : false,
-      textedToday: (repeat?.n ?? 0) > 0,
+      autoTextsToday: autoToday,
       agentTextsToday: agentN?.n ?? 0,
       agencyTextsToday: agencyN?.n ?? 0,
-      limits: { perAgent: settings.textsPerAgentDay, perAgency: settings.textsPerAgencyDay },
+      numberTextsToday: numberToday,
+      limits: { perAgent: settings.textsPerAgentDay, perAgency: settings.textsPerAgencyDay, perCaller: settings.autoTextsPerCallerDay, perNumber: settings.textsPerNumberDay },
     });
   }
   const [ag] = await db.select({ name: agency.name, timeZone: agency.timeZone }).from(agency).where(eq(agency.id, n.agencyId)).limit(1);

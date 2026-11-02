@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import {
   getMissedCall,
+  agencyNumberChoices,
   getMissedCallSettings,
   listMissedCalls,
   missedCallSkillSummary,
@@ -89,8 +90,9 @@ export async function MissedCallsScreen({
   if (tab === 'settings') {
     let settings: Awaited<ReturnType<typeof getMissedCallSettings>>;
     let summary: Awaited<ReturnType<typeof missedCallSkillSummary>>;
+    let numbers: Awaited<ReturnType<typeof agencyNumberChoices>>;
     try {
-      [settings, summary] = await Promise.all([getMissedCallSettings(db, session.actor), missedCallSkillSummary(db, session.actor)]);
+      [settings, summary, numbers] = await Promise.all([getMissedCallSettings(db, session.actor), missedCallSkillSummary(db, session.actor), agencyNumberChoices(db, session.actor)]);
     } catch (err) {
       return <p role="alert">{err instanceof PhoneError ? err.message : 'Could not load the settings.'}</p>;
     }
@@ -117,7 +119,12 @@ export async function MissedCallsScreen({
             callingHours: settings.callingHours,
             aiCallsPerAgentDay: settings.aiCallsPerAgentDay,
             aiCallsPerAgencyDay: settings.aiCallsPerAgencyDay,
+            agencyNumberId: settings.agencyNumberId,
+            smsHours: settings.smsHours,
+            autoTextsPerCallerDay: settings.autoTextsPerCallerDay,
+            textsPerNumberDay: settings.textsPerNumberDay,
           }}
+          numbers={numbers}
           canManage={settings.canManage}
           agencyName={settings.agencyName}
         />

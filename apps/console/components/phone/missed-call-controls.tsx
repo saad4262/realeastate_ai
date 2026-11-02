@@ -48,6 +48,7 @@ const preview = (t: string, agencyName: string) =>
 /** The owner's missed-call settings: greeting, text, ceilings. Whether anything is sent is Skills'. */
 export function MissedCallSettingsForm({
   initial,
+  numbers,
   canManage,
   agencyName,
 }: {
@@ -60,7 +61,13 @@ export function MissedCallSettingsForm({
     callingHours: Hours;
     aiCallsPerAgentDay: number;
     aiCallsPerAgencyDay: number;
+    agencyNumberId: string | null;
+    smsHours: [number, number];
+    autoTextsPerCallerDay: number;
+    textsPerNumberDay: number;
   };
+  /** ADR 0074 part 2: the agency's numbers, for rule 1's agency number. */
+  numbers: { id: string; display: string; agentName: string; isOwner: boolean }[];
   canManage: boolean;
   agencyName: string;
 }) {
@@ -150,8 +157,50 @@ export function MissedCallSettingsForm({
         </section>
 
         <section className={styles.step}>
+          <h2 className={styles.stepTitle}>Texts to customers</h2>
+          <p className={styles.muted}>
+            For Bulk SMS, texts to matched buyers and workflow texts. Each goes from the contact’s own agent’s number; when that agent has no number,
+            or nobody is assigned, from the agency number below. Every text ends with “Reply STOP to opt out”.
+          </p>
+          <div className={styles.fields}>
+            <label className={styles.field}>
+              Agency number
+              <select className={styles.input} value={v.agencyNumberId ?? ''} onChange={(e) => set('agencyNumberId', e.target.value || null)}>
+                <option value="">The owner’s own number</option>
+                {numbers.map((n) => <option key={n.id} value={n.id}>{n.display} · {n.agentName}{n.isOwner ? ' (owner)' : ''}</option>)}
+              </select>
+            </label>
+            <label className={styles.field}>
+              Send texts from
+              <select className={styles.input} value={v.smsHours[0]} onChange={(e) => set('smsHours', [Number(e.target.value), Math.max(v.smsHours[1], Number(e.target.value) + 1)])}>
+                {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
+              </select>
+            </label>
+            <label className={styles.field}>
+              until
+              <select className={styles.input} value={v.smsHours[1]} onChange={(e) => set('smsHours', [v.smsHours[0], Number(e.target.value)])}>
+                {Array.from({ length: 24 }, (_, i) => i + 1).filter((h) => h > v.smsHours[0]).map((h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
+              </select>
+            </label>
+          </div>
+          <p className={styles.muted}>On the agency’s clock, every day. Texts approved outside these hours wait for the next morning. The instant missed-call text is not held back: the caller has just rung.</p>
+          {!numbers.length ? <p className={styles.muted}>No numbers yet — they come with Twilio (Connectors → Phone &amp; SMS).</p> : null}
+        </section>
+
+        <section className={styles.step}>
           <h2 className={styles.stepTitle}>Limits</h2>
-          <p className={styles.muted}>So a fault or a flood of calls can’t run up your Twilio bill. Always: one text per caller a day, and nobody who replied STOP.</p>
+          <p className={styles.muted}>So a fault or a flood of calls can’t run up your Twilio bill. Always: nobody who replied STOP.</p>
+          <div className={styles.fields}>
+            <label className={styles.field}>
+              Automatic texts per caller a day
+              <input className={styles.input} type="number" min={1} max={10} value={v.autoTextsPerCallerDay} onChange={(e) => set('autoTextsPerCallerDay', Number(e.target.value))} />
+            </label>
+            <label className={styles.field}>
+              Texts per number a day (every kind)
+              <input className={styles.input} type="number" min={1} max={1000} value={v.textsPerNumberDay} onChange={(e) => set('textsPerNumberDay', Number(e.target.value))} />
+            </label>
+          </div>
+          <p className={styles.muted}>Automatic texts are the missed-call text and workflow texts, counted together. Bulk SMS and texts to matched buyers are your own choice and are not counted there, but they count towards the number’s daily limit.</p>
           <div className={styles.fields}>
             <label className={styles.field}>
               Texts per agent a day

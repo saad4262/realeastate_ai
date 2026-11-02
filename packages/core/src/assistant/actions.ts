@@ -30,6 +30,8 @@ import { deliverTeamMessage, startTeamThread, TeamMessageError, type TeamMessage
 import { requireIntegrations } from '../integrations/accounts';
 import { approveBatch, cancelBatch, classifyRecipients, storePreparedBatch } from '../template-email/batches';
 import { sendBatch, type TemplateSendDeps } from '../template-email/send';
+import { approveSmsBatch, classifySmsRecipients, sendSmsBatch, storePreparedSmsBatch, type SmsSendDeps } from '../template-email/sms-batches';
+import { SMS_SKIP_REASON_LABELS } from '../phone/sms-rules';
 import { TemplateEmailError } from '../template-email/templates';
 import { checkEmailLimits, emailLimitsFromEnv, type TemplateLimits } from '../email/limits';
 import { createDashboard, DashboardError, updateDashboard } from '../dashboards';
@@ -203,6 +205,11 @@ export type FrozenArgs =
   | { tool: 'switch_skill'; skill: SkillKey; on: boolean; before: boolean }
   /** ADR 0078: the brief the AI found in an enquiry, saved to the contact — only ever on approval. */
   | SaveBriefArgs
+  /**
+   * ADR 0074 part 2: a workflow's "Send SMS" step. Prepared and approved WHEN IT RUNS, as the workflow's owner
+   * then (every SMS rule again), and texted after the commit — or at 9 am, outside the sending hours.
+   */
+  | { tool: 'send_template_sms'; templateId: string; contactIds: string[]; workflowName: string }
   /** ADR 0078: a workflow step that leaves a `save_buyer_brief` card for its owner; it changes nothing itself. */
   | { tool: 'propose_ai_brief'; leadId: string; workflowName: string };
 
@@ -353,6 +360,8 @@ async function assertStillConnected(db: DbOrTx, actor: Actor, providers: Integra
 type RunDeps = {
   sync?: SyncDeps | null;
   templateSend?: TemplateSendDeps | null;
+  /** ADR 0074 part 2: Twilio, for a workflow's text. Without it, the minute tick sends the approved batch. */
+  sms?: SmsSendDeps | null;
   /** For an appointment card's invitation (ADR 0032 §1). Falls back to templateSend's. */
   mail?: MailDeps | null;
   env?: NodeJS.ProcessEnv;
@@ -372,6 +381,8 @@ type Executed = {
   result: Record<string, unknown>;
   appointmentId?: string;
   batchId?: string;
+  /** ADR 0074 part 2: an approved SMS batch, texted after the commit. */
+  smsBatchId?: string;
   /** A member removal, run after the commit: it deletes calendar events and Zoom meetings over the network. */
   offboard?: { userId: string; choice: OffboardChoice };
   /** An invite whose email changed: its new link, emailed after the commit. */
@@ -425,6 +436,16 @@ async function execute(
     case 'save_buyer_brief':
       // ADR 0078: contact:update again (createBuyerRequirement), then the brief and the buyer role.
       return runSaveBuyerBrief(tx, actor, args);
+    case 'send_template_sms': {
+      // Every SMS rule as the owner now: consent, STOP, a mobile, a number to send from, the dev allowlist.
+      const c = await classifySmsRecipients(tx, actor, { templateId: args.templateId, contactIds: args.contactIds, workflowName: args.workflowName });
+      if (!c.recipients.some((r) => r.status === 'queued')) {
+        return { result: { texted: 0, skipped: c.recipients.length, ...(c.recipients[0]?.skipReason ? { reason: SMS_SKIP_REASON_LABELS[c.recipients[0].skipReason] } : {}) } };
+      }
+      const { id } = await storePreparedSmsBatch(tx, actor, c, now);
+      const { sendsAt } = await approveSmsBatch(tx, actor, id, now);
+      return { result: { smsBatchId: id, sendsAt: sendsAt.toISOString() }, smsBatchId: id };
+    }
     case 'propose_ai_brief': {
       // A card for the owner, never a change: what reaches the contact waits for their Approve.
       const out = await proposeBriefCard(tx, actor, { leadId: args.leadId, key: rowId, origin: 'workflow', workflowName: args.workflowName }, now);
@@ -884,6 +905,17 @@ async function afterCommit(db: Db, actor: Actor, row: RowT, ran: Extract<Ran, { 
   if (ran.appointmentId && args.tool === 'schedule_appointment' && args.sendInvitation) {
     const invitation = await inviteAfterBooking(db, row, ran.appointmentId, deps);
     const result = { ...ran.result, ...invitation };
+    await db.update(proposedAction).set({ result, updatedAt: sql`now()` }).where(eq(proposedAction.id, row.id));
+    return { outcome: 'done', result, sync };
+  }
+  if (ran.smsBatchId && deps.sms) {
+    // sendSmsBatch checks every rule again per person and holds outside the sending hours; the minute tick
+    // (resumeSmsBatches) carries on with whatever it left queued. Without deps the tick sends it alone.
+    const report = await sendSmsBatch(db, deps.sms, ran.smsBatchId).catch((err: unknown) => {
+      console.error('[assistant] workflow text failed', err instanceof Error ? err.message : err);
+      return null;
+    });
+    const result = { ...ran.result, ...(report ?? { sendError: 'Texting stopped part-way; Bulk SMS shows who was texted.' }) };
     await db.update(proposedAction).set({ result, updatedAt: sql`now()` }).where(eq(proposedAction.id, row.id));
     return { outcome: 'done', result, sync };
   }

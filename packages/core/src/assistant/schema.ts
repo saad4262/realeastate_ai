@@ -143,7 +143,8 @@ export const findAppointmentsInput = z
   })
   .strict();
 
-export const listTemplatesInput = z.object({}).strict();
+/** ADR 0074 part 2: `sms` lists the SMS templates (for a workflow's send_template_sms); email by default. */
+export const listTemplatesInput = z.object({ channel: z.enum(['email', 'sms']).optional() }).strict();
 
 /**
  * Search what was WRITTEN — notes, emails, enquiry messages (ADR 0031).
@@ -334,7 +335,7 @@ export const workflowConditionInput = z
   .strict();
 export const workflowActionInput = z
   .object({
-    type: z.enum(['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'send_template_email', 'draft_email', 'save_ai_brief', 'wait', 'wait_until']),
+    type: z.enum(['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'send_template_email', 'send_template_sms', 'draft_email', 'save_ai_brief', 'wait', 'wait_until']),
     text: z.string().trim().min(1).max(2000).optional(),
     in_days: z.number().int().min(0).max(60).optional(),
     mail_me: z.boolean().optional(),

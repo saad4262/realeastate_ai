@@ -6,7 +6,7 @@ import { getListingForEdit } from '@repo/core/listings';
 import { MAX_LISTING_PHOTOS, listingPhotos } from '@repo/core/media';
 import { BuyerMatchError, listingBuyers, matchingBuyerCounts } from '@repo/core/buyer-matching';
 import { listingFieldsUsed, listingSnapshotFor, listTemplates, mergeValuesFor, SKIP_REASON_LABELS } from '@repo/core/template-email';
-import { holderOf, isSkillOn, skillOffMessage } from '@repo/core/skill-switches';
+import { holderOf, isPairedSkillOn, isSkillOn, skillOffMessage } from '@repo/core/skill-switches';
 import contactStyles from '@/components/contacts/contacts.module.css';
 import { ListingForm } from '@/components/listing-form';
 import { ListingPhotosSkeleton } from '@/components/listing-form-skeleton';
@@ -106,11 +106,14 @@ async function MatchingBuyers({ actor, surface, listingId, live }: { actor: Acto
     if (err instanceof BuyerMatchError) return <p role="alert" className={styles.error}>{err.message}</p>;
     throw err;
   }
-  const [templates, mergeFor, listingValues, bulkEmailOn] = await Promise.all([
+  const [templates, mergeFor, listingValues, bulkEmailOn, smsTemplates, bulkSmsOn] = await Promise.all([
     listTemplates(db, actor).then((r) => r.templates.filter((t) => t.mayUse)).catch(() => []),
     mergeValuesFor(db, { agencyId: actor.agencyId as string, userId: actor.userId }),
     listingSnapshotFor(db, actor, listingId, []),
     isSkillOn(db, actor, 'bulk_email'),
+    // ADR 0074 part 2: "Text selected" — SMS templates, behind the pair skill Bulk SMS.
+    listTemplates(db, actor, { channel: 'sms' }).then((r) => r.templates.filter((t) => t.mayUse)).catch(() => []),
+    isPairedSkillOn(db, actor.agencyId as string, actor.userId, actor.membershipRole, 'bulk_sms'),
   ]);
   const names = mergeFor('');
   const owner = surface === 'agency';
@@ -150,6 +153,13 @@ async function MatchingBuyers({ actor, surface, listingId, live }: { actor: Acto
         listingLive={live}
         bulkEmailOn={bulkEmailOn}
         bulkEmailOffMessage={skillOffMessage('bulk_email', holderOf(actor.membershipRole))}
+        sms={{
+          templates: smsTemplates.map((t) => ({ id: t.id, name: t.name, subject: '', body: t.body, usesLink: listingFieldsUsed(t.body).includes('listing_link') })),
+          batchBase: owner ? '/bulk-sms' : '/my-bulk-sms',
+          templatesHref: owner ? '/bulk-sms/templates/new' : '/my-bulk-sms/templates/new',
+          on: bulkSmsOn,
+          offMessage: skillOffMessage('bulk_sms', holderOf(actor.membershipRole)),
+        }}
       />
       <p className={styles.note}>
         <span className={styles.glyph} aria-hidden>info</span>

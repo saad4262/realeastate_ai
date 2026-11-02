@@ -3,6 +3,7 @@ import { REMINDER_BATCH, runReminderTick, runZoomFailureAlerts, type ReminderDep
 import { runScheduledActions } from '../assistant/actions';
 import { runDealSync } from '../deals';
 import { refreshDueKyc, runDueAiCallbacks, type PhoneDeps, type VoiceAi } from '../phone';
+import { resumeSmsBatches } from '../template-email/sms-batches';
 import { deliverPlatformEmails, type PlatformMailDeps } from '../platform';
 import { runWorkflowTick, type WorkflowTickDeps } from '../workflows';
 import { runLeadUnderstanding, type LeadUnderstander } from '../leads/understand';
@@ -21,6 +22,7 @@ export const MINUTE_BATCH = {
   platformEmails: 100,
   aiCalls: 10,
   kycAccounts: 5,
+  smsBatches: 5,
 } as const;
 
 export type MinuteDeps = {
@@ -83,6 +85,12 @@ export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new
         const r = await runDueAiCallbacks(db, deps.voice, now(), MINUTE_BATCH.aiCalls);
         return { result: r, more: r.placed + r.skipped + r.failed >= MINUTE_BATCH.aiCalls };
       },
+    },
+    {
+      // ADR 0074 part 2: approved texts held for the sending hours (9 am) or left by a crash, carried on.
+      name: 'smsBatches',
+      mode: 'once',
+      run: async () => ({ result: await resumeSmsBatches(db, { phone: deps.phone }, MINUTE_BATCH.smsBatches, now), more: false }),
     },
     {
       name: 'platformEmails',

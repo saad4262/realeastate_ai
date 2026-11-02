@@ -554,6 +554,13 @@
       "when": 1793446168306,
       "tag": "0078_ai_understands",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1793613869610,
+      "tag": "0079_sms_part2",
+      "breakpoints": true
     }
   ]
 }

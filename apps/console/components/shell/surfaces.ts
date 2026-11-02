@@ -97,6 +97,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
         label: 'Marketing',
         items: [
           { href: '/bulk-email', label: 'Bulk email', icon: 'forward_to_inbox' },
+          { href: '/bulk-sms', label: 'Bulk SMS', icon: 'sms' },
           { href: '/marketing', label: 'Marketing & Reviews', icon: 'campaign' },
         ],
       },
@@ -156,6 +157,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
         label: 'Marketing',
         items: [
           { href: '/my-bulk-email', label: 'Bulk email', icon: 'forward_to_inbox' },
+          { href: '/my-bulk-sms', label: 'Bulk SMS', icon: 'sms' },
           { href: '/my-reviews', label: 'Agency reviews', icon: 'reviews' },
         ],
       },

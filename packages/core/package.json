@@ -67,6 +67,7 @@
     "./skills/schema": "./src/skills/skill-schema.ts",
     "./template-email": "./src/template-email/index.ts",
     "./template-email/schema": "./src/template-email/schema.ts",
+    "./template-email/sms": "./src/template-email/sms.ts",
     "./workflows": "./src/workflows/index.ts",
     "./workflows/catalog": "./src/workflows/catalog.ts",
     "./open-query": "./src/open-query/index.ts",

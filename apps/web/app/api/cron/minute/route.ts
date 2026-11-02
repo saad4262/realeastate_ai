@@ -39,6 +39,7 @@ async function handler(request: NextRequest) {
   try {
     const db = getWebDb();
     const send = templateSendDepsFromEnv();
+    const phone = phoneDepsFromEnv();
     const notice = noticeMailFromEnv();
     const jobs = minuteJobs(db, {
       // "AI decides" (ADR 0067): packages/ai's model; without a key every decision is "Not sure".
@@ -52,11 +53,13 @@ async function handler(request: NextRequest) {
         teamMeetings: teamMeetingDepsFromEnv(),
         // A workflow's email draft (ADR 0041 D1) is written by packages/ai — never sent by the workflow.
         draftWriter: workflowDraftWriterFromEnv(db),
+        // A workflow's "Send SMS" step (ADR 0074 part 2), texted after its commit.
+        sms: { phone },
       },
       reminders: { notice, mail: mailDepsFromEnv() },
       zoomAlerts: { notice },
       platformMail: notice ? notice.mailer : null,
-      phone: phoneDepsFromEnv(),
+      phone,
       voice: voiceFromEnv().voice,
     });
     const report = await runTick(jobs, { budgetMs: BUDGET_MS });

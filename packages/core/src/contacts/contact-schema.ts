@@ -57,6 +57,8 @@ export const ACTIVITY_KINDS = [
   'appointment_update_sent',
   'appointment_cancellation_sent',
   'template_email_sent',
+  // ADR 0074 part 2: an SMS template texted to them (Bulk SMS, matched buyers, a workflow).
+  'template_sms_sent',
   // ADR 0035: a new email written to them (by a person, or approved on an assistant card).
   'email_sent',
   'contact_opted_out',
@@ -121,6 +123,7 @@ export const ACTIVITY_LABELS: Record<ActivityKind, string> = {
   appointment_update_sent: 'New appointment details emailed',
   appointment_cancellation_sent: 'Cancellation emailed',
   template_email_sent: 'Template email sent',
+  template_sms_sent: 'Template text sent',
   email_sent: 'Email sent',
   contact_opted_out: 'Unsubscribed from marketing email',
   assistant_proposed: 'Assistant suggested a change',

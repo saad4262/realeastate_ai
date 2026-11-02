@@ -159,6 +159,12 @@ function actionsFrom(ctx: Pick<ToolContext, 'handles'>, list: z.infer<typeof cre
         built = { type: a.type, template_id: id };
         break;
       }
+      case 'send_template_sms': {
+        const id = a.template ? resolveHandle(ctx.handles, a.template, 'template') : null;
+        if (!id) return { problem: `${where}action ${i + 1} (send_template_sms) needs template: a T reference from list_templates with channel "sms"` };
+        built = { type: a.type, template_id: id };
+        break;
+      }
       case 'draft_email':
         if (need('instructions')) return { problem: need('instructions')! };
         built = { type: a.type, instructions: a.instructions };
@@ -223,6 +229,9 @@ export async function proposeCreateWorkflow(ctx: ToolContext, input: z.infer<typ
       ...(spec.decide ? ['The AI only picks one of these; it never writes a step or sends anything. When it is not sure — or AI decisions are off in Skills — the “Not sure” steps run. The run’s log says which and why.'] : []),
       ...(every.some((a: WorkflowAction) => a.type === 'send_template_email')
         ? ['A template goes only to people who may receive it at that moment — consent (recorded, or an enquiry or client role), unsubscribes and today’s limits are checked each time.']
+        : []),
+      ...(every.some((a: WorkflowAction) => a.type === 'send_template_sms')
+        ? ['A text goes from the contact’s agent’s number (else the agency number), 9 am to 8 pm, only to people who may get marketing and never anyone who replied STOP; at most 3 automatic texts to one person a day. It needs “Workflow texts” on in Skills for the agency and that agent.']
         : []),
       ...(waits ? ['An email the AI writes is a DRAFT: it waits for your one click in “Waiting for you”, and is never sent by the workflow.'] : []),
       ...(every.some((a) => REACHES_CONTACT.includes(a.type)) ? [] : ['Nothing in it reaches a contact.']),

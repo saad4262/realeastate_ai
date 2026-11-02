@@ -83,7 +83,8 @@ export type SendReport = { sent: number; failed: number; skipped: number };
 export async function sendBatch(db: Db, deps: TemplateSendDeps, batchId: string): Promise<SendReport> {
   const report: SendReport = { sent: 0, failed: 0, skipped: 0 };
   const [batch] = await db.select().from(emailBatch).where(eq(emailBatch.id, batchId)).limit(1);
-  if (!batch || batch.status !== 'approved_sending') return report;
+  // An SMS batch (ADR 0074 part 2) is never sent as email: sendSmsBatch is its sender.
+  if (!batch || batch.channel !== 'email' || batch.status !== 'approved_sending') return report;
   const tpl = batch.templateSnapshot as TemplateSnapshot;
   const values = await mergeValuesFor(db, batch);
   const allowed = devAllowlist(deps.env ?? process.env);
@@ -217,17 +218,20 @@ export async function sendBatch(db: Db, deps: TemplateSendDeps, batchId: string)
 
 /**
  * Recipients stuck mid-send (a crash between claim and outcome) for over ten
- * minutes: the message's own status decides. Sent → sent. Anything else →
- * failed, with a note, so a person looks before retrying.
+ * minutes: the message's own status decides. Sent → sent (a text: Twilio took
+ * it, so it has its SID). Anything else → failed, with a note, so a person
+ * looks before retrying.
  */
 export async function recoverStuckRecipients(db: Db): Promise<number> {
   const rows = await db.execute<{ id: string }>(sql`
     update email_batch_recipient r set
-      status = case when m.status = 'sent' then 'sent'::email_recipient_status else 'failed'::email_recipient_status end,
-      error = case when m.status = 'sent' then null else 'Interrupted while sending — check the conversation before retrying' end,
-      sent_at = case when m.status = 'sent' then coalesce(r.sent_at, now()) else r.sent_at end,
+      status = case when m.done then 'sent'::email_recipient_status else 'failed'::email_recipient_status end,
+      error = case when m.done then null else 'Interrupted while sending — check the conversation before retrying' end,
+      sent_at = case when m.done then coalesce(r.sent_at, now()) else r.sent_at end,
       updated_at = now()
-    from (select r2.id, mm.status from email_batch_recipient r2 left join mail_message mm on mm.id = r2.mail_message_id
+    from (select r2.id, (mm.status = 'sent' or sm.provider_sid is not null) is true as done from email_batch_recipient r2
+          left join mail_message mm on mm.id = r2.mail_message_id
+          left join sms_message sm on sm.id = r2.sms_message_id
           where r2.status = 'sending' and r2.updated_at < now() - interval '10 minutes') m
     where r.id = m.id
     returning r.id
@@ -242,6 +246,7 @@ export async function resumeSendingBatches(db: Db, deps: TemplateSendDeps): Prom
     .from(emailBatch)
     .where(
       and(
+        eq(emailBatch.channel, 'email'),
         eq(emailBatch.status, 'approved_sending'),
         lt(emailBatch.approvedAt, sql`now() - interval '2 minutes'`),
         sql`exists (select 1 from email_batch_recipient r where r.batch_id = ${emailBatch.id} and r.status = 'queued')`,

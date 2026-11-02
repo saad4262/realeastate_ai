@@ -4,9 +4,11 @@ import Link from 'next/link';
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { renderMerge, type MergeValues, type SkipReason } from '@repo/core/template-email/schema';
+import { smsParts, withStopFooter } from '@repo/core/template-email/sms';
 import { useToast } from '@/components/toast';
 import { remindToCallBuyersAction } from '@/lib/buyer-actions';
 import { prepareListingBatchAction } from '@/lib/template-email-actions';
+import { prepareListingSmsAction } from '@/lib/sms-batch-actions';
 import styles from './matching-buyers.module.css';
 
 export type PickerBuyer = {
@@ -20,6 +22,8 @@ export type PickerBuyer = {
   skipLabel: string | null;
 };
 export type PickerTemplate = { id: string; name: string; subject: string; body: string; usesLink: boolean };
+/** ADR 0074 part 2: "Text selected" — the SMS side of the same picker. */
+export type PickerSms = { templates: PickerTemplate[]; batchBase: string; templatesHref: string; on: boolean; offMessage: string };
 
 const SHORT: Partial<Record<SkipReason, string>> = { no_consent: 'No marketing consent', opted_out: 'Unsubscribed', no_email: 'No email address' };
 
@@ -39,6 +43,7 @@ export function BuyerPicker({
   listingLive,
   bulkEmailOn,
   bulkEmailOffMessage,
+  sms,
 }: {
   listingId: string;
   contactBase: string;
@@ -51,14 +56,25 @@ export function BuyerPicker({
   listingLive: boolean;
   bulkEmailOn: boolean;
   bulkEmailOffMessage: string;
+  sms: PickerSms;
 }) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
-  const [open, setOpen] = useState(false);
-  const usable = templates.filter((t) => listingLive || !t.usesLink);
+  const [open, setOpenState] = useState(false);
+  const [channel, setChannel] = useState<'email' | 'sms'>('email');
+  const list = channel === 'sms' ? sms.templates : templates;
+  const usable = list.filter((t) => listingLive || !t.usesLink);
   const [templateId, setTemplateId] = useState(usable[0]?.id ?? '');
+  const setOpen = (v: boolean, to: 'email' | 'sms' = channel) => {
+    if (v) {
+      setChannel(to);
+      const first = (to === 'sms' ? sms.templates : templates).find((t) => listingLive || !t.usesLink);
+      setTemplateId(first?.id ?? '');
+    }
+    setOpenState(v);
+  };
   const [error, setError] = useState<string | null>(null);
 
   const emailable = buyers.filter((b) => !b.skipReason);
@@ -71,13 +87,13 @@ export function BuyerPicker({
       return n;
     });
 
-  const tpl = templates.find((t) => t.id === templateId) ?? null;
+  const tpl = list.find((t) => t.id === templateId) ?? null;
   const preview = useMemo(() => {
     const first = chosen[0];
     if (!tpl || !first) return null;
     const v: MergeValues = { ...merge, first_name: first.name.trim().split(/\s+/)[0] || first.name, full_name: first.name };
-    return { subject: renderMerge(tpl.subject, v), body: renderMerge(tpl.body, v) };
-  }, [tpl, chosen, merge]);
+    return channel === 'sms' ? { subject: '', body: withStopFooter(renderMerge(tpl.body, v)) } : { subject: renderMerge(tpl.subject, v), body: renderMerge(tpl.body, v) };
+  }, [tpl, chosen, merge, channel]);
 
   const remind = () =>
     startTransition(async () => {
@@ -97,12 +113,12 @@ export function BuyerPicker({
   const prepare = () =>
     startTransition(async () => {
       setError(null);
-      const r = await prepareListingBatchAction(listingId, templateId, [...picked]);
+      const r = channel === 'sms' ? await prepareListingSmsAction(listingId, templateId, [...picked]) : await prepareListingBatchAction(listingId, templateId, [...picked]);
       if (!r.ok || !r.id) {
-        setError(r.ok ? 'Could not prepare the email' : r.error);
+        setError(r.ok ? `Could not prepare the ${channel === 'sms' ? 'texts' : 'email'}` : r.error);
         return;
       }
-      router.push(`${batchBase}/${r.id}`);
+      router.push(`${channel === 'sms' ? sms.batchBase : batchBase}/${r.id}`);
     });
 
   return (
@@ -124,10 +140,22 @@ export function BuyerPicker({
             title={bulkEmailOn ? undefined : bulkEmailOffMessage}
             onClick={() => {
               setError(null);
-              setOpen(true);
+              setOpen(true, 'email');
             }}
           >
             <span className={styles.glyphSm} aria-hidden>forward_to_inbox</span>Email selected{picked.size ? ` (${picked.size})` : ''}
+          </button>
+          <button
+            type="button"
+            className={styles.btn}
+            disabled={!picked.size || pending || !sms.on}
+            title={sms.on ? undefined : sms.offMessage}
+            onClick={() => {
+              setError(null);
+              setOpen(true, 'sms');
+            }}
+          >
+            <span className={styles.glyphSm} aria-hidden>sms</span>Text selected{picked.size ? ` (${picked.size})` : ''}
           </button>
         </div>
         {buyers.length === 0 ? (
@@ -207,7 +235,7 @@ export function BuyerPicker({
         >
           <div className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="buyers-email-title">
             <div className={styles.dHead}>
-              <h2 id="buyers-email-title">Email {chosen.length} buyer{chosen.length === 1 ? '' : 's'} about this listing</h2>
+              <h2 id="buyers-email-title">{channel === 'sms' ? 'Text' : 'Email'} {chosen.length} buyer{chosen.length === 1 ? '' : 's'} about this listing</h2>
               <button type="button" className={styles.btn} aria-label="Close" disabled={pending} onClick={() => setOpen(false)}>
                 <span className={styles.glyphSm} aria-hidden>close</span>
               </button>
@@ -215,15 +243,15 @@ export function BuyerPicker({
             <div className={styles.dBody}>
               {usable.length === 0 ? (
                 <p className={styles.empty} style={{ padding: 0 }}>
-                  You have no template you can send{templates.length ? ' while this listing is not live (yours link to its public ad)' : ''}.{' '}
-                  <Link href={templatesHref}>Write one</Link> — it may use {'{{listing_address}}'}, {'{{listing_price}}'} and {'{{listing_link}}'}.
+                  You have no {channel === 'sms' ? 'SMS ' : ''}template you can send{list.length ? ' while this listing is not live (yours link to its public ad)' : ''}.{' '}
+                  <Link href={channel === 'sms' ? sms.templatesHref : templatesHref}>Write one</Link> — it may use {'{{listing_address}}'}, {'{{listing_price}}'} and {'{{listing_link}}'}.
                 </p>
               ) : (
                 <>
                   <label className={styles.field}>
                     Template
                     <select className={styles.select} value={templateId} onChange={(e) => setTemplateId(e.target.value)} autoFocus>
-                      {templates.map((t) => (
+                      {list.map((t) => (
                         <option key={t.id} value={t.id} disabled={t.usesLink && !listingLive}>
                           {t.name}
                           {t.usesLink && !listingLive ? ' — links to the ad; listing not live' : ''}
@@ -233,20 +261,25 @@ export function BuyerPicker({
                   </label>
                   {preview ? (
                     <div className={styles.preview}>
-                      <div className={styles.previewSubject}>{preview.subject}</div>
+                      {preview.subject ? <div className={styles.previewSubject}>{preview.subject}</div> : null}
                       {preview.body}
-                      <div className={styles.sub}>Preview for {chosen[0]!.name}. Each person sees their own name.</div>
+                      <div className={styles.sub}>
+                        Preview for {chosen[0]!.name}. Each person sees their own name.
+                        {channel === 'sms' ? ` ${smsParts(preview.body).parts} text${smsParts(preview.body).parts === 1 ? '' : 's'} each; the STOP line is always added.` : ''}
+                      </div>
                     </div>
                   ) : null}
                   <div className={styles.who}>
                     {chosen.map((b) => (
                       <div key={b.contactId} className={styles.whoRow}>
                         <span>{b.name}</span>
-                        <span className={`${styles.pill} ${styles.pillOk}`}>Can be emailed</span>
+                        <span className={`${styles.pill} ${styles.pillOk}`}>{channel === 'sms' ? 'Checked on the next screen' : 'Can be emailed'}</span>
                       </div>
                     ))}
                     <div className={styles.sub}>
-                      Checked again when you prepare and at the moment of sending. At most 20 per batch; nothing is sent until you press Approve &amp; Send.
+                      {channel === 'sms'
+                        ? 'A text needs an Australian mobile, consent and nobody who replied STOP; it goes from each buyer’s agent’s number, 9 am to 8 pm. The next screen shows who is texted, from which number, and anyone skipped with why. At most 20 per batch; nothing is sent until you press Approve & Send.'
+                        : 'Checked again when you prepare and at the moment of sending. At most 20 per batch; nothing is sent until you press Approve & Send.'}
                     </div>
                   </div>
                 </>

@@ -220,6 +220,10 @@ import {
   prepareBatch as prepareEmailBatch,
   saveContactFilter,
   sendBatch as sendEmailBatch,
+  approveSmsBatch,
+  prepareSmsBatch,
+  sendSmsBatch,
+  TemplateEmailError,
   type TemplateSendDeps,
 } from '@repo/core/template-email';
 import { verifyContactUnsubscribeToken } from '@repo/core/email';
@@ -7547,6 +7551,113 @@ async function main() {
       assert((await count(t, sql`select count(*)::int as n from notification where user_id = ${f.people.a1} and kind = 'ai_call'`)) === 1, 'agent not told once');
       assert((await count(t, sql`select count(*)::int as n from ai_run where entity_id = ${placed.id} and feature = 'ai_callback' and cost_usd = 0.42`)) === 1, 'cost not metered once');
       return 'not ready → not_ready; agent can’t set up; owner: trunk (password encrypted) + 1 number; agent switch off → skill_off; both → scheduled → placed; texted back → replied; foreign id 404, wrong metadata 403; ended + analysed → done, high, 192 s, summary once on P6 as a labelled note, bell once, $0.42 metered';
+    }),
+  );
+
+  // ── ADR 0074 part 2: SMS everywhere — the five rules (needs migration 0079) ─────────────────────
+  group('SMS everywhere (ADR 0074)');
+
+  await check('Bulk SMS: prepare (who, from which number, why skipped) → approve once → texted with STOP → held after 8 pm → 100 a number → 3 automatic a caller → the pair skill → never as email, never another agency (stub Twilio)', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const a1 = f.actor('a1');
+      const deps: PhoneDeps = { keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test' };
+      const env = { NODE_ENV: 'development', PHONE_STUB: '1' } as NodeJS.ProcessEnv;
+      await connectTwilio(t, owner, { accountSid: 'ACsmoke', apiKeySid: 'SKsmoke', apiKeySecret: 'secret-smoke' }, deps);
+      const nA1 = await getNumberForAgent(t, owner, f.people.a1, deps);
+      const nOwner = await getNumberForAgent(t, owner, f.people.owner, deps);
+      const { p1, p2, p3, p5, p6 } = f.contacts;
+      // P1 A1's, P2 A2's (no number → the agency number, the owner's), P3 replied STOP, P5 no consent, P6 a landline.
+      await t.execute(sql`update contact set assigned_to = ${f.people.a1}, phone = '0412 555 001' where id = ${p1}`);
+      await t.execute(sql`update contact set assigned_to = ${f.people.a2}, phone = '0412 555 002' where id = ${p2}`);
+      await t.execute(sql`update contact set phone = '0412 555 003' where id = ${p3}`);
+      await t.execute(sql`update contact set phone = '0412 555 005' where id = ${p5}`);
+      await t.execute(sql`update contact set phone = '03 9555 1234', marketing_consent_at = now() where id = ${p6}`);
+      await t.execute(sql`insert into sms_opt_out (agency_id, e164) values (${f.agencyId}, '+61412555003')`);
+
+      const sms = await createEmailTemplate(t, owner, { channel: 'sms', name: 'New listing (SMS)', body: 'Hi {{first_name}}, a new listing near you. {{agent_name}}' });
+      const email = await createEmailTemplate(t, owner, { name: 'New listing', subject: 'New', body: 'Hi {{first_name}}' });
+      const all = [p1, p2, p3, p5, p6];
+
+      // The channels never cross: an email template is not texted, an SMS template is not emailed.
+      const crossed = await prepareSmsBatch(t, owner, { templateId: email.id, contactIds: all }, new Date(), env).catch((e: unknown) => e);
+      assert(crossed instanceof TemplateEmailError && crossed.code === 'not_approved', 'an email template was texted');
+      const crossed2 = await prepareEmailBatch(t, owner, { templateId: sms.id, contactIds: all }, { perBatch: 20, perAgentDay: 100, perAgencyDay: 500, sendDelayMs: 0 } as never).catch((e: unknown) => e);
+      assert(crossed2 instanceof TemplateEmailError, 'an SMS template was emailed');
+
+      // Prepare: who, from which number, and why anyone is skipped.
+      const { id } = await prepareSmsBatch(t, owner, { templateId: sms.id, contactIds: all }, new Date(), env);
+      const rows = await t.execute<{ contact_id: string; status: string; skip_reason: string | null; phone: string | null; phone_number_id: string | null }>(sql`
+        select contact_id, status, skip_reason, phone, phone_number_id from email_batch_recipient where batch_id = ${id}`);
+      const by = (c: string) => rows.find((r) => r.contact_id === c);
+      assert(by(p1)?.status === 'queued' && by(p1)?.phone_number_id === nA1.id && by(p1)?.phone === '+61412555001', `P1: ${JSON.stringify(by(p1))}`);
+      assert(by(p2)?.status === 'queued' && by(p2)?.phone_number_id === nOwner.id, `P2 not from the agency number: ${JSON.stringify(by(p2))}`);
+      assert(by(p3)?.skip_reason === 'sms_opted_out', `P3: ${JSON.stringify(by(p3))}`);
+      assert(by(p5)?.skip_reason === 'no_consent', `P5: ${JSON.stringify(by(p5))}`);
+      assert(by(p6)?.skip_reason === 'no_mobile', `P6: ${JSON.stringify(by(p6))}`);
+
+      // Never on an email screen; never another agency's.
+      assert(!(await listEmailBatches(t, owner)).some((b) => b.id === id), 'the SMS batch is on the Bulk email list');
+      assert((await getEmailBatch(t, owner, id).catch((e: unknown) => e)) instanceof TemplateEmailError, 'the SMS batch opened as an email batch');
+      const g = await contactFixture(t);
+      assert((await getEmailBatch(t, g.actor('owner'), id, new Date(), { channel: 'sms' }).catch((e: unknown) => e)) instanceof TemplateEmailError, 'another agency opened the texts');
+      assert((await approveSmsBatch(t, g.actor('owner'), id).catch((e: unknown) => e)) instanceof TemplateEmailError, 'another agency approved the texts');
+      assert((await approveEmailBatch(t, owner, id, { perBatch: 20, perAgentDay: 100, perAgencyDay: 500, sendDelayMs: 0 } as never).catch((e: unknown) => e)) instanceof TemplateEmailError, 'approved as an email batch');
+
+      // Approve once, as its author only; then texted inside the hours, with the STOP line, from the right numbers.
+      assert((await approveSmsBatch(t, a1, id).catch((e: unknown) => e)) instanceof TemplateEmailError, 'A1 approved the owner’s texts');
+      const noon = new Date('2026-11-03T01:00:00Z'); // 12:00 in Sydney
+      assert((await approveSmsBatch(t, owner, id, noon)).result === 'approved', 'not approved');
+      assert((await approveSmsBatch(t, owner, id, noon)).result === 'already', 'approved twice');
+      const sent = await sendSmsBatch(t, { phone: deps, env }, id, () => noon);
+      assert(sent.sent === 2 && sent.skipped === 0 && !sent.held, `sent: ${JSON.stringify(sent)}`);
+      const texts = await t.execute<{ counterpart: string; phone_number_id: string; body: string; kind: string; status: string }>(sql`
+        select counterpart, phone_number_id, body, kind, status from sms_message where agency_id = ${f.agencyId} and direction = 'out' order by counterpart`);
+      assert(texts.length === 2 && texts.every((x) => x.kind === 'bulk_sms' && x.status === 'sent' && x.body.endsWith('\nReply STOP to opt out')), `texts: ${JSON.stringify(texts)}`);
+      assert(texts[0]!.body.startsWith('Hi P1, a new listing near you.') && texts[0]!.phone_number_id === nA1.id, `P1's text: ${JSON.stringify(texts[0])}`);
+      assert((await count(t, sql`select count(*)::int as n from activity where agency_id = ${f.agencyId} and kind = 'template_sms_sent'`)) === 2, 'not on the timelines');
+      assert((await sendSmsBatch(t, { phone: deps, env }, id, () => noon)).sent === 0, 'a second send texted again');
+
+      // Rule 3: approved at 11 pm, nothing goes; the people stay queued for the morning.
+      const late = new Date('2026-11-03T12:00:00Z'); // 23:00 in Sydney
+      const second = await prepareSmsBatch(t, owner, { templateId: sms.id, contactIds: [p1] }, late, env);
+      await approveSmsBatch(t, owner, second.id, late);
+      const held = await sendSmsBatch(t, { phone: deps, env }, second.id, () => late);
+      assert(held.held && held.sent === 0, `held: ${JSON.stringify(held)}`);
+      assert((await count(t, sql`select count(*)::int as n from email_batch_recipient where batch_id = ${second.id} and status = 'queued'`)) === 1, 'not left queued');
+
+      // Rule 5: one text a number a day here — A1's number has sent one, so P1 is skipped at the moment of sending.
+      await t.execute(sql`insert into missed_call_setting (agency_id, greeting, sms_template, texts_per_agent_day, texts_per_agency_day, texts_per_number_day)
+        values (${f.agencyId}, 'Sorry, we missed you.', 'Hi {{first_name}}, sorry we missed you.', 50, 300, 1)`);
+      await sendSmsBatch(t, { phone: deps, env }, second.id, () => noon);
+      const [cap] = await t.execute<{ skip_reason: string | null }>(sql`select skip_reason from email_batch_recipient where batch_id = ${second.id}`);
+      assert(cap?.skip_reason === 'daily_limit', `rule 5: ${cap?.skip_reason}`);
+      await t.execute(sql`update missed_call_setting set texts_per_number_day = 100 where agency_id = ${f.agencyId}`);
+
+      // Rule 4: a workflow text to P2 after 3 automatic texts today is skipped; and only with "Workflow texts" on.
+      for (let i = 0; i < 3; i++) {
+        await t.execute(sql`insert into sms_message (agency_id, phone_number_id, counterpart, direction, body, status, kind)
+          values (${f.agencyId}, ${nOwner.id}, '+61412555002', 'out', 'x', 'sent', 'missed_call_text')`);
+      }
+      const auto = await prepareSmsBatch(t, owner, { templateId: sms.id, contactIds: [p2], workflowName: 'Smoke' }, noon, env);
+      await approveSmsBatch(t, owner, auto.id, noon);
+      await sendSmsBatch(t, { phone: deps, env }, auto.id, () => noon);
+      const [four] = await t.execute<{ skip_reason: string | null }>(sql`select skip_reason from email_batch_recipient where batch_id = ${auto.id}`);
+      assert(four?.skip_reason === 'auto_limit', `rule 4: ${four?.skip_reason}`);
+      await t.execute(sql`delete from sms_message where counterpart = '+61412555002' and kind = 'missed_call_text' and agency_id = ${f.agencyId}`);
+      await t.execute(sql`delete from skill_switch where agency_id = ${f.agencyId} and skill_key = 'workflow_texts'`);
+      const off = await prepareSmsBatch(t, owner, { templateId: sms.id, contactIds: [p2], workflowName: 'Smoke' }, noon, env);
+      await approveSmsBatch(t, owner, off.id, noon);
+      await sendSmsBatch(t, { phone: deps, env }, off.id, () => noon);
+      const [offRow] = await t.execute<{ skip_reason: string | null }>(sql`select skip_reason from email_batch_recipient where batch_id = ${off.id}`);
+      assert(offRow?.skip_reason === 'skill_off', `pair skill: ${offRow?.skip_reason}`);
+
+      // Outside production with a REAL key, nobody off the allowlist is texted.
+      const real = await prepareSmsBatch(t, owner, { templateId: sms.id, contactIds: [p1] }, noon, { NODE_ENV: 'development' } as NodeJS.ProcessEnv);
+      const [dev] = await t.execute<{ skip_reason: string | null }>(sql`select skip_reason from email_batch_recipient where batch_id = ${real.id}`);
+      assert(dev?.skip_reason === 'dev_allowlist', `dev allowlist: ${dev?.skip_reason}`);
+      return '2 texted, 3 skipped with the reason, held at 11 pm, rules 4 and 5 and the pair skill hold, channels never cross';
     }),
   );
 

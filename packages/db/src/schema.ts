@@ -2083,6 +2083,11 @@ export const emailBatch = pgTable(
      */
     listingId: uuid('listing_id').references(() => listing.id, { onDelete: 'set null' }),
     listingSnapshot: jsonb('listing_snapshot'),
+    /**
+     * ADR 0074 part 2: `email` or `sms` (CHECK). Every email path asks for `email`, so an SMS batch is never
+     * sent as an email; an SMS batch's recipients carry the number and the number it goes from.
+     */
+    channel: varchar('channel', { length: 8 }).notNull().default('email'),
     status: emailBatchStatusEnum('status').notNull().default('prepared'),
     preparedAt: timestamp('prepared_at', { withTimezone: true }).notNull().defaultNow(),
     /** prepared_at + 48 h. Past it, the batch cannot be approved. */
@@ -2126,6 +2131,10 @@ export const emailBatchRecipient = pgTable(
     skippedAtSend: boolean('skipped_at_send').notNull().default(false),
     threadId: uuid('thread_id').references(() => mailThread.id, { onDelete: 'set null' }),
     mailMessageId: uuid('mail_message_id').references(() => mailMessage.id, { onDelete: 'set null' }),
+    /** ADR 0074 part 2, an SMS batch: the mobile (E.164) frozen at Prepare, the number it goes from, and the text. */
+    phone: varchar('phone', { length: 20 }),
+    phoneNumberId: uuid('phone_number_id').references((): AnyPgColumn => phoneNumber.id, { onDelete: 'set null' }),
+    smsMessageId: uuid('sms_message_id').references((): AnyPgColumn => smsMessage.id, { onDelete: 'set null' }),
     attempts: integer('attempts').notNull().default(0),
     error: text('error'),
     sentAt: timestamp('sent_at', { withTimezone: true }),
@@ -2800,6 +2809,16 @@ export const missedCallSetting = pgTable('missed_call_setting', {
   callingHours: jsonb('calling_hours').notNull().default(sql`'{"weekdays":[8,20],"saturday":[9,17],"sunday":null}'::jsonb`),
   aiCallsPerAgentDay: integer('ai_calls_per_agent_day').notNull().default(20),
   aiCallsPerAgencyDay: integer('ai_calls_per_agency_day').notNull().default(100),
+  /**
+   * ADR 0074 part 2 (the user's answers, 2026-11-02). The number a text goes from when the contact's agent has
+   * none (one of the agency's own; null = the owner's). Marketing and workflow texts only inside `sms_hours`
+   * ([from, to) in the agency's time zone). At most `auto_texts_per_caller_day` automatic texts (missed call +
+   * workflow) to one number in 24 h, and `texts_per_number_day` texts of every kind from one number.
+   */
+  agencyNumberId: uuid('agency_number_id').references((): AnyPgColumn => phoneNumber.id, { onDelete: 'set null' }),
+  smsHours: jsonb('sms_hours').notNull().default(sql`'[9,20]'::jsonb`),
+  autoTextsPerCallerDay: integer('auto_texts_per_caller_day').notNull().default(3),
+  textsPerNumberDay: integer('texts_per_number_day').notNull().default(100),
   updatedBy: uuid('updated_by').references(() => user.id, { onDelete: 'set null' }),
   ...timestamps,
 });

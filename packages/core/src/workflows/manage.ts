@@ -45,7 +45,9 @@ export async function checkWorkflow(db: DbOrTx, actor: Actor, scope: WorkflowSco
   if (problem) return { problem };
   const members = new Set<string>();
   const templates = new Set<string>();
+  const smsTemplates = new Set<string>();
   for (const a of allActions(spec)) {
+    if (a.type === 'send_template_sms') smsTemplates.add(a.template_id);
     if (a.type === 'assign_lead' || a.type === 'assign_contact') members.add(a.to);
     if (a.type === 'message_colleagues') a.to.forEach((m) => members.add(m));
     if (a.type === 'send_template_email') templates.add(a.template_id);
@@ -74,6 +76,13 @@ export async function checkWorkflow(db: DbOrTx, actor: Actor, scope: WorkflowSco
     // ADR 0043: a template the OWNER may send — the agency's, or their own.
     if (rows.length !== templates.size) return { problem: 'A template the workflow sends is not one its owner may send (the agency’s, or their own)' };
   }
+  if (smsTemplates.size) {
+    const rows = await db
+      .select({ id: emailTemplate.id })
+      .from(emailTemplate)
+      .where(and(usableTemplateSql(actor, 'sms'), inArray(emailTemplate.id, [...smsTemplates])));
+    if (rows.length !== smsTemplates.size) return { problem: 'An SMS template the workflow sends is not one its owner may send (the agency’s, or their own)' };
+  }
   return { spec };
 }
 
@@ -90,7 +99,7 @@ export async function namesFor(db: DbOrTx, agencyId: string, spec: WorkflowSpec)
     if (c.field === 'assignee') c.values.forEach((m) => ids.add(m));
     if (c.field === 'listing') c.values.forEach((l) => listings.add(l));
   }
-  const tpl = allActions(spec).flatMap((a) => (a.type === 'send_template_email' ? [a.template_id] : []));
+  const tpl = allActions(spec).flatMap((a) => (a.type === 'send_template_email' || a.type === 'send_template_sms' ? [a.template_id] : []));
   const out: Record<string, string> = {};
   if (ids.size) for (const r of await db.select({ id: user.id, name: user.name, email: user.email }).from(user).where(inArray(user.id, [...ids]))) out[r.id] = r.name || r.email;
   if (listings.size) {

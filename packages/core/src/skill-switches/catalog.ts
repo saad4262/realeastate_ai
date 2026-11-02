@@ -30,6 +30,8 @@ export const SKILL_KEYS = [
   'team_management',
   'missed_call_text',
   'ai_callback',
+  'bulk_sms',
+  'workflow_texts',
 ] as const;
 
 export type SkillKey = (typeof SKILL_KEYS)[number];
@@ -85,8 +87,10 @@ export const PLATFORM_SKILLS: readonly PlatformSkill[] = Object.freeze([
   { key: 'knowledge_answers', group: 'Knowledge & team', icon: 'menu_book', name: 'Answers from documents', description: "The assistant answers from the agency's procedures and the documents on contacts and listings, and says which one.", scope: 'both', level: 'auto' },
   { key: 'team_meetings', group: 'Knowledge & team', icon: 'video_call', name: 'Team meetings', description: 'Book a meeting with colleagues by asking, with a Zoom link.', scope: 'both', level: 'approval', needs: 'Zoom' },
   { key: 'team_management', group: 'Knowledge & team', icon: 'manage_accounts', name: 'Team management by the assistant', description: 'Invite, change or remove an agent by asking. The Team page works either way.', scope: 'agency', level: 'approval' },
-  { key: 'missed_call_text', group: 'Phone & SMS', icon: 'sms', name: 'Missed call text', description: "A caller an agent missed gets the agency's approved text from that agent's number straight away. Once per caller a day; never anyone who replied STOP.", scope: 'both', level: 'auto', needs: 'Twilio', pair: true },
+  { key: 'missed_call_text', group: 'Phone & SMS', icon: 'sms', name: 'Missed call text', description: "A caller an agent missed gets the agency's approved text from that agent's number straight away. At most 3 automatic texts per caller a day; never anyone who replied STOP.", scope: 'both', level: 'auto', needs: 'Twilio', pair: true },
   { key: 'ai_callback', group: 'Phone & SMS', icon: 'smart_toy', name: 'AI calls back', description: "The AI calls a missed caller back from the agent's number in calling hours, says it is an AI assistant, asks what they need and offers a call back. No prices, no promises. Once per caller a day.", scope: 'both', level: 'auto', needs: 'Twilio', pair: true },
+  { key: 'bulk_sms', group: 'Phone & SMS', icon: 'sms', name: 'Bulk SMS', description: "Text one of your SMS templates to a saved list, or to matched buyers from a listing, from each contact's agent's number. You check every name, then Approve & Send. 9 am to 8 pm; never anyone who replied STOP.", scope: 'both', level: 'approval', needs: 'Twilio', pair: true },
+  { key: 'workflow_texts', group: 'Phone & SMS', icon: 'textsms', name: 'Workflow texts', description: "A workflow sends one of your SMS templates to a contact by itself, from their agent's number, 9 am to 8 pm. Only people who may get marketing; never anyone who replied STOP. Off: that step is skipped.", scope: 'both', level: 'auto', needs: 'Twilio', pair: true },
 ] satisfies PlatformSkill[]);
 
 const BY_KEY = new Map(PLATFORM_SKILLS.map((s) => [s.key, s]));
@@ -152,6 +156,8 @@ export function skillsForToolCall(tool: string, input: unknown): SkillKey[] {
  */
 export const SKILL_OF_WORKFLOW_STEP: Readonly<Record<string, SkillKey>> = Object.freeze({
   send_template_email: 'workflow_emails',
+  // ADR 0074 part 2: a `pair` skill — checked again when the text goes, for the agent whose number sends it.
+  send_template_sms: 'workflow_texts',
   draft_email: 'ai_email_drafts',
   save_ai_brief: 'ai_understand_enquiries',
 });

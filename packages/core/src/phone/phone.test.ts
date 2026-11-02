@@ -135,7 +135,7 @@ describe('connecting the agency’s Twilio', () => {
 });
 
 describe('a missed call’s text (ADR 0071)', () => {
-  const base = { skillOn: true, from: '+61400123456', optedOut: false, textedToday: false, agentTextsToday: 0, agencyTextsToday: 0, limits: { perAgent: 50, perAgency: 300 } };
+  const base = { skillOn: true, from: '+61400123456', optedOut: false, autoTextsToday: 0, agentTextsToday: 0, agencyTextsToday: 0, numberTextsToday: 0, limits: { perAgent: 50, perAgency: 300, perCaller: 3, perNumber: 100 } };
 
   it('sends only when every rule allows it, and otherwise names the first reason', () => {
     expect(decideMissedCallText(base)).toBe('send');
@@ -143,7 +143,12 @@ describe('a missed call’s text (ADR 0071)', () => {
     expect(decideMissedCallText({ ...base, from: null })).toBe('private');
     expect(decideMissedCallText({ ...base, from: '+61395551234' })).toBe('not_mobile');
     expect(decideMissedCallText({ ...base, optedOut: true })).toBe('opted_out');
-    expect(decideMissedCallText({ ...base, textedToday: true })).toBe('repeat');
+    // ADR 0074 part 2, rule 4: up to 3 automatic texts to one caller a day (missed call + workflow), not 1.
+    expect(decideMissedCallText({ ...base, autoTextsToday: 2 })).toBe('send');
+    expect(decideMissedCallText({ ...base, autoTextsToday: 3 })).toBe('repeat');
+    // Rule 5: 100 texts of every kind from one number a day.
+    expect(decideMissedCallText({ ...base, numberTextsToday: 99 })).toBe('send');
+    expect(decideMissedCallText({ ...base, numberTextsToday: 100 })).toBe('limit');
     expect(decideMissedCallText({ ...base, agentTextsToday: 50 })).toBe('limit');
     expect(decideMissedCallText({ ...base, agencyTextsToday: 300 })).toBe('limit');
   });

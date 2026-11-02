@@ -1,0 +1,18 @@
+-- ADR 0074 part 2 (ROADMAP 3.4): Bulk SMS batches, the number a text goes from, sending hours and the two caps,
+-- and the workflow step "Send SMS". Additive and idempotent: every existing batch is an email batch, every
+-- existing setting row gets the defaults (9 am to 8 pm, 3 automatic texts per caller, 100 texts per number).
+ALTER TABLE "email_batch" ADD COLUMN IF NOT EXISTS "channel" varchar(8) DEFAULT 'email' NOT NULL;--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "email_batch" ADD CONSTRAINT "email_batch_channel_check" CHECK (channel IN ('email', 'sms')); EXCEPTION WHEN duplicate_object THEN NULL; END $$;--> statement-breakpoint
+ALTER TABLE "email_batch_recipient" ADD COLUMN IF NOT EXISTS "phone" varchar(20);--> statement-breakpoint
+ALTER TABLE "email_batch_recipient" ADD COLUMN IF NOT EXISTS "phone_number_id" uuid;--> statement-breakpoint
+ALTER TABLE "email_batch_recipient" ADD COLUMN IF NOT EXISTS "sms_message_id" uuid;--> statement-breakpoint
+ALTER TABLE "missed_call_setting" ADD COLUMN IF NOT EXISTS "agency_number_id" uuid;--> statement-breakpoint
+ALTER TABLE "missed_call_setting" ADD COLUMN IF NOT EXISTS "sms_hours" jsonb DEFAULT '[9,20]'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "missed_call_setting" ADD COLUMN IF NOT EXISTS "auto_texts_per_caller_day" integer DEFAULT 3 NOT NULL;--> statement-breakpoint
+ALTER TABLE "missed_call_setting" ADD COLUMN IF NOT EXISTS "texts_per_number_day" integer DEFAULT 100 NOT NULL;--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "missed_call_setting" ADD CONSTRAINT "missed_call_setting_sms_caps_check" CHECK (auto_texts_per_caller_day BETWEEN 1 AND 10 AND texts_per_number_day BETWEEN 1 AND 1000); EXCEPTION WHEN duplicate_object THEN NULL; END $$;--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "email_batch_recipient" ADD CONSTRAINT "email_batch_recipient_phone_number_id_phone_number_id_fk" FOREIGN KEY ("phone_number_id") REFERENCES "public"."phone_number"("id") ON DELETE set null ON UPDATE no action; EXCEPTION WHEN duplicate_object THEN NULL; END $$;--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "email_batch_recipient" ADD CONSTRAINT "email_batch_recipient_sms_message_id_sms_message_id_fk" FOREIGN KEY ("sms_message_id") REFERENCES "public"."sms_message"("id") ON DELETE set null ON UPDATE no action; EXCEPTION WHEN duplicate_object THEN NULL; END $$;--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "missed_call_setting" ADD CONSTRAINT "missed_call_setting_agency_number_id_phone_number_id_fk" FOREIGN KEY ("agency_number_id") REFERENCES "public"."phone_number"("id") ON DELETE set null ON UPDATE no action; EXCEPTION WHEN duplicate_object THEN NULL; END $$;--> statement-breakpoint
+ALTER TABLE "proposed_action" DROP CONSTRAINT IF EXISTS "proposed_action_tool_check";--> statement-breakpoint
+ALTER TABLE "proposed_action" ADD CONSTRAINT "proposed_action_tool_check" CHECK (tool IN ('add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'update_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill', 'create_workflow', 'change_workflow', 'create_template', 'remind', 'draft_email', 'switch_skill', 'save_buyer_brief', 'propose_ai_brief', 'send_template_sms'));

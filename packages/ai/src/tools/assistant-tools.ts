@@ -136,7 +136,7 @@ const WORKFLOW_ACTION_ITEM = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    type: { type: 'string', enum: ['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'send_template_email', 'draft_email', 'save_ai_brief', 'wait', 'wait_until'], description: 'save_ai_brief (ADR 0078): leave the person a card to approve with the buyer brief the AI found in the enquiry — it never saves by itself.' },
+    type: { type: 'string', enum: ['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'send_template_email', 'send_template_sms', 'draft_email', 'save_ai_brief', 'wait', 'wait_until'], description: 'save_ai_brief (ADR 0078): leave the person a card to approve with the buyer brief the AI found in the enquiry — it never saves by itself. send_template_sms: text one of their SMS templates to the contact by itself (needs "Workflow texts" on in Skills).' },
     text: { type: 'string', description: 'add_note / set_next_action / remind_owner: the exact words (merge fields allowed).' },
     in_days: { type: 'integer', description: 'set_next_action: due in N days (0–60).' },
     mail_me: { type: 'boolean', description: 'remind_owner: also email it to the person.' },
@@ -145,7 +145,7 @@ const WORKFLOW_ACTION_ITEM = {
     members: { type: 'array', items: { type: 'string' }, description: 'message_colleagues: M references.' },
     subject: { type: 'string', description: 'message_colleagues.' },
     body: { type: 'string', description: 'message_colleagues: the exact words.' },
-    template: { type: 'string', description: 'send_template_email: a T reference from list_templates.' },
+    template: { type: 'string', description: 'send_template_email: a T reference from list_templates. send_template_sms: a T reference from list_templates with channel "sms".' },
     instructions: { type: 'string', description: 'draft_email: what the AI should write about, in the person’s words. It becomes a draft for them to approve.' },
     hours: { type: 'integer', description: 'wait: hours before the next step (1–720).' },
     time: { type: 'string', description: 'wait_until: HH:mm, 24-hour, on the agency’s clock. Alone = the next time it is that time ("at 9 am").' },
@@ -204,8 +204,8 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   },
   {
     name: 'list_templates',
-    description: "The email templates this person may send (name and subject): the agency's, and their own. A template is ready when saved — no approval.",
-    input_schema: { type: 'object', additionalProperties: false, properties: {} },
+    description: "The templates this person may send (name and subject): the agency's, and their own. Email templates unless channel is \"sms\" — SMS templates, for a workflow's send_template_sms. A template is ready when saved — no approval.",
+    input_schema: { type: 'object', additionalProperties: false, properties: { channel: { type: 'string', enum: ['email', 'sms'], description: 'sms: the SMS templates. Default email.' } } },
   },
   {
     name: 'find_workflows',

@@ -274,7 +274,7 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
     case 'find_appointments':
       return findAppointments(ctx, parsed.data as FindAppointments, label);
     case 'list_templates':
-      return listApprovedTemplates(ctx, label);
+      return listApprovedTemplates(ctx, label, (parsed.data as { channel?: 'email' | 'sms' }).channel ?? 'email');
     case 'check_connections':
       return checkConnections(ctx, parsed.data as CheckConnections, label);
     case 'show_widget':
@@ -695,12 +695,12 @@ async function findAppointments(
   };
 }
 
-async function listApprovedTemplates(ctx: ToolContext, label: string): Promise<ToolOutcome> {
+async function listApprovedTemplates(ctx: ToolContext, label: string, channel: 'email' | 'sms' = 'email'): Promise<ToolOutcome> {
   const { db, actor } = ctx;
   if (!can(actor, 'email_template:read', { type: 'email_template', agencyId: actor.agencyId as string })) {
     return refused('You do not have permission to view email templates.', label);
   }
-  const { templates } = await listTemplates(db, actor);
+  const { templates } = await listTemplates(db, actor, { channel });
   // ADR 0043: only templates this person may send — the agency's and their own.
   const approved = templates.filter((t) => t.mayUse).slice(0, 20);
   const shown = approved.map((t) => ({ handle: issueHandle(ctx.handles, 'T', t.id), id: t.id, name: t.name, subject: t.subject }));

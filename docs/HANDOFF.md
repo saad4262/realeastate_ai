@@ -69,7 +69,7 @@ version 1.
 |---|---|---|
 | 1. Finish what is half built | 1.1–1.6 ✅ (ADR 0057–0062) | — |
 | 2. Money | 2.1–2.3 ✅ (ADR 0063–0065) | — |
-| 3. Phone + SMS | 3.1–3.3 ✅ on the stub (ADR 0070–0072); 3.4 part 1 ✅ (ADR 0074: templates by channel, `call.missed`) | 3.4 part 2 — waits for the client's 5 SMS rules |
+| 3. Phone + SMS | 3.1–3.3 ✅ on the stub (ADR 0070–0072); 3.4 ✅ (ADR 0074 parts 1 and 2; part 2 on the user's answers, branch `feat/sms-part2`, migration 0079 applied) | real Twilio + Retell end to end (TEST-PLAN BX/BY/BZ/CE); the client's approval of the SMS rules |
 | 4. Automation engine | 4.1–4.3 ✅ (ADR 0066–0068); 4.5 ✅ (ADR 0078) | 4.4 more triggers (the client's 5 decisions) · 4.6/4.7 Control Centre + permission levels (the client's 4 decisions) · 4.8 visual builder (last) |
 | 5. Open platform | 5.2 Outlook ✅ (ADR 0076; real Microsoft needs the Entra app) | 5.1 public API + webhooks (the user's decisions first) |
 | 7. The rest — **version 2** | four mocks approved by the user | built after version 1 goes live |
@@ -88,14 +88,18 @@ is on for the agency AND the agent — the owner's template text goes from the a
 placed, and Retell's webhook brings back transcript, recording and a labelled summary. Since ADR 0074 a missed call
 also emits the workflow trigger `call.missed`.
 
-### Phase 3.4 part 2 (after the client's rules)
+### Phase 3.4 part 2 (built 2026-11-02, ADR 0074)
 
-The user decided (2026-10-31): SMS templates are `email_template` rows with `channel = 'sms'` (built); a text goes
-from the contact's assigned agent's Twilio number, else the agency number (the agency number does not exist yet —
-mock proposes the owner picks one of the agency's numbers); the workflow step "Send SMS" (`send_template_sms`) is a
-pair skill "Workflow texts". The client decides: the agency number, consent (proposed: the Bulk email rule), sending
-hours (9–8), one automatic text per caller per 24 h, 100 texts per number per day. Then: Bulk SMS batches, "Text
-them" on Matching buyers, the step, the SMS template editor; the rules at prepare and again at send.
+The user's answers (the client's approval still open): a text goes from the contact's agent's number, else the
+**agency number** the owner picks in Missed calls → Settings (else the owner's own); consent = the Bulk email rule
+plus an AU mobile and no STOP (the user asked for "everyone once the skill is on" — kept, the Spam Act needs consent;
+one function, `smsSkipReason`); 9 am–8 pm, held to the morning; **3** automatic texts (missed call + workflow) a caller
+in 24 h; 100 texts of every kind a number a day. Core: `phone/sms-rules.ts` (the rules), `template-email/sms-batches.ts`
+(prepare / approve / send / resume — `email_batch.channel = 'sms'`, every email path asks for `email`), the step
+`send_template_sms` (pair skill `workflow_texts`, checked at send for the agent whose number sends it), the pair
+skill `bulk_sms` for the screens, the minute job `smsBatches`. Console: `/bulk-sms`, `/my-bulk-sms` (+ templates),
+"Text selected" on Matching buyers, "Texts to customers" in Missed calls → Settings. Migration 0079 applied
+2026-11-02; smoke group "SMS everywhere (ADR 0074)" 1/1 green.
 
 ---
 
@@ -116,10 +120,14 @@ them" on Matching buyers, the step, the SMS template editor; the rules at prepar
 - `.env.local` files are NOT in git (root, `apps/console`, `apps/web`). Copy them securely between laptops.
 - **Have:** Supabase (Pro), Vercel Pro, Anthropic, Resend, Google Cloud (Maps, OAuth app in Testing, Picker), Zoom
   developer app (only the developer's own account connects until Marketplace review).
-- **Promised by the client, not yet given:** Voyage key (`EMBEDDINGS_PROVIDER=voyage` + `VOYAGE_API_KEY`, then the
-  backfill), Retell key, a test Twilio account (KYC approved), the temporary domain.
+- **Given 2026-11-02 (Mac `.env.local`):** Retell key and Voyage key. `retell:setup` was run once against
+  `https://realestate-ai-users.vercel.app` → `RETELL_AGENT_ID=agent_93b24a5de57c293fe91e59d943` (re-run on the
+  temporary domain). Vercel envs (web + both console projects) still to set by the user, then redeploy. The Voyage
+  backfill is not run yet (paid; the user's go).
+- **Promised by the client, not yet given:** a test Twilio account (KYC approved, tonight), the temporary domain.
 - **Placeholders in `.env.local`:** `PHONE_STUB=1` (dev-only pretend Twilio + Retell; ignored in production),
-  `PHONE_WEBHOOK_BASE`, `SMS_LIMIT_PER_AGENT_DAY`, `RETELL_API_KEY`, `RETELL_AGENT_ID`, `RETELL_VERIFY_SIGNATURE`,
+  `PHONE_WEBHOOK_BASE`, `SMS_LIMIT_PER_AGENT_DAY`, `SMS_DEV_ALLOWLIST` (ADR 0074 part 2: with a REAL Twilio key in dev
+  only these mobiles get marketing/workflow texts; the stub needs none), `RETELL_API_KEY`, `RETELL_AGENT_ID`, `RETELL_VERIFY_SIGNATURE`,
   `EMBEDDINGS_PROVIDER`, `VOYAGE_API_KEY`.
 - When Retell arrives: `RETELL_API_KEY=… PHONE_WEBHOOK_BASE=https://<web> pnpm --filter @repo/ai retell:setup` prints
   `RETELL_AGENT_ID`. Then owners press "Set up AI calls". Then walk TEST-PLAN BX, BY, BZ.

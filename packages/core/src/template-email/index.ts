@@ -43,3 +43,17 @@ export {
   type SendReport,
   type TemplateSendDeps,
 } from './send';
+export {
+  approveSmsBatch,
+  classifySmsRecipients,
+  prepareSmsBatch,
+  resumeSmsBatches,
+  sendSmsBatch,
+  SMS_BATCH_MAX,
+  storePreparedSmsBatch,
+  type ClassifiedSms,
+  type SmsPrepareInput,
+  type SmsRecipient,
+  type SmsSendDeps,
+  type SmsSendReport,
+} from './sms-batches';

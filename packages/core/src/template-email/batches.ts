@@ -7,6 +7,7 @@ import {
   emailBatch,
   emailBatchRecipient,
   emailTemplate,
+  phoneNumber,
   user,
   type Db,
   type DbOrTx,
@@ -15,7 +16,8 @@ import { can, type Actor, type Resource } from '../permissions';
 import { contactListQuerySchema } from '../contacts/contact-schema';
 import { contactQueryFilters } from '../contacts/list-contacts';
 import { checkEmailLimits, type TemplateLimits } from '../email/limits';
-import { BATCH_TTL_MS, listingFieldsUsed, renderMerge, type MergeValues, type SkipReason } from './schema';
+import { BATCH_TTL_MS, listingFieldsUsed, renderMerge, type MergeValues, type SkipReason, type TemplateChannel } from './schema';
+import { withStopFooter } from './sms';
 import { listingSnapshotFor, listingValuesOf, type ListingSnapshot } from './listing-values';
 import { mayUseTemplate, TemplateEmailError } from './templates';
 import { hasMarketingConsentSql } from './consent';
@@ -251,12 +253,16 @@ export type RecipientView = {
   threadId: string | null;
   error: string | null;
   sentAt: Date | null;
+  /** ADR 0074 part 2, an SMS batch: the mobile it goes to and the number it goes from (E.164). */
+  phone: string | null;
+  fromE164: string | null;
 };
 
 export type BatchCounts = { total: number; toSend: number; skipped: number; sent: number; failed: number; sending: number };
 
 export type BatchView = {
   id: string;
+  channel: TemplateChannel;
   agentId: string;
   agentName: string | null;
   status: BatchStatus;
@@ -268,7 +274,7 @@ export type BatchView = {
   finishedAt: Date | null;
   counts: BatchCounts;
   recipients: RecipientView[];
-  /** The email as the first recipient would get it — from the frozen template. */
+  /** The email (or text, with its STOP line) as the first recipient would get it — from the frozen template. */
   preview: { to: string | null; subject: string; body: string } | null;
   mayApprove: boolean;
   mayCancel: boolean;
@@ -318,8 +324,9 @@ export async function mergeValuesFor(db: DbOrTx, batch: { agencyId: string; user
   });
 }
 
-/** One batch, if this actor may see it (its agent, or an admin). Not-found otherwise. */
-export async function getBatch(db: Db, actor: Actor, id: string, now = new Date()): Promise<BatchView> {
+/** One batch of `channel` (email unless asked), if this actor may see it (its agent, or an admin). Not-found otherwise. */
+export async function getBatch(db: Db, actor: Actor, id: string, now = new Date(), opts: { channel?: TemplateChannel } = {}): Promise<BatchView> {
+  const channel = opts.channel ?? 'email';
   if (!actor.agencyId || !/^[0-9a-f-]{36}$/i.test(id)) throw new TemplateEmailError('not_found', 'That batch was not found');
   const [b] = await db
     .select({
@@ -339,15 +346,17 @@ export async function getBatch(db: Db, actor: Actor, id: string, now = new Date(
     })
     .from(emailBatch)
     .leftJoin(owner, eq(owner.id, emailBatch.userId))
-    .where(and(eq(emailBatch.id, id), eq(emailBatch.agencyId, actor.agencyId)))
+    .where(and(eq(emailBatch.id, id), eq(emailBatch.agencyId, actor.agencyId), eq(emailBatch.channel, channel)))
     .limit(1);
   if (!b || !can(actor, 'email_batch:read', batchResource(b))) throw new TemplateEmailError('not_found', 'That batch was not found');
 
   const recipients = await db
-    .select()
+    .select({ r: emailBatchRecipient, fromE164: phoneNumber.e164 })
     .from(emailBatchRecipient)
+    .leftJoin(phoneNumber, eq(phoneNumber.id, emailBatchRecipient.phoneNumberId))
     .where(eq(emailBatchRecipient.batchId, b.id))
-    .orderBy(asc(emailBatchRecipient.status), asc(emailBatchRecipient.name));
+    .orderBy(asc(emailBatchRecipient.status), asc(emailBatchRecipient.name))
+    .then((rows) => rows.map(({ r, fromE164 }) => ({ ...r, fromE164 })));
 
   const status = effectiveStatus(b.status, new Date(b.expiresAt), now);
   const tpl = b.templateSnapshot as TemplateSnapshot;
@@ -355,8 +364,10 @@ export async function getBatch(db: Db, actor: Actor, id: string, now = new Date(
   const values = await mergeValuesFor(db, b);
   const res = batchResource(b);
   const c = counts(b);
+  const sms = channel === 'sms';
   return {
     id: b.id,
+    channel,
     agentId: b.userId,
     agentName: b.agentName,
     status,
@@ -378,9 +389,13 @@ export async function getBatch(db: Db, actor: Actor, id: string, now = new Date(
       threadId: r.threadId,
       error: r.error,
       sentAt: r.sentAt ? new Date(r.sentAt) : null,
+      phone: r.phone,
+      fromE164: r.fromE164,
     })),
     preview: first
-      ? { to: first.email, subject: renderMerge(tpl.subject, values(first.name)), body: renderMerge(tpl.body, values(first.name)) }
+      ? sms
+        ? { to: first.phone, subject: '', body: withStopFooter(renderMerge(tpl.body, values(first.name))) }
+        : { to: first.email, subject: renderMerge(tpl.subject, values(first.name)), body: renderMerge(tpl.body, values(first.name)) }
       : null,
     mayApprove: status === 'prepared' && c.toSend > 0 && can(actor, 'email_batch:send', res),
     mayCancel: status === 'prepared' && can(actor, 'email_batch:cancel', res),
@@ -399,8 +414,8 @@ export type BatchRow = {
   counts: BatchCounts;
 };
 
-/** The actor's batches — or, for an admin, the agency's. One query. */
-export async function listBatches(db: Db, actor: Actor, now = new Date()): Promise<BatchRow[]> {
+/** The actor's batches of `channel` (email unless asked) — or, for an admin, the agency's. One query. */
+export async function listBatches(db: Db, actor: Actor, now = new Date(), opts: { channel?: TemplateChannel } = {}): Promise<BatchRow[]> {
   if (!actor.agencyId || !can(actor, 'email_batch:read', { type: 'email_batch', agencyId: actor.agencyId })) {
     throw new TemplateEmailError('forbidden', 'You do not have permission to view bulk email');
   }
@@ -418,7 +433,7 @@ export async function listBatches(db: Db, actor: Actor, now = new Date()): Promi
     })
     .from(emailBatch)
     .leftJoin(owner, eq(owner.id, emailBatch.userId))
-    .where(and(eq(emailBatch.agencyId, actor.agencyId), admin ? sql`true` : eq(emailBatch.userId, actor.userId)))
+    .where(and(eq(emailBatch.agencyId, actor.agencyId), eq(emailBatch.channel, opts.channel ?? 'email'), admin ? sql`true` : eq(emailBatch.userId, actor.userId)))
     .orderBy(desc(emailBatch.preparedAt))
     .limit(100);
   return rows.map((r) => ({
@@ -457,6 +472,8 @@ export async function approveBatch(
   now = new Date(),
 ): Promise<{ result: 'approved' | 'already' }> {
   const b = await loadForWrite(db, actor, id);
+  // ADR 0074 part 2: texts are approved by approveSmsBatch (no email limits, the sending hours).
+  if (b.channel !== 'email') throw new TemplateEmailError('not_found', 'That batch was not found');
   if (!can(actor, 'email_batch:send', batchResource(b))) {
     throw new TemplateEmailError('forbidden', 'Only the agent who prepared this batch can approve and send it');
   }

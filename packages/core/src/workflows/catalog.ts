@@ -174,6 +174,8 @@ export const ACTION_TYPES = [
   'assign_contact',
   'message_colleagues',
   'send_template_email',
+  // ADR 0074 part 2: an SMS template, sent by itself — behind the pair skill "Workflow texts" and the five SMS rules.
+  'send_template_sms',
   'draft_email',
   // ADR 0078: a card for the owner with the brief the AI found — nothing reaches the contact until approved.
   'save_ai_brief',
@@ -199,6 +201,7 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('assign_contact'), to: uuid }).strict(),
   z.object({ type: z.literal('message_colleagues'), to: z.array(uuid).min(1).max(10), subject: text(200), body: text(2000) }).strict(),
   z.object({ type: z.literal('send_template_email'), template_id: uuid }).strict(),
+  z.object({ type: z.literal('send_template_sms'), template_id: uuid }).strict(),
   /** What the AI should write about — the person's instructions. The email is a DRAFT for the owner (D1). */
   z.object({ type: z.literal('draft_email'), instructions: text(1000) }).strict(),
   z.object({ type: z.literal('save_ai_brief') }).strict(),
@@ -218,6 +221,7 @@ export const ACTION_NEEDS: Record<ActionType, 'lead' | 'contact' | null> = {
   assign_contact: 'contact',
   message_colleagues: null,
   send_template_email: 'contact',
+  send_template_sms: 'contact',
   draft_email: 'contact',
   save_ai_brief: 'lead',
   wait: null,
@@ -228,7 +232,7 @@ export const ACTION_NEEDS: Record<ActionType, 'lead' | 'contact' | null> = {
 export const AGENCY_ONLY_ACTIONS: readonly ActionType[] = ['assign_lead', 'assign_contact'];
 
 /** Actions that reach a contact. `send_template_email` sends by itself (an approved template, D1); `draft_email` never does. */
-export const REACHES_CONTACT: readonly ActionType[] = ['send_template_email', 'draft_email'];
+export const REACHES_CONTACT: readonly ActionType[] = ['send_template_email', 'send_template_sms', 'draft_email'];
 
 export const WORKFLOW_LIMITS = { conditions: 5, actions: 6, perAgent: 10, perAgency: 50, runsPerDay: 200, draftDays: 7 } as const;
 
@@ -372,6 +376,7 @@ export const ACTION_WORDS: Record<ActionType, string> = {
   assign_contact: 'give the contact to',
   message_colleagues: 'message colleagues',
   send_template_email: 'send an email template',
+  send_template_sms: 'send an SMS template',
   draft_email: 'write an email draft for you to approve',
   save_ai_brief: 'save the brief the AI found, for you to approve',
   wait: 'wait',
@@ -533,6 +538,8 @@ export function actionInWords(a: WorkflowAction, names: Record<string, string> =
       return `Message ${a.to.map((id) => names[id] ?? 'a colleague').join(', ')}: “${a.subject}”`;
     case 'send_template_email':
       return `Send the template “${names[a.template_id] ?? 'template'}” to the contact (only if they may receive it then)`;
+    case 'send_template_sms':
+      return `Text the SMS template “${names[a.template_id] ?? 'template'}” to the contact from their agent’s number, 9 am to 8 pm (only if they may receive it then)`;
     case 'draft_email':
       return `Write an email draft for you to approve, about: “${a.instructions}”`;
     case 'save_ai_brief':

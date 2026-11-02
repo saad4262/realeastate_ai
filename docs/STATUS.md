@@ -1,49 +1,53 @@
-# Status — 2026-10-31 (Claude Code, Mac)
+# Status — 2026-11-02 (Claude Code, Mac)
 
 Short on purpose: where things stand now. History up to 2026-10-31 is in `docs/archive/STATUS-to-2026-10-31.md`;
 how to work on either laptop is `docs/HANDOFF.md`. Overwrite this file at each handoff; do not append.
 
 ## Milestone
-Version 1 is built except what waits on the client. `main` = `d3eb906` (4.5 "AI understands" merged), deployed.
-Branch `chore/tech-debt` (pushed, NOT merged): CI, this docs trim, the three smoke reds fixed, two team loaders,
-the four Phase 7 mocks.
+Version 1 is built except what waits on the client and on Twilio. `main` = `d3eb906`, deployed. Branches, not merged:
+`chore/tech-debt` (pushed: CI, docs trim, smoke reds fixed, Phase 7 mocks) and **`feat/sms-part2`** (on top of it,
+committed, NOT pushed: ADR 0074 part 2 — SMS everywhere).
 
 ## Database
-79 migrations recorded (0000–0078). Nothing pending. Dev database = production database (one `DATABASE_URL`).
+80 migrations recorded (0000–0079). **0079 APPLIED 2026-11-02** by the user (from this Mac), after a rolled-back
+dry run twice in one transaction (clean; 8/8 columns, old batches stay email, settings got the defaults, both CHECKs
+hold). The deployed `main` does not read the new columns, so it is unaffected. Dev database = production database.
 
 ## Checks
-- CI (`.github/workflows/ci.yml`, new): typecheck, lint, `pnpm test` on every push, no secrets given; Node from
-  `.nvmrc` (now 22). Green on GitHub for `48ab812` (2.5 min). Its first runs caught two things the Mac hid:
-  `packages/config` lacked `@types/node` (a stray copy in the home folder covered it), and unpdf needs Node 22+
-  (`Iterator`). **Check Vercel → each project → Settings → Node.js Version is 22 or later**, or PDF reading
-  (ADR 0053) fails in production.
-- Unit: core 1537, ai 335, auth 9, ui 4 — all pass, offline.
-- Smoke: run by hand with the user's go, in named groups (`SMOKE_ENABLED=true SMOKE_ONLY="<group>"`). The three
-  known reds are fixed and each was seen red when broken: Console loaders 1/1, Search schedules 17/17, Email
-  conversations 7/7. A full run (the green baseline) has NOT been done since — the user's go first.
+- Unit: core 1556, ai 335 — all pass, offline. Console build OK (eight new routes); lint 0 errors.
+- CI: green on `chore/tech-debt` (`48ab812`). Vercel projects are on Node 24 (unpdf needs 22+): checked 2026-11-02.
+- Smoke: "SMS everywhere (ADR 0074)" 1/1 green on the live database (183 s — many round trips to Sydney). A full
+  run (the green baseline) has NOT been done since the tech-debt fixes — the user's go first.
 
-## Done this period (details in the ADRs and the archive)
-3.4 part 1 SMS templates + `call.missed` (ADR 0074) · one address, several agencies (ADR 0075, the technical debt) ·
-5.2 Outlook mail and calendar (ADR 0076) · 4.5 AI understands enquiries (ADR 0078, also fixed `switch_skill` cards).
+## Done this period
+- 2026-11-02: ADR 0074 part 2 on the user's answers to the five SMS rules — Bulk SMS (`/bulk-sms`, `/my-bulk-sms`),
+  "Text selected" on Matching buyers, the workflow step "Send SMS" (pair skill Workflow texts), the pair skill Bulk SMS,
+  the agency number, 9 am–8 pm, 3 automatic texts a caller (missed call + workflow), 100 texts a number, and
+  `SMS_DEV_ALLOWLIST` for dev with a real key. Consent stays the Bulk email rule (the user asked for "everyone"; the
+  Spam Act needs consent — explained).
+- 2026-11-02: the Retell agent made (`agent_93b24a5de57c293fe91e59d943`, webhook on `realestate-ai-users.vercel.app`).
+- Before: 3.4 part 1 (ADR 0074) · ADR 0075 · Outlook (ADR 0076) · AI understands (ADR 0078).
 
 ## Blocked on the client
-- **14 decisions in three mocks** (private Artifacts, links in `docs/mocks/README.md`): SMS rules (5) → 3.4 part 2;
-  Control Centre (4) → 4.6/4.7; 4.4 triggers (5).
-- **Keys:** Twilio test account (KYC), Retell, Voyage, the Microsoft Entra app, the temporary domain.
+- Twilio test account (KYC) — promised tonight; then numbers, and TEST-PLAN BX/BY/BZ/CE with real Twilio + Retell.
+- The client's approval of the SMS rules (built on the user's answers), Control Centre (4) → 4.6/4.7, 4.4 triggers (5).
+- The Microsoft Entra app (Outlook), the temporary domain (then `retell:setup` again and `phone:repoint`).
 
-## Open decisions (the user)
-- 5.1 public API + webhooks: the user's API decisions first.
-- **Phase 7 is version 2 (the user, 2026-10-31):** voice control, Property Management, recruitment + training, team
-  workload board. All four mocks approved by the user (internal, not the client); no code until version 2.
+## Waiting on the user
+- Push `feat/sms-part2`; merge `chore/tech-debt`, then `feat/sms-part2`.
+- Vercel → web + both console projects: `RETELL_API_KEY`, `RETELL_AGENT_ID`, `EMBEDDINGS_PROVIDER=voyage`,
+  `VOYAGE_API_KEY`, then redeploy — the user said 2026-11-02 they are doing it; not checked here.
+- The Voyage backfill (`pnpm --filter @repo/ai search:backfill`) — paid, on the live database; on hold (the user).
+- Local-only branches `feat/crm-visibility` and `feat/crm-assistant-more`: keep or delete.
 
 ## Next
-1. Merge `chore/tech-debt` to `main` (the user's go); then a full smoke run for the green baseline (the user's go).
-   Local-only branches `feat/crm-visibility` (8 commits) and `feat/crm-assistant-more` (18) are not on GitHub;
-   keep or delete is the user's call (their worktrees: `../realestate_ai-visibility`, `../realestate_ai-more`).
-2. When the client answers: 3.4 part 2, then 4.6/4.7, then 4.4.
-3. When keys arrive: Voyage backfill; `retell:setup`; TEST-PLAN BX/BY/BZ with real Twilio + Retell; Outlook (CC).
-4. Last: the user's browser walk (TEST-PLAN BN–BZ, CA–CD), then go-live (`docs/DEPLOY.md`, `docs/DNS-CUTOVER.md`).
+1. Push `feat/sms-part2` and merge both branches (the user's go).
+2. Twilio tonight → connect on the phone test agency → BX, BY, BZ, CE.
+3. When the client answers: 4.6/4.7, then 4.4.
+4. Last: the user's browser walk (TEST-PLAN BN–BZ, CA–CE), then go-live (`docs/DEPLOY.md`, `docs/DNS-CUTOVER.md`).
 
 ## Watch
+- "Text selected" ticks only buyers the email rule allows (ADR 0060 decision 4): a buyer with a mobile and no email
+  cannot be texted from that tab yet — Bulk SMS with a filter reaches them.
 - Planted words in an enquiry pass the AI fact check (ADR 0078 known limit); the approval card is the guard.
 - Never run `/api/cron/minute` locally; test only on `phone-test-agency-20261030-dev`; alias emails only.

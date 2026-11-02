@@ -314,6 +314,11 @@ export function stepsFor(wf: { name: string }, spec: WorkflowSpec, f: Facts, mer
         // An approved template (D1), prepared and checked when the step runs — consent, opt-out, limits.
         args = { tool: 'send_template_email', part: { n: 1, of: 1, list: `Workflow “${wf.name}”` }, templateId: a.template_id, contactIds: [contactId!], gapHours: 0 };
         break;
+      case 'send_template_sms':
+        if (needContact()) return { problem: needContact()! };
+        // ADR 0074 part 2: prepared, approved and checked when the step runs; sent from the contact's agent's number.
+        args = { tool: 'send_template_sms', templateId: a.template_id, contactIds: [contactId!], workflowName: wf.name };
+        break;
       case 'draft_email':
         if (needContact()) return { problem: needContact()! };
         args = { tool: 'draft_email', contactId: contactId!, instructions: a.instructions, workflowName: wf.name };
@@ -335,7 +340,7 @@ export function stepsFor(wf: { name: string }, spec: WorkflowSpec, f: Facts, mer
   }
   return steps;
 }
-const ACTION_TOUCHES_CONTACT = new Set(['add_note', 'set_next_action', 'assign_contact', 'send_template_email', 'draft_email', 'save_ai_brief']);
+const ACTION_TOUCHES_CONTACT = new Set(['add_note', 'set_next_action', 'assign_contact', 'send_template_email', 'send_template_sms', 'draft_email', 'save_ai_brief']);
 
 /** Claim a batch of unprocessed events (a short lease, so two ticks never take the same one). */
 async function claimEvents(db: Db, now: Date, limit: number): Promise<EventRow[]> {
