@@ -137,6 +137,9 @@ them" on Matching buyers, the step, the SMS template editor; the rules at prepar
   ends with time per group. `SMOKE_VERBOSE=1` prints each check's name before it starts (a freeze names itself);
   a check past `SMOKE_CHECK_TIMEOUT_S` (default 300) fails instead of hanging. **A whole run is ~2.5 hours** from
   this Mac: every query is a ~350 ms round trip to Sydney (measured 2026-11-02) — run it in chunks, never blind.
+  The run starts by printing its HTTP targets; `.env.local` has a second `NEXT_PUBLIC_{WEB,AGENT,AGENCY}_URL`
+  block (the Vercel deployments) that wins, so for local HTTP groups set the four `NEXT_PUBLIC_*_URL` to the
+  `lvh.me` hosts in the shell, for both `pnpm dev` and the smoke run.
   "Tenant isolation" on 2026-10-31: **5/5 green** (incl. the ADR 0075 check; "tokens and the sync job" fixed — its
   agents now connect their own Zoom, as the rule since 2026-10-22 `f7cbc4d` requires).
 - **Do NOT call `/api/cron/minute` locally:** it runs every agency's jobs against the shared database. Call one job

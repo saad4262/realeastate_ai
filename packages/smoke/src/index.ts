@@ -456,6 +456,16 @@ async function main() {
   }
   const db: Db = getDb(url);
 
+  /**
+   * Say where the HTTP checks are pointed, first thing. On 2026-11-02 a second NEXT_PUBLIC_*_URL
+   * block in .env.local (the Vercel deployments) silently won, and a "local" run timed and
+   * styled-checked production instead. A target that is not this machine is called out.
+   */
+  for (const [label, target] of [['web', WEB], ['agency', AGENCY], ['agent', AGENT], ['admin', ADMIN]] as const) {
+    const local = /^https?:\/\/([a-z0-9-]+\.)*(lvh\.me|localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(target);
+    process.stdout.write(`HTTP target ${label.padEnd(6)} ${target}${local ? '' : '  \u001b[33m← NOT this machine\u001b[0m'}\n`);
+  }
+
   // ---------------------------------------------------------------- schema --
   group('Database & migrations');
 
