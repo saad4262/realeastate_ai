@@ -1838,6 +1838,52 @@ export const suburbCensus = pgTable(
   (t) => [uniqueIndex('suburb_census_state_name_idx').on(t.state, t.nameKey)],
 );
 
+/**
+ * Inspection Assistant (ADR 0080, C6 decisions 6–8): a buyer's own notebook for one home — the fixed checklist's
+ * marks, their notes, their photos. The owner's only: no agency, agent or platform admin reads it, or learns it
+ * exists, and nothing here feeds leads, the customer profile or the Personal Property AI. One per buyer per listing.
+ */
+export const inspectionNote = pgTable(
+  'inspection_note',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    listingId: uuid('listing_id')
+      .notNull()
+      .references(() => listing.id, { onDelete: 'cascade' }),
+    /** Checklist item key → { mark: fine | issue | unchecked, note? }. Shape by zod in packages/core/src/inspections. */
+    checks: jsonb('checks').notNull().default({}),
+    notes: text('notes'),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('inspection_note_user_listing_idx').on(t.userId, t.listingId), index('inspection_note_user_idx').on(t.userId, t.updatedAt)],
+);
+
+/**
+ * A photo in an inspection notebook (C6 decision 8): the bytes in the PRIVATE `inspection-photos` bucket under
+ * `storage_key`, location metadata removed before they were stored, read only through a short signed link after the
+ * owner check. Never shown to a model.
+ */
+export const inspectionPhoto = pgTable(
+  'inspection_photo',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    noteId: uuid('note_id')
+      .notNull()
+      .references(() => inspectionNote.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    storageKey: varchar('storage_key', { length: 300 }).notNull(),
+    contentType: varchar('content_type', { length: 32 }).notNull(),
+    bytes: integer('bytes').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('inspection_photo_key_idx').on(t.storageKey), index('inspection_photo_note_idx').on(t.noteId, t.createdAt)],
+);
+
 export const event = pgTable('event', {
   id: uuid('id').primaryKey().defaultRandom(),
   type: varchar('type', { length: 128 }).notNull(),
@@ -3369,6 +3415,8 @@ export type PropertyWatch = typeof propertyWatch.$inferSelect;
 export type PropertyWatchEvent = typeof propertyWatchEvent.$inferSelect;
 export type BuyerProfile = typeof buyerProfile.$inferSelect;
 export type SuburbCensus = typeof suburbCensus.$inferSelect;
+export type InspectionNote = typeof inspectionNote.$inferSelect;
+export type InspectionPhoto = typeof inspectionPhoto.$inferSelect;
 export type Deal = typeof deal.$inferSelect;
 export type DealCondition = typeof dealCondition.$inferSelect;
 export type DealEvent = typeof dealEvent.$inferSelect;
