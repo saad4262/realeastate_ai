@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { consumerSkillBlocks, consumerSkillOffMessage } from '@repo/core/consumer-skills';
 import { describeCadence, listRunsForUser, listSchedules } from '@repo/core/schedules';
 import { priceLabel } from '@repo/core/listings/format';
 import type { PublicListingSummary } from '@repo/core/listings';
@@ -29,10 +30,13 @@ export default async function AlertsPage() {
   const actor = { userId: user.id };
 
   // Independent reads, started together (§ 5).
-  const [schedules, runs] = await Promise.all([
+  const [schedules, runs, skillBlocks] = await Promise.all([
     listSchedules(db, actor),
     listRunsForUser(db, actor, { limit: 20 }),
+    consumerSkillBlocks(db, actor),
   ]);
+  // ADR 0080: with Smart Alerts off or paused, nothing below is sent — say so above the list, not after a silent week.
+  const alertsBlock = skillBlocks.get('smart_alerts');
 
   /**
    * What was emailed, not what was `delivered`.
@@ -73,6 +77,17 @@ export default async function AlertsPage() {
         </Link>
         <p className={styles.sub}>Saved searches we run for you, and everything we have sent.</p>
       </header>
+
+      {alertsBlock === 'switched_off' || alertsBlock === 'paused' ? (
+        <p role="status" className="mb-6 rounded-xl border border-line bg-card px-4 py-3 text-sm text-ink">
+          {consumerSkillOffMessage('smart_alerts', alertsBlock)} Until then, none of these searches are emailed.{' '}
+          {alertsBlock === 'switched_off' ? (
+            <Link href="/account/skills" className="font-semibold underline">
+              Open Skills
+            </Link>
+          ) : null}
+        </p>
+      ) : null}
 
       <section className={styles.section}>
         <h2 className={styles.sectionLabel}>Saved searches</h2>

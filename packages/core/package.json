@@ -48,6 +48,8 @@
     "./integrations/startup": "./src/integrations/startup.ts",
     "./startup/console-startup": "./src/startup/console-startup.ts",
     "./skills": "./src/skills/index.ts",
+    "./consumer-skills": "./src/consumer-skills/index.ts",
+    "./consumer-skills/catalog": "./src/consumer-skills/catalog.ts",
     "./skill-switches": "./src/skill-switches/index.ts",
     "./skill-switches/catalog": "./src/skill-switches/catalog.ts",
     "./buyer-matching": "./src/buyer-matching/index.ts",

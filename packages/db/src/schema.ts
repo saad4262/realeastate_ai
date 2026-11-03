@@ -1698,6 +1698,24 @@ export const shortlist = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.listingId] })],
 );
 
+/**
+ * A buyer's switch for one consumer skill (ADR 0080). Stored only where it differs from the skill's
+ * default in `packages/core/src/consumer-skills/catalog.ts`: no row = the default. Owned by a person,
+ * never an agency (ADR 0011) — which is why it is not `skill_switch`, whose agency is NOT NULL.
+ */
+export const consumerSkillSwitch = pgTable(
+  'consumer_skill_switch',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    skillKey: varchar('skill_key', { length: 40 }).notNull(),
+    enabled: boolean('enabled').notNull(),
+    ...timestamps,
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.skillKey] })],
+);
+
 export const event = pgTable('event', {
   id: uuid('id').primaryKey().defaultRandom(),
   type: varchar('type', { length: 128 }).notNull(),
@@ -3223,6 +3241,7 @@ export type Skill = typeof skill.$inferSelect;
 export type AgentSkill = typeof agentSkill.$inferSelect;
 export type SkillRun = typeof skillRun.$inferSelect;
 export type SkillSwitch = typeof skillSwitch.$inferSelect;
+export type ConsumerSkillSwitch = typeof consumerSkillSwitch.$inferSelect;
 export type Deal = typeof deal.$inferSelect;
 export type DealCondition = typeof dealCondition.$inferSelect;
 export type DealEvent = typeof dealEvent.$inferSelect;

@@ -13,6 +13,7 @@ import type { ResolvedPlace } from '../geo/place-schema';
 import { pruneOldChats } from '../chat/threads';
 import { checkAiBudget } from './budget';
 import { claimDueSchedules, DEFAULT_CLAIM_LIMIT, type ClaimedSchedule } from './claim';
+import { pausedConsumerSkills } from '../consumer-skills/catalog';
 import { sweepAbandonedRuns } from './sweep-runs';
 
 /** How many listings a run snapshots. The email shows five; the page shows all. */
@@ -465,6 +466,15 @@ export async function runScheduleTick(
   const budget = await checkAiBudget(db, { now, env });
   if (!budget.allowed && budget.reason === 'global_cap') {
     report.budget = 'global_cap';
+    report.durationMs = Date.now() - startedAt;
+    return report;
+  }
+
+  /**
+   * Smart Alerts paused for everyone (ADR 0080 §4): claim nothing, so every schedule stays due and runs
+   * on the first tick after the pause is lifted — the global cap's reasoning above.
+   */
+  if (pausedConsumerSkills(env).has('smart_alerts')) {
     report.durationMs = Date.now() - startedAt;
     return report;
   }

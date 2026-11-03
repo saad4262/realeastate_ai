@@ -10,6 +10,7 @@ function ctx(over: Partial<ToolContext> = {}): ToolContext {
   return {
     db: {} as Db,
     places: new Map(),
+    skillBlocks: new Map(),
     resolvePlace: vi.fn(async () => null),
     search: vi.fn(async () => []),
     getListing: vi.fn(async () => null),

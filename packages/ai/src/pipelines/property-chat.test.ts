@@ -106,6 +106,7 @@ function tools(over: Partial<ToolContext> = {}): ToolContext {
   return {
     db: {} as Db,
     places: new Map(),
+    skillBlocks: new Map(),
     // These tests are about finding homes, not scheduling. `signed_out` is
     // the honest default: no session, so the scheduling tools refuse.
     scheduling: { state: 'signed_out' },

@@ -439,6 +439,7 @@ export async function* runPropertyChat(
     facts,
     slots,
     scheduling: tools.scheduling.state,
+    alertsOff: ['switched_off', 'paused'].includes(tools.skillBlocks.get('smart_alerts') ?? ''),
     scheduleOffered,
     failed,
   });

@@ -1,5 +1,6 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { AU_STATES, SORT_OPTIONS } from '@repo/core/listings';
+import { CONSUMER_SKILL_OF_TOOL, consumerSkillOffMessage } from '@repo/core/consumer-skills/catalog';
 import { cheapestNearInput, runCheapestNear } from './cheapest-near';
 import { getListingInput, runGetListing } from './get-listing-tool';
 import { resolveLocationInput, runResolveLocation } from './resolve-location';
@@ -305,6 +306,21 @@ export async function dispatchTool(
   rawInput: unknown,
   ctx: ToolContext,
 ): Promise<ToolOutcome> {
+  /**
+   * The buyer's switch (ADR 0080 §5), before the input is even read. An error result rather than a
+   * smaller tool list: the list is the first thing in the cached prefix and stays one frozen array.
+   * `needs_account` is left to the tool — the scheduling tools already tell a signed-out visitor how
+   * to sign in, in their own words.
+   */
+  const skill = CONSUMER_SKILL_OF_TOOL[name];
+  const block = skill ? ctx.skillBlocks.get(skill) : undefined;
+  if (skill && block && block !== 'needs_account') {
+    return {
+      isError: true,
+      result: { error: consumerSkillOffMessage(skill, block), skillOff: true, instruction: 'Tell the visitor this in one sentence. Do not try another tool to do the same thing.' },
+    };
+  }
+
   try {
     switch (name) {
       case 'resolve_location': {

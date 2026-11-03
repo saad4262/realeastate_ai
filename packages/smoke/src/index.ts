@@ -256,6 +256,7 @@ import { DASHBOARD_EVALS } from '@repo/ai/evals/dashboard-phrases';
 import { listWaitingDrafts, runWorkflowTick, saveWorkflow, setWorkflowStatus } from '@repo/core/workflows';
 import { runDealSync } from '@repo/core/deals';
 import { isSkillOn, setSkillSwitch, skillsOffForActor } from '@repo/core/skill-switches';
+import { consumerSkillBlocks, listConsumerSkills, setConsumerSkill, usersWithConsumerSkillOff } from '@repo/core/consumer-skills';
 import {
   connectTwilio,
   DEFAULT_MISSED_CALL_SETTINGS,
@@ -7555,6 +7556,49 @@ async function main() {
     }),
   );
 
+  // ── ADR 0080: consumer skills — a switch each; off means off where it runs (needs 0081) ──────────
+  group('Consumer skills (ADR 0080)');
+
+  await check('A buyer’s switches: defaults by kind, only built skills switch, Smart Alerts off refuses a new alert and stops the cron claiming theirs, on again resumes; the platform pause wins; nobody else flips them', async () =>
+    inRollback(async (t) => {
+      const [buyer] = await t.execute<{ id: string }>(sql`
+        insert into "user" (id, email) values (${randomUUID()}, ${`skills.${randomUUID().slice(0, 8)}@smoke.test`}) returning id`);
+      const actor = { userId: buyer!.id };
+
+      // Signed out: the guide answers, alerts need an account, nothing planned runs.
+      const anon = await consumerSkillBlocks(t, null, {});
+      assert(!anon.has('property_search') && anon.get('smart_alerts') === 'needs_account' && anon.get('affordability') === 'not_built', `anon: ${JSON.stringify([...anon])}`);
+      // Signed in, never touched: answers on, acts off, planned off.
+      const fresh = new Map((await listConsumerSkills(t, actor, {})).map((v) => [v.key, v]));
+      assert(fresh.get('smart_alerts')?.on === true && fresh.get('buyer_assistant')?.on === true && fresh.get('property_monitor')?.block === 'not_built', `fresh: ${JSON.stringify([...fresh.values()].map((v) => [v.key, v.on, v.block]))}`);
+
+      // A due alert made while on.
+      const { id } = await createSchedule(t, actor, { searchPath: '/search?channel=sale&suburb=Pakenham', name: 'smoke skills', cadence: 'daily', sendAtMinute: 1200, timezone: 'Australia/Melbourne' });
+      await t.update(searchSchedule).set({ nextRunAt: new Date(Date.now() - 60_000) }).where(eq(searchSchedule.id, id));
+
+      // Off: stored, a new alert refused, the cron claims nothing of theirs, the job helper agrees.
+      await setConsumerSkill(t, actor, 'smart_alerts', false);
+      assert((await count(t, sql`select count(*)::int as n from consumer_skill_switch where user_id = ${actor.userId} and skill_key = 'smart_alerts' and enabled = false`)) === 1, 'switch not stored');
+      const refused = await createSchedule(t, actor, { searchPath: '/search?channel=rent&suburb=Pakenham', name: 'refused', cadence: 'daily', sendAtMinute: 1200, timezone: 'Australia/Melbourne' }).catch((e: unknown) => e as Error);
+      assert(refused instanceof Error && /switched off in your Skills/.test(refused.message), `new alert while off: ${String(refused)}`);
+      assert((await claimDueSchedules(t, { ownerId: actor.userId })).length === 0, 'the cron claimed an alert while Smart Alerts was off');
+      assert((await usersWithConsumerSkillOff(t, [actor.userId], 'smart_alerts', {})).has(actor.userId), 'job helper says on');
+
+      // On again: claimed.
+      await setConsumerSkill(t, actor, 'smart_alerts', true);
+      const claimed = await claimDueSchedules(t, { ownerId: actor.userId });
+      assert(claimed.length === 1 && claimed[0]!.scheduleId === id, `after switching on: ${claimed.length}`);
+
+      // The platform pause beats the buyer's choice; a planned skill has no switch; a signed-out actor flips nothing.
+      assert((await consumerSkillBlocks(t, actor, { CONSUMER_SKILLS_PAUSED: 'smart_alerts' })).get('smart_alerts') === 'paused', 'pause ignored');
+      const planned = await setConsumerSkill(t, actor, 'affordability', true).catch((e: unknown) => e as Error);
+      assert(planned instanceof Error && /not available yet/.test(planned.message), `planned: ${String(planned)}`);
+      const nobody = await setConsumerSkill(t, { userId: '' }, 'smart_alerts', true).catch((e: unknown) => e as Error);
+      assert(nobody instanceof Error && /Sign in/.test(nobody.message), `signed out: ${String(nobody)}`);
+      return 'anon defaults; answers on / acts + planned off; off → stored, new alert refused, 0 claimed; on → 1 claimed; pause wins; planned + signed-out refused';
+    }),
+  );
+
   // ── ADR 0079: the customer profile — four starting details; the same person lands on one profile (needs 0080) ──
   group('Customer profile (ADR 0079)');
 
@@ -10271,7 +10315,7 @@ async function main() {
       assert(p1?.roles.includes('seller') && p1.notes === 1 && p1.consent === null, `P1's role/note/consent: ${JSON.stringify(p1)}`);
       // Nina: one profile; the second row's other phone is kept off it and put on the timeline.
       const nina = await t.execute<{ id: string; phone: string; roles: string[] }>(sql`
-        select id, phone, (select array_agg(role::text order by role) from contact_role where contact_id = contact.id) as roles
+        select id, phone, (select array_agg(role::text order by role::text) from contact_role where contact_id = contact.id) as roles
         from contact where agency_id = ${f.agencyId} and email = ${`nina.${f.tag}@smoke.test`}`);
       assert(nina.length === 1 && nina[0]!.phone === '0412 000 111' && nina[0]!.roles.join() === 'buyer,seller', `Nina: ${JSON.stringify(nina)}`);
       const acts = await t.execute<{ contact_id: string; kind: string; payload: { fields?: string[]; offered?: { field: string; value: string }[]; via?: string } }>(sql`

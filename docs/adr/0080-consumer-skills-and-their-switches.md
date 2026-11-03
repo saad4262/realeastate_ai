@@ -1,0 +1,37 @@
+# 0080 — Consumer skills: a catalog of 21, a switch each, on the public site
+
+**Status:** accepted, 2026-11-03 (the user's three answers, each the recommended option). Migration 0081.
+Plan and order: `docs/CONSUMER-SKILLS.md`.
+
+**Context.** The client lists 21 AI skills for buyers on the public site. About 16% exists, almost all of
+it as tools inside the property chat, and none of it can be turned off. The agency side has switches
+(ADR 0058, 0069), but `skill_switch.agency_id` is NOT NULL and a consumer has no agency (ADR 0011) —
+giving them one is the privilege escalation that ADR rejects.
+
+**Decision.**
+1. **A fixed catalog in code**, `packages/core/src/consumer-skills/catalog.ts`: 21 skills in six groups,
+   each with a key, a name, a line on what it does, a kind (`answers` or `acts`), whether it needs an
+   account, and a status (`live`, `partial`, `planned`). Pure data; the page, the chat and the tests read
+   the same list. A new skill is an entry plus its gate, both reviewed.
+2. **Defaults by kind (the user's answer 1).** `answers` is ON, `acts` is OFF until the buyer switches it
+   on. Smart Alerts is `answers`: each alert is already the buyer's own request, and existing alerts keep
+   running. A visitor who is not signed in gets the defaults and has no switches.
+3. **Stored as exceptions from the default**, in its own table: `consumer_skill_switch(user_id, skill_key,
+   enabled)`, primary key (user_id, skill_key). No row = the catalog's default. Classified
+   `PUBLIC_SITE_USER`. `can()` gains `consumer_skill:read` / `consumer_skill:manage`: only the owner, and
+   — as schedules and chats — no agency role crosses that line.
+4. **The platform can pause a skill for everyone** with `CONSUMER_SKILLS_PAUSED` (comma list of keys). A
+   paused skill is off whatever the buyer chose; the page says so. An admin-console switch can come later.
+5. **Off means off where it runs.** The chat's tools map to skills; a tool whose skill is off returns an
+   error result telling the guide to say it is switched off in Skills. The tool list stays the one frozen
+   list, so the prompt cache is unchanged. A `planned` skill has no switch until it is built.
+6. **Data (the user's answer 2):** our records and free public data first; a skill with too little data
+   says so. **Order (answer 3):** after this foundation, Affordability, Due-Diligence, Renovation.
+
+**Alternatives.** Reusing `skill_switch` with a nullable agency (rejected: every agency-scoped read of it
+would have to learn a new case, and the unique index's `coalesce` trick already uses `user_id`). A switch
+per chat tool rather than per skill (rejected: the buyer thinks in skills, not tools).
+
+**Consequences.** Changing a skill's default later changes it for everyone who never touched that switch —
+deliberate, and an ADR each time. Every new consumer skill gets a catalog entry, its gate and a test that
+the gate refuses when it is off.

@@ -17,6 +17,7 @@ import {
   type ScheduleCadence,
   type ScheduleStatus,
 } from './schedule-schema';
+import { consumerSkillBlocks, consumerSkillOffMessage } from '../consumer-skills';
 
 /** The version of the save path that produced a row's stored query. */
 export const SAVED_QUERY_VERSION = 'search-url@v1';
@@ -128,6 +129,9 @@ export async function createSchedule(
   if (!can(actor, 'schedule:create', resourceFor(actor.userId))) {
     throw new ScheduleError('You need an account to save a search', 'refused');
   }
+  // A new alert while Smart Alerts is off would be saved and never sent (ADR 0080): say so instead.
+  const alertsBlock = (await consumerSkillBlocks(db, actor)).get('smart_alerts');
+  if (alertsBlock) throw new ScheduleError(consumerSkillOffMessage('smart_alerts', alertsBlock), 'refused');
 
   const parsed = createScheduleSchema.safeParse(input);
   if (!parsed.success) {

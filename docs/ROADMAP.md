@@ -10,6 +10,9 @@ The brief's numbering skips #20 and #25. The brief marks some items "Yellow = in
 
 ---
 
+**Consumer side (the public site):** the client's 21 consumer AI skills have their own plan and order —
+`docs/CONSUMER-SKILLS.md` (ADR 0080).
+
 ## Part 1 — Status summary
 
 | # | Skill | Done | State (2026-10-30) |

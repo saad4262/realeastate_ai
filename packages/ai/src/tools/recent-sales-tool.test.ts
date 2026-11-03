@@ -51,6 +51,7 @@ function ctx(sales: RecentSale[], over: Partial<ToolContext> = {}) {
   const context: ToolContext = {
     db: {} as Db,
     places: new Map(),
+    skillBlocks: new Map(),
     scheduling: { state: 'signed_out' },
     resolvePlace: vi.fn(async () => PAKENHAM),
     search: vi.fn(async () => []),

@@ -404,6 +404,21 @@ describe('can()', () => {
       expect(can(buyer, 'schedule:read', { type: 'schedule' })).toBe(false);
     });
   });
+
+  /** ADR 0080: a buyer's consumer-skill switches are theirs alone, exactly as their schedules are. */
+  describe('consumer skills', () => {
+    const buyer: Actor = { userId: 'buyer-1' };
+    const own = { type: 'consumer_skill', ownerId: 'buyer-1' };
+
+    it('lets a buyer read and flip their own switches, and nobody else', () => {
+      for (const action of ['consumer_skill:read', 'consumer_skill:manage'] as const) {
+        expect(can(buyer, action, own)).toBe(true);
+        expect(can({ userId: 'buyer-2' }, action, own)).toBe(false);
+        expect(can({ userId: 'owner-a', agencyId: agencyA, membershipRole: 'owner' }, action, own)).toBe(false);
+        expect(can({ userId: '' }, action, { type: 'consumer_skill' })).toBe(false);
+      }
+    });
+  });
 });
 
 /**

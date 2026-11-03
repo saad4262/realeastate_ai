@@ -440,6 +440,10 @@ export type Action =
   | 'chat:read'
   /** Append to, or delete, one's own saved conversations. */
   | 'chat:write'
+  /** See one's own consumer-skill switches (ADR 0080): the account's Skills page. */
+  | 'consumer_skill:read'
+  /** Flip one of them. Only the buyer whose switch it is; no agency role reaches it. */
+  | 'consumer_skill:manage'
   /** The admin console (ADR 0049): list every agency and open a read-only view of one. */
   | 'platform:read'
   /**
@@ -953,6 +957,8 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'chat:write':
     case 'schedule:read':
     case 'schedule:manage':
+    case 'consumer_skill:read':
+    case 'consumer_skill:manage':
       // Deliberately NOT `|| isAgencyAdmin(actor)`. An agency admin has no
       // claim on a buyer's saved search or their conversation with the guide:
       // between them those record where somebody wants to live, what they can

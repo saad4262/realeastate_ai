@@ -1,4 +1,5 @@
 import type { Db } from '@repo/db';
+import type { ConsumerSkillBlock, ConsumerSkillKey } from '@repo/core/consumer-skills/catalog';
 import type { ResolvedPlace } from '@repo/core/geo/schema';
 import type {
   NearbyMarket,
@@ -79,6 +80,12 @@ export type ToolContext = {
    * not read the same.
    */
   scheduling: SchedulingContext;
+  /**
+   * The consumer skills not running for this visitor, and why (ADR 0080) — read once per turn by the
+   * route. Required, not optional: a context built without it would be a chat with every switch ignored.
+   * `dispatchTool` refuses a tool whose skill is here.
+   */
+  skillBlocks: ReadonlyMap<ConsumerSkillKey, ConsumerSkillBlock>;
 };
 
 export type SchedulingContext =

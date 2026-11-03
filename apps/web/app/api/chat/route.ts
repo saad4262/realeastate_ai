@@ -9,6 +9,7 @@ import {
   type ToolContext,
 } from '@repo/ai/chat';
 import { appendTurn } from '@repo/core/chat';
+import { consumerSkillBlocks, consumerSkillOffMessage, type ConsumerSkillBlock, type ConsumerSkillKey } from '@repo/core/consumer-skills';
 import {
   listSchedules,
   requireDraftSecret,
@@ -175,11 +176,12 @@ function schedulingContext(userId: string | null): ToolContext['scheduling'] {
   };
 }
 
-function toolContext(userId: string | null): ToolContext {
+function toolContext(userId: string | null, skillBlocks: ReadonlyMap<ConsumerSkillKey, ConsumerSkillBlock>): ToolContext {
   const db = getWebDb();
   return {
     db,
     scheduling: schedulingContext(userId),
+    skillBlocks,
     places: new Map(),
     resolvePlace: (query) => cachedPlace(query),
     search: async (query) => {
@@ -337,7 +339,8 @@ export async function POST(request: NextRequest) {
   let tools: ToolContext;
   try {
     catalogue = await cachedFilterOptions();
-    tools = toolContext(sessionUserId);
+    // The buyer's consumer-skill switches (ADR 0080): one read when signed in, none when not.
+    tools = toolContext(sessionUserId, await consumerSkillBlocks(getWebDb(), sessionUserId ? { userId: sessionUserId } : null));
   } catch {
     return errorResponse(
       {
@@ -347,6 +350,15 @@ export async function POST(request: NextRequest) {
       },
       503,
     );
+  }
+
+  /**
+   * Buyer AI is the guide itself: switched off or paused, the turn ends here, before a model is paid for.
+   * Not `needs_account` — the guide works signed out.
+   */
+  const guideBlock = tools.skillBlocks.get('buyer_assistant');
+  if (guideBlock === 'switched_off' || guideBlock === 'paused') {
+    return errorResponse({ type: 'error', code: 'skill_off', message: consumerSkillOffMessage('buyer_assistant', guideBlock) }, 403);
   }
 
   const db = tools.db;

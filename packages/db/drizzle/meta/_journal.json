@@ -568,6 +568,13 @@
       "when": 1793623762227,
       "tag": "0080_customer_address",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1793684990507,
+      "tag": "0081_consumer_skill_switch",
+      "breakpoints": true
     }
   ]
 }

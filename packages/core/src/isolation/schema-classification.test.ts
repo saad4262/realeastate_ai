@@ -110,7 +110,8 @@ const THROUGH_PARENT: Record<string, [string, string]> = {
 const SHARED = ['property', 'place_cache', 'user', 'agency'] as const;
 
 /** A public-site visitor's own data (ADR 0011): owned by a person, never an agency. */
-const PUBLIC_SITE_USER = ['search_schedule', 'schedule_run', 'chat_thread', 'chat_message', 'shortlist', 'event'] as const;
+// consumer_skill_switch (ADR 0080): a buyer's own skill switches.
+const PUBLIC_SITE_USER = ['search_schedule', 'schedule_run', 'chat_thread', 'chat_message', 'shortlist', 'event', 'consumer_skill_switch'] as const;
 
 /**
  * The platform's own (ADR 0049): who is a platform admin, and every page one opened. Read and

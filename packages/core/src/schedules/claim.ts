@@ -1,5 +1,5 @@
-import { and, asc, eq, isNull, lte, sql } from 'drizzle-orm';
-import { scheduleRun, searchSchedule, user, type Db } from '@repo/db';
+import { and, asc, eq, isNull, lte, notExists, sql } from 'drizzle-orm';
+import { consumerSkillSwitch, scheduleRun, searchSchedule, user, type Db } from '@repo/db';
 import { savedSearchQuerySchema, type SavedSearchQuery } from '../listings/search-url';
 import { nextRunFor } from './next-run';
 import type { ScheduleCadence } from './schedule-schema';
@@ -120,6 +120,13 @@ export async function claimDueSchedules(
           lte(searchSchedule.nextRunAt, now),
           // A user the platform blocked gets no alerts while it lasts (ADR 0052); left due, they resume on unblock.
           isNull(user.blockedAt),
+          // A buyer who switched Smart Alerts off gets none while it is off (ADR 0080); left due, they resume on switch-on.
+          notExists(
+            tx
+              .select({ one: sql`1` })
+              .from(consumerSkillSwitch)
+              .where(and(eq(consumerSkillSwitch.userId, searchSchedule.userId), eq(consumerSkillSwitch.skillKey, 'smart_alerts'), eq(consumerSkillSwitch.enabled, false))),
+          ),
           ...(opts.ownerId ? [eq(searchSchedule.userId, opts.ownerId)] : []),
         ),
       )

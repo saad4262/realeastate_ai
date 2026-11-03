@@ -59,6 +59,8 @@ export type SuggestionInput = {
   /** The brief as it stands after this turn — the same slots the client echoes. */
   slots: PublicSearchQuery;
   scheduling: SchedulingContext['state'];
+  /** Smart Alerts is switched off or paused for this visitor (ADR 0080): no chip offers an alert. */
+  alertsOff?: boolean;
   /** A confirmation card is already on screen. Do not offer a second one. */
   scheduleOffered: boolean;
   /** The turn ended in an error frame. */
@@ -219,7 +221,7 @@ export function buildSuggestions(input: SuggestionInput): ChatSuggestion[] {
    * Last, so it never displaces an offer about the listings on screen.
    */
   const searchable = Boolean(slots.channel && slots.suburb);
-  if (searchable && !input.scheduleOffered && input.scheduling !== 'unconfigured') {
+  if (searchable && !input.scheduleOffered && !input.alertsOff && input.scheduling !== 'unconfigured') {
     push({
       kind: 'schedule',
       label: 'Email me new ones',

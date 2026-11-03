@@ -192,7 +192,9 @@ export type ChatErrorCode =
   | 'unconfigured'
   | 'bad_request'
   | 'upstream'
-  | 'refusal';
+  | 'refusal'
+  /** The buyer switched the guide off in their Skills, or the platform paused it (ADR 0080). */
+  | 'skill_off';
 
 export type ErrorEvent = { type: 'error'; code: ChatErrorCode; message: string };
 

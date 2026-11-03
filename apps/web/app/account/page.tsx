@@ -130,6 +130,15 @@ export default async function AccountPage() {
           </Link>
         </section>
 
+        {/* ADR 0080. No count of skills on: it would be one more query, and the page itself says. */}
+        <section className={styles.card}>
+          <h2 className={styles.cardLabel}>AI skills</h2>
+          <p className={styles.body}>Choose what the property guide may do for you, and turn each skill on or off.</p>
+          <Link href="/account/skills" className={styles.secondary}>
+            Open skills
+          </Link>
+        </section>
+
         <section className={styles.card}>
           <h2 className={styles.cardLabel}>Saved searches</h2>
           <p className={styles.body}>
