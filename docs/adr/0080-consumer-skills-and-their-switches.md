@@ -50,3 +50,9 @@ The model picks only from the 25 kinds of work in `packages/core/src/renovation/
 strict schema of room types, so a word about condition refuses the answer. Permit notes exist only with an official
 state source and date; a state without one says "not verified".
 
+**Amendment, 2026-11-03 — C4 Profile and watch, all seven decisions approved** (mock `consumer-profile-watch.html`).
+The shortlist is a basic feature with no switch. Property Monitor watches an address, not an ad, and says only
+"no longer advertised" for a withdrawn campaign (ADR 0013); it emails once a day and is off until switched on.
+Personal Property AI learns only from the buyer's own actions, as editable facts with their sources, never
+anything about the person, and is opt-in with "Forget everything". No agency sees any of it (ADR 0011).
+

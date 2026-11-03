@@ -116,4 +116,6 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   gave no price. TEST-PLAN CI.
   Permit rules for WA (3 triggers), SA (8), TAS (5), ACT (6), NT (4) added 2026-11-03 from state sources; the
   triggers with only council text, or none, stay "not verified" (ROADMAP technical debt).
-- [ ] [ ] C4 · [ ] C5 · [ ] C6 · [ ] C7 · [ ] C8 · [ ] C9
+- [~] C4 Profile and watch — mock `docs/mocks/consumer-profile-watch.html`: all seven decisions approved as
+  recommended (2026-11-03). Build order: shortlist → Property Monitor → Personal Property AI → Smart Alerts upgrade.
+- [ ] C5 · [ ] C6 · [ ] C7 · [ ] C8 · [ ] C9

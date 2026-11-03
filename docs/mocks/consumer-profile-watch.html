@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Profile and watch — mock</title>
+<!--
+  Mock for docs/CONSUMER-SKILLS.md C4 (ADR 0080): Personal Property AI, the shortlist, Property Monitor and the
+  Smart Alerts upgrade. Public site, the site's warm palette (as the C1–C3 mocks). Hand-made, SAMPLE data: the
+  person, addresses, prices and dates are invented. Every figure on a real page would come from SQL (#4).
+  Screens by hash: #rules (opens first), #shortlist, #watch, #profile, #email, #alerts.
+-->
+<style>
+  :root {
+    --canvas: #f7f4ef; --card: #fff; --sunken: #f1ece3; --ink: #1a1a1a; --ink-soft: #5c5c5c; --ink-faint: #8c8577;
+    --line: #d9d2c5; --line-subtle: #ece7dd; --brand: #0b3d2e; --brand-ink: #f7f4ef;
+    --success: #0f7a52; --success-soft: #e8f4ee; --notice: #a8620a; --notice-soft: #fbf1e3; --info: #1d4e89; --info-soft: #e9eff7;
+    --alert: #b3261e; --display: Georgia, 'Times New Roman', serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  a { color: var(--brand); }
+  .mockbar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px; background: #222; color: #ddd; font-size: 13px; }
+  .mockbar b { margin-right: 8px; color: #fff; }
+  .mockbar a { color: #ddd; text-decoration: none; padding: 2px 10px; border-radius: 999px; border: 1px solid #555; }
+  .mockbar a.on { background: #fff; color: #222; }
+  header.site { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; background: var(--card); border-bottom: 1px solid var(--line); }
+  .brand { font-family: var(--display); font-weight: 700; font-size: 20px; color: var(--brand); }
+  header.site nav a { margin-left: 18px; color: var(--ink-soft); text-decoration: none; font-size: 14px; }
+  main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; }
+  section.screen { display: none; }
+  section.screen.on { display: block; }
+  h1 { font-family: var(--display); font-size: clamp(26px, 3.4vw, 34px); letter-spacing: -.02em; margin: 0 0 6px; }
+  h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); margin: 0 0 12px; }
+  h3 { font-size: 16px; margin: 0 0 2px; }
+  .lede { color: var(--ink-soft); margin: 0 0 20px; max-width: 72ch; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; margin-bottom: 16px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) 340px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--sunken); color: var(--ink-soft); vertical-align: middle; }
+  .tag.ai { background: var(--info-soft); color: var(--info); }
+  .tag.ok { background: var(--success-soft); color: var(--success); }
+  .tag.warn { background: var(--notice-soft); color: var(--notice); }
+  .muted { color: var(--ink-soft); font-size: 13px; }
+  .row { display: grid; grid-template-columns: 96px 1fr auto; gap: 14px; align-items: start; padding: 12px 0; border-top: 1px solid var(--line-subtle); }
+  .row:first-child { border-top: 0; padding-top: 0; }
+  .thumb { width: 96px; height: 70px; border-radius: 10px; background: linear-gradient(135deg, #d9d2c5, #c2b8a6); }
+  .price { font-weight: 700; }
+  .btn { display: inline-block; padding: 8px 14px; border-radius: 999px; background: var(--brand); color: var(--brand-ink); text-decoration: none; font-weight: 600; font-size: 13px; border: 0; }
+  .btn.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  .heart { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: #fff; font-size: 13px; font-weight: 600; }
+  .heart.on { border-color: var(--alert); color: var(--alert); }
+  .event { display: grid; grid-template-columns: 110px 1fr; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line-subtle); font-size: 14px; }
+  .event:first-child { border-top: 0; }
+  .switch { display: inline-block; width: 42px; height: 24px; border-radius: 999px; background: var(--line); position: relative; vertical-align: middle; }
+  .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; }
+  .switch.on { background: var(--brand); }
+  .switch.on::after { left: 20px; }
+  .facts { list-style: none; margin: 0; padding: 0; }
+  .facts li { display: flex; justify-content: space-between; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line-subtle); font-size: 14px; }
+  .facts li:first-child { border-top: 0; }
+  .note { border-left: 4px solid var(--info); background: var(--info-soft); padding: 10px 14px; border-radius: 8px; font-size: 14px; margin: 12px 0; }
+  .note.warn { border-color: var(--notice); background: var(--notice-soft); }
+  .rules ol { padding-left: 20px; margin: 0; }
+  .rules li { margin-bottom: 14px; }
+  .rules li b { display: block; }
+  .rec { display: inline-block; margin-top: 4px; font-size: 13px; color: var(--success); font-weight: 600; }
+  .alt { display: block; font-size: 13px; color: var(--ink-faint); }
+  .email { max-width: 620px; margin: 0 auto; background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .email header { background: var(--brand); color: var(--brand-ink); padding: 16px 20px; font-weight: 700; }
+  .email .body { padding: 18px 20px; }
+  .email .foot { padding: 12px 20px; border-top: 1px solid var(--line-subtle); font-size: 12px; color: var(--ink-faint); }
+  .disclaimer { font-size: 12.5px; color: var(--ink-soft); border-top: 1px solid var(--line); padding-top: 12px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="mockbar"><b>MOCK · C4 Profile and watch</b>
+  <a href="#rules">Decisions</a><a href="#shortlist">Shortlist</a><a href="#watch">Watching</a><a href="#profile">Personal Property AI</a><a href="#email">Watch email</a><a href="#alerts">Smarter alerts</a>
+</div>
+<header class="site"><span class="brand">site.com.au</span><nav><a href="#">Buy</a><a href="#">Rent</a><a href="#shortlist">Shortlist</a><a href="#watch">Watching</a><a href="#">Ask the guide</a><a href="#">My account</a></nav></header>
+<main>
+
+<!-- ───────────────────────── DECISIONS ───────────────────────── -->
+<section class="screen rules" id="rules">
+  <h1>Profile and watch — seven decisions</h1>
+  <p class="lede">Four skills that remember things for one buyer: homes they like (shortlist), addresses they follow (Property Monitor), what they are looking for (Personal Property AI), and better saved-search emails (Smart Alerts). Each decision has a recommendation; say "all recommended" or name the ones to change.</p>
+  <div class="card"><ol>
+    <li><b>1. The shortlist is a basic feature, not an AI skill.</b>A heart on every listing and search card; a Shortlist page with a private note on each home. Signed-in only. No switch: nothing acts by itself.
+      <span class="rec">Recommended: yes. (The table already exists; nothing uses it yet.)</span></li>
+    <li><b>2. Property Monitor watches an ADDRESS, not an ad.</b>"Watch this address" on a listing and on an address not for sale. It tells the buyer when the address is listed for sale or rent (Not for Sale → For Sale), when the price changes (recorded since 3 Nov 2026), when it goes under offer and when it sells. All from our own records, every figure from SQL.
+      <span class="rec">Recommended: yes — up to 50 addresses per buyer. It acts by itself (emails), so it is OFF until the buyer switches it on (ADR 0080).</span></li>
+    <li><b>3. "No longer advertised" — say it or not?</b>When a watched listing is withdrawn, our public history leaves withdrawn campaigns out (ADR 0013).
+      <span class="rec">Recommended: say only "This address is no longer advertised on this site", never "withdrawn" and never why — the buyer could see the ad disappear anyway.</span>
+      <span class="alt">Alternative: say nothing; the event list just stops.</span></li>
+    <li><b>4. How the buyer hears.</b>
+      <span class="rec">Recommended: one email a day at 8 am in their time zone, only when something happened, with every change in it and an unsubscribe link; and a Watching page that always shows the full history. No SMS, no push.</span>
+      <span class="alt">Alternative: an email the moment something changes (more emails, more cost).</span></li>
+    <li><b>5. Personal Property AI: what it learns, and from what.</b>From the buyer's OWN actions only: their saved searches, shortlist, watched addresses and the filters the guide used in their chats. Stored as plain, editable facts — suburbs, price range, bedrooms, property types — counted by code. Never their income, family, age or anything about them as a person; never free text guessed by a model.
+      <span class="rec">Recommended: yes; opt-in (OFF until switched on), every fact shown with where it came from, editable, and one "Forget everything" button. When on, the guide starts from it ("You usually look in Pakenham, 3+ bedrooms — still the case?").</span></li>
+    <li><b>6. Smart Alerts upgrade.</b>A saved-search email adds two short sections, both from SQL: price changes on homes it already sent you, and what sold in that suburb since the last email.
+      <span class="rec">Recommended: yes; the existing summary paragraph rules stay (no figures in the model's words, ADR 0080 #7).</span></li>
+    <li><b>7. Agencies never see any of it.</b>Who shortlisted, watched or profiled what stays the buyer's, as saved searches and chats already are (ADR 0011). The platform admin console keeps its count of shortlisted homes per user — nothing more.
+      <span class="rec">Recommended: yes — no "12 people are watching this" for agencies in this version.</span></li>
+  </ol></div>
+</section>
+
+<!-- ───────────────────────── SHORTLIST ───────────────────────── -->
+<section class="screen" id="shortlist">
+  <h1>Your shortlist</h1>
+  <p class="lede">4 homes · only you can see this</p>
+  <div class="card">
+    <div class="row"><div class="thumb"></div><div><h3>14 Station Street, Officer VIC</h3><div class="price">$760,000 – $800,000</div><p class="muted" style="margin:2px 0">4 bed · 2 bath · 2 car</p><p style="margin:4px 0;font-size:14px"><i>"Big yard, check the train noise."</i> <a href="#">Edit note</a></p></div><div><span class="heart on">♥ Saved</span></div></div>
+    <div class="row"><div class="thumb"></div><div><h3>8 Example Court, Springfield Lakes QLD</h3><div class="price">Offers over $720,000</div><p class="muted" style="margin:2px 0">Price changed on 20 Oct 2026 <span class="tag warn">Price change</span></p><p style="margin:4px 0;font-size:14px"><a href="#">Add a note</a></p></div><div><span class="heart on">♥ Saved</span></div></div>
+    <div class="row"><div class="thumb"></div><div><h3>3 Sample Lane, Pakenham VIC</h3><div class="price">Under offer</div><p class="muted" style="margin:2px 0">Under offer since 1 Nov 2026</p></div><div><span class="heart on">♥ Saved</span></div></div>
+    <div class="row"><div class="thumb"></div><div><h3>22 Sample Street, Brunswick VIC</h3><div class="price">No longer advertised</div><p class="muted" style="margin:2px 0">Kept here so your note is not lost</p></div><div><span class="heart on">♥ Saved</span></div></div>
+  </div>
+  <p><a class="btn ghost" href="#">Compare two of these</a> <span class="muted">— Comparison AI comes in C5</span></p>
+</section>
+
+<!-- ───────────────────────── WATCHING ───────────────────────── -->
+<section class="screen" id="watch">
+  <h1>Watching</h1>
+  <p class="lede">Addresses you follow. We email you once a day when something changes.</p>
+  <div class="grid">
+    <div class="card">
+      <h3>22 Sample Street, Brunswick VIC <span class="tag">Not for sale</span></h3>
+      <p class="muted" style="margin:0 0 8px">Watching since 2 Nov 2026</p>
+      <div class="event"><span class="muted">—</span><span>Nothing yet. We will tell you when it is listed for sale or rent.</span></div>
+      <hr style="border:0;border-top:1px solid var(--line);margin:14px 0">
+      <h3>8 Example Court, Springfield Lakes QLD <span class="tag ok">For sale</span></h3>
+      <p class="muted" style="margin:0 0 8px">Watching since 25 Sep 2026</p>
+      <div class="event"><span class="muted">20 Oct 2026</span><span>Price changed from Offers over $750,000 to Offers over $720,000.</span></div>
+      <div class="event"><span class="muted">23 Sep 2026</span><span>Listed for sale — Offers over $750,000.</span></div>
+      <hr style="border:0;border-top:1px solid var(--line);margin:14px 0">
+      <h3>3 Sample Lane, Pakenham VIC <span class="tag warn">Under offer</span></h3>
+      <div class="event"><span class="muted">1 Nov 2026</span><span>Under offer.</span></div>
+    </div>
+    <div>
+      <div class="card">
+        <h2>Property Monitor</h2>
+        <p style="margin:0 0 8px"><span class="switch on"></span> &nbsp;On — daily email at 8 am</p>
+        <p class="muted" style="margin:0">3 of 50 addresses. <a href="#">Manage in Skills</a></p>
+      </div>
+      <div class="card">
+        <h2>On a listing or an address</h2>
+        <p><span class="heart">♡ Save</span> &nbsp; <span class="heart">👁 Watch this address</span></p>
+        <p class="muted" style="margin:0">Signed out: "Sign in to save or watch". Property Monitor off: "Watching needs Property Monitor — turn it on in Skills."</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── PERSONAL PROPERTY AI ───────────────────────── -->
+<section class="screen" id="profile">
+  <h1>Personal Property AI</h1>
+  <p class="lede">What the guide has learnt from what you do here — so it can start from it. Only you can see this, and you can change or delete any of it.</p>
+  <div class="grid">
+    <div class="card">
+      <h2>What we have learnt</h2>
+      <ul class="facts">
+        <li><span><b>Suburbs</b> — Pakenham, Officer, Berwick</span><span class="muted">from 2 saved searches and 3 shortlisted homes · <a href="#">Edit</a></span></li>
+        <li><span><b>Buying, up to</b> $800,000</span><span class="muted">from your saved search "3 bed Pakenham" · <a href="#">Edit</a></span></li>
+        <li><span><b>Bedrooms</b> — 3 or more</span><span class="muted">from 2 saved searches · <a href="#">Edit</a></span></li>
+        <li><span><b>Property type</b> — House</span><span class="muted">from 4 shortlisted homes · <a href="#">Edit</a></span></li>
+      </ul>
+      <p class="muted">Counted by the site from your own saved searches, shortlist, watched addresses and the filters in your chats. Nothing about you as a person — no income, family or age.</p>
+      <p><a class="btn ghost" href="#" style="color:var(--alert);border-color:var(--alert)">Forget everything</a></p>
+    </div>
+    <div>
+      <div class="card">
+        <h2>Personal Property AI</h2>
+        <p style="margin:0 0 8px"><span class="switch on"></span> &nbsp;On</p>
+        <p class="muted" style="margin:0">Off: nothing is learnt, and what was learnt is not used. Forget everything deletes it.</p>
+      </div>
+      <div class="card">
+        <h2>In the guide</h2>
+        <p style="margin:0;font-size:14px">"You usually look in Pakenham, Officer and Berwick for a house with 3+ bedrooms up to $800,000 — still the case?" <span class="tag ai">From your profile</span></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── WATCH EMAIL ───────────────────────── -->
+<section class="screen" id="email">
+  <div class="email">
+    <header>2 changes on addresses you watch</header>
+    <div class="body">
+      <h3>8 Example Court, Springfield Lakes QLD</h3>
+      <p style="margin:2px 0 14px">Price changed from <b>Offers over $750,000</b> to <b>Offers over $720,000</b> on 20 Oct 2026. <a href="#">See the listing</a></p>
+      <h3>22 Sample Street, Brunswick VIC</h3>
+      <p style="margin:2px 0 14px"><b>Listed for sale</b> on 2 Nov 2026 — $1,150,000 – $1,250,000. It was not for sale when you started watching. <a href="#">See the listing</a></p>
+    </div>
+    <div class="foot">You get this because Property Monitor is on. <a href="#">Watching</a> · <a href="#">Turn off Property Monitor</a> · <a href="#">Unsubscribe</a></div>
+  </div>
+</section>
+
+<!-- ───────────────────────── SMARTER ALERTS ───────────────────────── -->
+<section class="screen" id="alerts">
+  <div class="email">
+    <header>3 new homes for "3 bed Pakenham"</header>
+    <div class="body">
+      <p class="muted" style="margin-top:0"><span class="tag ai">Written by the property guide</span> A quieter week: three new houses, all on larger blocks.</p>
+      <p>… the three new homes, as today …</p>
+      <h3 style="margin-top:16px">Price changes on homes we sent you</h3>
+      <p style="margin:2px 0">14 Station Street, Officer — from $780,000 – $820,000 to $760,000 – $800,000.</p>
+      <h3 style="margin-top:16px">Sold in Pakenham since your last email</h3>
+      <p style="margin:2px 0">2 homes: 5 Example Road — $702,000 · 19 Sample Avenue — price not disclosed.</p>
+    </div>
+    <div class="foot">Every figure comes from our listings; the line in blue is the guide's, with no figures in it. <a href="#">Manage alerts</a> · <a href="#">Unsubscribe</a></div>
+  </div>
+</section>
+
+</main>
+<script>
+  function show() {
+    const id = (location.hash || '#rules').slice(1);
+    document.querySelectorAll('section.screen').forEach((s) => s.classList.toggle('on', s.id === id));
+    document.querySelectorAll('.mockbar a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + id));
+    window.scrollTo(0, 0);
+  }
+  addEventListener('hashchange', show);
+  show();
+</script>
+</body>
+</html>
