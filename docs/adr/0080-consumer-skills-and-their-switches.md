@@ -43,3 +43,10 @@ decisions as recommended).** Prices were never kept, only the current one. Migra
 so "since we began recording on 3 Nov 2026". The public records keep ADR 0013's history: withdrawn campaigns
 stay out (the mock's withdrawn example is not shown).
 
+**Amendment, 2026-11-03 — C3 Renovation, approved by the product team** (mock `consumer-renovation.html`). No
+renovation cost figure from the platform: there is no free, official price source, so the skill gives what a cost
+depends on, the trades, the permit notes, and compares the buyer's own quotes — arithmetic in core, in whole cents.
+The model picks only from the 25 kinds of work in `packages/core/src/renovation/categories.ts`; its photo answer is a
+strict schema of room types, so a word about condition refuses the answer. Permit notes exist only with an official
+state source and date; a state without one says "not verified".
+

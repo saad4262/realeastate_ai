@@ -57,7 +57,8 @@ production database.
 
 ## Next
 0. C1 (`dcdce7c`) and C2 Due-Diligence AI committed; C2's live-model group green (the user's go). TEST-PLAN CG, CH
-   in a browser. Now: C3 Renovation AI — mock `docs/mocks/consumer-renovation.html` awaiting the user. Re-check duty rates
+   in a browser. C3 Renovation AI approved (product team); step 1 built, uncommitted: core types, the 25 kinds
+   of work, plan/photo contracts, quotes in cents. Next: permit rules per state from official pages. Re-check duty rates
    every 1 July (dates in `duty-rates.ts`); NT, ACT general and SA new-home relief still "not verified".
 1. Push and merge `chore/tech-debt` → `feat/sms-part2` → `feat/customer-profile` → `feat/consumer-skills` (the user's go).
 2. Twilio tonight → connect on the phone test agency → BX, BY, BZ, CE.

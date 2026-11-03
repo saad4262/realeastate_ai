@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Renovation AI — mock</title>
+<!--
+  Mock for docs/CONSUMER-SKILLS.md C3 (ADR 0080). Public site, the site's warm palette (as the C1 and C2 mocks).
+  Hand-made, SAMPLE data: the address, the plan and the quotes are invented. Permit and trade notes are a DRAFT,
+  verified against each state's official pages before build, as the duty rates and checklists were.
+  Screens by hash: #rules (opens first), #plan, #quotes, #listing, #chat.
+-->
+<style>
+  :root {
+    --canvas: #f7f4ef; --card: #fff; --sunken: #f1ece3; --ink: #1a1a1a; --ink-soft: #5c5c5c; --ink-faint: #8c8577;
+    --line: #d9d2c5; --line-subtle: #ece7dd; --brand: #0b3d2e; --brand-ink: #f7f4ef;
+    --success: #0f7a52; --success-soft: #e8f4ee; --notice: #a8620a; --notice-soft: #fbf1e3; --info: #1d4e89; --info-soft: #e9eff7;
+    --display: Georgia, 'Times New Roman', serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  a { color: var(--brand); }
+  .mockbar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px; background: #222; color: #ddd; font-size: 13px; }
+  .mockbar b { margin-right: 8px; color: #fff; }
+  .mockbar a { color: #ddd; text-decoration: none; padding: 2px 10px; border-radius: 999px; border: 1px solid #555; }
+  .mockbar a.on { background: #fff; color: #222; }
+  header.site { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; background: var(--card); border-bottom: 1px solid var(--line); }
+  .brand { font-family: var(--display); font-weight: 700; font-size: 20px; color: var(--brand); }
+  header.site nav a { margin-left: 18px; color: var(--ink-soft); text-decoration: none; font-size: 14px; }
+  main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; }
+  section.screen { display: none; }
+  section.screen.on { display: block; }
+  h1 { font-family: var(--display); font-size: clamp(26px, 3.4vw, 34px); letter-spacing: -.02em; margin: 0 0 6px; }
+  h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); margin: 0 0 12px; }
+  h3 { font-size: 16px; margin: 0 0 4px; }
+  .lede { color: var(--ink-soft); margin: 0 0 20px; max-width: 70ch; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; margin-bottom: 16px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: 360px minmax(0, 1fr); }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--sunken); color: var(--ink-soft); vertical-align: middle; }
+  .tag.ai { background: var(--info-soft); color: var(--info); }
+  .tag.ok { background: var(--success-soft); color: var(--success); }
+  .tag.warn { background: var(--notice-soft); color: var(--notice); }
+  .muted { color: var(--ink-soft); font-size: 13px; }
+  .source { font-size: 12px; color: var(--ink-faint); margin-top: 8px; }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
+  input, select, textarea { width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; font: inherit; background: #fff; }
+  textarea { min-height: 90px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips span { padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: #fff; font-size: 13px; color: var(--ink-soft); }
+  .chips span.on { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
+  .btn { display: inline-block; padding: 9px 16px; border-radius: 999px; background: var(--brand); color: var(--brand-ink); text-decoration: none; font-weight: 600; font-size: 14px; border: 0; }
+  .btn.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  .item { border-top: 1px solid var(--line-subtle); padding: 14px 0; }
+  .item:first-child { border-top: 0; padding-top: 0; }
+  .needs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .drivers { margin: 6px 0 0; padding-left: 18px; font-size: 14px; color: var(--ink-soft); }
+  .note { border-left: 4px solid var(--info); background: var(--info-soft); padding: 10px 14px; border-radius: 8px; font-size: 14px; margin: 12px 0; }
+  .note.warn { border-color: var(--notice); background: var(--notice-soft); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; font-size: 12px; color: var(--ink-soft); font-weight: 600; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  td { padding: 8px 0; border-top: 1px solid var(--line-subtle); vertical-align: top; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 10px; }
+  tr.total td { font-weight: 700; border-top: 1px solid var(--line); }
+  .disclaimer { font-size: 12.5px; color: var(--ink-soft); border-top: 1px solid var(--line); padding-top: 12px; margin-top: 8px; }
+  .rules ol { padding-left: 20px; margin: 0; }
+  .rules li { margin-bottom: 14px; }
+  .rules li b { display: block; }
+  .rec { display: inline-block; margin-top: 4px; font-size: 13px; color: var(--success); font-weight: 600; }
+  .alt { display: block; font-size: 13px; color: var(--ink-faint); }
+  .hero { height: 150px; border-radius: 16px; background: linear-gradient(135deg, #d9d2c5, #c2b8a6); display: grid; place-items: end start; padding: 16px; color: #fff; font-weight: 700; margin-bottom: 16px; }
+  .chat { max-width: 760px; }
+  .bubble { padding: 12px 16px; border-radius: 16px; margin: 10px 0; max-width: 85%; }
+  .bubble.me { margin-left: auto; background: var(--brand); color: var(--brand-ink); border-bottom-right-radius: 4px; }
+  .bubble.ai { background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .toolcard { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fffdfa; margin: 8px 0; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="mockbar"><b>MOCK · C3 Renovation AI</b>
+  <a href="#rules">Decisions</a><a href="#plan">The plan</a><a href="#quotes">Your quotes</a><a href="#listing">On a listing</a><a href="#chat">In the guide</a>
+</div>
+<header class="site"><span class="brand">site.com.au</span><nav><a href="#">Buy</a><a href="#">Rent</a><a href="#">Affordability</a><a href="#plan">Renovation</a><a href="#chat">Ask the guide</a><a href="#">My account</a></nav></header>
+<main>
+
+<!-- ───────────────────────── DECISIONS ───────────────────────── -->
+<section class="screen rules" id="rules">
+  <h1>Renovation AI — six decisions</h1>
+  <p class="lede">The client's line: "analyse renovation opportunities and provide indicative planning and cost information". The hard part is the cost: there is no free, official source of renovation prices in Australia. Each decision has a recommendation; say "all recommended" or name the ones to change.</p>
+  <div class="card"><ol>
+    <li><b>1. Where the cost figures come from.</b>
+      <span class="rec">Recommended: no dollar figure from us in version 1. Instead, for every piece of work: what drives the cost, what usually needs a licensed trade or a permit, and the buyer's own quotes compared side by side (decision 4). The page says plainly why there is no figure.</span>
+      <span class="alt">Alternative A: license a cost guide (Cordell from CoreLogic, or Rawlinsons) — indicative ranges per item and per m², dated; needs the client's contract and budget, and only then figures appear.</span>
+      <span class="alt">Alternative B: copy ranges from free commercial guides (hipages, Canstar…) — rejected: not ours to copy, not verifiable, often years old.</span></li>
+    <li><b>2. The AI turns words into a plan, from a fixed list of kinds of work.</b>The buyer says what they want ("a new kitchen, open the wall to the dining room, a deck"). The AI picks matching items from ~25 kinds of work we define in code (kitchen, bathroom, removing a wall, extension, deck, re-roof, electrical upgrade…) and writes one line on each. Everything attached to a kind — the cost drivers, the trades, the permit notes — is written by us, not by the model.
+      <span class="rec">Recommended: yes — the model never invents a permit rule or a price.</span></li>
+    <li><b>3. Photos: rooms only, never condition.</b>On a listing, the AI may look at the photos to say which rooms and features are shown (so the plan can start from "kitchen, 2 bathrooms, rear deck"). It never says what condition anything is in, never guesses age, defects, asbestos or what is behind a wall.
+      <span class="rec">Recommended: words first; photos as a button, rooms only. Photos cost more per call.</span>
+      <span class="alt">Alternative: no photos in v1.</span></li>
+    <li><b>4. Your quotes, compared — the only figures on the page.</b>The buyer types the quotes they get (trade, amount, what is included); the page adds them up and shows the difference between quotes for the same work. The arithmetic is code; the AI can point out what one quote includes that another does not — from the words the buyer typed — never the price.
+      <span class="rec">Recommended: yes, kept in this browser only (account saving comes with C4).</span></li>
+    <li><b>5. Permits and trades: per state, from official pages, links only.</b>Which kinds of work usually need a building permit or approval, a licensed electrician or plumber, strata/owners-corporation approval, a heritage check; and the owner-builder rules. Verified per state like the checklists; a state not verified gets the general notes.
+      <span class="rec">Recommended: yes; "usually" — the council or a building surveyor decides.</span></li>
+    <li><b>6. Where it shows.</b>A Renovation page (start from a listing or from scratch), a "Planning a renovation?" link on each listing for sale, and the guide's tool <code>renovation_plan</code>. All behind the <b>Renovation AI</b> switch (on by default — it answers).
+      <span class="rec">Recommended: all three.</span></li>
+  </ol></div>
+</section>
+
+<!-- ───────────────────────── THE PLAN ───────────────────────── -->
+<section class="screen" id="plan">
+  <h1>Plan a renovation</h1>
+  <p class="lede">Tell us what you would change. We will turn it into a plan: what is involved, what drives the cost, and who and what you will need.</p>
+  <div class="grid">
+    <div class="card">
+      <h2>The home</h2>
+      <label>From a listing</label><input value="14 Example Street, Pakenham VIC 3810">
+      <p class="muted" style="margin:6px 0 0">Kitchen, 2 bathrooms, living, rear deck — <span class="tag ai">From the listing photos</span></p>
+      <label>What would you change?</label>
+      <div class="chips"><span class="on">Kitchen</span><span>Bathroom</span><span class="on">Open plan</span><span>Extension</span><span class="on">Deck</span><span>Flooring</span><span>Painting</span><span>Re-roof</span><span>Electrical</span><span>Landscaping</span></div>
+      <label>In your words</label>
+      <textarea>New kitchen with an island, take out the wall between the kitchen and dining room, and replace the old deck with a bigger one.</textarea>
+      <label>Size, if you know it <span class="muted" style="font-weight:400">— helps your quotes, not ours</span></label>
+      <input placeholder="e.g. deck about 5 × 4 m">
+      <p style="margin-top:14px"><a class="btn" href="#plan">Make my plan</a></p>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2>Your plan <span class="tag ai">Drafted by the property guide</span></h2>
+        <div class="item">
+          <h3>Kitchen renovation with an island</h3>
+          <p class="muted" style="margin:0">"A new kitchen with an island bench, in the current kitchen space."</p>
+          <ul class="drivers"><li>Moving the sink, cooktop or dishwasher (plumbing and gas lines move with them)</li><li>Benchtop material and cabinet quality</li><li>Appliances — supplied by you or the builder</li><li>Whether the floor and walls are opened up</li></ul>
+          <div class="needs"><span class="tag">Licensed plumber</span><span class="tag">Licensed electrician</span><span class="tag">Gas fitter if gas</span><span class="tag ok">Building permit: usually not, unless structural</span></div>
+        </div>
+        <div class="item">
+          <h3>Removing the wall between kitchen and dining</h3>
+          <p class="muted" style="margin:0">"Opening the kitchen to the dining room."</p>
+          <ul class="drivers"><li>Whether the wall is load-bearing — the biggest single factor</li><li>Services inside the wall (power, plumbing) to reroute</li><li>Making good the floor, ceiling and walls where it was</li></ul>
+          <div class="needs"><span class="tag warn">Check if load-bearing first</span><span class="tag">Structural engineer if load-bearing</span><span class="tag warn">Building permit if structural</span><span class="tag">Licensed electrician</span></div>
+          <div class="note warn">Homes built before 1990 may contain asbestos. Have it tested before cutting into walls or ceilings. <a href="#">Asbestos Safety and Eradication Agency</a></div>
+        </div>
+        <div class="item">
+          <h3>A new, larger deck</h3>
+          <p class="muted" style="margin:0">"Replacing the old deck with a bigger one."</p>
+          <ul class="drivers"><li>Size and height above the ground</li><li>Timber or composite boards</li><li>A roof over it, or not</li><li>Footings and the slope of the yard</li></ul>
+          <div class="needs"><span class="tag warn">Building permit: depends on height and size</span><span class="tag">Balustrade rules over a set height</span></div>
+        </div>
+        <p class="source">Cost drivers, trades and permit notes are written by us from official sources (Victoria: Victorian Building Authority — checked before build); the AI chose which apply.</p>
+      </div>
+
+      <div class="card">
+        <h2>What about the cost?</h2>
+        <div class="note">We do not show prices for renovation work: there is no official, current price list in Australia, and a figure we could not stand behind would be worse than none. Get <b>at least three written quotes</b> for each part, and compare them below.</div>
+        <p><a class="btn" href="#quotes">Compare my quotes</a> <a class="btn ghost" href="#">See the cost of buying (Affordability)</a></p>
+      </div>
+
+      <div class="card">
+        <h2>Victoria — before you start <span class="tag">Draft content · verified before build</span></h2>
+        <ul class="drivers" style="color:var(--ink)">
+          <li>Structural work, extensions and many decks need a <b>building permit</b> from a registered building surveyor.</li>
+          <li>Electrical, plumbing and gas work must be done by <b>licensed</b> trades, who give you a compliance certificate.</li>
+          <li>Doing it yourself as an <b>owner-builder</b> above a set value needs a certificate of consent.</li>
+          <li>A heritage overlay or an owners corporation may need its own approval — check VicPlan and the rules.</li>
+        </ul>
+        <p class="source">Victorian Building Authority · Consumer Affairs Victoria — links to the official pages.</p>
+      </div>
+      <p class="disclaimer">General information, not building, planning or financial advice. A registered building surveyor or the council decides what needs a permit.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── QUOTES ───────────────────────── -->
+<section class="screen" id="quotes">
+  <h1>Your quotes</h1>
+  <p class="lede">14 Example Street, Pakenham · kept in this browser only</p>
+  <div class="card">
+    <table>
+      <tr><th>Work</th><th>Trade</th><th>Includes</th><th class="n">Quote</th></tr>
+      <tr><td>Kitchen</td><td>Builder A</td><td class="muted">Cabinets, stone benchtop, plumbing, electrical; no appliances</td><td class="n">$38,500</td></tr>
+      <tr><td>Kitchen</td><td>Builder B</td><td class="muted">Cabinets, laminate benchtop, plumbing, electrical, appliances</td><td class="n">$41,200</td></tr>
+      <tr><td>Wall removal</td><td>Builder A</td><td class="muted">Engineer's report, steel beam, permit, making good</td><td class="n">$14,800</td></tr>
+      <tr><td>Deck</td><td>Deck Co</td><td class="muted">Merbau, 20 m², permit</td><td class="n">$16,900</td></tr>
+      <tr class="total"><td colspan="3">Lowest quote for each piece of work</td><td class="n">$70,200</td></tr>
+    </table>
+    <p class="muted">Totals are added up by the page from the figures you typed. Kitchen: Builder B is $2,700 more and includes appliances; Builder A's has a stone benchtop. <span class="tag ai">Compared by the property guide from your words</span></p>
+    <p><a class="btn ghost" href="#">Add a quote</a></p>
+  </div>
+</section>
+
+<!-- ───────────────────────── ON A LISTING ───────────────────────── -->
+<section class="screen" id="listing">
+  <div class="hero">14 Example Street, Pakenham VIC 3810 · sample</div>
+  <div class="card" style="max-width:520px">
+    <h2>Renovation AI</h2>
+    <h3>Planning a renovation?</h3>
+    <p class="muted">Turn what you would change into a plan: what is involved, what drives the cost, the trades and permits — and compare your quotes.</p>
+    <p><a class="btn" href="#plan">Plan a renovation for this home</a></p>
+  </div>
+</section>
+
+<!-- ───────────────────────── IN THE GUIDE ───────────────────────── -->
+<section class="screen chat" id="chat">
+  <h1>Ask the guide</h1>
+  <div class="bubble me">If I bought 14 Example Street, how much would it cost to knock out the wall between the kitchen and dining room?</div>
+  <div class="toolcard"><span class="tag ok">Renovation AI</span> <b>Removing a wall — Victoria</b><br>Drivers: load-bearing or not · services in the wall · making good · Needs: structural engineer and a building permit if load-bearing · asbestos test before 1990</div>
+  <div class="bubble ai">I can't give you a price — there's no reliable price list for renovation work, so quotes are the only honest number. What decides the cost most is whether that wall is <b>load-bearing</b>: if it is, you'll need a structural engineer, a beam, and a building permit. Power or plumbing inside the wall adds to it, and if the house was built before 1990 it's worth an asbestos test first.<br><br>The Renovation page can turn this into a plan and compare the quotes you get.<p class="disclaimer" style="margin-bottom:0">General information, not building or planning advice.</p></div>
+</section>
+
+</main>
+<script>
+  function show() {
+    const id = (location.hash || '#rules').slice(1);
+    document.querySelectorAll('section.screen').forEach((s) => s.classList.toggle('on', s.id === id));
+    document.querySelectorAll('.mockbar a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + id));
+    window.scrollTo(0, 0);
+  }
+  addEventListener('hashchange', show);
+  show();
+</script>
+</body>
+</html>
