@@ -10,12 +10,12 @@ Version 1 is built except what waits on the client and on Twilio. `main` = `d3eb
 0080 — consumer skills + C0 foundation; C1 Affordability AI built, uncommitted). Merge in that order.
 
 ## Database
-84 migrations recorded (0000–0083). **0080 (`contact.address_*`), 0081 (`consumer_skill_switch`) and 0082
+85 migrations recorded (0000–0084). **0080 (`contact.address_*`), 0081 (`consumer_skill_switch`) and 0082
 (`listing_price_change` + its trigger) applied 2026-11-03** (the user's go; checked after: 82 recorded, 6 address columns, the table exists). Dev database =
 production database.
 
 ## Checks
-- Unit: core 1670+, ai 368 — all pass, offline. Live AI group "Consumer skills, live AI (ADR 0080)" green 2026-11-03. Typecheck 10/10. Web lint 0 errors. /affordability and a listing's
+- Unit: core 1687, ai 370 — all pass, offline. Live AI group "Consumer skills, live AI (ADR 0080)" green 2026-11-03. Typecheck 10/10. Web lint 0 errors. /affordability and a listing's
   "Costs to buy" panel rendered on the local dev server (figures match the mock and the unit tests).
 - Smoke 2026-11-03, live DB: "Consumer skills (ADR 0080)", "Customer profile (ADR 0079)", "Imports: contacts and
   Google Sheets" — 5/5 green (the import check sorted roles by enum order, not text: test fixed, data was right).
@@ -61,8 +61,8 @@ production database.
    of work, plan/photo contracts, quotes in cents (`5bd7be8`); permit rules VIC/NSW/QLD (`e8b683e`); end to end
    built, uncommitted: planner + room reader, two routes, /renovation, the listing link, `renovation_plan` (v13).
    Live-model group 12/12 green; committed `ae5d96a`; pushed (`origin/feat/consumer-skills`). Permit rules for all
-   eight states (WA, SA, TAS, ACT, NT added; council-only triggers still unverified). C4 mock approved (`67747b5`); shortlist committed (`a599f7d`); Property Monitor built and smoke-green
-   (uncommitted; migration 0083 applied 2026-11-03, 84 recorded). Next: Personal Property AI.
+   eight states (WA, SA, TAS, ACT, NT added; council-only triggers still unverified). C4 mock approved (`67747b5`); shortlist committed (`a599f7d`); Property Monitor committed (`e42736a`); Personal
+   Property AI built and smoke-green (uncommitted; 0084 applied, 85 recorded). Next: the Smart Alerts upgrade.
    TEST-PLAN CG/CH/CI: the user, in a browser. Re-check duty rates
    every 1 July (dates in `duty-rates.ts`); NT, ACT general and SA new-home relief still "not verified".
 1. Push and merge `chore/tech-debt` → `feat/sms-part2` → `feat/customer-profile` → `feat/consumer-skills` (the user's go).

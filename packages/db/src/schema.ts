@@ -1791,6 +1791,22 @@ export const propertyWatchEvent = pgTable(
   (t) => [index('property_watch_event_user_idx').on(t.userId, t.emailedAt), index('property_watch_event_property_idx').on(t.userId, t.propertyId, t.happenedAt)],
 );
 
+/**
+ * Personal Property AI's state for one buyer (ADR 0080, C4 decision 5). The profile itself is never stored: it is
+ * counted on read from the buyer's own actions (saved searches, chat filters, shortlist, watches). This row holds
+ * only what the buyer did TO it — "Forget everything" (`forgotten_at`: nothing before it is learnt again) and their
+ * own edits (`overrides`: a field set by them, or null = removed by them). Fixed fields only: nothing about the
+ * person. Owned by a person, never an agency (ADR 0011).
+ */
+export const buyerProfile = pgTable('buyer_profile', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  forgottenAt: timestamp('forgotten_at', { withTimezone: true }),
+  overrides: jsonb('overrides').notNull().default({}),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const event = pgTable('event', {
   id: uuid('id').primaryKey().defaultRandom(),
   type: varchar('type', { length: 128 }).notNull(),
@@ -3320,6 +3336,7 @@ export type ConsumerSkillSwitch = typeof consumerSkillSwitch.$inferSelect;
 export type ListingPriceChange = typeof listingPriceChange.$inferSelect;
 export type PropertyWatch = typeof propertyWatch.$inferSelect;
 export type PropertyWatchEvent = typeof propertyWatchEvent.$inferSelect;
+export type BuyerProfile = typeof buyerProfile.$inferSelect;
 export type Deal = typeof deal.$inferSelect;
 export type DealCondition = typeof dealCondition.$inferSelect;
 export type DealEvent = typeof dealEvent.$inferSelect;

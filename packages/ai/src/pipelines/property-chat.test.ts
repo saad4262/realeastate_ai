@@ -325,6 +325,25 @@ describe('runPropertyChat', () => {
     expect(calls[1]?.tools).toEqual(calls[0]?.tools);
   });
 
+  it('carries the Personal Property AI line after the two cached blocks, uncached, so the cache prefix is unchanged (ADR 0080, C4)', async () => {
+    const { client, calls } = fakeClient([{ events: [], final: message({ content: [] }) }]);
+    await collect(
+      runPropertyChat({
+        apiKey: 'test-key',
+        client,
+        profile: 'looks in Pakenham; buying; up to $800,000',
+        request: { message: 'hi', turns: [] },
+        catalogue: { suburbs: ['Pakenham'], propertyTypes: ['House'] },
+        tools: tools(),
+        track: trackSpy(),
+      }),
+    );
+    const system = calls[0]?.system as { text: string; cache_control?: unknown }[];
+    expect(system).toHaveLength(3);
+    expect(system[2]?.cache_control).toBeUndefined();
+    expect(system[2]?.text).toContain('<buyer_profile>looks in Pakenham; buying; up to $800,000</buyer_profile>');
+  });
+
   it('sends every tool result in one user message', async () => {
     // Splitting them teaches the model to stop making parallel calls, quietly.
     const two = [
@@ -775,5 +794,17 @@ describe('the chips under an answer', () => {
     );
 
     expect(events.some((e) => e.type === 'suggestions')).toBe(false);
+  });
+});
+
+describe('the Personal Property AI line (ADR 0080, C4)', () => {
+  it('is operator text with how to use it, or nothing', async () => {
+    const { profileBlock } = await import('./property-chat');
+    expect(profileBlock(null)).toBeNull();
+    expect(profileBlock('  ')).toBeNull();
+    const b = profileBlock('looks in Pakenham; buying; up to $800,000')!;
+    expect(b).toContain('<buyer_profile>looks in Pakenham; buying; up to $800,000</buyer_profile>');
+    expect(b).toMatch(/confirm it/);
+    expect(b).toMatch(/assume nothing about them as a person/);
   });
 });

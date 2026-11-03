@@ -73,7 +73,7 @@ export const CONSUMER_SKILLS: readonly ConsumerSkill[] = Object.freeze([
   { key: 'tasks', group: 'Keep watch', name: 'Tasks', description: 'Property research done once or on a schedule, with a report when it is done.', kind: 'acts', account: true, status: 'planned', phase: 'C8' },
   { key: 'automation', group: 'Keep watch', name: 'Automation', description: 'When something happens to a home you follow, do what you asked.', kind: 'acts', account: true, status: 'planned', phase: 'C8' },
   { key: 'buyer_assistant', group: 'Your assistant', name: 'Buyer AI', description: 'The property guide you chat with. Off: the chat is switched off for you.', kind: 'answers', account: false, status: 'live', phase: 'live' },
-  { key: 'personal_profile', group: 'Your assistant', name: 'Personal Property AI', description: 'Learns what you like from your searches and saves, so answers fit you. You can see and delete it.', kind: 'acts', account: true, status: 'planned', phase: 'C4' },
+  { key: 'personal_profile', group: 'Your assistant', name: 'Personal Property AI', description: 'Learns what you like from your searches and saves, so answers fit you. You can see and delete it.', kind: 'acts', account: true, status: 'live', phase: 'C4' },
   { key: 'agent_messages', group: 'Your assistant', name: 'Agent AI', description: 'The guide drafts a question or enquiry to the agent; you read it and send it.', kind: 'acts', account: true, status: 'planned', phase: 'C8' },
 ] satisfies ConsumerSkill[]);
 

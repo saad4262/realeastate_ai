@@ -43,7 +43,23 @@ export type PropertyChatInput = {
   }) => Promise<void>;
   signal?: AbortSignal;
   env?: NodeJS.ProcessEnv;
+  /**
+   * Personal Property AI's one line (ADR 0080, C4), when the visitor switched it on: what they look for, counted
+   * from their own activity. Server-authored — never from the request — and carried like the requirements block.
+   */
+  profile?: string | null;
 };
+
+/** The profile as operator text, with how to use it. Null without one. */
+export function profileBlock(line: string | null | undefined): string | null {
+  if (!line?.trim()) return null;
+  return (
+    `<buyer_profile>${line.trim()}</buyer_profile>\n` +
+    'From this visitor\'s own activity on this site (Personal Property AI, which they switched on). A starting point ' +
+    'only: confirm it in one short clause before you rely on it ("You usually look in …, still the case?"), let ' +
+    'anything they say now win, never explain how it was learnt, and assume nothing about them as a person.'
+  );
+}
 
 /**
  * Rebuild the conversation the server is willing to believe.
@@ -234,6 +250,10 @@ export async function* runPropertyChat(
   if (requirements) {
     system.push({ type: 'text', text: requirements });
   }
+  // Same place and the same reasoning as the requirements: after the cached blocks, uncached, so nothing in front
+  // of it is rewritten. Every model accepts a system block.
+  const profile = profileBlock(input.profile);
+  if (profile) system.push({ type: 'text', text: profile });
 
   let slots: PublicSearchQuery = { ...(request.slots as PublicSearchQuery | undefined) };
   /**

@@ -452,6 +452,10 @@ export type Action =
   | 'property_watch:read'
   /** Watch, stop watching. The owner only; no agency sees who watches what (C4 decision 7). */
   | 'property_watch:manage'
+  /** A buyer's Personal Property AI profile (ADR 0080 C4). The owner only. */
+  | 'buyer_profile:read'
+  /** Edit or forget it. The owner only; no agency role, not even counts (C4 decision 7). */
+  | 'buyer_profile:manage'
   /** The admin console (ADR 0049): list every agency and open a read-only view of one. */
   | 'platform:read'
   /**
@@ -971,6 +975,8 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'shortlist:manage':
     case 'property_watch:read':
     case 'property_watch:manage':
+    case 'buyer_profile:read':
+    case 'buyer_profile:manage':
       // Deliberately NOT `|| isAgencyAdmin(actor)`. An agency admin has no
       // claim on a buyer's saved search or their conversation with the guide:
       // between them those record where somebody wants to live, what they can

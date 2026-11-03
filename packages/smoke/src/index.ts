@@ -261,6 +261,8 @@ import { dutyRatesDue } from '@repo/core/affordability';
 import { buildRenovationPlan, listingRooms, renovationListing, renovationRulesDue } from '@repo/core/renovation';
 import { addToShortlist, listShortlist, removeFromShortlist, setShortlistNote } from '@repo/core/shortlist';
 import { listWatches, localClock, runWatchTick, watchProperty } from '@repo/core/watch';
+import { editProfile, forgetProfile, loadProfile } from '@repo/core/profile';
+import { appendTurn } from '@repo/core/chat';
 import { createRenovationPlanner } from '@repo/ai/renovation';
 import { runPropertyChat, type ToolContext as ChatToolContext } from '@repo/ai/chat';
 import { dispatchTool } from '@repo/ai/tools';
@@ -7754,6 +7756,47 @@ async function main() {
       assert(page.length === 1 && page[0]!.standing === 'under_offer' && page[0]!.events.length === 2, `A's page: ${JSON.stringify(page)}`);
       assert((await listWatches(t, b))[0]!.events.length === 0, 'B (off) got events');
       return `refused while off; A: 1 email with the price change and "Under offer.", none on the next tick, page shows 2 events; B (switched off): nothing`;
+    }),
+  );
+
+  await check('Personal Property AI (C4): off until switched on; learns only from the buyer’s own actions AFTER switching on; an edit wins; an edit about the person is refused; Forget everything empties it', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const [l] = await t.execute<{ id: string }>(sql`select id from listing where property_id = ${f.propertyId} limit 1`);
+      await t.execute(sql`update listing set published_at = now() - interval '5 days' where id = ${l!.id}`);
+      const [u] = await t.execute<{ id: string }>(sql`insert into "user" (id, email) values (${randomUUID()}, ${`profile.${f.tag}@smoke.test`}) returning id`);
+      const a = { userId: u!.id };
+      assert((await loadProfile(t, a, {})).on === false, 'on before the switch');
+      // Before switching on (this transaction's now() is one instant, so times are set by hand): never learnt.
+      const before = await createSchedule(t, a, { searchPath: '/search?channel=rent&suburb=Clyde', name: 'before', cadence: 'daily', sendAtMinute: 1200, timezone: 'Australia/Melbourne' });
+      await t.execute(sql`update search_schedule set created_at = now() - interval '1 hour' where id = ${before.id}`);
+      await setConsumerSkill(t, a, 'personal_profile', true);
+      // After: a shortlisted home in Pakenham and a chat whose search was Officer, buying, up to $800,000, 3+ beds.
+      await addToShortlist(t, a, l!.id);
+      const { threadId } = await appendTurn(t, a, { threadId: null, role: 'user', text: '3 bed in Officer under 800k' });
+      await appendTurn(t, a, { threadId, role: 'assistant', text: 'Here are some.', searches: [{ query: { channel: 'sale', suburb: 'Officer', priceTo: 800000, bedrooms: 3 }, matched: 4, shown: 4 }] });
+      await t.execute(sql`update shortlist set created_at = now() + interval '1 minute' where user_id = ${a.userId}`);
+      await t.execute(sql`update chat_message set created_at = now() + interval '1 minute' where thread_id = ${threadId}`);
+
+      const learnt = await loadProfile(t, a, {});
+      assert(learnt.on, 'off after switching on');
+      if (!learnt.on) return 'unreachable';
+      const sub = learnt.facts.suburbs?.value ?? [];
+      assert(sub.includes('Pakenham') && sub.includes('Officer') && !sub.includes('Clyde'), `suburbs: ${JSON.stringify(sub)} (Clyde was before the switch)`);
+      assert(learnt.facts.channel?.value === 'sale' && learnt.facts.priceTo?.value === 800000 && learnt.facts.bedrooms?.value === 3, `facts: ${JSON.stringify(learnt.facts)}`);
+
+      await editProfile(t, a, { suburbs: ['Berwick'], priceTo: null });
+      const edited = await loadProfile(t, a, {});
+      assert(edited.on && edited.facts.suburbs?.by === 'you' && edited.facts.suburbs.value.join() === 'Berwick' && edited.facts.priceTo === null, `edited: ${JSON.stringify(edited)}`);
+      const person = await editProfile(t, a, { age: 34 }).catch((e: unknown) => e as Error);
+      assert(person instanceof Error, 'an edit about the person was accepted');
+
+      await forgetProfile(t, a);
+      // The forget happens "after" the actions above: move it past them, as real time would.
+      await t.execute(sql`update buyer_profile set forgotten_at = now() + interval '2 minutes' where user_id = ${a.userId}`);
+      const forgotten = await loadProfile(t, a, {});
+      assert(forgotten.on && Object.values(forgotten.facts).every((v) => v === null), `after forget: ${JSON.stringify(forgotten)}`);
+      return 'off → on; learnt Pakenham + Officer, sale, $800,000, 3 beds (not Clyde, saved before the switch); edit wins; "age" refused; forget → empty';
     }),
   );
 

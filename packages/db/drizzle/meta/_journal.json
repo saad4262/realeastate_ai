@@ -589,6 +589,13 @@
       "when": 1793701278705,
       "tag": "0083_property_watch",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1793703508886,
+      "tag": "0084_buyer_profile",
+      "breakpoints": true
     }
   ]
 }

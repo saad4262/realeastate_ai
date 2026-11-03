@@ -125,5 +125,10 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   2026-11-03), `packages/core/src/watch/` (detect by comparing what was reported with the address's latest campaign;
   price changes from 0082; a tick on the alerts cron — each watch hourly, one email at 8 am in the buyer's zone;
   its own unsubscribe token that switches Property Monitor off), "Watch this address" on listings and /property,
-  `/account/watching`. Next: Personal Property AI, then the Smart Alerts upgrade.
+  `/account/watching`. Committed `e42736a`.
+  Personal Property AI built (uncommitted): migration 0084 (`buyer_profile` — only Forget everything's time and
+  the buyer's edits; applied 2026-11-03), `packages/core/src/profile/` (five fields about the home, counted by code
+  from saved searches, chat filters, shortlist and watches made AFTER the switch was turned on or the last forget;
+  each with its source; edits win; a strict schema refuses anything about the person), the guide's starting line
+  (an uncached system block after the cached prompt), `/account/profile`. Next: the Smart Alerts upgrade.
 - [ ] C5 · [ ] C6 · [ ] C7 · [ ] C8 · [ ] C9

@@ -9,6 +9,7 @@ import {
   type ToolContext,
 } from '@repo/ai/chat';
 import { appendTurn } from '@repo/core/chat';
+import { loadProfile, profileLine } from '@repo/core/profile';
 import { consumerSkillBlocks, consumerSkillOffMessage, type ConsumerSkillBlock, type ConsumerSkillKey } from '@repo/core/consumer-skills';
 import {
   listSchedules,
@@ -386,8 +387,20 @@ export async function POST(request: NextRequest) {
    */
   const threadId = request.headers.get('x-chat-thread')?.trim() || null;
 
+  /**
+   * Personal Property AI (ADR 0080, C4): only for a signed-in visitor who switched it on — the skill block says.
+   * A failed read costs the line, never the turn.
+   */
+  const profile =
+    sessionUserId && !tools.skillBlocks.has('personal_profile')
+      ? await loadProfile(db, { userId: sessionUserId })
+          .then((p) => (p.on ? profileLine(p.facts) : null))
+          .catch(() => null)
+      : null;
+
   const turn = runPropertyChat({
     apiKey,
+    profile,
     request: parsed.data,
     catalogue,
     tools,

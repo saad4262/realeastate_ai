@@ -2036,4 +2036,10 @@ alert upgrade are added here as they land.
 | CJ11 | The email's "Turn off Property Monitor" link | "Property Monitor is off"; Skills shows it off; the list is kept; no further email. |
 | CJ12 | Withdraw the watched listing in the console | "No longer advertised on this site." — never "withdrawn". |
 | CJ13 | Stop watching (with Property Monitor on or off) | The address and its history go. |
+| CJ14 | My account → Personal Property AI, switched off | "Off" — nothing learnt, nothing used; Open Skills. |
+| CJ15 | Switch it on; save a search, shortlist two homes, ask the guide for "3 bed in Officer under 800k"; reopen the profile | Suburbs, Buying, Up to $800,000, 3 or more, Property type — each "from N saved searches / shortlisted homes / chats with the guide"; nothing from before you switched it on. |
+| CJ16 | Edit Suburbs to "Berwick"; Remove "Up to" | "Berwick — set by you" with "Go back to learnt"; Up to shows "nothing yet". |
+| CJ17 | Start a new chat with the guide | It opens from your profile ("You usually look in …, still the case?") and lets what you say now win. With it off: no such line. |
+| CJ18 | Forget everything → Yes | "Forgotten"; every field "nothing yet"; your saved searches, shortlist and watches are still on their pages. |
+| CJ19 | As an agency owner in the console | Nothing shows any buyer's profile. |
 

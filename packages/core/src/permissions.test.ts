@@ -405,6 +405,19 @@ describe('can()', () => {
     });
   });
 
+  /** ADR 0080 C4: a buyer's Personal Property AI profile is theirs alone — agencies are blind to it. */
+  describe('buyer profile', () => {
+    it('lets a buyer read, edit and forget their own profile, and nobody else', () => {
+      const own = { type: 'buyer_profile', ownerId: 'buyer-1' };
+      for (const action of ['buyer_profile:read', 'buyer_profile:manage'] as const) {
+        expect(can({ userId: 'buyer-1' }, action, own)).toBe(true);
+        expect(can({ userId: 'buyer-2' }, action, own)).toBe(false);
+        expect(can({ userId: 'owner-a', agencyId: agencyA, membershipRole: 'owner' }, action, own)).toBe(false);
+        expect(can({ userId: '' }, action, { type: 'buyer_profile' })).toBe(false);
+      }
+    });
+  });
+
   /** ADR 0080 C4: the addresses a buyer watches are theirs alone. */
   describe('property watch', () => {
     it('lets a buyer read and change their own watches, and nobody else', () => {

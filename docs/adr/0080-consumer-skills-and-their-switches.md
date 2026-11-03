@@ -58,4 +58,7 @@ anything about the person, and is opt-in with "Forget everything". No agency see
 Built: migration 0083 (`property_watch`, `property_watch_event`, PUBLIC_SITE_USER) — a watch remembers what it last
 reported, and a check reports the difference; the daily email carries a third unsubscribe token kind (`w.`) that
 switches Property Monitor off.
+Personal Property AI built: migration 0084 (`buyer_profile`, PUBLIC_SITE_USER) stores only "Forget everything"'s time
+and the buyer's edits; the profile is counted on read from actions made after the switch was turned on (its row's
+time) or the last forget. The guide gets one line as an uncached system block after the cached prompt.
 
