@@ -112,6 +112,23 @@ export const PERMIT_TRIGGERS = [
 ] as const;
 export type PermitTrigger = (typeof PERMIT_TRIGGERS)[number];
 
+/** What each trigger is called on the page, and in "not verified" notes. */
+export const TRIGGER_LABELS: Readonly<Record<PermitTrigger, string>> = Object.freeze({
+  structural: 'Structural work',
+  new_floor_area: 'Adding floor area',
+  deck_or_raised_structure: 'Decks, pergolas and raised structures',
+  roof_work: 'Roof work',
+  wet_area: 'Wet areas and waterproofing',
+  electrical: 'Electrical work',
+  plumbing: 'Plumbing and drainage',
+  gas: 'Gas work',
+  pool_or_spa: 'Pools and spas',
+  boundary: 'Work near a boundary',
+  heritage: 'Heritage',
+  strata: 'Units and owners corporations',
+  older_home_materials: 'Older homes and asbestos',
+});
+
 export type RenovationCategory = {
   key: RenovationCategoryKey;
   group: RenovationGroup;

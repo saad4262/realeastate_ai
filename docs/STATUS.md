@@ -15,7 +15,7 @@ Version 1 is built except what waits on the client and on Twilio. `main` = `d3eb
 production database.
 
 ## Checks
-- Unit: core 1644, ai 356 — all pass, offline. Live AI group "Consumer skills, live AI (ADR 0080)" green 2026-11-03. Typecheck 10/10. Web lint 0 errors. /affordability and a listing's
+- Unit: core 1665, ai 368 — all pass, offline. Live AI group "Consumer skills, live AI (ADR 0080)" green 2026-11-03. Typecheck 10/10. Web lint 0 errors. /affordability and a listing's
   "Costs to buy" panel rendered on the local dev server (figures match the mock and the unit tests).
 - Smoke 2026-11-03, live DB: "Consumer skills (ADR 0080)", "Customer profile (ADR 0079)", "Imports: contacts and
   Google Sheets" — 5/5 green (the import check sorted roles by enum order, not text: test fixed, data was right).
@@ -58,8 +58,10 @@ production database.
 ## Next
 0. C1 (`dcdce7c`) and C2 Due-Diligence AI committed; C2's live-model group green (the user's go). TEST-PLAN CG, CH
    in a browser. C3 Renovation AI approved (product team); step 1 built, uncommitted: core types, the 25 kinds
-   of work, plan/photo contracts, quotes in cents (committed `5bd7be8`); permit rules VIC/NSW/QLD (uncommitted).
-   Next: the model call, the Renovation page, the listing link, the guide's `renovation_plan`. Re-check duty rates
+   of work, plan/photo contracts, quotes in cents (`5bd7be8`); permit rules VIC/NSW/QLD (`e8b683e`); end to end
+   built, uncommitted: planner + room reader, two routes, /renovation, the listing link, `renovation_plan` (v13).
+   Live-model group 12/12 green (the user's go); committed. Next: TEST-PLAN CG/CH/CI in a browser; WA, SA, TAS,
+   ACT, NT permit rules; then C4 (profile and watch) — mock first. Re-check duty rates
    every 1 July (dates in `duty-rates.ts`); NT, ACT general and SA new-home relief still "not verified".
 1. Push and merge `chore/tech-debt` → `feat/sms-part2` → `feat/customer-profile` → `feat/consumer-skills` (the user's go).
 2. Twilio tonight → connect on the phone test agency → BX, BY, BZ, CE.

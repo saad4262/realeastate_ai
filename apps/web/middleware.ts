@@ -160,6 +160,10 @@ export const config = {
     '/affordability',
     // ADR 0080 C2: Due-Diligence AI's button reads the buyer's own switch; the listing page itself stays outside.
     '/api/due-diligence',
+    // ADR 0080 C3: Renovation AI — the page and its two endpoints read the buyer's own switch.
+    '/renovation',
+    '/api/renovation',
+    '/api/renovation/rooms',
     '/login',
     '/signup',
     // `/reset` arrives straight from an emailed link and needs the session

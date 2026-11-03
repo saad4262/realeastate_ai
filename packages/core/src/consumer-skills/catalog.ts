@@ -64,7 +64,7 @@ export const CONSUMER_SKILLS: readonly ConsumerSkill[] = Object.freeze([
   { key: 'due_diligence', group: 'Understand a property', name: 'Due-Diligence AI', description: 'What to check before you buy, what the records show, and what to ask the agent.', kind: 'answers', account: false, status: 'live', phase: 'C2' },
   { key: 'development', group: 'Understand a property', name: 'Property Development AI', description: 'Land, zoning and the questions to ask before you develop.', kind: 'answers', account: false, status: 'planned', phase: 'C9' },
   { key: 'affordability', group: 'Money & plans', name: 'Affordability AI', description: 'Repayments, stamp duty and what you could borrow, with what-if scenarios. Estimates, not advice.', kind: 'answers', account: false, status: 'live', phase: 'C1' },
-  { key: 'renovation', group: 'Money & plans', name: 'Renovation AI', description: 'What a renovation could involve and an indicative cost range.', kind: 'answers', account: false, status: 'planned', phase: 'C3' },
+  { key: 'renovation', group: 'Money & plans', name: 'Renovation AI', description: 'What a renovation could involve and an indicative cost range.', kind: 'answers', account: false, status: 'live', phase: 'C3' },
   { key: 'inspection_planner', group: 'Inspections', name: 'Inspection AI', description: 'Plan your open homes in a sensible order and add them to your calendar.', kind: 'answers', account: false, status: 'planned', phase: 'C6' },
   { key: 'inspection_notes', group: 'Inspections', name: 'Inspection Assistant', description: 'Your notes, photos and checklist from each inspection, kept private and summarised.', kind: 'answers', account: true, status: 'planned', phase: 'C6' },
   { key: 'immersive', group: 'Inspections', name: 'Immersive Property AI', description: 'Floorplans, video and tours, and the guide answers questions about the rooms.', kind: 'answers', account: false, status: 'planned', phase: 'C9' },
@@ -130,6 +130,7 @@ export const CONSUMER_SKILL_OF_TOOL: Readonly<Record<string, ConsumerSkillKey>> 
   draft_schedule: 'smart_alerts',
   affordability_estimate: 'affordability',
   due_diligence: 'due_diligence',
+  renovation_plan: 'renovation',
 });
 
 /** The words every refusal uses, so the buyer (and the guide) know why and where to change it. */

@@ -42,7 +42,16 @@ passes ~10 entries, move the older ones to a new archive file.
   `unsupportedFigures` read "2" as a figure. Fixed: `cleanLine` in core + prompt due-diligence@v2; the test's own
   figure regex (a trailing comma) and allowed list (now from the tool's result) fixed too. Second run: 8/8 green
   (summary 2/2, questions 6/6; the guide copied $10,925 and cited R1/R2). Committed C2.
-- Left unfinished (exact next step): C3 Renovation AI mock — the user's decisions; TEST-PLAN CG/CH in a browser.
+- Then C3 Renovation AI (approved by the product team): core categories/plan/quotes (`5bd7be8`); permit rules VIC,
+  NSW, QLD through domain-restricted official search — Victoria's regulator is now the Building and Plumbing
+  Commission (bpc.vic.gov.au) (`e8b683e`); end to end: planner + room reader in packages/ai, `/api/renovation`,
+  `/api/renovation/rooms`, `/renovation` with quotes compared in core, the listing link, `renovation_plan` with the
+  25 kinds as its enum (prompt v13). Unit core 1665, ai 368; smoke 7/7 (incl. the endpoints' permission check and
+  a "condition" photo answer refused). Break-tests: a source on the wrong state's domain; the tool's switch. Dev
+  server (CONSUMER_AI=off): the page, the link, 400/404/503.
+- Live model (the user's go): "Consumer skills, live AI (ADR 0080)" 12/12 — the planner kept kitchen, remove_wall,
+  deck for a request that asked the cost, no money in any line; the guide gave no price and said why. Committed C3.
+- Left unfinished (exact next step): WA, SA, TAS, ACT, NT permit rules; TEST-PLAN CG/CH/CI in a browser; C4 mock.
 - Risks / watch: rates go stale every 1 July; the borrowing estimate is not a bank's (decision 2).
 
 ## 2026-11-02 (later) — Claude Code (Mac) — ADR 0079: the customer profile

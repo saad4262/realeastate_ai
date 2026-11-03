@@ -100,12 +100,18 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   go): it found the model writing "[K2]" into its questions, which the figure check read as "2" and dropped 5 of 6 —
   fixed in core (`cleanLine`) and the prompt (v2); then summary 2/2, questions 6/6, and the guide's affordability
   and due-diligence answers copied only the tools' figures. TEST-PLAN CH.
-- [~] C3 Renovation — mock and rules approved by the product team (2026-11-03): no cost figures from us; the AI
+- [x] C3 Renovation — mock and rules approved by the product team (2026-11-03): no cost figures from us; the AI
   picks only from the fixed kinds of work; photos give room types only; the buyer's quotes are compared in code;
   permit rules from official state sources. Step 1 done (uncommitted): `packages/core/src/renovation/` — 25 kinds
   of work (cost drivers, trades, permit triggers; a test refuses any figure), the plan and photo contracts
   (`checkPlan`, `photoRoomsSchema` strict, `roomsFromPhotos`), quotes in whole cents (`compareQuotes`), the
   per-state permit structure. Committed `5bd7be8`. Step 2: permit rules for VIC (9 triggers), NSW (8) and QLD (7)
   from their official pages, each on its own state's domain (a test enforces it); WA, SA, TAS, ACT, NT and the
-  rest "not verified". Next: the model call (packages/ai), the page, the listing link, `renovation_plan`.
+  rest "not verified". Committed `e8b683e`. Step 3 (uncommitted): end to end — the planner and the room reader
+  (packages/ai, summary tier, metered), `/api/renovation` and `/api/renovation/rooms` (rate limit, daily cap, the
+  switch; the listing decides the state), `/renovation` (plan cards, permit notes with sources or "not verified",
+  why no price, quotes compared by `compareQuotes`), "Planning a renovation?" on listings, `renovation_plan` in the
+  guide (enum of the 25 kinds; prompt v13). Live model green 2026-11-03 (the user's go): the planner kept 3/3 kinds
+  for a request that asked "what would it cost?" with no money in any line; the guide called renovation_plan and
+  gave no price. TEST-PLAN CI.
 - [ ] [ ] C4 · [ ] C5 · [ ] C6 · [ ] C7 · [ ] C8 · [ ] C9

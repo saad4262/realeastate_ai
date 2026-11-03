@@ -2001,3 +2001,18 @@ Public site. Needs migration **0082** (applied 2026-11-03). CH7–CH9 call the m
 | CH8 | Tick two, "Put into the enquiry form" | The enquiry form's message holds those two questions, numbered; the page scrolls to it; nothing is sent until you press Send. |
 | CH9 | On /chat: "what should I check before buying <a listing from a search>?" | The guide cites [R1]…, names two or three checklist points for the state, points to "Before you buy" for the questions, ends with the legal-advice line. With Due-Diligence AI off in Skills: it says the skill is switched off. |
 
+## CI — Renovation AI (ADR 0080, C3)
+
+Public site. CI2, CI3 and CI8 call the model (a real key; a few cents). No price from the platform anywhere.
+
+| # | Case | Expected |
+|---|---|---|
+| CI1 | A listing for sale | "Planning a renovation?" card; the button opens /renovation?listing=… with "For <address>". |
+| CI2 | Type "new kitchen with an island, knock out the wall to the dining room, a bigger deck", Make my plan | Cards for Kitchen, Removing a wall, Deck — each with "What drives the cost" and trade chips, no $ anywhere. VIC/NSW/QLD: permit notes with a source link and date; the rest "We have not verified …". |
+| CI3 | On a listing with photos: "What rooms do the photos show?" | Room types only (kitchen, bathroom…) with "From the listing photos"; nothing about condition. |
+| CI4 | /renovation without a listing, no state chosen | The plan without permit notes and "Choose a state to see the permit notes". |
+| CI5 | Add quotes: Kitchen 38,500 (A), Kitchen 41,200 (B), Removing a wall 14,800, Deck 16,900 | Lowest for each $70,200, highest $72,900; Kitchen "Spread $2,700", A tagged Lowest; every kind "Get at least 3 quotes". Amount "38.5k" is refused with the hint. |
+| CI6 | Reload the page | The quotes are still there; another listing's page has its own (empty) list. |
+| CI7 | Switch Renovation AI off in Skills | The page says it is switched off; the listing card is gone. |
+| CI8 | On /chat: "how much to knock out the wall between kitchen and dining in Victoria?" | The guide gives no figure, says why, names what drives the cost (load-bearing first), the permit note with its source, and points to the Renovation page. |
+

@@ -258,7 +258,8 @@ import { runDealSync } from '@repo/core/deals';
 import { isSkillOn, setSkillSwitch, skillsOffForActor } from '@repo/core/skill-switches';
 import { consumerSkillBlocks, listConsumerSkills, setConsumerSkill, usersWithConsumerSkillOff } from '@repo/core/consumer-skills';
 import { dutyRatesDue } from '@repo/core/affordability';
-import { renovationRulesDue } from '@repo/core/renovation';
+import { buildRenovationPlan, listingRooms, renovationListing, renovationRulesDue } from '@repo/core/renovation';
+import { createRenovationPlanner } from '@repo/ai/renovation';
 import { runPropertyChat, type ToolContext as ChatToolContext } from '@repo/ai/chat';
 import { dispatchTool } from '@repo/ai/tools';
 import { createDueDiligenceWriter } from '@repo/ai/due-diligence';
@@ -7573,7 +7574,7 @@ async function main() {
 
       // Signed out: the guide answers, alerts need an account, nothing planned runs.
       const anon = await consumerSkillBlocks(t, null, {});
-      assert(!anon.has('property_search') && anon.get('smart_alerts') === 'needs_account' && anon.get('renovation') === 'not_built', `anon: ${JSON.stringify([...anon])}`);
+      assert(!anon.has('property_search') && anon.get('smart_alerts') === 'needs_account' && anon.get('comparison') === 'not_built', `anon: ${JSON.stringify([...anon])}`);
       // Signed in, never touched: answers on, acts off, planned off.
       const fresh = new Map((await listConsumerSkills(t, actor, {})).map((v) => [v.key, v]));
       assert(fresh.get('smart_alerts')?.on === true && fresh.get('buyer_assistant')?.on === true && fresh.get('property_monitor')?.block === 'not_built', `fresh: ${JSON.stringify([...fresh.values()].map((v) => [v.key, v.on, v.block]))}`);
@@ -7597,7 +7598,7 @@ async function main() {
 
       // The platform pause beats the buyer's choice; a planned skill has no switch; a signed-out actor flips nothing.
       assert((await consumerSkillBlocks(t, actor, { CONSUMER_SKILLS_PAUSED: 'smart_alerts' })).get('smart_alerts') === 'paused', 'pause ignored');
-      const planned = await setConsumerSkill(t, actor, 'renovation', true).catch((e: unknown) => e as Error);
+      const planned = await setConsumerSkill(t, actor, 'comparison', true).catch((e: unknown) => e as Error);
       assert(planned instanceof Error && /not available yet/.test(planned.message), `planned: ${String(planned)}`);
       const nobody = await setConsumerSkill(t, { userId: '' }, 'smart_alerts', true).catch((e: unknown) => e as Error);
       assert(nobody instanceof Error && /Sign in/.test(nobody.message), `signed out: ${String(nobody)}`);
@@ -7666,6 +7667,27 @@ async function main() {
     if (due.unverified.length) note('checklist states', `not verified: ${due.unverified.join(', ')} — the general list is shown`);
     return due.stale.length ? `${due.stale.length} checklist source(s) due` : `all checked; ${due.unverified.length} states on the general list`;
   });
+
+  // The endpoints' permission check (no model): the server decides the listing; a word about condition refuses the photo answer.
+  await check('Renovation AI: only a public listing is planned for; the photo answer is rooms only — a word about condition refuses it whole', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const [l] = await t.execute<{ id: string }>(sql`select id from listing where property_id = ${f.propertyId} limit 1`);
+      const [m] = await t.execute<{ id: string }>(sql`insert into media (listing_id, kind, storage_key, is_main, sort_order) values (${l!.id}, 'photo', ${`smoke/${f.tag}/kitchen.jpg`}, true, 0) returning id`);
+      assert(m, 'no photo row');
+      const found = await renovationListing(t, l!.id);
+      assert(found?.state === 'VIC', `live listing: ${JSON.stringify(found)}`);
+      const rooms = await listingRooms(t, async () => ({ photos: [{ photo: 1, room: 'kitchen' }] }), l!.id);
+      assert(rooms.length === 1 && rooms[0]!.room === 'kitchen', `rooms: ${JSON.stringify(rooms)}`);
+      const judged = await listingRooms(t, async () => ({ photos: [{ photo: 1, room: 'kitchen', condition: 'dated' }] }) as never, l!.id).catch((e: unknown) => e as Error);
+      assert(judged instanceof Error, 'a photo answer with a condition was accepted');
+      await t.execute(sql`update listing set status = 'draft' where id = ${l!.id}`);
+      assert((await renovationListing(t, l!.id)) === null, 'a draft listing was planned for');
+      const nf = await listingRooms(t, async () => ({ photos: [] }), l!.id).catch((e: unknown) => e as Error);
+      assert(nf instanceof Error && /not available/.test(nf.message), `draft rooms: ${String(nf)}`);
+      return 'live → VIC with 1 photo → kitchen; a "condition" answer refused; draft → not available';
+    }),
+  );
 
   await check('Renovation permit rules: checked since the last 1 July; which states are still unverified', async () => {
     const due = renovationRulesDue(new Date());
@@ -11909,6 +11931,31 @@ async function main() {
     assert(/R[123]/.test(turn.text), `no record cited: ${turn.text.slice(0, 400)}`);
     const stray = strayFigures(turn.text, ['$720,000', '$750,000', '$455,000']);
     assert(!stray.length, `figures not in the records: ${stray.join(', ')} — ${turn.text.slice(0, 400)}`);
+    return `tools: ${turn.tools.join(', ')}; ${turn.text.replace(/\s+/g, ' ').slice(0, 260)}`;
+  });
+
+  await check('Renovation planner (live): words become kinds of work from the fixed list, with no money in any line', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    return inRollback(async (t) => {
+      const planner = createRenovationPlanner({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), db: t });
+      let raw = 0;
+      const plan = await buildRenovationPlan(async (input) => {
+        const d = await planner(input);
+        raw = d.items.length;
+        return d;
+      }, { request: 'New kitchen with an island bench, knock out the wall between the kitchen and the dining room, and a bigger deck out the back. What would it cost?', state: 'VIC' });
+      const kinds = plan.cards.map((c) => c.category);
+      assert(['kitchen', 'remove_wall', 'deck'].every((k) => kinds.includes(k as never)), `kinds: ${kinds.join(', ')} (model wrote ${raw})`);
+      assert(!JSON.stringify(plan.cards).match(/\$\d/), 'a price reached a card');
+      return `kept ${plan.cards.length}/${raw}: ${plan.cards.map((c) => `${c.category} — ${c.note}`).join(' | ')}`;
+    });
+  });
+
+  await check('the guide (live): "how much to knock out a wall" calls renovation_plan and gives no price', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    const turn = await guideTurn('If I bought a house in Victoria, how much would it cost to knock out the wall between the kitchen and the dining room?', async () => null);
+    assert(turn.tools.includes('renovation_plan'), `tools: ${turn.tools.join(', ') || 'none'}`);
+    assert(!/\$\d/.test(turn.text), `the guide gave a figure: ${turn.text.slice(0, 400)}`);
     return `tools: ${turn.tools.join(', ')}; ${turn.text.replace(/\s+/g, ' ').slice(0, 260)}`;
   });
 

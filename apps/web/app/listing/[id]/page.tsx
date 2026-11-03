@@ -15,6 +15,7 @@ import { ActivityBeacon } from '../../../components/activity-beacon';
 import { ListingMap } from '../../../components/listing-map';
 import { EnquiryForm } from '../../../components/enquiry-form';
 import { CostsToBuy } from '../../../components/costs-to-buy';
+import { PlanRenovationLink } from '../../../components/plan-renovation-link';
 import { BeforeYouBuy } from '../../../components/before-you-buy';
 import { ListingReviews } from '../../../components/listing-reviews';
 import {
@@ -484,6 +485,8 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
               </Card>
 
               <CostsToBuy channel={listing.channel} state={listing.state} priceFrom={listing.priceFrom} priceTo={listing.priceTo} />
+
+              <PlanRenovationLink listingId={listing.id} channel={listing.channel} />
 
               <BeforeYouBuy state={listing.state} facts={facts} scope={`listing:${listing.id}`} subject={{ listingId: listing.id }} />
 

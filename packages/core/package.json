@@ -51,6 +51,8 @@
     "./affordability": "./src/affordability/index.ts",
     "./due-diligence": "./src/due-diligence/index.ts",
     "./renovation": "./src/renovation/index.ts",
+    "./renovation/quotes": "./src/renovation/quotes.ts",
+    "./renovation/categories": "./src/renovation/categories.ts",
     "./consumer-skills": "./src/consumer-skills/index.ts",
     "./consumer-skills/catalog": "./src/consumer-skills/catalog.ts",
     "./skill-switches": "./src/skill-switches/index.ts",

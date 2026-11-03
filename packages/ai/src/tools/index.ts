@@ -4,6 +4,8 @@ import { CONSUMER_SKILL_OF_TOOL, consumerSkillOffMessage } from '@repo/core/cons
 import { affordabilityInput, runAffordability } from './affordability-tool';
 import { cheapestNearInput, runCheapestNear } from './cheapest-near';
 import { dueDiligenceInput, runDueDiligence } from './due-diligence-tool';
+import { renovationInput, runRenovation } from './renovation-tool';
+import { RENOVATION_CATEGORY_KEYS } from '@repo/core/renovation/categories';
 import { getListingInput, runGetListing } from './get-listing-tool';
 import { resolveLocationInput, runResolveLocation } from './resolve-location';
 import {
@@ -259,6 +261,21 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
     },
   },
   {
+    name: 'renovation_plan',
+    description:
+      "What a renovation involves: for the kinds of work the visitor describes, what drives the cost, the trades, and the state's permit notes from official sources. Pick the kinds of work yourself from the list. It gives NO prices — there is no reliable price list — so never give one.",
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        categories: { type: 'array', items: { type: 'string', enum: [...RENOVATION_CATEGORY_KEYS] }, description: 'The kinds of work they describe, from this list only, most important first.' },
+        state: { type: 'string', enum: [...AU_STATES], description: "The home's state, if known. Not needed with a listingId." },
+        listingId: { type: 'string', description: 'The id from a search result, when they ask about a particular home.' },
+      },
+      required: ['categories'],
+    },
+  },
+  {
     name: 'draft_schedule',
     description:
       "Propose running the CURRENT search on a repeating schedule and emailing the visitor what is new. Call this when they ask to be sent results regularly — 'send me this daily', 'every two hours', 'each Saturday morning'. A search must already have run in this conversation; this uses that exact search, so do not describe the filters yourself. It SAVES NOTHING: it puts a confirmation card on screen and the visitor must press Accept. Never tell them it is running.",
@@ -400,6 +417,11 @@ export async function dispatchTool(
         const parsed = dueDiligenceInput.safeParse(rawInput);
         if (!parsed.success) return invalid(name, parsed.error);
         return await runDueDiligence(parsed.data, ctx);
+      }
+      case 'renovation_plan': {
+        const parsed = renovationInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return await runRenovation(parsed.data, ctx);
       }
       case 'get_listing': {
         const parsed = getListingInput.safeParse(rawInput);
