@@ -153,6 +153,11 @@ export const config = {
     '/alerts/:path*',
     '/account/:path*',
     '/chat',
+    /**
+     * ADR 0080: the Affordability page answers a buyer's own Skills switch, which needs the session. It is
+     * already dynamic (every answer is in the address) and does no other I/O, so the check is its only cost.
+     */
+    '/affordability',
     '/login',
     '/signup',
     // `/reset` arrives straight from an emailed link and needs the session

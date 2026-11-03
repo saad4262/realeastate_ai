@@ -3,6 +3,29 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-03 — Claude Code (Mac) — ADR 0080: consumer skills; C0 foundation; C1 stamp duty + mock
+- Goal (the user, in Urdu): how much of the client's 21 consumer AI skills exists (~16%); plan them all properly, with a
+  Skills section where the buyer turns each on or off; then start building.
+- Decisions (the user, all recommended): answers ON / acts OFF; our records + free public data first; after the
+  foundation, Affordability → Due-Diligence → Renovation. Then: apply 0080 + 0081, smoke, commit, start C1.
+- Done on `feat/consumer-skills` (from `feat/customer-profile`): ADR 0080, `docs/CONSUMER-SKILLS.md`, migration 0081,
+  `packages/core/src/consumer-skills`, `consumer_skill:read/manage`, chat gate (`skillBlocks` required on ToolContext),
+  Buyer AI off → 403 `skill_off` before the model, Smart Alerts off → no new alert, cron claims none, /alerts notice;
+  `/account/skills`. Committed `573f0e7`. Applied 0080 + 0081 (82 recorded). Smoke 5/5 green. Break-tests: chat gate
+  and cron gate each red, then green.
+- C1 (uncommitted): stamp duty per state with sources checked 2026-11-03 — found TAS's first-home exemption ended
+  30 June 2026, WA's first-home rate changed 7 May 2026, ACT's scheme lost its caps 1 July 2026. NT, ACT general and
+  SA new-home relief could not be fetched from the official sites (403/404) → "not verified", no figure. NSW/VIC
+  phase-out bands are straight-line estimates tagged approximate. 28 tests; one base changed by $18 → 3 red.
+- Then (the user: "next start", taken as the mock's six decisions all recommended): repayments, +1%/+2%, borrowing
+  at rate + 3% (APRA kept it 28 May 2026), dearest home after duty and costs, the URL reader; `/affordability` (GET,
+  added to the middleware matcher for the Skills switch); "Costs to buy" on listings (duty only; `skills_off` cookie
+  mirror hides it — display only); `affordability_estimate` + prompt v11 (v10's text + a section; tool list order
+  test updated: one cache reset). Unit core 1628, ai 347. Break-test: the tool's skill mapping removed → red. Dev
+  server: the mock's figures on the page; a VIC $800k listing → $43,070 for all three buyers (checked by hand).
+- Left unfinished (exact next step): commit C1 (the user's go); TEST-PLAN CG; then C2 Due-Diligence mock.
+- Risks / watch: rates go stale every 1 July; the borrowing estimate is not a bank's (decision 2).
+
 ## 2026-11-02 (later) — Claude Code (Mac) — ADR 0079: the customer profile
 - Goal (the user, in Urdu): agencies add their old customers; every profile starts with name, email, phone and
   address and collects the rest over time; the same person again lands on the same profile.

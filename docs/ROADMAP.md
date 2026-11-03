@@ -391,6 +391,19 @@ open listings (one home listed by several agencies at once).
   open, not on `(agency_id, property_id)`, and the sync's `on conflict (property_id) … do nothing` drops the
   second agency silently: its listing never gets a deal, a Pipeline card or Finance figures.
 
+- [ ] **Stamp duty rates go stale every 1 July** (ADR 0080, C1; added 2026-11-03). States change rates and
+  concessions from 1 July and in budgets (in 2026 alone: WA 7 May, TAS's exemption ended 30 June, ACT 1 July).
+  Every table in `packages/core/src/affordability/duty-rates.ts` has its source and `checkedOn`; `dutyRatesDue()`
+  lists what is due, and `pnpm smoke` prints it as a note on every run ("Consumer skills (ADR 0080)" group). Each
+  1 July: re-check every source against the revenue office, update the tables and their unit-test figures, bump
+  `checkedOn`. Not a failure on purpose — a date must not turn checks red.
+- [ ] **Stamp duty still unverified** (same files): the NT (rates and the Territory Home Owner Discount), the
+  ACT's 2026–27 general rates, SA's first home relief on new homes and vacant land, QLD's first home vacant land
+  concession. The official sites refused the fetch (403/404) on 2026-11-03. Until verified the page, the listing
+  panel and the guide show NO figure for those and link the official calculator. To close one: read the
+  revenue office's own page, add the table or rule with its source and date, add worked examples to
+  `stamp-duty.test.ts`, remove it from `unverified`.
+
 Each step: a mock (if it has new UI) → ADR → code → TEST-PLAN → tick it here and update Part 1.
 The order is a recommendation; the client/user decides.
 

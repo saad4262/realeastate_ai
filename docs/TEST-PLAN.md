@@ -1952,7 +1952,7 @@ With a REAL Twilio key in dev, only mobiles on `SMS_DEV_ALLOWLIST` get a text.
 
 ## CF — Customer profile: four starting details, the same person on one profile (ADR 0079)
 
-Needs migration **0080** (not applied yet — the user's go). Agency: `agency.*/customers`; an agent: `agents.*/my-contacts`.
+Needs migration **0080** (applied 2026-11-03). Agency: `agency.*/customers`; an agent: `agents.*/my-contacts`.
 Use alias emails only (`you+cf1@…`).
 
 | # | Case | Expected |
@@ -1967,3 +1967,21 @@ Use alias emails only (`you+cf1@…`).
 | CF8 | Customers → Import a CSV with Street address, Suburb, State ("New South Wales"), Postcode, one row whose email is already a customer and one email twice | The mapping matches the four address columns; Check every row: both repeats are "ready" with "Already a customer…" / "Same email as row N — added to the same profile"; after Add: "N added · M added to a profile you already had"; the existing person keeps their name and phone, gets the blank address filled and the note added. |
 | CF9 | Import a row with postcode "800", state "NT" | Imported as 0800. A postcode "SW1A" is a problem on the Postcode column. |
 | CF10 | Merge two people (Possible duplicates) where only the one being merged away has an address | The survivor now has that address. |
+
+## CG — Consumer skills and Affordability AI (ADR 0080, C0 + C1)
+
+Public site (`site.com.au`). Needs migration **0081** (applied 2026-11-03). A signed-in buyer account (alias email) and a
+private window for the signed-out cases. Every figure below is the code's own (unit tests); this checks the screens.
+
+| # | Case | Expected |
+|---|---|---|
+| CG1 | My account → AI skills | Six groups; built skills have a switch (AI Property Search, Suburb AI "More coming", Affordability AI, Smart Alerts, Buyer AI); the rest under "Coming soon". Answers on, nothing that acts is listed with a switch yet. |
+| CG2 | Switch Buyer AI off, then send a message on /chat | "“Buyer AI” is switched off in your Skills…" and no answer; on again → the guide answers. |
+| CG3 | Switch Smart Alerts off, open /alerts; then ask the guide to "send me this daily" | A notice above the list ("…Until then, none of these searches are emailed." + Open Skills); the guide says it is switched off. On again → the notice goes. |
+| CG4 | /affordability?price=750000&state=QLD&buyer=first&deposit=150000&rate=6.1&costs=2600&pay=9800&living=5000&debts=600 | $3,636 a month; $4,032 / $4,444 at 7.1% / 8.1%; stamp duty $10,925 with "First home" and "you save $15,850"; total $163,525; about $517,000 at 9.1%; amber "This loan ($600,000) is more than the estimate"; "Homes for sale in QLD up to $660,000" opens Search with that price. The address bar holds every input. |
+| CG5 | Same, state NT | Stamp duty "—" with "We have not yet verified…" and a link to the Territory Revenue Office; repayments still shown; no total. |
+| CG6 | Same, VIC, price 700000 | Stamp duty $24,713.33 with "Approximate". |
+| CG7 | Switch Affordability AI off; open /affordability; open a listing for sale | The page says it is switched off (Open Skills); the listing has no "Costs to buy this home" panel. On again → both back. |
+| CG8 | A listing for sale with a price (signed out) | "Costs to buy this home": three rows (first home / home you live in / investment) at the top of the range, the source and date, "Work out repayments…" opens /affordability with the price and state filled. A rental or a listing with no numeric price: no panel. |
+| CG9 | Ask the guide "stamp duty on a $750k first home in Brisbane?" | $10,925, saying first home concession; ends "Estimate — general information only…". Ask "what can I borrow?" → it points to the Affordability page and does not ask for income. |
+

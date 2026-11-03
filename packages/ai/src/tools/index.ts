@@ -1,6 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { AU_STATES, SORT_OPTIONS } from '@repo/core/listings';
 import { CONSUMER_SKILL_OF_TOOL, consumerSkillOffMessage } from '@repo/core/consumer-skills/catalog';
+import { affordabilityInput, runAffordability } from './affordability-tool';
 import { cheapestNearInput, runCheapestNear } from './cheapest-near';
 import { getListingInput, runGetListing } from './get-listing-tool';
 import { resolveLocationInput, runResolveLocation } from './resolve-location';
@@ -221,6 +222,29 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
     },
   },
   {
+    name: 'affordability_estimate',
+    description:
+      "Stamp (transfer) duty for a purchase, from the state's published rates, and monthly repayments when the visitor has given a deposit and an interest rate. Use it whenever they ask what a home would cost to buy or to pay off. Every figure in the result is to be copied exactly, never recalculated.",
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        state: { type: 'string', enum: [...AU_STATES], description: 'The state or territory of the property.' },
+        price: { type: 'number', description: 'The price in whole dollars, as the visitor or a listing gave it.' },
+        buyer: {
+          type: 'string',
+          enum: ['first', 'home', 'investor'],
+          description: "'first': their first home and they will live in it. 'home': they will live in it. 'investor': they will not. Ask if you do not know; never assume 'first'.",
+        },
+        propertyKind: { type: 'string', enum: ['established', 'new', 'vacant_land'], description: "Defaults to 'established'. 'new' only for a newly built home." },
+        deposit: { type: 'number', description: 'Only if the visitor said it. Whole dollars.' },
+        ratePct: { type: 'number', description: 'Only if the visitor said it. Interest rate per year, e.g. 6.1. Never assume one.' },
+        termYears: { type: 'number', description: 'Loan term in years. Defaults to 30.' },
+      },
+      required: ['state', 'price', 'buyer'],
+    },
+  },
+  {
     name: 'draft_schedule',
     description:
       "Propose running the CURRENT search on a repeating schedule and emailing the visitor what is new. Call this when they ask to be sent results regularly — 'send me this daily', 'every two hours', 'each Saturday morning'. A search must already have run in this conversation; this uses that exact search, so do not describe the filters yourself. It SAVES NOTHING: it puts a confirmation card on screen and the visitor must press Accept. Never tell them it is running.",
@@ -352,6 +376,11 @@ export async function dispatchTool(
         const parsed = recentSalesInput.safeParse(rawInput);
         if (!parsed.success) return invalid(name, parsed.error);
         return await runRecentSales(parsed.data, ctx);
+      }
+      case 'affordability_estimate': {
+        const parsed = affordabilityInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return runAffordability(parsed.data);
       }
       case 'get_listing': {
         const parsed = getListingInput.safeParse(rawInput);

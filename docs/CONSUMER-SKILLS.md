@@ -83,4 +83,11 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
 
 - [x] C0 Foundation — committed on `feat/consumer-skills`. Migration 0081 applied 2026-11-03 (with 0080); smoke
   "Consumer skills (ADR 0080)" green, broken on purpose (the cron gate) and seen red. Unit: core 1587, ai 340.
-- [ ] C1 Affordability · [ ] C2 Due-Diligence · [ ] C3 Renovation · [ ] C4 · [ ] C5 · [ ] C6 · [ ] C7 · [ ] C8 · [ ] C9
+- [x] C1 Affordability — mock's six decisions taken as recommended (the user: "next start", 2026-11-03). Core:
+  `packages/core/src/affordability/` (duty for 8 states with sources; repayments, +1%/+2%, borrowing at rate + 3%
+  APRA buffer, dearest home after duty and costs; the page address). `/affordability` (GET form, state in the URL,
+  Skills gate; in the middleware matcher for the session), "Costs to buy this home" on listings (duty only — no
+  rate we could source; hidden by a `skills_off` cookie mirror when the buyer switched it off), the guide's
+  `affordability_estimate` (prompt v11). Not built from the mock: rejecting a reply whose figure is not in a tool
+  result — the guard is the prompt rule and the tool card, as for search figures. TEST-PLAN CG.
+- [ ] [ ] C2 Due-Diligence · [ ] C3 Renovation · [ ] C4 · [ ] C5 · [ ] C6 · [ ] C7 · [ ] C8 · [ ] C9

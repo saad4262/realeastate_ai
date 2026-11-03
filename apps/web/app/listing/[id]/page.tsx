@@ -14,6 +14,7 @@ import { looksSignedIn } from '../../../lib/session';
 import { ActivityBeacon } from '../../../components/activity-beacon';
 import { ListingMap } from '../../../components/listing-map';
 import { EnquiryForm } from '../../../components/enquiry-form';
+import { CostsToBuy } from '../../../components/costs-to-buy';
 import { ListingReviews } from '../../../components/listing-reviews';
 import {
   AgentPanel,
@@ -478,6 +479,8 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
                   <NotConnected title="Schools & catchment" what="no schools data source is connected" />
                 </div>
               </Card>
+
+              <CostsToBuy channel={listing.channel} state={listing.state} priceFrom={listing.priceFrom} priceTo={listing.priceTo} />
 
               <DueDiligence state={listing.state} />
             </div>

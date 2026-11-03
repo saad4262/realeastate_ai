@@ -1,29 +1,34 @@
-# Status — 2026-11-02, later (Claude Code, Mac)
+# Status — 2026-11-03 (Claude Code, Mac)
 
 Short on purpose: where things stand now. History up to 2026-10-31 is in `docs/archive/STATUS-to-2026-10-31.md`;
 how to work on either laptop is `docs/HANDOFF.md`. Overwrite this file at each handoff; do not append.
 
 ## Milestone
 Version 1 is built except what waits on the client and on Twilio. `main` = `d3eb906`, deployed. Branches, not merged:
-`chore/tech-debt` (pushed: CI, docs trim, smoke reds fixed, Phase 7 mocks), **`feat/sms-part2`** (on top of it,
-committed, NOT pushed: ADR 0074 part 2 — SMS everywhere) and **`feat/customer-profile`** (on top of that, committed,
-NOT pushed: ADR 0079 — the customer profile). Merge in that order.
+`chore/tech-debt` (pushed), **`feat/sms-part2`** (committed, NOT pushed: ADR 0074 part 2), **`feat/customer-profile`**
+(committed, NOT pushed: ADR 0079) and **`feat/consumer-skills`** (on top of it; `573f0e7` committed, NOT pushed: ADR
+0080 — consumer skills + C0 foundation; C1 Affordability AI built, uncommitted). Merge in that order.
 
 ## Database
-80 migrations recorded (0000–0079; 0079 applied 2026-11-02). **0080 (`contact.address_*`, six nullable columns)
-written, rolled-back dry run clean (twice in one transaction; 10 contacts untouched; a pin round-trips), NOT applied**
-— the user's go. `feat/customer-profile` READS those columns (contact pages, directory, import): it must not be
-deployed before 0080 is applied. Dev database = production database.
+82 migrations recorded (0000–0081). **0080 (`contact.address_*`) and 0081 (`consumer_skill_switch`) applied
+2026-11-03** (the user's go; checked after: 82 recorded, 6 address columns, the table exists). Dev database =
+production database.
 
 ## Checks
-- Unit: core 1579, ai 335 — all pass, offline. Typecheck 10/10. Console build OK; lint 0 errors.
-- Smoke for ADR 0079 — "Customer profile (ADR 0079)" (new) and the contacts-import check in "Imports: contacts and
-  Google Sheets" (rewritten: a repeat now fills the profile instead of being skipped) — written, NOT run: they need 0080.
-- CI: green on `chore/tech-debt` (`48ab812`). Vercel projects are on Node 24 (unpdf needs 22+): checked 2026-11-02.
-- Smoke: "SMS everywhere (ADR 0074)" 1/1 green on the live database (183 s — many round trips to Sydney). A full
-  run (the green baseline) has NOT been done since the tech-debt fixes — the user's go first.
+- Unit: core 1628, ai 347 — all pass, offline. Typecheck 10/10. Web lint 0 errors. /affordability and a listing's
+  "Costs to buy" panel rendered on the local dev server (figures match the mock and the unit tests).
+- Smoke 2026-11-03, live DB: "Consumer skills (ADR 0080)", "Customer profile (ADR 0079)", "Imports: contacts and
+  Google Sheets" — 5/5 green (the import check sorted roles by enum order, not text: test fixed, data was right).
+  The consumer cron gate broken on purpose → red with its message, then restored.
+- CI: green on `chore/tech-debt` (`48ab812`). A full smoke run (the green baseline) still NOT done since tech debt.
 
 ## Done this period
+- 2026-11-03: ADR 0080 — consumer skills. `docs/CONSUMER-SKILLS.md` plans all 21 of the client's consumer AI skills
+  (C0–C9; the user: answers ON / acts OFF, own + free data first, Affordability → Due-Diligence → Renovation first).
+  C0 built: catalog, `consumer_skill_switch`, `/account/skills`, chat tools + Buyer AI + Smart Alerts gated,
+  `CONSUMER_SKILLS_PAUSED`. C1 Affordability AI built (mock's six decisions as recommended): stamp duty for 8 states
+  with sources, repayments, borrowing at rate + 3%, `/affordability`, a listing's "Costs to buy" panel, the guide's
+  `affordability_estimate` (prompt v11). TEST-PLAN CG.
 - 2026-11-02: ADR 0079 — the customer profile. Add customer asks for name, email, phone and address (the listing
   form's picker; no server geocoding); the same email adds to that profile (blanks filled, nothing overwritten, other
   values on the timeline as "Different details given"; linked only for someone who may see it); the import takes
@@ -43,8 +48,7 @@ deployed before 0080 is applied. Dev database = production database.
 - The Microsoft Entra app (Outlook), the temporary domain (then `retell:setup` again and `phone:repoint`).
 
 ## Waiting on the user
-- Apply 0080 (`pnpm --filter @repo/db db:migrate`, expect 81 recorded), then smoke `SMOKE_ONLY="Customer profile (ADR
-  0079),Imports: contacts and Google Sheets"`, then TEST-PLAN CF in a browser.
+- TEST-PLAN CF in a browser (0080 is applied and its smoke is green).
 - Push `feat/sms-part2`; merge `chore/tech-debt`, then `feat/sms-part2`.
 - Vercel → web + both console projects: `RETELL_API_KEY`, `RETELL_AGENT_ID`, `EMBEDDINGS_PROVIDER=voyage`,
   `VOYAGE_API_KEY`, then redeploy — the user said 2026-11-02 they are doing it; not checked here.
@@ -52,13 +56,16 @@ deployed before 0080 is applied. Dev database = production database.
 - Local-only branches `feat/crm-visibility` and `feat/crm-assistant-more`: keep or delete.
 
 ## Next
-1. 0080 + its smoke (above); then push and merge `chore/tech-debt` → `feat/sms-part2` → `feat/customer-profile`
-   (the user's go).
+0. Commit C1 (the user's go); TEST-PLAN CG in a browser. Then C2 Due-Diligence AI: mock first. Re-check duty rates
+   every 1 July (dates in `duty-rates.ts`); NT, ACT general and SA new-home relief still "not verified".
+1. Push and merge `chore/tech-debt` → `feat/sms-part2` → `feat/customer-profile` → `feat/consumer-skills` (the user's go).
 2. Twilio tonight → connect on the phone test agency → BX, BY, BZ, CE.
 3. When the client answers: 4.6/4.7, then 4.4.
 4. Last: the user's browser walk (TEST-PLAN BN–BZ, CA–CE), then go-live (`docs/DEPLOY.md`, `docs/DNS-CUTOVER.md`).
 
 ## Watch
+- Stamp duty: re-check every 1 July; NT, ACT general, SA new homes, QLD first home land unverified (ROADMAP technical
+  debt; `pnpm smoke` notes both on every run).
 - ADR 0079: the assistant's create/update contact cards do not take an address yet; imported addresses are not
   geocoded (no pin); every enquiry-made contact shows "Address missing" — by design (the user's answer 3).
 - "Text selected" ticks only buyers the email rule allows (ADR 0060 decision 4): a buyer with a mobile and no email

@@ -257,6 +257,7 @@ import { listWaitingDrafts, runWorkflowTick, saveWorkflow, setWorkflowStatus } f
 import { runDealSync } from '@repo/core/deals';
 import { isSkillOn, setSkillSwitch, skillsOffForActor } from '@repo/core/skill-switches';
 import { consumerSkillBlocks, listConsumerSkills, setConsumerSkill, usersWithConsumerSkillOff } from '@repo/core/consumer-skills';
+import { dutyRatesDue } from '@repo/core/affordability';
 import {
   connectTwilio,
   DEFAULT_MISSED_CALL_SETTINGS,
@@ -7567,7 +7568,7 @@ async function main() {
 
       // Signed out: the guide answers, alerts need an account, nothing planned runs.
       const anon = await consumerSkillBlocks(t, null, {});
-      assert(!anon.has('property_search') && anon.get('smart_alerts') === 'needs_account' && anon.get('affordability') === 'not_built', `anon: ${JSON.stringify([...anon])}`);
+      assert(!anon.has('property_search') && anon.get('smart_alerts') === 'needs_account' && anon.get('renovation') === 'not_built', `anon: ${JSON.stringify([...anon])}`);
       // Signed in, never touched: answers on, acts off, planned off.
       const fresh = new Map((await listConsumerSkills(t, actor, {})).map((v) => [v.key, v]));
       assert(fresh.get('smart_alerts')?.on === true && fresh.get('buyer_assistant')?.on === true && fresh.get('property_monitor')?.block === 'not_built', `fresh: ${JSON.stringify([...fresh.values()].map((v) => [v.key, v.on, v.block]))}`);
@@ -7591,13 +7592,22 @@ async function main() {
 
       // The platform pause beats the buyer's choice; a planned skill has no switch; a signed-out actor flips nothing.
       assert((await consumerSkillBlocks(t, actor, { CONSUMER_SKILLS_PAUSED: 'smart_alerts' })).get('smart_alerts') === 'paused', 'pause ignored');
-      const planned = await setConsumerSkill(t, actor, 'affordability', true).catch((e: unknown) => e as Error);
+      const planned = await setConsumerSkill(t, actor, 'renovation', true).catch((e: unknown) => e as Error);
       assert(planned instanceof Error && /not available yet/.test(planned.message), `planned: ${String(planned)}`);
       const nobody = await setConsumerSkill(t, { userId: '' }, 'smart_alerts', true).catch((e: unknown) => e as Error);
       assert(nobody instanceof Error && /Sign in/.test(nobody.message), `signed out: ${String(nobody)}`);
       return 'anon defaults; answers on / acts + planned off; off → stored, new alert refused, 0 claimed; on → 1 claimed; pause wins; planned + signed-out refused';
     }),
   );
+
+  // ROADMAP technical debt "Stamp duty rates go stale": a note on every run, never a failure — a date must not
+  // turn smoke red, but nobody may miss that the rates are due or that a state is still unverified.
+  await check('Stamp duty rates: checked since the last 1 July; what is still unverified', async () => {
+    const due = dutyRatesDue(new Date());
+    for (const s of due.stale) note(`duty ${s.state}`, `${s.source.name} last checked ${s.source.checkedOn}, before ${due.lastFirstOfJuly} — re-check it (packages/core/src/affordability/duty-rates.ts)`);
+    for (const u of due.unverified) note(`duty ${u.state}`, `not verified: ${u.what} — the page shows no figure`);
+    return due.stale.length ? `${due.stale.length} source(s) due for their 1 July re-check` : `all checked since ${due.lastFirstOfJuly}; ${due.unverified.length} unverified (see notes)`;
+  });
 
   // ── ADR 0079: the customer profile — four starting details; the same person lands on one profile (needs 0080) ──
   group('Customer profile (ADR 0079)');

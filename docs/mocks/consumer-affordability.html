@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Affordability AI — mock</title>
+<!--
+  Mock for docs/CONSUMER-SKILLS.md C1 (ADR 0080). Public site (site.com.au), the site's warm palette.
+  Hand-made, sample inputs; every duty figure is the output of packages/core/src/affordability/stamp-duty.ts
+  (checked 2026-11-03), every repayment the standard amortisation formula. Screens by hash:
+  #rules (opens first), #calculator, #listing, #chat, #unverified.
+-->
+<style>
+  :root {
+    --canvas: #f7f4ef; --card: #fff; --sunken: #f1ece3; --ink: #1a1a1a; --ink-soft: #5c5c5c; --ink-faint: #8c8577;
+    --line: #d9d2c5; --line-subtle: #ece7dd; --brand: #0b3d2e; --brand-soft: #eaf1ed; --brand-ink: #f7f4ef;
+    --success: #0f7a52; --success-soft: #e8f4ee; --notice: #a8620a; --notice-soft: #fbf1e3; --info: #1d4e89; --info-soft: #e9eff7;
+    --display: Georgia, 'Times New Roman', serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  a { color: var(--brand); }
+  .mockbar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px; background: #222; color: #ddd; font-size: 13px; }
+  .mockbar b { margin-right: 8px; color: #fff; }
+  .mockbar a { color: #ddd; text-decoration: none; padding: 2px 10px; border-radius: 999px; border: 1px solid #555; }
+  .mockbar a.on { background: #fff; color: #222; }
+  header.site { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; background: var(--card); border-bottom: 1px solid var(--line); }
+  .brand { font-family: var(--display); font-weight: 700; font-size: 20px; color: var(--brand); }
+  header.site nav a { margin-left: 18px; color: var(--ink-soft); text-decoration: none; font-size: 14px; }
+  main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; }
+  section.screen { display: none; }
+  section.screen.on { display: block; }
+  h1 { font-family: var(--display); font-size: clamp(26px, 3.4vw, 34px); letter-spacing: -.02em; margin: 0 0 6px; }
+  h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); margin: 0 0 12px; }
+  .lede { color: var(--ink-soft); margin: 0 0 20px; max-width: 70ch; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; margin-bottom: 16px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
+  .hint { font-weight: 400; color: var(--ink-faint); }
+  input, select { width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; font: inherit; background: #fff; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg span { flex: 1; text-align: center; padding: 8px 6px; font-size: 13px; color: var(--ink-soft); border-left: 1px solid var(--line); }
+  .seg span:first-child { border-left: 0; }
+  .seg span.on { background: var(--brand); color: var(--brand-ink); font-weight: 600; }
+  .check { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; margin-top: 12px; }
+  .check i { flex: none; width: 18px; height: 18px; border-radius: 5px; border: 1px solid var(--line); display: inline-grid; place-items: center; font-style: normal; font-size: 12px; margin-top: 2px; }
+  .check i.on { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .big { font-family: var(--display); font-size: 34px; font-weight: 700; letter-spacing: -.02em; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--sunken); color: var(--ink-soft); vertical-align: middle; }
+  .tag.est { background: var(--info-soft); color: var(--info); }
+  .tag.approx { background: var(--notice-soft); color: var(--notice); }
+  .tag.ok { background: var(--success-soft); color: var(--success); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td { padding: 8px 0; border-top: 1px solid var(--line-subtle); vertical-align: top; }
+  tr:first-child td { border-top: 0; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 12px; }
+  tr.total td { font-weight: 700; border-top: 1px solid var(--line); }
+  .muted { color: var(--ink-soft); font-size: 13px; }
+  .source { font-size: 12px; color: var(--ink-faint); margin-top: 8px; }
+  .kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 600px) { .kpis { grid-template-columns: 1fr; } }
+  .kpi { background: var(--sunken); border-radius: 12px; padding: 12px 14px; }
+  .kpi .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .kpi .l { font-size: 12px; color: var(--ink-soft); }
+  .btn { display: inline-block; padding: 9px 16px; border-radius: 999px; background: var(--brand); color: var(--brand-ink); text-decoration: none; font-weight: 600; font-size: 14px; border: 0; }
+  .btn.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  .note { border-left: 4px solid var(--info); background: var(--info-soft); padding: 10px 14px; border-radius: 8px; font-size: 14px; margin: 12px 0; }
+  .note.warn { border-color: var(--notice); background: var(--notice-soft); }
+  .disclaimer { font-size: 12.5px; color: var(--ink-soft); border-top: 1px solid var(--line); padding-top: 12px; margin-top: 8px; }
+  .bars { display: grid; gap: 8px; }
+  .bar { display: grid; grid-template-columns: 110px 1fr 90px; gap: 10px; align-items: center; font-size: 13px; }
+  .bar .track { height: 10px; background: var(--sunken); border-radius: 999px; overflow: hidden; }
+  .bar .fill { height: 100%; background: var(--brand); border-radius: 999px; }
+  .rules ol { padding-left: 20px; margin: 0; }
+  .rules li { margin-bottom: 14px; }
+  .rules li b { display: block; }
+  .rec { display: inline-block; margin-top: 4px; font-size: 13px; color: var(--success); font-weight: 600; }
+  .alt { display: block; font-size: 13px; color: var(--ink-faint); }
+  .chat { max-width: 760px; }
+  .bubble { padding: 12px 16px; border-radius: 16px; margin: 10px 0; max-width: 85%; }
+  .bubble.me { margin-left: auto; background: var(--brand); color: var(--brand-ink); border-bottom-right-radius: 4px; }
+  .bubble.ai { background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .toolcard { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--raised, #fffdfa); margin: 8px 0; font-size: 14px; }
+  .listing-hero { height: 180px; border-radius: 16px; background: linear-gradient(135deg, #d9d2c5, #c2b8a6); display: grid; place-items: end start; padding: 16px; color: #fff; font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="mockbar"><b>MOCK · C1 Affordability AI</b>
+  <a href="#rules">Decisions</a><a href="#calculator">Calculator page</a><a href="#listing">On a listing</a><a href="#chat">In the guide</a><a href="#unverified">Not verified</a>
+</div>
+<header class="site"><span class="brand">site.com.au</span><nav><a href="#">Buy</a><a href="#">Rent</a><a href="#">Sold</a><a href="#calculator">Affordability</a><a href="#chat">Ask the guide</a><a href="#">My account</a></nav></header>
+<main>
+
+<!-- ───────────────────────── DECISIONS ───────────────────────── -->
+<section class="screen rules" id="rules">
+  <h1>Affordability AI — six decisions</h1>
+  <p class="lede">Each has a recommendation. Say "all recommended", or name the ones to change. The calculator and the guide are built only after this.</p>
+  <div class="card"><ol>
+    <li><b>1. Estimates, never advice.</b>Every money figure carries an "Estimate" tag and the line: <i>"General information only, not financial or credit advice. Speak to a lender or a licensed broker before you decide."</i> (NCCP — the platform gives no credit assistance.)
+      <span class="rec">Recommended: yes, on the page, on every listing panel and under every guide answer.</span></li>
+    <li><b>2. How "what could I borrow" is worked out.</b>From what the buyer types: take-home pay, living expenses and other repayments. The surplus is tested at their interest rate <b>plus 3%</b> (APRA's serviceability buffer) over the loan term.
+      <span class="rec">Recommended: this — simple, nothing to keep up to date but the 3%.</span>
+      <span class="alt">Alternative: gross income with tax tables and a living-expense floor (closer to a bank, but tax tables and HEM-style floors to maintain, and HEM itself is licensed).</span></li>
+    <li><b>3. Costs we do not estimate.</b>Lenders mortgage insurance, lender fees, conveyancing, inspections, moving. The buyer types their own "Other costs"; under a 20% deposit the page says LMI may apply, with no figure.
+      <span class="rec">Recommended: yes — no number we cannot source.</span></li>
+    <li><b>4. A state rule we could not verify gets no figure.</b>Today: the ACT's general rates, the Northern Territory, South Australia's first-home relief on new homes, Queensland's first-home vacant land concession. The page says so and links the official calculator. Inside a phase-out band whose formula the state does not publish (NSW $800k–$1m, VIC $600k–$750k) the figure is tagged <span class="tag approx">Approximate</span>.
+      <span class="rec">Recommended: yes. Rates re-checked every 1 July and after each state budget (dates are in the code).</span></li>
+    <li><b>5. Nothing is saved in version 1.</b>The inputs live in the page address, so a scenario can be bookmarked or shared. Income and expenses are never stored or sent to the model. Saving scenarios comes with Personal Property AI (C4).
+      <span class="rec">Recommended: yes.</span></li>
+    <li><b>6. Where it shows.</b>(a) An Affordability page; (b) a "Costs to buy this home" panel on every listing, filled with its state and price; (c) the guide's tool <code>affordability_estimate</code>: the model is handed the figures as a tool result and only explains them (non-negotiable #4). All three behind the <b>Affordability AI</b> switch in Skills (on by default — it only answers).
+      <span class="rec">Recommended: all three.</span></li>
+  </ol></div>
+</section>
+
+<!-- ───────────────────────── CALCULATOR ───────────────────────── -->
+<section class="screen" id="calculator">
+  <h1>What can I afford?</h1>
+  <p class="lede">Repayments, stamp duty and what you could borrow — worked out from your numbers and each state's published rates.</p>
+  <div class="grid">
+    <div class="card">
+      <h2>The home</h2>
+      <label>Price</label><input value="$750,000">
+      <div class="row2">
+        <div><label>State</label><select><option>Queensland</option></select></div>
+        <div><label>Type</label><select><option>Established home</option><option>New home</option><option>Vacant land</option></select></div>
+      </div>
+      <div class="check"><i class="on">✓</i> I will live in it</div>
+      <div class="check"><i class="on">✓</i> It is my first home <span class="hint">— under the state's rules</span></div>
+      <h2 style="margin-top:20px">The loan</h2>
+      <div class="row2">
+        <div><label>Deposit</label><input value="$150,000"></div>
+        <div><label>Interest rate <span class="hint">p.a.</span></label><input value="6.10%"></div>
+      </div>
+      <div class="row2">
+        <div><label>Term</label><select><option>30 years</option></select></div>
+        <div><label>Repayments</label><div class="seg"><span class="on">P&amp;I</span><span>Interest only</span></div></div>
+      </div>
+      <label>Other costs <span class="hint">conveyancing, inspections — your figure</span></label><input value="$2,600">
+      <h2 style="margin-top:20px">Your budget <span class="hint" style="text-transform:none;letter-spacing:0">(optional, never saved)</span></h2>
+      <div class="row2">
+        <div><label>Take-home pay <span class="hint">/ month</span></label><input value="$9,800"></div>
+        <div><label>Living expenses <span class="hint">/ month</span></label><input value="$5,000"></div>
+      </div>
+      <label>Other repayments <span class="hint">car, cards, HECS / month</span></label><input value="$600">
+    </div>
+
+    <div>
+      <div class="card">
+        <h2>Each month <span class="tag est">Estimate</span></h2>
+        <div class="big">$3,636</div>
+        <p class="muted">Principal and interest on $600,000 at 6.10% over 30 years. Total interest over the loan: $708,949.</p>
+        <div class="kpis" style="margin-top:12px">
+          <div class="kpi"><div class="v">$3,636</div><div class="l">At 6.10% (yours)</div></div>
+          <div class="kpi"><div class="v">$4,032</div><div class="l">If rates rise 1%</div></div>
+          <div class="kpi"><div class="v">$4,444</div><div class="l">If rates rise 2%</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Cash you need upfront <span class="tag est">Estimate</span></h2>
+        <table>
+          <tr><td>Deposit <span class="muted">— 20%</span></td><td class="n">$150,000</td></tr>
+          <tr><td>Transfer (stamp) duty <span class="tag ok">First home concession</span><br><span class="muted">Home concession rate $19,600, less the first home concession $8,675. At the general rate it would be $26,775 — you save $15,850.</span></td><td class="n">$10,925</td></tr>
+          <tr><td>Other costs <span class="muted">— your figure</span></td><td class="n">$2,600</td></tr>
+          <tr class="total"><td>Total</td><td class="n">$163,525</td></tr>
+        </table>
+        <p class="source">Duty: Queensland Revenue Office, transfer duty rates and home concession rates — checked 3 Nov 2026. <a href="#">Official calculator</a>. Excludes the foreign buyer surcharge. You must live there; QRO's conditions apply.</p>
+      </div>
+
+      <div class="card">
+        <h2>What you could borrow <span class="tag est">Estimate</span></h2>
+        <div class="big">about $517,000</div>
+        <p class="muted">$9,800 take-home − $5,000 living − $600 other repayments leaves $4,200 a month. Tested at 9.10% (your rate + the 3% buffer lenders use) over 30 years.</p>
+        <div class="note warn">The loan above ($600,000) is more than this estimate. A lender may lend less — or you could look at homes up to about <b>$660,000</b> with the same deposit.</div>
+        <div class="bars">
+          <div class="bar"><span>Could borrow</span><span class="track"><span class="fill" style="width:86%;display:block"></span></span><span class="n">$517,000</span></div>
+          <div class="bar"><span>This loan</span><span class="track"><span class="fill" style="width:100%;display:block;background:var(--notice)"></span></span><span class="n">$600,000</span></div>
+        </div>
+        <p style="margin-top:14px"><a class="btn" href="#">Homes for sale in QLD up to $660,000</a> <a class="btn ghost" href="#chat">Ask the guide about this</a></p>
+      </div>
+
+      <p class="disclaimer">General information only, not financial or credit advice. Speak to a lender or a licensed broker before you decide. Lenders mortgage insurance may apply with a deposit under 20%; it is not included. Figures come from your inputs and each state's published rates — the AI never calculates them.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── ON A LISTING ───────────────────────── -->
+<section class="screen" id="listing">
+  <div class="listing-hero">14 Example Street, Pakenham VIC 3810 · $690,000 – $720,000</div>
+  <div class="grid" style="margin-top:16px">
+    <div class="card"><h2>About this home</h2><p class="muted">… the listing page as today …</p></div>
+    <div class="card">
+      <h2>Costs to buy this home <span class="tag est">Estimate</span></h2>
+      <p class="muted" style="margin-top:0">At $720,000 — the top of the advertised range, so the estimate is never low. <a href="#">Change</a></p>
+      <div class="seg" style="margin-bottom:10px"><span class="on">First home, live in it</span><span>Live in it</span><span>Investor</span></div>
+      <table>
+        <tr><td>Stamp duty <span class="tag approx">Approximate</span><br><span class="muted">Victoria's first home concession phases out between $600,000 and $750,000; this is a straight-line estimate. General rate: $38,270.</span></td><td class="n">$30,616</td></tr>
+        <tr><td>Repayments <span class="muted">— 20% deposit, 6.10%, 30 yrs</span></td><td class="n">$3,491 / mo</td></tr>
+      </table>
+      <p class="source">SRO Victoria — checked 3 Nov 2026. <a href="#">Official calculator</a></p>
+      <p><a class="btn ghost" href="#calculator">Open the full calculator</a></p>
+      <p class="disclaimer">General information only, not financial or credit advice.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── IN THE GUIDE ───────────────────────── -->
+<section class="screen chat" id="chat">
+  <h1>Ask the guide</h1>
+  <div class="bubble me">How much stamp duty would I pay on a $750k house in Brisbane? It's my first home.</div>
+  <div class="toolcard"><span class="tag ok">Affordability AI</span> <b>Stamp duty, QLD, $750,000 — first home, established</b><br>
+    $10,925 <span class="muted">(general rate $26,775 · saving $15,850)</span> · <span class="muted">Queensland Revenue Office, checked 3 Nov 2026</span></div>
+  <div class="bubble ai">For a $750,000 established home in Queensland that you'll live in as your first home, the estimate is <b>$10,925</b> in transfer duty — the first home concession takes $8,675 off the home concession rate. If it were a <b>new</b> home, a first home buyer in Queensland pays no transfer duty at any price.<br><br>Want me to work out repayments too? Tell me your deposit and rate.<p class="disclaimer" style="margin-bottom:0">Estimate — general information only, not financial or credit advice.</p></div>
+  <div class="bubble me">What if it's $850k?</div>
+  <div class="toolcard"><span class="tag ok">Affordability AI</span> <b>Stamp duty, QLD, $850,000 — first home, established</b><br>$24,100 <span class="muted">(no first home concession at $800,000 or more; home concession rate)</span></div>
+  <div class="bubble ai">At $850,000 the first home concession no longer applies (it stops at $800,000), so it's the home concession rate: about <b>$24,100</b>. That jump is worth knowing about if you're bidding near $800,000.</div>
+  <p class="muted">Every figure in the guide's words is copied from the card above it — the card is the tool result, computed in core. A reply containing a figure that is not in a tool result is rejected (as the alert digest does, non-negotiable #7).</p>
+</section>
+
+<!-- ───────────────────────── NOT VERIFIED ───────────────────────── -->
+<section class="screen" id="unverified">
+  <h1>What can I afford?</h1>
+  <div class="grid">
+    <div class="card"><h2>The home</h2><label>Price</label><input value="$600,000"><label>State</label><select><option>Northern Territory</option></select></div>
+    <div class="card">
+      <h2>Cash you need upfront</h2>
+      <table>
+        <tr><td>Deposit</td><td class="n">$120,000</td></tr>
+        <tr><td>Stamp duty</td><td class="n">—</td></tr>
+      </table>
+      <div class="note">We have not yet verified the Northern Territory's current stamp duty rates and the Territory Home Owner Discount, so we do not show a figure. <a href="#">Use the Territory Revenue Office calculator</a>.</div>
+      <p class="muted">Repayments and what you could borrow still work — they do not depend on the state.</p>
+    </div>
+  </div>
+</section>
+
+</main>
+<script>
+  // Screens by hash; #rules opens first.
+  function show() {
+    const id = (location.hash || '#rules').slice(1);
+    document.querySelectorAll('section.screen').forEach((s) => s.classList.toggle('on', s.id === id));
+    document.querySelectorAll('.mockbar a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + id));
+    window.scrollTo(0, 0);
+  }
+  addEventListener('hashchange', show);
+  show();
+</script>
+</body>
+</html>
