@@ -575,6 +575,13 @@
       "when": 1793684990507,
       "tag": "0081_consumer_skill_switch",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1793688728592,
+      "tag": "0082_listing_price_change",
+      "breakpoints": true
     }
   ]
 }

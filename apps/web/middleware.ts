@@ -158,6 +158,8 @@ export const config = {
      * already dynamic (every answer is in the address) and does no other I/O, so the check is its only cost.
      */
     '/affordability',
+    // ADR 0080 C2: Due-Diligence AI's button reads the buyer's own switch; the listing page itself stays outside.
+    '/api/due-diligence',
     '/login',
     '/signup',
     // `/reset` arrives straight from an emailed link and needs the session

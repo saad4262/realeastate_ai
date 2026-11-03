@@ -19,6 +19,7 @@ function ctx(blocks: [ConsumerSkillKey, ConsumerSkillBlock][]): ToolContext {
     recentSales: boom,
     places: new Map(),
     skillBlocks: new Map(blocks),
+    dueDiligence: async () => null,
     scheduling: { state: 'signed_out' },
   };
 }

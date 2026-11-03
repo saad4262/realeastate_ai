@@ -3,6 +3,7 @@ import { AU_STATES, SORT_OPTIONS } from '@repo/core/listings';
 import { CONSUMER_SKILL_OF_TOOL, consumerSkillOffMessage } from '@repo/core/consumer-skills/catalog';
 import { affordabilityInput, runAffordability } from './affordability-tool';
 import { cheapestNearInput, runCheapestNear } from './cheapest-near';
+import { dueDiligenceInput, runDueDiligence } from './due-diligence-tool';
 import { getListingInput, runGetListing } from './get-listing-tool';
 import { resolveLocationInput, runResolveLocation } from './resolve-location';
 import {
@@ -245,6 +246,19 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
     },
   },
   {
+    name: 'due_diligence',
+    description:
+      "What to check before buying one live listing: what the portal's records show about the address (when it was listed, days on the market, price changes, earlier sales) and the state's checklist for buyers. Use it when the visitor asks what to check, what to watch out for, or about a home's history before buying. Copy every figure exactly; never value the home or say whether to buy.",
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        listingId: { type: 'string', description: 'The id from a search result.' },
+      },
+      required: ['listingId'],
+    },
+  },
+  {
     name: 'draft_schedule',
     description:
       "Propose running the CURRENT search on a repeating schedule and emailing the visitor what is new. Call this when they ask to be sent results regularly — 'send me this daily', 'every two hours', 'each Saturday morning'. A search must already have run in this conversation; this uses that exact search, so do not describe the filters yourself. It SAVES NOTHING: it puts a confirmation card on screen and the visitor must press Accept. Never tell them it is running.",
@@ -381,6 +395,11 @@ export async function dispatchTool(
         const parsed = affordabilityInput.safeParse(rawInput);
         if (!parsed.success) return invalid(name, parsed.error);
         return runAffordability(parsed.data);
+      }
+      case 'due_diligence': {
+        const parsed = dueDiligenceInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return await runDueDiligence(parsed.data, ctx);
       }
       case 'get_listing': {
         const parsed = getListingInput.safeParse(rawInput);

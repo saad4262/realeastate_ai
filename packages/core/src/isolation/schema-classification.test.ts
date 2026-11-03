@@ -34,6 +34,8 @@ const OWN_AGENCY = [
   'agent_skill',
   'skill_run',
   'skill_switch',
+  // ADR 0080 C2: a listing's price changes — the listing's agency's row; the public reads only its own listing's.
+  'listing_price_change',
   // ADR 0070: Phone & SMS — the agency's Twilio, its agents' numbers, their texts, reads, opt-outs and calls.
   'phone_account',
   'phone_number',

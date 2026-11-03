@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ZodObject, ZodRawShape } from 'zod';
 import { affordabilityInput } from './affordability-tool';
+import { dueDiligenceInput } from './due-diligence-tool';
 import { getListingInput } from './get-listing-tool';
 import { resolveLocationInput } from './resolve-location';
 import { recentSalesInput } from './recent-sales-tool';
@@ -18,6 +19,7 @@ const PAIRS = [
   { name: 'recent_sales', zod: recentSalesInput },
   { name: 'get_listing', zod: getListingInput },
   { name: 'affordability_estimate', zod: affordabilityInput },
+  { name: 'due_diligence', zod: dueDiligenceInput },
 ] as const;
 
 function jsonSchemaOf(name: string) {
@@ -110,6 +112,8 @@ describe('tool definitions', () => {
       // ADR 0080: after the detail fetch, because a price usually comes from a listing it fetched, and
       // before the scheduling pair, which acts on a search. This reset the cache once, deliberately.
       'affordability_estimate',
+      // ADR 0080 C2: beside affordability — the other question about one home before buying. One cache reset.
+      'due_diligence',
       // The scheduling pair goes at the END, after the four tools that find
       // a home. They are a different kind of thing — one acts on a search
       // that has already happened, the other on a saved search — and

@@ -35,3 +35,11 @@ per chat tool rather than per skill (rejected: the buyer thinks in skills, not t
 **Consequences.** Changing a skill's default later changes it for everyone who never touched that switch —
 deliberate, and an ADR each time. Every new consumer skill gets a catalog entry, its gate and a test that
 the gate refuses when it is off.
+
+**Amendment, 2026-11-03 — C2 Due-Diligence, decision 4 (the user: "aage kam shuru kro", the mock's seven
+decisions as recommended).** Prices were never kept, only the current one. Migration 0082 adds
+`listing_price_change` (classified OWN_AGENCY) written by a trigger on `listing` for every path that edits
+`price_display` / `price_from` / `price_to`, and only once the listing has been public. Applied 2026-11-03,
+so "since we began recording on 3 Nov 2026". The public records keep ADR 0013's history: withdrawn campaigns
+stay out (the mock's withdrawn example is not shown).
+

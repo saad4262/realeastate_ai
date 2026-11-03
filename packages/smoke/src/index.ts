@@ -258,6 +258,10 @@ import { runDealSync } from '@repo/core/deals';
 import { isSkillOn, setSkillSwitch, skillsOffForActor } from '@repo/core/skill-switches';
 import { consumerSkillBlocks, listConsumerSkills, setConsumerSkill, usersWithConsumerSkillOff } from '@repo/core/consumer-skills';
 import { dutyRatesDue } from '@repo/core/affordability';
+import { runPropertyChat, type ToolContext as ChatToolContext } from '@repo/ai/chat';
+import { dispatchTool } from '@repo/ai/tools';
+import { createDueDiligenceWriter } from '@repo/ai/due-diligence';
+import { cleanLine, dueDiligenceAssist, dueDiligenceDue, dueDiligenceRecords, publicSubject } from '@repo/core/due-diligence';
 import {
   connectTwilio,
   DEFAULT_MISSED_CALL_SETTINGS,
@@ -7609,6 +7613,59 @@ async function main() {
     return due.stale.length ? `${due.stale.length} source(s) due for their 1 July re-check` : `all checked since ${due.lastFirstOfJuly}; ${due.unverified.length} unverified (see notes)`;
   });
 
+  // ── ADR 0080 C2: Due-Diligence AI — price changes recorded by the trigger; the records a buyer reads (needs 0082) ──
+  await check('Due-Diligence records: a public listing’s price change is recorded by the trigger (a draft’s and a non-price edit are not); the facts show days on the market from SQL, the change and an earlier sale', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const [l] = await t.execute<{ id: string }>(sql`select id from listing where property_id = ${f.propertyId} limit 1`);
+      const changes = () => count(t, sql`select count(*)::int as n from listing_price_change where listing_id = ${l!.id}`);
+      // Never public yet: a draft's edit is not history.
+      await t.execute(sql`update listing set published_at = null, price_display = 'Offers over $700,000', price_from = 700000 where id = ${l!.id}`);
+      assert((await changes()) === 0, 'a price edit before publishing was recorded');
+      await t.execute(sql`update listing set published_at = now() - interval '10 days' where id = ${l!.id}`);
+      await t.execute(sql`update listing set price_display = 'Offers over $680,000', price_from = 680000 where id = ${l!.id}`);
+      await t.execute(sql`update listing set headline = 'A new headline' where id = ${l!.id}`);
+      assert((await changes()) === 1, `changes after one price edit and one headline edit: ${await changes()}`);
+      await t.execute(sql`insert into listing (property_id, agency_id, channel, status, sold_price, sold_date) values (${f.propertyId}, ${f.agencyId}, 'sale', 'sold', 455000, '2019-03-14')`);
+      const facts = await dueDiligenceRecords(t, f.propertyId, l!.id);
+      const text = facts.map((x) => `${x.ref} ${x.text}`).join(' | ');
+      assert(/^R1 For sale since .* — 10 days on the market\. Offers over \$680,000\./.test(text), `current: ${text}`);
+      assert(text.includes('R2 Price changed from Offers over $700,000 to Offers over $680,000.'), `change: ${text}`);
+      assert(text.includes('Sold for $455,000.'), `history: ${text}`);
+      return `1 change recorded (draft + headline edits ignored); ${facts.length} facts: ${text}`;
+    }),
+  );
+
+  // The endpoint's permission test: the server decides the address (ARCHITECTURE § 9); no model is called here.
+  await check('Due-Diligence AI: only a public listing (or an address with public history) is answered; a draft is not found; a line with a figure the records lack is dropped', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const [l] = await t.execute<{ id: string }>(sql`select id from listing where property_id = ${f.propertyId} limit 1`);
+      await t.execute(sql`update listing set published_at = now() - interval '5 days', price_display = 'Offers over $650,000' where id = ${l!.id}`);
+      assert((await publicSubject(t, { listingId: l!.id }))?.state === 'VIC', 'a live listing was refused');
+      await t.execute(sql`update listing set status = 'draft' where id = ${l!.id}`);
+      assert((await publicSubject(t, { listingId: l!.id })) === null, 'a draft listing was answered');
+      assert((await publicSubject(t, { propertyId: f.propertyId })) === null, 'an address with only a draft was answered');
+      const nf = await dueDiligenceAssist(t, async () => ({ summary: [], questions: [] }), { listingId: l!.id }).catch((e: unknown) => e as Error);
+      assert(nf instanceof Error && /not available/.test(nf.message), `draft via assist: ${String(nf)}`);
+      await t.execute(sql`update listing set status = 'live' where id = ${l!.id}`);
+      const out = await dueDiligenceAssist(t, async ({ records }) => ({
+        summary: [{ text: 'It is listed at offers over $650,000.', refs: ['R1'] }, { text: 'It is worth $900,000.', refs: ['R1'] }],
+        questions: [{ text: 'Can I see the vendor statement (section 32) before I sign?', refs: [records.find((r) => r.ref.startsWith('K'))!.ref] }],
+      }), { listingId: l!.id });
+      assert(out.summary.length === 1 && out.summary[0]!.text.includes('$650,000'), `summary: ${JSON.stringify(out.summary)}`);
+      assert(out.questions.length === 1, `questions: ${JSON.stringify(out.questions)}`);
+      return 'live → VIC; draft → not found (listing, address, assist); the invented $900,000 dropped, the cited $650,000 kept; 1 question';
+    }),
+  );
+
+  await check('Due-Diligence checklists: checked since the last 1 July; which states are still unverified', async () => {
+    const due = dueDiligenceDue(new Date());
+    for (const s of due.stale) note(`checklist ${s.state}`, `${s.source.name} last checked ${s.source.checkedOn} — re-check it (packages/core/src/due-diligence/checklists.ts)`);
+    if (due.unverified.length) note('checklist states', `not verified: ${due.unverified.join(', ')} — the general list is shown`);
+    return due.stale.length ? `${due.stale.length} checklist source(s) due` : `all checked; ${due.unverified.length} states on the general list`;
+  });
+
   // ── ADR 0079: the customer profile — four starting details; the same person lands on one profile (needs 0080) ──
   group('Customer profile (ADR 0079)');
 
@@ -11767,6 +11824,84 @@ async function main() {
     // Model behaviour, not a lock: most phrases must land; every miss is printed for review.
     assert(misses.length <= 2, `${misses.length} of ${DASHBOARD_EVALS.length} missed:\n${misses.join('\n')}`);
     return `${results.length}/${DASHBOARD_EVALS.length} as expected${misses.length ? `; missed: ${misses.join(' | ')}` : ''}`;
+  });
+
+  // ── ADR 0080: the consumer skills against the real model. Its own group, so it runs alone and cheaply:
+  // SMOKE_ONLY="Consumer skills, live AI (ADR 0080)" pnpm smoke:ai. In-process, never over HTTP: the HTTP target
+  // is the deployed site, which may not have this code yet.
+  group('Consumer skills, live AI (ADR 0080)');
+  note('cost', 'this group calls a metered model — a few cents per run');
+
+  /** One guide turn in-process, with a tool context whose only working reader is Due-Diligence's. */
+  const guideTurn = async (message: string, dueDiligence: ChatToolContext['dueDiligence']) => {
+    const nope = async () => {
+      throw new Error('not used in this check');
+    };
+    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence } as unknown as ChatToolContext;
+    const events: { type: string; name?: string; delta?: string; message?: string }[] = [];
+    for await (const e of runPropertyChat({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), request: { message, turns: [] }, catalogue: { suburbs: ['Springfield Lakes', 'Pakenham'], propertyTypes: ['House'] }, tools, track: async () => {} })) events.push(e as (typeof events)[number]);
+    const error = events.find((e) => e.type === 'error');
+    assert(!error, `the turn failed: ${JSON.stringify(error)}`);
+    return { tools: events.filter((e) => e.type === 'tool').map((e) => e.name!), text: events.filter((e) => e.type === 'text').map((e) => e.delta ?? '').join('') };
+  };
+  /** Every "$…" figure in the answer must be one of these. */
+  // A figure ends on a digit: "$26,775," in a sentence is $26,775.
+  const strayFigures = (text: string, allowed: string[]) => [...text.matchAll(/\$\d(?:[\d,]*\d)?(?:\.\d+)?/g)].map((m) => m[0]).filter((f) => !allowed.includes(f));
+
+  await check('Due-Diligence writer (live): a summary citing the records and questions for the agent; core keeps what the records support', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    return inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const [l] = await t.execute<{ id: string }>(sql`select id from listing where property_id = ${f.propertyId} limit 1`);
+      await t.execute(sql`update listing set published_at = now() - interval '41 days', price_display = 'Offers over $750,000', price_from = 750000 where id = ${l!.id}`);
+      await t.execute(sql`update listing set price_display = 'Offers over $720,000', price_from = 720000 where id = ${l!.id}`);
+      await t.execute(sql`insert into listing (property_id, agency_id, channel, status, sold_price, sold_date) values (${f.propertyId}, ${f.agencyId}, 'sale', 'sold', 455000, '2019-03-14')`);
+      const real = createDueDiligenceWriter({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), db: t });
+      let raw = { summary: 0, questions: 0 };
+      let rawLines: { text: string; refs: string[] }[] = [];
+      const out = await dueDiligenceAssist(t, async (input) => {
+        const r = await real(input);
+        raw = { summary: r.summary.length, questions: r.questions.length };
+        rawLines = [...r.summary, ...r.questions];
+        return r;
+      }, { listingId: l!.id });
+      const kept = new Set([...out.summary, ...out.questions].map((x) => x.text));
+      const dropped = rawLines.filter((x) => !kept.has(cleanLine(x.text))).map((x) => `"${x.text}" [${x.refs.join(',')}]`);
+      if (dropped.length) note('dropped by core', dropped.join(' | '));
+      assert(out.summary.length >= 1, `no summary point survived (the model wrote ${raw.summary})`);
+      assert(out.questions.length >= 2, `${out.questions.length} questions survived (the model wrote ${raw.questions})`);
+      // Most of what it writes should survive; a model that routinely invents figures would lose most of its lines.
+      assert(out.summary.length * 2 >= raw.summary && out.questions.length * 2 >= raw.questions, `core dropped too much: summary ${out.summary.length}/${raw.summary}, questions ${out.questions.length}/${raw.questions}`);
+      return `kept summary ${out.summary.length}/${raw.summary}, questions ${out.questions.length}/${raw.questions}: ${out.summary.map((x) => `${x.text} [${x.refs.join(',')}]`).join(' ')} | Q: ${out.questions.map((q) => q.text).join(' / ')}`;
+    });
+  });
+
+  await check('the guide (live): stamp duty on a $750,000 first home in Queensland is the tool’s $10,925, copied, with no other figure', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    const turn = await guideTurn('How much stamp duty would I pay on a $750,000 established house in Queensland? It is my first home and I will live in it.', async () => null);
+    assert(turn.tools.includes('affordability_estimate'), `tools: ${turn.tools.join(', ') || 'none'}`);
+    assert(turn.text.includes('$10,925'), `answer: ${turn.text.slice(0, 400)}`);
+    // Allowed: every figure the tool itself handed over (its notes included), and the price the visitor typed.
+    const fromTool = JSON.stringify((await dispatchTool('affordability_estimate', { state: 'QLD', price: 750_000, buyer: 'first' }, { skillBlocks: new Map() } as unknown as ChatToolContext)).result);
+    const stray = strayFigures(turn.text, [...fromTool.matchAll(/\$\d[\d,]*\d/g)].map((m) => m[0]));
+    assert(!stray.length, `figures not from the tool: ${stray.join(', ')} — ${turn.text.slice(0, 400)}`);
+    return `tools: ${turn.tools.join(', ')}; ${turn.text.replace(/\s+/g, ' ').slice(0, 220)}`;
+  });
+
+  await check('the guide (live): "what should I check" calls due_diligence, cites the records and states no figure they do not hold', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    const ID = '6f1f7a2e-3c1b-4f7e-9a51-1d2e3f4a5b6c';
+    const facts = [
+      { ref: 'R1', when: 'Now', text: 'For sale since 23 Sept 2026 — 41 days on the market. Offers over $720,000.' },
+      { ref: 'R2', when: '20 Oct 2026', text: 'Price changed from Offers over $750,000 to Offers over $720,000.' },
+      { ref: 'R3', when: '14 Mar 2019', text: 'Sold for $455,000.' },
+    ];
+    const turn = await guideTurn(`What should I check before buying the home in listing ${ID}?`, async (id) => (id === ID ? { address: '8 Example Court, Springfield Lakes', state: 'QLD', facts } : null));
+    assert(turn.tools.includes('due_diligence'), `tools: ${turn.tools.join(', ') || 'none'}`);
+    assert(/R[123]/.test(turn.text), `no record cited: ${turn.text.slice(0, 400)}`);
+    const stray = strayFigures(turn.text, ['$720,000', '$750,000', '$455,000']);
+    assert(!stray.length, `figures not in the records: ${stray.join(', ')} — ${turn.text.slice(0, 400)}`);
+    return `tools: ${turn.tools.join(', ')}; ${turn.text.replace(/\s+/g, ' ').slice(0, 260)}`;
   });
 
   // Its own group, so this one paid check can be run alone: SMOKE_ONLY="Many parts, live" pnpm smoke:ai.

@@ -504,6 +504,33 @@ export const media = pgTable('media', {
   ...timestamps,
 });
 
+/**
+ * A public listing's price, before and after an agency changed it (ADR 0080, C2 decision 4). Written by the
+ * `listing_price_change` trigger on every path that edits a price (the form, an import, the assistant), and
+ * only once the listing has been public — a draft's edits are not history. Read by Due-Diligence AI as
+ * "price changes since we began recording". Nothing before migration 0082 exists.
+ */
+export const listingPriceChange = pgTable(
+  'listing_price_change',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    listingId: uuid('listing_id')
+      .notNull()
+      .references(() => listing.id, { onDelete: 'cascade' }),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    oldDisplay: text('old_display'),
+    oldFrom: numeric('old_from', { precision: 14, scale: 2 }),
+    oldTo: numeric('old_to', { precision: 14, scale: 2 }),
+    newDisplay: text('new_display'),
+    newFrom: numeric('new_from', { precision: 14, scale: 2 }),
+    newTo: numeric('new_to', { precision: 14, scale: 2 }),
+    changedAt: timestamp('changed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('listing_price_change_listing_idx').on(t.listingId, t.changedAt)],
+);
+
 export const inspection = pgTable('inspection', {
   id: uuid('id').primaryKey().defaultRandom(),
   listingId: uuid('listing_id')
@@ -3242,6 +3269,7 @@ export type AgentSkill = typeof agentSkill.$inferSelect;
 export type SkillRun = typeof skillRun.$inferSelect;
 export type SkillSwitch = typeof skillSwitch.$inferSelect;
 export type ConsumerSkillSwitch = typeof consumerSkillSwitch.$inferSelect;
+export type ListingPriceChange = typeof listingPriceChange.$inferSelect;
 export type Deal = typeof deal.$inferSelect;
 export type DealCondition = typeof dealCondition.$inferSelect;
 export type DealEvent = typeof dealEvent.$inferSelect;

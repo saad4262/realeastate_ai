@@ -31,6 +31,7 @@ import {
 import { listingPhotos, type ListingPhoto } from '@repo/core/media';
 import { resolvePlace } from '@repo/core/geo';
 import type { ResolvedPlace } from '@repo/core/geo/schema';
+import { dueDiligenceRecords, type RecordFact } from '@repo/core/due-diligence';
 import { getWebDb } from './db';
 
 /**
@@ -200,6 +201,28 @@ export async function cachedTimeline(propertyId: string): Promise<PublicTimeline
     soldDate: reviveDate(r.soldDate),
     publishedAt: reviveDate(r.publishedAt),
   }));
+}
+
+/**
+ * "What our records show" for Due-Diligence AI (ADR 0080, C2). Strings only, so the JSON round trip changes
+ * nothing. An hour, under the listings tag: an edited price or a recorded sale clears it at once through
+ * `revalidateWeb`; the hour only bounds how stale "N days on the market" may be.
+ *
+ * `null` on a database failure, never `[]` — an empty list would tell a buyer this address has no history.
+ */
+export async function cachedDueDiligence(propertyId: string, listingId: string | null): Promise<RecordFact[] | null> {
+  const run = unstable_cache(
+    async () => {
+      try {
+        return await dueDiligenceRecords(getWebDb(), propertyId, listingId);
+      } catch {
+        return null;
+      }
+    },
+    ['due-diligence', propertyId, listingId ?? '-'],
+    { tags: [LISTINGS_TAG], revalidate: 3600 },
+  );
+  return run();
 }
 
 export async function cachedListing(id: string): Promise<PublicListing | null> {

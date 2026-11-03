@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Due-Diligence AI — mock</title>
+<!--
+  Mock for docs/CONSUMER-SKILLS.md C2 (ADR 0080). Public site, the site's warm palette (as consumer-affordability.html).
+  Hand-made, SAMPLE data: the address, the records and the agency are invented. The state checklist text is a DRAFT
+  from the sources named beside it (checked 2026-11-03); every item is verified against the official page before it
+  is built, as the duty rates were. Screens by hash: #rules (opens first), #listing, #questions, #property, #chat,
+  #unverified.
+-->
+<style>
+  :root {
+    --canvas: #f7f4ef; --card: #fff; --sunken: #f1ece3; --ink: #1a1a1a; --ink-soft: #5c5c5c; --ink-faint: #8c8577;
+    --line: #d9d2c5; --line-subtle: #ece7dd; --brand: #0b3d2e; --brand-soft: #eaf1ed; --brand-ink: #f7f4ef;
+    --success: #0f7a52; --success-soft: #e8f4ee; --notice: #a8620a; --notice-soft: #fbf1e3; --info: #1d4e89; --info-soft: #e9eff7;
+    --display: Georgia, 'Times New Roman', serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  a { color: var(--brand); }
+  .mockbar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px; background: #222; color: #ddd; font-size: 13px; }
+  .mockbar b { margin-right: 8px; color: #fff; }
+  .mockbar a { color: #ddd; text-decoration: none; padding: 2px 10px; border-radius: 999px; border: 1px solid #555; }
+  .mockbar a.on { background: #fff; color: #222; }
+  header.site { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; background: var(--card); border-bottom: 1px solid var(--line); }
+  .brand { font-family: var(--display); font-weight: 700; font-size: 20px; color: var(--brand); }
+  header.site nav a { margin-left: 18px; color: var(--ink-soft); text-decoration: none; font-size: 14px; }
+  main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; }
+  section.screen { display: none; }
+  section.screen.on { display: block; }
+  h1 { font-family: var(--display); font-size: clamp(26px, 3.4vw, 34px); letter-spacing: -.02em; margin: 0 0 6px; }
+  h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); margin: 0 0 12px; }
+  h3 { font-size: 16px; margin: 0 0 6px; }
+  .lede { color: var(--ink-soft); margin: 0 0 20px; max-width: 70ch; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; margin-bottom: 16px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) 340px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--sunken); color: var(--ink-soft); vertical-align: middle; }
+  .tag.ai { background: var(--info-soft); color: var(--info); }
+  .tag.ok { background: var(--success-soft); color: var(--success); }
+  .tag.warn { background: var(--notice-soft); color: var(--notice); }
+  .muted { color: var(--ink-soft); font-size: 13px; }
+  .source { font-size: 12px; color: var(--ink-faint); margin-top: 8px; }
+  .facts { list-style: none; margin: 0; padding: 0; }
+  .facts li { display: grid; grid-template-columns: 34px 120px 1fr; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line-subtle); font-size: 14px; }
+  .facts li:first-child { border-top: 0; }
+  .ref { display: inline-grid; place-items: center; min-width: 24px; height: 20px; padding: 0 5px; border-radius: 6px; background: var(--sunken); color: var(--ink-soft); font-size: 11px; font-weight: 700; }
+  .summary { background: var(--info-soft); border-radius: 12px; padding: 12px 14px; font-size: 14px; margin-top: 12px; }
+  .summary p { margin: 0 0 6px; }
+  .check { list-style: none; margin: 0; padding: 0; }
+  .check li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line-subtle); font-size: 14px; }
+  .check li:first-child { border-top: 0; }
+  .box { width: 18px; height: 18px; border: 1px solid var(--line); border-radius: 5px; margin-top: 2px; display: grid; place-items: center; font-size: 12px; }
+  .box.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .check b { display: block; }
+  .links a { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line-subtle); text-decoration: none; color: var(--ink); font-size: 14px; }
+  .links a:first-child { border-top: 0; }
+  .links a span:last-child { color: var(--ink-faint); white-space: nowrap; }
+  .btn { display: inline-block; padding: 9px 16px; border-radius: 999px; background: var(--brand); color: var(--brand-ink); text-decoration: none; font-weight: 600; font-size: 14px; border: 0; cursor: pointer; }
+  .btn.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  .note { border-left: 4px solid var(--info); background: var(--info-soft); padding: 10px 14px; border-radius: 8px; font-size: 14px; margin: 12px 0; }
+  .note.warn { border-color: var(--notice); background: var(--notice-soft); }
+  .disclaimer { font-size: 12.5px; color: var(--ink-soft); border-top: 1px solid var(--line); padding-top: 12px; margin-top: 8px; }
+  .hero { height: 170px; border-radius: 16px; background: linear-gradient(135deg, #d9d2c5, #c2b8a6); display: grid; place-items: end start; padding: 16px; color: #fff; font-weight: 700; margin-bottom: 16px; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+  .tabs span { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: #fff; font-size: 13px; color: var(--ink-soft); }
+  .tabs span.on { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
+  .rules ol { padding-left: 20px; margin: 0; }
+  .rules li { margin-bottom: 14px; }
+  .rules li b { display: block; }
+  .rec { display: inline-block; margin-top: 4px; font-size: 13px; color: var(--success); font-weight: 600; }
+  .alt { display: block; font-size: 13px; color: var(--ink-faint); }
+  textarea { width: 100%; min-height: 190px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 14px; }
+  .q { list-style: none; margin: 0; padding: 0; }
+  .q li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line-subtle); font-size: 14px; }
+  .q li:first-child { border-top: 0; }
+  .chat { max-width: 760px; }
+  .bubble { padding: 12px 16px; border-radius: 16px; margin: 10px 0; max-width: 85%; }
+  .bubble.me { margin-left: auto; background: var(--brand); color: var(--brand-ink); border-bottom-right-radius: 4px; }
+  .bubble.ai { background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .toolcard { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fffdfa; margin: 8px 0; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="mockbar"><b>MOCK · C2 Due-Diligence AI</b>
+  <a href="#rules">Decisions</a><a href="#listing">On a listing</a><a href="#questions">Questions to ask</a><a href="#property">Not for sale</a><a href="#chat">In the guide</a><a href="#unverified">Not verified</a>
+</div>
+<header class="site"><span class="brand">site.com.au</span><nav><a href="#">Buy</a><a href="#">Rent</a><a href="#">Sold</a><a href="#">Affordability</a><a href="#chat">Ask the guide</a><a href="#">My account</a></nav></header>
+<main>
+
+<!-- ───────────────────────── DECISIONS ───────────────────────── -->
+<section class="screen rules" id="rules">
+  <h1>Due-Diligence AI — seven decisions</h1>
+  <p class="lede">What to check before you buy, what our records show about the property, and what to ask the agent. Each decision has a recommendation; say "all recommended" or name the ones to change.</p>
+  <div class="card"><ol>
+    <li><b>1. Information, never legal advice.</b>Every section ends: <i>"General information, not legal advice. A conveyancer or solicitor should review the contract and the seller's documents before you sign."</i>
+      <span class="rec">Recommended: yes, on every screen and under every guide answer.</span></li>
+    <li><b>2. The state checklist is written by us, not by the AI.</b>Per state, from the official pages (Consumer Affairs Victoria, NSW Fair Trading, the Queensland Government's seller disclosure scheme…), each item with its source and the day it was checked — fixed in code like the duty rates, and re-checked with them every 1 July. A state we have not verified shows the general checklist and says so.
+      <span class="rec">Recommended: yes — the law is not something a model should improvise.</span>
+      <span class="alt">Alternative: the AI writes each state's list (rejected: a wrong cooling-off period is worse than none).</span></li>
+    <li><b>3. "What our records show" is SQL, and the AI only summarises it.</b>The facts: every sale at this address by any agency (ADR 0013), when this listing went live and how long it has been on the market, earlier listings that ended without a sale. Each line has a reference [R1]… The AI writes a short plain-English summary on a button, every sentence citing a reference, no figure of its own (ADR 0065's citation check rejects one that does). Labelled "Written by the property guide". Not saved; the facts are.
+      <span class="rec">Recommended: yes — facts always, the summary on a button.</span></li>
+    <li><b>4. Price changes are not recorded today.</b>We store the current price only.
+      <span class="rec">Recommended: start recording from now — a small table written whenever an agency changes a listing's price (migration), shown as "Price changes since we began recording on [date]". Also unlocks ROADMAP 4.4's "price changes" trigger.</span>
+      <span class="alt">Alternative: leave price changes out.</span></li>
+    <li><b>5. Maps: official links, never our own flood or zoning claim.</b>Each state's planning map (VicPlan, NSW Planning Portal Spatial Viewer, PlanWA …) and the council's flood information, opened at the address where the site allows it. We show no overlay ourselves.
+      <span class="rec">Recommended: links only in C2; real overlay data waits for a data decision (C9, with Property Development AI).</span></li>
+    <li><b>6. Questions to ask the agent — the buyer sends them, not the AI.</b>The AI drafts questions from the state checklist and the records ("It was listed in February 2024 and withdrawn in May — can you tell me why?"). The buyer ticks, edits, and the questions go into the listing's existing enquiry form, which the buyer sends. Sending by itself is Agent AI (C8, off until switched on).
+      <span class="rec">Recommended: yes.</span></li>
+    <li><b>7. Where it shows, and what is saved.</b>A "Before you buy" section on each listing (replacing today's Victoria-only checklist link), the same on an address that is not for sale, and the guide's tool <code>due_diligence</code>. All behind the <b>Due-Diligence AI</b> switch (on by default — it answers). Checklist ticks are remembered in this browser only; saving them to the account comes with C4.
+      <span class="rec">Recommended: all three places; ticks in the browser for now.</span></li>
+  </ol></div>
+</section>
+
+<!-- ───────────────────────── ON A LISTING ───────────────────────── -->
+<section class="screen" id="listing">
+  <div class="hero">8 Example Court, Springfield Lakes QLD 4300 · Offers over $720,000 · sample</div>
+  <div class="tabs"><span>Overview</span><span>Inspection times</span><span>Property history</span><span class="on">Before you buy</span><span>Location</span><span>Contact agent</span></div>
+  <div class="grid">
+    <div>
+      <div class="card">
+        <h2>What our records show</h2>
+        <ul class="facts">
+          <li><span class="ref">R1</span><span class="muted">Now</span><span>For sale since 23 Sep 2026 — <b>41 days</b> on the market. Offers over $720,000.</span></li>
+          <li><span class="ref">R2</span><span class="muted">Feb – May 2024</span><span>Listed for sale by another agency; withdrawn on 12 May 2024 with no sale recorded.</span></li>
+          <li><span class="ref">R3</span><span class="muted">14 Mar 2019</span><span>Sold for $455,000.</span></li>
+          <li><span class="ref">R4</span><span class="muted">Price changes</span><span>None since we began recording on 4 Nov 2026. <span class="tag warn">Decision 4</span></span></li>
+        </ul>
+        <p class="muted" style="margin-top:8px">From listings on this site, by any agency. A sale or listing elsewhere is not here.</p>
+        <p><button class="btn ghost">Summarise with AI</button></p>
+        <div class="summary">
+          <span class="tag ai">Written by the property guide</span>
+          <p style="margin-top:8px">This home last sold in March 2019 <span class="ref">R3</span>. It was offered for sale again in February 2024 and taken off the market in May 2024 without a recorded sale <span class="ref">R2</span>. It has been for sale with the current agency since September 2026 <span class="ref">R1</span>.</p>
+          <p class="muted" style="margin:0">Every sentence cites a record; a summary with a figure that is not in the records is not shown.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Your checklist for Queensland <span class="tag">Draft content · verified before build</span></h2>
+        <ul class="check">
+          <li><span class="box on">✓</span><span><b>Get the seller disclosure statement (Form 2) and its certificates before you sign</b>Required for most sales from 1 August 2025. It covers the title, the plan, rates and water, body corporate (for a unit), pool safety and more. If it is wrong or incomplete on something material, you may be able to end the contract. <span class="source">Queensland Government — seller disclosure scheme</span></span></li>
+          <li><span class="box"></span><span><b>Building and pest inspection</b>Usually a condition of the contract. Book it early in the condition period.</span></li>
+          <li><span class="box"></span><span><b>Flood</b>Check the council's flood information for the address (link below). Ask the seller and your insurer.</span></li>
+          <li><span class="box"></span><span><b>Pool safety certificate</b>If there is a pool or spa shared or not.</span></li>
+          <li><span class="box"></span><span><b>Finance and the cooling-off period</b>Know your cooling-off days and your finance date before you sign. See <a href="#">Affordability</a> for costs.</span></li>
+          <li><span class="box"></span><span><b>Insurance from settlement</b>Arrange it before settlement day.</span></li>
+        </ul>
+        <p class="source">Ticks are remembered in this browser only. Sources checked 3 Nov 2026.</p>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2>Check the maps</h2>
+        <div class="links">
+          <a href="#"><span>Planning and zoning — Queensland Development.i / the council's planning scheme</span><span>Opens ↗</span></a>
+          <a href="#"><span>Flood information — Ipswich City Council</span><span>Opens ↗</span></a>
+          <a href="#"><span>Heritage — Queensland heritage register</span><span>Opens ↗</span></a>
+        </div>
+        <p class="source">Official sites. We copy the address; we do not show an overlay ourselves.</p>
+      </div>
+      <div class="card">
+        <h2>Questions to ask the agent</h2>
+        <p class="muted" style="margin-top:0">Drafted from the checklist and the records. You choose, edit and send.</p>
+        <p><a class="btn" href="#questions">Prepare my questions</a></p>
+      </div>
+      <p class="disclaimer">General information, not legal advice. A conveyancer or solicitor should review the contract and the seller's documents before you sign.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── QUESTIONS ───────────────────────── -->
+<section class="screen" id="questions">
+  <h1>Questions for the agent</h1>
+  <p class="lede">8 Example Court, Springfield Lakes · <span class="tag ai">Drafted by the property guide</span></p>
+  <div class="grid">
+    <div class="card">
+      <ul class="q">
+        <li><span class="box on">✓</span><span>Can I have the seller disclosure statement and the certificates to read before I make an offer?</span></li>
+        <li><span class="box on">✓</span><span>The home was listed in February 2024 and withdrawn in May without a sale <span class="ref">R2</span>. Can you tell me why?</span></li>
+        <li><span class="box on">✓</span><span>Has the property been affected by flooding, and is there any flood information on the council search?</span></li>
+        <li><span class="box"></span><span>Are there any building works without approval, or work done since 2019 <span class="ref">R3</span>?</span></li>
+        <li><span class="box"></span><span>Is there a pool safety certificate?</span></li>
+      </ul>
+      <p class="muted">No question states a price or a figure the records do not hold.</p>
+    </div>
+    <div class="card">
+      <h2>Your enquiry</h2>
+      <textarea>Hi, I'm interested in 8 Example Court.
+
+1. Can I have the seller disclosure statement and the certificates to read before I make an offer?
+2. The home was listed in February 2024 and withdrawn in May without a sale. Can you tell me why?
+3. Has the property been affected by flooding, and is there any flood information on the council search?
+
+Thanks</textarea>
+      <p><a class="btn" href="#">Put into the enquiry form</a></p>
+      <p class="muted">It goes into the listing's usual enquiry form; you press Send there. Nothing is sent for you.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── NOT FOR SALE ───────────────────────── -->
+<section class="screen" id="property">
+  <div class="hero">22 Sample Street, Brunswick VIC 3056 · Not for sale · sample</div>
+  <div class="grid">
+    <div class="card">
+      <h2>What our records show</h2>
+      <ul class="facts">
+        <li><span class="ref">R1</span><span class="muted">2 Jun 2021</span><span>Sold for $1,120,000.</span></li>
+        <li><span class="ref">R2</span><span class="muted">2016</span><span>Sold — price not disclosed.</span></li>
+      </ul>
+      <p><button class="btn ghost">Summarise with AI</button></p>
+      <h2 style="margin-top:18px">Your checklist for Victoria <span class="tag">Draft content</span></h2>
+      <ul class="check">
+        <li><span class="box"></span><span><b>Read the vendor statement (section 32) before you sign</b>The seller must give it to you. It covers title, planning, outgoings and more.</span></li>
+        <li><span class="box"></span><span><b>The due diligence checklist</b>Consumer Affairs Victoria publishes it; the seller's agent must make it available. <a href="#">Read it</a></span></li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>Check the maps</h2>
+      <div class="links">
+        <a href="#"><span>VicPlan — zones, overlays, a planning property report</span><span>Opens ↗</span></a>
+        <a href="#"><span>Victorian Heritage Database</span><span>Opens ↗</span></a>
+      </div>
+      <p class="muted">Not for sale, so no questions to the agent — the private offer (ADR 0012) is the way to reach the last seller's agency.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── IN THE GUIDE ───────────────────────── -->
+<section class="screen chat" id="chat">
+  <h1>Ask the guide</h1>
+  <div class="bubble me">What should I check before buying 8 Example Court in Springfield Lakes?</div>
+  <div class="toolcard"><span class="tag ok">Due-Diligence AI</span> <b>8 Example Court, Springfield Lakes QLD</b><br>
+    Records: R1 for sale since 23 Sep 2026 (41 days) · R2 withdrawn May 2024, no sale · R3 sold Mar 2019, $455,000<br>
+    Queensland checklist: 6 items · maps: 3 official links</div>
+  <div class="bubble ai">A few things stand out from our records: it last sold in March 2019, and it was listed in February 2024 and withdrawn in May without a sale — worth asking the agent why. It has been on the market for 41 days.<br><br>In Queensland, ask for the <b>seller disclosure statement</b> and its certificates before you sign, book a building and pest inspection, and check the council's flood information. The full checklist and the map links are on the listing under <b>Before you buy</b>.<p class="disclaimer" style="margin-bottom:0">General information, not legal advice. A conveyancer or solicitor should review the contract before you sign.</p></div>
+</section>
+
+<!-- ───────────────────────── NOT VERIFIED ───────────────────────── -->
+<section class="screen" id="unverified">
+  <div class="hero">5 Sample Crescent, Palmerston NT 0830 · sample</div>
+  <div class="card">
+    <h2>Your checklist</h2>
+    <div class="note">We have not yet verified the Northern Territory's own rules for buyers, so this is the general list. Check with the <a href="#">NT Government's buying a home pages</a> or a conveyancer.</div>
+    <ul class="check">
+      <li><span class="box"></span><span><b>Read the contract and every document the seller gives you before you sign</b></span></li>
+      <li><span class="box"></span><span><b>Building and pest inspection</b></span></li>
+      <li><span class="box"></span><span><b>Title search — who owns it, and any easements or covenants</b></span></li>
+      <li><span class="box"></span><span><b>Zoning, flood and heritage — the official maps</b></span></li>
+      <li><span class="box"></span><span><b>Finance approved before the finance date; insurance from settlement</b></span></li>
+    </ul>
+  </div>
+</section>
+
+</main>
+<script>
+  // Screens by hash; #rules opens first.
+  function show() {
+    const id = (location.hash || '#rules').slice(1);
+    document.querySelectorAll('section.screen').forEach((s) => s.classList.toggle('on', s.id === id));
+    document.querySelectorAll('.mockbar a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + id));
+    window.scrollTo(0, 0);
+  }
+  addEventListener('hashchange', show);
+  show();
+</script>
+</body>
+</html>

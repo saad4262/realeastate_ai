@@ -17,6 +17,7 @@ import {
   type SpecTile,
 } from '../../../components/listing-sections';
 import { Icon } from '../../../components/icons';
+import { BeforeYouBuy } from '../../../components/before-you-buy';
 import { ListingMedia } from '../../../components/listing-card';
 import { portalFonts } from '../../portal-fonts';
 import {
@@ -24,6 +25,7 @@ import {
   cachedListingPhotos,
   cachedLiveListingId,
   cachedOffMarketProperty,
+  cachedDueDiligence,
   cachedTimeline,
 } from '../../../lib/cached';
 
@@ -98,7 +100,7 @@ export default async function PropertyPage({ params }: { params: Promise<{ id: s
    * null for a signed-in visitor and the offer form shows a sign-in prompt to
    * somebody already signed in.
    */
-  const [timeline, user] = await Promise.all([cachedTimeline(propertyId), currentWebUser()]);
+  const [timeline, user, facts] = await Promise.all([cachedTimeline(propertyId), currentWebUser(), cachedDueDiligence(propertyId, null)]);
 
   /**
    * The campaign this page is about: the last one, which is the sale when there
@@ -381,6 +383,8 @@ export default async function PropertyPage({ params }: { params: Promise<{ id: s
                   <NotConnected title="Schools & catchment" what="no schools data source is connected" />
                 </div>
               </Card>
+
+              <BeforeYouBuy state={property.state} facts={facts} scope={`property:${propertyId}`} subject={{ propertyId }} />
 
               <DueDiligence state={property.state} />
             </div>

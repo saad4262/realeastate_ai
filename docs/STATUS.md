@@ -10,12 +10,12 @@ Version 1 is built except what waits on the client and on Twilio. `main` = `d3eb
 0080 — consumer skills + C0 foundation; C1 Affordability AI built, uncommitted). Merge in that order.
 
 ## Database
-82 migrations recorded (0000–0081). **0080 (`contact.address_*`) and 0081 (`consumer_skill_switch`) applied
-2026-11-03** (the user's go; checked after: 82 recorded, 6 address columns, the table exists). Dev database =
+83 migrations recorded (0000–0082). **0080 (`contact.address_*`), 0081 (`consumer_skill_switch`) and 0082
+(`listing_price_change` + its trigger) applied 2026-11-03** (the user's go; checked after: 82 recorded, 6 address columns, the table exists). Dev database =
 production database.
 
 ## Checks
-- Unit: core 1628, ai 347 — all pass, offline. Typecheck 10/10. Web lint 0 errors. /affordability and a listing's
+- Unit: core 1644, ai 356 — all pass, offline. Live AI group "Consumer skills, live AI (ADR 0080)" green 2026-11-03. Typecheck 10/10. Web lint 0 errors. /affordability and a listing's
   "Costs to buy" panel rendered on the local dev server (figures match the mock and the unit tests).
 - Smoke 2026-11-03, live DB: "Consumer skills (ADR 0080)", "Customer profile (ADR 0079)", "Imports: contacts and
   Google Sheets" — 5/5 green (the import check sorted roles by enum order, not text: test fixed, data was right).
@@ -56,7 +56,8 @@ production database.
 - Local-only branches `feat/crm-visibility` and `feat/crm-assistant-more`: keep or delete.
 
 ## Next
-0. Commit C1 (the user's go); TEST-PLAN CG in a browser. Then C2 Due-Diligence AI: mock first. Re-check duty rates
+0. C1 (`dcdce7c`) and C2 Due-Diligence AI committed; C2's live-model group green (the user's go). TEST-PLAN CG, CH
+   in a browser. Now: C3 Renovation AI — mock `docs/mocks/consumer-renovation.html` awaiting the user. Re-check duty rates
    every 1 July (dates in `duty-rates.ts`); NT, ACT general and SA new-home relief still "not verified".
 1. Push and merge `chore/tech-debt` → `feat/sms-part2` → `feat/customer-profile` → `feat/consumer-skills` (the user's go).
 2. Twilio tonight → connect on the phone test agency → BX, BY, BZ, CE.

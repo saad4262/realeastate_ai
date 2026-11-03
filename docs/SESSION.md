@@ -23,7 +23,26 @@ passes ~10 entries, move the older ones to a new archive file.
   mirror hides it — display only); `affordability_estimate` + prompt v11 (v10's text + a section; tool list order
   test updated: one cache reset). Unit core 1628, ai 347. Break-test: the tool's skill mapping removed → red. Dev
   server: the mock's figures on the page; a VIC $800k listing → $43,070 for all three buyers (checked by hand).
-- Left unfinished (exact next step): commit C1 (the user's go); TEST-PLAN CG; then C2 Due-Diligence mock.
+- Then: C1 committed `dcdce7c`; the 1 July re-check + unverified states as ROADMAP debt and a smoke note
+  (`dutyRatesDue`). C2 mock (seven decisions), taken as recommended. C2 part 1: checklists verified from CAV
+  (VIC), Fair Trading (NSW), qld.gov.au Form 2 (QLD), Consumer Protection (WA); SA/TAS/ACT/NT general list.
+  Migration 0082 `listing_price_change` + trigger, applied (the user's go; 83 recorded). Records from SQL (days on
+  the market counted by Postgres). "Before you buy" on listings and /property. Withdrawn campaigns stay out
+  (ADR 0013). Smoke green (trigger: draft and headline edits ignored). Unit core 1637, ai 347. Break-test: price
+  changes dropped from the facts → red. Dev server: VIC listing and a /property page render the section.
+- Then C2 part 2: core `assist.ts` (`publicSubject` — the server decides the address; `checkDraft` — references
+  must exist, figures must be in the cited records, no links; summary points must cite a fact), the writer in
+  packages/ai (summary tier, metered `consumer:due_diligence`, fake-client tests), `/api/due-diligence` (rate limit,
+  daily cap, the Skills switch, an hour's cache under the listings tag; in the middleware matcher), the button and
+  "Put into the enquiry form", the guide's `due_diligence` + prompt v12. Unit core 1643, ai 356. Smoke 5/5.
+  Break-tests: the public filter removed → "a draft listing was answered"; the tool's skill mapping removed → red.
+  Dev server with CONSUMER_AI=off: 400 / 503 paths and the button; the model itself NOT called (no consent to spend).
+- Then (the user's go to spend): a new smoke group "Consumer skills, live AI (ADR 0080)" — in-process, because the
+  HTTP target is the deployed site. First run: 1 of 6 questions survived — the model wrote "[K2]" into its text and
+  `unsupportedFigures` read "2" as a figure. Fixed: `cleanLine` in core + prompt due-diligence@v2; the test's own
+  figure regex (a trailing comma) and allowed list (now from the tool's result) fixed too. Second run: 8/8 green
+  (summary 2/2, questions 6/6; the guide copied $10,925 and cited R1/R2). Committed C2.
+- Left unfinished (exact next step): C3 Renovation AI mock — the user's decisions; TEST-PLAN CG/CH in a browser.
 - Risks / watch: rates go stale every 1 July; the borrowing estimate is not a bank's (decision 2).
 
 ## 2026-11-02 (later) — Claude Code (Mac) — ADR 0079: the customer profile

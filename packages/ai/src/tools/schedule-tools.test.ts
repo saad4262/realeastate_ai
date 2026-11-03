@@ -11,6 +11,7 @@ function ctx(over: Partial<ToolContext> = {}): ToolContext {
     db: {} as Db,
     places: new Map(),
     skillBlocks: new Map(),
+    dueDiligence: async () => null,
     resolvePlace: vi.fn(async () => null),
     search: vi.fn(async () => []),
     getListing: vi.fn(async () => null),

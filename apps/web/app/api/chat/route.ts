@@ -20,6 +20,7 @@ import { ensureConsumerAccount } from '../../../lib/account';
 import { currentWebUser } from '../../../lib/session';
 import {
   cachedFilterOptions,
+  cachedDueDiligence,
   cachedListing,
   cachedNearbyMarket,
   cachedRecentSales,
@@ -198,6 +199,18 @@ function toolContext(userId: string | null, skillBlocks: ReadonlyMap<ConsumerSki
       return rows;
     },
     getListing: (id) => cachedListing(id),
+    /**
+     * Due-Diligence AI (ADR 0080, C2): a PUBLIC listing only — `cachedListing` is the public read — and its
+     * records from the same cache the listing page uses. A database blip throws, so the guide says the database
+     * could not be reached instead of "no history".
+     */
+    dueDiligence: async (id) => {
+      const found = await cachedListing(id);
+      if (!found) return null;
+      const facts = await cachedDueDiligence(found.propertyId, found.id);
+      if (!facts) throw new Error('database unavailable');
+      return { address: found.address, state: found.state, facts };
+    },
     nearbyMarket: (query) => cachedNearbyMarket(query),
     recentSales: (query) => cachedRecentSales(query),
   };

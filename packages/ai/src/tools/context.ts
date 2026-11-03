@@ -81,6 +81,12 @@ export type ToolContext = {
    */
   scheduling: SchedulingContext;
   /**
+   * Due-Diligence AI's records for one PUBLIC listing (ADR 0080, C2), or null when there is no such listing.
+   * Injected like the other reads: the app decides what is cached, and its reader is the one that applies the
+   * public filter.
+   */
+  dueDiligence: (listingId: string) => Promise<{ address: string; state: string; facts: { ref: string; when: string; text: string }[] } | null>;
+  /**
    * The consumer skills not running for this visitor, and why (ADR 0080) — read once per turn by the
    * route. Required, not optional: a context built without it would be a chat with every switch ignored.
    * `dispatchTool` refuses a tool whose skill is here.

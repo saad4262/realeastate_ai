@@ -15,6 +15,7 @@ import { ActivityBeacon } from '../../../components/activity-beacon';
 import { ListingMap } from '../../../components/listing-map';
 import { EnquiryForm } from '../../../components/enquiry-form';
 import { CostsToBuy } from '../../../components/costs-to-buy';
+import { BeforeYouBuy } from '../../../components/before-you-buy';
 import { ListingReviews } from '../../../components/listing-reviews';
 import {
   AgentPanel,
@@ -33,6 +34,7 @@ import { ListingMedia } from '../../../components/listing-card';
 import { portalFonts } from '../../portal-fonts';
 import {
   cachedAgentCards,
+  cachedDueDiligence,
   cachedInspections,
   cachedListing,
   cachedFormerListingDestination,
@@ -131,7 +133,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
    * which is ADR 0013. Keyed by the PROPERTY, so a listing written by a new
    * agency shows the sales other agencies recorded at the same address.
    */
-  const [inspections, agents, photos, signedIn, timeline] = await Promise.all([
+  const [inspections, agents, photos, signedIn, timeline, facts] = await Promise.all([
     cachedInspections(listing.id),
     cachedAgentCards(listing.id),
     cachedListingPhotos(listing.id),
@@ -140,6 +142,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
     // draw — see looksSignedIn().
     looksSignedIn(),
     cachedTimeline(listing.propertyId),
+    cachedDueDiligence(listing.propertyId, listing.id),
   ]);
   // The same filter the section uses, so the tab never scrolls to nothing.
   const hasHistory = usefulTimeline(timeline, listing.id).length > 0;
@@ -481,6 +484,8 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
               </Card>
 
               <CostsToBuy channel={listing.channel} state={listing.state} priceFrom={listing.priceFrom} priceTo={listing.priceTo} />
+
+              <BeforeYouBuy state={listing.state} facts={facts} scope={`listing:${listing.id}`} subject={{ listingId: listing.id }} />
 
               <DueDiligence state={listing.state} />
             </div>

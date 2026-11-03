@@ -1985,3 +1985,19 @@ private window for the signed-out cases. Every figure below is the code's own (u
 | CG8 | A listing for sale with a price (signed out) | "Costs to buy this home": three rows (first home / home you live in / investment) at the top of the range, the source and date, "Work out repayments…" opens /affordability with the price and state filled. A rental or a listing with no numeric price: no panel. |
 | CG9 | Ask the guide "stamp duty on a $750k first home in Brisbane?" | $10,925, saying first home concession; ends "Estimate — general information only…". Ask "what can I borrow?" → it points to the Affordability page and does not ask for income. |
 
+## CH — Due-Diligence AI: "Before you buy" (ADR 0080, C2)
+
+Public site. Needs migration **0082** (applied 2026-11-03). CH7–CH9 call the model (a real key; a few cents).
+
+| # | Case | Expected |
+|---|---|---|
+| CH1 | A live listing for sale | "Before you buy" above the Victorian checklist link: R1 "For sale since … — N days on the market. <price>." (N matches the listing date), R2 "Price changes: None since we began recording on 3 Nov 2026", any earlier sale at the address; then the state checklist with its source and date; VIC/NSW: "Check the maps" with the official link. |
+| CH2 | In the console, change that listing's price; reload the listing (cache clears on save) | A new line "Price changed from <old> to <new>." dated today, above the history. |
+| CH3 | Tick two checklist items, reload | Still ticked. In a private window: unticked (browser only). |
+| CH4 | A listing in SA, TAS, ACT or NT | The blue note "We have not yet verified …'s own rules" and the general list. |
+| CH5 | An address not for sale (/property/…) | Its history only (no "Now" line), the checklist, no questions. |
+| CH6 | Switch Due-Diligence AI off in Skills, open a listing | No "Before you buy" section (the Victorian checklist link stays — it is not the skill). |
+| CH7 | "Summarise with AI and draft questions" on a listing with history | A blue "Written by the property guide" box: 1–4 sentences, each ending in its references (R1…), no figure that is not in the records; 3–6 questions with ticks (three ticked). |
+| CH8 | Tick two, "Put into the enquiry form" | The enquiry form's message holds those two questions, numbered; the page scrolls to it; nothing is sent until you press Send. |
+| CH9 | On /chat: "what should I check before buying <a listing from a search>?" | The guide cites [R1]…, names two or three checklist points for the state, points to "Before you buy" for the questions, ends with the legal-advice line. With Due-Diligence AI off in Skills: it says the skill is switched off. |
+

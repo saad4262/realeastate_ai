@@ -90,4 +90,14 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   rate we could source; hidden by a `skills_off` cookie mirror when the buyer switched it off), the guide's
   `affordability_estimate` (prompt v11). Not built from the mock: rejecting a reply whose figure is not in a tool
   result — the guard is the prompt rule and the tool card, as for search figures. TEST-PLAN CG.
-- [ ] [ ] C2 Due-Diligence · [ ] C3 Renovation · [ ] C4 · [ ] C5 · [ ] C6 · [ ] C7 · [ ] C8 · [ ] C9
+- [x] C2 Due-Diligence — mock's seven decisions as recommended. Migration 0082 (price changes by trigger, applied
+  2026-11-03); `packages/core/src/due-diligence/` (records from SQL with references; checklists for VIC, NSW,
+  QLD, WA from their official pages, the general list for SA, TAS, ACT, NT; map links VIC, NSW; the AI's lines
+  checked for references and figures); "Before you buy" on listings and /property with ticks in the browser; the
+  AI summary + questions on a button (`/api/due-diligence`, summary tier, rate-limited, an hour's cache, the
+  buyer puts the questions into the enquiry form and sends them); the guide's `due_diligence` (prompt v12).
+  Live model checked 2026-11-03 (`SMOKE_ONLY="Consumer skills, live AI (ADR 0080)" pnpm smoke:ai`, the user's
+  go): it found the model writing "[K2]" into its questions, which the figure check read as "2" and dropped 5 of 6 —
+  fixed in core (`cleanLine`) and the prompt (v2); then summary 2/2, questions 6/6, and the guide's affordability
+  and due-diligence answers copied only the tools' figures. TEST-PLAN CH.
+- [ ] C3 Renovation · [ ] C4 · [ ] C5 · [ ] C6 · [ ] C7 · [ ] C8 · [ ] C9
