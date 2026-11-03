@@ -1807,6 +1807,37 @@ export const buyerProfile = pgTable('buyer_profile', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * ABS Census 2021 housing figures per suburb (ADR 0080, C5 decision 3): public reference data, loaded from
+ * `packages/db/data/census/abs-census-2021-sal.csv` (built from the ABS DataPack by the script beside it). Counts
+ * only — every share shown is computed from them in code (#4). Housing figures only: no income, age, ancestry or
+ * religion. Nobody's own data, so it belongs to no agency and no person.
+ */
+export const suburbCensus = pgTable(
+  'suburb_census',
+  {
+    salCode: varchar('sal_code', { length: 12 }).primaryKey(),
+    censusYear: integer('census_year').notNull().default(2021),
+    name: text('name').notNull(),
+    /** lower(name): what a suburb is looked up by, with `state`. */
+    nameKey: text('name_key').notNull(),
+    state: varchar('state', { length: 8 }).notNull(),
+    population: integer('population'),
+    dwellings: integer('dwellings'),
+    separateHouses: integer('separate_houses'),
+    semiDetached: integer('semi_detached'),
+    flats: integer('flats'),
+    ownedOutright: integer('owned_outright'),
+    ownedMortgage: integer('owned_mortgage'),
+    rented: integer('rented'),
+    tenureTotal: integer('tenure_total'),
+    medianRentWeekly: integer('median_rent_weekly'),
+    medianMortgageMonthly: integer('median_mortgage_monthly'),
+    avgHouseholdSize: numeric('avg_household_size', { precision: 4, scale: 2 }),
+  },
+  (t) => [uniqueIndex('suburb_census_state_name_idx').on(t.state, t.nameKey)],
+);
+
 export const event = pgTable('event', {
   id: uuid('id').primaryKey().defaultRandom(),
   type: varchar('type', { length: 128 }).notNull(),
@@ -3337,6 +3368,7 @@ export type ListingPriceChange = typeof listingPriceChange.$inferSelect;
 export type PropertyWatch = typeof propertyWatch.$inferSelect;
 export type PropertyWatchEvent = typeof propertyWatchEvent.$inferSelect;
 export type BuyerProfile = typeof buyerProfile.$inferSelect;
+export type SuburbCensus = typeof suburbCensus.$inferSelect;
 export type Deal = typeof deal.$inferSelect;
 export type DealCondition = typeof dealCondition.$inferSelect;
 export type DealEvent = typeof dealEvent.$inferSelect;
