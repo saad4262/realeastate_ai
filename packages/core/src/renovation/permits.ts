@@ -10,10 +10,10 @@ import { PERMIT_TRIGGERS, renovationCategory, type PermitTrigger, type Renovatio
  * No dollar thresholds (the product team's rule): where a rule turns on a value, it says "above a set value" and
  * the source has the figure.
  *
- * Checked 2026-11-03 for VIC, NSW and QLD. Their regulators' sites refuse a direct fetch (403), so each rule was
- * checked against the text of the official page as a search restricted to that state's government domain
- * returned it (`checkedVia: 'official_search'`) — the same standard as the Tasmanian duty rates. Where the only
- * text found was a council's, or none, the trigger stays unverified. WA, SA, TAS, ACT and NT: not yet checked.
+ * Checked 2026-11-03 for all eight. The regulators' sites refuse a direct fetch (403), so each rule was checked
+ * against the text of the official page as a search restricted to that state's government domain returned it
+ * (`checkedVia: 'official_search'`) — the same standard as the Tasmanian duty rates. Where the only text found
+ * was a council's, or none, the trigger stays unverified — a council is not the state.
  */
 
 export type PermitRule = {
@@ -73,10 +73,61 @@ const QLD_RULES: readonly PermitRule[] = [
   rule('older_home_materials', 'Asbestos is common in houses built before 1990: assume it is there until an accredited laboratory has tested it. Use a licensed asbestos removalist; crumbly (friable) asbestos needs a Class A licence.', src('Queensland Government — asbestos safety', 'https://www.qld.gov.au/emergency/safety/home/asbestos')),
 ];
 
-const VERIFIED: Partial<Record<DutyState, readonly PermitRule[]>> = { VIC: VIC_RULES, NSW: NSW_RULES, QLD: QLD_RULES };
+const WA_POOLS = src('WA Building and Energy — swimming pool and spa safety barrier requirements', 'https://www.wa.gov.au/organisation/building-and-energy/swimming-pool-and-spa-safety-barrier-requirements');
+const WA_RULES: readonly PermitRule[] = [
+  rule('electrical', 'All electrical work must be done by a person who holds the relevant electrical licence.', src('WA Building and Energy', 'https://www.wa.gov.au/organisation/building-and-energy/building-and-energy')),
+  rule('plumbing', 'Water supply, sanitary and drainage plumbing must be done by a plumber licensed by the Plumbers Licensing Board; a home owner may do only a few limited tasks.', src('WA Building and Energy — plumbing work in your home', 'https://www.wa.gov.au/organisation/building-and-energy/plumbing-work-your-home')),
+  rule('pool_or_spa', 'A new pool or spa needs a building permit from the local government before it is built. The local government inspects its safety barrier once it is finished, and again at regular intervals.', WA_POOLS),
+];
+
+const SA_PLANSA = src('PlanSA — development applications (FAQ)', 'https://plan.sa.gov.au/__data/assets/pdf_file/0004/799231/FAQ_-_Development_Applications.pdf');
+const SA_APPROVAL = 'PlanSA’s approval wizard, given your address, says whether the work needs development approval and what to do next. Do not start work that needs approval before you have it.';
+const SA_LICENCES = src('SA Government — check occupational licence holders', 'https://www.sa.gov.au/topics/business-and-trade/licensing/licence-check');
+const SA_RULES: readonly PermitRule[] = [
+  rule('structural', SA_APPROVAL, SA_PLANSA),
+  rule('new_floor_area', SA_APPROVAL, SA_PLANSA),
+  rule('deck_or_raised_structure', 'Verandahs, carports and similar structures often need development approval; PlanSA’s approval wizard says for your address.', SA_PLANSA),
+  rule('electrical', 'Electrical work must be certified by the contractor or the worker with an electronic certificate of compliance.', src('Consumer and Business Services — working as an electrician in SA', 'https://www.cbs.sa.gov.au/documents/AMR-Working-as-an-electrician-in-SA.pdf')),
+  rule('plumbing', 'Plumbing is registered trade work; check the plumber on the government’s public licence register.', SA_LICENCES),
+  rule('gas', 'Gas fitting is registered trade work; check the gas fitter on the government’s public licence register.', SA_LICENCES),
+  rule('pool_or_spa', 'A pool needs a continuous safety barrier that keeps young children out, with gates that close properly; the council enforces it.', src('SA Government — inspecting a property', 'https://www.sa.gov.au/topics/housing/buying-building-selling/building-or-buying-home/inspecting-a-property')),
+  rule('older_home_materials', 'Older homes may contain asbestos; demolition, renovation, cutting, sanding or drilling can release it. Professional removal is strongly recommended.', src('SafeWork SA — a DIY guide to asbestos safety for home renovators', 'https://www.safework.sa.gov.au/news-and-alerts/news/news/2022/a-diy-guide-to-asbestos-safety-for-home-renovators')),
+];
+
+const TAS_CATEGORIES = src('CBOS Tasmania — categories of building and demolition work (Director’s Determination)', 'https://www.cbos.tas.gov.au/__data/assets/pdf_file/0014/405014/Directors-determination-categories-of-building-and-demolition-work-2021.pdf');
+const TAS_BUILDING = 'Building work falls into four categories: low-risk work an owner may do within size and setback limits; low-risk work for a licensed builder; notifiable work, which a building surveyor assesses and notifies to the permit authority; and permit work, which needs a building surveyor’s certificate of likely compliance and a building permit from the council.';
+const TAS_RULES: readonly PermitRule[] = [
+  rule('structural', TAS_BUILDING, TAS_CATEGORIES),
+  rule('new_floor_area', TAS_BUILDING, TAS_CATEGORIES),
+  rule('deck_or_raised_structure', TAS_BUILDING, TAS_CATEGORIES),
+  rule('plumbing', 'Plumbing has its own four categories: some an owner may do; others need a licensed plumber; notifiable and permit plumbing need the council’s approval, and permit work cannot start before the plumbing permit.', src('Tasmanian building standards — plumbing for consumers', 'https://buildingstandards.tas.gov.au/topics/technical-regulation/plumbing-standards/for-consumers')),
+  rule('older_home_materials', 'A home built or renovated before the 1990s probably contains asbestos; have a survey done before you start. Friable asbestos, and non-friable asbestos above a set area, needs a WorkSafe Tasmania licensed removalist.', src('WorkSafe Tasmania — asbestos safety for DIYers', 'https://worksafe.tas.gov.au/safety/safety_subjects/subject/asbestos_safety/diys_asbestos_safety')),
+];
+
+const ACT_DA = src('ACT Planning — check if you need a DA', 'https://www.planning.act.gov.au/applications-and-assessments/development-applications/check-if-you-need-a-da');
+const ACT_TRADES = src('Access Canberra — choosing a tradesperson', 'https://www.accesscanberra.act.gov.au/consumer-rights/choosing-a-tradesperson');
+const ACT_RULES: readonly PermitRule[] = [
+  rule('structural', 'ACT Planning’s “Check if you need a DA” says whether the work needs a development application.', ACT_DA),
+  rule('new_floor_area', 'ACT Planning’s “Check if you need a DA” says whether an addition needs a development application.', ACT_DA),
+  rule('electrical', 'Check that the electrician is licensed for the work on Access Canberra’s public register.', ACT_TRADES),
+  rule('plumbing', 'Check that the plumber is licensed for the work on Access Canberra’s public register.', ACT_TRADES),
+  rule('gas', 'Check that the gasfitter is licensed for the work on Access Canberra’s public register.', ACT_TRADES),
+  rule('older_home_materials', 'A house built before 1990 may contain asbestos, and you cannot tell by looking; only a licensed asbestos removalist may remove asbestos-containing material from a home.', src('ACT Government — asbestos', 'https://www.act.gov.au/housing-planning-and-property/staying-healthy-in-your-home/asbestos')),
+];
+
+const NT_PERMITS = src('NT Government — residential building work that requires permits', 'https://nt.gov.au/property/building/build-or-renovate-your-home/building-and-renovating-a-home/residential-building-work-that-requires-permits');
+const NT_PERMIT_NOTE = 'Alterations and extensions need a building permit, whether or not they add floor area. A registered building certifier issues it before work starts.';
+const NT_RULES: readonly PermitRule[] = [
+  rule('structural', NT_PERMIT_NOTE, NT_PERMITS),
+  rule('new_floor_area', NT_PERMIT_NOTE, NT_PERMITS),
+  rule('deck_or_raised_structure', 'Some garden sheds, carports, fences and shade structures in residential areas need no building permit if they meet the exemption criteria; otherwise they need a permit and occupancy certification.', src('NT Government — a garden shed, carport, fence or shade structure that doesn’t need approval', 'https://nt.gov.au/property/building/build-or-renovate-your-home/building-a-garden-shed-carport,-fence-or-shade-structure')),
+  rule('plumbing', 'Plumbing and drainage work must be done by a licensed plumber and drainer; a certifying plumber and drainer issues the certificate of compliance.', src('NT Government — plumbing or drainage work on your property', 'https://nt.gov.au/property/building/build-or-renovate-your-home/plumbing-or-drainage-work-on-your-property')),
+];
+
+const VERIFIED: Record<DutyState, readonly PermitRule[]> = { VIC: VIC_RULES, NSW: NSW_RULES, QLD: QLD_RULES, WA: WA_RULES, SA: SA_RULES, TAS: TAS_RULES, ACT: ACT_RULES, NT: NT_RULES };
 
 export const STATE_PERMIT_RULES: Readonly<Record<DutyState, StatePermitRules>> = Object.freeze(
-  Object.fromEntries(AU_DUTY_STATES.map((state) => [state, { state, rules: VERIFIED[state] ?? [] }])) as unknown as Record<DutyState, StatePermitRules>,
+  Object.fromEntries(AU_DUTY_STATES.map((state) => [state, { state, rules: VERIFIED[state] }])) as unknown as Record<DutyState, StatePermitRules>,
 );
 
 /** Each state's own government domain: a rule's source must be on it (tests). */

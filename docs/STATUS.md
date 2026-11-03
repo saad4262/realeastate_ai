@@ -60,8 +60,9 @@ production database.
    in a browser. C3 Renovation AI approved (product team); step 1 built, uncommitted: core types, the 25 kinds
    of work, plan/photo contracts, quotes in cents (`5bd7be8`); permit rules VIC/NSW/QLD (`e8b683e`); end to end
    built, uncommitted: planner + room reader, two routes, /renovation, the listing link, `renovation_plan` (v13).
-   Live-model group 12/12 green (the user's go); committed. Next: TEST-PLAN CG/CH/CI in a browser; WA, SA, TAS,
-   ACT, NT permit rules; then C4 (profile and watch) — mock first. Re-check duty rates
+   Live-model group 12/12 green; committed `ae5d96a`; pushed (`origin/feat/consumer-skills`). Permit rules for all
+   eight states (WA, SA, TAS, ACT, NT added; council-only triggers still unverified). C4 mock awaiting the user.
+   TEST-PLAN CG/CH/CI: the user, in a browser. Re-check duty rates
    every 1 July (dates in `duty-rates.ts`); NT, ACT general and SA new-home relief still "not verified".
 1. Push and merge `chore/tech-debt` → `feat/sms-part2` → `feat/customer-profile` → `feat/consumer-skills` (the user's go).
 2. Twilio tonight → connect on the phone test agency → BX, BY, BZ, CE.

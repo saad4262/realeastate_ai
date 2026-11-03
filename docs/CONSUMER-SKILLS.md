@@ -114,4 +114,6 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   guide (enum of the 25 kinds; prompt v13). Live model green 2026-11-03 (the user's go): the planner kept 3/3 kinds
   for a request that asked "what would it cost?" with no money in any line; the guide called renovation_plan and
   gave no price. TEST-PLAN CI.
+  Permit rules for WA (3 triggers), SA (8), TAS (5), ACT (6), NT (4) added 2026-11-03 from state sources; the
+  triggers with only council text, or none, stay "not verified" (ROADMAP technical debt).
 - [ ] [ ] C4 · [ ] C5 · [ ] C6 · [ ] C7 · [ ] C8 · [ ] C9

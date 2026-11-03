@@ -51,7 +51,8 @@ describe('permits (decision 5): only rules with an official state source', () =>
       for (const r of STATE_PERMIT_RULES[st].rules) {
         const url = new URL(r.source.url);
         expect(url.protocol, r.source.url).toBe('https:');
-        expect(url.hostname.endsWith(STATE_SOURCE_DOMAINS[st]), `${st}: ${r.source.url}`).toBe(true);
+        const d = STATE_SOURCE_DOMAINS[st];
+        expect(url.hostname === d.slice(1) || url.hostname.endsWith(d), `${st}: ${r.source.url}`).toBe(true);
         expect(r.source.checkedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
         expect(r.note, r.note).not.toMatch(/\$|\baud\b|\bdollars?\b/i);
         expect(seen.has(r.trigger), `${st} ${r.trigger} twice`).toBe(false);
@@ -60,9 +61,19 @@ describe('permits (decision 5): only rules with an official state source', () =>
     }
   });
 
-  it('VIC, NSW and QLD are verified; the other states, and every trigger we could not check, say "not verified"', () => {
-    expect(renovationRulesDue(new Date('2026-11-03T00:00:00Z')).unverifiedStates).toEqual(['WA', 'SA', 'TAS', 'ACT', 'NT']);
-    expect(permitNotesFor('WA', ['remove_wall']).every((n) => !n.verified)).toBe(true);
+  it('every state has verified rules; every trigger we could not check from a STATE source says "not verified"', () => {
+    expect(renovationRulesDue(new Date('2026-11-03T00:00:00Z')).unverifiedStates).toEqual([]);
+    // WA's structural text found was councils', not the state's; its electrical rule is the state's.
+    expect(permitNotesFor('WA', ['remove_wall']).map((n) => [n.trigger, n.verified])).toEqual([
+      ['structural', false],
+      ['electrical', true],
+      ['heritage', false],
+      ['strata', false],
+      ['older_home_materials', false],
+    ]);
+    // TAS electrical: councils only. NT electrical, asbestos and pools: nothing found.
+    expect(permitNotesFor('TAS', ['electrical_upgrade']).find((n) => n.trigger === 'electrical')?.verified).toBe(false);
+    expect(permitNotesFor('NT', ['pool']).filter((n) => n.verified).map((n) => n.trigger)).toEqual(['plumbing']);
     const vic = permitNotesFor('VIC', ['kitchen', 'remove_wall']);
     expect(vic.map((n) => [n.trigger, n.verified])).toEqual([
       ['structural', true],

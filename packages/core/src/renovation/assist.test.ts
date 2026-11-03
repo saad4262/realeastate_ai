@@ -23,7 +23,8 @@ describe('the plan end to end (ADR 0080, C3)', () => {
   });
 
   it('a state not verified: every permit note says so; no state: no permit notes', () => {
-    expect(planCards([{ category: 'remove_wall', note: 'x' }], 'WA').permits.every((p) => !p.verified)).toBe(true);
+    // WA has no state rule yet for boundaries, heritage, strata or asbestos — the triggers fencing raises.
+    expect(planCards([{ category: 'fencing', note: 'x' }], 'WA').permits.every((p) => !p.verified)).toBe(true);
     expect(planCards([{ category: 'remove_wall', note: 'x' }], null).permits).toEqual([]);
   });
 
