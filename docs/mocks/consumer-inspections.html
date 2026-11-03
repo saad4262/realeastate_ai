@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inspections — mock</title>
+<!--
+  Mock for docs/CONSUMER-SKILLS.md C6 (ADR 0080): Inspection AI (plan a Saturday of open homes, add it to a calendar)
+  and Inspection Assistant (private notes, a checklist and photos per home, summarised). Public site, the site's warm
+  palette (as the C1–C5 mocks). Hand-made, SAMPLE data: addresses, times and distances are invented. On a real page
+  the times are the agents' (the `inspection` table), the distances PostGIS, and every figure in a summary the buyer's own.
+  Screens by hash: #rules (opens first), #listing, #plan, #clash, #notes, #summary, #chat.
+-->
+<style>
+  :root {
+    --canvas: #f7f4ef; --card: #fff; --sunken: #f1ece3; --ink: #1a1a1a; --ink-soft: #5c5c5c; --ink-faint: #8c8577;
+    --line: #d9d2c5; --line-subtle: #ece7dd; --brand: #0b3d2e; --brand-ink: #f7f4ef;
+    --success: #0f7a52; --success-soft: #e8f4ee; --notice: #a8620a; --notice-soft: #fbf1e3; --danger: #a12a2a; --danger-soft: #f8e9e7; --info: #1d4e89; --info-soft: #e9eff7;
+    --display: Georgia, 'Times New Roman', serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  a { color: var(--brand); }
+  .mockbar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px; background: #222; color: #ddd; font-size: 13px; }
+  .mockbar b { margin-right: 8px; color: #fff; }
+  .mockbar a { color: #ddd; text-decoration: none; padding: 2px 10px; border-radius: 999px; border: 1px solid #555; }
+  .mockbar a.on { background: #fff; color: #222; }
+  header.site { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; background: var(--card); border-bottom: 1px solid var(--line); }
+  .brand { font-family: var(--display); font-weight: 700; font-size: 20px; color: var(--brand); }
+  header.site nav a { margin-left: 18px; color: var(--ink-soft); text-decoration: none; font-size: 14px; }
+  main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; }
+  section.screen { display: none; }
+  section.screen.on { display: block; }
+  h1 { font-family: var(--display); font-size: clamp(26px, 3.4vw, 34px); letter-spacing: -.02em; margin: 0 0 6px; }
+  h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); margin: 0 0 12px; }
+  h3 { font-size: 16px; margin: 0 0 4px; }
+  .lede { color: var(--ink-soft); margin: 0 0 20px; max-width: 72ch; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; margin-bottom: 16px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) 340px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--sunken); color: var(--ink-soft); vertical-align: middle; }
+  .tag.ai { background: var(--info-soft); color: var(--info); }
+  .tag.warn { background: var(--notice-soft); color: var(--notice); }
+  .tag.bad { background: var(--danger-soft); color: var(--danger); }
+  .tag.ok { background: var(--success-soft); color: var(--success); }
+  .muted { color: var(--ink-soft); font-size: 13px; }
+  .source { font-size: 12px; color: var(--ink-faint); margin-top: 8px; }
+  .ref { display: inline-grid; place-items: center; min-width: 22px; height: 18px; padding: 0 4px; border-radius: 5px; background: var(--sunken); color: var(--ink-soft); font-size: 10px; font-weight: 700; margin-left: 3px; }
+  .summary { background: var(--info-soft); border-radius: 12px; padding: 12px 14px; font-size: 14px; }
+  .summary p { margin: 6px 0 0; }
+  .note { border-left: 4px solid var(--info); background: var(--info-soft); padding: 10px 14px; border-radius: 8px; font-size: 14px; margin: 12px 0; }
+  .note.warn { border-color: var(--notice); background: var(--notice-soft); }
+  .btn { display: inline-block; padding: 8px 14px; border-radius: 999px; background: var(--brand); color: var(--brand-ink); text-decoration: none; font-weight: 600; font-size: 13px; border: 0; cursor: pointer; }
+  .btn.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  .btn.small { padding: 4px 10px; font-size: 12px; }
+  .btn.danger { background: #fff; color: var(--danger); border: 1px solid var(--danger-soft); }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .rules ol { padding-left: 20px; margin: 0; }
+  .rules li { margin-bottom: 14px; }
+  .rules li b { display: block; }
+  .rec { display: inline-block; margin-top: 4px; font-size: 13px; color: var(--success); font-weight: 600; }
+  .alt { display: block; font-size: 13px; color: var(--ink-faint); }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line-subtle); font-size: 14px; }
+  .row:first-child { border-top: 0; }
+  .when { font-weight: 700; font-variant-numeric: tabular-nums; }
+  /* the plan's timeline */
+  .stop { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: 14px; padding: 14px 0; border-top: 1px solid var(--line-subtle); align-items: start; }
+  .stop:first-of-type { border-top: 0; }
+  .stop .t { font-variant-numeric: tabular-nums; font-weight: 700; }
+  .stop .t small { display: block; font-weight: 400; color: var(--ink-faint); font-size: 12px; }
+  .leg { margin: 0 0 0 110px; font-size: 12.5px; color: var(--ink-faint); padding: 2px 0 2px 12px; border-left: 2px dashed var(--line); }
+  .leg.tight { color: var(--notice); border-color: var(--notice); }
+  @media (max-width: 600px) { .stop { grid-template-columns: 1fr; gap: 4px; } .leg { margin-left: 0; } }
+  .field { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; font-size: 14px; }
+  select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
+  .tray { position: sticky; bottom: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; background: var(--brand); color: var(--brand-ink); border-radius: 14px; padding: 12px 16px; margin-top: 16px; }
+  .tray a { color: var(--brand-ink); font-weight: 700; }
+  /* the phone */
+  .phone { max-width: 390px; margin: 0 auto; background: var(--card); border: 1px solid var(--line); border-radius: 28px; padding: 18px 16px 22px; box-shadow: 0 10px 30px rgba(0,0,0,.06); }
+  .private { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--success); background: var(--success-soft); border-radius: 10px; padding: 8px 10px; margin: 10px 0 14px; }
+  .check { padding: 9px 0; border-top: 1px solid var(--line-subtle); font-size: 14px; }
+  .check .q { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; flex: none; }
+  .seg span { font-size: 11.5px; padding: 3px 8px; color: var(--ink-soft); }
+  .seg span + span { border-left: 1px solid var(--line); }
+  .seg .on.ok { background: var(--success-soft); color: var(--success); font-weight: 700; }
+  .seg .on.bad { background: var(--danger-soft); color: var(--danger); font-weight: 700; }
+  .seg .on.no { background: var(--sunken); color: var(--ink); font-weight: 700; }
+  .check .mine { font-size: 13px; color: var(--ink-soft); margin-top: 4px; padding-left: 10px; border-left: 2px solid var(--line); }
+  textarea { width: 100%; min-height: 70px; font: inherit; font-size: 14px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; resize: vertical; }
+  .photos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .photos div { aspect-ratio: 1; border-radius: 8px; background: linear-gradient(135deg, #e9e2d5, #d8cfbf); }
+  .photos div.add { background: var(--sunken); display: grid; place-items: center; color: var(--ink-faint); font-size: 22px; border: 1px dashed var(--line); }
+  .chat { max-width: 760px; }
+  .bubble { padding: 12px 16px; border-radius: 16px; margin: 10px 0; max-width: 85%; }
+  .bubble.me { margin-left: auto; background: var(--brand); color: var(--brand-ink); border-bottom-right-radius: 4px; }
+  .bubble.ai { background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .toolcard { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fffdfa; margin: 8px 0; font-size: 14px; }
+  .dropped { font-size: 12.5px; color: var(--ink-faint); text-decoration: line-through; }
+</style>
+</head>
+<body>
+<div class="mockbar"><b>MOCK · C6 Inspections</b>
+  <a href="#rules">Decisions</a><a href="#listing">On a listing</a><a href="#plan">Saturday plan</a><a href="#clash">A clash</a><a href="#notes">At the inspection</a><a href="#summary">Your summary</a><a href="#chat">In the guide</a>
+</div>
+<header class="site"><span class="brand">site.com.au</span><nav><a href="#">Buy</a><a href="#plan">Inspections</a><a href="#">Shortlist</a><a href="#chat">Ask the guide</a></nav></header>
+<main>
+
+<!-- ───────────────────────── DECISIONS ───────────────────────── -->
+<section class="screen rules" id="rules">
+  <h1>Inspections — nine decisions</h1>
+  <p class="lede">Two skills for the day a buyer actually walks through homes. <b>Inspection AI</b> turns the open-home times agents already publish into a plan for the day, with a calendar file and a route. <b>Inspection Assistant</b> is the buyer's own notebook at each home: a checklist, notes and photos, private to them, with a summary written on request. The hard parts are travel time (we have no honest number for it) and privacy (notes and photos of someone's home). Each decision has a recommendation; say "all recommended" or name the ones to change.</p>
+  <div class="card"><ol>
+    <li><b>1. The times are the agents'; the planner orders and checks, it never invents.</b>A plan is built only from open-home times in our <code>inspection</code> table (the ones on each listing page). The planner picks one time for each home, puts them in order, and flags any stop it cannot reach. It never moves a time and never drops a home silently: a home that does not fit stays on the plan as "Not this time", with its other times offered. When an agent changes or cancels a time, the plan shows it the next time it is opened.
+      <span class="rec">Recommended: yes.</span></li>
+    <li><b>2. Travel: a straight-line distance and a gap you choose — no driving time.</b>Between stops we show the straight-line distance from the database (PostGIS), labelled "straight line". The buyer sets the gap they need between homes (default 20 minutes) and the time they want inside each (default 10 minutes). A stop is "Tight" when, after that, less than 10 minutes of its open home would be left, and "Can't make it" when none would. We do not estimate driving time: that needs a paid routing service, and a guessed time is an invented number.
+      <span class="rec">Recommended: straight line + your own gap.</span>
+      <span class="alt">Alternative: a routing API (Google Routes) for real driving times — metered per plan, and another outside service.</span></li>
+    <li><b>3. Calendar and map without connecting an account.</b>"Add to calendar" downloads one <code>.ics</code> file with an event per stop (address, times, a link to the listing), built by the iCalendar helper the console's meeting emails already use. "Open the route" opens Google Maps with the stops in order (a plain link, no API). We never connect to the buyer's calendar.
+      <span class="rec">Recommended: yes.</span></li>
+    <li><b>4. The planner is public; the plan lives in the link.</b>No account needed (Inspection AI is an "answers" skill, ON by default). The plan is <code>/inspections?s=…</code> (the chosen times), so it can be shared with a partner and reopened. Ways in: "Add to my day" on each time on a listing page, "Plan inspections" on the shortlist, and the guide. Up to 8 homes in one day.
+      <span class="rec">Recommended: yes; up to 8 homes.</span>
+      <span class="alt">Alternative: saved plans on the account — more to store, little gained over a link.</span></li>
+    <li><b>5. The guide plans, but never reads your notes.</b>The guide gets one tool, <code>plan_inspections</code> (listing ids and a day → the ordered stops, distances and flags, all from SQL and PostGIS), and links to the plan page. Inspection notes are never given to the guide or to any chat in C6.
+      <span class="rec">Recommended: yes.</span></li>
+    <li><b>6. Inspection notes are yours alone.</b>Inspection Assistant needs an account. Notes, ticks and photos are owner-only in <code>can()</code> — no agency, agent or platform admin can read them, or even see that they exist. They are not shared with the listing's agency and never feed leads, the customer profile or the Personal Property AI.
+      <span class="rec">Recommended: yes — the same wall as the shortlist and watch (C4).</span></li>
+    <li><b>7. A fixed checklist, in our own words.</b>About 15 things to look at, grouped (outside, inside, services, the street), with a house version and an apartment version (the apartment one adds strata items, linked to C2's due-diligence checklist for the state). Each item: "Looks fine", "Issue", or "Didn't check", plus an optional note. The AI does not write the checklist.
+      <span class="rec">Recommended: yes.</span></li>
+    <li><b>8. Photos: private, location removed, never looked at by the AI.</b>Up to 20 photos per home, 10 MB each, in a private Supabase Storage bucket (ADR 0009), shown through short-lived signed links. The phone's location (GPS) is removed from each photo before upload. The AI never sees the photos — as in C3, no one describes a home's condition from pictures. Deleting a home's notes deletes its photos from storage; "Delete all my inspection notes" deletes everything.
+      <span class="rec">Recommended: yes.</span>
+      <span class="alt">Alternative: no photos in v1 (notes and ticks only) — no storage, less useful on the day.</span></li>
+    <li><b>9. The summary: from your own notes only, on a button, labelled.</b>"Summarise my day" (or one home) gives the model only the buyer's own ticks and notes, as cited records. Every line cites them; a line with a figure not in the buyer's own words is dropped (the C2 check); no verdict ("buy this one", "the best of the four"). It goes only to the buyer, carries "Written by the property guide" (non-negotiable 7's scope), is rate-limited, and is not stored — it is written again on request.
+      <span class="rec">Recommended: yes.</span></li>
+  </ol></div>
+</section>
+
+<!-- ───────────────────────── LISTING ───────────────────────── -->
+<section class="screen" id="listing">
+  <h1>7 Test Road, Officer VIC</h1>
+  <p class="lede">The inspection times already on every listing page gain one button each. The tray follows the buyer around the site.</p>
+  <div class="grid">
+    <div class="card">
+      <h2>Inspections</h2>
+      <div class="row"><span><span class="when">Sat 14 Nov</span> · 9:30 am – 10:00 am <span class="tag">Open</span></span><a class="btn small" href="#listing">✓ In my day</a></div>
+      <div class="row"><span><span class="when">Sat 14 Nov</span> · 1:00 pm – 1:30 pm <span class="tag">Open</span></span><a class="btn small ghost" href="#listing">+ Add to my day</a></div>
+      <div class="row"><span><span class="when">Thu 19 Nov</span> · 5:30 pm – 6:00 pm <span class="tag">Open</span></span><a class="btn small ghost" href="#listing">+ Add to my day</a></div>
+      <p class="source">Times are set by the agent and can change. Private appointments are made with the agent, not planned here.</p>
+    </div>
+    <div class="card">
+      <h2>Why one button</h2>
+      <p class="muted">Choosing a time is the buyer's decision. The planner then orders the day and checks it; it never chooses which homes to see.</p>
+    </div>
+  </div>
+  <div class="tray"><span><b>Saturday 14 Nov</b> · 5 homes, 9:30 am – 1:30 pm</span><a href="#plan">See my day →</a></div>
+</section>
+
+<!-- ───────────────────────── PLAN ───────────────────────── -->
+<section class="screen" id="plan">
+  <h1>Your Saturday, 14 November</h1>
+  <p class="lede">Five open homes in Officer, Pakenham and Beaconsfield, in order. Times are the agents'; distances are straight lines, not driving.</p>
+  <div class="grid">
+    <div class="card">
+      <h2>The plan</h2>
+      <div class="stop"><div class="t">9:30 am<small>to 10:00 am</small></div><div><h3>7 Test Road, Officer</h3><span class="muted">4 bed · House · Offers over $780,000</span></div><span class="tag ok">Start</span></div>
+      <div class="leg">1.2 km straight line · your gap 20 min</div>
+      <div class="stop"><div class="t">10:15 am<small>to 10:45 am</small></div><div><h3>14 Station Street, Officer</h3><span class="muted">4 bed · House · $760,000 – $800,000</span></div><span class="tag ok">Fits</span></div>
+      <div class="leg tight">3.8 km straight line · after 10 min inside and your 20 min gap you would arrive 10:45 am</div>
+      <div class="stop"><div class="t">10:30 am<small>to 10:50 am</small></div><div><h3>3 Sample Way, Pakenham</h3><span class="muted">3 bed · House · $690,000 – $740,000</span><div class="note warn" style="margin:8px 0 0">Tight: 5 minutes of the open home would be left.<br><a href="#plan">Use its other time, 12:30 pm – 1:00 pm</a></div></div><span class="tag warn">Tight</span></div>
+      <div class="leg">2.1 km straight line · your gap 20 min</div>
+      <div class="stop"><div class="t">11:45 am<small>to 12:15 pm</small></div><div><h3>22 Demo Avenue, Pakenham</h3><span class="muted">3 bed · Townhouse · $615,000</span></div><span class="tag ok">Fits</span></div>
+      <div class="leg">6.4 km straight line · your gap 20 min</div>
+      <div class="stop"><div class="t">1:00 pm<small>to 1:30 pm</small></div><div><h3>9 Mock Close, Beaconsfield</h3><span class="muted">4 bed · House · Contact agent</span></div><span class="tag ok">Fits</span></div>
+      <div class="actions"><a class="btn" href="#plan">Add to calendar (.ics)</a><a class="btn ghost" href="#plan">Open the route in Google Maps</a><a class="btn ghost" href="#plan">Copy link to this plan</a></div>
+      <p class="source">Distances: straight lines between the addresses, from this site's map data. We don't estimate driving time.</p>
+    </div>
+    <div>
+      <div class="card">
+        <h2>Your settings</h2>
+        <div class="field"><span>Gap between homes</span><select><option>10 min</option><option>15 min</option><option selected>20 min</option><option>30 min</option><option>45 min</option></select></div>
+        <div class="field"><span>Time inside each home</span><select><option>5 min</option><option selected>10 min</option><option>15 min</option><option>20 min</option></select></div>
+        <p class="muted">Changing these re-checks the plan straight away. Nothing is saved but the link.</p>
+      </div>
+      <div class="card">
+        <h2>Signed in?</h2>
+        <p class="muted">Open <b>Inspection Assistant</b> at each home for a checklist, private notes and photos.</p>
+        <a class="btn ghost small" href="#notes">Take notes at 7 Test Road</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── CLASH ───────────────────────── -->
+<section class="screen" id="clash">
+  <h1>Your Saturday, 14 November</h1>
+  <p class="lede">When two homes are open at the same time and neither has another time that day, the planner says so and lets the buyer choose.</p>
+  <div class="card">
+    <h2>Can't make both</h2>
+    <div class="note warn"><b>8 Example Court, Springfield Lakes</b> and <b>5 Placeholder Street, Officer</b> are both open only 10:30 am – 11:00 am this Saturday, 31.6 km apart in a straight line.</div>
+    <div class="actions"><a class="btn" href="#clash">Keep 8 Example Court</a><a class="btn ghost" href="#clash">Keep 5 Placeholder Street</a></div>
+    <p class="muted" style="margin-top:12px">The other stays on your plan under "Not this Saturday", with its next time (Thu 19 Nov, 5:30 pm) to add.</p>
+  </div>
+  <div class="card">
+    <h2>Not this Saturday</h2>
+    <div class="row"><span>12 Sample Lane, Pakenham — <span class="tag bad">Time cancelled by the agent</span></span><a class="btn small ghost" href="#clash">See its other times</a></div>
+    <p class="source">A time the agent removed is shown, not silently dropped.</p>
+  </div>
+</section>
+
+<!-- ───────────────────────── NOTES ───────────────────────── -->
+<section class="screen" id="notes">
+  <div class="phone">
+    <span class="muted">Inspection Assistant · Sat 9:30 am</span>
+    <h3 style="font-size:20px;margin-top:4px">7 Test Road, Officer</h3>
+    <div class="private">🔒 Only you can see this. The agency can't — not even that you took notes.</div>
+    <h2>Outside</h2>
+    <div class="check"><div class="q"><span>Roof and gutters</span><span class="seg"><span class="on ok">Looks fine</span><span>Issue</span><span>Didn't check</span></span></div></div>
+    <div class="check"><div class="q"><span>Cracks in walls or paths</span><span class="seg"><span>Looks fine</span><span class="on bad">Issue</span><span>Didn't check</span></span></div><div class="mine">Long crack above the garage door</div></div>
+    <div class="check"><div class="q"><span>Water pooling, drainage</span><span class="seg"><span>Looks fine</span><span>Issue</span><span class="on no">Didn't check</span></span></div></div>
+    <h2 style="margin-top:14px">Inside</h2>
+    <div class="check"><div class="q"><span>Damp or mould (look and smell)</span><span class="seg"><span class="on ok">Looks fine</span><span>Issue</span><span>Didn't check</span></span></div></div>
+    <div class="check"><div class="q"><span>Water pressure, hot water</span><span class="seg"><span>Looks fine</span><span class="on bad">Issue</span><span>Didn't check</span></span></div><div class="mine">Shower upstairs weak</div></div>
+    <div class="check"><div class="q"><span>Doors and windows close</span><span class="seg"><span class="on ok">Looks fine</span><span>Issue</span><span>Didn't check</span></span></div></div>
+    <p class="muted">+ 9 more: power board, smoke alarms, NBN point, heating and cooling, storage, noise from the street, parking…</p>
+    <h2 style="margin-top:14px">Your notes</h2>
+    <textarea>Agent said owners are moving interstate, want to settle in 60 days. Backyard bigger than it looks online. Council rates $2,140 a year (agent).</textarea>
+    <h2 style="margin-top:14px">Photos <span class="tag">3 of 20</span></h2>
+    <div class="photos"><div></div><div></div><div></div><div class="add">+</div></div>
+    <p class="source">Location is removed from photos before they're saved. Photos are never shown to the AI.</p>
+    <div class="actions"><a class="btn" href="#notes">Done — next: 14 Station Street</a><a class="btn danger small" href="#notes">Delete this home's notes</a></div>
+  </div>
+</section>
+
+<!-- ───────────────────────── SUMMARY ───────────────────────── -->
+<section class="screen" id="summary">
+  <h1>Your Saturday, in your own words</h1>
+  <p class="lede">Four homes with notes. The summary is written from your ticks and notes only, on request, and isn't stored.</p>
+  <div class="grid">
+    <div class="card">
+      <div class="summary"><span class="tag ai">Written by the property guide</span>
+        <p>At 7 Test Road you marked two issues: a long crack above the garage door and a weak upstairs shower <span class="ref">N1</span>.</p>
+        <p>You noted the agent quoted council rates of $2,140 a year there and a 60-day settlement <span class="ref">N1</span>.</p>
+        <p>14 Station Street had no issues marked; you didn't check drainage or the power board <span class="ref">N2</span>.</p>
+        <p>You wrote that 22 Demo Avenue has street noise at 11:45 am <span class="ref">N4</span>.</p>
+        <p>Across the four homes you didn't check hot water at two: 3 Sample Way and 9 Mock Close <span class="ref">N3</span><span class="ref">N5</span>.</p>
+      </div>
+      <p class="muted" style="margin-top:12px">From your ticks and notes only. It doesn't look at your photos and doesn't judge the homes or pick one.</p>
+      <div class="actions"><a class="btn ghost" href="#summary">Write it again</a><a class="btn danger small" href="#summary">Delete all my inspection notes</a></div>
+    </div>
+    <div class="card">
+      <h2>What the checks removed <span class="tag">For review only</span></h2>
+      <p class="dropped">"3 Sample Way is probably the best value of the four."</p>
+      <p class="muted">A verdict — dropped.</p>
+      <p class="dropped">"Expect about $5,000 to fix the crack."</p>
+      <p class="muted">A figure not in your notes — dropped.</p>
+      <p class="source">Not shown to the buyer; here to show the rules.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── GUIDE ───────────────────────── -->
+<section class="screen chat" id="chat">
+  <h1>Ask the guide</h1>
+  <div class="bubble me">Can you plan my Saturday for the four houses on my shortlist?</div>
+  <div class="toolcard"><span class="tag ok">Inspection AI</span> <b>Sat 14 Nov · 4 homes</b> — 9:30 7 Test Road → 10:15 14 Station St (1.2 km) → 11:45 22 Demo Ave (5.0 km) → 12:30 3 Sample Way (2.1 km) · 3 Sample Way's 10:30 time: Tight after 14 Station St</div>
+  <div class="bubble ai">Here's a plan for Saturday 14 November: 7 Test Road at 9:30 am, 14 Station Street at 10:15 am, 22 Demo Avenue at 11:45 am and 3 Sample Way at 12:30 pm. 3 Sample Way is also open at 10:30 am, but that would leave you only a few minutes there after 14 Station Street, so the plan uses its later time. The distances between them are straight lines (1.2 km, 5.0 km and 2.1 km), not driving times. <a href="#plan">Open the plan</a> to add it to your calendar or open the route in Google Maps.</div>
+  <p class="muted">The guide never reads inspection notes. Ask it "what did I think of 7 Test Road?" and it points you to your notes page.</p>
+</section>
+
+</main>
+<script>
+  function show() {
+    const id = (location.hash || '#rules').slice(1);
+    document.querySelectorAll('section.screen').forEach((s) => s.classList.toggle('on', s.id === id));
+    document.querySelectorAll('.mockbar a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + id));
+    window.scrollTo(0, 0);
+  }
+  addEventListener('hashchange', show);
+  show();
+</script>
+</body>
+</html>

@@ -32,6 +32,7 @@ import { listingPhotos, type ListingPhoto } from '@repo/core/media';
 import { resolvePlace } from '@repo/core/geo';
 import type { ResolvedPlace } from '@repo/core/geo/schema';
 import { dueDiligenceRecords, type RecordFact } from '@repo/core/due-diligence';
+import { comparables, homeRows, researchData, suburbProfile, type BuyerType, type Comparable, type HomeRow, type ResearchAsk, type SuburbProfile } from '@repo/core/research';
 import { getWebDb } from './db';
 
 /**
@@ -222,6 +223,70 @@ export async function cachedDueDiligence(propertyId: string, listingId: string |
     ['due-diligence', propertyId, listingId ?? '-'],
     { tags: [LISTINGS_TAG], revalidate: 3600 },
   );
+  return run();
+}
+
+/**
+ * C5 research reads (ADR 0080): a suburb, homes side by side, one home's comparables. Public data only — the core
+ * readers apply the public filter — under the listings tag for an hour, so an edited listing or a sale clears them.
+ * `null` on a database failure, never an empty result that would read as "nothing here".
+ */
+function dated<T>(value: T): T {
+  // unstable_cache JSON round-trips: revive the Date fields these shapes carry.
+  return JSON.parse(JSON.stringify(value), (k, v) => (k === 'soldOn' && typeof v === 'string' ? new Date(v) : v)) as T;
+}
+
+export async function cachedSuburbProfile(state: string, suburb: string): Promise<SuburbProfile | null | 'down'> {
+  const run = unstable_cache(
+    async () => {
+      try {
+        return await suburbProfile(getWebDb(), { state, suburb });
+      } catch {
+        return 'down' as const;
+      }
+    },
+    ['suburb-profile', state.toUpperCase(), suburb.toLowerCase()],
+    { tags: [LISTINGS_TAG], revalidate: 3600 },
+  );
+  const out = await run();
+  return out && out !== 'down' ? dated(out) : out;
+}
+
+export async function cachedHomeRows(ids: readonly string[], buyer: BuyerType): Promise<HomeRow[] | null> {
+  const run = unstable_cache(
+    async () => {
+      try {
+        return await homeRows(getWebDb(), ids, buyer);
+      } catch {
+        return null;
+      }
+    },
+    ['home-rows', buyer, ...ids],
+    { tags: [LISTINGS_TAG], revalidate: 3600 },
+  );
+  return run();
+}
+
+export async function cachedComparables(listingId: string): Promise<Comparable[] | null> {
+  const run = unstable_cache(
+    async () => {
+      try {
+        const [home] = await homeRows(getWebDb(), [listingId], 'home');
+        return home ? await comparables(getWebDb(), home) : [];
+      } catch {
+        return null;
+      }
+    },
+    ['comparables', listingId],
+    { tags: [LISTINGS_TAG], revalidate: 3600 },
+  );
+  return run();
+}
+
+/** The guide's research reader: the same records, thrown on failure so the guide says the database could not be reached. */
+export async function cachedResearchData(ask: ResearchAsk) {
+  const key = ask.kind === 'suburb' ? [ask.state.toUpperCase(), ask.suburb.toLowerCase()] : ask.kind === 'compare' ? [ask.buyer, ...ask.listingIds] : [ask.listingId];
+  const run = unstable_cache(async () => researchData(getWebDb(), ask), ['research-data', ask.kind, ...key], { tags: [LISTINGS_TAG], revalidate: 3600 });
   return run();
 }
 

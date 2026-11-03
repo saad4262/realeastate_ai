@@ -18,6 +18,8 @@ import { CostsToBuy } from '../../../components/costs-to-buy';
 import { PlanRenovationLink } from '../../../components/plan-renovation-link';
 import { ShortlistHeart } from '../../../components/shortlist-heart';
 import { WatchButton } from '../../../components/watch-button';
+import { ExplainHome } from '../../../components/explain-home';
+import { suburbPath } from '../../../lib/suburb-slug';
 import { BeforeYouBuy } from '../../../components/before-you-buy';
 import { ListingReviews } from '../../../components/listing-reviews';
 import {
@@ -37,6 +39,7 @@ import { ListingMedia } from '../../../components/listing-card';
 import { portalFonts } from '../../portal-fonts';
 import {
   cachedAgentCards,
+  cachedComparables,
   cachedDueDiligence,
   cachedInspections,
   cachedListing,
@@ -136,7 +139,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
    * which is ADR 0013. Keyed by the PROPERTY, so a listing written by a new
    * agency shows the sales other agencies recorded at the same address.
    */
-  const [inspections, agents, photos, signedIn, timeline, facts] = await Promise.all([
+  const [inspections, agents, photos, signedIn, timeline, facts, comps] = await Promise.all([
     cachedInspections(listing.id),
     cachedAgentCards(listing.id),
     cachedListingPhotos(listing.id),
@@ -146,6 +149,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
     looksSignedIn(),
     cachedTimeline(listing.propertyId),
     cachedDueDiligence(listing.propertyId, listing.id),
+    cachedComparables(listing.id),
   ]);
   // The same filter the section uses, so the tab never scrolls to nothing.
   const hasHistory = usefulTimeline(timeline, listing.id).length > 0;
@@ -493,6 +497,8 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
               <CostsToBuy channel={listing.channel} state={listing.state} priceFrom={listing.priceFrom} priceTo={listing.priceTo} />
 
               <PlanRenovationLink listingId={listing.id} channel={listing.channel} />
+
+              <ExplainHome listingId={listing.id} comparables={comps} suburb={listing.suburb} suburbHref={suburbPath(listing.state, listing.suburb)} />
 
               <BeforeYouBuy state={listing.state} facts={facts} scope={`listing:${listing.id}`} subject={{ listingId: listing.id }} />
 

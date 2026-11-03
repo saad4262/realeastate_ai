@@ -22,6 +22,7 @@
     "./property-summary": "./src/pipelines/property-summary.ts",
     "./due-diligence": "./src/pipelines/due-diligence.ts",
     "./renovation": "./src/pipelines/renovation.ts",
+    "./research": "./src/pipelines/research.ts",
     "./workflow-decide": "./src/pipelines/workflow-decide.ts",
     "./reply-assist": "./src/pipelines/reply-assist.ts",
     "./lead-understand": "./src/pipelines/lead-understand.ts"

@@ -5,6 +5,7 @@ import { affordabilityInput, runAffordability } from './affordability-tool';
 import { cheapestNearInput, runCheapestNear } from './cheapest-near';
 import { dueDiligenceInput, runDueDiligence } from './due-diligence-tool';
 import { renovationInput, runRenovation } from './renovation-tool';
+import { compareHomesInput, explainHomeInput, runCompareHomes, runExplainHome, runSuburbProfile, suburbProfileInput } from './research-tools';
 import { RENOVATION_CATEGORY_KEYS } from '@repo/core/renovation/categories';
 import { getListingInput, runGetListing } from './get-listing-tool';
 import { resolveLocationInput, runResolveLocation } from './resolve-location';
@@ -276,6 +277,29 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
     },
   },
   {
+    name: 'suburb_profile',
+    description: "What this portal's listings show about one suburb — for sale now, recent sales, medians when there are enough sales — and its ABS 2021 Census housing figures. The portal's figures are its own listings, not the whole market. Never a value or a prediction.",
+    input_schema: { type: 'object', additionalProperties: false, properties: { state: { type: 'string', enum: [...AU_STATES] }, suburb: { type: 'string', description: 'The suburb, as the visitor said it.' } }, required: ['state', 'suburb'] },
+  },
+  {
+    name: 'compare_homes',
+    description: 'Two to four live listings side by side, every figure from the portal: price, rooms, land, days on the market, price changes, last sale, a stamp duty estimate. Explain the trade-offs; never say which to choose.',
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        listingIds: { type: 'array', items: { type: 'string' }, description: 'Two to four ids from search results.' },
+        buyer: { type: 'string', enum: ['first', 'home', 'investor'], description: "For the stamp duty estimate. Defaults to 'home'." },
+      },
+      required: ['listingIds'],
+    },
+  },
+  {
+    name: 'explain_home',
+    description: 'One live listing explained from the portal: its facts, its history, and comparable homes nearby (listed, never averaged). Never a value.',
+    input_schema: { type: 'object', additionalProperties: false, properties: { listingId: { type: 'string', description: 'The id from a search result.' } }, required: ['listingId'] },
+  },
+  {
     name: 'draft_schedule',
     description:
       "Propose running the CURRENT search on a repeating schedule and emailing the visitor what is new. Call this when they ask to be sent results regularly — 'send me this daily', 'every two hours', 'each Saturday morning'. A search must already have run in this conversation; this uses that exact search, so do not describe the filters yourself. It SAVES NOTHING: it puts a confirmation card on screen and the visitor must press Accept. Never tell them it is running.",
@@ -422,6 +446,21 @@ export async function dispatchTool(
         const parsed = renovationInput.safeParse(rawInput);
         if (!parsed.success) return invalid(name, parsed.error);
         return await runRenovation(parsed.data, ctx);
+      }
+      case 'suburb_profile': {
+        const parsed = suburbProfileInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return await runSuburbProfile(parsed.data, ctx);
+      }
+      case 'compare_homes': {
+        const parsed = compareHomesInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return await runCompareHomes(parsed.data, ctx);
+      }
+      case 'explain_home': {
+        const parsed = explainHomeInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return await runExplainHome(parsed.data, ctx);
       }
       case 'get_listing': {
         const parsed = getListingInput.safeParse(rawInput);

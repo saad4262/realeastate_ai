@@ -58,9 +58,9 @@ export const CONSUMER_SKILLS: readonly ConsumerSkill[] = Object.freeze([
   { key: 'discovery', group: 'Find homes', name: 'Discovery AI', description: 'Homes you may like, including ones not advertised for sale.', kind: 'answers', account: false, status: 'planned', phase: 'C7' },
   { key: 'visual_search', group: 'Find homes', name: 'Visual Search AI', description: 'Find homes by how they look: the style, the rooms, the garden.', kind: 'answers', account: false, status: 'planned', phase: 'C9' },
   { key: 'opportunities', group: 'Find homes', name: 'Opportunity AI', description: 'Price drops, homes on the market a long time, and others worth a second look.', kind: 'answers', account: false, status: 'planned', phase: 'C7' },
-  { key: 'property_analyst', group: 'Understand a property', name: 'Property Analyst', description: 'One property explained from its records, including homes not for sale.', kind: 'answers', account: false, status: 'planned', phase: 'C5' },
-  { key: 'suburb_insights', group: 'Understand a property', name: 'Suburb AI', description: 'What has sold in a suburb, and how suburbs compare.', kind: 'answers', account: false, status: 'partial', phase: 'C5' },
-  { key: 'comparison', group: 'Understand a property', name: 'Comparison AI', description: 'Two to four properties side by side, and the trade-offs between them.', kind: 'answers', account: false, status: 'planned', phase: 'C5' },
+  { key: 'property_analyst', group: 'Understand a property', name: 'Property Analyst', description: 'One property explained from its records, including homes not for sale.', kind: 'answers', account: false, status: 'live', phase: 'C5' },
+  { key: 'suburb_insights', group: 'Understand a property', name: 'Suburb AI', description: 'What has sold in a suburb, and how suburbs compare.', kind: 'answers', account: false, status: 'live', phase: 'C5' },
+  { key: 'comparison', group: 'Understand a property', name: 'Comparison AI', description: 'Two to four properties side by side, and the trade-offs between them.', kind: 'answers', account: false, status: 'live', phase: 'C5' },
   { key: 'due_diligence', group: 'Understand a property', name: 'Due-Diligence AI', description: 'What to check before you buy, what the records show, and what to ask the agent.', kind: 'answers', account: false, status: 'live', phase: 'C2' },
   { key: 'development', group: 'Understand a property', name: 'Property Development AI', description: 'Land, zoning and the questions to ask before you develop.', kind: 'answers', account: false, status: 'planned', phase: 'C9' },
   { key: 'affordability', group: 'Money & plans', name: 'Affordability AI', description: 'Repayments, stamp duty and what you could borrow, with what-if scenarios. Estimates, not advice.', kind: 'answers', account: false, status: 'live', phase: 'C1' },
@@ -131,6 +131,9 @@ export const CONSUMER_SKILL_OF_TOOL: Readonly<Record<string, ConsumerSkillKey>> 
   affordability_estimate: 'affordability',
   due_diligence: 'due_diligence',
   renovation_plan: 'renovation',
+  suburb_profile: 'suburb_insights',
+  compare_homes: 'comparison',
+  explain_home: 'property_analyst',
 });
 
 /** The words every refusal uses, so the buyer (and the guide) know why and where to change it. */

@@ -1,5 +1,6 @@
 import type { Db } from '@repo/db';
 import type { ConsumerSkillBlock, ConsumerSkillKey } from '@repo/core/consumer-skills/catalog';
+import type { ResearchAsk } from '@repo/core/research';
 import type { ResolvedPlace } from '@repo/core/geo/schema';
 import type {
   NearbyMarket,
@@ -85,6 +86,11 @@ export type ToolContext = {
    * Injected like the other reads: the app decides what is cached, and its reader is the one that applies the
    * public filter.
    */
+  /**
+   * Suburb AI, Comparison AI and Property Analyst's records (ADR 0080, C5), built from SQL and the census by the app's
+   * cached reader — public listings only; null when there is nothing.
+   */
+  research: (ask: ResearchAsk) => Promise<{ subject: string; records: { ref: string; text: string }[] } | null>;
   dueDiligence: (listingId: string) => Promise<{ address: string; state: string; facts: { ref: string; when: string; text: string }[] } | null>;
   /**
    * The consumer skills not running for this visitor, and why (ADR 0080) — read once per turn by the

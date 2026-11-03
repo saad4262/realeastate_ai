@@ -2044,3 +2044,19 @@ alert upgrade are added here as they land.
 | CJ19 | As an agency owner in the console | Nothing shows any buyer's profile. |
 | CJ20 | A saved search that has emailed before; change the price of a home it sent; record a sale in its suburb; let it run | The next email adds "Price changes on homes we sent you" (from … to …) and "Sold in <suburb> since your last email" (price, or "price not disclosed"). The blue guide sentence has neither figure. A first alert has neither section. |
 
+## CK — Research: Suburb AI, Comparison AI, Property Analyst (ADR 0080, C5)
+
+Public site. Needs migration **0085** and the census load (both done 2026-11-03). CK3, CK6 and CK8 call the model.
+
+| # | Case | Expected |
+|---|---|---|
+| CK1 | /suburb/vic/pakenham | "From listings on this site — Not the whole market": for sale now, a median sold price and median days only if 10+ sales in 12 months (else "—" and the note), recent sales; "ABS Census 2021": 54,118 people, rent, mortgage, house/townhouse/flat and tenure shares with the ABS link. |
+| CK2 | A suburb with few sales on the site | Medians "—", "not enough sales on this site yet (N in 12 months)". |
+| CK3 | "Summarise with AI" on the suburb | 2–4 cited sentences; no value, prediction or "good/better/best". |
+| CK4 | /suburb/vic/pakenham?vs=officer | The two suburbs side by side. |
+| CK5 | Shortlist with 2+ advertised homes → tick 2–4 → Compare | /compare: price, rooms, land, days on the market, price changes, last sale, stamp duty (change "for" to first home: the duty changes). A withdrawn home is left out. |
+| CK6 | "Explain the trade-offs" | Cited lines (A, B…), nothing says which to buy or which is better value. |
+| CK7 | A listing for sale | "Explain this home": comparable homes (same suburb, ±1 bedroom, last 12 months), "More about <suburb>" → the suburb page. |
+| CK8 | "Explain this home with AI"; and on /chat "what's Pakenham like?" / "compare these two" | Cited points, no value; the guide uses the new tools and says the figures are the site's own. |
+| CK9 | Switch Suburb AI / Comparison AI / Property Analyst off in Skills | That AI button is gone (the figures stay); the guide says the skill is off. |
+

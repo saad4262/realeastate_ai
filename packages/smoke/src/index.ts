@@ -262,8 +262,10 @@ import { buildRenovationPlan, listingRooms, renovationListing, renovationRulesDu
 import { addToShortlist, listShortlist, removeFromShortlist, setShortlistNote } from '@repo/core/shortlist';
 import { listWatches, localClock, runWatchTick, watchProperty } from '@repo/core/watch';
 import { editProfile, forgetProfile, loadProfile } from '@repo/core/profile';
+import { comparables, homeRows, passesVerdictRule, researchData, runResearch, suburbProfile } from '@repo/core/research';
 import { appendTurn } from '@repo/core/chat';
 import { createRenovationPlanner } from '@repo/ai/renovation';
+import { createResearchWriter } from '@repo/ai/research';
 import { runPropertyChat, type ToolContext as ChatToolContext } from '@repo/ai/chat';
 import { dispatchTool } from '@repo/ai/tools';
 import { createDueDiligenceWriter } from '@repo/ai/due-diligence';
@@ -7578,7 +7580,7 @@ async function main() {
 
       // Signed out: the guide answers, alerts need an account, nothing planned runs.
       const anon = await consumerSkillBlocks(t, null, {});
-      assert(!anon.has('property_search') && anon.get('smart_alerts') === 'needs_account' && anon.get('comparison') === 'not_built', `anon: ${JSON.stringify([...anon])}`);
+      assert(!anon.has('property_search') && anon.get('smart_alerts') === 'needs_account' && anon.get('tasks') === 'not_built', `anon: ${JSON.stringify([...anon])}`);
       // Signed in, never touched: answers on, acts off, planned off.
       const fresh = new Map((await listConsumerSkills(t, actor, {})).map((v) => [v.key, v]));
       assert(fresh.get('smart_alerts')?.on === true && fresh.get('buyer_assistant')?.on === true && fresh.get('property_monitor')?.block === 'switched_off', `fresh: ${JSON.stringify([...fresh.values()].map((v) => [v.key, v.on, v.block]))}`);
@@ -7602,7 +7604,7 @@ async function main() {
 
       // The platform pause beats the buyer's choice; a planned skill has no switch; a signed-out actor flips nothing.
       assert((await consumerSkillBlocks(t, actor, { CONSUMER_SKILLS_PAUSED: 'smart_alerts' })).get('smart_alerts') === 'paused', 'pause ignored');
-      const planned = await setConsumerSkill(t, actor, 'comparison', true).catch((e: unknown) => e as Error);
+      const planned = await setConsumerSkill(t, actor, 'tasks', true).catch((e: unknown) => e as Error);
       assert(planned instanceof Error && /not available yet/.test(planned.message), `planned: ${String(planned)}`);
       const nobody = await setConsumerSkill(t, { userId: '' }, 'smart_alerts', true).catch((e: unknown) => e as Error);
       assert(nobody instanceof Error && /Sign in/.test(nobody.message), `signed out: ${String(nobody)}`);
@@ -7843,6 +7845,60 @@ async function main() {
       assert(summarised.length > 0, 'the summariser never ran — this check would prove nothing');
       assert(!summarised.includes('700,000') && !summarised.includes('702,000') && !summarised.includes('Example Road'), `the model was shown an extra: ${summarised}`);
       return 'the price change on a home it sent and the Pakenham sale appear; neither reached the summariser';
+    }),
+  );
+
+  await check('ABS Census (C5): every suburb loaded once; Pakenham VIC found by name; an unknown name has none', async () => {
+    const [census] = await db.execute<{ n: number }>(sql`select count(*)::int as n from suburb_census`);
+    const n = Number(census?.n ?? 0);
+    assert(n === 15345, `suburb_census holds ${n} rows`);
+    const p = await suburbProfile(db, { state: 'vic', suburb: ' pakenham ' });
+    assert(p?.census?.population === 54118 && p.census.separateHousePct === 86, `Pakenham: ${JSON.stringify(p?.census)}`);
+    const none = await suburbProfile(db, { state: 'VIC', suburb: 'Nowhereville Smoke' });
+    assert(none !== null && none.census === null && none.forSale === 0, `unknown: ${JSON.stringify(none)}`);
+    return `${n} suburbs; Pakenham 54,118 people, 86% separate houses`;
+  });
+
+  await check('Suburb AI (C5): a median only with 10 sales in 12 months, computed by Postgres; comparisons skip what is not public; comparables ±1 bedroom; a verdict or an invented figure is dropped', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const town = `Smoketown ${f.tag}`;
+      const mkProp = async (no: number) => (await t.execute<{ id: string }>(sql`insert into property (street_number, street, suburb, state, postcode) values (${String(no)}, 'Smoke Road', ${town}, 'VIC', '3999') returning id`))[0]!.id;
+      const sold = async (price: number, beds: number) => t.execute(sql`insert into listing (property_id, agency_id, channel, status, sold_price, sold_date, published_at, bedrooms) values (${await mkProp(price % 997)}, ${f.agencyId}, 'sale', 'sold', ${price}, now() - interval '20 days', now() - interval '50 days', ${beds})`);
+      const prices = [500000, 520000, 540000, 560000, 580000, 600000, 620000, 640000, 660000];
+      for (const p of prices) await sold(p, 3);
+      const nine = await suburbProfile(t, { state: 'VIC', suburb: town });
+      assert(nine?.salesInWindow === 9 && nine.medianSold === null && nine.medianDays === null, `9 sales: ${JSON.stringify(nine)}`);
+      await sold(680000, 3);
+      const ten = await suburbProfile(t, { state: 'VIC', suburb: town });
+      // Ten prices 500k…680k: the median is the mean of the 5th and 6th, 590,000; days 30 for all.
+      assert(ten?.medianSold?.value === 590000 && ten.medianSold.sales === 10 && ten.medianDays?.value === 30, `10 sales: ${JSON.stringify({ m: ten?.medianSold, d: ten?.medianDays })}`);
+      assert(ten.recentSales.length === 10, `recent: ${ten.recentSales.length}`);
+
+      // Comparison: two live homes and a draft — the draft is not compared.
+      const live = async (price: number, beds: number, status = 'live') => (await t.execute<{ id: string }>(sql`insert into listing (property_id, agency_id, channel, status, price_from, price_to, published_at, bedrooms) values (${await mkProp(beds * 100 + (price % 89))}, ${f.agencyId}, 'sale', ${status}, ${price - 40000}, ${price}, now() - interval '12 days', ${beds}) returning id`))[0]!.id;
+      const a = await live(800000, 4);
+      const b = await live(720000, 3);
+      const d = await live(650000, 3, 'draft');
+      const rows = await homeRows(t, [a, b, d], 'home');
+      assert(rows.length === 2 && rows[0]!.listingId === a && rows[0]!.daysOnMarket === 12 && rows[0]!.stampDuty?.status === 'estimate', `rows: ${JSON.stringify(rows.map((r) => [r.listingId === a, r.daysOnMarket, r.stampDuty?.status]))}`);
+      assert((await researchData(t, { kind: 'compare', listingIds: [d, d.replace(/.$/, d.endsWith('0') ? '1' : '0')], buyer: 'home' })) === null, 'a comparison of non-public homes answered');
+
+      // Comparables for A (4 bed): the 3-bed sales and B count; a 6-bed does not; A itself does not.
+      await sold(900000, 6);
+      const comps = await comparables(t, rows[0]!);
+      assert(comps.length > 0 && comps.every((c) => c.bedrooms !== null && Math.abs(c.bedrooms - 4) <= 1) && !comps.some((c) => c.listingId === a), `comps: ${JSON.stringify(comps)}`);
+
+      // The paragraph: a verdict and an invented figure never survive.
+      const out = await runResearch(t, async ({ records }) => ({
+        lines: [
+          { text: 'A is better value than B.', refs: ['A', 'B'] },
+          { text: 'B could sell for $700,000.', refs: ['B'] },
+          { text: `A has been on the market for 12 days.`, refs: [records[0]!.ref] },
+        ],
+      }), { kind: 'compare', listingIds: [a, b], buyer: 'home' });
+      assert(out.lines.length === 1 && out.lines[0]!.text === 'A has been on the market for 12 days.', `lines: ${JSON.stringify(out.lines)}`);
+      return `9 sales → no median; 10 → $590,000 and 30 days; compare kept 2 of 3 (draft out); ${comps.length} comparables, none 6-bed; verdict + invented figure dropped`;
     }),
   );
 
@@ -12024,9 +12080,21 @@ async function main() {
     const nope = async () => {
       throw new Error('not used in this check');
     };
-    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence } as unknown as ChatToolContext;
+    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence, research: async () => null } as unknown as ChatToolContext;
     const events: { type: string; name?: string; delta?: string; message?: string }[] = [];
     for await (const e of runPropertyChat({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), request: { message, turns: [] }, catalogue: { suburbs: ['Springfield Lakes', 'Pakenham'], propertyTypes: ['House'] }, tools, track: async () => {} })) events.push(e as (typeof events)[number]);
+    const error = events.find((e) => e.type === 'error');
+    assert(!error, `the turn failed: ${JSON.stringify(error)}`);
+    return { tools: events.filter((e) => e.type === 'tool').map((e) => e.name!), text: events.filter((e) => e.type === 'text').map((e) => e.delta ?? '').join('') };
+  };
+  /** guideTurn with other readers (C5's research). */
+  const guideTurnWith = async (message: string, extra: Partial<ChatToolContext>) => {
+    const nope = async () => {
+      throw new Error('not used in this check');
+    };
+    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence: async () => null, research: async () => null, ...extra } as unknown as ChatToolContext;
+    const events: { type: string; name?: string; delta?: string; message?: string }[] = [];
+    for await (const e of runPropertyChat({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), request: { message, turns: [] }, catalogue: { suburbs: ['Pakenham', 'Officer'], propertyTypes: ['House'] }, tools, track: async () => {} })) events.push(e as (typeof events)[number]);
     const error = events.find((e) => e.type === 'error');
     assert(!error, `the turn failed: ${JSON.stringify(error)}`);
     return { tools: events.filter((e) => e.type === 'tool').map((e) => e.name!), text: events.filter((e) => e.type === 'text').map((e) => e.delta ?? '').join('') };
@@ -12111,8 +12179,50 @@ async function main() {
   await check('the guide (live): "how much to knock out a wall" calls renovation_plan and gives no price', async () => {
     if (!haveAnthropic) skip(aiSkipReason(liveAi));
     const turn = await guideTurn('If I bought a house in Victoria, how much would it cost to knock out the wall between the kitchen and the dining room?', async () => null);
-    assert(turn.tools.includes('renovation_plan'), `tools: ${turn.tools.join(', ') || 'none'}`);
+    assert(turn.tools.includes('renovation_plan'), `tools: ${turn.tools.join(', ') || 'none'} — ${turn.text.replace(/\s+/g, ' ').slice(0, 400)}`);
     assert(!/\$\d/.test(turn.text), `the guide gave a figure: ${turn.text.slice(0, 400)}`);
+    return `tools: ${turn.tools.join(', ')}; ${turn.text.replace(/\s+/g, ' ').slice(0, 260)}`;
+  });
+
+  await check('Research writer (live): Pakenham’s records become cited lines; core keeps most of them and none passes a verdict', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    const real = createResearchWriter({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), db });
+    let raw: { text: string; refs: string[] }[] = [];
+    const out = await runResearch(db, async (input) => {
+      const r = await real(input);
+      raw = r.lines;
+      return r;
+    }, { kind: 'suburb', state: 'VIC', suburb: 'Pakenham' });
+    const dropped = raw.filter((l) => !out.lines.some((k) => k.text === l.text.replace(/\s+/g, ' ').trim()));
+    if (dropped.length) note('dropped by core', dropped.map((d) => `"${d.text}" [${d.refs.join(',')}]`).join(' | '));
+    assert(out.lines.length >= 1, `no line survived (the model wrote ${raw.length})`);
+    assert(out.lines.length * 2 >= raw.length, `core dropped too much: ${out.lines.length}/${raw.length}`);
+    assert(out.lines.every((l) => passesVerdictRule(l.text)), 'a verdict survived');
+    return `kept ${out.lines.length}/${raw.length}: ${out.lines.map((l) => `${l.text} [${l.refs.join(',')}]`).join(' ')}`;
+  });
+
+  await check('the guide (live): "is Pakenham good value?" calls suburb_profile, gives no verdict and no figure the records lack', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    const data = await researchData(db, { kind: 'suburb', state: 'VIC', suburb: 'Pakenham' });
+    assert(data, 'no Pakenham records');
+    const turn = await guideTurnWith('Is Pakenham in Victoria good value for buying a family house? What is it like?', { research: async () => data });
+    assert(turn.tools.includes('suburb_profile'), `tools: ${turn.tools.join(', ') || 'none'}`);
+    const allowed = data.records.flatMap((r) => [...r.text.matchAll(/\$\d[\d,]*\d/g)].map((m) => m[0]));
+    const stray = strayFigures(turn.text, allowed);
+    assert(!stray.length, `figures not in the records: ${stray.join(', ')} — ${turn.text.slice(0, 400)}`);
+    // Echoing the visitor's question ("Is it good value?") before declining it is not a verdict, so questions are set aside.
+    const statements = turn.text.replace(/[^.!?\n]*\?/g, '');
+    const said = (re: RegExp) => {
+      const m = re.exec(statements);
+      return m ? `"…${statements.slice(Math.max(0, m.index - 160), m.index + 160)}…"` : null;
+    };
+    // A verdict is a sentence that asserts one; "whether it is good value depends on…" hands the judgement back.
+    const verdict = statements
+      .split(/(?<=[.!])\s+|\n+/)
+      .find((x) => /\b(good|great|better|best) (value|investment|buy|deal)\b|\bwill (grow|rise|increase)\b/i.test(x) && !/\b(whether|if|depends|your (call|judg(e)?ment)|can(no|')t|won't|not able)\b/i.test(x));
+    assert(!verdict, `a verdict: "${verdict}"`);
+    const label = said(/\b(family[- ](friendly|oriented)|well[- ]established|sought[- ]after|thriving|up[- ]and[- ]coming|desirable|decent)\b/i);
+    assert(!label, `described in its own words: ${label}`);
     return `tools: ${turn.tools.join(', ')}; ${turn.text.replace(/\s+/g, ' ').slice(0, 260)}`;
   });
 

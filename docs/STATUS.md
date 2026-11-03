@@ -10,12 +10,12 @@ Version 1 is built except what waits on the client and on Twilio. `main` = `d3eb
 0080 — consumer skills + C0 foundation; C1 Affordability AI built, uncommitted). Merge in that order.
 
 ## Database
-85 migrations recorded (0000–0084). **0080 (`contact.address_*`), 0081 (`consumer_skill_switch`) and 0082
+86 migrations recorded (0000–0085). `suburb_census` holds 15,345 suburbs (ABS 2021). **0080 (`contact.address_*`), 0081 (`consumer_skill_switch`) and 0082
 (`listing_price_change` + its trigger) applied 2026-11-03** (the user's go; checked after: 82 recorded, 6 address columns, the table exists). Dev database =
 production database.
 
 ## Checks
-- Unit: core 1690, ai 370 — all pass, offline. Live AI group "Consumer skills, live AI (ADR 0080)" green 2026-11-03. Typecheck 10/10. Web lint 0 errors. /affordability and a listing's
+- Unit: core 1698, ai 380 — all pass, offline. Smoke "Consumer skills (ADR 0080)" 13/13. Live AI group "Consumer skills, live AI (ADR 0080)" 20/20 with C5's two checks, 2026-11-03. Typecheck 10/10. Web lint 0 errors. /affordability and a listing's
   "Costs to buy" panel rendered on the local dev server (figures match the mock and the unit tests).
 - Smoke 2026-11-03, live DB: "Consumer skills (ADR 0080)", "Customer profile (ADR 0079)", "Imports: contacts and
   Google Sheets" — 5/5 green (the import check sorted roles by enum order, not text: test fixed, data was right).
@@ -62,8 +62,10 @@ production database.
    built, uncommitted: planner + room reader, two routes, /renovation, the listing link, `renovation_plan` (v13).
    Live-model group 12/12 green; committed `ae5d96a`; pushed (`origin/feat/consumer-skills`). Permit rules for all
    eight states (WA, SA, TAS, ACT, NT added; council-only triggers still unverified). C4 mock approved (`67747b5`); shortlist committed (`a599f7d`); Property Monitor committed (`e42736a`); Personal
-   Property AI committed (`b3f5082`); Smart Alerts upgrade built and smoke-green (uncommitted) — C4 complete with it.
-   Next: C5 (Property Analyst, Suburb AI, Comparison AI) — mock first.
+   Property AI committed (`b3f5082`); Smart Alerts upgrade committed (`bdf87a5`) — C4 complete.
+   C5 Research committed in two (census `79fdbd3`, features) and pushed; its live-model checks green (the user's go;
+   prompt v14 tightened twice on what they found). C6 Inspections: mock `docs/mocks/consumer-inspections.html`
+   (nine decisions) awaiting the user's review — no code until then. TEST-PLAN CK1–CK9: the user, in a browser.
    TEST-PLAN CG/CH/CI: the user, in a browser. Re-check duty rates
    every 1 July (dates in `duty-rates.ts`); NT, ACT general and SA new-home relief still "not verified".
 1. Push and merge `chore/tech-debt` → `feat/sms-part2` → `feat/customer-profile` → `feat/consumer-skills` (the user's go).

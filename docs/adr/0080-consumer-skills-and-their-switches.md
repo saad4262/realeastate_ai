@@ -62,3 +62,11 @@ Personal Property AI built: migration 0084 (`buyer_profile`, PUBLIC_SITE_USER) s
 and the buyer's edits; the profile is counted on read from actions made after the switch was turned on (its row's
 time) or the last forget. The guide gets one line as an uncached system block after the cached prompt.
 
+**Amendment, 2026-11-03 — C5 Research** (mock `consumer-research.html`; the user: "begin executing the ABS migration
+and Phase C5", taken as the seven decisions recommended). Never a value, a prediction or a verdict: the model's lines
+also pass a verdict filter in core. A suburb median only with 10 sales on this site in 12 months, computed by
+Postgres and labelled as this site's. ABS Census 2021 housing figures only (no income, age, ancestry or religion),
+in migration 0085 `suburb_census` (SHARED reference data), loaded idempotently by `pnpm --filter @repo/db db:census`
+from `packages/db/data/census/` (built from the ABS DataPack by the script beside it). Comparables are listed,
+never averaged.
+

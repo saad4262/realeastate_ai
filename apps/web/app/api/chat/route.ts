@@ -22,6 +22,7 @@ import { currentWebUser } from '../../../lib/session';
 import {
   cachedFilterOptions,
   cachedDueDiligence,
+  cachedResearchData,
   cachedListing,
   cachedNearbyMarket,
   cachedRecentSales,
@@ -205,6 +206,8 @@ function toolContext(userId: string | null, skillBlocks: ReadonlyMap<ConsumerSki
      * records from the same cache the listing page uses. A database blip throws, so the guide says the database
      * could not be reached instead of "no history".
      */
+    // ADR 0080, C5: research records — public data only, the core reader decides.
+    research: (ask) => cachedResearchData(ask),
     dueDiligence: async (id) => {
       const found = await cachedListing(id);
       if (!found) return null;

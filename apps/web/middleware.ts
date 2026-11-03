@@ -164,6 +164,8 @@ export const config = {
     '/renovation',
     '/api/renovation',
     '/api/renovation/rooms',
+    // ADR 0080 C5: research paragraphs read the buyer's own switches.
+    '/api/research',
     '/login',
     '/signup',
     // `/reset` arrives straight from an emailed link and needs the session

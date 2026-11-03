@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Research — mock</title>
+<!--
+  Mock for docs/CONSUMER-SKILLS.md C5 (ADR 0080): Suburb AI, Comparison AI and Property Analyst. Public site, the
+  site's warm palette (as the C1–C4 mocks). Hand-made, SAMPLE data: addresses, prices, counts and census figures are
+  invented. On a real page every figure comes from SQL or a dated public table (#4).
+  Screens by hash: #rules (opens first), #suburb, #thin, #compare, #analyst, #chat.
+-->
+<style>
+  :root {
+    --canvas: #f7f4ef; --card: #fff; --sunken: #f1ece3; --ink: #1a1a1a; --ink-soft: #5c5c5c; --ink-faint: #8c8577;
+    --line: #d9d2c5; --line-subtle: #ece7dd; --brand: #0b3d2e; --brand-ink: #f7f4ef;
+    --success: #0f7a52; --success-soft: #e8f4ee; --notice: #a8620a; --notice-soft: #fbf1e3; --info: #1d4e89; --info-soft: #e9eff7;
+    --display: Georgia, 'Times New Roman', serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  a { color: var(--brand); }
+  .mockbar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px; background: #222; color: #ddd; font-size: 13px; }
+  .mockbar b { margin-right: 8px; color: #fff; }
+  .mockbar a { color: #ddd; text-decoration: none; padding: 2px 10px; border-radius: 999px; border: 1px solid #555; }
+  .mockbar a.on { background: #fff; color: #222; }
+  header.site { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; background: var(--card); border-bottom: 1px solid var(--line); }
+  .brand { font-family: var(--display); font-weight: 700; font-size: 20px; color: var(--brand); }
+  header.site nav a { margin-left: 18px; color: var(--ink-soft); text-decoration: none; font-size: 14px; }
+  main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; }
+  section.screen { display: none; }
+  section.screen.on { display: block; }
+  h1 { font-family: var(--display); font-size: clamp(26px, 3.4vw, 34px); letter-spacing: -.02em; margin: 0 0 6px; }
+  h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); margin: 0 0 12px; }
+  h3 { font-size: 16px; margin: 0 0 4px; }
+  .lede { color: var(--ink-soft); margin: 0 0 20px; max-width: 72ch; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; margin-bottom: 16px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) 340px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 600px) { .kpis { grid-template-columns: 1fr; } }
+  .kpi { background: var(--sunken); border-radius: 12px; padding: 12px 14px; }
+  .kpi .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .kpi .l { font-size: 12px; color: var(--ink-soft); }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--sunken); color: var(--ink-soft); vertical-align: middle; }
+  .tag.ai { background: var(--info-soft); color: var(--info); }
+  .tag.warn { background: var(--notice-soft); color: var(--notice); }
+  .tag.ok { background: var(--success-soft); color: var(--success); }
+  .muted { color: var(--ink-soft); font-size: 13px; }
+  .source { font-size: 12px; color: var(--ink-faint); margin-top: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; font-size: 12px; color: var(--ink-soft); font-weight: 600; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); vertical-align: bottom; }
+  td { padding: 8px 10px 8px 0; border-top: 1px solid var(--line-subtle); vertical-align: top; }
+  td.n { font-variant-numeric: tabular-nums; }
+  .ref { display: inline-grid; place-items: center; min-width: 22px; height: 18px; padding: 0 4px; border-radius: 5px; background: var(--sunken); color: var(--ink-soft); font-size: 10px; font-weight: 700; margin-left: 3px; }
+  .summary { background: var(--info-soft); border-radius: 12px; padding: 12px 14px; font-size: 14px; }
+  .summary p { margin: 6px 0 0; }
+  .note { border-left: 4px solid var(--info); background: var(--info-soft); padding: 10px 14px; border-radius: 8px; font-size: 14px; margin: 12px 0; }
+  .note.warn { border-color: var(--notice); background: var(--notice-soft); }
+  .btn { display: inline-block; padding: 8px 14px; border-radius: 999px; background: var(--brand); color: var(--brand-ink); text-decoration: none; font-weight: 600; font-size: 13px; border: 0; }
+  .btn.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  .rules ol { padding-left: 20px; margin: 0; }
+  .rules li { margin-bottom: 14px; }
+  .rules li b { display: block; }
+  .rec { display: inline-block; margin-top: 4px; font-size: 13px; color: var(--success); font-weight: 600; }
+  .alt { display: block; font-size: 13px; color: var(--ink-faint); }
+  .row { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line-subtle); font-size: 14px; }
+  .row:first-child { border-top: 0; }
+  .disclaimer { font-size: 12.5px; color: var(--ink-soft); border-top: 1px solid var(--line); padding-top: 12px; margin-top: 8px; }
+  .chat { max-width: 760px; }
+  .bubble { padding: 12px 16px; border-radius: 16px; margin: 10px 0; max-width: 85%; }
+  .bubble.me { margin-left: auto; background: var(--brand); color: var(--brand-ink); border-bottom-right-radius: 4px; }
+  .bubble.ai { background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .toolcard { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fffdfa; margin: 8px 0; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="mockbar"><b>MOCK · C5 Research</b>
+  <a href="#rules">Decisions</a><a href="#suburb">Suburb page</a><a href="#thin">Thin data</a><a href="#compare">Compare homes</a><a href="#analyst">Explain this home</a><a href="#chat">In the guide</a>
+</div>
+<header class="site"><span class="brand">site.com.au</span><nav><a href="#">Buy</a><a href="#suburb">Suburbs</a><a href="#compare">Compare</a><a href="#">Shortlist</a><a href="#chat">Ask the guide</a></nav></header>
+<main>
+
+<!-- ───────────────────────── DECISIONS ───────────────────────── -->
+<section class="screen rules" id="rules">
+  <h1>Research — seven decisions</h1>
+  <p class="lede">Three skills that help a buyer understand: a suburb (Suburb AI), several homes side by side (Comparison AI) and one home (Property Analyst). The hard part is the data: our own records are a small slice of the market. Each decision has a recommendation; say "all recommended" or name the ones to change.</p>
+  <div class="card"><ol>
+    <li><b>1. Never a value, a prediction or a verdict.</b>No estimated value, no "fair price", no "will grow", no "good investment", no "overpriced" — not from us and not from the AI. The listing pages already say "this platform does not estimate values".
+      <span class="rec">Recommended: yes, everywhere in C5, and the guide is told so.</span></li>
+    <li><b>2. Medians only with enough sales — and said to be ours.</b>A median sold price or median days on the market for a suburb is shown only when at least <b>10 sales</b> on this site in the last 12 months back it; otherwise "Not enough sales on this site yet" with the sales we do have listed. Every figure is labelled "from listings on this site — not the whole market".
+      <span class="rec">Recommended: 10 sales / 12 months.</span>
+      <span class="alt">Alternative: a lower bar (5) — more suburbs get a figure, each one less reliable.</span></li>
+    <li><b>3. Free public data: ABS Census 2021, housing tables only.</b>Per suburb, from the ABS QuickStats (Census 2021, the latest until the 2026 results are released): population, dwellings by type, owned / mortgaged / rented shares, median weekly rent, median monthly mortgage repayment, average household size. Loaded once from the ABS file, dated, linked. Not ancestry, religion, income or anything about kinds of people.
+      <span class="rec">Recommended: yes — housing figures only, labelled "ABS Census 2021".</span>
+      <span class="alt">Alternative: no census data in v1 (suburb pages show only our own records).</span></li>
+    <li><b>4. Comparison: 2–4 homes, every figure from SQL, the AI only explains.</b>From the shortlist or a "Compare" button on listings. The table: price, beds/baths/cars, land, days on the market, price changes, last sale at the address, stamp duty estimate (C1, at your buyer type), and the state's checklist differences (C2). The AI writes trade-offs that cite columns and rows; a line with a figure not in the table is dropped (the C2 check).
+      <span class="rec">Recommended: yes.</span></li>
+    <li><b>5. Property Analyst: "Explain this home", cited, no value.</b>On a listing and on an address not for sale: the home's facts, its history (C2 records), and comparable homes from SQL — same suburb, ±1 bedroom, sold or listed in the last 12 months — shown as a list, never averaged into a value. The AI writes 3–5 cited points.
+      <span class="rec">Recommended: yes; comparables as a plain list.</span></li>
+    <li><b>6. Suburb pages are public and cached.</b><code>/suburb/vic/pakenham</code>: our live listings and recent sales, the medians when allowed, the census figures, a map; "Compare with another suburb". The AI paragraph is on a button and cached for a day. The guide gets <code>suburb_profile</code>, <code>compare_homes</code> and <code>explain_home</code>.
+      <span class="rec">Recommended: yes. All three skills answer only, so all are ON by default (ADR 0080).</span></li>
+    <li><b>7. Cost guard.</b>Each AI paragraph (suburb, comparison, explanation) is cached — a suburb for a day, a home until its listing changes — and rate-limited like Due-Diligence.
+      <span class="rec">Recommended: yes.</span></li>
+  </ol></div>
+</section>
+
+<!-- ───────────────────────── SUBURB PAGE ───────────────────────── -->
+<section class="screen" id="suburb">
+  <h1>Pakenham, VIC 3810</h1>
+  <p class="lede">What this site's listings show, and the ABS Census. <a href="#">Compare with another suburb</a></p>
+  <div class="grid">
+    <div>
+      <div class="card">
+        <h2>From listings on this site <span class="tag">Not the whole market</span></h2>
+        <div class="kpis">
+          <div class="kpi"><div class="v">42</div><div class="l">For sale now</div></div>
+          <div class="kpi"><div class="v">$745,000</div><div class="l">Median sold, last 12 months — 31 sales</div></div>
+          <div class="kpi"><div class="v">38 days</div><div class="l">Median days on the market — 31 sales</div></div>
+        </div>
+        <h3 style="margin-top:16px">Recent sales</h3>
+        <div class="row"><span>5 Example Road · 4 bed house</span><span>$702,000 · 28 Oct 2026</span></div>
+        <div class="row"><span>19 Sample Avenue · 3 bed house</span><span>Price not disclosed · 20 Oct 2026</span></div>
+        <div class="row"><span>2/8 Test Court · 2 bed unit</span><span>$455,000 · 12 Oct 2026</span></div>
+        <p><a href="#">All sales in Pakenham</a></p>
+      </div>
+      <div class="card">
+        <h2>ABS Census 2021 <span class="tag">Public data</span></h2>
+        <div class="kpis">
+          <div class="kpi"><div class="v">54,118</div><div class="l">People</div></div>
+          <div class="kpi"><div class="v">$400</div><div class="l">Median weekly rent</div></div>
+          <div class="kpi"><div class="v">$1,950</div><div class="l">Median monthly mortgage repayment</div></div>
+        </div>
+        <div class="row" style="margin-top:10px"><span>Separate houses</span><span>86%</span></div>
+        <div class="row"><span>Owned outright · with a mortgage · rented</span><span>21% · 50% · 26%</span></div>
+        <div class="row"><span>Average people per household</span><span>2.9</span></div>
+        <p class="source">ABS, 2021 Census QuickStats — Pakenham (SAL). Census figures are from August 2021.</p>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <h2>In plain words</h2>
+        <p><a class="btn ghost" href="#">Summarise with AI</a></p>
+        <div class="summary"><span class="tag ai">Written by the property guide</span>
+          <p>Most homes listed here are houses, and 42 are for sale on this site now <span class="ref">S1</span>. Sales on this site in the last year had a median of $745,000 <span class="ref">S2</span>. In the 2021 Census, about half the homes were owned with a mortgage <span class="ref">C2</span>.</p>
+        </div>
+        <p class="muted">No value, no prediction. Every figure is in the panels to the left.</p>
+      </div>
+      <div class="card">
+        <h2>Map</h2>
+        <div style="height:160px;border-radius:10px;background:linear-gradient(135deg,#e9eff7,#d9d2c5)"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── THIN DATA ───────────────────────── -->
+<section class="screen" id="thin">
+  <h1>Clyde North, VIC 3978</h1>
+  <div class="card">
+    <h2>From listings on this site <span class="tag">Not the whole market</span></h2>
+    <div class="kpis">
+      <div class="kpi"><div class="v">6</div><div class="l">For sale now</div></div>
+      <div class="kpi"><div class="v">—</div><div class="l">Median sold: not enough sales on this site yet (4 in 12 months)</div></div>
+      <div class="kpi"><div class="v">—</div><div class="l">Median days on the market: not enough sales</div></div>
+    </div>
+    <div class="note warn">This site has had 4 sales in Clyde North in the last 12 months — too few for a median that means anything. They are listed below; the state's valuer-general or a licensed agent can give the wider picture.</div>
+  </div>
+</section>
+
+<!-- ───────────────────────── COMPARE ───────────────────────── -->
+<section class="screen" id="compare">
+  <h1>Compare homes</h1>
+  <p class="lede">From your shortlist · for a home you will live in (change)</p>
+  <div class="card" style="overflow-x:auto">
+    <table>
+      <tr><th></th><th>14 Station St, Officer <span class="ref">A</span></th><th>3 Sample Ln, Pakenham <span class="ref">B</span></th><th>8 Example Ct, Officer <span class="ref">C</span></th></tr>
+      <tr><td class="muted">Price</td><td>$760,000 – $800,000</td><td>Offers over $720,000</td><td>$690,000</td></tr>
+      <tr><td class="muted">Beds · baths · cars</td><td class="n">4 · 2 · 2</td><td class="n">3 · 2 · 2</td><td class="n">3 · 1 · 1</td></tr>
+      <tr><td class="muted">Land</td><td class="n">612 m²</td><td class="n">448 m²</td><td>—</td></tr>
+      <tr><td class="muted">On the market</td><td class="n">3 days</td><td class="n">41 days</td><td class="n">12 days</td></tr>
+      <tr><td class="muted">Price changes</td><td>None</td><td>Offers over $750,000 → $720,000</td><td>None</td></tr>
+      <tr><td class="muted">Last sale here</td><td>—</td><td>Mar 2019 · $455,000</td><td>Jun 2021 · price not disclosed</td></tr>
+      <tr><td class="muted">Stamp duty <span class="tag">Estimate</span></td><td class="n">$43,070</td><td class="n">$38,270</td><td class="n">$36,470</td></tr>
+    </table>
+    <p class="source">Every figure from this site's listings; stamp duty from SRO Victoria's rates (C1). Estimates, not advice.</p>
+  </div>
+  <div class="card">
+    <h2>The trade-offs <span class="tag ai">Written by the property guide</span></h2>
+    <p style="margin:0 0 6px">A has the most room — 4 bedrooms on 612 m² — and the highest price range <span class="ref">A</span>.</p>
+    <p style="margin:0 0 6px">B has been on the market for 41 days and its asking price has come down once; worth asking the agent why <span class="ref">B</span>.</p>
+    <p style="margin:0">C is the lowest priced but has one bathroom and one car space <span class="ref">C</span>.</p>
+    <p class="muted" style="margin-top:8px">Each line cites the column it comes from; a line with a figure not in the table is not shown. No line says which to buy.</p>
+  </div>
+</section>
+
+<!-- ───────────────────────── ANALYST ───────────────────────── -->
+<section class="screen" id="analyst">
+  <h1>14 Station Street, Officer VIC</h1>
+  <div class="grid">
+    <div class="card">
+      <h2>Explain this home</h2>
+      <div class="summary"><span class="tag ai">Written by the property guide</span>
+        <p>A 4-bedroom house on 612 m², listed 3 days ago at $760,000 – $800,000 <span class="ref">P</span>.</p>
+        <p>No earlier sale of this address is on this site <span class="ref">H</span>.</p>
+        <p>Three comparable homes in Officer sold in the last 12 months, all with 3 or 4 bedrooms — see the list <span class="ref">K1</span><span class="ref">K2</span><span class="ref">K3</span>.</p>
+      </div>
+      <p class="muted">No estimated value: the comparables are listed for you to weigh, never averaged into a price.</p>
+    </div>
+    <div class="card">
+      <h2>Comparable homes <span class="tag">This site, last 12 months</span></h2>
+      <div class="row"><span><span class="ref">K1</span> 7 Test Road · 4 bed · 580 m²</span><span>Sold $781,000</span></div>
+      <div class="row"><span><span class="ref">K2</span> 11 Demo Street · 3 bed · 520 m²</span><span>Sold, not disclosed</span></div>
+      <div class="row"><span><span class="ref">K3</span> 2 Sample Way · 4 bed · 640 m²</span><span>For sale $790,000 – $830,000</span></div>
+      <p class="source">Same suburb, ±1 bedroom, sold or listed in the last 12 months.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── GUIDE ───────────────────────── -->
+<section class="screen chat" id="chat">
+  <h1>Ask the guide</h1>
+  <div class="bubble me">Is Pakenham or Officer better value for a family house?</div>
+  <div class="toolcard"><span class="tag ok">Suburb AI</span> <b>Pakenham vs Officer</b> — this site: 42 vs 18 for sale; median sold $745,000 (31 sales) vs not enough sales (7) · Census 2021: houses 86% vs 89%</div>
+  <div class="bubble ai">I can't tell you which is better value — that's a judgement only you (and perhaps a licensed agent) can make. Here's what the data shows: on this site, sales in Pakenham over the last year had a median of $745,000 across 31 sales, while Officer had too few sales here for a median. In the 2021 Census both suburbs were mostly separate houses. Want me to compare particular homes from your shortlist?</div>
+</section>
+
+</main>
+<script>
+  function show() {
+    const id = (location.hash || '#rules').slice(1);
+    document.querySelectorAll('section.screen').forEach((s) => s.classList.toggle('on', s.id === id));
+    document.querySelectorAll('.mockbar a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + id));
+    window.scrollTo(0, 0);
+  }
+  addEventListener('hashchange', show);
+  show();
+</script>
+</body>
+</html>

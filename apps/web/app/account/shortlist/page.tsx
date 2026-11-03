@@ -8,6 +8,7 @@ import { ensureConsumerAccount } from '../../../lib/account';
 import { getWebDb } from '../../../lib/db';
 import { requireWebUser } from '../../../lib/session';
 import { ShortlistRow } from './shortlist-row';
+import { CompareChooser } from './compare-chooser';
 import styles from '../account.module.css';
 
 export const dynamic = 'force-dynamic';
@@ -49,6 +50,7 @@ export default async function ShortlistPage() {
         <p className={`${styles.body} mt-1`}>
           {items.length ? `${items.length} ${items.length === 1 ? 'home' : 'homes'} · only you can see this` : 'Homes you save appear here — press Save on any listing.'}
         </p>
+        <CompareChooser homes={items.filter((i) => i.standing === 'for_sale' || i.standing === 'for_rent').map((i) => ({ id: i.listingId, title: `${i.address}, ${i.suburb}` }))} />
         {items.length ? (
           <ul className="m-0 list-none rounded-2xl border border-line bg-card p-0">
             {items.map((i) => {

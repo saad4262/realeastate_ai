@@ -134,4 +134,10 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   Smart Alerts upgrade built (uncommitted): the claim brings the last email's time and the homes emailed in 90 days;
   `alert-extras.ts` reads price changes on those homes (still public) and sales in the search's suburb since the
   last email; the digest shows both in two sections; the summariser never sees them. C4 complete once committed.
-- [ ] C5 · [ ] C6 · [ ] C7 · [ ] C8 · [ ] C9
+- [x] C5 Research — built (uncommitted; for the user's review): migration 0085 + 15,345 suburbs of ABS Census 2021
+  housing figures; `packages/core/src/research/` (suburb profile with gated medians, home rows and comparables from
+  SQL, records + the verdict rule over C2's check); the research writer (packages/ai, summary tier); `/api/research`;
+  `/suburb/[state]/[suburb]` (with `?vs=`), `/compare`, "Explain this home" on listings, Compare from the shortlist;
+  the guide's `suburb_profile`, `compare_homes`, `explain_home` (prompt v14). Live model not run (the user's go).
+- [ ] C6 Inspections — mock `docs/mocks/consumer-inspections.html` (nine decisions) awaiting the user's review.
+- [ ] C7 · [ ] C8 · [ ] C9
