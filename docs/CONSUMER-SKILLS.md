@@ -105,6 +105,7 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   permit rules from official state sources. Step 1 done (uncommitted): `packages/core/src/renovation/` — 25 kinds
   of work (cost drivers, trades, permit triggers; a test refuses any figure), the plan and photo contracts
   (`checkPlan`, `photoRoomsSchema` strict, `roomsFromPhotos`), quotes in whole cents (`compareQuotes`), the
-  per-state permit structure (empty until verified). Next: verify and fill the permit rules per state, then the
-  model call (packages/ai), the page, the listing link and `renovation_plan` in the guide.
+  per-state permit structure. Committed `5bd7be8`. Step 2: permit rules for VIC (9 triggers), NSW (8) and QLD (7)
+  from their official pages, each on its own state's domain (a test enforces it); WA, SA, TAS, ACT, NT and the
+  rest "not verified". Next: the model call (packages/ai), the page, the listing link, `renovation_plan`.
 - [ ] [ ] C4 · [ ] C5 · [ ] C6 · [ ] C7 · [ ] C8 · [ ] C9

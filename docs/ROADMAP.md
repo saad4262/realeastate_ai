@@ -397,6 +397,11 @@ open listings (one home listed by several agencies at once).
   lists what is due, and `pnpm smoke` prints it as a note on every run ("Consumer skills (ADR 0080)" group). Each
   1 July: re-check every source against the revenue office, update the tables and their unit-test figures, bump
   `checkedOn`. Not a failure on purpose — a date must not turn checks red.
+- [ ] **Renovation permit rules** (ADR 0080, C3; `packages/core/src/renovation/permits.ts`): VIC, NSW, QLD checked
+  2026-11-03 through domain-restricted official search (their sites refuse a direct fetch); WA, SA, TAS, ACT, NT not
+  yet, and within the three: VIC strata/boundary/wet area/roof, NSW pool/asbestos/strata/boundary/roof, QLD deck/
+  wet area/heritage/strata/boundary/roof. Re-check every 1 July (smoke note). To close one: the state's own page,
+  a rule on its domain (the test enforces it), the date.
 - [ ] **Stamp duty still unverified** (same files): the NT (rates and the Territory Home Owner Discount), the
   ACT's 2026–27 general rates, SA's first home relief on new homes and vacant land, QLD's first home vacant land
   concession. The official sites refused the fetch (403/404) on 2026-11-03. Until verified the page, the listing

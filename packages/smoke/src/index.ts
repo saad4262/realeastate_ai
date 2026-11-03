@@ -258,6 +258,7 @@ import { runDealSync } from '@repo/core/deals';
 import { isSkillOn, setSkillSwitch, skillsOffForActor } from '@repo/core/skill-switches';
 import { consumerSkillBlocks, listConsumerSkills, setConsumerSkill, usersWithConsumerSkillOff } from '@repo/core/consumer-skills';
 import { dutyRatesDue } from '@repo/core/affordability';
+import { renovationRulesDue } from '@repo/core/renovation';
 import { runPropertyChat, type ToolContext as ChatToolContext } from '@repo/ai/chat';
 import { dispatchTool } from '@repo/ai/tools';
 import { createDueDiligenceWriter } from '@repo/ai/due-diligence';
@@ -7664,6 +7665,13 @@ async function main() {
     for (const s of due.stale) note(`checklist ${s.state}`, `${s.source.name} last checked ${s.source.checkedOn} — re-check it (packages/core/src/due-diligence/checklists.ts)`);
     if (due.unverified.length) note('checklist states', `not verified: ${due.unverified.join(', ')} — the general list is shown`);
     return due.stale.length ? `${due.stale.length} checklist source(s) due` : `all checked; ${due.unverified.length} states on the general list`;
+  });
+
+  await check('Renovation permit rules: checked since the last 1 July; which states are still unverified', async () => {
+    const due = renovationRulesDue(new Date());
+    for (const r of due.stale) note(`permits ${r.state}`, `${r.source.name} last checked ${r.source.checkedOn} — re-check it (packages/core/src/renovation/permits.ts)`);
+    if (due.unverifiedStates.length) note('permit states', `not verified: ${due.unverifiedStates.join(', ')} — every permit note there says so`);
+    return due.stale.length ? `${due.stale.length} permit source(s) due` : `all checked; ${due.unverifiedStates.length} states not verified`;
   });
 
   // ── ADR 0079: the customer profile — four starting details; the same person lands on one profile (needs 0080) ──

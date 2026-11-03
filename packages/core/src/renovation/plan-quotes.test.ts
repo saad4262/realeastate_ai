@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AU_DUTY_STATES } from '../affordability/duty-rates';
-import { permitNotesFor, renovationRulesDue, STATE_PERMIT_RULES, type StatePermitRules } from './permits';
+import { permitNotesFor, renovationRulesDue, STATE_PERMIT_RULES, STATE_SOURCE_DOMAINS } from './permits';
 import { checkPlan, mentionsMoney, photoRoomsSchema, roomsFromPhotos } from './plan';
 import { compareQuotes, formatCents, MIN_QUOTES, readDollarsToCents, type Quote } from './quotes';
 
@@ -44,20 +44,51 @@ describe('the photos (decision 3): rooms only', () => {
   });
 });
 
-describe('permits (decision 5): only rules with an official source', () => {
-  it('no state has a rule until it is verified, so every note says "not verified"', () => {
-    expect(renovationRulesDue(new Date('2026-11-03T00:00:00Z')).unverifiedStates).toEqual([...AU_DUTY_STATES]);
-    const notes = permitNotesFor('VIC', ['kitchen', 'remove_wall']);
-    expect(notes.every((n) => !n.verified)).toBe(true);
-    expect(notes.map((n) => n.trigger)).toEqual(['structural', 'wet_area', 'electrical', 'plumbing', 'gas', 'heritage', 'strata', 'older_home_materials']);
+describe('permits (decision 5): only rules with an official state source', () => {
+  it('every rule cites an https page on its own state’s government domain, with a date, once per trigger, and no dollar figure', () => {
+    for (const st of AU_DUTY_STATES) {
+      const seen = new Set<string>();
+      for (const r of STATE_PERMIT_RULES[st].rules) {
+        const url = new URL(r.source.url);
+        expect(url.protocol, r.source.url).toBe('https:');
+        expect(url.hostname.endsWith(STATE_SOURCE_DOMAINS[st]), `${st}: ${r.source.url}`).toBe(true);
+        expect(r.source.checkedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(r.note, r.note).not.toMatch(/\$|\baud\b|\bdollars?\b/i);
+        expect(seen.has(r.trigger), `${st} ${r.trigger} twice`).toBe(false);
+        seen.add(r.trigger);
+      }
+    }
   });
 
-  it('a verified rule is shown with its source; a trigger the plan does not raise is not', () => {
-    const rules = { ...STATE_PERMIT_RULES, VIC: { state: 'VIC', rules: [{ trigger: 'structural', note: 'Structural work needs a building permit.', source: { name: 'Victorian Building Authority', url: 'https://www.vba.vic.gov.au/', checkedOn: '2026-11-03' } }] } } as Record<(typeof AU_DUTY_STATES)[number], StatePermitRules>;
-    const notes = permitNotesFor('VIC', ['remove_wall'], rules);
-    expect(notes[0]).toMatchObject({ trigger: 'structural', verified: true, source: { name: 'Victorian Building Authority' } });
+  it('VIC, NSW and QLD are verified; the other states, and every trigger we could not check, say "not verified"', () => {
+    expect(renovationRulesDue(new Date('2026-11-03T00:00:00Z')).unverifiedStates).toEqual(['WA', 'SA', 'TAS', 'ACT', 'NT']);
+    expect(permitNotesFor('WA', ['remove_wall']).every((n) => !n.verified)).toBe(true);
+    const vic = permitNotesFor('VIC', ['kitchen', 'remove_wall']);
+    expect(vic.map((n) => [n.trigger, n.verified])).toEqual([
+      ['structural', true],
+      ['wet_area', false],
+      ['electrical', true],
+      ['plumbing', true],
+      ['gas', true],
+      ['heritage', true],
+      ['strata', false],
+      ['older_home_materials', true],
+    ]);
+    // NSW's pool text found was a council's, not the state's: not verified.
+    expect(permitNotesFor('NSW', ['pool']).find((n) => n.trigger === 'pool_or_spa')?.verified).toBe(false);
+  });
+
+  it('a verified note carries its source; a trigger the plan does not raise is not listed', () => {
+    const notes = permitNotesFor('QLD', ['remove_wall']);
+    expect(notes[0]).toMatchObject({ trigger: 'structural', verified: true, source: { name: 'QBCC — building approvals and certification' } });
     expect(notes.map((n) => n.trigger)).not.toContain('pool_or_spa');
-    expect(renovationRulesDue(new Date('2027-07-02T00:00:00Z'), rules).stale).toHaveLength(1);
+  });
+
+  it('every verified rule is due again after the next 1 July', () => {
+    const due = renovationRulesDue(new Date('2027-07-02T00:00:00Z'));
+    const count = AU_DUTY_STATES.reduce((n, st) => n + STATE_PERMIT_RULES[st].rules.length, 0);
+    expect(due.stale).toHaveLength(count);
+    expect(renovationRulesDue(new Date('2027-06-30T00:00:00Z')).stale).toEqual([]);
   });
 });
 
