@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { requireUnsubscribeSecret, verifyContactUnsubscribeToken, verifyUnsubscribeToken } from '@repo/core/email';
+import { requireUnsubscribeSecret, verifyContactUnsubscribeToken, verifyUnsubscribeToken, verifyWatchUnsubscribeToken } from '@repo/core/email';
+import { setConsumerSkill } from '@repo/core/consumer-skills';
 import { optOutContact } from '@repo/core/template-email';
 import { pauseScheduleByOwner } from '@repo/core/schedules';
 import { getWebDb } from '../../lib/db';
@@ -97,7 +98,7 @@ function page(title: string, body: string, status = 200): NextResponse {
   );
 }
 
-async function unsubscribe(request: NextRequest): Promise<{ ok: boolean; scheduleId?: string; contact?: boolean }> {
+async function unsubscribe(request: NextRequest): Promise<{ ok: boolean; scheduleId?: string; contact?: boolean; watch?: boolean }> {
   const token = request.nextUrl.searchParams.get('t');
   if (!token) return { ok: false };
 
@@ -118,6 +119,13 @@ async function unsubscribe(request: NextRequest): Promise<{ ok: boolean; schedul
   if (contactClaim.ok) {
     const done = await optOutContact(getWebDb(), contactClaim.contactId);
     return { ok: done.ok, contact: true };
+  }
+
+  // ADR 0080 C4: Property Monitor's daily email — the token names the buyer; it switches their monitor off.
+  const watchClaim = verifyWatchUnsubscribeToken(token, secret);
+  if (watchClaim.ok) {
+    await setConsumerSkill(getWebDb(), { userId: watchClaim.userId }, 'property_monitor', false);
+    return { ok: true, watch: true };
   }
 
   const claim = verifyUnsubscribeToken(token, secret);
@@ -163,6 +171,16 @@ export async function GET(request: NextRequest) {
       // 200, not 404. A different status for "already unsubscribed" tells an
       // outsider whether a given token was ever real.
       200,
+    );
+  }
+
+  if (result.watch) {
+    return page(
+      'Unsubscribed',
+      `<h1>Property Monitor is off</h1>
+       <p>You will not get the daily email about the addresses you watch. Your list is kept.</p>
+       <p><a class="plain" href="/account/skills">Turn it back on</a> in your Skills whenever you like.</p>
+       <a class="btn" href="/account/watching">Open Watching</a>`,
     );
   }
 

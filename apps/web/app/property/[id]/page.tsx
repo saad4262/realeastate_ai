@@ -18,6 +18,7 @@ import {
 } from '../../../components/listing-sections';
 import { Icon } from '../../../components/icons';
 import { BeforeYouBuy } from '../../../components/before-you-buy';
+import { WatchButton } from '../../../components/watch-button';
 import { ListingMedia } from '../../../components/listing-card';
 import { portalFonts } from '../../portal-fonts';
 import {
@@ -333,7 +334,10 @@ export default async function PropertyPage({ params }: { params: Promise<{ id: s
                       {soldPrice ?? street}
                     </h1>
                   </div>
-                  <Chip tone="neutral">{soldPrice ? 'Sold' : 'Off market'}</Chip>
+                  <div className="flex items-center gap-sm">
+                    <WatchButton propertyId={propertyId} returnTo={`/property/${propertyId}`} />
+                    <Chip tone="neutral">{soldPrice ? 'Sold' : 'Off market'}</Chip>
+                  </div>
                 </div>
 
                 <div className="mt-sm">

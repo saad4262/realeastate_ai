@@ -260,6 +260,7 @@ import { consumerSkillBlocks, listConsumerSkills, setConsumerSkill, usersWithCon
 import { dutyRatesDue } from '@repo/core/affordability';
 import { buildRenovationPlan, listingRooms, renovationListing, renovationRulesDue } from '@repo/core/renovation';
 import { addToShortlist, listShortlist, removeFromShortlist, setShortlistNote } from '@repo/core/shortlist';
+import { listWatches, localClock, runWatchTick, watchProperty } from '@repo/core/watch';
 import { createRenovationPlanner } from '@repo/ai/renovation';
 import { runPropertyChat, type ToolContext as ChatToolContext } from '@repo/ai/chat';
 import { dispatchTool } from '@repo/ai/tools';
@@ -7578,7 +7579,7 @@ async function main() {
       assert(!anon.has('property_search') && anon.get('smart_alerts') === 'needs_account' && anon.get('comparison') === 'not_built', `anon: ${JSON.stringify([...anon])}`);
       // Signed in, never touched: answers on, acts off, planned off.
       const fresh = new Map((await listConsumerSkills(t, actor, {})).map((v) => [v.key, v]));
-      assert(fresh.get('smart_alerts')?.on === true && fresh.get('buyer_assistant')?.on === true && fresh.get('property_monitor')?.block === 'not_built', `fresh: ${JSON.stringify([...fresh.values()].map((v) => [v.key, v.on, v.block]))}`);
+      assert(fresh.get('smart_alerts')?.on === true && fresh.get('buyer_assistant')?.on === true && fresh.get('property_monitor')?.block === 'switched_off', `fresh: ${JSON.stringify([...fresh.values()].map((v) => [v.key, v.on, v.block]))}`);
 
       // A due alert made while on.
       const { id } = await createSchedule(t, actor, { searchPath: '/search?channel=sale&suburb=Pakenham', name: 'smoke skills', cadence: 'daily', sendAtMinute: 1200, timezone: 'Australia/Melbourne' });
@@ -7712,6 +7713,47 @@ async function main() {
       await removeFromShortlist(t, a, l!.id);
       assert((await listShortlist(t, a)).length === 0, 'remove left it');
       return 'saved once with a cleaned note; B sees nothing and cannot note it; withdrawn → "not advertised", unsaveable; removed';
+    }),
+  );
+
+  await check('Property Monitor (C4): off until switched on; a watched address reports a price change and "under offer" once, in one 8 am email; a buyer who switched it off gets nothing', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const [l] = await t.execute<{ id: string }>(sql`select id from listing where property_id = ${f.propertyId} limit 1`);
+      await t.execute(sql`update listing set published_at = now() - interval '10 days', price_display = 'Offers over $700,000', price_from = 700000 where id = ${l!.id}`);
+      const mk = async (k: string) => (await t.execute<{ id: string }>(sql`insert into "user" (id, email) values (${randomUUID()}, ${`${k}.${f.tag}@smoke.test`}) returning id`))[0]!.id;
+      const a = { userId: await mk('watch-a') };
+      const b = { userId: await mk('watch-b') };
+      // Off by default: watching is refused until the buyer switches Property Monitor on.
+      const off = await watchProperty(t, a, { listingId: l!.id }).catch((e: unknown) => e as Error);
+      assert(off instanceof Error && /Property Monitor/.test(off.message), `watch while off: ${String(off)}`);
+      for (const who of [a, b]) {
+        await setConsumerSkill(t, who, 'property_monitor', true);
+        await watchProperty(t, who, { listingId: l!.id }, 'Australia/Sydney');
+      }
+      await setConsumerSkill(t, b, 'property_monitor', false);
+      // Watched two hours ago (this transaction's now() is one instant), then: a price change and under offer.
+      await t.execute(sql`update property_watch set checked_at = now() - interval '2 hours' where property_id = ${f.propertyId}`);
+      await t.execute(sql`update listing set price_display = 'Offers over $680,000', price_from = 680000 where id = ${l!.id}`);
+      await t.execute(sql`update listing set status = 'under_offer' where id = ${l!.id}`);
+
+      // 8 am in Sydney, tomorrow.
+      let at = new Date(Date.now() + 86_400_000);
+      while (localClock(at, 'Australia/Sydney').hour !== 8) at = new Date(at.getTime() + 3_600_000);
+      const transport = fakeTransport();
+      const deps = { transport, sender: { from: { email: 'alerts@smoke.test', name: 'Smoke' }, postalAddress: '1 Smoke St, Sydney NSW 2000' }, baseUrl: 'https://smoke.test', unsubscribeSecret: 'smoke-secret', now: () => at, env: {} };
+      const first = await runWatchTick(t, deps);
+      const mine = transport.sent.filter((m) => m.to.email === `watch-a.${f.tag}@smoke.test`);
+      assert(mine.length === 1, `emails to A: ${mine.length} (report ${JSON.stringify(first)})`);
+      assert(/Price changed from Offers over \$700,000 to Offers over \$680,000\./.test(mine[0]!.text) && /Under offer\./.test(mine[0]!.text), `email: ${mine[0]!.text}`);
+      assert(mine[0]!.kind === 'marketing' && /\/unsubscribe\?t=w\./.test(mine[0]!.listUnsubscribeUrl ?? ''), 'no Property Monitor unsubscribe');
+      assert(!transport.sent.some((m) => m.to.email === `watch-b.${f.tag}@smoke.test`), 'B switched it off and was emailed');
+      const second = await runWatchTick(t, { ...deps, now: () => new Date(at.getTime() + 5 * 60_000) });
+      assert(transport.sent.filter((m) => m.to.email === `watch-a.${f.tag}@smoke.test`).length === 1, `a second email: ${JSON.stringify(second)}`);
+      const page = await listWatches(t, a);
+      assert(page.length === 1 && page[0]!.standing === 'under_offer' && page[0]!.events.length === 2, `A's page: ${JSON.stringify(page)}`);
+      assert((await listWatches(t, b))[0]!.events.length === 0, 'B (off) got events');
+      return `refused while off; A: 1 email with the price change and "Under offer.", none on the next tick, page shows 2 events; B (switched off): nothing`;
     }),
   );
 

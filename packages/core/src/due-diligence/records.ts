@@ -26,7 +26,8 @@ const AUD = new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD',
 const day = (d: Date) => d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Australia/Sydney' });
 const money = (v: string | number | null) => (v === null ? null : AUD.format(Number(v)));
 
-function priceText(display: string | null, from: string | number | null, to: string | number | null): string {
+/** A listing's price as the buyer reads it: the agency's words, else the numeric range. Shared with Property Monitor. */
+export function priceText(display: string | null, from: string | number | null, to: string | number | null): string {
   if (display?.trim()) return display.trim();
   if (from !== null && to !== null) return `${money(from)} – ${money(to)}`;
   return money(from ?? to) ?? 'no price shown';

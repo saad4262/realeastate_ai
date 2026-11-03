@@ -1743,6 +1743,54 @@ export const consumerSkillSwitch = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.skillKey] })],
 );
 
+/**
+ * An address a buyer follows (ADR 0080, C4 Property Monitor) — the address, never one ad (decision 2). `seen_*` is
+ * the state last reported to them, so the next check reports only what changed; `checked_at` bounds which price
+ * changes are new. Owned by a person, never an agency (ADR 0011; decision 7).
+ */
+export const propertyWatch = pgTable(
+  'property_watch',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => property.id, { onDelete: 'cascade' }),
+    /** IANA, from the buyer's browser: the daily email goes at 8 am here (decision 4). */
+    timeZone: varchar('time_zone', { length: 64 }).notNull().default('Australia/Sydney'),
+    seenListingId: uuid('seen_listing_id').references(() => listing.id, { onDelete: 'set null' }),
+    /** `none`, `for_sale`, `for_rent`, `under_offer`, `sold`, `leased`, `not_advertised`. */
+    seenStatus: varchar('seen_status', { length: 16 }).notNull().default('none'),
+    checkedAt: timestamp('checked_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.propertyId] }), index('property_watch_checked_idx').on(t.checkedAt)],
+);
+
+/** What happened at a watched address, as the buyer reads it: the Watching page's history and the daily email's lines. */
+export const propertyWatchEvent = pgTable(
+  'property_watch_event',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => property.id, { onDelete: 'cascade' }),
+    listingId: uuid('listing_id').references(() => listing.id, { onDelete: 'set null' }),
+    /** `listed`, `price_changed`, `under_offer`, `sold`, `leased`, `not_advertised`. */
+    kind: varchar('kind', { length: 24 }).notNull(),
+    /** The line itself, every figure in it from SQL. */
+    text: text('text').notNull(),
+    happenedAt: timestamp('happened_at', { withTimezone: true }).notNull(),
+    emailedAt: timestamp('emailed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('property_watch_event_user_idx').on(t.userId, t.emailedAt), index('property_watch_event_property_idx').on(t.userId, t.propertyId, t.happenedAt)],
+);
+
 export const event = pgTable('event', {
   id: uuid('id').primaryKey().defaultRandom(),
   type: varchar('type', { length: 128 }).notNull(),
@@ -3270,6 +3318,8 @@ export type SkillRun = typeof skillRun.$inferSelect;
 export type SkillSwitch = typeof skillSwitch.$inferSelect;
 export type ConsumerSkillSwitch = typeof consumerSkillSwitch.$inferSelect;
 export type ListingPriceChange = typeof listingPriceChange.$inferSelect;
+export type PropertyWatch = typeof propertyWatch.$inferSelect;
+export type PropertyWatchEvent = typeof propertyWatchEvent.$inferSelect;
 export type Deal = typeof deal.$inferSelect;
 export type DealCondition = typeof dealCondition.$inferSelect;
 export type DealEvent = typeof dealEvent.$inferSelect;

@@ -55,4 +55,7 @@ The shortlist is a basic feature with no switch. Property Monitor watches an add
 "no longer advertised" for a withdrawn campaign (ADR 0013); it emails once a day and is off until switched on.
 Personal Property AI learns only from the buyer's own actions, as editable facts with their sources, never
 anything about the person, and is opt-in with "Forget everything". No agency sees any of it (ADR 0011).
+Built: migration 0083 (`property_watch`, `property_watch_event`, PUBLIC_SITE_USER) — a watch remembers what it last
+reported, and a check reports the difference; the daily email carries a third unsubscribe token kind (`w.`) that
+switches Property Monitor off.
 

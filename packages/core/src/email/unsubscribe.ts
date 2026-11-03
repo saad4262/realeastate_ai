@@ -142,3 +142,36 @@ export function verifyContactUnsubscribeToken(token: string, secret: string): { 
 export function contactUnsubscribeUrl(baseUrl: string, contactId: string, secret: string): string {
   return `${baseUrl.replace(/\/$/, '')}/unsubscribe?t=${encodeURIComponent(signContactUnsubscribeToken(contactId, secret))}`;
 }
+
+/**
+ * Property Monitor's unsubscribe (ADR 0080, C4): the daily watch email's link switches the buyer's Property Monitor
+ * off. A third kind of token — prefixed `w.`, signed over `watch-optout:<userId>` — so it can never be read as a
+ * saved search's or a contact's. Same secret, same /unsubscribe route.
+ */
+function watchSignature(userId: string, secret: string): string {
+  return base64url(createHmac('sha256', secret).update(`watch-optout:${userId}`).digest());
+}
+
+export function signWatchUnsubscribeToken(userId: string, secret: string): string {
+  return `w.${base64url(Buffer.from(userId, 'utf8'))}.${watchSignature(userId, secret)}`;
+}
+
+export function verifyWatchUnsubscribeToken(token: string, secret: string): { ok: true; userId: string } | { ok: false } {
+  const parts = token.split('.');
+  if (parts.length !== 3 || parts[0] !== 'w') return { ok: false };
+  let userId: string;
+  try {
+    userId = fromBase64url(parts[1]!).toString('utf8');
+  } catch {
+    return { ok: false };
+  }
+  if (!/^[0-9a-f-]{36}$/i.test(userId)) return { ok: false };
+  const want = Buffer.from(watchSignature(userId, secret));
+  const got = Buffer.from(parts[2]!);
+  if (want.length !== got.length || !timingSafeEqual(want, got)) return { ok: false };
+  return { ok: true, userId };
+}
+
+export function watchUnsubscribeUrl(baseUrl: string, userId: string, secret: string): string {
+  return `${baseUrl.replace(/\/$/, '')}/unsubscribe?t=${encodeURIComponent(signWatchUnsubscribeToken(userId, secret))}`;
+}

@@ -132,6 +132,14 @@ export default async function AccountPage() {
 
         {/* ADR 0080 C4. No count here: one more query on every visit; the page says. */}
         <section className={styles.card}>
+          <h2 className={styles.cardLabel}>Watching</h2>
+          <p className={styles.body}>Addresses you follow — we tell you when they are listed, change price, go under offer or sell.</p>
+          <Link href="/account/watching" className={styles.secondary}>
+            Open watching
+          </Link>
+        </section>
+
+        <section className={styles.card}>
           <h2 className={styles.cardLabel}>Shortlist</h2>
           <p className={styles.body}>Homes you saved, with your own notes. Only you can see them.</p>
           <Link href="/account/shortlist" className={styles.secondary}>

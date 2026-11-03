@@ -7,6 +7,7 @@ import { embedderFromEnv } from '@repo/ai/search-embedder';
 import { importAssistFromEnv } from '@repo/ai/import-assist';
 import { mailDepsFromEnv, pullReceivedMail, resendStuckMessages } from '@repo/core/mail';
 import { authoriseCronRequest, runScheduleTick } from '@repo/core/schedules';
+import { runWatchTick } from '@repo/core/watch';
 import { purgeWorkflowHistory } from '@repo/core/workflows';
 import { runSkillTick } from '@repo/core/skills';
 import {
@@ -72,6 +73,13 @@ async function handler(request: NextRequest) {
      * cannot fail the tick: `pullReceivedMail` never throws, and its sends run
      * after the response.
      */
+    // ADR 0080 C4: Property Monitor — check watched addresses, and the 8 am email. The alerts' own transport and
+    // sender, so ALERTS_DRY_RUN covers it too.
+    const watch = await (async () => {
+      const d = schedulerDeps();
+      return runWatchTick(getWebDb(), { transport: d.transport, sender: d.sender, baseUrl: d.baseUrl, unsubscribeSecret: d.unsubscribeSecret });
+    })().catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'watch tick failed' }));
+
     const mail = await pullReceivedMail({ db: getWebDb });
     if (mail.followUp) after(mail.followUp);
 
@@ -154,7 +162,7 @@ async function handler(request: NextRequest) {
 
     // No ids, no addresses, no listing text — this is read from a cron log.
     return NextResponse.json(
-      { ok: true, ...report, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, stuckMail, skills, templateEmail, appointmentSync, assistant, imports, searchIndex },
+      { ok: true, ...report, watch, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, stuckMail, skills, templateEmail, appointmentSync, assistant, imports, searchIndex },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (err) {

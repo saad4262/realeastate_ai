@@ -448,6 +448,10 @@ export type Action =
   | 'shortlist:read'
   /** Save, remove, note. The owner only; no agency role reaches it (C4 decision 7). */
   | 'shortlist:manage'
+  /** A buyer's watched addresses and their history (ADR 0080 C4 Property Monitor). The owner only. */
+  | 'property_watch:read'
+  /** Watch, stop watching. The owner only; no agency sees who watches what (C4 decision 7). */
+  | 'property_watch:manage'
   /** The admin console (ADR 0049): list every agency and open a read-only view of one. */
   | 'platform:read'
   /**
@@ -965,6 +969,8 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'consumer_skill:manage':
     case 'shortlist:read':
     case 'shortlist:manage':
+    case 'property_watch:read':
+    case 'property_watch:manage':
       // Deliberately NOT `|| isAgencyAdmin(actor)`. An agency admin has no
       // claim on a buyer's saved search or their conversation with the guide:
       // between them those record where somebody wants to live, what they can

@@ -2030,4 +2030,10 @@ alert upgrade are added here as they land.
 | CJ5 | Change a saved listing's price in the console | "Price changed on <today>" on its shortlist row. |
 | CJ6 | Remove | The row goes; the listing's heart reads "Save". |
 | CJ7 | As an agency owner in the console | Nothing shows who saved anything. |
+| CJ8 | Signed in, Property Monitor off, a listing | "👁 Watch — turn on Property Monitor" → Skills. Switch it on, back: "Watch this address" → "Watching". |
+| CJ9 | A home not for sale (/property/…) | The same button; it appears on My account → Watching as "Not for sale", "Nothing yet". |
+| CJ10 | In the console, change the watched listing's price, then set it under offer; wait for the alerts cron (or run it) | Within the hour the Watching page shows "Price changed from … to …" and "Under offer."; at 8 am your time one email with both. |
+| CJ11 | The email's "Turn off Property Monitor" link | "Property Monitor is off"; Skills shows it off; the list is kept; no further email. |
+| CJ12 | Withdraw the watched listing in the console | "No longer advertised on this site." — never "withdrawn". |
+| CJ13 | Stop watching (with Property Monitor on or off) | The address and its history go. |
 

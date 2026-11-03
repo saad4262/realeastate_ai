@@ -17,6 +17,7 @@ import { EnquiryForm } from '../../../components/enquiry-form';
 import { CostsToBuy } from '../../../components/costs-to-buy';
 import { PlanRenovationLink } from '../../../components/plan-renovation-link';
 import { ShortlistHeart } from '../../../components/shortlist-heart';
+import { WatchButton } from '../../../components/watch-button';
 import { BeforeYouBuy } from '../../../components/before-you-buy';
 import { ListingReviews } from '../../../components/listing-reviews';
 import {
@@ -417,6 +418,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
                   </div>
                   <div className="flex items-center gap-sm">
                     <ShortlistHeart listingId={listing.id} />
+                    <WatchButton propertyId={listing.propertyId} returnTo={`/listing/${listing.id}`} />
                     <Chip tone="neutral">{channelLabel(listing.channel)}</Chip>
                   </div>
                 </div>
