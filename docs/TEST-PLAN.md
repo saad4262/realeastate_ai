@@ -2060,3 +2060,24 @@ Public site. Needs migration **0085** and the census load (both done 2026-11-03)
 | CK8 | "Explain this home with AI"; and on /chat "what's Pakenham like?" / "compare these two" | Cited points, no value; the guide uses the new tools and says the figures are the site's own. |
 | CK9 | Switch Suburb AI / Comparison AI / Property Analyst off in Skills | That AI button is gone (the figures stay); the guide says the skill is off. |
 
+## CL — Inspections: Inspection AI and Inspection Assistant (ADR 0080, C6)
+
+Public site. CL1–CL6 need nothing new. CL7–CL13 need migration **0086** and the private `inspection-photos` bucket
+(docs/DEPLOY.md). CL11 and CL13 call the model. Use a phone for CL8–CL10.
+
+| # | Case | Expected |
+|---|---|---|
+| CL1 | A listing with open-home times | Each **open** time has "+ Add to my day" (private appointments and auctions do not); pressing it shows "✓ In my day" and the tray "Your inspection day · 1 home". |
+| CL2 | Add times on 3–5 listings, then "See my day" | /inspections: the homes in time order, each with "Start/Fits/Tight", a dashed line between with "x.x km straight line · your gap 20 min". No driving time anywhere. |
+| CL3 | Two homes whose times nearly overlap | The later one is "Tight: N minutes of the open home would be left", with "Use its other time" when it has one; pressing it moves it and re-checks. |
+| CL4 | Change "Gap between homes" / "Time inside" → Re-check | Flags change with the settings; the link carries them. |
+| CL5 | "Add to calendar (.ics)" and "Open the route in Google Maps" | One .ics with an event per reachable stop at the agents' times (opens in Apple/Google/Outlook calendar); Google Maps opens with the stops in order. |
+| CL6 | Shortlist with advertised homes → "Plan inspections for these homes" | The planner picks a time for each on the day most are open; a home with no time that day is under "Not this day" with its next time. |
+| CL7 | Signed in, a listing → "Take private notes at the inspection" | /account/inspections/<id>: "Only you can see this…"; the house or apartment checklist; mark items, write notes, Save → "Saved."; the account page lists the home with its counts. |
+| CL8 | On a phone, "+" under Photos → take a photo | The photo appears; download it from the thumbnail and check its details: no location. |
+| CL9 | Sign in as another buyer, open the first buyer's photo URL (/api/inspections/photos/<id>) | 404. Their notes page for the same home is empty. |
+| CL10 | Upload 20 photos, then one more | The 21st is refused ("Up to 20 photos per home"). |
+| CL11 | "Summarise my notes for this home" / "Summarise my latest inspections" | "Written by the property guide"; lines in your own terms, each naming its home; no "best", no cost estimate, no condition you did not write. Not saved — reload and it is gone. |
+| CL12 | "Delete this home's notes", then "Delete all my inspection notes" | Gone from the list; the photos' links 404. Switch Inspection Assistant off in Skills: notes are still listed and deletable, not editable; no summary button. |
+| CL13 | /chat: "plan my Saturday for these homes" (after a search) | The guide calls the planner, copies the times and straight-line distances, links the plan page, gives no driving time. "What did I think of …?" → it points to Inspection notes. |
+

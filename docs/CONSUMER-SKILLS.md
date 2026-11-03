@@ -39,11 +39,11 @@ from reading the code, not measured.** Update this file as each phase lands.
 | 4 | Smart Alerts (`smart_alerts`) 🔒 | answers¹ | live → C4 | 60% | Saved-search alerts (built); C4 adds market-change alerts |
 | 5 | Tasks (`tasks`) 🔒 | acts | C8 | 25% | One-off or repeating research ("every Monday, new 3-bed in Pakenham + what sold") with a report |
 | 6 | Automation (`automation`) 🔒 | acts | C8 | 10% | When X happens (price drop, new listing, inspection added), do Y (tell me, add to shortlist) |
-| 7 | Property Analyst (`property_analyst`) | answers | C5 | 30% | One property explained from public records, every point cited (reuses ADR 0065) |
-| 8 | Suburb AI (`suburb_insights`) | answers | live → C5 | 15% | Recent sales (built); C5: a suburb page from our records + ABS, suburb vs suburb |
-| 9 | Comparison AI (`comparison`) | answers | C5 | 0% | 2–4 properties side by side (numbers from SQL), the model explains the trade-offs |
-| 10 | Inspection AI (`inspection_planner`) | answers | C6 | 15% | Plan a Saturday: pick listings, order the open homes by time and distance, add to calendar |
-| 11 | Inspection Assistant (`inspection_notes`) 🔒 | answers | C6 | 0% | Notes, photos and a checklist per inspection, private to the buyer, summarised |
+| 7 | Property Analyst (`property_analyst`) | answers | C5 | 85% | One property explained from public records, every point cited (reuses ADR 0065) |
+| 8 | Suburb AI (`suburb_insights`) | answers | live → C5 | 85% | Recent sales (built); C5: a suburb page from our records + ABS, suburb vs suburb |
+| 9 | Comparison AI (`comparison`) | answers | C5 | 85% | 2–4 properties side by side (numbers from SQL), the model explains the trade-offs |
+| 10 | Inspection AI (`inspection_planner`) | answers | C6 | 90% | Plan a Saturday: pick listings, order the open homes by time and distance, add to calendar |
+| 11 | Inspection Assistant (`inspection_notes`) 🔒 | answers | C6 | 85% | Notes, photos and a checklist per inspection, private to the buyer, summarised |
 | 12 | Visual Search AI (`visual_search`) | answers | C9 | 0% | "Homes that look like this" from a photo or a style (image embeddings) |
 | 13 | Immersive Property AI (`immersive`) | answers | C9 | 10% | Floorplans, video and tours stored and shown; ask the guide about a room |
 | 14 | Agent AI (`agent_messages`) 🔒 | acts | C8 | 45% | The guide drafts an enquiry or question to the agent; the buyer reads it and sends it |
@@ -134,10 +134,17 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   Smart Alerts upgrade built (uncommitted): the claim brings the last email's time and the homes emailed in 90 days;
   `alert-extras.ts` reads price changes on those homes (still public) and sales in the search's suburb since the
   last email; the digest shows both in two sections; the summariser never sees them. C4 complete once committed.
-- [x] C5 Research — built (uncommitted; for the user's review): migration 0085 + 15,345 suburbs of ABS Census 2021
+- [x] C5 Research — committed `79fdbd3` (census) + `e67064a` (features), pushed; live group green: migration 0085 + 15,345 suburbs of ABS Census 2021
   housing figures; `packages/core/src/research/` (suburb profile with gated medians, home rows and comparables from
   SQL, records + the verdict rule over C2's check); the research writer (packages/ai, summary tier); `/api/research`;
   `/suburb/[state]/[suburb]` (with `?vs=`), `/compare`, "Explain this home" on listings, Compare from the shortlist;
-  the guide's `suburb_profile`, `compare_homes`, `explain_home` (prompt v14). Live model not run (the user's go).
-- [ ] C6 Inspections — mock `docs/mocks/consumer-inspections.html` (nine decisions) awaiting the user's review.
+  the guide's `suburb_profile`, `compare_homes`, `explain_home` (prompt v14).
+- [x] C6 Inspections — mock's nine decisions approved (2026-11-04). Built (uncommitted; for the user's review):
+  `packages/core/src/inspections/` (the day planner over the agents' open times and PostGIS straight lines, the plan
+  link, .ics and route; the fixed checklist; owner-only notebooks with `inspection_note:read/manage`; photo bytes
+  identified and stripped of Exif; the summary's checks — references, figures, verdict, condition words); the summary
+  writer (packages/ai, summary tier); `/inspections` + `/inspections/calendar`, "Add to my day" and the tray on
+  listings, "Plan inspections" on the shortlist, `/account/inspections` and one notebook per home with photos;
+  `/api/inspections/photos`, `/api/inspections/photos/[id]`, `/api/inspections/summary`; the guide's
+  `plan_inspections` (prompt v15). Migration 0086 applied and the private `inspection-photos` bucket made (2026-11-04); smoke 16/16, live 25/25.
 - [ ] C7 · [ ] C8 · [ ] C9

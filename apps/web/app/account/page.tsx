@@ -147,6 +147,15 @@ export default async function AccountPage() {
           </Link>
         </section>
 
+        {/* ADR 0080 C6. No count here, as the others. */}
+        <section className={styles.card}>
+          <h2 className={styles.cardLabel}>Inspection notes</h2>
+          <p className={styles.body}>Your checklist, notes and photos from each open home. Only you can see them.</p>
+          <Link href="/account/inspections" className={styles.secondary}>
+            Open inspection notes
+          </Link>
+        </section>
+
         <section className={styles.card}>
           <h2 className={styles.cardLabel}>Shortlist</h2>
           <p className={styles.body}>Homes you saved, with your own notes. Only you can see them.</p>

@@ -4,6 +4,7 @@ import { affordabilityInput } from './affordability-tool';
 import { dueDiligenceInput } from './due-diligence-tool';
 import { renovationInput } from './renovation-tool';
 import { compareHomesInput, explainHomeInput, suburbProfileInput } from './research-tools';
+import { planInspectionsInput } from './inspection-tools';
 import { getListingInput } from './get-listing-tool';
 import { resolveLocationInput } from './resolve-location';
 import { recentSalesInput } from './recent-sales-tool';
@@ -26,6 +27,7 @@ const PAIRS = [
   { name: 'suburb_profile', zod: suburbProfileInput },
   { name: 'compare_homes', zod: compareHomesInput },
   { name: 'explain_home', zod: explainHomeInput },
+  { name: 'plan_inspections', zod: planInspectionsInput },
 ] as const;
 
 function jsonSchemaOf(name: string) {
@@ -126,6 +128,8 @@ describe('tool definitions', () => {
       'suburb_profile',
       'compare_homes',
       'explain_home',
+      // ADR 0080 C6: the day of open homes, after the research that chose them. One cache reset.
+      'plan_inspections',
       // The scheduling pair goes at the END, after the four tools that find
       // a home. They are a different kind of thing — one acts on a search
       // that has already happened, the other on a saved search — and

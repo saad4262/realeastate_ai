@@ -10,6 +10,7 @@ import {
 } from '@repo/ai/chat';
 import { appendTurn } from '@repo/core/chat';
 import { loadProfile, profileLine } from '@repo/core/profile';
+import { buildPlan, planToolResult } from '@repo/core/inspections';
 import { consumerSkillBlocks, consumerSkillOffMessage, type ConsumerSkillBlock, type ConsumerSkillKey } from '@repo/core/consumer-skills';
 import {
   listSchedules,
@@ -208,6 +209,11 @@ function toolContext(userId: string | null, skillBlocks: ReadonlyMap<ConsumerSki
      */
     // ADR 0080, C5: research records — public data only, the core reader decides.
     research: (ask) => cachedResearchData(ask),
+    // ADR 0080, C6: the day plan — public listings' open times, read fresh (a moved time must show); never a note.
+    inspections: async (ask) => {
+      const plan = await buildPlan(db, ask);
+      return plan ? planToolResult(plan) : null;
+    },
     dueDiligence: async (id) => {
       const found = await cachedListing(id);
       if (!found) return null;

@@ -70,3 +70,19 @@ in migration 0085 `suburb_census` (SHARED reference data), loaded idempotently b
 from `packages/db/data/census/` (built from the ABS DataPack by the script beside it). Comparables are listed,
 never averaged.
 
+
+**Amendment, 2026-11-04 — C6 Inspections** (mock `consumer-inspections.html`; the user approved all nine decisions as
+recommended). Inspection AI plans a day only from the agents' OPEN times (`inspection`), picking one per home and
+checking each stop against the buyer's own gap and time inside; distances are PostGIS straight lines, labelled so —
+never a driving time. A home that does not fit stays on the plan with its other times. The plan lives in its link
+(`/inspections?l=…&s=…`, the homes travel with the times so a removed time still names its home), one `.ics` and a
+Google Maps link; the guide gets `plan_inspections` (prompt v15) and never reads notes. Inspection Assistant
+(migration 0086: `inspection_note`, `inspection_photo`, PUBLIC_SITE_USER) is owner-only by `can()`
+(`inspection_note:read/manage`): no agency role, no platform admin, and nothing else reads the tables. Photos: the
+browser redraws them at 2,048 px (dropping metadata), the server identifies them by their bytes and strips Exif/XMP/
+IPTC/comments again, and stores them in the PRIVATE `inspection-photos` bucket behind five-minute signed links; up to
+20 a home, 4 MB after resizing (a serverless request carries 4.5 MB — the "10 MB" of the mock is the camera file the
+browser accepts before resizing). The summary sees only the buyer's marks and notes — never a photo — and core keeps
+a line only when it cites them, every figure is theirs, it passes the verdict rule, and any condition word
+(asbestos, termites, "structurally sound"…) is one they wrote. It reaches only the buyer, labelled, and is not stored.
+Deleting a notebook deletes its rows first, then its files; deleting is allowed with the skill off.

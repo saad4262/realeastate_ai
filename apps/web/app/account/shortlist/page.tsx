@@ -9,6 +9,7 @@ import { getWebDb } from '../../../lib/db';
 import { requireWebUser } from '../../../lib/session';
 import { ShortlistRow } from './shortlist-row';
 import { CompareChooser } from './compare-chooser';
+import { MAX_PLAN_HOMES } from '@repo/core/inspections';
 import styles from '../account.module.css';
 
 export const dynamic = 'force-dynamic';
@@ -51,6 +52,14 @@ export default async function ShortlistPage() {
           {items.length ? `${items.length} ${items.length === 1 ? 'home' : 'homes'} · only you can see this` : 'Homes you save appear here — press Save on any listing.'}
         </p>
         <CompareChooser homes={items.filter((i) => i.standing === 'for_sale' || i.standing === 'for_rent').map((i) => ({ id: i.listingId, title: `${i.address}, ${i.suburb}` }))} />
+        {/* ADR 0080 C6: the planner picks each home's open time and the day most of them are open. Up to eight. */}
+        {items.some((i) => i.standing === 'for_sale' || i.standing === 'for_rent') ? (
+          <p className="mb-3 text-sm">
+            <Link href={`/inspections?l=${items.filter((i) => i.standing === 'for_sale' || i.standing === 'for_rent').slice(0, MAX_PLAN_HOMES).map((i) => i.listingId).join(',')}`} className="underline">
+              Plan inspections for these homes
+            </Link>
+          </p>
+        ) : null}
         {items.length ? (
           <ul className="m-0 list-none rounded-2xl border border-line bg-card p-0">
             {items.map((i) => {

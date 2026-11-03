@@ -31,6 +31,8 @@ import { checkEmailLimits } from '../email/limits';
 import { listMySkills, listSkillLibrary } from '../skills/skills';
 import { agencyNotificationRecipients } from '../agency/notification-recipients';
 import type { Actor } from '../permissions';
+import { planHomes } from '../inspections/homes';
+import { listNotebooks, notebooksForSummary } from '../inspections/notes';
 
 /**
  * How many times each read talks to the database.
@@ -134,6 +136,22 @@ describe('reads cost a fixed number of queries', () => {
    * itself — so the page costs one round trip's latency, not four. If any of
    * these ever becomes two, it is because someone fetched something per row.
    */
+  it('a day plan is three queries for eight homes: the homes, their open times, the distances (ADR 0080 C6)', async () => {
+    const { db, count } = countingDb();
+    await planHomes(db, Array.from({ length: 8 }, (_, i) => `0000000${i}-0000-4000-8000-000000000000`));
+    expect(count()).toBe(3);
+  });
+
+  it('the inspection notebooks list is one query, photo counts included; the summary reads one more', async () => {
+    const buyer = { userId: 'u-1' };
+    const list = countingDb();
+    await listNotebooks(list.db, buyer);
+    expect(list.count()).toBe(1);
+    const books = countingDb();
+    await notebooksForSummary(books.db, buyer);
+    expect(books.count()).toBe(1);
+  });
+
   it('the inspection times are one query', async () => {
     const { db, count } = countingDb();
     await listingInspections(db, 'l-1');

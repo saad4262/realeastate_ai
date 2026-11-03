@@ -418,6 +418,19 @@ describe('can()', () => {
     });
   });
 
+  /** ADR 0080 C6: inspection notebooks and photos are the buyer's alone — no agency role, not a platform admin. */
+  describe('inspection notes', () => {
+    it('lets a buyer read and change their own notes, and nobody else', () => {
+      const own = { type: 'inspection_note', ownerId: 'buyer-1' };
+      for (const action of ['inspection_note:read', 'inspection_note:manage'] as const) {
+        expect(can({ userId: 'buyer-1' }, action, own)).toBe(true);
+        expect(can({ userId: 'buyer-2' }, action, own)).toBe(false);
+        expect(can({ userId: 'owner-a', agencyId: agencyA, membershipRole: 'owner' }, action, own)).toBe(false);
+        expect(can({ userId: '' }, action, { type: 'inspection_note' })).toBe(false);
+      }
+    });
+  });
+
   /** ADR 0080 C4: the addresses a buyer watches are theirs alone. */
   describe('property watch', () => {
     it('lets a buyer read and change their own watches, and nobody else', () => {

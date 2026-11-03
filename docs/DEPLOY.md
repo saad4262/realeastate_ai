@@ -74,6 +74,8 @@ Nothing below is optional for production. Each line names what proves it is done
       set; a reply to a console email lands back in its thread.
 - [ ] **Documents** (ADR 0053): migration 0061 applied, the private `documents` bucket made as in
       "Documents and the knowledge base" below, `/api/cron/documents` answering 200 to the cron.
+- [ ] **Inspection notes** (ADR 0080 C6): migration 0086 applied, the private `inspection-photos` bucket made as in
+      "Inspection notes and photos" below.
 - [ ] **Opportunities** (ADR 0054): migration 0062 applied; `/api/cron/opportunities` (hourly, in
       `apps/web/vercel.json`) answering 200 with `failed: []`.
 - [ ] `EMAIL_DEV_ALLOWLIST` is **ignored** in production (it is) — and `NODE_ENV=production`
@@ -292,6 +294,17 @@ Sending stays on the verified `alerts@quotemydecking.com.au`; only RECEIVING get
    `RESEND_WEBHOOK_SECRET`.
 5. **Attachments** on those replies become documents on the thread's contact (ADR 0053 §7) once
    the documents section below is set up — nothing more to configure here.
+
+### Inspection notes and photos (web; docs/adr/0080, C6)
+
+1. **Migration 0086** before deploying the code that reads it (`pnpm db:migrate`).
+2. **A PRIVATE bucket** — Supabase → Storage → New bucket: name `inspection-photos`, **Public: off**, file size
+   limit **4 MB**, allowed MIME types `image/jpeg, image/png`. Add **no** policies: the service key is the only way
+   in, and every read is a five-minute signed link handed out after the owner check. The smoke check "Inspection
+   photos (C6)" says whether it exists and is private.
+3. **Environment** (web): `SUPABASE_INSPECTION_PHOTOS_BUCKET` (default `inspection-photos`);
+   `AI_INSPECTION_SUMMARY_DAILY_CAP` (default 300) and `INSPECTION_PHOTOS_DAILY_CAP` (default 5000).
+   Without the service key the notebook works and hides the photos.
 
 ### Documents and the knowledge base (console + web cron; docs/adr/0053)
 

@@ -1,7 +1,10 @@
 import type { PublicAgentCard, PublicInspection, PublicTimelineEntry } from '@repo/core/listings';
 import Image from 'next/image';
 import { mediaUrl } from '@repo/core/media/url';
+import Link from 'next/link';
 import { Icon, type IconName } from './icons';
+import { AddToDay, DayTray } from './add-to-day';
+import { HideIfSkillOff } from './hide-if-skill-off';
 
 /**
  * The parts of a property page that are not the property.
@@ -201,7 +204,11 @@ export function SpecBar({ specs }: { specs: SpecTile[] }) {
  * `listingInspections` drops past sessions in SQL, so everything here is
  * attendable. That is why there is no "past inspections" state to render.
  */
-export function Inspections({ inspections }: { inspections: PublicInspection[] }) {
+/*
+ * ADR 0080 C6: each OPEN time gets "Add to my day" (Inspection AI) and the card links the buyer's private notebook
+ * (Inspection Assistant). Both behind the browser's skill cookie; the plan page and the notebook check the real switch.
+ */
+export function Inspections({ inspections, listingId }: { inspections: PublicInspection[]; listingId: string }) {
   if (inspections.length === 0) {
     return (
       <Card id="inspections" eyebrow="Inspections" title="No times scheduled">
@@ -239,9 +246,22 @@ export function Inspections({ inspections }: { inspections: PublicInspection[] }
                 {TIME.format(i.startsAt)} – {TIME.format(i.endsAt)}
               </div>
             </div>
+            {i.kind === 'open' ? (
+              <HideIfSkillOff skill="inspection_planner">
+                <AddToDay listingId={listingId} sessionId={i.id} />
+              </HideIfSkillOff>
+            ) : null}
           </li>
         ))}
       </ul>
+      <HideIfSkillOff skill="inspection_notes">
+        <p className="mt-sm text-body-sm text-ink-soft">
+          Going? <Link href={`/account/inspections/${listingId}`} className="underline">Take private notes at the inspection</Link> — a checklist, your notes and photos, for you alone.
+        </p>
+      </HideIfSkillOff>
+      <HideIfSkillOff skill="inspection_planner">
+        <DayTray />
+      </HideIfSkillOff>
     </Card>
   );
 }

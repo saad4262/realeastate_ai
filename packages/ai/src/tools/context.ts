@@ -1,6 +1,7 @@
 import type { Db } from '@repo/db';
 import type { ConsumerSkillBlock, ConsumerSkillKey } from '@repo/core/consumer-skills/catalog';
 import type { ResearchAsk } from '@repo/core/research';
+import type { PlanAsk, PlanToolResult } from '@repo/core/inspections';
 import type { ResolvedPlace } from '@repo/core/geo/schema';
 import type {
   NearbyMarket,
@@ -91,6 +92,11 @@ export type ToolContext = {
    * cached reader — public listings only; null when there is nothing.
    */
   research: (ask: ResearchAsk) => Promise<{ subject: string; records: { ref: string; text: string }[] } | null>;
+  /**
+   * Inspection AI's day plan (ADR 0080, C6 decision 5), as code-written lines: public listings' open times, the
+   * straight-line distances, the flags and the plan page's link. Null when none of the homes is public. Never a note.
+   */
+  inspections: (ask: PlanAsk) => Promise<PlanToolResult | null>;
   dueDiligence: (listingId: string) => Promise<{ address: string; state: string; facts: { ref: string; when: string; text: string }[] } | null>;
   /**
    * The consumer skills not running for this visitor, and why (ADR 0080) — read once per turn by the

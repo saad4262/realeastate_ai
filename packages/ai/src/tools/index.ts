@@ -6,6 +6,7 @@ import { cheapestNearInput, runCheapestNear } from './cheapest-near';
 import { dueDiligenceInput, runDueDiligence } from './due-diligence-tool';
 import { renovationInput, runRenovation } from './renovation-tool';
 import { compareHomesInput, explainHomeInput, runCompareHomes, runExplainHome, runSuburbProfile, suburbProfileInput } from './research-tools';
+import { planInspectionsInput, runPlanInspections } from './inspection-tools';
 import { RENOVATION_CATEGORY_KEYS } from '@repo/core/renovation/categories';
 import { getListingInput, runGetListing } from './get-listing-tool';
 import { resolveLocationInput, runResolveLocation } from './resolve-location';
@@ -300,6 +301,20 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
     input_schema: { type: 'object', additionalProperties: false, properties: { listingId: { type: 'string', description: 'The id from a search result.' } }, required: ['listingId'] },
   },
   {
+    name: 'plan_inspections',
+    description:
+      "Plan a day of open-home inspections for homes from a search or the visitor's shortlist: one open time for each, in order, with straight-line distances and any stop that is tight or cannot be reached, and a link to the plan page (calendar file, route). Times are the agents'. It never gives a driving time.",
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        listingIds: { type: 'array', items: { type: 'string' }, maxItems: 8, description: 'Ids from search results, up to 8.' },
+        day: { type: 'string', description: 'YYYY-MM-DD, when they name a day. Leave it out to use the day most of the homes are open.' },
+      },
+      required: ['listingIds'],
+    },
+  },
+  {
     name: 'draft_schedule',
     description:
       "Propose running the CURRENT search on a repeating schedule and emailing the visitor what is new. Call this when they ask to be sent results regularly — 'send me this daily', 'every two hours', 'each Saturday morning'. A search must already have run in this conversation; this uses that exact search, so do not describe the filters yourself. It SAVES NOTHING: it puts a confirmation card on screen and the visitor must press Accept. Never tell them it is running.",
@@ -461,6 +476,11 @@ export async function dispatchTool(
         const parsed = explainHomeInput.safeParse(rawInput);
         if (!parsed.success) return invalid(name, parsed.error);
         return await runExplainHome(parsed.data, ctx);
+      }
+      case 'plan_inspections': {
+        const parsed = planInspectionsInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return await runPlanInspections(parsed.data, ctx);
       }
       case 'get_listing': {
         const parsed = getListingInput.safeParse(rawInput);

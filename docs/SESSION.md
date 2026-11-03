@@ -3,6 +3,32 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-04 — Claude Code (Mac) — C6 Inspections built in the user's autonomous loop
+
+- The user approved all nine C6 decisions and asked for the loop (implement → test → fix, report at the end).
+- Built: `packages/core/src/inspections/` — the day planner (agents' OPEN times only; one time per home; every
+  combination of a home's times that day, fewest unreachable then fewest tight then earliest finish; tight = less
+  than the buyer's time inside left on arrival; never drops a home), PostGIS straight-line distances in one pairwise
+  query, the plan link (homes + times, so a removed time still names its home), .ics and the Google Maps link; the
+  fixed house/apartment checklist; owner-only notebooks (`inspection_note:read/manage`, PUBLIC_SITE_USER tables);
+  photo bytes identified by signature and stripped of Exif/XMP/IPTC/comments; the private-bucket client; the
+  summary's checks (references, figures, verdict rule, condition words only when the buyer wrote them). AI: the
+  summary writer (inspection-summary@v1), `plan_inspections` (records only), prompt v15. Web: `/inspections`,
+  `/inspections/calendar`, "Add to my day" + tray on listings, "Plan inspections" on the shortlist,
+  `/account/inspections` (+ one notebook per home with photos), three API routes. Migration 0086 written.
+- Fixed in the loop: the plan link could not name a home whose time the agent deleted (the row is gone) → the link
+  carries the homes too; a UTC date in the guide's "next open" line → the plan's zone; a 4.5 MB serverless body
+  limit → the browser resizes to 2,048 px and the server caps at 4 MB (the mock's 10 MB is the camera file); the
+  empty plan said "that day" with no day.
+- Break-tests, all red then restored: the tight threshold, keeping Exif (APP1), the condition rule, an N+1 in the
+  planner (11 queries, not 3).
+- Refused by the permission check at first: applying 0086. Then the user's go: 0086 applied (2 tables, RLS on, 6
+  indexes checked), the private `inspection-photos` bucket made through the Storage API (public off, 4 MB,
+  JPEG/PNG; 0 storage policies). The notes smoke check then failed on its own bug (it reserved a cross-user key on a
+  home already full) — fixed in the check, not the code. Smoke "Consumer skills" 16/16; live group 25/25 (the user's
+  go) — the summary writer kept 6/6, the guide planned a Saturday from plan_inspections with no driving time.
+  Committed and pushed.
+
 ## 2026-11-03 (later) — Claude Code (Mac) — C4 completed; C5 Research in the user's autonomous loop
 - C4: shortlist `a599f7d`, Property Monitor `e42736a` (0083), Personal Property AI `b3f5082` (0084), Smart Alerts
   upgrade `bdf87a5` — each smoke-green and broken on purpose once; the alerts check found a silent sold_date bug.

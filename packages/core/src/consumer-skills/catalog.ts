@@ -65,8 +65,8 @@ export const CONSUMER_SKILLS: readonly ConsumerSkill[] = Object.freeze([
   { key: 'development', group: 'Understand a property', name: 'Property Development AI', description: 'Land, zoning and the questions to ask before you develop.', kind: 'answers', account: false, status: 'planned', phase: 'C9' },
   { key: 'affordability', group: 'Money & plans', name: 'Affordability AI', description: 'Repayments, stamp duty and what you could borrow, with what-if scenarios. Estimates, not advice.', kind: 'answers', account: false, status: 'live', phase: 'C1' },
   { key: 'renovation', group: 'Money & plans', name: 'Renovation AI', description: 'What a renovation could involve and an indicative cost range.', kind: 'answers', account: false, status: 'live', phase: 'C3' },
-  { key: 'inspection_planner', group: 'Inspections', name: 'Inspection AI', description: 'Plan your open homes in a sensible order and add them to your calendar.', kind: 'answers', account: false, status: 'planned', phase: 'C6' },
-  { key: 'inspection_notes', group: 'Inspections', name: 'Inspection Assistant', description: 'Your notes, photos and checklist from each inspection, kept private and summarised.', kind: 'answers', account: true, status: 'planned', phase: 'C6' },
+  { key: 'inspection_planner', group: 'Inspections', name: 'Inspection AI', description: 'Plan your open homes in a sensible order and add them to your calendar.', kind: 'answers', account: false, status: 'live', phase: 'C6' },
+  { key: 'inspection_notes', group: 'Inspections', name: 'Inspection Assistant', description: 'Your notes, photos and checklist from each inspection, kept private and summarised.', kind: 'answers', account: true, status: 'live', phase: 'C6' },
   { key: 'immersive', group: 'Inspections', name: 'Immersive Property AI', description: 'Floorplans, video and tours, and the guide answers questions about the rooms.', kind: 'answers', account: false, status: 'planned', phase: 'C9' },
   { key: 'smart_alerts', group: 'Keep watch', name: 'Smart Alerts', description: 'Emails with new homes for the searches you saved. Off: your saved searches stop sending until you turn it back on.', kind: 'answers', account: true, status: 'live', phase: 'live' },
   { key: 'property_monitor', group: 'Keep watch', name: 'Property Monitor', description: 'Watch an address and hear when it is listed, changes price, goes under offer or sells.', kind: 'acts', account: true, status: 'live', phase: 'C4' },
@@ -134,6 +134,7 @@ export const CONSUMER_SKILL_OF_TOOL: Readonly<Record<string, ConsumerSkillKey>> 
   suburb_profile: 'suburb_insights',
   compare_homes: 'comparison',
   explain_home: 'property_analyst',
+  plan_inspections: 'inspection_planner',
 });
 
 /** The words every refusal uses, so the buyer (and the guide) know why and where to change it. */

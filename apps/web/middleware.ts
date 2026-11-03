@@ -166,6 +166,10 @@ export const config = {
     '/api/renovation/rooms',
     // ADR 0080 C5: research paragraphs read the buyer's own switches.
     '/api/research',
+    // ADR 0080 C6: the inspection plan, its calendar file and the notebook's endpoints read the buyer's own switches.
+    '/inspections',
+    '/inspections/:path*',
+    '/api/inspections/:path*',
     '/login',
     '/signup',
     // `/reset` arrives straight from an emailed link and needs the session

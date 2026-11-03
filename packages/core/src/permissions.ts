@@ -456,6 +456,10 @@ export type Action =
   | 'buyer_profile:read'
   /** Edit or forget it. The owner only; no agency role, not even counts (C4 decision 7). */
   | 'buyer_profile:manage'
+  /** A buyer's inspection notebooks and photos (ADR 0080 C6). The owner only. */
+  | 'inspection_note:read'
+  /** Write, add photos, delete. The owner only; no agency role, not even that a note exists (C6 decision 6). */
+  | 'inspection_note:manage'
   /** The admin console (ADR 0049): list every agency and open a read-only view of one. */
   | 'platform:read'
   /**
@@ -977,6 +981,8 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'property_watch:manage':
     case 'buyer_profile:read':
     case 'buyer_profile:manage':
+    case 'inspection_note:read':
+    case 'inspection_note:manage':
       // Deliberately NOT `|| isAgencyAdmin(actor)`. An agency admin has no
       // claim on a buyer's saved search or their conversation with the guide:
       // between them those record where somebody wants to live, what they can

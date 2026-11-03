@@ -60,7 +60,7 @@ function ctx(over: Partial<ToolContext> = {}) {
     places: new Map(),
     skillBlocks: new Map(),
     dueDiligence: async () => null,
-    research: async () => null,
+    research: async () => null, inspections: async () => null,
     // These tests are about finding homes, not scheduling. `signed_out` is
     // the honest default: no session, so the scheduling tools refuse.
     scheduling: { state: 'signed_out' },

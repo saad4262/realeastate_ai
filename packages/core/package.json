@@ -54,6 +54,8 @@
     "./watch": "./src/watch/index.ts",
     "./profile": "./src/profile/index.ts",
     "./research": "./src/research/index.ts",
+    "./inspections": "./src/inspections/index.ts",
+    "./inspections/photo-storage": "./src/inspections/photo-storage.ts",
     "./renovation": "./src/renovation/index.ts",
     "./renovation/quotes": "./src/renovation/quotes.ts",
     "./renovation/categories": "./src/renovation/categories.ts",

@@ -266,6 +266,9 @@ import { comparables, homeRows, passesVerdictRule, researchData, runResearch, su
 import { appendTurn } from '@repo/core/chat';
 import { createRenovationPlanner } from '@repo/ai/renovation';
 import { createResearchWriter } from '@repo/ai/research';
+import { createInspectionSummaryWriter } from '@repo/ai/inspections';
+import { buildPlan, clampSettings, deleteNotebook, ownPhotoKey, planAuto, hasExif, listNotebooks, loadNotebook, MAX_PHOTOS_PER_HOME, planIcs, planToolResult, recordPhoto, reservePhoto, runInspectionSummary, saveNotebook, stripPhotoMetadata, type DayPlan } from '@repo/core/inspections';
+import { deleteInspectionPhotos, inspectionPhotoBucket, putInspectionPhoto, signInspectionPhoto } from '@repo/core/inspections/photo-storage';
 import { runPropertyChat, type ToolContext as ChatToolContext } from '@repo/ai/chat';
 import { dispatchTool } from '@repo/ai/tools';
 import { createDueDiligenceWriter } from '@repo/ai/due-diligence';
@@ -7909,6 +7912,136 @@ async function main() {
     return due.stale.length ? `${due.stale.length} permit source(s) due` : `all checked; ${due.unverifiedStates.length} states not verified`;
   });
 
+  /** Two homes' worth of Melbourne coordinates 0.0108° of latitude apart: ~1.2 km on the ground (geography, not degrees). */
+  const PLAN_LAT = -38.07;
+  const PLAN_LNG = 145.48;
+
+  /** Four public homes with open times relative to `base`, as the C6 mock's Saturday; a draft and a private time beside them. */
+  async function planFixture(t: Db) {
+    const f = await contactFixture(t);
+    const [{ base } = { base: '' }] = await t.execute<{ base: string }>(sql`select (date_trunc('day', now()) + interval '3 days 23 hours')::text as base`);
+    const home = async (no: number, dLat: number, status = 'live') => {
+      const [p] = await t.execute<{ id: string }>(sql`insert into property (street_number, street, suburb, state, postcode, latitude, longitude) values (${String(no)}, 'Plan Road', ${`Smokeplan ${f.tag}`}, 'VIC', '3999', ${PLAN_LAT + dLat}, ${PLAN_LNG}) returning id`);
+      const [l] = await t.execute<{ id: string }>(sql`insert into listing (property_id, agency_id, channel, status, price_from, price_to, published_at, bedrooms) values (${p!.id}, ${f.agencyId}, 'sale', ${status}, 700000, 740000, now() - interval '5 days', 3) returning id`);
+      return l!.id;
+    };
+    const open = async (listingId: string, fromMin: number, toMin: number, kind = 'open') =>
+      (await t.execute<{ id: string }>(sql`insert into inspection (listing_id, starts_at, ends_at, kind) values (${listingId}, ${base}::timestamptz + make_interval(mins => ${fromMin}), ${base}::timestamptz + make_interval(mins => ${toMin}), ${kind}::inspection_kind) returning id`))[0]!.id;
+    const a = await home(7, 0);
+    const b = await home(14, 0.0108);
+    const c = await home(3, 0.0108 + 0.0342);
+    const d = await home(22, 0.0108 + 0.0342 + 0.0189);
+    const draft = await home(9, 0.05, 'draft');
+    // A 0:00–0:30; B 0:45–1:15; C 1:00–1:20 or 3:00–3:30; D 2:15–2:45 — the mock's 9:30, 10:15, 10:30 / 12:30, 11:45.
+    const s = { a: await open(a, 0, 30), b: await open(b, 45, 75), c1: await open(c, 60, 80), c2: await open(c, 180, 210), d: await open(d, 135, 165) };
+    await open(draft, 0, 30);
+    const priv = await open(a, 300, 330, 'private');
+    return { f, ids: { a, b, c, d, draft }, s, priv };
+  }
+
+  await check('Inspection AI (C6): a day from the agents’ open times — PostGIS straight lines, the planner picks C’s later time, a tight stop when chosen, no draft, no private time; one .ics', async () =>
+    inRollback(async (t) => {
+      const { ids, s, priv } = await planFixture(t);
+      const auto = await buildPlan(t, { listingIds: [ids.a, ids.b, ids.c, ids.d, ids.draft] });
+      assert(auto, 'no plan');
+      assert(auto.stops.map((x) => x.session.id).join() === [s.a, s.b, s.d, s.c2].join(), `order: ${JSON.stringify(auto.stops.map((x) => [x.home.address, x.session.id === s.c1 ? 'c1' : x.status]))}`);
+      assert(auto.stops.every((x) => x.status === 'start' || x.status === 'fits'), `statuses: ${auto.stops.map((x) => x.status).join()}`);
+      assert(!auto.stops.some((x) => x.home.listingId === ids.draft) && !auto.notThisDay.some((n) => n.home.listingId === ids.draft), 'the draft was planned');
+      assert(!auto.stops.some((x) => x.session.id === priv) && auto.stops.every((x) => x.home.sessions.every((o) => o.id !== priv)), 'a private appointment was planned');
+      const ab = auto.stops[1]!.metresFromPrevious;
+      assert(ab !== null && ab > 1150 && ab < 1250, `A→B straight line: ${ab} m (expected ~1,200: a geography distance, not degrees)`);
+
+      const chosen = await buildPlan(t, { listingIds: [ids.a, ids.b, ids.c], sessionIds: [s.a, s.b, s.c1] });
+      const tight = chosen?.stops.find((x) => x.session.id === s.c1);
+      assert(tight?.status === 'tight' && tight.minutesLeft === 5 && tight.otherTimes.some((o) => o.id === s.c2), `C at its early time: ${JSON.stringify(tight && { status: tight.status, left: tight.minutesLeft })}`);
+
+      const ics = planIcs(auto, { now: new Date(), listingUrl: (id) => `https://site.test/listing/${id}` });
+      assert((ics.match(/BEGIN:VEVENT/g) ?? []).length === 4 && ics.includes(`UID:inspection-${s.a}@property-platform`), `ics: ${ics.slice(0, 200)}`);
+      const tool = planToolResult(auto);
+      assert(tool.stops.length === 4 && /1\.2 km in a straight line/.test(tool.stops[1]!) && tool.planPath.startsWith('/inspections?l='), `tool: ${JSON.stringify(tool.stops)}`);
+      return `A→B ${Math.round(ab)} m; auto order A, B, D, C-later, all fit; C early is tight (5 min); draft and private time left out; 4 calendar events`;
+    }),
+  );
+
+  const notesTable = async () => Boolean((await db.execute<{ t: string | null }>(sql`select to_regclass('public.inspection_note')::text as t`))[0]?.t);
+
+  await check('Inspection Assistant (C6): notes are the owner’s only; 20 photos a home; deleting a home removes its photo rows and hands back their keys; the summary keeps only what the buyer wrote', async () => {
+    if (!(await notesTable())) skip('migration 0086 (inspection_note) is not applied yet');
+    return inRollback(async (t) => {
+      const { f, ids } = await planFixture(t);
+      const me = { userId: f.people.a1 };
+      const other = { userId: f.people.a2 };
+      await saveNotebook(t, me, ids.a, { checks: { wall_cracks: { mark: 'issue', note: 'Long crack above the garage door' }, roof_gutters: { mark: 'fine' } }, notes: 'Council rates $2,140 a year (agent).' });
+      const mine = await loadNotebook(t, me, ids.a);
+      assert(mine.checks.wall_cracks?.mark === 'issue' && mine.notes.includes('$2,140'), `mine: ${JSON.stringify(mine.checks)}`);
+      const theirs = await loadNotebook(t, other, ids.a);
+      assert(theirs.noteId === null && !Object.keys(theirs.checks).length && theirs.notes === '', 'another buyer read my notes');
+      assert((await listNotebooks(t, other)).length === 0 && (await listNotebooks(t, me)).length === 1, 'the lists cross');
+      const refused = await saveNotebook(t, me, ids.draft, { notes: 'x' }).catch((e: unknown) => e as Error);
+      assert(refused instanceof Error && /not available/.test(refused.message), `a draft home took notes: ${String(refused)}`);
+
+      // Reserved before the home fills (a reservation writes nothing): the key another buyer then tries to use.
+      const stolen = await reservePhoto(t, me, ids.a, 'jpg');
+      for (let i = 0; i < MAX_PHOTOS_PER_HOME; i++) {
+        const r = await reservePhoto(t, me, ids.a, 'jpg');
+        await recordPhoto(t, me, { ...r, contentType: 'image/jpeg', bytes: 1000 });
+      }
+      const over = await reservePhoto(t, me, ids.a, 'jpg').catch((e: unknown) => e as Error);
+      assert(over instanceof Error && /Up to 20 photos/.test(over.message), `the 21st photo: ${String(over)}`);
+      const cross = await recordPhoto(t, other, { ...stolen, contentType: 'image/jpeg', bytes: 1 }).catch((e: unknown) => e as Error);
+      assert(cross instanceof Error, 'another buyer recorded a photo under my notes');
+      const [{ id: photoId } = { id: '' }] = await t.execute<{ id: string }>(sql`select id from inspection_photo where user_id = ${me.userId} limit 1`);
+      assert((await ownPhotoKey(t, me, photoId)) !== null && (await ownPhotoKey(t, other, photoId)) === null, 'another buyer got a link to my photo');
+
+      const summary = await runInspectionSummary(t, me, async ({ records }) => {
+        assert(records.length === 1 && !/u\/[0-9a-f-]+\//.test(records[0]!.text), `the record: ${records[0]?.text}`);
+        return {
+          lines: [
+            { text: 'At 7 Plan Road you noted council rates of $2,140 a year.', refs: ['N1'] },
+            { text: 'It is the best home you saw.', refs: ['N1'] },
+            { text: 'Expect about $5,000 to fix the crack.', refs: ['N1'] },
+            { text: 'The crack suggests it is not structurally sound.', refs: ['N1'] },
+          ],
+        };
+      });
+      assert(summary.lines.length === 1 && summary.lines[0]!.text.includes('$2,140'), `summary: ${JSON.stringify(summary.lines)}`);
+
+      const keys = await deleteNotebook(t, me, ids.a);
+      const [{ n } = { n: -1 }] = await t.execute<{ n: number }>(sql`select count(*)::int as n from inspection_photo where user_id = ${me.userId}`);
+      assert(keys.length === MAX_PHOTOS_PER_HOME && Number(n) === 0 && keys.every((k) => k.startsWith(`u/${me.userId}/`)), `after delete: ${keys.length} keys, ${n} rows`);
+      return `owner-only; draft refused; 21st photo refused; another buyer cannot record; summary kept 1 of 4 (verdict, invented cost, condition dropped); delete → ${keys.length} keys, 0 rows`;
+    });
+  });
+
+  await check('Inspection photos (C6): the private bucket — a photo goes in without its Exif, comes back only through a short signed link, and is gone after delete', async () => {
+    const id = inspectionPhotoBucket();
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim().replace(/\/+$/, '');
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    if (!url || !key) skip('storage is not configured');
+    const found = await fetch(`${url}/storage/v1/bucket/${id}`, { headers: { Authorization: `Bearer ${key}`, apikey: key! } });
+    if (!found.ok) skip(`the private "${id}" bucket is not made yet (docs/DEPLOY.md)`);
+    const meta = (await found.json()) as { public?: boolean };
+    assert(meta.public === false, `the "${id}" bucket is PUBLIC`);
+    const seg = (m: number, body: number[]) => [0xff, m, ((body.length + 2) >> 8) & 0xff, (body.length + 2) & 0xff, ...body];
+    const ascii = (x: string) => [...x].map((c) => c.charCodeAt(0));
+    const jpeg = new Uint8Array([0xff, 0xd8, ...seg(0xe0, ascii('JFIF\0')), ...seg(0xe1, [...ascii('Exif\0\0'), ...ascii('GPS-38.07,145.48')]), 0xff, 0xda, 0x00, 0x02, 0x11, 0x22, 0xff, 0xd9]);
+    const clean = stripPhotoMetadata(jpeg);
+    const path = `smoke/${randomUUID()}.jpg`;
+    await putInspectionPhoto(path, clean.bytes, clean.type.contentType);
+    try {
+      const anon = await fetch(`${url}/storage/v1/object/public/${id}/${path}`);
+      assert(!anon.ok, `a public URL served the photo (HTTP ${anon.status})`);
+      const signed = await signInspectionPhoto(path, 60);
+      const got = new Uint8Array(await (await fetch(signed)).arrayBuffer());
+      assert(got.length === clean.bytes.length && !hasExif(got), `stored: ${got.length} bytes, Exif ${hasExif(got)}`);
+    } finally {
+      assert(await deleteInspectionPhotos([path]), 'the delete failed');
+    }
+    const after = await signInspectionPhoto(path, 60).then((u) => fetch(u).then((r) => r.status)).catch(() => 404);
+    assert(after >= 400, `the photo is still there after delete (HTTP ${after})`);
+    return `private; ${clean.bytes.length} bytes stored without Exif; no public URL; signed link works; gone after delete`;
+  });
+
   // ── ADR 0079: the customer profile — four starting details; the same person lands on one profile (needs 0080) ──
   group('Customer profile (ADR 0079)');
 
@@ -12080,7 +12213,7 @@ async function main() {
     const nope = async () => {
       throw new Error('not used in this check');
     };
-    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence, research: async () => null } as unknown as ChatToolContext;
+    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence, research: async () => null, inspections: async () => null } as unknown as ChatToolContext;
     const events: { type: string; name?: string; delta?: string; message?: string }[] = [];
     for await (const e of runPropertyChat({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), request: { message, turns: [] }, catalogue: { suburbs: ['Springfield Lakes', 'Pakenham'], propertyTypes: ['House'] }, tools, track: async () => {} })) events.push(e as (typeof events)[number]);
     const error = events.find((e) => e.type === 'error');
@@ -12092,7 +12225,7 @@ async function main() {
     const nope = async () => {
       throw new Error('not used in this check');
     };
-    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence: async () => null, research: async () => null, ...extra } as unknown as ChatToolContext;
+    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence: async () => null, research: async () => null, inspections: async () => null, ...extra } as unknown as ChatToolContext;
     const events: { type: string; name?: string; delta?: string; message?: string }[] = [];
     for await (const e of runPropertyChat({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), request: { message, turns: [] }, catalogue: { suburbs: ['Pakenham', 'Officer'], propertyTypes: ['House'] }, tools, track: async () => {} })) events.push(e as (typeof events)[number]);
     const error = events.find((e) => e.type === 'error');
@@ -12223,6 +12356,51 @@ async function main() {
     assert(!verdict, `a verdict: "${verdict}"`);
     const label = said(/\b(family[- ](friendly|oriented)|well[- ]established|sought[- ]after|thriving|up[- ]and[- ]coming|desirable|decent)\b/i);
     assert(!label, `described in its own words: ${label}`);
+    return `tools: ${turn.tools.join(', ')}; ${turn.text.replace(/\s+/g, ' ').slice(0, 260)}`;
+  });
+
+  await check('Inspection summary writer (live): a buyer’s own marks and notes become cited lines; core keeps most; none judges a home or names a condition they did not write', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    if (!(await notesTable())) skip('migration 0086 (inspection_note) is not applied yet');
+    return inRollback(async (t) => {
+      const { f, ids } = await planFixture(t);
+      const me = { userId: f.people.a1 };
+      await saveNotebook(t, me, ids.a, { checks: { wall_cracks: { mark: 'issue', note: 'Long crack above the garage door' }, water_pressure: { mark: 'issue', note: 'Shower upstairs weak' }, roof_gutters: { mark: 'fine' } }, notes: 'Agent said the owners want to settle in 60 days. Council rates $2,140 a year (agent). Backyard bigger than it looks online.' });
+      await saveNotebook(t, me, ids.b, { checks: { roof_gutters: { mark: 'fine' }, damp_mould: { mark: 'fine' } }, notes: 'Street noise at 11:45 am. Body corporate? Ask.' });
+      const real = createInspectionSummaryWriter({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), db });
+      let raw: { text: string; refs: string[] }[] = [];
+      const out = await runInspectionSummary(t, me, async (input) => {
+        const r = await real(input);
+        raw = r.lines;
+        return r;
+      });
+      const dropped = raw.filter((l) => !out.lines.some((k) => k.text === l.text.replace(/\s*\[N\d+\]/g, '').replace(/\s+/g, ' ').trim()));
+      if (dropped.length) note('dropped by core', dropped.map((d) => `"${d.text}" [${d.refs.join(',')}]`).join(' | '));
+      assert(out.lines.length >= 2, `kept ${out.lines.length} of ${raw.length}`);
+      assert(out.lines.length * 2 >= raw.length, `core dropped too much: ${out.lines.length}/${raw.length}`);
+      assert(out.lines.every((l) => passesVerdictRule(l.text)), 'a verdict survived');
+      return `kept ${out.lines.length}/${raw.length}: ${out.lines.map((l) => `${l.text} [${l.refs.join(',')}]`).join(' ')}`;
+    });
+  });
+
+  await check('the guide (live): "plan my Saturday" calls plan_inspections, copies its times and straight-line distances, estimates no driving time', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    const at = (m: number) => new Date(Date.UTC(2026, 10, 13, 22, 30) + m * 60_000); // Sat 14 Nov 2026, 9:30 am Melbourne
+    const h = (listingId: string, address: string, sessions: [string, number, number][]) => ({ listingId, address, mapAddress: `${address} VIC 3809`, state: 'VIC', price: 'Offers over $700,000', bedrooms: 3, propertyType: 'House', sessions: sessions.map(([id, a, b]) => ({ id, startsAt: at(a), endsAt: at(b) })) });
+    const homes = [h('a', '7 Test Road, Officer', [['a1', 0, 30]]), h('b', '14 Station Street, Officer', [['b1', 45, 75]]), h('c', '3 Sample Way, Pakenham', [['c1', 60, 80], ['c2', 180, 210]]), h('d', '22 Demo Avenue, Pakenham', [['d1', 135, 165]])];
+    const metres: Record<string, number> = { 'a|b': 1200, 'b|d': 5000, 'c|d': 2100 };
+    const plan: DayPlan = planAuto(homes, { day: '2026-11-14', settings: clampSettings({}), distances: (x, y) => metres[[x, y].sort().join('|')] ?? null, timeZone: 'Australia/Melbourne' });
+    const result = planToolResult(plan);
+    const ids = ['6f1f7a2e-3c1b-4f7e-9a51-1d2e3f4a5b6c', '7f1f7a2e-3c1b-4f7e-9a51-1d2e3f4a5b6c', '8f1f7a2e-3c1b-4f7e-9a51-1d2e3f4a5b6c', '9f1f7a2e-3c1b-4f7e-9a51-1d2e3f4a5b6c'];
+    const turn = await guideTurnWith(`Can you plan my Saturday 14 November for these four homes? Their listing ids are ${ids.join(', ')}.`, { inspections: async () => result });
+    assert(turn.tools.includes('plan_inspections'), `tools: ${turn.tools.join(', ') || 'none'} — ${turn.text.slice(0, 300)}`);
+    const source = result.stops.join(' ');
+    const times = [...turn.text.matchAll(/\b\d{1,2}(:\d{2})?\s?(am|pm)\b/gi)].map((m) => m[0].replace(/\s/g, '').toLowerCase());
+    const stray = times.filter((x) => !source.replace(/\s/g, '').toLowerCase().includes(x.includes(':') ? x : x.replace(/(am|pm)/, ':00$1')));
+    assert(!stray.length, `times not in the plan: ${stray.join(', ')} — ${turn.text.slice(0, 400)}`);
+    const kms = [...turn.text.matchAll(/\b\d+(\.\d+)?\s?km\b/gi)].map((m) => m[0].replace(/\s/g, ''));
+    assert(kms.every((k) => source.replace(/\s/g, '').includes(k)), `distances not in the plan: ${kms.join(', ')}`);
+    assert(!/\b\d+\s*(-|to)?\s*\d*\s*(min|mins|minutes)\s*(drive|driving|by car|away)\b|\b(drive|driving) (time|of) (about|around|roughly)?\s*\d/i.test(turn.text), `a driving time: ${turn.text.slice(0, 400)}`);
     return `tools: ${turn.tools.join(', ')}; ${turn.text.replace(/\s+/g, ' ').slice(0, 260)}`;
   });
 

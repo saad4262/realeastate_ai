@@ -437,7 +437,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
                 </div>
               </section>
 
-              <Inspections inspections={inspections} />
+              <Inspections inspections={inspections} listingId={listing.id} />
 
               {listing.headline || listing.description ? (
                 <Card id="about" eyebrow="Property description" title="About this property">

@@ -53,7 +53,7 @@ function ctx(sales: RecentSale[], over: Partial<ToolContext> = {}) {
     places: new Map(),
     skillBlocks: new Map(),
     dueDiligence: async () => null,
-    research: async () => null,
+    research: async () => null, inspections: async () => null,
     scheduling: { state: 'signed_out' },
     resolvePlace: vi.fn(async () => PAKENHAM),
     search: vi.fn(async () => []),
