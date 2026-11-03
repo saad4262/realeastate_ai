@@ -405,6 +405,19 @@ describe('can()', () => {
     });
   });
 
+  /** ADR 0080 C4: a buyer's shortlist is theirs alone — no agency owner, no other buyer. */
+  describe('shortlist', () => {
+    it('lets a buyer read and change their own shortlist, and nobody else', () => {
+      const own = { type: 'shortlist', ownerId: 'buyer-1' };
+      for (const action of ['shortlist:read', 'shortlist:manage'] as const) {
+        expect(can({ userId: 'buyer-1' }, action, own)).toBe(true);
+        expect(can({ userId: 'buyer-2' }, action, own)).toBe(false);
+        expect(can({ userId: 'owner-a', agencyId: agencyA, membershipRole: 'owner' }, action, own)).toBe(false);
+        expect(can({ userId: '' }, action, { type: 'shortlist' })).toBe(false);
+      }
+    });
+  });
+
   /** ADR 0080: a buyer's consumer-skill switches are theirs alone, exactly as their schedules are. */
   describe('consumer skills', () => {
     const buyer: Actor = { userId: 'buyer-1' };

@@ -118,4 +118,7 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   triggers with only council text, or none, stay "not verified" (ROADMAP technical debt).
 - [~] C4 Profile and watch — mock `docs/mocks/consumer-profile-watch.html`: all seven decisions approved as
   recommended (2026-11-03). Build order: shortlist → Property Monitor → Personal Property AI → Smart Alerts upgrade.
+  Shortlist built (uncommitted): `packages/core/src/shortlist/` (`shortlist:read/manage`, owner only; public homes
+  only; "no longer advertised", never "withdrawn"), Save on the listing (server actions verify the session on the
+  cached page), `/account/shortlist` with notes. Next: Property Monitor (migration: `property_watch`).
 - [ ] C5 · [ ] C6 · [ ] C7 · [ ] C8 · [ ] C9

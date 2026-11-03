@@ -130,6 +130,15 @@ export default async function AccountPage() {
           </Link>
         </section>
 
+        {/* ADR 0080 C4. No count here: one more query on every visit; the page says. */}
+        <section className={styles.card}>
+          <h2 className={styles.cardLabel}>Shortlist</h2>
+          <p className={styles.body}>Homes you saved, with your own notes. Only you can see them.</p>
+          <Link href="/account/shortlist" className={styles.secondary}>
+            Open shortlist
+          </Link>
+        </section>
+
         {/* ADR 0080. No count of skills on: it would be one more query, and the page itself says. */}
         <section className={styles.card}>
           <h2 className={styles.cardLabel}>AI skills</h2>

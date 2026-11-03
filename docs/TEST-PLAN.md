@@ -2016,3 +2016,18 @@ Public site. CI2, CI3 and CI8 call the model (a real key; a few cents). No price
 | CI7 | Switch Renovation AI off in Skills | The page says it is switched off; the listing card is gone. |
 | CI8 | On /chat: "how much to knock out the wall between kitchen and dining in Victoria?" | The guide gives no figure, says why, names what drives the cost (load-bearing first), the permit note with its source, and points to the Renovation page. |
 
+## CJ — Profile and watch: the shortlist (ADR 0080, C4)
+
+Public site, a signed-in buyer (alias email) and a private window. Property Monitor, Personal Property AI and the
+alert upgrade are added here as they land.
+
+| # | Case | Expected |
+|---|---|---|
+| CJ1 | Signed out, a listing | "♡ Sign in to save" beside the For sale chip; it goes to sign-in and back to the listing. |
+| CJ2 | Signed in, press Save | "♥ Saved" at once; reload — still saved. My account → Shortlist lists it with price, specs and status "For sale". |
+| CJ3 | Add a note, reload; Edit note | The note is kept (extra spaces folded); edits save. |
+| CJ4 | In the console, withdraw that listing; open the shortlist | The home stays, "No longer advertised", no link; the note is still there. Its listing page cannot be saved by anyone else. |
+| CJ5 | Change a saved listing's price in the console | "Price changed on <today>" on its shortlist row. |
+| CJ6 | Remove | The row goes; the listing's heart reads "Save". |
+| CJ7 | As an agency owner in the console | Nothing shows who saved anything. |
+

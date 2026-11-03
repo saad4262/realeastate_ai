@@ -259,6 +259,7 @@ import { isSkillOn, setSkillSwitch, skillsOffForActor } from '@repo/core/skill-s
 import { consumerSkillBlocks, listConsumerSkills, setConsumerSkill, usersWithConsumerSkillOff } from '@repo/core/consumer-skills';
 import { dutyRatesDue } from '@repo/core/affordability';
 import { buildRenovationPlan, listingRooms, renovationListing, renovationRulesDue } from '@repo/core/renovation';
+import { addToShortlist, listShortlist, removeFromShortlist, setShortlistNote } from '@repo/core/shortlist';
 import { createRenovationPlanner } from '@repo/ai/renovation';
 import { runPropertyChat, type ToolContext as ChatToolContext } from '@repo/ai/chat';
 import { dispatchTool } from '@repo/ai/tools';
@@ -7686,6 +7687,31 @@ async function main() {
       const nf = await listingRooms(t, async () => ({ photos: [] }), l!.id).catch((e: unknown) => e as Error);
       assert(nf instanceof Error && /not available/.test(nf.message), `draft rooms: ${String(nf)}`);
       return 'live → VIC with 1 photo → kitchen; a "condition" answer refused; draft → not available';
+    }),
+  );
+
+  await check('Shortlist (C4): a buyer saves a public home with a note; a withdrawn one reads "not advertised" and cannot be saved; nobody else sees it; remove', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const [l] = await t.execute<{ id: string }>(sql`select id from listing where property_id = ${f.propertyId} limit 1`);
+      const mk = async (k: string) => (await t.execute<{ id: string }>(sql`insert into "user" (id, email) values (${randomUUID()}, ${`${k}.${f.tag}@smoke.test`}) returning id`))[0]!.id;
+      const a = { userId: await mk('sl-a') };
+      const b = { userId: await mk('sl-b') };
+      await addToShortlist(t, a, l!.id);
+      await addToShortlist(t, a, l!.id); // twice: still one
+      await setShortlistNote(t, a, l!.id, '  Big yard,   check the train noise. ');
+      const mine = await listShortlist(t, a);
+      assert(mine.length === 1 && mine[0]!.standing === 'for_sale' && mine[0]!.note === 'Big yard, check the train noise.', `a: ${JSON.stringify(mine)}`);
+      assert((await listShortlist(t, b)).length === 0, 'another buyer saw it');
+      const theirs = await setShortlistNote(t, b, l!.id, 'x').catch((e: unknown) => e as Error);
+      assert(theirs instanceof Error && /not on your shortlist/.test(theirs.message), `b's note: ${String(theirs)}`);
+      await t.execute(sql`update listing set status = 'withdrawn' where id = ${l!.id}`);
+      assert((await listShortlist(t, a))[0]!.standing === 'not_advertised', 'withdrawn did not read "not advertised"');
+      const refused = await addToShortlist(t, b, l!.id).catch((e: unknown) => e as Error);
+      assert(refused instanceof Error && /not available/.test(refused.message), `saving a withdrawn home: ${String(refused)}`);
+      await removeFromShortlist(t, a, l!.id);
+      assert((await listShortlist(t, a)).length === 0, 'remove left it');
+      return 'saved once with a cleaned note; B sees nothing and cannot note it; withdrawn → "not advertised", unsaveable; removed';
     }),
   );
 

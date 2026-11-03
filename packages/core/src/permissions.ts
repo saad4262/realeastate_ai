@@ -444,6 +444,10 @@ export type Action =
   | 'consumer_skill:read'
   /** Flip one of them. Only the buyer whose switch it is; no agency role reaches it. */
   | 'consumer_skill:manage'
+  /** A buyer's own shortlist (ADR 0080 C4): see it. The owner only. */
+  | 'shortlist:read'
+  /** Save, remove, note. The owner only; no agency role reaches it (C4 decision 7). */
+  | 'shortlist:manage'
   /** The admin console (ADR 0049): list every agency and open a read-only view of one. */
   | 'platform:read'
   /**
@@ -959,6 +963,8 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'schedule:manage':
     case 'consumer_skill:read':
     case 'consumer_skill:manage':
+    case 'shortlist:read':
+    case 'shortlist:manage':
       // Deliberately NOT `|| isAgencyAdmin(actor)`. An agency admin has no
       // claim on a buyer's saved search or their conversation with the guide:
       // between them those record where somebody wants to live, what they can

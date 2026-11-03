@@ -31,7 +31,9 @@ const files = [...walk(join(ROOT, 'apps', 'console', 'app')), ...walk(join(ROOT,
 const rel = (p: string) => relative(ROOT, p);
 
 /** Calls that read the caller from the verified session (cookies / middleware header). */
-const SESSION = /\b(requireActionUserId|actionUserId|requireAuthAccount|getAuthAccount|ensureConsumerAccount|currentWebUser|requireConsoleAccess|requireConsoleSession|requirePlatformAdmin|getSessionUser|requireUser)\s*\(/;
+// `verifiedWebUserForAction`: the session check for an action posted from a page outside the middleware matcher
+// (the cached listing page) — getClaims plus the blocked-user read (apps/web/lib/session.ts).
+const SESSION = /\b(requireActionUserId|actionUserId|requireAuthAccount|getAuthAccount|ensureConsumerAccount|currentWebUser|verifiedWebUserForAction|requireConsoleAccess|requireConsoleSession|requirePlatformAdmin|getSessionUser|requireUser)\s*\(/;
 
 /**
  * Public on purpose, each with the guard its reason relies on (a regex that

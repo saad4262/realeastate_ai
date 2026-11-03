@@ -50,6 +50,7 @@
     "./skills": "./src/skills/index.ts",
     "./affordability": "./src/affordability/index.ts",
     "./due-diligence": "./src/due-diligence/index.ts",
+    "./shortlist": "./src/shortlist/index.ts",
     "./renovation": "./src/renovation/index.ts",
     "./renovation/quotes": "./src/renovation/quotes.ts",
     "./renovation/categories": "./src/renovation/categories.ts",

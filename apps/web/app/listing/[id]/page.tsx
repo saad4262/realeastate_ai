@@ -16,6 +16,7 @@ import { ListingMap } from '../../../components/listing-map';
 import { EnquiryForm } from '../../../components/enquiry-form';
 import { CostsToBuy } from '../../../components/costs-to-buy';
 import { PlanRenovationLink } from '../../../components/plan-renovation-link';
+import { ShortlistHeart } from '../../../components/shortlist-heart';
 import { BeforeYouBuy } from '../../../components/before-you-buy';
 import { ListingReviews } from '../../../components/listing-reviews';
 import {
@@ -414,7 +415,10 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
                     </p>
                     <h1 className="font-display text-headline-xl text-ink">{price}</h1>
                   </div>
-                  <Chip tone="neutral">{channelLabel(listing.channel)}</Chip>
+                  <div className="flex items-center gap-sm">
+                    <ShortlistHeart listingId={listing.id} />
+                    <Chip tone="neutral">{channelLabel(listing.channel)}</Chip>
+                  </div>
                 </div>
 
                 <div className="mt-sm">
