@@ -99,3 +99,4 @@ export {
   type IntervalUnit,
   type Meridiem,
 } from './time-input';
+export { alertExtras, type AlertExtras } from './alert-extras';

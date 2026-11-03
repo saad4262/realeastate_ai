@@ -34,6 +34,12 @@ export type ClaimedSchedule = {
   scheduledFor: Date;
   /** Listing ids the previous run reported, for the "what is new" diff. */
   previousListingIds: string[];
+  /**
+   * When this alert last emailed, and the homes its emails carried in the last 90 days (ADR 0080, C4 decision 6:
+   * price changes on homes it sent, sales since the last email). Null and empty on a first run.
+   */
+  lastEmailedAt: Date | null;
+  sentListingIds: string[];
   consecutiveFailures: number;
 };
 
@@ -203,6 +209,14 @@ export async function claimDueSchedules(
         .orderBy(sql`${scheduleRun.scheduledFor} desc`)
         .limit(1);
 
+      const [sent] = await tx.execute<{ last: Date | string | null; ids: string[] | null }>(sql`
+        select max(emailed_at) as last,
+               (select array_agg(distinct x) from (
+                  select unnest(r2.listing_ids) as x from schedule_run r2
+                  where r2.schedule_id = ${row.id} and r2.emailed_at > now() - interval '90 days'
+                  limit 500) ids) as ids
+        from schedule_run where schedule_id = ${row.id} and emailed_at is not null`);
+
       claimed.push({
         runId: run.id,
         scheduleId: row.id,
@@ -213,6 +227,8 @@ export async function claimDueSchedules(
         query: parsed.data,
         scheduledFor: row.nextRunAt,
         previousListingIds: previous?.listingIds ?? [],
+        lastEmailedAt: sent?.last ? new Date(sent.last) : null,
+        sentListingIds: (sent?.ids ?? []).filter(Boolean),
         consecutiveFailures: row.consecutiveFailures,
       });
     }

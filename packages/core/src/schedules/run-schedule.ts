@@ -14,6 +14,7 @@ import { pruneOldChats } from '../chat/threads';
 import { checkAiBudget } from './budget';
 import { claimDueSchedules, DEFAULT_CLAIM_LIMIT, type ClaimedSchedule } from './claim';
 import { pausedConsumerSkills } from '../consumer-skills/catalog';
+import { alertExtras } from './alert-extras';
 import { sweepAbandonedRuns } from './sweep-runs';
 
 /** How many listings a run snapshots. The email shows five; the page shows all. */
@@ -235,6 +236,16 @@ export async function runOneSchedule(
         ? summary.text
         : templateSummary({ newCount: newIds.length, matched: listings.length, description });
 
+    // ---- the extras (ADR 0080, C4 decision 6): from SQL, after the model, never shown to it -------------
+    // A failure here costs the two sections, never the alert.
+    const base = deps.baseUrl.replace(/\/$/, '');
+    const extras = await alertExtras(db, { query: claimed.query, lastEmailedAt: claimed.lastEmailedAt, sentListingIds: claimed.sentListingIds })
+      .then((x) => ({ ...x, priceChanges: x.priceChanges.map((c) => ({ address: c.address, text: c.text, url: `${base}/listing/${c.listingId}` })) }))
+      .catch((err: unknown) => {
+        console.error('[alerts] extras failed', err);
+        return undefined;
+      });
+
     // ---- the email -------------------------------------------------------
     const message = buildScheduleDigestEmail({
       to: { email: claimed.email },
@@ -247,6 +258,7 @@ export async function runOneSchedule(
       listings,
       summary: summaryText,
       summarySource: summary.source,
+      ...(extras ? { extras } : {}),
       resultsUrl: `${deps.baseUrl.replace(/\/$/, '')}${savedQueryToPath(claimed.query)}`,
       unsubscribeUrl: unsubscribeUrl(
         deps.baseUrl,

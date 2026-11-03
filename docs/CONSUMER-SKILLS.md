@@ -116,7 +116,7 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   gave no price. TEST-PLAN CI.
   Permit rules for WA (3 triggers), SA (8), TAS (5), ACT (6), NT (4) added 2026-11-03 from state sources; the
   triggers with only council text, or none, stay "not verified" (ROADMAP technical debt).
-- [~] C4 Profile and watch — mock `docs/mocks/consumer-profile-watch.html`: all seven decisions approved as
+- [x] C4 Profile and watch — mock `docs/mocks/consumer-profile-watch.html`: all seven decisions approved as
   recommended (2026-11-03). Build order: shortlist → Property Monitor → Personal Property AI → Smart Alerts upgrade.
   Shortlist built (uncommitted): `packages/core/src/shortlist/` (`shortlist:read/manage`, owner only; public homes
   only; "no longer advertised", never "withdrawn"), Save on the listing (server actions verify the session on the
@@ -130,5 +130,8 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   the buyer's edits; applied 2026-11-03), `packages/core/src/profile/` (five fields about the home, counted by code
   from saved searches, chat filters, shortlist and watches made AFTER the switch was turned on or the last forget;
   each with its source; edits win; a strict schema refuses anything about the person), the guide's starting line
-  (an uncached system block after the cached prompt), `/account/profile`. Next: the Smart Alerts upgrade.
+  (an uncached system block after the cached prompt), `/account/profile`. Committed `b3f5082`.
+  Smart Alerts upgrade built (uncommitted): the claim brings the last email's time and the homes emailed in 90 days;
+  `alert-extras.ts` reads price changes on those homes (still public) and sales in the search's suburb since the
+  last email; the digest shows both in two sections; the summariser never sees them. C4 complete once committed.
 - [ ] C5 · [ ] C6 · [ ] C7 · [ ] C8 · [ ] C9

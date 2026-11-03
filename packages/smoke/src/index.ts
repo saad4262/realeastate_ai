@@ -7800,6 +7800,52 @@ async function main() {
     }),
   );
 
+  await check('Smart Alerts upgrade (C4): an alert email adds the price change on a home it sent before and what sold in its suburb since the last email — from SQL, never to the model', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const [l] = await t.execute<{ id: string }>(sql`select id from listing where property_id = ${f.propertyId} limit 1`);
+      await t.execute(sql`update listing set published_at = now() - interval '5 days', price_display = 'Offers over $700,000', price_from = 700000 where id = ${l!.id}`);
+      const [u] = await t.execute<{ id: string }>(sql`insert into "user" (id, email) values (${randomUUID()}, ${`alerts-up.${f.tag}@smoke.test`}) returning id`);
+      const a = { userId: u!.id };
+      const { id } = await createSchedule(t, a, { searchPath: '/search?channel=sale&suburb=Pakenham&state=VIC', name: 'smoke upgrade', cadence: 'daily', sendAtMinute: 1200, timezone: 'Australia/Melbourne' });
+      // The last email went two hours ago and carried this home.
+      await t.execute(sql`insert into schedule_run (schedule_id, user_id, scheduled_for, query, status, listing_ids, email_status, emailed_at, finished_at)
+        select id, user_id, now() - interval '2 hours', query, 'delivered', array[${l!.id}]::uuid[], 'sent', now() - interval '2 hours', now() - interval '2 hours' from search_schedule where id = ${id}`);
+      // Since then: its price changed, and another Pakenham home sold.
+      await t.execute(sql`update listing set price_display = 'Offers over $680,000', price_from = 680000 where id = ${l!.id}`);
+      const [p2] = await t.execute<{ id: string }>(sql`insert into property (street_number, street, suburb, state, postcode) values ('5', 'Example Road', 'Pakenham', 'VIC', '3810') returning id`);
+      await t.execute(sql`insert into listing (property_id, agency_id, channel, status, sold_price, sold_date, published_at) values (${p2!.id}, ${f.agencyId}, 'sale', 'sold', 702000, current_date, now() - interval '30 days')`);
+      // And one new home, so the summariser runs at all — the point is what it is NOT shown.
+      const [p3] = await t.execute<{ id: string }>(sql`insert into property (street_number, street, suburb, state, postcode) values ('9', 'Fresh Lane', 'Pakenham', 'VIC', '3810') returning id`);
+      await t.execute(sql`insert into listing (property_id, agency_id, channel, status, price_display, price_from, published_at) values (${p3!.id}, ${f.agencyId}, 'sale', 'live', 'Offers over $750,000', 750000, now() - interval '1 day')`);
+      await t.update(searchSchedule).set({ nextRunAt: new Date(Date.now() - 60_000) }).where(eq(searchSchedule.id, id));
+
+      const transport = fakeTransport();
+      let summarised = '';
+      await runScheduleTick(t, {
+        search: (query) => searchPublicListings(t, query),
+        resolvePlace: async () => null,
+        transport,
+        sender: { from: { email: 'alerts@example.invalid', name: 'Smoke Co' }, postalAddress: '1 Smoke St, Test City' },
+        baseUrl: 'https://smoke.test',
+        unsubscribeSecret: 'smoke-secret',
+        // A fake summariser that records what the model WOULD be shown — it must not include the extras.
+        summarise: async (facts) => {
+          summarised = JSON.stringify(facts);
+          return { source: 'template', text: null };
+        },
+      }, { limit: 5, ownerId: a.userId });
+      const msg = transport.sent.find((m) => m.to.email === `alerts-up.${f.tag}@smoke.test`);
+      assert(msg, 'no alert email');
+      assert(msg.text.includes('Price changes on homes we sent you:') && msg.text.includes('from Offers over $700,000 to Offers over $680,000'), `price change missing: ${msg.text}`);
+      assert(msg.text.includes('Sold in Pakenham since your last email:') && msg.text.includes('5 Example Road — $702,000'), `sale missing: ${msg.text}`);
+      // The extras' own figures — the OLD price and the sale — must never reach it. (Current prices of matched homes are its input, as before.)
+      assert(summarised.length > 0, 'the summariser never ran — this check would prove nothing');
+      assert(!summarised.includes('700,000') && !summarised.includes('702,000') && !summarised.includes('Example Road'), `the model was shown an extra: ${summarised}`);
+      return 'the price change on a home it sent and the Pakenham sale appear; neither reached the summariser';
+    }),
+  );
+
   await check('Renovation permit rules: checked since the last 1 July; which states are still unverified', async () => {
     const due = renovationRulesDue(new Date());
     for (const r of due.stale) note(`permits ${r.state}`, `${r.source.name} last checked ${r.source.checkedOn} — re-check it (packages/core/src/renovation/permits.ts)`);

@@ -54,6 +54,15 @@ export type ScheduleDigestInput = {
   /** Absolute. `savedQueryToPath` gives the path; the caller adds the origin. */
   resultsUrl: string;
   unsubscribeUrl: string;
+  /**
+   * ADR 0080, C4 decision 6: price changes on homes this alert sent, and what sold in its suburb, since the last
+   * email. From SQL, already formatted; never shown to the model. Absent or empty: no section.
+   */
+  extras?: {
+    priceChanges: { address: string; text: string; url: string }[];
+    sold: { address: string; price: string }[];
+    suburb: string | null;
+  };
 };
 
 /**
@@ -127,6 +136,32 @@ function listingText(listing: PublicListingSummary): string {
  * one that must not be sent, so the failure belongs here and not in a
  * reviewer's memory.
  */
+const SECTION_HEAD = "font:600 15px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1a1a1a;margin:22px 0 6px;";
+const SECTION_LINE = "font:400 14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1a1a1a;margin:2px 0;";
+
+/** The two extra sections (ADR 0080, C4 decision 6), or nothing. Every value escaped; every figure from SQL. */
+function extrasHtml(extras: ScheduleDigestInput['extras']): string {
+  if (!extras) return '';
+  const parts: string[] = [];
+  if (extras.priceChanges.length) {
+    parts.push(`<h2 style="${SECTION_HEAD}">Price changes on homes we sent you</h2>`);
+    for (const c of extras.priceChanges) parts.push(`<p style="${SECTION_LINE}"><a href="${escapeHtml(c.url)}" style="color:#0b3d2e;">${escapeHtml(c.address)}</a> — ${escapeHtml(c.text)}.</p>`);
+  }
+  if (extras.sold.length && extras.suburb) {
+    parts.push(`<h2 style="${SECTION_HEAD}">Sold in ${escapeHtml(extras.suburb)} since your last email</h2>`);
+    for (const r of extras.sold) parts.push(`<p style="${SECTION_LINE}">${escapeHtml(r.address)} — ${escapeHtml(r.price)}</p>`);
+  }
+  return parts.join('\n          ');
+}
+
+function extrasText(extras: ScheduleDigestInput['extras']): string[] {
+  if (!extras) return [];
+  const lines: string[] = [];
+  if (extras.priceChanges.length) lines.push('Price changes on homes we sent you:', ...extras.priceChanges.map((c) => `  ${c.address} — ${c.text}. ${c.url}`), '');
+  if (extras.sold.length && extras.suburb) lines.push(`Sold in ${extras.suburb} since your last email:`, ...extras.sold.map((r) => `  ${r.address} — ${r.price}`), '');
+  return lines;
+}
+
 export function buildScheduleDigestEmail(input: ScheduleDigestInput): MarketingMessage {
   requireSenderFooter(input.from, input.postalAddress, 'alert');
   if (!input.unsubscribeUrl.trim()) {
@@ -185,6 +220,8 @@ export function buildScheduleDigestEmail(input: ScheduleDigestInput): MarketingM
             ${shown.map(listingHtml).join('')}
           </table>
 
+          ${extrasHtml(input.extras)}
+
           <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:24px;">
             <tr><td style="background:#0b3d2e;border-radius:6px;">
               <a href="${escapeHtml(input.resultsUrl)}"
@@ -218,6 +255,7 @@ export function buildScheduleDigestEmail(input: ScheduleDigestInput): MarketingM
     '',
     ...shown.map(listingText),
     '',
+    ...extrasText(input.extras),
     `View all ${input.matched} results: ${input.resultsUrl}`,
     '',
     '---',
