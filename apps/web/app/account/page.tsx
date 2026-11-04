@@ -147,6 +147,20 @@ export default async function AccountPage() {
           </Link>
         </section>
 
+        {/* ADR 0080 C7. No count: For you is worked out when it opens. */}
+        <section className={styles.card}>
+          <h2 className={styles.cardLabel}>For you</h2>
+          <p className={styles.body}>Homes that fit your Personal Property AI profile, each saying why — and how to find price reductions and long campaigns.</p>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/account/for-you" className={styles.secondary}>
+              Open for you
+            </Link>
+            <Link href="/opportunities?mine=1" className={styles.secondary}>
+              Opportunities
+            </Link>
+          </div>
+        </section>
+
         {/* ADR 0080 C6. No count here, as the others. */}
         <section className={styles.card}>
           <h2 className={styles.cardLabel}>Inspection notes</h2>

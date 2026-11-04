@@ -170,6 +170,8 @@ export const config = {
     '/inspections',
     '/inspections/:path*',
     '/api/inspections/:path*',
+    // ADR 0080 C7: Opportunities answers the buyer's own switch and "Match my profile"; For you is under /account.
+    '/opportunities',
     '/login',
     '/signup',
     // `/reset` arrives straight from an emailed link and needs the session

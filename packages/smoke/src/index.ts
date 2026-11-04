@@ -269,6 +269,8 @@ import { createResearchWriter } from '@repo/ai/research';
 import { createInspectionSummaryWriter } from '@repo/ai/inspections';
 import { buildPlan, clampSettings, deleteNotebook, ownPhotoKey, planAuto, hasExif, listNotebooks, loadNotebook, MAX_PHOTOS_PER_HOME, planIcs, planToolResult, recordPhoto, reservePhoto, runInspectionSummary, saveNotebook, stripPhotoMetadata, type DayPlan } from '@repo/core/inspections';
 import { deleteInspectionPhotos, inspectionPhotoBucket, putInspectionPhoto, signInspectionPhoto } from '@repo/core/inspections/photo-storage';
+import { discoverToolResult, forYou, hiddenHomes, hideHome, showHomeAgain, similarHomes } from '@repo/core/discovery';
+import { findOpportunities, judgementWords, opportunityToolResult, signalLine, type OpportunityHome } from '@repo/core/buyer-opportunities';
 import { runPropertyChat, type ToolContext as ChatToolContext } from '@repo/ai/chat';
 import { dispatchTool } from '@repo/ai/tools';
 import { createDueDiligenceWriter } from '@repo/ai/due-diligence';
@@ -8042,6 +8044,148 @@ async function main() {
     return `private; ${clean.bytes.length} bytes stored without Exif; no public URL; signed link works; gone after delete`;
   });
 
+  // ── C7 Discovery & Opportunity: away from any real listing (the WA desert), so nothing real is within 5 km ──
+  const DISC_LAT = -25.0;
+  const DISC_LNG = 125.0;
+
+  async function discoveryFixture(t: Db) {
+    const f = await contactFixture(t);
+    const sub = { a: `Smokedisc ${f.tag}`, b: `Smokenear ${f.tag}`, c: `Smokefar ${f.tag}` };
+    const prop = async (no: number, suburb: string, dLat: number, beds: number, type: string) =>
+      (await t.execute<{ id: string }>(sql`insert into property (street_number, street, suburb, state, postcode, latitude, longitude, bedrooms, property_type) values (${String(no)}, 'Disc Road', ${suburb}, 'WA', '6999', ${DISC_LAT + dLat}, ${DISC_LNG}, ${beds}, ${type}) returning id`))[0]!.id;
+    const home = async (no: number, suburb: string, dLat: number, beds: number, top: number | null, opts: { type?: string; status?: string } = {}) => {
+      const p = await prop(no, suburb, dLat, beds, opts.type ?? 'house');
+      const [l] = await t.execute<{ id: string }>(sql`insert into listing (property_id, agency_id, channel, status, price_from, price_to, published_at, bedrooms, property_type) values (${p}, ${f.agencyId}, 'sale', ${opts.status ?? 'live'}, ${top === null ? null : top - 30000}, ${top}, now() - interval '9 days', ${beds}, ${opts.type ?? 'house'}) returning id`);
+      return { listingId: l!.id, propertyId: p };
+    };
+    // Suburb A at the point; B 3 km north; C 8 km north.
+    const h = {
+      exact: await home(1, sub.a, 0, 3, 760000),
+      plusBed: await home(2, sub.a, 0.004, 4, 780000),
+      near: await home(3, sub.b, 0.027, 3, 745000),
+      noPrice: await home(4, sub.a, 0.002, 3, null),
+      over: await home(5, sub.a, 0.001, 3, 850000),
+      twoOff: await home(6, sub.b, 0.027, 4, 700000),
+      far: await home(7, sub.c, 0.072, 3, 700000),
+      draft: await home(8, sub.a, 0.001, 3, 700000, { status: 'draft' }),
+      underOffer: await home(9, sub.a, 0.001, 3, 700000, { status: 'under_offer' }),
+      unit: await home(10, sub.a, 0.001, 3, 700000, { type: 'apartment' }),
+    };
+    const sold = async (no: number, monthsAgo: number, opts: { relist?: boolean } = {}) => {
+      const p = await prop(no, sub.a, 0.003, 3, 'house');
+      await t.execute(sql`insert into listing (property_id, agency_id, channel, status, sold_price, sold_date, published_at, bedrooms, property_type) values (${p}, ${f.agencyId}, 'sale', 'sold', 600000, now() - make_interval(months => ${monthsAgo}), now() - make_interval(months => ${monthsAgo + 2}), 3, 'house')`);
+      if (opts.relist) await t.execute(sql`insert into listing (property_id, agency_id, channel, status, price_from, price_to, published_at, bedrooms, property_type) values (${p}, ${f.agencyId}, 'sale', 'live', 950000, 990000, now() - interval '3 days', 3, 'house')`);
+      return p;
+    };
+    const nfs = { old: await sold(20, 14), recent: await sold(21, 6), relisted: await sold(22, 24, { relist: true }) };
+    return { f, sub, h, nfs };
+  }
+
+  await check('Discovery AI (C7): Similar homes from a listing’s own details — one named difference at most, never a draft, under offer, another kind, past 5 km or out of the price band', async () =>
+    inRollback(async (t) => {
+      const { h, sub } = await discoveryFixture(t);
+      const out = await similarHomes(t, h.exact.listingId);
+      assert(out, 'a live listing had no similar homes');
+      const ids = new Set(out.homes.map((x) => x.listingId));
+      for (const [name, x] of Object.entries({ plusBed: h.plusBed, near: h.near, noPrice: h.noPrice })) assert(ids.has(x.listingId), `missing: ${name}`);
+      for (const [name, x] of Object.entries({ exact: h.exact, over: h.over, twoOff: h.twoOff, far: h.far, draft: h.draft, underOffer: h.underOffer, unit: h.unit })) assert(!ids.has(x.listingId), `suggested: ${name}`);
+      const near = out.homes.find((x) => x.listingId === h.near.listingId)!;
+      assert(near.difference?.kind === 'nearby' && near.difference.metres > 2900 && near.difference.metres < 3100 && near.differenceText === `${sub.b} · 3.0 km away`, `near: ${near.differenceText} (${near.difference && 'metres' in near.difference ? near.difference.metres : '?'} m — a geography distance, not degrees)`);
+      assert(out.homes.every((x) => x.difference !== null), 'a home with no difference other than itself?');
+      assert((await similarHomes(t, h.draft.listingId)) === null, 'a draft listing was answered');
+      return `${out.homes.length} similar: ${out.homes.map((x) => x.differenceText).join('; ')}`;
+    }),
+  );
+
+  const hiddenTable = async () => Boolean((await db.execute<{ t: string | null }>(sql`select to_regclass('public.discovery_hidden')::text as t`))[0]?.t);
+
+  await check('Discovery AI (C7): For you only from a profile that is on; homes not for sale only where this site sold 12+ months ago and nothing is on the market; "Not for me" is the owner’s and Forget everything clears it', async () => {
+    if (!(await hiddenTable())) skip('migration 0087 (discovery_hidden) is not applied yet');
+    return inRollback(async (t) => {
+      const { f, h, sub, nfs } = await discoveryFixture(t);
+      const me = { userId: f.people.a1 };
+      const other = { userId: f.people.a2 };
+      assert((await forYou(t, other, {})).state === 'profile_off', 'For you ran with the profile off');
+      await setConsumerSkill(t, me, 'personal_profile', true);
+      await editProfile(t, me, { suburbs: [sub.a], channel: 'sale', priceTo: 800000, bedrooms: 3, propertyTypes: ['house'] });
+      const view = await forYou(t, me, {});
+      assert(view.state === 'ready', `state: ${view.state}`);
+      if (view.state !== 'ready') return 'unreachable';
+      const ids = new Set(view.homes.map((x) => x.listingId));
+      for (const [name, x] of Object.entries({ exact: h.exact, plusBed: h.plusBed, near: h.near, noPrice: h.noPrice })) assert(ids.has(x.listingId), `missing: ${name}`);
+      for (const [name, x] of Object.entries({ over: h.over, twoOff: h.twoOff, far: h.far, draft: h.draft, underOffer: h.underOffer, unit: h.unit })) assert(!ids.has(x.listingId), `suggested: ${name}`);
+      assert(view.homes[0]!.listingId === h.exact.listingId && view.homes[0]!.difference === null, `first: ${view.homes[0]?.address}`);
+      const near = view.homes.find((x) => x.listingId === h.near.listingId)!;
+      assert(near.differenceText?.startsWith(`${sub.b} · `) && near.differenceText.endsWith(`from ${sub.a}`), `near: ${near.differenceText}`);
+      assert(view.notForSale.length === 1 && view.notForSale[0]!.propertyId === nfs.old, `not for sale: ${JSON.stringify(view.notForSale.map((n) => n.address))} (only the one sold 14 months ago; not 6 months, not relisted)`);
+
+      await hideHome(t, me, h.near.propertyId);
+      const hidden = await forYou(t, me, {});
+      assert(hidden.state === 'ready' && !hidden.homes.some((x) => x.listingId === h.near.listingId), 'a hidden home was suggested');
+      assert((await hiddenHomes(t, me)).length === 1 && (await hiddenHomes(t, other)).length === 0, 'hidden homes crossed buyers');
+      await showHomeAgain(t, me, h.near.propertyId);
+      assert((await hiddenHomes(t, me)).length === 0, 'show again did not');
+      await hideHome(t, me, nfs.old);
+      const noNfs = await forYou(t, me, {});
+      assert(noNfs.state === 'ready' && noNfs.notForSale.length === 0, 'a hidden home not for sale was suggested');
+      await forgetProfile(t, me);
+      assert((await hiddenHomes(t, me)).length === 0, 'Forget everything kept the hidden homes');
+
+      await setConsumerSkill(t, me, 'discovery', false);
+      assert((await consumerSkillBlocks(t, me)).get('discovery') === 'switched_off', 'the switch did not hold');
+      const tool = discoverToolResult(view);
+      assert(tool.found && tool.notForSale[0]!.line.includes('not for sale') && /never guess a value/i.test(tool.rules), `tool: ${JSON.stringify(tool).slice(0, 200)}`);
+      return `profile off → none; ${view.homes.length} for sale (${view.homes.map((x) => x.differenceText ?? 'exact').join('; ')}); 1 not for sale (14 months; 6 months and relisted left out); hide → gone, other buyer sees none; forget → cleared`;
+    });
+  });
+
+  await check('Opportunity AI (C7): a price reduction by the trigger, 60+ days in this campaign, and below this site’s median only with 10 sales of the same suburb, kind and bedrooms — for sale, public, never a judgement', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const town = `Smokeopp ${f.tag}`;
+      const mkProp = async (no: number, beds: number) => (await t.execute<{ id: string }>(sql`insert into property (street_number, street, suburb, state, postcode, bedrooms, property_type) values (${String(no)}, 'Opp Road', ${town}, 'WA', '6998', ${beds}, 'house') returning id`))[0]!.id;
+      let no = 0;
+      const live = async (o: { beds?: number; from: number | null; to?: number | null; display?: string | null; daysAgo: number; status?: string; channel?: string }) =>
+        (await t.execute<{ id: string }>(sql`insert into listing (property_id, agency_id, channel, status, price_from, price_to, price_display, published_at, bedrooms, property_type) values (${await mkProp(++no, o.beds ?? 3)}, ${f.agencyId}, ${o.channel ?? 'sale'}, ${o.status ?? 'live'}, ${o.from}, ${o.to ?? null}, ${o.display ?? null}, now() - make_interval(days => ${o.daysAgo}), ${o.beds ?? 3}, 'house') returning id`))[0]!.id;
+      const reduced = await live({ from: 720000, display: 'Offers over $720,000', daysAgo: 10 });
+      await t.execute(sql`update listing set price_from = 695000, price_display = 'Offers over $695,000' where id = ${reduced}`);
+      const raised = await live({ from: 700000, daysAgo: 10 });
+      await t.execute(sql`update listing set price_from = 710000 where id = ${raised}`);
+      const priced = await live({ from: null, display: 'Contact agent', daysAgo: 10 });
+      await t.execute(sql`update listing set price_from = 600000, price_display = null where id = ${priced}`);
+      const long = await live({ from: 730000, to: 760000, daysAgo: 94 });
+      const fresh = await live({ from: 730000, daysAgo: 20 });
+      const draftLong = await live({ from: 730000, daysAgo: 120, status: 'draft' });
+      const rentLong = await live({ from: null, daysAgo: 120, channel: 'rent' });
+      const cheap = await live({ from: 640000, display: 'Offers over $640,000', daysAgo: 15 });
+      const cheap4 = await live({ beds: 4, from: 500000, daysAgo: 15 });
+      const sold = async (price: number) => t.execute(sql`insert into listing (property_id, agency_id, channel, status, sold_price, sold_date, published_at, bedrooms, property_type) values (${await mkProp(++no, 3)}, ${f.agencyId}, 'sale', 'sold', ${price}, now() - interval '40 days', now() - interval '80 days', 3, 'house')`);
+      for (const p of [650000, 660000, 670000, 672000, 674000, 676000, 678000, 690000, 700000]) await sold(p);
+
+      const ask = { suburbs: [town.toLowerCase()], state: 'WA', priceTo: null, bedrooms: null, propertyType: null, signals: [] };
+      const nine = await findOpportunities(t, ask);
+      const kinds = (o: typeof nine, id: string) => o.homes.find((x) => x.listingId === id)?.signals.map((s) => s.kind) ?? [];
+      assert(nine.counts.below_median === 0 && /The most on this site in .*: 9\./.test(nine.emptyWhy.below_median ?? ''), `9 sales: ${nine.counts.below_median}; ${nine.emptyWhy.below_median}`);
+      await sold(680000);
+      const ten = await findOpportunities(t, ask);
+      const r = ten.homes.find((x) => x.listingId === reduced)?.signals.find((s) => s.kind === 'price_reduced');
+      assert(r?.kind === 'price_reduced' && r.lowerBy === 25000 && signalLine(r).endsWith('from Offers over $720,000 to Offers over $695,000: $25,000 lower.'), `reduced: ${r && signalLine(r)}`);
+      // "Contact agent" → $600,000 is no reduction (it may still ask below the median — it does: $600,000 < $675,000).
+      assert(!kinds(ten, raised).length && !kinds(ten, fresh).length && !kinds(ten, priced).includes('price_reduced'), `no reduction expected: raised ${kinds(ten, raised)}, priced ${kinds(ten, priced)}, fresh ${kinds(ten, fresh)}`);
+      const l = ten.homes.find((x) => x.listingId === long)?.signals.find((s) => s.kind === 'long_campaign');
+      assert(l?.kind === 'long_campaign' && l.days === 94, `long: ${l && signalLine(l)}`);
+      assert(!kinds(ten, draftLong).length && !kinds(ten, rentLong).length, 'a draft or a rental was shown');
+      const m = ten.homes.find((x) => x.listingId === cheap)?.signals.find((s) => s.kind === 'below_median');
+      assert(m?.kind === 'below_median' && m.sales === 10 && m.median === 675000 && m.askingFrom === 640000, `median: ${m && signalLine(m)}`);
+      assert(!kinds(ten, cheap4).includes('below_median'), 'a 4-bedroom home was compared with 3-bedroom sales');
+      const only = await findOpportunities(t, { ...ask, signals: ['price_reduced'] });
+      assert(only.homes.length === 1 && only.homes[0]!.listingId === reduced && only.counts.long_campaign >= 1, `one signal chosen: ${only.homes.length}`);
+      const tool = opportunityToolResult(ten, ask);
+      assert(!judgementWords(JSON.stringify(tool.homes)).length && tool.page.startsWith('/opportunities?'), `judgement in the tool: ${judgementWords(JSON.stringify(tool.homes))}`);
+      return `reduced $25,000 (rise, "Contact agent" → a price, fresh: none); 94 days; 9 sales → no median, 10 → $675,000 with 3-bed only; draft and rental out; one signal filters`;
+    }),
+  );
+
   // ── ADR 0079: the customer profile — four starting details; the same person lands on one profile (needs 0080) ──
   group('Customer profile (ADR 0079)');
 
@@ -12213,7 +12357,7 @@ async function main() {
     const nope = async () => {
       throw new Error('not used in this check');
     };
-    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence, research: async () => null, inspections: async () => null } as unknown as ChatToolContext;
+    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence, research: async () => null, inspections: async () => null, discover: nope, opportunities: nope } as unknown as ChatToolContext;
     const events: { type: string; name?: string; delta?: string; message?: string }[] = [];
     for await (const e of runPropertyChat({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), request: { message, turns: [] }, catalogue: { suburbs: ['Springfield Lakes', 'Pakenham'], propertyTypes: ['House'] }, tools, track: async () => {} })) events.push(e as (typeof events)[number]);
     const error = events.find((e) => e.type === 'error');
@@ -12225,7 +12369,7 @@ async function main() {
     const nope = async () => {
       throw new Error('not used in this check');
     };
-    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence: async () => null, research: async () => null, inspections: async () => null, ...extra } as unknown as ChatToolContext;
+    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence: async () => null, research: async () => null, inspections: async () => null, discover: nope, opportunities: nope, ...extra } as unknown as ChatToolContext;
     const events: { type: string; name?: string; delta?: string; message?: string }[] = [];
     for await (const e of runPropertyChat({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), request: { message, turns: [] }, catalogue: { suburbs: ['Pakenham', 'Officer'], propertyTypes: ['House'] }, tools, track: async () => {} })) events.push(e as (typeof events)[number]);
     const error = events.find((e) => e.type === 'error');
@@ -12401,6 +12545,66 @@ async function main() {
     const kms = [...turn.text.matchAll(/\b\d+(\.\d+)?\s?km\b/gi)].map((m) => m[0].replace(/\s/g, ''));
     assert(kms.every((k) => source.replace(/\s/g, '').includes(k)), `distances not in the plan: ${kms.join(', ')}`);
     assert(!/\b\d+\s*(-|to)?\s*\d*\s*(min|mins|minutes)\s*(drive|driving|by car|away)\b|\b(drive|driving) (time|of) (about|around|roughly)?\s*\d/i.test(turn.text), `a driving time: ${turn.text.slice(0, 400)}`);
+    return `tools: ${turn.tools.join(', ')}; ${turn.text.replace(/\s+/g, ' ').slice(0, 260)}`;
+  });
+
+  /**
+   * Sentences that pass judgement on a home (C7 decision 6). Not one: a question, a negation ("is not a bargain",
+   * "neither is a good deal"), the visitor's own words in quotes, or the judgement handed back ("yours to answer").
+   */
+  const judgingSentences = (text: string) =>
+    text
+      .split(/(?<=[.!?])\s+|\n+/)
+      .map((x) => x.replace(/["“][^"”]*["”]/g, ''))
+      .filter((x) => judgementWords(x).length && !/\?\s*$/.test(x))
+      .filter((x) => !/\b(can['’]t|cannot|can not|don['’]t|do not|won['’]t|isn['’]t|aren['’]t|doesn['’]t|not|never|neither|nor|no way to)\b/i.test(x))
+      .filter((x) => !/\b(yours to (answer|decide|judge|weigh)|your (call|decision|judgement)|up to you)\b/i.test(x));
+
+  await check('the guide (live): "any price drops in Officer?" calls find_opportunities, copies its facts, judges no home and values none', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    const on = new Date(Date.UTC(2026, 10, 18, 3));
+    const homes: OpportunityHome[] = [
+      { listingId: '6f1f7a2e-3c1b-4f7e-9a51-1d2e3f4a5b6c', propertyId: 'p1', address: '5 Bay Court, Officer', suburb: 'Officer', state: 'VIC', price: 'Offers over $695,000', bedrooms: 3, bathrooms: 1, propertyType: 'house', signals: [{ kind: 'price_reduced', on, fromText: 'Offers over $720,000', toText: 'Offers over $695,000', lowerBy: 25000 }] },
+      { listingId: '7f1f7a2e-3c1b-4f7e-9a51-1d2e3f4a5b6c', propertyId: 'p2', address: '18 Mill Street, Officer', suburb: 'Officer', state: 'VIC', price: '$730,000 – $760,000', bedrooms: 3, bathrooms: 2, propertyType: 'house', signals: [{ kind: 'long_campaign', days: 94, since: new Date(Date.UTC(2026, 7, 2)) }] },
+    ];
+    const ask = { suburbs: ['officer'], state: null, priceTo: null, bedrooms: null, propertyType: null, signals: [] };
+    const result = opportunityToolResult({ area: 'Officer', homes, counts: { price_reduced: 1, long_campaign: 1, below_median: 0 }, emptyWhy: { below_median: 'Needs 10 sales of homes of the same kind and bedrooms in one suburb in 12 months. The most on this site in Officer: 4.' }, medianDaysOnMarket: 42, truncated: false }, ask);
+    const turn = await guideTurnWith('Any price drops or homes that have been sitting on the market in Officer? Are any of them a good deal?', { opportunities: async () => result });
+    assert(turn.tools.includes('find_opportunities'), `tools: ${turn.tools.join(', ') || 'none'} — ${turn.text.slice(0, 300)}`);
+    const source = JSON.stringify(result);
+    const dollars = [...turn.text.matchAll(/\$\d{1,3}(,\d{3})*(\.\d+)?k?/g)].map((m) => m[0]);
+    const stray = dollars.filter((d) => !source.includes(d));
+    assert(!stray.length, `figures not in the records: ${stray.join(', ')} — ${turn.text.slice(0, 400)}`);
+    assert(/25,000/.test(turn.text) && /94 days/.test(turn.text), `the facts were not copied: ${turn.text.slice(0, 400)}`);
+    // The visitor asked "a good deal?": the guide may say it cannot judge that, but never call a home one.
+    const judging = judgingSentences(turn.text);
+    assert(!judging.length, `a judgement: ${judging.join(' | ')}`);
+    assert(!/\b(worth|value[ds]? at|would sell for|will sell for)\s+(about|around|roughly)?\s*\$/i.test(turn.text), `a value: ${turn.text.slice(0, 400)}`);
+    return `tools: ${turn.tools.join(', ')}; ${turn.text.replace(/\s+/g, ' ').slice(0, 260)}`;
+  });
+
+  await check('the guide (live): "what else might I like?" calls discover_homes, lists only its homes, keeps the home not for sale apart and encourages no approach', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    const result = discoverToolResult({
+      state: 'ready',
+      ask: { from: 'profile', channel: 'sale', suburbs: ['pakenham', 'officer'], state: null, propertyTypes: ['house'], bedrooms: 3, priceTo: 800000, priceNear: null },
+      summary: [{ label: 'Suburbs', value: 'Pakenham, Officer' }, { label: 'Buying', value: 'For sale' }, { label: 'Up to', value: '$800,000' }, { label: 'Bedrooms', value: '3' }, { label: 'Kind', value: 'Houses' }],
+      homes: [
+        { listingId: '6f1f7a2e-3c1b-4f7e-9a51-1d2e3f4a5b6c', propertyId: 'p1', address: '22 Lakeview Drive, Officer', suburb: 'Officer', state: 'VIC', price: 'Offers over $760,000', bedrooms: 3, bathrooms: 2, propertyType: 'house', matches: ['Officer', '3 bed', 'house', 'under $800,000'], difference: null, differenceText: null, metres: 0 },
+        { listingId: '7f1f7a2e-3c1b-4f7e-9a51-1d2e3f4a5b6c', propertyId: 'p2', address: '9 Ridge Court, Pakenham', suburb: 'Pakenham', state: 'VIC', price: '$770,000 – $800,000', bedrooms: 4, bathrooms: 2, propertyType: 'house', matches: ['Pakenham', 'house', 'up to $800,000'], difference: { kind: 'one_more_bedroom', bedrooms: 4, wanted: 3 }, differenceText: '4 bed · one more than your 3', metres: 0 },
+      ],
+      notForSale: [{ propertyId: 'p9', address: '31 Hilltop Road, Pakenham', suburb: 'Pakenham', state: 'VIC', bedrooms: 3, propertyType: 'house', soldOn: new Date(Date.UTC(2024, 8, 10)), soldText: 'Sept 2024' }],
+    });
+    const turn = await guideTurnWith('From what you know about me, what else might I like?', { discover: async () => result });
+    assert(turn.tools.includes('discover_homes'), `tools: ${turn.tools.join(', ') || 'none'} — ${turn.text.slice(0, 300)}`);
+    const streets = [...turn.text.matchAll(/\b\d+[A-Za-z]?\s+[A-Z][a-z]+\s+(Road|Street|Drive|Court|Avenue|Way|Lane|Crescent|Boulevard|Parade|Place)\b/g)].map((m) => m[0]);
+    const known = ['22 Lakeview Drive', '9 Ridge Court', '31 Hilltop Road'];
+    assert(streets.every((x) => known.includes(x)), `a home the tool did not return: ${streets.filter((x) => !known.includes(x)).join(', ')}`);
+    const hilltop = turn.text.split(/(?<=[.!?])\s+|\n+/).filter((x) => /Hilltop/.test(x)).join(' ');
+    assert(!hilltop || /(not|isn['’]t|n['’]t) (currently |presently |now )?(for sale|on the market|advertised)/i.test(turn.text), `the home not for sale was not said to be so: ${hilltop}`);
+    assert(!/\b(knock on|door|approach the owner|make them an offer|they('d| would) (probably |likely )?sell)\b/i.test(turn.text), `an approach encouraged: ${turn.text.slice(0, 400)}`);
+    const dollars = [...turn.text.matchAll(/\$\d{1,3}(,\d{3})*/g)].map((m) => m[0]).filter((d) => !JSON.stringify(result).includes(d));
+    assert(!dollars.length, `figures not in the records: ${dollars.join(', ')}`);
     return `tools: ${turn.tools.join(', ')}; ${turn.text.replace(/\s+/g, ' ').slice(0, 260)}`;
   });
 

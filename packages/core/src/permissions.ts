@@ -460,6 +460,10 @@ export type Action =
   | 'inspection_note:read'
   /** Write, add photos, delete. The owner only; no agency role, not even that a note exists (C6 decision 6). */
   | 'inspection_note:manage'
+  /** The addresses a buyer told Discovery AI not to suggest again (ADR 0080 C7). The owner only. */
+  | 'discovery_hidden:read'
+  /** Hide, show again. The owner only; no agency sees what a buyer was suggested or hid (C7 decision 10). */
+  | 'discovery_hidden:manage'
   /** The admin console (ADR 0049): list every agency and open a read-only view of one. */
   | 'platform:read'
   /**
@@ -983,6 +987,8 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'buyer_profile:manage':
     case 'inspection_note:read':
     case 'inspection_note:manage':
+    case 'discovery_hidden:read':
+    case 'discovery_hidden:manage':
       // Deliberately NOT `|| isAgencyAdmin(actor)`. An agency admin has no
       // claim on a buyer's saved search or their conversation with the guide:
       // between them those record where somebody wants to live, what they can

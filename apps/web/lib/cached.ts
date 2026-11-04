@@ -33,6 +33,7 @@ import { resolvePlace } from '@repo/core/geo';
 import type { ResolvedPlace } from '@repo/core/geo/schema';
 import { dueDiligenceRecords, type RecordFact } from '@repo/core/due-diligence';
 import { comparables, homeRows, researchData, suburbProfile, type BuyerType, type Comparable, type HomeRow, type ResearchAsk, type SuburbProfile } from '@repo/core/research';
+import { similarHomes, type Suggestion } from '@repo/core/discovery';
 import { getWebDb } from './db';
 
 /**
@@ -278,6 +279,25 @@ export async function cachedComparables(listingId: string): Promise<Comparable[]
       }
     },
     ['comparables', listingId],
+    { tags: [LISTINGS_TAG], revalidate: 3600 },
+  );
+  return run();
+}
+
+/**
+ * Discovery AI's Similar homes for one public listing (ADR 0080, C7 decision 1): the listing's own details, nothing
+ * about the visitor, so one cached list serves everyone. Null when it could not be read; [] when there is none.
+ */
+export async function cachedSimilarHomes(listingId: string): Promise<Suggestion[] | null> {
+  const run = unstable_cache(
+    async () => {
+      try {
+        return (await similarHomes(getWebDb(), listingId))?.homes ?? [];
+      } catch {
+        return null;
+      }
+    },
+    ['similar-homes', listingId],
     { tags: [LISTINGS_TAG], revalidate: 3600 },
   );
   return run();

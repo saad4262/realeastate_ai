@@ -55,9 +55,9 @@ export type ConsumerSkill = {
 
 export const CONSUMER_SKILLS: readonly ConsumerSkill[] = Object.freeze([
   { key: 'property_search', group: 'Find homes', name: 'AI Property Search', description: 'Ask for a home in your own words and the guide searches the live listings.', kind: 'answers', account: false, status: 'live', phase: 'live' },
-  { key: 'discovery', group: 'Find homes', name: 'Discovery AI', description: 'Homes you may like, including ones not advertised for sale.', kind: 'answers', account: false, status: 'planned', phase: 'C7' },
+  { key: 'discovery', group: 'Find homes', name: 'Discovery AI', description: 'Homes you may like, including ones not advertised for sale.', kind: 'answers', account: false, status: 'live', phase: 'C7' },
   { key: 'visual_search', group: 'Find homes', name: 'Visual Search AI', description: 'Find homes by how they look: the style, the rooms, the garden.', kind: 'answers', account: false, status: 'planned', phase: 'C9' },
-  { key: 'opportunities', group: 'Find homes', name: 'Opportunity AI', description: 'Price drops, homes on the market a long time, and others worth a second look.', kind: 'answers', account: false, status: 'planned', phase: 'C7' },
+  { key: 'opportunities', group: 'Find homes', name: 'Opportunity AI', description: "Price reductions, homes on the market a long time, and asking prices below this site's recent sales.", kind: 'answers', account: false, status: 'live', phase: 'C7' },
   { key: 'property_analyst', group: 'Understand a property', name: 'Property Analyst', description: 'One property explained from its records, including homes not for sale.', kind: 'answers', account: false, status: 'live', phase: 'C5' },
   { key: 'suburb_insights', group: 'Understand a property', name: 'Suburb AI', description: 'What has sold in a suburb, and how suburbs compare.', kind: 'answers', account: false, status: 'live', phase: 'C5' },
   { key: 'comparison', group: 'Understand a property', name: 'Comparison AI', description: 'Two to four properties side by side, and the trade-offs between them.', kind: 'answers', account: false, status: 'live', phase: 'C5' },
@@ -135,6 +135,8 @@ export const CONSUMER_SKILL_OF_TOOL: Readonly<Record<string, ConsumerSkillKey>> 
   compare_homes: 'comparison',
   explain_home: 'property_analyst',
   plan_inspections: 'inspection_planner',
+  discover_homes: 'discovery',
+  find_opportunities: 'opportunities',
 });
 
 /** The words every refusal uses, so the buyer (and the guide) know why and where to change it. */

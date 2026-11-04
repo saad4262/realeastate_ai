@@ -76,6 +76,7 @@ Nothing below is optional for production. Each line names what proves it is done
       "Documents and the knowledge base" below, `/api/cron/documents` answering 200 to the cron.
 - [ ] **Inspection notes** (ADR 0080 C6): migration 0086 applied, the private `inspection-photos` bucket made as in
       "Inspection notes and photos" below.
+- [ ] **Discovery AI** (ADR 0080 C7): migration 0087 (`discovery_hidden`) applied before the code that reads it.
 - [ ] **Opportunities** (ADR 0054): migration 0062 applied; `/api/cron/opportunities` (hourly, in
       `apps/web/vercel.json`) answering 200 with `failed: []`.
 - [ ] `EMAIL_DEV_ALLOWLIST` is **ignored** in production (it is) — and `NODE_ENV=production`

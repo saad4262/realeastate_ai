@@ -1,5 +1,5 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { AU_STATES, SORT_OPTIONS } from '@repo/core/listings';
+import { AU_STATES, PROPERTY_TYPES, SORT_OPTIONS } from '@repo/core/listings';
 import { CONSUMER_SKILL_OF_TOOL, consumerSkillOffMessage } from '@repo/core/consumer-skills/catalog';
 import { affordabilityInput, runAffordability } from './affordability-tool';
 import { cheapestNearInput, runCheapestNear } from './cheapest-near';
@@ -7,6 +7,7 @@ import { dueDiligenceInput, runDueDiligence } from './due-diligence-tool';
 import { renovationInput, runRenovation } from './renovation-tool';
 import { compareHomesInput, explainHomeInput, runCompareHomes, runExplainHome, runSuburbProfile, suburbProfileInput } from './research-tools';
 import { planInspectionsInput, runPlanInspections } from './inspection-tools';
+import { discoverHomesInput, findOpportunitiesInput, runDiscoverHomes, runFindOpportunities } from './discovery-tools';
 import { RENOVATION_CATEGORY_KEYS } from '@repo/core/renovation/categories';
 import { getListingInput, runGetListing } from './get-listing-tool';
 import { resolveLocationInput, runResolveLocation } from './resolve-location';
@@ -315,6 +316,29 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
     },
   },
   {
+    name: 'discover_homes',
+    description:
+      "Homes the visitor may like: with a listingId, live homes similar to that one (suburb, kind, bedrooms, price); without one, from the visitor's own Personal Property AI profile when it is on, plus up to three homes NOT for sale that this site sold over a year ago. Each home says what it matches and its one difference. Copy them; never add, rank or value a home yourself.",
+    input_schema: { type: 'object', additionalProperties: false, properties: { listingId: { type: 'string', description: 'The id from a search result, for homes like that one. Leave it out for their profile.' } } },
+  },
+  {
+    name: 'find_opportunities',
+    description:
+      "Live homes for sale in an area whose own records show a price reduction, a campaign of 60 days or more, or an asking price below this site's median sale for the same suburb, kind and bedrooms — each with its facts, what it can mean and questions to ask the agent. Facts, not a judgement: never call a home a bargain or good value.",
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        suburbs: { type: 'array', items: { type: 'string' }, description: 'Suburbs, as the visitor said them. Up to 8. Give these or a state.' },
+        state: { type: 'string', enum: [...AU_STATES] },
+        priceTo: { type: 'number', description: 'Only if the visitor gave a ceiling. Whole dollars.' },
+        bedrooms: { type: 'number', description: 'At least this many, only if they said.' },
+        propertyType: { type: 'string', enum: [...PROPERTY_TYPES] },
+        signals: { type: 'array', items: { type: 'string', enum: ['price_reduced', 'long_campaign', 'below_median'] }, description: "Only the signals they asked about ('price drops' → price_reduced). Leave it out for all three." },
+      },
+    },
+  },
+  {
     name: 'draft_schedule',
     description:
       "Propose running the CURRENT search on a repeating schedule and emailing the visitor what is new. Call this when they ask to be sent results regularly — 'send me this daily', 'every two hours', 'each Saturday morning'. A search must already have run in this conversation; this uses that exact search, so do not describe the filters yourself. It SAVES NOTHING: it puts a confirmation card on screen and the visitor must press Accept. Never tell them it is running.",
@@ -481,6 +505,16 @@ export async function dispatchTool(
         const parsed = planInspectionsInput.safeParse(rawInput);
         if (!parsed.success) return invalid(name, parsed.error);
         return await runPlanInspections(parsed.data, ctx);
+      }
+      case 'discover_homes': {
+        const parsed = discoverHomesInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return await runDiscoverHomes(parsed.data, ctx);
+      }
+      case 'find_opportunities': {
+        const parsed = findOpportunitiesInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return await runFindOpportunities(parsed.data, ctx);
       }
       case 'get_listing': {
         const parsed = getListingInput.safeParse(rawInput);

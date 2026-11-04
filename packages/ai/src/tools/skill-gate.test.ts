@@ -20,7 +20,7 @@ function ctx(blocks: [ConsumerSkillKey, ConsumerSkillBlock][]): ToolContext {
     places: new Map(),
     skillBlocks: new Map(blocks),
     dueDiligence: async () => null,
-    research: async () => null, inspections: async () => null,
+    research: async () => null, inspections: async () => null, discover: async () => ({ found: false, reason: 'signed_out', note: '' }), opportunities: async () => { throw new Error('not in this test'); },
     scheduling: { state: 'signed_out' },
   };
 }

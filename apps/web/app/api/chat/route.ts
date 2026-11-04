@@ -11,6 +11,8 @@ import {
 import { appendTurn } from '@repo/core/chat';
 import { loadProfile, profileLine } from '@repo/core/profile';
 import { buildPlan, planToolResult } from '@repo/core/inspections';
+import { discoverToolResult, forYou, similarHomes, SIGNED_OUT_DISCOVERY } from '@repo/core/discovery';
+import { findOpportunities, opportunityToolResult } from '@repo/core/buyer-opportunities';
 import { consumerSkillBlocks, consumerSkillOffMessage, type ConsumerSkillBlock, type ConsumerSkillKey } from '@repo/core/consumer-skills';
 import {
   listSchedules,
@@ -214,6 +216,17 @@ function toolContext(userId: string | null, skillBlocks: ReadonlyMap<ConsumerSki
       const plan = await buildPlan(db, ask);
       return plan ? planToolResult(plan) : null;
     },
+    /**
+     * ADR 0080, C7: suggestions from a public listing, or from THIS visitor's profile — the session decides whose,
+     * never the model — and the Personal Property AI switch inside `forYou` decides whether there is one.
+     */
+    discover: async (ask) => {
+      if ('listingId' in ask) return discoverToolResult(await similarHomes(db, ask.listingId));
+      if (!userId) return SIGNED_OUT_DISCOVERY;
+      return discoverToolResult(await forYou(db, { userId }));
+    },
+    // ADR 0080, C7: signals for public homes for sale, read fresh — a price change must show the day it happens.
+    opportunities: async (ask) => opportunityToolResult(await findOpportunities(db, ask), ask),
     dueDiligence: async (id) => {
       const found = await cachedListing(id);
       if (!found) return null;

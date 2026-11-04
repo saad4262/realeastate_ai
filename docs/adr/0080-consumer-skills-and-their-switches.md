@@ -86,3 +86,19 @@ browser accepts before resizing). The summary sees only the buyer's marks and no
 a line only when it cites them, every figure is theirs, it passes the verdict rule, and any condition word
 (asbestos, termites, "structurally sound"…) is one they wrote. It reaches only the buyer, labelled, and is not stored.
 Deleting a notebook deletes its rows first, then its files; deleting is allowed with the skill off.
+
+**Amendment, 2026-11-04 — C7 Discovery and Opportunity** (mock `consumer-discovery.html`; the user approved all ten
+decisions as recommended, singling out the 12-month rule and the strict median). Discovery AI suggests only from what
+the buyer chose to give: a public listing's own suburb, kind, bedrooms and price (Similar homes — nothing about the
+visitor, one cached list for everyone), or their Personal Property AI profile while it is on (For you). Postgres
+applies the hard filters and `rankSuggestions` the rest: one difference at most, named (a suburb within 5 km straight
+line, one more bedroom, no price), never over budget or another kind; no model picks, ranks or writes a reason. Homes
+not for sale appear only where this site SOLD them 12+ months ago and nothing is listed or being prepared there, at
+most three, apart, watch first. "Not for me" hides an ADDRESS (migration 0087: `discovery_hidden`, PUBLIC_SITE_USER,
+`discovery_hidden:read/manage` owner-only), teaches nothing, and "Forget everything" clears it in the same transaction.
+Opportunity AI: public homes FOR SALE with a price reduction (the newest recorded change lowered the low end), a
+campaign of 60+ days, or an asking low end below this site's median for the same suburb, kind AND bedrooms with 10+
+sales in 12 months — each with our fixed text on what it can mean and two questions for the agent; a test bans
+judgement words from that text and confines them in prompt v16 to sentences that forbid them. Each empty signal says
+why. The guide gets `discover_homes` and `find_opportunities` (records only; the session, never the model, decides
+whose profile).

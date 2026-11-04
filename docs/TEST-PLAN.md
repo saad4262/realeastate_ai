@@ -2081,3 +2081,24 @@ Public site. CL1–CL6 need nothing new. CL7–CL13 need migration **0086** and 
 | CL12 | "Delete this home's notes", then "Delete all my inspection notes" | Gone from the list; the photos' links 404. Switch Inspection Assistant off in Skills: notes are still listed and deletable, not editable; no summary button. |
 | CL13 | /chat: "plan my Saturday for these homes" (after a search) | The guide calls the planner, copies the times and straight-line distances, links the plan page, gives no driving time. "What did I think of …?" → it points to Inspection notes. |
 
+## CM — Discovery AI and Opportunity AI (ADR 0080, C7)
+
+Public site. Needs migration **0087** (applied 2026-11-04). CM10 and CM11 call the model. On the real data of
+2026-11-04 most signals are empty — CM8 is the expected state, not a fault.
+
+| # | Case | Expected |
+|---|---|---|
+| CM1 | A listing for sale with other homes nearby (same kind, price within 10%) | "Similar homes": up to 6 cards, green chips for what matches, at most one amber chip ("Officer · 3.6 km away", "4 bed · one more", "No price given"). Never a draft, an under-offer home, another kind, or a home past 5 km. Signed out: the same list. |
+| CM2 | My account → For you, Personal Property AI off | "For you uses your Personal Property AI profile, which is off" with Switch it on; no homes. |
+| CM3 | Switch it on; edit the profile to a suburb, a budget, 3 bedrooms, House | For you: homes for sale with chips; nothing over the budget; "Your profile, as used here" lists the five facts. |
+| CM4 | A home sold on this site 12+ months ago in that suburb, nothing on the market there | "Not for sale · sold on this site": the address, "sold on this site in <month year>", Watch this address first, Make a private offer second. A home sold 6 months ago never appears. |
+| CM5 | "Not for me" on a card | It goes; "Hidden homes · 1" with Show again; Show again brings it back. Another buyer's For you is unaffected. |
+| CM6 | Profile → Forget everything | Hidden homes is empty. |
+| CM7 | /opportunities?suburbs=Pakenham | Homes with "Price reduced" (from … to …, $N lower), "On the market a long time" (N days in this campaign, the site's median), "Asking below this site's median" (with the sale count). "What this can mean, and what to ask" opens our text. No word like bargain or good value anywhere. |
+| CM8 | A suburb with few sales or no price changes | "What we can't show yet": "Price changes are recorded from 3 Nov 2026. None in … yet."; "Needs 10 sales … The most on this site in …: N." |
+| CM9 | Signed in with the profile on: Opportunities → Match my profile | The area, budget, bedrooms and kind come from the profile ("· from your profile"). |
+| CM10 | /chat: "any price drops in <suburb>?" | The guide calls find_opportunities, copies the facts and questions, links the page; asked "is it a good deal?", it says the records can't tell that. |
+| CM11 | /chat (signed in, profile on): "what else might I like?"; then on a listing "anything like this one?" | discover_homes: only the tool's homes, each with its difference; a home not for sale is said to be so, with watching offered, never "approach the owner". |
+| CM12 | Skills: switch Discovery AI off, then Opportunity AI off | Similar homes is hidden, For you says it is off, "Not for me" does nothing; /opportunities says it is off; the guide says each is off. |
+| CM13 | As an agency owner in the console | Nothing shows what any buyer was suggested or hid. |
+

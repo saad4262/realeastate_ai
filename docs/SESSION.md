@@ -3,6 +3,29 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-04 (later) — Claude Code (Mac) — C7 Discovery & Opportunity in the user's autonomous loop
+
+- C6 committed (`06be73a`, `2f6e617`) and pushed after 0086, the bucket and the live run (the user's go). C7 mock
+  approved (all ten decisions) and committed (`e246290`). Migration 0087 (`discovery_hidden`) applied (the user's go).
+- Built: Discovery AI (Similar homes from a listing's own details, cached for everyone; For you from the profile
+  while it is on; homes not for sale only where this site sold 12+ months ago and nothing is listed or being prepared;
+  "Not for me" by address, cleared by Forget everything in the same transaction) and Opportunity AI (price reduced =
+  the newest change lowered the low end; 60+ days in this campaign; below this site's median for the same suburb,
+  kind AND bedrooms with 10+ sales; fixed text and questions; empty signals say why). Guide: two tools, prompt v16.
+- Fixed in the loop: a smoke check expected no signal on a "Contact agent → $600,000" home, which correctly asks
+  below the median (the check now rules out only a reduction); the "Before" column of CONSUMER-SKILLS had been
+  overwritten for rows 7–11 — restored, with a new "Now" column.
+- Break-tests, all red then restored: over budget allowed, a judgement word in our text, a judgement line in the
+  prompt, For you read once per suburb (9 queries, not 8), the median without the bedroom match, the 12-month rule
+  removed.
+- Live model (the user's go): first run, the guide answered "what else might I like?" without calling discover_homes
+  ("I don't have a profile for you") → prompt v16 now says only the tool knows. Then three faults in the CHECKS, not
+  the guide: "not currently for sale" not matched; a refusal ("neither is a good deal", "yours to answer", quoted
+  words) read as a judgement — now one helper, checked offline to still catch four real judgements; a figure regex
+  that swallowed a sentence comma. Live group 11/11, twice; offline group 19/19.
+- Rendered on the built app: /opportunities (Pakenham: 3 long campaigns, both empty reasons), a listing's Similar
+  homes, /account/for-you → sign-in.
+
 ## 2026-11-04 — Claude Code (Mac) — C6 Inspections built in the user's autonomous loop
 
 - The user approved all nine C6 decisions and asked for the loop (implement → test → fix, report at the end).

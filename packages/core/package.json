@@ -55,6 +55,8 @@
     "./profile": "./src/profile/index.ts",
     "./research": "./src/research/index.ts",
     "./inspections": "./src/inspections/index.ts",
+    "./discovery": "./src/discovery/index.ts",
+    "./buyer-opportunities": "./src/buyer-opportunities/index.ts",
     "./inspections/photo-storage": "./src/inspections/photo-storage.ts",
     "./renovation": "./src/renovation/index.ts",
     "./renovation/quotes": "./src/renovation/quotes.ts",

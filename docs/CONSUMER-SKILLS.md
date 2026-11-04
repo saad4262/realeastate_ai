@@ -29,31 +29,32 @@ from reading the code, not measured.** Update this file as each phase lands.
 
 ## The 21 skills
 
-`answers` = default ON · `acts` = default OFF · 🔒 = needs a signed-in account
+`answers` = default ON · `acts` = default OFF · 🔒 = needs a signed-in account · Before = how much existed when the plan was
+written (2026-11-03) · Now = where it stands
 
-| # | Skill (key) | Kind | Phase | Before | What v1 does |
-|---|---|---|---|---|---|
-| 1 | AI Property Search (`property_search`) | answers | live | 65% | The chat's search, cheapest-near, get-listing tools |
-| 2 | Personal Property AI (`personal_profile`) 🔒 | acts | C4 | 10% | A preference profile learnt from searches and saves; seen, edited, deleted by the buyer |
-| 3 | Discovery AI (`discovery`) | answers | C7 | 20% | "You may like" from the profile, including off-market property pages |
-| 4 | Smart Alerts (`smart_alerts`) 🔒 | answers¹ | live → C4 | 60% | Saved-search alerts (built); C4 adds market-change alerts |
-| 5 | Tasks (`tasks`) 🔒 | acts | C8 | 25% | One-off or repeating research ("every Monday, new 3-bed in Pakenham + what sold") with a report |
-| 6 | Automation (`automation`) 🔒 | acts | C8 | 10% | When X happens (price drop, new listing, inspection added), do Y (tell me, add to shortlist) |
-| 7 | Property Analyst (`property_analyst`) | answers | C5 | 85% | One property explained from public records, every point cited (reuses ADR 0065) |
-| 8 | Suburb AI (`suburb_insights`) | answers | live → C5 | 85% | Recent sales (built); C5: a suburb page from our records + ABS, suburb vs suburb |
-| 9 | Comparison AI (`comparison`) | answers | C5 | 85% | 2–4 properties side by side (numbers from SQL), the model explains the trade-offs |
-| 10 | Inspection AI (`inspection_planner`) | answers | C6 | 90% | Plan a Saturday: pick listings, order the open homes by time and distance, add to calendar |
-| 11 | Inspection Assistant (`inspection_notes`) 🔒 | answers | C6 | 85% | Notes, photos and a checklist per inspection, private to the buyer, summarised |
-| 12 | Visual Search AI (`visual_search`) | answers | C9 | 0% | "Homes that look like this" from a photo or a style (image embeddings) |
-| 13 | Immersive Property AI (`immersive`) | answers | C9 | 10% | Floorplans, video and tours stored and shown; ask the guide about a room |
-| 14 | Agent AI (`agent_messages`) 🔒 | acts | C8 | 45% | The guide drafts an enquiry or question to the agent; the buyer reads it and sends it |
-| 15 | Buyer AI (`buyer_assistant`) | answers | grows | 10% | The property chat itself; each skill adds its tool here, behind its own switch |
-| 16 | Property Monitor (`property_monitor`) 🔒 | acts | C4 | 20% | Watch an address: listed, price change, under offer, sold — including Not for Sale → For Sale |
-| 17 | Opportunity AI (`opportunities`) | answers | C7 | 0% | Price drops, long days on market, under the suburb median — from SQL, explained |
-| 18 | Property Development AI (`development`) | answers | C9 | 0% | Land size, zoning links, subdivision questions to ask; needs planning data (later) |
-| 19 | **Affordability AI** (`affordability`) | answers | **C1** | 0% | Repayments, stamp duty + first-home concessions per state, borrowing estimate, scenarios |
-| 20 | **Due-Diligence AI** (`due_diligence`) | answers | **C2** | 5% | Per property: the state checklist, what our records show, questions to ask, official overlay links |
-| 21 | **Renovation AI** (`renovation`) | answers | **C3** | 0% | A scope from photos or words (model), priced from a dated cost table (code), permit pointers |
+| # | Skill (key) | Kind | Phase | Before | Now | What v1 does |
+|---|---|---|---|---|---|---|
+| 1 | AI Property Search (`property_search`) | answers | live | 65% | built | The chat's search, cheapest-near, get-listing tools |
+| 2 | Personal Property AI (`personal_profile`) 🔒 | acts | C4 | 10% | built (C4) | A preference profile learnt from searches and saves; seen, edited, deleted by the buyer |
+| 3 | Discovery AI (`discovery`) | answers | C7 | 20% | built (C7) | "You may like" from the profile, including off-market property pages |
+| 4 | Smart Alerts (`smart_alerts`) 🔒 | answers¹ | live → C4 | 60% | built (C4) | Saved-search alerts (built); C4 adds market-change alerts |
+| 5 | Tasks (`tasks`) 🔒 | acts | C8 | 25% | C8 | One-off or repeating research ("every Monday, new 3-bed in Pakenham + what sold") with a report |
+| 6 | Automation (`automation`) 🔒 | acts | C8 | 10% | C8 | When X happens (price drop, new listing, inspection added), do Y (tell me, add to shortlist) |
+| 7 | Property Analyst (`property_analyst`) | answers | C5 | 30% | built (C5) | One property explained from public records, every point cited (reuses ADR 0065) |
+| 8 | Suburb AI (`suburb_insights`) | answers | live → C5 | 15% | built (C5) | Recent sales (built); C5: a suburb page from our records + ABS, suburb vs suburb |
+| 9 | Comparison AI (`comparison`) | answers | C5 | 0% | built (C5) | 2–4 properties side by side (numbers from SQL), the model explains the trade-offs |
+| 10 | Inspection AI (`inspection_planner`) | answers | C6 | 15% | built (C6) | Plan a Saturday: pick listings, order the open homes by time and distance, add to calendar |
+| 11 | Inspection Assistant (`inspection_notes`) 🔒 | answers | C6 | 0% | built (C6) | Notes, photos and a checklist per inspection, private to the buyer, summarised |
+| 12 | Visual Search AI (`visual_search`) | answers | C9 | 0% | C9 | "Homes that look like this" from a photo or a style (image embeddings) |
+| 13 | Immersive Property AI (`immersive`) | answers | C9 | 10% | C9 | Floorplans, video and tours stored and shown; ask the guide about a room |
+| 14 | Agent AI (`agent_messages`) 🔒 | acts | C8 | 45% | C8 | The guide drafts an enquiry or question to the agent; the buyer reads it and sends it |
+| 15 | Buyer AI (`buyer_assistant`) | answers | grows | 10% | grows with each | The property chat itself; each skill adds its tool here, behind its own switch |
+| 16 | Property Monitor (`property_monitor`) 🔒 | acts | C4 | 20% | built (C4) | Watch an address: listed, price change, under offer, sold — including Not for Sale → For Sale |
+| 17 | Opportunity AI (`opportunities`) | answers | C7 | 0% | built (C7) | Price drops, long days on market, under the suburb median — from SQL, explained |
+| 18 | Property Development AI (`development`) | answers | C9 | 0% | C9 | Land size, zoning links, subdivision questions to ask; needs planning data (later) |
+| 19 | **Affordability AI** (`affordability`) | answers | **C1** | 0% | built (C1) | Repayments, stamp duty + first-home concessions per state, borrowing estimate, scenarios |
+| 20 | **Due-Diligence AI** (`due_diligence`) | answers | **C2** | 5% | built (C2) | Per property: the state checklist, what our records show, questions to ask, official overlay links |
+| 21 | **Renovation AI** (`renovation`) | answers | **C3** | 0% | built (C3) | A scope from photos or words (model), priced from a dated cost table (code), permit pointers |
 
 ¹ Smart Alerts sends email, but every alert is already a request the buyer made one at a time, and
 existing alerts must keep running — so it is ON (the same reasoning as ADR 0069 §3).
@@ -139,7 +140,7 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   SQL, records + the verdict rule over C2's check); the research writer (packages/ai, summary tier); `/api/research`;
   `/suburb/[state]/[suburb]` (with `?vs=`), `/compare`, "Explain this home" on listings, Compare from the shortlist;
   the guide's `suburb_profile`, `compare_homes`, `explain_home` (prompt v14).
-- [x] C6 Inspections — mock's nine decisions approved (2026-11-04). Built (uncommitted; for the user's review):
+- [x] C6 Inspections — mock's nine decisions approved (2026-11-04). Built and committed (`06be73a`, `2f6e617`):
   `packages/core/src/inspections/` (the day planner over the agents' open times and PostGIS straight lines, the plan
   link, .ics and route; the fixed checklist; owner-only notebooks with `inspection_note:read/manage`; photo bytes
   identified and stripped of Exif; the summary's checks — references, figures, verdict, condition words); the summary
@@ -147,4 +148,13 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   listings, "Plan inspections" on the shortlist, `/account/inspections` and one notebook per home with photos;
   `/api/inspections/photos`, `/api/inspections/photos/[id]`, `/api/inspections/summary`; the guide's
   `plan_inspections` (prompt v15). Migration 0086 applied and the private `inspection-photos` bucket made (2026-11-04); smoke 16/16, live 25/25.
-- [ ] C7 · [ ] C8 · [ ] C9
+- [x] C7 Discovery & Opportunity — mock's ten decisions approved (2026-11-04). Migration 0087 (`discovery_hidden`,
+  applied 2026-11-04). Core: `packages/core/src/discovery/` (the pure rules in `match.ts` — one named difference at
+  most, never over budget or another kind; Similar homes in 2 reads, For you in the profile's 6 + 2; homes not for sale
+  only where this site sold 12+ months ago; hide / show again / clear, owner-only) and
+  `packages/core/src/buyer-opportunities/` (three signals from SQL in 3 reads; our fixed text and questions; the banned
+  judgement words; each empty signal's reason). Web: "Similar homes" on listings (cached, the same for everyone),
+  `/account/for-you`, `/opportunities` (public; "Match my profile"), a card on My account; Forget everything clears
+  hidden homes. The guide: `discover_homes`, `find_opportunities` (prompt v16). Smoke 19/19; live 11/11 twice (the
+  user's go). TEST-PLAN CM.
+- [ ] C8 · [ ] C9

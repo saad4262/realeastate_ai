@@ -2,6 +2,8 @@ import type { Db } from '@repo/db';
 import type { ConsumerSkillBlock, ConsumerSkillKey } from '@repo/core/consumer-skills/catalog';
 import type { ResearchAsk } from '@repo/core/research';
 import type { PlanAsk, PlanToolResult } from '@repo/core/inspections';
+import type { DiscoverToolResult } from '@repo/core/discovery';
+import type { OpportunityAsk, OpportunityToolResult } from '@repo/core/buyer-opportunities';
 import type { ResolvedPlace } from '@repo/core/geo/schema';
 import type {
   NearbyMarket,
@@ -97,6 +99,14 @@ export type ToolContext = {
    * straight-line distances, the flags and the plan page's link. Null when none of the homes is public. Never a note.
    */
   inspections: (ask: PlanAsk) => Promise<PlanToolResult | null>;
+  /**
+   * Discovery AI's suggestions (ADR 0080, C7 decisions 1–3): homes like one PUBLIC listing, or from the visitor's own
+   * Personal Property AI profile while it is on — never from what they viewed. The app's reader knows who is signed in;
+   * the model never names a user.
+   */
+  discover: (ask: { listingId: string } | { profile: true }) => Promise<DiscoverToolResult>;
+  /** Opportunity AI's signals for public homes for sale in an area (C7 decisions 5–6), with our own words about each. */
+  opportunities: (ask: OpportunityAsk) => Promise<OpportunityToolResult>;
   dueDiligence: (listingId: string) => Promise<{ address: string; state: string; facts: { ref: string; when: string; text: string }[] } | null>;
   /**
    * The consumer skills not running for this visitor, and why (ADR 0080) — read once per turn by the

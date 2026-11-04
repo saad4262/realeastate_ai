@@ -19,6 +19,7 @@ import { PlanRenovationLink } from '../../../components/plan-renovation-link';
 import { ShortlistHeart } from '../../../components/shortlist-heart';
 import { WatchButton } from '../../../components/watch-button';
 import { ExplainHome } from '../../../components/explain-home';
+import { SimilarHomes } from '../../../components/similar-homes';
 import { suburbPath } from '../../../lib/suburb-slug';
 import { BeforeYouBuy } from '../../../components/before-you-buy';
 import { ListingReviews } from '../../../components/listing-reviews';
@@ -40,6 +41,7 @@ import { portalFonts } from '../../portal-fonts';
 import {
   cachedAgentCards,
   cachedComparables,
+  cachedSimilarHomes,
   cachedDueDiligence,
   cachedInspections,
   cachedListing,
@@ -139,7 +141,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
    * which is ADR 0013. Keyed by the PROPERTY, so a listing written by a new
    * agency shows the sales other agencies recorded at the same address.
    */
-  const [inspections, agents, photos, signedIn, timeline, facts, comps] = await Promise.all([
+  const [inspections, agents, photos, signedIn, timeline, facts, comps, similar] = await Promise.all([
     cachedInspections(listing.id),
     cachedAgentCards(listing.id),
     cachedListingPhotos(listing.id),
@@ -150,6 +152,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
     cachedTimeline(listing.propertyId),
     cachedDueDiligence(listing.propertyId, listing.id),
     cachedComparables(listing.id),
+    cachedSimilarHomes(listing.id),
   ]);
   // The same filter the section uses, so the tab never scrolls to nothing.
   const hasHistory = usefulTimeline(timeline, listing.id).length > 0;
@@ -499,6 +502,8 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
               <PlanRenovationLink listingId={listing.id} channel={listing.channel} />
 
               <ExplainHome listingId={listing.id} comparables={comps} suburb={listing.suburb} suburbHref={suburbPath(listing.state, listing.suburb)} />
+
+              <SimilarHomes homes={similar} />
 
               <BeforeYouBuy state={listing.state} facts={facts} scope={`listing:${listing.id}`} subject={{ listingId: listing.id }} />
 

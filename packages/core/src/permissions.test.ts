@@ -431,6 +431,19 @@ describe('can()', () => {
     });
   });
 
+  /** ADR 0080 C7: the homes a buyer hid from Discovery are theirs alone — no agency role, not a platform admin. */
+  describe('discovery hidden homes', () => {
+    it('lets a buyer read and change their own hidden homes, and nobody else', () => {
+      const own = { type: 'discovery_hidden', ownerId: 'buyer-1' };
+      for (const action of ['discovery_hidden:read', 'discovery_hidden:manage'] as const) {
+        expect(can({ userId: 'buyer-1' }, action, own)).toBe(true);
+        expect(can({ userId: 'buyer-2' }, action, own)).toBe(false);
+        expect(can({ userId: 'owner-a', agencyId: agencyA, membershipRole: 'owner' }, action, own)).toBe(false);
+        expect(can({ userId: '' }, action, { type: 'discovery_hidden' })).toBe(false);
+      }
+    });
+  });
+
   /** ADR 0080 C4: the addresses a buyer watches are theirs alone. */
   describe('property watch', () => {
     it('lets a buyer read and change their own watches, and nobody else', () => {

@@ -33,6 +33,8 @@ import { agencyNotificationRecipients } from '../agency/notification-recipients'
 import type { Actor } from '../permissions';
 import { planHomes } from '../inspections/homes';
 import { listNotebooks, notebooksForSummary } from '../inspections/notes';
+import { forYou, hiddenHomes, similarHomes } from '../discovery/discovery';
+import { findOpportunities } from '../buyer-opportunities/find';
 
 /**
  * How many times each read talks to the database.
@@ -150,6 +152,31 @@ describe('reads cost a fixed number of queries', () => {
     const books = countingDb();
     await notebooksForSummary(books.db, buyer);
     expect(books.count()).toBe(1);
+  });
+
+  it('Similar homes are two queries: the listing, then every candidate with its distance (ADR 0080 C7)', async () => {
+    const { db, count } = countingDb();
+    await similarHomes(db, 'l-1');
+    expect(count()).toBe(2);
+  });
+
+  it('For you is the profile (six) plus two: homes for sale and homes not for sale, never one per suburb (C7)', async () => {
+    const { db, count } = countingDb();
+    const out = await forYou(db, { userId: 'u-1' }, {});
+    expect(out.state).toBe('ready');
+    expect(count()).toBe(8);
+  });
+
+  it('hidden homes are one query (C7)', async () => {
+    const { db, count } = countingDb();
+    await hiddenHomes(db, { userId: 'u-1' });
+    expect(count()).toBe(1);
+  });
+
+  it('Opportunities are three queries for any area: the homes with their signals, the site median, the sale counts (C7)', async () => {
+    const { db, count } = countingDb();
+    await findOpportunities(db, { suburbs: ['pakenham', 'officer', 'berwick'], state: 'VIC', priceTo: null, bedrooms: null, propertyType: null, signals: [] });
+    expect(count()).toBe(3);
   });
 
   it('the inspection times are one query', async () => {

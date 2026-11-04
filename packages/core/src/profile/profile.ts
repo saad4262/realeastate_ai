@@ -1,5 +1,5 @@
 import { and, desc, eq, gte, isNotNull, sql } from 'drizzle-orm';
-import { buyerProfile, chatMessage, consumerSkillSwitch, listing, property, propertyWatch, searchSchedule, shortlist, type DbOrTx } from '@repo/db';
+import { buyerProfile, chatMessage, consumerSkillSwitch, discoveryHidden, listing, property, propertyWatch, searchSchedule, shortlist, type DbOrTx } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { pausedConsumerSkills } from '../consumer-skills/catalog';
 import { savedSearchQuerySchema } from '../listings/search-url';
@@ -123,13 +123,17 @@ export async function resetProfileField(db: DbOrTx, actor: Actor, field: keyof P
 }
 
 /**
- * Forget everything: nothing done before now is learnt again, and the buyer's edits go. Their saved searches,
- * shortlist and watches are their own features and stay — the page says so; only the profile forgets them.
+ * Forget everything: nothing done before now is learnt again, the buyer's edits go, and so do the homes they hid from
+ * Discovery AI (ADR 0080, C7 decision 4). Their saved searches, shortlist and watches are their own features and stay —
+ * the page says so; only the profile forgets them. One transaction: half a forget is not a forget.
  */
 export async function forgetProfile(db: DbOrTx, actor: Actor): Promise<void> {
   require(actor, 'buyer_profile:manage');
-  await db
-    .insert(buyerProfile)
-    .values({ userId: actor.userId, forgottenAt: sql`now()` as unknown as Date, overrides: {} })
-    .onConflictDoUpdate({ target: buyerProfile.userId, set: { forgottenAt: sql`now()`, overrides: {}, updatedAt: sql`now()` } });
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(buyerProfile)
+      .values({ userId: actor.userId, forgottenAt: sql`now()` as unknown as Date, overrides: {} })
+      .onConflictDoUpdate({ target: buyerProfile.userId, set: { forgottenAt: sql`now()`, overrides: {}, updatedAt: sql`now()` } });
+    await tx.delete(discoveryHidden).where(eq(discoveryHidden.userId, actor.userId));
+  });
 }

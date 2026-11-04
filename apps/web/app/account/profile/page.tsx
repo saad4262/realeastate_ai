@@ -85,7 +85,7 @@ export default async function ProfilePage() {
             </section>
             <section className={styles.card}>
               <h2 className={styles.cardLabel}>Forget everything</h2>
-              <p className={styles.body}>The profile starts again from nothing, and your edits go. Your saved searches, shortlist and watched addresses are kept — they are yours to manage on their own pages.</p>
+              <p className={styles.body}>The profile starts again from nothing, your edits go, and so do the homes you hid from For you. Your saved searches, shortlist and watched addresses are kept — they are yours to manage on their own pages.</p>
               <ForgetButton />
             </section>
           </>
