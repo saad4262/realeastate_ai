@@ -1438,7 +1438,8 @@ export const integrationAccount = pgTable(
  * simply one fewer gap. Trying to express one as the other is how a
  * scheduler ends up firing twice at 2 AM once a year.
  */
-export const scheduleCadenceEnum = pgEnum('schedule_cadence', ['daily', 'weekly', 'interval']);
+/** `once` (ADR 0080, C8 Tasks): runs at its time, then becomes `done`. Alerts never use it. */
+export const scheduleCadenceEnum = pgEnum('schedule_cadence', ['daily', 'weekly', 'interval', 'once']);
 
 /**
  * `failing` is not a kind of `paused`.
@@ -1449,7 +1450,8 @@ export const scheduleCadenceEnum = pgEnum('schedule_cadence', ['daily', 'weekly'
  * other needs someone to look. Folding them together is how a broken alert
  * becomes a silent one.
  */
-export const scheduleStatusEnum = pgEnum('schedule_status', ['active', 'paused', 'failing']);
+/** `done`: a one-off task that has run (C8). Never claimed again; its report stays. */
+export const scheduleStatusEnum = pgEnum('schedule_status', ['active', 'paused', 'failing', 'done']);
 
 /**
  * IANA zone names, never a UTC offset.
@@ -1554,6 +1556,15 @@ export const searchSchedule = pgTable(
      * the same defence as "they asked us to stop, at this time".
      */
     unsubscribedAt: timestamp('unsubscribed_at', { withTimezone: true }),
+    /**
+     * ADR 0080, C8 decision 5: `alert` (Smart Alerts — the search's new homes) or `task` (Tasks — a report of the
+     * `sections` chosen from the fixed list, every figure from SQL). One runner, one clock; each kind is claimed only
+     * while its own skill is on.
+     */
+    kind: varchar('kind', { length: 8 }).notNull().default('alert'),
+    sections: jsonb('sections').notNull().default(sql`'[]'::jsonb`),
+    /** A task run with nothing new is kept on its page but not emailed (C8 decision 7). */
+    skipEmpty: boolean('skip_empty').notNull().default(true),
     ...timestamps,
   },
   (t) => [
@@ -1625,6 +1636,8 @@ export const scheduleRun = pgTable(
     emailError: text('email_error'),
     /** When the person opened it in the app. Null until they do. */
     seenAt: timestamp('seen_at', { withTimezone: true }),
+    /** A task's report (C8): its sections as rendered from SQL. Null for an alert. */
+    report: jsonb('report'),
     error: text('error'),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
@@ -1901,6 +1914,82 @@ export const discoveryHidden = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.propertyId] })],
+);
+
+/**
+ * Automation (ADR 0080, C8 decisions 8–10): when something happens to a home the buyer follows, do what they asked.
+ * `trigger`, `scope` and `action` come from fixed lists in packages/core/src/automation; the action never reaches an
+ * agency — it tells the buyer, or changes their own shortlist. `checked_at` bounds what is new. The owner's only.
+ */
+export const buyerAutomation = pgTable(
+  'buyer_automation',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    trigger: varchar('trigger', { length: 24 }).notNull(),
+    /** `shortlist`, `watched` or `both`; `search` for a new match on `search_id`. */
+    scope: varchar('scope', { length: 12 }).notNull(),
+    searchId: uuid('search_id').references(() => searchSchedule.id, { onDelete: 'cascade' }),
+    /** `tell`, `shortlist_add` or `shortlist_remove` — every one also tells the buyer. */
+    action: varchar('action', { length: 24 }).notNull(),
+    /** `daily` (8 am) or `instant` (hourly, held 9 pm–7 am). */
+    delivery: varchar('delivery', { length: 12 }).notNull().default('daily'),
+    timeZone: varchar('time_zone', { length: 64 }).notNull().default('Australia/Sydney'),
+    /** `active` or `paused`. */
+    status: varchar('status', { length: 12 }).notNull().default('active'),
+    checkedAt: timestamp('checked_at', { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps,
+  },
+  (t) => [index('buyer_automation_user_idx').on(t.userId, t.createdAt), index('buyer_automation_due_idx').on(t.status, t.checkedAt)],
+);
+
+/** What an automation did, once per thing that happened (`dedupe_key`), with what Undo needs. The owner's only. */
+export const automationEvent = pgTable(
+  'automation_event',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    automationId: uuid('automation_id')
+      .notNull()
+      .references(() => buyerAutomation.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    listingId: uuid('listing_id').references(() => listing.id, { onDelete: 'set null' }),
+    propertyId: uuid('property_id').references(() => property.id, { onDelete: 'cascade' }),
+    dedupeKey: varchar('dedupe_key', { length: 120 }).notNull(),
+    /** The line itself, every figure in it from SQL. */
+    text: text('text').notNull(),
+    /** `added`, `removed`, or null when it only told the buyer. */
+    actionTaken: varchar('action_taken', { length: 12 }),
+    /** What Undo restores (a removed shortlist row's note). */
+    undo: jsonb('undo'),
+    undoneAt: timestamp('undone_at', { withTimezone: true }),
+    happenedAt: timestamp('happened_at', { withTimezone: true }).notNull(),
+    emailedAt: timestamp('emailed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('automation_event_dedupe_idx').on(t.automationId, t.dedupeKey), index('automation_event_user_idx').on(t.userId, t.emailedAt), index('automation_event_log_idx').on(t.userId, t.createdAt)],
+);
+
+/**
+ * Agent AI (ADR 0080, C8 decisions 1–4): a message the buyer SENT after the guide drafted it — for the 5-a-day limit
+ * and the "Drafted with the guide" note on their own copy. The agency's copy carries no such mark. The owner's only.
+ */
+export const guideMessage = pgTable(
+  'guide_message',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    listingId: uuid('listing_id').references(() => listing.id, { onDelete: 'set null' }),
+    leadId: uuid('lead_id').references(() => lead.id, { onDelete: 'set null' }),
+    threadId: uuid('thread_id').references(() => mailThread.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('guide_message_user_idx').on(t.userId, t.createdAt)],
 );
 
 export const event = pgTable('event', {
@@ -3437,6 +3526,9 @@ export type SuburbCensus = typeof suburbCensus.$inferSelect;
 export type InspectionNote = typeof inspectionNote.$inferSelect;
 export type InspectionPhoto = typeof inspectionPhoto.$inferSelect;
 export type DiscoveryHidden = typeof discoveryHidden.$inferSelect;
+export type BuyerAutomation = typeof buyerAutomation.$inferSelect;
+export type AutomationEvent = typeof automationEvent.$inferSelect;
+export type GuideMessage = typeof guideMessage.$inferSelect;
 export type Deal = typeof deal.$inferSelect;
 export type DealCondition = typeof dealCondition.$inferSelect;
 export type DealEvent = typeof dealEvent.$inferSelect;

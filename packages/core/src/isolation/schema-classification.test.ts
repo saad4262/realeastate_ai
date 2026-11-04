@@ -116,7 +116,9 @@ const SHARED = ['property', 'place_cache', 'user', 'agency', 'suburb_census'] as
 // consumer_skill_switch (ADR 0080): a buyer's own skill switches. property_watch(_event) (C4): addresses they follow.
 // inspection_note / inspection_photo (C6): a buyer's private inspection notebook.
 // discovery_hidden (C7): the addresses a buyer asked Discovery not to suggest again.
-const PUBLIC_SITE_USER = ['search_schedule', 'schedule_run', 'chat_thread', 'chat_message', 'shortlist', 'event', 'consumer_skill_switch', 'property_watch', 'property_watch_event', 'buyer_profile', 'inspection_note', 'inspection_photo', 'discovery_hidden'] as const;
+// buyer_automation / automation_event / guide_message (C8): a buyer's automations, what they did, and the messages
+// they sent after the guide drafted them.
+const PUBLIC_SITE_USER = ['search_schedule', 'schedule_run', 'chat_thread', 'chat_message', 'shortlist', 'event', 'consumer_skill_switch', 'property_watch', 'property_watch_event', 'buyer_profile', 'inspection_note', 'inspection_photo', 'discovery_hidden', 'buyer_automation', 'automation_event', 'guide_message'] as const;
 
 /**
  * The platform's own (ADR 0049): who is a platform admin, and every page one opened. Read and
