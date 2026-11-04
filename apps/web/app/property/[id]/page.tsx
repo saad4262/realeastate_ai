@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
@@ -18,6 +19,7 @@ import {
 } from '../../../components/listing-sections';
 import { Icon } from '../../../components/icons';
 import { BeforeYouBuy } from '../../../components/before-you-buy';
+import { LandAndZoningSection } from '../../../components/land-and-zoning';
 import { WatchButton } from '../../../components/watch-button';
 import { ListingMedia } from '../../../components/listing-card';
 import { portalFonts } from '../../portal-fonts';
@@ -387,6 +389,10 @@ export default async function PropertyPage({ params }: { params: Promise<{ id: s
                   <NotConnected title="Schools & catchment" what="no schools data source is connected" />
                 </div>
               </Card>
+
+              <Suspense fallback={null}>
+                <LandAndZoningSection propertyId={property.id} listingId={null} />
+              </Suspense>
 
               <BeforeYouBuy state={property.state} facts={facts} scope={`property:${propertyId}`} subject={{ propertyId }} />
 

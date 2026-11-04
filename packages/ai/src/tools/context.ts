@@ -121,6 +121,11 @@ export type ToolContext = {
    * video or a 3D tour. Null when the listing is not public.
    */
   floorplan: (listingId: string) => Promise<ReturnType<typeof import('@repo/core/media').floorplanToolResult> | null>;
+  /**
+   * Property Development (ADR 0080, C9 decisions 4–6): a PUBLIC listing's or off-market property's zone from the state's
+   * own data, its land size from the ad and the questions to ask. Null when the address is not public.
+   */
+  development: (ref: { listingId: string } | { propertyId: string }) => Promise<ReturnType<typeof import('@repo/core/development').landAndZoningToolResult> | null>;
   dueDiligence: (listingId: string) => Promise<{ address: string; state: string; facts: { ref: string; when: string; text: string }[] } | null>;
   /**
    * The consumer skills not running for this visitor, and why (ADR 0080) — read once per turn by the

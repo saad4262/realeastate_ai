@@ -16,6 +16,7 @@ import { findOpportunities, opportunityToolResult } from '@repo/core/buyer-oppor
 import { AgentMessageError, draftAgentMessage } from '@repo/core/agent-messages';
 import { agentMessageWriterFromEnv } from '@repo/ai/acting';
 import { floorplanToolResult, listingExtras } from '@repo/core/media';
+import { landAndZoningToolResult } from '@repo/core/development';
 import { consumerSkillBlocks, consumerSkillOffMessage, type ConsumerSkillBlock, type ConsumerSkillKey } from '@repo/core/consumer-skills';
 import {
   listSchedules,
@@ -29,8 +30,11 @@ import {
   cachedFilterOptions,
   cachedDueDiligence,
   cachedResearchData,
+  cachedLandAndZoning,
   cachedListing,
+  cachedLiveListingId,
   cachedNearbyMarket,
+  cachedOffMarketProperty,
   cachedRecentSales,
   cachedPlace,
   cachedSearch,
@@ -201,6 +205,20 @@ function toolContext(userId: string | null, skillBlocks: ReadonlyMap<ConsumerSki
     floorplan: async (listingId) => {
       if (!(await cachedListing(listingId))) return null;
       return floorplanToolResult(listingId, await listingExtras(db, listingId));
+    },
+    /**
+     * ADR 0080, C9 decisions 4–7: a PUBLIC address's zone — a live listing, or an address once advertised and now off
+     * the market (the /property page's own gate); one re-listed since is read as its live listing.
+     */
+    development: async (ref) => {
+      const listingId = 'listingId' in ref ? ref.listingId : await cachedLiveListingId(ref.propertyId);
+      const found = listingId ? await cachedListing(listingId) : null;
+      const off = found || 'listingId' in ref ? null : await cachedOffMarketProperty(ref.propertyId);
+      const subject = found ? { propertyId: found.propertyId, address: found.address, page: `/listing/${found.id}#land` } : off ? { propertyId: off.id, address: off.address, page: `/property/${off.id}#land` } : null;
+      if (!subject) return null;
+      const panel = await cachedLandAndZoning(subject.propertyId, found?.id ?? null);
+      if (!panel) throw new Error('database unavailable');
+      return landAndZoningToolResult(subject.address, subject.page, panel);
     },
     /**
      * ADR 0080, C8 decisions 1–2: a draft from THIS visitor's own words in this conversation (the request's, never the

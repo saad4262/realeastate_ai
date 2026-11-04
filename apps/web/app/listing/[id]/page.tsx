@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
@@ -23,6 +24,7 @@ import { SimilarHomes } from '../../../components/similar-homes';
 import { Immersive } from '../../../components/immersive';
 import { suburbPath } from '../../../lib/suburb-slug';
 import { BeforeYouBuy } from '../../../components/before-you-buy';
+import { LandAndZoningSection } from '../../../components/land-and-zoning';
 import { ListingReviews } from '../../../components/listing-reviews';
 import {
   AgentPanel,
@@ -495,7 +497,6 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
                 note="Listed so it is clear what is missing, rather than left out or filled in."
               >
                 <div className="grid gap-sm">
-                  <NotConnected title="Floorplan" what="the media pipeline stores photos, not floorplans, yet" />
                   <NotConnected title="Features & inclusions" what="not captured when a listing is created" />
                   <NotConnected title="Energy rating" what="not captured" />
                   <NotConnected title="Market insights" what="no market data source is connected" />
@@ -510,6 +511,10 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
               <ExplainHome listingId={listing.id} comparables={comps} suburb={listing.suburb} suburbHref={suburbPath(listing.state, listing.suburb)} />
 
               <SimilarHomes homes={similar} />
+
+              <Suspense fallback={null}>
+                <LandAndZoningSection propertyId={listing.propertyId} listingId={listing.id} />
+              </Suspense>
 
               <BeforeYouBuy state={listing.state} facts={facts} scope={`listing:${listing.id}`} subject={{ listingId: listing.id }} />
 

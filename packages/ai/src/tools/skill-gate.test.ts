@@ -20,7 +20,7 @@ function ctx(blocks: [ConsumerSkillKey, ConsumerSkillBlock][]): ToolContext {
     places: new Map(),
     skillBlocks: new Map(blocks),
     dueDiligence: async () => null,
-    research: async () => null, inspections: async () => null, discover: async () => ({ found: false, reason: 'signed_out', note: '' }), opportunities: async () => { throw new Error('not in this test'); }, draftMessage: async () => ({ error: 'not in this test' }), proposalSecret: null, floorplan: async () => null,
+    research: async () => null, inspections: async () => null, discover: async () => ({ found: false, reason: 'signed_out', note: '' }), opportunities: async () => { throw new Error('not in this test'); }, draftMessage: async () => ({ error: 'not in this test' }), proposalSecret: null, floorplan: async () => null, development: async () => null,
     scheduling: { state: 'signed_out' },
   };
 }

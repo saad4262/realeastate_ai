@@ -62,6 +62,7 @@
     "./agent-messages": "./src/agent-messages/index.ts",
     "./acting": "./src/acting/signed.ts",
     "./inspections/photo-storage": "./src/inspections/photo-storage.ts",
+    "./development": "./src/development/index.ts",
     "./renovation": "./src/renovation/index.ts",
     "./renovation/quotes": "./src/renovation/quotes.ts",
     "./renovation/categories": "./src/renovation/categories.ts",

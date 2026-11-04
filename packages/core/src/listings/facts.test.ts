@@ -48,7 +48,7 @@ describe('no read of a property fact that skips the listing', () => {
       if (ALLOWED.has(rel)) continue;
       readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
         // The address's own value as a coalesce's fallback is the rule, not a breach of it.
-        const stripped = line.replace(/coalesce\([^()]*\)/g, '').replace(/lastAd(Text|Number)\([^()]*\)/g, '');
+        const stripped = line.replace(/coalesce\([^()]*\)/g, '').replace(/lastAd(Text|Number|Fact)\([^()]*\)/g, '');
         if (FACT.test(stripped) || RAW.test(stripped)) bad.push(`${rel}:${i + 1}: ${line.trim()}`);
       });
     }

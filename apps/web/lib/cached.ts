@@ -35,6 +35,7 @@ import { dueDiligenceRecords, type RecordFact } from '@repo/core/due-diligence';
 import { comparables, homeRows, researchData, suburbProfile, type BuyerType, type Comparable, type HomeRow, type ResearchAsk, type SuburbProfile } from '@repo/core/research';
 import { similarHomes, type Suggestion } from '@repo/core/discovery';
 import { listingExtras, type ListingExtras } from '@repo/core/media';
+import { landAndZoning, zoningAt, zoningSubject, type LandAndZoning, type ZoningAnswer, type ZoningSubject } from '@repo/core/development';
 import { getWebDb } from './db';
 
 /**
@@ -318,6 +319,40 @@ export async function cachedListingExtras(listingId: string): Promise<ListingExt
     { tags: [LISTINGS_TAG, `listing:${listingId}`], revalidate: 3600 },
   );
   return run();
+}
+
+/**
+ * Property Development (ADR 0080, C9 decisions 4, 7): the panel for a PUBLIC property — the caller has shown it is.
+ * `listingId` on a listing's page (its own ad's land size), null on /property/<id> (the newest ad's, as that page shows).
+ * Two caches, because they go stale differently. The subject (state, map point, the ad's land size) is ours: an hour
+ * under the listings tag, so an edited ad clears it. The zone is the state's, kept 30 days per state and point
+ * (decision 4) — a moved pin is a new key, so a new lookup. An "unavailable" answer is thrown out of the cache rather
+ * than kept for a month. Null when our own database could not be read.
+ */
+export async function cachedLandAndZoning(propertyId: string, listingId: string | null): Promise<LandAndZoning | null> {
+  let subject: ZoningSubject | null;
+  try {
+    subject = await unstable_cache(() => zoningSubject(getWebDb(), propertyId, listingId), ['zoning-subject', propertyId, listingId ?? '-'], { tags: [LISTINGS_TAG], revalidate: 3600 })();
+  } catch {
+    return null;
+  }
+  if (!subject) return null;
+  const { state, at } = subject;
+  let zoning: ZoningAnswer;
+  try {
+    zoning = await unstable_cache(
+      async () => {
+        const z = await zoningAt(getWebDb(), state, at);
+        if (z.status === 'unavailable') throw new Error('zoning unavailable');
+        return z;
+      },
+      ['zoning-at', state, at ? `${at.lat},${at.lng}` : '-'],
+      { tags: ['zoning'], revalidate: 30 * 24 * 3600 },
+    )();
+  } catch {
+    zoning = { status: 'unavailable' };
+  }
+  return landAndZoning(subject, zoning);
 }
 
 /** The guide's research reader: the same records, thrown on failure so the guide says the database could not be reached. */

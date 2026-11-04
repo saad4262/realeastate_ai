@@ -8,6 +8,7 @@ import { planInspectionsInput } from './inspection-tools';
 import { discoverHomesInput, findOpportunitiesFields } from './discovery-tools';
 import { draftAutomationInput, draftMessageInput, draftTaskInput } from './acting-tools';
 import { floorplanRoomsInput } from './immersive-tools';
+import { landAndZoningFields } from './development-tools';
 import { getListingInput } from './get-listing-tool';
 import { resolveLocationInput } from './resolve-location';
 import { recentSalesInput } from './recent-sales-tool';
@@ -34,6 +35,7 @@ const PAIRS = [
   { name: 'discover_homes', zod: discoverHomesInput },
   { name: 'find_opportunities', zod: findOpportunitiesFields },
   { name: 'floorplan_rooms', zod: floorplanRoomsInput },
+  { name: 'land_and_zoning', zod: landAndZoningFields },
   { name: 'draft_message', zod: draftMessageInput },
   { name: 'draft_task', zod: draftTaskInput },
   { name: 'draft_automation', zod: draftAutomationInput },
@@ -144,6 +146,8 @@ describe('tool definitions', () => {
       'find_opportunities',
       // ADR 0080 C9: a listing's floorplan rooms by name, video and tour — after the finders, before the acting three.
       'floorplan_rooms',
+      // ADR 0080 C9: a property's zone from the state's data — beside the floorplan, before the acting three.
+      'land_and_zoning',
       // ADR 0080 C8: the three that propose acting for the visitor — a card each, never an act. One cache reset.
       'draft_message',
       'draft_task',

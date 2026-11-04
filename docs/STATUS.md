@@ -78,8 +78,11 @@ production database.
    `docs/mocks/consumer-media-land.html` (twelve decisions + the providers compared) approved 2026-11-04 (all twelve, providers
    as recommended); building in order Immersive → Development → Visual Search. Immersive BUILT and committed: unit
    core 1781 / ai 414, typecheck 10/10, both builds, smoke "Consumer skills" 23/23, its two live checks green (the
-   user's consent). Development next: VIC (WFS) and NSW (ArcGIS) answer live; SA is download-only — migration 0089
-   (`planning_zone`, PostGIS) + a loader, approved by the user 2026-11-04. Real data: 1 photo in the database; REAXML import reads no floorplans, video or tour links yet.
+   user's consent). Development BUILT and committed: migration 0089 applied
+   (`planning_zone`, the user's go; 90 recorded) and SA's zones loaded (5,402 polygons, 65 zones, data dated
+   2026-08-21, 20 MB; reload: `pnpm --filter @repo/db db:zones`, fortnightly at most); VIC/NSW asked live. Unit
+   core 1795 / ai 418, typecheck 10/10, lint 0 errors, web build, smoke "Consumer skills" 25/25, its live check green
+   (the user's go). Visual Search next: 1 photo in the database (on a sold listing), 0 on public listings. Real data: 1 photo in the database; REAXML import reads no floorplans, video or tour links yet.
    TEST-PLAN CG/CH/CI: the user, in a browser. Re-check duty rates
    every 1 July (dates in `duty-rates.ts`); NT, ACT general and SA new-home relief still "not verified".
 1. Push and merge `chore/tech-debt` → `feat/sms-part2` → `feat/customer-profile` → `feat/consumer-skills` (the user's go).

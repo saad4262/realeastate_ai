@@ -126,4 +126,12 @@ the licence allows a commercial site). Built in order. *Immersive:* floorplans a
 floorplan`); a video or tour is a link on a fixed allowlist (YouTube, Vimeo, Matterport) stored as `provider:id` — never
 a URL, which keeps `storage_key`'s rule — and embedded by code from that, loading only on play. The floorplan's rooms
 are read by a vision model into C3's room types under a strict schema (names only: a size, an area or a count refuses
-the answer), on the alerts cron, metered; the guide's `floorplan_rooms` (prompt v18) never gives a size. No migration.
+the answer), on the alerts cron, metered; the guide's `floorplan_rooms` (prompt v18) never gives a size. No migration. *Development:* the zone by the property's map point (the geocoder's, or the agent's own pin; a point with
+no source is no lookup) from the state's own layer — VIC (Vicmap WFS) and NSW (Planning Portal, layer 19) asked live
+before any transaction and kept 30 days per point by the web, never kept when the service failed; SA's Planning and
+Design Code zones (CC BY 3.0 AU, a download only) loaded into `planning_zone` (migration 0089, the user's go; GiST
+probe; simplified to about a metre, 20 MB), "data dated" by the file. WA (non-commercial licence), QLD (no statewide
+layer), TAS, ACT and NT say "not verified" and link a checked map where there is one. What the state sends is read
+against the shapes it publishes; anything else shows nothing. The panel: the zone, the land size the page beside it
+shows (ADR 0075), the overlay map, "not a permission", five fixed questions; no model writes it. The guide's
+`land_and_zoning` (prompt v19) copies it and gives no advice.

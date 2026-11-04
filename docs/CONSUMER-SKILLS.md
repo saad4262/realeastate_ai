@@ -46,12 +46,12 @@ written (2026-11-03) · Now = where it stands
 | 10 | Inspection AI (`inspection_planner`) | answers | C6 | 15% | built (C6) | Plan a Saturday: pick listings, order the open homes by time and distance, add to calendar |
 | 11 | Inspection Assistant (`inspection_notes`) 🔒 | answers | C6 | 0% | built (C6) | Notes, photos and a checklist per inspection, private to the buyer, summarised |
 | 12 | Visual Search AI (`visual_search`) | answers | C9 | 0% | C9 | "Homes that look like this" from a photo or a style (image embeddings) |
-| 13 | Immersive Property AI (`immersive`) | answers | C9 | 10% | C9 | Floorplans, video and tours stored and shown; ask the guide about a room |
+| 13 | Immersive Property AI (`immersive`) | answers | C9 | 100% | C9 | Floorplans, video and tours stored and shown; ask the guide about a room |
 | 14 | Agent AI (`agent_messages`) 🔒 | acts | C8 | 45% | built (C8) | The guide drafts an enquiry or question to the agent; the buyer reads it and sends it |
 | 15 | Buyer AI (`buyer_assistant`) | answers | grows | 10% | grows with each | The property chat itself; each skill adds its tool here, behind its own switch |
 | 16 | Property Monitor (`property_monitor`) 🔒 | acts | C4 | 20% | built (C4) | Watch an address: listed, price change, under offer, sold — including Not for Sale → For Sale |
 | 17 | Opportunity AI (`opportunities`) | answers | C7 | 0% | built (C7) | Price drops, long days on market, under the suburb median — from SQL, explained |
-| 18 | Property Development AI (`development`) | answers | C9 | 0% | C9 | Land size, zoning links, subdivision questions to ask; needs planning data (later) |
+| 18 | Property Development AI (`development`) | answers | C9 | 100% | C9 | The state's zone by map point (VIC, NSW live; SA loaded), land size from the ad, questions to ask; never advice |
 | 19 | **Affordability AI** (`affordability`) | answers | **C1** | 0% | built (C1) | Repayments, stamp duty + first-home concessions per state, borrowing estimate, scenarios |
 | 20 | **Due-Diligence AI** (`due_diligence`) | answers | **C2** | 5% | built (C2) | Per property: the state checklist, what our records show, questions to ask, official overlay links |
 | 21 | **Renovation AI** (`renovation`) | answers | **C3** | 0% | built (C3) | A scope from photos or words (model), priced from a dated cost table (code), permit pointers |
@@ -174,4 +174,8 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   links, the public read, removal, the strict room-names schema and the cron batch that reads them); the import's
   `floorplan_urls`, `video_url`, `tour_url`; the reader (packages/ai, names only, metered); the console's editor on
   the Photos tab; "Floorplan, video and tour" on listings (click to play); the guide's `floorplan_rooms` (prompt
-  v18). No migration. TEST-PLAN CO. Next: Development, then Visual Search.
+  v18). No migration. TEST-PLAN CO. Committed `08c6f1d` (live checks green, the user's go). **Development built**
+  (2026-11-04): `packages/core/src/development/` (`sources.ts` per state, `zoning.ts` — VIC and NSW asked live, SA from
+  `planning_zone`, read strictly; the panel; the guide's result), migration 0089 and `packages/db/src/zones-load.ts`
+  (SA's download → 5,402 polygons); "Land and zoning" on listings and /property pages (streamed); the guide's
+  `land_and_zoning` (prompt v19). TEST-PLAN CP. Next: Visual Search.

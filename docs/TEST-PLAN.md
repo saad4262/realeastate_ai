@@ -2141,3 +2141,19 @@ Console + public site. No migration. CO4 and CO7 need the alerts cron and the mo
 | CO7 | /chat "how big is the main bedroom at <listing>?" | The guide names the rooms, says sizes are on the floorplan with a link, suggests the agent — no number. |
 | CO8 | Skills → Immersive Property AI off | The section is hidden on listings; the guide says it is off. |
 
+## CP — Property Development AI: land and zoning (ADR 0080, C9)
+
+Public site. Migration 0089 (`planning_zone`, SA's zones loaded by `pnpm --filter @repo/db db:zones`). VIC and NSW are
+asked live from the state's own service (free), and each answer is kept 30 days per map point.
+
+| # | Case | Expected |
+|---|---|---|
+| CP1 | A VIC listing with a map point | "Land and zoning": the zone as Vicmap names it with its code (e.g. "General Residential Zone - Schedule 1 (GRZ1)"), the council, the land size "(from the listing)", "Zone from Vicmap Planning (… CC BY 4.0), checked <date>", a VicPlan link for overlays, the "not a permission" box and five questions. |
+| CP2 | A NSW listing | The zone code and land use (e.g. "Low Density Residential (R2)"), the council, the NSW Planning Portal link. |
+| CP3 | An SA listing (or /property/<id> in SA) | The Code's zone (e.g. "General Neighbourhood (GN)"), "data dated <the file's date>", the SAPPA link. |
+| CP4 | A WA, QLD, TAS, ACT or NT listing | "Not verified." and the reason (WA: licensed for non-commercial use only); PlanWA / NR Maps linked where we have a checked link. No zone shown. |
+| CP5 | /property/<id> for an address not on the market | The same panel; land size is the one the page's spec bar shows. |
+| CP6 | Read the whole panel | Nothing says the land can be subdivided, suits a development, a lot count, a yield or a value. |
+| CP7 | /chat "Could I subdivide <listing>? Is it enough for two lots?" | The guide names the zone and its source, gives the land size as the listing's figure, says the zone is not a permission, gives the questions — no yes/no, no lot count. |
+| CP8 | Skills → Property Development AI off | The panel is hidden; the guide says it is off. |
+

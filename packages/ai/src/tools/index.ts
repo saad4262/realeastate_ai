@@ -10,6 +10,7 @@ import { planInspectionsInput, runPlanInspections } from './inspection-tools';
 import { discoverHomesInput, findOpportunitiesInput, runDiscoverHomes, runFindOpportunities } from './discovery-tools';
 import { draftAutomationInput, draftMessageInput, draftTaskInput, runDraftAutomation, runDraftMessage, runDraftTask } from './acting-tools';
 import { floorplanRoomsInput, runFloorplanRooms } from './immersive-tools';
+import { landAndZoningInput, runLandAndZoning } from './development-tools';
 import { TASK_SECTIONS } from '@repo/core/tasks';
 import { RENOVATION_CATEGORY_KEYS } from '@repo/core/renovation/categories';
 import { getListingInput, runGetListing } from './get-listing-tool';
@@ -347,6 +348,19 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
     input_schema: { type: 'object', additionalProperties: false, properties: { listingId: { type: 'string', description: 'The id from a search result.' } }, required: ['listingId'] },
   },
   {
+    name: 'land_and_zoning',
+    description:
+      "One property's zoning from its state's own planning data, the land size from its ad, where to see the overlays, and the questions to ask a town planner or the council. Use it for any question about zoning, subdividing, building a second dwelling or developing a site. Records only: never say whether the land can be subdivided or built on.",
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        listingId: { type: 'string', description: 'The id from a search result, for a home for sale or rent.' },
+        propertyId: { type: 'string', description: 'The property id, for an address not on the market. Give one of the two.' },
+      },
+    },
+  },
+  {
     name: 'draft_message',
     description:
       "Draft a message from the visitor to the agency selling one live listing — questions, a request to inspect, anything they asked you to put to the agent — from their own words in this conversation and the listing's facts. It puts the draft in a card they edit and send themselves; it sends NOTHING. Never draft an offer or a price.",
@@ -575,6 +589,11 @@ export async function dispatchTool(
         const parsed = floorplanRoomsInput.safeParse(rawInput);
         if (!parsed.success) return invalid(name, parsed.error);
         return await runFloorplanRooms(parsed.data, ctx);
+      }
+      case 'land_and_zoning': {
+        const parsed = landAndZoningInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return await runLandAndZoning(parsed.data, ctx);
       }
       case 'draft_message': {
         const parsed = draftMessageInput.safeParse(rawInput);

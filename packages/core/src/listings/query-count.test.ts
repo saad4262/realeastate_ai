@@ -41,6 +41,7 @@ import { automationLog, listAutomations } from '../automation/manage';
 import { detectEvents } from '../automation/tick';
 import { messageFacts } from '../agent-messages/message';
 import { listingExtras, unreadFloorplans } from '../media/extras';
+import { zoningSubject } from '../development/zoning';
 
 /**
  * How many times each read talks to the database.
@@ -223,6 +224,12 @@ describe('reads cost a fixed number of queries', () => {
     const two = countingDb([]);
     await unreadFloorplans(two.db);
     expect(two.count()).toBe(1);
+  });
+
+  it('C9: the land-and-zoning subject is one query — the latest ad’s land size is a subquery, not a second read', async () => {
+    const { db, count } = countingDb([{ state: 'VIC', lat: '-38.075000', lng: '145.487000', source: 'google', land: '612.00' }]);
+    expect(await zoningSubject(db, '6f1f7a2e-3c1b-4f7e-9a51-1d2e3f4a5b6c')).toMatchObject({ state: 'VIC', at: { lat: -38.075, lng: 145.487 }, landAreaSqm: 612 });
+    expect(count()).toBe(1);
   });
 
   it('the inspection times are one query', async () => {

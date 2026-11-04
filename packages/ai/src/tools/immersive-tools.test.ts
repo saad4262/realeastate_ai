@@ -32,7 +32,7 @@ describe('prompt v18', () => {
     expect(PROMPT_VERSION).toBe('property-chat@v18');
     expect(PROPERTY_CHAT_V18.startsWith(PROPERTY_CHAT_V17.slice(0, 200))).toBe(true);
     expect(PROPERTY_CHAT_V18).toContain('You have twenty tools.');
-    expect(PROPERTY_CHAT_TOOLS).toHaveLength(20);
+    expect(PROPERTY_CHAT_TOOLS.length).toBeGreaterThanOrEqual(20); // C9 adds land_and_zoning (v19)
     expect(PROPERTY_CHAT_V18).toMatch(/Never give a size, a dimension, an area or a floor space/);
     expect(PROPERTY_CHAT_V18).not.toMatch(/new Date|\d{4}-\d{2}-\d{2}/);
   });

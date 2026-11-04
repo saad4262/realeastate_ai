@@ -20,6 +20,14 @@ passes ~10 entries, move the older ones to a new archive file.
   upstream "Overloaded", rerun green.
 - Development: VIC `open-data-platform:plan_zone` (WFS) and NSW Principal Planning layer 19 answer for real points; SA
   publishes only downloads and its services refuse outside queries (403).
+- Immersive committed and pushed (`08c6f1d`). Development: migration 0089 applied, SA loaded (Rundle Mall → City Main
+  Street, Prospect → Established Neighbourhood; 0 invalid polygons; one GiST probe). The loader stopped on the first
+  real code it did not expect ("E(BH)") — its pattern now comes from the file's 65 codes. Guards that caught me: the
+  tenant-isolation classification (planning_zone → shared) and ADR 0075's fact rule (land size must be the page's own
+  — `lastAdFact` moved into `listings/facts.ts` and shared with the off-market page). Break-tests red then restored:
+  markup let through, WA asked, "can be subdivided" not caught; the subject's second read (query count).
+- Smoke "Consumer skills" 25/25 (one earlier run lost a check to DNS, rerun clean); VIC and NSW answered live in the
+  shape read. Live check (the user's go): the guide called `land_and_zoning`, named GRZ1 with its source, no advice.
 
 ## 2026-11-04 (late) — Claude Code (Mac) — C8 Acting for the buyer in the user's autonomous loop
 

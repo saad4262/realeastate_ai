@@ -1,4 +1,4 @@
-import { sql, type SQL } from 'drizzle-orm';
+import { sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { listing, property } from '@repo/db';
 
 /**
@@ -28,4 +28,12 @@ export type FactColumn = (typeof FACT_COLUMNS)[number];
 export function factSql(col: FactColumn, l: string, p: string): SQL {
   if (!/^[a-z_][a-z0-9_]*$/.test(l) || !/^[a-z_][a-z0-9_]*$/.test(p)) throw new Error(`bad alias ${l}/${p}`);
   return sql.raw(`coalesce(${l}.${col}, ${p}.${col})`);
+}
+
+/**
+ * The newest ad's fact at the property in the query's row (constants only), else the address's own — what an address
+ * off the market shows (`/property/<id>`), and what the land-and-zoning panel shows for it, so the two never differ.
+ */
+export function lastAdFact(col: FactColumn, own: AnyColumn): SQL {
+  return sql`coalesce((select ${sql.raw(`x.${col}`)} from listing x where x.property_id = ${property.id} order by x.created_at desc limit 1), ${own})`;
 }

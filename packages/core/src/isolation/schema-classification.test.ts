@@ -110,7 +110,8 @@ const THROUGH_PARENT: Record<string, [string, string]> = {
  * - agency: the tenant itself.
  */
 // suburb_census (ADR 0080 C5): ABS public reference data — no agency, no person.
-const SHARED = ['property', 'place_cache', 'user', 'agency', 'suburb_census'] as const;
+// planning_zone (ADR 0080 C9): a state's published planning zones — public reference data, no agency, no person.
+const SHARED = ['property', 'place_cache', 'user', 'agency', 'suburb_census', 'planning_zone'] as const;
 
 /** A public-site visitor's own data (ADR 0011): owned by a person, never an agency. */
 // consumer_skill_switch (ADR 0080): a buyer's own skill switches. property_watch(_event) (C4): addresses they follow.

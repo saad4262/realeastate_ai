@@ -276,6 +276,7 @@ import { createTask, getTask, runTaskTick, taskSummaryPasses } from '@repo/core/
 import { createAgentMessageWriter, createTaskSummaryWriter } from '@repo/ai/acting';
 import { automationLog, createAutomation, runAutomationTick, sendableNow, undoAutomationEvent } from '@repo/core/automation';
 import { addListingLink, floorplanRoomsSchema, floorplanToolResult, listingExtras, listingPhotos, readFloorplanBatch, removeListingExtra, roomNames, unreadFloorplans } from '@repo/core/media';
+import { adviceWords, landAndZoning, landAndZoningToolResult, nswZoneUrl, parseNswZones, parseVicZones, vicZoneUrl, zoningAt, zoningSubject } from '@repo/core/development';
 import { deleteObject, signUpload } from '@repo/core/media/storage';
 import { createFloorplanReader } from '@repo/ai/floorplan';
 import { runPropertyChat, type ToolContext as ChatToolContext } from '@repo/ai/chat';
@@ -8371,6 +8372,67 @@ async function main() {
     }),
   );
 
+  await check('Development (C9): South Australia\'s zones loaded (every code of the Code\'s shape), found by one GiST probe; Rundle Mall is City Main Street; the panel\'s point only from the geocoder or the agent\'s pin, its land the page\'s own (ADR 0075); no advice in the records', async () =>
+    inRollback(async (t) => {
+      const [load] = await t.execute<{ n: number; zones: number; odd: number; empty: number; published: string }>(sql`
+        select count(*)::int as n, count(distinct zone_code)::int as zones,
+               count(*) filter (where zone_code !~ '^[A-Za-z]{1,8}(\\([A-Za-z]{1,6}\\))?$')::int as odd,
+               count(*) filter (where ST_IsEmpty(geom))::int as empty, max(published_on)::text as published
+        from planning_zone where source = 'sa_pdcode'`);
+      if (!load!.n) skip('planning_zone is empty — run pnpm --filter @repo/db db:zones (docs: packages/db/src/zones-load.ts)');
+      assert(load!.n > 5000 && load!.zones > 50 && !load!.odd && !load!.empty, `planning_zone: ${JSON.stringify(load)}`);
+      const plan = (await t.execute<{ 'QUERY PLAN': string }>(sql`explain select zone_code from planning_zone where source = 'sa_pdcode' and ST_Covers(geom, ST_SetSRID(ST_MakePoint(138.6035, -34.9225), 4326)) limit 3`)).map((r) => r['QUERY PLAN']).join(' ');
+      assert(plan.includes('planning_zone_geom_idx'), `the lookup does not use the GiST index: ${plan}`);
+      const rundle = await zoningAt(t, 'SA', { lat: -34.9225, lng: 138.6035 });
+      assert(rundle.status === 'found' && rundle.zones[0]!.code === 'CMS' && rundle.asOfKind === 'data_dated', `Rundle Mall: ${JSON.stringify(rundle)}`);
+      const sydney = await zoningAt(t, 'SA', { lat: -33.8688, lng: 151.2093 });
+      assert(sydney.status === 'none_here', `a point outside SA: ${JSON.stringify(sydney)}`);
+      const wa = await zoningAt(t, 'WA', { lat: -31.95, lng: 115.86 }, { fetch: async () => { throw new Error('WA must not be asked'); } });
+      assert(wa.status === 'not_verified', `WA: ${JSON.stringify(wa)}`);
+
+      const f = await contactFixture(t);
+      const [l] = await t.execute<{ id: string }>(sql`select id from listing where property_id = ${f.propertyId} limit 1`);
+      await t.execute(sql`update property set state = 'SA', latitude = -34.9225, longitude = 138.6035, geocode_source = null, land_area_sqm = 500 where id = ${f.propertyId}`);
+      const unplaced = await zoningSubject(t, f.propertyId);
+      assert(unplaced?.at === null && unplaced.landAreaSqm === 500, `no geocode source → no point: ${JSON.stringify(unplaced)}`);
+      await t.execute(sql`update property set geocode_source = 'google' where id = ${f.propertyId}`);
+      // ADR 0075: the land the page beside it shows — this listing's ad first, the address only for a blank.
+      await t.execute(sql`update listing set land_area_sqm = 612 where id = ${l!.id}`);
+      const subject = await zoningSubject(t, f.propertyId, l!.id);
+      assert(subject?.at?.lat === -34.9225 && subject.landAreaSqm === 612, `subject: ${JSON.stringify(subject)}`);
+      const other = await zoningSubject(t, f.propertyId, randomUUID());
+      assert(other?.landAreaSqm === 500, `another property's listing id gave its land: ${JSON.stringify(other)}`);
+      const panel = landAndZoning(subject, await zoningAt(t, subject.state, subject.at));
+      const tool = landAndZoningToolResult('1 Smoke Street', `/listing/${l!.id}#land`, panel);
+      assert(tool.zoning.found && JSON.stringify(tool.zoning).includes('City Main Street (CMS)'), `tool: ${JSON.stringify(tool.zoning)}`);
+      const words = adviceWords([JSON.stringify(tool.zoning), panel.notAPermission, ...panel.questions].join(' '));
+      assert(!words.length, `advice in the records: ${words.join(', ')}`);
+      return `${load!.n} polygons, ${load!.zones} zones, data dated ${load!.published}; GiST probe; Rundle Mall → CMS; outside SA → none; WA not asked; no source → no point; the listing's own land, never another's`;
+    }),
+  );
+
+  await check('Development (C9, live state services — free): Vicmap and the NSW Planning Portal answer real points in the shape we read', async () => {
+    const ask = async (url: string) => {
+      const res = await fetch(url, { signal: AbortSignal.timeout(15_000), headers: { accept: 'application/json' } }).catch(() => null);
+      return res?.ok ? ((await res.json()) as unknown) : null;
+    };
+    const vic = await ask(vicZoneUrl(-38.075, 145.487)!);
+    const nsw = await ask(nswZoneUrl(-33.8688, 151.2093)!);
+    if (vic === null && nsw === null) skip('neither state service answered (network)');
+    const out: string[] = [];
+    if (vic !== null) {
+      const z = parseVicZones(vic);
+      assert(z?.length && z[0]!.code.length > 1 && z[0]!.council === 'Cardinia', `Vicmap's answer is not the shape we read: ${JSON.stringify(vic).slice(0, 300)}`);
+      out.push(`VIC ${z[0]!.code} ${z[0]!.name}`);
+    } else out.push('VIC did not answer');
+    if (nsw !== null) {
+      const z = parseNswZones(nsw);
+      assert(z?.length && z[0]!.code === 'SP5' && z[0]!.council === 'Sydney', `the NSW portal's answer is not the shape we read: ${JSON.stringify(nsw).slice(0, 300)}`);
+      out.push(`NSW ${z[0]!.code} ${z[0]!.name}, ${z[0]!.plan}`);
+    } else out.push('NSW did not answer');
+    return out.join('; ');
+  });
+
   // ── ADR 0079: the customer profile — four starting details; the same person lands on one profile (needs 0080) ──
   group('Customer profile (ADR 0079)');
 
@@ -12542,7 +12604,7 @@ async function main() {
     const nope = async () => {
       throw new Error('not used in this check');
     };
-    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence, research: async () => null, inspections: async () => null, discover: nope, opportunities: nope, draftMessage: nope, proposalSecret: 'smoke-proposal-secret', floorplan: nope } as unknown as ChatToolContext;
+    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence, research: async () => null, inspections: async () => null, discover: nope, opportunities: nope, draftMessage: nope, proposalSecret: 'smoke-proposal-secret', floorplan: nope, development: nope } as unknown as ChatToolContext;
     const events: { type: string; name?: string; delta?: string; message?: string }[] = [];
     for await (const e of runPropertyChat({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), request: { message, turns: [] }, catalogue: { suburbs: ['Springfield Lakes', 'Pakenham'], propertyTypes: ['House'] }, tools, track: async () => {} })) events.push(e as (typeof events)[number]);
     const error = events.find((e) => e.type === 'error');
@@ -12554,7 +12616,7 @@ async function main() {
     const nope = async () => {
       throw new Error('not used in this check');
     };
-    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence: async () => null, research: async () => null, inspections: async () => null, discover: nope, opportunities: nope, draftMessage: nope, proposalSecret: 'smoke-proposal-secret', floorplan: nope, ...extra } as unknown as ChatToolContext;
+    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence: async () => null, research: async () => null, inspections: async () => null, discover: nope, opportunities: nope, draftMessage: nope, proposalSecret: 'smoke-proposal-secret', floorplan: nope, development: nope, ...extra } as unknown as ChatToolContext;
     const events: { type: string; name?: string; delta?: string; message?: string }[] = [];
     for await (const e of runPropertyChat({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), request: { message, turns: [] }, catalogue: { suburbs: ['Pakenham', 'Officer'], propertyTypes: ['House'] }, tools, track: async () => {} })) events.push(e as (typeof events)[number]);
     const error = events.find((e) => e.type === 'error');
@@ -12869,6 +12931,24 @@ async function main() {
     assert(turn.tools.includes('floorplan_rooms'), `tools: ${turn.tools.join(', ') || 'none'} — ${turn.text.slice(0, 300)}`);
     const sizes = turn.text.match(/\b\d+(\.\d+)?\s?(m|metres|meters|sq|square|m²|×|x)\b|\b\d+(\.\d+)?\s?(by|x|×)\s?\d/gi) ?? [];
     assert(!sizes.length, `a size in the answer: ${sizes.join(', ')} — ${turn.text.slice(0, 400)}`);
+    return `tools: ${turn.tools.join(', ')}; ${turn.text.replace(/\s+/g, ' ').slice(0, 240)}`;
+  });
+
+  await check('the guide (live): "could I subdivide it — enough for two lots?" calls land_and_zoning, names the zone, and gives no advice', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    const id = '6f1f7a2e-3c1b-4f7e-9a51-1d2e3f4a5b6c';
+    const panel = landAndZoning(
+      { propertyId: id, state: 'VIC', at: { lat: -38.07, lng: 145.48 }, landAreaSqm: 612 },
+      { status: 'found', zones: [{ code: 'GRZ1', name: 'General Residential Zone - Schedule 1', council: 'Cardinia', plan: null }], source: { name: 'Vicmap Planning (Department of Transport and Planning)', licence: 'CC BY 4.0', url: 'https://discover.data.vic.gov.au/' }, asOf: '2026-11-04', asOfKind: 'checked' },
+    );
+    const turn = await guideTurnWith(`Could I subdivide the land at listing ${id}? Is 612 m² enough for two lots?`, {
+      development: async () => landAndZoningToolResult('14 Example Road, Officer', `/listing/${id}#land`, panel),
+    });
+    assert(turn.tools.includes('land_and_zoning'), `tools: ${turn.tools.join(', ') || 'none'} — ${turn.text.slice(0, 300)}`);
+    assert(/GRZ1|General Residential/i.test(turn.text), `the zone was not named: ${turn.text.slice(0, 300)}`);
+    const advice = adviceWords(turn.text);
+    const verdict = turn.text.split(/(?<=[.!?])\s+|\n+/).filter((x) => /\b(yes|no)\b[,.]?\s.*\b(subdivid|two lots|enough)/i.test(x) && !/\b(depends|whether|ask|can't say|cannot say|not able)\b/i.test(x));
+    assert(!advice.length && !verdict.length, `advice in the answer: ${[...advice, ...verdict].join(' | ')} — ${turn.text.slice(0, 400)}`);
     return `tools: ${turn.tools.join(', ')}; ${turn.text.replace(/\s+/g, ' ').slice(0, 240)}`;
   });
 
