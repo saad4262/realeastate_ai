@@ -54,9 +54,21 @@ describe('the template and its columns', () => {
     expect(sold.status).toBe('sold');
     expect(sold.sold).toMatchObject({ soldPrice: 925000 });
   });
+  it('C9: floorplans are fetched like photos; video and tour links only from the allowlist, each in its own column', () => {
+    const [sale, rent] = rows.map((r) => normalizeRow(r, mapping, 'Australia/Melbourne').row!);
+    expect(sale!.floorplanUrls).toEqual(['https://photos.example.com/ag-1001/floorplan.png']);
+    expect(sale!.mediaLinks).toEqual(['https://youtu.be/dQw4w9WgXcQ']);
+    expect(rent!.floorplanUrls).toEqual([]);
+    const bad = [...rows[0]!];
+    bad[headers.indexOf('video_url')] = 'https://my.matterport.com/show/?m=SxQL3iGyoDo';
+    bad[headers.indexOf('tour_url')] = 'https://evil.test/tour';
+    bad[headers.indexOf('floorplan_urls')] = Array.from({ length: 5 }, (_, i) => `https://x.test/${i}.png`).join('|');
+    const out = normalizeRow(bad, mapping, 'Australia/Melbourne');
+    expect(out.errors.map((e) => e.column).sort()).toEqual(['3D tour link', 'Floorplan links', 'Video link']);
+  });
   it('maps common other names', () => {
-    const m = autoMap(['ID', 'Beds', 'Photos', 'Agents', 'Weekly Rent']);
-    expect(m).toMatchObject({ external_id: 0, bedrooms: 1, photo_urls: 2, agent_emails: 3, rent_pw: 4 });
+    const m = autoMap(['ID', 'Beds', 'Photos', 'Agents', 'Weekly Rent', 'Floor plan', 'Virtual tour', 'Video link']);
+    expect(m).toMatchObject({ external_id: 0, bedrooms: 1, photo_urls: 2, agent_emails: 3, rent_pw: 4, floorplan_urls: 5, tour_url: 6, video_url: 7 });
   });
 });
 

@@ -11,6 +11,8 @@ import { runWatchTick } from '@repo/core/watch';
 import { runTaskTick } from '@repo/core/tasks';
 import { runAutomationTick } from '@repo/core/automation';
 import { taskSummaryWriterFromEnv } from '@repo/ai/acting';
+import { readFloorplanBatch } from '@repo/core/media';
+import { floorplanReaderFromEnv } from '@repo/ai/floorplan';
 import { purgeWorkflowHistory } from '@repo/core/workflows';
 import { runSkillTick } from '@repo/core/skills';
 import {
@@ -96,6 +98,9 @@ async function handler(request: NextRequest) {
       return runAutomationTick(getWebDb(), { transport: d.transport, sender: d.sender, baseUrl: d.baseUrl, unsubscribeSecret: d.unsubscribeSecret, search: d.search, resolvePlace: d.resolvePlace });
     })().catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'automation tick failed' }));
 
+    // ADR 0080 C9: a few public floorplans' room names a tick (names only, metered); no key → none read. Cannot fail the tick.
+    const floorplans = await readFloorplanBatch(getWebDb(), floorplanReaderFromEnv(getWebDb())).catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'floorplan tick failed' }));
+
     const mail = await pullReceivedMail({ db: getWebDb });
     if (mail.followUp) after(mail.followUp);
 
@@ -178,7 +183,7 @@ async function handler(request: NextRequest) {
 
     // No ids, no addresses, no listing text — this is read from a cron log.
     return NextResponse.json(
-      { ok: true, ...report, watch, tasks, automation, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, stuckMail, skills, templateEmail, appointmentSync, assistant, imports, searchIndex },
+      { ok: true, ...report, watch, tasks, automation, floorplans, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, stuckMail, skills, templateEmail, appointmentSync, assistant, imports, searchIndex },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (err) {

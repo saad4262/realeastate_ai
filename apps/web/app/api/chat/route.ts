@@ -15,6 +15,7 @@ import { discoverToolResult, forYou, similarHomes, SIGNED_OUT_DISCOVERY } from '
 import { findOpportunities, opportunityToolResult } from '@repo/core/buyer-opportunities';
 import { AgentMessageError, draftAgentMessage } from '@repo/core/agent-messages';
 import { agentMessageWriterFromEnv } from '@repo/ai/acting';
+import { floorplanToolResult, listingExtras } from '@repo/core/media';
 import { consumerSkillBlocks, consumerSkillOffMessage, type ConsumerSkillBlock, type ConsumerSkillKey } from '@repo/core/consumer-skills';
 import {
   listSchedules,
@@ -196,6 +197,11 @@ function toolContext(userId: string | null, skillBlocks: ReadonlyMap<ConsumerSki
   return {
     // ADR 0080, C8 decision 12: signs a task's or an automation's card; nothing is saved until Accept.
     proposalSecret,
+    // ADR 0080, C9 decision 3: a public listing's floorplan rooms by name, and its video and tour; never a size.
+    floorplan: async (listingId) => {
+      if (!(await cachedListing(listingId))) return null;
+      return floorplanToolResult(listingId, await listingExtras(db, listingId));
+    },
     /**
      * ADR 0080, C8 decisions 1–2: a draft from THIS visitor's own words in this conversation (the request's, never the
      * model's) and the listing's facts — a card they edit and send; core decides whether they may.

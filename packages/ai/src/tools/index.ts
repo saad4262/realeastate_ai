@@ -9,6 +9,7 @@ import { compareHomesInput, explainHomeInput, runCompareHomes, runExplainHome, r
 import { planInspectionsInput, runPlanInspections } from './inspection-tools';
 import { discoverHomesInput, findOpportunitiesInput, runDiscoverHomes, runFindOpportunities } from './discovery-tools';
 import { draftAutomationInput, draftMessageInput, draftTaskInput, runDraftAutomation, runDraftMessage, runDraftTask } from './acting-tools';
+import { floorplanRoomsInput, runFloorplanRooms } from './immersive-tools';
 import { TASK_SECTIONS } from '@repo/core/tasks';
 import { RENOVATION_CATEGORY_KEYS } from '@repo/core/renovation/categories';
 import { getListingInput, runGetListing } from './get-listing-tool';
@@ -341,6 +342,11 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
     },
   },
   {
+    name: 'floorplan_rooms',
+    description: "One live listing's floorplan, video and 3D tour: the rooms on its floorplan by NAME, and whether it has a video or a tour, with the page to see them. It never gives a size; neither do you.",
+    input_schema: { type: 'object', additionalProperties: false, properties: { listingId: { type: 'string', description: 'The id from a search result.' } }, required: ['listingId'] },
+  },
+  {
     name: 'draft_message',
     description:
       "Draft a message from the visitor to the agency selling one live listing — questions, a request to inspect, anything they asked you to put to the agent — from their own words in this conversation and the listing's facts. It puts the draft in a card they edit and send themselves; it sends NOTHING. Never draft an offer or a price.",
@@ -564,6 +570,11 @@ export async function dispatchTool(
         const parsed = findOpportunitiesInput.safeParse(rawInput);
         if (!parsed.success) return invalid(name, parsed.error);
         return await runFindOpportunities(parsed.data, ctx);
+      }
+      case 'floorplan_rooms': {
+        const parsed = floorplanRoomsInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return await runFloorplanRooms(parsed.data, ctx);
       }
       case 'draft_message': {
         const parsed = draftMessageInput.safeParse(rawInput);

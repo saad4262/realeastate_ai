@@ -33,3 +33,32 @@ export {
   assertCanEditListingMedia,
 } from './media-permissions';
 export { MediaError } from './storage-client';
+// ADR 0080, C9 Immersive: floorplans, and video and tour links as `provider:id` on an allowlist.
+export {
+  FLOORPLAN_FEATURE,
+  LINK_PROVIDERS,
+  MAX_FLOORPLANS,
+  MAX_TOURS,
+  MAX_VIDEOS,
+  PROVIDER_NAME,
+  ROOM_LABEL,
+  addListingFloorplan,
+  addListingLink,
+  editableExtras,
+  embedUrl,
+  floorplanRoomsSchema,
+  floorplanToolResult,
+  linkKey,
+  listingExtras,
+  parseMediaLink,
+  readFloorplanBatch,
+  readLinkKey,
+  removeListingExtra,
+  roomNames,
+  unreadFloorplans,
+  type FloorplanReader,
+  type FloorplanRooms,
+  type ListingExtras,
+  type LinkProvider,
+  type MediaLink,
+} from './extras';

@@ -34,6 +34,7 @@ import type { ResolvedPlace } from '@repo/core/geo/schema';
 import { dueDiligenceRecords, type RecordFact } from '@repo/core/due-diligence';
 import { comparables, homeRows, researchData, suburbProfile, type BuyerType, type Comparable, type HomeRow, type ResearchAsk, type SuburbProfile } from '@repo/core/research';
 import { similarHomes, type Suggestion } from '@repo/core/discovery';
+import { listingExtras, type ListingExtras } from '@repo/core/media';
 import { getWebDb } from './db';
 
 /**
@@ -299,6 +300,22 @@ export async function cachedSimilarHomes(listingId: string): Promise<Suggestion[
     },
     ['similar-homes', listingId],
     { tags: [LISTINGS_TAG], revalidate: 3600 },
+  );
+  return run();
+}
+
+/** Immersive (ADR 0080, C9): a public listing's floorplans, video and tour links. Null when they could not be read. */
+export async function cachedListingExtras(listingId: string): Promise<ListingExtras | null> {
+  const run = unstable_cache(
+    async () => {
+      try {
+        return await listingExtras(getWebDb(), listingId);
+      } catch {
+        return null;
+      }
+    },
+    ['listing-extras', listingId],
+    { tags: [LISTINGS_TAG, `listing:${listingId}`], revalidate: 3600 },
   );
   return run();
 }

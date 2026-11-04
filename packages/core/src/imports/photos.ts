@@ -78,6 +78,8 @@ export type PhotoDeps = {
   store?: (listingId: string, bytes: Uint8Array, contentType: string) => Promise<string>;
   /** Attach the stored key to the listing. Test seam. */
   attach?: (db: Db, listingId: string, key: string) => Promise<void>;
+  /** Attach a stored floorplan (ADR 0080, C9). Test seam. */
+  attachFloorplan?: (db: Db, listingId: string, key: string) => Promise<void>;
 };
 
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);

@@ -40,6 +40,7 @@ import { buildTaskReport } from '../tasks/report';
 import { automationLog, listAutomations } from '../automation/manage';
 import { detectEvents } from '../automation/tick';
 import { messageFacts } from '../agent-messages/message';
+import { listingExtras, unreadFloorplans } from '../media/extras';
 
 /**
  * How many times each read talks to the database.
@@ -213,6 +214,15 @@ describe('reads cost a fixed number of queries', () => {
     const a = { id: 'a', userId: 'u-1', trigger: 'price_reduced', scope: 'both', searchId: null, action: 'tell', delivery: 'daily', timeZone: 'Australia/Sydney', status: 'active', checkedAt: new Date(), createdAt: new Date(), updatedAt: new Date() };
     for (const trigger of ['price_reduced', 'open_home_added', 'sold', 'listed']) await detectEvents(db, { ...a, trigger }, new Date(), { search: async () => [], resolvePlace: async () => null });
     expect(count()).toBe(4);
+  });
+
+  it('C9: a listing’s floorplans, videos and tours are one query; the floorplans waiting to be read, one more', async () => {
+    const one = countingDb([{ id: 'm', kind: 'video', key: 'youtube:dQw4w9WgXcQ', width: null, height: null, tags: null }]);
+    expect((await listingExtras(one.db, 'l-1')).videos).toHaveLength(1);
+    expect(one.count()).toBe(1);
+    const two = countingDb([]);
+    await unreadFloorplans(two.db);
+    expect(two.count()).toBe(1);
   });
 
   it('the inspection times are one query', async () => {

@@ -168,4 +168,10 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   `/account/tasks` (+ a page per task), `/account/automations` (+ the log), "Drafted with the guide" on Messages,
   the unsubscribe route, the alerts cron runs both ticks. The guide: `draft_message`, `draft_task`,
   `draft_automation` (prompt v17). Smoke 22/22; live 15/15 three runs in a row (the user's go). TEST-PLAN CN.
-- [ ] C9
+- [ ] C9 — Media & land, in the approved order. **Immersive built** (2026-11-04, uncommitted until the user's review):
+  `packages/core/src/media/links.ts` (the allowlist — YouTube, Vimeo, Matterport — stored as `provider:id`, never a URL;
+  embed addresses built by code, the privacy-enhanced players) and `media/extras.ts` (floorplans as listing images,
+  links, the public read, removal, the strict room-names schema and the cron batch that reads them); the import's
+  `floorplan_urls`, `video_url`, `tour_url`; the reader (packages/ai, names only, metered); the console's editor on
+  the Photos tab; "Floorplan, video and tour" on listings (click to play); the guide's `floorplan_rooms` (prompt
+  v18). No migration. TEST-PLAN CO. Next: Development, then Visual Search.

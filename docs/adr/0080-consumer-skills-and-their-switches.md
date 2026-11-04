@@ -119,3 +119,11 @@ only tell me, add to or take off their own shortlist, in the same transaction as
 or hourly outside 9 pm–7 am, with `a.` (one automation) and `m.` (the skill) unsubscribe tokens. The guide proposes
 with `draft_message`, `draft_task`, `draft_automation` — signed cards (`acting/signed.ts`), nothing until the button
 (prompt v17).
+
+**Amendment, 2026-11-04 — C9 Media and land** (mock `consumer-media-land.html`; the user approved all twelve decisions
+and the providers: Voyage `voyage-multimodal-3.5` into pgvector, no video pipeline, each state's own zone layer where
+the licence allows a commercial site). Built in order. *Immersive:* floorplans are listing images (`media.kind =
+floorplan`); a video or tour is a link on a fixed allowlist (YouTube, Vimeo, Matterport) stored as `provider:id` — never
+a URL, which keeps `storage_key`'s rule — and embedded by code from that, loading only on play. The floorplan's rooms
+are read by a vision model into C3's room types under a strict schema (names only: a size, an area or a count refuses
+the answer), on the alerts cron, metered; the guide's `floorplan_rooms` (prompt v18) never gives a size. No migration.

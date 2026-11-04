@@ -16,6 +16,7 @@ import { agencyTimeZone } from '../widgets/registry';
 import { CsvError, csvCell, parseCsv, tableToCsv, type ImportTable } from './csv';
 import { autoMap, FIELD_LABELS, importMappingSchema, normalizeRow, REQUIRED_FIELDS, type ImportMapping, type NormalizedRow } from './columns';
 import { importPhoto, PhotoError, type PhotoDeps } from './photos';
+import { addListingFloorplan, addListingLink } from '../media/extras';
 import { importAiAllowed, importContactChunk, validateContactChunk } from './contacts';
 import { maskSample, mergeSuggestedMapping, SAMPLE_ROWS_FOR_AI, shouldAskMapper, type ColumnMapper, type RowCleaner } from './contact-ai';
 import { contactAutoMap, contactMappingProblem, contactMappingSchema, type ContactImportMapping, type NormalizedContact } from './contact-columns';
@@ -529,13 +530,17 @@ async function importChunk(db: Db, actor: Actor, imp: ImportRow, deps: ImportDep
             }
             return { status: 'imported' as const, listingId: created.listingId };
           });
+          // C9: video and tour links (allowlisted in the file's check); one too many is a warning, never a failed row.
+          for (const link of n.mediaLinks ?? []) {
+            await addListingLink(tx as unknown as Db, outcome.listingId, link).catch((e: unknown) => warnings.push({ column: 'Video / 3D tour', message: e instanceof Error ? e.message : 'Could not add that link' }));
+          }
           await tx
             .update(listingImportRow)
             .set({
               status: outcome.status,
               listingId: outcome.listingId,
               warnings,
-              photos: n.photoUrls.map((url) => ({ url, status: 'pending' })),
+              photos: [...n.photoUrls.map((url) => ({ url, status: 'pending' })), ...(n.floorplanUrls ?? []).map((url) => ({ url, status: 'pending', kind: 'floorplan' }))],
               updatedAt: sql`now()`,
             })
             .where(eq(listingImportRow.id, r.id));
@@ -559,12 +564,13 @@ async function importChunk(db: Db, actor: Actor, imp: ImportRow, deps: ImportDep
   if (withPhotos.length) {
     let budget = CHUNK_PHOTOS;
     for (const r of withPhotos) {
-      const photos = [...(r.photos as { url: string; status: string; error?: string }[])];
+      const photos = [...(r.photos as { url: string; status: string; error?: string; kind?: 'floorplan' }[])];
       for (const p of photos) {
         if (p.status !== 'pending' || budget <= 0) continue;
         budget -= 1;
         try {
-          await importPhoto(db, r.listingId!, p.url, deps.photos);
+          // A floorplan (C9) is fetched and stored exactly as a photo, then attached as a floorplan.
+          await importPhoto(db, r.listingId!, p.url, p.kind === 'floorplan' ? { ...deps.photos, attach: deps.photos?.attachFloorplan ?? (async (d: Db, l: string, k: string) => void (await addListingFloorplan(d, l, k))) } : deps.photos);
           p.status = 'done';
         } catch (err) {
           p.status = 'failed';

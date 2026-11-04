@@ -12,7 +12,7 @@ function ctx(over: Partial<ToolContext> = {}): ToolContext {
     places: new Map(),
     skillBlocks: new Map(),
     dueDiligence: async () => null,
-    research: async () => null, inspections: async () => null, discover: async () => ({ found: false, reason: 'signed_out', note: '' }), opportunities: async () => { throw new Error('not in this test'); }, draftMessage: async () => ({ error: 'not in this test' }), proposalSecret: null,
+    research: async () => null, inspections: async () => null, discover: async () => ({ found: false, reason: 'signed_out', note: '' }), opportunities: async () => { throw new Error('not in this test'); }, draftMessage: async () => ({ error: 'not in this test' }), proposalSecret: null, floorplan: async () => null,
     resolvePlace: vi.fn(async () => null),
     search: vi.fn(async () => []),
     getListing: vi.fn(async () => null),

@@ -275,6 +275,9 @@ import { draftAgentMessage, GUIDE_MESSAGES_PER_DAY, guideDraftedThreads, sendGui
 import { createTask, getTask, runTaskTick, taskSummaryPasses } from '@repo/core/tasks';
 import { createAgentMessageWriter, createTaskSummaryWriter } from '@repo/ai/acting';
 import { automationLog, createAutomation, runAutomationTick, sendableNow, undoAutomationEvent } from '@repo/core/automation';
+import { addListingLink, floorplanRoomsSchema, floorplanToolResult, listingExtras, listingPhotos, readFloorplanBatch, removeListingExtra, roomNames, unreadFloorplans } from '@repo/core/media';
+import { deleteObject, signUpload } from '@repo/core/media/storage';
+import { createFloorplanReader } from '@repo/ai/floorplan';
 import { runPropertyChat, type ToolContext as ChatToolContext } from '@repo/ai/chat';
 import { dispatchTool } from '@repo/ai/tools';
 import { createDueDiligenceWriter } from '@repo/ai/due-diligence';
@@ -8326,6 +8329,48 @@ async function main() {
     });
   });
 
+  // ── C9 Immersive: floorplans, and video / tour links stored as provider:id ──
+  await check('Immersive (C9): links only from the allowlist, stored as provider:id (never a URL) and embedded by code; floorplan rooms by name — a size refuses the answer; a draft listing shows nothing; photos untouched', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const [l] = await t.execute<{ id: string }>(sql`select id from listing where property_id = ${f.propertyId} limit 1`);
+      const listingId = l!.id;
+      const photosBefore = (await listingPhotos(t, listingId)).length;
+      await addListingLink(t, listingId, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+      await addListingLink(t, listingId, 'https://youtu.be/dQw4w9WgXcQ'); // the same video: still one
+      await addListingLink(t, listingId, 'https://vimeo.com/123456789');
+      await addListingLink(t, listingId, 'https://my.matterport.com/show/?m=SxQL3iGyoDo');
+      const bad = await addListingLink(t, listingId, 'https://evil.test/watch?v=dQw4w9WgXcQ').catch((e: unknown) => e as Error);
+      assert(bad instanceof Error, 'a link off the allowlist was stored');
+      const keys = await t.execute<{ k: string }>(sql`select storage_key as k from media where listing_id = ${listingId} and kind in ('video', 'tour')`);
+      assert(keys.length === 3 && keys.every((r) => !/:\/\/|^\//.test(r.k)), `stored keys: ${keys.map((r) => r.k).join(', ')}`);
+      // Two floorplans, as an upload would leave them (the object check is storage's; the row is what matters here).
+      const fpKey = (n: number) => `listings/${listingId}/smoke-floorplan-${n}.png`;
+      for (const n of [1, 2]) await t.execute(sql`insert into media (listing_id, kind, storage_key, sort_order) values (${listingId}, 'floorplan', ${fpKey(n)}, ${n})`);
+      let call = 0;
+      const reader = async () => (++call === 1 ? { rooms: ['kitchen', 'bedroom', 'bedroom', 'study', 'deck'] } : { rooms: ['kitchen'], sizes: { kitchen: '4.2 x 3.6' } });
+      const batch = await readFloorplanBatch(t, reader);
+      assert(batch.read >= 2 && batch.kept >= 1, `batch: ${JSON.stringify(batch)}`);
+      const again = await readFloorplanBatch(t, reader);
+      assert(again.read === 0 || !(await unreadFloorplans(t)).some((u) => u.url.includes(listingId)), 'a read floorplan was read again');
+      const extras = await listingExtras(t, listingId);
+      const rooms = extras.floorplans.flatMap((x) => x.rooms ?? []);
+      assert(extras.videos.length === 2 && extras.tours.length === 1 && extras.floorplans.length === 2, `extras: ${JSON.stringify({ v: extras.videos.length, t: extras.tours.length, f: extras.floorplans.length })}`);
+      assert(extras.videos[0]!.embed === 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?rel=0' && extras.tours[0]!.embed.startsWith('https://my.matterport.com/show/?m=SxQL3iGyoDo'), `embeds: ${extras.videos[0]!.embed}`);
+      assert(rooms.join() === 'kitchen,bedroom,study,deck' && extras.floorplans.some((x) => x.rooms === null), `rooms: ${JSON.stringify(extras.floorplans.map((x) => x.rooms))} (the answer with a size kept nothing)`);
+      const tool = floorplanToolResult(listingId, extras);
+      assert(tool.rooms.join() === 'Kitchen,Bedrooms,Study,Deck' && !/\d/.test(tool.rooms.join()), `tool: ${JSON.stringify(tool.rooms)}`);
+      assert((await listingPhotos(t, listingId)).length === photosBefore, 'floorplans or links showed up as photos');
+      const gone = await removeListingExtra(t, listingId, extras.floorplans[0]!.id);
+      const goneLink = await removeListingExtra(t, listingId, extras.videos[0]!.mediaId);
+      assert(gone.storageKey === fpKey(1) && goneLink.removed && goneLink.storageKey === null, `remove: ${JSON.stringify([gone, goneLink])}`);
+      await t.execute(sql`update listing set status = 'draft' where id = ${listingId}`);
+      const hidden = await listingExtras(t, listingId);
+      assert(!hidden.floorplans.length && !hidden.videos.length && !hidden.tours.length, 'a draft listing showed its media');
+      return `2 videos (1 deduped) + 1 tour stored as provider:id; off-allowlist refused; rooms kitchen, bedroom, study, deck; a sized answer kept nothing; read once; photos unchanged; draft → nothing`;
+    }),
+  );
+
   // ── ADR 0079: the customer profile — four starting details; the same person lands on one profile (needs 0080) ──
   group('Customer profile (ADR 0079)');
 
@@ -12497,7 +12542,7 @@ async function main() {
     const nope = async () => {
       throw new Error('not used in this check');
     };
-    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence, research: async () => null, inspections: async () => null, discover: nope, opportunities: nope, draftMessage: nope, proposalSecret: 'smoke-proposal-secret' } as unknown as ChatToolContext;
+    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence, research: async () => null, inspections: async () => null, discover: nope, opportunities: nope, draftMessage: nope, proposalSecret: 'smoke-proposal-secret', floorplan: nope } as unknown as ChatToolContext;
     const events: { type: string; name?: string; delta?: string; message?: string }[] = [];
     for await (const e of runPropertyChat({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), request: { message, turns: [] }, catalogue: { suburbs: ['Springfield Lakes', 'Pakenham'], propertyTypes: ['House'] }, tools, track: async () => {} })) events.push(e as (typeof events)[number]);
     const error = events.find((e) => e.type === 'error');
@@ -12509,7 +12554,7 @@ async function main() {
     const nope = async () => {
       throw new Error('not used in this check');
     };
-    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence: async () => null, research: async () => null, inspections: async () => null, discover: nope, opportunities: nope, draftMessage: nope, proposalSecret: 'smoke-proposal-secret', ...extra } as unknown as ChatToolContext;
+    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence: async () => null, research: async () => null, inspections: async () => null, discover: nope, opportunities: nope, draftMessage: nope, proposalSecret: 'smoke-proposal-secret', floorplan: nope, ...extra } as unknown as ChatToolContext;
     const events: { type: string; name?: string; delta?: string; message?: string }[] = [];
     for await (const e of runPropertyChat({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), request: { message, turns: [] }, catalogue: { suburbs: ['Pakenham', 'Officer'], propertyTypes: ['House'] }, tools, track: async () => {} })) events.push(e as (typeof events)[number]);
     const error = events.find((e) => e.type === 'error');
@@ -12791,6 +12836,40 @@ async function main() {
     const running = [a.text, b.text].flatMap((t) => t.split(/(?<=[.!?])\s+|\n+/)).filter((x) => /\b(is|it's|now) (running|active|set up|live)\b|\bI('ve| have) (set up|scheduled|started|created)\b/i.test(x) && !/\b(not|never|until|once|when|after|press|accept)\b/i.test(x));
     assert(!running.length, `it said it was running: ${running.join(' | ')}`);
     return `task: ${a.tools.join(', ')}; automation: ${b.tools.join(', ')}; ${b.text.replace(/\s+/g, ' ').slice(0, 200)}`;
+  });
+
+  await check('Floorplan reader (live): a real floorplan image becomes room names core keeps — and none of the printed sizes', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    const bytes = readFileSync(new URL('../fixtures/floorplan.png', import.meta.url));
+    const key = `listings/${randomUUID()}/smoke-floorplan.png`;
+    const signed = await signUpload(key);
+    const put = await fetch(`${signed.uploadUrl}?token=${encodeURIComponent(signed.token)}`, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: new Blob([bytes], { type: 'image/png' }) });
+    if (!put.ok) skip(`the media bucket refused the fixture (HTTP ${put.status})`);
+    try {
+      const url = mediaUrl(key);
+      assert(url, 'no public URL for the fixture');
+      const raw = await createFloorplanReader({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), db })({ imageUrl: url! });
+      const parsed = floorplanRoomsSchema.safeParse(raw);
+      assert(parsed.success, `core refused the answer: ${JSON.stringify(raw).slice(0, 300)}`);
+      const names = roomNames(parsed.data);
+      for (const want of ['kitchen', 'living', 'bedroom', 'bathroom', 'study'] as const) assert(names.includes(want), `missing ${want}: ${names.join(', ')}`);
+      assert(!/\d/.test(JSON.stringify(raw)), `a size or a count came back: ${JSON.stringify(raw)}`);
+      return names.join(', ');
+    } finally {
+      await deleteObject(key);
+    }
+  });
+
+  await check('the guide (live): "how big is the main bedroom?" calls floorplan_rooms and gives no size', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    const id = '6f1f7a2e-3c1b-4f7e-9a51-1d2e3f4a5b6c';
+    const turn = await guideTurnWith(`How big is the main bedroom at listing ${id}? Will a king bed fit?`, {
+      floorplan: async () => floorplanToolResult(id, { floorplans: [{ id: 'f', url: 'https://cdn.test/f.png', width: null, height: null, rooms: ['kitchen', 'living', 'bedroom', 'bathroom', 'study'] }], videos: [], tours: [] }),
+    });
+    assert(turn.tools.includes('floorplan_rooms'), `tools: ${turn.tools.join(', ') || 'none'} — ${turn.text.slice(0, 300)}`);
+    const sizes = turn.text.match(/\b\d+(\.\d+)?\s?(m|metres|meters|sq|square|m²|×|x)\b|\b\d+(\.\d+)?\s?(by|x|×)\s?\d/gi) ?? [];
+    assert(!sizes.length, `a size in the answer: ${sizes.join(', ')} — ${turn.text.slice(0, 400)}`);
+    return `tools: ${turn.tools.join(', ')}; ${turn.text.replace(/\s+/g, ' ').slice(0, 240)}`;
   });
 
   // Its own group, so this one paid check can be run alone: SMOKE_ONLY="Many parts, live" pnpm smoke:ai.

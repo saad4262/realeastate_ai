@@ -15,8 +15,11 @@ import {
   setAgentPhoto,
   setMainListingPhoto,
   storageKeySchema,
+  addListingFloorplan,
+  addListingLink,
+  removeListingExtra,
 } from '@repo/core/media';
-import { signUpload } from '@repo/core/media/storage';
+import { deleteObject, signUpload } from '@repo/core/media/storage';
 import { getConsoleDb } from './db';
 import { loadListingActor } from './load-actor';
 import { requireActionUserId } from './auth-account';
@@ -185,6 +188,54 @@ async function refreshListing(listingId: string): Promise<void> {
   revalidatePath(`/live-listings/${listingId}/edit`);
   revalidatePath(`/listings/${listingId}/edit`);
   await revalidateWeb(listingId);
+}
+
+/* -------------------------------- floorplans, video and tour (ADR 0080 C9) -- */
+
+/** A floorplan is uploaded exactly as a photo (the same signed URL, `signListingPhotoUploadAction`), then attached here. */
+export async function attachListingFloorplanAction(listingId: string, key: string, dimensions?: { width?: number; height?: number }): Promise<AttachPhotoResult> {
+  try {
+    const actor = await actorOrThrow();
+    const db = getConsoleDb();
+    await assertCanEditListingMedia(db, actor, listingId);
+    const parsed = storageKeySchema.safeParse(key);
+    if (!parsed.success) throw new MediaError('That is not an image this platform issued');
+    const result = await addListingFloorplan(db, listingId, parsed.data, { width: dimensions?.width ?? null, height: dimensions?.height ?? null });
+    await refreshListing(listingId);
+    return { ok: true, mediaId: result.mediaId };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** A YouTube or Vimeo video, or a Matterport 3D tour — only those; stored as the provider and its id. */
+export async function addListingLinkAction(listingId: string, url: string): Promise<Done> {
+  try {
+    const actor = await actorOrThrow();
+    const db = getConsoleDb();
+    await assertCanEditListingMedia(db, actor, listingId);
+    await addListingLink(db, listingId, String(url).slice(0, 500));
+    await refreshListing(listingId);
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Remove a floorplan, video or tour. The row first; a floorplan's file after (the photo order). */
+export async function removeListingExtraAction(listingId: string, mediaId: string): Promise<Done> {
+  try {
+    const actor = await actorOrThrow();
+    const db = getConsoleDb();
+    await assertCanEditListingMedia(db, actor, listingId);
+    const { removed, storageKey } = await removeListingExtra(db, listingId, mediaId);
+    if (!removed) throw new MediaError('That is no longer on this listing');
+    if (storageKey && !(await deleteObject(storageKey))) console.error('[media] floorplan row removed; file kept', listingId);
+    await refreshListing(listingId);
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
 }
 
 /* -------------------------------------------------------- agent photos -- */

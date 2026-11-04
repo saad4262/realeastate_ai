@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_FLOORPLANS, parseMediaLink } from '../media/links';
 import { listingDraftSchema, propertyDraftSchema, propertyTypeSchema, soldDetailsSchema } from '../listings/listing-schema';
 import { localInputToInstant } from '../time/local-input';
 
@@ -14,6 +15,8 @@ export const IMPORT_FIELDS = [
   'bedrooms', 'bathrooms', 'car_spaces', 'land_area_sqm', 'building_area_sqm', 'year_built',
   'channel', 'status', 'headline', 'description', 'price_display', 'price_from', 'price_to', 'rent_pw',
   'available_from', 'auction_at', 'listed_on', 'sold_price', 'sold_date', 'agent_emails', 'photo_urls',
+  // ADR 0080, C9 Immersive: floorplan images, fetched like photos; video and tour links, on the allowlist.
+  'floorplan_urls', 'video_url', 'tour_url',
 ] as const;
 export type ImportField = (typeof IMPORT_FIELDS)[number];
 
@@ -28,6 +31,7 @@ export const FIELD_LABELS: Record<ImportField, string> = {
   price_from: 'Price from', price_to: 'Price to', rent_pw: 'Rent per week', available_from: 'Available from',
   auction_at: 'Auction', listed_on: 'Listed on', sold_price: 'Sold price', sold_date: 'Sold date',
   agent_emails: 'Agent emails', photo_urls: 'Photo links',
+  floorplan_urls: 'Floorplan links', video_url: 'Video link', tour_url: '3D tour link',
 };
 
 /** Our field → the file's column index, or null when the file has no such column. */
@@ -41,6 +45,8 @@ const SYNONYMS: Record<string, ImportField> = {
   price: 'price_display', price_text: 'price_display', rent: 'rent_pw', weekly_rent: 'rent_pw', auction: 'auction_at',
   listed: 'listed_on', date_listed: 'listed_on', agents: 'agent_emails', agent: 'agent_emails', agent_email: 'agent_emails',
   photos: 'photo_urls', images: 'photo_urls', photo_links: 'photo_urls',
+  floorplan: 'floorplan_urls', floorplans: 'floorplan_urls', floor_plan: 'floorplan_urls', floor_plans: 'floorplan_urls',
+  video: 'video_url', video_link: 'video_url', youtube: 'video_url', tour: 'tour_url', virtual_tour: 'tour_url', '3d_tour': 'tour_url', matterport: 'tour_url',
 };
 
 const key = (h: string) => h.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
@@ -72,6 +78,9 @@ export type NormalizedRow = {
   sold: { soldPrice: number; soldDate: string } | null;
   agentEmails: string[];
   photoUrls: string[];
+  /** C9: floorplan image links (fetched like photos) and video / tour links (allowlist, stored as provider:id). Absent on rows parsed before C9. */
+  floorplanUrls?: string[];
+  mediaLinks?: string[];
   listedOn: string | null;
 };
 
@@ -216,13 +225,36 @@ export function normalizeRow(cells: readonly string[], mapping: ImportMapping, t
   }
   if (photoUrls.length > 30) err('photo_urls', 'at most 30 photos per listing');
 
+  const floorplanUrls = get('floorplan_urls')
+    .split('|')
+    .map((u) => u.trim())
+    .filter(Boolean);
+  for (const u of floorplanUrls) {
+    let ok = false;
+    try {
+      ok = ['http:', 'https:'].includes(new URL(u).protocol);
+    } catch {
+      ok = false;
+    }
+    if (!ok) err('floorplan_urls', `“${u.slice(0, 80)}” is not a web link`);
+  }
+  if (floorplanUrls.length > MAX_FLOORPLANS) err('floorplan_urls', `at most ${MAX_FLOORPLANS} floorplans per listing`);
+  const mediaLinks: string[] = [];
+  for (const [field, kind] of [['video_url', 'video'], ['tour_url', 'tour']] as const) {
+    const raw = get(field).trim();
+    if (!raw) continue;
+    const link = parseMediaLink(raw);
+    if (!link || link.kind !== kind) err(field, kind === 'video' ? 'use a YouTube or Vimeo link' : 'use a Matterport 3D tour link');
+    else mediaLinks.push(raw);
+  }
+
   const listedOn = date('listed_on') ?? null;
   const externalId = get('external_id').slice(0, 120) || null;
 
   if (errors.length || !status) return { row: null, errors };
   return {
     // Validated above by the form's own schemas; kept in input form (it is JSON, and createListing parses it again).
-    row: { externalId, property: property as NormalizedRow['property'], listing, status, sold, agentEmails, photoUrls, listedOn },
+    row: { externalId, property: property as NormalizedRow['property'], listing, status, sold, agentEmails, photoUrls, floorplanUrls, mediaLinks, listedOn },
     errors: [],
   };
 }

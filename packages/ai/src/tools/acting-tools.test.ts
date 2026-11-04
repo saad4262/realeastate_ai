@@ -66,7 +66,7 @@ describe('prompt v17', () => {
     expect(PROMPT_VERSION).toBe('property-chat@v17');
     expect(PROPERTY_CHAT_V17.startsWith(PROPERTY_CHAT_V16.slice(0, 200))).toBe(true);
     expect(PROPERTY_CHAT_V17).toContain('You have nineteen tools.');
-    expect(PROPERTY_CHAT_TOOLS).toHaveLength(19);
+    expect(PROPERTY_CHAT_TOOLS.length).toBeGreaterThanOrEqual(19); // C9 adds more (v18+)
     expect(PROPERTY_CHAT_V17).not.toMatch(/new Date|\d{4}-\d{2}-\d{2}/);
     expect(PROPERTY_CHAT_V17).toMatch(/Never say "I've sent", "I've set up" or "it's running"/);
     expect(PROPERTY_CHAT_V17).toMatch(/never contact an agent/);

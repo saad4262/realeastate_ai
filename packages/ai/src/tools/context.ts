@@ -116,6 +116,11 @@ export type ToolContext = {
   draftMessage: (listingId: string) => Promise<MessageDraft | { error: string }>;
   /** The secret that signs a task's or an automation's card (C8 decision 12), or null when the server has none. */
   proposalSecret: string | null;
+  /**
+   * Immersive (ADR 0080, C9 decision 3): a PUBLIC listing's floorplan room names (never a size) and whether it has a
+   * video or a 3D tour. Null when the listing is not public.
+   */
+  floorplan: (listingId: string) => Promise<ReturnType<typeof import('@repo/core/media').floorplanToolResult> | null>;
   dueDiligence: (listingId: string) => Promise<{ address: string; state: string; facts: { ref: string; when: string; text: string }[] } | null>;
   /**
    * The consumer skills not running for this visitor, and why (ADR 0080) — read once per turn by the

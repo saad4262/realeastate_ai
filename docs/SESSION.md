@@ -3,6 +3,24 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-04 (night) — Claude Code (Mac) — C9 Immersive in the user's autonomous loop
+
+- C9 mock approved with the providers and committed (`b023cc2`). The session ended mid-build once; the work on disk was
+  intact and the loop resumed.
+- Immersive built, no migration: links stored as `provider:id` (the smoke rule that `storage_key` is never a URL kept),
+  embedded by code (youtube-nocookie, Vimeo dnt, Matterport), click to play; floorplans as listing images; room names
+  by a vision reader under a strict schema (C3's room types; a size refuses the answer) on the alerts cron; the import's
+  three columns; the console editor (a CSS module — the console has no Tailwind); the listing section; `floorplan_rooms`
+  (prompt v18). Fixed in the loop: the import's column check runs in the browser, so the pure link rules moved to
+  `media/links.ts`; the template test wanted the new columns in both templates.
+- Break-tests red then restored: http links allowed; the room schema loosened (a size got through); drafts shown.
+- One smoke run lost to DNS (ENOTFOUND), rerun green 23/23. Live checks (the reader on `packages/smoke/fixtures/
+  floorplan.png`, which prints sizes on purpose; the guide asked a bedroom's size) run with the user's consent: green
+  (reader: kitchen, bathroom, bedroom, living, study, no digits; the guide named rooms, gave no size). One run lost to an
+  upstream "Overloaded", rerun green.
+- Development: VIC `open-data-platform:plan_zone` (WFS) and NSW Principal Planning layer 19 answer for real points; SA
+  publishes only downloads and its services refuse outside queries (403).
+
 ## 2026-11-04 (late) — Claude Code (Mac) — C8 Acting for the buyer in the user's autonomous loop
 
 - C7 committed and pushed (`3ebff67`, `1e61901`). C8 mock approved (all twelve) and committed (`b981657`). Migration 0088

@@ -2126,3 +2126,18 @@ CN2, CN3, CN7 and CN12 call the model. Use a test inbox for the agency (EMAIL_DE
 | CN15 | The New automation form | No choice enquires, books or offers. "Stop this automation" in the email pauses that one; "Turn off Automation" switches the skill off. |
 | CN16 | As an agency owner in the console | No buyer's tasks or automations are visible; a guide-drafted enquiry looks like any other. |
 
+## CO — Immersive Property AI: floorplans, video and 3D tours (ADR 0080, C9)
+
+Console + public site. No migration. CO4 and CO7 need the alerts cron and the model (the room names).
+
+| # | Case | Expected |
+|---|---|---|
+| CO1 | Console → a listing → Photos tab | Below the photos, "Floorplans, video and 3D tour": Add a floorplan, and a link box. |
+| CO2 | Paste a YouTube, a Vimeo and a Matterport link | Each appears ("Video · YouTube", "3D tour · Matterport"). A link from any other site, or http://, is refused with "Use a YouTube or Vimeo video link, or a Matterport 3D tour link." The same video twice is one. |
+| CO3 | Upload a floorplan image | It appears as "Floorplan"; a fifth is refused. |
+| CO4 | Open the public listing | "Floorplan, video and tour" with the floorplan (opens full size) and a play button for each video and tour; nothing loads from YouTube/Matterport until you press it (check the browser's network tab). The in-page bar has "Floorplan". After the cron reads it: "Rooms on the floorplan: Kitchen · Living · Bedrooms …" and the line that sizes are on the plan. |
+| CO5 | A listing with none of these | No section, no bar entry. |
+| CO6 | Import a spreadsheet with `floorplan_urls`, `video_url`, `tour_url` | Floorplans fetched like photos; links added; a Matterport link in `video_url` is a row error. |
+| CO7 | /chat "how big is the main bedroom at <listing>?" | The guide names the rooms, says sizes are on the floorplan with a link, suggests the agent — no number. |
+| CO8 | Skills → Immersive Property AI off | The section is hidden on listings; the guide says it is off. |
+

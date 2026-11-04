@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { Actor } from '@repo/core/permissions';
 import { getListingForEdit } from '@repo/core/listings';
-import { MAX_LISTING_PHOTOS, listingPhotos } from '@repo/core/media';
+import { MAX_LISTING_PHOTOS, editableExtras, listingPhotos } from '@repo/core/media';
 import { BuyerMatchError, listingBuyers, matchingBuyerCounts } from '@repo/core/buyer-matching';
 import { listingFieldsUsed, listingSnapshotFor, listTemplates, mergeValuesFor, SKIP_REASON_LABELS } from '@repo/core/template-email';
 import { holderOf, isPairedSkillOn, isSkillOn, skillOffMessage } from '@repo/core/skill-switches';
@@ -11,6 +11,7 @@ import contactStyles from '@/components/contacts/contacts.module.css';
 import { ListingForm } from '@/components/listing-form';
 import { ListingPhotosSkeleton } from '@/components/listing-form-skeleton';
 import { ListingPhotos } from '@/components/photo-uploader';
+import { ListingExtras } from '@/components/listing-extras';
 import { ListingDocuments } from '@/components/documents/listing-documents';
 import { getConsoleDb } from '../../lib/db';
 import { requireConsoleAccess } from '../../lib/require-console-access';
@@ -92,8 +93,13 @@ export async function ListingPage({ surface, id, tab }: { surface: 'agency' | 'a
 }
 
 async function Photos({ listingId }: { listingId: string }) {
-  const photos = await listingPhotos(getConsoleDb(), listingId);
-  return <ListingPhotos listingId={listingId} photos={photos} max={MAX_LISTING_PHOTOS} />;
+  const [photos, extras] = await Promise.all([listingPhotos(getConsoleDb(), listingId), editableExtras(getConsoleDb(), listingId)]);
+  return (
+    <>
+      <ListingPhotos listingId={listingId} photos={photos} max={MAX_LISTING_PHOTOS} />
+      <ListingExtras listingId={listingId} items={extras} />
+    </>
+  );
 }
 
 /** The Matching buyers tab: who fits, who may be emailed, and the island that emails or lists them for a call. */
