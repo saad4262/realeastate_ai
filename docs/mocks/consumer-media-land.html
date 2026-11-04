@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Media and land — mock</title>
+<!--
+  Mock for docs/CONSUMER-SKILLS.md C9 (ADR 0080): Visual Search AI (homes that look like a description or a photo on
+  this site), Immersive Property AI (floorplans, video and tours as agents publish them; the guide knows the rooms by
+  name, never a size) and Property Development AI (zoning from official state sources, land size from the ad,
+  questions to ask a town planner — never "you can subdivide"). Plus the three providers to choose. Public site, the
+  site's warm palette (as the C1–C8 mocks). Hand-made, SAMPLE data. Provider facts checked on the web on 2026-11-04;
+  prices are the vendors' published rates and must be re-checked before signing up.
+  Screens by hash: #rules (opens first), #providers, #immersive, #development, #visual, #early, #chat.
+-->
+<style>
+  :root {
+    --canvas: #f7f4ef; --card: #fff; --sunken: #f1ece3; --ink: #1a1a1a; --ink-soft: #5c5c5c; --ink-faint: #8c8577;
+    --line: #d9d2c5; --line-subtle: #ece7dd; --brand: #0b3d2e; --brand-ink: #f7f4ef;
+    --success: #0f7a52; --success-soft: #e8f4ee; --notice: #a8620a; --notice-soft: #fbf1e3; --danger: #a12a2a; --danger-soft: #f8e9e7; --info: #1d4e89; --info-soft: #e9eff7;
+    --display: Georgia, 'Times New Roman', serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  a { color: var(--brand); }
+  .mockbar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px; background: #222; color: #ddd; font-size: 13px; }
+  .mockbar b { margin-right: 8px; color: #fff; }
+  .mockbar a { color: #ddd; text-decoration: none; padding: 2px 10px; border-radius: 999px; border: 1px solid #555; }
+  .mockbar a.on { background: #fff; color: #222; }
+  header.site { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; background: var(--card); border-bottom: 1px solid var(--line); }
+  .brand { font-family: var(--display); font-weight: 700; font-size: 20px; color: var(--brand); }
+  header.site nav a { margin-left: 18px; color: var(--ink-soft); text-decoration: none; font-size: 14px; }
+  main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; }
+  section.screen { display: none; }
+  section.screen.on { display: block; }
+  h1 { font-family: var(--display); font-size: clamp(26px, 3.4vw, 34px); letter-spacing: -.02em; margin: 0 0 6px; }
+  h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); margin: 0 0 12px; }
+  h3 { font-size: 16px; margin: 0 0 4px; }
+  .lede { color: var(--ink-soft); margin: 0 0 20px; max-width: 72ch; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; margin-bottom: 16px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) 320px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--sunken); color: var(--ink-soft); vertical-align: middle; }
+  .tag.ai { background: var(--info-soft); color: var(--info); }
+  .tag.warn { background: var(--notice-soft); color: var(--notice); }
+  .tag.ok { background: var(--success-soft); color: var(--success); }
+  .muted { color: var(--ink-soft); font-size: 13px; }
+  .source { font-size: 12px; color: var(--ink-faint); margin-top: 8px; }
+  .note { border-left: 4px solid var(--info); background: var(--info-soft); padding: 10px 14px; border-radius: 8px; font-size: 14px; margin: 12px 0; }
+  .note.warn { border-color: var(--notice); background: var(--notice-soft); }
+  .btn { display: inline-block; padding: 8px 14px; border-radius: 999px; background: var(--brand); color: var(--brand-ink); text-decoration: none; font-weight: 600; font-size: 13px; border: 0; cursor: pointer; }
+  .btn.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  .btn.small { padding: 4px 10px; font-size: 12px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .rules ol { padding-left: 20px; margin: 0; }
+  .rules li { margin-bottom: 14px; }
+  .rules li b { display: block; }
+  .rules h3 { margin: 18px 0 8px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); }
+  .rules h3:first-child { margin-top: 0; }
+  .rec { display: inline-block; margin-top: 4px; font-size: 13px; color: var(--success); font-weight: 600; }
+  .alt { display: block; font-size: 13px; color: var(--ink-faint); }
+  /* home cards */
+  .homes { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+  .home { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
+  .home .pic { aspect-ratio: 16 / 10; background: linear-gradient(135deg, #e9e2d5, #d8cfbf); }
+  .home .body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .home .price { font-weight: 700; }
+  .home .addr { font-size: 14px; }
+  .home .facts { font-size: 13px; color: var(--ink-soft); }
+  .why { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+  .why span { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: var(--success-soft); color: var(--success); }
+  .why span.miss { background: var(--notice-soft); color: var(--notice); }
+  .home .foot { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 6px; font-size: 12.5px; }
+  .home .foot a { color: var(--ink-soft); }
+  .offmarket .home .pic { background: repeating-linear-gradient(135deg, #ece7dd 0 10px, #e4ddd0 10px 20px); }
+  /* opportunities */
+  .opp { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; padding: 16px 0; border-top: 1px solid var(--line-subtle); }
+  .opp:first-of-type { border-top: 0; }
+  .opp .pic { aspect-ratio: 1; border-radius: 10px; background: linear-gradient(135deg, #e9e2d5, #d8cfbf); }
+  @media (max-width: 600px) { .opp { grid-template-columns: 1fr; } .opp .pic { aspect-ratio: 16/9; } }
+  .signal { margin-top: 8px; padding: 10px 12px; border-radius: 10px; background: var(--sunken); font-size: 14px; }
+  .signal b { display: block; }
+  details { margin-top: 6px; font-size: 13.5px; color: var(--ink-soft); }
+  details summary { cursor: pointer; color: var(--brand); }
+  details ul { margin: 6px 0 0; padding-left: 18px; }
+  .field { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 0; font-size: 14px; }
+  select, input[type=text] { font: inherit; font-size: 14px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: #fff; max-width: 160px; }
+  .chk { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; font-size: 14px; }
+  .count { font-variant-numeric: tabular-nums; color: var(--ink-faint); }
+  .row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line-subtle); font-size: 14px; }
+  .row:first-child { border-top: 0; }
+  .chat { max-width: 760px; }
+  .bubble { padding: 12px 16px; border-radius: 16px; margin: 10px 0; max-width: 85%; }
+  .bubble.me { margin-left: auto; background: var(--brand); color: var(--brand-ink); border-bottom-right-radius: 4px; }
+  .bubble.ai { background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .toolcard { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fffdfa; margin: 8px 0; font-size: 14px; }
+  .dropped { font-size: 12.5px; color: var(--ink-faint); text-decoration: line-through; }
+  /* C9 */
+  table.cmp { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  table.cmp th, table.cmp td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--line-subtle); }
+  table.cmp th { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); border-top: 0; }
+  table.cmp tr.pick td { background: var(--success-soft); }
+  .pro { color: var(--success); } .con { color: var(--danger); }
+  .media { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+  .tile { border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden; }
+  .tile .ph { aspect-ratio: 16/10; background: linear-gradient(135deg, #e9e2d5, #d8cfbf); display: grid; place-items: center; color: var(--ink-faint); font-size: 13px; text-align: center; padding: 10px; }
+  .tile .ph.plan { background: repeating-linear-gradient(0deg, #fff 0 22px, #eef1f5 22px 23px), repeating-linear-gradient(90deg, #fff 0 22px, #eef1f5 22px 23px); background-blend-mode: multiply; }
+  .tile .cap { padding: 10px 12px; font-size: 13px; }
+  .search { display: flex; gap: 8px; }
+  .search input { flex: 1; font: inherit; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: #fff; }
+  .states { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .states div { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 13px; background: #fff; }
+  .states b { display: block; }
+</style>
+
+</head>
+<body>
+<div class="mockbar"><b>MOCK · C9 Media &amp; land</b>
+  <a href="#rules">Decisions</a><a href="#providers">Providers</a><a href="#immersive">Floorplan &amp; tours</a><a href="#development">Land &amp; zoning</a><a href="#visual">Visual search</a><a href="#early">Not enough photos</a><a href="#chat">In the guide</a>
+</div>
+<header class="site"><span class="brand">site.com.au</span><nav><a href="#">Buy</a><a href="#visual">Search by look</a><a href="#chat">Ask the guide</a></nav></header>
+<main>
+
+<!-- ───────────────────────── DECISIONS ───────────────────────── -->
+<section class="screen rules" id="rules">
+  <h1>Media &amp; land — twelve decisions</h1>
+  <p class="lede">The last three skills, and the first that depend on outside services. <b>Immersive Property AI</b> shows floorplans, video and tours. <b>Property Development AI</b> shows a property's zoning from the state, with what to ask before developing it. <b>Visual Search AI</b> finds homes that look like a description or a photo. The risks are a model reading a floorplan and inventing a size, a site that sounds like it is telling someone they can subdivide, and paying to search photos we don't have: there is <b>one photo</b> in the database today. The provider choices are on <a href="#providers">Providers</a>. Each decision has a recommendation; say "all recommended" or name the ones to change.</p>
+  <div class="card"><ol>
+    <h3>Order</h3>
+    <li><b>1. Build in this order: Immersive, then Development, then Visual Search.</b>Immersive needs no new service: agents' floorplans are images, and their videos and tours are already links. Development uses free state data. Visual Search needs a paid embeddings provider <i>and</i> photos to search, and it is only useful once agencies' listings bring their photos in.
+      <span class="rec">Recommended: yes.</span>
+      <span class="alt">Alternative: Visual Search first. It is the showiest of the three, but it can show nothing until there are photos.</span></li>
+
+    <h3>Immersive Property AI</h3>
+    <li><b>2. Show what agents publish, with no video processing in C9.</b>Floorplans are images, stored and served like photos (Supabase Storage, ADR 0009). Video and 3D tours are <b>links</b> agents already publish (YouTube, Vimeo, Matterport and other hosts on a fixed allowlist), shown as an embed that loads only when the buyer presses play, so no third-party cookie loads before that. The REAXML import learns floorplans, video links and tour links; the console gets "Add a floorplan / video link / tour link".
+      <span class="rec">Recommended: yes.</span>
+      <span class="alt">Alternative: host video ourselves (Cloudflare Stream or Mux, on Providers). Worth it only if agencies want to upload raw video files.</span></li>
+    <li><b>3. The guide knows the rooms by name, never a size.</b>A vision model reads the floorplan into room names only: kitchen, 3 bedrooms, study, deck. This is a strict schema, like C3's photo rooms. It never reads a dimension or an area, because a misread "4.2 × 3.6" is an invented number (non-negotiable 4). For sizes the guide says "they're on the floorplan" and links to it. Asked "will a king bed fit?", it points to the floorplan and the agent.
+      <span class="rec">Recommended: yes.</span>
+      <span class="alt">Alternative: no AI on floorplans in C9, so the guide only links them.</span></li>
+
+    <h3>Property Development AI</h3>
+    <li><b>4. Zoning from the state's own data, looked up by the property's map point.</b>We use each state's official zone layer and show the zone name and code as the state publishes them, with the source and the date checked. A state with no usable source says "not verified" and links its official planning map (C2's pattern). The lookup is a network call, made before any transaction; the answer is kept per property for 30 days.
+      <span class="rec">Recommended: yes.</span>
+      <span class="alt">Alternative: Geoscape's national Planning dataset. One schema and a paid licence; its Queensland data is from 2010 (on Providers).</span></li>
+    <li><b>5. Only data whose licence allows a commercial site.</b>
+      <ul>
+        <li><b>Shown from day one:</b> Victoria, South Australia (CC BY 4.0) and NSW (public Planning Portal service).</li>
+        <li><b>Shown once their terms are confirmed:</b> ACT and Tasmania (licence not stated) and NT (CC BY 4.0, not yet verified at the source).</li>
+        <li><b>Link only:</b> WA (CC BY-NC: commercial use needs the department's permission) and Queensland (no statewide layer; each council publishes its own).</li>
+      </ul>
+      <span class="rec">Recommended: yes.</span></li>
+    <li><b>6. Facts and questions, never advice.</b>We show the zone, the land size from the ad, and a fixed list per state of questions for a town planner or the council: minimum lot size, overlays, permits, services, easements. Never "you can subdivide", "suits a dual occupancy", a lot count, a yield, or a value after development. No model writes on this panel; the guide copies it.
+      <span class="rec">Recommended: yes.</span></li>
+    <li><b>7. It appears on homes for sale and on addresses not for sale.</b>Development questions matter most on land and older houses, often off the market. The panel shows on the listing and on <code>/property/&lt;id&gt;</code>, and only with a map point that came from the geocoder, never a guess.
+      <span class="rec">Recommended: yes.</span></li>
+
+    <h3>Visual Search AI</h3>
+    <li><b>8. Provider: Voyage multimodal embeddings into pgvector.</b>This is the provider the site's text search is already built for (behind its own switch), pgvector 0.8.2 is already in our Supabase, and the vectors stay in our own database. Cost is about $0.0006 per 1-megapixel photo, so 10,000 photos is about $6, with 150 billion pixels free. Every call is metered in <code>ai_run</code>, with a daily cap. See Providers.
+      <span class="rec">Recommended: yes.</span>
+      <span class="alt">Alternatives: Cohere Embed v4; self-hosted CLIP or SigLIP; Pinecone for the vectors.</span></li>
+    <li><b>9. Search by words, or "more like this photo" on this site. No uploads in C9.</b>A buyer can type "light-filled kitchen, timber floors" or press "More like this" on any listing photo. Uploading their own photo waits: it could be a person, someone's home, or an image they don't own, and we would be sending it to a provider.
+      <span class="rec">Recommended: yes.</span>
+      <span class="alt">Alternative: allow uploads, embed them once, store nothing, faces not checked.</span></li>
+    <li><b>10. Looks are ranked within the buyer's filters, and never judged.</b>Postgres applies the filters first (public listings, channel, area, price, bedrooms); the vectors only order what passes. Cards say "Looks similar" with the matching photo. They show no score, no claim about condition or quality, and nothing is written into the ad. A photo's vector exists only while its listing is public.
+      <span class="rec">Recommended: yes.</span></li>
+    <li><b>11. It says when there aren't enough photos.</b>Below 500 photos on public listings the page says "Search by look is still filling up" with the count. Today it is 1. The skill stays "early" in Skills until then. The backfill runs only on your go, because it is paid.
+      <span class="rec">Recommended: yes; 500 photos.</span></li>
+
+    <h3>All three</h3>
+    <li><b>12. "Answers" skills, ON by default, and the guide gets three tools.</b>The tools are <code>floorplan_rooms</code> (names only), <code>land_and_zoning</code> (the panel's records) and <code>homes_that_look_like</code> (words or a photo id), all records only, prompt v18. No agency sees a buyer's searches. Each skill switches off on its own.
+      <span class="rec">Recommended: yes.</span></li>
+  </ol></div>
+  <p class="muted">Not in C9: buyer photo uploads; self-hosted video; a model reading dimensions; development feasibility, yields or values; Queensland zoning by council (a later, per-council task).</p>
+</section>
+
+<!-- ───────────────────────── PROVIDERS ───────────────────────── -->
+<section class="screen" id="providers">
+  <h1>The three providers</h1>
+  <p class="lede">Prices are the vendors' published rates, checked on 4 Nov 2026. Re-check them before signing up. Recommended options are shaded.</p>
+
+  <div class="card">
+    <h2>1 · Image embeddings (Visual Search)</h2>
+    <table class="cmp">
+      <tr><th>Option</th><th>Cost</th><th>For</th><th>Against</th></tr>
+      <tr class="pick"><td><b>Voyage <code>voyage-multimodal-3.5</code> + pgvector</b></td><td>$0.60 per billion pixels: about $0.0006 a 1 MP photo, $6 per 10,000; 150 B pixels free</td><td class="pro">The vendor the site's text search already uses, so one key and one contract. Text and images in one space, so "timber floors" finds photos. Vectors stay in our Postgres, where the listing filters live.</td><td class="con">Photos are sent to a US service to embed (they are public ad photos). New model version, so test retrieval before backfilling.</td></tr>
+      <tr><td><b>Cohere Embed v4</b> (API or AWS Bedrock)</td><td>Billed by tokens; about $0.47 per million image tokens (third-party figure)</td><td class="pro">Strong multimodal model, on AWS if we later want an Australian region.</td><td class="con">A new vendor and an AWS account; image pricing harder to predict; the Sydney region is unconfirmed.</td></tr>
+      <tr><td><b>Self-hosted CLIP / SigLIP</b> (open source)</td><td>The model is free; GPU hosting (Modal, Replicate) is billed per second</td><td class="pro">No per-image fee and full control. Note "OpenAI CLIP" is this route: OpenAI sells no image-embedding API.</td><td class="con">Vercel has no GPU, so a second platform to run and watch. Older CLIP is weaker on free-text queries.</td></tr>
+      <tr><td><b>Pinecone</b> (vectors only)</td><td>Serverless, usage-based</td><td class="pro">Scales past tens of millions of vectors.</td><td class="con">A second store to keep in step with listing status, since a withdrawn home must vanish at once. We are far below the ~5–10 M vectors where it starts to pay.</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>2 · Media pipeline (Immersive)</h2>
+    <table class="cmp">
+      <tr><th>Option</th><th>Cost</th><th>For</th><th>Against</th></tr>
+      <tr class="pick"><td><b>No video pipeline in C9.</b> Floorplans in Supabase Storage; video and tours as allowlisted links</td><td>About $0. Supabase image resizing: 100 origin images on Pro, then $5 per 1,000</td><td class="pro">Matches how agencies already publish (YouTube, Vimeo, Matterport links). No new vendor; nothing to transcode; the photo pipeline already exists.</td><td class="con">Depends on the hosts' players; we can't host a raw video an agent uploads.</td></tr>
+      <tr><td><b>Cloudflare Stream</b></td><td>$5 per 1,000 min stored, $1 per 1,000 min delivered; encoding free</td><td class="pro">The simplest and cheapest if we host video: upload, then one player URL; delivered from Australian edges.</td><td class="con">Another vendor; storage location is global, not Australian.</td></tr>
+      <tr><td><b>Mux</b></td><td>About $0.003 per min stored a month and $0.00096 per min delivered, first 100,000 delivery min free (published; volume discounts)</td><td class="pro">The best developer experience and playback analytics.</td><td class="con">Dearer than Stream for our use; Australian data residency not confirmed.</td></tr>
+      <tr><td><b>Cloudinary</b></td><td>Credits: Plus about $89–99 a month (third-party figures)</td><td class="pro">Images and video in one service, with rich transforms.</td><td class="con">Credit pricing is hard to predict, and it overlaps the Supabase Storage we already pay for.</td></tr>
+      <tr><td><b>AWS MediaConvert + S3 + CloudFront</b></td><td>Cheapest at scale, Sydney region</td><td class="pro">Australian region, full control.</td><td class="con">The most engineering: jobs, buckets, signed URLs, players. Not worth it for a handful of listing videos.</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>3 · Planning data (Development)</h2>
+    <table class="cmp">
+      <tr><th>Option</th><th>Cost</th><th>For</th><th>Against</th></tr>
+      <tr class="pick"><td><b>Each state's official zone layer</b>, looked up by the property's point</td><td>Free</td><td class="pro">The authority's own data, so we can show the source and date. VIC weekly (CC BY 4.0), SA fortnightly (CC BY 4.0), NSW Planning Portal service.</td><td class="con">Eight formats; WA's licence is non-commercial; Queensland has no statewide layer; NT, ACT and TAS terms still to confirm.</td></tr>
+      <tr><td><b>Geoscape Planning</b> (national)</td><td>Paid licence (quote needed)</td><td class="pro">One schema for the whole country, joined to land parcels, released quarterly.</td><td class="con">Sources updated twice a year; its Queensland state-sourced data is from 2010 and no longer maintained; licence cost.</td></tr>
+      <tr><td><b>CoreLogic / PropTrack data APIs</b></td><td>Enterprise contracts</td><td class="pro">Zoning plus sales, valuations and everything else.</td><td class="con">Expensive. Licence terms often forbid showing the data to the public, and their valuations tempt exactly what non-negotiable 4 forbids.</td></tr>
+    </table>
+    <h2 style="margin-top:16px">State by state</h2>
+    <div class="states">
+      <div><b>VIC</b> Vicmap Planning WFS · CC BY 4.0 · weekly <span class="tag ok">use</span></div>
+      <div><b>NSW</b> Planning Portal ArcGIS (Land Zoning) <span class="tag ok">use</span></div>
+      <div><b>SA</b> Planning &amp; Design Code zones · CC BY 4.0 · fortnightly <span class="tag ok">use</span></div>
+      <div><b>ACT</b> ACTmapi Territory Plan zones · licence not stated <span class="tag warn">confirm</span></div>
+      <div><b>TAS</b> theLIST Planning Scheme zones · terms to read <span class="tag warn">confirm</span></div>
+      <div><b>NT</b> NR Maps town planning zones · CC BY 4.0 (unverified) <span class="tag warn">confirm</span></div>
+      <div><b>WA</b> SLIP map service · CC BY-NC <span class="tag bad">link only</span></div>
+      <div><b>QLD</b> No statewide layer; council by council <span class="tag bad">link only</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── IMMERSIVE ───────────────────────── -->
+<section class="screen" id="immersive">
+  <p class="muted"><a href="#">Buy</a> › Pakenham › 12 Rogers Street</p>
+  <h1>12 Rogers Street, Pakenham VIC 3810</h1>
+  <div class="card">
+    <h2>Floorplan, video and tour</h2>
+    <div class="media">
+      <div class="tile"><div class="ph plan">Floorplan<br>(the agent's image)</div><div class="cap">Floorplan · <a href="#">Open full size</a></div></div>
+      <div class="tile"><div class="ph">▶ Video tour<br><small>Loads from YouTube when you press play</small></div><div class="cap">Video · youtube.com</div></div>
+      <div class="tile"><div class="ph">⟲ 3D tour<br><small>Loads from Matterport when you press start</small></div><div class="cap">3D tour · matterport.com</div></div>
+    </div>
+    <p class="source">As published by the agent. The video and tour load from their own sites only when you press play or start.</p>
+  </div>
+  <div class="card">
+    <h2>Rooms on the floorplan</h2>
+    <p style="margin:0">Kitchen · Living · Dining · 3 bedrooms · 2 bathrooms · Laundry · Study · Deck · Double garage</p>
+    <p class="source">Read from the floorplan by AI, room names only. For sizes, see the floorplan itself; we don't read or estimate dimensions.</p>
+  </div>
+</section>
+
+<!-- ───────────────────────── DEVELOPMENT ───────────────────────── -->
+<section class="screen" id="development">
+  <h1>14 Example Road, Officer VIC 3809</h1>
+  <p class="lede">Not for sale · sold on this site in Sep 2024</p>
+  <div class="grid">
+    <div class="card">
+      <h2>Land and zoning</h2>
+      <div class="row"><span>Zone</span><b>General Residential Zone — Schedule 1 (GRZ1)</b></div>
+      <div class="row"><span>Land size</span><b>612 m² <span class="muted">(from the last ad)</span></b></div>
+      <div class="row"><span>Planning scheme</span><b><a href="#">Cardinia Planning Scheme</a></b></div>
+      <p class="source">Zone from Vicmap Planning (Department of Transport and Planning, CC BY 4.0), checked 4 Nov 2026. Overlays may also apply: see <a href="#">VicPlan</a> for this address.</p>
+      <div class="note warn">This is the zone, not a permission. Whether this land can be subdivided or built on depends on the scheme's rules, overlays, covenants and a planning permit. Ask a town planner or the council.</div>
+      <h2 style="margin-top:14px">Questions to ask before you develop</h2>
+      <ol style="margin:0;padding-left:20px;font-size:14px">
+        <li>What is the minimum lot size in this zone and schedule?</li>
+        <li>Which overlays apply (heritage, flooding, bushfire, vegetation)?</li>
+        <li>Is there a covenant or easement on the title?</li>
+        <li>Is there capacity in the sewer, water and power connections?</li>
+        <li>What permits would a second dwelling or a subdivision need?</li>
+      </ol>
+      <p class="source">Our questions, written for Victoria; the same for every property in the state.</p>
+    </div>
+    <div>
+      <div class="card">
+        <h2>Another state</h2>
+        <div class="row"><span>Zone</span><b>Not verified</b></div>
+        <p class="muted" style="margin:6px 0 0">Western Australia's zoning data is licensed for non-commercial use only, so we don't show it. <a href="#">Open PlanWA</a> for this address.</p>
+      </div>
+      <div class="card">
+        <h2>Never on this panel</h2>
+        <p class="dropped" style="margin:0">"Suits a dual occupancy" · "Could fit 2 lots" · "Worth $X once subdivided" · "Approved for…"</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── VISUAL SEARCH ───────────────────────── -->
+<section class="screen" id="visual">
+  <h1>Search by look</h1>
+  <div class="search"><input type="text" value="light-filled kitchen with timber floors and an island bench"><a class="btn" href="#">Search</a></div>
+  <p class="muted">Pakenham, Officer · for sale · up to $800,000 · 3+ bed &nbsp; <a href="#">Change filters</a></p>
+  <div class="homes" style="margin-top:12px">
+    <div class="home"><div class="pic"></div><div class="body"><span class="price">Offers over $760,000</span><span class="addr">22 Lakeview Drive, Officer</span><span class="facts">3 bed · house</span><div class="why"><span>Looks similar · kitchen photo</span></div><div class="foot"><a href="#">More like this photo</a><a href="#">View</a></div></div></div>
+    <div class="home"><div class="pic"></div><div class="body"><span class="price">$705,000 – $740,000</span><span class="addr">3 Mira Court, Pakenham</span><span class="facts">4 bed · house</span><div class="why"><span>Looks similar · living room photo</span></div><div class="foot"><a href="#">More like this photo</a><a href="#">View</a></div></div></div>
+    <div class="home"><div class="pic"></div><div class="body"><span class="price">Offers over $675,000</span><span class="addr">8 Dalton Close, Pakenham</span><span class="facts">3 bed · house</span><div class="why"><span>Looks similar · kitchen photo</span></div><div class="foot"><a href="#">More like this photo</a><a href="#">View</a></div></div></div>
+  </div>
+  <p class="source">Ordered by how alike the photos look, within your filters. It finds what a photo shows; it doesn't judge the condition or quality of a home.</p>
+</section>
+
+<!-- ───────────────────────── EARLY ───────────────────────── -->
+<section class="screen" id="early">
+  <h1>Search by look</h1>
+  <div class="card">
+    <h2>Still filling up</h2>
+    <p style="margin:0">Search by look works once there are enough photos to compare. There is <b>1</b> photo on public listings today; it starts at 500. Until then, try <a href="#">Similar homes</a> on any listing, or search by suburb and features.</p>
+  </div>
+</section>
+
+<!-- ───────────────────────── THE GUIDE ───────────────────────── -->
+<section class="screen chat" id="chat">
+  <h1>The guide</h1>
+  <div class="bubble me">How big is the main bedroom at 12 Rogers Street?</div>
+  <div class="toolcard"><span class="tag ai">floorplan_rooms</span> 12 Rogers Street → Kitchen, Living, Dining, 3 bedrooms, 2 bathrooms, Study, Deck (names only)</div>
+  <div class="bubble ai">The floorplan shows three bedrooms, a study and a deck, but I don't read sizes off floorplans. The dimensions are printed on the plan itself; <a href="#immersive">open the floorplan</a>, or ask the agent to confirm.</div>
+  <div class="bubble me">Could I subdivide 14 Example Road?</div>
+  <div class="toolcard"><span class="tag ai">land_and_zoning</span> 14 Example Road, Officer → GRZ1 (Vicmap Planning, checked 4 Nov 2026) · 612 m² from the ad · Victoria's questions</div>
+  <div class="bubble ai">It's in the General Residential Zone (Schedule 1), and the last ad gave the land as 612 m². The zone alone doesn't say whether it can be subdivided. That depends on the minimum lot size, any overlays, covenants and a planning permit. Worth asking a town planner or Cardinia council: what's the minimum lot size, which overlays apply, and what permits would a subdivision need?</div>
+  <p class="dropped">Not allowed: "Yes, 612 m² is enough for two lots", "the main bedroom is about 4 × 3.5 m", "it'd be worth more subdivided".</p>
+</section>
+
+</main>
+<script>
+  function show() {
+    const id = (location.hash || '#rules').slice(1);
+    document.querySelectorAll('section.screen').forEach((s) => s.classList.toggle('on', s.id === id));
+    document.querySelectorAll('.mockbar a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + id));
+    window.scrollTo(0, 0);
+  }
+  addEventListener('hashchange', show);
+  show();
+</script>
+</body>
+</html>

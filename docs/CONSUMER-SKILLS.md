@@ -79,7 +79,9 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
 - **C8 — Acting for the buyer.** Agent AI (draft → buyer sends), Tasks, Automation (reuses the schedule runner). Mock
   `docs/mocks/consumer-acting.html` (twelve decisions, all approved as recommended 2026-11-04).
 - **C9 — Media & land.** Visual Search (embeddings provider), Immersive (media pipeline for floorplans and
-  video — touches the console), Property Development AI (planning data source to be chosen).
+  video — touches the console), Property Development AI (planning data source to be chosen). Mock
+  `docs/mocks/consumer-media-land.html` (twelve decisions and the three providers compared; all approved as recommended 2026-11-04 —
+  Voyage `voyage-multimodal-3.5` + pgvector, no video pipeline, state zone layers where the licence allows).
 
 ## Status
 
