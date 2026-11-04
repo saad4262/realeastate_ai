@@ -70,7 +70,9 @@ production database.
    C7 Discovery & Opportunity: mock `docs/mocks/consumer-discovery.html` (ten decisions) approved 2026-11-04 (`e246290`);
    built in the user's autonomous loop, migration 0087 applied, committed and pushed. Real data today: Opportunities
    in Pakenham shows 3 long campaigns (site median 43 days); price changes and medians say why they are empty; no
-   home not for sale qualifies yet (every sale is Oct 2026). TEST-PLAN CM1–CM13: the user, in a browser. Next: C8 mock.
+   home not for sale qualifies yet (every sale is Oct 2026). TEST-PLAN CM1–CM13: the user, in a browser.
+   C8 Acting for the buyer: mock `docs/mocks/consumer-acting.html` (twelve decisions) approved 2026-11-04 (all twelve
+   as recommended); building in the user's autonomous loop.
    TEST-PLAN CG/CH/CI: the user, in a browser. Re-check duty rates
    every 1 July (dates in `duty-rates.ts`); NT, ACT general and SA new-home relief still "not verified".
 1. Push and merge `chore/tech-debt` → `feat/sms-part2` → `feat/customer-profile` → `feat/consumer-skills` (the user's go).

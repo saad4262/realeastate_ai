@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Acting for the buyer — mock</title>
+<!--
+  Mock for docs/CONSUMER-SKILLS.md C8 (ADR 0080): Agent AI (the guide drafts a message to an agent; the buyer edits it
+  and presses Send; it goes as an ordinary enquiry or reply), Tasks (research once or on a schedule, a report from
+  SQL with a labelled paragraph) and Automation (fixed "when" on homes the buyer follows, fixed "then" that stops at
+  their own account, a log with Undo). Public site, the site's warm palette (as the C1–C7 mocks). Hand-made, SAMPLE
+  data: names, addresses, prices and dates are invented.
+  Screens by hash: #rules (opens first), #draft, #sent, #tasks, #report, #automations, #log, #chat.
+-->
+<style>
+  :root {
+    --canvas: #f7f4ef; --card: #fff; --sunken: #f1ece3; --ink: #1a1a1a; --ink-soft: #5c5c5c; --ink-faint: #8c8577;
+    --line: #d9d2c5; --line-subtle: #ece7dd; --brand: #0b3d2e; --brand-ink: #f7f4ef;
+    --success: #0f7a52; --success-soft: #e8f4ee; --notice: #a8620a; --notice-soft: #fbf1e3; --danger: #a12a2a; --danger-soft: #f8e9e7; --info: #1d4e89; --info-soft: #e9eff7;
+    --display: Georgia, 'Times New Roman', serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  a { color: var(--brand); }
+  .mockbar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px; background: #222; color: #ddd; font-size: 13px; }
+  .mockbar b { margin-right: 8px; color: #fff; }
+  .mockbar a { color: #ddd; text-decoration: none; padding: 2px 10px; border-radius: 999px; border: 1px solid #555; }
+  .mockbar a.on { background: #fff; color: #222; }
+  header.site { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; background: var(--card); border-bottom: 1px solid var(--line); }
+  .brand { font-family: var(--display); font-weight: 700; font-size: 20px; color: var(--brand); }
+  header.site nav a { margin-left: 18px; color: var(--ink-soft); text-decoration: none; font-size: 14px; }
+  main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; }
+  section.screen { display: none; }
+  section.screen.on { display: block; }
+  h1 { font-family: var(--display); font-size: clamp(26px, 3.4vw, 34px); letter-spacing: -.02em; margin: 0 0 6px; }
+  h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); margin: 0 0 12px; }
+  h3 { font-size: 16px; margin: 0 0 4px; }
+  .lede { color: var(--ink-soft); margin: 0 0 20px; max-width: 72ch; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; margin-bottom: 16px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) 320px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--sunken); color: var(--ink-soft); vertical-align: middle; }
+  .tag.ai { background: var(--info-soft); color: var(--info); }
+  .tag.warn { background: var(--notice-soft); color: var(--notice); }
+  .tag.ok { background: var(--success-soft); color: var(--success); }
+  .muted { color: var(--ink-soft); font-size: 13px; }
+  .source { font-size: 12px; color: var(--ink-faint); margin-top: 8px; }
+  .note { border-left: 4px solid var(--info); background: var(--info-soft); padding: 10px 14px; border-radius: 8px; font-size: 14px; margin: 12px 0; }
+  .note.warn { border-color: var(--notice); background: var(--notice-soft); }
+  .btn { display: inline-block; padding: 8px 14px; border-radius: 999px; background: var(--brand); color: var(--brand-ink); text-decoration: none; font-weight: 600; font-size: 13px; border: 0; cursor: pointer; }
+  .btn.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  .btn.small { padding: 4px 10px; font-size: 12px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .rules ol { padding-left: 20px; margin: 0; }
+  .rules li { margin-bottom: 14px; }
+  .rules li b { display: block; }
+  .rules h3 { margin: 18px 0 8px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); }
+  .rules h3:first-child { margin-top: 0; }
+  .rec { display: inline-block; margin-top: 4px; font-size: 13px; color: var(--success); font-weight: 600; }
+  .alt { display: block; font-size: 13px; color: var(--ink-faint); }
+  /* home cards */
+  .homes { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+  .home { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
+  .home .pic { aspect-ratio: 16 / 10; background: linear-gradient(135deg, #e9e2d5, #d8cfbf); }
+  .home .body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .home .price { font-weight: 700; }
+  .home .addr { font-size: 14px; }
+  .home .facts { font-size: 13px; color: var(--ink-soft); }
+  .why { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+  .why span { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: var(--success-soft); color: var(--success); }
+  .why span.miss { background: var(--notice-soft); color: var(--notice); }
+  .home .foot { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 6px; font-size: 12.5px; }
+  .home .foot a { color: var(--ink-soft); }
+  .offmarket .home .pic { background: repeating-linear-gradient(135deg, #ece7dd 0 10px, #e4ddd0 10px 20px); }
+  /* opportunities */
+  .opp { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; padding: 16px 0; border-top: 1px solid var(--line-subtle); }
+  .opp:first-of-type { border-top: 0; }
+  .opp .pic { aspect-ratio: 1; border-radius: 10px; background: linear-gradient(135deg, #e9e2d5, #d8cfbf); }
+  @media (max-width: 600px) { .opp { grid-template-columns: 1fr; } .opp .pic { aspect-ratio: 16/9; } }
+  .signal { margin-top: 8px; padding: 10px 12px; border-radius: 10px; background: var(--sunken); font-size: 14px; }
+  .signal b { display: block; }
+  details { margin-top: 6px; font-size: 13.5px; color: var(--ink-soft); }
+  details summary { cursor: pointer; color: var(--brand); }
+  details ul { margin: 6px 0 0; padding-left: 18px; }
+  .field { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 0; font-size: 14px; }
+  select, input[type=text] { font: inherit; font-size: 14px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: #fff; max-width: 160px; }
+  .chk { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; font-size: 14px; }
+  .count { font-variant-numeric: tabular-nums; color: var(--ink-faint); }
+  .row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line-subtle); font-size: 14px; }
+  .row:first-child { border-top: 0; }
+  .chat { max-width: 760px; }
+  .bubble { padding: 12px 16px; border-radius: 16px; margin: 10px 0; max-width: 85%; }
+  .bubble.me { margin-left: auto; background: var(--brand); color: var(--brand-ink); border-bottom-right-radius: 4px; }
+  .bubble.ai { background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .toolcard { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fffdfa; margin: 8px 0; font-size: 14px; }
+  .dropped { font-size: 12.5px; color: var(--ink-faint); text-decoration: line-through; }
+  /* C8 */
+  .draft { border: 1px solid var(--line); border-radius: 14px; background: #fffdfa; padding: 14px 16px; margin: 8px 0; max-width: 85%; }
+  .draft textarea { width: 100%; min-height: 150px; font: inherit; font-size: 14px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; resize: vertical; background: #fff; }
+  .draft .to { font-size: 13px; color: var(--ink-soft); margin-bottom: 8px; }
+  .used { font-size: 12.5px; color: var(--ink-soft); margin-top: 8px; }
+  .used b { color: var(--ink); }
+  .sec { display: flex; justify-content: space-between; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line-subtle); font-size: 14px; }
+  .sec:first-child { border-top: 0; }
+  .rule { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line-subtle); font-size: 14px; }
+  .rule:first-child { border-top: 0; }
+  .rule .when { font-weight: 600; }
+  .rule .then { color: var(--ink-soft); }
+  .pill { display: inline-block; font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: #fff; margin: 2px 4px 2px 0; }
+  .pill.on { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
+  .email { max-width: 640px; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; }
+  .email h2 { font-size: 13px; }
+  .email .label { display: inline-block; font-size: 11px; color: var(--info); background: var(--info-soft); border-radius: 999px; padding: 2px 8px; margin-bottom: 6px; }
+  .log { font-size: 14px; }
+  .log .row span:last-child { white-space: nowrap; }
+</style>
+
+</head>
+<body>
+<div class="mockbar"><b>MOCK · C8 Acting for the buyer</b>
+  <a href="#rules">Decisions</a><a href="#draft">Agent AI: draft</a><a href="#sent">Sent</a><a href="#tasks">Tasks</a><a href="#report">A report</a><a href="#automations">Automations</a><a href="#log">What it did</a><a href="#chat">In the guide</a>
+</div>
+<header class="site"><span class="brand">site.com.au</span><nav><a href="#">Buy</a><a href="#tasks">Tasks</a><a href="#automations">Automations</a><a href="#chat">Ask the guide</a></nav></header>
+<main>
+
+<!-- ───────────────────────── DECISIONS ───────────────────────── -->
+<section class="screen rules" id="rules">
+  <h1>Acting for the buyer — twelve decisions</h1>
+  <p class="lede">Three skills that do things, not just answer. <b>Agent AI</b> drafts a message to an agent, and the buyer reads it and sends it. <b>Tasks</b> runs research once or on a schedule and sends a report. <b>Automation</b> watches the homes a buyer follows and does what they asked: tell them, or tidy their shortlist. These are the first consumer skills that act on their own, so the main question is where acting stops. The recommended line is the buyer's own account: nothing ever reaches an agency unless the buyer presses Send on text they can see. Each decision has a recommendation; say "all recommended" or name the ones to change.</p>
+  <div class="card"><ol>
+    <h3>Agent AI</h3>
+    <li><b>1. A draft, never a send.</b>The guide writes the message into a card. The buyer can edit it, then presses <b>Send to Ray White Pakenham</b>. Nothing reaches an agency until they press Send on the exact text on screen. This is non-negotiable 7: anything model-written that reaches a third party needs a human.
+      <span class="rec">Recommended: yes.</span></li>
+    <li><b>2. A draft uses only what the buyer said, and the listing's facts.</b>The model is handed the buyer's own words from this conversation and the listing's facts (address, price text, inspection times). It may not add a budget, finance, a timeline or a reason they did not state. It never makes an offer or names a price (offers go through the existing "Make an offer" form, ADR 0012), and never claims to be the buyer's agent or adviser. Core checks every draft: a figure that is neither in the buyer's words nor the listing's facts, an offer, or a claim on the buyer's behalf rejects the draft, and a plain template is used instead.
+      <span class="rec">Recommended: yes.</span></li>
+    <li><b>3. It goes through the doors that already exist.</b>If there is no conversation yet, the message becomes an ordinary enquiry on the listing: a lead for the agency, assigned as today (ADR 0039). If the buyer already has a conversation with that agency about that home, it goes as a reply in it (ADR 0016). Name, email and phone come from the verified account, never from the model. At most <b>5 AI-drafted messages a day</b> per buyer, so no agency gets a stream of them.
+      <span class="rec">Recommended: yes; 5 a day.</span>
+      <span class="alt">Alternative: no daily limit beyond the enquiry form's own.</span></li>
+    <li><b>4. No "written by AI" line on the agency's copy.</b>Once the buyer has read, edited and sent it, it is their message, as with a spell-checker. The buyer's own copy in Messages notes "Drafted with the guide".
+      <span class="rec">Recommended: no label to the agency.</span>
+      <span class="alt">Alternative: a footer on the agency's copy, "Drafted with the site's guide".</span></li>
+
+    <h3>Tasks</h3>
+    <li><b>5. A task is a saved schedule: the runner Smart Alerts already uses.</b>The same <code>search_schedule</code> and <code>schedule_run</code> tables, with a kind (<i>alert</i> or <i>task</i>), the chosen sections, and a new "once" cadence (migration 0088). Times are in the buyer's own zone, and the cron tick is the same one with the same budget. Up to <b>10 tasks</b> per buyer.
+      <span class="rec">Recommended: yes.</span>
+      <span class="alt">Alternative: a separate task table and runner. That means a second clock to keep honest.</span></li>
+    <li><b>6. A report is made of sections from a fixed list, every figure from SQL.</b>The list:
+      <ul>
+        <li>New homes matching a search.</li>
+        <li>What sold in the suburbs.</li>
+        <li>Price reductions (C7).</li>
+        <li>Long campaigns (C7).</li>
+        <li>The suburb's figures, with C5's 10-sale rule.</li>
+        <li>Open homes in the next 7 days.</li>
+        <li>What changed at the addresses they watch.</li>
+      </ul>
+      The buyer picks up to four, on the page or by asking the guide, which fills a card they <b>Accept</b>. Nothing is scheduled without Accept, as with alerts today.
+      <span class="rec">Recommended: yes.</span></li>
+    <li><b>7. Each report is an email and a page.</b>Each run is kept at <code>/account/tasks/&lt;id&gt;</code> and emailed with its own unsubscribe link. The short paragraph at the top follows the Smart Alerts rule: the model is handed no figures; every figure around it is rendered from SQL; any output containing a figure or a counting word, or failing C5's verdict rule, is replaced by a template; and it is labelled "Written by the property guide". A run with nothing new says so on the page and <b>skips the email</b> (the buyer can turn that off).
+      <span class="rec">Recommended: yes; skip empty emails.</span></li>
+
+    <h3>Automation</h3>
+    <li><b>8. A fixed list of "when", about homes the buyer follows.</b>A home on their shortlist or a watched address: price reduced, an open home added, under offer, sold or leased, no longer advertised, or the watched address listed. Plus: a new home matches a saved search. Detection is SQL on the existing tick (Property Monitor's checks, widened to the shortlist). No model anywhere in Automation.
+      <span class="rec">Recommended: yes.</span></li>
+    <li><b>9. A fixed list of "then", and it stops at the buyer's own account.</b>Three actions:
+      <ul>
+        <li><b>Tell me</b> (email).</li>
+        <li><b>Add it to my shortlist</b> (for a new match).</li>
+        <li><b>Take it off my shortlist</b> (when it sold or is no longer advertised).</li>
+      </ul>
+      Never "enquire for me", "book an inspection" or "make an offer": anything that reaches an agency is Agent AI's draft-and-Send. Every action is logged on "What it did", with Undo.
+      <span class="rec">Recommended: yes.</span></li>
+    <li><b>10. When the email comes.</b>"Once a day at 8 am" (the default, the same email as Property Monitor), or "as it happens": checked hourly and held from 9 pm to 7 am. Each event fires once. Up to <b>20 automations</b> per buyer, and each email has an unsubscribe link for that automation.
+      <span class="rec">Recommended: yes.</span></li>
+
+    <h3>All three</h3>
+    <li><b>11. All three are "acts": off until switched on, and they need an account.</b>Switching one off stops it at once (the cron skips it, as with Smart Alerts) and keeps what was set up, so switching it back on resumes. The platform pause covers all three. No agency sees a buyer's tasks or automations. The agency sees an Agent AI message only as the ordinary enquiry or reply it is.
+      <span class="rec">Recommended: yes.</span></li>
+    <li><b>12. The guide proposes, the buyer decides.</b>Three tools, <code>draft_message</code>, <code>draft_task</code> and <code>draft_automation</code>, each return a card and never act (prompt v17). The guide may say "I've drafted…", never "I've sent…" or "it's running".
+      <span class="rec">Recommended: yes.</span></li>
+  </ol></div>
+  <p class="muted">Not in C8: SMS or push notifications (email only); automations about homes the buyer does not follow; a task that writes to anyone but the buyer; booking an inspection time (agents do not publish bookable slots).</p>
+</section>
+
+<!-- ───────────────────────── AGENT AI: DRAFT ───────────────────────── -->
+<section class="screen chat" id="draft">
+  <h1>The guide</h1>
+  <div class="bubble me">Can you ask the agent for 12 Rogers Street if the strata fees include the building insurance, and whether I can see it again on Saturday? We need to settle before March.</div>
+  <div class="toolcard"><span class="tag ai">draft_message</span> 12 Rogers Street, Pakenham → Ray White Pakenham · a new enquiry</div>
+  <div class="bubble ai">I've drafted it below. Read it, change anything you like, and press Send when you're happy. Nothing goes to the agent until you do.</div>
+  <div class="draft">
+    <div class="to">To <b>Ray White Pakenham</b> about <b>12/1A Rogers Street, Pakenham</b> · from <b>Sam Buyer</b> (sam@example.com, from your account)</div>
+    <textarea>Hi,
+
+I'm interested in 12/1A Rogers Street, Pakenham.
+
+1. Do the strata fees include the building insurance?
+2. Could I see the home again this Saturday? The listing shows an open home at 10:15 am; another time would also suit.
+
+We need to settle before March.
+
+Thanks,
+Sam</textarea>
+    <p class="used">Used: <b>your words</b> (strata fees, insurance, Saturday, settle before March) and <b>the listing</b> (address, the 10:15 am open home). Nothing about your budget or finance — you didn't mention them.</p>
+    <div class="actions"><a class="btn" href="#sent">Send to Ray White Pakenham</a><a class="btn ghost" href="#">Start again</a><a class="btn ghost" href="#">Don't send</a></div>
+    <p class="source">AI-drafted messages today: 1 of 5.</p>
+  </div>
+  <p class="dropped">Rejected by core and replaced by the plain template: "We'd be happy to offer $680,000" (an offer), "We're pre-approved to $750,000" (a figure you didn't give), "As Sam's buyer's agent…" (a claim on your behalf).</p>
+  <div class="card" style="margin-top:20px">
+    <h2>On the listing</h2>
+    <p class="muted" style="margin-top:-6px">The enquiry form gets the same help, so you don't need the chat.</p>
+    <div class="field">Your message <a class="btn small ghost" href="#">Draft with AI from my notes</a></div>
+    <textarea style="width:100%;min-height:70px;border:1px solid var(--line);border-radius:10px;padding:8px" placeholder="Type a few words — e.g. strata fees? insurance? see it Saturday"></textarea>
+  </div>
+</section>
+
+<!-- ───────────────────────── SENT ───────────────────────── -->
+<section class="screen" id="sent">
+  <h1>Your messages</h1>
+  <div class="card">
+    <div class="row"><span><b>Ray White Pakenham</b> · 12/1A Rogers Street, Pakenham<br><span class="muted">You: "Hi, I'm interested in 12/1A Rogers Street… Do the strata fees include the building insurance?…"</span></span><span class="muted">Just now · <span class="tag">Drafted with the guide</span></span></div>
+  </div>
+  <div class="note">The agency receives an ordinary enquiry from Sam, with no AI label (decision 4). Only Sam's own copy says it was drafted with the guide. A reply from the agency arrives here and by email, as today.</div>
+</section>
+
+<!-- ───────────────────────── TASKS ───────────────────────── -->
+<section class="screen" id="tasks">
+  <h1>Tasks</h1>
+  <p class="lede">Research done once or on a schedule, with a report by email and here. 2 of 10.</p>
+  <div class="grid">
+    <div>
+      <div class="card">
+        <div class="row"><span><b>Monday in Pakenham</b><br><span class="muted">Every Monday 7:00 am · new 3-bed houses up to $800,000 · what sold · price reductions</span></span><span><span class="tag ok">Running</span> <a href="#report">Last report</a></span></div>
+        <div class="row"><span><b>Before Saturday</b><br><span class="muted">Once, Fri 14 Nov 6:00 pm · open homes in the next 7 days on my shortlist</span></span><span><span class="tag">Done</span> <a href="#report">Report</a></span></div>
+      </div>
+    </div>
+    <form class="card">
+      <h2>New task</h2>
+      <div class="field">Name <input type="text" value="Monday in Pakenham"></div>
+      <div class="field">When <select><option>Every Monday, 7:00 am</option><option>Once</option><option>Every day</option></select></div>
+      <h2 style="margin-top:12px">In the report (up to 4)</h2>
+      <div class="sec"><span><input type="checkbox" checked> New homes for my search</span><span class="muted">Pakenham · 3+ bed · up to $800k</span></div>
+      <div class="sec"><span><input type="checkbox" checked> What sold</span><span class="muted">Pakenham</span></div>
+      <div class="sec"><span><input type="checkbox" checked> Price reductions</span><span class="muted">Pakenham</span></div>
+      <div class="sec"><span><input type="checkbox"> Long campaigns</span></div>
+      <div class="sec"><span><input type="checkbox"> Suburb figures</span></div>
+      <div class="sec"><span><input type="checkbox"> Open homes, next 7 days</span></div>
+      <div class="sec"><span><input type="checkbox"> My watched addresses</span></div>
+      <label class="chk"><span><input type="checkbox" checked> Skip the email when nothing is new</span></label>
+      <div class="actions"><button class="btn" type="button">Save task</button></div>
+    </form>
+  </div>
+</section>
+
+<!-- ───────────────────────── A REPORT ───────────────────────── -->
+<section class="screen" id="report">
+  <h1>Monday in Pakenham · 17 Nov 2026</h1>
+  <div class="email">
+    <span class="label">Written by the property guide</span>
+    <p style="margin:0 0 14px">This week in Pakenham there are new houses in your range, a recent sale, and a home whose asking price came down. The details are below.</p>
+    <h2>New homes for your search · 2</h2>
+    <div class="row"><span>8 Dalton Close, Pakenham · 3 bed house</span><span>Offers over $675,000</span></div>
+    <div class="row"><span>3 Mira Court, Pakenham · 4 bed house</span><span>$705,000 – $740,000</span></div>
+    <h2 style="margin-top:14px">What sold · 1</h2>
+    <div class="row"><span>17 Princes Highway, Pakenham · 3 bed</span><span>Sold $655,000 · 12 Nov</span></div>
+    <h2 style="margin-top:14px">Price reductions · 1</h2>
+    <div class="row"><span>5 Bay Court, Officer</span><span>Offers over $720,000 → $695,000</span></div>
+    <p class="source">Every figure is from this site's records. The paragraph at the top was written without them. <a href="#">Stop this task</a> · <a href="#">Manage tasks</a></p>
+  </div>
+  <p class="dropped">Replaced by the template ("This week's report is below."): a paragraph saying "prices are falling in Pakenham" (a verdict, even with no figure), or one containing a number or a counting word ("two new homes").</p>
+</section>
+
+<!-- ───────────────────────── AUTOMATIONS ───────────────────────── -->
+<section class="screen" id="automations">
+  <h1>Automations</h1>
+  <p class="lede">When something happens to a home you follow, do what you asked. 3 of 20. Nothing here ever writes to an agent.</p>
+  <div class="grid">
+    <div class="card">
+      <div class="rule"><div><span class="when">When a home on my shortlist has its price reduced</span><br><span class="then">→ Tell me · once a day at 8 am</span></div><span class="tag ok">On</span></div>
+      <div class="rule"><div><span class="when">When a home on my shortlist sells or is no longer advertised</span><br><span class="then">→ Take it off my shortlist, and tell me</span></div><span class="tag ok">On</span></div>
+      <div class="rule"><div><span class="when">When a new home matches "3 bed in Pakenham under $800k"</span><br><span class="then">→ Add it to my shortlist · as it happens (not 9 pm–7 am)</span></div><span class="tag">Paused</span></div>
+    </div>
+    <form class="card">
+      <h2>New automation</h2>
+      <p class="muted" style="margin:0 0 6px">When…</p>
+      <span class="pill on">price reduced</span><span class="pill">open home added</span><span class="pill">under offer</span><span class="pill">sold or leased</span><span class="pill">no longer advertised</span><span class="pill">watched address listed</span><span class="pill">new match for a saved search</span>
+      <p class="muted" style="margin:10px 0 6px">…on</p>
+      <span class="pill on">my shortlist</span><span class="pill">my watched addresses</span><span class="pill">both</span>
+      <p class="muted" style="margin:10px 0 6px">Then</p>
+      <span class="pill on">Tell me</span><span class="pill">Add to my shortlist</span><span class="pill">Take off my shortlist</span>
+      <p class="muted" style="margin:10px 0 6px">Email</p>
+      <span class="pill on">Once a day, 8 am</span><span class="pill">As it happens</span>
+      <div class="actions"><button class="btn" type="button">Save automation</button></div>
+      <p class="source">Enquire, book or make an offer are not here on purpose: those go through Agent AI's draft, which you send yourself.</p>
+    </form>
+  </div>
+</section>
+
+<!-- ───────────────────────── WHAT IT DID ───────────────────────── -->
+<section class="screen" id="log">
+  <h1>What your automations did</h1>
+  <div class="card log">
+    <div class="row"><span><b>Took 2/6 Henry Street off your shortlist</b> · it sold on 12 Nov</span><span>Today 8:00 am · <a href="#">Undo</a></span></div>
+    <div class="row"><span><b>Told you</b> 5 Bay Court, Officer: Offers over $720,000 → Offers over $695,000</span><span>Today 8:00 am · emailed</span></div>
+    <div class="row"><span><b>Added 3 Mira Court, Pakenham to your shortlist</b> · new match for "3 bed in Pakenham under $800k"</span><span>Yesterday 2:00 pm · <a href="#">Undo</a></span></div>
+  </div>
+  <div class="note">Each event fires once. Undo puts the shortlist back as it was and doesn't switch the automation off.</div>
+</section>
+
+<!-- ───────────────────────── IN THE GUIDE ───────────────────────── -->
+<section class="screen chat" id="chat">
+  <h1>The guide</h1>
+  <div class="bubble me">Every Monday morning send me new 3-bed houses in Pakenham under 800k and what sold there.</div>
+  <div class="toolcard"><span class="tag ai">draft_task</span> "Monday in Pakenham" · every Monday 7:00 am · New homes (Pakenham, 3+ bed, up to $800,000) · What sold (Pakenham)</div>
+  <div class="draft"><b>Monday in Pakenham</b><p class="muted" style="margin:4px 0 0">Every Monday, 7:00 am Melbourne time · New homes for your search · What sold</p><div class="actions"><a class="btn" href="#tasks">Accept</a><a class="btn ghost" href="#">Change</a></div></div>
+  <div class="bubble ai">I've set that up as a task for you to check. Press Accept and it will start next Monday. Until then nothing runs.</div>
+  <div class="bubble me">And if anything on my shortlist drops its price, put it at the top of my email.</div>
+  <div class="toolcard"><span class="tag ai">draft_automation</span> When a home on my shortlist has its price reduced → Tell me · once a day at 8 am</div>
+  <div class="draft"><b>When a home on my shortlist has its price reduced → Tell me</b><p class="muted" style="margin:4px 0 0">Once a day at 8 am</p><div class="actions"><a class="btn" href="#automations">Accept</a><a class="btn ghost" href="#">Change</a></div></div>
+  <p class="dropped">Not allowed: "I've emailed the agent for you", "I'll make an offer if it drops below $700k", "It's running now" (before Accept).</p>
+</section>
+
+</main>
+<script>
+  function show() {
+    const id = (location.hash || '#rules').slice(1);
+    document.querySelectorAll('section.screen').forEach((s) => s.classList.toggle('on', s.id === id));
+    document.querySelectorAll('.mockbar a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + id));
+    window.scrollTo(0, 0);
+  }
+  addEventListener('hashchange', show);
+  show();
+</script>
+</body>
+</html>
