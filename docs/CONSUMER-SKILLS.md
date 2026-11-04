@@ -45,13 +45,13 @@ written (2026-11-03) · Now = where it stands
 | 9 | Comparison AI (`comparison`) | answers | C5 | 0% | built (C5) | 2–4 properties side by side (numbers from SQL), the model explains the trade-offs |
 | 10 | Inspection AI (`inspection_planner`) | answers | C6 | 15% | built (C6) | Plan a Saturday: pick listings, order the open homes by time and distance, add to calendar |
 | 11 | Inspection Assistant (`inspection_notes`) 🔒 | answers | C6 | 0% | built (C6) | Notes, photos and a checklist per inspection, private to the buyer, summarised |
-| 12 | Visual Search AI (`visual_search`) | answers | C9 | 90% | C9 | "Homes that look like this" from words or a photo on this site (Voyage multimodal into pgvector); early until 500 photos, embedding off until the user's go |
-| 13 | Immersive Property AI (`immersive`) | answers | C9 | 100% | C9 | Floorplans, video and tours stored and shown; ask the guide about a room |
+| 12 | Visual Search AI (`visual_search`) | answers | C9 | 0% | built (C9), early | "Homes that look like this" from words or a photo on this site (Voyage multimodal into pgvector); early until 500 photos, embedding off until the user's go |
+| 13 | Immersive Property AI (`immersive`) | answers | C9 | 10% | built (C9) | Floorplans, video and tours stored and shown; ask the guide about a room |
 | 14 | Agent AI (`agent_messages`) 🔒 | acts | C8 | 45% | built (C8) | The guide drafts an enquiry or question to the agent; the buyer reads it and sends it |
 | 15 | Buyer AI (`buyer_assistant`) | answers | grows | 10% | grows with each | The property chat itself; each skill adds its tool here, behind its own switch |
 | 16 | Property Monitor (`property_monitor`) 🔒 | acts | C4 | 20% | built (C4) | Watch an address: listed, price change, under offer, sold — including Not for Sale → For Sale |
 | 17 | Opportunity AI (`opportunities`) | answers | C7 | 0% | built (C7) | Price drops, long days on market, under the suburb median — from SQL, explained |
-| 18 | Property Development AI (`development`) | answers | C9 | 100% | C9 | The state's zone by map point (VIC, NSW live; SA loaded), land size from the ad, questions to ask; never advice |
+| 18 | Property Development AI (`development`) | answers | C9 | 0% | built (C9) | The state's zone by map point (VIC, NSW live; SA loaded), land size from the ad, questions to ask; never advice |
 | 19 | **Affordability AI** (`affordability`) | answers | **C1** | 0% | built (C1) | Repayments, stamp duty + first-home concessions per state, borrowing estimate, scenarios |
 | 20 | **Due-Diligence AI** (`due_diligence`) | answers | **C2** | 5% | built (C2) | Per property: the state checklist, what our records show, questions to ask, official overlay links |
 | 21 | **Renovation AI** (`renovation`) | answers | **C3** | 0% | built (C3) | A scope from photos or words (model), priced from a dated cost table (code), permit pointers |
