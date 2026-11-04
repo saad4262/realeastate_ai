@@ -23,6 +23,8 @@ import { ChatToolbar } from './chat-toolbar';
 import { HistoryScreen } from './history-screen';
 import { HistoryRail } from './history-rail';
 import { ScheduleCard } from './schedule-card';
+import { ActingCard } from './acting-card';
+import type { ActingDraftEvent } from '@repo/ai/chat-events';
 import { Composer } from './composer';
 import { RichText } from './rich-text';
 import styles from './chat.module.css';
@@ -80,6 +82,8 @@ type Turn = {
     cadence: string;
     searchPath: string;
   };
+  /** ADR 0080, C8: the guide's message, task or automation cards on this turn — nothing done until their button. */
+  actingDrafts?: Omit<ActingDraftEvent, 'type' | 'toolUseId'>[];
 };
 
 type Slots = StateEvent['slots'];
@@ -639,6 +643,17 @@ export function ChatView({
               setError(event.message);
               break;
 
+            case 'acting_draft': {
+              const { type: _t, toolUseId: _id, ...card } = event;
+              setTurns((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last) next[next.length - 1] = { ...last, actingDrafts: [...(last.actingDrafts ?? []), card] };
+                return next;
+              });
+              break;
+            }
+
             case 'schedule_draft':
               setTurns((prev) => {
                 const next = [...prev];
@@ -1109,6 +1124,8 @@ export function ChatView({
                           proposed it. Nothing is saved until Accept — see
                           schedule-card.tsx.
                         */}
+                        {turn.actingDrafts?.map((d) => <ActingCard key={d.token} draft={d} signedIn={signedIn} />)}
+
                         {turn.scheduleDraft ? (
                           <ScheduleCard
                             token={turn.scheduleDraft.token}

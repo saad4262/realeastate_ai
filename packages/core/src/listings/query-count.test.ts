@@ -35,6 +35,11 @@ import { planHomes } from '../inspections/homes';
 import { listNotebooks, notebooksForSummary } from '../inspections/notes';
 import { forYou, hiddenHomes, similarHomes } from '../discovery/discovery';
 import { findOpportunities } from '../buyer-opportunities/find';
+import { getTask, listTasks } from '../tasks/manage';
+import { buildTaskReport } from '../tasks/report';
+import { automationLog, listAutomations } from '../automation/manage';
+import { detectEvents } from '../automation/tick';
+import { messageFacts } from '../agent-messages/message';
 
 /**
  * How many times each read talks to the database.
@@ -177,6 +182,37 @@ describe('reads cost a fixed number of queries', () => {
     const { db, count } = countingDb();
     await findOpportunities(db, { suburbs: ['pakenham', 'officer', 'berwick'], state: 'VIC', priceTo: null, bedrooms: null, propertyType: null, signals: [] });
     expect(count()).toBe(3);
+  });
+
+  it('C8: tasks list is one query; a task with its reports is two; the automations list and log are one each', async () => {
+    const id = '00000000-0000-4000-8000-000000000001';
+    const auto = { id, userId: 'u-1', trigger: 'price_reduced', scope: 'shortlist', searchId: null, action: 'tell', delivery: 'daily', timeZone: 'Australia/Sydney', status: 'active', checkedAt: new Date(), createdAt: new Date(), updatedAt: new Date() };
+    const task = { userId: 'u-1', id, kind: 'task', name: 'T', query: {}, sections: [], cadence: 'daily', sendAtMinute: 420, sendOnWeekday: null, status: 'active', skipEmpty: true, nextRunAt: new Date(), lastRunAt: null, createdAt: new Date() };
+    const cases: [(db: Db) => Promise<unknown>, unknown[], number][] = [
+      [(db) => listTasks(db, { userId: 'u-1' }), [task], 1],
+      [(db) => getTask(db, { userId: 'u-1' }, id), [task], 2],
+      [(db) => listAutomations(db, { userId: 'u-1' }), [{ a: auto, searchName: null }], 1],
+      [(db) => automationLog(db, { userId: 'u-1' }), [{ e: { id, listingId: null, propertyId: null, text: 'x', actionTaken: null, undoneAt: null, createdAt: new Date(), emailedAt: null }, a: auto, searchName: null, address: 'A' }], 1],
+      [(db) => messageFacts(db, id), [{ street: '1 A St', suburb: 'Pakenham', state: 'VIC', agencyName: 'A', priceDisplay: null, priceFrom: null, priceTo: null, startsAt: new Date() }], 2],
+    ];
+    for (const [fn, rows, n] of cases) {
+      const { db, count } = countingDb(rows);
+      await fn(db);
+      expect(count()).toBe(n);
+    }
+  });
+
+  it('C8: a task report is one read per section (three for opportunities), never one per home', async () => {
+    const { db, count } = countingDb([]);
+    await buildTaskReport(db, { search: async () => [] }, { userId: 'u-1', query: { suburb: 'Pakenham', state: 'VIC' }, runtimeQuery: {}, sections: ['sold', 'price_reduced', 'watched', 'open_homes'], since: null, previousListingIds: [], now: new Date(), timeZone: 'Australia/Melbourne' });
+    expect(count()).toBe(1 + 3 + 1 + 1);
+  });
+
+  it('C8: an automation’s check is one read, whatever it watches', async () => {
+    const { db, count } = countingDb([]);
+    const a = { id: 'a', userId: 'u-1', trigger: 'price_reduced', scope: 'both', searchId: null, action: 'tell', delivery: 'daily', timeZone: 'Australia/Sydney', status: 'active', checkedAt: new Date(), createdAt: new Date(), updatedAt: new Date() };
+    for (const trigger of ['price_reduced', 'open_home_added', 'sold', 'listed']) await detectEvents(db, { ...a, trigger }, new Date(), { search: async () => [], resolvePlace: async () => null });
+    expect(count()).toBe(4);
   });
 
   it('the inspection times are one query', async () => {

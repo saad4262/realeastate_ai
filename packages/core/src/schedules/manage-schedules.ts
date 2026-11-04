@@ -1,4 +1,4 @@
-import { and, count, desc, eq, sql } from 'drizzle-orm';
+import { and, count, desc, eq, getTableColumns, sql } from 'drizzle-orm';
 import { scheduleRun, searchSchedule, type DbOrTx, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import {
@@ -89,7 +89,8 @@ function toSummary(row: typeof searchSchedule.$inferSelect): ScheduleSummary {
     query,
     description: describeSavedQuery(query),
     searchPath: savedQueryToPath(query),
-    cadence: row.cadence,
+    // An alert's cadence is never `once` (ADR 0080, C8: only a task's is) — the reads below are alerts only.
+    cadence: row.cadence as ScheduleSummary['cadence'],
     sendAtMinute: row.sendAtMinute,
     sendOnWeekday: row.sendOnWeekday,
     intervalMinutes: row.intervalMinutes,
@@ -178,7 +179,7 @@ export async function createSchedule(
   const [existing] = await db
     .select({ total: count() })
     .from(searchSchedule)
-    .where(eq(searchSchedule.userId, actor.userId));
+    .where(and(eq(searchSchedule.userId, actor.userId), eq(searchSchedule.kind, 'alert')));
 
   if ((existing?.total ?? 0) >= MAX_SCHEDULES_PER_USER) {
     throw new ScheduleError(
@@ -260,7 +261,8 @@ export async function listSchedules(db: Db, actor: Actor): Promise<ScheduleSumma
   const rows = await db
     .select()
     .from(searchSchedule)
-    .where(eq(searchSchedule.userId, actor.userId))
+    // Saved searches only: a task (ADR 0080, C8) shares the table and has its own page.
+    .where(and(eq(searchSchedule.userId, actor.userId), eq(searchSchedule.kind, 'alert')))
     // createdAt alone is not unique, so the id is the tiebreaker (§ 5).
     .orderBy(desc(searchSchedule.createdAt), desc(searchSchedule.id));
 
@@ -272,7 +274,7 @@ export async function getSchedule(
   actor: Actor,
   id: string,
 ): Promise<ScheduleSummary | null> {
-  const [row] = await db.select().from(searchSchedule).where(eq(searchSchedule.id, id)).limit(1);
+  const [row] = await db.select().from(searchSchedule).where(and(eq(searchSchedule.id, id), eq(searchSchedule.kind, 'alert'))).limit(1);
   if (!row) return null;
 
   /**
@@ -315,7 +317,7 @@ export async function updateSchedule(
   const [current] = await db
     .select()
     .from(searchSchedule)
-    .where(eq(searchSchedule.id, id))
+    .where(and(eq(searchSchedule.id, id), eq(searchSchedule.kind, 'alert')))
     .limit(1);
 
   if (!current) throw new ScheduleError('No such saved search', 'not_found');
@@ -323,7 +325,7 @@ export async function updateSchedule(
     throw new ScheduleError('No such saved search', 'not_found');
   }
 
-  const cadence = patch.cadence ?? current.cadence;
+  const cadence = patch.cadence ?? (current.cadence as ScheduleCadence);
   const sendAtMinute = patch.sendAtMinute ?? current.sendAtMinute;
   const timezone = patch.timezone ?? current.timezone;
   const sendOnWeekday =
@@ -402,7 +404,7 @@ export async function deleteSchedule(db: Db, actor: Actor, id: string): Promise<
   const [current] = await db
     .select({ id: searchSchedule.id, userId: searchSchedule.userId })
     .from(searchSchedule)
-    .where(eq(searchSchedule.id, id))
+    .where(and(eq(searchSchedule.id, id), eq(searchSchedule.kind, 'alert')))
     .limit(1);
 
   if (!current) throw new ScheduleError('No such saved search', 'not_found');
@@ -446,8 +448,10 @@ export async function listRunsForUser(
   if (!can(actor, 'schedule:read', resourceFor(actor.userId))) return [];
 
   return db
-    .select()
+    .select(getTableColumns(scheduleRun))
     .from(scheduleRun)
+    // Alerts' runs only: a task's reports are on its own page (ADR 0080, C8).
+    .innerJoin(searchSchedule, and(eq(searchSchedule.id, scheduleRun.scheduleId), eq(searchSchedule.kind, 'alert')))
     .where(eq(scheduleRun.userId, actor.userId))
     .orderBy(desc(scheduleRun.createdAt), desc(scheduleRun.id))
     .limit(opts.limit ?? 25);

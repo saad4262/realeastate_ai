@@ -38,7 +38,8 @@ export function ScheduleRow({
   name: string;
   description: string;
   searchPath: string;
-  status: 'active' | 'paused' | 'failing';
+  // `done` is a one-off task's (ADR 0080, C8); /alerts lists saved searches only, so it never arrives here.
+  status: 'active' | 'paused' | 'failing' | 'done';
   /** Already rendered by core's describeCadence. Display only. */
   cadence: string;
   nextRunAt: string;

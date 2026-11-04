@@ -464,6 +464,12 @@ export type Action =
   | 'discovery_hidden:read'
   /** Hide, show again. The owner only; no agency sees what a buyer was suggested or hid (C7 decision 10). */
   | 'discovery_hidden:manage'
+  /** A buyer's automations and what they did (ADR 0080 C8). The owner only. */
+  | 'buyer_automation:read'
+  /** Create, pause, delete, undo. The owner only; no agency sees a buyer's automations (C8 decision 11). */
+  | 'buyer_automation:manage'
+  /** Send a message the guide drafted, as themselves (C8 decisions 1–3). The signed-in owner only. */
+  | 'guide_message:send'
   /** The admin console (ADR 0049): list every agency and open a read-only view of one. */
   | 'platform:read'
   /**
@@ -989,6 +995,9 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'inspection_note:manage':
     case 'discovery_hidden:read':
     case 'discovery_hidden:manage':
+    case 'buyer_automation:read':
+    case 'buyer_automation:manage':
+    case 'guide_message:send':
       // Deliberately NOT `|| isAgencyAdmin(actor)`. An agency admin has no
       // claim on a buyer's saved search or their conversation with the guide:
       // between them those record where somebody wants to live, what they can

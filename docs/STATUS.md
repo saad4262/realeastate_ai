@@ -10,12 +10,12 @@ Version 1 is built except what waits on the client and on Twilio. `main` = `d3eb
 0080 — consumer skills + C0 foundation; C1 Affordability AI built, uncommitted). Merge in that order.
 
 ## Database
-88 migrations recorded (0000–0087); **0087 (`discovery_hidden`, RLS on) applied 2026-11-04** (the user's go). **0086 (`inspection_note`, `inspection_photo`, RLS on) applied 2026-11-04** (the user's go). Private bucket `inspection-photos` made 2026-11-04 (4 MB, JPEG/PNG, no policies). `suburb_census` holds 15,345 suburbs (ABS 2021). **0080 (`contact.address_*`), 0081 (`consumer_skill_switch`) and 0082
+89 migrations recorded (0000–0088); **0088 (C8: `once`/`done`, task columns, `buyer_automation`, `automation_event`, `guide_message`, RLS on) applied 2026-11-04** (the user's go). **0087 (`discovery_hidden`, RLS on) applied 2026-11-04** (the user's go). **0086 (`inspection_note`, `inspection_photo`, RLS on) applied 2026-11-04** (the user's go). Private bucket `inspection-photos` made 2026-11-04 (4 MB, JPEG/PNG, no policies). `suburb_census` holds 15,345 suburbs (ABS 2021). **0080 (`contact.address_*`), 0081 (`consumer_skill_switch`) and 0082
 (`listing_price_change` + its trigger) applied 2026-11-03** (the user's go; checked after: 82 recorded, 6 address columns, the table exists). Dev database =
 production database.
 
 ## Checks
-- Unit: core 1750, ai 396 — all pass, offline. Smoke "Consumer skills (ADR 0080)" 19/19, 0 skipped, 2026-11-04. Live AI group "Consumer skills, live AI (ADR 0080)" 11/11 twice running, with C7's two checks, 2026-11-04 (the user's go). Typecheck 10/10. Web lint 0 errors. /affordability and a listing's
+- Unit: core 1772, ai 406 — all pass, offline. Smoke "Consumer skills (ADR 0080)" 22/22, 0 skipped, 2026-11-04. Live AI group "Consumer skills, live AI (ADR 0080)" 15/15, three runs in a row, with C8's four checks, 2026-11-04 (the user's go). Typecheck 10/10. Web lint 0 errors. /affordability and a listing's
   "Costs to buy" panel rendered on the local dev server (figures match the mock and the unit tests).
 - Smoke 2026-11-03, live DB: "Consumer skills (ADR 0080)", "Customer profile (ADR 0079)", "Imports: contacts and
   Google Sheets" — 5/5 green (the import check sorted roles by enum order, not text: test fixed, data was right).
@@ -71,8 +71,10 @@ production database.
    built in the user's autonomous loop, migration 0087 applied, committed and pushed. Real data today: Opportunities
    in Pakenham shows 3 long campaigns (site median 43 days); price changes and medians say why they are empty; no
    home not for sale qualifies yet (every sale is Oct 2026). TEST-PLAN CM1–CM13: the user, in a browser.
-   C8 Acting for the buyer: mock `docs/mocks/consumer-acting.html` (twelve decisions) approved 2026-11-04 (all twelve
-   as recommended); building in the user's autonomous loop.
+   C8 Acting for the buyer: mock `docs/mocks/consumer-acting.html` (twelve decisions) approved 2026-11-04 (`b981657`);
+   built in the user's autonomous loop, migration 0088 applied, committed and pushed. TEST-PLAN CN1–CN16: the user, in a
+   browser. 18 of the 21 skills built; C9 (Visual Search, Immersive, Property Development) is next and needs outside
+   providers chosen first (image embeddings, a media pipeline, planning data).
    TEST-PLAN CG/CH/CI: the user, in a browser. Re-check duty rates
    every 1 July (dates in `duty-rates.ts`); NT, ACT general and SA new-home relief still "not verified".
 1. Push and merge `chore/tech-debt` → `feat/sms-part2` → `feat/customer-profile` → `feat/consumer-skills` (the user's go).

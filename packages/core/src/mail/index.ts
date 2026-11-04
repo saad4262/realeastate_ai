@@ -77,6 +77,7 @@ export { consoleLiveStamp } from './live';
 export {
   getCustomerThread,
   customerMailStamp,
+  customerThreadForListing,
   listCustomerThreads,
   markCustomerThreadRead,
   replyAsCustomer,

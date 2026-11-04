@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { requireUnsubscribeSecret, verifyContactUnsubscribeToken, verifyUnsubscribeToken, verifyWatchUnsubscribeToken } from '@repo/core/email';
+import { pauseAutomationByOwner, verifyAutomationSkillUnsubscribe, verifyAutomationUnsubscribe } from '@repo/core/automation';
+import { countTasks } from '@repo/core/tasks';
 import { setConsumerSkill } from '@repo/core/consumer-skills';
 import { optOutContact } from '@repo/core/template-email';
 import { pauseScheduleByOwner } from '@repo/core/schedules';
@@ -98,7 +100,7 @@ function page(title: string, body: string, status = 200): NextResponse {
   );
 }
 
-async function unsubscribe(request: NextRequest): Promise<{ ok: boolean; scheduleId?: string; contact?: boolean; watch?: boolean }> {
+async function unsubscribe(request: NextRequest): Promise<{ ok: boolean; scheduleId?: string; contact?: boolean; watch?: boolean; task?: boolean; automation?: 'one' | 'all' }> {
   const token = request.nextUrl.searchParams.get('t');
   if (!token) return { ok: false };
 
@@ -128,6 +130,15 @@ async function unsubscribe(request: NextRequest): Promise<{ ok: boolean; schedul
     return { ok: true, watch: true };
   }
 
+  // ADR 0080 C8: one automation's "Stop this automation" (`a.`), or the whole skill off from the email's one-click (`m.`).
+  const oneAutomation = verifyAutomationUnsubscribe(token, secret);
+  if (oneAutomation.ok) return { ok: await pauseAutomationByOwner(getWebDb(), oneAutomation.automationId, oneAutomation.userId), automation: 'one' };
+  const allAutomation = verifyAutomationSkillUnsubscribe(token, secret);
+  if (allAutomation.ok) {
+    await setConsumerSkill(getWebDb(), { userId: allAutomation.userId }, 'automation', false);
+    return { ok: true, automation: 'all' };
+  }
+
   const claim = verifyUnsubscribeToken(token, secret);
   if (!claim.ok) return { ok: false };
 
@@ -138,7 +149,9 @@ async function unsubscribe(request: NextRequest): Promise<{ ok: boolean; schedul
    * token cannot pause a schedule that has somehow changed hands.
    */
   const paused = await pauseScheduleByOwner(getWebDb(), claim.scheduleId, claim.userId);
-  return { ok: paused, scheduleId: claim.scheduleId };
+  // A task (ADR 0080, C8) shares the schedule's token; the page names it.
+  const task = paused && (await countTasks(getWebDb(), [claim.scheduleId])) > 0;
+  return { ok: paused, scheduleId: claim.scheduleId, task };
 }
 
 /**
@@ -181,6 +194,29 @@ export async function GET(request: NextRequest) {
        <p>You will not get the daily email about the addresses you watch. Your list is kept.</p>
        <p><a class="plain" href="/account/skills">Turn it back on</a> in your Skills whenever you like.</p>
        <a class="btn" href="/account/watching">Open Watching</a>`,
+    );
+  }
+
+  if (result.automation) {
+    return page(
+      'Unsubscribed',
+      result.automation === 'one'
+        ? `<h1>That automation is paused</h1>
+       <p>It will not act or email you again until you resume it. What it already did stays on its page.</p>
+       <a class="btn" href="/account/automations">Open Automations</a>`
+        : `<h1>Automation is off</h1>
+       <p>None of your automations will act or email you. They are kept, paused by the switch.</p>
+       <p><a class="plain" href="/account/skills">Turn it back on</a> in your Skills whenever you like.</p>
+       <a class="btn" href="/account/automations">Open Automations</a>`,
+    );
+  }
+
+  if (result.task) {
+    return page(
+      'Unsubscribed',
+      `<h1>That task is paused</h1>
+       <p>It will not run or email you again until you resume it. Its reports are kept.</p>
+       <a class="btn" href="/account/tasks">Open Tasks</a>`,
     );
   }
 

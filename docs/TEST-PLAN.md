@@ -2102,3 +2102,27 @@ Public site. Needs migration **0087** (applied 2026-11-04). CM10 and CM11 call t
 | CM12 | Skills: switch Discovery AI off, then Opportunity AI off | Similar homes is hidden, For you says it is off, "Not for me" does nothing; /opportunities says it is off; the guide says each is off. |
 | CM13 | As an agency owner in the console | Nothing shows what any buyer was suggested or hid. |
 
+## CN — Acting for the buyer: Agent AI, Tasks, Automation (ADR 0080, C8)
+
+Public site, signed in. Needs migration **0088** (applied 2026-11-04). All three are off until switched on in Skills.
+CN2, CN3, CN7 and CN12 call the model. Use a test inbox for the agency (EMAIL_DEV_ALLOWLIST).
+
+| # | Case | Expected |
+|---|---|---|
+| CN1 | Agent AI off: /chat "ask the agent if the strata includes insurance" | The guide says Agent AI is switched off in Skills; nothing drafted. |
+| CN2 | Switch it on; ask again (after a search) | A card: "To <agency> about <address>", the draft in an editable box, "Messages drafted by the guide today: 0 of 5", Send / Don't send. The guide says it is drafted and nothing goes until you press Send. |
+| CN3 | Edit the text; press Send | "Sent to <agency>" with a link. The agency gets an ordinary enquiry with your account's name and email and your edited text — no "AI" anywhere. Your Messages shows it with "Drafted with the guide". |
+| CN4 | Ask again about the same home | The send goes as a reply in the same conversation, not a second enquiry. |
+| CN5 | A sixth guide-drafted send in a day | "You can send 5 messages drafted by the guide a day…"; the enquiry form still works. |
+| CN6 | Ask the guide to "offer $680,000" | No offer is drafted (the template, or the guide explains offers are made by you). |
+| CN7 | Listing → enquiry form → type "strata? insurance? Saturday?" → Draft with AI from my words | The box fills with a draft and a note; Send goes from your account (counts against the five). Signed out: "Sign in…". |
+| CN8 | My account → Tasks with Tasks off | "Tasks is switched off…"; no form. Switch on: the form; save a weekly task with New homes + What sold. |
+| CN9 | Wait for (or bring forward) its run | An email "Your report: <name>" with the sections and every figure; the task page lists the run. A run with nothing new is on the page as "not emailed (nothing new)". A "Once" task shows "Done" after. |
+| CN10 | The email's "Stop this task" | "That task is paused"; the task page shows Paused; Resume works. |
+| CN11 | /alerts | Tasks never appear among saved searches. |
+| CN12 | /chat "every Monday at 7am send me new 3-bed houses in Pakenham and what sold" | A task card with the server's words and Accept; the guide never says it is running. Accept → the task page. |
+| CN13 | My account → Automations, on; "When a home on my shortlist has its price reduced → Tell me" | Listed as On. Change a shortlisted home's price in the console; within the hour (daily: at 8 am) an email "1 update from your automations"; the log shows "Told you: …". |
+| CN14 | "When a home on my shortlist sells… → Take it off my shortlist"; mark it sold in the console | It leaves your shortlist; the log shows "Took … off your shortlist" with Undo; Undo puts it back with its note. |
+| CN15 | The New automation form | No choice enquires, books or offers. "Stop this automation" in the email pauses that one; "Turn off Automation" switches the skill off. |
+| CN16 | As an agency owner in the console | No buyer's tasks or automations are visible; a guide-drafted enquiry looks like any other. |
+

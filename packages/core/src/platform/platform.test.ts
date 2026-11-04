@@ -119,7 +119,7 @@ describe('can() — the platform admin and the read-only view (ADR 0049)', () =>
   it('the platform admin themself reaches no agency data — only platform:read and platform:manage', () => {
     const allowed = actions.filter((a) => can(admin, a, tempting(a, admin, A)));
     // schedule:create / chat / own-mail rules are a person's own things; the admin is a person.
-    const personal = ['schedule:create', 'schedule:read', 'schedule:manage', 'chat:read', 'chat:write', 'mail:read_own', 'meeting:read_own', 'consumer_skill:read', 'consumer_skill:manage', 'shortlist:read', 'shortlist:manage', 'property_watch:read', 'property_watch:manage', 'buyer_profile:read', 'buyer_profile:manage', 'inspection_note:read', 'inspection_note:manage', 'discovery_hidden:read', 'discovery_hidden:manage'];
+    const personal = ['schedule:create', 'schedule:read', 'schedule:manage', 'chat:read', 'chat:write', 'mail:read_own', 'meeting:read_own', 'consumer_skill:read', 'consumer_skill:manage', 'shortlist:read', 'shortlist:manage', 'property_watch:read', 'property_watch:manage', 'buyer_profile:read', 'buyer_profile:manage', 'inspection_note:read', 'inspection_note:manage', 'discovery_hidden:read', 'discovery_hidden:manage', 'buyer_automation:read', 'buyer_automation:manage', 'guide_message:send'];
     expect(allowed.filter((a) => !personal.includes(a))).toEqual(['platform:read', 'platform:manage']);
   });
 

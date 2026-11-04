@@ -33,7 +33,7 @@ function allActions(): Action[] {
  * so "same agency" is not their question; their own test proves another
  * PERSON is refused. Everything else must refuse across agencies.
  */
-const PERSONAL_NOT_AGENCY: readonly Action[] = ['schedule:create', 'schedule:read', 'schedule:manage', 'chat:read', 'chat:write', 'mail:read_own', 'meeting:read_own', 'consumer_skill:read', 'consumer_skill:manage', 'shortlist:read', 'shortlist:manage', 'property_watch:read', 'property_watch:manage', 'buyer_profile:read', 'buyer_profile:manage', 'inspection_note:read', 'inspection_note:manage', 'discovery_hidden:read', 'discovery_hidden:manage'];
+const PERSONAL_NOT_AGENCY: readonly Action[] = ['schedule:create', 'schedule:read', 'schedule:manage', 'chat:read', 'chat:write', 'mail:read_own', 'meeting:read_own', 'consumer_skill:read', 'consumer_skill:manage', 'shortlist:read', 'shortlist:manage', 'property_watch:read', 'property_watch:manage', 'buyer_profile:read', 'buyer_profile:manage', 'inspection_note:read', 'inspection_note:manage', 'discovery_hidden:read', 'discovery_hidden:manage', 'buyer_automation:read', 'buyer_automation:manage', 'guide_message:send'];
 
 /**
  * Surface gates: "may this person use the agency/agent console at all?" They

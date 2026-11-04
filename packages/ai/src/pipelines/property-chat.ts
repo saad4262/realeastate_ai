@@ -3,7 +3,7 @@ import type { PublicSearchQuery } from '@repo/core/listings';
 import { searchQueryToPath } from '@repo/core/listings';
 import { getModel } from '../models';
 import { catalogueBlock } from '../prompts/v10';
-import { PROMPT_VERSION, PROPERTY_CHAT_V16 } from '../prompts/v16';
+import { PROMPT_VERSION, PROPERTY_CHAT_V17 } from '../prompts/v17';
 import { slotsToQuery } from '../schemas/chat-request';
 import type { ChatEvent } from '../schemas/chat-events';
 import { MAX_HISTORY_CHARS, toClientSlots, type ChatRequest, type ChatTurn } from '../schemas/chat-request';
@@ -222,7 +222,7 @@ export async function* runPropertyChat(
   });
 
   const system: Anthropic.TextBlockParam[] = [
-    { type: 'text', text: PROPERTY_CHAT_V16, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: PROPERTY_CHAT_V17, cache_control: { type: 'ephemeral' } },
     {
       type: 'text',
       text: catalogueBlock(catalogue.suburbs, catalogue.propertyTypes),
@@ -395,6 +395,8 @@ export async function* runPropertyChat(
           scheduleOffered = true;
           yield { type: 'schedule_draft', toolUseId: use.id, ...outcome.scheduleDraft };
         }
+        // ADR 0080, C8: the same reasoning — the card is the server's description of what the visitor agrees to.
+        if (outcome.actingDraft) yield { type: 'acting_draft', toolUseId: use.id, ...outcome.actingDraft };
 
         if (outcome.resultsFrame) {
           yield { type: 'results', toolUseId: use.id, ...outcome.resultsFrame };

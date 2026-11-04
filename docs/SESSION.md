@@ -3,6 +3,30 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-04 (late) — Claude Code (Mac) — C8 Acting for the buyer in the user's autonomous loop
+
+- C7 committed and pushed (`3ebff67`, `1e61901`). C8 mock approved (all twelve) and committed (`b981657`). Migration 0088
+  applied (the user's go): 89 recorded, RLS on the three tables, the existing schedule stayed an alert.
+- Built: Agent AI (draft from the request's words + the listing's facts; core rejects offers, claims on the buyer's
+  behalf, figures in neither source, money they did not raise, contact details → template; Send = a reply in their
+  conversation or an ordinary enquiry from the account; 5 a day; "Drafted with the guide" on their copy only), Tasks
+  (kind=task on the alerts' claim, which now filters by kind and needs Tasks on; seven fixed sections from SQL; a
+  sentence handed no figures, rejected for digits, counting words or verdicts; once → done; empty runs skip the email),
+  Automation (fixed when/then, SQL detection over shortlist and watched addresses, each event once, the action in the
+  event's transaction, Undo, 8 am or hourly outside 9 pm–7 am, `a.`/`m.` unsubscribe). The guide: three draft tools,
+  signed cards, prompt v17.
+- Fixed in the loop: Dates passed raw into `db.execute` (the driver cannot bind them; Automation's detection swallowed
+  the error as "no events") → ISO strings cast to timestamptz; an enquiry already opens its mail thread (the smoke check
+  inserted a second); the C0 smoke and a catalog test used `tasks` as their "not built" example → `visual_search`; the
+  "alerts never claim a task" check ran after the tasks were done, so breaking the kind filter stayed green → moved to
+  while they are due, then seen red.
+- Break-tests, all red then restored: an offer allowed in a draft, an action that reaches an agency, the claim without
+  its kind filter, the daily limit raised.
+- Live model (the user's go): the four C8 checks green from the first run. In the longer v17 prompt the guide twice
+  answered "what else might I like?" without calling discover_homes (2 of 4 runs) → the rule moved into the tool's own
+  description; green since. The check faults it found: "your judgment" (US spelling) read as a judgement; a fake
+  user id "smoke" on a metering row. One run lost to DNS (ENOTFOUND). Then 15/15 three runs in a row; offline 22/22.
+
 ## 2026-11-04 (later) — Claude Code (Mac) — C7 Discovery & Opportunity in the user's autonomous loop
 
 - C6 committed (`06be73a`, `2f6e617`) and pushed after 0086, the bucket and the live run (the user's go). C7 mock

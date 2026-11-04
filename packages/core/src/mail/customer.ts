@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, or, sql } from 'drizzle-orm';
 import { replyInputSchema } from './mail-schema';
-import { agency, integrationAccount, lead, mailCustomerRead, mailMessage, mailThread, type Db } from '@repo/db';
+import { agency, integrationAccount, lead, mailCustomerRead, mailMessage, mailThread, type Db, type DbOrTx } from '@repo/db';
 import { can } from '../permissions';
 import { snippet, stripQuotedReply } from './body';
 import { MailError } from './threads';
@@ -51,6 +51,8 @@ export type CustomerThreadRow = {
   lastActivityAt: Date;
   /** The agency wrote since they last opened it (ADR 0035 §2). */
   unread: boolean;
+  /** The enquiry that opened it, if one did — the buyer's own copy marks a guide-drafted one (ADR 0080, C8). */
+  leadId: string | null;
 };
 
 function assertOwner(who: CustomerIdentity) {
@@ -104,6 +106,7 @@ export async function listCustomerThreads(
       subject: mailThread.subject,
       agencyName: agency.name,
       leadMessage: lead.message,
+      leadId: mailThread.leadId,
       createdAt: mailThread.createdAt,
       latest,
       lastAt,
@@ -135,6 +138,7 @@ export async function listCustomerThreads(
       replies: Number(r.replies ?? 0),
       lastActivityAt: new Date(r.lastAt ?? r.createdAt),
       unread: r.unread === true || (r.unread as unknown) === 't',
+      leadId: r.leadId,
     })),
   };
 }
@@ -285,6 +289,24 @@ export async function replyAsCustomer(
     return row!.id;
   });
   return { threadId: thread.id, messageId };
+}
+
+/**
+ * The buyer's own conversation about one listing, newest first, or null (ADR 0080, C8 decision 3): Agent AI's message
+ * goes as a reply there rather than opening a second conversation with the same agency about the same home.
+ */
+export async function customerThreadForListing(db: DbOrTx, who: CustomerIdentity, listingId: string): Promise<string | null> {
+  assertOwner(who);
+  if (!/^[0-9a-f-]{36}$/i.test(listingId)) return null;
+  const proved = await provenAddress(db as Db, who);
+  const [row] = await db
+    .select({ id: mailThread.id })
+    .from(mailThread)
+    .innerJoin(lead, eq(lead.id, mailThread.leadId))
+    .where(and(eq(lead.listingId, listingId), mine(who, proved)))
+    .orderBy(desc(mailThread.lastMessageAt), desc(mailThread.id))
+    .limit(1);
+  return row?.id ?? null;
 }
 
 /**

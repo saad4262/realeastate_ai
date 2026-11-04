@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useTransition, type FormEvent } from 'react';
+import { useRef, useState, useTransition, type FormEvent } from 'react';
 import { sendEnquiryAction } from '../lib/enquiry-action';
+import { sendGuideMessageAction } from '../lib/acting-actions';
 import { Spinner } from './spinner';
 
 /**
@@ -35,6 +36,25 @@ export function EnquiryForm({
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, start] = useTransition();
+  /** Agent AI (ADR 0080, C8): set when the guide drafted the message — it is then sent from the account, as a guide draft. */
+  const [guide, setGuide] = useState<{ token: string; note: string } | null>(null);
+  const [drafting, setDrafting] = useState(false);
+  const box = useRef<HTMLTextAreaElement>(null);
+
+  async function draftWithAi() {
+    const words = box.current?.value.trim() ?? '';
+    setError(null);
+    setDrafting(true);
+    try {
+      const res = await fetch('/api/agent-message/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ listingId, words }) });
+      const body = (await res.json().catch(() => null)) as { text?: string; token?: string; agencyName?: string; sentToday?: number; perDay?: number; error?: string } | null;
+      if (!res.ok || !body?.text || !body.token) return setError(body?.error ?? 'The draft could not be written just now.');
+      if (box.current) box.current.value = body.text;
+      setGuide({ token: body.token, note: `Drafted with the guide from your words — read it and change anything. It goes from your account's name and email when you press Send (${body.sentToday ?? 0} of ${body.perDay ?? 5} today).` });
+    } finally {
+      setDrafting(false);
+    }
+  }
 
   if (sent) {
     return (
@@ -59,7 +79,8 @@ export function EnquiryForm({
     setError(null);
 
     start(async () => {
-      const result = await sendEnquiryAction(listingId, input);
+      // A guide draft goes from the account through Agent AI's send (5 a day); a message the buyer wrote, as always.
+      const result = guide ? await sendGuideMessageAction(guide.token, input.message) : await sendEnquiryAction(listingId, input);
       if (result.ok) setSent(true);
       else setError(result.error);
     });
@@ -110,9 +131,16 @@ export function EnquiryForm({
           minLength={10}
           maxLength={2000}
           defaultValue="I'd like to know more about this property."
+          ref={box}
           className={`${field} resize-y`}
         />
       </label>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={draftWithAi} disabled={drafting || busy} className="rounded-full border border-line bg-white px-3 py-1 text-body-sm text-ink disabled:opacity-60">
+          {drafting ? 'Drafting…' : 'Draft with AI from my words'}
+        </button>
+        {guide ? <span className="text-body-sm text-ink-soft">{guide.note}</span> : <span className="text-label-sm text-ink-faint">Type what you want to ask, in a few words. Needs Agent AI on.</span>}
+      </div>
 
       {error ? (
         <p role="alert" className="text-body-sm text-alert">

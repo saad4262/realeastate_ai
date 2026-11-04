@@ -6,6 +6,7 @@ import { renovationInput } from './renovation-tool';
 import { compareHomesInput, explainHomeInput, suburbProfileInput } from './research-tools';
 import { planInspectionsInput } from './inspection-tools';
 import { discoverHomesInput, findOpportunitiesFields } from './discovery-tools';
+import { draftAutomationInput, draftMessageInput, draftTaskInput } from './acting-tools';
 import { getListingInput } from './get-listing-tool';
 import { resolveLocationInput } from './resolve-location';
 import { recentSalesInput } from './recent-sales-tool';
@@ -31,6 +32,9 @@ const PAIRS = [
   { name: 'plan_inspections', zod: planInspectionsInput },
   { name: 'discover_homes', zod: discoverHomesInput },
   { name: 'find_opportunities', zod: findOpportunitiesFields },
+  { name: 'draft_message', zod: draftMessageInput },
+  { name: 'draft_task', zod: draftTaskInput },
+  { name: 'draft_automation', zod: draftAutomationInput },
 ] as const;
 
 function jsonSchemaOf(name: string) {
@@ -136,6 +140,10 @@ describe('tool definitions', () => {
       // ADR 0080 C7: homes they did not search for — like one, from their profile, or with a signal. One cache reset.
       'discover_homes',
       'find_opportunities',
+      // ADR 0080 C8: the three that propose acting for the visitor — a card each, never an act. One cache reset.
+      'draft_message',
+      'draft_task',
+      'draft_automation',
       // The scheduling pair goes at the END, after the four tools that find
       // a home. They are a different kind of thing — one acts on a search
       // that has already happened, the other on a saved search — and

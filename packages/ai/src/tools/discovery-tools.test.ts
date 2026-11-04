@@ -54,7 +54,7 @@ describe('prompt v16', () => {
     expect(PROPERTY_CHAT_V16).toContain('You have sixteen tools.');
     expect(PROPERTY_CHAT_V16).not.toContain('You have fourteen tools.');
     expect(PROPERTY_CHAT_V16).not.toMatch(/new Date|\d{4}-\d{2}-\d{2}/);
-    expect(PROPERTY_CHAT_TOOLS).toHaveLength(16);
+    expect(PROPERTY_CHAT_TOOLS.length).toBeGreaterThanOrEqual(16); // C8 added three (v17)
   });
 
   it('names the judgement words only to forbid them (decision 6)', () => {

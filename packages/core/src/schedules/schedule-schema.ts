@@ -32,8 +32,10 @@ import { AU_TIMEZONES as AU_TIMEZONES_VALUES } from './timezones';
  * "every morning". `nextRunFor` in ./next-run.ts is the only thing that turns
  * one of these into an instant.
  */
-export const SCHEDULE_CADENCES = ['daily', 'weekly', 'interval'] as const;
-export const scheduleCadenceSchema = z.enum(SCHEDULE_CADENCES);
+export const SCHEDULE_CADENCES = ['daily', 'weekly', 'interval', 'once'] as const;
+/** What a saved search may use: `once` is a C8 task's only (ADR 0080) — an alert that ran once would be no alert. */
+export const ALERT_CADENCES = ['daily', 'weekly', 'interval'] as const;
+export const scheduleCadenceSchema = z.enum(ALERT_CADENCES);
 export type ScheduleCadence = z.infer<typeof scheduleCadenceSchema>;
 
 /**
@@ -45,7 +47,8 @@ export type ScheduleCadence = z.infer<typeof scheduleCadenceSchema>;
  * nothing, the other needs somebody to look. Merging them is how a broken
  * alert becomes a silent one.
  */
-export const SCHEDULE_STATUSES = ['active', 'paused', 'failing'] as const;
+/** `done`: a one-off task that has run (ADR 0080, C8). An alert never reaches it. */
+export const SCHEDULE_STATUSES = ['active', 'paused', 'failing', 'done'] as const;
 export const scheduleStatusSchema = z.enum(SCHEDULE_STATUSES);
 export type ScheduleStatus = z.infer<typeof scheduleStatusSchema>;
 

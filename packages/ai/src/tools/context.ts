@@ -3,6 +3,7 @@ import type { ConsumerSkillBlock, ConsumerSkillKey } from '@repo/core/consumer-s
 import type { ResearchAsk } from '@repo/core/research';
 import type { PlanAsk, PlanToolResult } from '@repo/core/inspections';
 import type { DiscoverToolResult } from '@repo/core/discovery';
+import type { MessageDraft } from '@repo/core/agent-messages';
 import type { OpportunityAsk, OpportunityToolResult } from '@repo/core/buyer-opportunities';
 import type { ResolvedPlace } from '@repo/core/geo/schema';
 import type {
@@ -107,6 +108,14 @@ export type ToolContext = {
   discover: (ask: { listingId: string } | { profile: true }) => Promise<DiscoverToolResult>;
   /** Opportunity AI's signals for public homes for sale in an area (C7 decisions 5–6), with our own words about each. */
   opportunities: (ask: OpportunityAsk) => Promise<OpportunityToolResult>;
+  /**
+   * Agent AI (ADR 0080, C8 decisions 1–2): a draft to the agency selling a PUBLIC listing, from THIS visitor's own words
+   * in this conversation (the app has them; the model never passes them) and the listing's facts. A card the visitor
+   * edits and sends — never a send. An error string when they are signed out, the skill is off, or the home is not public.
+   */
+  draftMessage: (listingId: string) => Promise<MessageDraft | { error: string }>;
+  /** The secret that signs a task's or an automation's card (C8 decision 12), or null when the server has none. */
+  proposalSecret: string | null;
   dueDiligence: (listingId: string) => Promise<{ address: string; state: string; facts: { ref: string; when: string; text: string }[] } | null>;
   /**
    * The consumer skills not running for this visitor, and why (ADR 0080) — read once per turn by the
@@ -197,6 +206,8 @@ export type ToolOutcome = {
     cadence: string;
     searchPath: string;
   };
+  /** A message, task or automation card (ADR 0080, C8). Nothing is sent or saved until the visitor presses its button. */
+  actingDraft?: Omit<import('../schemas/chat-events').ActingDraftEvent, 'type' | 'toolUseId'>;
 };
 
 export function placeKey(suburb: string, state?: string): string {

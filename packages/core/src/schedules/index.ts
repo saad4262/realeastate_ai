@@ -66,6 +66,7 @@ export {
   intervalMinutesSchema,
   savedSearchQuerySchema,
   SCHEDULE_CADENCES,
+  ALERT_CADENCES,
   SCHEDULE_STATUSES,
   scheduleCadenceSchema,
   scheduleStatusSchema,

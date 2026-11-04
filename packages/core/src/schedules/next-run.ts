@@ -180,7 +180,8 @@ function addLocalDays(
 }
 
 export type NextRunInput = {
-  cadence: ScheduleCadence;
+  /** `once` (a C8 task) finds the next local time like `daily`; the claim then marks it done. */
+  cadence: ScheduleCadence | 'once';
   /** Local wall-clock minutes past midnight, 0-1439. */
   sendAtMinute: number;
   /** IANA zone name. An offset will not do — see schedule-schema.ts. */

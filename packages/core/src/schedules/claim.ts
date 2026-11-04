@@ -41,6 +41,13 @@ export type ClaimedSchedule = {
   lastEmailedAt: Date | null;
   sentListingIds: string[];
   consecutiveFailures: number;
+  /** ADR 0080, C8: `alert` or `task`, and a task's chosen sections (unparsed — the task runner reads them). */
+  kind: 'alert' | 'task';
+  sections: unknown;
+  skipEmpty: boolean;
+  /** When the previous run of this schedule started — a task's "since last time". Null on its first run. */
+  previousRunAt: Date | null;
+  timezone: string;
 };
 
 type DueRow = {
@@ -50,13 +57,15 @@ type DueRow = {
   name: string;
   prompt: string;
   query: unknown;
-  cadence: ScheduleCadence;
+  cadence: ScheduleCadence | 'once';
   sendAtMinute: number;
   sendOnWeekday: number | null;
   intervalMinutes: number | null;
   timezone: string;
   nextRunAt: Date;
   consecutiveFailures: number;
+  sections: unknown;
+  skipEmpty: boolean;
 };
 
 /**
@@ -96,10 +105,11 @@ type DueRow = {
  */
 export async function claimDueSchedules(
   db: Db,
-  opts: { now?: Date; limit?: number; ownerId?: string } = {},
+  opts: { now?: Date; limit?: number; ownerId?: string; kind?: 'alert' | 'task' } = {},
 ): Promise<ClaimedSchedule[]> {
   const now = opts.now ?? new Date();
   const limit = opts.limit ?? DEFAULT_CLAIM_LIMIT;
+  const kind = opts.kind ?? 'alert';
 
   return db.transaction(async (tx) => {
     const due = (await tx
@@ -117,6 +127,8 @@ export async function claimDueSchedules(
         timezone: searchSchedule.timezone,
         nextRunAt: searchSchedule.nextRunAt,
         consecutiveFailures: searchSchedule.consecutiveFailures,
+        sections: searchSchedule.sections,
+        skipEmpty: searchSchedule.skipEmpty,
       })
       .from(searchSchedule)
       .innerJoin(user, eq(user.id, searchSchedule.userId))
@@ -126,13 +138,17 @@ export async function claimDueSchedules(
           lte(searchSchedule.nextRunAt, now),
           // A user the platform blocked gets no alerts while it lasts (ADR 0052); left due, they resume on unblock.
           isNull(user.blockedAt),
+          eq(searchSchedule.kind, kind),
           // A buyer who switched Smart Alerts off gets none while it is off (ADR 0080); left due, they resume on switch-on.
-          notExists(
-            tx
-              .select({ one: sql`1` })
-              .from(consumerSkillSwitch)
-              .where(and(eq(consumerSkillSwitch.userId, searchSchedule.userId), eq(consumerSkillSwitch.skillKey, 'smart_alerts'), eq(consumerSkillSwitch.enabled, false))),
-          ),
+          // Tasks are an "acts" skill (C8 decision 11): claimed only while the buyer has switched Tasks ON.
+          kind === 'alert'
+            ? notExists(
+                tx
+                  .select({ one: sql`1` })
+                  .from(consumerSkillSwitch)
+                  .where(and(eq(consumerSkillSwitch.userId, searchSchedule.userId), eq(consumerSkillSwitch.skillKey, 'smart_alerts'), eq(consumerSkillSwitch.enabled, false))),
+              )
+            : sql`exists (select 1 from consumer_skill_switch s where s.user_id = ${searchSchedule.userId} and s.skill_key = 'tasks' and s.enabled)`,
           ...(opts.ownerId ? [eq(searchSchedule.userId, opts.ownerId)] : []),
         ),
       )
@@ -167,9 +183,10 @@ export async function claimDueSchedules(
 
       // The cursor moves whether or not the insert below wins. A schedule
       // that stayed on a slot it can never claim again would be stuck.
+      // A one-off task (C8) runs this once and is done: never claimed again, its report kept.
       await tx
         .update(searchSchedule)
-        .set({ nextRunAt, lastRunAt: now, updatedAt: sql`now()` })
+        .set({ nextRunAt, lastRunAt: now, ...(row.cadence === 'once' ? { status: 'done' as const } : {}), updatedAt: sql`now()` })
         .where(eq(searchSchedule.id, row.id));
 
       const parsed = savedSearchQuerySchema.safeParse(row.query);
@@ -216,6 +233,7 @@ export async function claimDueSchedules(
                   where r2.schedule_id = ${row.id} and r2.emailed_at > now() - interval '90 days'
                   limit 500) ids) as ids
         from schedule_run where schedule_id = ${row.id} and emailed_at is not null`);
+      const [before] = await tx.execute<{ at: Date | string | null }>(sql`select max(started_at) as at from schedule_run where schedule_id = ${row.id} and id <> ${run.id}`);
 
       claimed.push({
         runId: run.id,
@@ -230,6 +248,11 @@ export async function claimDueSchedules(
         lastEmailedAt: sent?.last ? new Date(sent.last) : null,
         sentListingIds: (sent?.ids ?? []).filter(Boolean),
         consecutiveFailures: row.consecutiveFailures,
+        kind,
+        sections: row.sections,
+        skipEmpty: row.skipEmpty,
+        previousRunAt: before?.at ? new Date(before.at) : null,
+        timezone: row.timezone,
       });
     }
 

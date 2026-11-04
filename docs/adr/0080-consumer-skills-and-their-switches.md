@@ -102,3 +102,20 @@ sales in 12 months — each with our fixed text on what it can mean and two ques
 judgement words from that text and confines them in prompt v16 to sentences that forbid them. Each empty signal says
 why. The guide gets `discover_homes` and `find_opportunities` (records only; the session, never the model, decides
 whose profile).
+
+**Amendment, 2026-11-04 — C8 Acting for the buyer** (mock `consumer-acting.html`; the user approved all twelve decisions,
+singling out no AI label on the agency's copy, five a day, and automations that never contact an agent). Acting stops at
+the buyer's own account. Agent AI drafts from the buyer's own words in the conversation (the request's, never the
+model's) and the listing's public facts; core rejects an offer, a claim to act for them, a figure in neither source,
+money matters they did not raise, or contact details, and uses a template instead. The buyer edits and presses Send;
+it goes as a reply in their conversation about that home, else an ordinary enquiry (`createEnquiry`), name and email
+from the account, five a day (`guide_message`), no mark on the agency's copy, "Drafted with the guide" on theirs. Tasks
+are `search_schedule` rows with `kind = 'task'` (migration 0088: `kind`, `sections`, `skip_empty`, cadence `once`,
+status `done`, `schedule_run.report`) on the alerts' claim — which now filters by kind and claims a task only while
+Tasks is on — with a report of up to four fixed sections from SQL and an opening sentence handed no figures (core
+rejects digits, counting words and verdicts; labelled). Automation (`buyer_automation`, `automation_event`): a fixed
+"when" over the buyer's shortlist and watched addresses, detected in SQL on the alerts cron, each event once; "then" is
+only tell me, add to or take off their own shortlist, in the same transaction as the event, with Undo. Emails at 8 am
+or hourly outside 9 pm–7 am, with `a.` (one automation) and `m.` (the skill) unsubscribe tokens. The guide proposes
+with `draft_message`, `draft_task`, `draft_automation` — signed cards (`acting/signed.ts`), nothing until the button
+(prompt v17).

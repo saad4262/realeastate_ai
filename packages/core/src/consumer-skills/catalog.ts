@@ -70,11 +70,11 @@ export const CONSUMER_SKILLS: readonly ConsumerSkill[] = Object.freeze([
   { key: 'immersive', group: 'Inspections', name: 'Immersive Property AI', description: 'Floorplans, video and tours, and the guide answers questions about the rooms.', kind: 'answers', account: false, status: 'planned', phase: 'C9' },
   { key: 'smart_alerts', group: 'Keep watch', name: 'Smart Alerts', description: 'Emails with new homes for the searches you saved. Off: your saved searches stop sending until you turn it back on.', kind: 'answers', account: true, status: 'live', phase: 'live' },
   { key: 'property_monitor', group: 'Keep watch', name: 'Property Monitor', description: 'Watch an address and hear when it is listed, changes price, goes under offer or sells.', kind: 'acts', account: true, status: 'live', phase: 'C4' },
-  { key: 'tasks', group: 'Keep watch', name: 'Tasks', description: 'Property research done once or on a schedule, with a report when it is done.', kind: 'acts', account: true, status: 'planned', phase: 'C8' },
-  { key: 'automation', group: 'Keep watch', name: 'Automation', description: 'When something happens to a home you follow, do what you asked.', kind: 'acts', account: true, status: 'planned', phase: 'C8' },
+  { key: 'tasks', group: 'Keep watch', name: 'Tasks', description: 'Property research done once or on a schedule, with a report when it is done.', kind: 'acts', account: true, status: 'live', phase: 'C8' },
+  { key: 'automation', group: 'Keep watch', name: 'Automation', description: 'When something happens to a home you follow, do what you asked.', kind: 'acts', account: true, status: 'live', phase: 'C8' },
   { key: 'buyer_assistant', group: 'Your assistant', name: 'Buyer AI', description: 'The property guide you chat with. Off: the chat is switched off for you.', kind: 'answers', account: false, status: 'live', phase: 'live' },
   { key: 'personal_profile', group: 'Your assistant', name: 'Personal Property AI', description: 'Learns what you like from your searches and saves, so answers fit you. You can see and delete it.', kind: 'acts', account: true, status: 'live', phase: 'C4' },
-  { key: 'agent_messages', group: 'Your assistant', name: 'Agent AI', description: 'The guide drafts a question or enquiry to the agent; you read it and send it.', kind: 'acts', account: true, status: 'planned', phase: 'C8' },
+  { key: 'agent_messages', group: 'Your assistant', name: 'Agent AI', description: 'The guide drafts a question or enquiry to the agent; you read it and send it.', kind: 'acts', account: true, status: 'live', phase: 'C8' },
 ] satisfies ConsumerSkill[]);
 
 const BY_KEY = new Map(CONSUMER_SKILLS.map((s) => [s.key, s]));
@@ -137,6 +137,9 @@ export const CONSUMER_SKILL_OF_TOOL: Readonly<Record<string, ConsumerSkillKey>> 
   plan_inspections: 'inspection_planner',
   discover_homes: 'discovery',
   find_opportunities: 'opportunities',
+  draft_message: 'agent_messages',
+  draft_task: 'tasks',
+  draft_automation: 'automation',
 });
 
 /** The words every refusal uses, so the buyer (and the guide) know why and where to change it. */

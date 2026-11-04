@@ -13,6 +13,8 @@ import { loadProfile, profileLine } from '@repo/core/profile';
 import { buildPlan, planToolResult } from '@repo/core/inspections';
 import { discoverToolResult, forYou, similarHomes, SIGNED_OUT_DISCOVERY } from '@repo/core/discovery';
 import { findOpportunities, opportunityToolResult } from '@repo/core/buyer-opportunities';
+import { AgentMessageError, draftAgentMessage } from '@repo/core/agent-messages';
+import { agentMessageWriterFromEnv } from '@repo/ai/acting';
 import { consumerSkillBlocks, consumerSkillOffMessage, type ConsumerSkillBlock, type ConsumerSkillKey } from '@repo/core/consumer-skills';
 import {
   listSchedules,
@@ -182,9 +184,32 @@ function schedulingContext(userId: string | null): ToolContext['scheduling'] {
   };
 }
 
-function toolContext(userId: string | null, skillBlocks: ReadonlyMap<ConsumerSkillKey, ConsumerSkillBlock>): ToolContext {
+function toolContext(userId: string | null, skillBlocks: ReadonlyMap<ConsumerSkillKey, ConsumerSkillBlock>, words: { all: string; latest: string }): ToolContext {
   const db = getWebDb();
+  const proposalSecret = (() => {
+    try {
+      return requireDraftSecret();
+    } catch {
+      return null;
+    }
+  })();
   return {
+    // ADR 0080, C8 decision 12: signs a task's or an automation's card; nothing is saved until Accept.
+    proposalSecret,
+    /**
+     * ADR 0080, C8 decisions 1–2: a draft from THIS visitor's own words in this conversation (the request's, never the
+     * model's) and the listing's facts — a card they edit and send; core decides whether they may.
+     */
+    draftMessage: async (listingId) => {
+      if (!userId) return { error: 'Sign in to send a message to the agent.' };
+      if (!proposalSecret) return { error: 'Messages cannot be drafted on this site just now.' };
+      try {
+        return await draftAgentMessage(db, { userId }, { listingId, buyerWords: words.all, latest: words.latest }, { writer: agentMessageWriterFromEnv(db), secret: proposalSecret });
+      } catch (err) {
+        if (err instanceof AgentMessageError) return { error: err.message };
+        throw err;
+      }
+    },
     db,
     scheduling: schedulingContext(userId),
     skillBlocks,
@@ -376,7 +401,8 @@ export async function POST(request: NextRequest) {
   try {
     catalogue = await cachedFilterOptions();
     // The buyer's consumer-skill switches (ADR 0080): one read when signed in, none when not.
-    tools = toolContext(sessionUserId, await consumerSkillBlocks(getWebDb(), sessionUserId ? { userId: sessionUserId } : null));
+    const said = [...parsed.data.turns.filter((t) => t.role === 'user').map((t) => t.text), parsed.data.message];
+    tools = toolContext(sessionUserId, await consumerSkillBlocks(getWebDb(), sessionUserId ? { userId: sessionUserId } : null), { all: said.join('\n'), latest: parsed.data.message });
   } catch {
     return errorResponse(
       {

@@ -77,6 +77,9 @@ Nothing below is optional for production. Each line names what proves it is done
 - [ ] **Inspection notes** (ADR 0080 C6): migration 0086 applied, the private `inspection-photos` bucket made as in
       "Inspection notes and photos" below.
 - [ ] **Discovery AI** (ADR 0080 C7): migration 0087 (`discovery_hidden`) applied before the code that reads it.
+- [ ] **Acting for the buyer** (ADR 0080 C8): migration 0088 applied before the code (two enum values, three columns on
+      `search_schedule`, `schedule_run.report`, three tables). Tasks and Automation run on `/api/cron/alerts` (no new
+      cron); `AI_AGENT_MESSAGE_DAILY_CAP` (default 500) caps "Draft with AI".
 - [ ] **Opportunities** (ADR 0054): migration 0062 applied; `/api/cron/opportunities` (hourly, in
       `apps/web/vercel.json`) answering 200 with `failed: []`.
 - [ ] `EMAIL_DEV_ALLOWLIST` is **ignored** in production (it is) — and `NODE_ENV=production`

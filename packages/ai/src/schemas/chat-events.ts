@@ -239,6 +239,26 @@ export type ScheduleDraftEvent = {
   searchPath: string;
 };
 
+/**
+ * A card for something the guide proposed that acts for the visitor (ADR 0080, C8 decision 12): a message to an agency
+ * (the text, editable, and Send), a task or an automation (Accept). `token` is the signed proposal; `title` and `lines`
+ * are the SERVER's description of it, not the model's. Nothing happens until the visitor presses the button.
+ */
+export type ActingDraftEvent = {
+  type: 'acting_draft';
+  toolUseId: string;
+  kind: 'message' | 'task' | 'automation';
+  token: string;
+  title: string;
+  lines: string[];
+  /** For a message: the draft text, who it goes to, and the day's count. */
+  text?: string;
+  to?: string;
+  listingId?: string;
+  sentToday?: number;
+  perDay?: number;
+};
+
 export type ChatEvent =
   | TurnEvent
   | TextEvent
@@ -250,6 +270,7 @@ export type ChatEvent =
   | DoneEvent
   | SavedEvent
   | ScheduleDraftEvent
+  | ActingDraftEvent
   | SuggestionsEvent;
 
 /**

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { LocalTime } from '@repo/ui';
 import { listCustomerThreads } from '@repo/core/mail';
+import { guideDraftedThreads } from '@repo/core/agent-messages';
 import { WebShell } from '../../../components/web-shell';
 import { ensureConsumerAccount } from '../../../lib/account';
 import { getWebDb } from '../../../lib/db';
@@ -53,6 +54,8 @@ export default async function MessagesPage({
     userId: session.id,
     email: session.email ?? '',
   });
+  // ADR 0080, C8 decision 4: the buyer's own copy says when the guide drafted it; the agency's copy never does.
+  const guide = await guideDraftedThreads(getWebDb(), { userId: session.id }).catch(() => ({ threadIds: new Set<string>(), leadIds: new Set<string>() }));
 
   return (
     <WebShell account={{ signedIn: true }}>
@@ -101,6 +104,7 @@ export default async function MessagesPage({
                   <span className={styles.rowTop}>
                     <span className={styles.agency}>{t.agencyName}</span>
                     {t.unread ? <span className={styles.newPill}>New</span> : null}
+                    {guide.threadIds.has(t.id) || (t.leadId && guide.leadIds.has(t.leadId)) ? <span className="rounded-full bg-sunken px-2 py-0.5 text-[11px] text-ink-soft">Drafted with the guide</span> : null}
                     <time className={styles.when} dateTime={t.lastActivityAt.toISOString()}>
                       <LocalTime iso={t.lastActivityAt.toISOString()} style="date" />
                     </time>

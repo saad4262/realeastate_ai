@@ -271,6 +271,10 @@ import { buildPlan, clampSettings, deleteNotebook, ownPhotoKey, planAuto, hasExi
 import { deleteInspectionPhotos, inspectionPhotoBucket, putInspectionPhoto, signInspectionPhoto } from '@repo/core/inspections/photo-storage';
 import { discoverToolResult, forYou, hiddenHomes, hideHome, showHomeAgain, similarHomes } from '@repo/core/discovery';
 import { findOpportunities, judgementWords, opportunityToolResult, signalLine, type OpportunityHome } from '@repo/core/buyer-opportunities';
+import { draftAgentMessage, GUIDE_MESSAGES_PER_DAY, guideDraftedThreads, sendGuideMessage } from '@repo/core/agent-messages';
+import { createTask, getTask, runTaskTick, taskSummaryPasses } from '@repo/core/tasks';
+import { createAgentMessageWriter, createTaskSummaryWriter } from '@repo/ai/acting';
+import { automationLog, createAutomation, runAutomationTick, sendableNow, undoAutomationEvent } from '@repo/core/automation';
 import { runPropertyChat, type ToolContext as ChatToolContext } from '@repo/ai/chat';
 import { dispatchTool } from '@repo/ai/tools';
 import { createDueDiligenceWriter } from '@repo/ai/due-diligence';
@@ -7585,7 +7589,7 @@ async function main() {
 
       // Signed out: the guide answers, alerts need an account, nothing planned runs.
       const anon = await consumerSkillBlocks(t, null, {});
-      assert(!anon.has('property_search') && anon.get('smart_alerts') === 'needs_account' && anon.get('tasks') === 'not_built', `anon: ${JSON.stringify([...anon])}`);
+      assert(!anon.has('property_search') && anon.get('smart_alerts') === 'needs_account' && anon.get('visual_search') === 'not_built', `anon: ${JSON.stringify([...anon])}`);
       // Signed in, never touched: answers on, acts off, planned off.
       const fresh = new Map((await listConsumerSkills(t, actor, {})).map((v) => [v.key, v]));
       assert(fresh.get('smart_alerts')?.on === true && fresh.get('buyer_assistant')?.on === true && fresh.get('property_monitor')?.block === 'switched_off', `fresh: ${JSON.stringify([...fresh.values()].map((v) => [v.key, v.on, v.block]))}`);
@@ -7609,7 +7613,7 @@ async function main() {
 
       // The platform pause beats the buyer's choice; a planned skill has no switch; a signed-out actor flips nothing.
       assert((await consumerSkillBlocks(t, actor, { CONSUMER_SKILLS_PAUSED: 'smart_alerts' })).get('smart_alerts') === 'paused', 'pause ignored');
-      const planned = await setConsumerSkill(t, actor, 'tasks', true).catch((e: unknown) => e as Error);
+      const planned = await setConsumerSkill(t, actor, 'visual_search', true).catch((e: unknown) => e as Error);
       assert(planned instanceof Error && /not available yet/.test(planned.message), `planned: ${String(planned)}`);
       const nobody = await setConsumerSkill(t, { userId: '' }, 'smart_alerts', true).catch((e: unknown) => e as Error);
       assert(nobody instanceof Error && /Sign in/.test(nobody.message), `signed out: ${String(nobody)}`);
@@ -8185,6 +8189,142 @@ async function main() {
       return `reduced $25,000 (rise, "Contact agent" → a price, fresh: none); 94 days; 9 sales → no median, 10 → $675,000 with 3-bed only; draft and rental out; one signal filters`;
     }),
   );
+
+  // ── C8 Acting for the buyer: acting stops at the buyer's own account ──
+  const actingTables = async () => Boolean((await db.execute<{ t: string | null }>(sql`select to_regclass('public.buyer_automation')::text as t`))[0]?.t);
+  const SMOKE_SECRET = 'smoke-acting-secret-smoke-acting';
+  const smokeSender = { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St, Melbourne VIC 3000' };
+  async function buyerFixture(t: Db) {
+    const f = await contactFixture(t);
+    const [l] = await t.execute<{ id: string }>(sql`select id from listing where property_id = ${f.propertyId} limit 1`);
+    await t.execute(sql`update listing set published_at = now() - interval '5 days', price_display = 'Offers over $690,000', price_from = 690000 where id = ${l!.id}`);
+    const mk = async (k: string) => (await t.execute<{ id: string }>(sql`insert into "user" (id, email, name) values (${randomUUID()}, ${`buyer-${k}.${f.tag}@smoke.test`}, ${`Buyer ${k}`}) returning id`))[0]!.id;
+    return { f, listingId: l!.id, me: { userId: await mk('a') }, other: { userId: await mk('b') } };
+  }
+
+  await check('Agent AI (C8): a draft is only a card; Send makes an ordinary enquiry from the account, then a reply in the same conversation; an offer or an invented figure falls back to the template; five a day; off refuses', async () => {
+    if (!(await actingTables())) skip('migration 0088 is not applied yet');
+    return inRollback(async (t) => {
+      const { listingId, me } = await buyerFixture(t);
+      const leads = () => count(t, sql`select count(*)::int as n from lead where listing_id = ${listingId}`);
+      const words = { listingId, buyerWords: 'Do the strata fees include building insurance? Can I see it Saturday?', latest: 'Do the strata fees include building insurance? Can I see it Saturday?' };
+      const off = await draftAgentMessage(t, me, words, { secret: SMOKE_SECRET }).catch((e: unknown) => e as Error);
+      assert(off instanceof Error && /switched off|Skills/i.test(off.message), `drafted while off: ${String(off)}`);
+      await setConsumerSkill(t, me, 'agent_messages', true);
+      const before = await leads();
+      const offer = await draftAgentMessage(t, me, words, { secret: SMOKE_SECRET, writer: async () => "Hi,\n\nWe'd be happy to offer $680,000 for this home.\n\nThanks" });
+      assert(offer.source === 'template' && !offer.text.includes('680,000') && offer.text.includes('strata fees'), `offer kept: ${offer.text}`);
+      const invented = await draftAgentMessage(t, me, words, { secret: SMOKE_SECRET, writer: async () => 'Hi,\n\nWe are pre-approved to $750,000. Do the strata fees include building insurance?\n\nThanks' });
+      assert(invented.source === 'template', 'an invented figure was kept');
+      const good = await draftAgentMessage(t, me, words, { secret: SMOKE_SECRET, writer: async () => "Hi,\n\nI'm interested in this home.\n\n1. Do the strata fees include the building insurance?\n2. Could I see it on Saturday?\n\nThanks" });
+      assert(good.source === 'model' && good.sentToday === 0, `good draft: ${good.source}`);
+      assert((await leads()) === before, 'a draft wrote a lead');
+
+      const edited = `${good.text}\n\n(Edited by me.)`;
+      const first = await sendGuideMessage(t, me, { token: good.token, text: edited }, { secret: SMOKE_SECRET });
+      assert(first.kind === 'enquiry', `first: ${first.kind}`);
+      const [lead] = await t.execute<{ email: string; name: string; message: string; user_id: string }>(sql`select email, name, message, user_id from lead where id = ${first.leadId}`);
+      assert(lead!.user_id === me.userId && lead!.email.startsWith('buyer-a.') && lead!.name === 'Buyer a' && lead!.message === edited && !/guide|AI/.test(lead!.message), `the agency's copy: ${JSON.stringify(lead)}`);
+      // The enquiry opened a conversation (its mail thread): the next guide message is a reply in it, not a second enquiry.
+      assert((await count(t, sql`select count(*)::int as n from mail_thread where lead_id = ${first.leadId}`)) === 1, 'the enquiry opened no conversation');
+      const second = await sendGuideMessage(t, me, { token: good.token, text: 'Thanks — and is there a body corporate report?' }, { secret: SMOKE_SECRET });
+      assert(second.kind === 'reply', `second: ${second.kind}`);
+      const drafted = await guideDraftedThreads(t, me);
+      assert(drafted.leadIds.has(first.leadId) && drafted.threadIds.has(second.threadId), 'the buyer’s copy is not marked');
+      for (let i = 0; i < GUIDE_MESSAGES_PER_DAY - 2; i++) await sendGuideMessage(t, me, { token: good.token, text: `Another question, number ${i}.` }, { secret: SMOKE_SECRET });
+      const sixth = await sendGuideMessage(t, me, { token: good.token, text: 'One more question here.' }, { secret: SMOKE_SECRET }).catch((e: unknown) => e as Error);
+      assert(sixth instanceof Error && /5 messages/.test(sixth.message), `the sixth: ${String(sixth)}`);
+      const forged = await sendGuideMessage(t, me, { token: good.token.replace(/.$/, (c) => (c === 'A' ? 'B' : 'A')), text: 'Forged token here.' }, { secret: SMOKE_SECRET }).catch((e: unknown) => e as Error);
+      assert(forged instanceof Error, 'a forged token sent');
+      return `off → refused; offer and invented figure → template; draft wrote nothing; sent as an enquiry (account name, edited text, no AI mark) then a reply; 6th refused; forged refused`;
+    });
+  });
+
+  await check('Tasks (C8): only with Tasks on; the alerts’ clock with kind=task; a report from SQL; a one-off is done after; an empty run skips its email; never on /alerts', async () => {
+    if (!(await actingTables())) skip('migration 0088 is not applied yet');
+    return inRollback(async (t) => {
+      const { me, f } = await buyerFixture(t);
+      const town = `Smoketask ${f.tag}`;
+      const input = { name: 'Smoke task', area: { suburb: town, state: 'VIC' }, sections: ['sold', 'watched'], cadence: 'once', sendAtMinute: 420, timezone: 'Australia/Melbourne' };
+      const refused = await createTask(t, me, input).catch((e: unknown) => e as Error);
+      assert(refused instanceof Error && /switched off|Skills/i.test(refused.message), `created while off: ${String(refused)}`);
+      await setConsumerSkill(t, me, 'tasks', true);
+      const task = await createTask(t, me, input);
+      const empty = await createTask(t, me, { ...input, name: 'Smoke empty', area: { suburb: `${town} nothing`, state: 'VIC' } });
+      assert((await listSchedules(t, me)).every((s) => s.id !== task.id), 'a task showed among saved searches');
+      const [p] = await t.execute<{ id: string }>(sql`insert into property (street_number, street, suburb, state, postcode) values ('4', 'Task Road', ${town}, 'VIC', '3999') returning id`);
+      await t.execute(sql`insert into listing (property_id, agency_id, channel, status, sold_price, sold_date, published_at) values (${p!.id}, ${f.agencyId}, 'sale', 'sold', 655000, now() - interval '2 days', now() - interval '40 days')`);
+      await t.execute(sql`update search_schedule set next_run_at = now() - interval '1 minute' where id in (${task.id}, ${empty.id})`);
+      const transport = fakeTransport();
+      const deps = { search: (q: Parameters<typeof searchPublicListings>[1]) => searchPublicListings(t, q), resolvePlace: async () => null, transport, sender: smokeSender, baseUrl: 'https://site.test', unsubscribeSecret: SMOKE_SECRET };
+      await setConsumerSkill(t, me, 'tasks', false);
+      assert((await runTaskTick(t, deps, { ownerId: me.userId })).claimed === 0, 'a task ran with Tasks off');
+      await setConsumerSkill(t, me, 'tasks', true);
+      // While both tasks are due: the alerts' runner must not claim them (the claim's kind filter).
+      assert((await runScheduleTick(t, { ...deps, summarise: undefined } as never, { ownerId: me.userId })).claimed === 0, 'the alerts runner claimed a task');
+      const tick = await runTaskTick(t, deps, { ownerId: me.userId });
+      assert(tick.claimed === 2 && tick.delivered === 1 && tick.empty === 1, `tick: ${JSON.stringify(tick)}`);
+      const got = await getTask(t, me, task.id);
+      const report = got?.runs[0]?.report;
+      const sold = report?.sections.find((s) => s.key === 'sold');
+      assert(sold?.rows.length === 1 && sold.rows[0]!.detail?.startsWith('Sold $655,000'), `report: ${JSON.stringify(report)}`);
+      assert(got?.task.status === 'done', `once → ${got?.task.status}`);
+      assert(transport.sent.length === 1 && transport.sent[0]!.subject === 'Your report: Smoke task' && (transport.sent[0] as { text: string }).text.includes('Sold $655,000'), `emails: ${transport.sent.map((m) => m.subject).join(', ')}`);
+      const emptyRun = (await getTask(t, me, empty.id))?.runs[0];
+      assert(emptyRun?.emailStatus === 'skipped', `empty run email: ${emptyRun?.emailStatus}`);
+      assert((await runTaskTick(t, deps, { ownerId: me.userId })).claimed === 0, 'a done task ran again');
+      return 'off → refused and not run; 1 report with the sale, emailed; the empty one kept, not emailed; once → done; alerts never claim it or list it';
+    });
+  });
+
+  await check('Automation (C8): a shortlisted home’s price cut and sale fire once each; "take it off" removes it and Undo restores its note; nothing reaches the agency; off → nothing checked', async () => {
+    if (!(await actingTables())) skip('migration 0088 is not applied yet');
+    return inRollback(async (t) => {
+      const { me, listingId } = await buyerFixture(t);
+      const leads = () => count(t, sql`select count(*)::int as n from lead where listing_id = ${listingId}`);
+      const before = await leads();
+      await addToShortlist(t, me, listingId);
+      await t.execute(sql`update shortlist set note = 'Ask about the fence' where user_id = ${me.userId} and listing_id = ${listingId}`);
+      const off = await createAutomation(t, me, { trigger: 'price_reduced', scope: 'shortlist', action: 'tell' }).catch((e: unknown) => e as Error);
+      assert(off instanceof Error, 'created while off');
+      await setConsumerSkill(t, me, 'automation', true);
+      const priceRule = await createAutomation(t, me, { trigger: 'price_reduced', scope: 'shortlist', action: 'tell', delivery: 'instant', timeZone: 'Australia/Perth' });
+      const soldRule = await createAutomation(t, me, { trigger: 'sold', scope: 'shortlist', action: 'shortlist_remove', delivery: 'instant', timeZone: 'Australia/Perth' });
+      const enquire = await createAutomation(t, me, { trigger: 'sold', scope: 'shortlist', action: 'enquire' }).catch((e: unknown) => e as Error);
+      assert(enquire instanceof Error, 'an automation could enquire');
+      // This transaction's now() is one instant: put the automations two hours before it, as real time would.
+      await t.execute(sql`update buyer_automation set created_at = now() - interval '2 hours', checked_at = now() - interval '2 hours' where user_id = ${me.userId}`);
+      await t.execute(sql`update listing set price_display = 'Offers over $660,000', price_from = 660000 where id = ${listingId}`);
+      const transport = fakeTransport();
+      const deps = { transport, sender: smokeSender, baseUrl: 'https://site.test', unsubscribeSecret: SMOKE_SECRET, search: async () => [], resolvePlace: async () => null };
+      const one = await runAutomationTick(t, deps);
+      const log1 = await automationLog(t, me);
+      assert(log1.length === 1 && log1[0]!.text === 'Price reduced from Offers over $690,000 to Offers over $660,000.', `after the price cut: ${JSON.stringify(log1.map((e) => e.text))} (${JSON.stringify(one)})`);
+      await t.execute(sql`update buyer_automation set checked_at = now() - interval '2 hours' where user_id = ${me.userId}`);
+      await t.execute(sql`update listing set status = 'sold', sold_price = 650000, sold_date = now() where id = ${listingId}`);
+      await runAutomationTick(t, deps);
+      await t.execute(sql`update buyer_automation set checked_at = now() - interval '2 hours' where user_id = ${me.userId}`);
+      await runAutomationTick(t, deps);
+      const log2 = await automationLog(t, me);
+      const soldLine = log2.find((e) => e.text.startsWith('Sold'));
+      assert(log2.length === 2 && soldLine?.actionTaken === 'removed' && soldLine.text === 'Sold for $650,000.', `after the sale, twice: ${JSON.stringify(log2.map((e) => [e.text, e.actionTaken]))}`);
+      assert((await count(t, sql`select count(*)::int as n from shortlist where user_id = ${me.userId}`)) === 0, 'still on the shortlist');
+      await undoAutomationEvent(t, me, soldLine!.id);
+      const [back] = await t.execute<{ note: string | null }>(sql`select note from shortlist where user_id = ${me.userId} and listing_id = ${listingId}`);
+      assert(back?.note === 'Ask about the fence', `undo: ${JSON.stringify(back)}`);
+      assert((await leads()) === before, 'an automation wrote to the agency');
+      const sendable = sendableNow('instant', new Date(), 'Australia/Perth');
+      if (sendable) assert(transport.sent.length >= 1 && transport.sent[0]!.subject.includes('from your automations'), `emails: ${transport.sent.length}`);
+      else note('email', 'Perth is in its quiet hours now: the email waits until 7 am (not asserted this run)');
+      await setConsumerSkill(t, me, 'automation', false);
+      await t.execute(sql`update buyer_automation set checked_at = now() - interval '2 hours' where user_id = ${me.userId}`);
+      const quiet = await runAutomationTick(t, deps);
+      assert(quiet.checked === 0 || !(await automationLog(t, me)).some((e) => e.id !== soldLine!.id && e.id !== log1[0]!.id), `checked while off: ${JSON.stringify(quiet)}`);
+      void priceRule;
+      void soldRule;
+      return `price cut → 1 line; sold → taken off the shortlist, once across two checks; Undo → back with its note; 0 leads written; ${sendable ? 'emailed' : 'email held (quiet hours)'}; off → nothing`;
+    });
+  });
 
   // ── ADR 0079: the customer profile — four starting details; the same person lands on one profile (needs 0080) ──
   group('Customer profile (ADR 0079)');
@@ -12357,7 +12497,7 @@ async function main() {
     const nope = async () => {
       throw new Error('not used in this check');
     };
-    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence, research: async () => null, inspections: async () => null, discover: nope, opportunities: nope } as unknown as ChatToolContext;
+    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence, research: async () => null, inspections: async () => null, discover: nope, opportunities: nope, draftMessage: nope, proposalSecret: 'smoke-proposal-secret' } as unknown as ChatToolContext;
     const events: { type: string; name?: string; delta?: string; message?: string }[] = [];
     for await (const e of runPropertyChat({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), request: { message, turns: [] }, catalogue: { suburbs: ['Springfield Lakes', 'Pakenham'], propertyTypes: ['House'] }, tools, track: async () => {} })) events.push(e as (typeof events)[number]);
     const error = events.find((e) => e.type === 'error');
@@ -12369,7 +12509,7 @@ async function main() {
     const nope = async () => {
       throw new Error('not used in this check');
     };
-    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence: async () => null, research: async () => null, inspections: async () => null, discover: nope, opportunities: nope, ...extra } as unknown as ChatToolContext;
+    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence: async () => null, research: async () => null, inspections: async () => null, discover: nope, opportunities: nope, draftMessage: nope, proposalSecret: 'smoke-proposal-secret', ...extra } as unknown as ChatToolContext;
     const events: { type: string; name?: string; delta?: string; message?: string }[] = [];
     for await (const e of runPropertyChat({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), request: { message, turns: [] }, catalogue: { suburbs: ['Pakenham', 'Officer'], propertyTypes: ['House'] }, tools, track: async () => {} })) events.push(e as (typeof events)[number]);
     const error = events.find((e) => e.type === 'error');
@@ -12558,7 +12698,7 @@ async function main() {
       .map((x) => x.replace(/["“][^"”]*["”]/g, ''))
       .filter((x) => judgementWords(x).length && !/\?\s*$/.test(x))
       .filter((x) => !/\b(can['’]t|cannot|can not|don['’]t|do not|won['’]t|isn['’]t|aren['’]t|doesn['’]t|not|never|neither|nor|no way to)\b/i.test(x))
-      .filter((x) => !/\b(yours to (answer|decide|judge|weigh)|your (call|decision|judgement)|up to you)\b/i.test(x));
+      .filter((x) => !/\b(yours to (answer|decide|judge|weigh)|your (call|decision|judge?ment)( to make)?|up to you)\b/i.test(x));
 
   await check('the guide (live): "any price drops in Officer?" calls find_opportunities, copies its facts, judges no home and values none', async () => {
     if (!haveAnthropic) skip(aiSkipReason(liveAi));
@@ -12606,6 +12746,51 @@ async function main() {
     const dollars = [...turn.text.matchAll(/\$\d{1,3}(,\d{3})*/g)].map((m) => m[0]).filter((d) => !JSON.stringify(result).includes(d));
     assert(!dollars.length, `figures not in the records: ${dollars.join(', ')}`);
     return `tools: ${turn.tools.join(', ')}; ${turn.text.replace(/\s+/g, ' ').slice(0, 260)}`;
+  });
+
+  await check('Agent AI writer (live): the buyer’s words and the listing’s facts become a draft core keeps — no offer, no invented figure, no contact details', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    return inRollback(async (t) => {
+      const { listingId, me } = await buyerFixture(t);
+      await setConsumerSkill(t, me, 'agent_messages', true);
+      const words = 'Can you ask if the strata fees include building insurance, and whether I can see it again on Saturday? We need to settle before March.';
+      const d = await draftAgentMessage(t, me, { listingId, buyerWords: words, latest: words }, { secret: SMOKE_SECRET, writer: createAgentMessageWriter({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), db: t }) });
+      assert(d.source === 'model', `core fell back to the template — the model's draft broke a rule (see the check): ${d.text.slice(0, 300)}`);
+      assert(/strata/i.test(d.text) && /insurance/i.test(d.text) && /March/.test(d.text), `the buyer's questions are missing: ${d.text.slice(0, 300)}`);
+      return d.text.replace(/\s+/g, ' ').slice(0, 300);
+    });
+  });
+
+  await check('Task summary writer (live): a sentence that names what is in the report with no figure, counting word or verdict', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    const writer = createTaskSummaryWriter({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), db });
+    const out = await writer({ taskName: 'Monday in Pakenham', suburb: 'Pakenham', sections: [{ title: 'New homes for your search', hasSomething: true }, { title: 'What sold', hasSomething: true }, { title: 'Price reductions', hasSomething: false }] }, { runId: 'smoke', userId: '' }); // no user: the metering row takes none
+    assert(out.source === 'model' && out.text, 'no sentence');
+    assert(taskSummaryPasses(out.text, passesVerdictRule), `core would replace it: ${out.text}`);
+    return out.text;
+  });
+
+  await check('the guide (live): "ask the agent…" calls draft_message and says it is drafted, never sent', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    const id = '6f1f7a2e-3c1b-4f7e-9a51-1d2e3f4a5b6c';
+    const turn = await guideTurnWith(`Can you ask the agent for listing ${id} whether the strata fees include building insurance?`, {
+      draftMessage: async () => ({ listingId: id, address: '12/1A Rogers Street, Pakenham', agencyName: 'Ray White Pakenham', text: "Hi,\n\nI'm interested in 12/1A Rogers Street, Pakenham. Do the strata fees include building insurance?\n\nThanks", source: 'model', token: 'message.x.y', sentToday: 0, perDay: 5 }),
+    });
+    assert(turn.tools.includes('draft_message'), `tools: ${turn.tools.join(', ') || 'none'} — ${turn.text.slice(0, 300)}`);
+    const claims = turn.text.split(/(?<=[.!?])\s+|\n+/).filter((x) => /\b(I('ve| have)|I) (sent|emailed|messaged|contacted|forwarded)\b|\b(has|have) been sent\b|\bis on its way\b/i.test(x) && !/\b(not|never|until|once|when|before)\b/i.test(x));
+    assert(!claims.length, `it claimed to have sent it: ${claims.join(' | ')}`);
+    return `tools: ${turn.tools.join(', ')}; ${turn.text.replace(/\s+/g, ' ').slice(0, 240)}`;
+  });
+
+  await check('the guide (live): "every Monday send me…" calls draft_task with the sections asked for; "if my shortlist drops its price…" calls draft_automation; neither says it is running', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    const a = await guideTurnWith('Every Monday at 7am send me new 3-bed houses in Pakenham VIC under $800k and what sold there.', {});
+    assert(a.tools.includes('draft_task'), `task tools: ${a.tools.join(', ') || 'none'} — ${a.text.slice(0, 300)}`);
+    const b = await guideTurnWith('If anything on my shortlist drops its price, tell me.', {});
+    assert(b.tools.includes('draft_automation'), `automation tools: ${b.tools.join(', ') || 'none'} — ${b.text.slice(0, 300)}`);
+    const running = [a.text, b.text].flatMap((t) => t.split(/(?<=[.!?])\s+|\n+/)).filter((x) => /\b(is|it's|now) (running|active|set up|live)\b|\bI('ve| have) (set up|scheduled|started|created)\b/i.test(x) && !/\b(not|never|until|once|when|after|press|accept)\b/i.test(x));
+    assert(!running.length, `it said it was running: ${running.join(' | ')}`);
+    return `task: ${a.tools.join(', ')}; automation: ${b.tools.join(', ')}; ${b.text.replace(/\s+/g, ' ').slice(0, 200)}`;
   });
 
   // Its own group, so this one paid check can be run alone: SMOKE_ONLY="Many parts, live" pnpm smoke:ai.

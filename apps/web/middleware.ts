@@ -172,6 +172,8 @@ export const config = {
     '/api/inspections/:path*',
     // ADR 0080 C7: Opportunities answers the buyer's own switch and "Match my profile"; For you is under /account.
     '/opportunities',
+    // ADR 0080 C8: Agent AI's draft in the enquiry form reads the session; the listing page itself stays outside.
+    '/api/agent-message/:path*',
     '/login',
     '/signup',
     // `/reset` arrives straight from an emailed link and needs the session

@@ -147,6 +147,20 @@ export default async function AccountPage() {
           </Link>
         </section>
 
+        {/* ADR 0080 C8. Both off until switched on in Skills; the pages say so. */}
+        <section className={styles.card}>
+          <h2 className={styles.cardLabel}>Tasks and automations</h2>
+          <p className={styles.body}>Research done on a schedule with a report, and what to do when a home you follow changes. Nothing ever writes to an agent for you.</p>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/account/tasks" className={styles.secondary}>
+              Open tasks
+            </Link>
+            <Link href="/account/automations" className={styles.secondary}>
+              Open automations
+            </Link>
+          </div>
+        </section>
+
         {/* ADR 0080 C7. No count: For you is worked out when it opens. */}
         <section className={styles.card}>
           <h2 className={styles.cardLabel}>For you</h2>

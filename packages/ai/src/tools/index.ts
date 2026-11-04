@@ -8,6 +8,8 @@ import { renovationInput, runRenovation } from './renovation-tool';
 import { compareHomesInput, explainHomeInput, runCompareHomes, runExplainHome, runSuburbProfile, suburbProfileInput } from './research-tools';
 import { planInspectionsInput, runPlanInspections } from './inspection-tools';
 import { discoverHomesInput, findOpportunitiesInput, runDiscoverHomes, runFindOpportunities } from './discovery-tools';
+import { draftAutomationInput, draftMessageInput, draftTaskInput, runDraftAutomation, runDraftMessage, runDraftTask } from './acting-tools';
+import { TASK_SECTIONS } from '@repo/core/tasks';
 import { RENOVATION_CATEGORY_KEYS } from '@repo/core/renovation/categories';
 import { getListingInput, runGetListing } from './get-listing-tool';
 import { resolveLocationInput, runResolveLocation } from './resolve-location';
@@ -318,7 +320,7 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
   {
     name: 'discover_homes',
     description:
-      "Homes the visitor may like: with a listingId, live homes similar to that one (suburb, kind, bedrooms, price); without one, from the visitor's own Personal Property AI profile when it is on, plus up to three homes NOT for sale that this site sold over a year ago. Each home says what it matches and its one difference. Copy them; never add, rank or value a home yourself.",
+      "Homes the visitor may like: with a listingId, live homes similar to that one (suburb, kind, bedrooms, price); without one, from the visitor's own Personal Property AI profile when it is on, plus up to three homes NOT for sale that this site sold over a year ago. Each home says what it matches and its one difference. Copy them; never add, rank or value a home yourself. ALWAYS call it when they ask what else they might like or what would suit them — even when you were told nothing about them: only this tool knows whether they have a profile, and it says so when they do not.",
     input_schema: { type: 'object', additionalProperties: false, properties: { listingId: { type: 'string', description: 'The id from a search result, for homes like that one. Leave it out for their profile.' } } },
   },
   {
@@ -336,6 +338,53 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
         propertyType: { type: 'string', enum: [...PROPERTY_TYPES] },
         signals: { type: 'array', items: { type: 'string', enum: ['price_reduced', 'long_campaign', 'below_median'] }, description: "Only the signals they asked about ('price drops' → price_reduced). Leave it out for all three." },
       },
+    },
+  },
+  {
+    name: 'draft_message',
+    description:
+      "Draft a message from the visitor to the agency selling one live listing — questions, a request to inspect, anything they asked you to put to the agent — from their own words in this conversation and the listing's facts. It puts the draft in a card they edit and send themselves; it sends NOTHING. Never draft an offer or a price.",
+    input_schema: { type: 'object', additionalProperties: false, properties: { listingId: { type: 'string', description: 'The id from a search result.' } }, required: ['listingId'] },
+  },
+  {
+    name: 'draft_task',
+    description:
+      "Propose a task: research done once or on a schedule, with a report by email — e.g. 'every Monday, new 3-bed houses in Pakenham and what sold'. Choose up to four sections from the list. It saves NOTHING: the visitor presses Accept on a card.",
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        name: { type: 'string', description: 'A short name they will recognise, e.g. "Monday in Pakenham".' },
+        suburb: { type: 'string' },
+        state: { type: 'string', enum: [...AU_STATES] },
+        channel: { type: 'string', enum: ['sale', 'rent'] },
+        priceTo: { type: 'number', description: 'Only if they gave a ceiling. Whole dollars.' },
+        bedrooms: { type: 'number', description: 'At least this many, only if they said.' },
+        propertyType: { type: 'string', enum: [...PROPERTY_TYPES] },
+        sections: { type: 'array', items: { type: 'string', enum: [...TASK_SECTIONS] }, description: 'Up to four: new_homes (new homes for the search), sold, price_reduced, long_campaign, suburb_figures, open_homes (next 7 days, search and shortlist), watched (their watched addresses).' },
+        cadence: { type: 'string', enum: ['once', 'daily', 'weekly'] },
+        atTime: { type: 'string', description: '24-hour time, e.g. "07:00". Ask if they did not say.' },
+        weekday: { type: 'number', description: 'For weekly. 0 = Sunday.' },
+        timezone: { type: 'string', description: 'An Australian IANA zone. Defaults to Sydney.' },
+      },
+      required: ['name', 'sections', 'cadence', 'atTime'],
+    },
+  },
+  {
+    name: 'draft_automation',
+    description:
+      "Propose an automation about homes the visitor follows (their shortlist or watched addresses): when a price is reduced, an open home is added, it goes under offer, sells, is no longer advertised, or a watched address is listed — tell them, or add it to / take it off their own shortlist. It can NEVER contact an agent. It saves NOTHING: the visitor presses Accept on a card.",
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        trigger: { type: 'string', enum: ['price_reduced', 'open_home_added', 'under_offer', 'sold', 'not_advertised', 'listed'] },
+        scope: { type: 'string', enum: ['shortlist', 'watched', 'both'], description: "'listed' fits only 'watched'." },
+        action: { type: 'string', enum: ['tell', 'shortlist_add', 'shortlist_remove'], description: "shortlist_remove only for sold / not_advertised; shortlist_add only for listed." },
+        delivery: { type: 'string', enum: ['daily', 'instant'], description: "'daily' (8 am, the default) or 'instant' (as it happens, held overnight)." },
+        timezone: { type: 'string' },
+      },
+      required: ['trigger', 'scope', 'action'],
     },
   },
   {
@@ -515,6 +564,21 @@ export async function dispatchTool(
         const parsed = findOpportunitiesInput.safeParse(rawInput);
         if (!parsed.success) return invalid(name, parsed.error);
         return await runFindOpportunities(parsed.data, ctx);
+      }
+      case 'draft_message': {
+        const parsed = draftMessageInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return await runDraftMessage(parsed.data, ctx);
+      }
+      case 'draft_task': {
+        const parsed = draftTaskInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return await runDraftTask(parsed.data, ctx);
+      }
+      case 'draft_automation': {
+        const parsed = draftAutomationInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return await runDraftAutomation(parsed.data, ctx);
       }
       case 'get_listing': {
         const parsed = getListingInput.safeParse(rawInput);

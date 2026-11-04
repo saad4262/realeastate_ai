@@ -32,7 +32,9 @@ describe('the consumer skill catalog (ADR 0080)', () => {
 
   it('gives the reason a buyer can do nothing about first', () => {
     const none = new Set<never>();
-    expect(consumerSkillBlock('tasks', true, true, none)).toBe('not_built');
+    expect(consumerSkillBlock('visual_search', true, true, none)).toBe('not_built');
+    // An "acts" skill (C8) is off until the buyer switches it on.
+    expect(consumerSkillBlock('tasks', undefined, true, none)).toBe('switched_off');
     expect(consumerSkillBlock('smart_alerts', true, true, new Set(['smart_alerts'] as const))).toBe('paused');
     expect(consumerSkillBlock('smart_alerts', undefined, false, none)).toBe('needs_account');
     expect(consumerSkillBlock('smart_alerts', false, true, none)).toBe('switched_off');

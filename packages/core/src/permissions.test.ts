@@ -444,6 +444,19 @@ describe('can()', () => {
     });
   });
 
+  /** ADR 0080 C8: a buyer's automations, and the messages they send through the guide, are theirs alone. */
+  describe('acting for the buyer', () => {
+    it('lets a buyer manage their own automations and send their own messages, and nobody else', () => {
+      for (const [action, type] of [['buyer_automation:read', 'buyer_automation'], ['buyer_automation:manage', 'buyer_automation'], ['guide_message:send', 'guide_message']] as const) {
+        const own = { type, ownerId: 'buyer-1' };
+        expect(can({ userId: 'buyer-1' }, action, own)).toBe(true);
+        expect(can({ userId: 'buyer-2' }, action, own)).toBe(false);
+        expect(can({ userId: 'owner-a', agencyId: agencyA, membershipRole: 'owner' }, action, own)).toBe(false);
+        expect(can({ userId: '' }, action, { type })).toBe(false);
+      }
+    });
+  });
+
   /** ADR 0080 C4: the addresses a buyer watches are theirs alone. */
   describe('property watch', () => {
     it('lets a buyer read and change their own watches, and nobody else', () => {

@@ -38,8 +38,8 @@ written (2026-11-03) · Now = where it stands
 | 2 | Personal Property AI (`personal_profile`) 🔒 | acts | C4 | 10% | built (C4) | A preference profile learnt from searches and saves; seen, edited, deleted by the buyer |
 | 3 | Discovery AI (`discovery`) | answers | C7 | 20% | built (C7) | "You may like" from the profile, including off-market property pages |
 | 4 | Smart Alerts (`smart_alerts`) 🔒 | answers¹ | live → C4 | 60% | built (C4) | Saved-search alerts (built); C4 adds market-change alerts |
-| 5 | Tasks (`tasks`) 🔒 | acts | C8 | 25% | C8 | One-off or repeating research ("every Monday, new 3-bed in Pakenham + what sold") with a report |
-| 6 | Automation (`automation`) 🔒 | acts | C8 | 10% | C8 | When X happens (price drop, new listing, inspection added), do Y (tell me, add to shortlist) |
+| 5 | Tasks (`tasks`) 🔒 | acts | C8 | 25% | built (C8) | One-off or repeating research ("every Monday, new 3-bed in Pakenham + what sold") with a report |
+| 6 | Automation (`automation`) 🔒 | acts | C8 | 10% | built (C8) | When X happens (price drop, new listing, inspection added), do Y (tell me, add to shortlist) |
 | 7 | Property Analyst (`property_analyst`) | answers | C5 | 30% | built (C5) | One property explained from public records, every point cited (reuses ADR 0065) |
 | 8 | Suburb AI (`suburb_insights`) | answers | live → C5 | 15% | built (C5) | Recent sales (built); C5: a suburb page from our records + ABS, suburb vs suburb |
 | 9 | Comparison AI (`comparison`) | answers | C5 | 0% | built (C5) | 2–4 properties side by side (numbers from SQL), the model explains the trade-offs |
@@ -47,7 +47,7 @@ written (2026-11-03) · Now = where it stands
 | 11 | Inspection Assistant (`inspection_notes`) 🔒 | answers | C6 | 0% | built (C6) | Notes, photos and a checklist per inspection, private to the buyer, summarised |
 | 12 | Visual Search AI (`visual_search`) | answers | C9 | 0% | C9 | "Homes that look like this" from a photo or a style (image embeddings) |
 | 13 | Immersive Property AI (`immersive`) | answers | C9 | 10% | C9 | Floorplans, video and tours stored and shown; ask the guide about a room |
-| 14 | Agent AI (`agent_messages`) 🔒 | acts | C8 | 45% | C8 | The guide drafts an enquiry or question to the agent; the buyer reads it and sends it |
+| 14 | Agent AI (`agent_messages`) 🔒 | acts | C8 | 45% | built (C8) | The guide drafts an enquiry or question to the agent; the buyer reads it and sends it |
 | 15 | Buyer AI (`buyer_assistant`) | answers | grows | 10% | grows with each | The property chat itself; each skill adds its tool here, behind its own switch |
 | 16 | Property Monitor (`property_monitor`) 🔒 | acts | C4 | 20% | built (C4) | Watch an address: listed, price change, under offer, sold — including Not for Sale → For Sale |
 | 17 | Opportunity AI (`opportunities`) | answers | C7 | 0% | built (C7) | Price drops, long days on market, under the suburb median — from SQL, explained |
@@ -158,4 +158,12 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   `/account/for-you`, `/opportunities` (public; "Match my profile"), a card on My account; Forget everything clears
   hidden homes. The guide: `discover_homes`, `find_opportunities` (prompt v16). Smoke 19/19; live 11/11 twice (the
   user's go). TEST-PLAN CM.
-- [ ] C8 · [ ] C9
+- [x] C8 Acting for the buyer — mock's twelve decisions approved (2026-11-04). Migration 0088 (applied 2026-11-04).
+  Core: `agent-messages/` (draft rules, the draft, the send through the existing doors, five a day), `tasks/` (the
+  fixed sections, a report from SQL, the runner on the alerts' claim with `kind = 'task'`), `automation/` (fixed
+  lists, SQL detection, actions on the buyer's own shortlist with Undo, the email and its two unsubscribe tokens),
+  `acting/signed.ts` (the guide's signed cards). Web: the chat's three cards, "Draft with AI" in the enquiry form,
+  `/account/tasks` (+ a page per task), `/account/automations` (+ the log), "Drafted with the guide" on Messages,
+  the unsubscribe route, the alerts cron runs both ticks. The guide: `draft_message`, `draft_task`,
+  `draft_automation` (prompt v17). Smoke 22/22; live 15/15 three runs in a row (the user's go). TEST-PLAN CN.
+- [ ] C9
