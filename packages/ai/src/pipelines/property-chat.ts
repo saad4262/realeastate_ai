@@ -3,7 +3,7 @@ import type { PublicSearchQuery } from '@repo/core/listings';
 import { searchQueryToPath } from '@repo/core/listings';
 import { getModel } from '../models';
 import { catalogueBlock } from '../prompts/v10';
-import { PROMPT_VERSION, PROPERTY_CHAT_V19 } from '../prompts/v19';
+import { PROMPT_VERSION, PROPERTY_CHAT_V20 } from '../prompts/v20';
 import { slotsToQuery } from '../schemas/chat-request';
 import type { ChatEvent } from '../schemas/chat-events';
 import { MAX_HISTORY_CHARS, toClientSlots, type ChatRequest, type ChatTurn } from '../schemas/chat-request';
@@ -222,7 +222,7 @@ export async function* runPropertyChat(
   });
 
   const system: Anthropic.TextBlockParam[] = [
-    { type: 'text', text: PROPERTY_CHAT_V19, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: PROPERTY_CHAT_V20, cache_control: { type: 'ephemeral' } },
     {
       type: 'text',
       text: catalogueBlock(catalogue.suburbs, catalogue.propertyTypes),

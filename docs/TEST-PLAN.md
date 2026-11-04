@@ -2157,3 +2157,20 @@ asked live from the state's own service (free), and each answer is kept 30 days 
 | CP7 | /chat "Could I subdivide <listing>? Is it enough for two lots?" | The guide names the zone and its source, gives the land size as the listing's figure, says the zone is not a permission, gives the questions — no yes/no, no lot count. |
 | CP8 | Skills → Property Development AI off | The panel is hidden; the guide says it is off. |
 
+## CQ — Visual Search AI: search by look (ADR 0080, C9)
+
+Public site. Migration 0090 (`media_embedding`). Embedding photos is paid and OFF (`VISUAL_EMBED_ENABLED`, the user's
+call); until 500 photos on public listings are searchable the page says it is still filling up. CQ3–CQ6 need the
+backfill (the user's go).
+
+| # | Case | Expected |
+|---|---|---|
+| CQ1 | /look, type "light-filled kitchen, timber floors" | "Still filling up" with the count of searchable photos (0 today) and "it starts at 500"; links to search. |
+| CQ2 | A listing with photos | "Homes that look like this photo · Search by look" under the floorplan section; it opens /look for its main photo. |
+| CQ3 | /look with words and filters (suburb, price, beds) | Cards: price, address, beds · type, the matching photo, "Looks similar · kitchen photo", "More like this photo", "View". No score or percentage anywhere. Every card is within the filters. |
+| CQ4 | "More like this photo" on a card | The page re-runs from that photo; its own home is not in the list. |
+| CQ5 | Withdraw a listing whose photo matched | It is gone from the results (within the hour's cache, or at once after an edit clears it). |
+| CQ6 | /chat "homes with a light-filled kitchen and timber floors in Officer" | The guide uses search by look, says the order is by how alike the photos look, links /look — no score, no "better condition". |
+| CQ7 | There is no way to upload a photo | No file field on /look; the guide never offers to look at the buyer's own photo. |
+| CQ8 | Skills → Visual Search AI off | /look and the listing link are hidden; the guide says it is off. Skills shows it with "More coming" (early). |
+

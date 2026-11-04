@@ -126,6 +126,11 @@ export type ToolContext = {
    * own data, its land size from the ad and the questions to ask. Null when the address is not public.
    */
   development: (ref: { listingId: string } | { propertyId: string }) => Promise<ReturnType<typeof import('@repo/core/development').landAndZoningToolResult> | null>;
+  /**
+   * Visual Search (ADR 0080, C9 decisions 9–11): homes whose photos look like the visitor's words or one public photo,
+   * within their filters; "still filling up" below 500 searchable photos. Never a score.
+   */
+  visualSearch: (ask: import('@repo/core/visual-search').LookAsk) => Promise<ReturnType<typeof import('@repo/core/visual-search').lookToolResult>>;
   dueDiligence: (listingId: string) => Promise<{ address: string; state: string; facts: { ref: string; when: string; text: string }[] } | null>;
   /**
    * The consumer skills not running for this visitor, and why (ADR 0080) — read once per turn by the

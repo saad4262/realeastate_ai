@@ -277,6 +277,8 @@ import { createAgentMessageWriter, createTaskSummaryWriter } from '@repo/ai/acti
 import { automationLog, createAutomation, runAutomationTick, sendableNow, undoAutomationEvent } from '@repo/core/automation';
 import { addListingLink, floorplanRoomsSchema, floorplanToolResult, listingExtras, listingPhotos, readFloorplanBatch, removeListingExtra, roomNames, unreadFloorplans } from '@repo/core/media';
 import { adviceWords, landAndZoning, landAndZoningToolResult, nswZoneUrl, parseNswZones, parseVicZones, vicZoneUrl, zoningAt, zoningSubject } from '@repo/core/development';
+import { embedPhotoBatch, homesThatLookLike, lookAskSchema, lookToolResult, visualCounts, VISUAL_MODEL, type ImageEmbedder } from '@repo/core/visual-search';
+import { createImageEmbedder } from '@repo/ai/visual-embed';
 import { deleteObject, signUpload } from '@repo/core/media/storage';
 import { createFloorplanReader } from '@repo/ai/floorplan';
 import { runPropertyChat, type ToolContext as ChatToolContext } from '@repo/ai/chat';
@@ -7593,7 +7595,7 @@ async function main() {
 
       // Signed out: the guide answers, alerts need an account, nothing planned runs.
       const anon = await consumerSkillBlocks(t, null, {});
-      assert(!anon.has('property_search') && anon.get('smart_alerts') === 'needs_account' && anon.get('visual_search') === 'not_built', `anon: ${JSON.stringify([...anon])}`);
+      assert(!anon.has('property_search') && anon.get('smart_alerts') === 'needs_account' && !anon.has('visual_search'), `anon: ${JSON.stringify([...anon])}`);
       // Signed in, never touched: answers on, acts off, planned off.
       const fresh = new Map((await listConsumerSkills(t, actor, {})).map((v) => [v.key, v]));
       assert(fresh.get('smart_alerts')?.on === true && fresh.get('buyer_assistant')?.on === true && fresh.get('property_monitor')?.block === 'switched_off', `fresh: ${JSON.stringify([...fresh.values()].map((v) => [v.key, v.on, v.block]))}`);
@@ -7617,11 +7619,12 @@ async function main() {
 
       // The platform pause beats the buyer's choice; a planned skill has no switch; a signed-out actor flips nothing.
       assert((await consumerSkillBlocks(t, actor, { CONSUMER_SKILLS_PAUSED: 'smart_alerts' })).get('smart_alerts') === 'paused', 'pause ignored');
-      const planned = await setConsumerSkill(t, actor, 'visual_search', true).catch((e: unknown) => e as Error);
-      assert(planned instanceof Error && /not available yet/.test(planned.message), `planned: ${String(planned)}`);
+      // C9 built the last planned skill: Visual Search (`partial`, early) switches like any other now.
+      await setConsumerSkill(t, actor, 'visual_search', false);
+      assert((await consumerSkillBlocks(t, actor)).get('visual_search') === 'switched_off', 'Visual Search did not switch off');
       const nobody = await setConsumerSkill(t, { userId: '' }, 'smart_alerts', true).catch((e: unknown) => e as Error);
       assert(nobody instanceof Error && /Sign in/.test(nobody.message), `signed out: ${String(nobody)}`);
-      return 'anon defaults; answers on / acts + planned off; off → stored, new alert refused, 0 claimed; on → 1 claimed; pause wins; planned + signed-out refused';
+      return 'anon defaults; answers on / acts + planned off; off → stored, new alert refused, 0 claimed; on → 1 claimed; pause wins; Visual Search switches; signed-out refused';
     }),
   );
 
@@ -8181,7 +8184,9 @@ async function main() {
       // "Contact agent" → $600,000 is no reduction (it may still ask below the median — it does: $600,000 < $675,000).
       assert(!kinds(ten, raised).length && !kinds(ten, fresh).length && !kinds(ten, priced).includes('price_reduced'), `no reduction expected: raised ${kinds(ten, raised)}, priced ${kinds(ten, priced)}, fresh ${kinds(ten, fresh)}`);
       const l = ten.homes.find((x) => x.listingId === long)?.signals.find((s) => s.kind === 'long_campaign');
-      assert(l?.kind === 'long_campaign' && l.days === 94, `long: ${l && signalLine(l)}`);
+      // Counted in Sydney's calendar: "94 days ago" is 95 Sydney dates late in a Sydney evening across the October
+      // daylight-saving change (seen 2026-11-04 near midnight Sydney). Either is the right count for its clock.
+      assert(l?.kind === 'long_campaign' && (l.days === 94 || l.days === 95), `long: ${l && signalLine(l)}`);
       assert(!kinds(ten, draftLong).length && !kinds(ten, rentLong).length, 'a draft or a rental was shown');
       const m = ten.homes.find((x) => x.listingId === cheap)?.signals.find((s) => s.kind === 'below_median');
       assert(m?.kind === 'below_median' && m.sales === 10 && m.median === 675000 && m.askingFrom === 640000, `median: ${m && signalLine(m)}`);
@@ -8432,6 +8437,54 @@ async function main() {
     } else out.push('NSW did not answer');
     return out.join('; ');
   });
+
+  await check('Visual Search (C9): filters first, then the vectors order; a closer photo on a draft or out of budget never shows; no score; vectors of a listing no longer public are removed; the switch off embeds nothing; below 500 it says "still filling up" and asks no one', async () =>
+    inRollback(async (t) => {
+      const unit = (...w: [number, number][]) => { const v = new Array<number>(1024).fill(0); for (const [i, x] of w) v[i] = x; return v; };
+      const lit = (v: number[]) => `[${v.join(',')}]`;
+      const Q = unit([0, 1]);
+      const calls = { images: 0, queries: 0 };
+      const fake: ImageEmbedder = { model: VISUAL_MODEL, embedImages: async (urls) => { calls.images += urls.length; return urls.map(() => unit([2, 1])); }, embedQuery: async () => { calls.queries += 1; return Q; } };
+
+      // Real counts first: today the site is still filling up, and nothing is asked of Voyage.
+      const real = await visualCounts(t);
+      const today = await homesThatLookLike(t, lookAskSchema.parse({ words: 'timber floors' }), { embedder: fake });
+      assert(real.searchable < 500 ? today.status === 'filling_up' && calls.queries === 0 : true, `today: ${JSON.stringify({ real, status: today.status })}`);
+
+      const f = await contactFixture(t);
+      const home = async (status: string, price: number, vector: number[] | null) => {
+        const [p] = await t.execute<{ id: string }>(sql`insert into property (street_number, street, suburb, state, postcode) values ('9', ${'Look Street ' + randomUUID().slice(0, 6)}, 'Officer', 'VIC', '3809') returning id`);
+        const [l] = await t.execute<{ id: string }>(sql`insert into listing (property_id, agency_id, channel, status, price_from) values (${p!.id}, ${f.agencyId}, 'sale', ${status}, ${price}) returning id`);
+        const [m] = await t.execute<{ id: string }>(sql`insert into media (listing_id, kind, storage_key, caption) values (${l!.id}, 'photo', ${`listings/${l!.id}/look.jpg`}, 'Kitchen') returning id`);
+        if (vector) await t.execute(sql`insert into media_embedding (media_id, listing_id, model, embedding) values (${m!.id}, ${l!.id}, ${VISUAL_MODEL}, ${lit(vector)}::vector)`);
+        return { listingId: l!.id, mediaId: m!.id };
+      };
+      const near = await home('live', 700000, unit([0, 0.9], [1, 0.1]));
+      const far = await home('live', 650000, unit([1, 1]));
+      const dearer = await home('live', 950000, Q); // the closest photo, but over budget
+      const draft = await home('draft', 600000, Q); // the closest photo, but not public
+      const fresh = await home('live', 640000, null); // no vector yet
+
+      const ask = lookAskSchema.parse({ words: 'light-filled kitchen', suburbs: ['Officer'], priceTo: 800000 });
+      const out = await homesThatLookLike(t, ask, { embedder: fake, minPhotos: 1 });
+      assert(out.status === 'found', `status: ${out.status}`);
+      const ids = out.homes.map((h) => h.listingId);
+      assert(ids.indexOf(near.listingId) === 0 && ids.includes(far.listingId) && ids.indexOf(far.listingId) > ids.indexOf(near.listingId), `order: ${JSON.stringify(ids.slice(0, 4))}`);
+      assert(!ids.includes(dearer.listingId) && !ids.includes(draft.listingId), 'a home outside the filters, or not public, was shown');
+      const toGuide = lookToolResult(out, '/look');
+      assert('homes' in toGuide && toGuide.homes!.every((h) => Object.keys(h).every((k) => !/distance|score|similar|rank/i.test(k)) && !Object.values(h).some((v) => typeof v === 'number' && v > 0 && v < 2 && !Number.isInteger(v))), `a score reached the guide: ${JSON.stringify(toGuide).slice(0, 300)}`);
+      const like = await homesThatLookLike(t, lookAskSchema.parse({ photoId: near.mediaId, suburbs: ['Officer'] }), { embedder: null, minPhotos: 1 });
+      assert(like.status === 'found' && !like.homes.some((h) => h.listingId === near.listingId) && like.homes[0]?.listingId === dearer.listingId, `more like this: ${JSON.stringify(like.status === 'found' ? like.homes.map((h) => h.listingId) : like)}`);
+
+      const off = await embedPhotoBatch(t, fake, { enabled: false });
+      const [left] = await t.execute<{ n: number }>(sql`select count(*)::int as n from media_embedding where listing_id = ${draft.listingId}`);
+      assert(off.skipped === 'off' && off.removed >= 1 && left!.n === 0 && calls.images === 0, `off: ${JSON.stringify(off)}, draft vectors left ${left!.n}`);
+      const on = await embedPhotoBatch(t, fake, { enabled: true, batch: 50 });
+      const [fv] = await t.execute<{ n: number }>(sql`select count(*)::int as n from media_embedding where media_id = ${fresh.mediaId}`);
+      assert(on.embedded >= 1 && fv!.n === 1, `on: ${JSON.stringify(on)}`);
+      return `today ${real.searchable}/${real.photos} searchable → filling up, Voyage not asked; filters then order: near, far; over budget and draft left out; photo → its neighbours, not itself; off removed ${off.removed}, embedded 0; on embedded ${on.embedded}`;
+    }),
+  );
 
   // ── ADR 0079: the customer profile — four starting details; the same person lands on one profile (needs 0080) ──
   group('Customer profile (ADR 0079)');
@@ -12604,7 +12657,7 @@ async function main() {
     const nope = async () => {
       throw new Error('not used in this check');
     };
-    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence, research: async () => null, inspections: async () => null, discover: nope, opportunities: nope, draftMessage: nope, proposalSecret: 'smoke-proposal-secret', floorplan: nope, development: nope } as unknown as ChatToolContext;
+    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence, research: async () => null, inspections: async () => null, discover: nope, opportunities: nope, draftMessage: nope, proposalSecret: 'smoke-proposal-secret', floorplan: nope, development: nope, visualSearch: nope } as unknown as ChatToolContext;
     const events: { type: string; name?: string; delta?: string; message?: string }[] = [];
     for await (const e of runPropertyChat({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), request: { message, turns: [] }, catalogue: { suburbs: ['Springfield Lakes', 'Pakenham'], propertyTypes: ['House'] }, tools, track: async () => {} })) events.push(e as (typeof events)[number]);
     const error = events.find((e) => e.type === 'error');
@@ -12616,7 +12669,7 @@ async function main() {
     const nope = async () => {
       throw new Error('not used in this check');
     };
-    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence: async () => null, research: async () => null, inspections: async () => null, discover: nope, opportunities: nope, draftMessage: nope, proposalSecret: 'smoke-proposal-secret', floorplan: nope, development: nope, ...extra } as unknown as ChatToolContext;
+    const tools = { db, places: new Map(), skillBlocks: new Map(), scheduling: { state: 'signed_out' }, resolvePlace: nope, search: nope, getListing: nope, nearbyMarket: nope, recentSales: nope, dueDiligence: async () => null, research: async () => null, inspections: async () => null, discover: nope, opportunities: nope, draftMessage: nope, proposalSecret: 'smoke-proposal-secret', floorplan: nope, development: nope, visualSearch: nope, ...extra } as unknown as ChatToolContext;
     const events: { type: string; name?: string; delta?: string; message?: string }[] = [];
     for await (const e of runPropertyChat({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), request: { message, turns: [] }, catalogue: { suburbs: ['Pakenham', 'Officer'], propertyTypes: ['House'] }, tools, track: async () => {} })) events.push(e as (typeof events)[number]);
     const error = events.find((e) => e.type === 'error');
@@ -12949,6 +13002,39 @@ async function main() {
     const advice = adviceWords(turn.text);
     const verdict = turn.text.split(/(?<=[.!?])\s+|\n+/).filter((x) => /\b(yes|no)\b[,.]?\s.*\b(subdivid|two lots|enough)/i.test(x) && !/\b(depends|whether|ask|can't say|cannot say|not able)\b/i.test(x));
     assert(!advice.length && !verdict.length, `advice in the answer: ${[...advice, ...verdict].join(' | ')} — ${turn.text.slice(0, 400)}`);
+    return `tools: ${turn.tools.join(', ')}; ${turn.text.replace(/\s+/g, ' ').slice(0, 240)}`;
+  });
+
+  await check('Visual Search embedder (live Voyage, paid — a few cents at most): a floorplan image is nearer "an architectural floor plan drawing" than "a beach at sunset"', async () => {
+    const key = process.env.VOYAGE_API_KEY?.trim();
+    if (!liveAi || !key) skip(!key ? 'VOYAGE_API_KEY not set' : aiSkipReason(liveAi));
+    const bytes = readFileSync(new URL('../fixtures/floorplan.png', import.meta.url));
+    const k = `listings/${randomUUID()}/smoke-look.png`;
+    const signed = await signUpload(k);
+    const put = await fetch(`${signed.uploadUrl}?token=${encodeURIComponent(signed.token)}`, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: new Blob([bytes], { type: 'image/png' }) });
+    if (!put.ok) skip(`the media bucket refused the fixture (HTTP ${put.status})`);
+    try {
+      const e = createImageEmbedder({ apiKey: key!, db });
+      const [img] = await e.embedImages([mediaUrl(k)!]);
+      const plan = await e.embedQuery('an architectural floor plan drawing');
+      const beach = await e.embedQuery('a beach at sunset');
+      const cos = (a: number[], b: number[]) => a.reduce((s, x, i) => s + x * b[i]!, 0) / (Math.hypot(...a) * Math.hypot(...b));
+      const [p, b] = [cos(img!, plan), cos(img!, beach)];
+      assert(p > b, `the floorplan was nearer the beach: plan ${p.toFixed(3)} vs beach ${b.toFixed(3)}`);
+      return `1024-d; plan ${p.toFixed(3)} > beach ${b.toFixed(3)}`;
+    } finally {
+      await deleteObject(k);
+    }
+  });
+
+  await check('the guide (live): "a light-filled kitchen with timber floors in Officer" calls homes_that_look_like and gives no score', async () => {
+    if (!haveAnthropic) skip(aiSkipReason(liveAi));
+    const turn = await guideTurnWith('Find me homes with a light-filled kitchen and timber floors in Officer VIC, under $800k.', {
+      visualSearch: async (ask) => lookToolResult({ status: 'found', basis: 'words', searchable: 600, homes: [{ listingId: '6f1f7a2e-3c1b-4f7e-9a51-1d2e3f4a5b6c', address: '22 Lakeview Drive, Officer', suburb: 'Officer', state: 'VIC', price: 'Offers over $760,000', bedrooms: 3, propertyType: 'house', photo: { mediaId: 'm', url: 'https://cdn.test/k.jpg', caption: 'Kitchen' } }] }, `/look?words=${encodeURIComponent(ask.words ?? '')}`),
+    });
+    assert(turn.tools.includes('homes_that_look_like'), `tools: ${turn.tools.join(', ') || 'none'} — ${turn.text.slice(0, 300)}`);
+    const judged = turn.text.match(/\b\d{1,3}\s?%|\bscore\b|\b(best|perfect|great) match\b|\bbetter condition\b|\bwell[- ]maintained\b/gi) ?? [];
+    assert(!judged.length, `a score or a judgement: ${judged.join(', ')} — ${turn.text.slice(0, 400)}`);
     return `tools: ${turn.tools.join(', ')}; ${turn.text.replace(/\s+/g, ' ').slice(0, 240)}`;
   });
 

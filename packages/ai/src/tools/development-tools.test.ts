@@ -45,7 +45,7 @@ describe('prompt v19', () => {
     expect(PROMPT_VERSION).toBe('property-chat@v19');
     expect(PROPERTY_CHAT_V19.startsWith(PROPERTY_CHAT_V18.slice(0, 200))).toBe(true);
     expect(PROPERTY_CHAT_V19).toContain('You have twenty-one tools.');
-    expect(PROPERTY_CHAT_TOOLS).toHaveLength(21);
+    expect(PROPERTY_CHAT_TOOLS.length).toBeGreaterThanOrEqual(21); // C9 adds homes_that_look_like (v20)
     expect(PROPERTY_CHAT_V19).toMatch(/The zone is not a permission\. Never say the land can or cannot be subdivided/);
     expect(PROPERTY_CHAT_V19).toMatch(/Never name a zone of your own/);
     expect(PROPERTY_CHAT_V19).not.toMatch(/new Date|\d{4}-\d{2}-\d{2}/);

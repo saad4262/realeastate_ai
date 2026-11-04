@@ -36,6 +36,8 @@ import { comparables, homeRows, researchData, suburbProfile, type BuyerType, typ
 import { similarHomes, type Suggestion } from '@repo/core/discovery';
 import { listingExtras, type ListingExtras } from '@repo/core/media';
 import { landAndZoning, zoningAt, zoningSubject, type LandAndZoning, type ZoningAnswer, type ZoningSubject } from '@repo/core/development';
+import { homesThatLookLike, type LookAsk, type LookResult } from '@repo/core/visual-search';
+import { imageEmbedderFromEnv } from '@repo/ai/visual-embed';
 import { getWebDb } from './db';
 
 /**
@@ -353,6 +355,27 @@ export async function cachedLandAndZoning(propertyId: string, listingId: string 
     zoning = { status: 'unavailable' };
   }
   return landAndZoning(subject, zoning);
+}
+
+/**
+ * Visual Search (ADR 0080, C9 decisions 9–11): one ask's results, an hour under the listings tag — a listing going off
+ * the market clears it — so the same words cost one query embedding an hour, not one per visitor. "unavailable" (no
+ * key, Voyage down, the database down) is thrown out of the cache rather than kept.
+ */
+export async function cachedLook(ask: LookAsk): Promise<LookResult> {
+  try {
+    return await unstable_cache(
+      async () => {
+        const out = await homesThatLookLike(getWebDb(), ask, { embedder: imageEmbedderFromEnv(getWebDb()) });
+        if (out.status === 'unavailable') throw new Error('visual search unavailable');
+        return out;
+      },
+      ['look', JSON.stringify(ask)],
+      { tags: [LISTINGS_TAG], revalidate: 3600 },
+    )();
+  } catch {
+    return { status: 'unavailable' };
+  }
 }
 
 /** The guide's research reader: the same records, thrown on failure so the guide says the database could not be reached. */

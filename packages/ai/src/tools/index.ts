@@ -11,6 +11,7 @@ import { discoverHomesInput, findOpportunitiesInput, runDiscoverHomes, runFindOp
 import { draftAutomationInput, draftMessageInput, draftTaskInput, runDraftAutomation, runDraftMessage, runDraftTask } from './acting-tools';
 import { floorplanRoomsInput, runFloorplanRooms } from './immersive-tools';
 import { landAndZoningInput, runLandAndZoning } from './development-tools';
+import { homesThatLookLikeInput, runHomesThatLookLike } from './visual-tools';
 import { TASK_SECTIONS } from '@repo/core/tasks';
 import { RENOVATION_CATEGORY_KEYS } from '@repo/core/renovation/categories';
 import { getListingInput, runGetListing } from './get-listing-tool';
@@ -361,6 +362,25 @@ export const PROPERTY_CHAT_TOOLS: readonly Anthropic.Tool[] = Object.freeze([
     },
   },
   {
+    name: 'homes_that_look_like',
+    description:
+      "Homes for sale or rent whose photos look like the visitor's words ('light-filled kitchen, timber floors') or like one photo on this site (its photoId), within any filters they gave. Ordered by how alike the photos look — never a judgement of condition or quality. Give words or a photoId, not both. Never for an image the visitor describes as their own.",
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        words: { type: 'string', description: 'The look, in the visitor\'s own words. 3–200 characters.' },
+        photoId: { type: 'string', description: 'A photo id from a listing on this site, for "more like this".' },
+        channel: { type: 'string', enum: ['sale', 'rent'] },
+        suburbs: { type: 'array', items: { type: 'string' }, description: 'Suburbs, as the visitor said them. Up to 8.' },
+        state: { type: 'string', enum: ['NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT'] },
+        priceTo: { type: 'number', description: 'Only if the visitor gave a ceiling. Whole dollars.' },
+        bedrooms: { type: 'number', description: 'At least this many, only if they said.' },
+        propertyType: { type: 'string', description: 'house, apartment, townhouse… only if they said.' },
+      },
+    },
+  },
+  {
     name: 'draft_message',
     description:
       "Draft a message from the visitor to the agency selling one live listing — questions, a request to inspect, anything they asked you to put to the agent — from their own words in this conversation and the listing's facts. It puts the draft in a card they edit and send themselves; it sends NOTHING. Never draft an offer or a price.",
@@ -594,6 +614,11 @@ export async function dispatchTool(
         const parsed = landAndZoningInput.safeParse(rawInput);
         if (!parsed.success) return invalid(name, parsed.error);
         return await runLandAndZoning(parsed.data, ctx);
+      }
+      case 'homes_that_look_like': {
+        const parsed = homesThatLookLikeInput.safeParse(rawInput);
+        if (!parsed.success) return invalid(name, parsed.error);
+        return await runHomesThatLookLike(parsed.data, ctx);
       }
       case 'draft_message': {
         const parsed = draftMessageInput.safeParse(rawInput);

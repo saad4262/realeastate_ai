@@ -56,7 +56,7 @@ export type ConsumerSkill = {
 export const CONSUMER_SKILLS: readonly ConsumerSkill[] = Object.freeze([
   { key: 'property_search', group: 'Find homes', name: 'AI Property Search', description: 'Ask for a home in your own words and the guide searches the live listings.', kind: 'answers', account: false, status: 'live', phase: 'live' },
   { key: 'discovery', group: 'Find homes', name: 'Discovery AI', description: 'Homes you may like, including ones not advertised for sale.', kind: 'answers', account: false, status: 'live', phase: 'C7' },
-  { key: 'visual_search', group: 'Find homes', name: 'Visual Search AI', description: 'Find homes by how they look: the style, the rooms, the garden.', kind: 'answers', account: false, status: 'planned', phase: 'C9' },
+  { key: 'visual_search', group: 'Find homes', name: 'Visual Search AI', description: 'Find homes whose photos look like your words or like a photo on this site. Early: it works once there are enough photos to compare.', kind: 'answers', account: false, status: 'partial', phase: 'C9' },
   { key: 'opportunities', group: 'Find homes', name: 'Opportunity AI', description: "Price reductions, homes on the market a long time, and asking prices below this site's recent sales.", kind: 'answers', account: false, status: 'live', phase: 'C7' },
   { key: 'property_analyst', group: 'Understand a property', name: 'Property Analyst', description: 'One property explained from its records, including homes not for sale.', kind: 'answers', account: false, status: 'live', phase: 'C5' },
   { key: 'suburb_insights', group: 'Understand a property', name: 'Suburb AI', description: 'What has sold in a suburb, and how suburbs compare.', kind: 'answers', account: false, status: 'live', phase: 'C5' },
@@ -142,6 +142,7 @@ export const CONSUMER_SKILL_OF_TOOL: Readonly<Record<string, ConsumerSkillKey>> 
   draft_automation: 'automation',
   floorplan_rooms: 'immersive',
   land_and_zoning: 'development',
+  homes_that_look_like: 'visual_search',
 });
 
 /** The words every refusal uses, so the buyer (and the guide) know why and where to change it. */

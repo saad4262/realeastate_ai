@@ -45,7 +45,7 @@ written (2026-11-03) · Now = where it stands
 | 9 | Comparison AI (`comparison`) | answers | C5 | 0% | built (C5) | 2–4 properties side by side (numbers from SQL), the model explains the trade-offs |
 | 10 | Inspection AI (`inspection_planner`) | answers | C6 | 15% | built (C6) | Plan a Saturday: pick listings, order the open homes by time and distance, add to calendar |
 | 11 | Inspection Assistant (`inspection_notes`) 🔒 | answers | C6 | 0% | built (C6) | Notes, photos and a checklist per inspection, private to the buyer, summarised |
-| 12 | Visual Search AI (`visual_search`) | answers | C9 | 0% | C9 | "Homes that look like this" from a photo or a style (image embeddings) |
+| 12 | Visual Search AI (`visual_search`) | answers | C9 | 90% | C9 | "Homes that look like this" from words or a photo on this site (Voyage multimodal into pgvector); early until 500 photos, embedding off until the user's go |
 | 13 | Immersive Property AI (`immersive`) | answers | C9 | 100% | C9 | Floorplans, video and tours stored and shown; ask the guide about a room |
 | 14 | Agent AI (`agent_messages`) 🔒 | acts | C8 | 45% | built (C8) | The guide drafts an enquiry or question to the agent; the buyer reads it and sends it |
 | 15 | Buyer AI (`buyer_assistant`) | answers | grows | 10% | grows with each | The property chat itself; each skill adds its tool here, behind its own switch |
@@ -168,7 +168,7 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   `/account/tasks` (+ a page per task), `/account/automations` (+ the log), "Drafted with the guide" on Messages,
   the unsubscribe route, the alerts cron runs both ticks. The guide: `draft_message`, `draft_task`,
   `draft_automation` (prompt v17). Smoke 22/22; live 15/15 three runs in a row (the user's go). TEST-PLAN CN.
-- [ ] C9 — Media & land, in the approved order. **Immersive built** (2026-11-04, uncommitted until the user's review):
+- [x] C9 — Media & land, in the approved order. **Immersive built** (2026-11-04, uncommitted until the user's review):
   `packages/core/src/media/links.ts` (the allowlist — YouTube, Vimeo, Matterport — stored as `provider:id`, never a URL;
   embed addresses built by code, the privacy-enhanced players) and `media/extras.ts` (floorplans as listing images,
   links, the public read, removal, the strict room-names schema and the cron batch that reads them); the import's
@@ -178,4 +178,9 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   (2026-11-04): `packages/core/src/development/` (`sources.ts` per state, `zoning.ts` — VIC and NSW asked live, SA from
   `planning_zone`, read strictly; the panel; the guide's result), migration 0089 and `packages/db/src/zones-load.ts`
   (SA's download → 5,402 polygons); "Land and zoning" on listings and /property pages (streamed); the guide's
-  `land_and_zoning` (prompt v19). TEST-PLAN CP. Next: Visual Search.
+  `land_and_zoning` (prompt v19). TEST-PLAN CP. Committed `425ada3` (migration `35eaebf`). **Visual Search built
+  offline** (2026-11-04): migration 0090 (`media_embedding`, the user's go), `packages/core/src/visual-search/`
+  (filters first, then the vectors order; no score; "still filling up" below 500; the embedding batch, off by
+  default behind `VISUAL_EMBED_ENABLED`), the Voyage multimodal embedder (packages/ai, metered, fake-tested only),
+  /look and the listing's "Homes that look like this photo", the guide's `homes_that_look_like` (prompt v20).
+  TEST-PLAN CQ. Live checks green (the user's go). Backfill waits for agencies' photos (the user's go, or the switch).

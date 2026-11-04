@@ -25,6 +25,15 @@ const PRICES: Readonly<Record<string, Price>> = Object.freeze({
     cacheWriteMultiplier: 1,
     cacheReadMultiplier: 1,
   },
+  // Voyage voyage-multimodal-3.5 (ADR 0080 C9), docs.voyageai.com/docs/pricing 2026-11-04: images $0.60 per billion
+  // pixels (560 pixels = 1 token → $0.336 per 1M tokens), text $0.12 per 1M. Metered on total_tokens at the image rate,
+  // so a text query is over-counted, never under (150B pixels free per account — not modelled).
+  'voyage-multimodal-3.5': {
+    inputPerMTok: 0.336,
+    outputPerMTok: 0,
+    cacheWriteMultiplier: 1,
+    cacheReadMultiplier: 1,
+  },
   'claude-opus-5-5': {
     inputPerMTok: 4,
     outputPerMTok: 20,

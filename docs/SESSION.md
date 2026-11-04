@@ -28,6 +28,15 @@ passes ~10 entries, move the older ones to a new archive file.
   markup let through, WA asked, "can be subdivided" not caught; the subject's second read (query count).
 - Smoke "Consumer skills" 25/25 (one earlier run lost a check to DNS, rerun clean); VIC and NSW answered live in the
   shape read. Live check (the user's go): the guide called `land_and_zoning`, named GRZ1 with its source, no advice.
+- Development committed and pushed (`35eaebf`, `425ada3`). Visual Search built offline: migration 0090 applied (the
+  user's go), Voyage multimodal API and pricing checked against its docs (POST /v1/multimodalembeddings; $0.60 per
+  billion pixels, 150B free), the embedder fake-tested only, the cron's embedding behind `VISUAL_EMBED_ENABLED`
+  (off). Break-tests red then restored: the switch ignored, a score on the card, the filling-up gate skipped, the
+  price filter dropped. Smoke fixes: two checks still named Visual Search as the unbuilt skill; Opportunity's
+  "94 days" read 95 in Sydney's calendar near midnight across daylight saving (either accepted, with the reason).
+- Smoke 26/26. Live (the user's go): Voyage embedded the floorplan fixture nearer "an architectural floor plan drawing"
+  (0.414) than "a beach at sunset" (−0.028), metered in ai_run; the guide called `homes_that_look_like` and said the
+  order is by how alike the photos look, no score. Backfill not run (0 public photos), by the user's decision.
 
 ## 2026-11-04 (late) — Claude Code (Mac) — C8 Acting for the buyer in the user's autonomous loop
 

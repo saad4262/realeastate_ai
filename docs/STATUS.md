@@ -82,7 +82,13 @@ production database.
    (`planning_zone`, the user's go; 90 recorded) and SA's zones loaded (5,402 polygons, 65 zones, data dated
    2026-08-21, 20 MB; reload: `pnpm --filter @repo/db db:zones`, fortnightly at most); VIC/NSW asked live. Unit
    core 1795 / ai 418, typecheck 10/10, lint 0 errors, web build, smoke "Consumer skills" 25/25, its live check green
-   (the user's go). Visual Search next: 1 photo in the database (on a sold listing), 0 on public listings. Real data: 1 photo in the database; REAXML import reads no floorplans, video or tour links yet.
+   (the user's go). Visual Search BUILT and committed: migration 0090
+   (`media_embedding`, HNSW; the user's go; 91 recorded); filters first then vectors; "still filling up" below 500
+   searchable photos (0 today: 1 photo in the database, on a sold listing); embedding OFF behind
+   `VISUAL_EMBED_ENABLED` (the user's call). Unit core 1807 / ai 426, typecheck 10/10, lint, web build, smoke
+   "Consumer skills" 26/26, both live checks green (the user's go; 3 Voyage calls metered, $0.0006). All 21 consumer
+   skills built (C0–C9). Backfill NOT run — 0 public photos; the user approves it, or sets VISUAL_EMBED_ENABLED=on, once
+   agencies' photos arrive. Real data: 1 photo in the database; REAXML import reads no floorplans, video or tour links yet.
    TEST-PLAN CG/CH/CI: the user, in a browser. Re-check duty rates
    every 1 July (dates in `duty-rates.ts`); NT, ACT general and SA new-home relief still "not verified".
 1. Push and merge `chore/tech-debt` → `feat/sms-part2` → `feat/customer-profile` → `feat/consumer-skills` (the user's go).

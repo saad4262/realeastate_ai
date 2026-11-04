@@ -134,4 +134,12 @@ probe; simplified to about a metre, 20 MB), "data dated" by the file. WA (non-co
 layer), TAS, ACT and NT say "not verified" and link a checked map where there is one. What the state sends is read
 against the shapes it publishes; anything else shows nothing. The panel: the zone, the land size the page beside it
 shows (ADR 0075), the overlay map, "not a permission", five fixed questions; no model writes it. The guide's
-`land_and_zoning` (prompt v19) copies it and gives no advice.
+`land_and_zoning` (prompt v19) copies it and gives no advice. *Visual Search:* Voyage `voyage-multimodal-3.5` (1024) into `media_embedding`
+(migration 0090, the user's go; HNSW cosine index; RLS on). Words become one query embedding (cached an hour); "more
+like this photo" uses the photo's stored vector and costs nothing; no uploads. Postgres applies the filters (public,
+channel, suburbs, state, price, bedrooms, kind) and every candidate's distance is computed exactly, so the vectors only
+order what passed; each listing's closest photo is its card; no score reaches a page or the guide. Below 500
+searchable photos on public listings: "still filling up", and Voyage is not asked. The alerts cron always deletes the
+vectors of listings no longer public; it embeds new photos (20 a tick, 2,000 a day) only when `VISUAL_EMBED_ENABLED=on`
+— off by default, the user's call. Catalog status `partial` ("More coming") until the photos arrive. The guide's
+`homes_that_look_like` (prompt v20).

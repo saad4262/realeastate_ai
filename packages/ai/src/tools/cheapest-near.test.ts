@@ -60,7 +60,7 @@ function ctx(over: Partial<ToolContext> = {}) {
     places: new Map(),
     skillBlocks: new Map(),
     dueDiligence: async () => null,
-    research: async () => null, inspections: async () => null, discover: async () => ({ found: false, reason: 'signed_out', note: '' }), opportunities: async () => { throw new Error('not in this test'); }, draftMessage: async () => ({ error: 'not in this test' }), proposalSecret: null, floorplan: async () => null, development: async () => null,
+    research: async () => null, inspections: async () => null, discover: async () => ({ found: false, reason: 'signed_out', note: '' }), opportunities: async () => { throw new Error('not in this test'); }, draftMessage: async () => ({ error: 'not in this test' }), proposalSecret: null, floorplan: async () => null, development: async () => null, visualSearch: async () => ({ found: false, note: "not in this test", page: "/look" }),
     // These tests are about finding homes, not scheduling. `signed_out` is
     // the honest default: no session, so the scheduling tools refuse.
     scheduling: { state: 'signed_out' },

@@ -89,6 +89,8 @@ const THROUGH_PARENT: Record<string, [string, string]> = {
   team_member: ['team_id', 'team'],
   listing_agent: ['listing_id', 'listing'],
   media: ['listing_id', 'listing'],
+  // A listing photo's image vector (ADR 0080 C9, Visual Search).
+  media_embedding: ['listing_id', 'listing'],
   inspection: ['listing_id', 'listing'],
   mail_read: ['thread_id', 'mail_thread'],
   // A buyer's read mark on a conversation of theirs (ADR 0035 §2).

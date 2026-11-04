@@ -22,6 +22,7 @@ import { WatchButton } from '../../../components/watch-button';
 import { ExplainHome } from '../../../components/explain-home';
 import { SimilarHomes } from '../../../components/similar-homes';
 import { Immersive } from '../../../components/immersive';
+import { LookLikeThis } from '../../../components/look-like-this';
 import { suburbPath } from '../../../lib/suburb-slug';
 import { BeforeYouBuy } from '../../../components/before-you-buy';
 import { LandAndZoningSection } from '../../../components/land-and-zoning';
@@ -449,6 +450,8 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
               <Inspections inspections={inspections} listingId={listing.id} />
 
               <Immersive extras={extras} />
+
+              <LookLikeThis photoId={photos[0]?.id ?? null} />
 
               {listing.headline || listing.description ? (
                 <Card id="about" eyebrow="Property description" title="About this property">

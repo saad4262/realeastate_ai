@@ -17,6 +17,7 @@ import { AgentMessageError, draftAgentMessage } from '@repo/core/agent-messages'
 import { agentMessageWriterFromEnv } from '@repo/ai/acting';
 import { floorplanToolResult, listingExtras } from '@repo/core/media';
 import { landAndZoningToolResult } from '@repo/core/development';
+import { lookPageHref, lookToolResult } from '@repo/core/visual-search';
 import { consumerSkillBlocks, consumerSkillOffMessage, type ConsumerSkillBlock, type ConsumerSkillKey } from '@repo/core/consumer-skills';
 import {
   listSchedules,
@@ -31,6 +32,7 @@ import {
   cachedDueDiligence,
   cachedResearchData,
   cachedLandAndZoning,
+  cachedLook,
   cachedListing,
   cachedLiveListingId,
   cachedNearbyMarket,
@@ -210,6 +212,8 @@ function toolContext(userId: string | null, skillBlocks: ReadonlyMap<ConsumerSki
      * ADR 0080, C9 decisions 4–7: a PUBLIC address's zone — a live listing, or an address once advertised and now off
      * the market (the /property page's own gate); one re-listed since is read as its live listing.
      */
+    // ADR 0080, C9 decisions 9–11: homes whose photos look like the visitor's words or a public photo, within their filters.
+    visualSearch: async (ask) => lookToolResult(await cachedLook(ask), lookPageHref(ask)),
     development: async (ref) => {
       const listingId = 'listingId' in ref ? ref.listingId : await cachedLiveListingId(ref.propertyId);
       const found = listingId ? await cachedListing(listingId) : null;

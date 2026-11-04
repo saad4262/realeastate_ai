@@ -13,6 +13,8 @@ import { runAutomationTick } from '@repo/core/automation';
 import { taskSummaryWriterFromEnv } from '@repo/ai/acting';
 import { readFloorplanBatch } from '@repo/core/media';
 import { floorplanReaderFromEnv } from '@repo/ai/floorplan';
+import { embedPhotoBatch, visualEmbedEnabled } from '@repo/core/visual-search';
+import { imageEmbedderFromEnv } from '@repo/ai/visual-embed';
 import { purgeWorkflowHistory } from '@repo/core/workflows';
 import { runSkillTick } from '@repo/core/skills';
 import {
@@ -100,6 +102,9 @@ async function handler(request: NextRequest) {
 
     // ADR 0080 C9: a few public floorplans' room names a tick (names only, metered); no key → none read. Cannot fail the tick.
     const floorplans = await readFloorplanBatch(getWebDb(), floorplanReaderFromEnv(getWebDb())).catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'floorplan tick failed' }));
+    // ADR 0080 C9: Visual Search's photo vectors. Removing those of listings no longer public always runs (free);
+    // embedding new photos (paid) only when VISUAL_EMBED_ENABLED=on — OFF by default, the user's call. Cannot fail the tick.
+    const visual = await embedPhotoBatch(getWebDb(), imageEmbedderFromEnv(getWebDb()), { enabled: visualEmbedEnabled() }).catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'visual tick failed' }));
 
     const mail = await pullReceivedMail({ db: getWebDb });
     if (mail.followUp) after(mail.followUp);
@@ -183,7 +188,7 @@ async function handler(request: NextRequest) {
 
     // No ids, no addresses, no listing text — this is read from a cron log.
     return NextResponse.json(
-      { ok: true, ...report, watch, tasks, automation, floorplans, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, stuckMail, skills, templateEmail, appointmentSync, assistant, imports, searchIndex },
+      { ok: true, ...report, watch, tasks, automation, floorplans, visual, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, stuckMail, skills, templateEmail, appointmentSync, assistant, imports, searchIndex },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (err) {
