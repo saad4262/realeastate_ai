@@ -1852,6 +1852,33 @@ export const suburbCensus = pgTable(
 );
 
 /**
+ * A state's planning zones, for the states that publish them only as a download (ADR 0080, C9 decision 4): today South
+ * Australia's Planning and Design Code zones (CC BY), loaded by `pnpm --filter @repo/db db:zones`. Public reference data
+ * — nobody's own, so no agency or person owns a row. VIC and NSW are asked live and never stored here.
+ *
+ * The polygon is `geom geometry(MultiPolygon, 4326)`, added by the migration and deliberately absent from this schema,
+ * as `property.geom` is: Drizzle has no geometry type, and the zone lookup reads it through raw SQL (ST_Covers).
+ */
+export const planningZone = pgTable(
+  'planning_zone',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    state: varchar('state', { length: 8 }).notNull(),
+    /** Which loader wrote it: 'sa_pdcode'. A reload replaces every row of its source in one transaction. */
+    source: varchar('source', { length: 24 }).notNull(),
+    /** The publisher's own feature id, so a row can be traced back to the file. */
+    sourceRef: varchar('source_ref', { length: 64 }).notNull(),
+    /** The zone's code and name as the state publishes them — "GN", "General Neighbourhood". */
+    zoneCode: varchar('zone_code', { length: 24 }).notNull(),
+    zoneName: text('zone_name').notNull(),
+    /** The date the publisher's file was made (its own date, not ours): what "data dated" shows. */
+    publishedOn: date('published_on', { mode: 'string' }).notNull(),
+    loadedAt: timestamp('loaded_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('planning_zone_source_idx').on(t.source)],
+);
+
+/**
  * Inspection Assistant (ADR 0080, C6 decisions 6–8): a buyer's own notebook for one home — the fixed checklist's
  * marks, their notes, their photos. The owner's only: no agency, agent or platform admin reads it, or learns it
  * exists, and nothing here feeds leads, the customer profile or the Personal Property AI. One per buyer per listing.

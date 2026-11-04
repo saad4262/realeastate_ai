@@ -18,7 +18,8 @@
     "db:repair-listings": "tsx src/repair-listings.mts",
     "db:reset": "tsx src/reset.ts",
     "db:platform-admin": "tsx src/platform-admin.ts",
-    "db:census": "tsx src/census-load.ts"
+    "db:census": "tsx src/census-load.ts",
+    "db:zones": "tsx src/zones-load.ts"
   },
   "dependencies": {
     "@repo/config": "workspace:*",
