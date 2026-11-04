@@ -115,7 +115,8 @@ const SHARED = ['property', 'place_cache', 'user', 'agency', 'suburb_census'] as
 /** A public-site visitor's own data (ADR 0011): owned by a person, never an agency. */
 // consumer_skill_switch (ADR 0080): a buyer's own skill switches. property_watch(_event) (C4): addresses they follow.
 // inspection_note / inspection_photo (C6): a buyer's private inspection notebook.
-const PUBLIC_SITE_USER = ['search_schedule', 'schedule_run', 'chat_thread', 'chat_message', 'shortlist', 'event', 'consumer_skill_switch', 'property_watch', 'property_watch_event', 'buyer_profile', 'inspection_note', 'inspection_photo'] as const;
+// discovery_hidden (C7): the addresses a buyer asked Discovery not to suggest again.
+const PUBLIC_SITE_USER = ['search_schedule', 'schedule_run', 'chat_thread', 'chat_message', 'shortlist', 'event', 'consumer_skill_switch', 'property_watch', 'property_watch_event', 'buyer_profile', 'inspection_note', 'inspection_photo', 'discovery_hidden'] as const;
 
 /**
  * The platform's own (ADR 0049): who is a platform admin, and every page one opened. Read and

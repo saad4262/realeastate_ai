@@ -610,6 +610,13 @@
       "when": 1793731824453,
       "tag": "0086_inspection_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1793774369207,
+      "tag": "0087_discovery_hidden",
+      "breakpoints": true
     }
   ]
 }

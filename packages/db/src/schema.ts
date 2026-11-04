@@ -1884,6 +1884,25 @@ export const inspectionPhoto = pgTable(
   (t) => [uniqueIndex('inspection_photo_key_idx').on(t.storageKey), index('inspection_photo_note_idx').on(t.noteId, t.createdAt)],
 );
 
+/**
+ * Discovery AI's "Not for me" (ADR 0080, C7 decision 4): an ADDRESS a buyer asked not to be suggested again, so a
+ * relisted home stays hidden. It only hides — it teaches the profile nothing — and "Forget everything" clears it.
+ * The owner's only (ADR 0011).
+ */
+export const discoveryHidden = pgTable(
+  'discovery_hidden',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => property.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.propertyId] })],
+);
+
 export const event = pgTable('event', {
   id: uuid('id').primaryKey().defaultRandom(),
   type: varchar('type', { length: 128 }).notNull(),
@@ -3417,6 +3436,7 @@ export type BuyerProfile = typeof buyerProfile.$inferSelect;
 export type SuburbCensus = typeof suburbCensus.$inferSelect;
 export type InspectionNote = typeof inspectionNote.$inferSelect;
 export type InspectionPhoto = typeof inspectionPhoto.$inferSelect;
+export type DiscoveryHidden = typeof discoveryHidden.$inferSelect;
 export type Deal = typeof deal.$inferSelect;
 export type DealCondition = typeof dealCondition.$inferSelect;
 export type DealEvent = typeof dealEvent.$inferSelect;
