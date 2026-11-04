@@ -67,7 +67,9 @@ production database.
    prompt v14 tightened twice on what they found). C6 Inspections: mock `docs/mocks/consumer-inspections.html`
    (nine decisions) approved 2026-11-04; C6 built in the user's autonomous loop; 0086 applied, bucket made, smoke and
    live checks green; committed and pushed 2026-11-04. TEST-PLAN CK1–CK9, CL1–CL13: the user, in a browser.
-   Next: C7 mock.
+   C7 Discovery & Opportunity: mock `docs/mocks/consumer-discovery.html` (ten decisions) approved 2026-11-04 (all ten
+   as recommended); building in the user's autonomous loop. Real data for it today: 25 homes for sale (6 at 60+ days, median 42), 0 price
+   changes recorded, no suburb with 10 sales, 5 sales all Oct 2026 (so no not-for-sale home qualifies yet).
    TEST-PLAN CG/CH/CI: the user, in a browser. Re-check duty rates
    every 1 July (dates in `duty-rates.ts`); NT, ACT general and SA new-home relief still "not verified".
 1. Push and merge `chore/tech-debt` → `feat/sms-part2` → `feat/customer-profile` → `feat/consumer-skills` (the user's go).

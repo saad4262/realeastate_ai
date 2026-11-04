@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Discovery and opportunities — mock</title>
+<!--
+  Mock for docs/CONSUMER-SKILLS.md C7 (ADR 0080): Discovery AI ("you may like": similar homes on a listing, For you
+  from the Personal Property AI profile, homes not for sale that this site sold) and Opportunity AI (price reduced,
+  long campaigns, asking below this site's median — every figure from SQL, never a verdict). Public site, the site's
+  warm palette (as the C1–C6 mocks). Hand-made, SAMPLE data: addresses, prices, dates and counts are invented. On a
+  real page every price and date is a listing's own, every difference and median computed by Postgres.
+  Screens by hash: #rules (opens first), #similar, #foryou, #opportunities, #thin, #chat.
+-->
+<style>
+  :root {
+    --canvas: #f7f4ef; --card: #fff; --sunken: #f1ece3; --ink: #1a1a1a; --ink-soft: #5c5c5c; --ink-faint: #8c8577;
+    --line: #d9d2c5; --line-subtle: #ece7dd; --brand: #0b3d2e; --brand-ink: #f7f4ef;
+    --success: #0f7a52; --success-soft: #e8f4ee; --notice: #a8620a; --notice-soft: #fbf1e3; --danger: #a12a2a; --danger-soft: #f8e9e7; --info: #1d4e89; --info-soft: #e9eff7;
+    --display: Georgia, 'Times New Roman', serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  a { color: var(--brand); }
+  .mockbar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px; background: #222; color: #ddd; font-size: 13px; }
+  .mockbar b { margin-right: 8px; color: #fff; }
+  .mockbar a { color: #ddd; text-decoration: none; padding: 2px 10px; border-radius: 999px; border: 1px solid #555; }
+  .mockbar a.on { background: #fff; color: #222; }
+  header.site { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; background: var(--card); border-bottom: 1px solid var(--line); }
+  .brand { font-family: var(--display); font-weight: 700; font-size: 20px; color: var(--brand); }
+  header.site nav a { margin-left: 18px; color: var(--ink-soft); text-decoration: none; font-size: 14px; }
+  main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; }
+  section.screen { display: none; }
+  section.screen.on { display: block; }
+  h1 { font-family: var(--display); font-size: clamp(26px, 3.4vw, 34px); letter-spacing: -.02em; margin: 0 0 6px; }
+  h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); margin: 0 0 12px; }
+  h3 { font-size: 16px; margin: 0 0 4px; }
+  .lede { color: var(--ink-soft); margin: 0 0 20px; max-width: 72ch; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; margin-bottom: 16px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) 320px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--sunken); color: var(--ink-soft); vertical-align: middle; }
+  .tag.ai { background: var(--info-soft); color: var(--info); }
+  .tag.warn { background: var(--notice-soft); color: var(--notice); }
+  .tag.ok { background: var(--success-soft); color: var(--success); }
+  .muted { color: var(--ink-soft); font-size: 13px; }
+  .source { font-size: 12px; color: var(--ink-faint); margin-top: 8px; }
+  .note { border-left: 4px solid var(--info); background: var(--info-soft); padding: 10px 14px; border-radius: 8px; font-size: 14px; margin: 12px 0; }
+  .note.warn { border-color: var(--notice); background: var(--notice-soft); }
+  .btn { display: inline-block; padding: 8px 14px; border-radius: 999px; background: var(--brand); color: var(--brand-ink); text-decoration: none; font-weight: 600; font-size: 13px; border: 0; cursor: pointer; }
+  .btn.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  .btn.small { padding: 4px 10px; font-size: 12px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .rules ol { padding-left: 20px; margin: 0; }
+  .rules li { margin-bottom: 14px; }
+  .rules li b { display: block; }
+  .rules h3 { margin: 18px 0 8px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); }
+  .rules h3:first-child { margin-top: 0; }
+  .rec { display: inline-block; margin-top: 4px; font-size: 13px; color: var(--success); font-weight: 600; }
+  .alt { display: block; font-size: 13px; color: var(--ink-faint); }
+  /* home cards */
+  .homes { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+  .home { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
+  .home .pic { aspect-ratio: 16 / 10; background: linear-gradient(135deg, #e9e2d5, #d8cfbf); }
+  .home .body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .home .price { font-weight: 700; }
+  .home .addr { font-size: 14px; }
+  .home .facts { font-size: 13px; color: var(--ink-soft); }
+  .why { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+  .why span { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: var(--success-soft); color: var(--success); }
+  .why span.miss { background: var(--notice-soft); color: var(--notice); }
+  .home .foot { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 6px; font-size: 12.5px; }
+  .home .foot a { color: var(--ink-soft); }
+  .offmarket .home .pic { background: repeating-linear-gradient(135deg, #ece7dd 0 10px, #e4ddd0 10px 20px); }
+  /* opportunities */
+  .opp { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; padding: 16px 0; border-top: 1px solid var(--line-subtle); }
+  .opp:first-of-type { border-top: 0; }
+  .opp .pic { aspect-ratio: 1; border-radius: 10px; background: linear-gradient(135deg, #e9e2d5, #d8cfbf); }
+  @media (max-width: 600px) { .opp { grid-template-columns: 1fr; } .opp .pic { aspect-ratio: 16/9; } }
+  .signal { margin-top: 8px; padding: 10px 12px; border-radius: 10px; background: var(--sunken); font-size: 14px; }
+  .signal b { display: block; }
+  details { margin-top: 6px; font-size: 13.5px; color: var(--ink-soft); }
+  details summary { cursor: pointer; color: var(--brand); }
+  details ul { margin: 6px 0 0; padding-left: 18px; }
+  .field { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 0; font-size: 14px; }
+  select, input[type=text] { font: inherit; font-size: 14px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: #fff; max-width: 160px; }
+  .chk { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; font-size: 14px; }
+  .count { font-variant-numeric: tabular-nums; color: var(--ink-faint); }
+  .row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line-subtle); font-size: 14px; }
+  .row:first-child { border-top: 0; }
+  .chat { max-width: 760px; }
+  .bubble { padding: 12px 16px; border-radius: 16px; margin: 10px 0; max-width: 85%; }
+  .bubble.me { margin-left: auto; background: var(--brand); color: var(--brand-ink); border-bottom-right-radius: 4px; }
+  .bubble.ai { background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .toolcard { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fffdfa; margin: 8px 0; font-size: 14px; }
+  .dropped { font-size: 12.5px; color: var(--ink-faint); text-decoration: line-through; }
+</style>
+</head>
+<body>
+<div class="mockbar"><b>MOCK · C7 Discovery &amp; Opportunity</b>
+  <a href="#rules">Decisions</a><a href="#similar">Similar homes</a><a href="#foryou">For you</a><a href="#opportunities">Opportunities</a><a href="#thin">Not enough data</a><a href="#chat">In the guide</a>
+</div>
+<header class="site"><span class="brand">site.com.au</span><nav><a href="#">Buy</a><a href="#opportunities">Opportunities</a><a href="#foryou">For you</a><a href="#chat">Ask the guide</a></nav></header>
+<main>
+
+<!-- ───────────────────────── DECISIONS ───────────────────────── -->
+<section class="screen rules" id="rules">
+  <h1>Discovery &amp; Opportunity — ten decisions</h1>
+  <p class="lede">Two skills that point a buyer at homes they did not search for. <b>Discovery AI</b> suggests homes like one they are looking at, or like the profile they chose to keep, and includes a few homes that are not for sale. <b>Opportunity AI</b> finds homes for sale whose own records show something worth asking about: a price reduction, a long campaign, an asking price under what this site has seen sell. The risks are a model that ranks or judges homes nobody can check, approaches to owners who never chose to sell, and a "bargain" label that is really just a smaller house. Each decision has a recommendation. Say "all recommended" or name the ones to change.</p>
+  <div class="card"><ol>
+    <h3>Discovery AI</h3>
+    <li><b>1. Built only from what you told us, in the open.</b>There are two starting points. <b>Similar homes</b> on a listing uses that home's suburb, kind, bedrooms and price, uses no personal data, and works signed out. <b>For you</b> (signed in) uses your Personal Property AI profile (C4), only if you switched it on. If the profile is off, For you says so and offers the switch. Nothing is learnt from what you view or click in Discovery.
+      <span class="rec">Recommended: yes.</span>
+      <span class="alt">Alternative: learn quietly from views and clicks. This goes against C4's rule that learning starts only when you switch it on.</span></li>
+    <li><b>2. Matched and ordered by code; every card says why.</b>Postgres filters to homes for sale (live) in your channel and property kinds, priced at or under your budget (the top of a range counts). A home with no price shows "No price given". A card may differ on <b>one</b> thing and says which: a suburb not on your list but within 5 km (straight line) of one that is, or one more bedroom. It never goes over budget. Order: fewest differences, then nearest, then newest; up to 12. No model picks, scores or writes the reasons.
+      <span class="rec">Recommended: yes.</span>
+      <span class="alt">Alternative: a model or embeddings (C9's provider) reranking from the ad text. It is harder to explain why a home appears, and it is metered.</span></li>
+    <li><b>3. Homes not for sale: only addresses this site sold, at least 12 months ago, in their own section.</b>At most 3, labelled "Not for sale · sold on this site in Sep 2024" and never mixed with homes for sale. The first action is "Watch this address" (Property Monitor). "Make a private offer" comes second; it needs sign-in and goes to the agency that sold it (ADR 0012). A home bought less than 12 months ago never appears, nor does anything on the market or under offer. <b>Today none qualify</b>: all 5 sales on this site are from October 2026.
+      <span class="rec">Recommended: 12 months.</span>
+      <span class="alt">Alternatives: 6 months; or no homes that are not for sale in C7.</span></li>
+    <li><b>4. "Not for me" hides a home from your suggestions.</b>It is stored for you alone (migration 0087: <code>discovery_hidden</code>, owner-only in <code>can()</code>, classified PUBLIC_SITE_USER), can be undone from "Hidden homes", and is wiped by "Forget everything". It only hides; it does not teach the profile. Signed-out visitors cannot hide homes.
+      <span class="rec">Recommended: yes.</span>
+      <span class="alt">Alternative: no hiding in C7, so no new table.</span></li>
+
+    <h3>Opportunity AI</h3>
+    <li><b>5. Three signals, each from SQL, each with its date and numbers.</b>
+      <ul>
+        <li><b>Price reduced:</b> from the price-change records (C2's trigger). The low end went down, and Postgres computes the difference. "Contact agent" changing to a number is not a reduction. Price changes have been recorded only since 3 Nov 2026.</li>
+        <li><b>On the market a long time:</b> 60 days or more since this campaign was published. The median for homes for sale today is 42 days. A relisted home counts from its new campaign and says so.</li>
+        <li><b>Asking below this site's median:</b> compared only with sales on this site in the same suburb, of the same kind <i>and</i> the same number of bedrooms, and only with 10 or more such sales in 12 months (C5's rule). The number of sales is shown.</li>
+      </ul>
+      For sale only; no rentals in C7.
+      <span class="rec">Recommended: yes.</span>
+      <span class="alt">Alternative for the median: suburb and kind only. This shows more homes, but compares a 2-bedroom house with sales of 4-bedroom ones.</span></li>
+    <li><b>6. Facts, never a verdict.</b>Each label is a fact: "Price reduced", "On the market 94 days", "Asking below this site's median". Each signal has a fixed paragraph we wrote about what it can and cannot mean, plus two questions to ask the agent. A test bans words like <i>bargain, undervalued, under-priced, steal, motivated or desperate vendor, good deal</i> from our text and the guide's prompt. No model-written paragraph on the page.
+      <span class="rec">Recommended: yes.</span>
+      <span class="alt">Alternative: an AI paragraph on a button, checked like C5's (citations, figures, the verdict rule).</span></li>
+    <li><b>7. One public page, no badges, no email.</b><code>/opportunities</code> filters by suburbs or a state, a price ceiling, bedrooms, kind and signal. "Match my profile" appears when Personal Property AI is on. The listing page is unchanged: C2's "Before you buy" already shows days on the market and price changes. No badges on search results. No email in C7; "tell me when a price drops" is an automation and belongs to C8.
+      <span class="rec">Recommended: yes.</span>
+      <span class="alt">Alternative: a "Price reduced" badge on search result cards. It is visible to every buyer, and agencies may push back.</span></li>
+    <li><b>8. It says what it cannot show.</b>Each signal shows how many homes in the area have it. An empty one says why: "price changes are recorded from 3 Nov 2026; none in Pakenham yet", or "the median needs 10 sales of 3-bedroom houses in 12 months; Pakenham has 4". <b>Today:</b> 6 homes for sale at 60+ days, 0 price changes, and no suburb with 10 sales.
+      <span class="rec">Recommended: yes.</span></li>
+
+    <h3>Both</h3>
+    <li><b>9. The guide gets two tools, records only (prompt v16).</b><code>discover_homes</code> (from your profile when it is on, or from a listing id) and <code>find_opportunities</code> (area, ceiling, signals) return what the pages show, behind their own switches. The guide copies the facts and links to the page. It never calls a home a bargain and never guesses a value.
+      <span class="rec">Recommended: yes.</span></li>
+    <li><b>10. Switches and privacy.</b>Both are "answers" skills, ON by default (ADR 0080). Similar homes and Opportunities are public; For you needs an account and the profile. No agency sees what a buyer was suggested, hid or opened (ADR 0011). Suggestions are worked out when the page opens and not stored; the only thing kept is what you hid.
+      <span class="rec">Recommended: yes.</span></li>
+  </ol></div>
+  <p class="muted">Not in C7: rentals for either skill; "back on the market" (there is no status history yet); suggestions by email; a model ranking homes.</p>
+</section>
+
+<!-- ───────────────────────── SIMILAR HOMES (listing) ───────────────────────── -->
+<section class="screen" id="similar">
+  <p class="muted"><a href="#">Buy</a> › Pakenham › 12 Rogers Street</p>
+  <h1>12 Rogers Street, Pakenham VIC 3810</h1>
+  <p class="lede">3 bed · 2 bath · 2 car · house · 612 m² · <b>Offers over $690,000</b></p>
+  <div class="card">
+    <h2>Similar homes for sale</h2>
+    <p class="muted" style="margin-top:-6px">Chosen by suburb, kind, bedrooms and price, from this home's own details. Distances are straight lines.</p>
+    <div class="homes">
+      <div class="home"><div class="pic"></div><div class="body">
+        <span class="price">Offers over $675,000</span><span class="addr">8 Dalton Close, Pakenham</span><span class="facts">3 bed · 2 bath · house</span>
+        <div class="why"><span>Pakenham</span><span>3 bed</span><span>house</span><span>within 10% of the price</span></div>
+        <div class="foot"><span class="muted">0.8 km</span><a href="#">View</a></div></div></div>
+      <div class="home"><div class="pic"></div><div class="body">
+        <span class="price">$700,000 – $740,000</span><span class="addr">14 Station Street, Officer</span><span class="facts">3 bed · 1 bath · house</span>
+        <div class="why"><span>3 bed</span><span>house</span><span>within 10% of the price</span><span class="miss">Officer · 3.6 km away</span></div>
+        <div class="foot"><span class="muted">3.6 km</span><a href="#">View</a></div></div></div>
+      <div class="home"><div class="pic"></div><div class="body">
+        <span class="price">Offers over $705,000</span><span class="addr">3 Mira Court, Pakenham</span><span class="facts">4 bed · 2 bath · house</span>
+        <div class="why"><span>Pakenham</span><span>house</span><span>within 10% of the price</span><span class="miss">4 bed · one more</span></div>
+        <div class="foot"><span class="muted">1.4 km</span><a href="#">View</a></div></div></div>
+    </div>
+    <p class="source">For sale on this site now. A home under offer, a draft or a home not for sale is never shown here.</p>
+  </div>
+  <div class="note">Signed out, and nothing about this visitor is used: the same three homes appear for everyone looking at 12 Rogers Street today.</div>
+</section>
+
+<!-- ───────────────────────── FOR YOU (account) ───────────────────────── -->
+<section class="screen" id="foryou">
+  <h1>For you</h1>
+  <p class="lede">From your Personal Property AI profile. <a href="#">Edit it</a> and this list changes with it.</p>
+  <div class="grid">
+    <div>
+      <div class="homes">
+        <div class="home"><div class="pic"></div><div class="body">
+          <span class="price">Offers over $760,000</span><span class="addr">22 Lakeview Drive, Officer</span><span class="facts">3 bed · 2 bath · house</span>
+          <div class="why"><span>Officer</span><span>3 bed</span><span>house</span><span>under $800,000</span></div>
+          <div class="foot"><a href="#">Not for me</a><a href="#">View</a></div></div></div>
+        <div class="home"><div class="pic"></div><div class="body">
+          <span class="price">$770,000 – $800,000</span><span class="addr">9 Ridge Court, Pakenham</span><span class="facts">4 bed · 2 bath · house</span>
+          <div class="why"><span>Pakenham</span><span>house</span><span>up to $800,000</span><span class="miss">4 bed · one more than your 3</span></div>
+          <div class="foot"><a href="#">Not for me</a><a href="#">View</a></div></div></div>
+        <div class="home"><div class="pic"></div><div class="body">
+          <span class="price">Offers over $745,000</span><span class="addr">40 Grandview Boulevard, Clyde North</span><span class="facts">3 bed · 2 bath · house</span>
+          <div class="why"><span>3 bed</span><span>house</span><span>under $800,000</span><span class="miss">Clyde North · 4.2 km from Officer</span></div>
+          <div class="foot"><a href="#">Not for me</a><a href="#">View</a></div></div></div>
+        <div class="home"><div class="pic"></div><div class="body">
+          <span class="price">Contact agent</span><span class="addr">5 Bay Court, Pakenham</span><span class="facts">3 bed · 1 bath · house</span>
+          <div class="why"><span>Pakenham</span><span>3 bed</span><span>house</span><span class="miss">No price given</span></div>
+          <div class="foot"><a href="#">Not for me</a><a href="#">View</a></div></div></div>
+      </div>
+
+      <div class="card offmarket" style="margin-top:18px">
+        <h2>Not for sale · sold on this site</h2>
+        <p class="muted" style="margin-top:-6px">These owners have not put their homes on the market. Watch an address to hear if they do; an offer goes to the agency that sold it, and the owner may not want to sell.</p>
+        <div class="homes">
+          <div class="home"><div class="pic"></div><div class="body">
+            <span class="price">Not for sale</span><span class="addr">31 Hilltop Road, Pakenham</span><span class="facts">3 bed · house · sold on this site in Sep 2024</span>
+            <div class="why"><span>Pakenham</span><span>3 bed</span><span>house</span></div>
+            <div class="actions" style="margin-top:4px"><a class="btn small" href="#">Watch this address</a><a class="btn small ghost" href="#">Make a private offer</a></div></div></div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <h2>Your profile, as used here</h2>
+        <div class="row"><span>Suburbs</span><b>Pakenham, Officer</b></div>
+        <div class="row"><span>Buying</span><b>For sale</b></div>
+        <div class="row"><span>Up to</span><b>$800,000</b></div>
+        <div class="row"><span>Bedrooms</span><b>3</b></div>
+        <div class="row"><span>Kind</span><b>House</b></div>
+        <p class="source">A suggestion may differ on one thing, and says which: a suburb within 5 km of yours, or one more bedroom. Never over your budget.</p>
+      </div>
+      <div class="card">
+        <h2>Hidden homes · 2</h2>
+        <div class="row"><span>17 Princes Highway, Pakenham</span><a href="#">Show again</a></div>
+        <div class="row"><span>2/6 Henry Street, Pakenham</span><a href="#">Show again</a></div>
+        <p class="source">Only you see this. "Forget everything" on your profile clears it.</p>
+      </div>
+      <div class="note warn"><b>Profile off?</b> For you then reads: "For you uses your Personal Property AI profile, which is off. <a href="#">Switch it on</a>, or look at <a href="#similar">similar homes</a> on any listing." Nothing is suggested from what you viewed.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── OPPORTUNITIES ───────────────────────── -->
+<section class="screen" id="opportunities">
+  <h1>Opportunities</h1>
+  <p class="lede">Homes for sale whose own records show something worth asking the agent about. These are facts from this site's records, not a judgement of value.</p>
+  <div class="grid">
+    <div class="card">
+      <div class="opp"><div class="pic"></div><div>
+        <h3>5 Bay Court, Officer</h3><p class="muted" style="margin:0">3 bed · 1 bath · house · Offers over $695,000</p>
+        <div class="signal"><span class="tag ok">Price reduced</span><b>On 18 Nov 2026, from Offers over $720,000 to Offers over $695,000: $25,000 lower.</b><span class="muted">Price changes recorded on this site since 3 Nov 2026.</span></div>
+        <details><summary>What this can mean, and what to ask</summary>
+          <p>A lower asking price tells you the advertised figure moved. It doesn't tell you why, or what the seller will accept.</p>
+          <ul><li>Has there been an offer, and was it declined?</li><li>Is the seller's timing fixed (a settlement date they need to meet)?</li></ul></details>
+        <div class="actions"><a class="btn small ghost" href="#">Before you buy</a><a class="btn small ghost" href="#">Watch</a><a class="btn small ghost" href="#chat">Ask the guide</a></div>
+      </div></div>
+      <div class="opp"><div class="pic"></div><div>
+        <h3>18 Mill Street, Pakenham</h3><p class="muted" style="margin:0">3 bed · 2 bath · house · $730,000 – $760,000</p>
+        <div class="signal"><span class="tag warn">On the market a long time</span><b>94 days on the market in this campaign, since 2 Aug 2026.</b><span class="muted">The median for homes for sale on this site today is 42 days.</span></div>
+        <details><summary>What this can mean, and what to ask</summary>
+          <p>A long campaign can follow a price set above what buyers offered, a quiet season, or something about the home. The records can't tell which.</p>
+          <ul><li>What feedback has come from inspections?</li><li>Have any offers been made, and how close were they?</li></ul></details>
+        <div class="actions"><a class="btn small ghost" href="#">Before you buy</a><a class="btn small ghost" href="#">Watch</a><a class="btn small ghost" href="#chat">Ask the guide</a></div>
+      </div></div>
+      <div class="opp"><div class="pic"></div><div>
+        <h3>40 Kent Road, Pakenham</h3><p class="muted" style="margin:0">3 bed · 1 bath · house · Offers over $640,000</p>
+        <div class="signal"><span class="tag ai">Asking below this site's median</span><b>Asking from $640,000. 3-bedroom houses sold on this site in Pakenham, last 12 months: median $675,000 (12 sales).</b><span class="muted">Median computed by Postgres from this site's sales only.</span></div>
+        <details><summary>What this can mean, and what to ask</summary>
+          <p>A median is the middle of many different homes. Land size, condition and street all differ, so being below it says nothing about this home's value.</p>
+          <ul><li>How did the agent arrive at the price guide? Ask for the comparable sales.</li><li>Is there anything about the home or the land the price reflects?</li></ul></details>
+        <div class="actions"><a class="btn small ghost" href="#">Before you buy</a><a class="btn small ghost" href="#">Watch</a><a class="btn small ghost" href="#chat">Ask the guide</a></div>
+      </div></div>
+    </div>
+    <div>
+      <form class="card">
+        <h2>Where and what</h2>
+        <div class="field">Suburbs <input type="text" value="Pakenham, Officer"></div>
+        <div class="field">Up to <select><option>$800,000</option></select></div>
+        <div class="field">Bedrooms <select><option>3+</option></select></div>
+        <div class="field">Kind <select><option>House</option></select></div>
+        <label class="chk"><span><input type="checkbox" checked> Match my profile</span></label>
+        <h2 style="margin-top:12px">Signals</h2>
+        <label class="chk"><span><input type="checkbox" checked> Price reduced</span><span class="count">1</span></label>
+        <label class="chk"><span><input type="checkbox" checked> On the market 60+ days</span><span class="count">3</span></label>
+        <label class="chk"><span><input type="checkbox" checked> Asking below this site's median</span><span class="count">1</span></label>
+        <div class="actions"><button class="btn" type="button">Show homes</button></div>
+        <p class="source">For sale only. The filters live in the link; nothing is saved.</p>
+      </form>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── THIN DATA ───────────────────────── -->
+<section class="screen" id="thin">
+  <h1>Opportunities</h1>
+  <p class="lede">Berwick · up to $900,000 · houses</p>
+  <div class="grid">
+    <div class="card">
+      <div class="opp"><div class="pic"></div><div>
+        <h3>11 Clarke Crescent, Berwick</h3><p class="muted" style="margin:0">4 bed · 2 bath · house · Contact agent</p>
+        <div class="signal"><span class="tag warn">On the market a long time</span><b>71 days on the market in this campaign, since 25 Aug 2026.</b><span class="muted">It was also listed from Feb to Apr 2026; this campaign is counted on its own.</span></div>
+      </div></div>
+    </div>
+    <div class="card">
+      <h2>What we can't show yet</h2>
+      <div class="row"><span><b>Price reduced</b><br><span class="muted">Price changes are recorded from 3 Nov 2026. None in Berwick yet.</span></span><span class="count">0</span></div>
+      <div class="row"><span><b>Asking below this site's median</b><br><span class="muted">Needs 10 sales of houses with the same number of bedrooms in Berwick in 12 months. This site has 1.</span></span><span class="count">—</span></div>
+      <p class="source">These fill in as homes sell and prices change on this site. We don't import outside sales figures.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── THE GUIDE ───────────────────────── -->
+<section class="screen chat" id="chat">
+  <h1>The guide</h1>
+  <div class="bubble me">Any price drops in Pakenham or Officer under $800k?</div>
+  <div class="toolcard"><span class="tag ai">find_opportunities</span> Pakenham, Officer · up to $800,000 · price reduced → 1 home</div>
+  <div class="bubble ai">One home in those suburbs has had its asking price reduced on this site: <b>5 Bay Court, Officer</b>, a 3-bedroom house, now <b>Offers over $695,000</b>, down from Offers over $720,000 on 18 November ($25,000 lower). A reduction tells you the advertised price moved, not what the seller will accept. Worth asking the agent whether there's been an offer, and whether the seller's timing is fixed. <a href="#opportunities">See it on Opportunities</a>.</div>
+  <p class="dropped">Not allowed, and kept out by the prompt and the smoke check: "That's a bargain", "the vendor must be keen to sell", "it's probably worth $750,000".</p>
+  <div class="bubble me">What else might I like?</div>
+  <div class="toolcard"><span class="tag ai">discover_homes</span> from your profile (Pakenham, Officer · sale · up to $800,000 · 3 bed · house) → 4 homes, 1 not for sale</div>
+  <div class="bubble ai">From your profile, four homes for sale fit. <b>22 Lakeview Drive, Officer</b> (Offers over $760,000) matches everything. <b>9 Ridge Court, Pakenham</b> has one more bedroom than you asked for. <b>40 Grandview Boulevard</b> is in Clyde North, 4.2 km from Officer in a straight line. <b>5 Bay Court</b> has no price given. There's also one home that isn't for sale, 31 Hilltop Road, which this site sold in September 2024; you can watch the address. <a href="#foryou">Open For you</a>.</div>
+  <div class="note">With Personal Property AI off, <code>discover_homes</code> asks for a listing to start from, and the guide says the profile is off rather than guessing what you like.</div>
+</section>
+
+</main>
+<script>
+  function show() {
+    const id = (location.hash || '#rules').slice(1);
+    document.querySelectorAll('section.screen').forEach((s) => s.classList.toggle('on', s.id === id));
+    document.querySelectorAll('.mockbar a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + id));
+    window.scrollTo(0, 0);
+  }
+  addEventListener('hashchange', show);
+  show();
+</script>
+</body>
+</html>

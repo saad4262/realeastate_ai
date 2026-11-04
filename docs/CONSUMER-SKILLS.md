@@ -74,7 +74,7 @@ existing alerts must keep running — so it is ON (the same reasoning as ADR 006
   Property Monitor, Smart Alerts market changes.
 - **C5 — Research.** Property Analyst, Suburb AI pages, Comparison AI.
 - **C6 — Inspections.** Inspection planner (+ .ics), Inspection Assistant (private storage bucket).
-- **C7 — Discovery & Opportunity.**
+- **C7 — Discovery & Opportunity.** Mock `docs/mocks/consumer-discovery.html` (ten decisions, all approved as recommended 2026-11-04).
 - **C8 — Acting for the buyer.** Agent AI (draft → buyer sends), Tasks, Automation (reuses the schedule runner).
 - **C9 — Media & land.** Visual Search (embeddings provider), Immersive (media pipeline for floorplans and
   video — touches the console), Property Development AI (planning data source to be chosen).
