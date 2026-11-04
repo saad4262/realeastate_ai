@@ -505,6 +505,29 @@ export const media = pgTable('media', {
 });
 
 /**
+ * Visual Search AI (ADR 0080, C9 decisions 8–11): one image vector per listing photo, from Voyage
+ * `voyage-multimodal-3.5`, in our own Postgres. A vector exists only while its listing is public — the embedding
+ * batch removes the rest each tick, and every search joins the public filter anyway. `listing_id` is carried so the
+ * buyer's filters apply before the vectors order anything. No score is ever shown.
+ */
+export const mediaEmbedding = pgTable(
+  'media_embedding',
+  {
+    mediaId: uuid('media_id')
+      .primaryKey()
+      .references(() => media.id, { onDelete: 'cascade' }),
+    listingId: uuid('listing_id')
+      .notNull()
+      .references(() => listing.id, { onDelete: 'cascade' }),
+    /** Which model wrote it; a new model version is a re-embed, never a mix in one search. */
+    model: varchar('model', { length: 48 }).notNull(),
+    embedding: vector('embedding', { dimensions: 1024 }).notNull(),
+    embeddedAt: timestamp('embedded_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('media_embedding_listing_idx').on(t.listingId), index('media_embedding_vector_idx').using('hnsw', t.embedding.op('vector_cosine_ops'))],
+);
+
+/**
  * A public listing's price, before and after an agency changed it (ADR 0080, C2 decision 4). Written by the
  * `listing_price_change` trigger on every path that edits a price (the form, an import, the assistant), and
  * only once the listing has been public — a draft's edits are not history. Read by Due-Diligence AI as
