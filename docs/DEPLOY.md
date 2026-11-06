@@ -135,6 +135,10 @@ Nothing below is optional for production. Each line names what proves it is done
 - [ ] Unsubscribe link and sender postal address on every marketing email (already enforced in
       code — confirm with one real send).
 
+**Error monitoring** (ADR 0082)
+- [ ] `NEXT_PUBLIC_SENTRY_DSN` on all four projects, and `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` for readable
+      stacks. Proven by: an error thrown on a preview appears in Sentry with no email, cookie or query string in it.
+
 **Last checks**
 - [ ] `pnpm smoke` green against production (read-only groups) and TEST-PLAN's go-live
       sections walked once in a browser on the real domain.

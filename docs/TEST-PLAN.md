@@ -2174,3 +2174,40 @@ backfill (the user's go).
 | CQ7 | There is no way to upload a photo | No file field on /look; the guide never offers to look at the buyer's own photo. |
 | CQ8 | Skills → Visual Search AI off | /look and the listing link are hidden; the guide says it is off. Skills shows it with "More coming" (early). |
 
+## CR — Open homes: entering times on a listing (ADR 0081)
+
+Agency and agent consoles, and the public site. Migration 0091 applied. Mock: `docs/mocks/open-home-entry.html`.
+
+| # | Case | Expected |
+|---|---|---|
+| CR1 | Owner, a live listing, Open homes tab, no times yet | "No open homes yet", the form open with the coming Saturday, 10:00, 30 minutes; "Melbourne time" (or the property's city) |
+| CR2 | Add Saturday 10:00 for 30 minutes | It appears under Upcoming; the tab counts 1; the public listing shows "Open for inspection" with 10:00 am – 10:30 am and the city, within a minute at most |
+| CR3 | Open the public listing from a laptop set to another time zone | The same 10:00 am: the property's clock, not the viewer's or the server's |
+| CR4 | Repeat weekly for 4 weeks | The preview lists 4 dates, then 4 rows, each editable alone |
+| CR5 | A repeat where one week overlaps an existing time | Refused, naming that week; nothing saved |
+| CR6 | Add a past time; one 7 months ahead; 5 minutes long | Each refused with its reason |
+| CR7 | Add 9:30 pm | "That's 9:30 pm in … Is this right?"; saved only after Yes |
+| CR8 | "Next week" on a row | A copy 7 days on at the same hour |
+| CR9 | Edit a time a buyer has in a saved plan link | The plan link follows the new time |
+| CR10 | Remove a time a buyer has in a saved plan link | The warning about saved calendars shows; the plan lists the home under "Not this day" with its next time |
+| CR11 | Add an Auction, then a second one | The first shows as "Auction" on the public listing; the second is refused; Auction has no repeat and is not in the planner |
+| CR12 | Add an auction, then save the Details tab | The auction is still there |
+| CR13 | Mark the listing sold | The tab says times are hidden; the public page shows none; set it live and they return |
+| CR14 | A draft listing | "This listing isn't public yet"; times save; they show once published |
+| CR15 | An agent named on the listing | The tab works |
+| CR16 | An agent not named on the listing | No Open homes tab; `?tab=open_homes` shows Details |
+| CR17 | Import a CSV with `open_homes` = `2027-02-13 10:00-10:30; 14/11 10am` | The row imports with one time and a warning naming "14/11 10am" |
+| CR18 | Re-import the same file with Update from file | No duplicates, nothing removed |
+| CR19 | Inspection AI on /inspections with two homes that now have times | A plan with those times |
+
+## CS — Error monitoring (ADR 0082)
+
+Needs `NEXT_PUBLIC_SENTRY_DSN` on the project. Use a preview deployment.
+
+| # | Case | Expected |
+|---|---|---|
+| CS1 | Without the DSN, open a public page and watch the network tab | No request to sentry.io and no Sentry chunk loaded |
+| CS2 | With the DSN, a browser error on a page | One issue in Sentry, tagged `app: web` or `app: console` |
+| CS3 | A server error on a console page | One issue, not two |
+| CS4 | An error whose text holds an email and a URL with a query string | The email and the query string are not in the Sentry event; no cookies, no user |
+| CS5 | A release built with `SENTRY_AUTH_TOKEN` | Readable stack traces, and no `.map` files served by the site |

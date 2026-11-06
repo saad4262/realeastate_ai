@@ -3,6 +3,21 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-06 — Claude Code (Mac) — Open homes and Sentry; launch status
+
+- Macro review found no write path for `inspection`, test agencies on the public site, 0 photos on live listings, and only a stub Twilio
+  account. Status page and go-live checklist given to the user; their answers: domain `findoraaus.com.au`, a new Supabase production
+  project made, public API moved to version 2, REAXML skipped, Sentry yes, zoning VIC/NSW/SA, $20/day AI, brand LocalAgentHub, Alpha is test data.
+- Open homes (ADR 0081) built on `feat/open-homes`: tab, `open_homes` import column, migration 0091 applied to the CURRENT database only (92 recorded).
+  Found while building: the public card printed the server's clock (10:00 am Melbourne as 11:00 pm Friday), sold homes kept their times, and a
+  Details save wiped `listing.auction_date`. All fixed. The smoke group caught a raw `Date` bound into SQL that the fake db could not.
+- Sentry (ADR 0082): errors only, scrubbed in core. A top-level import cost public pages 37 kB; now loaded late, +2 kB. It also pulled a second copy
+  of Next.js through `@opentelemetry/api`: pinned in auth, web and console so one copy resolves.
+- Break-tests red for the right reason, then restored: overlap, clock, permission, bad import cell, email scrub, no DSN, sold home, Details wipe.
+- Twilio Test Credentials checked against Twilio's docs: only buy, send, call and Lookup, no callbacks, no real traffic; our connect flow uses API keys and
+  lists AU numbers, so they cannot connect. Told the user.
+- NOT done: the tab clicked in a browser; anything committed; the new production database touched.
+
 ## 2026-11-04 (night) — Claude Code (Mac) — C9 Immersive in the user's autonomous loop
 
 - C9 mock approved with the providers and committed (`b023cc2`). The session ended mid-build once; the work on disk was

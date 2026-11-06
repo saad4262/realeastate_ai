@@ -545,15 +545,14 @@ Current, from `next build`. Treat a regression as a bug with a cause.
 
 | Route | Page JS | First Load |
 |---|---|---|
-| web shared | — | 103 kB |
-| `/` | 446 B | 125 kB |
-| `/search` | 1.66 kB | 126 kB |
-| `/listing/[id]` | 2.64 kB | 109 kB |
-| `/chat` | 8.1 kB | 114 kB |
-| console shared | — | 103 kB |
-| `/team` | 4.59 kB | 114 kB |
-| listing form routes (new) | 171 B | 126 kB |
-| listing form routes (edit) | 202 B | 129 kB |
+| web shared | — | 106 kB |
+| `/` | 2.58 kB | 117 kB |
+| `/search` | 3.18 kB | 136 kB |
+| `/listing/[id]` | 4.85 kB | 124 kB |
+| `/chat` | 17.7 kB | 132 kB |
+| console shared | — | 107 kB |
+| `/team` | 5.39 kB | 134 kB |
+| listing form routes (edit) | 159 B | 165 kB |
 | `/team/onboarding` | 2.88 kB | 128 kB |
 
 `/listing/[id]` grew four times its content and still costs 109 kB, because
@@ -563,6 +562,9 @@ that cost 13 kB of First Load JS to save a round trip on a four-field form most
 visitors never open. The console's listing form makes the opposite trade, and
 should: it is behind a login, it has twenty fields, and it is the tool of
 someone's job.
+
+Error monitoring (ADR 0082) costs 2 to 3 kB here because the SDK loads late: imported at the top it cost 37 kB on every
+public page. Do not import `@sentry/nextjs` from code that reaches the browser; use `lib/browser-monitoring.ts`.
 
 **Look outside JavaScript first.** The single largest win in this repo was not
 a bundle. Material Symbols was requested across its full variable axis space
