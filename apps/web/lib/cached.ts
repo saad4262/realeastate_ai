@@ -117,23 +117,26 @@ export async function cachedSearch(query: PublicSearchQuery): Promise<{
 }> {
   const run = unstable_cache(
     async () => {
-      try {
-        const { rows, total } = await searchPublicListingsPage(getWebDb(), query);
-        return { rows, total, down: false };
-      } catch {
-        // The public site stays up without the database; it just has nothing to
-        // show. A search that 500s is worse than one with no results under it.
-        return { rows: [] as PublicListingSummary[], total: 0, down: true };
-      }
+      const { rows, total } = await searchPublicListingsPage(getWebDb(), query);
+      return { rows, total, down: false };
     },
     ['search', queryKey(query)],
     { tags: [LISTINGS_TAG], revalidate: 30 },
   );
-  const result = await run();
-  return {
-    ...result,
-    rows: result.rows.map((r) => ({ ...r, publishedAt: reviveDate(r.publishedAt) })),
-  };
+  try {
+    const result = await run();
+    return {
+      ...result,
+      rows: result.rows.map((r) => ({ ...r, publishedAt: reviveDate(r.publishedAt) })),
+    };
+  } catch (err) {
+    // The public site stays up without the database; it just has nothing to
+    // show. A search that 500s is worse than one with no results under it.
+    // Caught outside the cache: a failure caught inside was stored, and showed
+    // every visitor "unavailable" for 30 seconds, with nothing in the logs.
+    console.error('[search] failed', err);
+    return { rows: [], total: 0, down: true };
+  }
 }
 
 /** One listing, for the detail page. Tagged per id so an edit clears only it. */
