@@ -588,6 +588,8 @@ either answers or 503s with a readable reason rather than a stack trace.
        ANTHROPIC_API_KEY                     Already set. Unset: no assistant over the reply box.
        ANTHROPIC_SKILL_AGENT_MODEL           The model both calls use (default claude-sonnet-5-5).
        INBOX_AI                              `off` hides the assistant on every conversation.
+       CONTACT_SUMMARY_AI                    `off` turns off a profile's summary (ADR 0083).
+       CONTACT_SUMMARY_DAILY_BUDGET_USD_PER_AGENCY   default 2.
        INBOX_AI_DAILY_BUDGET_USD_PER_AGENCY  Default 2. Trailing 24 h, summaries and drafts together; over
                                              it, the buttons say the budget is used up.
        NEXT_PUBLIC_WEB_URL                   Already set. `{{listing_link}}` points at its /listing/<id>.

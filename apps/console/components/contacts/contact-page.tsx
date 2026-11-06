@@ -3,15 +3,24 @@ import { redirect } from 'next/navigation';
 import {
   contactCounts,
   ContactError,
+  contactLeadSummary,
+  contactSignalFacts,
   getContact,
   listBuyerRequirements,
   listContactAssignees,
+  listContactCalls,
   listContactNotes,
   listContactProperties,
+  listContactSiteHistory,
+  listContactTexts,
   listContactTimeline,
+  listMatchingListings,
   parseContactTab,
+  profileSignals,
   type ContactAssignee,
 } from '@repo/core/contacts';
+import { getMyPhone } from '@repo/core/phone';
+import { keysOrNull } from '@/components/phone/phone-setup-screen';
 import { listAgencyLeads, listLeadAssignees, type LeadAssignee } from '@repo/core/leads';
 import { getMailThread, listMailThreads, mailConfigFromEnv, MailError } from '@repo/core/mail';
 import { appointmentListQuerySchema, listAppointments } from '@repo/core/appointments';
@@ -30,6 +39,7 @@ import inboxStyles from '@/components/inbox/inbox.module.css';
 import { getConsoleDb } from '../../lib/db';
 import { loadListingActor } from '../../lib/load-actor';
 import { requireConsoleAccess } from '../../lib/require-console-access';
+import { CallsTab, LeadSummary, MessagesTab, SiteHistoryTab, SmartOverview, SmsTab } from './contact-history';
 import {
   ContactFrame,
   NotConnected,
@@ -87,26 +97,49 @@ export async function ContactPage({
   if ('mergedInto' in view) redirect(`${basePath}/${view.mergedInto}`);
   const c = view;
 
-  const counts = await contactCounts(db, actor, c.ref);
+  // Every tab's header says hot, warm or quiet (ADR 0083), so the facts come with the counts.
+  const [counts, signalFacts] = await Promise.all([
+    contactCounts(db, actor, c.ref),
+    contactSignalFacts(db, actor, c.ref, { nextAction: c.nextAction, nextActionAt: c.nextActionAt }),
+  ]);
+  const signals = profileSignals(signalFacts, new Date());
   let body: React.ReactNode = null;
 
   switch (tab) {
     case 'overview': {
-      const [recent, assignees, requirements] = await Promise.all([
+      const [recent, assignees, requirements, matching, leadSummary] = await Promise.all([
         listContactTimeline(db, actor, c.ref, { limit: 6 }),
         c.mayAssign ? listContactAssignees(db, actor) : Promise.resolve<ContactAssignee[]>([]),
         listBuyerRequirements(db, actor, c.ref),
+        listMatchingListings(db, c.ref),
+        contactLeadSummary(db, actor, c.ref),
       ]);
+      const editing = first(sp.edit) === '1';
       body = (
-        <OverviewTab
-          contact={c}
-          basePath={basePath}
-          editing={first(sp.edit) === '1'}
-          assignees={assignees}
-          counts={counts}
-          recent={recent.items}
-          requirements={requirements}
-        />
+        <div style={{ display: 'grid', gap: '1rem' }}>
+          {editing ? null : (
+            <SmartOverview
+              contact={c}
+              basePath={basePath}
+              counts={counts}
+              openLeads={leadSummary.total - leadSummary.closed}
+              views={signalFacts.views30}
+              signals={signals}
+              matching={matching}
+              matchingTotal={signalFacts.matchingListings}
+              webUrl={webUrl}
+            />
+          )}
+          <OverviewTab
+            contact={c}
+            basePath={basePath}
+            editing={editing}
+            assignees={assignees}
+            counts={counts}
+            recent={recent.items}
+            requirements={requirements}
+          />
+        </div>
       );
       break;
     }
@@ -190,12 +223,36 @@ export async function ContactPage({
       );
       break;
     }
+    case 'sms': {
+      const [texts, me] = await Promise.all([
+        listContactTexts(db, actor, c.ref),
+        getMyPhone(db, actor, { keys: keysOrNull() }).catch(() => null),
+      ]);
+      body = <SmsTab contact={c} texts={texts} canTextFromMyNumber={Boolean(me?.number)} textsHref={surface === 'agency' ? '/inbox/texts' : '/my-inbox/texts'} />;
+      break;
+    }
+    case 'calls': {
+      const calls = await listContactCalls(db, actor, c.ref);
+      body = <CallsTab contact={c} calls={calls} missedCallsHref={surface === 'agency' ? '/missed-calls' : '/my-missed-calls'} />;
+      break;
+    }
+    case 'messages':
+      body = <MessagesTab contact={c} />;
+      break;
+    case 'activity': {
+      const history = await listContactSiteHistory(db, actor, c.ref, { page: Number(first(sp.page)) || 1 });
+      body = <SiteHistoryTab history={history} basePath={basePath} contactId={c.id} who={surface === 'agency' ? 'agency' : 'agent'} webUrl={webUrl} />;
+      break;
+    }
     case 'enquiries': {
-      const [leads, assignees] = await Promise.all([
+      const [leads, assignees, leadSummary] = await Promise.all([
         listAgencyLeads(db, actor, { contactId: c.id, limit: 100 }),
         listLeadAssignees(db, actor),
+        contactLeadSummary(db, actor, c.ref),
       ]);
       body = (
+        <div style={{ display: 'grid', gap: '1rem' }}>
+        <LeadSummary summary={leadSummary} />
         <LeadTable
           compact
           basePath={surface === 'agency' ? '/leads' : '/my-leads'}
@@ -206,6 +263,7 @@ export async function ContactPage({
           maySeeOffers={leads.maySeeOffers}
           assignees={assignees}
         />
+        </div>
       );
       break;
     }
@@ -299,6 +357,7 @@ export async function ContactPage({
       basePath={basePath}
       tab={tab}
       counts={counts}
+      engagement={signals.engagement}
       askHref={`${surface === 'agency' ? '/overview' : '/assistant'}?contact=${c.id}`}
     >
       {body}

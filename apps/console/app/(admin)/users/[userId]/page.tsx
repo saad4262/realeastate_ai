@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { LocalTime } from '@repo/ui';
-import { getSiteUser, getSiteUserChat, PlatformError, type SiteUserChat } from '@repo/core/platform';
+import { searchWords } from '@repo/core/activity';
+import { getSiteUser, getSiteUserChat, listAccountCustomerRecords, PlatformError, type AccountCustomerRecord, type SiteUserChat } from '@repo/core/platform';
 import { UserControls } from '@/components/admin/controls';
 import { BarList, LastSeen, Stat } from '@/components/admin/tables';
 import styles from '@/components/admin/admin.module.css';
@@ -15,18 +16,6 @@ import { recordPlatformView, requirePlatformAdmin } from '@/lib/require-platform
  */
 
 const CHANNEL: Record<string, string> = { sale: 'buy', rent: 'rent', sold: 'sold', leased: 'leased' };
-
-function searchWords(q: Record<string, unknown> | null): string {
-  if (!q) return '';
-  const parts: string[] = [];
-  if (q.bedrooms) parts.push(`${q.bedrooms}+ bed`);
-  if (q.bathrooms) parts.push(`${q.bathrooms}+ bath`);
-  if (q.propertyType) parts.push(String(q.propertyType));
-  if (q.priceFrom || q.priceTo) parts.push(`$${Number(q.priceFrom ?? 0).toLocaleString('en-AU')}–${q.priceTo ? `$${Number(q.priceTo).toLocaleString('en-AU')}` : 'any'}`);
-  if (q.radiusKm) parts.push(`within ${q.radiusKm} km`);
-  if (q.text) parts.push(`“${String(q.text)}”`);
-  return parts.join(' · ');
-}
 
 export default async function SiteUserPage({
   params,
@@ -44,8 +33,13 @@ export default async function SiteUserPage({
 
   let u;
   let chat: SiteUserChat | null = null;
+  let records: AccountCustomerRecord[] = [];
   try {
-    [u, chat] = await Promise.all([getSiteUser(db, admin, userId), chatId ? getSiteUserChat(db, admin, userId, chatId) : Promise.resolve(null)]);
+    [u, chat, records] = await Promise.all([
+      getSiteUser(db, admin, userId),
+      chatId ? getSiteUserChat(db, admin, userId, chatId) : Promise.resolve(null),
+      chatId ? Promise.resolve([]) : listAccountCustomerRecords(db, admin, userId),
+    ]);
   } catch (err) {
     if (err instanceof PlatformError && err.code === 'not_found') notFound();
     throw err;
@@ -108,6 +102,31 @@ export default async function SiteUserPage({
         <Stat label="Shortlisted" value={u.shortlist} />
         <Stat label="Guide chats" value={u.chats} />
       </div>
+
+      <section className={styles.card}>
+        <div className={styles.cardBody}>
+          <h2 className={styles.h2}>Customer at</h2>
+          <p className={styles.sub}>Agencies that hold this person as a customer: by their account, a lead from it, or the same email.</p>
+        </div>
+        {records.length === 0 ? (
+          <p className={styles.empty}>No agency has them as a customer.</p>
+        ) : (
+          <table className={styles.table}>
+            <thead><tr><th>Agency</th><th>Name</th><th>Phone</th><th>Address</th><th className={styles.num}>Leads</th></tr></thead>
+            <tbody>
+              {records.map((r) => (
+                <tr key={r.contactId}>
+                  <td><Link href={`/agencies/${r.agencyId}/customers/${r.contactId}`}>{r.agencyName}</Link></td>
+                  <td data-label="Name">{r.name}</td>
+                  <td data-label="Phone">{r.phone ?? '—'}</td>
+                  <td data-label="Address">{r.address ?? '—'}</td>
+                  <td data-label="Leads" className={styles.num}>{r.leads}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
 
       <div className={styles.grid2}>
         <section className={styles.card}>

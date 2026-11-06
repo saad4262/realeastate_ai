@@ -29,6 +29,7 @@
     "./visual-embed": "./src/pipelines/visual-embed.ts",
     "./workflow-decide": "./src/pipelines/workflow-decide.ts",
     "./reply-assist": "./src/pipelines/reply-assist.ts",
+    "./contact-summary": "./src/pipelines/contact-summary.ts",
     "./lead-understand": "./src/pipelines/lead-understand.ts"
   },
   "scripts": {

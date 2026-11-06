@@ -2211,3 +2211,38 @@ Needs `NEXT_PUBLIC_SENTRY_DSN` on the project. Use a preview deployment.
 | CS3 | A server error on a console page | One issue, not two |
 | CS4 | An error whose text holds an email and a URL with a query string | The email and the query string are not in the Sentry event; no cookies, no user |
 | CS5 | A release built with `SENTRY_AUTH_TOKEN` | Readable stack traces, and no `.map` files served by the site |
+
+## CT — The full customer profile (ADR 0083)
+
+Needs a website account whose email matches a customer. "Team" means a member of the agency: their own views are left out on purpose, so browse as an account that belongs to no agency.
+
+| # | Case | Expected |
+|---|---|---|
+| CT1 | Open a customer with history | Tabs: Overview, Leads, Emails, SMS, Calls, Messages, Activity, Timeline, Requirements, Properties, Notes, Documents, Calendar, Reviews |
+| CT2 | Overview | Six counts; "What to do next" with Hot, Warm or Quiet and the reason; name, email, phone and address |
+| CT3 | A customer with no address | "Address missing" chip |
+| CT4 | Leads tab | Counts by status, average first reply, open deals, kinds and sources, then the table. An old `?tab=enquiries` link lands here |
+| CT5 | An automatic text after a new lead | "Average first reply" does not move, "Open, no reply yet" stays. A person's reply moves both |
+| CT6 | Emails tab | Email only: no texts, calls or messages |
+| CT7 | SMS tab as an owner | Texts on every agent's number, by number; no reply box unless you have your own number |
+| CT8 | SMS tab as an agent | Only your own number's texts, and the reply box |
+| CT9 | A number that replied STOP | "Opted out" on its conversation |
+| CT10 | Calls tab | Missed calls and AI call backs (Twilio needed), with "Written by AI" on the summary |
+| CT11 | Log a call: Outgoing, Answered, 6, a note | It is on Calls and Timeline, and the Calls count goes up. 9000 minutes is refused |
+| CT12 | As a read-only member | No Log a call, no summary button |
+| CT13 | Messages tab | "No messages yet", and nothing else |
+| CT14 | As that account, sign in on the site and open a listing of this agency, then search its suburb, then save the listing | Activity tab shows all three, newest first, and the chip says "Same email ... not confirmed" |
+| CT15 | The same account opens another agency's listing and searches a suburb where this agency has nothing | Neither shows on this agency's profile |
+| CT16 | Enquire on a listing while signed in | The chip changes to "Tied to their website account" |
+| CT17 | As an agent not named on the listing, open that customer if you can see them | Activity shows nothing from that listing |
+| CT18 | Timeline | Emails, texts, missed calls, logged calls, notes, leads and views together, newest first |
+| CT19 | Agency → People → Listing activity, 7 / 30 / 90 days | Views, signed-in people, anonymous views, searches; a table by listing; who did what with Profile → or "Not a customer yet" |
+| CT20 | Open a listing as a team member | The page does not count it |
+| CT21 | Agent → Listing activity | Only the listings they are named on |
+| CT22 | Overview → Write a summary (spends a little AI) | Two or three sentences, "Written by AI, check it first", no figures; gone after a reload |
+| CT23 | `CONTACT_SUMMARY_AI=off` or no key | The button says summaries are not set up; nothing else changes |
+| CT24 | Admin → People | Customers, agency staff and website accounts together; search by name, email, phone or agency; the type filter; each row opens the right page |
+| CT25 | Admin → an agency → a customer | Address, leads summary, SMS, Calls, Messages, Website activity; no write controls; a link to the whole account |
+| CT26 | Admin → Users → a person who is a customer | "Customer at" lists the agencies with phone and address |
+| CT27 | Admin → an agency → Listing activity | The agency's page, read only |
+| CT28 | Phone width | Tabs wrap, tables scroll inside their card, no sideways page scroll |

@@ -81,6 +81,8 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
         items: [
           { href: '/customers', label: 'Customers', icon: 'contacts' },
           { href: '/team', label: 'Agents & Team', icon: 'groups' },
+          // ADR 0083: who looked at the agency's own listings.
+          { href: '/listing-activity', label: 'Listing activity', icon: 'visibility' },
         ],
       },
       {
@@ -144,7 +146,14 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
           { href: '/my-messages', label: 'Team messages', icon: 'forum', count: 'unreadTeam', countLabel: 'unread' },
         ],
       },
-      { label: 'People', items: [{ href: '/my-contacts', label: 'Contacts', icon: 'contacts' }] },
+      {
+        label: 'People',
+        items: [
+          { href: '/my-contacts', label: 'Contacts', icon: 'contacts' },
+          // ADR 0083: who looked at the listings this agent is named on.
+          { href: '/my-listing-activity', label: 'Listing activity', icon: 'visibility' },
+        ],
+      },
       {
         label: 'Properties',
         items: [
@@ -181,13 +190,15 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
   admin: {
     home: '/platform',
     navLabel: 'Platform',
-    // One group without a heading: six pages need no sections (ADR 0057).
+    // One group without a heading: seven pages need no sections (ADR 0057).
     groups: [
       {
         items: [
           { href: '/platform', label: 'Overview', icon: 'monitoring' },
           { href: '/agencies', label: 'Agencies', icon: 'apartment' },
           { href: '/agents', label: 'Agents', icon: 'groups' },
+          // ADR 0083: everybody in one list; Agents and Users keep their own detail pages.
+          { href: '/people', label: 'People', icon: 'diversity_3' },
           { href: '/users', label: 'Users', icon: 'person_search' },
           { href: '/site-activity', label: 'Site activity', icon: 'travel_explore' },
           { href: '/emails', label: 'Emails', icon: 'mail' },

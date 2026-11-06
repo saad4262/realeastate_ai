@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Customer profile — mock</title>
+<!--
+  Mock for ADR 0083: the full customer profile on the console (agency, agent, platform admin). Leads with a summary,
+  Emails, SMS, Calls and Messages each in their own tab and never mixed, Activity from the agency's own listings, the
+  smart panel, the agency's "Listing activity" page and the admin's "People" list.
+  Hand-made, SAMPLE data: names, addresses, numbers and dates are invented. Screens by hash; the bar switches the viewer.
+-->
+<style>
+  :root {
+    --canvas: #f6f6f4; --card: #fff; --sunken: #f0efeb; --ink: #1c1c1a; --soft: #5d5d58; --faint: #8b8b84; --line: #dfded8;
+    --brand: #1c1c1a; --green: #0f7a52; --green-soft: #e6f4ed; --amber: #a8620a; --amber-soft: #fbf1e3;
+    --rose: #a12a2a; --rose-soft: #f8e9e7; --blue: #1d4e89; --blue-soft: #e9eff7;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  a { color: var(--blue); text-decoration: none; }
+  .mockbar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 16px; background: #222; color: #ddd; font-size: 13px; }
+  .mockbar b { color: #fff; margin-right: 4px; }
+  .mockbar a { color: #ddd; padding: 2px 10px; border-radius: 999px; border: 1px solid #555; }
+  .mockbar a.on { background: #fff; color: #222; }
+  .mockbar .gap { width: 14px; }
+  main { max-width: 1120px; margin: 0 auto; padding: 20px 16px 64px; }
+  .screen { display: none; }
+  .screen.on { display: grid; gap: 14px; }
+  h1 { font-size: 24px; letter-spacing: -.02em; margin: 0; }
+  h2 { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); margin: 0 0 10px; }
+  p { margin: 0; }
+  .sub { color: var(--soft); font-size: 13px; }
+  .back { font-size: 13px; color: var(--soft); }
+  .head { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: flex-end; }
+  .btn { display: inline-block; padding: 7px 13px; border-radius: 8px; border: 1px solid var(--ink); background: var(--ink); color: #fff; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .btn.ghost { background: #fff; color: var(--ink); border-color: var(--line); }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+  .tabs a { padding: 5px 10px; border-radius: 7px; border: 1px solid transparent; color: var(--soft); font-size: 13px; }
+  .tabs a.on { background: #fff; border-color: var(--line); color: var(--ink); font-weight: 600; }
+  .tabs small { color: var(--faint); margin-left: 3px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; min-width: 0; }
+  .card.flush { padding: 0; overflow: hidden; }
+  .grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; align-items: start; }
+  .stack { display: grid; gap: 14px; }
+  @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 8px; }
+  .stat { padding: 10px 12px; background: #fff; border: 1px solid var(--line); border-radius: 9px; }
+  .stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 12px; color: var(--faint); }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 7px 18px; margin: 0; }
+  dt { color: var(--faint); font-size: 13px; }
+  dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--sunken); color: var(--soft); }
+  .chip.hot { background: var(--rose-soft); color: var(--rose); }
+  .chip.ok { background: var(--green-soft); color: var(--green); }
+  .chip.warn { background: var(--amber-soft); color: var(--amber); }
+  .chip.ai { background: var(--blue-soft); color: var(--blue); }
+  .nudge { display: flex; gap: 10px; justify-content: space-between; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--line); }
+  .nudge:first-of-type { border-top: 0; }
+  .ai { border-left: 3px solid var(--blue); background: var(--blue-soft); padding: 10px 12px; border-radius: 7px; margin-top: 10px; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 12px; color: var(--faint); font-weight: 600; padding: 9px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  .bubbles { display: grid; gap: 7px; }
+  .bubble { max-width: 76%; padding: 7px 11px; border-radius: 11px; background: var(--sunken); justify-self: start; }
+  .bubble.out { background: var(--ink); color: #fff; justify-self: end; }
+  .bubble small { display: block; opacity: .7; font-size: 11px; margin-top: 2px; }
+  textarea, input, select { font: inherit; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: #fff; max-width: 100%; }
+  textarea { width: 100%; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .item { display: grid; grid-template-columns: 94px 1fr; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
+  .item:first-of-type { border-top: 0; }
+  .item time { font-size: 12px; color: var(--faint); }
+  .empty { text-align: center; padding: 44px 16px; }
+  .empty b { display: block; margin-bottom: 3px; }
+  .note { border-left: 3px solid var(--amber); background: var(--amber-soft); padding: 9px 12px; border-radius: 7px; font-size: 13px; }
+  .only-agency, .only-agent, .only-admin { display: none !important; }
+  body.agency .only-agency, body.agent .only-agent, body.admin .only-admin { display: revert !important; }
+  ol { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+</style>
+</head>
+<body class="agency">
+<div class="mockbar">
+  <b>Viewer</b>
+  <a href="#" data-who="agency">Agency</a><a href="#" data-who="agent">Agent</a><a href="#" data-who="admin">Admin</a>
+  <span class="gap"></span><b>Other pages</b>
+  <a href="#listing-activity" data-go>Listing activity</a><a href="#people" data-go>Admin: People</a><a href="#decisions" data-go>Decisions</a>
+</div>
+<main>
+  <div id="frame" class="stack" style="margin-bottom:14px">
+    <a class="back" href="#overview">← All customers</a>
+    <div class="head">
+      <div>
+        <h1>Priya Sample <span class="chip hot">Hot</span></h1>
+        <p class="sub">priya@example.test · 0412 000 111 · 14 Sample Street, Pakenham VIC 3810 · Enquiry, added 3 Oct 2026</p>
+        <p class="sub only-agent">Assigned to you</p><p class="sub only-agency">Assigned to Sam Agent</p>
+        <p class="sub only-admin">Harbour Realty (sample agency) · Assigned to Sam Agent · <a href="#">Website account →</a></p>
+      </div>
+      <div class="btns">
+        <a class="btn" href="#">Ask the assistant</a>
+        <span class="only-agency"><a class="btn ghost" href="#">Edit</a></span><span class="only-agent"><a class="btn ghost" href="#">Edit</a></span>
+        <span class="only-admin"><span class="chip">Read only</span></span>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs">
+      <a href="#overview">Overview</a><a href="#leads">Leads<small>4</small></a><a href="#emails">Emails<small>6</small></a><a href="#sms">SMS<small>9</small></a><a href="#calls">Calls<small>5</small></a><a href="#messages">Messages</a><a href="#activity">Activity<small>23</small></a><a href="#timeline">Timeline</a><a href="#">Requirements<small>1</small></a><a href="#">Properties<small>2</small></a><a href="#">Notes<small>3</small></a><a href="#">Documents</a><a href="#">Calendar</a><a href="#">Reviews</a>
+    </nav>
+  </div>
+
+  <section class="screen" id="overview">
+    <div class="stats">
+      <div class="stat"><b>4</b><span>Leads (2 open)</span></div>
+      <div class="stat"><b>6</b><span>Emails</span></div>
+      <div class="stat"><b>9</b><span>SMS</span></div>
+      <div class="stat"><b>5</b><span>Calls</span></div>
+      <div class="stat"><b>17</b><span>Listing views</span></div>
+      <div class="stat"><b>3</b><span>Matching listings</span></div>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h2>Details</h2>
+        <dl>
+          <dt>Name</dt><dd>Priya Sample</dd>
+          <dt>Email</dt><dd><a href="#">priya@example.test</a></dd>
+          <dt>Phone</dt><dd><a href="#">0412 000 111</a></dd>
+          <dt>Address</dt><dd>14 Sample Street, Pakenham VIC 3810</dd>
+          <dt>Roles</dt><dd><span class="chip">Buyer</span> <span class="chip">Vendor (inferred)</span></dd>
+          <dt>Looking for</dt><dd>House, 3+ bed, Pakenham or Officer, $650,000–$800,000</dd>
+          <dt>Assigned to</dt><dd>Sam Agent</dd>
+          <dt>Next action</dt><dd>Call about the Saturday inspection · <span class="chip warn">Overdue 1 day</span></dd>
+          <dt>Marketing email</dt><dd>Consented 3 Oct 2026</dd>
+        </dl>
+      </div>
+      <div class="stack">
+        <div class="card">
+          <h2>What to do next</h2>
+          <p><span class="chip hot">Hot</span> <span class="sub">2 enquiries and 9 listing views in the last 7 days.</span></p>
+          <div style="margin-top:8px">
+            <div class="nudge"><span>Waiting on your reply: their text came in 3 hours ago</span><a href="#sms">SMS →</a></div>
+            <div class="nudge"><span>A lead has had no reply for 2 days</span><a href="#leads">Leads →</a></div>
+            <div class="nudge"><span>3 of your live listings fit their brief</span><a href="#">See them →</a></div>
+            <div class="nudge"><span>Viewed 12 Rose Court 5 times this week</span><a href="#activity">Activity →</a></div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Summary</h2>
+          <button class="btn ghost" id="sum">Write a summary</button>
+          <div class="ai" id="sumText" hidden>
+            <span class="chip ai">Written by AI, check it first</span>
+            <p style="margin-top:6px">Priya is looking for a family home around Pakenham and has asked twice about inspections. They prefer texts to phone calls, and asked about the school zone on their last message.</p>
+            <p class="sub" style="margin-top:6px">No figures in this paragraph: every number on this page comes from the records.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Recent</h2>
+      <div class="item"><time>Today 11:02</time><div><span class="chip">SMS in</span> “Is Saturday still on?”</div></div>
+      <div class="item"><time>Today 09:40</time><div><span class="chip">Viewed</span> 12 Rose Court, Pakenham</div></div>
+      <div class="item"><time>Yesterday</time><div><span class="chip">Lead</span> Inspection request, 12 Rose Court</div></div>
+    </div>
+  </section>
+
+  <section class="screen" id="leads">
+    <div class="stats">
+      <div class="stat"><b>4</b><span>Total leads</span></div>
+      <div class="stat"><b>1</b><span>New</span></div>
+      <div class="stat"><b>1</b><span>Contacted</span></div>
+      <div class="stat"><b>0</b><span>Qualified</span></div>
+      <div class="stat"><b>2</b><span>Closed</span></div>
+      <div class="stat"><b>2 h 10 m</b><span>Average first reply</span></div>
+      <div class="stat"><b>1</b><span>Open deal</span></div>
+    </div>
+    <div class="card"><p class="sub">By kind: <b>2</b> enquiries · <b>1</b> inspection · <b>1</b> appraisal <span class="only-agency">· <b>0</b> private offers</span><span class="only-admin">· <b>0</b> private offers</span> &nbsp; By source: <b>3</b> website · <b>1</b> added by hand · First lead 3 Oct · Latest yesterday</p></div>
+    <div class="card flush"><div class="scroll"><table>
+      <tr><th>When</th><th>Kind</th><th>Property</th><th>Status</th><th>Assigned</th></tr>
+      <tr><td>Yesterday</td><td>Inspection</td><td>12 Rose Court, Pakenham</td><td><span class="chip warn">New</span></td><td>Sam Agent</td></tr>
+      <tr><td>2 Nov</td><td>Enquiry</td><td>12 Rose Court, Pakenham</td><td><span class="chip">Contacted</span></td><td>Sam Agent</td></tr>
+      <tr><td>18 Oct</td><td>Enquiry</td><td>7 Elm Way, Officer</td><td><span class="chip">Closed</span></td><td>Sam Agent</td></tr>
+      <tr class="only-agency"><td>3 Oct</td><td>Appraisal</td><td>14 Sample Street, Pakenham</td><td><span class="chip">Closed</span></td><td>Lee Agent</td></tr>
+    </table></div></div>
+    <p class="sub only-agent">An agent sees only the leads assigned to them or on their listings; never a private offer.</p>
+  </section>
+
+  <section class="screen" id="emails">
+    <div class="row" style="justify-content:flex-end"><a class="btn" href="#">New email to Priya</a></div>
+    <div class="card flush"><div class="scroll"><table>
+      <tr><th>Subject</th><th>Last message</th><th>With</th><th>When</th></tr>
+      <tr><td><b>Inspection this Saturday</b></td><td>Thanks, we will see you at 10.</td><td>Sam Agent</td><td>Yesterday</td></tr>
+      <tr><td>12 Rose Court: contract of sale</td><td>Contract attached as discussed.</td><td>Sam Agent</td><td>2 Nov</td></tr>
+      <tr><td>7 Elm Way, Officer</td><td>That one is under offer now, sorry.</td><td>Sam Agent</td><td>18 Oct</td></tr>
+    </table></div></div>
+    <p class="sub">Email only. Texts, calls and messages are never listed here.</p>
+  </section>
+
+  <section class="screen" id="sms">
+    <div class="stats">
+      <div class="stat"><b>9</b><span>Texts</span></div><div class="stat"><b>5</b><span>Received</span></div><div class="stat"><b>4</b><span>Sent</span></div><div class="stat"><b>1</b><span>Failed</span></div>
+    </div>
+    <div class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:10px"><h2 style="margin:0">Sam Agent’s number · 0480 000 222</h2><a href="#">Open in Texts →</a></div>
+      <div class="bubbles">
+        <div class="bubble out">Sorry we missed your call. How can we help?<small>Automatic, missed call · 2 Nov 14:03 · Delivered</small></div>
+        <div class="bubble">Can I see 12 Rose Court this week?<small>2 Nov 14:10</small></div>
+        <div class="bubble out">Yes, Saturday at 10. See you there.<small>Sam Agent · 2 Nov 15:21 · Delivered</small></div>
+        <div class="bubble">Is Saturday still on?<small>Today 11:02</small></div>
+      </div>
+      <div style="margin-top:12px" class="only-agent"><textarea rows="2" placeholder="Write a text from your number"></textarea><button class="btn" style="margin-top:6px">Send</button></div>
+      <p class="sub only-agency" style="margin-top:10px">You can read this. Only the agent whose number it is can reply.</p>
+    </div>
+    <p class="sub">SMS only. A person who replied STOP shows “Opted out” here and cannot be texted.</p>
+  </section>
+
+  <section class="screen" id="calls">
+    <div class="stats">
+      <div class="stat"><b>5</b><span>Calls</span></div><div class="stat"><b>2</b><span>Missed</span></div><div class="stat"><b>1</b><span>AI call back</span></div><div class="stat"><b>2</b><span>Logged by hand</span></div><div class="stat"><b>Today</b><span>Last call</span></div>
+    </div>
+    <div class="grid">
+      <div class="card flush"><div class="scroll"><table>
+        <tr><th>When</th><th>Call</th><th>Result</th><th>Who</th></tr>
+        <tr><td>Today 09:12</td><td>Outgoing, 6 min</td><td><span class="chip ok">Answered</span><br><span class="sub">Confirmed Saturday, asked about schools.</span></td><td>Sam Agent</td></tr>
+        <tr><td>2 Nov 14:01</td><td>Incoming</td><td><span class="chip warn">Missed</span><br><span class="sub">Texted automatically</span></td><td>Sam Agent’s number</td></tr>
+        <tr><td>28 Oct 16:30</td><td>AI call back, 2 min</td><td><span class="chip ai">Written by AI</span><br><span class="sub">Wants a 3-bedroom near the station. <a href="#">Transcript →</a></span></td><td>Sam Agent’s number</td></tr>
+        <tr><td>28 Oct 16:02</td><td>Incoming</td><td><span class="chip warn">Missed</span></td><td>Sam Agent’s number</td></tr>
+        <tr><td>18 Oct 10:45</td><td>Outgoing</td><td><span class="chip">No answer</span></td><td>Sam Agent</td></tr>
+      </table></div></div>
+      <div class="card">
+        <h2>Log a call</h2>
+        <div class="stack" style="gap:8px">
+          <div class="row"><select><option>Outgoing</option><option>Incoming</option></select><select><option>Answered</option><option>No answer</option><option>Left a voicemail</option></select><input type="number" placeholder="Minutes" style="width:96px"></div>
+          <textarea rows="3" placeholder="What you talked about"></textarea>
+          <button class="btn" style="justify-self:start">Save call</button>
+        </div>
+        <p class="sub" style="margin-top:8px">A call answered on the agent’s mobile never reaches the platform, so it is logged here by hand. Missed calls and AI call backs arrive by themselves once Twilio is connected.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen" id="messages">
+    <div class="card empty">
+      <b>No messages yet</b>
+      <p class="sub">Direct messages with Priya will appear here once a messaging channel is connected.<br>Emails and SMS have their own tabs and are never mixed in here.</p>
+    </div>
+  </section>
+
+  <section class="screen" id="activity">
+    <div class="stats">
+      <div class="stat"><b>17</b><span>Listing views</span></div><div class="stat"><b>4</b><span>Listings opened</span></div><div class="stat"><b>6</b><span>Searches</span></div><div class="stat"><b>2</b><span>Saved</span></div>
+    </div>
+    <p class="sub only-agency">Only your agency’s listings, and searches in suburbs where you have a listing.</p>
+    <p class="sub only-agent">Only the listings you are named on, and searches in their suburbs.</p>
+    <div class="note only-admin">Admin sees this agency’s part here, and every search and listing on the site on <a href="#">their website account →</a></div>
+    <div class="card">
+      <div class="item"><time>Today 09:40</time><div><span class="chip">Viewed</span> 12 Rose Court, Pakenham · <span class="sub">5th view this week</span></div></div>
+      <div class="item"><time>Today 09:38</time><div><span class="chip">Searched</span> Pakenham VIC · buy · 3+ bed · $650,000–$800,000</div></div>
+      <div class="item"><time>Yesterday</time><div><span class="chip">Saved</span> 12 Rose Court, Pakenham</div></div>
+      <div class="item"><time>2 Nov</time><div><span class="chip">Viewed</span> 7 Elm Way, Officer</div></div>
+      <div class="item"><time>29 Oct</time><div><span class="chip">Searched</span> Officer VIC · buy · House</div></div>
+    </div>
+    <p class="sub">Tied by: <span class="chip">Enquiry from their account</span> or <span class="chip warn">Same email, not confirmed</span>. Nothing from other agencies’ listings is shown to an agency or agent.</p>
+  </section>
+
+  <section class="screen" id="timeline">
+    <div class="card">
+      <p class="sub" style="margin-bottom:8px">Everything in one line of time. The tabs keep each channel apart; this page is the whole story.</p>
+      <div class="item"><time>Today 11:02</time><div><span class="chip">SMS in</span> Is Saturday still on?</div></div>
+      <div class="item"><time>Today 09:40</time><div><span class="chip">Viewed</span> 12 Rose Court, Pakenham</div></div>
+      <div class="item"><time>Today 09:12</time><div><span class="chip">Call logged</span> Outgoing, answered, 6 min: confirmed Saturday.</div></div>
+      <div class="item"><time>Yesterday</time><div><span class="chip">Email</span> Inspection this Saturday</div></div>
+      <div class="item"><time>Yesterday</time><div><span class="chip">Lead</span> Inspection request, 12 Rose Court</div></div>
+      <div class="item"><time>2 Nov 14:01</time><div><span class="chip">Missed call</span> Texted automatically</div></div>
+    </div>
+  </section>
+
+  <section class="screen" id="listing-activity">
+    <div class="head"><div><h1>Listing activity</h1><p class="sub">Who looked at <span class="only-agent">your listings</span><span class="only-agency">your agency’s listings</span><span class="only-admin">this agency’s listings</span>. Signed-in people by name; everyone else is a count.</p></div><div class="btns"><a class="btn ghost" href="#">7 days</a><a class="btn" href="#">30 days</a><a class="btn ghost" href="#">90 days</a></div></div>
+    <div class="stats">
+      <div class="stat"><b>412</b><span>Views</span></div><div class="stat"><b>38</b><span>Signed-in people</span></div><div class="stat"><b>296</b><span>Anonymous views</span></div><div class="stat"><b>54</b><span>Searches in your suburbs</span></div>
+    </div>
+    <div class="card flush"><div class="scroll"><table>
+      <tr><th>Listing</th><th>Views</th><th>People</th><th>Enquiries</th></tr>
+      <tr><td>12 Rose Court, Pakenham</td><td>188</td><td>21</td><td>6</td></tr>
+      <tr><td>7 Elm Way, Officer</td><td>131</td><td>12</td><td>3</td></tr>
+      <tr><td>3/9 Hill Road, Beaconsfield</td><td>93</td><td>5</td><td>1</td></tr>
+    </table></div></div>
+    <div class="card flush"><div class="scroll"><table>
+      <tr><th>Who</th><th>Did</th><th>When</th><th></th></tr>
+      <tr><td>Priya Sample<br><span class="sub">priya@example.test</span></td><td>Viewed 12 Rose Court, Pakenham</td><td>Today 09:40</td><td><a href="#overview">Profile →</a></td></tr>
+      <tr><td>Priya Sample<br><span class="sub">priya@example.test</span></td><td>Searched Pakenham VIC, 3+ bed</td><td>Today 09:38</td><td><a href="#overview">Profile →</a></td></tr>
+      <tr><td>Tom Sample<br><span class="sub">tom@example.test</span></td><td>Viewed 7 Elm Way, Officer</td><td>Yesterday</td><td><span class="chip">Not a customer yet</span></td></tr>
+    </table></div></div>
+  </section>
+
+  <section class="screen" id="people">
+    <div class="head"><div><h1>People</h1><p class="sub">Everyone on the platform, in one list. Read only.</p></div>
+      <div class="row"><input type="search" placeholder="Name, email, phone or agency"><select><option>Everyone</option><option>Customers</option><option>Agents and agency staff</option><option>Website accounts</option></select></div></div>
+    <div class="stats"><div class="stat"><b>1,284</b><span>Everyone</span></div><div class="stat"><b>1,102</b><span>Customers</span></div><div class="stat"><b>46</b><span>Agents and staff</span></div><div class="stat"><b>136</b><span>Website accounts</span></div></div>
+    <div class="card flush"><div class="scroll"><table>
+      <tr><th>Name</th><th>Type</th><th>Agency</th><th>Email / phone</th><th>Address</th><th>Leads</th></tr>
+      <tr><td><a href="#overview">Priya Sample</a></td><td><span class="chip">Customer</span></td><td>Harbour Realty</td><td>priya@example.test<br>0412 000 111</td><td>Pakenham VIC</td><td>4</td></tr>
+      <tr><td><a href="#">Sam Agent</a></td><td><span class="chip">Agent</span></td><td>Harbour Realty</td><td>sam@example.test</td><td>—</td><td>31</td></tr>
+      <tr><td><a href="#">Tom Sample</a></td><td><span class="chip">Website account</span></td><td>—</td><td>tom@example.test</td><td>—</td><td>0</td></tr>
+    </table></div></div>
+  </section>
+
+  <section class="screen" id="decisions">
+    <h1>Decisions in this mock</h1>
+    <div class="card"><ol>
+      <li><b>Emails, SMS, Calls and Messages are four separate tabs.</b> None of them lists another channel. Only Timeline shows everything together, as history.</li>
+      <li><b>Messages is built empty.</b> No channel feeds it yet, so it shows an empty state and no invented data.</li>
+      <li><b>The Enquiries tab becomes Leads</b>, with a summary on top: totals by status, kind and source, first and latest lead, average first reply and open deals. All from SQL.</li>
+      <li><b>Agency activity = its own listings.</b> Views and saves on its listings, and searches in suburbs where it has a listing, because a search belongs to a place and not to one listing.</li>
+      <li><b>An agent gets the same, for the listings they are named on.</b></li>
+      <li><b>Admin sees everything:</b> the agency’s part on the customer page, and the whole site on the website account.</li>
+      <li><b>New page: Listing activity.</b> Who looked at our listings, including signed-in people who are not customers yet, by name and email. Anonymous visitors stay a count.</li>
+      <li><b>A customer is tied to a website account</b> by an enquiry from that account, or by the same email. The email tie is labelled “not confirmed”, because sign-up does not verify an email.</li>
+      <li><b>Answered calls are logged by hand.</b> They ring the agent’s mobile and never reach the platform. Missed calls and AI call backs fill in by themselves once Twilio is connected.</li>
+      <li><b>Hot, warm and quiet come from fixed rules</b> with the reason shown, not from a model. “What to do next” is the same.</li>
+      <li><b>The AI summary runs only when pressed</b>, carries a label, is given no figures, and is rejected if it writes one.</li>
+      <li><b>Admin gets a People list</b> and the full customer profile, read only.</li>
+    </ol></div>
+    <div class="note"><b>Before go-live:</b> the privacy policy today says activity is kept to improve the service, not that agencies see it by name. Testing can go ahead as you decided; this has to change before real customers use the site.</div>
+  </section>
+</main>
+<script>
+  const frameScreens = ['overview','leads','emails','sms','calls','messages','activity','timeline'];
+  function show() {
+    const id = location.hash.slice(1) || 'overview';
+    document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id === id));
+    document.getElementById('frame').style.display = frameScreens.includes(id) ? 'grid' : 'none';
+    document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + id));
+    document.querySelectorAll('[data-go]').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + id));
+    scrollTo(0, 0);
+  }
+  function who(w) {
+    document.body.className = w;
+    document.querySelectorAll('[data-who]').forEach(a => a.classList.toggle('on', a.dataset.who === w));
+  }
+  document.querySelectorAll('[data-who]').forEach(a => a.addEventListener('click', e => { e.preventDefault(); who(a.dataset.who); }));
+  document.getElementById('sum').addEventListener('click', e => { e.target.hidden = true; document.getElementById('sumText').hidden = false; });
+  addEventListener('hashchange', show);
+  who('agency'); show();
+</script>
+</body>
+</html>

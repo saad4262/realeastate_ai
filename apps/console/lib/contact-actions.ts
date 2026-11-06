@@ -12,12 +12,14 @@ import {
   deleteNote,
   linkContactNewAddress,
   linkContactProperty,
+  logContactCall,
   mergeContacts,
   notifyContactAssigned,
   searchLinkableProperties,
   setBuyerRequirementStatus,
   setContactArchived,
   setNextAction,
+  summarizeContact,
   unlinkContactProperty,
   updateBuyerRequirement,
   updateContact,
@@ -32,6 +34,7 @@ import {
   type UpdateContactInput,
 } from '@repo/core/contacts';
 import { noticeMailFromEnv } from '@repo/core/email';
+import { contactSummarizerFromEnv } from '@repo/ai/contact-summary';
 import { getConsoleDb } from './db';
 import { loadActor } from './load-actor';
 import { requireActionUserId } from './auth-account';
@@ -201,6 +204,32 @@ export async function createNoteAction(
     return { ok: true };
   } catch (err) {
     return simpleFailure(err, 'Could not save the note');
+  }
+}
+
+/** ADR 0083: a call the platform could not see. Core validates and asks can(). */
+export async function logCallAction(contactId: string, input: unknown): Promise<SimpleResult> {
+  const who = await actor();
+  try {
+    await logContactCall(getConsoleDb(), who, contactId, input);
+    refresh(contactId);
+    return { ok: true };
+  } catch (err) {
+    return simpleFailure(err, 'Could not save the call');
+  }
+}
+
+export type SummaryResult = { ok: true; text: string } | { ok: false; error: string };
+
+/** ADR 0083: the one model call on a profile, on a button. Not stored, labelled where it is shown. */
+export async function summarizeContactAction(contactId: string): Promise<SummaryResult> {
+  const who = await actor();
+  try {
+    const db = getConsoleDb();
+    const { text } = await summarizeContact(db, who, String(contactId), contactSummarizerFromEnv(db));
+    return { ok: true, text };
+  } catch (err) {
+    return simpleFailure(err, 'The summary could not be written. Try again.') as SummaryResult;
   }
 }
 

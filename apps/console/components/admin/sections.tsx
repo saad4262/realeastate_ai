@@ -1,11 +1,24 @@
 import Link from 'next/link';
 import { LocalTime } from '@repo/ui';
+import type { Actor } from '@repo/core/permissions';
 import { listAppointments } from '@repo/core/appointments';
-import { getContact, listContactNotes, listContactTimeline, listContacts, type TimelineItem } from '@repo/core/contacts';
+import {
+  contactLeadSummary,
+  formatContactAddress,
+  getContact,
+  listContactCalls,
+  listContactNotes,
+  listContactSiteHistory,
+  listContactTexts,
+  listContactTimeline,
+  listContacts,
+  type TimelineItem,
+} from '@repo/core/contacts';
 import { listAgencyLeads, type LeadKind } from '@repo/core/leads';
 import { CONSOLE_PAGE_SIZE, listAgencyListingsPage } from '@repo/core/listings';
 import { getMailThread, listMailThreads, parseMailFolder, type MailFolder } from '@repo/core/mail';
 import {
+  listContactAccounts,
   getPlatformAssistantChat,
   getPlatformTeamThread,
   listPlatformAssistantChats,
@@ -17,6 +30,7 @@ import { Agenda } from '@/components/appointments/agenda';
 import { toItem } from '@/components/appointments/item';
 import { RichText } from '@/components/assistant/rich-text';
 import { ThreadList, ThreadReader } from '@/components/inbox/inbox-view';
+import { CallsTab, LeadSummary, MessagesTab, SiteHistoryTab, SmsTab } from '@/components/contacts/contact-history';
 import { LeadTable } from '@/components/lead-table';
 import { getConsoleDb } from '../../lib/db';
 import { recordPlatformView } from '../../lib/require-platform-admin';
@@ -159,10 +173,16 @@ function timelineLine(item: TimelineItem): { label: string; text: string } {
       return { label: item.isPrivate ? 'Private note' : 'Note', text: item.body };
     case 'activity':
       return { label: item.kind.replace(/_/g, ' '), text: '' };
+    case 'sms':
+      return { label: `${item.direction === 'in' ? 'Text in' : 'Text out'}${item.failed ? ' (not delivered)' : ''}`, text: item.body };
+    case 'call':
+      return { label: 'Missed call', text: item.aiSummary ? `Written by AI: ${item.aiSummary}` : '' };
+    case 'site':
+      return { label: item.kind === 'view' ? 'Viewed' : item.kind === 'search' ? 'Searched' : 'Saved', text: item.what };
   }
 }
 
-export async function CustomerDetail({ view, base, contactId }: { view: PlatformView; base: string; contactId: string }) {
+export async function CustomerDetail({ view, base, contactId, activityPage = 1 }: { view: PlatformView & { admin: Actor }; base: string; contactId: string; activityPage?: number }) {
   await recordPlatformView(view.actor, 'customer', contactId);
   const db = getConsoleDb();
   let contact;
@@ -178,12 +198,20 @@ export async function CustomerDetail({ view, base, contactId }: { view: Platform
       </p>
     );
   }
-  const [notes, timeline, meetings, threads] = await Promise.all([
+  const [notes, timeline, meetings, threads, leadSummary, texts, calls, history, accounts] = await Promise.all([
     listContactNotes(db, view.actor, contact.ref).catch(() => []),
     listContactTimeline(db, view.actor, contact.ref, { limit: 50 }).catch(() => ({ items: [], nextBefore: null })),
     listAppointments(db, view.actor, { contact: contact.ref, when: 'upcoming', limit: 20 }).catch(() => null),
     listMailThreads(db, view.actor, { folder: 'all', contactId: contact.id, limit: 20 }).catch(() => null),
+    // ADR 0083: the same reads as the agency's profile, as this view's actor.
+    contactLeadSummary(db, view.actor, contact.ref),
+    listContactTexts(db, view.actor, contact.ref),
+    listContactCalls(db, view.actor, contact.ref),
+    listContactSiteHistory(db, view.actor, contact.ref, { page: activityPage }),
+    listContactAccounts(db, view.admin, contact.id),
   ]);
+  const address = formatContactAddress({ addressLine: contact.address.line, addressSuburb: contact.address.suburb, addressState: contact.address.state, addressPostcode: contact.address.postcode });
+  const noWrites = { ...contact, mayNote: false };
 
   return (
     <div className={styles.wrap}>
@@ -193,6 +221,7 @@ export async function CustomerDetail({ view, base, contactId }: { view: Platform
         <section className={styles.card}>
           <div className={styles.cardBody}>
             <dl className={styles.facts}>
+              <dt>Address</dt><dd>{address ?? 'Address missing'}</dd>
               <dt>Roles</dt><dd>{contact.roles.join(', ') || '—'}</dd>
               <dt>Source</dt><dd>{contact.source}</dd>
               <dt>Assigned to</dt><dd>{contact.assigneeName ?? 'Nobody'}</dd>
@@ -221,12 +250,50 @@ export async function CustomerDetail({ view, base, contactId }: { view: Platform
       </div>
 
       <section className={styles.card}>
+        <div className={styles.cardBody}><h3 className={styles.h2}>Leads</h3></div>
+        <div className={styles.cardBody}>
+          {leadSummary.total ? <LeadSummary summary={leadSummary} /> : <p className={styles.muted}>No leads.</p>}
+          {leadSummary.total ? <p className={styles.sub}><Link href={`${base}/leads`}>This agency’s leads →</Link></p> : null}
+        </div>
+      </section>
+
+      <section className={styles.card}>
         <div className={styles.cardBody}><h3 className={styles.h2}>Email conversations</h3></div>
         {threads && threads.rows.length ? (
           <ThreadList rows={threads.rows} threadHref={(id) => `${base}/inbox?thread=${id}`} emptyTitle="" emptyHint="" />
         ) : (
           <p className={styles.empty}>No email conversations.</p>
         )}
+      </section>
+
+      <section className={styles.card}>
+        <div className={styles.cardBody}><h3 className={styles.h2}>SMS</h3></div>
+        <div className={styles.cardBody}><SmsTab contact={noWrites} texts={texts} canTextFromMyNumber={false} textsHref={`${base}/customers/${contact.id}`} /></div>
+      </section>
+
+      <section className={styles.card}>
+        <div className={styles.cardBody}><h3 className={styles.h2}>Calls</h3></div>
+        <div className={styles.cardBody}><CallsTab contact={noWrites} calls={calls} missedCallsHref={`${base}/customers/${contact.id}`} /></div>
+      </section>
+
+      <section className={styles.card}>
+        <div className={styles.cardBody}><h3 className={styles.h2}>Messages</h3></div>
+        <div className={styles.cardBody}><MessagesTab contact={contact} /></div>
+      </section>
+
+      <section className={styles.card}>
+        <div className={styles.cardBody}>
+          <h3 className={styles.h2}>Website activity</h3>
+          {accounts.length ? (
+            <p className={styles.sub}>
+              The whole site, every agency:{' '}
+              {accounts.map((a, i) => <span key={a.userId}>{i > 0 ? ', ' : ''}<Link href={`/users/${a.userId}`}>{a.name}’s account →</Link></span>)}
+            </p>
+          ) : null}
+        </div>
+        <div className={styles.cardBody}>
+          <SiteHistoryTab history={history} basePath={`${base}/customers`} contactId={contact.id} who={view.subject ? 'agent' : 'admin'} webUrl={process.env.NEXT_PUBLIC_WEB_URL ?? 'http://web.lvh.me:3000'} />
+        </div>
       </section>
 
       <section className={styles.card}>

@@ -24,6 +24,12 @@ import { getContact, type ReadableContact } from '../contacts/get-contact';
 import { listContactTimeline } from '../contacts/timeline';
 import { listContactProperties } from '../contacts/properties';
 import { contactCounts } from '../contacts/counts';
+import { listContactCalls, listContactTexts } from '../contacts/communications';
+import { contactLeadSummary } from '../contacts/lead-summary';
+import { contactSignalFacts, listMatchingListings } from '../contacts/signals';
+import { listContactSiteHistory } from '../contacts/site-history';
+import { getListingActivity } from '../activity/listing-activity';
+import { listAccountCustomerRecords, listContactAccounts, listEveryone } from '../platform/people';
 import { listContactNotes } from '../contacts/notes';
 import { listBuyerRequirements } from '../contacts/buyer-requirements';
 import { listAppointments } from '../appointments/appointments';
@@ -400,8 +406,34 @@ describe('reads cost a fixed number of queries', () => {
       (db: Db) => contactCounts(db, actor, ref),
       (db: Db) => listContactNotes(db, actor, ref),
       (db: Db) => listBuyerRequirements(db, actor, ref),
+      // ADR 0083: each channel's tab, the leads summary and the smart panel's facts.
+      (db: Db) => listContactTexts(db, actor, ref),
+      (db: Db) => listContactCalls(db, actor, ref),
+      (db: Db) => listContactSiteHistory(db, actor, ref),
+      (db: Db) => contactLeadSummary(db, actor, ref),
+      (db: Db) => contactSignalFacts(db, actor, ref, { nextAction: null, nextActionAt: null }),
+      (db: Db) => listMatchingListings(db, ref),
     ];
     for (const read of reads) {
+      const { db, count } = countingDb([]);
+      await read(db);
+      expect(count()).toBe(1);
+    }
+  });
+
+  it('Listing activity is three queries, however many people looked (ADR 0083)', async () => {
+    const { db, count } = countingDb([]);
+    await getListingActivity(db, actor);
+    expect(count()).toBe(3);
+  });
+
+  it('the admin People list and its two lookups are one query each (ADR 0083)', async () => {
+    const admin = { userId: 'admin-1', platformAdmin: true } as unknown as typeof actor;
+    for (const read of [
+      (db: Db) => listEveryone(db, admin, { q: 'pakenham' }),
+      (db: Db) => listAccountCustomerRecords(db, admin, 'u-1'),
+      (db: Db) => listContactAccounts(db, admin, 'c-1'),
+    ]) {
       const { db, count } = countingDb([]);
       await read(db);
       expect(count()).toBe(1);

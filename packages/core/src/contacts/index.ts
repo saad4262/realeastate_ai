@@ -70,3 +70,36 @@ export {
 } from './visibility';
 export { auPhoneKey, PHONE_KEY_SAMPLES } from './phone';
 export * from './contact-schema';
+export {
+  CONTACT_CALLS_LIMIT,
+  CONTACT_TEXTS_LIMIT,
+  listContactCalls,
+  listContactTexts,
+  logContactCall,
+  type ContactCall,
+  type ContactCalls,
+  type ContactText,
+  type ContactTextConversation,
+  type ContactTexts,
+} from './communications';
+export { contactLeadSummary, durationWords, type ContactLeadSummary } from './lead-summary';
+export {
+  listContactSiteHistory,
+  SITE_HISTORY_PAGE_SIZE,
+  type AccountTie,
+  type SiteHistory,
+  type SiteHistoryRow,
+} from './site-history';
+export {
+  agoWords,
+  contactSignalFacts,
+  ENGAGEMENT_LABELS,
+  listMatchingListings,
+  profileSignals,
+  type ContactSignalFacts,
+  type ContactSignals,
+  type Engagement,
+  type MatchingListing,
+  type Nudge,
+} from './signals';
+export { CONTACT_SUMMARY_FEATURE, maskFigures, summarizeContact, summaryLine, type ContactSummarizer } from './summary';

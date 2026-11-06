@@ -71,6 +71,7 @@ import {
   loadPlatformAdmin,
   logPlatformView,
   platformViewActor,
+  listEveryone,
   blockMember,
   reactivateAgency,
   suspendAgency,
@@ -156,8 +157,15 @@ import {
   visibleContactIdsSql,
   createContact,
   addCustomer,
+  contactLeadSummary,
+  listContactCalls,
+  listContactSiteHistory,
+  listContactTexts,
+  logContactCall,
   type ContactView,
+  type ReadableContact,
 } from '@repo/core/contacts';
+import { getListingActivity } from '@repo/core/activity';
 import {
   AppointmentError,
   cancelAppointment,
@@ -11236,6 +11244,140 @@ async function main() {
   );
 
   // ------------------------------------------------- imports, Phase 3 --
+  group('Customer profile, every channel (ADR 0083)');
+
+  await check('Activity: an agency sees its own listings and the suburbs of its live listings, an agent only theirs; another agency\'s listing, and the team\'s own views, never show; the tie reads confirmed only with proof', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const ref = { id: f.contacts.p1, agencyId: f.agencyId } as ReadableContact;
+      const email = `p1.${f.tag}@smoke.test`;
+      const buyer = randomUUID();
+      await t.execute(sql`insert into "user" (id, email, name) values (${buyer}, ${email}, 'Buyer')`);
+      const [lst] = await t.execute<{ id: string }>(sql`select id from listing where agency_id = ${f.agencyId}`);
+      // Another agency's live listing, in another suburb: the view and the search there must never reach this agency.
+      const [other] = await t.execute<{ id: string }>(sql`insert into agency (name, slug) values (${`Smoke other ${f.tag}`}, ${`smoke-other-${f.tag}`}) returning id`);
+      const [otherProp] = await t.execute<{ id: string }>(sql`insert into property (street_number, street, suburb, state, postcode) values ('9', 'Other Road', 'Perth', 'WA', '6000') returning id`);
+      const [otherListing] = await t.execute<{ id: string }>(sql`insert into listing (property_id, agency_id, channel, status) values (${otherProp!.id}, ${other!.id}, 'sale', 'live') returning id`);
+      await t.execute(sql`
+        insert into site_activity (user_id, kind, suburb, state, channel, listing_id, agency_id, query) values
+          (${buyer}, 'listing_view', 'Pakenham', 'VIC', 'sale', ${lst!.id}, ${f.agencyId}, null),
+          (${buyer}, 'listing_view', 'Perth', 'WA', 'sale', ${otherListing!.id}, ${other!.id}, null),
+          (${buyer}, 'search', 'pakenham', 'VIC', 'sale', null, null, ${JSON.stringify({ bedrooms: 3 })}::jsonb),
+          (${buyer}, 'search', 'Perth', 'WA', 'sale', null, null, null),
+          (null, 'listing_view', 'Pakenham', 'VIC', 'sale', ${lst!.id}, ${f.agencyId}, null),
+          (${f.people.a1}, 'listing_view', 'Pakenham', 'VIC', 'sale', ${lst!.id}, ${f.agencyId}, null)`);
+      await t.execute(sql`insert into shortlist (user_id, listing_id) values (${buyer}, ${lst!.id}), (${buyer}, ${otherListing!.id})`);
+
+      const owner = await listContactSiteHistory(t, f.actor('owner'), ref);
+      assert(owner.views === 1 && owner.searches === 1 && owner.saved === 1 && owner.total === 3, `owner: ${JSON.stringify(owner)}`);
+      assert(!JSON.stringify(owner.rows).includes('Perth') && !JSON.stringify(owner.rows).includes('Other Road'), `another agency showed: ${JSON.stringify(owner.rows)}`);
+      assert(owner.tie === 'email', `a typed email is not proof: ${owner.tie}`);
+      const named = await listContactSiteHistory(t, f.actor('a1'), ref);
+      assert(named.views === 1 && named.searches === 1, `the agent named on it: ${JSON.stringify(named)}`);
+      const notNamed = await listContactSiteHistory(t, f.actor('a2'), ref);
+      assert(notNamed.total === 0, `an agent named on nothing: ${JSON.stringify(notNamed)}`);
+      assert((await contactCounts(t, f.actor('owner'), ref)).activity === 3, 'the tab count disagrees with the tab');
+
+      await t.execute(sql`update lead set user_id = ${buyer} where contact_id = ${f.contacts.p1}`);
+      assert((await listContactSiteHistory(t, f.actor('owner'), ref)).tie === 'confirmed', 'a lead from the account is proof');
+
+      // The page: the buyer by name, the anonymous view a count, A1 (the team) left out.
+      const page = await getListingActivity(t, f.actor('owner'), { days: 7 });
+      assert(page.totals.views === 2 && page.totals.people === 1 && page.totals.anonymousViews === 1 && page.totals.searches === 1, `totals: ${JSON.stringify(page.totals)}`);
+      assert(page.listings.length === 1 && page.listings[0]!.listingId === lst!.id && page.listings[0]!.saves === 1, `listings: ${JSON.stringify(page.listings)}`);
+      assert(page.people.every((p) => p.userId === buyer) && page.people.some((p) => p.contactId === f.contacts.p1), `people: ${JSON.stringify(page.people)}`);
+      assert((await getListingActivity(t, f.actor('a2'), { days: 7 })).totals.views === 0, 'an agent named on nothing saw views');
+      return 'own listings only; the team left out; the tie moved with proof';
+    }));
+
+  await check('SMS and Calls: each its own tab, an agent only their own number, a phone never takes a row that names somebody else; a logged call lands on Calls and the timeline; a read-only member cannot log; a platform view reads and cannot write', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const ref = { id: f.contacts.p1, agencyId: f.agencyId } as ReadableContact;
+      await t.execute(sql`update contact set phone = '0412 345 678' where id = ${f.contacts.p1}`);
+      await t.execute(sql`update contact set phone = '0412 345 678' where id = ${f.contacts.p2}`);
+      const number = async (who: 'a1' | 'a2', e164: string) => {
+        const [n] = await t.execute<{ id: string }>(sql`insert into phone_number (agency_id, user_id, e164, number_sid) values (${f.agencyId}, ${f.people[who]}, ${e164}, ${`PN${who}${f.tag}`}) returning id`);
+        return n!.id;
+      };
+      const n1 = await number('a1', '+61480000111');
+      const n2 = await number('a2', '+61480000222');
+      const peer = '+61412345678';
+      await t.execute(sql`
+        insert into sms_message (agency_id, phone_number_id, counterpart, contact_id, direction, body, status) values
+          (${f.agencyId}, ${n1}, ${peer}, ${f.contacts.p1}, 'in', 'named: p1', 'received'),
+          (${f.agencyId}, ${n1}, ${peer}, null, 'out', 'by phone', 'delivered'),
+          (${f.agencyId}, ${n1}, ${peer}, ${f.contacts.p2}, 'in', 'names p2', 'received'),
+          (${f.agencyId}, ${n2}, ${peer}, ${f.contacts.p1}, 'out', 'on A2 number', 'failed')`);
+      await t.execute(sql`
+        insert into phone_call (agency_id, phone_number_id, kind, from_e164, contact_id, status, outcome, ai_status, ai_summary) values
+          (${f.agencyId}, ${n1}, 'missed', ${peer}, ${f.contacts.p1}, 'received', 'texted', 'done', 'Wants a home.'),
+          (${f.agencyId}, ${n2}, 'missed', ${peer}, null, 'received', 'repeat', null, null),
+          (${f.agencyId}, ${n1}, 'test', ${peer}, ${f.contacts.p1}, 'passed', null, null, null)`);
+
+      const owner = await listContactTexts(t, f.actor('owner'), ref);
+      assert(owner.total === 3 && owner.received === 1 && owner.sent === 2 && owner.failed === 1 && owner.conversations.length === 2, `owner texts: ${JSON.stringify(owner)}`);
+      assert(!JSON.stringify(owner).includes('names p2'), 'a shared phone took a text naming somebody else');
+      const a1Texts = await listContactTexts(t, f.actor('a1'), ref);
+      assert(a1Texts.total === 2 && a1Texts.conversations.length === 1, `A1 reads only A1's number: ${JSON.stringify(a1Texts)}`);
+      const calls = await listContactCalls(t, f.actor('owner'), ref);
+      assert(calls.total === 2 && calls.missed === 2 && calls.aiCallBacks === 1, `a test call is not a call: ${JSON.stringify(calls)}`);
+      assert((await listContactCalls(t, f.actor('a1'), ref)).total === 1, 'A1 saw A2 number\'s call');
+      const counted = await contactCounts(t, f.actor('owner'), ref);
+      assert(counted.sms === 3 && counted.calls === 2, `tab counts: ${JSON.stringify(counted)}`);
+
+      await logContactCall(t, f.actor('a1'), f.contacts.p1, { direction: 'out', outcome: 'answered', minutes: 6, note: 'Confirmed Saturday' });
+      const after = await listContactCalls(t, f.actor('a1'), ref);
+      assert(after.logged === 1 && after.rows.some((r) => r.source === 'logged' && r.minutes === 6 && r.note === 'Confirmed Saturday'), `logged: ${JSON.stringify(after)}`);
+      const bad = await logContactCall(t, f.actor('a1'), f.contacts.p1, { direction: 'out', outcome: 'answered', minutes: 9000 }).catch((e: unknown) => e as Error);
+      assert(bad instanceof Error, 'minutes off the scale were saved');
+      const viewerOwn = await logContactCall(t, f.actor('viewer'), f.contacts.p4, { direction: 'out', outcome: 'answered' }).catch((e: unknown) => e as Error);
+      assert(viewerOwn instanceof Error && /not log/.test(viewerOwn.message), `read-only: ${String(viewerOwn)}`);
+      const stranger = await logContactCall(t, f.actor('a2'), f.contacts.p6, { direction: 'out', outcome: 'answered' }).catch((e: unknown) => e as Error);
+      assert(stranger instanceof Error && /not found/i.test(stranger.message), `unseen contact: ${String(stranger)}`);
+
+      const items = (await listContactTimeline(t, f.actor('owner'), ref, { limit: 50 })).items;
+      for (const type of ['sms', 'call', 'activity', 'lead']) assert(items.some((i) => i.type === type), `no ${type} on the timeline: ${items.map((i) => i.type).join()}`);
+
+      const view = { userId: f.people.owner, agencyId: f.agencyId, membershipRole: 'owner' as const, via: 'platform' as const, viewerId: f.people.owner };
+      assert((await listContactTexts(t, view, ref)).total === 3, 'a platform view reads every number');
+      const written = await logContactCall(t, view, f.contacts.p1, { direction: 'out', outcome: 'answered' }).catch((e: unknown) => e as Error);
+      assert(written instanceof Error, 'a platform view wrote');
+      return 'each channel its own read; an agent their own number; a logged call on Calls and the timeline';
+    }));
+
+  await check('Leads summary: the inbox\'s scope, a person\'s reply and never an automatic one, open deals; People lists all three kinds and each page counts from SQL', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const ref = { id: f.contacts.p1, agencyId: f.agencyId } as ReadableContact;
+      await f.lead(`p1.${f.tag}@smoke.test`, 'P1', { listing: true, kind: 'inspection' });
+      const [thread] = await t.execute<{ id: string; created_at: string }>(sql`
+        select th.id, l.created_at from mail_thread th join lead l on l.id = th.lead_id where l.contact_id = ${f.contacts.p1} order by l.created_at limit 1`);
+      const noReply = await contactLeadSummary(t, f.actor('owner'), ref);
+      assert(noReply.total === 2 && noReply.new === 2 && noReply.byKind.inspection === 1 && noReply.averageFirstReplySeconds === null && noReply.waiting === 2, `before: ${JSON.stringify(noReply)}`);
+      if (thread) {
+        // An automatic send (no person) is not a reply; a person's is.
+        await t.execute(sql`insert into mail_message (thread_id, agency_id, direction, status, subject, text, from_email, created_at)
+          select ${thread.id}, ${f.agencyId}, 'out', 'sent', 'Auto', 'Thanks', 'auto@smoke.test', now() + interval '10 minutes'`);
+        assert((await contactLeadSummary(t, f.actor('owner'), ref)).averageFirstReplySeconds === null, 'an automatic email counted as a reply');
+        await t.execute(sql`insert into mail_message (thread_id, agency_id, direction, status, subject, text, from_email, sent_by, created_at)
+          select ${thread.id}, ${f.agencyId}, 'out', 'sent', 'Hi', 'Hello', 'a@smoke.test', ${f.people.a1}, now() + interval '20 minutes'`);
+        const replied = await contactLeadSummary(t, f.actor('owner'), ref);
+        assert(replied.averageFirstReplySeconds !== null && replied.waiting === 1, `after: ${JSON.stringify(replied)}`);
+      }
+      assert((await contactLeadSummary(t, f.actor('a2'), ref)).total === 0, 'A2 counted A1\'s leads');
+
+      const admin = { userId: f.people.owner, platformAdmin: true };
+      const all = await listEveryone(t, admin, { q: f.tag });
+      assert(all.byType.customer >= 5 && all.byType.member === 4, `people: ${JSON.stringify(all.byType)}`);
+      assert(all.rows.some((r) => r.type === 'customer' && r.agencyId === f.agencyId) && all.rows.some((r) => r.type === 'member'), `rows: ${all.rows.length}`);
+      const onlyMembers = await listEveryone(t, admin, { q: f.tag, type: 'member' });
+      assert(onlyMembers.total === 4 && onlyMembers.rows.every((r) => r.type === 'member'), `members: ${JSON.stringify(onlyMembers.total)}`);
+      const refused = await listEveryone(t, f.actor('owner'), {}).catch((e: unknown) => e as Error);
+      assert(refused instanceof Error, 'an agency owner opened People');
+      return `${all.total} people found by the tag; a person's reply is a reply and an automatic one is not`;
+    }));
+
   group('Imports: contacts and Google Sheets');
 
   await check('a contacts import (ADR 0029 amendment, ADR 0079): new rows added as the uploader with source "import"; an existing email and a repeat in the file add to that one profile — blanks filled, nothing overwritten; consent never imported', async () =>

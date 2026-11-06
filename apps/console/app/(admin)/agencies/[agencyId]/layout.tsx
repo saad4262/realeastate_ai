@@ -55,6 +55,7 @@ export default async function AgencyLayout({
           { href: `${base}/agents`, label: 'Agents' },
           { href: `${base}/leads`, label: 'Leads' },
           { href: `${base}/customers`, label: 'Customers' },
+          { href: `${base}/listing-activity`, label: 'Listing activity' },
           { href: `${base}/inbox`, label: 'Inbox' },
           { href: `${base}/emails`, label: 'Email activity' },
           { href: `${base}/meetings`, label: 'Meetings' },

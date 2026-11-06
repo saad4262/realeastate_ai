@@ -78,8 +78,26 @@ export const ACTIVITY_KINDS = [
   // ADR 0079: the same person added again (Add customer, an import) — blanks filled, other values offered.
   'details_added',
   'details_offered',
+  // ADR 0083: a call on the agent's own mobile never reaches the platform, so it is logged by hand.
+  'call_logged',
 ] as const;
 export const activityKindSchema = z.enum(ACTIVITY_KINDS);
+
+/** A call logged by hand (ADR 0083). */
+export const CALL_DIRECTIONS = ['out', 'in'] as const;
+export const CALL_OUTCOMES = ['answered', 'no_answer', 'voicemail'] as const;
+export const MAX_CALL_NOTE_LENGTH = 2000;
+export const CALL_DIRECTION_LABELS: Record<(typeof CALL_DIRECTIONS)[number], string> = { out: 'Outgoing', in: 'Incoming' };
+export const CALL_OUTCOME_LABELS: Record<(typeof CALL_OUTCOMES)[number], string> = { answered: 'Answered', no_answer: 'No answer', voicemail: 'Left a voicemail' };
+export const logCallSchema = z
+  .object({
+    direction: z.enum(CALL_DIRECTIONS),
+    outcome: z.enum(CALL_OUTCOMES),
+    minutes: z.number().int().min(0).max(600).nullable().optional(),
+    note: z.string().trim().max(MAX_CALL_NOTE_LENGTH).optional(),
+  })
+  .strict();
+export type LogCallInput = z.infer<typeof logCallSchema>;
 export type ActivityKind = z.infer<typeof activityKindSchema>;
 
 export const CONTACT_ROLE_LABELS: Record<ContactRoleKind, string> = {
@@ -139,6 +157,7 @@ export const ACTIVITY_LABELS: Record<ActivityKind, string> = {
   requirement_removed: 'Requirements removed',
   details_added: 'Missing details added',
   details_offered: 'Different details given',
+  call_logged: 'Call logged',
 };
 
 export const CONTACT_SOURCE_LABELS: Record<ContactSource, string> = {
@@ -489,6 +508,10 @@ export const CONTACT_TABS = [
   'timeline',
   'properties',
   'emails',
+  'sms',
+  'calls',
+  'messages',
+  'activity',
   'enquiries',
   'notes',
   'documents',

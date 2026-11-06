@@ -2,9 +2,11 @@ import Link from 'next/link';
 import { LocalTime } from '@repo/ui';
 import {
   ACTIVITY_LABELS,
+  CALL_OUTCOME_LABELS,
   CONTACT_PROPERTY_RELATION_LABELS,
   CONTACT_ROLE_LABELS,
   CONTACT_SOURCE_LABELS,
+  ENGAGEMENT_LABELS,
   formatContactAddress,
   REQUIREMENT_CHANNEL_LABELS,
   type BuyerRequirementView,
@@ -13,6 +15,7 @@ import {
   type ContactPropertyView,
   type ContactTab,
   type ContactView,
+  type Engagement,
   type NoteView,
   type TimelineItem,
 } from '@repo/core/contacts';
@@ -58,6 +61,12 @@ export function tabHref(basePath: string, id: string, tab: ContactTab, extra: Re
   return `${basePath}/${id}${s ? `?${s}` : ''}`;
 }
 
+/** Hot, warm or quiet (ADR 0083): fixed rules, the reason shown beside it on the overview. */
+export function EngagementChip({ engagement }: { engagement: Engagement }) {
+  const cls = engagement === 'hot' ? styles.chipHot : engagement === 'warm' ? styles.chipWarm : styles.chip;
+  return <span className={cls}>{ENGAGEMENT_LABELS[engagement]}</span>;
+}
+
 // ── The frame: header and tabs ─────────────────────────────────────────────
 
 export function ContactFrame({
@@ -66,12 +75,15 @@ export function ContactFrame({
   tab,
   counts,
   askHref,
+  engagement,
   children,
 }: {
   contact: ContactView;
   basePath: string;
   tab: ContactTab;
   counts: ContactCounts;
+  /** Hot, warm or quiet (ADR 0083), where the page has read it. */
+  engagement?: Engagement | undefined;
   /**
    * Where "Ask the assistant" goes, with this contact as its selection: the
    * console's assistant home, which is a page of its own and so has to be told
@@ -82,11 +94,16 @@ export function ContactFrame({
 }) {
   const tabs: { key: ContactTab; label: string; count?: number }[] = [
     { key: 'overview', label: 'Overview' },
-    { key: 'requirements', label: 'Requirements', count: counts.requirements },
-    { key: 'timeline', label: 'Timeline' },
-    { key: 'properties', label: 'Properties' },
+    // ADR 0083: the key stays `enquiries`, so old links land.
+    { key: 'enquiries', label: 'Leads', count: counts.enquiries },
     { key: 'emails', label: 'Emails', count: counts.conversations },
-    { key: 'enquiries', label: 'Enquiries', count: counts.enquiries },
+    { key: 'sms', label: 'SMS', count: counts.sms },
+    { key: 'calls', label: 'Calls', count: counts.calls },
+    { key: 'messages', label: 'Messages' },
+    { key: 'activity', label: 'Activity', count: counts.activity },
+    { key: 'timeline', label: 'Timeline' },
+    { key: 'requirements', label: 'Requirements', count: counts.requirements },
+    { key: 'properties', label: 'Properties' },
     { key: 'notes', label: 'Notes', count: counts.notes },
     { key: 'documents', label: 'Documents' },
     { key: 'calendar', label: 'Calendar' },
@@ -98,7 +115,10 @@ export function ContactFrame({
       <Link href={basePath} className={styles.back}>← All contacts</Link>
       <div className={styles.head}>
         <div className={styles.headText}>
-          <h1 className={styles.title}>{c.name}</h1>
+          <h1 className={styles.title}>
+            {c.name}
+            {engagement && engagement !== 'none' ? <> <EngagementChip engagement={engagement} /></> : null}
+          </h1>
           <p className={styles.sub}>
             {[c.email, c.phone].filter(Boolean).join(' · ') || 'No email or phone yet'}
             {' · '}
@@ -354,10 +374,20 @@ export function OverviewTab({
 
 // ── Timeline ───────────────────────────────────────────────────────────────
 
-const ICON: Record<TimelineItem['type'], string> = { lead: '✉︎', email: '↔', note: '✎', activity: '•' };
+const ICON: Record<TimelineItem['type'], string> = { lead: '✉︎', email: '↔', note: '✎', activity: '•', sms: '✆', call: '☎', site: '◎' };
+
+const SITE_WORD: Record<Extract<TimelineItem, { type: 'site' }>['kind'], string> = { view: 'Viewed', search: 'Searched', saved: 'Saved' };
 
 const DETAIL_WORDS: Record<string, string> = { name: 'Name', phone: 'Phone', address: 'Address', nextAction: 'Next action' };
 const detailWord = (f: unknown) => (typeof f === 'string' ? (DETAIL_WORDS[f] ?? f) : '');
+
+/** A hand-logged call in words (ADR 0083). */
+function callLogWords(p: Record<string, unknown>): string {
+  const direction = p.direction === 'in' ? 'Incoming' : 'Outgoing';
+  const outcome = CALL_OUTCOME_LABELS[p.outcome === 'no_answer' || p.outcome === 'voicemail' ? p.outcome : 'answered'].toLowerCase();
+  const minutes = typeof p.minutes === 'number' ? `, ${p.minutes} min` : '';
+  return `${direction}, ${outcome}${minutes}${typeof p.note === 'string' && p.note ? `: ${p.note}` : ''}`;
+}
 
 function activityText(item: Extract<TimelineItem, { type: 'activity' }>): string | null {
   const p = item.payload;
@@ -372,6 +402,8 @@ function activityText(item: Extract<TimelineItem, { type: 'activity' }>): string
     // ADR 0079: the same person added again.
     case 'details_added':
       return Array.isArray(p.fields) ? `${p.fields.map(detailWord).join(', ')}${p.via === 'import' ? ' — from an import' : ''}` : null;
+    case 'call_logged':
+      return callLogWords(p);
     case 'details_offered':
       return Array.isArray(p.offered)
         ? `${(p.offered as { field?: unknown; value?: unknown }[])
@@ -443,6 +475,27 @@ export function TimelineList({
                   Open conversation
                 </Link>
               </>
+            ) : item.type === 'sms' ? (
+              <>
+                <div className={styles.eventTitle}>
+                  {item.direction === 'in' ? 'Text from them' : item.automatic ? 'Automatic text sent' : `Text sent${item.who ? ` by ${item.who}` : ''}`}
+                  {item.failed ? ' — not delivered' : ''}
+                </div>
+                <div className={styles.eventBody}>{item.body}</div>
+                <Link href={tabHref(basePath, contactId, 'sms')} className={styles.back}>Open SMS</Link>
+              </>
+            ) : item.type === 'call' ? (
+              <>
+                <div className={styles.eventTitle}>Missed call{item.outcome === 'texted' ? ' — texted automatically' : ''}</div>
+                {item.aiSummary ? (
+                  <div className={styles.eventBody}>
+                    <span className={styles.chipAi}>Written by AI</span> {item.aiSummary}
+                  </div>
+                ) : null}
+                <Link href={tabHref(basePath, contactId, 'calls')} className={styles.back}>Open calls</Link>
+              </>
+            ) : item.type === 'site' ? (
+              <div className={styles.eventTitle}>{SITE_WORD[item.kind]} {item.what}</div>
             ) : item.type === 'note' ? (
               <>
                 <div className={styles.eventTitle}>

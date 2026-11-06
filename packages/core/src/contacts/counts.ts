@@ -5,8 +5,20 @@ import { leadScopeFilters } from '../leads/list-leads';
 import { threadScopeFilters } from '../mail/threads';
 import type { ReadableContact } from './get-contact';
 import { noteVisibleSql } from './notes';
+import { belongsToContactSql, numberScopeSql } from './communications';
+import { siteRowsSql } from './site-history';
 
-export type ContactCounts = { enquiries: number; conversations: number; notes: number; properties: number; requirements: number };
+export type ContactCounts = {
+  enquiries: number;
+  conversations: number;
+  notes: number;
+  properties: number;
+  requirements: number;
+  /** ADR 0083: each under its own tab's scope. */
+  sms: number;
+  calls: number;
+  activity: number;
+};
 
 /**
  * The overview's figures, in one statement. Enquiries and conversations are
@@ -36,8 +48,15 @@ export async function contactCounts(db: Db, actor: Actor, c: ReadableContact): P
     .select({ n: sql<number>`count(*)` })
     .from(buyerRequirement)
     .where(and(eq(buyerRequirement.contactId, c.id), eq(buyerRequirement.agencyId, c.agencyId), eq(buyerRequirement.status, 'active')));
-  const [row] = await db.execute<{ e: string; t: string; n: string; p: string; r: string }>(sql`
-    select (${leads}) as e, (${threads}) as t, (${notes}) as n, (${linked}) as p, (${briefs}) as r
+  const texts = sql`select count(*) from sms_message m join phone_number pn on pn.id = m.phone_number_id
+    where m.agency_id = ${c.agencyId} and ${belongsToContactSql('m.contact_id', 'm.counterpart', c.id)} and ${numberScopeSql(actor, c.agencyId)}`;
+  const calls = sql`select
+    (select count(*) from phone_call pc join phone_number pn on pn.id = pc.phone_number_id
+      where pc.agency_id = ${c.agencyId} and pc.kind = 'missed' and ${belongsToContactSql('pc.contact_id', 'pc.from_e164', c.id)} and ${numberScopeSql(actor, c.agencyId)})
+    + (select count(*) from activity a where a.contact_id = ${c.id} and a.agency_id = ${c.agencyId} and a.kind = 'call_logged')`;
+  const site = sql`select count(*) from (${siteRowsSql(actor, c.id)}) sr`;
+  const [row] = await db.execute<{ e: string; t: string; n: string; p: string; r: string; s: string; c: string; a: string }>(sql`
+    select (${leads}) as e, (${threads}) as t, (${notes}) as n, (${linked}) as p, (${briefs}) as r, (${texts}) as s, (${calls}) as c, (${site}) as a
   `);
   // bigint arrives as a string (ARCHITECTURE § 5).
   return {
@@ -46,5 +65,8 @@ export async function contactCounts(db: Db, actor: Actor, c: ReadableContact): P
     notes: Number(row?.n ?? 0),
     properties: Number(row?.p ?? 0),
     requirements: Number(row?.r ?? 0),
+    sms: Number(row?.s ?? 0),
+    calls: Number(row?.c ?? 0),
+    activity: Number(row?.a ?? 0),
   };
 }

@@ -196,6 +196,11 @@ export type Action =
   | 'contact:merge'
   /** Write a note on a contact: whoever may see it, unless read-only. */
   | 'note:create'
+  /** Log a call on a contact, or ask for a summary of them (ADR 0083): `note:create`'s rule. */
+  | 'contact_call:log'
+  | 'contact_summary:write'
+  /** See who looked at listings (ADR 0083). Any member; which listings is narrowed by `listing:read_all`. */
+  | 'listing_activity:read'
   /** Edit or delete a note: its author (`ownerId`), or an admin. */
   | 'note:manage'
   /**
@@ -587,6 +592,9 @@ export const PLATFORM_READ: ReadonlySet<Action> = new Set<Action>([
   'meeting:read_own',
   'contact:read',
   'contact:read_all',
+  // ADR 0083: the admin's customer page shows texts and listing activity.
+  'sms:read',
+  'listing_activity:read',
   'note:read_private',
   'appointment:read',
   'appointment:read_all',
@@ -709,9 +717,14 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       return Boolean(resource.ownerId) && actor.userId === resource.ownerId;
 
     case 'note:create':
+    case 'contact_call:log':
+    case 'contact_summary:write':
     // A document on a contact is a note with a file (ADR 0053 §3): the same people.
     case 'document:upload':
       return mayWrite(actor) && can(actor, 'contact:read', resource);
+
+    case 'listing_activity:read':
+      return sameAgency(actor, resource) && Boolean(actor.membershipRole);
 
     case 'document:upload_listing':
       return mayWrite(actor) && can(actor, 'listing:edit', resource);
