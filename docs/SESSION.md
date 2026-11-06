@@ -3,6 +3,18 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-06 (later) — Claude Code (Mac) — Production preparation; cutover waits on DNS
+
+- `feat/open-homes` merged and deployed (`f595a47`). The user cancelled the new database: `xjklpoyxcvnlhjlxasmv`, in `.env.local`, is production; nothing was migrated or loaded on it.
+- Vercel variables applied and leftovers removed (STATUS). Five domains attached; DNS records given to the user. Their report says DNS is live, but `haley`, `garret`, 1.1.1.1 and
+  8.8.8.8 all still serve nothing at 10:34 UTC, with an unchanged SOA serial, so no address was switched.
+- Test data: all 41 listings are test, `live` and `sold` rows reach public pages. Withdrawing, not deleting: reversible, the app's own "off the public site", and search and sold figures
+  exclude it. A one-off status update skips the workflow events and emails the app's path would fire. The write was blocked by Claude Code's permission check, so nothing changed; the dry run
+  matched 38 of the expected 38. Phone Test's listings stay because the domain checks and phone tests need a public listing.
+- Git: 29 local branches fully in `origin/main` deleted; each commit checked against `origin/main` first. Local `main` fast-forwarded 72 commits in the `realestate_ai-crm2` worktree; its uncommitted
+  lockfile change (`mammoth`, `unpdf` specifiers) was discarded and is already in `origin/main`. Worktrees kept: each holds `.env.local` files that may be the only copy.
+- NOT done: the withdrawal; Sentry (no project or values); the domain switch and everything after it.
+
 ## 2026-11-06 — Claude Code (Mac) — Open homes and Sentry; launch status
 
 - Macro review found no write path for `inspection`, test agencies on the public site, 0 photos on live listings, and only a stub Twilio
