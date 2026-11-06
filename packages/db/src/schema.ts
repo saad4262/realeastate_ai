@@ -562,8 +562,10 @@ export const inspection = pgTable('inspection', {
   startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
   endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
   kind: inspectionKindEnum('kind').notNull().default('open'),
+  /** Who entered it (ADR 0081). Null on a row from the import or from before this column. */
+  createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
   ...timestamps,
-});
+}, (t) => [uniqueIndex('inspection_listing_starts_idx').on(t.listingId, t.startsAt)]);
 
 /**
  * Somebody wanting to talk to an agency about an address.
