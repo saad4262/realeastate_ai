@@ -13,6 +13,7 @@
     "ALERTS_DRY_RUN",
     "ALERT_UNSUBSCRIBE_SECRET"
   ],
+  "globalPassThroughEnv": ["SENTRY_AUTH_TOKEN", "SENTRY_ORG", "SENTRY_PROJECT"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

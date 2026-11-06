@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next';
+import { withSentryConfig } from '@sentry/nextjs/config';
 import { mediaHostname } from '@repo/core/media/url';
 
 /** Null when Supabase is not configured — then no remote host is allowed. */
@@ -80,4 +81,17 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+/**
+ * ADR 0082. Readable stack traces need SENTRY_AUTH_TOKEN, SENTRY_ORG and SENTRY_PROJECT at build time; without them the build is
+ * unchanged apart from the SDK. The maps are uploaded and then deleted, so they are never served.
+ */
+export default withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  silent: true,
+  telemetry: false,
+  widenClientFileUpload: true,
+  sourcemaps: { disable: !process.env.SENTRY_AUTH_TOKEN, deleteSourcemapsAfterUpload: true },
+  bundleSizeOptimizations: { excludeDebugStatements: true, excludeTracing: true, excludeReplayIframe: true, excludeReplayShadowDom: true, excludeReplayWorker: true },
+});

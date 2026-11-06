@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect } from 'react';
+import { monitoring } from '../lib/browser-monitoring';
 import Link from 'next/link';
 import styles from './failure.module.css';
 
@@ -27,6 +29,11 @@ export function ConsoleError({
   homeHref: string;
   homeLabel: string;
 }) {
+  // ADR 0082. A digest means the server threw, and `onRequestError` has already reported it.
+  useEffect(() => {
+    if (!error.digest) monitoring.report(error);
+  }, [error]);
+
   return (
     <div className={styles.wrap} role="alert">
       <span className={styles.icon} aria-hidden>

@@ -15,6 +15,7 @@
     "@repo/core": "workspace:*",
     "@repo/db": "workspace:*",
     "@repo/ui": "workspace:*",
+    "@sentry/nextjs": "11.9.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.47.10",
     "drizzle-orm": "^0.38.3",
@@ -24,6 +25,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@opentelemetry/api": "1.10.0",
     "@repo/eslint-config": "workspace:*",
     "@types/google.maps": "^3.58.1",
     "@types/node": "^22.10.2",

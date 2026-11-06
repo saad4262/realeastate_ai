@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect } from 'react';
+import { monitoring } from '../lib/browser-monitoring';
 import Link from 'next/link';
 import { WebShell } from '../components/web-shell';
 import styles from './failure.module.css';
@@ -26,6 +28,11 @@ export default function WebError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // ADR 0082. A digest means the server threw, and `onRequestError` has already reported it.
+  useEffect(() => {
+    if (!error.digest) monitoring.report(error);
+  }, [error]);
+
   return (
     <WebShell>
       <div className={styles.wrap}>

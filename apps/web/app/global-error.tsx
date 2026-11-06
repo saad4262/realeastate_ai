@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect } from 'react';
+import { monitoring } from '../lib/browser-monitoring';
 /**
  * The last boundary: a failure in the root layout itself.
  *
@@ -19,6 +21,11 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // ADR 0082. A digest means the server threw, and `onRequestError` has already reported it.
+  useEffect(() => {
+    if (!error.digest) monitoring.report(error);
+  }, [error]);
+
   return (
     <html lang="en-AU">
       <body
