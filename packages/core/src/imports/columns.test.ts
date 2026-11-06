@@ -54,6 +54,20 @@ describe('the template and its columns', () => {
     expect(sold.status).toBe('sold');
     expect(sold.sold).toMatchObject({ soldPrice: 925000 });
   });
+  it('ADR 0081: open homes are read on the property’s clock; a bad time is a warning, and the listing still imports', () => {
+    const [sale] = rows.map((r) => normalizeRow(r, mapping, 'UTC'));
+    expect(sale!.row!.openHomes).toEqual([
+      { startsAt: '2027-02-12T23:00:00.000Z', endsAt: '2027-02-12T23:30:00.000Z' },
+      { startsAt: '2027-02-19T23:00:00.000Z', endsAt: '2027-02-19T23:30:00.000Z' },
+    ]);
+    expect(sale!.row!.listing.auctionDate).toBe('2026-11-14T00:00:00.000Z');
+    const bad = [...rows[0]!];
+    bad[mapping.open_homes!] = '14/11 10am';
+    const out = normalizeRow(bad, mapping, 'UTC');
+    expect(out.errors).toEqual([]);
+    expect(out.row!.openHomes).toEqual([]);
+    expect(out.warnings[0]).toMatchObject({ column: 'Open homes', message: expect.stringMatching(/expected format/) });
+  });
   it('C9: floorplans are fetched like photos; video and tour links only from the allowlist, each in its own column', () => {
     const [sale, rent] = rows.map((r) => normalizeRow(r, mapping, 'Australia/Melbourne').row!);
     expect(sale!.floorplanUrls).toEqual(['https://photos.example.com/ag-1001/floorplan.png']);

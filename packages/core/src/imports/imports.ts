@@ -17,6 +17,7 @@ import { CsvError, csvCell, parseCsv, tableToCsv, type ImportTable } from './csv
 import { autoMap, FIELD_LABELS, importMappingSchema, normalizeRow, REQUIRED_FIELDS, type ImportMapping, type NormalizedRow } from './columns';
 import { importPhoto, PhotoError, type PhotoDeps } from './photos';
 import { addListingFloorplan, addListingLink } from '../media/extras';
+import { addImportedOpenHomes } from '../inspections/open-homes';
 import { importAiAllowed, importContactChunk, validateContactChunk } from './contacts';
 import { maskSample, mergeSuggestedMapping, SAMPLE_ROWS_FOR_AI, shouldAskMapper, type ColumnMapper, type RowCleaner } from './contact-ai';
 import { contactAutoMap, contactMappingProblem, contactMappingSchema, type ContactImportMapping, type NormalizedContact } from './contact-columns';
@@ -366,12 +367,12 @@ async function validateChunk(db: Db, actor: Actor, imp: ImportRow, deps: ImportD
   }
   const tz = await agencyTimeZone(db, imp.agencyId);
   const geocode = deps.geocode ?? geocodeAddress;
-  type Checked = { id: string; rowNumber: number; row: NormalizedRow | null; errors: { column: string; message: string }[]; key: string | null; pin: { latitude: number; longitude: number; placeId: string | null; formatted: string } | null };
+  type Checked = { id: string; rowNumber: number; row: NormalizedRow | null; errors: { column: string; message: string }[]; cellWarnings: { column: string; message: string }[]; key: string | null; pin: { latitude: number; longitude: number; placeId: string | null; formatted: string } | null };
   const checked: Checked[] = [];
   for (const r of rows) {
-    const { row, errors } = normalizeRow((r.raw as string[]) ?? [], imp.mapping as ImportMapping, tz);
+    const { row, errors, warnings: cellWarnings } = normalizeRow((r.raw as string[]) ?? [], imp.mapping as ImportMapping, tz);
     if (!row) {
-      checked.push({ id: r.id, rowNumber: r.rowNumber, row: null, errors, key: null, pin: null });
+      checked.push({ id: r.id, rowNumber: r.rowNumber, row: null, errors, cellWarnings: [], key: null, pin: null });
       continue;
     }
     // Network — never inside a transaction. place_cache answers repeats.
@@ -384,10 +385,10 @@ async function validateChunk(db: Db, actor: Actor, imp: ImportRow, deps: ImportD
       postcode: row.property.postcode,
     } as never).catch(() => null);
     if (!hit || hit.kind !== 'address') {
-      checked.push({ id: r.id, rowNumber: r.rowNumber, row: null, errors: [{ column: 'Address', message: 'Google could not find this street address — check it' }], key: null, pin: null });
+      checked.push({ id: r.id, rowNumber: r.rowNumber, row: null, errors: [{ column: 'Address', message: 'Google could not find this street address — check it' }], cellWarnings: [], key: null, pin: null });
       continue;
     }
-    checked.push({ id: r.id, rowNumber: r.rowNumber, row, errors: [], key: addressKey(row.property as never), pin: hit });
+    checked.push({ id: r.id, rowNumber: r.rowNumber, row, errors: [], cellWarnings, key: addressKey(row.property as never), pin: hit });
   }
 
   // Duplicates, in three statements for the whole chunk (never one per row).
@@ -451,11 +452,11 @@ async function validateChunk(db: Db, actor: Actor, imp: ImportRow, deps: ImportD
       const sameActive = propertyId ? active.find((a) => a.propertyId === propertyId && ['draft', 'pending', 'live', 'under_offer'].includes(a.status)) : undefined;
       const inFile = seen.get(`${c.key}|${c.row.listing.channel}`);
       const dup = sameExternal ?? sameActive;
-      const warnings = dup
+      const warnings = [...c.cellWarnings, ...(dup
         ? [{ column: 'Address', message: sameExternal ? `Matches your listing id ${c.row.externalId} already on the platform` : 'Matches one of your active listings at this address' }]
         : inFile
           ? [{ column: 'Address', message: `Same address and channel as row ${inFile}` }]
-          : [];
+          : [])];
       await tx
         .update(listingImportRow)
         .set({ status: dup || inFile ? 'duplicate' : 'valid', normalized, errors: [], warnings, duplicateOfListingId: dup?.id ?? null, updatedAt: sql`now()` })
@@ -533,6 +534,14 @@ async function importChunk(db: Db, actor: Actor, imp: ImportRow, deps: ImportDep
           // C9: video and tour links (allowlisted in the file's check); one too many is a warning, never a failed row.
           for (const link of n.mediaLinks ?? []) {
             await addListingLink(tx as unknown as Db, outcome.listingId, link).catch((e: unknown) => warnings.push({ column: 'Video / 3D tour', message: e instanceof Error ? e.message : 'Could not add that link' }));
+          }
+          // ADR 0081: open homes only ever add; what cannot be added is a warning, never a failed row. Its own savepoint, so a failure cannot abort the batch.
+          if (n.openHomes?.length || n.listing.auctionDate) {
+            const added = await addImportedOpenHomes(tx, outcome.listingId, { slots: n.openHomes ?? [], auctionAt: n.listing.auctionDate ?? null, state: String(n.property.state), userId: actor.userId }).catch((e: unknown) => {
+              console.error('[import] open homes failed', r.rowNumber, e instanceof Error ? e.message : e);
+              return ['Its open homes could not be added. Add them on the listing'];
+            });
+            for (const message of added) warnings.push({ column: 'Open homes', message });
           }
           await tx
             .update(listingImportRow)

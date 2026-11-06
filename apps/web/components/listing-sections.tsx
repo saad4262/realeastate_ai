@@ -1,6 +1,8 @@
 import type { PublicAgentCard, PublicInspection, PublicTimelineEntry } from '@repo/core/listings';
 import Image from 'next/image';
 import { mediaUrl } from '@repo/core/media/url';
+import { openHomeLongDay, openHomeTime, statePlace } from '@repo/core/inspections/open-home-rules';
+import { stateTimeZone } from '@repo/core/inspections/plan';
 import Link from 'next/link';
 import { Icon, type IconName } from './icons';
 import { AddToDay, DayTray } from './add-to-day';
@@ -33,12 +35,6 @@ import { HideIfSkillOff } from './hide-if-skill-off';
  * from.
  */
 
-const WHEN = new Intl.DateTimeFormat('en-AU', {
-  weekday: 'long',
-  day: 'numeric',
-  month: 'long',
-});
-const TIME = new Intl.DateTimeFormat('en-AU', { hour: 'numeric', minute: '2-digit' });
 const AUD = new Intl.NumberFormat('en-AU', {
   style: 'currency',
   currency: 'AUD',
@@ -208,7 +204,7 @@ export function SpecBar({ specs }: { specs: SpecTile[] }) {
  * ADR 0080 C6: each OPEN time gets "Add to my day" (Inspection AI) and the card links the buyer's private notebook
  * (Inspection Assistant). Both behind the browser's skill cookie; the plan page and the notebook check the real switch.
  */
-export function Inspections({ inspections, listingId }: { inspections: PublicInspection[]; listingId: string }) {
+export function Inspections({ inspections, listingId, state }: { inspections: PublicInspection[]; listingId: string; state: string }) {
   if (inspections.length === 0) {
     return (
       <Card id="inspections" eyebrow="Inspections" title="No times scheduled">
@@ -222,6 +218,10 @@ export function Inspections({ inspections, listingId }: { inspections: PublicIns
 
   const tone = { open: 'success', private: 'info', auction: 'notice' } as const;
   const label = { open: 'Confirmed', private: 'By appointment', auction: 'Auction' } as const;
+  // ADR 0081: always the property's own clock. A bare formatter here reads the server's, UTC on Vercel, and a
+  // Saturday 10:00 am in Melbourne printed as 11:00 pm on Friday.
+  const timeZone = stateTimeZone(state);
+  const place = statePlace(state);
 
   return (
     <Card
@@ -239,11 +239,11 @@ export function Inspections({ inspections, listingId }: { inspections: PublicIns
             <Icon name="calendar" className="size-5 text-brand" />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-sm">
-                <span className="text-title-sm text-ink">{WHEN.format(i.startsAt)}</span>
+                <span className="text-title-sm text-ink">{openHomeLongDay(i.startsAt, timeZone)}</span>
                 <Chip tone={tone[i.kind]}>{label[i.kind]}</Chip>
               </div>
               <div className="mt-0.5 text-body-sm tabular-nums text-ink-soft">
-                {TIME.format(i.startsAt)} – {TIME.format(i.endsAt)}
+                {openHomeTime(i.startsAt, timeZone)} – {openHomeTime(i.endsAt, timeZone)} {place} time
               </div>
             </div>
             {i.kind === 'open' ? (

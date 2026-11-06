@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Open Home Entry</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+<!--
+  Mock for open-home entry: the missing write side of the `inspection` table. The listing page, the /inspections
+  planner, Agent AI and the console's property page all read it; nothing but a smoke test writes it. Console screens
+  use the console's own tokens (apps/console/app/globals.css); #public uses the public site's look. Every address,
+  time and name is SAMPLE data. Dates assume today is Friday 6 November 2026.
+  Screens by hash: #rules (opens first), #tab, #add, #refused, #empty, #public, #import. The bar exists only in the mock.
+-->
+<style>
+  :root {
+    --surface-canvas: #f8fafc; --surface-card: #ffffff; --surface-low: #eff4ff; --border-default: #e2e8f0; --border-strong: #cbd5e1;
+    --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #64748b;
+    --sapphire: #2563eb; --sapphire-subtle: #eff6ff; --emerald: #047857; --emerald-subtle: #ecfdf5;
+    --rose: #be123c; --rose-subtle: #fff1f2; --amber: #b45309; --amber-subtle: #fffbeb;
+    --site-canvas: #f7f4ef; --site-line: #d9d2c5; --site-brand: #0b3d2e; --site-soft: #5c5c5c; --site-sunken: #f1ece3;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font: 13.5px/20px Inter, system-ui, sans-serif; }
+  .mockbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-block: 8px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); background: #1e293b; color: #cbd5e1; font-size: 12.5px; }
+  .mockbar b { color: #fff; margin-right: 8px; }
+  .mockbar a { color: #cbd5e1; text-decoration: none; padding: 2px 10px; border-radius: 6px; border: 1px solid #475569; }
+  .mockbar a.on { background: #fff; color: #0f172a; border-color: #fff; }
+  main { max-width: 1040px; margin: 0 auto; padding-block: 24px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .screen { display: none; }
+  .screen.on { display: grid; gap: 16px; }
+  .screen > * { min-width: 0; }
+  h1, h2 { font-family: 'Plus Jakarta Sans', Inter, system-ui, sans-serif; letter-spacing: -.02em; margin: 0; text-wrap: balance; }
+  h1 { font-size: 24px; line-height: 30px; }
+  h2 { font-size: 16px; line-height: 22px; }
+  p { margin: 0; }
+  .sub { color: var(--text-secondary); font-size: 13px; }
+  .lede { color: var(--text-secondary); font-size: 14.5px; line-height: 22px; max-width: 74ch; }
+  .card { background: var(--surface-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 16px 18px; display: grid; gap: 12px; }
+  .card > * { min-width: 0; }
+  .head { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: flex-end; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--border-default); }
+  .tabs span { padding: 8px 12px; color: var(--text-secondary); font-weight: 500; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tabs span.on { color: var(--sapphire); border-color: var(--sapphire); font-weight: 600; }
+  .count { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 5px; border-radius: 9px; background: var(--sapphire-subtle); color: var(--sapphire); font-size: 11.5px; line-height: 18px; text-align: center; }
+  .btn { display: inline-flex; align-items: center; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--sapphire); background: var(--sapphire); color: #fff; font: 600 13px/18px Inter, system-ui, sans-serif; white-space: nowrap; }
+  .btn.ghost { background: #fff; color: var(--text-primary); border-color: var(--border-strong); }
+  .btn.danger { background: var(--rose); border-color: var(--rose); }
+  .btn.small { padding: 3px 9px; font-size: 12px; font-weight: 500; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 5px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .chip.open { background: var(--emerald-subtle); color: var(--emerald); }
+  .chip.private { background: var(--sapphire-subtle); color: var(--sapphire); }
+  .chip.auction { background: var(--amber-subtle); color: var(--amber); }
+  .status { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 9px 12px; border-radius: 8px; background: var(--emerald-subtle); color: var(--emerald); font-weight: 500; }
+  .status.wait { background: var(--amber-subtle); color: var(--amber); }
+  .times { display: grid; }
+  .time { display: grid; grid-template-columns: 170px minmax(0, 1fr) auto; gap: 8px 14px; align-items: center; padding: 11px 0; border-top: 1px solid var(--border-default); }
+  .time:first-child { border-top: 0; }
+  .time .day { font-weight: 600; }
+  .time .acts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .confirm { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 8px; background: var(--rose-subtle); }
+  .confirm p { min-width: 0; flex: 1 1 260px; }
+  @media (max-width: 640px) { .time { grid-template-columns: minmax(0, 1fr); } }
+  .form { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+  .field { display: grid; gap: 4px; min-width: 0; }
+  .field label, .field .lab { font-weight: 600; font-size: 12.5px; }
+  .field .inp { width: 100%; border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 10px; background: #fff; font: inherit; color: inherit; min-height: 36px; }
+  .field .inp.err { border-color: var(--rose); background: var(--rose-subtle); }
+  .field .hint { color: var(--text-muted); font-size: 12px; }
+  .field .bad { color: var(--rose); font-size: 12.5px; font-weight: 500; }
+  .seg { display: flex; flex-wrap: wrap; gap: 4px; }
+  .seg span { padding: 5px 10px; border: 1px solid var(--border-strong); border-radius: 7px; background: #fff; }
+  .seg span.on { background: var(--sapphire-subtle); border-color: var(--sapphire); color: var(--sapphire); font-weight: 600; }
+  .span { grid-column: 1 / -1; }
+  .preview { background: var(--surface-low); border-radius: 8px; padding: 10px 12px; }
+  .preview ul { margin: 6px 0 0; padding-left: 18px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tbl { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th { text-align: left; color: var(--text-muted); font-size: 12px; font-weight: 600; padding: 6px 12px 6px 0; border-bottom: 1px solid var(--border-strong); }
+  td { vertical-align: top; padding: 9px 12px 9px 0; border-bottom: 1px solid var(--border-default); min-width: 150px; }
+  code { font: 12.5px/18px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--surface-low); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+  ol.decisions { margin: 0; padding-left: 26px; display: grid; gap: 16px; max-width: 80ch; }
+  ol.decisions b.t { display: block; font-size: 14px; }
+  ol.decisions p { color: var(--text-secondary); }
+  .rec { display: block; margin-top: 3px; color: var(--emerald); font-weight: 600; font-size: 13px; }
+  .alt { display: block; color: var(--text-muted); font-size: 12.5px; }
+  .found { border: 1px solid var(--amber); background: var(--amber-subtle); border-radius: 10px; padding: 12px 14px; display: grid; gap: 6px; max-width: 80ch; }
+  /* public site */
+  .site { background: var(--site-canvas); border: 1px solid var(--site-line); border-radius: 14px; padding: 18px 20px; display: grid; gap: 12px; }
+  .site .eyebrow { font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--site-soft); }
+  .site h2 { font-family: Georgia, 'Times New Roman', serif; font-size: 21px; line-height: 27px; letter-spacing: -.01em; color: var(--site-brand); }
+  .slots { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); }
+  .slot { background: #fff; border: 1px solid var(--site-line); border-radius: 10px; padding: 10px 12px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+  .slot > div { min-width: 0; }
+  .slot b { font-weight: 600; }
+  .slot small { display: block; color: var(--site-soft); font-size: 12.5px; }
+  .site .btn { background: var(--site-brand); border-color: var(--site-brand); border-radius: 999px; }
+  .site .note { color: var(--site-soft); font-size: 12.5px; }
+  .two { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .two > * { min-width: 0; }
+</style>
+</head>
+<body>
+<nav class="mockbar" aria-label="Mock screens">
+  <b>Open homes mock</b>
+  <a href="#rules">Decisions</a><a href="#tab">The tab</a><a href="#add">Add a time</a><a href="#refused">Refused</a><a href="#empty">Empty and draft</a><a href="#public">What buyers see</a><a href="#import">Import</a>
+</nav>
+<main>
+
+<section class="screen on" id="s-rules">
+  <h1>Open homes: twelve decisions</h1>
+  <p class="lede">Agents and agencies can't enter open-home times today, so buyers never see any and Inspection AI has nothing to plan from. This adds the missing entry screen and import column. The buyer-side screens already exist, apart from the fixes in the box below.</p>
+  <div class="found">
+    <h2>Two buyer-side faults this build must also fix</h2>
+    <p><b>Wrong time on the public page.</b> The listing card formats times in the server's clock. On Vercel that is UTC, so Saturday 10:00 am in Melbourne would show as 11:00 pm on Friday. Nobody has seen it, because there have never been any times.</p>
+    <p><b>Times on sold homes.</b> The listing card doesn't check the listing's status, so a home that sold on Thursday could still show Saturday's open home.</p>
+  </div>
+  <ol class="decisions">
+    <li><b class="t">A new "Open homes" tab on the listing</b><p>It sits between Photos and Documents, on the agency and agent consoles, with one shared component. The count of upcoming times shows on the tab.</p><span class="rec">Recommended</span><span class="alt">Alternative: a section inside Details. Rejected because Details saves the whole ad as one form, and times change far more often than the ad.</span></li>
+    <li><b class="t">Anyone who may edit the listing may set its times, with no owner approval</b><p>This uses the existing <code>listing:edit</code> permission. An agent still needs an owner to publish an ad, but a time on a home that is already public is a fact the agent knows best, and open homes often change at short notice.</p><span class="rec">Recommended</span><span class="alt">Alternative: every time goes through the owner's approval. Safer, but a Friday change could miss Saturday.</span></li>
+    <li><b class="t">Enter a day, a start time and a length</b><p>The day defaults to the coming Saturday, or the Saturday after if that is within a day. The length chips are 15, 30, 45 and 60 minutes, or a chosen end time, and 30 is preselected.</p><span class="rec">Recommended</span></li>
+    <li><b class="t">Times are always in the property's own time zone</b><p>A Sydney agent listing a Perth home types Perth time, and the screen says "Perth time". The public page, the planner and the calendar file all use the same zone, whoever is looking.</p><span class="rec">Recommended</span><span class="alt">Alternative: the agent's browser zone, as appointments use. Rejected because an open home happens at the property.</span></li>
+    <li><b class="t">Repeat weekly, up to 6 weeks, as separate times</b><p>A tick and a number create one ordinary row per week, and the form previews them before saving. Each can then be changed alone. A row also has "Next week", which copies it 7 days on.</p><span class="rec">Recommended</span><span class="alt">Alternative: a true repeating rule. More to build, and awkward when one week differs.</span></li>
+    <li><b class="t">Three kinds: Open home, By appointment and Auction</b><p>The public card already has a label for each. Only Open home goes into the buyer's planner. An auction date is stored today, by import and the assistant, but no public page shows it and the Details form has no field for it. Adding an auction here also updates that stored date, in one transaction, and importing an auction date creates the row.</p><span class="rec">Recommended</span><span class="alt">Alternative: Open home and By appointment only, leaving auctions for later. Buyers would still not see auction dates.</span></li>
+    <li><b class="t">Changes show on the public page straight away, and no buyer is messaged</b><p>Saving clears the listing's public cache. A plan link already handles a removed time: the home moves to "Not this day" with its next time. A calendar file the buyer already downloaded can't be updated, and the Remove step says so.</p><span class="rec">Recommended</span><span class="alt">Alternative: email buyers who chose that time. We don't record who chose it, because plans live only in the link, so this would need a new tracking feature.</span></li>
+    <li><b class="t">Times disappear from public view when the home leaves the market</b><p>When a listing is sold, leased or withdrawn, its upcoming times stop showing at once, and they return if it goes live again. The rows stay, so nothing needs re-entering.</p><span class="rec">Recommended</span></li>
+    <li><b class="t">Limits that stop mistakes</b><p>A time must be in the future and within 6 months, and last between 10 minutes and 4 hours. It can't overlap another time on the same listing. A listing can hold 20 upcoming times and one upcoming auction. Outside 7 am to 8 pm, the form asks "Is this right?" but allows it.</p><span class="rec">Recommended</span></li>
+    <li><b class="t">An <code>open_homes</code> column in CSV, Excel and Google Sheets import</b><p>Format: <code>2026-11-14 10:00-10:30; 2026-11-21 10:00-10:30</code>. It takes the property's time zone. A bad value warns on that row and still imports the listing. Importing adds new times and never deletes existing ones.</p><span class="rec">Recommended</span><span class="alt">REAXML is a separate decision, because no REAXML importer exists yet.</span></li>
+    <li><b class="t">Left out of this build</b><p>The console assistant adding times, showing open homes on the agent's calendar or Google and Outlook, an agency-wide "this weekend" page, alerts to buyers about new times, and attendance sign-in. Each can follow without changing this work.</p><span class="rec">Recommended, so this launch blocker clears quickly</span><span class="alt">Tell me if any of these must be in the first version. The agent's calendar is the one I'd add first.</span></li>
+    <li><b class="t">One small database change, migration 0091, with your go</b><p>The table holds only the time and kind today, with no index beyond its primary key. This adds an index for reading a listing's times, a unique rule so the same time can't be saved twice, and who created each time. Nothing is removed and the table is empty, so the risk is low. Dev and production share this database, so it applies to the live site.</p><span class="rec">Recommended</span></li>
+  </ol>
+</section>
+
+<section class="screen" id="s-tab">
+  <div class="head">
+    <div><h1>Edit listing</h1><p class="sub">12/1A Rogers Street, Pakenham VIC 3810</p></div>
+    <span class="btn ghost">Property page</span>
+  </div>
+  <div class="tabs" role="presentation"><span>Details</span><span>Photos</span><span class="on">Open homes<span class="count">4</span></span><span>Documents</span><span>Matching buyers</span><span>Deal</span></div>
+  <p class="status">This listing is live. Changes show on the public page straight away.</p>
+  <div class="card">
+    <div class="head">
+      <div><h2>Upcoming</h2><p class="sub">All times are Melbourne time, where the property is.</p></div>
+      <span class="btn">Add a time</span>
+    </div>
+    <div class="times">
+      <div class="time"><span class="day">Sat 14 Nov 2026</span><span>10:00 – 10:30 am &nbsp;<span class="chip open">Open home</span></span><span class="acts"><span class="btn ghost small">Edit</span><span class="btn ghost small">Next week</span><span class="btn ghost small">Remove</span></span></div>
+      <div class="time"><span class="day">Wed 18 Nov 2026</span><span>5:30 – 6:00 pm &nbsp;<span class="chip open">Open home</span></span><span class="acts"><span class="btn ghost small">Edit</span><span class="btn ghost small">Next week</span><span class="btn ghost small">Remove</span></span>
+        <div class="confirm"><p><b>Remove this time?</b> It leaves the public page straight away. Anyone who already saved it to their own calendar keeps the old time.</p><span class="actions"><span class="btn danger small">Remove</span><span class="btn ghost small">Keep it</span></span></div>
+      </div>
+      <div class="time"><span class="day">Thu 19 Nov 2026</span><span>4:00 – 4:30 pm &nbsp;<span class="chip private">By appointment</span></span><span class="acts"><span class="btn ghost small">Edit</span><span class="btn ghost small">Next week</span><span class="btn ghost small">Remove</span></span></div>
+      <div class="time"><span class="day">Sat 28 Nov 2026</span><span>11:00 – 11:45 am &nbsp;<span class="chip auction">Auction</span></span><span class="acts"><span class="btn ghost small">Edit</span><span class="btn ghost small">Remove</span></span></div>
+    </div>
+  </div>
+  <div class="card"><h2>Past times (2)</h2><p class="sub">Kept for reference on this screen only. Buyers never see them.</p></div>
+</section>
+
+<section class="screen" id="s-add">
+  <div class="head"><div><h1>Edit listing</h1><p class="sub">12/1A Rogers Street, Pakenham VIC 3810</p></div></div>
+  <div class="tabs" role="presentation"><span>Details</span><span>Photos</span><span class="on">Open homes<span class="count">0</span></span><span>Documents</span><span>Matching buyers</span><span>Deal</span></div>
+  <div class="card">
+    <h2>Add a time</h2>
+    <div class="form">
+      <div class="field span"><span class="lab">Type</span><div class="seg"><span class="on">Open home</span><span>By appointment</span><span>Auction</span></div></div>
+      <div class="field"><label for="d1">Day</label><input class="inp" id="d1" value="Sat 14 Nov 2026" readonly /><span class="hint">Melbourne time, where the property is</span></div>
+      <div class="field"><label for="s1">Starts</label><input class="inp" id="s1" value="10:00 am" readonly /></div>
+      <div class="field"><span class="lab">How long</span><div class="seg"><span>15</span><span class="on">30</span><span>45</span><span>60 min</span><span>End time</span></div></div>
+      <div class="field span"><span class="lab">Repeat</span><div class="seg"><span class="on">Weekly for 4 weeks</span><span>Don't repeat</span></div></div>
+      <div class="preview span"><b>This adds 4 open homes</b><ul><li>Sat 14 Nov, 10:00 – 10:30 am</li><li>Sat 21 Nov, 10:00 – 10:30 am</li><li>Sat 28 Nov, 10:00 – 10:30 am</li><li>Sat 5 Dec, 10:00 – 10:30 am</li></ul></div>
+    </div>
+    <div class="actions"><span class="btn">Add 4 times</span><span class="btn ghost">Cancel</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s-refused">
+  <h1>When a time is refused</h1>
+  <p class="lede">The field shows the reason and nothing is saved. If one week of a repeat fails, the form names that week and saves none, so the agent can fix it and try again.</p>
+  <div class="card">
+    <div class="form">
+      <div class="field"><label for="d2">Day</label><input class="inp err" id="d2" value="Sat 7 Nov 2026" readonly /><span class="bad">This overlaps the open home at 10:15 – 10:45 am on this listing. Choose another time, or edit that one.</span></div>
+      <div class="field"><label for="s2">Starts</label><input class="inp" id="s2" value="10:00 am" readonly /></div>
+    </div>
+  </div>
+  <div class="card tbl"><table>
+    <thead><tr><th>Situation</th><th>What the agent reads</th><th>Saved?</th></tr></thead>
+    <tbody>
+      <tr><td>In the past</td><td>This time has already passed. Choose a time from now on.</td><td>No</td></tr>
+      <tr><td>Over 6 months away</td><td>Times can be set up to 6 months ahead.</td><td>No</td></tr>
+      <tr><td>Under 10 minutes or over 4 hours</td><td>An open home runs between 10 minutes and 4 hours.</td><td>No</td></tr>
+      <tr><td>Overlaps a time on this listing</td><td>This overlaps the open home at 10:15 – 10:45 am on this listing.</td><td>No</td></tr>
+      <tr><td>Second upcoming auction</td><td>This listing already has an auction on 28 Nov. Edit that one instead.</td><td>No</td></tr>
+      <tr><td>21st upcoming time</td><td>A listing can have 20 upcoming times. Remove one to add another.</td><td>No</td></tr>
+      <tr><td>Before 7 am or after 8 pm</td><td>That's 9:30 pm in Melbourne. Is this right?</td><td>Yes, after they confirm</td></tr>
+      <tr><td>Someone without edit rights</td><td>The tab isn't shown, and the server refuses a direct request.</td><td>No</td></tr>
+      <tr><td>A listing in another agency</td><td>Page not found, so the listing's existence isn't confirmed.</td><td>No</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="screen" id="s-empty">
+  <h1>No times yet, and draft listings</h1>
+  <div class="two">
+    <div class="card">
+      <p class="status">This listing is live. Changes show on the public page straight away.</p>
+      <h2>No open homes yet</h2>
+      <p class="sub">Buyers currently see "No times scheduled" on this listing, and it can't be added to their inspection plan.</p>
+      <div class="actions"><span class="btn">Add a time</span></div>
+    </div>
+    <div class="card">
+      <p class="status wait">This listing isn't public yet. Times are saved and show once it's published.</p>
+      <h2>Upcoming</h2>
+      <div class="times"><div class="time"><span class="day">Sat 14 Nov 2026</span><span>10:00 – 10:30 am &nbsp;<span class="chip open">Open home</span></span><span class="acts"><span class="btn ghost small">Edit</span><span class="btn ghost small">Remove</span></span></div></div>
+    </div>
+  </div>
+  <div class="card"><h2>Sold, leased or withdrawn</h2><p class="status wait">This listing is sold. Its upcoming times are hidden from buyers, and they return if it goes live again.</p></div>
+</section>
+
+<section class="screen" id="s-public">
+  <h1>What buyers see</h1>
+  <p class="lede">The card and the planner are already built. This build fills them with real times, shown in the property's time zone.</p>
+  <div class="site">
+    <span class="eyebrow">Upcoming inspection sessions</span>
+    <h2>Open for inspection</h2>
+    <div class="slots">
+      <div class="slot"><div><b>Saturday 14 November</b> <span class="chip open">Confirmed</span><small>10:00 am – 10:30 am Melbourne time</small></div><span class="btn small">Add to my day</span></div>
+      <div class="slot"><div><b>Wednesday 18 November</b> <span class="chip open">Confirmed</span><small>5:30 pm – 6:00 pm Melbourne time</small></div><span class="btn small">Add to my day</span></div>
+      <div class="slot"><div><b>Thursday 19 November</b> <span class="chip private">By appointment</span><small>4:00 pm – 4:30 pm Melbourne time</small></div></div>
+      <div class="slot"><div><b>Saturday 28 November</b> <span class="chip auction">Auction</span><small>11:00 am – 11:45 am Melbourne time</small></div></div>
+    </div>
+    <p class="note">Bring photo ID if the agency asks for it on arrival.</p>
+  </div>
+  <div class="site">
+    <span class="eyebrow">A saved plan, after the agent removed a time</span>
+    <h2>Not this day</h2>
+    <div class="slot"><div><b>12/1A Rogers Street, Pakenham</b><small>The time you chose was removed by the agent. Next open home: Saturday 21 November, 10:00 am.</small></div></div>
+  </div>
+</section>
+
+<section class="screen" id="s-import">
+  <h1>Adding times by import</h1>
+  <p class="lede">One new column in the existing CSV, Excel and Google Sheets import. The import screen matches <code>open_homes</code>, <code>inspections</code> and <code>inspection_times</code> to it automatically.</p>
+  <div class="card tbl"><table>
+    <thead><tr><th>Address</th><th>Price</th><th>Open homes</th></tr></thead>
+    <tbody>
+      <tr><td>12/1A Rogers Street, Pakenham VIC 3810</td><td>$690,000 – $740,000</td><td><code>2026-11-14 10:00-10:30; 2026-11-21 10:00-10:30</code></td></tr>
+      <tr><td>8 Sample Court, Officer VIC 3809</td><td>Offers over $820,000</td><td><code>14/11 10am</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="card tbl">
+    <h2>Check before importing</h2>
+    <table>
+      <thead><tr><th>Row</th><th>Result</th><th>Open homes</th></tr></thead>
+      <tbody>
+        <tr><td>12/1A Rogers Street</td><td>Ready</td><td>2 times, Melbourne time</td></tr>
+        <tr><td>8 Sample Court</td><td>Ready, with a warning</td><td>"14/11 10am" isn't in the expected format, so no time was added. The listing still imports. Use <code>2026-11-14 10:00-10:30</code>.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</main>
+<script>
+  (function () {
+    var names = ['rules', 'tab', 'add', 'refused', 'empty', 'public', 'import'];
+    function show() {
+      var want = location.hash.slice(1);
+      if (names.indexOf(want) < 0) want = 'rules';
+      names.forEach(function (n) { document.getElementById('s-' + n).classList.toggle('on', n === want); });
+      document.querySelectorAll('.mockbar a').forEach(function (a) { a.classList.toggle('on', a.getAttribute('href') === '#' + want); });
+      window.scrollTo(0, 0);
+    }
+    window.addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+</body>
+</html>

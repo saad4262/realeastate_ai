@@ -106,7 +106,8 @@ export async function updateListing(
         priceTo: money(l.priceTo),
         rentPw: money(l.rentPw),
         availableFrom: l.availableFrom ?? null,
-        auctionDate: l.auctionDate ?? null,
+        // ADR 0081: only when given. The Details form has no such field, so null here wiped the date on every save.
+        ...(l.auctionDate !== undefined ? { auctionDate: l.auctionDate } : {}),
         // ADR 0075: the facts as this ad states them — blanks clear them (the agent correcting their own ad).
         ...physicalFields(draft.property),
         updatedAt: sql`now()`,

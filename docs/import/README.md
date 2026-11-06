@@ -15,6 +15,8 @@ The three example rows (all fictional — `example.com` addresses):
    required for a sale), no photos.
 
 Rules a file must follow: UTF-8, comma-separated, a header row, dates `YYYY-MM-DD`
-(auction `YYYY-MM-DD HH:mm` in the agency's time zone), money in whole dollars without `$` or
-commas in the number columns, text with commas in double quotes, photos separated by `|`.
+(auction `YYYY-MM-DD HH:mm`, open homes `YYYY-MM-DD HH:mm-HH:mm` separated by `;`, both in the property's time
+zone), money in whole dollars without `$` or commas in the number columns, text with commas in double quotes,
+photos separated by `|`. A bad open-home time is a warning and the listing still imports; importing adds times and
+never deletes them (ADR 0081).
 Column order does not matter (the mapping screen matches by header); extra columns are ignored.

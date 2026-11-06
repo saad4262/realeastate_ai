@@ -35,6 +35,7 @@ import {
   listAgencyListings,
   getAgencyListing,
   getListingForEdit,
+  listingInspections,
   updateListing,
   createListing,
   type PublicSearchQuery,
@@ -268,6 +269,7 @@ import { createRenovationPlanner } from '@repo/ai/renovation';
 import { createResearchWriter } from '@repo/ai/research';
 import { createInspectionSummaryWriter } from '@repo/ai/inspections';
 import { buildPlan, clampSettings, deleteNotebook, ownPhotoKey, planAuto, hasExif, listNotebooks, loadNotebook, MAX_PHOTOS_PER_HOME, planIcs, planToolResult, recordPhoto, reservePhoto, runInspectionSummary, saveNotebook, stripPhotoMetadata, type DayPlan } from '@repo/core/inspections';
+import { addImportedOpenHomes, addOpenHomes, copyOpenHomeNextWeek, defaultOpenHomeDate, openHomeRange, planHomes, removeOpenHome, stateTimeZone, updateOpenHome } from '@repo/core/inspections';
 import { deleteInspectionPhotos, inspectionPhotoBucket, putInspectionPhoto, signInspectionPhoto } from '@repo/core/inspections/photo-storage';
 import { discoverToolResult, forYou, hiddenHomes, hideHome, showHomeAgain, similarHomes } from '@repo/core/discovery';
 import { findOpportunities, judgementWords, opportunityToolResult, signalLine, type OpportunityHome } from '@repo/core/buyer-opportunities';
@@ -7585,6 +7587,86 @@ async function main() {
   );
 
   // ── ADR 0080: consumer skills — a switch each; off means off where it runs (needs 0081) ──────────
+  // Its own group, so it can be run alone: SMOKE_ONLY="Open homes" pnpm smoke.
+  group('Open homes (ADR 0081)');
+
+  await check('Open homes: whoever may edit the listing sets its times, on the property’s clock; a repeat is all or nothing; an auction keeps the listing’s date; a Details save leaves it; a sold home shows none; the import only adds', () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const [row] = await t.execute<{ id: string }>(sql`select id from listing where agency_id = ${f.agencyId}`);
+      const id = row!.id;
+      const owner = f.actor('owner');
+      const named = { ...f.actor('a1'), listingAgentOf: [id] };
+      const notNamed = { ...f.actor('a2'), listingAgentOf: [] };
+      const zone = stateTimeZone('VIC');
+      const day = defaultOpenHomeDate(new Date(), zone);
+      const open = { kind: 'open', date: day, start: '10:00', minutes: 30 } as const;
+      const refused = async (what: Promise<unknown>) => what.then(() => null, (e: Error) => e.message);
+      const rows = () => t.execute<{ id: string; starts_at: string; kind: string; created_by: string | null }>(sql`select id, starts_at, kind, created_by from inspection where listing_id = ${id} order by starts_at`);
+
+      assert((await refused(addOpenHomes(t, notNamed, id, open))) === 'That listing could not be found', 'an agent not on the listing was let in');
+      assert((await rows()).length === 0, 'a refused add wrote a row');
+
+      await addOpenHomes(t, named, id, { ...open, weeks: 3 });
+      const three = await rows();
+      assert(three.length === 3 && three.every((r) => r.created_by === f.people.a1), `the repeat wrote ${three.length}`);
+      assert(openHomeRange({ startsAt: new Date(three[0]!.starts_at), endsAt: new Date(new Date(three[0]!.starts_at).getTime() + 1_800_000) }, zone) === '10:00 – 10:30 am', 'not on the property’s clock');
+
+      // The first week overlaps and the second does not: nothing of the repeat is saved.
+      const clash = await refused(addOpenHomes(t, owner, id, { ...open, start: '10:15', weeks: 2 }));
+      assert(/overlaps/.test(clash ?? ''), `overlap: ${clash}`);
+      assert((await rows()).length === 3, 'a refused repeat saved part of itself');
+
+      // The database refuses the same start twice, whatever the code does.
+      const dup = await t.transaction(async (sp) => {
+        await sp.execute(sql`insert into inspection (listing_id, starts_at, ends_at) values (${id}, ${three[0]!.starts_at}, ${three[0]!.starts_at}::timestamptz + interval '1 hour')`);
+        return 'saved';
+      }).catch(() => 'refused');
+      assert(dup === 'refused', 'the unique index let the same start in twice');
+
+      const visible = await listingInspections(t, id);
+      assert(visible.length === 3, `public read: ${visible.length}`);
+      const { homes } = await planHomes(t, [id]);
+      assert(homes[0]?.sessions.length === 3, `the planner sees ${homes[0]?.sessions.length}`);
+
+      // An auction: the listing's date follows it, a Details save leaves it, removing it clears it. The planner never takes it.
+      const dateOf = async () => (await t.execute<{ auction_date: string | null }>(sql`select auction_date from listing where id = ${id}`))[0]!.auction_date;
+      await addOpenHomes(t, owner, id, { kind: 'auction', date: day, start: '13:00', minutes: 45 });
+      const auction = (await rows()).find((r) => r.kind === 'auction')!;
+      assert(new Date((await dateOf())!).getTime() === new Date(auction.starts_at).getTime(), 'the listing’s auction date did not follow');
+      assert(/already has an auction/.test((await refused(addOpenHomes(t, owner, id, { kind: 'auction', date: day, start: '15:00', minutes: 45 }))) ?? ''), 'a second auction was allowed');
+      assert((await planHomes(t, [id])).homes[0]?.sessions.length === 3, 'the planner took the auction');
+      await updateListing(t, owner, id, { property: { streetNumber: '1', street: 'Smoke Street', suburb: 'Pakenham', state: 'VIC', postcode: '3810', propertyType: 'house', latitude: -38.07, longitude: 145.48 }, listing: { channel: 'sale', headline: 'Smoke home', priceDisplay: 'Contact agent' } });
+      assert((await dateOf()) !== null, 'a Details save wiped the auction date');
+      await removeOpenHome(t, owner, id, auction.id);
+      assert((await dateOf()) === null, 'removing the auction left its date');
+
+      // Next week copies; changing a row keeps its id, so a plan link keeps following it.
+      await copyOpenHomeNextWeek(t, named, id, three[2]!.id);
+      assert((await rows()).length === 4, 'Next week did not add');
+      await updateOpenHome(t, named, id, three[0]!.id, { ...open, start: '11:00' });
+      assert((await rows()).some((r) => r.id === three[0]!.id && new Date(r.starts_at).getTime() !== new Date(three[0]!.starts_at).getTime()), 'the change did not keep the row');
+
+      // Off the market: hidden from buyers, kept, back when live again.
+      await t.execute(sql`update listing set status = 'sold' where id = ${id}`);
+      assert((await listingInspections(t, id)).length === 0, 'a sold home still shows times');
+      assert((await rows()).length === 4, 'selling removed the rows');
+      await t.execute(sql`update listing set status = 'live' where id = ${id}`);
+      assert((await listingInspections(t, id)).length === 4, 'the times did not come back');
+
+      // The import only adds, and what it cannot add is a warning. Reading the same file twice is not news.
+      const ahead = (days: number, hour: number) => new Date(Date.now() + days * 86_400_000 + hour * 3_600_000).toISOString();
+      const file = { slots: [{ startsAt: ahead(60, 0), endsAt: ahead(60, 1) }, { startsAt: ahead(-2, 0), endsAt: ahead(-2, 1) }, { startsAt: ahead(300, 0), endsAt: ahead(300, 1) }], auctionAt: ahead(70, 0), state: 'VIC', userId: f.people.owner };
+      const first = await addImportedOpenHomes(t, id, file);
+      assert(first.length === 2 && /has passed/.test(first[0]!) && /6 months/.test(first[1]!), `import warnings: ${JSON.stringify(first)}`);
+      assert((await rows()).length === 6, `the import left ${(await rows()).length}`);
+      assert((await dateOf()) !== null, 'the imported auction did not reach the listing');
+      const second = await addImportedOpenHomes(t, id, file);
+      assert((await rows()).length === 6 && second.length === 3 && /already has an auction/.test(second[0]!), `re-import: ${JSON.stringify(second)}`);
+      return `agent not on it refused; repeat 3 (all or nothing); same start refused by the index; auction ↔ listing date, kept by a Details save; sold hides, live returns; import added 2, warned 2, re-import added 0`;
+    }),
+  );
+
   group('Consumer skills (ADR 0080)');
 
   await check('A buyer’s switches: defaults by kind, only built skills switch, Smart Alerts off refuses a new alert and stops the cron claiming theirs, on again resumes; the platform pause wins; nobody else flips them', async () =>

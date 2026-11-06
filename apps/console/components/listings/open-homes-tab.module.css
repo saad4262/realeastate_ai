@@ -1,0 +1,40 @@
+/* A listing's Open homes tab (ADR 0081) — the console's own variables. */
+.tab { display: grid; gap: 16px; }
+.status { margin: 0; padding: 9px 12px; border-radius: 8px; background: var(--emerald-subtle); color: var(--emerald); font-size: 13.5px; font-weight: 500; }
+.wait { background: var(--amber-subtle); color: var(--amber); }
+.card { display: grid; gap: 12px; padding: 16px 18px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--surface-card); }
+.head { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; justify-content: space-between; }
+.title { margin: 0; font: 600 16px/1.35 var(--font-display, inherit); color: var(--text-primary); }
+summary.title { cursor: pointer; }
+.sub { margin: 2px 0 0; font-size: 13px; color: var(--text-secondary); }
+.times { display: grid; margin: 0; padding: 0; list-style: none; }
+.time { display: grid; grid-template-columns: 170px minmax(0, 1fr) auto; gap: 8px 14px; align-items: center; padding: 11px 0; border-top: 1px solid var(--border-default); }
+.time:first-child { border-top: 0; }
+.day { font-weight: 600; }
+.when { min-width: 0; }
+.full { grid-column: 1 / -1; }
+.acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 5px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.open { background: var(--emerald-subtle); color: var(--emerald); }
+.private { background: var(--sapphire-subtle); color: var(--sapphire); }
+.auction { background: var(--amber-subtle); color: var(--amber); }
+.primary, .ghost, .danger, .segBtn { font: inherit; font-size: 13px; cursor: pointer; border-radius: 8px; }
+.primary { padding: 7px 12px; border: 1px solid var(--sapphire); background: var(--sapphire); color: #fff; font-weight: 600; white-space: nowrap; }
+.ghost { padding: 4px 10px; border: 1px solid var(--border-strong); background: var(--surface-card); color: var(--text-primary); }
+.danger { padding: 4px 10px; border: 1px solid var(--rose); background: var(--rose); color: #fff; }
+.primary:disabled, .ghost:disabled, .danger:disabled { opacity: 0.6; cursor: default; }
+.confirm { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 8px; background: var(--rose-subtle); }
+.confirm p { flex: 1 1 260px; min-width: 0; margin: 0; font-size: 13.5px; }
+.form { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; padding: 12px 0; }
+.field { display: grid; gap: 4px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.span { grid-column: 1 / -1; }
+.label { padding: 0; font-size: 12.5px; font-weight: 600; }
+.input { width: 100%; min-height: 36px; padding: 7px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-card); font: inherit; color: inherit; }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.segBtn { padding: 5px 10px; border: 1px solid var(--border-strong); background: var(--surface-card); color: var(--text-primary); }
+.segOn { border-color: var(--sapphire); background: var(--sapphire-subtle); color: var(--sapphire); font-weight: 600; }
+.check { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; }
+.preview { padding: 10px 12px; border-radius: 8px; background: var(--sapphire-subtle); font-size: 13.5px; }
+.preview ul { margin: 6px 0 0; padding-left: 18px; }
+.error { margin: 0; font-size: 13.5px; font-weight: 500; color: var(--rose); }
+@media (max-width: 640px) { .time { grid-template-columns: minmax(0, 1fr); } }

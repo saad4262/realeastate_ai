@@ -40,7 +40,8 @@ export type PublicInspection = {
  *
  * Past ones are dropped in SQL rather than filtered afterwards: a listing that
  * has been on the market for months has a long tail of them, and none of it is
- * of any use to someone deciding whether to visit on Saturday.
+ * of any use to someone deciding whether to visit on Saturday. A home no longer on the market shows none (ADR 0081): its
+ * rows stay, and come back if it goes live again.
  */
 export async function listingInspections(
   db: Db,
@@ -54,7 +55,8 @@ export async function listingInspections(
       kind: inspection.kind,
     })
     .from(inspection)
-    .where(and(eq(inspection.listingId, listingId), gte(inspection.endsAt, sql`now()`)))
+    .innerJoin(listing, eq(listing.id, inspection.listingId))
+    .where(and(eq(inspection.listingId, listingId), gte(inspection.endsAt, sql`now()`), inArray(listing.status, [...ON_MARKET_STATUSES])))
     .orderBy(asc(inspection.startsAt));
 
   return rows.map((r) => ({ ...r, kind: r.kind as PublicInspection['kind'] }));

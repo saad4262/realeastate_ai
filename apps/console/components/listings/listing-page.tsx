@@ -1,7 +1,7 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import type { Actor } from '@repo/core/permissions';
+import { can, type Actor } from '@repo/core/permissions';
 import { getListingForEdit } from '@repo/core/listings';
 import { MAX_LISTING_PHOTOS, editableExtras, listingPhotos } from '@repo/core/media';
 import { BuyerMatchError, listingBuyers, matchingBuyerCounts } from '@repo/core/buyer-matching';
@@ -12,16 +12,19 @@ import { ListingForm } from '@/components/listing-form';
 import { ListingPhotosSkeleton } from '@/components/listing-form-skeleton';
 import { ListingPhotos } from '@/components/photo-uploader';
 import { ListingExtras } from '@/components/listing-extras';
+import { OpenHomesTab } from '@/components/listings/open-homes-tab';
+import { defaultOpenHomeDate, openHomesForListing, upcomingOpenHomeCount } from '@repo/core/inspections';
 import { ListingDocuments } from '@/components/documents/listing-documents';
 import { getConsoleDb } from '../../lib/db';
+import { loadListingActor } from '../../lib/load-actor';
 import { requireConsoleAccess } from '../../lib/require-console-access';
 import { BuyerPicker } from './buyer-picker';
 import { DealTab } from '@/components/deals/deal-tab';
 import styles from './matching-buyers.module.css';
 
-export const LISTING_TABS = ['details', 'photos', 'documents', 'buyers', 'deal'] as const;
+export const LISTING_TABS = ['details', 'photos', 'open_homes', 'documents', 'buyers', 'deal'] as const;
 export type ListingTab = (typeof LISTING_TABS)[number];
-const TAB_LABELS: Record<ListingTab, string> = { details: 'Details', photos: 'Photos', documents: 'Documents', buyers: 'Matching buyers', deal: 'Deal' };
+const TAB_LABELS: Record<ListingTab, string> = { details: 'Details', photos: 'Photos', open_homes: 'Open homes', documents: 'Documents', buyers: 'Matching buyers', deal: 'Deal' };
 
 export function parseListingTab(raw: unknown): ListingTab {
   const v = Array.isArray(raw) ? raw[0] : raw;
@@ -43,7 +46,15 @@ export async function ListingPage({ surface, id, tab }: { surface: 'agency' | 'a
   const base = surface === 'agency' ? '/live-listings' : '/listings';
   const href = (t: ListingTab) => (t === 'details' ? `${base}/${id}/edit` : `${base}/${id}/edit?tab=${t}`);
   // One statement: the same count the Listings table shows.
-  const count = (await matchingBuyerCounts(db, session.actor, [id]).catch(() => ({}) as Record<string, number>))[id] ?? 0;
+  const [counts, openHomeCount, listingActor] = await Promise.all([
+    matchingBuyerCounts(db, session.actor, [id]).catch(() => ({}) as Record<string, number>),
+    upcomingOpenHomeCount(db, id),
+    // The session's actor carries no listing links, so `listing:edit` needs this one (ADR 0081: no edit rights, no tab).
+    loadListingActor(session.actor.userId),
+  ]);
+  const count = counts[id] ?? 0;
+  const mayEdit = listingActor !== null && can(listingActor, 'listing:edit', { type: 'listing', id, agencyId: session.actor.agencyId });
+  const shown = mayEdit ? LISTING_TABS : LISTING_TABS.filter((t) => t !== 'open_homes');
 
   return (
     <div style={{ display: 'grid', gap: '1rem' }}>
@@ -59,10 +70,11 @@ export async function ListingPage({ surface, id, tab }: { surface: 'agency' | 'a
       </div>
 
       <nav className={contactStyles.tabs} aria-label="Listing sections">
-        {LISTING_TABS.map((t) => (
+        {shown.map((t) => (
           <Link key={t} href={href(t)} className={`${contactStyles.tab} ${tab === t ? contactStyles.tabOn : ''}`} aria-current={tab === t ? 'page' : undefined}>
             {TAB_LABELS[t]}
             {t === 'buyers' && count ? <span className={styles.tabCount}>{count}</span> : null}
+            {t === 'open_homes' && openHomeCount ? <span className={styles.tabCount}>{openHomeCount}</span> : null}
           </Link>
         ))}
       </nav>
@@ -71,6 +83,11 @@ export async function ListingPage({ surface, id, tab }: { surface: 'agency' | 'a
       {tab === 'photos' ? (
         <Suspense fallback={<ListingPhotosSkeleton />}>
           <Photos listingId={id} />
+        </Suspense>
+      ) : null}
+      {tab === 'open_homes' && mayEdit && listingActor ? (
+        <Suspense fallback={<ListingPhotosSkeleton />}>
+          <OpenHomes listingId={id} actor={listingActor} />
         </Suspense>
       ) : null}
       {tab === 'documents' ? (
@@ -89,6 +106,24 @@ export async function ListingPage({ surface, id, tab }: { surface: 'agency' | 'a
         </Suspense>
       ) : null}
     </div>
+  );
+}
+
+async function OpenHomes({ listingId, actor }: { listingId: string; actor: Actor }) {
+  const now = new Date();
+  const view = await openHomesForListing(getConsoleDb(), actor, listingId, now);
+  const row = (r: (typeof view.upcoming)[number]) => ({ id: r.id, kind: r.kind, startsAt: r.startsAt.toISOString(), endsAt: r.endsAt.toISOString() });
+  return (
+    <OpenHomesTab
+      listingId={listingId}
+      status={view.status}
+      timeZone={view.timeZone}
+      place={view.place}
+      firstDate={defaultOpenHomeDate(now, view.timeZone)}
+      upcoming={view.upcoming.map(row)}
+      past={view.past.map(row)}
+      pastCount={view.pastCount}
+    />
   );
 }
 

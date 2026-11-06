@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { MAX_FLOORPLANS, parseMediaLink } from '../media/links';
 import { listingDraftSchema, propertyDraftSchema, propertyTypeSchema, soldDetailsSchema } from '../listings/listing-schema';
 import { localInputToInstant } from '../time/local-input';
+import { parseOpenHomesCell } from '../inspections/open-home-rules';
+import { stateTimeZone } from '../inspections/plan';
 
 /**
  * The import's columns (ADR 0029 "The CSV template", docs/import/listings-template.csv),
@@ -17,6 +19,8 @@ export const IMPORT_FIELDS = [
   'available_from', 'auction_at', 'listed_on', 'sold_price', 'sold_date', 'agent_emails', 'photo_urls',
   // ADR 0080, C9 Immersive: floorplan images, fetched like photos; video and tour links, on the allowlist.
   'floorplan_urls', 'video_url', 'tour_url',
+  // ADR 0081: open-home times, on the property's clock.
+  'open_homes',
 ] as const;
 export type ImportField = (typeof IMPORT_FIELDS)[number];
 
@@ -32,6 +36,7 @@ export const FIELD_LABELS: Record<ImportField, string> = {
   auction_at: 'Auction', listed_on: 'Listed on', sold_price: 'Sold price', sold_date: 'Sold date',
   agent_emails: 'Agent emails', photo_urls: 'Photo links',
   floorplan_urls: 'Floorplan links', video_url: 'Video link', tour_url: '3D tour link',
+  open_homes: 'Open homes',
 };
 
 /** Our field → the file's column index, or null when the file has no such column. */
@@ -45,6 +50,7 @@ const SYNONYMS: Record<string, ImportField> = {
   price: 'price_display', price_text: 'price_display', rent: 'rent_pw', weekly_rent: 'rent_pw', auction: 'auction_at',
   listed: 'listed_on', date_listed: 'listed_on', agents: 'agent_emails', agent: 'agent_emails', agent_email: 'agent_emails',
   photos: 'photo_urls', images: 'photo_urls', photo_links: 'photo_urls',
+  inspections: 'open_homes', inspection_times: 'open_homes', open_home: 'open_homes', open_home_times: 'open_homes',
   floorplan: 'floorplan_urls', floorplans: 'floorplan_urls', floor_plan: 'floorplan_urls', floor_plans: 'floorplan_urls',
   video: 'video_url', video_link: 'video_url', youtube: 'video_url', tour: 'tour_url', virtual_tour: 'tour_url', '3d_tour': 'tour_url', matterport: 'tour_url',
 };
@@ -81,6 +87,8 @@ export type NormalizedRow = {
   /** C9: floorplan image links (fetched like photos) and video / tour links (allowlist, stored as provider:id). Absent on rows parsed before C9. */
   floorplanUrls?: string[];
   mediaLinks?: string[];
+  /** ADR 0081: as instants, read on the property's clock. Absent on rows parsed before it. */
+  openHomes?: { startsAt: string; endsAt: string }[];
   listedOn: string | null;
 };
 
@@ -101,7 +109,7 @@ const isoDate = /^\d{4}-\d{2}-\d{2}$/;
  * One row's cells → a NormalizedRow, or the reasons it cannot be one. Every
  * problem is reported at once, in plain words, against the column it is in.
  */
-export function normalizeRow(cells: readonly string[], mapping: ImportMapping, timeZone: string): { row: NormalizedRow | null; errors: CellError[] } {
+export function normalizeRow(cells: readonly string[], mapping: ImportMapping, timeZone: string): { row: NormalizedRow | null; errors: CellError[]; warnings: CellError[] } {
   const errors: CellError[] = [];
   const get = (f: ImportField) => {
     const i = mapping[f];
@@ -169,7 +177,9 @@ export function normalizeRow(cells: readonly string[], mapping: ImportMapping, t
   const auctionRaw = get('auction_at');
   let auctionDate: string | undefined;
   if (auctionRaw) {
-    const at = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(auctionRaw) ? localInputToInstant(auctionRaw.replace(' ', 'T'), timeZone) : null;
+    // ADR 0081: on the property's clock; the file's zone only when the state is missing (a row refused anyway).
+    const auctionZone = get('state') ? stateTimeZone(get('state')) : timeZone;
+    const at = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(auctionRaw) ? localInputToInstant(auctionRaw.replace(' ', 'T'), auctionZone) : null;
     if (at) auctionDate = at.toISOString();
     else err('auction_at', `“${auctionRaw}” — write it YYYY-MM-DD HH:mm, e.g. 2026-11-14 11:00`);
   }
@@ -251,10 +261,15 @@ export function normalizeRow(cells: readonly string[], mapping: ImportMapping, t
   const listedOn = date('listed_on') ?? null;
   const externalId = get('external_id').slice(0, 120) || null;
 
-  if (errors.length || !status) return { row: null, errors };
+  // ADR 0081: a time it cannot read is a warning; the listing still imports.
+  const openHomes = parseOpenHomesCell(get('open_homes'), get('state'));
+  const warnings: CellError[] = openHomes.problems.map((message) => ({ column: FIELD_LABELS.open_homes, message }));
+
+  if (errors.length || !status) return { row: null, errors, warnings: [] };
   return {
     // Validated above by the form's own schemas; kept in input form (it is JSON, and createListing parses it again).
-    row: { externalId, property: property as NormalizedRow['property'], listing, status, sold, agentEmails, photoUrls, floorplanUrls, mediaLinks, listedOn },
+    row: { externalId, property: property as NormalizedRow['property'], listing, status, sold, agentEmails, photoUrls, floorplanUrls, mediaLinks, openHomes: openHomes.slots, listedOn },
     errors: [],
+    warnings,
   };
 }

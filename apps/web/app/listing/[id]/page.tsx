@@ -447,7 +447,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
                 </div>
               </section>
 
-              <Inspections inspections={inspections} listingId={listing.id} />
+              <Inspections inspections={inspections} listingId={listing.id} state={listing.state} />
 
               <Immersive extras={extras} />
 
