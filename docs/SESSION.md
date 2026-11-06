@@ -3,6 +3,24 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-06 — Claude Code (Mac) — ADR 0083: the full customer profile
+
+- The user's decisions: agency sees its own listings' activity; the profile shows the customer's whole history; Messages
+  built empty; Emails and SMS never mixed; privacy parked for testing (ADR 0083 says what must change before real customers).
+- Mock `docs/mocks/customer-profile-full.html`, then built on the user's "mock dikhao phir code": tabs SMS, Calls,
+  Messages, Activity; Enquiries reads Leads with a summary; the smart panel (fixed rules); the summary on a button; Log a
+  call; Listing activity (agency, agent, admin's view of an agency); admin People, the fuller customer page, "Customer at".
+  No migration.
+- Verified: core and AI unit tests, typecheck, console build. Ten guards broken on purpose, each red, then restored. New
+  queries run on the real database inside a `begin read only` transaction: all valid, one real view scoped right, an agent
+  named on nothing saw nothing.
+- NOT run: `pnpm smoke` (STATUS: not locally while `.env.local` is production), so the new smoke group "Customer profile,
+  every channel" is typechecked, never run. No live model call: the summary is fake-tested only. Not seen in a browser:
+  TEST-PLAN CT. Real data is thin: 1 site_activity row, 0 texts or calls tied to a contact.
+- Committed on the user's go: `feat/customer-profile-full` (`04f148b`, from `main`), then pushed and merged into `main` by fast-forward on the user's go; made in a separate worktree so a parallel
+  session's uncommitted `apps/web/lib/cached.ts` and `docs/STATUS.md` stayed out. These two handoff notes are not on that branch: `main` is one docs
+  commit behind `feat/open-homes` in both files, so adding them there would have conflicted. They reach `main` with that docs commit.
+
 ## 2026-11-06 (later) — Claude Code (Mac) — Production preparation; cutover waits on DNS
 
 - `feat/open-homes` merged and deployed (`f595a47`). The user cancelled the new database: `xjklpoyxcvnlhjlxasmv`, in `.env.local`, is production; nothing was migrated or loaded on it.
@@ -13,7 +31,10 @@ passes ~10 entries, move the older ones to a new archive file.
   matched 38 of the expected 38. Phone Test's listings stay because the domain checks and phone tests need a public listing.
 - Git: 29 local branches fully in `origin/main` deleted; each commit checked against `origin/main` first. Local `main` fast-forwarded 72 commits in the `realestate_ai-crm2` worktree; its uncommitted
   lockfile change (`mammoth`, `unpdf` specifiers) was discarded and is already in `origin/main`. Worktrees kept: each holds `.env.local` files that may be the only copy.
-- NOT done: the withdrawal; Sentry (no project or values); the domain switch and everything after it.
+- The user then chose: leave test listings live, keep the old sender and test Resend account, keep sign-up without confirmation, for now. So the withdrawal is dropped, not pending.
+- Search: 2 of 13 early fetches of `/search` had no results, then 30 of 30 were fine; cause not confirmed. Found while looking: `cachedSearch` caught a database failure inside `unstable_cache`, so it was
+  stored for 30 seconds with no log. Now caught outside and logged. Typecheck and lint only; the failure path was not exercised live.
+- NOT done: Sentry (no project or values); the domain switch and everything after it.
 
 ## 2026-11-06 — Claude Code (Mac) — Open homes and Sentry; launch status
 
