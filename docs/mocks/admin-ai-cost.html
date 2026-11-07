@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!--BODY-->
+<title>Admin AI Cost</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!--
+  Mock for the platform admin's AI cost page. Hand-made, SAMPLE data: agencies, people and amounts are invented; every
+  total is added up from the rows below. Built on what ai_run records today. Screens by hash: #cost, #agency, #decisions.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap">
+<style>
+  /* The console's own tokens (apps/console/app/globals.css). Layout: the admin shell, summary on top, detail below. */
+  :root {
+    --canvas: #f8fafc; --card: #ffffff; --line: #e2e8f0; --line-strong: #cbd5e1;
+    --ink: #0f172a; --soft: #475569; --muted: #64748b;
+    --blue: #2563eb; --blue-soft: #eff6ff; --green: #059669; --green-soft: #ecfdf5;
+    --amber: #b45309; --amber-soft: #fffbeb; --rose: #e11d48; --rose-soft: #fff1f2;
+    --bar: #2563eb; --track: #eef2f7; --mock: #0f172a; --mock-ink: #e2e8f0; --mock-line: #475569;
+    --display: 'Plus Jakarta Sans', system-ui, sans-serif; --body: 'Inter', system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --canvas: #0b1220; --card: #111a2c; --line: #223049; --line-strong: #33445f;
+    --ink: #e8eef8; --soft: #a9b7cc; --muted: #8596ae;
+    --blue: #7aa7ff; --blue-soft: #16264a; --green: #4cc9a0; --green-soft: #0f2a24;
+    --amber: #f0b45b; --amber-soft: #2c2110; --rose: #fb7b95; --rose-soft: #301520;
+    --bar: #7aa7ff; --track: #1b2740; --mock: #020617; --mock-ink: #cbd5e1; --mock-line: #33445f; color-scheme: dark;
+  } }
+  :root[data-theme="dark"] {
+    --canvas: #0b1220; --card: #111a2c; --line: #223049; --line-strong: #33445f;
+    --ink: #e8eef8; --soft: #a9b7cc; --muted: #8596ae;
+    --blue: #7aa7ff; --blue-soft: #16264a; --green: #4cc9a0; --green-soft: #0f2a24;
+    --amber: #f0b45b; --amber-soft: #2c2110; --rose: #fb7b95; --rose-soft: #301520;
+    --bar: #7aa7ff; --track: #1b2740; --mock: #020617; --mock-ink: #cbd5e1; --mock-line: #33445f; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 14px/1.5 var(--body); }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .gutter { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+  .mockbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-block: 8px; background: var(--mock); color: var(--mock-ink); font-size: 12px; }
+  .mockbar b { margin-right: 4px; }
+  .mockbar .gap { width: 14px; }
+  .mockbar button { font: inherit; color: var(--mock-ink); background: transparent; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--mock-line); cursor: pointer; }
+  .mockbar button[aria-pressed="true"] { background: var(--mock-ink); color: var(--mock); border-color: var(--mock-ink); }
+
+  .shell { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: 100vh; }
+  .side { border-right: 1px solid var(--line); background: var(--card); padding: 16px 10px; display: grid; gap: 2px; align-content: start; }
+  .brand { font-family: var(--display); font-weight: 700; padding: 0 10px 10px; }
+  .brand small { display: block; font-family: var(--body); font-weight: 400; font-size: 12px; color: var(--muted); }
+  .side a, .side span.item { display: block; padding: 6px 10px; border-radius: 7px; color: var(--soft); font-size: 13px; }
+  .side a:hover { text-decoration: none; background: var(--canvas); }
+  .side a.on { background: var(--blue-soft); color: var(--blue); font-weight: 600; }
+  .new { margin-left: 6px; font-size: 10px; font-weight: 700; color: var(--blue); }
+  main { min-width: 0; padding-block: 22px 64px; }
+  .page { max-width: 1040px; margin: 0 auto; display: grid; gap: 14px; }
+  [hidden] { display: none !important; }
+
+  h1 { margin: 0; font-family: var(--display); font-size: 24px; letter-spacing: -.02em; text-wrap: balance; }
+  h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  p { margin: 0; }
+  .sub { color: var(--soft); font-size: 13px; max-width: 68ch; }
+  .crumbs { font-size: 12px; color: var(--muted); }
+  .head { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: flex-end; }
+  .tabs { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); }
+  .tabs button { font: inherit; font-size: 13px; color: var(--soft); background: transparent; border: 0; border-radius: 6px; padding: 4px 11px; cursor: pointer; }
+  .tabs button[aria-pressed="true"] { background: var(--ink); color: var(--card); font-weight: 600; }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; min-width: 0; }
+  .pad { padding: 16px 18px; display: grid; gap: 10px; }
+  .card-head { display: flex; flex-wrap: wrap; gap: 6px 12px; justify-content: space-between; align-items: baseline; padding: 14px 18px 10px; }
+  .card-head span { font-size: 12px; color: var(--muted); }
+
+  .limit-top { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; justify-content: space-between; }
+  .limit-num { font-family: var(--display); font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .limit-num small { font-family: var(--body); font-size: 14px; font-weight: 400; color: var(--soft); }
+  .meter { height: 10px; border-radius: 999px; background: var(--track); overflow: hidden; }
+  .meter i { display: block; height: 100%; border-radius: 999px; background: var(--green); }
+  .meter.warn i { background: var(--amber); }
+  .meter.over i { background: var(--rose); }
+  .fine { font-size: 12.5px; color: var(--soft); max-width: 80ch; }
+
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .chip.ok { background: var(--green-soft); color: var(--green); }
+  .chip.warn { background: var(--amber-soft); color: var(--amber); }
+  .chip.over { background: var(--rose-soft); color: var(--rose); }
+  .chip.none { background: var(--track); color: var(--soft); }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .stat { padding: 12px 14px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 2px; }
+  .stat span { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .stat b { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .attention { display: grid; gap: 8px; padding: 12px 16px; border-radius: 12px; background: var(--amber-soft); border: 1px solid var(--amber); }
+  .attention b { font-size: 13px; }
+  .attention ul { margin: 0; padding-left: 18px; font-size: 13px; display: grid; gap: 4px; }
+
+  .chart { padding: 0 18px 14px; }
+  .plot { position: relative; height: 150px; margin-left: 34px; display: flex; align-items: flex-end; gap: 2px; border-bottom: 1px solid var(--line-strong); }
+  .plot .col { flex: 1 1 0; min-width: 0; background: var(--bar); border-radius: 2px 2px 0 0; }
+  .plot .col.hot { background: var(--rose); }
+  .tick { position: absolute; left: -34px; width: 30px; text-align: right; font-size: 11px; color: var(--muted); transform: translateY(50%); font-variant-numeric: tabular-nums; }
+  .grid { position: absolute; left: 0; right: 0; border-top: 1px solid var(--line); }
+  .grid.cap { border-top: 1.5px dashed var(--rose); }
+  .cap-label { position: absolute; right: 0; font-size: 11px; color: var(--rose); background: var(--card); padding-left: 4px; transform: translateY(-100%); }
+  .xaxis { display: flex; justify-content: space-between; margin-left: 34px; padding-top: 4px; font-size: 11px; color: var(--muted); }
+
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 8px 18px; border-bottom: 1px solid var(--line); border-top: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 9px 18px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tfoot td { font-weight: 600; border-top: 1px solid var(--line-strong); border-bottom: 0; }
+  .num { text-align: right; white-space: nowrap; }
+  .who small { display: block; font-size: 12px; color: var(--muted); }
+  .share { display: grid; grid-template-columns: 90px 38px; align-items: center; gap: 8px; }
+  .share .meter { height: 6px; }
+  .share .meter i { background: var(--bar); }
+  .share em { font-style: normal; font-size: 12px; color: var(--muted); text-align: right; }
+
+  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .decisions { display: grid; gap: 10px; counter-reset: d; }
+  .decision { display: grid; gap: 4px; padding: 14px 18px; }
+  .decision h2 { font-size: 14px; }
+  .decision p { max-width: 74ch; font-size: 13.5px; color: var(--soft); }
+  .decision .rec { color: var(--ink); }
+  .decision .found { color: var(--amber); font-weight: 600; }
+
+  @media (max-width: 760px) {
+    .shell { grid-template-columns: minmax(0, 1fr); }
+    .side { border-right: 0; border-bottom: 1px solid var(--line); display: flex; overflow-x: auto; padding: 8px 10px; }
+    .brand { display: none; }
+    .side a, .side span.item { white-space: nowrap; }
+    .plot { height: 120px; }
+  }
+</style>
+<!--/HEAD-->
+</head>
+<body>
+<!--START-->
+<div class="mockbar gutter">
+  <b>MOCK · sample data</b>
+  <button data-go="cost">AI cost</button><button data-go="agency">One agency</button><button data-go="decisions">Decisions</button>
+  <span class="gap"></span><b>State</b>
+  <button data-state="normal">Normal</button><button data-state="near">Near the limit</button>
+</div>
+<div class="shell">
+  <nav class="side" aria-label="Platform">
+    <div class="brand">LocalAgentHub<small>Platform admin</small></div>
+    <span class="item">Overview</span><span class="item">Agencies</span><span class="item">Agents</span><span class="item">People</span><span class="item">Users</span><span class="item">Site activity</span><span class="item">Emails</span>
+    <a href="#cost" class="on">AI cost<span class="new">NEW</span></a>
+  </nav>
+  <main class="gutter">
+    <section class="page" id="s-cost">
+      <div class="head">
+        <div style="display:grid;gap:4px;min-width:0">
+          <h1>AI cost</h1>
+          <p class="sub">What the platform’s AI calls have cost, by agency and by feature. Worked out from token counts and our price list, so the Anthropic, Voyage and Retell bills stay the final word.</p>
+        </div>
+        <div class="tabs" role="group" aria-label="Period">
+          <button data-period="0">24 hours</button><button data-period="1">7 days</button><button data-period="2">30 days</button>
+        </div>
+      </div>
+
+      <div class="card pad" id="limit"></div>
+      <div class="attention" id="attention" hidden>
+        <b>Needs a look</b>
+        <ul>
+          <li>Platform spend is over 80% of the $20.00 limit for the last 24 hours.</li>
+          <li><a href="#agency" data-agency="0">Harbour Realty</a>’s assistant is at $8.70 of its $10.00 limit.</li>
+          <li>12 calls used a model with no price in our list, so they count as $0.00. <a href="#decisions">Why this matters</a></li>
+        </ul>
+      </div>
+      <div class="stats" id="stats"></div>
+
+      <div class="card">
+        <div class="card-head"><h2>Spend per day</h2><span>Last 30 days, Sydney time</span></div>
+        <div class="chart" id="chart"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>Who it was for</h2><span id="who-note"></span></div>
+        <div class="scroll"><table id="who"></table></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>What it was spent on</h2><span id="what-note"></span></div>
+        <div class="scroll"><table id="what"></table></div>
+      </div>
+
+      <p class="fine"><b>Not counted here:</b> Twilio texts and numbers, Google Maps and Resend email. They have their own bills. Voyage’s free allowance is not taken off, so its figure can read a little high.</p>
+    </section>
+
+    <section class="page" id="s-agency" hidden>
+      <p class="crumbs"><a href="#cost">AI cost</a> / <span id="ag-crumb"></span></p>
+      <div class="head">
+        <div style="display:grid;gap:4px;min-width:0">
+          <h1 id="ag-name"></h1>
+          <p class="sub">One agency’s AI spend. Read only: the page opening is recorded, like every other admin page.</p>
+        </div>
+        <div class="tabs" role="group" aria-label="Period">
+          <button data-period="0">24 hours</button><button data-period="1">7 days</button><button data-period="2">30 days</button>
+        </div>
+      </div>
+      <div class="card pad" id="ag-limit"></div>
+      <div class="stats" id="ag-stats"></div>
+      <div class="two">
+        <div class="card">
+          <div class="card-head"><h2>By person</h2><span>The assistant’s limit is per person, 24 hours</span></div>
+          <div class="scroll"><table id="ag-people"></table></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>By feature</h2></div>
+          <div class="scroll"><table id="ag-features"></table></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="s-decisions" hidden>
+      <h1>Decisions for you</h1>
+      <p class="sub">Each one has my recommendation. Say “sab recommended” or name the number you want changed.</p>
+      <div class="decisions">
+        <div class="card decision"><h2>1. Where it goes</h2><p class="rec">Recommended: a new “AI cost” item in the admin sidebar, at <code>/ai-cost</code>, with one page per agency under it.</p><p>No new tables and no migration. It reads <code>ai_run</code> with the indexes already there.</p></div>
+        <div class="card decision"><h2>2. Who can see it</h2><p class="rec">Recommended: platform admins only.</p><p>Agencies do not see costs, because they are not billed for AI today. An agency view can come when plans have an AI allowance.</p></div>
+        <div class="card decision"><h2>3. Currency</h2><p class="rec">Recommended: US dollars only.</p><p>The price list and the $20 limit are in USD. Showing AUD would need an exchange rate we do not keep.</p></div>
+        <div class="card decision"><h2>4. Showing people by name</h2><p class="rec">Recommended: agents and owners by name inside an agency; buyers never.</p><p>The public site stays one line, “Public site (buyers)”. Admins already see agents’ work, but nobody needs to see what one buyer cost.</p></div>
+        <div class="card decision"><h2>5. Calls with no agency on them</h2><p class="rec">Recommended: fix it from now on, and show old rows as “Not tied to an agency”.</p><p><span class="found">Found while checking:</span> Morning Brief, Important emails and floorplan reading are saved without an agency, even though they belong to one. Without this fix those costs would be missing from the agency’s line. The fix is small and needs no migration. Old rows stay as they are.</p></div>
+        <div class="card decision"><h2>6. How the $20 limit is described</h2><p class="rec">Recommended: say on the page exactly what it stops and what it does not.</p><p><span class="found">Found while checking:</span> the limit stops the assistant, AI skills, alert summaries and buyers’ tasks. The public property chat and the buyer tools (due diligence, renovation, research) do not check it. They have their own daily caps on requests, so their spend counts towards the $20 but can carry on past it. The hard ceiling is the spend limit in the Anthropic console, so please check that one is set. Making the public tools obey the $20 limit would be a separate change, and I have not included it.</p></div>
+        <div class="card decision"><h2>7. Warnings</h2><p class="rec">Recommended: on the page only for now.</p><p>An email at 80% of the limit would be a small later addition, on the existing notice email. You asked for the screen, so it is not in this build.</p></div>
+        <div class="card decision"><h2>8. Changing a limit from this page</h2><p class="rec">Recommended: no. The page is read only.</p><p>Limits stay in Vercel’s settings, where a change is deliberate. The page shows what they are set to.</p></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+/* Sample rows. Every total on the page is added up from these, so nothing can disagree. */
+const CAP = 20, ASSISTANT_CAP = 10, PERSON_CAP = 1;
+const WHO = [
+  { name: 'Harbour Realty', kind: 'agency', spend: [2.84, 19.6, 71.4], calls: [212, 1899, 6500], assistant: 1.9, top: 'Assistant' },
+  { name: 'Parkside Property', kind: 'agency', spend: [1.26, 9.15, 36.2], calls: [97, 702, 3930], assistant: 0.82, top: 'Assistant' },
+  { name: 'Eastline Estate Agents', kind: 'agency', spend: [0.48, 4.3, 17.85], calls: [41, 356, 1460], assistant: 0.26, top: 'Inbox replies' },
+  { name: 'Northgate Realty', kind: 'agency', spend: [0.11, 1.42, 6.1], calls: [14, 118, 522], assistant: 0.04, top: 'Reading documents' },
+  { name: 'Public site (buyers)', kind: 'public', spend: [1.52, 11.2, 44.3], calls: [168, 1215, 4920], note: 'Property chat, research, alerts' },
+  { name: 'Not tied to an agency', kind: 'none', spend: [0, 0.34, 8.9], calls: [0, 21, 640], note: 'Older rows, from before the fix' },
+];
+const WHAT = [
+  ['Console assistant', 'assistant', 'Sonnet 5.5', [3.02, 21.6, 84.2], [188, 1340, 5010]],
+  ['Property chat (public)', 'property-chat', 'Sonnet 5.5', [1.1, 8.1, 31.7], [132, 960, 3880]],
+  ['Reading documents', 'document-read', 'Opus 5.5', [0.74, 5.2, 22.1], [11, 82, 340]],
+  ['Inbox summaries and replies', 'inbox:*', 'Sonnet 5.5', [0.52, 3.9, 14.75], [58, 410, 1560]],
+  ['Morning Brief, Important emails', 'skill:*', 'Haiku 4.5', [0.21, 1.86, 9.6], [44, 390, 1980]],
+  ['Buyer research and due diligence', 'consumer:*', 'Haiku 4.5', [0.3, 2.24, 8.3], [28, 205, 760]],
+  ['Understanding enquiries, AI decides', 'lead:understand, workflow:*', 'Haiku 4.5', [0.14, 1.03, 5.2], [51, 372, 1890]],
+  ['AI calls back (Retell)', 'ai_callback', 'Retell', [0.12, 0.84, 4.4], [2, 14, 72]],
+  ['Alert summaries', 'alert-summary', 'Haiku 4.5', [0.06, 0.74, 3.9], [18, 214, 1120]],
+  ['Search indexing', 'search_embedding', 'Voyage', [0, 0.5, 0.6], [0, 324, 1360]],
+];
+const WHOSUM = (i, k) => WHO.reduce((s, r) => s + r[k][i], 0);
+const DAILY = [3.84,4.8,6.4,3,2.5,5.2,6.8,6.1,7.4,7.7,3.6,2.8,7,7.5,8,5.7,8.8,3.9,3.5,8.3,7.2,9.7,9,6.6,3.7,3.2,8.8,9.6,7.9,0];
+/* Name, role, share of the agency's spend, share of its assistant spend today, and Harbour's figure in the near-limit state. */
+const PEOPLE = [['Priya Owner', 'Owner', .34, .326, .98], ['Sam Agent', 'Agent', .31, .253, .95], ['Lee Agent', 'Agent', .13, .132, .82]];
+const OTHERS = { label: '7 other people', spend: .12, assistant: .289, near: 5.95 };
+const BACKGROUND = .10;
+/* The last part takes what rounding leaves, so a table's rows add up to its total to the cent. */
+const split = (total, shares) => { const cents = Math.round(total * 100); let left = cents; return shares.map((sh, n) => { const c = n === shares.length - 1 ? left : Math.round(cents * sh); left -= c; return c / 100; }); };
+const FEATURES = [['Console assistant', .63], ['Inbox summaries and replies', .14], ['Reading documents', .12], ['Morning Brief, Important emails', .07], ['Understanding enquiries, AI decides', .04]];
+
+let period = 2, state = 'normal', agency = 0;
+const $ = (id) => document.getElementById(id);
+const usd = (n) => '$' + n.toFixed(2);
+const int = (n) => Math.round(n).toLocaleString('en-AU');
+const perCall = (spent, calls) => { if (!calls) return '—'; const c = spent / calls; return c < .001 ? 'Under $0.001' : '$' + c.toFixed(3); };
+const PERIOD_WORDS = ['last 24 hours', 'last 7 days', 'last 30 days'];
+const near = () => state === 'near';
+const whoSpend = (r, i) => (near() && i === 0 && r.name === 'Harbour Realty' ? 14 : r.spend[i]);
+const totalSpend = (i) => WHO.reduce((s, r) => s + whoSpend(r, i), 0);
+const assistantOf = (r) => (near() && r.name === 'Harbour Realty' ? 8.7 : r.assistant);
+function chipFor(spent, cap) {
+  const pct = spent / cap;
+  if (pct >= 1) return `<span class="chip over">At the limit</span>`;
+  if (pct >= .8) return `<span class="chip warn">${Math.round(pct * 100)}%</span>`;
+  return `<span class="chip ok">${Math.round(pct * 100)}%</span>`;
+}
+const meterClass = (pct) => (pct >= 1 ? 'over' : pct >= .8 ? 'warn' : '');
+const shareCell = (n, of) => { const p = of ? n / of : 0; return `<div class="share"><div class="meter"><i style="width:${(p * 100).toFixed(1)}%"></i></div><em>${Math.round(p * 100)}%</em></div>`; };
+
+function renderCost() {
+  const day = totalSpend(0), pct = day / CAP, i = period;
+  $('limit').innerHTML = `
+    <div class="limit-top"><div class="limit-num">${usd(day)} <small>of ${usd(CAP)} in the last 24 hours</small></div>${chipFor(day, CAP)}</div>
+    <div class="meter ${meterClass(pct)}"><i style="width:${Math.min(100, pct * 100).toFixed(1)}%"></i></div>
+    <p class="fine">A rolling 24 hours, not a calendar day, so it falls as older calls drop out. At the limit the assistant, AI skills, alert summaries and buyers’ tasks stop. The public property chat and buyer tools use their own daily caps instead. <a href="#decisions">Decision 6</a></p>`;
+  $('attention').hidden = !near();
+  const total = totalSpend(i), calls = WHOSUM(i, 'calls'), active = WHO.filter((r) => r.kind === 'agency' && r.calls[i] > 0).length;
+  const pub = WHO.find((r) => r.kind === 'public').spend[i];
+  $('stats').innerHTML = [['Spend', usd(total)], ['AI calls', int(calls)], ['Cost per call', perCall(total, calls)], ['Agencies using AI', active], ['Public site share', Math.round((pub / total) * 100) + '%']]
+    .map(([l, v]) => `<div class="stat"><span>${l}</span><b>${v}</b></div>`).join('');
+
+  const days = DAILY.slice(); days[29] = day;
+  const top = 24;
+  const ticks = [0, 10, 20].map((v) => `<span class="tick" style="bottom:${(v / top) * 100}%">$${v}</span>${v === 0 ? '' : `<span class="grid${v === CAP ? ' cap' : ''}" style="bottom:${(v / top) * 100}%"></span>`}`).join('');
+  $('chart').innerHTML = `<div class="plot" role="img" aria-label="Spend per day for 30 days, against the $20 limit">${ticks}<span class="cap-label" style="bottom:${(CAP / top) * 100}%">$20 limit</span>${days.map((d, n) => `<div class="col${d >= CAP * .8 ? ' hot' : ''}" title="${n === 29 ? 'Today so far' : 29 - n + ' days ago'}: ${usd(d)}" style="height:${Math.max(1, (d / top) * 100).toFixed(1)}%;position:relative"></div>`).join('')}</div><div class="xaxis"><span>30 days ago</span><span>Today so far</span></div>`;
+
+  $('who-note').textContent = PERIOD_WORDS[i];
+  const rows = WHO.slice().sort((a, b) => whoSpend(b, i) - whoSpend(a, i));
+  $('who').innerHTML = `<thead><tr><th>Who</th><th class="num">Spend</th><th>Share</th><th class="num">Calls</th><th>Assistant, 24 hours (limit ${usd(ASSISTANT_CAP)})</th><th>Biggest use</th></tr></thead><tbody>${rows.map((r) => {
+    const idx = WHO.indexOf(r), s = whoSpend(r, i);
+    const name = r.kind === 'agency' ? `<a href="#agency" data-agency="${idx}">${r.name}</a>` : r.name;
+    return `<tr><td class="who">${name}</td><td class="num">${usd(s)}</td><td>${shareCell(s, total)}</td><td class="num">${int(r.calls[i])}</td><td>${r.kind === 'agency' ? `${usd(assistantOf(r))} ${chipFor(assistantOf(r), ASSISTANT_CAP)}` : '—'}</td><td>${r.top ?? `<span class="fine">${r.note}</span>`}</td></tr>`;
+  }).join('')}</tbody><tfoot><tr><td>Total</td><td class="num">${usd(total)}</td><td></td><td class="num">${int(calls)}</td><td></td><td></td></tr></tfoot>`;
+
+  $('what-note').textContent = PERIOD_WORDS[i];
+  /* Near the limit, Harbour's extra spend today is its assistant and a pile of documents. */
+  const whatSpend = (r) => r[3][i] + (near() && i === 0 ? ({ assistant: 6.8, 'document-read': 4.36 }[r[1]] ?? 0) : 0);
+  const whatTotal = WHAT.reduce((s, r) => s + whatSpend(r), 0);
+  const whatCalls = WHAT.reduce((s, r) => s + r[4][i], 0);
+  $('what').innerHTML = `<thead><tr><th>Feature</th><th class="num">Spend</th><th>Share</th><th class="num">Calls</th><th class="num">Per call</th><th>Runs on</th></tr></thead><tbody>${WHAT.slice().sort((a, b) => whatSpend(b) - whatSpend(a)).map((r) => `<tr><td class="who">${r[0]}<small>${r[1]}</small></td><td class="num">${usd(whatSpend(r))}</td><td>${shareCell(whatSpend(r), whatTotal)}</td><td class="num">${int(r[4][i])}</td><td class="num">${perCall(whatSpend(r), r[4][i])}</td><td>${r[2]}</td></tr>`).join('')}</tbody><tfoot><tr><td>Total</td><td class="num">${usd(whatTotal)}</td><td></td><td class="num">${int(whatCalls)}</td><td></td><td></td></tr></tfoot>`;
+}
+
+function renderAgency() {
+  const r = WHO[agency], i = period, spend = whoSpend(r, i), calls = r.calls[i];
+  $('ag-name').textContent = r.name; $('ag-crumb').textContent = r.name;
+  const a = assistantOf(r), pct = a / ASSISTANT_CAP;
+  $('ag-limit').innerHTML = `
+    <div class="limit-top"><div class="limit-num">${usd(a)} <small>of ${usd(ASSISTANT_CAP)} assistant limit, last 24 hours</small></div>${chipFor(a, ASSISTANT_CAP)}</div>
+    <div class="meter ${meterClass(pct)}"><i style="width:${Math.min(100, pct * 100).toFixed(1)}%"></i></div>
+    <p class="fine">At this limit the agency’s assistant stops until the spend falls. Workflow AI has its own daily limit.</p>`;
+  $('ag-stats').innerHTML = [['Spend', usd(spend)], ['AI calls', int(calls)], ['Cost per call', perCall(spend, calls)], ['Share of the platform', Math.round((spend / totalSpend(i)) * 100) + '%']]
+    .map(([l, v]) => `<div class="stat"><span>${l}</span><b>${v}</b></div>`).join('');
+  const nearHere = near() && r.name === 'Harbour Realty';
+  const money = split(spend, [...PEOPLE.map((p) => p[2]), OTHERS.spend, BACKGROUND]);
+  const today = nearHere ? [...PEOPLE.map((p) => p[4]), OTHERS.near] : split(a, [...PEOPLE.map((p) => p[3]), OTHERS.assistant]);
+  const rowsP = PEOPLE.map(([n, role], k) => `<tr><td class="who">${n}<small>${role}</small></td><td class="num">${usd(money[k])}</td><td>${usd(today[k])} ${chipFor(today[k], PERSON_CAP)}</td></tr>`).join('');
+  const others = PEOPLE.length;
+  $('ag-people').innerHTML = `<thead><tr><th>Person</th><th class="num">Spend</th><th>Assistant, 24 hours</th></tr></thead><tbody>${rowsP}<tr><td class="who">${OTHERS.label}<small>Each listed on the real page</small></td><td class="num">${usd(money[others])}</td><td>${usd(today[others])}</td></tr><tr><td class="who">Background work<small>Workflows, no one person</small></td><td class="num">${usd(money[others + 1])}</td><td>—</td></tr></tbody><tfoot><tr><td>Total</td><td class="num">${usd(spend)}</td><td>${usd(a)}</td></tr></tfoot>`;
+  const fm = split(spend, FEATURES.map((f) => f[1]));
+  $('ag-features').innerHTML = `<thead><tr><th>Feature</th><th class="num">Spend</th><th>Share</th></tr></thead><tbody>${FEATURES.map(([n], k) => `<tr><td>${n}</td><td class="num">${usd(fm[k])}</td><td>${shareCell(fm[k], spend)}</td></tr>`).join('')}</tbody><tfoot><tr><td>Total</td><td class="num">${usd(spend)}</td><td></td></tr></tfoot>`;
+}
+
+const SCREENS = ['cost', 'agency', 'decisions'];
+function route() {
+  const screen = SCREENS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'cost';
+  SCREENS.forEach((s) => { $('s-' + s).hidden = s !== screen; });
+  document.querySelectorAll('[data-go]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.go === screen));
+  window.scrollTo(0, 0);
+}
+function paint() {
+  document.querySelectorAll('[data-period]').forEach((b) => b.setAttribute('aria-pressed', Number(b.dataset.period) === period));
+  document.querySelectorAll('[data-state]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.state === state));
+  renderCost(); renderAgency();
+}
+document.addEventListener('click', (e) => {
+  const go = e.target.closest('[data-go]'); if (go) { location.hash = go.dataset.go; return; }
+  const p = e.target.closest('[data-period]'); if (p) { period = Number(p.dataset.period); paint(); return; }
+  const s = e.target.closest('[data-state]'); if (s) { state = s.dataset.state; paint(); return; }
+  const a = e.target.closest('[data-agency]'); if (a) { agency = Number(a.dataset.agency); paint(); }
+});
+window.addEventListener('hashchange', route);
+paint(); route();
+</script>
+<!--END-->
+</body>
+</html>

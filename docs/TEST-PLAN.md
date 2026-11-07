@@ -2269,3 +2269,19 @@ Needs inbound email working, and a lead with a conversation.
 | CU9 | The same with an agency that has only a 2-day workflow | No reminder, ever, until the buyer writes again |
 | CU10 | A lead recorded by hand, or marked Contacted within 6 hours, or replied to | No reminder |
 
+## CV — The admin's AI cost page (ADR 0086)
+
+Admin console. Compare the 24-hour figure with what the budget has been doing, and the month with the Anthropic bill: ours is an estimate.
+
+| # | Case | Expected |
+|---|---|---|
+| CV1 | Sidebar → AI cost | Opens `/ai-cost`, on 30 days; the limit shows `AI_DAILY_BUDGET_USD` as set on Vercel |
+| CV2 | 24 hours / 7 days / 30 days | The URL changes; the stats and both tables move; the limit and the chart do not |
+| CV3 | Add up "Who it was for" and "What it was spent on" | Both totals and the Spend stat are the same |
+| CV4 | Open an agency from the table | Its people and features add up to its line on the main page; the period carries over |
+| CV5 | Run a Morning Brief, then look | It counts under that agency, not "Not tied to an agency" |
+| CV6 | Sign in as an agency owner and open `admin.*/ai-cost` | Refused; on `agency.*/ai-cost` the host sends it home |
+| CV7 | A made-up id in `/ai-cost/<id>` | Not found |
+| CV8 | Admin → an agency → view log | The agency page's opening is recorded (area `ai_cost`) |
+| CV9 | Phone width | Tables stack, the chart fits, no sideways page scroll |
+

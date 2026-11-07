@@ -190,7 +190,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
   admin: {
     home: '/platform',
     navLabel: 'Platform',
-    // One group without a heading: seven pages need no sections (ADR 0057).
+    // One group without a heading: eight pages need no sections (ADR 0057).
     groups: [
       {
         items: [
@@ -202,6 +202,8 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
           { href: '/users', label: 'Users', icon: 'person_search' },
           { href: '/site-activity', label: 'Site activity', icon: 'travel_explore' },
           { href: '/emails', label: 'Emails', icon: 'mail' },
+          // ADR 0086: what the platform's AI calls have cost.
+          { href: '/ai-cost', label: 'AI cost', icon: 'payments' },
         ],
       },
     ],

@@ -21,6 +21,15 @@ function cap(raw: string | undefined, fallback: number): number {
   return raw !== undefined && raw.trim() !== '' && Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
+/** The limits as the server reads them: the checks below and the admin's AI cost page must agree. */
+export function aiBudgetCaps(env: NodeJS.ProcessEnv = process.env): { platform: number; person: number; agency: number } {
+  return {
+    platform: cap(env.AI_DAILY_BUDGET_USD, 5),
+    person: cap(env.ASSISTANT_DAILY_BUDGET_USD_PER_USER, 1),
+    agency: cap(env.ASSISTANT_DAILY_BUDGET_USD_PER_AGENCY, 10),
+  };
+}
+
 function num(v: unknown): number {
   const n = typeof v === 'number' ? v : Number(v ?? 0);
   return Number.isFinite(n) ? n : 0;
@@ -58,9 +67,10 @@ export async function checkAssistantBudget(
     .from(aiRun)
     .where(and(gte(aiRun.createdAt, since)));
 
-  const global = decideBudget(num(row?.all), cap(env.AI_DAILY_BUDGET_USD, 5));
-  const person = decideBudget(num(row?.person), cap(env.ASSISTANT_DAILY_BUDGET_USD_PER_USER, 1));
-  const agency = decideBudget(num(row?.agency), cap(env.ASSISTANT_DAILY_BUDGET_USD_PER_AGENCY, 10));
+  const caps = aiBudgetCaps(env);
+  const global = decideBudget(num(row?.all), caps.platform);
+  const person = decideBudget(num(row?.person), caps.person);
+  const agency = decideBudget(num(row?.agency), caps.agency);
 
   if (global.exceeded) {
     return { allowed: false, reason: 'global_cap', message: 'The assistant has reached today’s platform limit. Try again tomorrow.', global, person, agency };

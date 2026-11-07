@@ -42,6 +42,8 @@ export type SkillWriter = (input: {
   today: string;
   runId: string;
   userId: string;
+  /** Whose cost it is (ADR 0086). */
+  agencyId: string;
 }) => Promise<{ text: string | null; model: string | null }>;
 
 export type SkillDeps = {
@@ -241,7 +243,7 @@ export async function executeSkillRun(db: Db, deps: SkillDeps, runId: string, no
       let cited: string[] = [];
       // Nothing to say costs nothing: no model call on an empty day.
       if (records.length && deps.write) {
-        const out = await deps.write({ handler, tier, instructions: parsed.instructions, records, today, runId, userId: row.userId });
+        const out = await deps.write({ handler, tier, instructions: parsed.instructions, records, today, runId, userId: row.userId, agencyId: row.agencyId });
         model = out.model;
         if (out.text) {
           const verdict = checkCitedText(out.text, records);
@@ -260,7 +262,7 @@ export async function executeSkillRun(db: Db, deps: SkillDeps, runId: string, no
       let model: string | null = null;
       let dropped = 0;
       if (items.length && deps.write) {
-        const out = await deps.write({ handler, tier, instructions: parsed.instructions, records: items, today, runId, userId: row.userId });
+        const out = await deps.write({ handler, tier, instructions: parsed.instructions, records: items, today, runId, userId: row.userId, agencyId: row.agencyId });
         model = out.model;
         if (out.text) {
           const parsedLines = parseRankedLines(out.text, items);

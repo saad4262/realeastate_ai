@@ -35,6 +35,7 @@ const input = {
   today: 'Monday 6 October',
   runId: '11111111-1111-1111-1111-111111111111',
   userId: '22222222-2222-2222-2222-222222222222',
+  agencyId: '33333333-3333-3333-3333-333333333333',
 };
 
 describe('the skill writer', () => {
@@ -51,7 +52,7 @@ describe('the skill writer', () => {
     // Haiku rejects effort: it must be absent, not defaulted.
     expect(req.output_config).toBeUndefined();
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ feature: 'skill:morning_brief', model: 'claude-haiku-4-5', entityId: input.runId, userId: input.userId });
+    expect(rows[0]).toMatchObject({ feature: 'skill:morning_brief', model: 'claude-haiku-4-5', entityId: input.runId, userId: input.userId, agencyId: input.agencyId });
   });
 
   it('treats a refusal or a cut-off answer as no answer — but still meters it', async () => {

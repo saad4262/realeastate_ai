@@ -1,4 +1,4 @@
-# Status — 2026-11-06 (Claude Code, Mac)
+# Status — 2026-11-07 (Claude Code, Mac)
 
 Short on purpose: where things stand now. History is in `docs/SESSION.md` and `docs/archive/`; how to work on either laptop is
 `docs/HANDOFF.md`. Overwrite this file at each handoff; do not append.
@@ -38,6 +38,15 @@ Unit, typecheck, lint, console build green; new queries checked read-only on the
 ## Merged: ADR 0084, the same email updates the profile
 On `main`, by fast-forward on the user's go, 2026-11-07: Add, contacts import and the assistant's card replace a different name, phone or address for someone who may edit the person, old value on the timeline; every import row and the card need name, email, phone and address; four-detail template; assistant prompt v31. No migration.
 Unit, typecheck, console lint and build green. NOT run: smoke (two edited checks typechecked only), TEST-PLAN CF4, CF5, CF8, CF11–CF15, AO7 in a browser, Google Sheet pick for real, the prompt on a live model.
+
+## Merged: ADR 0085, no reply after 6 hours
+On `main`, by fast-forward on the user's go, 2026-11-07: `lead.no_reply` takes `hours: 6`, and that wait also fires on a new website enquiry nobody answered and still New. "Chase a buyer with no reply" now asks for 6 hours. Saved workflows are not changed (the user), so an agency gets this only by setting up a 6-hour workflow. No migration.
+NOT run: the two smoke checks (typechecked only), the scan's SQL on a real database, TEST-PLAN CU.
+
+## Merged: ADR 0086, the admin's AI cost page
+On `main`, by fast-forward on the user's go, 2026-11-07: `/ai-cost` and `/ai-cost/[agencyId]`, read only, mock approved with all eight decisions as recommended. Morning Brief, Important emails and floorplan reading now record their agency. No migration.
+Unit core 1953 / AI 438, typecheck, console lint and build green; 12 guards broken on purpose, each red, then restored. NOT run: the smoke check (typechecked only), the page's SQL on a real database, TEST-PLAN CV in a browser. The user was told to open `/ai-cost` first.
+Check: the public chat and buyer tools have their own daily caps and do not stop at the $20 limit, so confirm a spend limit is set in the Anthropic console.
 
 ## Blocked
 - DNS: the records above. Then the switch: `docs/DNS-CUTOVER.md` sections 5, 6 and 7, and the Supabase Site URL.

@@ -13,7 +13,7 @@ export type FloorplanDeps = { apiKey: string; db: Db; client?: Anthropic; env?: 
 
 export function createFloorplanReader(deps: FloorplanDeps): FloorplanReader {
   const client = deps.client ?? new Anthropic({ apiKey: deps.apiKey });
-  return async ({ imageUrl }) => {
+  return async ({ imageUrl, agencyId }) => {
     const model = getModel('skill-summary', deps.env);
     const startedAt = Date.now();
     const response = await client.messages.create({
@@ -28,7 +28,7 @@ export function createFloorplanReader(deps: FloorplanDeps): FloorplanReader {
       ...(response.usage.cache_creation_input_tokens != null ? { cacheCreationInputTokens: response.usage.cache_creation_input_tokens } : {}),
       ...(response.usage.cache_read_input_tokens != null ? { cacheReadInputTokens: response.usage.cache_read_input_tokens } : {}),
     };
-    await trackAiRunQuietly(deps.db, { feature: FLOORPLAN_FEATURE, model: model.id, usage, latencyMs: Date.now() - startedAt, promptVersion: FLOORPLAN_PROMPT_VERSION });
+    await trackAiRunQuietly(deps.db, { feature: FLOORPLAN_FEATURE, model: model.id, usage, latencyMs: Date.now() - startedAt, agencyId, promptVersion: FLOORPLAN_PROMPT_VERSION });
     if (response.stop_reason === 'refusal' || response.stop_reason === 'max_tokens') throw new Error('The model did not answer');
     const text = response.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')

@@ -64,6 +64,7 @@ export function createSkillWriter(deps: SkillWriterDeps): SkillWriter {
       latencyMs: Date.now() - startedAt,
       entityId: input.runId,
       userId: input.userId,
+      agencyId: input.agencyId,
       promptVersion: SKILL_PROMPT_VERSION,
     });
 

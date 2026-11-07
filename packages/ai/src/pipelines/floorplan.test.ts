@@ -20,21 +20,21 @@ describe('the floorplan reader (ADR 0080, C9)', () => {
   it('sends the one image and the names-only prompt, meters the call, and hands back the answer unparsed', async () => {
     const { client, calls } = fakeClient('{"rooms": ["kitchen", "bedroom", "bedroom", "study"]}');
     const { db, rows } = fakeDb();
-    const out = await createFloorplanReader({ apiKey: 'k', db, client, env: {} as NodeJS.ProcessEnv })({ imageUrl: 'https://cdn.test/plan.png' });
+    const out = await createFloorplanReader({ apiKey: 'k', db, client, env: {} as NodeJS.ProcessEnv })({ imageUrl: 'https://cdn.test/plan.png', agencyId: 'agency-1' });
     expect(floorplanRoomsSchema.safeParse(out).success).toBe(true);
     const content = calls[0]!.messages[0]!.content as { type: string; source?: { url: string } }[];
     expect(content[0]).toMatchObject({ type: 'image', source: { url: 'https://cdn.test/plan.png' } });
     expect(calls[0]!.system[0]!.text).toBe(FLOORPLAN_SYSTEM);
-    expect(rows[0]).toMatchObject({ feature: 'consumer:floorplan_rooms', promptVersion: FLOORPLAN_PROMPT_VERSION });
+    expect(rows[0]).toMatchObject({ feature: 'consumer:floorplan_rooms', agencyId: 'agency-1', promptVersion: FLOORPLAN_PROMPT_VERSION });
   });
   it('an answer with sizes is returned as it is — and core’s strict schema refuses it', async () => {
     const { client } = fakeClient('{"rooms": ["kitchen"], "sizes": {"kitchen": "4.2 x 3.6"}}');
-    const out = await createFloorplanReader({ apiKey: 'k', db: fakeDb().db, client, env: {} as NodeJS.ProcessEnv })({ imageUrl: 'https://cdn.test/plan.png' });
+    const out = await createFloorplanReader({ apiKey: 'k', db: fakeDb().db, client, env: {} as NodeJS.ProcessEnv })({ imageUrl: 'https://cdn.test/plan.png', agencyId: 'agency-1' });
     expect(floorplanRoomsSchema.safeParse(out).success).toBe(false);
   });
   it('prose is not JSON: it comes back unreadable, never thrown', async () => {
     const { client } = fakeClient('The kitchen is about 4 metres wide.');
-    expect(await createFloorplanReader({ apiKey: 'k', db: fakeDb().db, client, env: {} as NodeJS.ProcessEnv })({ imageUrl: 'https://cdn.test/p.png' })).toEqual({ unreadable: true });
+    expect(await createFloorplanReader({ apiKey: 'k', db: fakeDb().db, client, env: {} as NodeJS.ProcessEnv })({ imageUrl: 'https://cdn.test/p.png', agencyId: 'agency-1' })).toEqual({ unreadable: true });
   });
   it('the prompt forbids sizes; no key or CONSUMER_AI=off → no reader', () => {
     expect(FLOORPLAN_SYSTEM).toMatch(/Never write a dimension, an area, a measurement or a count/);

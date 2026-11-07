@@ -23,7 +23,7 @@ import { embedUrl, linkKey, MAX_FLOORPLANS, MAX_TOURS, MAX_VIDEOS, parseMediaLin
 /** Room names a floorplan shows — the reader's whole answer. `.strict()`: a key beyond `rooms` (a size) refuses it. */
 export const floorplanRoomsSchema = z.object({ rooms: z.array(z.enum(ROOM_TYPES)).max(30) }).strict();
 export type FloorplanRooms = z.infer<typeof floorplanRoomsSchema>;
-export type FloorplanReader = (input: { imageUrl: string }) => Promise<unknown>;
+export type FloorplanReader = (input: { imageUrl: string; agencyId: string }) => Promise<unknown>;
 export const FLOORPLAN_FEATURE = 'consumer:floorplan_rooms';
 
 /** Each room type once, in ROOM_TYPES order; "other" left out. Pure. */
@@ -154,9 +154,9 @@ export async function removeListingExtra(db: DbOrTx, listingId: string, mediaId:
 export const FLOORPLAN_BATCH = 5;
 
 /** Public listings' floorplans not yet read, oldest first. One read. */
-export async function unreadFloorplans(db: DbOrTx, limit = FLOORPLAN_BATCH): Promise<{ id: string; url: string }[]> {
+export async function unreadFloorplans(db: DbOrTx, limit = FLOORPLAN_BATCH): Promise<{ id: string; url: string; agencyId: string }[]> {
   const rows = await db
-    .select({ id: media.id, key: media.storageKey })
+    .select({ id: media.id, key: media.storageKey, agencyId: listing.agencyId })
     .from(media)
     .innerJoin(listing, eq(listing.id, media.listingId))
     .where(and(eq(media.kind, 'floorplan'), isNull(media.aiTags), publicListing()))
@@ -164,7 +164,7 @@ export async function unreadFloorplans(db: DbOrTx, limit = FLOORPLAN_BATCH): Pro
     .limit(limit);
   return rows.flatMap((r) => {
     const url = mediaUrl(r.key);
-    return url ? [{ id: r.id, url }] : [];
+    return url ? [{ id: r.id, url, agencyId: r.agencyId }] : [];
   });
 }
 
@@ -177,7 +177,7 @@ export async function readFloorplanBatch(db: Db, reader: FloorplanReader | null,
   const due = await unreadFloorplans(db);
   let kept = 0;
   for (const f of due) {
-    const raw = await reader({ imageUrl: f.url }).catch(() => undefined);
+    const raw = await reader({ imageUrl: f.url, agencyId: f.agencyId }).catch(() => undefined);
     if (raw === undefined) continue; // the model failed: try again next tick
     const parsed = floorplanRoomsSchema.safeParse(raw);
     const rooms = parsed.success ? roomNames(parsed.data) : null;

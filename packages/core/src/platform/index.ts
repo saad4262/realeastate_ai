@@ -1,5 +1,22 @@
 export { ACCESS_BLOCK_MESSAGES, accessBlock, type AccessBlock } from './access';
 export {
+  AI_COST_PERIODS,
+  AI_COST_WARN_AT,
+  aiCostForAgency,
+  aiCostOverview,
+  aiFeatureGroup,
+  capState,
+  parseAiCostPeriod,
+  type AiCostAgency,
+  type AiCostAttention,
+  type AiCostFeature,
+  type AiCostOverview,
+  type AiCostPeriod,
+  type AiCostPerson,
+  type AiCostWho,
+  type CapState,
+} from './ai-cost';
+export {
   getAgencyProfile,
   listAgencies,
   listAgencyPeople,

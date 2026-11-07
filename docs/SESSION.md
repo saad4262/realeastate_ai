@@ -3,6 +3,16 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-07 (later) — Claude Code (Mac) — ADR 0085 no reply after 6 hours; ADR 0086 the admin's AI cost page
+
+- The user asked what runs across agent, agency and user, then chose from my list: a shorter no-reply wait, and the AI cost page by mock first. Starter pack, open-home check-in, vendor report and seller prospecting are parked for later.
+- There was no global "1 day": each workflow has its own wait, and the library's default was 2 days. Added `hours: 6` beside `days`.
+- Found: the scan never saw a new enquiry, because its words are on the lead and its conversation has no message. The user wants the first enquiry caught and saved workflows untouched, so only the 6-hour wait covers it.
+- AI cost: mock approved, all recommended. Found while checking: skills and the floorplan reader saved no agency (fixed from now on); the public chat and buyer tools do not check the $20 limit (shown on the page, not changed).
+- Verified: 8 + 6 + 12 guards broken on purpose, each red, then restored. One stayed green at first and got a missing test case. Core 1953, AI 438, typecheck, console lint and build.
+- NOT run: `pnpm smoke` (three new checks, typechecked only; `.env.local` is production), any of the new SQL on a real database (a read-only production query was refused by the permission check, and not retried another way), TEST-PLAN CU and CV in a browser.
+- Pushed and merged to `main` by fast-forward on the user's go.
+
 ## 2026-11-07 — Claude Code (Mac) — ADR 0084: the same email updates the profile
 
 - The user asked for agencies to bring old customers by CSV or by hand with four details, and for the same email to update the profile. Most of it existed (ADR 0029, ADR 0079).

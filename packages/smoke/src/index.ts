@@ -64,6 +64,8 @@ import {
 import { can, type Actor, type MembershipRole } from '@repo/core/permissions';
 import {
   getAgencyProfile,
+  aiCostForAgency,
+  aiCostOverview,
   getPlatformAssistantChat,
   listAgencies,
   listPlatformAssistantChats,
@@ -9761,6 +9763,48 @@ async function main() {
   );
   const platformReady = Number(platformTables?.n ?? 0) === 2;
 
+  await check('ADR 0086: the AI cost page adds up from real rows: each agency its own, the public site apart, older rows outside the period, owners refused', async () => {
+    if (!platformReady) skip('migration 0057 (platform_admin) is not applied');
+    return inRollback(async (t) => {
+      const { A, B } = await isolationFixture(t);
+      const adminId = randomUUID();
+      await t.execute(sql`insert into "user" (id, email, name) values (${adminId}, ${`cost.${A.f.tag}@smoke.test`}, 'Smoke Admin')`);
+      await t.execute(sql`insert into platform_admin (user_id, note) values (${adminId}, 'smoke')`);
+      const admin = (await loadPlatformAdmin(t, adminId))!;
+      const before = await aiCostOverview(t, admin, { period: 7 });
+      const run = (feature: string, cost: string, agencyId: string | null, userId: string | null, age: string) => t.execute(sql`
+        insert into ai_run (feature, model, input_tokens, output_tokens, cost_usd, agency_id, user_id, created_at)
+        values (${feature}, 'claude-sonnet-5-5', 10, 10, ${cost}::numeric, ${agencyId}::uuid, ${userId}::uuid, now() - ${age}::interval)`);
+      await run('assistant', '1.5', A.f.agencyId, A.f.people.owner, '1 hour');
+      await run('skill:morning_brief', '0.5', A.f.agencyId, A.f.people.owner, '3 days');
+      await run('assistant', '9', A.f.agencyId, A.f.people.owner, '40 days');
+      await run('assistant', '2', B.f.agencyId, B.f.people.owner, '1 hour');
+      await run('property-chat', '4', null, null, '1 hour');
+      await run('skill:morning_brief', '0.25', null, null, '1 hour');
+
+      const seven = await aiCostOverview(t, admin, { period: 7 });
+      const line = (o: typeof seven, id: string) => o.who.find((w) => w.agencyId === id);
+      const near = (x: number | undefined, y: number) => Math.abs((x ?? -1) - y) < 1e-6;
+      assert(near(line(seven, A.f.agencyId)?.spend, 2) && near(line(seven, A.f.agencyId)?.assistantDay ?? undefined, 1.5), `A: ${JSON.stringify(line(seven, A.f.agencyId))}`);
+      assert(near(line(seven, B.f.agencyId)?.spend, 2), `B: ${JSON.stringify(line(seven, B.f.agencyId))}`);
+      assert(near(seven.spend - before.spend, 8.25), `total moved by ${seven.spend - before.spend}`);
+      assert(near(seven.publicSpend - before.publicSpend, 4), `public moved by ${seven.publicSpend - before.publicSpend}`);
+      assert(near(seven.who.reduce((s, w) => s + w.spend, 0), seven.spend) && near(seven.features.reduce((s, f) => s + f.spend, 0), seven.spend), 'the two tables disagree');
+      assert(near(seven.daySpend - before.daySpend, 7.75), `24 hours moved by ${seven.daySpend - before.daySpend}`);
+      assert(near(seven.days[29]!.spend + seven.days[28]!.spend + seven.days[27]!.spend + seven.days[26]!.spend - (before.days[29]!.spend + before.days[28]!.spend + before.days[27]!.spend + before.days[26]!.spend), 8.25), 'the chart missed a run');
+
+      const day = await aiCostOverview(t, admin, { period: 1 });
+      assert(near(line(day, A.f.agencyId)?.spend, 1.5), `A in 24 hours: ${JSON.stringify(line(day, A.f.agencyId))}`);
+
+      const one = await aiCostForAgency(t, admin, A.f.agencyId, { period: 7 });
+      assert(near(one.spend, 2) && near(one.assistantDay, 1.5) && one.people.length === 1 && one.people[0]!.key === A.f.people.owner, `the agency page: ${JSON.stringify(one)}`);
+      const ownerTry = await aiCostOverview(t, A.f.actor('owner'), { period: 7 }).then(() => 'GOT', (e: { code?: string }) => e.code);
+      const ownerOne = await aiCostForAgency(t, A.f.actor('owner'), A.f.agencyId, { period: 7 }).then(() => 'GOT', (e: { code?: string }) => e.code);
+      assert(ownerTry === 'forbidden' && ownerOne === 'forbidden', `an owner: ${ownerTry}, ${ownerOne}`);
+      return 'A $2 and B $2 for 7 days, A $1.50 for 24 hours, the 40-day-old run left out; both tables and the chart agree; owners refused';
+    });
+  });
+
   await check('a platform view reads its agency, not another; writes refused; no read marks; owners are not admins', async () => {
     if (!platformReady) skip('migration 0057 (platform_admin) is not applied');
     return inRollback(async (t) => {
@@ -13264,7 +13308,9 @@ async function main() {
     try {
       const url = mediaUrl(key);
       assert(url, 'no public URL for the fixture');
-      const raw = await createFloorplanReader({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), db })({ imageUrl: url! });
+      // ai_run.agency_id is a real agency's, or the metering row is refused and the spend goes unrecorded.
+      const [someAgency] = await db.execute<{ id: string }>(sql`select id from agency limit 1`);
+      const raw = await createFloorplanReader({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), db })({ imageUrl: url!, agencyId: someAgency!.id });
       const parsed = floorplanRoomsSchema.safeParse(raw);
       assert(parsed.success, `core refused the answer: ${JSON.stringify(raw).slice(0, 300)}`);
       const names = roomNames(parsed.data);
