@@ -411,6 +411,14 @@ function activityText(item: Extract<TimelineItem, { type: 'activity' }>): string
             .map((o) => `${detailWord(o.field as string)}: ${o.value as string}`)
             .join(' · ')} — kept what was already on the profile${p.via === 'import' ? ' (from an import)' : ''}`
         : null;
+    // ADR 0084: the old value stays readable here.
+    case 'details_replaced':
+      return Array.isArray(p.replaced)
+        ? `${(p.replaced as { field?: unknown; from?: unknown; to?: unknown }[])
+            .filter((r) => typeof r.field === 'string' && typeof r.from === 'string' && typeof r.to === 'string')
+            .map((r) => `${detailWord(r.field as string)}: ${r.from as string} → ${r.to as string}`)
+            .join(' · ')}${p.via === 'import' ? ' — from an import' : ''}`
+        : null;
     case 'property_linked':
       return [
         typeof p.address === 'string' ? p.address : null,

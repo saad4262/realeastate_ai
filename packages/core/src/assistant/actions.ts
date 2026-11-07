@@ -45,7 +45,7 @@ import { ASSISTANT_LIMITS, type AssistantWriteTool, type ProposalCard, type Prop
 import { activateTask, advanceTask, endTask, taskAllowsRun, verifyExecuted } from './task-state';
 import { assignLead, LeadTriageError, updateLeadStatus } from '../leads/triage-lead';
 import { createManualLead } from '../leads/create-manual-lead';
-import { createContact } from '../contacts/write-contacts';
+import { addOrFillContact } from '../contacts/write-contacts';
 import { buildReminderEmail } from '../email/team-notices';
 import type { ToolContext, ToolOutcome } from './tools';
 import { runListingAction, type FrozenPin } from './listing-tools';
@@ -164,7 +164,8 @@ export type FrozenArgs =
   | { tool: 'assign_lead'; leadId: string; to: string; from: string | null }
   /** ADR 0040: a lead recorded by hand — the person's own, source `manual`. */
   | { tool: 'create_lead'; contactId: string; listingId: string; kind: 'enquiry' | 'inspection' | 'appraisal'; message: string | null }
-  | { tool: 'create_contact'; name: string; email: string | null; phone: string | null; roles: string[] }
+  /** `address` is absent, and the email or phone may be null, on a card proposed before ADR 0084. */
+  | { tool: 'create_contact'; name: string; email: string | null; phone: string | null; address?: { line: string; suburb: string; state: string; postcode: string }; roles: string[] }
   /** ADR 0040: a reminder to the person themselves — the bell, and their own email only when asked. */
   /** `body` and `href` (ADR 0060): a call list's buyers, and where the bell opens it. */
   | { tool: 'remind'; text: string; email: boolean; body?: string; href?: string }
@@ -414,6 +415,27 @@ const NOW_SLACK_MS = 60_000;
 /** An email card must run this long before its prepared batch expires (the tick can be ~5 min late). */
 const BATCH_MARGIN_MS = 10 * 60_000;
 
+/**
+ * The create_contact card, approved (ADR 0084): the same act as the Add customer form, so an email the
+ * agency has updates that profile by its rules. `contact` schema, not `add_customer`: the tool's own
+ * input asked for the four, and a card from before it must still run.
+ */
+export async function addFromCard(tx: Db, actor: Actor, args: Extract<FrozenArgs, { tool: 'create_contact' }>) {
+  const saved = await addOrFillContact(
+    tx,
+    actor,
+    {
+      name: args.name,
+      ...(args.email ? { email: args.email } : {}),
+      ...(args.phone ? { phone: args.phone } : {}),
+      ...(args.address ? { addressLine: args.address.line, addressSuburb: args.address.suburb, addressState: args.address.state, addressPostcode: args.address.postcode } : {}),
+      roles: args.roles as never,
+    },
+    { source: 'manual', schema: 'contact' },
+  );
+  return { contactId: saved.id, outcome: saved.outcome };
+}
+
 async function execute(
   tx: Db,
   actor: Actor,
@@ -480,13 +502,7 @@ async function execute(
       return { result: { leadId } };
     }
     case 'create_contact': {
-      const { id } = await createContact(tx, actor, {
-        name: args.name,
-        ...(args.email ? { email: args.email } : {}),
-        ...(args.phone ? { phone: args.phone } : {}),
-        roles: args.roles as never,
-      });
-      return { result: { contactId: id } };
+      return { result: await addFromCard(tx, actor, args) };
     }
     case 'remind': {
       if (!actor.agencyId) throw new AssistantError('forbidden', 'You are not in an agency.');

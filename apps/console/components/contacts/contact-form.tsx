@@ -155,11 +155,13 @@ export function ContactForm({
       if (result.outcome === 'created') {
         toast({ title: 'Contact added', variant: 'success' });
       } else {
-        // ADR 0079: the same email is the same person — their profile got what it lacked.
+        // ADR 0084: the same email is the same person — their profile takes what is new.
+        const updated = result.replaced.length ? ` Updated their ${result.replaced.join(', ')} — the old value is on their timeline.` : '';
         const kept = result.offered.length ? ` Kept their ${result.offered.join(', ')} — yours is on their timeline.` : '';
+        const nothing = result.filled.length || result.replaced.length || result.offered.length ? '' : 'Their profile already had all of this.';
         toast({
           title: `Already a customer: ${values.name}`,
-          description: `${result.filled.length ? 'Added what their profile was missing.' : 'Their profile already had all of this.'}${kept}`,
+          description: `${result.filled.length ? 'Added what their profile was missing.' : nothing}${updated}${kept}`.trim(),
           variant: 'success',
         });
         if (!result.visible) {

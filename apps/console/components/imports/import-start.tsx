@@ -43,14 +43,14 @@ export async function ImportStart({ surface, kind = 'listings' }: { surface: 'ag
           <p className={contactStyles.sub}>
             From a CSV or Excel file, or a Google Sheet, up to 5,000 rows. You match the columns, we check every row and show you each problem, and only then does anything get imported.
             {contacts
-              ? ' Someone whose email is already a contact is skipped. Marketing consent is never imported — record it on each contact when they agree.'
+              ? ' Every row needs a name, email, phone and address; any other column is optional. Someone whose email is already a contact is not added twice: the row updates their profile. Marketing consent is never imported — record it on each contact when they agree.'
               : mayPublish
                 ? ' Your import goes live (or as drafts, if you choose).'
                 : ' Your listings arrive waiting for an owner or admin to approve them.'}{' '}
             <a href={contacts ? '/contacts-import-template.csv' : '/import-template.csv'} download>
               Download the template
             </a>{' '}
-            — it shows every column and example rows.
+            {contacts ? '— name, email, phone and address, with example rows.' : '— it shows every column and example rows.'}
           </p>
         </div>
       </div>

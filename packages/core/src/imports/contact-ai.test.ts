@@ -83,15 +83,19 @@ describe('step 2 — a fix must come from the row (the guards)', () => {
 });
 
 describe('step 2 — what is sent and what a fix becomes', () => {
-  const headers = ['Name', 'Email', 'Phone', 'Notes', 'Unmapped secret'];
+  const headers = ['Name', 'Email', 'Phone', 'Notes', 'Unmapped secret', 'Address'];
   const mapping: ContactImportMapping = { ...contactAutoMap(headers) };
-  const cells = ['SMITH, Jane', 'jane.smith @ gmail,com', '', 'Met at open home', 'tax file 123'];
+  const cells = ['SMITH, Jane', 'jane.smith @ gmail,com', '0412 000 111', 'Met at open home', 'tax file 123', '1 Hill St'];
 
   it('sends the mapped cleanable fields only — never a note or a column nobody mapped', () => {
     const ask = rowToClean(7, cells, mapping, [{ column: 'Email', message: 'bad' }]);
-    expect(ask).toEqual({ rowNumber: 7, values: { name: 'SMITH, Jane', email: 'jane.smith @ gmail,com' }, problems: ['Email: bad'] });
+    expect(ask).toEqual({ rowNumber: 7, values: { name: 'SMITH, Jane', email: 'jane.smith @ gmail,com', phone: '0412 000 111' }, problems: ['Email: bad'] });
     expect(JSON.stringify(ask)).not.toContain('open home');
     expect(JSON.stringify(ask)).not.toContain('tax file');
+  });
+
+  it('a row with no address is not sent: a model may not propose one, so no fix could pass (ADR 0084)', () => {
+    expect(rowToClean(7, cells, mapping, [{ column: 'Street address', message: 'No address on this row' }, { column: 'Email', message: 'bad' }])).toBeNull();
   });
 
   it('a guarded fix is re-checked by the normal rules and says what it changed', () => {

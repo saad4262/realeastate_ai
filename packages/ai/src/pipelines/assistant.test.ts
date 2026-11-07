@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
 import { ASSISTANT_TOOLS, assistantToolsFor } from '../tools/assistant-tools';
-import { ASSISTANT_SYSTEM } from '../prompts/assistant-v30';
+import { ASSISTANT_SYSTEM } from '../prompts/assistant-v31';
 import { contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
 /**
@@ -476,6 +476,17 @@ describe('proposals (Phases B and C)', () => {
     expect(ASSISTANT_TOOL_INPUTS.set_up_skill.safeParse({ skill: 'Q1', handler: 'template_email' }).success).toBe(false);
     expect(ASSISTANT_TOOL_INPUTS.change_skill.safeParse({ skill: 'Q1', requires: ['gmail'] }).success).toBe(false);
     expect(ASSISTANT_TOOL_INPUTS.change_skill.safeParse({ skill: 'Q1' }).success).toBe(false);
+  });
+
+  it('create_contact (ADR 0084): the model is told the four details are required, as the input requires them', () => {
+    const t = ASSISTANT_TOOLS.find((x) => x.name === 'create_contact')!;
+    const required = ['name', 'email', 'phone', 'address_line', 'suburb', 'state', 'postcode'];
+    expect([...(t.input_schema as { required: string[] }).required].sort()).toEqual([...required].sort());
+    const full = { name: 'S', email: 's@example.com', phone: '0412345678', address_line: '1 Hill St', suburb: 'Manly', state: 'NSW', postcode: '2095' };
+    expect(ASSISTANT_TOOL_INPUTS.create_contact.safeParse(full).success).toBe(true);
+    for (const f of required) expect(ASSISTANT_TOOL_INPUTS.create_contact.safeParse({ ...full, [f]: undefined }).success, f).toBe(false);
+    expect(ASSISTANT_SYSTEM).toContain('create_contact adds a customer');
+    expect(ASSISTANT_SYSTEM).not.toContain('(same email) are skipped');
   });
 
   it('importing (ADR 0039 Phase 3): the tool only opens the import screens — it takes no file, link, row or text, and reads nothing', () => {

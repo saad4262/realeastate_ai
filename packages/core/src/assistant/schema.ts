@@ -532,15 +532,19 @@ export const createLeadInput = z
     message: z.string().trim().max(2000).optional(),
   })
   .strict();
+/** The same four details as the Add customer form (ADR 0084): nothing is proposed without them. */
 export const createContactInput = z
   .object({
     name: z.string().trim().min(1).max(120),
-    email: z.string().trim().email().max(200).optional(),
-    phone: z.string().trim().min(6).max(40).optional(),
+    email: z.string().trim().email().max(200),
+    phone: z.string().trim().min(6).max(40),
+    address_line: z.string().trim().min(1).max(200),
+    suburb: z.string().trim().min(1).max(120),
+    state: z.enum(AU_STATES),
+    postcode: z.string().trim().regex(/^\d{4}$/, 'Postcode must be 4 digits'),
     roles: z.array(z.enum(CONTACT_ROLES)).max(CONTACT_ROLES.length).default([]),
   })
-  .strict()
-  .refine((v) => v.email || v.phone, { message: 'Give an email or a phone number', path: ['email'] });
+  .strict();
 
 /** A reminder to the person themselves (ADR 0040 decided Q3): the bell always, email only when asked. */
 /** `mail_me`, not `email`: it only ever means the person's OWN address. */

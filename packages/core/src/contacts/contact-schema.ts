@@ -78,6 +78,8 @@ export const ACTIVITY_KINDS = [
   // ADR 0079: the same person added again (Add customer, an import) — blanks filled, other values offered.
   'details_added',
   'details_offered',
+  // ADR 0084: the same person again, with a different name, phone or address — old and new.
+  'details_replaced',
   // ADR 0083: a call on the agent's own mobile never reaches the platform, so it is logged by hand.
   'call_logged',
 ] as const;
@@ -157,6 +159,7 @@ export const ACTIVITY_LABELS: Record<ActivityKind, string> = {
   requirement_removed: 'Requirements removed',
   details_added: 'Missing details added',
   details_offered: 'Different details given',
+  details_replaced: 'Details updated',
   call_logged: 'Call logged',
 };
 

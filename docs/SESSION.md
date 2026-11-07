@@ -3,6 +3,18 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-07 — Claude Code (Mac) — ADR 0084: the same email updates the profile
+
+- The user asked for agencies to bring old customers by CSV or by hand with four details, and for the same email to update the profile. Most of it existed (ADR 0029, ADR 0079).
+- The user's two answers: a different value replaces the old one, which stays on the timeline; CSV and manual only, enquiries unchanged. My addition, in the ADR: only someone who may edit the person (`contact:update`) replaces, so one agent cannot rewrite another's customer. An empty cell erases nothing.
+- Also fixed: the template had no address columns; the Import page still said an existing email is "skipped". No migration.
+- Verified: core 1910, typecheck core, smoke, console, console lint and build. Seven guards broken on purpose, each red, then restored.
+- NOT run: `pnpm smoke` (the two edited checks are typechecked only; `.env.local` is production), TEST-PLAN CF4, CF5, CF8, AO7 in a browser. A read-only check of the address columns on the database was blocked by the permission check; STATUS's migration count is the only evidence they are there.
+- Later the same day, the user: the assistant should do this too, with name, email, phone and address required and everything else optional. The assistant already opened the import screens for contacts (`start_import`: upload, or Google Sheet connect and pick). Changed: every import row needs all four (replaces ADR 0079 §3 for the import), one Address column is split when it can be, prompt `assistant@v31` (v30 still said "skipped"). Six more guards broken on purpose, each red, then restored. Core 1915, AI 437.
+- NOT seen: Google Sheet connect and pick in a real browser (STATUS: Google connect is only testable after the switch).
+- Then the assistant's `create_contact` card, on the user's go: same four details, and the same path as the form, so an email already held updates that profile. Seven more guards broken on purpose, each red, then restored. Core 1929, AI 438.
+- Merged to `main` by fast-forward on the user's go, without the browser test or smoke, while the product is in testing.
+
 ## 2026-11-06 — Claude Code (Mac) — ADR 0083: the full customer profile
 
 - The user's decisions: agency sees its own listings' activity; the profile shows the customer's whole history; Messages

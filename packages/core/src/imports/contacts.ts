@@ -12,7 +12,7 @@ import { agencyTimeZone } from '../widgets/registry';
  * Contacts import (ADR 0029 amendment, "Contacts import"): the listing import's job with its own
  * columns (contact-columns.ts), dry run and import step. Every check is the contact form's own
  * (`addOrFillContact` parses each row again); marketing consent is never imported. A person the
- * agency already has is not skipped: the row adds what their profile lacks (ADR 0079 §5).
+ * agency already has is not skipped: the row updates their profile (ADR 0079, ADR 0084).
  */
 
 type ImportRow = typeof listingImport.$inferSelect;
@@ -78,8 +78,8 @@ async function cleanFailingRows(db: Db, imp: ImportRow, checked: Checked[], clea
 
 /**
  * Dry run, one chunk: normalise, then the same people for the whole chunk in three statements — an
- * email a contact of the agency already has, or the same email earlier in the file, adds to that one
- * profile (ADR 0079, a warning says so, without naming them); the same phone as a contact is a warning
+ * email a contact of the agency already has, or the same email earlier in the file, updates that one
+ * profile (ADR 0084, a warning says so, without naming them); the same phone as a contact is a warning
  * only (a shared phone can be two people).
  */
 export async function validateContactChunk(
@@ -141,9 +141,9 @@ export async function validateContactChunk(
       const exists = email ? held.has(email) : false;
       const phoneKey = auPhoneKey(c.row.phone);
       const found = exists
-        ? [{ column: 'Email', message: 'Already a customer of your agency — this row adds what their profile is missing and changes nothing already there' }]
+        ? [{ column: 'Email', message: 'Already a customer of your agency — this row updates their profile, and an empty cell changes nothing. If you cannot edit them, what they have stays and this row goes on their timeline' }]
         : inFile
-          ? [{ column: 'Email', message: `Same email as row ${inFile} — added to the same profile` }]
+          ? [{ column: 'Email', message: `Same email as row ${inFile} — this row updates the same profile` }]
           : phoneKey && phones.has(phoneKey)
             ? [{ column: 'Phone', message: 'Same phone as a contact already in your agency — they may be the same person (merge from the contact’s page)' }]
             : [];
@@ -162,7 +162,7 @@ export async function validateContactChunk(
 /**
  * Import, one chunk, AS THE UPLOADER: each row its own savepoint through `addOrFillContact` (which
  * asks `contact:create` again), its note, and — for someone who may assign — the agent in the file.
- * A row whose email the agency has (or an earlier row made) fills that profile's blanks: `updated`,
+ * A row whose email the agency has (or an earlier row made) updates that profile: `updated`,
  * never a second person and never an overwrite (ADR 0079 §5).
  */
 export async function importContactChunk(db: Db, actor: Actor, imp: ImportRow): Promise<{ status: 'importing' | 'done'; processed: number }> {
@@ -222,6 +222,9 @@ export async function importContactChunk(db: Db, actor: Actor, imp: ImportRow): 
         );
         if (saved.outcome === 'filled') {
           if (assignedTo) warnings.push({ column: 'Assigned agent’s email', message: 'Already a customer — who they are assigned to was not changed' });
+          if (saved.replaced.length) {
+            warnings.push({ column: 'Row', message: `Updated the profile’s ${saved.replaced.join(', ')}; the old value is on their timeline` });
+          }
           if (saved.offered.length) {
             warnings.push({ column: 'Row', message: `Kept the profile’s ${saved.offered.join(', ')}; this row’s is on their timeline` });
           }

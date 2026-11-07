@@ -770,7 +770,7 @@ async function startImport(ctx: ToolContext, input: z.infer<typeof ASSISTANT_TOO
     result: {
       shown: true,
       note: `The import buttons are on screen: upload a CSV or Excel file (up to 4 MB), or pick a Google Sheet${sheets.state === 'connected' ? '' : ' (Google Sheets must be connected first — the Connect button is there)'}. The person matches the columns, sees every row checked, and only then imports — you never see the file.`,
-      ...(input.what === 'contacts' ? { tell_the_user: 'Marketing consent is never imported; it is recorded on each contact when they agree.' } : {}),
+      ...(input.what === 'contacts' ? { tell_the_user: 'Every row needs a name, email, phone and address; other columns are optional. A row with an email the agency already has updates that profile. Marketing consent is never imported; it is recorded on each contact when they agree.' } : {}),
     },
   };
 }

@@ -29,8 +29,8 @@ export const CONTACT_FIELD_LABELS: Record<ContactImportField, string> = {
   next_action_date: 'Next action date',
 };
 
-/** No single column is required: a name (full, or first/last) and an email or a phone are — checked as pairs. */
-export const CONTACT_REQUIRED_FIELDS: readonly ContactImportField[] = [];
+/** The four details every row must have (ADR 0084). The name is the fourth: full, or first and last, so it is checked as a pair. */
+export const CONTACT_REQUIRED_FIELDS: readonly ContactImportField[] = ['email', 'phone', 'address'];
 
 export type ContactImportMapping = Partial<Record<ContactImportField, number | null>>;
 export const contactMappingSchema = z.record(z.enum(CONTACT_IMPORT_FIELDS), z.number().int().min(0).max(500).nullable());
@@ -69,7 +69,8 @@ export function contactAutoMap(headers: readonly string[]): ContactImportMapping
 export function contactMappingProblem(m: ContactImportMapping): string | null {
   const has = (f: ContactImportField) => m[f] !== null && m[f] !== undefined;
   if (!has('name') && !has('first_name') && !has('last_name')) return 'Choose a column for the name (Full name, or First name and Last name)';
-  if (!has('email') && !has('phone')) return 'Choose a column for Email or Phone — a contact needs one of them';
+  const missing = CONTACT_REQUIRED_FIELDS.filter((f) => !has(f));
+  if (missing.length) return `Choose a column for: ${missing.map((f) => CONTACT_FIELD_LABELS[f]).join(', ')}`;
   return null;
 }
 
@@ -142,6 +143,22 @@ function auPostcode(raw: string): string | null {
 }
 const EMAIL = z.string().email();
 
+/** Why a row with no address cannot be fixed by a model: there is nothing in the row to take it from. */
+export const NO_ADDRESS = 'No address on this row';
+
+const ADDRESS_TAIL = new RegExp(`^(.+),\\s*([^,]+?)[\\s,]+(${[...AU_STATES, ...Object.keys(STATE_NAMES)].join('|')})[\\s,]+(\\d{3,4})(?:[\\s,]+australia)?$`, 'i');
+
+/**
+ * An old file's one Address column, "3/12 Campbell Parade, Bondi Beach NSW 2026", into its parts.
+ * Null unless the street, suburb, state and postcode can all be told apart; the text then stays as written.
+ */
+export function splitAuAddress(raw: string): { line: string; suburb: string; state: string; postcode: string } | null {
+  const m = ADDRESS_TAIL.exec(raw.trim());
+  const state = m ? auState(m[3]!) : null;
+  const postcode = m ? auPostcode(m[4]!) : null;
+  return m && state && postcode ? { line: m[1]!.trim(), suburb: m[2]!.trim(), state, postcode } : null;
+}
+
 /** One row → a contact, or every reason it cannot be one, against its column. */
 export function normalizeContactRow(cells: readonly string[], mapping: ContactImportMapping, timeZone: string): { row: NormalizedContact | null; errors: CellError[] } {
   const errors: CellError[] = [];
@@ -160,17 +177,21 @@ export function normalizeContactRow(cells: readonly string[], mapping: ContactIm
   if (email && (email.length > 200 || !EMAIL.safeParse(email).success)) err('email', `“${emailRaw}” does not look like an email address`);
   const phone = get('phone') || null;
   if (phone && phone.length > 40) err('phone', 'The phone number is longer than 40 characters');
-  if (!email && !phone) err('email', 'No email and no phone — a contact needs one of them');
+  if (!email) err('email', 'No email on this row');
+  if (!phone) err('phone', 'No phone on this row');
 
-  const addressLine = get('address').replace(/\s+/g, ' ') || null;
+  const addressCell = get('address').replace(/\s+/g, ' ');
+  const joined = addressCell && !get('suburb') && !get('state') && !get('postcode') ? splitAuAddress(addressCell) : null;
+  const addressLine = joined?.line ?? (addressCell || null);
+  if (!addressLine) err('address', NO_ADDRESS);
   if (addressLine && addressLine.length > 200) err('address', 'The address is longer than 200 characters');
-  const addressSuburb = get('suburb').replace(/\s+/g, ' ') || null;
+  const addressSuburb = joined?.suburb ?? (get('suburb').replace(/\s+/g, ' ') || null);
   if (addressSuburb && addressSuburb.length > 120) err('suburb', 'The suburb is longer than 120 characters');
   const stateRaw = get('state');
-  const addressState = stateRaw ? auState(stateRaw) : null;
+  const addressState = joined ? (joined.state as (typeof AU_STATES)[number]) : stateRaw ? auState(stateRaw) : null;
   if (stateRaw && !addressState) err('state', `“${stateRaw}” is not an Australian state — use ${AU_STATES.join(', ')}`);
   const postcodeRaw = get('postcode');
-  const addressPostcode = postcodeRaw ? auPostcode(postcodeRaw) : null;
+  const addressPostcode = joined?.postcode ?? (postcodeRaw ? auPostcode(postcodeRaw) : null);
   if (postcodeRaw && !addressPostcode) err('postcode', `“${postcodeRaw}” is not a postcode — four digits, e.g. 2026`);
 
   const roles: ContactRoleKind[] = [];

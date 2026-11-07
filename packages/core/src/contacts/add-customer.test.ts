@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Db } from '@repo/db';
 import type { Actor } from '../permissions';
 import {
@@ -10,7 +10,14 @@ import {
 } from './contact-schema';
 import { addOrFillContact, planFill, type FillTarget } from './write-contacts';
 
-/** ADR 0079: four starting details on Add customer, and the same person always lands on one profile. */
+/** ADR 0079, ADR 0084: four starting details on Add customer, and the same person always lands on one profile. */
+
+vi.mock('./get-contact', async (actual) => ({
+  ...(await actual<typeof import('./get-contact')>()),
+  loadContactHead: vi.fn(async () => ({
+    facts: { id: 'c-1', agencyId: 'a-1', assignedTo: 'u-theirs', leadAssigneeIds: ['u-lead'], listingAgentIds: [] },
+  })),
+}));
 
 const FULL = {
   name: 'Sara Khan',
@@ -67,7 +74,10 @@ describe('the address on a profile', () => {
   });
 });
 
-describe('the same person again fills blanks and never overwrites (planFill)', () => {
+const KEEP = { mayReplace: false };
+const REPLACE = { mayReplace: true };
+
+describe('the same person again, for someone who may not edit them: blanks filled, nothing overwritten (planFill)', () => {
   const profile = (over: Partial<FillTarget> = {}): FillTarget => ({
     name: 'Sara Khan',
     email: 'sara@example.com',
@@ -85,7 +95,7 @@ describe('the same person again fills blanks and never overwrites (planFill)', (
   const incoming = (over: Record<string, unknown> = {}) => createContactSchema.parse({ ...FULL, ...over });
 
   it('fills a blank phone and address, adds a new role, and offers nothing', () => {
-    const plan = planFill(profile(), incoming({ roles: ['buyer', 'seller'] }));
+    const plan = planFill(profile(), incoming({ roles: ['buyer', 'seller'] }), KEEP);
     expect(plan.set).toMatchObject({ phone: '0412 345 678', addressLine: '3/12 Campbell Parade', addressSuburb: 'Bondi Beach', addressPostcode: '2026' });
     expect(plan.filled).toEqual(['phone', 'address', 'roles']);
     expect(plan.addRoles).toEqual(['seller']);
@@ -96,6 +106,7 @@ describe('the same person again fills blanks and never overwrites (planFill)', (
     const plan = planFill(
       profile({ phone: '0499 000 111', addressLine: '1 Old St', addressSuburb: 'Manly', addressPostcode: '2095', nextAction: 'Call' }),
       incoming({ name: 'S. Khan', nextAction: 'Email them' }),
+      KEEP,
     );
     expect(plan.set).toEqual({});
     expect(plan.filled).toEqual([]);
@@ -107,20 +118,121 @@ describe('the same person again fills blanks and never overwrites (planFill)', (
   });
 
   it('one number written two ways is the same number', () => {
-    const plan = planFill(profile({ phone: '+61 412 345 678' }), incoming());
+    const plan = planFill(profile({ phone: '+61 412 345 678' }), incoming(), KEEP);
     expect(plan.offered.map((o) => o.field)).not.toContain('phone');
   });
 
   it('replaces only a placeholder name — the email, or "Unknown"', () => {
-    expect(planFill(profile({ name: 'sara@example.com' }), incoming()).set.name).toBe('Sara Khan');
-    expect(planFill(profile({ name: 'Unknown' }), incoming()).set.name).toBe('Sara Khan');
-    expect(planFill(profile({ name: 'Sara' }), incoming()).set.name).toBeUndefined();
+    expect(planFill(profile({ name: 'sara@example.com' }), incoming(), KEEP).set.name).toBe('Sara Khan');
+    expect(planFill(profile({ name: 'Unknown' }), incoming(), KEEP).set.name).toBe('Sara Khan');
+    expect(planFill(profile({ name: 'Sara' }), incoming(), KEEP).set.name).toBeUndefined();
   });
 
   it('records consent only when there is none and they never opted out', () => {
-    expect(planFill(profile(), incoming({ marketingConsent: true })).recordConsent).toBe(true);
-    expect(planFill(profile({ emailOptOutAt: new Date() }), incoming({ marketingConsent: true })).recordConsent).toBe(false);
-    expect(planFill(profile({ marketingConsentAt: new Date() }), incoming({ marketingConsent: true })).recordConsent).toBe(false);
+    expect(planFill(profile(), incoming({ marketingConsent: true }), KEEP).recordConsent).toBe(true);
+    expect(planFill(profile({ emailOptOutAt: new Date() }), incoming({ marketingConsent: true }), KEEP).recordConsent).toBe(false);
+    expect(planFill(profile({ marketingConsentAt: new Date() }), incoming({ marketingConsent: true }), KEEP).recordConsent).toBe(false);
+  });
+});
+
+describe('the same person again, for someone who may edit them: the new value replaces the old (planFill, ADR 0084)', () => {
+  const profile = (over: Partial<FillTarget> = {}): FillTarget => ({
+    name: 'Sara',
+    email: 'sara@example.com',
+    phone: '0499 000 111',
+    addressLine: '1 Old St',
+    addressSuburb: 'Manly',
+    addressState: 'NSW',
+    addressPostcode: '2095',
+    nextAction: null,
+    marketingConsentAt: null,
+    emailOptOutAt: null,
+    roles: [],
+    ...over,
+  });
+  const incoming = (over: Record<string, unknown> = {}) => createContactSchema.parse({ ...FULL, ...over });
+
+  it('replaces the name, phone and address, and keeps the old ones for the timeline', () => {
+    const plan = planFill(profile(), incoming(), REPLACE);
+    expect(plan.set).toMatchObject({ name: 'Sara Khan', phone: '0412 345 678', addressLine: '3/12 Campbell Parade', addressSuburb: 'Bondi Beach', addressState: 'NSW', addressPostcode: '2026' });
+    expect(plan.replaced).toEqual([
+      { field: 'name', from: 'Sara', to: 'Sara Khan' },
+      { field: 'phone', from: '0499 000 111', to: '0412 345 678' },
+      { field: 'address', from: '1 Old St, Manly NSW 2095', to: '3/12 Campbell Parade, Bondi Beach NSW 2026' },
+    ]);
+    expect(plan.offered).toEqual([]);
+    expect(plan.filled).toEqual([]);
+  });
+
+  it('an empty cell erases nothing', () => {
+    const plan = planFill(profile(), createContactSchema.parse({ name: 'Sara', email: 'sara@example.com' }), REPLACE);
+    expect(plan.set).toEqual({});
+    expect(plan.replaced).toEqual([]);
+    expect(plan.offered).toEqual([]);
+  });
+
+  it('an address that would lose a part stays, and goes on the timeline', () => {
+    const plan = planFill(profile(), createContactSchema.parse({ name: 'Sara', email: 'sara@example.com', addressSuburb: 'Bondi' }), REPLACE);
+    expect(plan.set).toEqual({});
+    expect(plan.replaced).toEqual([]);
+    expect(plan.offered).toEqual([{ field: 'address', value: 'Bondi' }]);
+  });
+
+  it('the same number or name written differently is not a change', () => {
+    const plan = planFill(profile({ name: 'SARA KHAN', phone: '+61 412 345 678' }), incoming(), REPLACE);
+    expect(plan.replaced.map((r) => r.field)).toEqual(['address']);
+    expect(plan.set.name).toBeUndefined();
+    expect(plan.set.phone).toBeUndefined();
+  });
+
+  it('the next action and the assignee are still not replaced', () => {
+    const plan = planFill(profile({ nextAction: 'Call' }), incoming({ nextAction: 'Email them', assignedTo: '00000000-0000-4000-8000-000000000001' }), REPLACE);
+    expect(plan.set.nextAction).toBeUndefined();
+    expect(plan.set).not.toHaveProperty('assignedTo');
+  });
+});
+
+describe('who may replace is who may edit the person (contact:update, ADR 0084)', () => {
+  const run = async (actor: Actor) => {
+    const writes: { set?: Record<string, unknown>; kinds: string[] } = { kinds: [] };
+    const row = { name: 'Sara', email: 'sara@example.com', phone: '0499 000 111', addressLine: '1 Old St', addressSuburb: 'Manly', addressState: 'NSW', addressPostcode: '2095', nextAction: null, marketingConsentAt: null, emailOptOutAt: null, roles: [] };
+    const chain = (result: unknown[]) => {
+      const c = { from: () => c, where: () => c, for: () => c, limit: async () => result };
+      return c;
+    };
+    const tx = {
+      select: () => chain([row]),
+      update: () => ({ set: (set: Record<string, unknown>) => { writes.set = set; return { where: async () => undefined }; } }),
+      insert: () => ({ values: async (v: { kind?: string }) => { if (v.kind) writes.kinds.push(v.kind); } }),
+    };
+    const db = { select: () => chain([{ id: 'c-1' }]), transaction: (fn: (t: typeof tx) => unknown) => fn(tx) } as unknown as Db;
+    const saved = await addOrFillContact(db, actor, FULL, { source: 'manual', schema: 'add_customer' });
+    return { saved, writes };
+  };
+
+  it('an owner replaces', async () => {
+    const { saved, writes } = await run({ userId: 'u-own', agencyId: 'a-1', membershipRole: 'owner' });
+    expect(saved).toMatchObject({ outcome: 'filled', replaced: ['name', 'phone', 'address'], offered: [], visible: true });
+    expect(writes.set).toMatchObject({ phone: '0412 345 678', addressSuburb: 'Bondi Beach' });
+    expect(writes.kinds).toEqual(['details_replaced']);
+  });
+
+  it('the agent they are assigned to replaces', async () => {
+    const { saved } = await run({ userId: 'u-theirs', agencyId: 'a-1', membershipRole: 'agent' });
+    expect(saved).toMatchObject({ replaced: ['name', 'phone', 'address'], offered: [], visible: true });
+  });
+
+  it('another agent changes nothing already there, and is not told who it is', async () => {
+    const { saved, writes } = await run({ userId: 'u-other', agencyId: 'a-1', membershipRole: 'agent' });
+    expect(saved).toMatchObject({ replaced: [], offered: ['name', 'phone', 'address'], visible: false });
+    expect(writes.set).toBeUndefined();
+    expect(writes.kinds).toEqual(['details_offered']);
+  });
+
+  it('an agent who only sees them through a lead may not replace either', async () => {
+    const { saved, writes } = await run({ userId: 'u-lead', agencyId: 'a-1', membershipRole: 'agent' });
+    expect(saved).toMatchObject({ replaced: [], offered: ['name', 'phone', 'address'], visible: true });
+    expect(writes.set).toBeUndefined();
   });
 });
 

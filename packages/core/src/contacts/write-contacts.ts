@@ -248,7 +248,7 @@ export async function createContact(
   }
 }
 
-/** What adding somebody did: a new profile, or blanks filled on the one they already had (ADR 0079 §5). */
+/** What adding somebody did: a new profile, or an update to the one they already had (ADR 0079, ADR 0084). */
 export type SavedContact =
   | { id: string; outcome: 'created' }
   | {
@@ -256,7 +256,9 @@ export type SavedContact =
       outcome: 'filled';
       /** What was blank and is now set: `name`, `phone`, `address`, `nextAction`, `roles`, `consent`, `note`. */
       filled: string[];
-      /** What was already set and given differently — kept as it was, recorded on the timeline. */
+      /** What was already set and is now the new value; the old one is on the timeline. */
+      replaced: string[];
+      /** What was given differently and kept as it was, because this person may not edit them or a part would be lost. */
       offered: string[];
       /** May this person open the profile? Only then does a screen link to it. */
       visible: boolean;
@@ -267,14 +269,15 @@ const placeholderName = (row: { name: string; email: string | null }) =>
   row.name === 'Unknown' || (row.email !== null && row.name.toLowerCase() === row.email.toLowerCase());
 
 /**
- * Add a person — or, when their email is already on a contact, add to that profile instead (ADR 0079 §5):
- * the same person always lands on one profile. A blank is filled; a value already there is never
- * overwritten (an old spreadsheet must not undo what an agent typed) and the other value is recorded on
- * the timeline. Roles are added, a note becomes a note, a next action fills only a blank one, and the
- * assignee never changes — that is `contact:assign`, its own act.
+ * Add a person — or, when their email is already on a contact, update that profile instead (ADR 0079,
+ * ADR 0084): the same person always lands on one profile. A blank is filled. A different name, phone or
+ * address replaces the old one, which stays on the timeline, if the caller may edit this person
+ * (`contact:update`); anyone else's other value only goes on the timeline. A blank cell never erases.
+ * Roles are added, a note becomes a note, a next action fills only a blank one, and the assignee never
+ * changes — that is `contact:assign`, its own act.
  *
- * The rule is `contact:create` either way (§6): adding what you know about a person is the same act
- * whether or not the agency already had them, and it reveals nothing from their profile — `visible`
+ * Coming in at all is `contact:create` (ADR 0079 §6): adding what you know about a person is the same
+ * act whether or not the agency already had them, and it reveals nothing from their profile — `visible`
  * says whether the caller may be sent to it.
  *
  * `schema`: the Add customer form asks for all four starting details; an import row, only what
@@ -321,13 +324,16 @@ export type FillTarget = ContactAddressParts & {
 };
 
 /**
- * The decision, apart from the database (ADR 0079 §5): set what is blank, offer what differs, never
- * overwrite. `filled` names what changed (name only when the profile's was the email or "Unknown"
- * fallback); `offered` carries the other values for the timeline. Consent is recorded only when there
- * is none and they never opted out — an opt-out is theirs to undo.
+ * The decision, apart from the database (ADR 0084): set what is blank; what differs replaces the old
+ * value when `mayReplace`, else it is offered. `filled` names what was blank (a name counts when the
+ * profile's was the email or "Unknown" fallback); `replaced` carries old and new for the timeline, and
+ * `offered` the values not taken. An address is one thing: it replaces only when no part the profile
+ * has would be lost, so a file with just a suburb cannot erase a street. Consent is recorded only when
+ * there is none and they never opted out — an opt-out is theirs to undo.
  */
-export function planFill(row: FillTarget, v: z.output<typeof createContactSchema>) {
+export function planFill(row: FillTarget, v: z.output<typeof createContactSchema>, opts: { mayReplace: boolean }) {
   const filled: string[] = [];
+  const replaced: { field: string; from: string; to: string }[] = [];
   const offered: { field: string; value: string }[] = [];
   const set: Partial<typeof contact.$inferInsert> = {};
 
@@ -335,6 +341,9 @@ export function planFill(row: FillTarget, v: z.output<typeof createContactSchema
   if (!sameName && placeholderName(row)) {
     set.name = v.name;
     filled.push('name');
+  } else if (!sameName && opts.mayReplace) {
+    set.name = v.name;
+    replaced.push({ field: 'name', from: row.name, to: v.name });
   } else if (!sameName) {
     offered.push({ field: 'name', value: v.name });
   }
@@ -345,7 +354,12 @@ export function planFill(row: FillTarget, v: z.output<typeof createContactSchema
   } else if (v.phone && row.phone) {
     // `0412 345 678` and `+61 412 345 678` are one number; only a different one is news.
     const same = (auPhoneKey(v.phone) ?? v.phone) === (auPhoneKey(row.phone) ?? row.phone);
-    if (!same) offered.push({ field: 'phone', value: v.phone });
+    if (!same && opts.mayReplace) {
+      set.phone = v.phone;
+      replaced.push({ field: 'phone', from: row.phone, to: v.phone });
+    } else if (!same) {
+      offered.push({ field: 'phone', value: v.phone });
+    }
   }
 
   const incoming = addressColumns(v);
@@ -354,7 +368,13 @@ export function planFill(row: FillTarget, v: z.output<typeof createContactSchema
     Object.assign(set, incoming);
     filled.push('address');
   } else if (newAddress && newAddress.toLowerCase() !== (formatContactAddress(row) ?? '').toLowerCase()) {
-    offered.push({ field: 'address', value: newAddress });
+    const losesPart = (['addressLine', 'addressSuburb', 'addressState', 'addressPostcode'] as const).some((k) => row[k] && !incoming[k]);
+    if (opts.mayReplace && !losesPart) {
+      Object.assign(set, incoming);
+      replaced.push({ field: 'address', from: formatContactAddress(row) ?? '', to: newAddress });
+    } else {
+      offered.push({ field: 'address', value: newAddress });
+    }
   }
 
   if (v.nextAction && !row.nextAction) {
@@ -370,7 +390,7 @@ export function planFill(row: FillTarget, v: z.output<typeof createContactSchema
   const addRoles = v.roles.filter((r) => !had.includes(r));
   if (addRoles.length) filled.push('roles');
 
-  return { set, filled, offered, addRoles, recordConsent };
+  return { set, filled, replaced, offered, addRoles, recordConsent };
 }
 
 async function fillContact(
@@ -382,6 +402,10 @@ async function fillContact(
   via: 'manual' | 'import',
 ): Promise<SavedContact> {
   const agencyId = actor.agencyId!;
+  const head = await loadContactHead(db, actor, contactId);
+  if (!head) throw CONTACT_NOT_FOUND();
+  const resource = contactResource(head.facts);
+  const mayReplace = can(actor, 'contact:update', resource);
   const result = await db.transaction(async (tx) => {
     const [row] = await tx
       .select({
@@ -404,8 +428,8 @@ async function fillContact(
       .limit(1);
     if (!row) throw CONTACT_NOT_FOUND();
 
-    const plan = planFill(row, v);
-    const { filled, offered, addRoles } = plan;
+    const plan = planFill(row, v, { mayReplace });
+    const { filled, replaced, offered, addRoles } = plan;
     if (Object.keys(plan.set).length || plan.recordConsent) {
       await tx
         .update(contact)
@@ -431,15 +455,14 @@ async function fillContact(
 
     const detailFields = filled.filter((f) => f !== 'roles' && f !== 'note' && f !== 'consent');
     if (detailFields.length) await recordActivity(tx, actor, agencyId, contactId, 'details_added', { fields: detailFields, via });
+    if (replaced.length) await recordActivity(tx, actor, agencyId, contactId, 'details_replaced', { replaced, via });
     if (offered.length) await recordActivity(tx, actor, agencyId, contactId, 'details_offered', { offered, via });
     for (const role of addRoles) await recordActivity(tx, actor, agencyId, contactId, 'role_added', { role, via });
     if (plan.recordConsent) await recordActivity(tx, actor, agencyId, contactId, 'consent_recorded', { note: v.marketingConsentNote ?? null, via });
-    return { filled, offered: offered.map((o) => o.field) };
+    return { filled, replaced: replaced.map((r) => r.field), offered: offered.map((o) => o.field) };
   });
 
-  const head = await loadContactHead(db, actor, contactId);
-  const visible = Boolean(head && can(actor, 'contact:read', contactResource(head.facts)));
-  return { id: contactId, outcome: 'filled', ...result, visible };
+  return { id: contactId, outcome: 'filled', ...result, visible: can(actor, 'contact:read', resource) };
 }
 
 /**

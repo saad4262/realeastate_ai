@@ -35,6 +35,10 @@ Revisit all three before real customers: the sender name and postal address are 
 `main` = `04f148b` (fast-forward, pushed 2026-11-06): SMS, Calls, Messages (empty) and Activity tabs, Leads summary, smart panel, summary on a button, Log a call, Listing activity, admin People. No migration.
 Unit, typecheck, lint, console build green; new queries checked read-only on the real database. NOT run: the smoke group "Customer profile, every channel" (needs a separate dev database), the live summary, TEST-PLAN CT in a browser.
 
+## Merged: ADR 0084, the same email updates the profile
+On `main`, by fast-forward on the user's go, 2026-11-07: Add, contacts import and the assistant's card replace a different name, phone or address for someone who may edit the person, old value on the timeline; every import row and the card need name, email, phone and address; four-detail template; assistant prompt v31. No migration.
+Unit, typecheck, console lint and build green. NOT run: smoke (two edited checks typechecked only), TEST-PLAN CF4, CF5, CF8, CF11–CF15, AO7 in a browser, Google Sheet pick for real, the prompt on a live model.
+
 ## Blocked
 - DNS: the records above. Then the switch: `docs/DNS-CUTOVER.md` sections 5, 6 and 7, and the Supabase Site URL.
 - Sentry: needs the user's Sentry project; the four variables are on neither Vercel nor `.env.local`.

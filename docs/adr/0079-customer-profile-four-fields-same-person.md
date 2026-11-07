@@ -1,5 +1,7 @@
 # 0079 — Customer profile: four fields to start, and the same person always lands on one profile
 
+> §5's "never overwrites" is replaced by ADR 0084 for Add and the import, and §3's "missing is shown, not refused" for the import.
+
 **Status:** accepted, 2026-11-02 (the user's four answers, all the recommended option). Built on
 `feat/customer-profile`. Migration 0080 (additive, nullable columns) — rolled-back dry run clean 2026-11-02 (twice in
 one transaction; 6 columns; 10 contacts untouched); NOT applied — the user's go.

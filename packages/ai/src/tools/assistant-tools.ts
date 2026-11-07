@@ -514,7 +514,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   },
   {
     name: 'create_contact',
-    description: `Propose adding a new contact, assigned to this person. Use only details the person gave you; an email or a phone is needed. Adding someone is never marketing consent. If a contact with that email exists, nothing is proposed. ${PROPOSES}`,
+    description: `Propose adding a customer, assigned to this person. It needs their name, email, phone and address: use only details the person gave you, and ask for any that are missing, never guess. Adding someone is never marketing consent. If a contact with that email exists, the card updates that profile instead of adding a second one. ${PROPOSES}`,
     input_schema: {
       type: 'object',
       additionalProperties: false,
@@ -522,9 +522,13 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
         name: { type: 'string' },
         email: { type: 'string' },
         phone: { type: 'string' },
+        address_line: { type: 'string', description: 'The street part, e.g. "3/12 Campbell Parade".' },
+        suburb: { type: 'string' },
+        state: { type: 'string', enum: [...AU_STATES] },
+        postcode: { type: 'string', description: 'Four digits.' },
         roles: { type: 'array', items: { type: 'string', enum: [...CONTACT_ROLES] } },
       },
-      required: ['name'],
+      required: ['name', 'email', 'phone', 'address_line', 'suburb', 'state', 'postcode'],
     },
   },
   {

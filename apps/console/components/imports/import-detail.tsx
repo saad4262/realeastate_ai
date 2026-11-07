@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CONTACT_FIELD_LABELS, CONTACT_IMPORT_FIELDS, FIELD_LABELS, IMPORT_FIELDS, REQUIRED_FIELDS } from '@repo/core/imports/columns-client';
+import { CONTACT_FIELD_LABELS, CONTACT_IMPORT_FIELDS, CONTACT_REQUIRED_FIELDS, FIELD_LABELS, IMPORT_FIELDS, REQUIRED_FIELDS } from '@repo/core/imports/columns-client';
 import type { ImportReportRow, ImportView } from '@repo/core/imports';
 import {
   cancelImportAction,
@@ -199,7 +199,7 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
           <h2 style={{ marginTop: 0, fontSize: '1rem' }}>Match the columns</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
             For each of our fields, pick the column in your file.{' '}
-            {view.kind === 'contacts' ? 'A name (full, or first and last) and an email or a phone are needed. Map the address too if the file has it — a profile without one shows it as missing.' : 'Fields marked * are required.'}
+            {view.kind === 'contacts' ? 'Every row needs a name (full, or first and last), an email, a phone and an address; a row without them is shown as a problem and not imported. An address in one column is fine. Everything else is optional.' : 'Fields marked * are required.'}
           </p>
           {view.aiMapped.length ? (
             <p role="note" style={{ fontSize: '0.875rem', padding: '0.5rem 0.75rem', borderRadius: '0.5rem', background: 'var(--surface-subtle, rgba(127,127,127,0.08))' }}>
@@ -209,7 +209,7 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
           ) : null}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(16rem, 1fr))', gap: '0.5rem' }}>
             {(view.kind === 'contacts'
-              ? CONTACT_IMPORT_FIELDS.map((f) => ({ f: f as string, label: CONTACT_FIELD_LABELS[f], required: false }))
+              ? CONTACT_IMPORT_FIELDS.map((f) => ({ f: f as string, label: CONTACT_FIELD_LABELS[f], required: CONTACT_REQUIRED_FIELDS.includes(f) }))
               : IMPORT_FIELDS.map((f) => ({ f: f as string, label: FIELD_LABELS[f], required: REQUIRED_FIELDS.includes(f) }))
             ).map(({ f, label, required }) => (
               <label key={f} style={{ display: 'grid', fontSize: '0.8125rem' }}>
@@ -273,8 +273,8 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
         <p style={{ margin: 0, fontSize: '0.875rem' }}>
           {c.pending ? `${c.pending} still to check · ` : ''}
           {view.kind === 'contacts' ? (
-            // ADR 0079: a person the agency already has is not a duplicate to skip — the row adds to their profile.
-            <>{c.valid} ready · {c.error} with problems · {c.imported} added · {c.updated} added to a profile you already had · {c.failed} failed</>
+            // ADR 0084: a person the agency already has is not a duplicate to skip — the row updates their profile.
+            <>{c.valid} ready · {c.error} with problems · {c.imported} added · {c.updated} updated a profile you already had · {c.failed} failed</>
           ) : (
             <>
               {c.valid} ready · {c.error} with problems · {c.duplicate} duplicates (skipped{view.updateDuplicates ? ', updated' : ''}) ·{' '}

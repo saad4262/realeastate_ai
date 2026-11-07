@@ -1,4 +1,4 @@
-import { and, desc, eq, ilike, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, isNull, ne, or, sql } from 'drizzle-orm';
 import type { z } from 'zod';
 import { assistantTask, contact, lead, listing, property, user } from '@repo/db';
 import { can } from '../permissions';
@@ -195,28 +195,32 @@ export async function proposeCreateLead(ctx: ToolContext, input: z.infer<typeof 
 export async function proposeCreateContact(ctx: ToolContext, input: z.infer<typeof createContactInput>, label: string): Promise<ToolOutcome> {
   const { actor, db } = ctx;
   if (!actor.agencyId || !can(actor, 'contact:create', { type: 'contact', agencyId: actor.agencyId })) return refused('This person may not add contacts.', label);
-  // Same email = same person (ADR 0018): never a second contact for it.
-  if (input.email) {
-    const [same] = await db
-      .select({ id: contact.id })
-      .from(contact)
-      .where(and(eq(contact.agencyId, actor.agencyId), sql`lower(${contact.email}) = lower(${input.email})`))
-      .limit(1);
-    if (same) return { label, result: { proposed: false, tell_the_user: 'A contact with that email already exists, so nothing was proposed. Look them up instead.' } };
-  }
+  // Same email = same person (ADR 0084): the card updates that profile. It shows only what this person
+  // gave, never what the profile holds: they may not be able to see it.
+  const [same] = await db
+    .select({ id: contact.id })
+    .from(contact)
+    .where(and(eq(contact.agencyId, actor.agencyId), isNull(contact.mergedIntoId), sql`lower(${contact.email}) = lower(${input.email})`))
+    .limit(1);
+  const address = { line: input.address_line, suburb: input.suburb, state: input.state, postcode: input.postcode };
   const card: ProposalCard = {
-    title: `Add ${input.name} to your contacts`,
+    title: same ? `Update ${input.name}'s profile` : `Add ${input.name} to your contacts`,
     contact: { id: '', name: input.name },
     lines: [
       { label: 'Name', value: input.name },
-      { label: 'Email', value: input.email ?? 'None' },
-      { label: 'Phone', value: input.phone ?? 'None' },
+      { label: 'Email', value: input.email },
+      { label: 'Phone', value: input.phone },
+      { label: 'Address', value: `${address.line}, ${address.suburb} ${address.state} ${address.postcode}` },
       { label: 'Roles', value: input.roles.length ? input.roles.join(', ') : 'None' },
-      { label: 'Assigned to', value: 'You' },
+      ...(same ? [] : [{ label: 'Assigned to', value: 'You' }]),
     ],
-    notes: [NOTHING_YET, 'Adding a contact is not marketing consent.'],
+    notes: [
+      NOTHING_YET,
+      ...(same ? ['This email is already a customer. If you may edit them, these details replace theirs and the old ones stay on their timeline. If not, what they have stays and these go on their timeline.'] : []),
+      'Adding a contact is not marketing consent.',
+    ],
   };
-  const args: FrozenArgs = { tool: 'create_contact', name: input.name, email: input.email ?? null, phone: input.phone ?? null, roles: input.roles };
+  const args: FrozenArgs = { tool: 'create_contact', name: input.name, email: input.email, phone: input.phone, address, roles: input.roles };
   return propose(ctx, label, { tool: 'create_contact', args, card, contactId: null });
 }
 

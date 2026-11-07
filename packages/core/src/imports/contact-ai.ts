@@ -2,6 +2,7 @@ import { CONTACT_ROLES } from '../contacts/contact-schema';
 import {
   CONTACT_FIELD_LABELS,
   CONTACT_IMPORT_FIELDS,
+  NO_ADDRESS,
   normalizeContactRow,
   type CellError,
   type ContactImportField,
@@ -118,6 +119,8 @@ function fieldValues(cells: readonly string[], mapping: ContactImportMapping): P
 
 /** What is sent for one failing row, or null when it has nothing a model could work with. */
 export function rowToClean(rowNumber: number, cells: readonly string[], mapping: ContactImportMapping, errors: readonly CellError[]): RowToClean | null {
+  // An address is not a field a model may propose, so no fix could make this row pass: do not pay to ask.
+  if (errors.some((e) => e.message === NO_ADDRESS)) return null;
   const all = fieldValues(cells, mapping);
   const values: Partial<Record<CleanableField, string>> = {};
   for (const f of CLEANABLE_FIELDS) if (all[f]) values[f] = all[f];
