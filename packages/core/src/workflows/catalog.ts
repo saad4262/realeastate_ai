@@ -41,10 +41,13 @@ export type DealSide = (typeof DEAL_SIDES)[number];
 export const CALLER_KINDS = ['known', 'new'] as const;
 export const TRIGGER_LIMITS = { upcomingHours: { min: 1, max: 72 }, notListedDays: { min: 1, max: 30 }, anniversaryYears: { min: 1, max: 20 } } as const;
 
+/** ADR 0085: the shortest wait on `lead.no_reply`. Set in place of `days`; `specProblem` says exactly one of them. */
+export const NO_REPLY_HOURS = 6;
+
 export const triggerSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('lead.created'), source: z.enum(['website', 'manual']).optional() }).strict(),
   z.object({ kind: z.literal('lead.status_changed'), to: z.enum(LEAD_STATUSES) }).strict(),
-  z.object({ kind: z.literal('lead.no_reply'), days: z.number().int().min(1).max(14) }).strict(),
+  z.object({ kind: z.literal('lead.no_reply'), days: z.number().int().min(1).max(14).optional(), hours: z.literal(NO_REPLY_HOURS).optional() }).strict(),
   z.object({ kind: z.literal('appointment.booked'), type: z.enum(APPOINTMENT_TYPES).optional() }).strict(),
   z.object({ kind: z.literal('listing.status_changed'), to: z.enum(LISTING_STATUSES) }).strict(),
   z.object({ kind: z.literal('contact.created'), source: z.enum(['manual', 'import']).optional() }).strict(),
@@ -282,6 +285,9 @@ export type WorkflowScope = 'mine' | 'agency';
  * after it. Null when the spec is usable. The message names the part, so it can be fixed.
  */
 export function specProblem(spec: WorkflowSpec, scope: WorkflowScope): string | null {
+  if (spec.trigger.kind === 'lead.no_reply' && (spec.trigger.days === undefined) === (spec.trigger.hours === undefined)) {
+    return `A “no reply” workflow waits ${NO_REPLY_HOURS} hours, or 1 to 14 days`;
+  }
   const has = recordsOf(spec.trigger);
   for (const [i, c] of spec.conditions.entries()) {
     const rec = FIELD_RECORD[c.field];
@@ -408,7 +414,7 @@ export function triggerInWords(t: Trigger): string {
     case 'lead.status_changed':
       return `When a lead is marked ${STATUS(t.to)}`;
     case 'lead.no_reply':
-      return `When a buyer has had no reply for ${t.days} day${t.days === 1 ? '' : 's'}`;
+      return t.hours ? `When a new enquiry or a buyer’s message has had no reply for ${t.hours} hours` : `When a buyer has had no reply for ${t.days} day${t.days === 1 ? '' : 's'}`;
     case 'appointment.booked':
       return t.type ? `When ${art(STATUS(t.type))} appointment is booked` : 'When an appointment with a contact is booked';
     case 'listing.status_changed':
@@ -450,7 +456,7 @@ export type TriggerGuide = { group: TriggerGroup; icon: string; title: string; d
 export const TRIGGER_GUIDE: Record<TriggerKind, TriggerGuide> = {
   'lead.created': { group: 'Leads and contacts', icon: 'mail', title: 'A new lead arrives', description: 'From the website or recorded by hand.', example: null, isNew: false },
   'lead.status_changed': { group: 'Leads and contacts', icon: 'swap_horiz', title: 'A lead’s status changes', description: 'New, contacted, qualified, closed.', example: null, isNew: false },
-  'lead.no_reply': { group: 'Leads and contacts', icon: 'schedule', title: 'No reply for N days', description: 'A buyer’s message still unanswered (1 to 14 days).', example: null, isNew: false },
+  'lead.no_reply': { group: 'Leads and contacts', icon: 'schedule', title: 'No reply to a buyer', description: 'A new enquiry or a buyer’s message unanswered for 6 hours, or a buyer’s message for 1 to 14 days.', example: null, isNew: false },
   'contact.created': { group: 'Leads and contacts', icon: 'person_add', title: 'A contact is added', description: 'By hand or by an import.', example: null, isNew: false },
   'deal.stage_reached': {
     group: 'Deals', icon: 'flag', title: 'A deal reaches a stage', isNew: true,

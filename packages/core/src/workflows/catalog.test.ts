@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { renderMerge, specInWords, specProblem, workflowSpecSchema, type WorkflowSpec } from './catalog';
+import { renderMerge, specInWords, specProblem, triggerInWords, workflowSpecSchema, type WorkflowSpec } from './catalog';
 
 /** ADR 0041 Part B: the workflow catalog — what a spec may be, and how it reads. */
 
@@ -32,6 +32,16 @@ describe('workflowSpecSchema — only catalog parts, never code', () => {
     expect(parse({ trigger: { kind: 'lead.created' }, actions: [{ type: 'wait', hours: 721 }, a] }).success).toBe(false);
     expect(parse({ trigger: { kind: 'lead.no_reply', days: 15 }, actions: [a] }).success).toBe(false);
     expect(parse({ trigger: { kind: 'lead.no_reply', days: 3 }, actions: [a] }).success).toBe(true);
+    // ADR 0085: 6 hours in place of days, and no other number of hours.
+    expect(parse({ trigger: { kind: 'lead.no_reply', hours: 6 }, actions: [a] }).success).toBe(true);
+    expect(parse({ trigger: { kind: 'lead.no_reply', hours: 3 }, actions: [a] }).success).toBe(false);
+    const noReply = (trigger: object) => specProblem({ trigger, conditions: [], actions: [{ type: 'remind_owner', text: 'x', mail_me: false }] } as unknown as WorkflowSpec, 'mine');
+    expect(noReply({ kind: 'lead.no_reply' })).toMatch(/6 hours/);
+    expect(noReply({ kind: 'lead.no_reply', hours: 6, days: 2 })).toMatch(/6 hours/);
+    expect(noReply({ kind: 'lead.no_reply', hours: 6 })).toBeNull();
+    expect(noReply({ kind: 'lead.no_reply', days: 2 })).toBeNull();
+    expect(triggerInWords({ kind: 'lead.no_reply', hours: 6 })).toBe('When a new enquiry or a buyer’s message has had no reply for 6 hours');
+    expect(triggerInWords({ kind: 'lead.no_reply', days: 1 })).toBe('When a buyer has had no reply for 1 day');
   });
 });
 

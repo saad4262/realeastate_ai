@@ -10,7 +10,7 @@ import type { FrozenArgs } from '../assistant/actions';
 import type { ProposalCard } from '../assistant/schema';
 import { formatAddress } from '../listings/listing-schema';
 import { displayAu } from '../phone/format';
-import { actionInWords, AI_CONDITION_FIELDS, isNear, renderMerge, specProblem, WORKFLOW_LIMITS, workflowSpecSchema, type Condition, type MergeValues, type Trigger, type TriggerKind, type ValuesCondition, type WorkflowSpec } from './catalog';
+import { actionInWords, AI_CONDITION_FIELDS, isNear, NO_REPLY_HOURS, renderMerge, specProblem, WORKFLOW_LIMITS, workflowSpecSchema, type Condition, type MergeValues, type Trigger, type TriggerKind, type ValuesCondition, type WorkflowSpec } from './catalog';
 import { windowFrom, type SendWindow } from './send-window';
 import { runTriggerScans, type ScanReport } from './scans';
 import { decideRun, stepsOfChoice, type RunDecision, type WorkflowDecider } from './decide';
@@ -144,7 +144,7 @@ export function triggerMatches(t: Trigger, data: Record<string, unknown>): boole
     case 'listing.status_changed':
       return data.to === t.to;
     case 'lead.no_reply':
-      return Number(data.days) === t.days;
+      return t.hours ? Number(data.hours) === t.hours : Number(data.days) === t.days;
     case 'appointment.booked':
     case 'appointment.completed':
       return !t.type || data.type === t.type;
@@ -358,30 +358,49 @@ async function claimEvents(db: Db, now: Date, limit: number): Promise<EventRow[]
   });
 }
 
-/** `lead.no_reply`: a buyer's message last on a lead's conversation, unanswered for N days — once per message and wait. */
+/**
+ * One workflow's wait, from its stored trigger: the hours to look back, what the event carries for
+ * `triggerMatches`, the end of its dedupe key, and whether a new enquiry nobody has answered counts
+ * too. Null for a wait the catalog does not allow. A wait in days keeps its old key and still looks
+ * only at a buyer's later messages, so a workflow already saved behaves as it did (ADR 0085).
+ */
+export function noReplyWait(
+  days: number | null,
+  hours: number | null,
+): { hours: number; data: { days: number } | { hours: number }; key: string; enquiries: boolean } | null {
+  if (hours === NO_REPLY_HOURS) return { hours, data: { hours }, key: `${hours}h`, enquiries: true };
+  if (hours !== null || days === null || !Number.isInteger(days) || days < 1 || days > 14) return null;
+  return { hours: days * 24, data: { days }, key: String(days), enquiries: false };
+}
+
+/** `lead.no_reply`: a buyer's message last on a lead's conversation, or for a 6-hour wait a new enquiry with nothing on it, unanswered for the wait — once per message and wait. */
 export async function scanNoReply(db: Db, now: Date): Promise<number> {
-  const wanted = await db.execute<{ agency_id: string; days: number }>(sql`
-    select distinct agency_id, (spec->'trigger'->>'days')::int as days from workflow
+  const wanted = await db.execute<{ agency_id: string; days: number | null; hours: number | null }>(sql`
+    select distinct agency_id, (spec->'trigger'->>'days')::int as days, (spec->'trigger'->>'hours')::int as hours from workflow
     where status = 'active' and spec->'trigger'->>'kind' = 'lead.no_reply'`);
   let made = 0;
   for (const w of wanted) {
-    const days = Number(w.days);
-    if (!Number.isInteger(days) || days < 1 || days > 14) continue;
+    const wait = noReplyWait(w.days, w.hours);
+    if (!wait) continue;
     // Only messages that reached the wait in the last two days: switching a workflow on never
     // floods it with every old unanswered thread.
-    const rows = await db.execute<{ lead_id: string; contact_id: string | null; listing_id: string | null; message_id: string }>(sql`
+    const from = sql`${now.toISOString()}::timestamptz - make_interval(hours => ${wait.hours}::int)`;
+    const until = sql`${now.toISOString()}::timestamptz - make_interval(hours => ${wait.hours + 48}::int)`;
+    // An enquiry's words are on the lead, so its conversation has no message until someone writes. A person
+    // who recorded the lead by hand, or moved it on from New, has already seen it.
+    const newEnquiry = wait.enquiries ? sql`or (m.id is null and l.status = 'new' and l.source = 'website' and l.created_at <= ${from} and l.created_at > ${until})` : sql``;
+    const rows = await db.execute<{ lead_id: string; contact_id: string | null; listing_id: string | null; message_id: string | null }>(sql`
       select t.lead_id, l.contact_id, l.listing_id, m.id as message_id
       from mail_thread t
       join lead l on l.id = t.lead_id and l.status <> 'closed' and l.kind <> 'offer'
-      join lateral (select mm.id, mm.direction, mm.created_at from mail_message mm where mm.thread_id = t.id order by mm.created_at desc limit 1) m on true
-      where t.agency_id = ${w.agency_id} and m.direction = 'in'
-        and m.created_at <= ${now.toISOString()}::timestamptz - make_interval(days => ${days})
-        and m.created_at > ${now.toISOString()}::timestamptz - make_interval(days => ${days + 2})
+      left join lateral (select mm.id, mm.direction, mm.created_at from mail_message mm where mm.thread_id = t.id order by mm.created_at desc limit 1) m on true
+      where t.agency_id = ${w.agency_id}
+        and ((m.direction = 'in' and m.created_at <= ${from} and m.created_at > ${until}) ${newEnquiry})
       limit 200`);
     for (const r of rows) {
       const ins = await db
         .insert(workflowEvent)
-        .values({ agencyId: w.agency_id, kind: 'lead.no_reply', leadId: r.lead_id, contactId: r.contact_id, listingId: r.listing_id, origin: 'system', data: { days }, dedupeKey: `noreply:${r.lead_id}:${r.message_id}:${days}` })
+        .values({ agencyId: w.agency_id, kind: 'lead.no_reply', leadId: r.lead_id, contactId: r.contact_id, listingId: r.listing_id, origin: 'system', data: wait.data, dedupeKey: `noreply:${r.lead_id}:${r.message_id ?? 'enquiry'}:${wait.key}` })
         .onConflictDoNothing()
         .returning({ id: workflowEvent.id });
       made += ins.length;

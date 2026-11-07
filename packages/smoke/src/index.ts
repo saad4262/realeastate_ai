@@ -7272,6 +7272,67 @@ async function main() {
     }),
   );
 
+  await check('ADR 0085: a 6-hour no-reply workflow leaves a buyer’s message alone at 5 hours, runs once at 7, and a 1-day workflow still waits', async () =>
+    inRollback(async (t) => {
+      const w = await workflowFixture(t, { trigger: { kind: 'lead.no_reply', hours: 6 }, conditions: [], actions: [{ type: 'remind_owner', text: 'Reply to {{contact_first_name}}', mail_me: false }] }, 'agency', 'owner');
+      const oneDay = await saveWorkflow(t, w.actor, { name: `Smoke day ${w.f.tag}`, scope: 'agency', spec: { trigger: { kind: 'lead.no_reply', days: 1 }, conditions: [], actions: [{ type: 'remind_owner', text: 'A day on', mail_me: false }] } });
+      const email = `six.${w.f.tag}@smoke.test`;
+      const [lead] = await t.execute<{ id: string }>(sql`
+        insert into lead (property_id, listing_id, agency_id, name, email, message, kind, contact_id)
+        select l.property_id, l.id, l.agency_id, 'Six', ${email}::text, 'Is it still for sale?', 'enquiry', ${w.f.contacts.p6}::uuid from listing l where l.id = ${w.listingId} returning id`);
+      // The lead's trigger opened its conversation; the buyer's message goes on it.
+      const [th] = await t.execute<{ id: string }>(sql`select id from mail_thread where lead_id = ${lead!.id}`);
+      await t.execute(sql`insert into mail_message (thread_id, agency_id, direction, status, from_email, subject, text)
+        values (${th!.id}, ${w.f.agencyId}, 'in', 'received', ${email}, 'Smoke six hours', 'Is it still for sale?')`);
+      const events = () => count(t, sql`select count(*)::int as n from workflow_event where lead_id = ${lead!.id} and kind = 'lead.no_reply'`);
+      const hoursOn = (h: number) => new Date(Date.now() + h * 3_600_000);
+      await runWorkflowTick(t, hoursOn(5));
+      assert((await events()) === 0, `5 hours: ${await events()} events`);
+      await runWorkflowTick(t, hoursOn(7));
+      assert((await events()) === 1, `7 hours: ${await events()} events`);
+      await runWorkflowTick(t, hoursOn(8));
+      assert((await events()) === 1, `a later tick: ${await events()} events`);
+      assert((await runsOf(t, w.workflowId)).length >= 1, 'the 6-hour workflow did not run');
+      assert((await runsOf(t, oneDay.id)).length === 0, 'the 1-day workflow ran at 8 hours');
+      return '5 hours → nothing; 7 hours → one event, a run; the 1-day workflow untouched';
+    }),
+  );
+
+  await check('ADR 0085: a new enquiry nobody answered fires the 6-hour wait only; by hand, moved on, answered or a wait in days does not', async () =>
+    inRollback(async (t) => {
+      const w = await workflowFixture(t, { trigger: { kind: 'lead.no_reply', hours: 6 }, conditions: [], actions: [{ type: 'remind_owner', text: 'Answer {{contact_first_name}}', mail_me: false }] }, 'agency', 'owner');
+      await saveWorkflow(t, w.actor, { name: `Smoke day ${w.f.tag}`, scope: 'agency', spec: { trigger: { kind: 'lead.no_reply', days: 1 }, conditions: [], actions: [{ type: 'remind_owner', text: 'A day on', mail_me: false }] } });
+      const lead = async (name: string, source: string, status: string) => {
+        const [row] = await t.execute<{ id: string }>(sql`
+          insert into lead (property_id, listing_id, agency_id, name, email, message, kind, source, status)
+          select l.property_id, l.id, l.agency_id, ${name}::text, ${`${name}.${w.f.tag}@smoke.test`}::text, 'Is it still for sale?', 'enquiry', ${source}::text, ${status}::lead_status
+          from listing l where l.id = ${w.listingId} returning id`);
+        return row!.id;
+      };
+      const fresh = await lead('fresh', 'website', 'new');
+      const byHand = await lead('byhand', 'manual', 'new');
+      const movedOn = await lead('movedon', 'website', 'contacted');
+      const answered = await lead('answered', 'website', 'new');
+      const [th] = await t.execute<{ id: string }>(sql`select id from mail_thread where lead_id = ${answered}`);
+      await t.execute(sql`insert into mail_message (thread_id, agency_id, direction, status, from_email, subject, text)
+        values (${th!.id}, ${w.f.agencyId}, 'out', 'sent', 'agent@smoke.test', 'Re', 'Yes it is')`);
+      const events = (id: string) => t.execute<{ data: { hours?: number; days?: number } }>(sql`select data from workflow_event where lead_id = ${id} and kind = 'lead.no_reply'`);
+      const hoursOn = (h: number) => new Date(Date.now() + h * 3_600_000);
+      await runWorkflowTick(t, hoursOn(5));
+      assert((await events(fresh)).length === 0, 'fired at 5 hours');
+      await runWorkflowTick(t, hoursOn(7));
+      await runWorkflowTick(t, hoursOn(8));
+      assert((await events(fresh)).length === 1, `fresh at 7 and 8 hours: ${(await events(fresh)).length}`);
+      for (const [label, id] of [['by hand', byHand], ['moved on', movedOn], ['answered', answered]] as const) {
+        assert((await events(id)).length === 0, `${label} fired`);
+      }
+      await runWorkflowTick(t, hoursOn(25));
+      const later = await events(fresh);
+      assert(later.length === 1 && later[0]!.data.hours === 6, `the 1-day workflow fired on a new enquiry: ${JSON.stringify(later)}`);
+      return 'fresh → one event at 6 hours; by hand, moved on and answered → none; the 1-day wait never fires on it';
+    }),
+  );
+
   await check('the assistant: create_workflow is one card in words; Approve saves it active; an agent cannot make an agency-wide one', async () =>
     inRollback(async (t) => {
       const f = await contactFixture(t);

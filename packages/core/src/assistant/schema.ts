@@ -312,7 +312,7 @@ export const workflowTriggerInput = z
     deal_stage: z.enum(DEAL_TRIGGER_STAGES).optional(),
     /** ADR 0066: deal.stage_reached / deal.settled — whose contact the steps act on. */
     who: z.enum(DEAL_SIDES).optional(),
-    /** ADR 0066: appointment.upcoming, 1–72. */
+    /** ADR 0066: appointment.upcoming, 1–72. ADR 0085: lead.no_reply, 6 in place of days. */
     hours: z.number().int().min(1).max(72).optional(),
     /** ADR 0066: sale.anniversary, 1–20. */
     years: z.number().int().min(1).max(20).optional(),

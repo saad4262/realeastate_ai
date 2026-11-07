@@ -2251,3 +2251,21 @@ Needs a website account whose email matches a customer. "Team" means a member of
 | CT26 | Admin → Users → a person who is a customer | "Customer at" lists the agencies with phone and address |
 | CT27 | Admin → an agency → Listing activity | The agency's page, read only |
 | CT28 | Phone width | Tabs wrap, tables scroll inside their card, no sideways page scroll |
+
+## CU — No reply after 6 hours (ADR 0085)
+
+Needs inbound email working, and a lead with a conversation.
+
+| # | Case | Expected |
+|---|---|---|
+| CU1 | Skills → Automations → "What can start a workflow" | "No reply to a buyer": a new enquiry or a buyer's message for 6 hours, or a buyer's message for 1 to 14 days |
+| CU2 | Automation Library → Chase a buyer with no reply → set it up | The card reads "no reply for 6 hours"; approve it |
+| CU3 | A buyer emails on that lead; nobody answers for 5 hours | No reminder |
+| CU4 | The same message at 6 hours (next minute tick) | One reminder, one run in the workflow's log; a later tick adds none |
+| CU5 | Answer the buyer within 6 hours | No reminder |
+| CU6 | Ask the assistant for "no reply for 3 hours" | It says 6 hours, or 1 to 14 days; nothing is saved |
+| CU7 | A workflow saved earlier with 2 days | Still reads and waits 2 days |
+| CU8 | A new website enquiry with nothing after it, 6 hours on | One reminder from the 6-hour workflow |
+| CU9 | The same with an agency that has only a 2-day workflow | No reminder, ever, until the buyer writes again |
+| CU10 | A lead recorded by hand, or marked Contacted within 6 hours, or replied to | No reminder |
+

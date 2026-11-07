@@ -30,7 +30,10 @@ describe('specFrom', () => {
   });
   it('names what is missing or not a reference this conversation was given', () => {
     const p = (over: object) => specFrom(ctx, { name: 'W', scope: 'mine', trigger: { kind: 'lead.created' }, conditions: [], actions: [{ type: 'remind_owner', text: 'x' }], ...over } as never);
-    expect(p({ trigger: { kind: 'lead.no_reply' } })).toEqual({ problem: 'trigger: no reply needs days (1 to 14)' });
+    expect(p({ trigger: { kind: 'lead.no_reply' } })).toEqual({ problem: 'trigger: no reply needs hours (6) or days (1 to 14)' });
+    expect(p({ trigger: { kind: 'lead.no_reply', hours: 3 } })).toEqual({ problem: 'trigger: no reply needs hours (6) or days (1 to 14)' });
+    expect(p({ trigger: { kind: 'lead.no_reply', hours: 6, days: 2 } })).toEqual({ problem: 'trigger: no reply needs hours (6) or days (1 to 14)' });
+    expect(p({ trigger: { kind: 'lead.no_reply', hours: 6 } })).toMatchObject({ spec: { trigger: { kind: 'lead.no_reply', hours: 6 } } });
     expect(p({ actions: [{ type: 'send_template_email', template: 'T9' }] })).toMatchObject({ problem: expect.stringMatching(/T reference/) });
     expect(p({ actions: [{ type: 'assign_lead', member: 'M9' }] })).toMatchObject({ problem: expect.stringMatching(/M reference/) });
     expect(p({ conditions: [{ field: 'assignee', op: 'eq', values: ['M9'] }] })).toMatchObject({ problem: expect.stringMatching(/condition 1/) });

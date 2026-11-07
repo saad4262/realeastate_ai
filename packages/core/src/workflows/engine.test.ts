@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { PgDialect } from 'drizzle-orm/pg-core';
+import type { Db } from '@repo/db';
 import type { Actor } from '../permissions';
-import { conditionsHold, distanceKm, inScope, stepsFor, triggerMatches, type Facts } from './engine';
+import { conditionsHold, distanceKm, inScope, scanNoReply, stepsFor, triggerMatches, type Facts } from './engine';
 
 /** ADR 0041 Part B: the engine's decisions that need no database. */
 
@@ -42,6 +44,64 @@ describe('triggerMatches', () => {
     expect(triggerMatches({ kind: 'lead.status_changed', to: 'closed' }, { to: 'closed' })).toBe(true);
     expect(triggerMatches({ kind: 'lead.status_changed', to: 'closed' }, { to: 'qualified' })).toBe(false);
     expect(triggerMatches({ kind: 'lead.no_reply', days: 3 }, { days: 2 })).toBe(false);
+  });
+  it('ADR 0085: a 6-hour wait and a wait in days answer only their own events', () => {
+    expect(triggerMatches({ kind: 'lead.no_reply', hours: 6 }, { hours: 6 })).toBe(true);
+    expect(triggerMatches({ kind: 'lead.no_reply', hours: 6 }, { days: 6 })).toBe(false);
+    expect(triggerMatches({ kind: 'lead.no_reply', days: 2 }, { days: 2 })).toBe(true);
+    expect(triggerMatches({ kind: 'lead.no_reply', days: 6 }, { hours: 6 })).toBe(false);
+  });
+});
+
+describe('the no-reply scan (ADR 0085)', () => {
+  const dialect = new PgDialect();
+  const run = async (wanted: Record<string, unknown>[], message: Record<string, unknown>[]) => {
+    const seen: { sql: string; params: unknown[] }[] = [];
+    const inserted: Record<string, unknown>[] = [];
+    let call = 0;
+    const db = {
+      execute: async (q: Parameters<typeof dialect.sqlToQuery>[0]) => {
+        const r = dialect.sqlToQuery(q);
+        seen.push({ sql: r.sql, params: r.params });
+        return call++ === 0 ? wanted : message;
+      },
+      insert: () => ({
+        values: (v: Record<string, unknown>) => {
+          inserted.push(v);
+          return { onConflictDoNothing: () => ({ returning: async () => [{ id: 'e' }] }) };
+        },
+      }),
+    } as unknown as Db;
+    const made = await scanNoReply(db, new Date('2026-11-07T12:00:00Z'));
+    return { made, seen, inserted };
+  };
+  const msg = [{ lead_id: 'L', contact_id: 'C', listing_id: null, message_id: 'M' }];
+
+  it('looks back 6 hours, and carries the hours on the event and its key', async () => {
+    const { made, seen, inserted } = await run([{ agency_id: A, days: null, hours: 6 }], msg);
+    expect(made).toBe(1);
+    expect(seen[1]!.sql).toMatch(/make_interval\(hours => \$\d+::int\)/);
+    expect(seen[1]!.params).toEqual(expect.arrayContaining([6, 54]));
+    expect(inserted[0]).toMatchObject({ kind: 'lead.no_reply', data: { hours: 6 }, dedupeKey: 'noreply:L:M:6h' });
+  });
+  it('a new enquiry nobody has answered counts for the 6-hour wait, if it came from the website and is still New', async () => {
+    const { made, seen, inserted } = await run([{ agency_id: A, days: null, hours: 6 }], [{ lead_id: 'L', contact_id: 'C', listing_id: null, message_id: null }]);
+    expect(made).toBe(1);
+    expect(seen[1]!.sql).toContain('left join lateral');
+    expect(seen[1]!.sql).toContain("m.id is null and l.status = 'new' and l.source = 'website'");
+    expect(inserted[0]).toMatchObject({ data: { hours: 6 }, dedupeKey: 'noreply:L:enquiry:6h' });
+  });
+  it('a wait in days looks back the same as before, keeps its key, and still ignores a new enquiry', async () => {
+    const { seen, inserted } = await run([{ agency_id: A, days: 2, hours: null }], msg);
+    expect(seen[1]!.params).toEqual(expect.arrayContaining([48, 96]));
+    expect(seen[1]!.sql).not.toContain('m.id is null');
+    expect(seen[1]!.sql).toContain("m.direction = 'in'");
+    expect(inserted[0]).toMatchObject({ data: { days: 2 }, dedupeKey: 'noreply:L:M:2' });
+  });
+  it('asks nothing for a wait the catalog does not allow', async () => {
+    const { made, seen } = await run([{ agency_id: A, days: null, hours: 3 }, { agency_id: A, days: 15, hours: null }, { agency_id: A, days: null, hours: null }, { agency_id: A, days: 2, hours: 3 }], msg);
+    expect(made).toBe(0);
+    expect(seen).toHaveLength(1);
   });
 });
 

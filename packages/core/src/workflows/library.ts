@@ -48,9 +48,9 @@ export const AUTOMATION_LIBRARY: readonly LibraryEntry[] = Object.freeze([
   {
     id: 'no-reply', group: 'Leads', icon: 'schedule', trigger: 'lead.no_reply', decides: false, needs: [],
     title: 'Chase a buyer with no reply',
-    summary: 'If a buyer’s email has had no answer for 2 days, you get a reminder.',
-    when: 'no reply for 2 days', then: 'remind you, set the next action',
-    ask: 'Set up an agency-wide workflow: when a buyer has had no reply for 2 days, remind me to answer {{contact_first_name}} and set the next action “Reply to the enquiry” due the same day.',
+    summary: 'If a new enquiry or a buyer’s email has had no answer for 6 hours, you get a reminder.',
+    when: 'no reply for 6 hours', then: 'remind you, set the next action',
+    ask: 'Set up an agency-wide workflow: when a buyer has had no reply for 6 hours, remind me to answer {{contact_first_name}} and set the next action “Reply to the enquiry” due the same day.',
   },
   {
     id: 'inspection-reminder', group: 'Appointments', icon: 'alarm', trigger: 'appointment.upcoming', decides: false, needs: ['template'],

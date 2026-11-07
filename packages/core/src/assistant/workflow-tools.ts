@@ -3,7 +3,7 @@ import type { z } from 'zod';
 import { workflow as workflowTable, type Db, type DbOrTx } from '@repo/db';
 import type { Actor } from '../permissions';
 import { checkWorkflow, listWorkflows, namesFor, saveWorkflow, setWorkflowStatus, WorkflowError } from '../workflows/manage';
-import { allActions, NOT_SURE, REACHES_CONTACT, specInWords, type Condition, type WorkflowAction, type WorkflowSpec } from '../workflows/catalog';
+import { allActions, NO_REPLY_HOURS, NOT_SURE, REACHES_CONTACT, specInWords, type Condition, type WorkflowAction, type WorkflowSpec } from '../workflows/catalog';
 import { resolvePlace } from '../geo/places';
 import { agencyTimeZone } from '../widgets/registry';
 import { issueHandle, resolveHandle } from './handles';
@@ -49,8 +49,9 @@ export function specFrom(ctx: Pick<ToolContext, 'handles'>, input: z.infer<typeo
       trigger.to = t.listing_status;
       break;
     case 'lead.no_reply':
-      if (!t.days || t.days > 14) return { problem: 'trigger: no reply needs days (1 to 14)' };
-      trigger.days = t.days;
+      if (t.hours === NO_REPLY_HOURS && !t.days) trigger.hours = t.hours;
+      else if (t.hours === undefined && t.days && t.days <= 14) trigger.days = t.days;
+      else return { problem: `trigger: no reply needs hours (${NO_REPLY_HOURS}) or days (1 to 14)` };
       break;
     case 'appointment.booked':
     case 'appointment.completed':
