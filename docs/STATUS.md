@@ -1,29 +1,36 @@
-# Status — 2026-11-07 (Claude Code, Mac)
+# Status — 2026-11-09 (Claude Code, Mac)
 
 Short on purpose: where things stand now. History is in `docs/SESSION.md` and `docs/archive/`; how to work on either laptop is
 `docs/HANDOFF.md`. Overwrite this file at each handoff; do not append.
 
 ## Milestone
-`main` is deployed on all four Vercel projects: all 21 consumer skills, the consoles, open-home entry (ADR 0081), Sentry code (ADR 0082, off without a DSN), the full customer profile (ADR 0083), the search fix.
-The sites run on their `vercel.app` addresses. The cutover to `findoraaus.com.au` waits on DNS. Local-only `feat/crm-visibility` and `feat/crm-assistant-more`: keep or delete (the user).
+`main` = ADR 0087 part 1 (an agent's own Twilio) and ADR 0088 (three kinds of chat), pushed 2026-11-09 on the user's go, so Vercel deploys it.
+Before that, `main` held everything through ADR 0086. The sites run on their `vercel.app` addresses; the cutover to `findoraaus.com.au` waits on DNS.
 
 ## Database
-**One database: `xjklpoyxcvnlhjlxasmv`. It is production, and `.env.local` points at it.** The user cancelled the separate new project: no migrations, buckets or seed.
-92 migrations (0000–0091). **Do not run `db:reset` or `pnpm smoke` locally while `.env.local` points here.** A separate dev database is still to be made.
-Test data: all 41 listings are test, and **the user chose to leave them live for now** (2026-11-06). Nothing was withdrawn or deleted.
+**One database: `xjklpoyxcvnlhjlxasmv`. It is production, and `.env.local` points at it.** No separate dev database yet.
+95 migrations (0000–0094), all applied 2026-11-09 on the user's go: 0093 and 0094 by hand first (additive), then `db:migrate` for 0092,
+which drops two unique constraints for partial ones. **Do not run `db:reset` or `pnpm smoke` locally while `.env.local` points here.**
 
 ## Vercel
 Applied: `AI_DAILY_BUDGET_USD=20` on all 4, `REVALIDATE_SECRET` on Agent, Web's addresses on `vercel.app`. Removed: admin credentials, `SMOKE_ENABLED`, debug variables,
 `ZOOM_OAUTH_RETURN_BASE` except on Agent (remove it at cutover). Domains attached and verified in Vercel, but `misconfigured` until DNS answers.
+- **To set (the user):** `ASSISTANT_OVERVIEW_READ_ONLY=1` on Agency and Agent when Overview should only read. Off, Overview is as before.
+  Locally it is on, in the root `.env.local` (`apps/console/.env.local` links to it).
 
 ## DNS (checked 10:34 UTC)
 The registry delegates to `haley` and `garret`, and those two serve **no A records for the apex and NXDOMAIN for `www`, `agency`, `agents`, `admin`**. The SOA serial has not moved.
 Authoritative servers do not wait for propagation, so waiting may not fix this: check the Cloudflare zone first. **Switch nothing until all five addresses load over HTTPS.**
 
-## Checks
-Unit core 1856 / ai 426, typecheck 10/10, lint 0 errors, both builds. Live on `f595a47`: 9 public pages 200, consoles redirect to login, revalidate without secret 401, 0 error logs.
-The user reports the user, agent and agency sides tested in a browser. Not confirmed: the admin side, the Open homes tab, Agent revalidation in use, the AI budget in use.
-Only testable after the switch: real email links, Google and Zoom connect.
+## ADR 0088: three kinds of chat (merged, on `main`)
+Overview (read-only behind the flag above, with a button into the right chat), eleven skill chats opened from Skills (each its own tools,
+switch and face; enforced on the server, not by the prompt), and a floating Help window with no tools and no history. Also: the bolt
+Activity panel in the top bar (running, failed, active, switched on, usage), `usageFor`, `ai_run.chat_scope` and cached tokens, the
+assistant by chat on the admin's AI cost page, and Bulk SMS by chat.
+Checks: unit core 2116 / AI 458, typecheck, lint, both builds; 100+ guards broken on purpose and red. The user tested in a browser:
+Bulk email chat, the help window, the bolt panel, Skills. NOT done: smoke (typechecked only), a live-model run, TEST-PLAN CX1–CX49 in full.
+**Watch CX40:** with the flag on, an old chat is replayed with tools it no longer has. Unverified on a live model.
+Phase 8 (per-chat limits) is not built: the user is to give numbers, or keep today's caps.
 
 ## The user's decisions, 2026-11-06
 Domain `findoraaus.com.au`. Brand LocalAgentHub. Public API and webhooks: version 2. REAXML: skip for launch, CSV. Sentry: yes. Visual Search: off until real photos.
@@ -31,22 +38,8 @@ Meaning-based search: off (`EMBEDDINGS_PROVIDER` unset). Zoning: VIC, NSW, SA. A
 For now, while testing (the user): the sender stays on the old domain and the test Resend account is not touched; test listings stay live; sign-up stays without email confirmation.
 Revisit all three before real customers: the sender name and postal address are placeholders.
 
-## Merged: ADR 0083, the full customer profile
-`main` = `04f148b` (fast-forward, pushed 2026-11-06): SMS, Calls, Messages (empty) and Activity tabs, Leads summary, smart panel, summary on a button, Log a call, Listing activity, admin People. No migration.
-Unit, typecheck, lint, console build green; new queries checked read-only on the real database. NOT run: the smoke group "Customer profile, every channel" (needs a separate dev database), the live summary, TEST-PLAN CT in a browser.
-
-## Merged: ADR 0084, the same email updates the profile
-On `main`, by fast-forward on the user's go, 2026-11-07: Add, contacts import and the assistant's card replace a different name, phone or address for someone who may edit the person, old value on the timeline; every import row and the card need name, email, phone and address; four-detail template; assistant prompt v31. No migration.
-Unit, typecheck, console lint and build green. NOT run: smoke (two edited checks typechecked only), TEST-PLAN CF4, CF5, CF8, CF11–CF15, AO7 in a browser, Google Sheet pick for real, the prompt on a live model.
-
-## Merged: ADR 0085, no reply after 6 hours
-On `main`, by fast-forward on the user's go, 2026-11-07: `lead.no_reply` takes `hours: 6`, and that wait also fires on a new website enquiry nobody answered and still New. "Chase a buyer with no reply" now asks for 6 hours. Saved workflows are not changed (the user), so an agency gets this only by setting up a 6-hour workflow. No migration.
-NOT run: the two smoke checks (typechecked only), the scan's SQL on a real database, TEST-PLAN CU.
-
-## Merged: ADR 0086, the admin's AI cost page
-On `main`, by fast-forward on the user's go, 2026-11-07: `/ai-cost` and `/ai-cost/[agencyId]`, read only, mock approved with all eight decisions as recommended. Morning Brief, Important emails and floorplan reading now record their agency. No migration.
-Unit core 1953 / AI 438, typecheck, console lint and build green; 12 guards broken on purpose, each red, then restored. NOT run: the smoke check (typechecked only), the page's SQL on a real database, TEST-PLAN CV in a browser. The user was told to open `/ai-cost` first.
-Check: the public chat and buyer tools have their own daily caps and do not stop at the $20 limit, so confirm a spend limit is set in the Anthropic console.
+## Merged: ADR 0087 part 1, an agent's own Twilio
+On `main` with ADR 0088. Part 2, the office line, is not built. TEST-PLAN CW1–CW11 not run (needs live Twilio credentials).
 
 ## Blocked
 - DNS: the records above. Then the switch: `docs/DNS-CUTOVER.md` sections 5, 6 and 7, and the Supabase Site URL.
@@ -55,10 +48,10 @@ Check: the public chat and buyer tools have their own daily caps and do not stop
 - The client: SMS rules, Control Centre 4.6/4.7, triggers 4.4, Microsoft Entra, brand colours, legal details, real listings.
 
 ## Next
-1. The user: DNS later (their call); create the Sentry project; decide the brand name (public site "Property Platform", consoles "LocalAgentHub", email "RealestateAI").
-2. After HTTPS passes: switch Vercel's addresses and `COOKIE_DOMAIN`, rebuild all four, then section 6 services and section 7 checks. Tell agencies they sign in again once.
-3. Real phone tests, one real end-to-end run across the portals on `vercel.app`, and a separate dev database.
-4. Before real customers: test data, sender, sign-up confirmation (above).
+1. The user: set `ASSISTANT_OVERVIEW_READ_ONLY=1` on Vercel when ready; run TEST-PLAN CX, CX40 first.
+2. Phase 8 limits, after the AI cost page shows real use by chat.
+3. Connectors links to `/bulk-email/templates` and `/my-bulk-email/templates`, which have no page (found 2026-11-09, not fixed).
+4. DNS cutover (`docs/DNS-CUTOVER.md`), Sentry project, a separate dev database, real phone tests.
 
 ## Watch
 - ADR 0083, before real customers: Listing activity names signed-in viewers to agencies, and the privacy policy does not say so yet. The user parked this for testing only.

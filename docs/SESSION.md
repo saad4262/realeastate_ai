@@ -3,6 +3,21 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-09 — Claude Code (Mac) — ADR 0087 merged; ADR 0088 three kinds of chat, built and pushed
+
+- The user asked for three chats: Overview for talk and lookups, one chat per skill that can only do that skill, and a help window
+  that knows the page. Then: no overlap between skills, metrics for limits, and a top-bar view of what runs. Plan agreed in phases.
+- The user's decisions: Overview reads, daily actions in a Daily work chat; email and SMS automations separate; the panel shows an
+  agent their own and an owner the agency's. Branch from `main` after committing and merging the Twilio work.
+- Built phases 1–7 (ADR 0088). Phase 8, per-chat limits, waits for the user's numbers.
+- Found and fixed: a long bulk email's plan card could not be approved in its chat; the help guide named template pages that do not
+  exist; the agent's home was unknown to the help bot; the panel said nothing was switched on; Skills fell over without the column.
+- My mistakes, told to the user: said `ai_run` had no indexes (it does, in migrations); proposed feature names the budget would
+  miss; said all three migrations were additive (0092 drops constraints); broke a file while their dev server ran, which showed a
+  build error; gave a restart command whose `lsof -ti:3001` also matches Chrome. Two lessons saved to memory.
+- Migrations 0093, 0094 applied by hand, then 0092 with `db:migrate` right before the push. `main` pushed on the user's go.
+- NOT run: smoke, a live model, most of TEST-PLAN CX. The flag `ASSISTANT_OVERVIEW_READ_ONLY` is not on Vercel.
+
 ## 2026-11-07 (later) — Claude Code (Mac) — ADR 0085 no reply after 6 hours; ADR 0086 the admin's AI cost page
 
 - The user asked what runs across agent, agency and user, then chose from my list: a shorter no-reply wait, and the AI cost page by mock first. Starter pack, open-home check-in, vendor report and seller prospecting are parked for later.
