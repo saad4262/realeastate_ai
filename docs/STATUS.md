@@ -24,8 +24,8 @@ Authoritative servers do not wait for propagation, so waiting may not fix this: 
 
 ## ADR 0088: three kinds of chat (merged, on `main`)
 Overview (read-only behind the flag above, with a button into the right chat), eleven skill chats opened from Skills (each its own tools,
-switch and face; enforced on the server, not by the prompt), and a floating Help window with no tools and no history. Also: the bolt
-Activity panel in the top bar (running, failed, active, switched on, usage), `usageFor`, `ai_run.chat_scope` and cached tokens, the
+switch and face; enforced on the server, not by the prompt), and a floating Help window with no tools and no history. Also: two top-bar
+panels, Skills (what is on, its switch and chat) and Automations (running with progress, failed, on, paused, with Stop, Pause and Off; TEST-PLAN CX50–CX55 not run, its SQL not yet run on a real database), `usageFor`, `ai_run.chat_scope` and cached tokens, the
 assistant by chat on the admin's AI cost page, and Bulk SMS by chat.
 Checks: unit core 2116 / AI 458, typecheck, lint, both builds; 100+ guards broken on purpose and red. The user tested in a browser:
 Bulk email chat, the help window, the bolt panel, Skills. NOT done: smoke (typechecked only), a live-model run, TEST-PLAN CX1–CX49 in full.
