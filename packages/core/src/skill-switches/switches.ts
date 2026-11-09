@@ -119,6 +119,11 @@ export async function isSkillOn(db: DbOrTx, actor: Actor, key: SkillKey): Promis
   return row?.enabled === true;
 }
 
+/** Is a skill from `listSkillSwitches` really on for this person? An agent's `pair` skill also needs the agency's switch. */
+export function skillIsUsable(s: SkillSwitchView, holder: SwitchHolder): boolean {
+  return s.on && (!s.pair || holder === 'agency' || Boolean(s.agencyOn));
+}
+
 /** The same question for a skill chat (ADR 0088), where a `pair` skill needs both switches. */
 export async function isSkillOnForChat(db: DbOrTx, actor: Actor, key: SkillKey): Promise<boolean> {
   if (!actor.agencyId) return false;

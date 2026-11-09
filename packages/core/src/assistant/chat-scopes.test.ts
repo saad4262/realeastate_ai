@@ -159,10 +159,12 @@ describe('the home and the hook, read from source', () => {
   it('the URL only offers a chat that exists, and never while another is open', () => {
     expect(read('assistant', 'assistant-home.tsx')).toContain('newChatScope: !c && isOpenChatScope(chatParam) ? chatParam : null');
   });
+  it('a failed list of a skill’s chats leaves the Skills page standing: it is only a few links under a card', () => {
+    expect(read('skills', 'platform-skills.tsx')).toContain('listAssistantConversations(db, actor, new Date(), 30, { chatScopes: OPEN_CHAT_SCOPES }).catch(() => [])');
+  });
   it('a card offers its chat only while the skill is on', () => {
     const card = read('skills', 'platform-skills.tsx');
-    expect(card).toContain("const usable = s.on && (!s.pair || holder === 'agency' || s.agencyOn);");
-    expect(card).toContain('const scope = usable ? chatScopeOfSkill(s.key) : null;');
+    expect(card).toContain('const scope = skillIsUsable(s, holder) ? chatScopeOfSkill(s.key) : null;');
   });
 });
 

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { LocalTime } from '@repo/ui';
 import { can, type Actor } from '@repo/core/permissions';
 import { chatScopeOfSkill, listAssistantConversations, OPEN_CHAT_SCOPES, type ConversationSummary } from '@repo/core/assistant';
-import { listSkillSwitches, SKILL_GROUP_NOTES, SKILL_GROUPS, type SkillSwitchView } from '@repo/core/skill-switches';
+import { listSkillSwitches, skillIsUsable, SKILL_GROUP_NOTES, SKILL_GROUPS, type SkillSwitchView } from '@repo/core/skill-switches';
 import { getConsoleDb } from '../../lib/db';
 import { SkillSwitch } from './skill-switch';
 import styles from './skills.module.css';
@@ -16,7 +16,7 @@ export type SkillFilter = 'all' | 'on' | 'off';
  */
 export async function PlatformSkills({ actor, basePath, home, filter }: { actor: Actor; basePath: string; home: string; filter: SkillFilter }) {
   const db = getConsoleDb();
-  const [{ holder, skills }, chats] = await Promise.all([listSkillSwitches(db, actor), listAssistantConversations(db, actor, new Date(), 30, { chatScopes: OPEN_CHAT_SCOPES })]);
+  const [{ holder, skills }, chats] = await Promise.all([listSkillSwitches(db, actor), listAssistantConversations(db, actor, new Date(), 30, { chatScopes: OPEN_CHAT_SCOPES }).catch(() => [])]);
   const resource = { type: 'skill_switch', agencyId: actor.agencyId as string, ...(holder === 'personal' ? { ownerId: actor.userId } : {}) };
   const mayManage = can(actor, 'skill_switch:manage', resource);
   const onCount = skills.filter((s) => s.on).length;
@@ -74,8 +74,7 @@ export async function PlatformSkills({ actor, basePath, home, filter }: { actor:
 
 function SkillCard({ skill: s, holder, mayManage, home, chats }: { skill: SkillSwitchView; holder: 'agency' | 'personal'; mayManage: boolean; home: string; chats: readonly ConversationSummary[] }) {
   // ADR 0088: a skill with its own chat opens it from here, and only while it is on.
-  const usable = s.on && (!s.pair || holder === 'agency' || s.agencyOn);
-  const scope = usable ? chatScopeOfSkill(s.key) : null;
+  const scope = skillIsUsable(s, holder) ? chatScopeOfSkill(s.key) : null;
   const own = scope ? chats.filter((c) => c.chatScope === scope).slice(0, 3) : [];
   return (
     <article className={`${styles.card} ${s.on ? '' : styles.cardOff}`}>

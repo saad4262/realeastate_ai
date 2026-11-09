@@ -1,10 +1,17 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PgDialect } from 'drizzle-orm/pg-core';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '@repo/db';
 import type { Actor } from '../permissions';
-import { automationHref, automationStatus, runningAutomationCount, type AutomationItem, type AutomationPaths } from './index';
+import { automationHref, automationStatus, runningAutomationCount, switchedOnHref, type AutomationItem, type AutomationPaths } from './index';
+
+const listSkillSwitches = vi.hoisted(() => vi.fn());
+vi.mock('../skill-switches/switches', async (real) => ({ ...(await real<object>()), listSkillSwitches }));
+beforeEach(() => {
+  listSkillSwitches.mockReset();
+  listSkillSwitches.mockResolvedValue({ holder: 'agency', skills: [] });
+});
 
 /** ADR 0088: who sees what in the top bar, and that its numbers come from the rows. */
 
@@ -123,6 +130,44 @@ describe('what it reports', () => {
   });
 });
 
+describe('the skills switched on', () => {
+  const skill = (key: string, on: boolean, over: object = {}) => ({ key, name: key, icon: 'bolt', on, ...over });
+
+  it('lists what is on, with its chat when it has one, in the panel', async () => {
+    listSkillSwitches.mockResolvedValue({ holder: 'agency', skills: [skill('bulk_email', true), skill('buyer_matching', true), skill('cold_contacts', false)] });
+    const { db } = fakeDb();
+    const s = await automationStatus(db, owner);
+    expect(s!.skillsOn).toEqual([
+      { key: 'bulk_email', name: 'bulk_email', icon: 'bolt', chat: 'bulk_email' },
+      { key: 'buyer_matching', name: 'buyer_matching', icon: 'bolt', chat: null },
+    ]);
+  });
+
+  it('asks for the person’s own switches: an agent’s, never the agency’s', async () => {
+    const { db } = fakeDb();
+    await automationStatus(db, agent);
+    expect(listSkillSwitches.mock.calls[0]![1]).toBe(agent);
+  });
+
+  it('an agent’s two-switch skill counts only when the agency has it on too', async () => {
+    listSkillSwitches.mockResolvedValue({ holder: 'personal', skills: [skill('bulk_sms', true, { pair: true, agencyOn: false }), skill('workflow_texts', true, { pair: true, agencyOn: true })] });
+    const { db } = fakeDb();
+    expect((await automationStatus(db, agent))!.skillsOn.map((x) => x.key)).toEqual(['workflow_texts']);
+  });
+
+  it('a failed read of the switches leaves the panel standing', async () => {
+    listSkillSwitches.mockRejectedValue(new Error('down'));
+    const { db } = fakeDb();
+    expect((await automationStatus(db, owner))!.skillsOn).toEqual([]);
+  });
+
+  it('goes to the skill’s chat, or to the switched-on skills when it has none', () => {
+    const paths: AutomationPaths = { home: '/assistant', email: '/e', sms: '/s', skills: '/my-skills' };
+    expect(switchedOnHref({ key: 'bulk_email', name: 'x', icon: 'y', chat: 'bulk_email' }, paths)).toBe('/assistant?chat=bulk_email');
+    expect(switchedOnHref({ key: 'buyer_matching', name: 'x', icon: 'y', chat: null }, paths)).toBe('/my-skills?show=on');
+  });
+});
+
 describe('automationHref', () => {
   const paths: AutomationPaths = { home: '/assistant', email: '/my-bulk-email', sms: '/my-bulk-sms', skills: '/my-skills' };
   const item = (over: Partial<AutomationItem>): AutomationItem => ({ key: 'k', kind: 'batch', channel: 'email', state: 'running', title: 't', subtitle: null, done: 0, total: 0, failed: 0, nextAt: null, error: null, owner: null, mine: true, targetId: 'x', conversationId: null, ...over });
@@ -161,6 +206,12 @@ describe('the route and the panel, read from source', () => {
     const panel = read('components', 'automations', 'automation-status.tsx');
     expect(panel).toContain("from '@repo/core/automation-status/links'");
     expect(panel).not.toContain("from '@repo/core/automation-status'");
+  });
+
+  it('shows the switched-on skills, and says nothing is on only when that is true', () => {
+    const panel = read('components', 'automations', 'automation-status.tsx');
+    expect(panel).toContain('status.skillsOn.map');
+    expect(panel).toContain('!status.skillsOn.length');
   });
 
   it('asks for the list only while the panel is open', () => {

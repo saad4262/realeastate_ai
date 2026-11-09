@@ -2,6 +2,8 @@ import { sql, type SQL } from 'drizzle-orm';
 import type { Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { usageFor } from '../usage';
+import { chatScopeOfSkill } from '../assistant/chat-scopes';
+import { listSkillSwitches, skillIsUsable } from '../skill-switches/switches';
 import type { ActiveAutomation, AutomationItem, AutomationStatus } from './links';
 
 /**
@@ -54,7 +56,7 @@ export async function automationStatus(db: Db, actor: Actor, opts: { env?: NodeJ
   const whose = (column: SQL) => (mineOnly ? sql`and ${column} = ${actor.userId}::uuid` : sql``);
   const person = (u: string) => sql.raw(`coalesce(nullif(${u}.name, ''), ${u}.email)`);
 
-  const [batches, tasks, runs, workflows, skills, usage] = await Promise.all([
+  const [batches, tasks, runs, workflows, skills, usage, switches] = await Promise.all([
     db.execute<{ id: string; channel: string; status: string; user_id: string; owner: string; template: string | null; list: string | null; sent: unknown; total: unknown; failed: unknown }>(sql`
       select b.id, b.channel, b.status, b.user_id, ${person('u')} as owner,
         b.template_snapshot->>'name' as template, b.filter_snapshot->>'name' as list, c.sent, c.total, c.failed
@@ -113,6 +115,8 @@ export async function automationStatus(db: Db, actor: Actor, opts: { env?: NodeJ
       order by a.next_run_at asc nulls last
       limit ${ACTIVE_ROWS}`),
     usageFor(db, actor, opts),
+    // The person's own switches: the agency's for an owner or admin, their own for an agent. Only a list: it must not take the panel down.
+    listSkillSwitches(db, actor).catch(() => ({ holder: 'personal' as const, skills: [] })),
   ]);
 
   const whoIs = (userId: string, owner: string) => ({ mine: userId === actor.userId, owner: userId === actor.userId ? null : owner });
@@ -175,6 +179,7 @@ export async function automationStatus(db: Db, actor: Actor, opts: { env?: NodeJ
       ...skills.map((s): ActiveAutomation => ({ key: `skill:${s.id}`, kind: 'skill', title: s.name, ...whoIs(s.user_id, s.owner), targetId: s.id, nextAt: iso(s.next_at), lastAt: null })),
     ],
     activeTotal: n(workflows[0]?.total) + n(skills[0]?.total),
+    skillsOn: switches.skills.filter((s) => skillIsUsable(s, switches.holder)).map((s) => ({ key: s.key, name: s.name, icon: s.icon, chat: chatScopeOfSkill(s.key) })),
     usage,
   };
 }

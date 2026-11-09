@@ -1,3 +1,4 @@
+import type { OpenChatScope } from '../assistant/chat-scopes';
 import type { ActorUsage } from '../usage/usage';
 
 /** The Activity panel's shape and links (ADR 0088). No database here: the browser imports this file. */
@@ -39,7 +40,11 @@ export type ActiveAutomation = {
   lastAt: string | null;
 };
 
+/** A skill from the Skills page that is on for this person. `chat`: the chat that does it, when it has one. */
+export type SwitchedOnSkill = { key: string; name: string; icon: string; chat: OpenChatScope | null };
+
 export type AutomationStatus = {
+  skillsOn: SwitchedOnSkill[];
   running: AutomationItem[];
   failed: AutomationItem[];
   active: ActiveAutomation[];
@@ -49,6 +54,11 @@ export type AutomationStatus = {
 };
 
 export type AutomationPaths = { home: string; email: string; sms: string; skills: string };
+
+/** A skill with a chat opens it. One that runs by itself goes to the skills that are on. */
+export function switchedOnHref(skill: SwitchedOnSkill, paths: AutomationPaths): string {
+  return skill.chat ? `${paths.home}?chat=${skill.chat}` : `${paths.skills}?show=on`;
+}
 
 /** Where a row goes. Null when the page behind it is only its owner's: a chat, or an agent's own skill. */
 export function automationHref(item: AutomationItem | ActiveAutomation, paths: AutomationPaths): string | null {

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { automationHref, type ActiveAutomation, type AutomationItem, type AutomationPaths, type AutomationStatus } from '@repo/core/automation-status/links';
+import { automationHref, switchedOnHref, type ActiveAutomation, type AutomationItem, type AutomationPaths, type AutomationStatus } from '@repo/core/automation-status/links';
 import styles from './automation-status.module.css';
 
 /**
@@ -149,7 +149,7 @@ export function AutomationStatusButton({ paths, className, glyphClassName }: { p
   }, [open, loadStatus]);
 
   const close = () => setOpen(false);
-  const nothing = status && !status.running.length && !status.failed.length && !status.active.length;
+  const nothing = status && !status.running.length && !status.failed.length && !status.active.length && !status.skillsOn.length;
 
   return (
     <div className={styles.wrap} ref={wrap}>
@@ -189,6 +189,29 @@ export function AutomationStatusButton({ paths, className, glyphClassName }: { p
               <section>
                 <h3 className={styles.group}>Active</h3>
                 <ul className={styles.list}>{status.active.map((i) => <ActiveRow key={i.key} item={i} paths={paths} />)}</ul>
+              </section>
+            ) : null}
+            {status?.skillsOn.length ? (
+              <section>
+                <h3 className={styles.group}>Switched on · {status.skillsOn.length}</h3>
+                <ul className={styles.list}>
+                  {status.skillsOn.map((s) => (
+                    <li key={s.key}>
+                      <Link href={switchedOnHref(s, paths)} className={`${styles.row} ${styles.skillRow}`}>
+                        <span className={styles.skillGlyph} aria-hidden>
+                          {s.icon}
+                        </span>
+                        <span className={styles.rowText}>
+                          <span className={styles.title}>{s.name}</span>
+                        </span>
+                        {s.chat ? <span className={styles.chatTag}>Chat</span> : null}
+                        <span className={styles.chevron} aria-hidden>
+                          chevron_right
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
               </section>
             ) : null}
             <Link href={`${paths.skills}?tab=automations`} className={styles.seeAll}>
