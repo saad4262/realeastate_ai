@@ -278,3 +278,37 @@
     transition: none;
   }
 }
+
+/* ADR 0088: the card's way into its own chat. */
+.chatRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.chatLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--sapphire);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.chatLink:hover {
+  text-decoration: underline;
+}
+
+.chatRecent {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chatRecent:hover {
+  color: var(--text-primary);
+}

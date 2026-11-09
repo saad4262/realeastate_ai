@@ -2329,3 +2329,11 @@ Phase 1 is the foundation and changes nothing on screen. Apply migration 0093 fi
 | CX17 | Agent: "how do I add an agent to the team" | Does not link to the agency's Team page |
 | CX18 | Ask about Marketing & Reviews | Says that screen is a preview and not working yet |
 | CX19 | Phone width | The window fits; the ? button does not sit on the chat's send button |
+| CX20 | Skills → Bulk email off | No "Open chat" on its card |
+| CX21 | Switch it on → "Open Bulk email chat" | The Overview page changes: a blue "Bulk email · Skill chat" bar, its own heading and suggestions |
+| CX22 | In it, ask "add a note to a contact" or "send a text" | Says that belongs elsewhere and does nothing |
+| CX23 | In it, prepare a batch to a saved list → Approve | The usual card; sends as from the Bulk email page; shows in the bolt panel |
+| CX24 | Reload that chat | Still the Bulk email chat. In Recents with a "Bulk email" chip; on the Skills card under its link |
+| CX25 | Prepare a card, turn the skill off in another tab, then Approve | Refused, saying it is switched off |
+| CX26 | Type `?chat=bulk_sms` in the URL | The ordinary home: that chat is not built |
+| CX27 | Overview → New chat, ask for a bulk email | Works as before, until Overview is narrowed in a later phase |

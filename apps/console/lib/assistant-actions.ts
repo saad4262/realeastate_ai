@@ -9,6 +9,7 @@ import {
   getProposedAction,
   listAssistantConversations,
   rejectProposedAction,
+  type ChatScope,
   type ConversationSummary,
   type ProposalView,
   type TurnView,
@@ -39,7 +40,7 @@ export async function listAssistantConversationsAction(): Promise<ConversationSu
 
 export async function getAssistantConversationAction(
   id: string,
-): Promise<{ ok: true; conversation: { id: string; title: string; turns: TurnView[]; full: boolean } } | { ok: false; error: string }> {
+): Promise<{ ok: true; conversation: { id: string; title: string; chatScope: ChatScope | null; turns: TurnView[]; full: boolean } } | { ok: false; error: string }> {
   try {
     return { ok: true, conversation: await getAssistantConversation(getConsoleDb(), await actor(), id) };
   } catch (err) {

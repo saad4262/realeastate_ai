@@ -240,7 +240,7 @@ async function Recents({ userId, home }: { userId: string; home: string }) {
   const rows = await loadActor(userId)
     .then((actor) => (actor ? listAssistantConversations(getConsoleDb(), actor) : []))
     .catch(() => []);
-  return <RecentsList home={home} rows={rows.map((r) => ({ id: r.id, title: r.title }))} />;
+  return <RecentsList home={home} rows={rows.map((r) => ({ id: r.id, title: r.title, chatScope: r.chatScope }))} />;
 }
 
 function RecentsFallback() {

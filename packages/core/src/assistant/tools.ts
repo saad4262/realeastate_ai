@@ -58,7 +58,7 @@ import { findBuyers } from './buyer-tools';
 import { findDeals } from './deal-tools';
 import { mayCreateImport } from '../imports/imports';
 import { findSkills, proposeChangeSkill, proposeSetUpSkill, proposeSwitchSkill } from './skill-tools';
-import { chatScopeRefusal, templateChannel, type ChatScope } from './chat-scopes';
+import { CHAT_SCOPE_RULES, chatScopeRefusal, templateChannel, type ChatScope } from './chat-scopes';
 import { skillOffMessage, skillsForToolCall } from '../skill-switches/catalog';
 import { holderOf, skillsOffForActor } from '../skill-switches/switches';
 import type { SkillKey } from '../skill-switches/catalog';
@@ -68,6 +68,7 @@ import type { FrozenArgs } from './actions';
 import {
   ASSISTANT_ADMIN_TOOLS,
   ASSISTANT_TEAM_TOOLS,
+  ASSISTANT_WRITE_TOOLS,
   ASSISTANT_TOOL_INPUTS,
   widgetChoiceParams,
   type AppointmentRange,
@@ -267,6 +268,9 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
   // A platform skill switched off in Skills (ADR 0058): refused here, never hidden — the tool lists stay
   // two frozen lists so the prompt cache holds. switch_skill and find_skills are never gated.
   const gates = skillsForToolCall(tool, parsed.data);
+  // A skill chat's actions need that skill on, the switch Bulk email's own page asks (ADR 0088). Old chats are not changed.
+  const chatSkill = ctx.chatScope ? CHAT_SCOPE_RULES[ctx.chatScope].skill : undefined;
+  if (chatSkill && (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(tool)) gates.push(chatSkill);
   const off = gates.length ? await (ctx.skillsOff ?? (() => skillsOffForActor(ctx.db, actor)))() : null;
   for (const key of gates) {
     if (off!.has(key)) return refused(`${skillOffMessage(key, holderOf(actor.membershipRole))} Nothing was done. Offer to switch it on (switch_skill) if they want it.`, label);

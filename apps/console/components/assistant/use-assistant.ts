@@ -1,5 +1,6 @@
 'use client';
 
+import type { ChatScope, OpenChatScope } from '@repo/core/assistant/chat-scopes';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AssistantEvent, AssistantFrame } from '@repo/core/assistant/schema';
 import { getAssistantConversationAction } from '@/lib/assistant-actions';
@@ -32,12 +33,14 @@ function browserZone(): string {
 }
 
 /** `contactId`: the contact page the assistant is being used on, if any. */
-export function useAssistant({ contactId }: { contactId: string | null }) {
+export function useAssistant({ contactId, newChatScope = null }: { contactId: string | null; /** ADR 0088: the skill chat a new conversation here starts as. */ newChatScope?: OpenChatScope | null }) {
   // Contacts picked in the directory win over the page the panel was opened on.
   const picks = usePicks();
 
   const [turns, setTurns] = useState<Turn[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  /** What the open conversation is, as the server says. */
+  const [openScope, setOpenScope] = useState<ChatScope | null>(null);
   const [full, setFull] = useState(false);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
@@ -71,7 +74,7 @@ export function useAssistant({ contactId }: { contactId: string | null }) {
         headers: { 'content-type': 'application/json' },
         signal: controller.signal,
         body: JSON.stringify({
-          ...(conversationId ? { conversationId } : {}),
+          ...(conversationId ? { conversationId } : newChatScope ? { chatScope: newChatScope } : {}),
           message,
           timeZone: browserZone(),
           ...(picks.length
@@ -99,7 +102,10 @@ export function useAssistant({ contactId }: { contactId: string | null }) {
           buffer = buffer.slice(nl + 1);
           if (!line) continue;
           const e = JSON.parse(line) as AssistantEvent;
-          if (e.type === 'turn') setConversationId(e.conversationId);
+          if (e.type === 'turn') {
+            setConversationId(e.conversationId);
+            if (!conversationId) setOpenScope(newChatScope);
+          }
           else if (e.type === 'text') update(key, (t) => ({ ...t, answer: t.answer + e.delta, status: null }));
           else if (e.type === 'status') update(key, (t) => ({ ...t, status: e.label }));
           else if (e.type === 'results') update(key, (t) => ({ ...t, frames: [...t.frames, e.frame] }));
@@ -116,7 +122,7 @@ export function useAssistant({ contactId }: { contactId: string | null }) {
       setBusy(false);
       abortRef.current = null;
     }
-  }, [busy, conversationId, draft, contactId, useSelection, picks]);
+  }, [busy, conversationId, draft, contactId, useSelection, picks, newChatScope]);
 
   const stop = () => abortRef.current?.abort();
 
@@ -125,6 +131,7 @@ export function useAssistant({ contactId }: { contactId: string | null }) {
     abortRef.current?.abort();
     setTurns([]);
     setConversationId(null);
+    setOpenScope(null);
     setFull(false);
   };
 
@@ -138,6 +145,7 @@ export function useAssistant({ contactId }: { contactId: string | null }) {
     if (seq !== loadSeq.current) return null;
     if (!r.ok) return false;
     setConversationId(r.conversation.id);
+    setOpenScope(r.conversation.chatScope);
     setFull(r.conversation.full);
     setTurns(
       r.conversation.turns.map((t) => ({
@@ -157,6 +165,7 @@ export function useAssistant({ contactId }: { contactId: string | null }) {
     picks,
     turns,
     conversationId,
+    chatScope: conversationId ? openScope : newChatScope,
     full,
     draft,
     setDraft,

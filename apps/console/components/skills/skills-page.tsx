@@ -70,7 +70,7 @@ export async function SkillsPage({ surface, tab = 'platform', show = 'all', runs
         ))}
       </nav>
 
-      {tab === 'platform' ? <PlatformSkills actor={session.actor} basePath={basePath} filter={show} /> : null}
+      {tab === 'platform' ? <PlatformSkills actor={session.actor} basePath={basePath} home={surface === 'agency' ? '/overview' : '/assistant'} filter={show} /> : null}
       {tab === 'ai' ? <AiSkills actor={session.actor} surface={surface} basePath={basePath} /> : null}
       {tab === 'automations' ? <WorkflowsPage surface={surface} {...(runs ? { runsOf: runs } : {})} {...(lib ? { lib } : {})} /> : null}
     </div>

@@ -1,6 +1,8 @@
-import { and, asc, desc, eq, gte, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { assistantConversation, assistantTurn, type Db } from '@repo/db';
-import { parseChatScope, type ChatScope } from './chat-scopes';
+import { CHAT_SCOPE_RULES, isOpenChatScope, parseChatScope, type ChatScope } from './chat-scopes';
+import { skillOffMessage } from '../skill-switches/catalog';
+import { holderOf, isSkillOn } from '../skill-switches/switches';
 import { can, type Actor } from '../permissions';
 import { parseHandleMap, type HandleMap } from './handles';
 import { ASSISTANT_LIMITS, type AssistantFrame } from './schema';
@@ -49,6 +51,13 @@ function mayUse(actor: Actor): actor is Actor & { agencyId: string } {
   return Boolean(actor.agencyId) && can(actor, 'assistant:use', { type: 'assistant', agencyId: actor.agencyId });
 }
 
+/** May a chat of this kind be started? It must be built, and its skill switched on. */
+async function requireChatScopeOpen(db: Db, actor: Actor, scope: ChatScope): Promise<void> {
+  if (!isOpenChatScope(scope)) throw new AssistantError('forbidden', 'That chat is not available yet.');
+  const skill = CHAT_SCOPE_RULES[scope].skill;
+  if (skill && !(await isSkillOn(db, actor, skill))) throw new AssistantError('forbidden', skillOffMessage(skill, holderOf(actor.membershipRole)));
+}
+
 /**
  * Start a turn: open (or create) the conversation and CLAIM it, so a second
  * tab or a double send cannot run two turns into one history. Returns the
@@ -65,6 +74,7 @@ export async function claimTurn(
   if (!mayUse(actor)) throw new AssistantError('forbidden', 'You do not have access to the assistant');
 
   if (!input.conversationId) {
+    if (input.chatScope) await requireChatScopeOpen(db, actor, input.chatScope);
     const [created] = await db
       .insert(assistantConversation)
       .values({
@@ -194,10 +204,10 @@ export async function finishTurn(db: Db, claim: ClaimedTurn, turn: FinishedTurn,
   });
 }
 
-export type ConversationSummary = { id: string; title: string; lastTurnAt: Date; turnCount: number };
+export type ConversationSummary = { id: string; title: string; lastTurnAt: Date; turnCount: number; chatScope: ChatScope | null };
 
 /** This person's own conversations, newest first, within the retention window. One statement. */
-export async function listAssistantConversations(db: Db, actor: Actor, now = new Date(), limit = 20): Promise<ConversationSummary[]> {
+export async function listAssistantConversations(db: Db, actor: Actor, now = new Date(), limit = 20, opts: { chatScopes?: readonly ChatScope[] } = {}): Promise<ConversationSummary[]> {
   if (!mayUse(actor)) return [];
   const keptSince = new Date(now.getTime() - ASSISTANT_LIMITS.retentionDays * 86_400_000);
   const rows = await db
@@ -206,6 +216,7 @@ export async function listAssistantConversations(db: Db, actor: Actor, now = new
       title: assistantConversation.title,
       lastTurnAt: assistantConversation.lastTurnAt,
       turnCount: assistantConversation.turnCount,
+      chatScope: assistantConversation.chatScope,
     })
     .from(assistantConversation)
     .where(
@@ -213,11 +224,12 @@ export async function listAssistantConversations(db: Db, actor: Actor, now = new
         eq(assistantConversation.userId, actor.userId),
         eq(assistantConversation.agencyId, actor.agencyId),
         gte(assistantConversation.lastTurnAt, keptSince),
+        ...(opts.chatScopes ? [inArray(assistantConversation.chatScope, [...opts.chatScopes])] : []),
       ),
     )
     .orderBy(desc(assistantConversation.lastTurnAt))
     .limit(limit);
-  return rows.map((r) => ({ ...r, lastTurnAt: new Date(r.lastTurnAt) }));
+  return rows.map((r) => ({ ...r, lastTurnAt: new Date(r.lastTurnAt), chatScope: parseChatScope(r.chatScope) }));
 }
 
 export type TurnView = {
@@ -234,7 +246,7 @@ export async function getAssistantConversation(
   db: Db,
   actor: Actor,
   id: string,
-): Promise<{ id: string; title: string; turns: TurnView[]; full: boolean }> {
+): Promise<{ id: string; title: string; chatScope: ChatScope | null; turns: TurnView[]; full: boolean }> {
   if (!mayUse(actor) || !/^[0-9a-f-]{36}$/i.test(id)) throw NOT_FOUND();
   const [c] = await db
     .select()
@@ -257,6 +269,7 @@ export async function getAssistantConversation(
   return {
     id: c.id,
     title: c.title,
+    chatScope: parseChatScope(c.chatScope),
     full: c.turnCount >= ASSISTANT_LIMITS.turnsPerConversation,
     turns: turns.map((t) => ({
       seq: t.seq,

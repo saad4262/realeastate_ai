@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { AssistantToolName, PlannableTool } from './schema';
+import type { SkillKey } from '../skill-switches/catalog';
 
 /**
  * The kinds of console chat (ADR 0088). A chat's scope is written once, when it is made, and everything
@@ -39,10 +40,35 @@ export const CHAT_SCOPE_LABELS: Readonly<Record<ChatScope, string>> = Object.fre
   ai_skills: 'AI skills',
 });
 
+/** The chats a person can open today. A scope leaves this list only by being built; the server refuses any other. */
+export const OPEN_CHAT_SCOPES = ['bulk_email'] as const satisfies readonly ChatScope[];
+export type OpenChatScope = (typeof OPEN_CHAT_SCOPES)[number];
+
+export function isOpenChatScope(raw: string | null | undefined): raw is OpenChatScope {
+  return (OPEN_CHAT_SCOPES as readonly (string | null | undefined)[]).includes(raw);
+}
+
+/** How a skill chat looks, so it is plainly not the Overview chat. */
+export const CHAT_SCOPE_FACE: Readonly<Record<OpenChatScope, { icon: string; greeting: string; hint: string; suggestions: readonly string[] }>> = Object.freeze({
+  bulk_email: {
+    icon: 'forward_to_inbox',
+    greeting: 'Who should get this email?',
+    hint: 'This chat only sends bulk email. You check every name, then approve.',
+    suggestions: ['Show me my saved lists', 'Which email templates do I have?', 'Write a new template for buyers looking in my area'],
+  },
+});
+
+/** The chat a Skills card opens, by the skill's key. */
+export function chatScopeOfSkill(key: string): OpenChatScope | null {
+  return isOpenChatScope(key) ? key : null;
+}
+
 type WorkflowStep = 'send_template_email' | 'send_template_sms' | 'draft_email';
 
 type ScopeRule = {
   tools: readonly AssistantToolName[];
+  /** The switch in Skills this chat's actions need on: asked when a chat starts, at each action, and at Approve. */
+  skill?: SkillKey;
   /** The templates this chat lists. Set here, never by the model. */
   channel?: 'email' | 'sms';
   /** The only steps a `plan_task` here may hold. */
@@ -65,6 +91,7 @@ export const CHAT_SCOPE_RULES: Readonly<Record<ChatScope, ScopeRule>> = Object.f
   },
   bulk_email: {
     tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'find_saved_lists', 'list_templates', 'check_connections', 'send_template_email', 'create_template'],
+    skill: 'bulk_email',
     channel: 'email',
   },
   bulk_sms: {

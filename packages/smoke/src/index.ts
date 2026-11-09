@@ -9895,6 +9895,8 @@ async function main() {
       const usage = await usageFor(t, A.f.actor('owner'));
       assert(usage !== null && usage.ai.percent >= 0 && usage.email.person.limit > 0 && !JSON.stringify(usage).includes('spentUsd'), `usage: ${JSON.stringify(usage)}`);
       assert((await usageFor(t, { userId: A.f.people.owner })) === null, 'usage for someone with no agency');
+      // ADR 0088: a skill chat's filter runs on the real column.
+      assert(Array.isArray(await listAssistantConversations(t, A.f.actor('owner'), new Date(), 5, { chatScopes: ['bulk_email'] })), 'the chats of one skill');
       // ADR 0088: the panel's raw SQL has only ever been read, never run, until this line.
       const panelAsOwner = await automationStatus(t, A.f.actor('owner'));
       const panelAsAgent = await automationStatus(t, A.f.actor('a1'));

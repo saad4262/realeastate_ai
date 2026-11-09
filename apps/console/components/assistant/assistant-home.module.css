@@ -215,3 +215,38 @@
     padding: 0 1rem;
   }
 }
+
+/* A skill chat (ADR 0088): one job, and it says so at the top. */
+.skillBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--sapphire);
+  border-radius: 0.625rem;
+  background: var(--sapphire-subtle);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.home[data-skill-chat] .mark {
+  color: var(--sapphire);
+}
+
+.homeStarted > .skillBar {
+  width: min(100%, 46rem);
+  margin: 0.75rem auto 0;
+  flex-shrink: 0;
+}
+
+.skillBarTag {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.skillBarLeave {
+  margin-left: auto;
+  font-size: 0.8125rem;
+  color: var(--sapphire);
+}

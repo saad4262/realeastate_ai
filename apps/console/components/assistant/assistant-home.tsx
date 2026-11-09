@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { CHAT_SCOPE_FACE, CHAT_SCOPE_LABELS, isOpenChatScope } from '@repo/core/assistant/chat-scopes';
 import { clearPicks } from './picks';
 import { EXAMPLES, TurnList, type Surface } from './assistant-panel';
 import { useAssistant } from './use-assistant';
@@ -45,7 +46,11 @@ export function AssistantHome({
   // passed on; the server still checks this person may see it, exactly as for the panel.
   const contact = params.get('contact');
   const contactId = contact && CONTACT_ID.test(contact) ? contact : null;
-  const a = useAssistant({ contactId });
+  // A Skills card opens its chat here (`?chat=`, ADR 0088). Only a chat that exists is passed on; the server checks again.
+  const chatParam = params.get('chat');
+  const a = useAssistant({ contactId, newChatScope: !c && isOpenChatScope(chatParam) ? chatParam : null });
+  const skillChat = isOpenChatScope(a.chatScope) ? a.chatScope : null;
+  const face = skillChat ? CHAT_SCOPE_FACE[skillChat] : null;
   const { picks, turns, conversationId, full, draft, setDraft, busy, useSelection, setUseSelection, endRef, send } = a;
   const [missing, setMissing] = useState(false);
 
@@ -131,7 +136,7 @@ export function AssistantHome({
         value={draft}
         maxLength={2000}
         rows={2}
-        placeholder={started ? 'Reply to the assistant…' : 'How can I help you today?'}
+        placeholder={started ? 'Reply to the assistant…' : face ? 'Say who it is for, or what to write…' : 'How can I help you today?'}
         aria-label="Ask the assistant"
         autoFocus
         onChange={(e) => setDraft(e.target.value)}
@@ -144,7 +149,7 @@ export function AssistantHome({
         disabled={full}
       />
       <div className={styles.composerFoot}>
-        <span className={styles.hint}>Looks things up, and prepares actions for you to approve.</span>
+        <span className={styles.hint}>{face ? face.hint : 'Looks things up, and prepares actions for you to approve.'}</span>
         {busy ? (
           <button type="button" className={styles.send} onClick={a.stop} aria-label="Stop">
             <span className={styles.glyph} aria-hidden>
@@ -162,10 +167,26 @@ export function AssistantHome({
     </form>
   );
 
+  // What says this is not the Overview chat, at the top of it from the first word to the last.
+  const skillBar =
+    face && skillChat ? (
+      <div className={styles.skillBar}>
+        <span className={styles.glyph} aria-hidden>
+          {face.icon}
+        </span>
+        <strong>{CHAT_SCOPE_LABELS[skillChat]}</strong>
+        <span className={styles.skillBarTag}>Skill chat</span>
+        <Link href={home} className={styles.skillBarLeave}>
+          Back to Overview
+        </Link>
+      </div>
+    ) : null;
+
   if (!started) {
     return (
-      <div className={styles.home} data-full-bleed>
+      <div className={styles.home} data-full-bleed data-skill-chat={skillChat ?? undefined}>
         <div className={styles.stage}>
+          {skillBar}
           {notices}
           {missing ? (
             <p className={styles.note} role="status">
@@ -174,26 +195,27 @@ export function AssistantHome({
           ) : null}
           <h1 className={styles.greeting}>
             <span className={`${styles.glyph} ${styles.mark}`} aria-hidden>
-              auto_awesome
+              {face ? face.icon : 'auto_awesome'}
             </span>
-            What’s on today{name ? `, ${name}` : ''}?
+            {face ? face.greeting : <>What’s on today{name ? `, ${name}` : ''}?</>}
           </h1>
           {composer}
           <div className={styles.suggestions} aria-label="Suggestions">
-            {SUGGESTIONS.map((s) => (
+            {(face ? face.suggestions : SUGGESTIONS).map((s) => (
               <button key={s} type="button" className={styles.suggestion} onClick={() => setDraft(s)}>
                 {s}
               </button>
             ))}
           </div>
-          {below}
+          {face ? null : below}
         </div>
       </div>
     );
   }
 
   return (
-    <div className={`${styles.home} ${styles.homeStarted}`} data-full-bleed>
+    <div className={`${styles.home} ${styles.homeStarted}`} data-full-bleed data-skill-chat={skillChat ?? undefined}>
+      {skillBar}
       {/* Its own scroller: the shell's content area is a scroll container, so a sticky composer would not stick. */}
       <div className={styles.scroller}>
         <div className={styles.thread}>

@@ -52,7 +52,7 @@ import { runListingAction, type FrozenPin } from './listing-tools';
 import { runSkillAction, runSwitchSkill } from './skill-tools';
 import { SKILL_OF_WORKFLOW_STEP, skillOffMessage, type SkillKey } from '../skill-switches/catalog';
 import { holderOf, isSkillOn } from '../skill-switches/switches';
-import { chatScopeAllowsCard, parseChatScope } from './chat-scopes';
+import { CHAT_SCOPE_RULES, chatScopeAllowsCard, parseChatScope } from './chat-scopes';
 import { runWorkflowAction } from './workflow-tools';
 import { runTemplateAction } from './template-tools';
 import type { WorkflowSpec } from '../workflows/catalog';
@@ -1009,7 +1009,10 @@ export async function approveProposedAction(
   // A chat keeps to its job at Approve too (ADR 0088). A workflow's card has no chat.
   if (row.conversationId) {
     const [chat] = await db.select({ chatScope: assistantConversation.chatScope }).from(assistantConversation).where(eq(assistantConversation.id, row.conversationId)).limit(1);
-    if (!chatScopeAllowsCard(parseChatScope(chat?.chatScope), row.tool)) throw new AssistantError('forbidden', 'This card is not part of this chat, so it cannot be approved here.');
+    const scope = parseChatScope(chat?.chatScope);
+    if (!chatScopeAllowsCard(scope, row.tool)) throw new AssistantError('forbidden', 'This card is not part of this chat, so it cannot be approved here.');
+    const skill = scope ? CHAT_SCOPE_RULES[scope].skill : undefined;
+    if (skill && !(await isSkillOn(db, actor, skill))) throw new AssistantError('forbidden', skillOffMessage(skill, holderOf(actor.membershipRole)));
   }
   const runAt = opts.runAt && opts.runAt.getTime() > now.getTime() + NOW_SLACK_MS ? opts.runAt : null;
   if (runAt) return schedule(db, actor, row, runAt, deps, now);

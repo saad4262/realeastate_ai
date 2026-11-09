@@ -1,3 +1,4 @@
+import { chatScopeSchema } from './chat-scopes';
 import { z } from 'zod';
 import { CONTACT_ROLES } from '../contacts/contact-schema';
 import { INTEGRATION_PROVIDERS, type IntegrationProvider } from '../integrations/providers';
@@ -1010,6 +1011,8 @@ export const assistantTurnRequestSchema = z
   .object({
     /** Absent: start a new conversation. */
     conversationId: z.string().uuid().optional(),
+    /** Only when starting one (ADR 0088). Once a chat exists, its own row says what it is. */
+    chatScope: chatScopeSchema.optional(),
     message: z.string().trim().min(1, 'Type a question first').max(ASSISTANT_LIMITS.messageChars),
     /** The browser's zone, so "today" and "tomorrow" mean the person's. */
     timeZone: z.string().max(64).refine(isTimeZone, 'Unknown time zone'),

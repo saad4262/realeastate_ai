@@ -30,6 +30,7 @@ import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant
 import { embedderFromEnv } from '../search/voyage';
 import { assistantToolsFor } from '../tools/assistant-tools';
 import type { ChatScope } from '@repo/core/assistant/chat-scopes';
+import { CHAT_SCOPE_PROMPT_VERSION, chatScopeBrief } from '../prompts/chat-scope-v1';
 import { skillsOffForActor } from '@repo/core/skill-switches';
 import type { SkillKey } from '@repo/core/skill-switches/catalog';
 import { trackAiRunQuietly } from '../usage';
@@ -131,6 +132,11 @@ export function contextBlock(opts: {
   return lines.join('\n');
 }
 
+/** The system prompt, and in a skill chat what keeps it to that chat. A chat with no scope sends exactly what it always did. */
+export function assistantSystemBlocks(scope: ChatScope | null): { type: 'text'; text: string }[] {
+  return [{ type: 'text', text: ASSISTANT_SYSTEM }, ...(scope ? [{ type: 'text' as const, text: chatScopeBrief(scope) }] : [])];
+}
+
 export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerator<AssistantEvent, void, void> {
   const { deps, request, signal } = input;
   const env = input.env ?? process.env;
@@ -222,7 +228,7 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
           // Tools and system are frozen and render first; the automatic
           // breakpoint caches the growing conversation behind them.
           cache_control: { type: 'ephemeral' },
-          system: [{ type: 'text', text: ASSISTANT_SYSTEM }],
+          system: assistantSystemBlocks(claim.chatScope),
           tools: [...deps.tools(claim.chatScope)],
           ...(mustAnswer ? { tool_choice: { type: 'none' as const } } : {}),
           messages: [...history, ...turnMessages],
@@ -360,7 +366,8 @@ export function assistantDeps(db: Db, actor: Actor, request: AssistantTurnReques
   const skillsOff = () => (off ??= skillsOffForActor(db, actor));
   return {
     tools: (scope) => assistantToolsFor(actor, scope),
-    claim: () => claimTurn(db, actor, { ...(request.conversationId ? { conversationId: request.conversationId } : {}), message: request.message, surface }, now),
+    // ADR 0088: a scope only starts a chat. Once there is a conversation, its own row decides.
+    claim: () => claimTurn(db, actor, { ...(request.conversationId ? { conversationId: request.conversationId } : request.chatScope ? { chatScope: request.chatScope } : {}), message: request.message, surface }, now),
     selection: (handles) => selectionHandles(db, actor, handles, request.selection?.contactIds ?? []),
     cardUpdates: async (conversationId) => {
       const u = await takeCardUpdates(db, actor, conversationId, now);
@@ -408,7 +415,7 @@ export function assistantDeps(db: Db, actor: Actor, request: AssistantTurnReques
         entityId: row.entityId,
         userId: actor.userId,
         ...(actor.agencyId ? { agencyId: actor.agencyId } : {}),
-        promptVersion: ASSISTANT_PROMPT_VERSION,
+        promptVersion: row.chatScope ? `${ASSISTANT_PROMPT_VERSION}+${CHAT_SCOPE_PROMPT_VERSION}` : ASSISTANT_PROMPT_VERSION,
         chatScope: row.chatScope,
       }),
     finish: async (claim, turn) => {

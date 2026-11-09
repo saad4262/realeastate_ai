@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
@@ -5,7 +7,7 @@ import { ASSISTANT_TOOLS, assistantToolsFor } from '../tools/assistant-tools';
 import { ASSISTANT_ADMIN_TOOLS, ASSISTANT_TEAM_TOOLS } from '@repo/core/assistant/schema';
 import { CHAT_SCOPE_RULES, CHAT_SCOPES } from '@repo/core/assistant/chat-scopes';
 import { ASSISTANT_SYSTEM } from '../prompts/assistant-v31';
-import { contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
+import { assistantSystemBlocks, contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
 /**
  * The console assistant's loop (ADR 0025 Phase A) with a fake model and fake
@@ -631,5 +633,34 @@ describe('a chat keeps to its job (ADR 0088)', () => {
     expect(names(requests[0]!.tools as { name: string }[])).toContain('send_template_email');
     expect(scopes).toEqual(['bulk_email']);
     expect(tracked.map((t) => t.chatScope)).toEqual(['bulk_email', 'bulk_email']);
+  });
+
+  it('a chat with no scope sends exactly the system prompt it always did', () => {
+    expect(assistantSystemBlocks(null)).toEqual([{ type: 'text', text: ASSISTANT_SYSTEM }]);
+  });
+
+  it('a skill chat adds its own brief after it, the same text every time, with no date', () => {
+    const blocks = assistantSystemBlocks('bulk_email');
+    expect(blocks[0]!.text).toBe(ASSISTANT_SYSTEM);
+    expect(blocks[1]!.text).toContain('Bulk email');
+    expect(blocks[1]!.text).toContain('This chat outranks');
+    expect(assistantSystemBlocks('bulk_email')).toEqual(blocks);
+    expect(blocks[1]!.text).not.toMatch(/20\d\d/);
+  });
+
+  it('every chat has a brief', () => {
+    for (const scope of CHAT_SCOPES) expect(assistantSystemBlocks(scope)[1]!.text, scope).toContain('<this_chat>');
+  });
+
+  it('the loop sends the claimed chat’s brief', async () => {
+    const { deps } = fakeDeps({ claim: async () => ({ conversationId: 'c', seq: 1, handles: {}, chatScope: 'bulk_email', history: [] }) });
+    const { client, requests } = fakeClient([msg([text('ok')], 'end_turn')]);
+    await run({ client, deps });
+    expect(JSON.stringify(requests[0]!.system)).toContain('<this_chat>');
+  });
+
+  it('a scope only starts a chat: with a conversation, the request’s is not passed on', () => {
+    const source = readFileSync(join(__dirname, 'assistant.ts'), 'utf8');
+    expect(source).toContain('...(request.conversationId ? { conversationId: request.conversationId } : request.chatScope ? { chatScope: request.chatScope } : {})');
   });
 });

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { LocalTime } from '@repo/ui';
 import { can, type Actor } from '@repo/core/permissions';
+import { chatScopeOfSkill, listAssistantConversations, OPEN_CHAT_SCOPES, type ConversationSummary } from '@repo/core/assistant';
 import { listSkillSwitches, SKILL_GROUP_NOTES, SKILL_GROUPS, type SkillSwitchView } from '@repo/core/skill-switches';
 import { getConsoleDb } from '../../lib/db';
 import { SkillSwitch } from './skill-switch';
@@ -13,8 +14,9 @@ export type SkillFilter = 'all' | 'on' | 'off';
  * groups. An owner or admin sees and flips the agency's switches; anyone else their own, and never
  * the skills that read the whole agency. Everything shown is from core; the switch asks can() again.
  */
-export async function PlatformSkills({ actor, basePath, filter }: { actor: Actor; basePath: string; filter: SkillFilter }) {
-  const { holder, skills } = await listSkillSwitches(getConsoleDb(), actor);
+export async function PlatformSkills({ actor, basePath, home, filter }: { actor: Actor; basePath: string; home: string; filter: SkillFilter }) {
+  const db = getConsoleDb();
+  const [{ holder, skills }, chats] = await Promise.all([listSkillSwitches(db, actor), listAssistantConversations(db, actor, new Date(), 30, { chatScopes: OPEN_CHAT_SCOPES })]);
   const resource = { type: 'skill_switch', agencyId: actor.agencyId as string, ...(holder === 'personal' ? { ownerId: actor.userId } : {}) };
   const mayManage = can(actor, 'skill_switch:manage', resource);
   const onCount = skills.filter((s) => s.on).length;
@@ -47,7 +49,7 @@ export async function PlatformSkills({ actor, basePath, filter }: { actor: Actor
             </div>
             <div className={styles.grid}>
               {inGroup.map((s) => (
-                <SkillCard key={s.key} skill={s} holder={holder} mayManage={mayManage} />
+                <SkillCard key={s.key} skill={s} holder={holder} mayManage={mayManage} home={home} chats={chats} />
               ))}
             </div>
           </section>
@@ -70,7 +72,10 @@ export async function PlatformSkills({ actor, basePath, filter }: { actor: Actor
   );
 }
 
-function SkillCard({ skill: s, holder, mayManage }: { skill: SkillSwitchView; holder: 'agency' | 'personal'; mayManage: boolean }) {
+function SkillCard({ skill: s, holder, mayManage, home, chats }: { skill: SkillSwitchView; holder: 'agency' | 'personal'; mayManage: boolean; home: string; chats: readonly ConversationSummary[] }) {
+  // ADR 0088: a skill with its own chat opens it from here, and only while it is on.
+  const scope = s.on ? chatScopeOfSkill(s.key) : null;
+  const own = scope ? chats.filter((c) => c.chatScope === scope).slice(0, 3) : [];
   return (
     <article className={`${styles.card} ${s.on ? '' : styles.cardOff}`}>
       <div className={styles.cardTop}>
@@ -107,6 +112,18 @@ function SkillCard({ skill: s, holder, mayManage }: { skill: SkillSwitchView; ho
           </span>
         ) : null}
       </div>
+      {scope ? (
+        <div className={styles.chatRow}>
+          <Link href={`${home}?chat=${scope}`} className={styles.chatLink}>
+            <span className={styles.tagGlyph} aria-hidden>chat</span>Open {s.name} chat
+          </Link>
+          {own.map((c) => (
+            <Link key={c.id} href={`${home}?c=${c.id}`} className={styles.chatRecent} title={c.title} prefetch={false}>
+              {c.title}
+            </Link>
+          ))}
+        </div>
+      ) : null}
       {s.pair && holder === 'personal' ? (
         <p className={styles.cardText}>
           {s.agencyOn ? 'The agency has it on. It runs for you once you switch yours on.' : 'The agency has it off, so it stays off for you too until an owner or admin switches it on.'}
