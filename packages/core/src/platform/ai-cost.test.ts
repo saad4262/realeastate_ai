@@ -55,7 +55,7 @@ describe('the assistant by kind of chat (ADR 0088)', () => {
     const lines = chatLines([r('assistant', 'bulk_email', '1.5', 3), r('assistant', 'bulk_email', '0.5', 1), r('assistant', null, '3', 2), r('assistant', 'daily_work', '1', 4), r('skill:morning_brief', null, '9', 9)]);
     expect(lines).toEqual([
       { key: 'none', label: 'Older chats', spend: 3, calls: 2 },
-      { key: 'bulk_email', label: 'Bulk email', spend: 2, calls: 4 },
+      { key: 'email', label: 'Email', spend: 2, calls: 4 },
       { key: 'daily_work', label: 'Daily work', spend: 1, calls: 4 },
     ]);
   });

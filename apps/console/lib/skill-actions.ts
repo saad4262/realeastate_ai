@@ -15,7 +15,7 @@ import {
   type SkillScheduleInput,
 } from '@repo/core/skills';
 import { noticeMailFromEnv } from '@repo/core/email';
-import { isSkillKey, setSkillSwitch, SkillSwitchError } from '@repo/core/skill-switches';
+import { isSkillCombo, isSkillKey, setSkillCombo, setSkillSwitch, SkillSwitchError } from '@repo/core/skill-switches';
 import { skillWriterFromEnv } from '@repo/ai/skills';
 import { getConsoleDb } from './db';
 import { loadActor } from './load-actor';
@@ -137,8 +137,11 @@ export async function archiveLibrarySkillAction(skillId: string): Promise<SkillA
 export async function setSkillSwitchAction(key: string, on: boolean): Promise<SkillActionResult> {
   const who = await actor();
   try {
-    if (!isSkillKey(key) || typeof on !== 'boolean') return { ok: false, error: 'That is not a skill.' };
-    await setSkillSwitch(getConsoleDb(), who, key, on);
+    if (typeof on !== 'boolean') return { ok: false, error: 'That is not a skill.' };
+    // Email and SMS flip every part together (ADR 0089); each part is asked as its own.
+    if (isSkillCombo(key)) await setSkillCombo(getConsoleDb(), who, key, on);
+    else if (isSkillKey(key)) await setSkillSwitch(getConsoleDb(), who, key, on);
+    else return { ok: false, error: 'That is not a skill.' };
     await refresh();
     return { ok: true };
   } catch (err) {

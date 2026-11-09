@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { LocalTime } from '@repo/ui';
 import { can, type Actor } from '@repo/core/permissions';
-import { chatScopeOfSkill, listAssistantConversations, OPEN_CHAT_SCOPES, type ConversationSummary } from '@repo/core/assistant';
-import { listSkillSwitches, skillIsUsable, SKILL_GROUP_NOTES, SKILL_GROUPS, type SkillSwitchView } from '@repo/core/skill-switches';
+import { chatScopeOfSkill, listAssistantConversations, STORED_OPEN_CHAT_SCOPES, type ConversationSummary } from '@repo/core/assistant';
+import { combineSkillViews, listSkillSwitches, skillIsUsable, SKILL_GROUP_NOTES, SKILL_GROUPS, type SkillCard as SkillCardData } from '@repo/core/skill-switches';
 import { getConsoleDb } from '../../lib/db';
 import { SkillSwitch } from './skill-switch';
 import styles from './skills.module.css';
@@ -16,11 +16,13 @@ export type SkillFilter = 'all' | 'on' | 'off';
  */
 export async function PlatformSkills({ actor, basePath, home, filter }: { actor: Actor; basePath: string; home: string; filter: SkillFilter }) {
   const db = getConsoleDb();
-  const [{ holder, skills }, chats] = await Promise.all([listSkillSwitches(db, actor), listAssistantConversations(db, actor, new Date(), 30, { chatScopes: OPEN_CHAT_SCOPES }).catch(() => [])]);
+  const [{ holder, skills }, chats] = await Promise.all([listSkillSwitches(db, actor), listAssistantConversations(db, actor, new Date(), 30, { chatScopes: STORED_OPEN_CHAT_SCOPES }).catch(() => [])]);
   const resource = { type: 'skill_switch', agencyId: actor.agencyId as string, ...(holder === 'personal' ? { ownerId: actor.userId } : {}) };
   const mayManage = can(actor, 'skill_switch:manage', resource);
-  const onCount = skills.filter((s) => s.on).length;
-  const shown = skills.filter((s) => filter === 'all' || (filter === 'on') === s.on);
+  // Email and SMS are one card each; their parts keep their own switches underneath (ADR 0089).
+  const cards = combineSkillViews(skills);
+  const onCount = cards.filter((s) => s.on).length;
+  const shown = cards.filter((s) => filter === 'all' || (filter === 'on') === s.on);
   const href = (f: SkillFilter) => (f === 'all' ? basePath : `${basePath}?show=${f}`);
 
   return (
@@ -32,7 +34,7 @@ export async function PlatformSkills({ actor, basePath, home, filter }: { actor:
           </Link>
         ))}
         <span className={styles.count}>
-          {onCount} of {skills.length} on
+          {onCount} of {cards.length} on
         </span>
       </div>
 
@@ -72,7 +74,7 @@ export async function PlatformSkills({ actor, basePath, home, filter }: { actor:
   );
 }
 
-function SkillCard({ skill: s, holder, mayManage, home, chats }: { skill: SkillSwitchView; holder: 'agency' | 'personal'; mayManage: boolean; home: string; chats: readonly ConversationSummary[] }) {
+function SkillCard({ skill: s, holder, mayManage, home, chats }: { skill: SkillCardData; holder: 'agency' | 'personal'; mayManage: boolean; home: string; chats: readonly ConversationSummary[] }) {
   // ADR 0088: a skill with its own chat opens it from here, and only while it is on.
   const scope = skillIsUsable(s, holder) ? chatScopeOfSkill(s.key) : null;
   const own = scope ? chats.filter((c) => c.chatScope === scope).slice(0, 3) : [];

@@ -24,8 +24,8 @@ const shown = async (scope: ToolContext['chatScope']) => ((await findWorkflows(c
 
 describe('find_workflows', () => {
   it('shows each chat only what it can change', async () => {
-    expect(await shown('email_automations')).toEqual(['email', 'note']);
-    expect(await shown('sms_automations')).toEqual(['sms', 'note']);
+    expect(await shown('email')).toEqual(['email', 'note']);
+    expect(await shown('sms')).toEqual(['sms', 'note']);
   });
   it('a chat from before the ADR still sees them all', async () => {
     expect(await shown(null)).toEqual(['email', 'sms', 'both', 'note']);
@@ -39,11 +39,11 @@ describe('a stored workflow from the other channel', () => {
     return proposeChangeWorkflow(c, { workflow: ref, change: 'pause' }, 'x');
   };
   it('cannot be paused or archived here, even by a reference from elsewhere', async () => {
-    for (const id of ['sms', 'both']) expect(JSON.stringify((await change('email_automations', id)).result), id).toContain('other channel');
-    expect(JSON.stringify((await change('sms_automations', 'email')).result)).toContain('other channel');
+    for (const id of ['sms', 'both']) expect(JSON.stringify((await change('email', id)).result), id).toContain('other channel');
+    expect(JSON.stringify((await change('sms', 'email')).result)).toContain('other channel');
   });
   it('cannot be replaced here', async () => {
-    const { c, handles } = ctx('email_automations');
+    const { c, handles } = ctx('email');
     const ref = issueHandle(handles, 'W', 'both');
     const out = await proposeCreateWorkflow(c, { name: 'x', scope: 'mine', trigger: { kind: 'lead.created' }, conditions: [], actions: [{ type: 'add_note', text: 'x' }], replaces: ref } as never, 'x');
     expect(JSON.stringify(out.result)).toContain('other channel');

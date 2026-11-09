@@ -112,6 +112,26 @@ export function skillsForHolder(holder: SwitchHolder): readonly PlatformSkill[] 
 }
 
 /**
+ * Skills shown as one (ADR 0089): a send, a draft and a workflow are the same job on different clocks, so a person gets one
+ * skill and one chat. The parts keep their own switches underneath, so everything that asks them is unchanged.
+ */
+export type SkillCombo = { key: 'email' | 'sms'; name: string; description: string; icon: string; members: readonly SkillKey[]; needs?: string; pair?: true };
+
+export const SKILL_COMBOS: readonly SkillCombo[] = Object.freeze([
+  { key: 'email', name: 'Email', description: 'Email a saved list, draft individual emails, or set up email that sends by itself. Respects consent and unsubscribes.', icon: 'mail', members: ['bulk_email', 'ai_email_drafts', 'workflow_emails'] },
+  { key: 'sms', name: 'SMS', description: 'Text a saved list, or set up texts that send by themselves, from each contact’s agent’s number, 9 am to 8 pm. Never anyone who replied STOP.', icon: 'sms', members: ['bulk_sms', 'workflow_texts'], needs: 'Twilio', pair: true },
+]);
+
+export function isSkillCombo(key: string): boolean {
+  return SKILL_COMBOS.some((c) => c.key === key);
+}
+
+/** The combined skill this one is a part of, if any. */
+export function comboOfSkill(key: string): SkillCombo | null {
+  return SKILL_COMBOS.find((c) => (c.members as readonly string[]).includes(key)) ?? null;
+}
+
+/**
  * The assistant tools each skill gates (refused at run time when off). A tool in no list is never
  * gated — `switch_skill` and `find_skills` above all, so a switched-off person can always switch back.
  */
@@ -174,7 +194,7 @@ export const SKILL_OF_OPPORTUNITY: Readonly<Record<OpportunityKind, SkillKey>> =
 
 /** The words every refusal uses, so the person (and the model) know where to switch it back. */
 export function skillOffMessage(key: SkillKey, holder: SwitchHolder): string {
-  const name = platformSkill(key).name;
+  const name = comboOfSkill(key)?.name ?? platformSkill(key).name;
   return holder === 'agency'
     ? `“${name}” is switched off for the agency in Skills. An owner or admin can turn it back on there, or ask the assistant to.`
     : `“${name}” is switched off for you in Skills. Turn it back on there, or ask the assistant to.`;

@@ -1065,7 +1065,7 @@ const MEMBER_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze(ASSISTANT
 export const SCOPE_ONLY_ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze([
   {
     name: 'create_automation',
-    description: `Propose a bulk email that repeats by itself on a schedule: one template from list_templates, to one saved list from find_saved_lists. Use it only when the person wants it to repeat; for one send use send_template_email. Ask for the template, the list and the schedule if they did not say. ${PROPOSES}`,
+    description: `Propose a bulk send that repeats by itself on a clock (email in the Email chat, text in the SMS chat): one template from list_templates, to one saved list from find_saved_lists. Use it only when the person wants it to repeat on a schedule; for one send use the send tool, and for something that happens on an event use create_workflow. Ask for the template, the list and the schedule if they did not say. ${PROPOSES}`,
     input_schema: {
       type: 'object',
       additionalProperties: false,

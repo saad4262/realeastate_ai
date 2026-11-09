@@ -19,7 +19,7 @@ function context(over: Partial<ToolContext> = {}) {
   const handles: HandleMap = {};
   const t = issueHandle(handles, 'T', T);
   const f = issueHandle(handles, 'F', F);
-  const ctx = { db: skillOn, actor: { userId: 'u1', agencyId: 'a1', membershipRole: 'agent' }, timeZone: 'Australia/Sydney', handles, now: new Date('2026-11-09T01:00:00Z'), chatScope: 'bulk_email', skillsOff: async () => new Set(), proposal: { conversationId: 'c1', turnId: 't', toolUseId: 'x', made: { count: 0 } }, ...over } as ToolContext;
+  const ctx = { db: skillOn, actor: { userId: 'u1', agencyId: 'a1', membershipRole: 'agent' }, timeZone: 'Australia/Sydney', handles, now: new Date('2026-11-09T01:00:00Z'), chatScope: 'email', skillsOff: async () => new Set(), proposal: { conversationId: 'c1', turnId: 't', toolUseId: 'x', made: { count: 0 } }, ...over } as ToolContext;
   return { ctx, input: { name: 'Monday buyers', template: t, list: f, schedule: { cadence: 'weekly', time: '09:30', weekday: 'mon' } } };
 }
 
@@ -49,7 +49,7 @@ describe('create_automation', () => {
     expect((await runAssistantTool(ctx, 'create_automation', { ...input, schedule: { cadence: 'weekly', time: '09:30' } })).isError).toBe(true);
   });
   it('is refused in any other chat, and a chat from before ADR 0088', async () => {
-    for (const chatScope of ['daily_work', 'bulk_sms', null] as const) {
+    for (const chatScope of ['daily_work', 'listing_copy', null] as const) {
       const { ctx, input } = context({ chatScope });
       expect((await runAssistantTool(ctx, 'create_automation', input)).isError, String(chatScope)).toBe(true);
     }

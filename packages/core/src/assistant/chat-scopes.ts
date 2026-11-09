@@ -10,13 +10,10 @@ import type { SkillKey } from '../skill-switches/catalog';
 export const CHAT_SCOPES = [
   'general',
   'daily_work',
-  'bulk_email',
-  'bulk_sms',
-  'ai_email_drafts',
+  'email',
+  'sms',
   'listing_copy',
   'dashboards',
-  'email_automations',
-  'sms_automations',
   'team_meetings',
   'team_management',
   'ai_skills',
@@ -28,21 +25,30 @@ export const chatScopeSchema = z.enum(CHAT_SCOPES);
 export const CHAT_SCOPE_LABELS: Readonly<Record<ChatScope, string>> = Object.freeze({
   general: 'Overview',
   daily_work: 'Daily work',
-  bulk_email: 'Bulk email',
-  bulk_sms: 'Bulk SMS',
-  ai_email_drafts: 'AI email drafts',
+  email: 'Email',
+  sms: 'SMS',
   listing_copy: 'Listing copy',
   dashboards: 'Dashboards',
-  email_automations: 'Email automations',
-  sms_automations: 'SMS automations',
   team_meetings: 'Team meetings',
   team_management: 'Team management',
   ai_skills: 'AI skills',
 });
 
 /** The chats a person can open today. A scope leaves this list only by being built; the server refuses any other. */
-export const OPEN_CHAT_SCOPES = ['daily_work', 'bulk_email', 'bulk_sms', 'ai_email_drafts', 'listing_copy', 'dashboards', 'email_automations', 'sms_automations', 'team_meetings', 'team_management', 'ai_skills'] as const satisfies readonly ChatScope[];
+export const OPEN_CHAT_SCOPES = ['daily_work', 'email', 'sms', 'listing_copy', 'dashboards', 'team_meetings', 'team_management', 'ai_skills'] as const satisfies readonly ChatScope[];
 export type OpenChatScope = (typeof OPEN_CHAT_SCOPES)[number];
+
+/** The chats that were separate before Email and SMS each became one (ADR 0089). A chat saved under one carries on as the combined one. */
+export const LEGACY_CHAT_SCOPES: Readonly<Record<string, 'email' | 'sms'>> = Object.freeze({
+  bulk_email: 'email',
+  ai_email_drafts: 'email',
+  email_automations: 'email',
+  bulk_sms: 'sms',
+  sms_automations: 'sms',
+});
+
+/** What can be opened, as it may be stored: a list of chats filtered on the column must find the old names too. */
+export const STORED_OPEN_CHAT_SCOPES: readonly string[] = Object.freeze([...OPEN_CHAT_SCOPES, ...Object.keys(LEGACY_CHAT_SCOPES)]);
 
 export function isOpenChatScope(raw: string | null | undefined): raw is OpenChatScope {
   return (OPEN_CHAT_SCOPES as readonly (string | null | undefined)[]).includes(raw);
@@ -56,23 +62,17 @@ export const CHAT_SCOPE_FACE: Readonly<Record<OpenChatScope, { icon: string; gre
     hint: 'Notes, lead status, reminders, appointments and contact details. You approve each change.',
     suggestions: ['Remind me tomorrow at 9 to call my new leads', 'Book an appraisal with this contact tomorrow at 3pm', 'Which leads came in this week?'],
   },
-  bulk_email: {
-    icon: 'forward_to_inbox',
-    greeting: 'Who should get this email?',
-    hint: 'This chat only does bulk email: once, or on a schedule. You approve it first.',
-    suggestions: ['Show me my saved lists', 'Which email templates do I have?', 'Send a template to a list every Monday at 9am'],
+  email: {
+    icon: 'mail',
+    greeting: 'What should we email?',
+    hint: 'This chat does your email: a send, a draft, or something that repeats. You approve it first.',
+    suggestions: ['Show me my saved lists', 'Write a follow-up to my newest lead', 'Send a template to a list every Monday at 9am'],
   },
-  bulk_sms: {
+  sms: {
     icon: 'sms',
-    greeting: 'Who should get this text?',
-    hint: 'This chat only sends bulk SMS. You check every name, then approve.',
-    suggestions: ['Show me my saved lists', 'Which SMS templates do I have?'],
-  },
-  ai_email_drafts: {
-    icon: 'edit_note',
-    greeting: 'Who are you writing to?',
-    hint: 'This chat only writes individual emails. You read each one before it goes.',
-    suggestions: ['Write a follow-up to my newest lead', 'Find the last email from a buyer I need to answer'],
+    greeting: 'What should we text?',
+    hint: 'This chat does your texts: a send now, or something that repeats. You approve it first.',
+    suggestions: ['Show me my saved lists', 'Which SMS templates do I have?', 'Text a template to a list every Monday at 10am'],
   },
   listing_copy: {
     icon: 'description',
@@ -85,18 +85,6 @@ export const CHAT_SCOPE_FACE: Readonly<Record<OpenChatScope, { icon: string; gre
     greeting: 'What should this dashboard show?',
     hint: 'This chat only builds dashboards. One chat, one dashboard.',
     suggestions: ['Build a dashboard of leads by source this month', 'A dashboard of my live listings and their enquiries'],
-  },
-  email_automations: {
-    icon: 'outgoing_mail',
-    greeting: 'When should this email go?',
-    hint: 'This chat only builds workflows that send email. For texts, use SMS automations.',
-    suggestions: ['Show my workflows', 'When a new enquiry comes in, send my welcome template'],
-  },
-  sms_automations: {
-    icon: 'textsms',
-    greeting: 'When should this text go?',
-    hint: 'This chat only builds workflows that send texts. For email, use Email automations.',
-    suggestions: ['Show my workflows', 'When a new enquiry comes in, send my SMS template'],
   },
   team_meetings: {
     icon: 'video_call',
@@ -133,7 +121,9 @@ export const OVERVIEW_FACE = Object.freeze({
 });
 
 /** The platform skill a chat belongs to: the reverse of the chat a card opens. */
-export function skillKeyOfChatScope(scope: string | null): string | null {
+export function skillKeyOfChatScope(raw: string | null): string | null {
+  const scope = raw ? (LEGACY_CHAT_SCOPES[raw] ?? raw) : null;
+  if (scope === 'email' || scope === 'sms') return scope;
   return Object.entries(CHAT_OF_SKILL).find(([, chat]) => chat === scope)?.[0] ?? null;
 }
 
@@ -143,13 +133,15 @@ export function chatScopeOfSkill(key: string): OpenChatScope | null {
 }
 
 const CHAT_OF_SKILL: Readonly<Record<string, OpenChatScope>> = Object.freeze({
-  bulk_email: 'bulk_email',
-  bulk_sms: 'bulk_sms',
-  ai_email_drafts: 'ai_email_drafts',
+  email: 'email',
+  bulk_email: 'email',
+  ai_email_drafts: 'email',
+  workflow_emails: 'email',
+  sms: 'sms',
+  bulk_sms: 'sms',
+  workflow_texts: 'sms',
   ai_listing_copy: 'listing_copy',
   dashboards: 'dashboards',
-  workflow_emails: 'email_automations',
-  workflow_texts: 'sms_automations',
   team_meetings: 'team_meetings',
   team_management: 'team_management',
 });
@@ -160,6 +152,9 @@ type ScopeRule = {
   tools: readonly AssistantToolName[];
   /** The switch in Skills this chat's actions need on: asked when a chat starts, at each action, and at Approve. */
   skill?: SkillKey;
+  /** In a chat made of several skills: the switch each action answers to, and any one of which lets it start. */
+  toolSkills?: Readonly<Partial<Record<string, SkillKey>>>;
+  openSkills?: readonly SkillKey[];
   /** Owners and admins only, whatever the URL says: an agent would have a chat with no tools in it. */
   adminOnly?: true;
   /** A card this chat can make that is none of its tools: a long bulk email becomes a plan. */
@@ -174,7 +169,9 @@ type ScopeRule = {
 
 const EVERY_CHAT = ['check_cards', 'report_missing_data'] as const satisfies readonly AssistantToolName[];
 
-const AUTOMATION_TOOLS = [...EVERY_CHAT, 'find_workflows', 'find_listings', 'find_team_members', 'find_colleagues', 'check_connections', 'list_templates', 'create_workflow', 'change_workflow'] as const satisfies readonly AssistantToolName[];
+const SEND_READS = ['find_contacts', 'find_leads', 'find_saved_lists', 'list_templates', 'check_connections', 'find_workflows', 'find_listings', 'find_team_members', 'find_colleagues'] as const satisfies readonly AssistantToolName[];
+
+const BUILD_TOOLS = ['create_workflow', 'change_workflow'] as const satisfies readonly AssistantToolName[];
 
 export const CHAT_SCOPE_RULES: Readonly<Record<ChatScope, ScopeRule>> = Object.freeze({
   general: {
@@ -184,21 +181,23 @@ export const CHAT_SCOPE_RULES: Readonly<Record<ChatScope, ScopeRule>> = Object.f
     tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'find_appointments', 'find_listings', 'find_buyers', 'find_deals', 'find_team_members', 'find_colleagues', 'search_notes_and_emails', 'check_connections', 'start_import', 'add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'update_contact', 'set_contact_archived', 'record_marketing_consent', 'withdraw_marketing_consent', 'assign_contacts', 'create_reminder', 'plan_task', 'cancel_task', 'message_colleagues'],
     planSteps: ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'message_colleagues', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'assign_contacts', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'remind'],
   },
-  bulk_email: {
-    tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'find_saved_lists', 'list_templates', 'check_connections', 'send_template_email', 'create_template', 'create_automation'],
+  email: {
+    tools: [...EVERY_CHAT, ...SEND_READS, 'search_notes_and_emails', 'send_template_email', 'send_email', 'create_template', 'create_automation', ...BUILD_TOOLS],
     skill: 'bulk_email',
-    // A long send becomes a plan; a repeating one is stored as a create_workflow card (ADR 0089).
-    cards: ['plan_task', 'create_workflow'],
+    openSkills: ['bulk_email', 'ai_email_drafts', 'workflow_emails'],
+    toolSkills: { send_email: 'ai_email_drafts', create_workflow: 'workflow_emails', change_workflow: 'workflow_emails' },
+    // A long send becomes a plan (ADR 0040); a repeating one is stored as a create_workflow card (ADR 0089).
+    cards: ['plan_task'],
     channel: 'email',
+    refusedWorkflowSteps: ['send_template_sms'],
   },
-  bulk_sms: {
-    tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'find_saved_lists', 'list_templates', 'check_connections', 'send_template_sms'],
+  sms: {
+    tools: [...EVERY_CHAT, ...SEND_READS, 'send_template_sms', 'create_automation', ...BUILD_TOOLS],
     skill: 'bulk_sms',
+    openSkills: ['bulk_sms', 'workflow_texts'],
+    toolSkills: { create_workflow: 'workflow_texts', change_workflow: 'workflow_texts' },
     channel: 'sms',
-  },
-  ai_email_drafts: {
-    tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'search_notes_and_emails', 'check_connections', 'send_email'],
-    skill: 'ai_email_drafts',
+    refusedWorkflowSteps: ['send_template_email', 'draft_email'],
   },
   listing_copy: {
     tools: [...EVERY_CHAT, 'find_listings', 'find_contacts', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing'],
@@ -207,18 +206,6 @@ export const CHAT_SCOPE_RULES: Readonly<Record<ChatScope, ScopeRule>> = Object.f
   dashboards: {
     tools: [...EVERY_CHAT, 'describe_data', 'query_data', 'show_widget', 'create_dashboard', 'update_dashboard'],
     skill: 'dashboards',
-  },
-  email_automations: {
-    tools: [...AUTOMATION_TOOLS, 'create_template'],
-    skill: 'workflow_emails',
-    channel: 'email',
-    refusedWorkflowSteps: ['send_template_sms'],
-  },
-  sms_automations: {
-    tools: AUTOMATION_TOOLS,
-    skill: 'workflow_texts',
-    channel: 'sms',
-    refusedWorkflowSteps: ['send_template_email', 'draft_email'],
   },
   team_meetings: {
     tools: [...EVERY_CHAT, 'find_colleagues', 'find_appointments', 'check_connections', 'schedule_team_meeting'],
@@ -235,7 +222,7 @@ export const CHAT_SCOPE_RULES: Readonly<Record<ChatScope, ScopeRule>> = Object.f
 });
 
 /** The action tools more than one chat holds. Each is limited by its input or its channel, and says so above. */
-export const SHARED_ACTION_TOOLS = ['create_template', 'create_workflow', 'change_workflow'] as const satisfies readonly AssistantToolName[];
+export const SHARED_ACTION_TOOLS = ['create_workflow', 'change_workflow', 'create_automation'] as const satisfies readonly AssistantToolName[];
 /** The action tools no scoped chat holds: a chat must not switch another skill on or off. */
 export const UNSCOPED_ACTION_TOOLS = ['switch_skill'] as const satisfies readonly AssistantToolName[];
 
@@ -245,7 +232,8 @@ export const SCOPE_ONLY_TOOLS = ['send_template_sms', 'open_chat', 'create_autom
 /** A stored value. One this code does not know gets the fewest tools, never every tool. */
 export function parseChatScope(raw: string | null | undefined): ChatScope | null {
   if (raw === null || raw === undefined) return null;
-  return (CHAT_SCOPES as readonly string[]).includes(raw) ? (raw as ChatScope) : 'general';
+  const name = LEGACY_CHAT_SCOPES[raw] ?? raw;
+  return (CHAT_SCOPES as readonly string[]).includes(name) ? (name as ChatScope) : 'general';
 }
 
 /** Which templates to list: the chat's channel when it has one, whatever the model asked for. */
@@ -257,6 +245,12 @@ function workflowStepTypes(input: unknown): string[] {
   const i = (input ?? {}) as { actions?: { type?: string }[]; decide?: { choices?: { actions?: { type?: string }[] }[] } };
   const all = [...(i.actions ?? []), ...(i.decide?.choices ?? []).flatMap((c) => c.actions ?? [])];
   return all.map((a) => a.type ?? '');
+}
+
+/** The switch this chat's action answers to. */
+export function chatScopeSkillFor(scope: ChatScope, tool: string): SkillKey | undefined {
+  const rule = CHAT_SCOPE_RULES[scope];
+  return rule.toolSkills?.[tool] ?? rule.skill;
 }
 
 /** Why this chat may not make this call, or null when it may. `input` has already passed the tool's schema. */

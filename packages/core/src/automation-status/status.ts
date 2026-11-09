@@ -3,11 +3,11 @@ import type { Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { usageFor } from '../usage';
 import { chatScopeOfSkill } from '../assistant/chat-scopes';
-import { listSkillSwitches, skillIsUsable } from '../skill-switches/switches';
+import { combineSkillViews, listSkillSwitches, skillIsUsable } from '../skill-switches/switches';
 import type { AutomationItem, AutomationStatus, SkillsPanel } from './links';
 import { listEveryAutomation } from '../recurring/list';
 import { listAssistantConversations } from '../assistant/conversations';
-import { OPEN_CHAT_SCOPES } from '../assistant/chat-scopes';
+import { STORED_OPEN_CHAT_SCOPES } from '../assistant/chat-scopes';
 
 /**
  * What is running, for the console's top bar (ADR 0088). Every number is counted here from the rows the
@@ -220,9 +220,9 @@ export async function skillsPanel(db: Db, actor: Actor): Promise<SkillsPanel | n
   if (!viewOf(actor)) return null;
   const { holder, skills } = await listSkillSwitches(db, actor);
   const resource = { type: 'skill_switch', agencyId: actor.agencyId as string, ...(holder === 'personal' ? { ownerId: actor.userId } : {}) };
-  const [every, chats] = await Promise.all([listEveryAutomation(db, actor), listAssistantConversations(db, actor, new Date(), 30, { chatScopes: OPEN_CHAT_SCOPES })]);
+  const [every, chats] = await Promise.all([listEveryAutomation(db, actor), listAssistantConversations(db, actor, new Date(), 30, { chatScopes: STORED_OPEN_CHAT_SCOPES })]);
   return {
-    skills: skills
+    skills: combineSkillViews(skills)
       .filter((s) => skillIsUsable(s, holder))
       .map((s) => {
         const chat = chatScopeOfSkill(s.key);

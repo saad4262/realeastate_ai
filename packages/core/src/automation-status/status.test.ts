@@ -134,21 +134,21 @@ describe('the Skills panel', () => {
   const skill = (key: string, on: boolean, over: object = {}) => ({ key, name: key, icon: 'bolt', on, ...over });
 
   it('lists what is on, with its chat when it has one', async () => {
-    listSkillSwitches.mockResolvedValue({ holder: 'agency', skills: [skill('bulk_email', true), skill('buyer_matching', true), skill('cold_contacts', false)] });
+    listSkillSwitches.mockResolvedValue({ holder: 'agency', skills: [skill('dashboards', true), skill('buyer_matching', true), skill('cold_contacts', false)] });
     const p = await skillsPanel({} as Db, owner);
     expect(p!.skills).toEqual([
-      { key: 'bulk_email', name: 'bulk_email', icon: 'bolt', chat: 'bulk_email', automations: [], chats: [] },
+      { key: 'dashboards', name: 'dashboards', icon: 'bolt', chat: 'dashboards', automations: [], chats: [] },
       { key: 'buyer_matching', name: 'buyer_matching', icon: 'bolt', chat: null, automations: [], chats: [] },
     ]);
   });
 
   it('opens each skill to what was made with it and its chats', async () => {
-    listSkillSwitches.mockResolvedValue({ holder: 'agency', skills: [skill('bulk_email', true)] });
+    listSkillSwitches.mockResolvedValue({ holder: 'agency', skills: [skill('dashboards', true)] });
     listEveryAutomation.mockResolvedValue([
-      { key: 'recurring:1', name: 'Monday', skillKey: 'bulk_email', state: 'active', conversationId: 'c1' },
-      { key: 'recurring:2', name: 'Other skill', skillKey: 'bulk_sms', state: 'active', conversationId: 'c9' },
+      { key: 'recurring:1', name: 'Monday', skillKey: 'dashboards', state: 'active', conversationId: 'c1' },
+      { key: 'recurring:2', name: 'Other skill', skillKey: 'sms', state: 'active', conversationId: 'c9' },
     ]);
-    listAssistantConversations.mockResolvedValue([{ id: 'c1', title: 'Send every Monday', chatScope: 'bulk_email' }, { id: 'c2', title: 'SMS', chatScope: 'bulk_sms' }]);
+    listAssistantConversations.mockResolvedValue([{ id: 'c1', title: 'Send every Monday', chatScope: 'dashboards' }, { id: 'c2', title: 'SMS', chatScope: 'sms' }]);
     const p = await skillsPanel({} as Db, owner);
     expect(p!.skills[0]!.automations).toEqual([{ key: 'recurring:1', name: 'Monday', state: 'active', conversationId: 'c1' }]);
     expect(p!.skills[0]!.chats).toEqual([{ id: 'c1', title: 'Send every Monday' }]);
@@ -160,8 +160,8 @@ describe('the Skills panel', () => {
   });
 
   it('an agent’s two-switch skill counts only when the agency has it on too', async () => {
-    listSkillSwitches.mockResolvedValue({ holder: 'personal', skills: [skill('bulk_sms', true, { pair: true, agencyOn: false }), skill('workflow_texts', true, { pair: true, agencyOn: true })] });
-    expect((await skillsPanel({} as Db, agent))!.skills.map((x) => x.key)).toEqual(['workflow_texts']);
+    listSkillSwitches.mockResolvedValue({ holder: 'personal', skills: [skill('missed_call_text', true, { pair: true, agencyOn: false }), skill('ai_callback', true, { pair: true, agencyOn: true })] });
+    expect((await skillsPanel({} as Db, agent))!.skills.map((x) => x.key)).toEqual(['ai_callback']);
   });
 
   it('may flip them only if this person may manage the switches', async () => {
@@ -179,7 +179,7 @@ describe('the Skills panel', () => {
 
   it('goes to the skill’s chat, or to the switched-on skills when it has none', () => {
     const paths: AutomationPaths = { home: '/assistant', email: '/e', sms: '/s', skills: '/my-skills' };
-    expect(switchedOnHref({ key: 'bulk_email', name: 'x', icon: 'y', chat: 'bulk_email', automations: [], chats: [] }, paths)).toBe('/assistant?chat=bulk_email');
+    expect(switchedOnHref({ key: 'email', name: 'x', icon: 'y', chat: 'email', automations: [], chats: [] }, paths)).toBe('/assistant?chat=email');
     expect(switchedOnHref({ key: 'buyer_matching', name: 'x', icon: 'y', chat: null, automations: [], chats: [] }, paths)).toBe('/my-skills?show=on');
   });
 });

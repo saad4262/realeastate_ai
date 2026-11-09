@@ -111,6 +111,10 @@ async function advance(db: Db, a: AutomationRow, run: RunRow, actor: Actor, deps
   const size = runner.chunkSize(deps);
   const slice = contactIds.slice(run.cursor, run.cursor + size);
   const r = await runner.send(db, actor, a.spec, slice, deps, now);
+  if (r.retryAt) {
+    await db.update(automationRun).set({ leaseUntil: r.retryAt, updatedAt: sql`now()` }).where(and(eq(automationRun.id, run.id), eq(automationRun.status, 'running')));
+    return;
+  }
   const progress = { cursor: run.cursor + slice.length, sent: run.sent + r.sent, failed: run.failed + r.failed, skipped: run.skipped + r.skipped };
   if (r.stop) return finish(db, run, 'stopped', r.stop, now, progress);
   if (progress.cursor >= contactIds.length) return finish(db, run, 'done', null, now, progress);

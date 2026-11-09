@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
-import { skillSwitch, user, type DbOrTx } from '@repo/db';
+import { skillSwitch, user, type Db, type DbOrTx } from '@repo/db';
 import { can, isAgencyAdminRole, type Actor, type MembershipRole } from '../permissions';
-import { platformSkill, skillOffMessage, skillsForHolder, type PlatformSkill, type SkillKey, type SwitchHolder } from './catalog';
+import { comboOfSkill, SKILL_COMBOS, platformSkill, skillOffMessage, skillsForHolder, type PlatformSkill, type SkillKey, type SwitchHolder } from './catalog';
 
 /**
  * The platform skills' switches (ADR 0058). No row = OFF (ADR 0069): a skill runs only once its holder
@@ -120,8 +120,51 @@ export async function isSkillOn(db: DbOrTx, actor: Actor, key: SkillKey): Promis
 }
 
 /** Is a skill from `listSkillSwitches` really on for this person? An agent's `pair` skill also needs the agency's switch. */
-export function skillIsUsable(s: SkillSwitchView, holder: SwitchHolder): boolean {
+export function skillIsUsable(s: Pick<SkillCard, 'on' | 'pair' | 'agencyOn'>, holder: SwitchHolder): boolean {
   return s.on && (!s.pair || holder === 'agency' || Boolean(s.agencyOn));
+}
+
+/** A skill as one card shows it: one of the catalog's, or Email or SMS in place of their parts. */
+export type SkillCard = Omit<SkillSwitchView, 'key'> & { key: string };
+
+/** The switches as the person sees them. A combined skill is on only when every part is. */
+export function combineSkillViews(views: readonly SkillSwitchView[]): SkillCard[] {
+  const out: SkillCard[] = [];
+  const done = new Set<string>();
+  for (const v of views) {
+    const combo = comboOfSkill(v.key);
+    if (!combo) {
+      out.push(v);
+      continue;
+    }
+    if (done.has(combo.key)) continue;
+    done.add(combo.key);
+    const parts = views.filter((p) => (combo.members as readonly string[]).includes(p.key));
+    const newest = parts.filter((p) => p.changedAt).sort((a, b) => new Date(b.changedAt!).getTime() - new Date(a.changedAt!).getTime())[0];
+    out.push({
+      ...v,
+      key: combo.key,
+      name: combo.name,
+      description: combo.description,
+      icon: combo.icon,
+      level: 'approval',
+      on: parts.every((p) => p.on),
+      changedBy: newest?.changedBy ?? null,
+      changedAt: newest?.changedAt ?? null,
+      ...(combo.needs ? { needs: combo.needs } : {}),
+      ...(combo.pair ? { pair: true as const, agencyOn: parts.every((p) => p.agencyOn) } : {}),
+    });
+  }
+  return out;
+}
+
+/** One switch for a combined skill: every part, together, each asked as its own. */
+export async function setSkillCombo(db: Db, actor: Actor, key: string, on: boolean): Promise<void> {
+  const combo = SKILL_COMBOS.find((c) => c.key === key);
+  if (!combo) throw new SkillSwitchError('not_found', 'That is not a skill.');
+  await db.transaction(async (tx) => {
+    for (const member of combo.members) await setSkillSwitch(tx, actor, member, on);
+  });
 }
 
 /** The same question for a skill chat (ADR 0088), where a `pair` skill needs both switches. */

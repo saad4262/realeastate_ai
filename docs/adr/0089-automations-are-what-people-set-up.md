@@ -21,6 +21,8 @@ own chat and history, running side by side. Nothing today runs a bulk send on a 
 5. **It stops itself** when its skill is off (that run is skipped and says why), its owner has left, or it has failed three times.
 6. **The top bar.** Skills: each skill opens to its automations and chats. Automations: only what is running or just ran, with progress.
 
+**Email and SMS are one skill each (the user, 2026-11-09).** A send, a draft and a workflow are the same job on different clocks, so Bulk email, AI email drafts and Workflow emails are one card and one chat, and so are Bulk SMS and Workflow texts. Missed call text and AI calls back stay as they are. The parts keep their own switches underneath, so every gate that asks them is unchanged; one card flips them together. A chat saved under an old name opens as the combined one, with no data changed.
+
 **Alternatives.** A time trigger on workflows (a workflow acts on one record per event; this acts on a list per clock). Moving workflows and
 tasks into one table (a migration of running work, for no gain on screen).
 

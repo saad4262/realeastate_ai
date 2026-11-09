@@ -62,6 +62,8 @@ export type SmsPrepareInput = (
   listingId?: string;
   /** A workflow's "Send SMS" step: an automatic text (rule 4 counts it; the pair skill is checked at send). */
   workflowName?: string;
+  /** Classify past one batch, for a repeating automation that sends in slices (ADR 0089). */
+  maxPeople?: number;
 };
 
 /** The filter snapshot of an SMS batch also says whether its texts are automatic (a workflow's). */
@@ -163,7 +165,7 @@ export async function classifySmsRecipients(db: DbOrTx, actor: Actor, input: Sms
     });
     if (!reason && allowed && !allowed(mobile!)) reason = 'dev_allowlist';
     if (!reason) {
-      if (toSend >= SMS_BATCH_MAX) reason = 'batch_limit';
+      if (toSend >= (input.maxPeople ?? SMS_BATCH_MAX)) reason = 'batch_limit';
       else toSend += 1;
     }
     return { contactId: r.id, name: r.name, phone: mobile, phoneNumberId: from?.id ?? null, fromE164: from?.e164 ?? null, status: reason ? 'skipped' : 'queued', skipReason: reason };

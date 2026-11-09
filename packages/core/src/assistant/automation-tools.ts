@@ -3,6 +3,7 @@ import { emailLimitsFromEnv } from '../email/limits';
 import { can } from '../permissions';
 import { AUTOMATION_LIMITS, automationWords, type AutomationDraft } from '../recurring/kinds';
 import { classifyRecipients, mergeValuesFor } from '../template-email/batches';
+import { classifySmsRecipients } from '../template-email/sms-batches';
 import { renderMerge } from '../template-email/schema';
 import { TemplateEmailError } from '../template-email/templates';
 import { propose, type FrozenArgs } from './actions';
@@ -27,9 +28,12 @@ export async function proposeCreateAutomation(ctx: ToolContext, input: z.infer<t
   const filterId = resolveHandle(ctx.handles, input.list, 'filter');
   if (!templateId || !filterId) return refused(UNKNOWN_REF, label);
 
+  const isSms = ctx.chatScope === 'sms';
   let c;
   try {
-    c = await classifyRecipients(db, actor, { templateId, filterId }, { ...emailLimitsFromEnv(), perBatch: AUTOMATION_LIMITS.peoplePerRun });
+    c = isSms
+      ? await classifySmsRecipients(db, actor, { templateId, filterId, maxPeople: AUTOMATION_LIMITS.peoplePerRun })
+      : await classifyRecipients(db, actor, { templateId, filterId }, { ...emailLimitsFromEnv(), perBatch: AUTOMATION_LIMITS.peoplePerRun });
   } catch (err) {
     if (err instanceof TemplateEmailError) return refused(err.message, label);
     throw err;
@@ -45,7 +49,8 @@ export async function proposeCreateAutomation(ctx: ToolContext, input: z.infer<t
     timezone: ctx.timeZone,
   };
   const spec = { templateId, templateName: c.template.name, filterId, listName: c.filter.name };
-  const draft: AutomationDraft = { kind: 'bulk_email', name: input.name, spec, ...schedule, conversationId: ctx.proposal?.conversationId ?? null };
+  const kind = isSms ? 'bulk_sms' : 'bulk_email';
+  const draft: AutomationDraft = { kind, name: input.name, spec, ...schedule, conversationId: ctx.proposal?.conversationId ?? null };
 
   const going = c.recipients.filter((r) => r.status === 'queued');
   const first = going[0];
@@ -54,16 +59,18 @@ export async function proposeCreateAutomation(ctx: ToolContext, input: z.infer<t
     title: `Set up the automation “${input.name}”`,
     contact: { id: '', name: '' },
     lines: [
-      { label: 'What it does', value: automationWords('bulk_email', spec) },
+      { label: 'What it does', value: automationWords(kind, spec) },
       { label: 'When', value: scheduleWords(schedule) },
       { label: 'Who today', value: `${going.length} could receive it today · ${c.recipients.length - going.length} could not` },
-      { label: 'Subject', value: values ? renderMerge(c.template.subject, values) : c.template.subject },
+      ...('subject' in c.template ? [{ label: 'Subject', value: values ? renderMerge(c.template.subject, values) : c.template.subject }] : []),
     ],
-    ...(values && first ? { text: { label: `Email to ${first.name} (each person gets their own name)`, value: renderMerge(c.template.body, values) } } : {}),
+    ...(values && first ? { text: { label: `${isSms ? 'Text' : 'Email'} to ${first.name} (each person gets their own name)`, value: renderMerge(c.template.body, values) } } : {}),
     notes: [
       NOTHING_YET,
       'Once you approve this, it sends by itself every time, with no further click from you.',
-      'Every run checks everyone again: consent, unsubscribes, archiving and the day’s email limits. A run that reaches a limit stops there and says so.',
+      isSms
+        ? 'Every run checks everyone again: consent, STOP replies and the day’s limits. Texts only go in sending hours.'
+        : 'Every run checks everyone again: consent, unsubscribes, archiving and the day’s email limits. A run that reaches a limit stops there and says so.',
       'Turn it off any time in Skills, on the Automations tab.',
     ],
   };

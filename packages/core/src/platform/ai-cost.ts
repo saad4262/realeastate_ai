@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import type { Db } from '@repo/db';
 import { aiBudgetCaps } from '../assistant/budget';
-import { CHAT_SCOPE_LABELS, type ChatScope } from '../assistant/chat-scopes';
+import { CHAT_SCOPE_LABELS, LEGACY_CHAT_SCOPES, type ChatScope } from '../assistant/chat-scopes';
 import { can, type Actor } from '../permissions';
 import { PlatformError } from './admin';
 
@@ -283,8 +283,10 @@ export function chatLines(rows: readonly { feature: string; chat_scope?: string 
   const lines = new Map<string, AiCostChat>();
   for (const r of rows) {
     if (r.feature !== ASSISTANT) continue;
-    const key = r.chat_scope ?? 'none';
-    const line = lines.get(key) ?? { key, label: r.chat_scope ? (CHAT_SCOPE_LABELS[r.chat_scope as ChatScope] ?? r.chat_scope) : 'Older chats', spend: 0, calls: 0 };
+    // A chat saved under a name since combined counts with what it became (ADR 0089).
+    const scope = r.chat_scope ? (LEGACY_CHAT_SCOPES[r.chat_scope] ?? r.chat_scope) : null;
+    const key = scope ?? 'none';
+    const line = lines.get(key) ?? { key, label: scope ? (CHAT_SCOPE_LABELS[scope as ChatScope] ?? scope) : 'Older chats', spend: 0, calls: 0 };
     line.spend += n(r.spend);
     line.calls += n(r.calls);
     lines.set(key, line);

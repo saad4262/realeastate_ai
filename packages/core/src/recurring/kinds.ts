@@ -5,7 +5,7 @@ import { z } from 'zod';
  * and the chat tools read it. A new kind is an entry here, a runner in `runners.ts` and a chat that can make it.
  */
 
-export const AUTOMATION_KINDS = ['bulk_email'] as const;
+export const AUTOMATION_KINDS = ['bulk_email', 'bulk_sms'] as const;
 export type AutomationKind = (typeof AUTOMATION_KINDS)[number];
 
 export const AUTOMATION_LIMITS = { peoplePerRun: 1000, failuresBeforePause: 3, leaseMinutes: 5 } as const;
@@ -21,11 +21,15 @@ export const bulkEmailSpecSchema = z
   .strict();
 export type BulkEmailSpec = z.infer<typeof bulkEmailSpecSchema>;
 
-export const AUTOMATION_SPECS = { bulk_email: bulkEmailSpecSchema } as const satisfies Record<AutomationKind, z.ZodTypeAny>;
+export const bulkSmsSpecSchema = bulkEmailSpecSchema;
+export type BulkSmsSpec = BulkEmailSpec;
+
+export const AUTOMATION_SPECS = { bulk_email: bulkEmailSpecSchema, bulk_sms: bulkSmsSpecSchema } as const satisfies Record<AutomationKind, z.ZodTypeAny>;
 
 /** The skill each kind comes from: its name on screen, and the switch every run needs on. */
 export const AUTOMATION_SKILL: Readonly<Record<AutomationKind, { key: string; name: string; icon: string }>> = Object.freeze({
-  bulk_email: { key: 'bulk_email', name: 'Bulk email', icon: 'forward_to_inbox' },
+  bulk_email: { key: 'bulk_email', name: 'Email', icon: 'mail' },
+  bulk_sms: { key: 'bulk_sms', name: 'SMS', icon: 'sms' },
 });
 
 /** What it does, in words, from its own spec. */
@@ -33,6 +37,10 @@ export function automationWords(kind: string, spec: unknown): string {
   if (kind === 'bulk_email') {
     const s = bulkEmailSpecSchema.safeParse(spec);
     return s.success ? `Sends “${s.data.templateName}” to everyone on “${s.data.listName}” who may receive it` : 'Sends a bulk email';
+  }
+  if (kind === 'bulk_sms') {
+    const s = bulkSmsSpecSchema.safeParse(spec);
+    return s.success ? `Texts “${s.data.templateName}” to everyone on “${s.data.listName}” who may receive it` : 'Sends a bulk text';
   }
   return 'Runs a skill';
 }

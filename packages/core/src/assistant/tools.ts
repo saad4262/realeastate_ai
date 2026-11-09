@@ -58,7 +58,7 @@ import { findBuyers } from './buyer-tools';
 import { findDeals } from './deal-tools';
 import { mayCreateImport } from '../imports/imports';
 import { findSkills, proposeChangeSkill, proposeSetUpSkill, proposeSwitchSkill } from './skill-tools';
-import { CHAT_SCOPE_RULES, chatScopeRefusal, templateChannel, type ChatScope } from './chat-scopes';
+import { chatScopeRefusal, chatScopeSkillFor, templateChannel, type ChatScope } from './chat-scopes';
 import { platformSkill, skillOffMessage, skillsForToolCall } from '../skill-switches/catalog';
 import { openChatTool } from './open-chat';
 import { proposeSendTemplateSms } from './sms-tools';
@@ -275,7 +275,7 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
   // two frozen lists so the prompt cache holds. switch_skill and find_skills are never gated.
   const gates = skillsForToolCall(tool, parsed.data);
   // A skill chat's actions need that skill on, the switch Bulk email's own page asks (ADR 0088). Old chats are not changed.
-  const chatSkill = ctx.chatScope ? CHAT_SCOPE_RULES[ctx.chatScope].skill : undefined;
+  const chatSkill = ctx.chatScope ? chatScopeSkillFor(ctx.chatScope, tool) : undefined;
   if (chatSkill && (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(tool)) {
     // A `pair` skill needs the agency's switch AND this person's, which the set below cannot say.
     if (!platformSkill(chatSkill).pair) gates.push(chatSkill);

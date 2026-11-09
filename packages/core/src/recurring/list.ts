@@ -1,7 +1,8 @@
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { automation, type Db, user } from '@repo/db';
 import { scheduleWords } from '../assistant/skill-tools';
-import { skillKeyOfChatScope } from '../assistant/chat-scopes';
+import { CHAT_SCOPE_LABELS, parseChatScope, skillKeyOfChatScope } from '../assistant/chat-scopes';
+import { comboOfSkill } from '../skill-switches/catalog';
 import { can, type Actor } from '../permissions';
 import { listWorkflows } from '../workflows/manage';
 import { AUTOMATION_SKILL, automationWords, type AutomationKind } from './kinds';
@@ -97,7 +98,7 @@ export async function listEveryAutomation(db: Db, actor: Actor): Promise<Automat
         name: a.name,
         what: automationWords(a.kind, a.spec),
         skill: skill?.name ?? a.skillKey,
-        skillKey: a.skillKey,
+        skillKey: comboOfSkill(a.skillKey)?.key ?? a.skillKey,
         when: scheduleWords(a),
         state: a.status === 'active' ? 'active' : 'off',
         note: a.pausedReason,
@@ -118,8 +119,8 @@ export async function listEveryAutomation(db: Db, actor: Actor): Promise<Automat
         id: w.id,
         name: w.name,
         what: w.words.then.join(', then ') || 'Runs its steps',
-        skill: texts && !emails ? 'Workflow texts' : emails && !texts ? 'Workflow emails' : 'Workflows',
-        skillKey: texts && !emails ? 'workflow_texts' : emails && !texts ? 'workflow_emails' : null,
+        skill: texts && !emails ? 'SMS' : emails && !texts ? 'Email' : 'Workflows',
+        skillKey: texts && !emails ? 'sms' : emails && !texts ? 'email' : null,
         when: w.words.when,
         state: w.status === 'active' ? 'active' : 'off',
         note: w.pausedReason ?? (w.runsToday ? `${w.runsToday} today` : null),
@@ -138,7 +139,7 @@ export async function listEveryAutomation(db: Db, actor: Actor): Promise<Automat
       id: t.id,
       name: t.title,
       what: 'A task done once, in steps',
-      skill: 'Daily work',
+      skill: CHAT_SCOPE_LABELS[parseChatScope(t.chat_scope) ?? 'daily_work'],
       skillKey: skillKeyOfChatScope(t.chat_scope),
       when: 'Once',
       state: t.status === 'active' ? 'active' : 'finished',

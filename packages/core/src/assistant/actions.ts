@@ -52,9 +52,9 @@ import { runListingAction, type FrozenPin } from './listing-tools';
 import { runSkillAction, runSwitchSkill } from './skill-tools';
 import { SKILL_OF_WORKFLOW_STEP, skillOffMessage, type SkillKey } from '../skill-switches/catalog';
 import { holderOf, isSkillOn, isSkillOnForChat } from '../skill-switches/switches';
-import { CHAT_SCOPE_RULES, chatScopeAllowsCard, parseChatScope } from './chat-scopes';
+import { chatScopeAllowsCard, chatScopeSkillFor, parseChatScope } from './chat-scopes';
 import { AutomationError, createAutomation } from '../recurring/manage';
-import type { AutomationDraft } from '../recurring/kinds';
+import { AUTOMATION_SKILL, type AutomationDraft, type AutomationKind } from '../recurring/kinds';
 import { runWorkflowAction } from './workflow-tools';
 import { runTemplateAction } from './template-tools';
 import type { WorkflowSpec } from '../workflows/catalog';
@@ -1056,7 +1056,8 @@ export async function approveProposedAction(
     const [chat] = await db.select({ chatScope: assistantConversation.chatScope }).from(assistantConversation).where(eq(assistantConversation.id, row.conversationId)).limit(1);
     const scope = parseChatScope(chat?.chatScope);
     if (!chatScopeAllowsCard(scope, row.tool)) throw new AssistantError('forbidden', 'This card is not part of this chat, so it cannot be approved here.');
-    const skill = scope ? CHAT_SCOPE_RULES[scope].skill : undefined;
+    const made = (row.args as { automation?: { kind: AutomationKind } }).automation;
+    const skill = made ? (AUTOMATION_SKILL[made.kind].key as SkillKey) : scope ? chatScopeSkillFor(scope, row.tool) : undefined;
     if (skill && !(await isSkillOnForChat(db, actor, skill))) throw new AssistantError('forbidden', skillOffMessage(skill, holderOf(actor.membershipRole)));
   }
   const runAt = opts.runAt && opts.runAt.getTime() > now.getTime() + NOW_SLACK_MS ? opts.runAt : null;

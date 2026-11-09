@@ -46,7 +46,7 @@ describe('listEveryAutomation', () => {
 
   it('a repeating one says what it does, which skill, when, and its chat', async () => {
     const [r] = await listEveryAutomation(fake([auto()], [], []).db, agent);
-    expect(r).toMatchObject({ source: 'recurring', name: 'Monday', skill: 'Bulk email', skillKey: 'bulk_email', state: 'active', canToggle: true, canRun: true, conversationId: 'c1', mine: true });
+    expect(r).toMatchObject({ source: 'recurring', name: 'Monday', skill: 'Email', skillKey: 'email', state: 'active', canToggle: true, canRun: true, conversationId: 'c1', mine: true });
     expect(r!.what).toContain('Spring');
     expect(r!.when).toContain('9:00');
   });
@@ -59,7 +59,7 @@ describe('listEveryAutomation', () => {
   it('a workflow keeps showing, under the skill its sends belong to, with the chat it was made in', async () => {
     listWorkflows.mockResolvedValue([flow()]);
     const rows = await listEveryAutomation(fake([], [], [], [{ workflow_id: 'w1', conversation_id: 'c9' }]).db, agent);
-    expect(rows[0]).toMatchObject({ source: 'workflow', skill: 'Workflow emails', skillKey: 'workflow_emails', when: 'A new enquiry', state: 'active', note: '2 today', conversationId: 'c9' });
+    expect(rows[0]).toMatchObject({ source: 'workflow', skill: 'Email', skillKey: 'email', when: 'A new enquiry', state: 'active', note: '2 today', conversationId: 'c9' });
     expect(rows[0]!.what).toBe('Send the welcome, then Add a note');
   });
 
@@ -76,7 +76,7 @@ describe('listEveryAutomation', () => {
     const rows = await listEveryAutomation(fake([], [task], [skill]).db, agent);
     expect(rows.map((r) => r.source)).toEqual(['ai_skill', 'task']);
     expect(rows[0]).toMatchObject({ skill: 'AI skills', state: 'active', canToggle: true });
-    expect(rows[1]).toMatchObject({ when: 'Once', state: 'finished', canToggle: false, skillKey: 'bulk_email' });
+    expect(rows[1]).toMatchObject({ when: 'Once', state: 'finished', canToggle: false, skill: 'Email', skillKey: 'email' });
   });
 
   it('an owner cannot switch off someone else’s AI skill; an agent’s reads are narrowed to them', async () => {

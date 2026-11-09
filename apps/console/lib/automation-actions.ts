@@ -4,6 +4,7 @@ import { after } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { AssistantError, stopAssistantTask } from '@repo/core/assistant';
 import { AutomationError, driveAutomationRun, runAutomationNow, setAutomationStatus, stopAutomationRun } from '@repo/core/recurring';
+import { phoneDepsFromEnv } from '@repo/core/phone';
 import { templateSendDepsFromEnv } from '@repo/core/template-email';
 import { getConsoleDb } from './db';
 import { loadListingActor } from './load-actor';
@@ -67,7 +68,7 @@ export async function runAutomationNowAction(id: string): Promise<R> {
     const { runId } = await runAutomationNow(db, await actor(), String(id));
     const send = templateSendDepsFromEnv();
     after(() =>
-      driveAutomationRun(db, { templateSend: send.ok ? send.deps : null }, runId).catch((err: unknown) =>
+      driveAutomationRun(db, { templateSend: send.ok ? send.deps : null, sms: { phone: phoneDepsFromEnv() } }, runId).catch((err: unknown) =>
         console.error('[automations] run failed', err instanceof Error ? err.message : 'unknown'),
       ),
     );

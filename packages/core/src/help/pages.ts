@@ -26,8 +26,8 @@ export type HelpNavGroup = { label?: string; items: readonly { href: string; lab
 export type HelpSurface = 'agency' | 'agent';
 
 const FOLLOW_UPS = 'Say what you want in plain words and it finds the records; anything that changes something comes back as a card to approve.';
-const BULK_EMAIL = 'Send an approved email template to a saved list of contacts: prepare a batch, check every name, then Approve & Send. Consent and unsubscribes are respected. Needs Bulk email switched on in Skills. Your templates are listed on the same page, with a button to write a new one.';
-const BULK_SMS = 'Text an SMS template to a saved list: check every name, then Approve & Send, from each contact’s agent’s number, in sending hours. Needs Bulk SMS on in Skills and a connected Twilio. Your templates are listed on the same page, with a button to write a new one.';
+const BULK_EMAIL = 'Send an approved email template to a saved list of contacts: prepare a batch, check every name, then Approve & Send. Consent and unsubscribes are respected. Needs Email switched on in Skills. Your templates are listed on the same page, with a button to write a new one.';
+const BULK_SMS = 'Text an SMS template to a saved list: check every name, then Approve & Send, from each contact’s agent’s number, in sending hours. Needs SMS on in Skills and a connected Twilio. Your templates are listed on the same page, with a button to write a new one.';
 const SKILLS = 'Skills are the facilities the platform provides. Three tabs. Platform skills: each has its own on/off switch, off until someone switches it on; a skill that is on and has its own chat shows an Open chat link on its card. AI skills: ready-made jobs such as Morning Brief. Automations: everything you have set up with your skills, from their chats: what it does, which skill it came from, when it runs, whether it is on, an on/off button, its chat and its history. The top of the page has buttons for the Daily work chat and the AI skills chat.';
 const NOT_BUILT = 'A preview screen with placeholder content. It is not working yet.';
 
@@ -155,15 +155,15 @@ function commonJobs(surface: HelpSurface): string {
     surface === 'agency'
       ? '- Publish a listing: Properties → Listings → Add listing, fill it in, then Publish. Agents’ listings waiting for approval are on the same page. Under offer, Mark sold and Withdraw are on the listing.'
       : '- Add a listing: Properties → My Listings → Add listing, fill it in, then Submit for approval. The agency publishes it. Import from CSV is on the same page.';
-  return `- Send a bulk email: first make a saved list: on ${people}, filter the list and press Save this filter. Switch on Bulk email in Skills. On Marketing → Bulk email, under Prepare a send, pick a template and the saved list, press Prepare, check every name on the batch, then Approve & Send. Or open the Bulk email chat from its card on Skills.
+  return `- Send a bulk email: first make a saved list: on ${people}, filter the list and press Save this filter. Switch on Email in Skills. On Marketing → Bulk email, under Prepare a send, pick a template and the saved list, press Prepare, check every name on the batch, then Approve & Send. Or open the Email chat from its card on Skills, which also drafts single emails and sets up email that repeats.
 - Write an email template: Marketing → Bulk email → + New template.
-- Send a bulk SMS: the same on Marketing → Bulk SMS: Prepare texts, check every name, Approve & Send. It needs Bulk SMS on in Skills, and a connected Twilio. Write one with + New SMS template.
+- Send a bulk SMS: the same on Marketing → Bulk SMS: Prepare texts, check every name, Approve & Send. It needs SMS on in Skills, and a connected Twilio. The SMS chat, from its card on Skills, sends and sets up texts that repeat. Write one with + New SMS template.
 - Add a person: People → ${people} → New contact. Import brings in a spreadsheet.
 ${listing}
 - Book an appointment: Daily work → Calendar → + Schedule. + Team meeting books colleagues.
 - Message a colleague: Daily work → Team messages → New message.
 - Switch a skill on or off: Automation → Skills, Platform skills tab, the switch on its card.
-- Set up an automation: open a skill's chat from its card on Skills and say what you want and when, for example a bulk email every Monday. You approve one card and it runs by itself. It then shows on the Automations tab of Skills, where you can turn it on or off and see its history.
+- Set up an automation: open a skill's chat from its card on Skills and say what you want and when, for example a bulk email or a text every Monday. You approve one card and it runs by itself. It then shows on the Automations tab of Skills, where you can turn it on or off and see its history.
 - Get a dashboard: Knowledge & insights → Projects → New with the assistant. It needs Dashboards on in Skills.
 - Add a document for the assistant: Knowledge & insights → Knowledge base → Add documents.
 - Connect Gmail, Zoom and other accounts: Settings → Connectors. Search finds one.${surface === 'agency' ? '\n- Add or remove an agent: People → Agents & Team.' : ''}`;

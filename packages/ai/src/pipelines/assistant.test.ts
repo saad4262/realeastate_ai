@@ -621,7 +621,7 @@ describe('a chat keeps to its job (ADR 0088)', () => {
   it('the loop sends the claimed chat’s list, runs its tools in that chat and meters them to it', async () => {
     const scopes: unknown[] = [];
     const { deps, tracked } = fakeDeps({
-      claim: async () => ({ conversationId: 'c', seq: 1, handles: {}, chatScope: 'bulk_email', history: [] }),
+      claim: async () => ({ conversationId: 'c', seq: 1, handles: {}, chatScope: 'email', history: [] }),
       tools: (scope) => assistantToolsFor(owner, scope),
       runTool: async (_h, _n, _i, _p, scope) => {
         scopes.push(scope);
@@ -630,10 +630,10 @@ describe('a chat keeps to its job (ADR 0088)', () => {
     });
     const { client, requests } = fakeClient([msg([toolUse('t1', 'find_contacts', {})], 'tool_use'), msg([text('done')], 'end_turn')]);
     await run({ client, deps });
-    expect(names(requests[0]!.tools as { name: string }[])).not.toContain('send_email');
+    expect(names(requests[0]!.tools as { name: string }[])).not.toContain('send_template_sms');
     expect(names(requests[0]!.tools as { name: string }[])).toContain('send_template_email');
-    expect(scopes).toEqual(['bulk_email']);
-    expect(tracked.map((t) => t.chatScope)).toEqual(['bulk_email', 'bulk_email']);
+    expect(scopes).toEqual(['email']);
+    expect(tracked.map((t) => t.chatScope)).toEqual(['email', 'email']);
   });
 
   it('a chat from before the ADR is never given a skill chat’s own tool', () => {
@@ -641,9 +641,9 @@ describe('a chat keeps to its job (ADR 0088)', () => {
     expect(names(ASSISTANT_TOOLS)).not.toContain('send_template_sms');
     expect(names(assistantToolsFor(owner))).not.toContain('open_chat');
     expect(names(assistantToolsFor(owner, 'general'))).toContain('open_chat');
-    expect(names(assistantToolsFor(owner, 'bulk_email'))).not.toContain('open_chat');
-    expect(names(assistantToolsFor(owner, 'bulk_sms'))).toContain('send_template_sms');
-    expect(names(assistantToolsFor(owner, 'bulk_email'))).not.toContain('send_template_sms');
+    expect(names(assistantToolsFor(owner, 'email'))).not.toContain('open_chat');
+    expect(names(assistantToolsFor(owner, 'sms'))).toContain('send_template_sms');
+    expect(names(assistantToolsFor(owner, 'email'))).not.toContain('send_template_sms');
   });
 
   it('a chat with no scope sends exactly the system prompt it always did', () => {
@@ -651,11 +651,11 @@ describe('a chat keeps to its job (ADR 0088)', () => {
   });
 
   it('a skill chat adds its own brief after it, the same text every time, with no date', () => {
-    const blocks = assistantSystemBlocks('bulk_email');
+    const blocks = assistantSystemBlocks('email');
     expect(blocks[0]!.text).toBe(ASSISTANT_SYSTEM);
-    expect(blocks[1]!.text).toContain('Bulk email');
+    expect(blocks[1]!.text).toContain('Email');
     expect(blocks[1]!.text).toContain('This chat outranks');
-    expect(assistantSystemBlocks('bulk_email')).toEqual(blocks);
+    expect(assistantSystemBlocks('email')).toEqual(blocks);
     expect(blocks[1]!.text).not.toMatch(/20\d\d/);
   });
 
@@ -664,7 +664,7 @@ describe('a chat keeps to its job (ADR 0088)', () => {
   });
 
   it('the loop sends the claimed chat’s brief', async () => {
-    const { deps } = fakeDeps({ claim: async () => ({ conversationId: 'c', seq: 1, handles: {}, chatScope: 'bulk_email', history: [] }) });
+    const { deps } = fakeDeps({ claim: async () => ({ conversationId: 'c', seq: 1, handles: {}, chatScope: 'email', history: [] }) });
     const { client, requests } = fakeClient([msg([text('ok')], 'end_turn')]);
     await run({ client, deps });
     expect(JSON.stringify(requests[0]!.system)).toContain('<this_chat>');
@@ -674,7 +674,7 @@ describe('a chat keeps to its job (ADR 0088)', () => {
     const brief = assistantSystemBlocks('general')[1]!.text;
     expect(brief).toContain('open_chat');
     for (const s of OPEN_CHAT_SCOPES) expect(brief, s).toContain(`${s} (`);
-    expect(assistantSystemBlocks('bulk_email')[1]!.text).not.toContain('open_chat');
+    expect(assistantSystemBlocks('email')[1]!.text).not.toContain('open_chat');
   });
 
   it('the real deps pass the flag on', () => {

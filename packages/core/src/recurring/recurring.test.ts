@@ -13,7 +13,7 @@ import { claimDueAutomations, runAutomationNow, runAutomationTick } from './tick
 const runner = vi.hoisted(() => ({ people: vi.fn(), chunkSize: vi.fn(() => 2), send: vi.fn() }));
 const activeMemberActor = vi.hoisted(() => vi.fn());
 const isSkillOnForChat = vi.hoisted(() => vi.fn());
-vi.mock('./runners', () => ({ AUTOMATION_RUNNERS: { bulk_email: runner } }));
+vi.mock('./runners', () => ({ AUTOMATION_RUNNERS: { bulk_email: runner, bulk_sms: runner } }));
 vi.mock('../team/member-actor', () => ({ activeMemberActor }));
 vi.mock('../skill-switches/switches', async (real) => ({ ...(await real<object>()), isSkillOnForChat }));
 
@@ -59,7 +59,7 @@ function script(answers: Record<string, unknown[][]>) {
 
 const row = (over: object = {}) => ({ id: ID, agencyId: A, userId: 'u1', skillKey: 'bulk_email', kind: 'bulk_email', name: 'Monday', spec, status: 'active', cadence: 'daily', sendAtMinute: 540, sendOnWeekday: null, intervalMinutes: null, timezone: 'Australia/Sydney', nextRunAt: NOW, consecutiveFailures: 0, ...over });
 const run = (over: object = {}) => ({ id: 'r1', automationId: ID, agencyId: A, userId: 'u1', status: 'running', contactIds: [], cursor: 0, sent: 0, failed: 0, skipped: 0, leaseUntil: null, ...over });
-const deps = { templateSend: null };
+const deps = { templateSend: null, sms: null };
 const runUpdates = (u: ReturnType<typeof script>['updates']) => u.filter((x) => x.table === 'automation_run').map((x) => x.set);
 
 beforeEach(() => {
@@ -180,6 +180,13 @@ describe('a run', () => {
     runner.send.mockResolvedValue({ sent: 0, failed: 0, skipped: 0, stop: 'Stopped at today’s email limit.' });
     const { updates } = await tick(due(run({ contactIds: ['c1', 'c2', 'c3'], cursor: 2, sent: 2 })));
     expect(runUpdates(updates).at(-1)).toMatchObject({ status: 'stopped', sent: 2, detail: 'Stopped at today’s email limit.' });
+  });
+  it('a slice that must wait makes no progress and comes back at its time', async () => {
+    const at = new Date(NOW.getTime() + 3_600_000);
+    runner.send.mockResolvedValue({ sent: 0, failed: 0, skipped: 0, retryAt: at });
+    const { updates } = await tick(due(run({ contactIds: ['c1', 'c2'], cursor: 0 })));
+    expect(runUpdates(updates).at(-1)).toMatchObject({ leaseUntil: at });
+    expect(runUpdates(updates).at(-1)).not.toHaveProperty('cursor');
   });
   it('nobody could receive it: done, nothing sent', async () => {
     runner.people.mockResolvedValue({ contactIds: [], skipped: 4 });

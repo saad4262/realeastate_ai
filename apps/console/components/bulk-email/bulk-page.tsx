@@ -41,7 +41,7 @@ export async function BulkEmailPage({ surface }: { surface: 'agency' | 'agent' }
         <p className={contactStyles.sub}>
           A template to the contacts in one of your saved filters — people who agreed to marketing email, made an
           enquiry in the last 24 months, or are a seller, landlord or tenant; never anyone who unsubscribed.
-          Prepare, check every name, then Approve &amp; Send. Nothing is ever sent on a schedule.
+          Prepare, check every name, then Approve &amp; Send. To repeat one on a schedule, ask the Email chat.
         </p>
       </div>
       {dev ? (

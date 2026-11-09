@@ -26,7 +26,7 @@ function context(over: Partial<ToolContext> = {}) {
   const C = issueHandle(handles, 'C', 'contact-1');
   // Both switches on: this file is about the card.
   const db = { select: () => ({ from: () => ({ where: async () => [{ userId: null, enabled: true }, { userId: 'u1', enabled: true }] }) }) } as unknown as Db;
-  return { ctx: { db, actor: owner, timeZone: 'UTC', handles, now: new Date('2026-11-09T01:00:00Z'), chatScope: 'bulk_sms', ...over } as ToolContext, T, F, C };
+  return { ctx: { db, actor: owner, timeZone: 'UTC', handles, now: new Date('2026-11-09T01:00:00Z'), chatScope: 'sms', ...over } as ToolContext, T, F, C };
 }
 
 const batch = (over: object = {}) => ({

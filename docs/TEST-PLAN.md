@@ -2372,3 +2372,9 @@ Phase 1 is the foundation and changes nothing on screen. Apply migration 0093 fi
 | CX60 | Two automations from one skill | Both listed, each opens its own chat from the tab and the Skills panel's submenu |
 | CX61 | Automations tab with existing workflows, Morning Brief and a one-off task | All listed, each saying which skill and when |
 | CX62 | Agent vs owner | An agent sees and switches only their own. An owner sees all and can switch workflows and repeating ones; another person's AI skill has no button |
+| CX63 | Skills → Communication and Phone & SMS | One Email card and one SMS card, in place of the five; Missed call text and AI calls back as they were |
+| CX64 | The Email switch off, then on | Everything email goes off and on together: the Bulk email page says it is off; workflow email steps are skipped |
+| CX65 | Email chat: a single email, a bulk send, "every Monday", and "when an enquiry comes in" | All in one chat, each as its own card |
+| CX66 | Email chat: "send a text" | Says that belongs in SMS |
+| CX67 | SMS chat: a send, "every Monday", and a workflow that texts | All in one chat. Run now outside 9 am to 8 pm waits and goes when the hours open |
+| CX68 | An old Bulk email or Email automations chat from Recents | Opens as the Email chat, chip says Email |

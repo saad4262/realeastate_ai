@@ -56,7 +56,11 @@ async function requireChatScopeOpen(db: Db, actor: Actor, scope: ChatScope): Pro
   if (!isOpenChatScope(scope)) throw new AssistantError('forbidden', 'That chat is not available yet.');
   const rule = CHAT_SCOPE_RULES[scope];
   if (rule.adminOnly && !can(actor, 'team:manage', { type: 'team', agencyId: actor.agencyId })) throw new AssistantError('forbidden', 'Only an owner or admin can open this chat.');
-  if (rule.skill && !(await isSkillOnForChat(db, actor, rule.skill))) throw new AssistantError('forbidden', skillOffMessage(rule.skill, holderOf(actor.membershipRole)));
+  const needed = rule.openSkills ?? (rule.skill ? [rule.skill] : []);
+  if (needed.length) {
+    for (const skill of needed) if (await isSkillOnForChat(db, actor, skill)) return;
+    throw new AssistantError('forbidden', skillOffMessage(needed[0]!, holderOf(actor.membershipRole)));
+  }
 }
 
 /**
@@ -209,7 +213,7 @@ export async function finishTurn(db: Db, claim: ClaimedTurn, turn: FinishedTurn,
 export type ConversationSummary = { id: string; title: string; lastTurnAt: Date; turnCount: number; chatScope: ChatScope | null };
 
 /** This person's own conversations, newest first, within the retention window. One statement. */
-export async function listAssistantConversations(db: Db, actor: Actor, now = new Date(), limit = 20, opts: { chatScopes?: readonly ChatScope[] } = {}): Promise<ConversationSummary[]> {
+export async function listAssistantConversations(db: Db, actor: Actor, now = new Date(), limit = 20, opts: { chatScopes?: readonly string[] } = {}): Promise<ConversationSummary[]> {
   if (!mayUse(actor)) return [];
   const keptSince = new Date(now.getTime() - ASSISTANT_LIMITS.retentionDays * 86_400_000);
   const rows = await db
