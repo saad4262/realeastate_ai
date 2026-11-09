@@ -91,7 +91,8 @@ export async function BulkEmailPage({ surface }: { surface: 'agency' | 'agent' }
         </div>
       </section>
 
-      <section className={contactStyles.card}>
+      {/* Connectors' "Email templates" lands here: the templates have no page of their own. */}
+      <section id="templates" className={contactStyles.card}>
         <div className={contactStyles.section} style={{ borderTop: 0 }}>
           <div className={contactStyles.inlineForm} style={{ justifyContent: 'space-between' }}>
             <h2 className={contactStyles.sectionTitle}>Templates</h2>

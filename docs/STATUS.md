@@ -50,8 +50,7 @@ On `main` with ADR 0088. Part 2, the office line, is not built. TEST-PLAN CW1–
 ## Next
 1. The user: set `ASSISTANT_OVERVIEW_READ_ONLY=1` on Vercel when ready; run TEST-PLAN CX, CX40 first.
 2. Phase 8 limits, after the AI cost page shows real use by chat.
-3. Connectors links to `/bulk-email/templates` and `/my-bulk-email/templates`, which have no page (found 2026-11-09, not fixed).
-4. DNS cutover (`docs/DNS-CUTOVER.md`), Sentry project, a separate dev database, real phone tests.
+3. DNS cutover (`docs/DNS-CUTOVER.md`), Sentry project, a separate dev database, real phone tests.
 
 ## Watch
 - ADR 0083, before real customers: Listing activity names signed-in viewers to agencies, and the privacy policy does not say so yet. The user parked this for testing only.
