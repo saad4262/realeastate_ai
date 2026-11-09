@@ -3,6 +3,7 @@
 import Link, { useLinkStatus } from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { SignOutButton } from '@/components/sign-out-button';
 import { SHELLS, type NavCount, type NavItem, type ShellSurface } from './surfaces';
 import styles from './console-shell.module.css';
 
@@ -83,6 +84,16 @@ export function NavList({
   const countOf = (item: NavItem) => (item.count ? counts[item.count] : 0);
 
   const link = (item: NavItem) => {
+    if (item.signOut) {
+      return (
+        <SignOutButton key={item.label} className={styles.navLink}>
+          <span className={styles.glyph} aria-hidden>
+            {item.icon}
+          </span>
+          <span>{item.label}</span>
+        </SignOutButton>
+      );
+    }
     const on = item.href === active;
     const count = countOf(item);
     return (

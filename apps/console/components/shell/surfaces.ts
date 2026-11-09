@@ -24,7 +24,12 @@ export type NavItem = {
   countLabel?: 'unread';
   badge?: string;
   badgeTone?: 'blue';
+  /** Not a page: a button that POSTs to /sign-out (components/sign-out-button.tsx). */
+  signOut?: true;
 };
+
+/** Last in each console's Settings group — where an account is left, not the profile footer. */
+const SIGN_OUT: NavItem = { href: '/sign-out', label: 'Sign out', icon: 'logout', signOut: true };
 
 /**
  * A section of the sidebar (ADR 0057). A labelled group has a heading that
@@ -121,6 +126,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
         items: [
           { href: '/settings/integrations', label: 'Connectors', icon: 'hub' },
           { href: '/settings', label: 'Settings', icon: 'settings' },
+          SIGN_OUT,
         ],
       },
     ],
@@ -179,7 +185,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
         ],
       },
       { label: 'Money', items: [{ href: '/my-commission', label: 'My commission', icon: 'account_balance' }] },
-      { label: 'Settings', items: [{ href: '/my-integrations', label: 'Connectors', icon: 'hub' }] },
+      { label: 'Settings', items: [{ href: '/my-integrations', label: 'Connectors', icon: 'hub' }, SIGN_OUT] },
     ],
     openByDefault: 'Daily work',
     brandFallback: 'Agent desk',

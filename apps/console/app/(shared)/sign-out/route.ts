@@ -41,7 +41,10 @@ export async function POST(request: NextRequest) {
   const next = safeNext(form?.get('next') ?? request.nextUrl.searchParams.get('next'));
 
   const supabase = await createServerSupabaseClient();
-  await supabase.auth.signOut();
+  // This browser's session only. The default, 'global', revoked every session
+  // the person had — the agent desk and admin tabs on their own hosts too, which
+  // then dropped to sign-in without warning once their token ran out.
+  await supabase.auth.signOut({ scope: 'local' });
 
   // 303 turns the POST into a GET at the destination.
   return NextResponse.redirect(`${originOf(request)}${next}`, { status: 303 });

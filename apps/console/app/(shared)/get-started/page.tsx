@@ -7,6 +7,7 @@ import { loadActorContext } from '../../../lib/load-actor';
 import { RegisterAgencyForm } from './register-agency-form';
 import { removedFromAgency } from '@repo/core/team';
 import { getConsoleDb } from '../../../lib/db';
+import { currentSurface } from '../../../lib/surface';
 import { SignOutButton } from '@/components/sign-out-button';
 
 export const metadata: Metadata = {
@@ -40,7 +41,12 @@ export default async function GetStartedPage({
     redirect('/');
   }
 
-  const agencyUrl = process.env.NEXT_PUBLIC_AGENCY_URL ?? 'http://agency.lvh.me:3001';
+  // On the agency host, stay on it: the session cookie is this host's. An
+  // absolute NEXT_PUBLIC_AGENCY_URL that names another host (two vercel.app
+  // projects share no cookie domain) arrived signed out and showed sign-in.
+  // From the agent host the agency console is elsewhere, so it stays absolute.
+  const agencyUrl =
+    (await currentSurface()) === 'agency' ? '' : (process.env.NEXT_PUBLIC_AGENCY_URL ?? 'http://agency.lvh.me:3001');
 
   /**
    * Removed from an agency (ADR 0030 §5.5): say so, plainly, instead of a

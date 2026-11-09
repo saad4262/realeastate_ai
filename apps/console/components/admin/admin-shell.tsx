@@ -45,8 +45,11 @@ export function AdminShell({ userLabel, children }: { userLabel: string; childre
               <div className={styles.profileName}>{userLabel}</div>
               <div className={styles.profileRole}>Platform admin</div>
             </div>
-            <SignOutButton title="Sign out" className={styles.glyph} style={{ color: 'var(--text-muted)' }}>
-              logout
+            {/* The admin nav has no Settings group, so its sign-out stays here — as an icon, in the icon font. */}
+            <SignOutButton title="Sign out" style={{ color: 'var(--text-muted)' }}>
+              <span className={styles.glyph} aria-hidden>
+                logout
+              </span>
             </SignOutButton>
           </div>
         </div>

@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
+import { cookieDomainFor } from '@repo/auth/cookie-domain';
 import { updateSession } from '@repo/auth/middleware';
 
 export type ConsoleSurface = 'agent' | 'agency' | 'admin';
@@ -54,7 +55,9 @@ export async function middleware(request: NextRequest) {
   const host = request.headers.get('host') ?? 'agents.lvh.me';
   const surface = resolveSurface(host);
   const { pathname } = request.nextUrl;
-  const cookieDomain = process.env.COOKIE_DOMAIN;
+  // Host-aware, like the session cookies: COOKIE_DOMAIN=.lvh.me on a vercel.app
+  // host was sent as-is, and the browser threw the cookie away.
+  const cookieDomain = cookieDomainFor(host);
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-console-surface', surface);
@@ -142,8 +145,15 @@ export async function middleware(request: NextRequest) {
   // layout refuses again, redirects here again, and the reason is never read.
   const carriesError = request.nextUrl.searchParams.has('error');
 
+  // A page visit, not a Server Action. The sign-in and sign-up forms set the
+  // session in the browser and then call syncAccountAction, which is a POST to
+  // /login or /signup — already signed in. Redirecting that POST sent the action
+  // to /overview: fetch followed the 307, the overview's tree was painted into
+  // the form for a second or two, and the action's answer never came back.
+  const isPageVisit = request.method === 'GET' || request.method === 'HEAD';
+
   // Signed-in users should not linger on login/signup
-  if (userId && isAuthEntry && !carriesInvite && !carriesError) {
+  if (userId && isAuthEntry && isPageVisit && !carriesInvite && !carriesError) {
     const dest = request.nextUrl.clone();
     const next = request.nextUrl.searchParams.get('next');
     dest.pathname =
