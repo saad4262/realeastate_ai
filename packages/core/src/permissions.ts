@@ -354,6 +354,10 @@ export type Action =
    */
   /** See what you have used against the daily limits (ADR 0088): any member, their own agency. Not an admin viewing an agency. */
   | 'usage:read'
+  /** The top bar's running automations (ADR 0088): any member sees their own. */
+  | 'automation_status:read'
+  /** Everyone's in the agency, each row saying whose: owners and admins. */
+  | 'automation_status:read_all'
   | 'assistant:use'
   /**
    * Read or continue an assistant conversation (`ownerId` = its author). Its
@@ -870,6 +874,10 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       if (!sameAgency(actor, resource) || !mayWrite(actor)) return false;
       return isAgencyAdmin(actor) || (Boolean(resource.ownerId) && actor.userId === resource.ownerId);
 
+    case 'automation_status:read_all':
+      return sameAgency(actor, resource) && isAgencyAdmin(actor);
+
+    case 'automation_status:read':
     case 'usage:read':
     case 'assistant:use':
       return sameAgency(actor, resource) && Boolean(actor.membershipRole);

@@ -2208,6 +2208,7 @@ export const skillRun = pgTable(
   (t) => [
     uniqueIndex('skill_run_slot_idx').on(t.agentSkillId, t.scheduledFor),
     index('skill_run_user_idx').on(t.userId, desc(t.createdAt)),
+    index('skill_run_agency_idx').on(t.agencyId, desc(t.createdAt)),
   ],
 );
 
@@ -2610,7 +2611,7 @@ export const assistantTask = pgTable(
     finishedAt: timestamp('finished_at', { withTimezone: true }),
     ...timestamps,
   },
-  (t) => [index('assistant_task_user_idx').on(t.userId, t.status)],
+  (t) => [index('assistant_task_user_idx').on(t.userId, t.status), index('assistant_task_agency_idx').on(t.agencyId, t.status)],
 );
 
 /**

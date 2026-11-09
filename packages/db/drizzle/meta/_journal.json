@@ -659,6 +659,13 @@
       "when": 1794211092543,
       "tag": "0093_chat_scopes",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1794211972355,
+      "tag": "0094_automation_status_indexes",
+      "breakpoints": true
     }
   ]
 }

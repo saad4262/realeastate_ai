@@ -10,6 +10,8 @@
  * Plain data, no 'use client': read by the server shell and the client nav.
  */
 
+import type { AutomationPaths } from '@repo/core/automation-status/links';
+
 export type ShellSurface = 'agency' | 'agent' | 'admin';
 
 /** The chrome's counts a nav item may show as a badge — all from SQL, already narrowed by can(). */
@@ -43,6 +45,8 @@ export type NavGroup = {
 export type ShellConfig = {
   /** The assistant home: where "+ New chat", the brand and Recents go. Middleware lands people here. */
   home: string;
+  /** Where the Activity panel's rows go (ADR 0088). Absent: this console has no panel. */
+  automations?: AutomationPaths;
   navLabel: string;
   /**
    * The nav, in the brief's order: Daily work · People · Properties · Marketing ·
@@ -63,6 +67,7 @@ export type ShellConfig = {
 export const SHELLS: Record<ShellSurface, ShellConfig> = {
   agency: {
     home: '/overview',
+    automations: { home: '/overview', email: '/bulk-email', sms: '/bulk-sms', skills: '/skills' },
     navLabel: 'Agency',
     groups: [
       {
@@ -138,6 +143,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
   },
   agent: {
     home: '/assistant',
+    automations: { home: '/assistant', email: '/my-bulk-email', sms: '/my-bulk-sms', skills: '/my-skills' },
     navLabel: 'Agent',
     // The agency's groups, holding the agent's own pages. Offers is not here: it was a link to
     // nothing, and offers are worked in Leads (ADR 0057).

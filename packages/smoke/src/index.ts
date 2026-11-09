@@ -63,6 +63,7 @@ import {
 } from '@repo/core/leads';
 import { can, type Actor, type MembershipRole } from '@repo/core/permissions';
 import { usageFor } from '@repo/core/usage';
+import { automationStatus, runningAutomationCount } from '@repo/core/automation-status';
 import {
   getAgencyProfile,
   aiCostForAgency,
@@ -9894,6 +9895,11 @@ async function main() {
       const usage = await usageFor(t, A.f.actor('owner'));
       assert(usage !== null && usage.ai.percent >= 0 && usage.email.person.limit > 0 && !JSON.stringify(usage).includes('spentUsd'), `usage: ${JSON.stringify(usage)}`);
       assert((await usageFor(t, { userId: A.f.people.owner })) === null, 'usage for someone with no agency');
+      // ADR 0088: the panel's raw SQL has only ever been read, never run, until this line.
+      const panelAsOwner = await automationStatus(t, A.f.actor('owner'));
+      const panelAsAgent = await automationStatus(t, A.f.actor('a1'));
+      assert(panelAsOwner !== null && panelAsAgent !== null && panelAsAgent.running.every((i) => i.mine) && panelAsAgent.active.every((i) => i.mine), `the panel: ${JSON.stringify(panelAsAgent)}`);
+      assert(typeof (await runningAutomationCount(t, A.f.actor('owner'))) === 'number', 'the badge count');
       const ownerTry = await aiCostOverview(t, A.f.actor('owner'), { period: 7 }).then(() => 'GOT', (e: { code?: string }) => e.code);
       const ownerOne = await aiCostForAgency(t, A.f.actor('owner'), A.f.agencyId, { period: 7 }).then(() => 'GOT', (e: { code?: string }) => e.code);
       assert(ownerTry === 'forbidden' && ownerOne === 'forbidden', `an owner: ${ownerTry}, ${ownerOne}`);

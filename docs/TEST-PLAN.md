@@ -2314,3 +2314,10 @@ Phase 1 is the foundation and changes nothing on screen. Apply migration 0093 fi
 | CX2 | An old chat from Recents → ask for a note on a contact → Approve | The card appears and runs as before |
 | CX3 | Skills → Bulk email is off → the chat's own sends | No change yet: this switch reaches the chat only in the Bulk email chat |
 | CX4 | Admin → AI cost after CX1 | The turn is counted under the assistant as before |
+| CX5 | Admin → an agency's AI cost page | "The assistant, by chat" shows one line, "Older chats", until skill chats exist |
+| CX6 | Top bar → the bolt icon, nothing running or switched on | "Nothing is running, and nothing is switched on yet" |
+| CX7 | Send a bulk email to several people, open the bolt panel while it sends | "Running now" with the list's name and "n of m sent"; the bar moves without a reload; the badge counts it; clicking goes to that batch |
+| CX8 | Switch on Morning Brief and a workflow → the bolt panel | Both under "Active" with the next run or last run; clicking the skill opens it, the workflow goes to Automations |
+| CX9 | Sign in as an agent, then as the owner, with a batch sent by the agent | The agent sees their own batch and no one else's. The owner sees it with the agent's name |
+| CX10 | Phone width → the bolt panel | Fits on the screen; rows wrap; no sideways scroll |
+| CX11 | The panel's bottom line | Email used/limit, SMS only with a number, AI as a percent, never dollars |
