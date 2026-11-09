@@ -4,7 +4,7 @@ import { agency, aiRun, membership, note, notification, phoneAccount, phoneCall,
 import { can, isAgencyAdminRole, type Actor, type MembershipRole } from '../permissions';
 import { decryptToken, encryptToken } from '../integrations/crypto';
 import { isPairedSkillOn } from '../skill-switches/switches';
-import { agencyTwilio, PhoneError, providerFailure, type PhoneDeps } from './setup';
+import { agencyTwilio, myNumber, numberTwilio, PhoneError, providerFailure, type PhoneDeps, type TwilioFor } from './setup';
 import { isOptedOut } from './sms';
 import { aiOutcomeOf, verifyRetellSignature, verifyRetellWebhookToken, type VoiceAi } from './voice';
 import type { TokenKeys } from '../integrations/crypto';
@@ -34,11 +34,14 @@ export type AiSetupView = { configured: boolean; stub: boolean; trunk: boolean; 
 
 export async function aiCallsStatus(db: DbOrTx, actor: Actor, voice: VoiceAi | null): Promise<AiSetupView> {
   if (!actor.agencyId || !can(actor, 'phone:read', { type: 'phone', agencyId: actor.agencyId })) throw new PhoneError('forbidden', 'You do not have access to the phone setup.');
-  const [acct] = await db.select({ trunk: phoneAccount.sipTrunkSid }).from(phoneAccount).where(eq(phoneAccount.agencyId, actor.agencyId)).limit(1);
-  const nums = await db
-    .select({ registered: phoneNumber.retellRegisteredAt, error: phoneNumber.retellError })
-    .from(phoneNumber)
-    .where(and(eq(phoneNumber.agencyId, actor.agencyId), eq(phoneNumber.status, 'active')));
+  // The agency's account and its numbers: an agent's own Twilio sets up its own AI calls (ADR 0087).
+  const [acct] = await db.select({ id: phoneAccount.id, trunk: phoneAccount.sipTrunkSid }).from(phoneAccount).where(and(eq(phoneAccount.agencyId, actor.agencyId), isNull(phoneAccount.ownerUserId))).limit(1);
+  const nums = acct
+    ? await db
+        .select({ registered: phoneNumber.retellRegisteredAt, error: phoneNumber.retellError })
+        .from(phoneNumber)
+        .where(and(eq(phoneNumber.accountId, acct.id), eq(phoneNumber.status, 'active')))
+    : [];
   return {
     configured: Boolean(voice),
     stub: Boolean(voice?.stub),
@@ -50,15 +53,35 @@ export async function aiCallsStatus(db: DbOrTx, actor: Actor, voice: VoiceAi | n
 }
 
 /**
- * "Set up AI calls": a SIP trunk on the agency's Twilio (once), then each active number registered with
- * Retell. Safe to press again: it only does what is missing. Network calls happen outside transactions.
+ * "Set up AI calls": a SIP trunk on the agency's Twilio (once), then each active number on it registered
+ * with Retell. Safe to press again: it only does what is missing. Network calls happen outside transactions.
  */
 export async function setUpAiCalls(db: Db, actor: Actor, deps: PhoneDeps, voice: VoiceAi | null): Promise<{ registered: number; failed: number }> {
   const agencyId = managerAgency(actor);
+  needVoice(voice, deps);
+  return setUpOn(db, await agencyTwilio(db, agencyId, deps), deps, voice!);
+}
+
+/**
+ * The same on the actor's own Twilio (ADR 0087): a trunk on THEIR account, since a number can only be
+ * called through a trunk on the account it lives on. Only their own number is registered.
+ */
+export async function setUpMyAiCalls(db: Db, actor: Actor, deps: PhoneDeps, voice: VoiceAi | null): Promise<{ registered: number; failed: number }> {
+  const n = await myNumber(db, actor);
+  if (!can(actor, 'phone:own', { type: 'phone_number', agencyId: n.agencyId, ownerId: n.userId })) throw new PhoneError('forbidden', 'You may not change this number.');
+  needVoice(voice, deps);
+  const tw = await numberTwilio(db, n, deps);
+  if (tw.account.ownerUserId !== actor.userId) throw new PhoneError('forbidden', 'This number is the agency’s. An owner or admin sets up its AI calls.');
+  return setUpOn(db, tw, deps, voice!);
+}
+
+function needVoice(voice: VoiceAi | null, deps: PhoneDeps): void {
   if (!voice) throw new PhoneError('not_configured', 'AI calls are not set up on this server yet (RETELL_API_KEY and RETELL_AGENT_ID are missing).');
   if (!deps.keys) throw new PhoneError('not_configured', 'Phone & SMS is not set up on this server yet (INTEGRATION_TOKEN_KEY is missing).');
-  const keys = deps.keys;
-  const { account, client } = await agencyTwilio(db, agencyId, deps);
+}
+
+async function setUpOn(db: Db, { account, client }: TwilioFor, deps: PhoneDeps, voice: VoiceAi): Promise<{ registered: number; failed: number }> {
+  const keys = deps.keys!;
   let { sipDomain, sipUsername } = account;
   let password: string;
   if (!account.sipTrunkSid || !sipDomain || !sipUsername || !account.sipPassword) {
@@ -82,7 +105,7 @@ export async function setUpAiCalls(db: Db, actor: Actor, deps: PhoneDeps, voice:
     .select({ id: phoneNumber.id, e164: phoneNumber.e164, name: sql<string>`coalesce(${user.name}, ${user.email})` })
     .from(phoneNumber)
     .innerJoin(user, eq(user.id, phoneNumber.userId))
-    .where(and(eq(phoneNumber.agencyId, agencyId), eq(phoneNumber.status, 'active'), isNull(phoneNumber.retellRegisteredAt)));
+    .where(and(eq(phoneNumber.accountId, account.id), eq(phoneNumber.status, 'active'), isNull(phoneNumber.retellRegisteredAt)));
   let registered = 0;
   let failed = 0;
   for (const n of pending) {

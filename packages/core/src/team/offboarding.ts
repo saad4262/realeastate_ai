@@ -33,6 +33,7 @@ import { decryptToken } from '../integrations/crypto';
 import { adapterForTokens } from '../integrations/oauth';
 import { assignContact } from '../contacts/write-contacts';
 import { assignLead } from '../leads/triage-lead';
+import { detachLeavingMemberPhone } from '../phone/setup';
 import type { IntegrationProvider } from '../integrations/providers';
 
 /**
@@ -48,7 +49,8 @@ import type { IntegrationProvider } from '../integrations/providers';
  *     flag their contacts, leads, upcoming appointments and listings; cancel
  *     their waiting assistant cards, prepared email batches and running
  *     imports; disable their skills; delete their assistant conversations;
- *     flag agency accounts they connected.
+ *     flag agency accounts they connected; take their own Twilio's number
+ *     out of use here (ADR 0087 — it stays theirs, its texts stay the agency's).
  *  4. Revoke (best effort) then delete their own integration tokens.
  *  5. Sync the moved appointments into the receiver's calendar/Zoom.
  *
@@ -177,6 +179,8 @@ export type RemovalReport = {
   /** Search-index rows derived from their private notes (ADR 0031 §11). */
   privateSearchEmbeddingsDeleted: number;
   agencyAccountsFlagged: number;
+  /** Numbers on their own Twilio (ADR 0087): theirs, no longer used here; the texts stay the agency's. */
+  ownPhoneNumbersLeft: number;
   tokens: { deleted: number; revokeUnconfirmed: string[] };
   synced: number;
 };
@@ -218,6 +222,7 @@ export async function removeMember(db: Db, actor: Actor, userId: string, rawChoi
     conversationsDeleted: 0,
     privateSearchEmbeddingsDeleted: 0,
     agencyAccountsFlagged: 0,
+    ownPhoneNumbersLeft: 0,
     tokens: { deleted: 0, revokeUnconfirmed: [] },
     synced: 0,
   };
@@ -490,6 +495,7 @@ export async function removeMember(db: Db, actor: Actor, userId: string, rawChoi
     report.conversationsDeleted = convs.length;
     report.privateSearchEmbeddingsDeleted = privateEmbeddings.length;
     report.agencyAccountsFlagged = flagged.length;
+    report.ownPhoneNumbersLeft = (await detachLeavingMemberPhone(tx, agencyId, userId)).numbers;
     return receiverId ? moving : [];
   });
 

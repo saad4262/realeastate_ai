@@ -130,6 +130,7 @@ export function Report({ name, report: r }: { name: string; report: RemovalRepor
           .
         </li>
         {r.agencyAccountsFlagged ? <li>{r.agencyAccountsFlagged} agency account(s) they connected keep working — reconnect them with an account the agency controls (Settings → Connectors).</li> : null}
+        {r.ownPhoneNumbersLeft ? <li>Their own Twilio number is no longer used here. It stays theirs; their texts and calls stay with the agency.</li> : null}
       </ul>
       <p>
         <Link href="/team">Back to the team</Link>

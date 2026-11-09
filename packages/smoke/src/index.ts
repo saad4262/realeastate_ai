@@ -298,8 +298,14 @@ import { dispatchTool } from '@repo/ai/tools';
 import { createDueDiligenceWriter } from '@repo/ai/due-diligence';
 import { cleanLine, dueDiligenceAssist, dueDiligenceDue, dueDiligenceRecords, publicSubject } from '@repo/core/due-diligence';
 import {
+  buyMyNumber,
+  connectMyTwilio,
   connectTwilio,
   DEFAULT_MISSED_CALL_SETTINGS,
+  listMyTwilioNumbers,
+  loadSmsRules,
+  stopUsingMyNumber,
+  bringMyTwilioNumber,
   getMissedCall,
   getNumberForAgent,
   listMissedCalls,
@@ -7532,6 +7538,91 @@ async function main() {
       await releaseAgentNumber(t, owner, n.id, deps);
       assert((await getPhoneSetup(t, owner, deps)).agents.find((g) => g.userId === f.people.a1)?.number === null, 'released number still shown');
       return 'connect (owner only, secret encrypted) → number with profile mobile → code 123456 → verified → test passed → live; text in once (retry ignored), told once; A1 + owner see it, A2 refused; reply sent; STOP blocks, START lifts; landline refused; missed call kept with greeting, no text by itself; webhook test pass; bad token 403; released';
+    }),
+  );
+
+  await check('phone (ADR 0087): an agent’s own Twilio — only theirs to use; texts go from the account the number is on; never the agency number; leaving keeps the number theirs and the texts the agency’s', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const a1 = f.actor('a1');
+      const a2 = f.actor('a2');
+      // The stub, with a note of which account each text went out on.
+      const sentOn: string[] = [];
+      const client: PhoneDeps['client'] = (creds) => {
+        const s = stubTwilioClient();
+        return { ...s, sendSms: async (i) => (sentOn.push(creds.accountSid), s.sendSms(i)) };
+      };
+      const deps: PhoneDeps = { keys: testKeys, client, webhookBase: 'https://smoke.test' };
+
+      await connectTwilio(t, owner, { accountSid: 'ACagency', apiKeySid: 'SKagency', apiKeySecret: 'agency-secret' }, deps);
+      const mine = await connectMyTwilio(t, a2, { accountSid: 'ACa2own', apiKeySid: 'SKa2own', apiKeySecret: 'a2-own-secret' }, deps);
+      assert(mine.kycStatus === 'approved', `own kyc: ${mine.kycStatus}`);
+      assert((await count(t, sql`select count(*)::int as n from phone_account where agency_id = ${f.agencyId}`)) === 2, 'the agency’s and A2’s own account are not two rows');
+      // Connecting again updates the same row.
+      await connectMyTwilio(t, a2, { accountSid: 'ACa2own', apiKeySid: 'SKa2own', apiKeySecret: 'a2-own-secret' }, deps);
+      assert((await count(t, sql`select count(*)::int as n from phone_account where owner_user_id = ${f.people.a2}`)) === 1, 'a second own account row');
+
+      // A1 has no Twilio of their own: nothing of A2's is theirs to list or use.
+      const a1List = await listMyTwilioNumbers(t, a1, deps).catch((e: unknown) => e);
+      assert(a1List instanceof PhoneError && a1List.code === 'not_found', 'A1 reached a Twilio that is not theirs');
+
+      // A2 buys on their own Twilio; A1 gets one of the agency's.
+      const n2 = await buyMyNumber(t, a2, deps);
+      assert(n2.onOwnTwilio, 'A2’s number not marked as on their own Twilio');
+      const twice = await buyMyNumber(t, a2, deps).catch((e: unknown) => e);
+      assert(twice instanceof PhoneError, 'a second number for A2');
+      const n1 = await getNumberForAgent(t, owner, f.people.a1, deps);
+      assert(!n1.onOwnTwilio, 'the agency’s number marked as A1’s own');
+      const setup = await getPhoneSetup(t, owner, deps);
+      const a2Row = setup.agents.find((g) => g.userId === f.people.a2);
+      assert(a2Row?.ownTwilio === true && a2Row.number?.onOwnTwilio === true, `owner table: ${JSON.stringify(a2Row)}`);
+      assert(setup.account?.accountSidHint.endsWith('ency'), 'the owner’s table shows another account as the agency’s');
+
+      // The owner may not give A2's number back to Twilio, nor make it the agency number.
+      const release = await releaseAgentNumber(t, owner, n2.id, deps).catch((e: unknown) => e);
+      assert(release instanceof PhoneError && release.code === 'forbidden', 'the owner released an agent’s own number');
+      const asAgency = await saveMissedCallSettings(t, owner, { ...DEFAULT_MISSED_CALL_SETTINGS, agencyNumberId: n2.id }).catch((e: unknown) => e);
+      assert(asAgency instanceof PhoneError, 'an agent’s own number saved as the agency number');
+      await t.execute(sql`
+        insert into missed_call_setting (agency_id, greeting, sms_template, texts_per_agent_day, texts_per_agency_day, agency_number_id)
+        values (${f.agencyId}, 'g', 's', 5, 50, ${n2.id})
+        on conflict (agency_id) do update set agency_number_id = excluded.agency_number_id`);
+      assert((await loadSmsRules(t, f.agencyId)).agencyNumber?.id !== n2.id, 'an agent’s own number is used as the agency number');
+
+      // Each text goes out on the account its number is on.
+      await sendSms(t, a2, { to: '0400 123 456', body: 'From my own number' }, deps);
+      await sendSms(t, a1, { to: '0400 123 457', body: 'From the agency’s number' }, deps);
+      assert(sentOn.join() === 'ACa2own,ACagency', `sent on: ${sentOn.join()}`);
+
+      // A text in on A2's number: the owner reads it too (decision 2).
+      const token = webhookToken(n2.id, testKeys);
+      await handleTwilioWebhook({ db: () => t, token, kind: 'sms', params: { From: '+61400123456', Body: 'Thanks!', MessageSid: `SMown${f.tag}` }, keys: testKeys });
+      assert((await listSmsConversations(t, owner)).some((c) => c.phoneNumberId === n2.id), 'the owner cannot read A2’s own number');
+
+      // A2 leaves: the number stays theirs, the key is forgotten, the texts stay the agency's.
+      const r = await removeMember(t, owner, f.people.a2, { review: true });
+      assert(r.ownPhoneNumbersLeft === 1, `report: ${r.ownPhoneNumbersLeft}`);
+      const [left] = await t.execute<{ status: string; account_id: string | null }>(sql`select status, account_id from phone_number where id = ${n2.id}`);
+      assert(left?.status === 'left' && left.account_id === null, `number after leaving: ${JSON.stringify(left)}`);
+      assert((await count(t, sql`select count(*)::int as n from phone_account where owner_user_id = ${f.people.a2}`)) === 0, 'A2’s key kept after they left');
+      assert((await count(t, sql`select count(*)::int as n from phone_account where agency_id = ${f.agencyId} and owner_user_id is null`)) === 1, 'the agency’s account went with A2');
+      assert((await listSmsConversations(t, owner)).some((c) => c.phoneNumberId === n2.id), 'the agency lost A2’s conversations');
+      const after = await handleTwilioWebhook({ db: () => t, token, kind: 'sms', params: { From: '+61400123456', Body: 'Hello?', MessageSid: `SMafter${f.tag}` }, keys: testKeys });
+      assert(after.status === 200 && (await count(t, sql`select count(*)::int as n from sms_message where provider_sid = ${`SMafter${f.tag}`}`)) === 0, 'a text after A2 left was kept');
+
+      // A1 brings a number already on their own Twilio, then stops using it here.
+      await connectMyTwilio(t, a1, { accountSid: 'ACa1own', apiKeySid: 'SKa1own', apiKeySecret: 'a1-own-secret' }, deps);
+      await releaseAgentNumber(t, owner, n1.id, deps);
+      const offered = await listMyTwilioNumbers(t, a1, deps);
+      assert(offered.length === 1, `offered: ${JSON.stringify(offered)}`);
+      const forged = await bringMyTwilioNumber(t, a1, 'PNnotonmyaccount', deps).catch((e: unknown) => e);
+      assert(forged instanceof PhoneError, 'brought a number Twilio did not list');
+      const brought = await bringMyTwilioNumber(t, a1, offered[0]!.sid, deps);
+      assert(brought.onOwnTwilio && (await listMyTwilioNumbers(t, a1, deps)).length === 0, 'the brought number still offered');
+      await stopUsingMyNumber(t, a1);
+      assert((await getPhoneSetup(t, owner, deps)).agents.find((g) => g.userId === f.people.a1)?.number === null, 'still in use after stopping');
+      return 'two accounts (agency + A2), reconnect updates; A1 cannot reach A2’s; own number marked, one per agent; owner cannot release it or make it the agency number; texts on the right account; owner reads it; leaving: left, key gone, agency’s account kept, history kept, later texts dropped; bring a listed number only; stop using';
     }),
   );
 

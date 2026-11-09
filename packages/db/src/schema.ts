@@ -2949,14 +2949,17 @@ export const listingImportRow = pgTable(
 /**
  * The agency's own Twilio account (bring-your-own, ADR 0070). One per agency. The API key secret is
  * encrypted like an integration token (AES-256-GCM, `<id>:twilio_api_secret` as AAD); the SIDs are
- * identifiers, not secrets. KYC is the agency's Twilio regulatory bundle, read back from Twilio.
+ * identifiers, not secrets. KYC is the account's Twilio regulatory bundle, read back from Twilio.
+ *
+ * ADR 0087: `ownerUserId` null is the agency's own account (one per agency); set, it is that member's
+ * own Twilio (one per member per agency), which only they may use.
  */
 export const phoneAccount = pgTable('phone_account', {
   id: uuid('id').primaryKey().defaultRandom(),
   agencyId: uuid('agency_id')
     .notNull()
-    .unique()
     .references(() => agency.id, { onDelete: 'cascade' }),
+  ownerUserId: uuid('owner_user_id').references(() => user.id, { onDelete: 'cascade' }),
   accountSid: varchar('account_sid', { length: 64 }).notNull(),
   apiKeySid: varchar('api_key_sid', { length: 64 }).notNull(),
   apiKeySecret: text('api_key_secret').notNull(),
@@ -2982,7 +2985,10 @@ export const phoneAccount = pgTable('phone_account', {
   sipUsername: varchar('sip_username', { length: 64 }),
   sipPassword: text('sip_password'),
   ...timestamps,
-});
+}, (t) => [
+  uniqueIndex('phone_account_agency_idx').on(t.agencyId).where(sql`owner_user_id is null`),
+  uniqueIndex('phone_account_owner_idx').on(t.agencyId, t.ownerUserId).where(sql`owner_user_id is not null`),
+]);
 
 /**
  * One agent's Twilio number on the agency's account (ADR 0070): their missed calls forward to it and
@@ -2999,9 +3005,15 @@ export const phoneNumber = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
+    /**
+     * ADR 0087: the Twilio account the number lives on, whose key every call about it uses — the
+     * agency's or the agent's own. Null once that account is disconnected (the number is no longer active).
+     */
+    accountId: uuid('account_id').references(() => phoneAccount.id, { onDelete: 'set null' }),
     /** E.164, e.g. +61480999888. */
     e164: varchar('e164', { length: 20 }).notNull(),
-    numberSid: varchar('number_sid', { length: 64 }).notNull().unique(),
+    /** Twilio's SID. Unique among active numbers only (ADR 0087): an agent's own number comes back as a new row in a new agency, and the old row keeps the old agency's history. */
+    numberSid: varchar('number_sid', { length: 64 }).notNull(),
     /** The agent's own mobile in E.164 — what they verify as their caller ID. */
     callerIdE164: varchar('caller_id_e164', { length: 20 }),
     /** none | pending | verified. */
@@ -3009,7 +3021,10 @@ export const phoneNumber = pgTable(
     callerIdCheckedAt: timestamp('caller_id_checked_at', { withTimezone: true }),
     /** When a test call reached this number by the agent's no-answer forwarding. */
     forwardingTestedAt: timestamp('forwarding_tested_at', { withTimezone: true }),
-    /** active | released. A released number is kept for its messages' history. */
+    /**
+     * active | released | left. A released number is kept for its messages' history. `left` (ADR 0087):
+     * on the agent's own Twilio when they left the agency — theirs still, its history the agency's.
+     */
     status: varchar('status', { length: 12 }).notNull().default('active'),
     /** ADR 0072: when this number was registered with Retell for AI calls (PROVISIONAL until tried live). */
     retellRegisteredAt: timestamp('retell_registered_at', { withTimezone: true }),
@@ -3018,6 +3033,7 @@ export const phoneNumber = pgTable(
   },
   (t) => [
     uniqueIndex('phone_number_agent_idx').on(t.agencyId, t.userId).where(sql`status = 'active'`),
+    uniqueIndex('phone_number_sid_active_idx').on(t.numberSid).where(sql`status = 'active'`),
     index('phone_number_e164_idx').on(t.e164),
   ],
 );

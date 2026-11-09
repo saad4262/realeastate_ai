@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto';
-import { basicAuth, call, form, str, type Fetch } from '../integrations/provider-http';
+import { basicAuth, call, form, ProviderError, str, type Fetch } from '../integrations/provider-http';
 
 /**
  * The agency's own Twilio (ADR 0070), over Twilio's REST API with the API key the owner entered.
@@ -18,6 +18,9 @@ export const KYC_STATUSES: readonly KycStatus[] = ['unknown', 'none', 'pending',
 
 export type KycResult = { status: KycStatus; bundleSid: string | null; note: string | null };
 
+export const TRIAL_NOTE =
+  'This Twilio account is a free trial, and Twilio does not verify a business on a trial. Upgrade it in Twilio (add billing), then Check now.';
+
 export interface TwilioApi {
   /** True for the dev stub: no call reaches Twilio, a test call passes by itself. */
   readonly stub: boolean;
@@ -28,6 +31,8 @@ export interface TwilioApi {
   /** One Australian mobile number that can text and call, or null when Twilio has none to offer. */
   findMobileNumber(): Promise<string | null>;
   buyNumber(input: { e164: string; bundleSid: string; smsUrl: string; voiceUrl: string }): Promise<{ sid: string; e164: string }>;
+  /** The numbers already on this account (ADR 0087: an agent brings the one they have). First 50. */
+  listNumbers(): Promise<{ sid: string; e164: string }[]>;
   releaseNumber(numberSid: string): Promise<void>;
   /** Points a number's texts and calls at new webhook URLs (a domain cutover, ADR 0070). */
   setNumberWebhooks(numberSid: string, urls: { smsUrl: string; voiceUrl: string }): Promise<void>;
@@ -75,11 +80,20 @@ export function twilioClient(creds: TwilioCreds, fetchImpl: Fetch = fetch): Twil
   return {
     stub: false,
     async account() {
-      const r = await get(`${acct}.json`);
-      return { friendlyName: str(r.json?.friendly_name) };
+      // The account's own numbers, not `${acct}.json`: Twilio refuses the Accounts resource to a
+      // Standard API key (70004) — the very key the setup screen asks for — so every connect failed.
+      // The account's name is in that resource, so it is not shown; the screen shows the SID's end.
+      await get(`${acct}/IncomingPhoneNumbers.json?PageSize=1`);
+      return { friendlyName: null };
     },
     async kyc() {
-      const r = await get(`${NUMBERS}/RegulatoryCompliance/Bundles?IsoCountry=AU&NumberType=mobile&PageSize=20`);
+      const url = `${NUMBERS}/RegulatoryCompliance/Bundles?IsoCountry=AU&NumberType=mobile&PageSize=20`;
+      const r = await call(fetchImpl, 'Twilio', url, { method: 'GET', headers: auth }, [401]);
+      if (r.status === 401) {
+        // A trial account is refused bundles with the same 401 and code as a bad key; only the words differ.
+        if (/trial account/i.test(str(r.json?.message) ?? '')) return { status: 'none', bundleSid: null, note: TRIAL_NOTE };
+        throw new ProviderError('unauthorized', 'Twilio answered 401', 401);
+      }
       const results = Array.isArray(r.json?.results) ? (r.json!.results as Record<string, unknown>[]) : [];
       return kycFromBundles(results.map((b) => ({ sid: str(b.sid), status: str(b.status) })));
     },
@@ -100,6 +114,15 @@ export function twilioClient(creds: TwilioCreds, fetchImpl: Fetch = fetch): Twil
       const sid = str(r.json?.sid);
       if (!sid) throw new Error('Twilio did not return the new number');
       return { sid, e164: str(r.json?.phone_number) ?? input.e164 };
+    },
+    async listNumbers() {
+      const r = await get(`${acct}/IncomingPhoneNumbers.json?PageSize=50`);
+      const list = Array.isArray(r.json?.incoming_phone_numbers) ? (r.json!.incoming_phone_numbers as Record<string, unknown>[]) : [];
+      return list.flatMap((n) => {
+        const sid = str(n.sid);
+        const e164 = str(n.phone_number);
+        return sid && e164 ? [{ sid, e164 }] : [];
+      });
     },
     async releaseNumber(numberSid) {
       await call(fetchImpl, 'Twilio', `${acct}/IncomingPhoneNumbers/${encodeURIComponent(numberSid)}.json`, { method: 'DELETE', headers: auth }, [404]);
@@ -164,6 +187,9 @@ export function stubTwilioClient(): TwilioApi {
     },
     async buyNumber(input) {
       return { sid: `PNstub${randomInt(0, 1e9)}`, e164: input.e164 };
+    },
+    async listNumbers() {
+      return [{ sid: 'PNstubown1', e164: '+61480000111' }];
     },
     async releaseNumber() {},
     async setNumberWebhooks() {},

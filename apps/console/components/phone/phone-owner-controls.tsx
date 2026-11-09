@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/toast';
-import { connectTwilioAction, disconnectTwilioAction, getNumberAction, refreshKycAction, releaseNumberAction, setUpAiCallsAction } from '@/lib/phone-actions';
+import { connectMyTwilioAction, connectTwilioAction, disconnectTwilioAction, getNumberAction, refreshKycAction, releaseNumberAction, setUpAiCallsAction } from '@/lib/phone-actions';
 import styles from './phone.module.css';
 
 /**
@@ -11,7 +11,7 @@ import styles from './phone.module.css';
  * decides with can() and says why when it refuses.
  */
 
-function useAct() {
+export function useAct() {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, start] = useTransition();
@@ -28,7 +28,8 @@ function useAct() {
   return { pending, act };
 }
 
-export function ConnectTwilioForm() {
+/** `own`: the person's own Twilio on My phone (ADR 0087), not the agency's. */
+export function ConnectTwilioForm({ own = false }: { own?: boolean }) {
   const { pending, act } = useAct();
   const [accountSid, setAccountSid] = useState('');
   const [apiKeySid, setApiKeySid] = useState('');
@@ -39,8 +40,11 @@ export function ConnectTwilioForm() {
       onSubmit={(e) => {
         e.preventDefault();
         act(
-          () => connectTwilioAction({ accountSid, apiKeySid, apiKeySecret }),
-          (status) => (status === 'approved' ? 'Twilio connected. Your business is approved.' : 'Twilio connected. Next: Twilio checks your business.'),
+          () => (own ? connectMyTwilioAction : connectTwilioAction)({ accountSid, apiKeySid, apiKeySecret }),
+          (status) =>
+            status === 'approved'
+              ? `Twilio connected. ${own ? 'Your documents are' : 'Your business is'} approved.`
+              : `Twilio connected. Next: Twilio checks ${own ? 'your documents' : 'your business'}.`,
           'Not connected',
         );
       }}

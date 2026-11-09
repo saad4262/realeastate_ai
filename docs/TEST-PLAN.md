@@ -2285,3 +2285,22 @@ Admin console. Compare the 24-hour figure with what the budget has been doing, a
 | CV8 | Admin → an agency → view log | The agency page's opening is recorded (area `ai_cost`) |
 | CV9 | Phone width | Tables stack, the chart fits, no sideways page scroll |
 
+
+## CW — An agent's own Twilio (ADR 0087, part 1)
+
+Apply migration 0092 first. With the stub (`PHONE_STUB=1`, dev only) any SIDs connect and are approved; with real Twilio each
+account needs its own paid account, API key (Standard) and approved AU mobile bundle.
+
+| # | Do | Expect |
+|---|---|---|
+| CW1 | Agent (no number) → My phone | "One of the agency's numbers" with the agency's status, and "Or: your own Twilio" with a connect form |
+| CW2 | Connect with a bad Account SID | Refused before Twilio is called: "The Account SID starts with AC…" |
+| CW3 | Connect with a good key on a trial account | Connected; the check says the account is a free trial and to upgrade |
+| CW4 | Connect on a paid, approved account → Get a new number | A 04… number marked "On your own Twilio"; the steps (verify, forwarding, test) follow |
+| CW5 | Owner → Phone & SMS | That agent's row shows the number with "their own Twilio" and no Release button |
+| CW6 | Owner → Missed calls → Settings: pick that agent's number as the agency number | Refused: "Pick one of the agency's own numbers, on the agency's Twilio." |
+| CW7 | The agent texts a customer; the customer replies | Sent from their number; in Twilio, on the agent's account. Owner → Inbox → Texts shows it, read only |
+| CW8 | Owner removes the agent (Agents & Team) | The report says their own Twilio number is no longer used here; the owner still reads its old texts; a new text to it is not kept |
+| CW9 | The same agent, in another agency: connect the same Twilio → "Already on your Twilio: Use 04…" | The number now brings that agency's texts and calls; the first agency keeps the old ones |
+| CW10 | Agent → Stop using it here | Gone from the owner's table; it stays on their Twilio |
+| CW11 | Another agent's My phone | Never shows a colleague's Twilio; the owner cannot connect one for them |

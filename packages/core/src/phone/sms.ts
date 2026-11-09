@@ -3,7 +3,7 @@ import { and, count, desc, eq, gt, sql } from 'drizzle-orm';
 import { phoneNumber, smsMessage, smsOptOut, smsRead, user, type Db, type DbOrTx } from '@repo/db';
 import { can, isAgencyAdminRole, type Actor } from '../permissions';
 import { displayAu, isAuMobile, SMS_MAX_LENGTH, toAuE164, webhookUrl } from './format';
-import { agencyTwilio, contactByPhone, myNumber, PhoneError, providerFailure, type PhoneDeps } from './setup';
+import { contactByPhone, myNumber, numberTwilio, PhoneError, providerFailure, type PhoneDeps } from './setup';
 
 /**
  * Texts (ADR 0070): an agent texts from their own Twilio number, one person at a time, and the replies
@@ -44,7 +44,7 @@ export async function sendSms(
     .where(and(eq(smsMessage.sentBy, actor.userId), eq(smsMessage.direction, 'out'), gt(smsMessage.createdAt, sql`now() - interval '24 hours'`)));
   if ((sent?.n ?? 0) >= limit) throw new PhoneError('invalid', `You have sent ${limit} texts in the last 24 hours, the most allowed. Try again later.`);
 
-  const { client } = await agencyTwilio(db, n.agencyId, deps);
+  const { client } = await numberTwilio(db, n, deps);
   const who = await contactByPhone(db, n.agencyId, to!);
   const id = randomUUID();
   // Written first as queued, so a send that never comes back is still on the record.

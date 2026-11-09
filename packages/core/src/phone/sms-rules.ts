@@ -128,7 +128,7 @@ export type SmsRules = {
   timeZone: string;
   /** The agency's active numbers, by agent. */
   numbers: Map<string, { id: string; e164: string; userId: string }>;
-  /** Rule 1's fallback: the owner's pick if it is still active, else an owner's own number; null when none. */
+  /** Rule 1's fallback: the owner's pick if it is still active, else an owner's own number — on the agency's Twilio only (ADR 0087); null when none. */
   agencyNumber: { id: string; e164: string; userId: string } | null;
 };
 
@@ -141,16 +141,21 @@ export async function loadSmsRules(db: DbOrTx, agencyId: string): Promise<SmsRul
       .where(eq(missedCallSetting.agencyId, agencyId))
       .limit(1),
     db.select({ timeZone: agency.timeZone }).from(agency).where(eq(agency.id, agencyId)).limit(1),
-    db.execute<{ id: string; e164: string; user_id: string; is_owner: boolean }>(sql`
-      select pn.id, pn.e164, pn.user_id, (m.role = 'owner') as is_owner
+    db.execute<{ id: string; e164: string; user_id: string; is_owner: boolean; agencys: boolean }>(sql`
+      select pn.id, pn.e164, pn.user_id, (m.role = 'owner') as is_owner, (pa.id is not null and pa.owner_user_id is null) as agencys
       from phone_number pn
       left join membership m on m.user_id = pn.user_id and m.agency_id = pn.agency_id and m.status = 'active'
+      left join phone_account pa on pa.id = pn.account_id
       where pn.agency_id = ${agencyId} and pn.status = 'active'
       order by pn.created_at`),
   ]);
+  const yes = (v: unknown) => v === true || v === 't';
   const numbers = new Map(nums.map((n) => [n.user_id, { id: n.id, e164: n.e164, userId: n.user_id }]));
-  const picked = setting?.agencyNumberId ? nums.find((n) => n.id === setting.agencyNumberId) : undefined;
-  const fallback = picked ?? nums.find((n) => n.is_owner === true || (n.is_owner as unknown) === 't');
+  // The agency number is one on the agency's own Twilio (ADR 0087): texts to nobody's contacts are the
+  // agency's, so they never go out from (or bill) an agent's own account.
+  const agencys = nums.filter((n) => yes(n.agencys));
+  const picked = setting?.agencyNumberId ? agencys.find((n) => n.id === setting.agencyNumberId) : undefined;
+  const fallback = picked ?? agencys.find((n) => yes(n.is_owner));
   return {
     hours: readSmsHours(setting?.smsHours),
     autoPerCaller: setting?.auto ?? DEFAULT_AUTO_TEXTS_PER_CALLER_DAY,
@@ -179,9 +184,9 @@ export async function autoTextsToCallerToday(db: DbOrTx, agencyId: string, e164:
 }
 
 /** An active number of this agency, by id (the sending loop re-reads it: a released number sends nothing). */
-export async function activeNumber(db: DbOrTx, agencyId: string, id: string): Promise<{ id: string; e164: string; userId: string } | null> {
+export async function activeNumber(db: DbOrTx, agencyId: string, id: string): Promise<{ id: string; e164: string; userId: string; accountId: string | null } | null> {
   const [n] = await db
-    .select({ id: phoneNumber.id, e164: phoneNumber.e164, userId: phoneNumber.userId })
+    .select({ id: phoneNumber.id, e164: phoneNumber.e164, userId: phoneNumber.userId, accountId: phoneNumber.accountId })
     .from(phoneNumber)
     .where(and(eq(phoneNumber.id, id), eq(phoneNumber.agencyId, agencyId), eq(phoneNumber.status, 'active')))
     .limit(1);

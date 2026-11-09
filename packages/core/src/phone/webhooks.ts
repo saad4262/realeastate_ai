@@ -57,7 +57,7 @@ export async function handleTwilioWebhook(opts: {
   const db = opts.db();
   const now = opts.now ?? new Date();
   const [n] = await db
-    .select({ id: phoneNumber.id, agencyId: phoneNumber.agencyId, userId: phoneNumber.userId, e164: phoneNumber.e164, callerIdE164: phoneNumber.callerIdE164, retellRegisteredAt: phoneNumber.retellRegisteredAt, status: phoneNumber.status, agentName: sql<string>`coalesce(${user.name}, ${user.email})`, role: membership.role })
+    .select({ id: phoneNumber.id, agencyId: phoneNumber.agencyId, userId: phoneNumber.userId, accountId: phoneNumber.accountId, e164: phoneNumber.e164, callerIdE164: phoneNumber.callerIdE164, retellRegisteredAt: phoneNumber.retellRegisteredAt, status: phoneNumber.status, agentName: sql<string>`coalesce(${user.name}, ${user.email})`, role: membership.role })
     .from(phoneNumber)
     .innerJoin(user, eq(user.id, phoneNumber.userId))
     .leftJoin(membership, and(eq(membership.userId, phoneNumber.userId), eq(membership.agencyId, phoneNumber.agencyId)))
@@ -137,7 +137,7 @@ export async function handleTwilioWebhook(opts: {
       // A caller the agent did not answer (ADR 0071): kept, the agent told, and texted only while the
       // "Missed call text" skill is on for the agency and the agent.
       const deps = { keys: opts.keys, client: opts.client ?? phoneDepsFromEnv().client, webhookBase: opts.webhookBase ?? null, voice: opts.voice ?? null };
-      return ok(await recordMissedCall(db, { id: n.id, agencyId: n.agencyId, userId: n.userId, e164: n.e164, agentName: n.agentName, role: n.role, retellRegisteredAt: n.retellRegisteredAt }, callSid, from, deps));
+      return ok(await recordMissedCall(db, { id: n.id, agencyId: n.agencyId, userId: n.userId, accountId: n.accountId, e164: n.e164, agentName: n.agentName, role: n.role, retellRegisteredAt: n.retellRegisteredAt }, callSid, from, deps));
     }
 
     case 'caller-id': {

@@ -306,7 +306,8 @@ export type Action =
   | 'deal:commission'
   /**
    * Phone & SMS (ADR 0070). `phone:manage`: the agency's Twilio — connect it, check its business
-   * verification, get or release an agent's number. Owners and admins (it is the agency's bill).
+   * verification, get or release an agent's number on it. Owners and admins (it is the agency's bill).
+   * Never an agent's own Twilio (ADR 0087): that is `phone:own`.
    */
   | 'phone:manage'
   /** See the phone setup: any active member (an agent sees their own number; owners and admins every one). */
@@ -314,6 +315,8 @@ export type Action =
   /**
    * Set up one number's phone side — verify the mobile as caller ID, run the forwarding test.
    * Only the agent whose number it is (`ownerId`): it calls their mobile, in their name.
+   * ADR 0087: also one's own Twilio (`phone_account`, `ownerId` = you) — connect it, get or bring a
+   * number on it. Nobody else's, owners included.
    */
   | 'phone:own'
   /** Read the texts on a number (`ownerId` = whose number): that agent, or the agency's owners and admins. */

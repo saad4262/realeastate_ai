@@ -1132,6 +1132,19 @@ describe('phone and sms', () => {
     expect(can({ ...owner, via: 'platform' }, 'phone:manage', agencyPhone)).toBe(false);
   });
 
+  it("lets a member connect and use only their own Twilio — not a colleague's, not the owner on their behalf (ADR 0087)", () => {
+    const sarahsTwilio = sarahs('phone_account');
+    expect(can(sarah, 'phone:own', sarahsTwilio)).toBe(true);
+    expect(can(ali, 'phone:own', sarahsTwilio)).toBe(false);
+    expect(can(owner, 'phone:own', sarahsTwilio)).toBe(false);
+    expect(can(admin, 'phone:own', sarahsTwilio)).toBe(false);
+    expect(can(rival, 'phone:own', { ...sarahsTwilio, ownerId: 'rival' })).toBe(false);
+    expect(can(viewer, 'phone:own', { type: 'phone_account', agencyId: agencyA, ownerId: 'viewer' })).toBe(false);
+    // An owner has a Twilio of their own too, and the agency's is a different permission.
+    expect(can(owner, 'phone:own', { type: 'phone_account', agencyId: agencyA, ownerId: 'owner' })).toBe(true);
+    expect(can(sarah, 'phone:manage', agencyPhone)).toBe(false);
+  });
+
   it("lets the agent, or an owner or admin, mark the agent's missed call handled — not a colleague (ADR 0071)", () => {
     expect(can(sarah, 'missed_call:handle', sarahs('phone_call'))).toBe(true);
     expect(can(owner, 'missed_call:handle', sarahs('phone_call'))).toBe(true);

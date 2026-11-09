@@ -19,7 +19,7 @@ import { contactQueryFilters } from '../contacts/list-contacts';
 import { SUSPENDED_AGENCY_IDS } from '../platform/access';
 import { isPairedSkillOn } from '../skill-switches/switches';
 import { toAuE164, webhookUrl } from '../phone/format';
-import { agencyTwilio, providerFailure, type PhoneDeps } from '../phone/setup';
+import { numberTwilio, providerFailure, type PhoneDeps } from '../phone/setup';
 import {
   activeNumber,
   AUTO_TEXT_KINDS,
@@ -356,7 +356,7 @@ export async function sendSmsBatch(db: Db, deps: SmsSendDeps, batchId: string, n
         });
       }
       const [msg] = await db.select({ body: smsMessage.body }).from(smsMessage).where(eq(smsMessage.id, messageId!)).limit(1);
-      const { client } = await agencyTwilio(db, batch.agencyId, deps.phone);
+      const { client } = await numberTwilio(db, from!, deps.phone);
       const statusUrl = deps.phone.keys && deps.phone.webhookBase ? webhookUrl(deps.phone.webhookBase, from!.id, 'sms-status', deps.phone.keys) : null;
       const sent = await client.sendSms({ from: from!.e164, to: r.phone!, body: msg!.body, statusUrl });
       await db.transaction(async (tx) => {

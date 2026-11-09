@@ -2,8 +2,15 @@
 
 import { revalidatePath } from 'next/cache';
 import {
+  buyMyNumber,
+  connectMyTwilio,
   connectTwilio,
+  disconnectMyTwilio,
   disconnectTwilio,
+  refreshMyKyc,
+  setUpMyAiCalls,
+  stopUsingMyNumber,
+  bringMyTwilioNumber,
   getMyPhone,
   getNumberForAgent,
   markMissedCallHandled,
@@ -194,5 +201,84 @@ export async function sendSmsAction(to: string, body: string): Promise<PhoneActi
     return { ok: true, id };
   } catch (err) {
     return failure(err, 'Could not send the text');
+  }
+}
+
+// ── The actor's own Twilio (ADR 0087) ───────────────────────────────────────
+
+export async function connectMyTwilioAction(input: ConnectTwilioInput): Promise<PhoneActionResult> {
+  const who = await actor();
+  try {
+    const { kycStatus } = await connectMyTwilio(getConsoleDb(), who, input, phoneDepsFromEnv());
+    refresh();
+    return { ok: true, status: kycStatus };
+  } catch (err) {
+    return failure(err, 'Could not connect your Twilio');
+  }
+}
+
+export async function disconnectMyTwilioAction(): Promise<PhoneActionResult> {
+  const who = await actor();
+  try {
+    await disconnectMyTwilio(getConsoleDb(), who);
+    refresh();
+    return { ok: true };
+  } catch (err) {
+    return failure(err, 'Could not disconnect your Twilio');
+  }
+}
+
+export async function refreshMyKycAction(): Promise<PhoneActionResult> {
+  const who = await actor();
+  try {
+    const { kycStatus } = await refreshMyKyc(getConsoleDb(), who, phoneDepsFromEnv());
+    refresh();
+    return { ok: true, status: kycStatus };
+  } catch (err) {
+    return failure(err, 'Could not check with Twilio');
+  }
+}
+
+export async function buyMyNumberAction(): Promise<PhoneActionResult> {
+  const who = await actor();
+  try {
+    const n = await buyMyNumber(getConsoleDb(), who, phoneDepsFromEnv());
+    refresh();
+    return { ok: true, id: n.id, status: n.display };
+  } catch (err) {
+    return failure(err, 'Could not get a number');
+  }
+}
+
+export async function bringMyTwilioNumberAction(numberSid: string): Promise<PhoneActionResult> {
+  const who = await actor();
+  try {
+    const n = await bringMyTwilioNumber(getConsoleDb(), who, numberSid, phoneDepsFromEnv());
+    refresh();
+    return { ok: true, id: n.id, status: n.display };
+  } catch (err) {
+    return failure(err, 'Could not use that number');
+  }
+}
+
+export async function stopUsingMyNumberAction(): Promise<PhoneActionResult> {
+  const who = await actor();
+  try {
+    await stopUsingMyNumber(getConsoleDb(), who);
+    refresh();
+    return { ok: true };
+  } catch (err) {
+    return failure(err, 'Could not stop using the number');
+  }
+}
+
+export async function setUpMyAiCallsAction(): Promise<PhoneActionResult> {
+  const who = await actor();
+  try {
+    const r = await setUpMyAiCalls(getConsoleDb(), who, phoneDepsFromEnv(), voiceFromEnv().voice);
+    refresh();
+    return { ok: true, status: r.failed ? 'Retell refused your number' : 'Your number is ready' };
+  } catch (err) {
+    return failure(err, 'Could not set up AI calls');
   }
 }

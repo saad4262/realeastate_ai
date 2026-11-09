@@ -1,12 +1,14 @@
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Db } from '@repo/db';
-import { tokenKeysFromEnv } from '../integrations/crypto';
+import { encryptToken, tokenKeysFromEnv } from '../integrations/crypto';
 import { fakeFetch } from '../integrations/fake-fetch';
 import { ProviderError } from '../integrations/provider-http';
 import { displayAu, forwardingCodes, isAuMobile, smsKeyword, toAuE164, verifyWebhookToken, webhookToken, webhookUrl, xmlEscape } from './format';
-import { connectTwilio, PhoneError, providerFailure, type PhoneDeps } from './setup';
-import { kycFromBundles, twilioClient } from './twilio';
+import { buyMyNumber, connectMyTwilio, connectTwilio, disconnectMyTwilio, listMyTwilioNumbers, numberTwilio, PhoneError, providerFailure, stopUsingMyNumber, bringMyTwilioNumber, type PhoneDeps } from './setup';
+import { kycFromBundles, TRIAL_NOTE, twilioClient } from './twilio';
 import { handleTwilioWebhook } from './webhooks';
 import { decideMissedCallText, DEFAULT_MISSED_CALL_SETTINGS, firstName, NO_TEXT_GREETING, renderMissedCallTemplate, unknownFields } from './missed-calls';
 
@@ -70,10 +72,24 @@ describe('the Twilio client', () => {
   const creds = { accountSid: `AC${'a'.repeat(32)}`, apiKeySid: `SK${'b'.repeat(32)}`, apiKeySecret: 'secret-secret-secret' };
 
   it('authenticates with the API key, never the account SID alone', async () => {
-    const f = fakeFetch([{ status: 200, body: { friendly_name: 'Pakenham Realty' } }]);
-    expect(await twilioClient(creds, f.impl).account()).toEqual({ friendlyName: 'Pakenham Realty' });
-    expect(f.calls[0]!.url).toBe(`https://api.twilio.com/2010-04-01/Accounts/${creds.accountSid}.json`);
+    const f = fakeFetch([{ status: 200, body: { incoming_phone_numbers: [] } }]);
+    expect(await twilioClient(creds, f.impl).account()).toEqual({ friendlyName: null });
+    // Not the Accounts resource: a Standard API key is refused it (70004), and that key is what setup asks for.
+    expect(f.calls[0]!.url).toBe(`https://api.twilio.com/2010-04-01/Accounts/${creds.accountSid}/IncomingPhoneNumbers.json?PageSize=1`);
     expect(f.calls[0]!.headers.authorization).toBe(`Basic ${Buffer.from(`${creds.apiKeySid}:${creds.apiKeySecret}`).toString('base64')}`);
+  });
+
+  it('a trial account is told to upgrade, not that its key is wrong', async () => {
+    // Twilio's own answer to a trial account asking for bundles, word for word (2026-11-07).
+    const f = fakeFetch([{ status: 401, body: { code: 20003, message: 'This feature is not available on a Trial account. Please upgrade your account to gain access.' } }]);
+    expect(await twilioClient(creds, f.impl).kyc()).toEqual({ status: 'none', bundleSid: null, note: TRIAL_NOTE });
+  });
+
+  it('a 401 on the bundles that is not about a trial is still a refused key', async () => {
+    const f = fakeFetch([{ status: 401, body: { code: 20003, message: 'Authenticate' } }]);
+    const err = await twilioClient(creds, f.impl).kyc().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ProviderError);
+    expect((err as ProviderError).kind).toBe('unauthorized');
   });
 
   it('buys a number with its bundle and both webhooks, form-encoded', async () => {
@@ -131,6 +147,71 @@ describe('connecting the agency’s Twilio', () => {
   it('says the server is not set up when there is no key to encrypt with', async () => {
     const err = await connectTwilio(noDb, owner, { accountSid: '', apiKeySid: '', apiKeySecret: '' }, { ...deps(fakeFetch([])), keys: null }).catch((e: unknown) => e);
     expect((err as PhoneError).code).toBe('not_configured');
+  });
+});
+
+describe('an agent’s own Twilio (ADR 0087)', () => {
+  const deps = (f: ReturnType<typeof fakeFetch>): PhoneDeps => ({ keys, client: (c) => twilioClient(c, f.impl), webhookBase: 'https://site.example' });
+  const viewer = { userId: 'v', agencyId: 'a', membershipRole: 'read_only' as const };
+  const nobody = { userId: 'n' };
+
+  it('refuses a read-only member, and anyone outside an agency, before anything is read or sent', async () => {
+    for (const who of [viewer, nobody]) {
+      const f = fakeFetch([]);
+      const tries = [
+        connectMyTwilio(noDb, who, { accountSid: `AC${'a'.repeat(32)}`, apiKeySid: `SK${'b'.repeat(32)}`, apiKeySecret: 'secret-secret-secret' }, deps(f)),
+        disconnectMyTwilio(noDb, who),
+        buyMyNumber(noDb, who, deps(f)),
+        listMyTwilioNumbers(noDb, who, deps(f)),
+        bringMyTwilioNumber(noDb, who, 'PN1', deps(f)),
+      ];
+      for (const t of tries) {
+        const err = await t.catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(PhoneError);
+        expect((err as PhoneError).code).toBe('forbidden');
+      }
+      expect(f.calls).toHaveLength(0);
+    }
+    const err = await stopUsingMyNumber(noDb, nobody).catch((e: unknown) => e);
+    expect((err as PhoneError).code).toBe('forbidden');
+  });
+
+  it('checks the SIDs the same way as the agency’s, before calling Twilio', async () => {
+    const f = fakeFetch([]);
+    const agent = { userId: 's', agencyId: 'a', membershipRole: 'agent' as const };
+    const err = await connectMyTwilio(noDb, agent, { accountSid: 'AC123', apiKeySid: `SK${'b'.repeat(32)}`, apiKeySecret: 'secret-secret-secret' }, deps(f)).catch((e: unknown) => e);
+    expect((err as PhoneError).message).toMatch(/Account SID starts with AC/);
+    expect(f.calls).toHaveLength(0);
+  });
+
+  it('drives a number with the key of the account it lives on, and refuses one whose account is gone', async () => {
+    const row = { id: 'acct-own', agencyId: 'a', ownerUserId: 's', accountSid: 'ACown', apiKeySid: 'SKown', apiKeySecret: encryptToken('own-secret', { rowId: 'acct-own', column: 'twilio_api_secret' }, keys) };
+    const asked: unknown[] = [];
+    const db = { select: () => ({ from: () => ({ where: (w: unknown) => (asked.push(w), { limit: async () => [row] }) }) }) } as unknown as Db;
+    const seen: string[] = [];
+    const deps: PhoneDeps = { keys, client: (c) => (seen.push(`${c.accountSid}:${c.apiKeySid}:${c.apiKeySecret}`), twilioClient(c, fakeFetch([]).impl)), webhookBase: null };
+    const tw = await numberTwilio(db, { accountId: 'acct-own' }, deps);
+    expect(tw.account.id).toBe('acct-own');
+    expect(seen).toEqual(['ACown:SKown:own-secret']);
+    const gone = await numberTwilio(noDb, { accountId: null }, deps).catch((e: unknown) => e);
+    expect((gone as PhoneError).code).toBe('not_found');
+  });
+
+  it('never drives a number with the agency’s key: only setup itself and the owner’s AI setup name the agency’s account', () => {
+    const dir = join(__dirname);
+    const files = ['sms.ts', 'missed-calls.ts', 'webhooks.ts', 'ai-callback.ts', '../template-email/sms-batches.ts'];
+    for (const f of files) {
+      const src = readFileSync(join(dir, f), 'utf8');
+      const uses = src.match(/agencyTwilio\(/g)?.length ?? 0;
+      expect({ f, uses }).toEqual({ f, uses: f === 'ai-callback.ts' ? 1 : 0 });
+    }
+  });
+
+  it('lists the numbers already on an account, with their SIDs', async () => {
+    const creds = { accountSid: `AC${'a'.repeat(32)}`, apiKeySid: `SK${'b'.repeat(32)}`, apiKeySecret: 'secret-secret-secret' };
+    const f = fakeFetch([{ status: 200, body: { incoming_phone_numbers: [{ sid: 'PN1', phone_number: '+61480111222' }, { sid: 'PN2', phone_number: '+12025550100' }, { sid: null }] } }]);
+    expect(await twilioClient(creds, f.impl).listNumbers()).toEqual([{ sid: 'PN1', e164: '+61480111222' }, { sid: 'PN2', e164: '+12025550100' }]);
+    expect(f.calls[0]!.url).toBe(`https://api.twilio.com/2010-04-01/Accounts/${creds.accountSid}/IncomingPhoneNumbers.json?PageSize=50`);
   });
 });
 

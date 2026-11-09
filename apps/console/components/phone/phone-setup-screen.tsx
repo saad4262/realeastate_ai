@@ -159,7 +159,8 @@ export async function PhoneSetupScreen() {
             <>
               <p className={styles.muted}>
                 Each agent gets their own Australian mobile number on your Twilio account. Their missed calls forward to it, and their
-                texts come from it. Twilio charges for each number monthly.
+                texts come from it. Twilio charges for each number monthly. An agent may instead connect a Twilio of their own on My phone:
+                that number is theirs and billed to them, and you still read its texts.
               </p>
               <div className={styles.tableWrap}>
                 <table className={styles.table}>
@@ -174,10 +175,14 @@ export async function PhoneSetupScreen() {
                           {g.number?.callerId ?? g.mobile ?? <span className={styles.muted}>not in their profile</span>}{' '}
                           {g.number ? <span className={`${styles.pill} ${g.number.callerIdStatus === 'verified' ? styles.ok : styles.warn}`}>{g.number.callerIdStatus === 'verified' ? 'verified' : 'not verified'}</span> : null}
                         </td>
-                        <td className={styles.mono}>{g.number?.display ?? '—'}</td>
+                        <td className={styles.mono}>
+                          {g.number?.display ?? '—'}{' '}
+                          {g.number?.onOwnTwilio || (!g.number && g.ownTwilio) ? <span className={styles.pill}>their own Twilio</span> : null}
+                        </td>
                         <td>{g.number ? (g.number.forwardingTestedAt ? <span className={`${styles.pill} ${styles.ok}`}>tested {g.number.forwardingTestedAt.toLocaleDateString('en-AU')}</span> : <span className={styles.pill}>not yet</span>) : '—'}</td>
                         <td>{g.number ? (g.number.live ? <span className={`${styles.pill} ${styles.ok}`}>Live</span> : <span className={`${styles.pill} ${styles.warn}`}>Waiting on {g.name.split(' ')[0]}</span>) : <span className={styles.pill}>No number</span>}</td>
-                        <td>{view.canManage ? (g.number ? <ReleaseNumberButton numberId={g.number.id} display={g.number.display} /> : <GetNumberButton agentUserId={g.userId} name={g.name} />) : null}</td>
+                        {/* ADR 0087: a number on the agent's own Twilio is theirs — the agency neither releases nor replaces it. */}
+                        <td>{view.canManage ? (g.number ? (g.number.onOwnTwilio ? null : <ReleaseNumberButton numberId={g.number.id} display={g.number.display} />) : <GetNumberButton agentUserId={g.userId} name={g.name} />) : null}</td>
                       </tr>
                     ))}
                   </tbody>

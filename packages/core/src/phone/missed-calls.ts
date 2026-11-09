@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { and, count, desc, eq, gt, gte, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agency, missedCallSetting, notification, phoneCall, phoneNumber, smsMessage, user, type Db, type DbOrTx } from '@repo/db';
+import { agency, missedCallSetting, notification, phoneAccount, phoneCall, phoneNumber, smsMessage, user, type Db, type DbOrTx } from '@repo/db';
 import { can, isAgencyAdminRole, type Actor, type MembershipRole } from '../permissions';
 import { isPairedSkillOn } from '../skill-switches/switches';
 import { displayAu, isAuMobile, webhookUrl, xmlEscape } from './format';
-import { agencyTwilio, contactByPhone, PhoneError, providerFailure, textsPathFor, type PhoneDeps } from './setup';
+import { contactByPhone, numberTwilio, PhoneError, providerFailure, textsPathFor, type PhoneDeps } from './setup';
 import { isOptedOut } from './sms';
 import {
   autoTextsToCallerToday,
@@ -146,14 +146,16 @@ export async function saveMissedCallSettings(db: DbOrTx, actor: Actor, input: Mi
   if (!parsed.success) throw new PhoneError('invalid', parsed.error.issues[0]?.message ?? 'Check the values.');
   const bad = [...unknownFields(parsed.data.greeting), ...unknownFields(parsed.data.smsTemplate)];
   if (bad.length) throw new PhoneError('invalid', `Unknown field {{${bad[0]}}}. You can use {{first_name}}, {{agent_first_name}} and {{agency_name}}.`);
-  // Rule 1: the agency number is one of this agency's own active numbers, or none (the owner's).
+  // Rule 1: the agency number is one of this agency's own active numbers, or none (the owner's) —
+  // on the agency's Twilio, never an agent's own (ADR 0087): those texts are the agency's to pay for.
   if (parsed.data.agencyNumberId) {
     const [n] = await db
       .select({ id: phoneNumber.id })
       .from(phoneNumber)
+      .innerJoin(phoneAccount, and(eq(phoneAccount.id, phoneNumber.accountId), isNull(phoneAccount.ownerUserId)))
       .where(and(eq(phoneNumber.id, parsed.data.agencyNumberId), eq(phoneNumber.agencyId, actor.agencyId), eq(phoneNumber.status, 'active')))
       .limit(1);
-    if (!n) throw new PhoneError('invalid', 'Pick one of the agency’s own numbers.');
+    if (!n) throw new PhoneError('invalid', 'Pick one of the agency’s own numbers, on the agency’s Twilio.');
   }
   const values = { ...parsed.data, updatedBy: actor.userId };
   await db
@@ -235,7 +237,7 @@ export function decideMissedCallText(f: {
   return 'send';
 }
 
-type NumberRow = { id: string; agencyId: string; userId: string; e164: string; agentName: string; role: MembershipRole | null; retellRegisteredAt: Date | null };
+type NumberRow = { id: string; agencyId: string; userId: string; accountId: string | null; e164: string; agentName: string; role: MembershipRole | null; retellRegisteredAt: Date | null };
 
 /** AI calls that count against the daily ceilings and "once a day": placed or about to be. */
 const AI_COUNTED = ['scheduled', 'calling', 'done', 'no_answer'];
@@ -360,7 +362,7 @@ export async function recordMissedCall(db: Db, n: NumberRow, callSid: string, fr
 
   if (kept && smsId && from) {
     try {
-      const { client } = await agencyTwilio(db, n.agencyId, deps);
+      const { client } = await numberTwilio(db, n, deps);
       const statusUrl = deps.keys && deps.webhookBase ? webhookUrl(deps.webhookBase, n.id, 'sms-status', deps.keys) : null;
       const r = await client.sendSms({ from: n.e164, to: from, body, statusUrl });
       await db.update(smsMessage).set({ status: r.status === 'sent' ? 'sent' : 'queued', providerSid: r.sid, updatedAt: sql`now()` }).where(eq(smsMessage.id, smsId));
