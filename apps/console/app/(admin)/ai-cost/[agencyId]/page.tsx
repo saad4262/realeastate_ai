@@ -99,6 +99,37 @@ export default async function AgencyAiCostPage({
         </div>
         <FeatureTable features={c.features} spend={c.spend} calls={c.calls} />
       </section>
+
+      {c.chats.length ? (
+        <section className={styles.card}>
+          <div className={styles.cardHead}>
+            <h2 className={styles.h2}>The assistant, by chat</h2>
+            <span className={styles.sub}>{periodWords(period)}</span>
+          </div>
+          <div className={styles.scroll}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Chat</th>
+                  <th className={styles.num}>Spend</th>
+                  <th className={styles.num}>Calls</th>
+                  <th className={styles.num}>Per call</th>
+                </tr>
+              </thead>
+              <tbody>
+                {c.chats.map((l) => (
+                  <tr key={l.key}>
+                    <td>{l.label}</td>
+                    <td className={styles.num} data-label="Spend">{usd(l.spend)}</td>
+                    <td className={styles.num} data-label="Calls">{count(l.calls)}</td>
+                    <td className={styles.num} data-label="Per call">{perCall(l.spend, l.calls)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

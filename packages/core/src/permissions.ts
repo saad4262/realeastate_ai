@@ -352,6 +352,8 @@ export type Action =
    * members too, because Phase A's tools only read, and each tool still asks
    * can() and the SQL scope filters as this person.
    */
+  /** See what you have used against the daily limits (ADR 0088): any member, their own agency. Not an admin viewing an agency. */
+  | 'usage:read'
   | 'assistant:use'
   /**
    * Read or continue an assistant conversation (`ownerId` = its author). Its
@@ -868,6 +870,7 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       if (!sameAgency(actor, resource) || !mayWrite(actor)) return false;
       return isAgencyAdmin(actor) || (Boolean(resource.ownerId) && actor.userId === resource.ownerId);
 
+    case 'usage:read':
     case 'assistant:use':
       return sameAgency(actor, resource) && Boolean(actor.membershipRole);
 

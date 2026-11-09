@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { aiBudgetCaps } from '../assistant/budget';
-import { aiCostDays, aiCostForAgency, aiCostOverview, aiFeatureGroup, capState, foldAiCost, parseAiCostPeriod, type AiCostRow } from './ai-cost';
+import { aiCostDays, aiCostForAgency, aiCostOverview, aiFeatureGroup, capState, chatLines, foldAiCost, parseAiCostPeriod, type AiCostRow } from './ai-cost';
 
 /** ADR 0086: the admin's AI cost page. Admins only, a fixed number of statements, and totals that agree. */
 
@@ -46,6 +46,30 @@ describe('who may read it', () => {
     const { db, seen } = fakeDb();
     await expect(aiCostForAgency(db, admin, 'nope', { period: 30 })).rejects.toMatchObject({ code: 'not_found' });
     expect(seen).toHaveLength(0);
+  });
+});
+
+describe('the assistant by kind of chat (ADR 0088)', () => {
+  const r = (feature: string, chat_scope: string | null, spend: string, calls: number) => ({ feature, chat_scope, spend, calls });
+  it('adds up one line per chat, dearest first, and leaves every other feature out', () => {
+    const lines = chatLines([r('assistant', 'bulk_email', '1.5', 3), r('assistant', 'bulk_email', '0.5', 1), r('assistant', null, '3', 2), r('assistant', 'daily_work', '1', 4), r('skill:morning_brief', null, '9', 9)]);
+    expect(lines).toEqual([
+      { key: 'none', label: 'Older chats', spend: 3, calls: 2 },
+      { key: 'bulk_email', label: 'Bulk email', spend: 2, calls: 4 },
+      { key: 'daily_work', label: 'Daily work', spend: 1, calls: 4 },
+    ]);
+  });
+  it('shows a scope this code does not know under its own name', () => {
+    expect(chatLines([r('assistant', 'something_new', '1', 1)])[0]!.label).toBe('something_new');
+  });
+  it('splitting by chat does not change the person’s total, nor the statement count', async () => {
+    const row = (chat_scope: string | null, spend: string, day: string) => ({ user_id: owner.userId, name: 'Sam', role: 'owner', feature: 'assistant', chat_scope, model: 'm', spend, calls: 1, day_spend: day });
+    const { db, seen } = fakeDb([[row(null, '1', '0.5'), row('bulk_email', '2', '1')], [{ total: '10' }]]);
+    const c = await aiCostForAgency(db, admin, A, { period: 7 });
+    expect(seen).toHaveLength(2);
+    expect(c.people).toHaveLength(1);
+    expect(c.people[0]).toMatchObject({ spend: 3, calls: 2, assistantDay: 1.5 });
+    expect(c.chats.map((l) => l.spend)).toEqual([2, 1]);
   });
 });
 

@@ -824,6 +824,10 @@ describe('assistant (ADR 0025)', () => {
   it('opens for every active member of the agency, read-only too, and nobody else', () => {
     for (const a of [owner, agent, viewer]) expect(can(a, 'assistant:use', { type: 'assistant', agencyId: agencyA })).toBe(true);
     expect(can(rival, 'assistant:use', { type: 'assistant', agencyId: agencyA })).toBe(false);
+    for (const a of [owner, agent, viewer]) expect(can(a, 'usage:read', { type: 'usage', agencyId: agencyA })).toBe(true);
+    expect(can(rival, 'usage:read', { type: 'usage', agencyId: agencyA })).toBe(false);
+    expect(can({ userId: 'x', agencyId: agencyA }, 'usage:read', { type: 'usage', agencyId: agencyA })).toBe(false);
+    expect(can({ userId: 'x', agencyId: agencyA, membershipRole: 'owner', via: 'platform' }, 'usage:read', { type: 'usage', agencyId: agencyA })).toBe(false);
     expect(can({ userId: 'x' }, 'assistant:use', { type: 'assistant', agencyId: agencyA })).toBe(false);
     expect(can({ userId: 'x', agencyId: agencyA }, 'assistant:use', { type: 'assistant', agencyId: agencyA })).toBe(false);
   });

@@ -8,6 +8,7 @@ export {
   capState,
   parseAiCostPeriod,
   type AiCostAgency,
+  type AiCostChat,
   type AiCostAttention,
   type AiCostFeature,
   type AiCostOverview,

@@ -62,6 +62,7 @@ import {
   type LeadUnderstander,
 } from '@repo/core/leads';
 import { can, type Actor, type MembershipRole } from '@repo/core/permissions';
+import { usageFor } from '@repo/core/usage';
 import {
   getAgencyProfile,
   aiCostForAgency,
@@ -9889,6 +9890,10 @@ async function main() {
 
       const one = await aiCostForAgency(t, admin, A.f.agencyId, { period: 7 });
       assert(near(one.spend, 2) && near(one.assistantDay, 1.5) && one.people.length === 1 && one.people[0]!.key === A.f.people.owner, `the agency page: ${JSON.stringify(one)}`);
+      assert(near(one.chats.reduce((sum, l) => sum + l.spend, 0), one.features.filter((f) => f.features.includes('assistant')).reduce((sum, f) => sum + f.spend, 0)), `the chats do not add up: ${JSON.stringify(one.chats)}`);
+      const usage = await usageFor(t, A.f.actor('owner'));
+      assert(usage !== null && usage.ai.percent >= 0 && usage.email.person.limit > 0 && !JSON.stringify(usage).includes('spentUsd'), `usage: ${JSON.stringify(usage)}`);
+      assert((await usageFor(t, { userId: A.f.people.owner })) === null, 'usage for someone with no agency');
       const ownerTry = await aiCostOverview(t, A.f.actor('owner'), { period: 7 }).then(() => 'GOT', (e: { code?: string }) => e.code);
       const ownerOne = await aiCostForAgency(t, A.f.actor('owner'), A.f.agencyId, { period: 7 }).then(() => 'GOT', (e: { code?: string }) => e.code);
       assert(ownerTry === 'forbidden' && ownerOne === 'forbidden', `an owner: ${ownerTry}, ${ownerOne}`);

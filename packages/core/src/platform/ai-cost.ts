@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import type { Db } from '@repo/db';
 import { aiBudgetCaps } from '../assistant/budget';
+import { CHAT_SCOPE_LABELS, type ChatScope } from '../assistant/chat-scopes';
 import { can, type Actor } from '../permissions';
 import { PlatformError } from './admin';
 
@@ -107,6 +108,8 @@ export type AiCostOverview = {
   days: { day: string; spend: number }[];
 };
 
+export type AiCostChat = { key: string; label: string; spend: number; calls: number };
+
 export type AiCostPerson = { key: string; name: string; role: string | null; spend: number; calls: number; assistantDay: number | null };
 
 export type AiCostAgency = {
@@ -118,6 +121,8 @@ export type AiCostAgency = {
   shareOfPlatform: number;
   people: AiCostPerson[];
   features: AiCostFeature[];
+  /** ADR 0088: the assistant's spend by kind of chat. */
+  chats: AiCostChat[];
 };
 
 const UUID = /^[0-9a-f-]{36}$/i;
@@ -272,7 +277,21 @@ export async function aiCostOverview(db: Db, admin: Actor, opts: { period: AiCos
   return { period: opts.period, days: aiCostDays([...daily], now), ...foldAiCost([...rows], aiBudgetCaps(opts.env)) };
 }
 
-/** One agency for one period, by person and by feature. Two statements. */
+/** The assistant's rows by kind of chat, dearest first. Null is a chat from before ADR 0088. Pure. */
+export function chatLines(rows: readonly { feature: string; chat_scope?: string | null; spend: unknown; calls: unknown }[]): AiCostChat[] {
+  const lines = new Map<string, AiCostChat>();
+  for (const r of rows) {
+    if (r.feature !== ASSISTANT) continue;
+    const key = r.chat_scope ?? 'none';
+    const line = lines.get(key) ?? { key, label: r.chat_scope ? (CHAT_SCOPE_LABELS[r.chat_scope as ChatScope] ?? r.chat_scope) : 'Older chats', spend: 0, calls: 0 };
+    line.spend += n(r.spend);
+    line.calls += n(r.calls);
+    lines.set(key, line);
+  }
+  return [...lines.values()].sort((a, b) => b.spend - a.spend || a.key.localeCompare(b.key));
+}
+
+/** One agency for one period, by person, by feature and by chat. Two statements. */
 export async function aiCostForAgency(db: Db, admin: Actor, agencyId: string, opts: { period: AiCostPeriod; now?: Date; env?: NodeJS.ProcessEnv }): Promise<AiCostAgency> {
   requireAdmin(admin);
   if (!UUID.test(agencyId)) throw new PlatformError('not_found', 'That agency was not found');
@@ -280,8 +299,8 @@ export async function aiCostForAgency(db: Db, admin: Actor, agencyId: string, op
   const since = new Date(now.getTime() - opts.period * DAY_MS).toISOString();
   const day = new Date(now.getTime() - DAY_MS).toISOString();
   const [rows, platform] = await Promise.all([
-    db.execute<{ user_id: string | null; name: string | null; role: string | null; feature: string; model: string; spend: unknown; calls: unknown; day_spend: unknown }>(sql`
-      select r.user_id, coalesce(nullif(u.name, ''), u.email) as name, m.role, r.feature, r.model,
+    db.execute<{ user_id: string | null; name: string | null; role: string | null; feature: string; chat_scope: string | null; model: string; spend: unknown; calls: unknown; day_spend: unknown }>(sql`
+      select r.user_id, coalesce(nullif(u.name, ''), u.email) as name, m.role, r.feature, r.chat_scope, r.model,
         coalesce(sum(r.cost_usd), 0) as spend,
         count(*)::int as calls,
         coalesce(sum(r.cost_usd) filter (where r.created_at >= ${day}::timestamptz), 0) as day_spend
@@ -289,7 +308,7 @@ export async function aiCostForAgency(db: Db, admin: Actor, agencyId: string, op
       left join "user" u on u.id = r.user_id
       left join membership m on m.user_id = r.user_id and m.agency_id = r.agency_id
       where r.agency_id = ${agencyId}::uuid and r.created_at >= ${since}::timestamptz
-      group by r.user_id, u.name, u.email, m.role, r.feature, r.model`),
+      group by r.user_id, u.name, u.email, m.role, r.feature, r.chat_scope, r.model`),
     db.execute<{ total: unknown }>(sql`select coalesce(sum(r.cost_usd), 0) as total from ai_run r where r.created_at >= ${since}::timestamptz`),
   ]);
 
@@ -320,5 +339,6 @@ export async function aiCostForAgency(db: Db, admin: Actor, agencyId: string, op
     shareOfPlatform: total > 0 ? spend / total : 0,
     people: [...people.values()].sort((a, b) => b.spend - a.spend || a.key.localeCompare(b.key)),
     features: featureLines([...rows]),
+    chats: chatLines([...rows]),
   };
 }
