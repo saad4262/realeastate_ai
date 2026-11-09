@@ -4,6 +4,7 @@ import type { ConsoleChrome } from '../../lib/require-console-access';
 import { AssistantRoute } from '@/components/assistant/assistant-route';
 import { LiveRefresh } from '@/components/live-refresh';
 import { AutomationStatusButton } from '@/components/automations/automation-status';
+import { HelpWidget } from '@/components/help/help-widget';
 import { NotificationBell } from '@/components/notifications/notification-bell';
 import { listAssistantConversations } from '@repo/core/assistant';
 import { getConsoleDb } from '../../lib/db';
@@ -181,6 +182,7 @@ export function ConsoleShell({ surface, children, userLabel, userId, chrome }: C
       {/* New mail, team messages and the bell show up without a reload (ADR 0035). */}
       <LiveRefresh />
       <AssistantRoute home={shell.home} />
+      {shell.automations ? <HelpWidget /> : null}
     </div>
   );
 }

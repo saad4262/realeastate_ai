@@ -354,6 +354,8 @@ export type Action =
    */
   /** See what you have used against the daily limits (ADR 0088): any member, their own agency. Not an admin viewing an agency. */
   | 'usage:read'
+  /** Ask the help bot how to use the site (ADR 0088): any member. Not an admin viewing an agency. */
+  | 'help:ask'
   /** The top bar's running automations (ADR 0088): any member sees their own. */
   | 'automation_status:read'
   /** Everyone's in the agency, each row saying whose: owners and admins. */
@@ -879,6 +881,7 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
 
     case 'automation_status:read':
     case 'usage:read':
+    case 'help:ask':
     case 'assistant:use':
       return sameAgency(actor, resource) && Boolean(actor.membershipRole);
 

@@ -46,6 +46,7 @@ const FEATURE_GROUPS: Readonly<Record<string, FeatureGroup>> = Object.freeze({
   'lead:understand': CONSOLE('Understanding enquiries, AI decides'),
   'workflow:decide': CONSOLE('Understanding enquiries, AI decides'),
   'workflow:draft_email': CONSOLE('Workflow email drafts'),
+  'help-bot': CONSOLE('Help bot'),
   'contact:summary': CONSOLE('Customer and property summaries'),
   'property:summary': CONSOLE('Customer and property summaries'),
   'import-map': CONSOLE('Contact import help'),

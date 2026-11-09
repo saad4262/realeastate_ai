@@ -2321,3 +2321,11 @@ Phase 1 is the foundation and changes nothing on screen. Apply migration 0093 fi
 | CX9 | Sign in as an agent, then as the owner, with a batch sent by the agent | The agent sees their own batch and no one else's. The owner sees it with the agent's name |
 | CX10 | Phone width → the bolt panel | Fits on the screen; rows wrap; no sideways scroll |
 | CX11 | The panel's bottom line | Email used/limit, SMS only with a number, AI as a percent, never dollars |
+| CX12 | The ? button, bottom right, on any console page | A small window opens. "Not saved" is on it |
+| CX13 | On Skills, ask "how do I turn on bulk email" | Answers knowing you are on Skills; a link to a page works and the window stays open with the conversation |
+| CX14 | Ask in Roman Urdu | Answers in Roman Urdu |
+| CX15 | Ask "what's John's phone number" | Says it cannot see records and points to the page or the assistant |
+| CX16 | Reload the page | The conversation is gone. Nothing under Recents |
+| CX17 | Agent: "how do I add an agent to the team" | Does not link to the agency's Team page |
+| CX18 | Ask about Marketing & Reviews | Says that screen is a preview and not working yet |
+| CX19 | Phone width | The window fits; the ? button does not sit on the chat's send button |
