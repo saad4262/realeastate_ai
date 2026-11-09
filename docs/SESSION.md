@@ -3,6 +3,13 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-09 (later) — Claude Code (Mac) — ADR 0089 automations; Email and SMS each one skill
+
+- The user set the model: skills are what the platform provides, an automation is what a person sets up with one, and automation, task and schedule are one thing. A workflow is only when, so Email and SMS are one skill and one assistant each.
+- Built: repeating automations (migration 0095, applied on the user's go), the Automations tab as one list of everything set up, the top bar's two panels, SMS automations that wait for the sending hours, and the combined cards and chats. Parts keep their switches; old chats open as the combined one.
+- The card for a new automation is stored as `create_workflow`, so the database CHECK did not change: I had told the user the migration was only two new tables.
+- Merged and pushed on the user's go. NOT run: browser, live model, the new SQL on a real database, a real text.
+
 ## 2026-11-09 — Claude Code (Mac) — ADR 0087 merged; ADR 0088 three kinds of chat, built and pushed
 
 - The user asked for three chats: Overview for talk and lookups, one chat per skill that can only do that skill, and a help window

@@ -4,13 +4,13 @@ Short on purpose: where things stand now. History is in `docs/SESSION.md` and `d
 `docs/HANDOFF.md`. Overwrite this file at each handoff; do not append.
 
 ## Milestone
-`main` = ADR 0087 part 1 (an agent's own Twilio) and ADR 0088 (three kinds of chat), pushed 2026-11-09 on the user's go, so Vercel deploys it.
+`main` = ADR 0087 part 1 (an agent's own Twilio), ADR 0088 (three kinds of chat) and ADR 0089 (automations), pushed 2026-11-09 on the user's go, so Vercel deploys it.
 Before that, `main` held everything through ADR 0086. The sites run on their `vercel.app` addresses; the cutover to `findoraaus.com.au` waits on DNS.
 
 ## Database
 **One database: `xjklpoyxcvnlhjlxasmv`. It is production, and `.env.local` points at it.** No separate dev database yet.
-95 migrations (0000–0094), all applied 2026-11-09 on the user's go: 0093 and 0094 by hand first (additive), then `db:migrate` for 0092,
-which drops two unique constraints for partial ones. **Do not run `db:reset` or `pnpm smoke` locally while `.env.local` points here.**
+96 migrations (0000–0095), all applied 2026-11-09 on the user's go: 0093 and 0094 by hand first (additive), then `db:migrate` for 0092,
+which drops two unique constraints for partial ones, and 0095 (two new tables). **Do not run `db:reset` or `pnpm smoke` locally while `.env.local` points here.**
 
 ## Vercel
 Applied: `AI_DAILY_BUDGET_USD=20` on all 4, `REVALIDATE_SECRET` on Agent, Web's addresses on `vercel.app`. Removed: admin credentials, `SMOKE_ENABLED`, debug variables,
@@ -21,6 +21,10 @@ Applied: `AI_DAILY_BUDGET_USD=20` on all 4, `REVALIDATE_SECRET` on Agent, Web's 
 ## DNS (checked 10:34 UTC)
 The registry delegates to `haley` and `garret`, and those two serve **no A records for the apex and NXDOMAIN for `www`, `agency`, `agents`, `admin`**. The SOA serial has not moved.
 Authoritative servers do not wait for propagation, so waiting may not fix this: check the Cloudflare zone first. **Switch nothing until all five addresses load over HTTPS.**
+
+## ADR 0089: skills and automations (merged, on `main`)
+A skill is what the platform provides; an automation is what a person sets up with it. A repeating bulk email or text is approved once from its chat and runs on the minute tick (`recurring/`). Skills → Automations lists everything set up, whatever it is underneath; the top bar's Skills opens to each skill's automations and chats, and Automations shows only what is running or just ran. Bulk email, AI email drafts and Workflow emails are one Email card and chat; Bulk SMS and Workflow texts one SMS card and chat; their parts keep their own switches, and chats saved under the old names open as the combined one.
+Checks: unit core 2207 / AI 458, typecheck, lint, both builds. NOT done: a browser run of TEST-PLAN CX56–CX68, a live model, the new SQL on a real database, a real text. **From this push the deployed cron runs every active automation at its time, with real sends.** `WorkflowsPage` (the old tab and its library) is unused and left in place.
 
 ## ADR 0088: three kinds of chat (merged, on `main`)
 Overview (read-only behind the flag above, with a button into the right chat), eleven skill chats opened from Skills (each its own tools,
@@ -49,7 +53,7 @@ On `main` with ADR 0088. Part 2, the office line, is not built. TEST-PLAN CW1–
 
 ## Next
 1. The user: set `ASSISTANT_OVERVIEW_READ_ONLY=1` on Vercel when ready; run TEST-PLAN CX, CX40 first.
-2. Phase 8 limits, after the AI cost page shows real use by chat.
+2. Limits (the user's numbers, still open): today's are 50 emails per agent and 200 per agency a day, so a large repeating send stops at them. Phase 8 per-chat limits after the AI cost page shows real use.
 3. DNS cutover (`docs/DNS-CUTOVER.md`), Sentry project, a separate dev database, real phone tests.
 
 ## Watch
