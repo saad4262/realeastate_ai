@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { answerHelp } from '@repo/ai/help-bot';
-import { buildHelpGuide, checkHelpAllowed, helpHrefs, helpPageName, helpRequestSchema, parseHelpReply, type HelpSurface } from '@repo/core/help';
+import { overviewIsReadOnly } from '@repo/core/assistant/chat-scopes';
+import { buildHelpGuide, checkHelpAllowed, helpHrefs, helpPageContext, helpReplyLinks, helpRequestSchema, type HelpSurface } from '@repo/core/help';
 import { SHELLS } from '@/components/shell/surfaces';
 import { getConsoleDb } from '../../../lib/db';
 import { loadActor } from '../../../lib/load-actor';
@@ -36,10 +37,17 @@ export async function POST(request: NextRequest) {
     const { groups } = SHELLS[surface];
     const text = await answerHelp(
       { apiKey, db },
-      { guide: buildHelpGuide(surface, groups), pageName: helpPageName(parsed.data.path, surface, groups), messages: parsed.data.messages, userId: actor.userId, agencyId: actor.agencyId },
+      {
+        guide: buildHelpGuide(surface, groups, { overviewReadOnly: overviewIsReadOnly() }),
+        page: helpPageContext(parsed.data.path, surface, groups),
+        role: actor.membershipRole ?? null,
+        messages: parsed.data.messages,
+        userId: actor.userId,
+        agencyId: actor.agencyId,
+      },
     );
     if (!text) return NextResponse.json({ error: 'I could not answer that one. Try asking another way.' }, { status: 502 });
-    return NextResponse.json({ text, segments: parseHelpReply(text, helpHrefs(surface, groups)) }, { headers: { 'cache-control': 'no-store' } });
+    return NextResponse.json({ text, links: helpReplyLinks(text, helpHrefs(surface, groups)) }, { headers: { 'cache-control': 'no-store' } });
   } catch (err) {
     console.error('[help] answer failed', err instanceof Error ? err.message : 'unknown');
     return NextResponse.json({ error: 'Help is not available right now. Please try again.' }, { status: 503 });

@@ -182,7 +182,7 @@ export function ConsoleShell({ surface, children, userLabel, userId, chrome }: C
       {/* New mail, team messages and the bell show up without a reload (ADR 0035). */}
       <LiveRefresh />
       <AssistantRoute home={shell.home} />
-      {shell.automations ? <HelpWidget /> : null}
+      {surface !== 'admin' ? <HelpWidget surface={surface} groups={shell.groups} /> : null}
     </div>
   );
 }

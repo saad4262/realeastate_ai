@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Db } from '@repo/db';
-import { HELP_FEATURE, type HelpRequest } from '@repo/core/help';
+import { HELP_FEATURE, type HelpPageContext, type HelpRequest } from '@repo/core/help';
 import { getModel, type TokenUsage } from '../models';
 import { HELP_PROMPT_VERSION, helpSystem } from '../prompts/help-v1';
 import { trackAiRunQuietly } from '../usage';
@@ -17,14 +17,20 @@ export type HelpBotDeps = {
 
 export type HelpAsk = {
   guide: string;
-  /** The guide's name for the page, or null when it has none. */
-  pageName: string | null;
+  /** Where the person is, in the guide's own words. Null when it has no such page. */
+  page: HelpPageContext | null;
+  role: string | null;
   messages: HelpRequest['messages'];
   userId: string;
   agencyId: string;
 };
 
 const MAX_TOKENS = 500;
+
+function where(page: HelpPageContext | null): string {
+  if (!page) return 'A page not in the guide';
+  return `${page.name}${page.tab ? `, on its ${page.tab} tab` : ''}. ${page.what}`.trim();
+}
 
 export async function answerHelp(deps: HelpBotDeps, ask: HelpAsk): Promise<string | null> {
   const client = deps.client ?? new Anthropic({ apiKey: deps.apiKey });
@@ -37,7 +43,7 @@ export async function answerHelp(deps: HelpBotDeps, ask: HelpAsk): Promise<strin
     system: [{ type: 'text', text: helpSystem(ask.guide), cache_control: { type: 'ephemeral' } }],
     messages: ask.messages.map((m, i) => ({
       role: m.role,
-      content: i === last ? `<current_page>${ask.pageName ?? 'A page not in the guide'}</current_page>\n${m.text}` : m.text,
+      content: i === last ? `<current_page>${where(ask.page)}</current_page>\n<person_role>${ask.role ?? 'unknown'}</person_role>\n${m.text}` : m.text,
     })),
   });
   const usage: TokenUsage = {

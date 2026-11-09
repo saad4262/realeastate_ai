@@ -21,7 +21,7 @@ function fakeDb() {
   return { db, rows };
 }
 
-const ask: HelpAsk = { guide: '- Skills (/skills): switches.', pageName: 'Skills', messages: [{ role: 'user', text: 'where do I turn on bulk email' }], userId: 'u1', agencyId: 'a1' };
+const ask: HelpAsk = { guide: '- Skills (/skills): switches.', page: { pattern: '/skills', name: 'Skills', what: 'Your switches.', tab: 'Automations' }, role: 'agent', messages: [{ role: 'user', text: 'where do I turn on bulk email' }], userId: 'u1', agencyId: 'a1' };
 
 describe('answerHelp', () => {
   it('sends no tools, and the page by its name in the last message', async () => {
@@ -30,7 +30,20 @@ describe('answerHelp', () => {
     await answerHelp({ apiKey: 'test', db, client, env: {} as NodeJS.ProcessEnv }, ask);
     const params = create.mock.calls[0]![0];
     expect(params.tools).toBeUndefined();
-    expect((params.messages as { content: string }[]).at(-1)!.content).toBe('<current_page>Skills</current_page>\nwhere do I turn on bulk email');
+    expect((params.messages as { content: string }[]).at(-1)!.content).toBe('<current_page>Skills, on its Automations tab. Your switches.</current_page>\n<person_role>agent</person_role>\nwhere do I turn on bulk email');
+  });
+
+  it('says so when the guide has no such page, and never the URL', async () => {
+    const { client, create } = fakeClient();
+    const { db } = fakeDb();
+    await answerHelp({ apiKey: 'test', db, client, env: {} as NodeJS.ProcessEnv }, { ...ask, page: null });
+    expect((create.mock.calls[0]![0].messages as { content: string }[]).at(-1)!.content).toContain('A page not in the guide');
+  });
+
+  it('is told to answer where the person is, in the language they use', () => {
+    const system = helpSystem('g');
+    expect(system).toContain('which page they are on');
+    expect(system).toContain('konsy page');
   });
 
   it('only the last message carries the page', async () => {

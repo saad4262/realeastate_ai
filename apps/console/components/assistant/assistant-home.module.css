@@ -250,3 +250,10 @@
   font-size: 0.8125rem;
   color: var(--sapphire);
 }
+
+/* The help button sits in the bottom corner: where the composer reaches that corner, leave room under it. */
+@media (max-width: 1240px) {
+  .homeStarted .dock {
+    padding-bottom: 4rem;
+  }
+}

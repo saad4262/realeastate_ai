@@ -2352,3 +2352,10 @@ Phase 1 is the foundation and changes nothing on screen. Apply migration 0093 fi
 | CX40 | With the flag: open an OLD chat with tool cards in it and carry on talking | It still answers. This is the one to watch: the old turns name tools it no longer has |
 | CX41 | With the flag: a pending card from before it | Approve still works |
 | CX42 | Remove the flag, redeploy | Overview is back to how it was, the Overview chats made meanwhile stay read-only |
+| CX43 | Help window, an answer with a list and bold words | Rendered as a list and bold, no ** or - showing; a link to a page works |
+| CX44 | Help button at phone width and at about 1000 px, on a started chat | It never sits on the chat's send button |
+| CX45 | Switch on a few skills → the bolt panel | "Switched on" lists each one; a skill with a chat has a "Chat" tag and opens it; one without goes to Skills filtered to On |
+| CX46 | As an agent, with Bulk SMS on for you and off for the agency | It is not in the agent's "Switched on" |
+| CX47 | Help, on Home, a customer's profile and Skills → Automations: ask "konsy page par hun?" | Names the page (and the tab), says in a line what it is for; never asks which page |
+| CX48 | Help, on a page: "what can I do here?" | Answers for that page, with its real button names |
+| CX49 | Help: "how do I send a bulk email?" | The real steps, starting from where you are, including Save this filter |
