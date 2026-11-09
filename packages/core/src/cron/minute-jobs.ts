@@ -6,6 +6,7 @@ import { refreshDueKyc, runDueAiCallbacks, type PhoneDeps, type VoiceAi } from '
 import { resumeSmsBatches } from '../template-email/sms-batches';
 import { deliverPlatformEmails, type PlatformMailDeps } from '../platform';
 import { runWorkflowTick, type WorkflowTickDeps } from '../workflows';
+import { runAutomationTick, type RunnerDeps } from '../recurring';
 import { runLeadUnderstanding, type LeadUnderstander } from '../leads/understand';
 import type { TickJob } from './tick';
 
@@ -23,6 +24,7 @@ export const MINUTE_BATCH = {
   aiCalls: 10,
   kycAccounts: 5,
   smsBatches: 5,
+  automationSlices: 3,
 } as const;
 
 export type MinuteDeps = {
@@ -31,6 +33,8 @@ export type MinuteDeps = {
   /** "AI understands" (ADR 0078, packages/ai); null: new leads are marked "off". */
   understander: LeadUnderstander | null;
   scheduled: Parameters<typeof runScheduledActions>[1];
+  /** Repeating automations (ADR 0089). */
+  automations: RunnerDeps;
   reminders: ReminderDeps;
   zoomAlerts: Pick<ReminderDeps, 'notice'>;
   platformMail: PlatformMailDeps | null;
@@ -58,6 +62,12 @@ export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new
         const r = await runWorkflowTick(db, now(), MINUTE_BATCH.workflowEvents, { decider: deps.decider, scans: round === 0 });
         return { result: r, more: r.events >= MINUTE_BATCH.workflowEvents };
       },
+    },
+    {
+      // Repeating automations (ADR 0089): what is due, then what is running, a few slices a tick.
+      name: 'automations',
+      mode: 'once',
+      run: async () => ({ result: await runAutomationTick(db, deps.automations, now(), MINUTE_BATCH.automationSlices), more: false }),
     },
     {
       // Approved actions due at their minute (sends, invitations, workflow steps).

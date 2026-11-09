@@ -9900,7 +9900,7 @@ async function main() {
       // ADR 0088: the panel's raw SQL has only ever been read, never run, until this line.
       const panelAsOwner = await automationStatus(t, A.f.actor('owner'));
       const panelAsAgent = await automationStatus(t, A.f.actor('a1'));
-      assert(panelAsOwner !== null && panelAsAgent !== null && panelAsAgent.running.every((i) => i.mine) && panelAsAgent.active.every((i) => i.mine), `the panel: ${JSON.stringify(panelAsAgent)}`);
+      assert(panelAsOwner !== null && panelAsAgent !== null && panelAsAgent.running.every((i) => i.mine) && panelAsAgent.finished.every((i) => i.mine), `the panel: ${JSON.stringify(panelAsAgent)}`);
       assert(typeof (await runningAutomationCount(t, A.f.actor('owner'))) === 'number', 'the badge count');
       const ownerTry = await aiCostOverview(t, A.f.actor('owner'), { period: 7 }).then(() => 'GOT', (e: { code?: string }) => e.code);
       const ownerOne = await aiCostForAgency(t, A.f.actor('owner'), A.f.agencyId, { period: 7 }).then(() => 'GOT', (e: { code?: string }) => e.code);

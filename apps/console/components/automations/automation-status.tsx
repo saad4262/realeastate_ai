@@ -2,11 +2,9 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { automationHref, type ActiveAutomation, type AutomationItem, type AutomationPaths, type AutomationStatus } from '@repo/core/automation-status/links';
+import { automationHref, type AutomationItem, type AutomationPaths, type AutomationStatus } from '@repo/core/automation-status/links';
 import { useToast } from '@/components/toast';
-import { stopTaskAction } from '@/lib/automation-actions';
-import { setSkillEnabledAction } from '@/lib/skill-actions';
-import { setWorkflowStatusAction } from '@/lib/workflow-actions';
+import { stopAutomationRunAction, stopTaskAction } from '@/lib/automation-actions';
 import { usePanelDismiss } from './use-panel';
 import styles from './automation-status.module.css';
 
@@ -26,6 +24,7 @@ function time(at: string): string {
 }
 
 function kindWord(item: AutomationItem): string {
+  if (item.kind === 'automation_run') return 'Automation';
   if (item.kind === 'send_plan') return 'Bulk email, in parts';
   if (item.kind === 'batch') return item.channel === 'sms' ? 'Bulk SMS' : 'Bulk email';
   return item.kind === 'task' ? 'Task' : 'AI skill';
@@ -35,6 +34,10 @@ function progressWords(item: AutomationItem): string {
   const next = item.nextAt ? ` · next ${time(item.nextAt)}` : '';
   if (item.kind === 'send_plan' && item.parts) {
     return `${item.done} of ${item.total} sent${item.failed ? ` · ${item.failed} failed` : ''} · part ${Math.min(item.parts.done + 1, item.parts.total)} of ${item.parts.total}${next}`;
+  }
+  if (item.kind === 'automation_run') {
+    if (item.state === 'done') return `Complete · ${item.done} sent${item.failed ? ` · ${item.failed} failed` : ''}${item.nextAt ? ` · next ${time(item.nextAt)}` : ''}`;
+    return item.total ? `${item.done} of ${item.total} sent${item.failed ? ` · ${item.failed} failed` : ''}` : 'Starting…';
   }
   if (item.kind === 'batch') return `${item.done} of ${item.total} sent${item.failed ? ` · ${item.failed} failed` : ''}`;
   if (item.kind === 'task') return `${item.done} of ${item.total} steps done${next}`;
@@ -84,7 +87,7 @@ function StopControl({ item, reload }: { item: AutomationItem; reload: () => Pro
   return (
     <div className={styles.confirm}>
       <span className={styles.note}>Stop the rest? What has gone stays gone.</span>
-      <ActionButton label="Stop" run={() => stopTaskAction(item.targetId)} reload={reload} />
+      <ActionButton label="Stop" run={() => (item.kind === 'automation_run' ? stopAutomationRunAction(item.targetId) : stopTaskAction(item.targetId))} reload={reload} />
       <button type="button" className={styles.controlBtn} onClick={() => setAsking(false)}>
         Keep going
       </button>
@@ -117,60 +120,6 @@ function ItemRow({ item, paths, onNavigate, reload }: { item: AutomationItem } &
         <div className={styles.rowActions}>
           <StopControl item={item} reload={reload} />
         </div>
-      ) : null}
-    </li>
-  );
-}
-
-function ActiveRow({ item, paths, onNavigate, reload }: { item: ActiveAutomation } & Controls) {
-  const when = item.nextAt
-    ? `Next ${time(item.nextAt)}`
-    : item.lastAt
-      ? `Last ran ${time(item.lastAt)}`
-      : item.kind === 'workflow'
-        ? 'Waiting for its trigger'
-        : 'Not scheduled';
-  return (
-    <li className={styles.rowWrap}>
-      <RowLink href={automationHref(item, paths)} onNavigate={onNavigate}>
-        <span className={styles.rowText}>
-          <span className={styles.title}>{item.title}</span>
-          <span className={styles.note}>
-            {item.kind === 'workflow' ? 'Workflow' : 'AI skill'}
-            {item.owner ? ` · ${item.owner}` : ''} · {when}
-            {item.runsToday ? ` · ${item.runsToday} today` : ''}
-          </span>
-        </span>
-      </RowLink>
-      {item.canManage ? (
-        <span className={styles.control}>
-          {item.kind === 'workflow' ? (
-            <ActionButton label="Pause" run={() => setWorkflowStatusAction(item.targetId, 'paused')} reload={reload} />
-          ) : (
-            <ActionButton label="Off" run={() => setSkillEnabledAction(item.targetId, false)} reload={reload} />
-          )}
-        </span>
-      ) : null}
-    </li>
-  );
-}
-
-function PausedRow({ item, paths, onNavigate, reload }: { item: ActiveAutomation } & Controls) {
-  return (
-    <li className={styles.rowWrap}>
-      <RowLink href={automationHref(item, paths)} onNavigate={onNavigate}>
-        <span className={styles.rowText}>
-          <span className={styles.title}>{item.title}</span>
-          <span className={styles.note}>
-            Workflow{item.owner ? ` · ${item.owner}` : ''}
-            {item.pausedReason ? ` · ${item.pausedReason}` : ''}
-          </span>
-        </span>
-      </RowLink>
-      {item.canManage ? (
-        <span className={styles.control}>
-          <ActionButton label="Turn on" run={() => setWorkflowStatusAction(item.targetId, 'active')} reload={reload} />
-        </span>
       ) : null}
     </li>
   );
@@ -228,7 +177,7 @@ export function AutomationStatusButton({ paths, className, glyphClassName, textC
 
   const close = useCallback(() => setOpen(false), []);
   usePanelDismiss(open, close, wrap);
-  const nothing = status && !status.running.length && !status.failed.length && !status.active.length && !status.paused.length;
+  const nothing = status && !status.running.length && !status.failed.length && !status.finished.length;
   const controls = { paths, onNavigate: close, reload: loadStatus };
 
   return (
@@ -250,7 +199,7 @@ export function AutomationStatusButton({ paths, className, glyphClassName, textC
 
           {failed && !status ? <p className={styles.empty}>This could not be loaded. It will try again.</p> : null}
           {!failed && !status ? <p className={styles.empty}>Loading…</p> : null}
-          {nothing ? <p className={styles.empty}>Nothing is running, and no automation is on.</p> : null}
+          {nothing ? <p className={styles.empty}>Nothing is running right now.</p> : null}
 
           {status?.running.length ? (
             <section>
@@ -264,20 +213,14 @@ export function AutomationStatusButton({ paths, className, glyphClassName, textC
               <ul className={styles.list}>{status.failed.map((i) => <ItemRow key={i.key} item={i} {...controls} />)}</ul>
             </section>
           ) : null}
-          {status?.active.length ? (
+          {status?.finished.length ? (
             <section>
-              <h3 className={styles.group}>On</h3>
-              <ul className={styles.list}>{status.active.map((i) => <ActiveRow key={i.key} item={i} {...controls} />)}</ul>
-            </section>
-          ) : null}
-          {status?.paused.length ? (
-            <section>
-              <h3 className={styles.group}>Paused</h3>
-              <ul className={styles.list}>{status.paused.map((i) => <PausedRow key={i.key} item={i} {...controls} />)}</ul>
+              <h3 className={styles.group}>Done in the last 24 hours</h3>
+              <ul className={styles.list}>{status.finished.map((i) => <ItemRow key={i.key} item={i} {...controls} />)}</ul>
             </section>
           ) : null}
           <Link href={`${paths.skills}?tab=automations`} className={styles.seeAll} onClick={close}>
-            See all{status && status.activeTotal > status.active.length ? ` (${status.activeTotal} on)` : ''}
+            See all automations
           </Link>
 
           {status?.usage ? <UsageLine usage={status.usage} /> : null}

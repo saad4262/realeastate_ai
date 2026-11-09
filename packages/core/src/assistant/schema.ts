@@ -301,6 +301,16 @@ export const skillScheduleInput = z
   .refine((v) => v.cadence !== 'interval' || v.every_minutes, { message: 'An interval skill needs every_minutes', path: ['every_minutes'] });
 export const findSkillsInput = z.object({}).strict();
 
+/** ADR 0089: a bulk email that repeats, from the Bulk email chat. */
+export const createAutomationInput = z
+  .object({
+    name: z.string().trim().min(2).max(80),
+    template: templateHandleSchema,
+    list: listHandleSchema,
+    schedule: skillScheduleInput,
+  })
+  .strict();
+
 // ── ADR 0041 Part C: workflows by the assistant ──────────────────────────────
 
 export const workflowHandleSchema = handleSchema.refine((h) => h.startsWith('W'), { message: 'Not a workflow reference' });
@@ -924,14 +934,14 @@ export const scheduleTeamMeetingInput = z
 export const ASSISTANT_READ_TOOLS = ['open_chat', 'find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_buyers', 'find_deals', 'find_saved_lists', 'start_import', 'find_skills', 'find_workflows', 'describe_data', 'query_data', 'search_documents', 'read_document'] as const;
 /** ADR 0042: a turn that uses these may make more tool calls (`toolCallsPerAnalysisTurn`). */
 export const ASSISTANT_ANALYSIS_TOOLS = ['describe_data', 'query_data'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'send_template_sms', 'create_dashboard', 'update_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill', 'switch_skill', 'create_workflow', 'change_workflow', 'create_template'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'send_template_sms', 'create_automation', 'create_dashboard', 'update_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill', 'switch_skill', 'create_workflow', 'change_workflow', 'create_template'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 /**
  * What a `proposed_action` row's `tool` may be — the database CHECK (latest: migration 0056) holds
  * exactly this list: every write tool except create_reminder (it stores a one-step plan_task), plus
  * `remind` (ADR 0040) and `draft_email` (ADR 0041), task steps that are never tools of their own.
  */
-export const PROPOSED_ACTION_TOOLS = [...ASSISTANT_WRITE_TOOLS.filter((t) => t !== 'create_reminder'), 'remind', 'draft_email'] as const;
+export const PROPOSED_ACTION_TOOLS = [...ASSISTANT_WRITE_TOOLS.filter((t) => t !== 'create_reminder' && t !== 'create_automation'), 'remind', 'draft_email'] as const;
 
 /** Every tool. Read tools run at once; write tools only propose (ADR 0025 §8). */
 export const ASSISTANT_TOOL_INPUTS = {
@@ -955,6 +965,7 @@ export const ASSISTANT_TOOL_INPUTS = {
   cancel_appointment: cancelAppointmentInput,
   send_template_email: sendTemplateEmailInput,
   send_template_sms: sendTemplateSmsInput,
+  create_automation: createAutomationInput,
   open_chat: z.object({ chat: z.enum(OPEN_CHAT_SCOPES), message: z.string().trim().min(1).max(500).optional() }).strict(),
   create_dashboard: createDashboardInput,
   update_dashboard: updateDashboardInput,

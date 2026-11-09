@@ -7,7 +7,7 @@ import { PLATFORM_SKILLS } from '../skill-switches/catalog';
 import { approveProposedAction } from './actions';
 import { CHAT_SCOPE_FACE, CHAT_SCOPE_RULES, CHAT_SCOPES, OPEN_CHAT_SCOPES, OVERVIEW_FACE, SCOPE_ONLY_TOOLS, SHARED_ACTION_TOOLS, UNSCOPED_ACTION_TOOLS, chatScopeAllowsCard, chatScopeOfSkill, chatScopeRefusal, isOpenChatScope, overviewIsReadOnly, parseChatScope, templateChannel, workflowFitsChat, type ChatScope } from './chat-scopes';
 import { claimTurn } from './conversations';
-import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, PLANNABLE_TOOLS, assistantTurnRequestSchema } from './schema';
+import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, PLANNABLE_TOOLS, PROPOSED_ACTION_TOOLS, assistantTurnRequestSchema } from './schema';
 import { runAssistantTool } from './tools';
 
 /** ADR 0088: what keeps one chat out of another's work, all of it without a database or a model. */
@@ -103,6 +103,17 @@ describe('open_chat', () => {
   it('only Overview may use it', async () => {
     expect((await runAssistantTool(ctx({ chatScope: 'bulk_email' }), 'open_chat', { chat: 'daily_work' })).isError).toBe(true);
     expect((await runAssistantTool(ctx({ chatScope: null }), 'open_chat', { chat: 'daily_work' })).isError).toBe(true);
+  });
+});
+
+describe('a repeating automation from a chat (ADR 0089)', () => {
+  it('only the Bulk email chat can make one, and its card is approvable there', () => {
+    expect(holders('create_automation')).toEqual(['bulk_email']);
+    expect(chatScopeAllowsCard('bulk_email', 'create_workflow')).toBe(true);
+    expect(chatScopeRefusal(null, 'create_automation', {})).not.toBeNull();
+  });
+  it('its card is stored as a create_workflow, so the database CHECK does not change', () => {
+    expect(PROPOSED_ACTION_TOOLS as readonly string[]).not.toContain('create_automation');
   });
 });
 

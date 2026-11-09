@@ -303,7 +303,7 @@ export async function proposeChangeWorkflow(ctx: ToolContext, input: z.infer<typ
 export async function runWorkflowAction(
   tx: Db,
   actor: Actor,
-  args: Extract<FrozenArgs, { tool: 'create_workflow' | 'change_workflow' }>,
+  args: Exclude<Extract<FrozenArgs, { tool: 'create_workflow' | 'change_workflow' }>, { automation: unknown }>,
 ): Promise<{ result: Record<string, unknown> }> {
   try {
     if (args.tool === 'create_workflow') {

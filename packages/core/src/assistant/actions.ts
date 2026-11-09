@@ -53,6 +53,8 @@ import { runSkillAction, runSwitchSkill } from './skill-tools';
 import { SKILL_OF_WORKFLOW_STEP, skillOffMessage, type SkillKey } from '../skill-switches/catalog';
 import { holderOf, isSkillOn, isSkillOnForChat } from '../skill-switches/switches';
 import { CHAT_SCOPE_RULES, chatScopeAllowsCard, parseChatScope } from './chat-scopes';
+import { AutomationError, createAutomation } from '../recurring/manage';
+import type { AutomationDraft } from '../recurring/kinds';
 import { runWorkflowAction } from './workflow-tools';
 import { runTemplateAction } from './template-tools';
 import type { WorkflowSpec } from '../workflows/catalog';
@@ -187,6 +189,7 @@ export type FrozenArgs =
    */
   | { tool: 'draft_email'; contactId: string; instructions: string; workflowName: string }
   /** ADR 0041 Part C: a workflow as checked on its card (ids resolved); saved active on Approve, or replacing `replaces`. */
+  | { tool: 'create_workflow'; automation: AutomationDraft }
   | { tool: 'create_workflow'; name: string; scope: 'mine' | 'agency'; spec: WorkflowSpec; replaces: string | null }
   | { tool: 'change_workflow'; workflowId: string; change: 'pause' | 'resume' | 'archive' }
   /** ADR 0048: the exact words the card showed — saved as a template on Approve. */
@@ -482,6 +485,16 @@ async function execute(
     }
     case 'create_workflow':
     case 'change_workflow':
+      // A repeating automation's card (ADR 0089): createAutomation asks automation:create again and parses its spec again.
+      if ('automation' in args) {
+        try {
+          const made = await createAutomation(tx, actor, args.automation, now);
+          return { result: { automationId: made.id, nextRunAt: made.nextRunAt.toISOString() } };
+        } catch (err) {
+          if (err instanceof AutomationError) throw new AssistantError(err.code === 'not_found' ? 'not_found' : 'conflict', err.message);
+          throw err;
+        }
+      }
       return runWorkflowAction(tx, actor, args);
     case 'create_template':
       // email_template:draft again, and the template rules (merge fields) again.

@@ -2615,6 +2615,90 @@ export const assistantTask = pgTable(
 );
 
 /**
+ * What a person set up in a skill's chat to run on a clock (ADR 0089). `kind` says which skill's runner it is; `spec` is that
+ * runner's, validated in core. `agent` and agency alike: it runs as its owner, as they are at run time. "Delete" archives.
+ */
+export const automation = pgTable(
+  'automation',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    /** The chat it was made in, for its link. Chats are deleted after 30 days; the automation is not. */
+    conversationId: uuid('conversation_id').references(() => assistantConversation.id, { onDelete: 'set null' }),
+    /** The platform skill it came from, and the switch every run needs on. */
+    skillKey: varchar('skill_key', { length: 48 }).notNull(),
+    kind: varchar('kind', { length: 32 }).notNull(),
+    name: text('name').notNull(),
+    spec: jsonb('spec').notNull(),
+    cadence: scheduleCadenceEnum('cadence').notNull(),
+    sendAtMinute: integer('send_at_minute').notNull().default(420),
+    sendOnWeekday: integer('send_on_weekday'),
+    intervalMinutes: integer('interval_minutes'),
+    timezone: text('timezone').notNull(),
+    /** active | paused | archived. */
+    status: varchar('status', { length: 12 }).notNull().default('active'),
+    /** Why it is paused, when the system paused it. */
+    pausedReason: text('paused_reason'),
+    nextRunAt: timestamp('next_run_at', { withTimezone: true }),
+    lastRunAt: timestamp('last_run_at', { withTimezone: true }),
+    consecutiveFailures: integer('consecutive_failures').notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [
+    index('automation_due_idx').on(t.nextRunAt).where(sql`status = 'active'`),
+    index('automation_agency_idx').on(t.agencyId, t.status),
+    index('automation_user_idx').on(t.userId, t.status),
+  ],
+);
+
+/** One run of an automation: its people, frozen when it starts, and how far it has got. */
+export const automationRun = pgTable(
+  'automation_run',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    automationId: uuid('automation_id')
+      .notNull()
+      .references(() => automation.id, { onDelete: 'cascade' }),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    /** schedule | manual. */
+    trigger: varchar('trigger', { length: 12 }).notNull().default('schedule'),
+    /** The slot. With the unique index, what makes a double-fired tick harmless. */
+    scheduledFor: timestamp('scheduled_for', { withTimezone: true }).notNull(),
+    /** running | done | stopped | failed | skipped. */
+    status: varchar('status', { length: 12 }).notNull().default('running'),
+    /** Who this run is for, frozen when it starts. */
+    contactIds: jsonb('contact_ids').notNull().default([]),
+    /** How many of `contactIds` have been handled. */
+    cursor: integer('cursor').notNull().default(0),
+    sent: integer('sent').notNull().default(0),
+    failed: integer('failed').notNull().default(0),
+    skipped: integer('skipped').notNull().default(0),
+    /** Why it stopped or was skipped, in words for the person. */
+    detail: text('detail'),
+    /** While a tick is working on it. Past this, another tick may carry on. */
+    leaseUntil: timestamp('lease_until', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('automation_run_slot_idx').on(t.automationId, t.scheduledFor),
+    index('automation_run_recent_idx').on(t.automationId, desc(t.createdAt)),
+    index('automation_run_agency_idx').on(t.agencyId, desc(t.createdAt)),
+    index('automation_run_running_idx').on(t.leaseUntil).where(sql`status = 'running'`),
+  ],
+);
+
+/**
  * A workflow (ADR 0041 Part B): WHEN one trigger, IF its conditions, THEN its actions — a spec from
  * the fixed catalog (packages/core/src/workflows/catalog.ts), never code. It runs as its owner, as
  * they are at run time. `mine`: only the owner's own leads and contacts; `agency`: the whole agency

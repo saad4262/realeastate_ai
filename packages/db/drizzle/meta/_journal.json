@@ -666,6 +666,13 @@
       "when": 1794211972355,
       "tag": "0094_automation_status_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1794226715171,
+      "tag": "0095_automations",
+      "breakpoints": true
     }
   ]
 }

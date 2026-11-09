@@ -56,6 +56,7 @@ async function handler(request: NextRequest) {
         // A workflow's "Send SMS" step (ADR 0074 part 2), texted after its commit.
         sms: { phone },
       },
+      automations: { templateSend: send.ok ? send.deps : null },
       reminders: { notice, mail: mailDepsFromEnv() },
       zoomAlerts: { notice },
       platformMail: notice ? notice.mailer : null,

@@ -354,6 +354,12 @@ export type Action =
    */
   /** See what you have used against the daily limits (ADR 0088): any member, their own agency. Not an admin viewing an agency. */
   | 'usage:read'
+  /** See a repeating automation (ADR 0089): its owner, or an owner or admin. */
+  | 'automation:read'
+  /** Make one: any member who may write. */
+  | 'automation:create'
+  /** Switch it on or off, run it, stop it: its owner, or an owner or admin. Not read-only members. */
+  | 'automation:manage'
   /** Ask the help bot how to use the site (ADR 0088): any member. Not an admin viewing an agency. */
   | 'help:ask'
   /** The top bar's running automations (ADR 0088): any member sees their own. */
@@ -873,6 +879,17 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
     case 'workflow:create_agency':
       return sameAgency(actor, resource) && isAgencyAdmin(actor);
     case 'workflow:manage':
+      if (!sameAgency(actor, resource) || !mayWrite(actor)) return false;
+      return isAgencyAdmin(actor) || (Boolean(resource.ownerId) && actor.userId === resource.ownerId);
+
+    case 'automation:read':
+      if (!sameAgency(actor, resource) || !actor.membershipRole) return false;
+      return isAgencyAdmin(actor) || (Boolean(resource.ownerId) && actor.userId === resource.ownerId);
+
+    case 'automation:create':
+      return sameAgency(actor, resource) && mayWrite(actor);
+
+    case 'automation:manage':
       if (!sameAgency(actor, resource) || !mayWrite(actor)) return false;
       return isAgencyAdmin(actor) || (Boolean(resource.ownerId) && actor.userId === resource.ownerId);
 

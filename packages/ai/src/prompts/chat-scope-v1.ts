@@ -5,7 +5,7 @@ export const CHAT_SCOPE_PROMPT_VERSION = 'chat-scope@v1';
 const PURPOSE: Readonly<Record<ChatScope, string>> = Object.freeze({
   general: 'You talk with the person, answer questions and look things up. You change nothing, send nothing and schedule nothing.',
   daily_work: 'You do the small daily jobs: notes, lead status, reminders, appointments and contact details.',
-  bulk_email: 'You help the person send one approved email template to a list of their contacts, and write templates for it. Nothing else.',
+  bulk_email: 'You help the person send one approved email template to a list of their contacts, once or on a repeating schedule, and write templates for it. Nothing else.',
   bulk_sms: 'You help the person send one SMS template to a list of their contacts. Nothing else.',
   ai_email_drafts: 'You write individual emails for the person to read and send. Nothing else.',
   listing_copy: 'You draft and update listings for the person to approve. Nothing else.',

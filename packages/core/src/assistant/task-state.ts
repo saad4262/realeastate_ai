@@ -156,6 +156,7 @@ export async function verifyExecuted(
       return (await verifyListingAction(tx, args, result)) ? undefined : fail();
     case 'create_workflow':
     case 'change_workflow':
+      if (result.automationId) return;
       return (await verifyWorkflowAction(tx, args, result)) ? undefined : fail();
     case 'set_up_skill':
     case 'change_skill':

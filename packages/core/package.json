@@ -84,6 +84,8 @@
     "./assistant/schema": "./src/assistant/schema.ts",
     "./assistant/chat-scopes": "./src/assistant/chat-scopes.ts",
     "./usage": "./src/usage/index.ts",
+    "./recurring": "./src/recurring/index.ts",
+    "./recurring/kinds": "./src/recurring/kinds.ts",
     "./help": "./src/help/index.ts",
     "./help/pages": "./src/help/pages.ts",
     "./automation-status": "./src/automation-status/index.ts",

@@ -2365,3 +2365,10 @@ Phase 1 is the foundation and changes nothing on screen. Apply migration 0093 fi
 | CX53 | That row → Stop → Keep going, then Stop → Stop | Asks first; after stopping, the row goes, later parts never send, parts already sent stay sent |
 | CX54 | Automations, a workflow that is on → Pause; then Turn on | It moves to Paused and back. An agent cannot touch a colleague's; an owner can |
 | CX55 | Automations, a scheduled AI skill → Off | It leaves the list and stops running |
+| CX56 | Bulk email chat: "send template X to list Y every Monday at 9am" → Approve | One card with the template, list and schedule; after Approve it is on Skills → Automations, from Bulk email, Active, with its next run |
+| CX57 | Automations tab → Run now, on a list of test contacts only | Starts; the top-bar Automations panel shows n of m sent; History shows the run |
+| CX58 | Turn it off, then on | Off: no next run. On: next run comes back |
+| CX59 | Bulk email switched off, then its next run | Skipped; History says the skill is off |
+| CX60 | Two automations from one skill | Both listed, each opens its own chat from the tab and the Skills panel's submenu |
+| CX61 | Automations tab with existing workflows, Morning Brief and a one-off task | All listed, each saying which skill and when |
+| CX62 | Agent vs owner | An agent sees and switches only their own. An owner sees all and can switch workflows and repeating ones; another person's AI skill has no button |

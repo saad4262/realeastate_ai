@@ -28,7 +28,7 @@ export type HelpSurface = 'agency' | 'agent';
 const FOLLOW_UPS = 'Say what you want in plain words and it finds the records; anything that changes something comes back as a card to approve.';
 const BULK_EMAIL = 'Send an approved email template to a saved list of contacts: prepare a batch, check every name, then Approve & Send. Consent and unsubscribes are respected. Needs Bulk email switched on in Skills. Your templates are listed on the same page, with a button to write a new one.';
 const BULK_SMS = 'Text an SMS template to a saved list: check every name, then Approve & Send, from each contact’s agent’s number, in sending hours. Needs Bulk SMS on in Skills and a connected Twilio. Your templates are listed on the same page, with a button to write a new one.';
-const SKILLS = 'Three tabs. Platform skills: every automatic feature, each with its own on/off switch, off until someone switches it on; a skill that is on and has its own chat shows an Open chat link on its card. AI skills: scheduled jobs such as Morning Brief. Automations: workflows, when something happens then do these steps. The top of the page has buttons for the Daily work chat and the AI skills chat.';
+const SKILLS = 'Skills are the facilities the platform provides. Three tabs. Platform skills: each has its own on/off switch, off until someone switches it on; a skill that is on and has its own chat shows an Open chat link on its card. AI skills: ready-made jobs such as Morning Brief. Automations: everything you have set up with your skills, from their chats: what it does, which skill it came from, when it runs, whether it is on, an on/off button, its chat and its history. The top of the page has buttons for the Daily work chat and the AI skills chat.';
 const NOT_BUILT = 'A preview screen with placeholder content. It is not working yet.';
 
 /** What each sidebar page is for. A page with no line here fails a test, so the guide cannot quietly fall behind the sidebar. */
@@ -143,7 +143,7 @@ const pagesOf = (groups: readonly HelpNavGroup[]) => groups.flatMap((g) => g.ite
 
 function aroundEveryPage(overviewReadOnly: boolean): string {
   return `- The sidebar on the left has every page, in groups that open and close. Recents, at its top, lists your chats; a skill chat has its name on a small tag.
-- The top bar: the search box; the Skills panel, which lists the ready-made skills that are on, with a switch for each and a link to its chat; the Automations panel (the bolt icon), for what you or the agency set up: what is running and how far it has got (for example how many emails of a long send have gone), what failed in the last day, the workflows and scheduled AI skills that are on, buttons to pause or stop them, and how much of today's limits is used; the bell icon for notifications; New chat.
+- The top bar: the search box; the Skills panel, which lists the ready-made skills that are on, with a switch for each; open one to see what has been set up with it and its chats; the Automations panel (the bolt icon), which shows only what is running or just ran: how far it has got, what failed in the last day, a Stop button, and how much of today's limits is used; the bell icon for notifications; New chat.
 - The home chat ${overviewReadOnly ? 'only looks things up and answers. To change or send something it shows a button that opens the right chat.' : 'looks things up and prepares actions as cards for you to approve.'}
 - A skill chat does one job only, and has a blue bar at the top saying which. Open one from its card on Skills, while the skill is on.
 - This help window sees which page you are on. It cannot see your records and cannot change anything.`;
@@ -163,7 +163,7 @@ ${listing}
 - Book an appointment: Daily work → Calendar → + Schedule. + Team meeting books colleagues.
 - Message a colleague: Daily work → Team messages → New message.
 - Switch a skill on or off: Automation → Skills, Platform skills tab, the switch on its card.
-- Make a workflow: Automation → Skills → Automations tab. Use this starts from a ready-made one. Pause, Turn on and Archive are on each workflow.
+- Set up an automation: open a skill's chat from its card on Skills and say what you want and when, for example a bulk email every Monday. You approve one card and it runs by itself. It then shows on the Automations tab of Skills, where you can turn it on or off and see its history.
 - Get a dashboard: Knowledge & insights → Projects → New with the assistant. It needs Dashboards on in Skills.
 - Add a document for the assistant: Knowledge & insights → Knowledge base → Add documents.
 - Connect Gmail, Zoom and other accounts: Settings → Connectors. Search finds one.${surface === 'agency' ? '\n- Add or remove an agent: People → Agents & Team.' : ''}`;

@@ -829,6 +829,16 @@ describe('assistant (ADR 0025)', () => {
     for (const a of [owner, agent, viewer]) expect(can(a, 'help:ask', { type: 'help', agencyId: agencyA })).toBe(true);
     expect(can(rival, 'help:ask', { type: 'help', agencyId: agencyA })).toBe(false);
     expect(can({ userId: 'x', agencyId: agencyA, membershipRole: 'owner', via: 'platform' }, 'help:ask', { type: 'help', agencyId: agencyA })).toBe(false);
+    const mineAuto = { type: 'automation', agencyId: agencyA, ownerId: agent.userId };
+    for (const act of ['automation:read', 'automation:manage'] as const) {
+      expect(can(owner, act, mineAuto), act).toBe(true);
+      expect(can(agent, act, mineAuto), act).toBe(true);
+      expect(can(agent, act, { ...mineAuto, ownerId: 'someone' }), act).toBe(false);
+      expect(can(rival, act, mineAuto), act).toBe(false);
+    }
+    expect(can(viewer, 'automation:manage', { ...mineAuto, ownerId: viewer.userId })).toBe(false);
+    expect(can(agent, 'automation:create', mineAuto)).toBe(true);
+    expect(can(viewer, 'automation:create', mineAuto)).toBe(false);
     const status = { type: 'automation_status', agencyId: agencyA };
     for (const a of [owner, agent, viewer]) expect(can(a, 'automation_status:read', status)).toBe(true);
     expect(can(owner, 'automation_status:read_all', status)).toBe(true);

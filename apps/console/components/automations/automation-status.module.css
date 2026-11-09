@@ -236,3 +236,59 @@ a.row:hover {
   align-items: center;
   gap: 0.375rem;
 }
+
+/* The Skills panel's submenu: what was made with a skill, and its chats. */
+.rowButton {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.rowButton:hover {
+  background: var(--surface-canvas);
+}
+
+.submenu {
+  display: grid;
+  padding: 0 0 0.375rem 2.25rem;
+}
+
+.subRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 1rem 0.25rem 0;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  text-decoration: none;
+}
+
+.subRow:hover {
+  color: var(--text-primary);
+}
+
+.subText {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.subAction {
+  color: var(--sapphire);
+  font-weight: 500;
+}
+
+.subGlyph {
+  flex-shrink: 0;
+  width: 8px;
+  font-family: 'Material Symbols Outlined', sans-serif;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.dot[data-state='off'] {
+  background: var(--border-strong);
+}

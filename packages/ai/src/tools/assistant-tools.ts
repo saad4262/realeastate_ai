@@ -1064,6 +1064,31 @@ const MEMBER_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze(ASSISTANT
 /** ADR 0088: tools only a skill chat is given, so a chat from before it keeps the list it had. */
 export const SCOPE_ONLY_ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze([
   {
+    name: 'create_automation',
+    description: `Propose a bulk email that repeats by itself on a schedule: one template from list_templates, to one saved list from find_saved_lists. Use it only when the person wants it to repeat; for one send use send_template_email. Ask for the template, the list and the schedule if they did not say. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        name: { type: 'string', description: 'A short name the person will recognise, e.g. "Monday buyers update".' },
+        template: { type: 'string', description: 'A template reference from list_templates, e.g. T1.' },
+        list: { type: 'string', description: 'A saved list: an F reference from find_saved_lists.' },
+        schedule: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            cadence: { type: 'string', enum: ['daily', 'weekly', 'interval'] },
+            time: { type: 'string', description: 'HH:mm, 24-hour, on the person\'s clock. For daily and weekly.' },
+            weekday: { type: 'string', enum: ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'], description: 'Required for weekly.' },
+            every_minutes: { type: 'integer', description: 'Required for interval.' },
+          },
+          required: ['cadence'],
+        },
+      },
+      required: ['name', 'template', 'list', 'schedule'],
+    },
+  },
+  {
     name: 'open_chat',
     description: 'Put a button on the screen that opens the chat which can do what the person wants, because this chat only reads and answers. It changes nothing.',
     input_schema: {

@@ -15,6 +15,7 @@ export function SkillsStatusButton({ paths, className, glyphClassName, textClass
   const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState<SkillsPanel | null>(null);
   const [failed, setFailed] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setOpen(false), []);
   usePanelDismiss(open, close, wrap);
@@ -56,22 +57,55 @@ export function SkillsStatusButton({ paths, className, glyphClassName, textClass
 
           {panel?.skills.length ? (
             <ul className={styles.list}>
-              {panel.skills.map((s) => (
-                <li key={s.key} className={styles.rowWrap}>
-                  <Link href={switchedOnHref(s, paths)} className={`${styles.row} ${styles.skillRow} ${styles.rowGrow}`} onClick={close}>
-                    <span className={styles.skillGlyph} aria-hidden>
-                      {s.icon}
-                    </span>
-                    <span className={styles.rowText}>
-                      <span className={styles.title}>{s.name}</span>
-                    </span>
-                    {s.chat ? <span className={styles.chatTag}>Chat</span> : null}
-                  </Link>
-                  <span className={styles.control}>
-                    <SkillSwitch skillKey={s.key} name={s.name} on disabled={!panel.mayManage} />
-                  </span>
-                </li>
-              ))}
+              {panel.skills.map((s) => {
+                const hasMenu = s.automations.length > 0 || s.chats.length > 0 || Boolean(s.chat);
+                const isOpen = expanded === s.key;
+                return (
+                  <li key={s.key}>
+                    <div className={styles.rowWrap}>
+                      <button type="button" className={`${styles.row} ${styles.skillRow} ${styles.rowGrow} ${styles.rowButton}`} aria-expanded={hasMenu ? isOpen : undefined} onClick={() => setExpanded(isOpen ? null : s.key)}>
+                        <span className={styles.skillGlyph} aria-hidden>
+                          {s.icon}
+                        </span>
+                        <span className={styles.rowText}>
+                          <span className={styles.title}>{s.name}</span>
+                        </span>
+                        {s.automations.length ? <span className={styles.chatTag}>{s.automations.length}</span> : null}
+                        <span className={styles.chevron} aria-hidden>
+                          {isOpen ? 'expand_less' : 'expand_more'}
+                        </span>
+                      </button>
+                      <span className={styles.control}>
+                        <SkillSwitch skillKey={s.key} name={s.name} on disabled={!panel.mayManage} />
+                      </span>
+                    </div>
+                    {isOpen ? (
+                      <div className={styles.submenu}>
+                        {s.automations.map((a) => (
+                          <Link key={a.key} href={a.conversationId ? `${paths.home}?c=${a.conversationId}` : `${paths.skills}?tab=automations`} className={styles.subRow} onClick={close}>
+                            <span className={styles.dot} data-state={a.state === 'active' ? 'running' : 'off'} aria-hidden />
+                            <span className={styles.subText}>{a.name}</span>
+                          </Link>
+                        ))}
+                        {s.chats.map((c) => (
+                          <Link key={c.id} href={`${paths.home}?c=${c.id}`} className={styles.subRow} onClick={close}>
+                            <span className={styles.subGlyph} aria-hidden>
+                              chat
+                            </span>
+                            <span className={styles.subText}>{c.title}</span>
+                          </Link>
+                        ))}
+                        <Link href={switchedOnHref(s, paths)} className={styles.subRow} onClick={close}>
+                          <span className={styles.subGlyph} aria-hidden>
+                            {s.chat ? 'add' : 'tune'}
+                          </span>
+                          <span className={`${styles.subText} ${styles.subAction}`}>{s.chat ? `New ${s.name} chat` : 'See this skill'}</span>
+                        </Link>
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           ) : null}
           <Link href={paths.skills} className={styles.seeAll} onClick={close}>

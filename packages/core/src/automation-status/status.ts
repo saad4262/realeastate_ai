@@ -4,7 +4,10 @@ import { can, type Actor } from '../permissions';
 import { usageFor } from '../usage';
 import { chatScopeOfSkill } from '../assistant/chat-scopes';
 import { listSkillSwitches, skillIsUsable } from '../skill-switches/switches';
-import type { ActiveAutomation, AutomationItem, AutomationStatus, SkillsPanel } from './links';
+import type { AutomationItem, AutomationStatus, SkillsPanel } from './links';
+import { listEveryAutomation } from '../recurring/list';
+import { listAssistantConversations } from '../assistant/conversations';
+import { OPEN_CHAT_SCOPES } from '../assistant/chat-scopes';
 
 /**
  * What is running, for the console's top bar (ADR 0088). Every number is counted here from the rows the
@@ -13,8 +16,6 @@ import type { ActiveAutomation, AutomationItem, AutomationStatus, SkillsPanel } 
  */
 
 const RUNNING_ROWS = 20;
-const ACTIVE_ROWS = 5;
-const WORKFLOW_ROWS = 12;
 /** A batch still "sending" past this was abandoned; a skill run past its limit died with its process. */
 const BATCH_DAYS = 7;
 const RUN_HOURS = 1;
@@ -43,6 +44,8 @@ export async function runningAutomationCount(db: Db, actor: Actor): Promise<numb
       + (select count(*)::int from assistant_task t
         where t.agency_id = ${view.agencyId}::uuid ${whose(sql`t.user_id`)}
           and t.status = 'active' and ${NOT_A_WORKFLOW(sql`t.id`)})
+      + (select count(*)::int from automation_run ar
+        where ar.agency_id = ${view.agencyId}::uuid ${whose(sql`ar.user_id`)} and ar.status = 'running')
       + (select count(*)::int from skill_run r
         where r.agency_id = ${view.agencyId}::uuid ${whose(sql`r.user_id`)}
           and r.status = 'running' and r.started_at > now() - make_interval(hours => ${RUN_HOURS})) as total`);
@@ -57,7 +60,7 @@ export async function automationStatus(db: Db, actor: Actor, opts: { env?: NodeJ
   const whose = (column: SQL) => (mineOnly ? sql`and ${column} = ${actor.userId}::uuid` : sql``);
   const person = (u: string) => sql.raw(`coalesce(nullif(${u}.name, ''), ${u}.email)`);
 
-  const [batches, tasks, runs, workflows, skills, usage] = await Promise.all([
+  const [batches, tasks, runs, recurring, usage] = await Promise.all([
     db.execute<{ id: string; channel: string; status: string; user_id: string; owner: string; template: string | null; list: string | null; sent: unknown; total: unknown; failed: unknown }>(sql`
       select b.id, b.channel, b.status, b.user_id, ${person('u')} as owner,
         b.template_snapshot->>'name' as template, b.filter_snapshot->>'name' as list, c.sent, c.total, c.failed
@@ -109,26 +112,16 @@ export async function automationStatus(db: Db, actor: Actor, opts: { env?: NodeJ
         and ((r.status = 'running' and r.started_at > now() - make_interval(hours => ${RUN_HOURS})) or r.status = 'failed')
       order by r.created_at desc
       limit ${RUNNING_ROWS}`),
-    db.execute<{ id: string; name: string; owner_id: string; owner: string; status: string; paused_reason: string | null; last_at: unknown; runs_today: unknown; active_total: unknown }>(sql`
-      select w.id, w.name, w.owner_id, ${person('u')} as owner, w.status, w.paused_reason, runs.last_at, runs.today as runs_today,
-        (count(*) filter (where w.status = 'active') over ())::int as active_total
-      from workflow w
-      join "user" u on u.id = w.owner_id
-      cross join lateral (
-        select max(r.created_at) as last_at, count(*) filter (where r.created_at > now() - interval '24 hours')::int as today
-        from workflow_run r where r.workflow_id = w.id
-      ) runs
-      where w.agency_id = ${agencyId}::uuid ${whose(sql`w.owner_id`)} and w.status in ('active', 'paused')
-      order by w.status asc, w.updated_at desc
-      limit ${WORKFLOW_ROWS}`),
-    db.execute<{ id: string; name: string; user_id: string; owner: string; next_at: unknown; total: unknown }>(sql`
-      select a.id, s.name, a.user_id, ${person('u')} as owner, a.next_run_at as next_at, count(*) over ()::int as total
-      from agent_skill a
-      join "user" u on u.id = a.user_id
-      join skill s on s.id = a.skill_id
-      where a.agency_id = ${agencyId}::uuid ${whose(sql`a.user_id`)} and a.enabled and a.archived_at is null
-      order by a.next_run_at asc nulls last
-      limit ${ACTIVE_ROWS}`),
+    db.execute<{ id: string; automation_id: string; status: string; user_id: string; owner: string; name: string; conversation_id: string | null; next_at: unknown; total: unknown; sent: unknown; failed: unknown; detail: string | null }>(sql`
+      select r.id, r.automation_id, r.status, r.user_id, ${person('u')} as owner, a.name, a.conversation_id, a.next_run_at as next_at,
+        jsonb_array_length(r.contact_ids) as total, r.sent, r.failed, r.detail
+      from automation_run r
+      join automation a on a.id = r.automation_id
+      join "user" u on u.id = r.user_id
+      where r.agency_id = ${agencyId}::uuid ${whose(sql`r.user_id`)}
+        and (r.status = 'running' or r.created_at > now() - interval '24 hours')
+      order by r.created_at desc
+      limit ${RUNNING_ROWS}`),
     usageFor(db, actor, opts),
   ]);
 
@@ -173,6 +166,27 @@ export async function automationStatus(db: Db, actor: Actor, opts: { env?: NodeJ
       conversationId: t.conversation_id,
       };
     }),
+    ...recurring.map((r): AutomationItem => {
+      const state = r.status === 'running' ? 'running' : r.status === 'done' ? 'done' : 'failed';
+      return {
+        key: `automation_run:${r.id}`,
+        kind: 'automation_run',
+        channel: null,
+        state,
+        title: r.name,
+        subtitle: null,
+        done: n(r.sent),
+        total: n(r.total),
+        failed: n(r.failed),
+        parts: null,
+        canStop: r.status === 'running' && can(actor, 'automation:manage', { type: 'automation', agencyId, ownerId: r.user_id }),
+        nextAt: iso(r.next_at),
+        error: state === 'failed' ? r.detail : null,
+        ...whoIs(r.user_id, r.owner),
+        targetId: r.id,
+        conversationId: r.conversation_id,
+      };
+    }),
     ...runs.map((r): AutomationItem => ({
       key: `run:${r.id}`,
       kind: 'skill_run',
@@ -193,42 +207,10 @@ export async function automationStatus(db: Db, actor: Actor, opts: { env?: NodeJ
     })),
   ];
 
-  const flows = workflows.map((w) => ({
-    state: w.status,
-    row: {
-      key: `workflow:${w.id}`,
-      kind: 'workflow',
-      title: w.name,
-      ...whoIs(w.owner_id, w.owner),
-      targetId: w.id,
-      nextAt: null,
-      lastAt: iso(w.last_at),
-      runsToday: n(w.runs_today),
-      pausedReason: w.paused_reason,
-      canManage: can(actor, 'workflow:manage', { type: 'workflow', id: w.id, agencyId, ownerId: w.owner_id }),
-    } satisfies ActiveAutomation,
-  }));
-  const skillRows = skills.map(
-    (x): ActiveAutomation => ({
-      key: `skill:${x.id}`,
-      kind: 'skill',
-      title: x.name,
-      ...whoIs(x.user_id, x.owner),
-      targetId: x.id,
-      nextAt: iso(x.next_at),
-      lastAt: null,
-      runsToday: null,
-      pausedReason: null,
-      canManage: can(actor, 'agent_skill:manage', { type: 'agent_skill', id: x.id, agencyId, ownerId: x.user_id }),
-    }),
-  );
-
   return {
     running: items.filter((i) => i.state === 'running'),
     failed: items.filter((i) => i.state === 'failed'),
-    active: [...flows.filter((f) => f.state === 'active').map((f) => f.row), ...skillRows],
-    paused: flows.filter((f) => f.state === 'paused').map((f) => f.row),
-    activeTotal: n(workflows[0]?.active_total) + n(skills[0]?.total),
+    finished: items.filter((i) => i.state === 'done'),
     usage,
   };
 }
@@ -238,8 +220,21 @@ export async function skillsPanel(db: Db, actor: Actor): Promise<SkillsPanel | n
   if (!viewOf(actor)) return null;
   const { holder, skills } = await listSkillSwitches(db, actor);
   const resource = { type: 'skill_switch', agencyId: actor.agencyId as string, ...(holder === 'personal' ? { ownerId: actor.userId } : {}) };
+  const [every, chats] = await Promise.all([listEveryAutomation(db, actor), listAssistantConversations(db, actor, new Date(), 30, { chatScopes: OPEN_CHAT_SCOPES })]);
   return {
-    skills: skills.filter((s) => skillIsUsable(s, holder)).map((s) => ({ key: s.key, name: s.name, icon: s.icon, chat: chatScopeOfSkill(s.key) })),
+    skills: skills
+      .filter((s) => skillIsUsable(s, holder))
+      .map((s) => {
+        const chat = chatScopeOfSkill(s.key);
+        return {
+          key: s.key,
+          name: s.name,
+          icon: s.icon,
+          chat,
+          automations: every.filter((a) => a.skillKey === s.key).map((a) => ({ key: a.key, name: a.name, state: a.state, conversationId: a.conversationId })),
+          chats: chat ? chats.filter((c) => c.chatScope === chat).slice(0, 3).map((c) => ({ id: c.id, title: c.title })) : [],
+        };
+      }),
     mayManage: can(actor, 'skill_switch:manage', resource),
   };
 }

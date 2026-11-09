@@ -59,8 +59,8 @@ export const CHAT_SCOPE_FACE: Readonly<Record<OpenChatScope, { icon: string; gre
   bulk_email: {
     icon: 'forward_to_inbox',
     greeting: 'Who should get this email?',
-    hint: 'This chat only sends bulk email. You check every name, then approve.',
-    suggestions: ['Show me my saved lists', 'Which email templates do I have?', 'Write a new template for buyers looking in my area'],
+    hint: 'This chat only does bulk email: once, or on a schedule. You approve it first.',
+    suggestions: ['Show me my saved lists', 'Which email templates do I have?', 'Send a template to a list every Monday at 9am'],
   },
   bulk_sms: {
     icon: 'sms',
@@ -132,6 +132,11 @@ export const OVERVIEW_FACE = Object.freeze({
   suggestions: ['Which leads came in this week?', 'What’s on my calendar tomorrow?', 'Is my Google Calendar connected?', 'What’s our sold value this month?'],
 });
 
+/** The platform skill a chat belongs to: the reverse of the chat a card opens. */
+export function skillKeyOfChatScope(scope: string | null): string | null {
+  return Object.entries(CHAT_OF_SKILL).find(([, chat]) => chat === scope)?.[0] ?? null;
+}
+
 /** The chat a Skills card opens, by the skill's key. */
 export function chatScopeOfSkill(key: string): OpenChatScope | null {
   return CHAT_OF_SKILL[key] ?? null;
@@ -180,9 +185,10 @@ export const CHAT_SCOPE_RULES: Readonly<Record<ChatScope, ScopeRule>> = Object.f
     planSteps: ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'message_colleagues', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'assign_contacts', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'remind'],
   },
   bulk_email: {
-    tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'find_saved_lists', 'list_templates', 'check_connections', 'send_template_email', 'create_template'],
+    tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'find_saved_lists', 'list_templates', 'check_connections', 'send_template_email', 'create_template', 'create_automation'],
     skill: 'bulk_email',
-    cards: ['plan_task'],
+    // A long send becomes a plan; a repeating one is stored as a create_workflow card (ADR 0089).
+    cards: ['plan_task', 'create_workflow'],
     channel: 'email',
   },
   bulk_sms: {
@@ -234,7 +240,7 @@ export const SHARED_ACTION_TOOLS = ['create_template', 'create_workflow', 'chang
 export const UNSCOPED_ACTION_TOOLS = ['switch_skill'] as const satisfies readonly AssistantToolName[];
 
 /** Tools only a skill chat has: a chat from before ADR 0088 is never given one, in its list or at run time. */
-export const SCOPE_ONLY_TOOLS = ['send_template_sms', 'open_chat'] as const satisfies readonly AssistantToolName[];
+export const SCOPE_ONLY_TOOLS = ['send_template_sms', 'open_chat', 'create_automation'] as const satisfies readonly AssistantToolName[];
 
 /** A stored value. One this code does not know gets the fewest tools, never every tool. */
 export function parseChatScope(raw: string | null | undefined): ChatScope | null {
