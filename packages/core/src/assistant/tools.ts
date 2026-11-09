@@ -58,6 +58,7 @@ import { findBuyers } from './buyer-tools';
 import { findDeals } from './deal-tools';
 import { mayCreateImport } from '../imports/imports';
 import { findSkills, proposeChangeSkill, proposeSetUpSkill, proposeSwitchSkill } from './skill-tools';
+import { chatScopeRefusal, templateChannel, type ChatScope } from './chat-scopes';
 import { skillOffMessage, skillsForToolCall } from '../skill-switches/catalog';
 import { holderOf, skillsOffForActor } from '../skill-switches/switches';
 import type { SkillKey } from '../skill-switches/catalog';
@@ -98,6 +99,8 @@ export type ToolContext = {
    * Absent: the gate reads them itself, so a caller that forgets can never skip a switch.
    */
   skillsOff?: () => Promise<ReadonlySet<SkillKey>>;
+  /** What this chat may do (ADR 0088), from its row. Null or absent: a chat from before that ADR. */
+  chatScope?: ChatScope | null;
   /** The person's zone, from the browser: "today" is theirs. */
   timeZone: string;
   /** This conversation's names. Tools add to it; the turn saves it. */
@@ -248,6 +251,9 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
   if (!actor.agencyId || !can(actor, 'assistant:use', { type: 'assistant', agencyId: actor.agencyId })) {
     return refused('You do not have access to this.', label);
   }
+  // The chat's own limit (ADR 0088): first, so nothing below is even looked up for a call this chat may not make.
+  const outOfScope = chatScopeRefusal(ctx.chatScope ?? null, tool, parsed.data);
+  if (outOfScope) return refused(outOfScope, label);
   // Owners and admins only — whatever the model asks (it is not shown these tools otherwise).
   if ((ASSISTANT_ADMIN_TOOLS as readonly string[]).includes(tool) && !can(actor, 'contact:assign', { type: 'contact', agencyId: actor.agencyId })) {
     return refused('Only an owner or admin can assign contacts. Tell the person to ask one of them.', label);
@@ -274,7 +280,7 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
     case 'find_appointments':
       return findAppointments(ctx, parsed.data as FindAppointments, label);
     case 'list_templates':
-      return listApprovedTemplates(ctx, label, (parsed.data as { channel?: 'email' | 'sms' }).channel ?? 'email');
+      return listApprovedTemplates(ctx, label, templateChannel(ctx.chatScope ?? null, (parsed.data as { channel?: 'email' | 'sms' }).channel));
     case 'check_connections':
       return checkConnections(ctx, parsed.data as CheckConnections, label);
     case 'show_widget':

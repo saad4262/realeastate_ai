@@ -11421,7 +11421,7 @@ async function main() {
       const env = { ...process.env, EMBEDDINGS_PROVIDER: '' } as NodeJS.ProcessEnv;
       const deps = assistantDeps(t, a1, { message: 'x', timeZone: 'Australia/Melbourne' }, 'agent', new Date(), env);
       const before = await runs();
-      await deps.runTool({}, 'search_notes_and_emails', { query: `pool ${x.w}` }, { conversationId: randomUUID(), turnId: randomUUID(), toolUseId: randomUUID(), made: { count: 0 } });
+      await deps.runTool({}, 'search_notes_and_emails', { query: `pool ${x.w}` }, { conversationId: randomUUID(), turnId: randomUUID(), toolUseId: randomUUID(), made: { count: 0 } }, null);
       assert((await runs()) === before + 1, `full-text search ai_run rows: ${before} → ${await runs()}`);
       // A1 has spent today's $1: the question is not embedded, the answer is full-text.
       await t.execute(sql`insert into ai_run (feature, model, cost_usd, user_id, agency_id, prompt_version) values ('assistant', 'claude-sonnet-5-5', 1.20, ${f.people.a1}, ${f.agencyId}, 'smoke')`);
@@ -13052,7 +13052,7 @@ async function main() {
           const deps = assistantDeps(t, f.actor('owner'), request, 'agency');
           const calls: { name: string; input: Record<string, unknown> }[] = [];
           const runTool = deps.runTool;
-          deps.runTool = (h, name, input, proposal) => (calls.push({ name, input: input as Record<string, unknown> }), runTool(h, name, input, proposal));
+          deps.runTool = (h, name, input, proposal, scope) => (calls.push({ name, input: input as Record<string, unknown> }), runTool(h, name, input, proposal, scope));
           const events: AssistantEvent[] = [];
           for await (const ev of runAssistantTurn({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), deps, request, surface: 'agency' })) events.push(ev);
           const answer = events.filter((ev) => ev.type === 'text').map((ev) => (ev as { text?: string }).text ?? '').join('');
@@ -13495,7 +13495,7 @@ async function main() {
         const calls: { name: string; input: Record<string, unknown>; isError: boolean }[] = [];
         const runTool = deps.runTool;
         deps.runTool = async (h, name, input, proposal) => {
-          const out = await runTool(h, name, input, proposal);
+          const out = await runTool(h, name, input, proposal, null);
           calls.push({ name, input: input as Record<string, unknown>, isError: Boolean(out.isError) });
           return out;
         };

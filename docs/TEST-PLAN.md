@@ -2304,3 +2304,13 @@ account needs its own paid account, API key (Standard) and approved AU mobile bu
 | CW9 | The same agent, in another agency: connect the same Twilio → "Already on your Twilio: Use 04…" | The number now brings that agency's texts and calls; the first agency keeps the old ones |
 | CW10 | Agent → Stop using it here | Gone from the owner's table; it stays on their Twilio |
 | CW11 | Another agent's My phone | Never shows a colleague's Twilio; the owner cannot connect one for them |
+
+## CX — Three kinds of chat (ADR 0088)
+Phase 1 is the foundation and changes nothing on screen. Apply migration 0093 first.
+
+| # | Steps | Expected |
+|---|---|---|
+| CX1 | Overview → New chat → ask "Which leads came in this week?" | Answers as before |
+| CX2 | An old chat from Recents → ask for a note on a contact → Approve | The card appears and runs as before |
+| CX3 | Skills → Bulk email is off → the chat's own sends | No change yet: this switch reaches the chat only in the Bulk email chat |
+| CX4 | Admin → AI cost after CX1 | The turn is counted under the assistant as before |

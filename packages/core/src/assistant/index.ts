@@ -1,4 +1,5 @@
 export * from './schema';
+export * from './chat-scopes';
 export { issueHandle, parseHandleMap, resolveHandle, type HandleMap } from './handles';
 export { runAssistantTool, selectionHandles, type ToolContext, type ToolOutcome } from './tools';
 export { ASSISTANT_FEATURE, checkAssistantBudget, type AssistantBudget } from './budget';

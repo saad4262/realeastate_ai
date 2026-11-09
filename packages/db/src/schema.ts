@@ -2085,6 +2085,10 @@ export const aiRun = pgTable('ai_run', {
    */
   agencyId: uuid('agency_id').references(() => agency.id, { onDelete: 'set null' }),
   promptVersion: varchar('prompt_version', { length: 64 }),
+  /** The console chat this request came from (ADR 0088). `feature` stays 'assistant', so the budgets still sum it. Null elsewhere. */
+  chatScope: varchar('chat_scope', { length: 32 }),
+  cacheReadTokens: integer('cache_read_tokens'),
+  cacheWriteTokens: integer('cache_write_tokens'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -2529,6 +2533,11 @@ export const assistantConversation = pgTable(
       .references(() => user.id, { onDelete: 'cascade' }),
     /** Which console it was started in: `agent` or `agency`. */
     surface: varchar('surface', { length: 16 }).notNull(),
+    /**
+     * What this chat may do (ADR 0088), from `CHAT_SCOPES` in core. Written once, when it is made.
+     * Null: a chat from before that ADR.
+     */
+    chatScope: varchar('chat_scope', { length: 32 }),
     /** The first question, cut short — the list's label. */
     title: text('title').notNull(),
     handles: jsonb('handles').notNull().default({}),

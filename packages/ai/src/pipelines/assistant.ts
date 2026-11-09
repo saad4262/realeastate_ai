@@ -29,6 +29,7 @@ import { getModel, SERVER_FALLBACK_MODELS, type TokenUsage } from '../models';
 import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v31';
 import { embedderFromEnv } from '../search/voyage';
 import { assistantToolsFor } from '../tools/assistant-tools';
+import type { ChatScope } from '@repo/core/assistant/chat-scopes';
 import { skillsOffForActor } from '@repo/core/skill-switches';
 import type { SkillKey } from '@repo/core/skill-switches/catalog';
 import { trackAiRunQuietly } from '../usage';
@@ -49,8 +50,8 @@ import { trackAiRunQuietly } from '../usage';
  */
 
 export type AssistantDeps = {
-  /** The tools this person is shown (`assistantToolsFor`): owners/admins see the assign tools, nobody else does. */
-  tools: readonly Anthropic.Beta.BetaTool[];
+  /** The tools this person is shown in this chat (`assistantToolsFor`): owners/admins see the assign tools, nobody else does. */
+  tools(scope: ChatScope | null): readonly Anthropic.Beta.BetaTool[];
   claim(): Promise<ClaimedTurn>;
   /** `S` references for what the person selected — visible contacts only. */
   selection(handles: HandleMap): Promise<{ ref: string; name: string }[]>;
@@ -63,8 +64,8 @@ export type AssistantDeps = {
   unreport(ids: string[]): Promise<void>;
   budget(): Promise<{ allowed: boolean; message: string | null }>;
   /** `proposal` lets a write tool store its card against this turn; read tools ignore it. */
-  runTool(handles: HandleMap, name: string, input: unknown, proposal: ProposalContext): Promise<ToolOutcome>;
-  track(row: { model: string; usage: TokenUsage; latencyMs: number; entityId: string }): Promise<void>;
+  runTool(handles: HandleMap, name: string, input: unknown, proposal: ProposalContext, scope: ChatScope | null): Promise<ToolOutcome>;
+  track(row: { model: string; usage: TokenUsage; latencyMs: number; entityId: string; chatScope: ChatScope | null }): Promise<void>;
   finish(claim: ClaimedTurn, turn: FinishedTurn): Promise<void>;
   release(conversationId: string): Promise<void>;
 };
@@ -222,7 +223,7 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
           // breakpoint caches the growing conversation behind them.
           cache_control: { type: 'ephemeral' },
           system: [{ type: 'text', text: ASSISTANT_SYSTEM }],
-          tools: [...deps.tools],
+          tools: [...deps.tools(claim.chatScope)],
           ...(mustAnswer ? { tool_choice: { type: 'none' as const } } : {}),
           messages: [...history, ...turnMessages],
         },
@@ -247,7 +248,7 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
         }
       }
       const message = await stream.finalMessage();
-      await deps.track({ model: message.model ?? model.id, usage: usageOf(message.usage), latencyMs: Date.now() - startedAt, entityId: turnId });
+      await deps.track({ model: message.model ?? model.id, usage: usageOf(message.usage), latencyMs: Date.now() - startedAt, entityId: turnId, chatScope: claim.chatScope });
 
       // Check the stop reason before using the content.
       if (message.stop_reason === 'refusal') {
@@ -290,7 +291,7 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
           turnId,
           toolUseId: use.id,
           made,
-        });
+        }, claim.chatScope);
         yield { type: 'status', label: outcome.label };
         if (outcome.frame) {
           frames.push(outcome.frame);
@@ -358,7 +359,7 @@ export function assistantDeps(db: Db, actor: Actor, request: AssistantTurnReques
   let off: Promise<ReadonlySet<SkillKey>> | null = null;
   const skillsOff = () => (off ??= skillsOffForActor(db, actor));
   return {
-    tools: assistantToolsFor(actor),
+    tools: (scope) => assistantToolsFor(actor, scope),
     claim: () => claimTurn(db, actor, { ...(request.conversationId ? { conversationId: request.conversationId } : {}), message: request.message, surface }, now),
     selection: (handles) => selectionHandles(db, actor, handles, request.selection?.contactIds ?? []),
     cardUpdates: async (conversationId) => {
@@ -367,12 +368,13 @@ export function assistantDeps(db: Db, actor: Actor, request: AssistantTurnReques
     },
     unreport: (ids) => unreportCards(db, ids),
     budget: () => checkAssistantBudget(db, actor, { env }),
-    runTool: (handles, name, toolInput, proposal) =>
+    runTool: (handles, name, toolInput, proposal, chatScope) =>
       runAssistantTool(
         {
           db,
           actor,
           skillsOff,
+          chatScope,
           timeZone: request.timeZone,
           handles,
           now: new Date(),
@@ -407,6 +409,7 @@ export function assistantDeps(db: Db, actor: Actor, request: AssistantTurnReques
         userId: actor.userId,
         ...(actor.agencyId ? { agencyId: actor.agencyId } : {}),
         promptVersion: ASSISTANT_PROMPT_VERSION,
+        chatScope: row.chatScope,
       }),
     finish: async (claim, turn) => {
       await finishTurn(db, claim, turn);

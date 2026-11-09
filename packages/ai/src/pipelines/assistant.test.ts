@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
 import { ASSISTANT_TOOLS, assistantToolsFor } from '../tools/assistant-tools';
+import { ASSISTANT_ADMIN_TOOLS, ASSISTANT_TEAM_TOOLS } from '@repo/core/assistant/schema';
+import { CHAT_SCOPE_RULES, CHAT_SCOPES } from '@repo/core/assistant/chat-scopes';
 import { ASSISTANT_SYSTEM } from '../prompts/assistant-v31';
 import { contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
@@ -64,8 +66,8 @@ function fakeDeps(over: Partial<AssistantDeps> = {}) {
   const tracked: Parameters<AssistantDeps['track']>[0][] = [];
   const toolCalls: { name: string; input: unknown }[] = [];
   const deps: AssistantDeps = {
-    tools: ASSISTANT_TOOLS,
-    claim: async () => ({ conversationId: 'conv-1', seq: 1, handles: {}, history: [] }),
+    tools: () => ASSISTANT_TOOLS,
+    claim: async () => ({ conversationId: 'conv-1', seq: 1, handles: {}, chatScope: null, history: [] }),
     selection: async () => [],
     cardUpdates: async () => ({ block: '', ids: [] }),
     unreport: async () => undefined,
@@ -154,7 +156,7 @@ describe('a read-only turn', () => {
       { role: 'assistant', content: [{ type: 'thinking', thinking: '', signature: 'sig' }, { type: 'text', text: 'earlier answer' }] },
     ];
     const { client, requests } = fakeClient([msg([text('ok')], 'end_turn')]);
-    await run({ client, deps: fakeDeps({ claim: async () => ({ conversationId: 'c', seq: 2, handles: {}, history }) }).deps });
+    await run({ client, deps: fakeDeps({ claim: async () => ({ conversationId: 'c', seq: 2, handles: {}, chatScope: null, history }) }).deps });
     expect((requests[0]!.messages as unknown[]).slice(0, 2)).toEqual(history);
   });
 });
@@ -279,7 +281,7 @@ describe('red team: a tricked model can read and propose, never act', () => {
     const base = fakeDeps();
     const { deps } = fakeDeps({
       runTool: async (handles, name, input) => {
-        if (call++ === 0) return base.deps.runTool(handles, name, input, { conversationId: 'c', turnId: 't', toolUseId: 'x', made: { count: 0 } });
+        if (call++ === 0) return base.deps.runTool(handles, name, input, { conversationId: 'c', turnId: 't', toolUseId: 'x', made: { count: 0 } }, null);
         return runAssistantTool({ db: {} as never, actor: { userId: 'u', agencyId: 'a', membershipRole: 'agent' }, timeZone: 'UTC', handles, now: new Date() }, name, input);
       },
     });
@@ -301,9 +303,9 @@ describe('red team: a tricked model can read and propose, never act', () => {
     let call = 0;
     const base = fakeDeps();
     const { deps } = fakeDeps({
-      tools: assistantToolsFor({ userId: 'u', agencyId: 'a', membershipRole: 'agent' }),
+      tools: () => assistantToolsFor({ userId: 'u', agencyId: 'a', membershipRole: 'agent' }),
       runTool: async (handles, name, input, proposal) => {
-        if (call++ === 0) return base.deps.runTool(handles, name, input, proposal);
+        if (call++ === 0) return base.deps.runTool(handles, name, input, proposal, null);
         issueHandle(handles, 'M', 'someone');
         return runAssistantTool({ db: noDb, actor: { userId: 'u', agencyId: 'a', membershipRole: 'agent' }, timeZone: 'UTC', handles, now: new Date(), proposal }, name, input);
       },
@@ -547,8 +549,8 @@ describe('tools by role: assigning contacts is offered to owners and admins only
   it('the loop sends the list it was given — an agent’s request carries no assign tool', async () => {
     const agent = fakeClient([msg([text('a')], 'end_turn')]);
     const owner = fakeClient([msg([text('b')], 'end_turn')]);
-    await run({ client: agent.client, deps: fakeDeps({ tools: assistantToolsFor(as('agent')) }).deps });
-    await run({ client: owner.client, deps: fakeDeps({ tools: assistantToolsFor(as('owner')) }).deps, surface: 'agency' });
+    await run({ client: agent.client, deps: fakeDeps({ tools: () => assistantToolsFor(as('agent')) }).deps });
+    await run({ client: owner.client, deps: fakeDeps({ tools: () => assistantToolsFor(as('owner')) }).deps, surface: 'agency' });
     const sent = (r: Record<string, unknown>) => (r.tools as { name: string }[]).map((t) => t.name);
     for (const n of ADMIN_ONLY) {
       expect(sent(agent.requests[0]!)).not.toContain(n);
@@ -586,5 +588,48 @@ describe('what happened to the cards (ADR 0039 Phase 1)', () => {
     const { client } = fakeClient([msg([text('x')], 'end_turn')]);
     await run({ client, deps: fakeDeps({ budget: async () => ({ allowed: false, message: 'Limit.' }), cardUpdates: async () => ({ block: BLOCK, ids: ['c'] }), unreport }).deps });
     expect(unreport).toHaveBeenCalledWith(['c']);
+  });
+});
+
+describe('a chat keeps to its job (ADR 0088)', () => {
+  const owner = { userId: 'u', agencyId: 'a', membershipRole: 'owner' } as const;
+  const agent = { userId: 'u', agencyId: 'a', membershipRole: 'agent' } as const;
+  const names = (l: readonly { name: string }[]) => l.map((t) => t.name);
+
+  it('a chat from before the ADR keeps exactly the lists it had', () => {
+    expect(assistantToolsFor(owner)).toBe(ASSISTANT_TOOLS);
+    expect(assistantToolsFor(owner, null)).toBe(ASSISTANT_TOOLS);
+  });
+
+  it('each chat is shown its own frozen list, the same array every time (the cached prefix)', () => {
+    for (const scope of CHAT_SCOPES) {
+      expect(names(assistantToolsFor(owner, scope)).sort()).toEqual([...CHAT_SCOPE_RULES[scope].tools].sort());
+      expect(assistantToolsFor(owner, scope)).toBe(assistantToolsFor(owner, scope));
+      expect(Object.isFrozen(assistantToolsFor(owner, scope))).toBe(true);
+    }
+  });
+
+  it('an agent is still never shown the owner tools, in any chat', () => {
+    for (const scope of CHAT_SCOPES) {
+      for (const n of [...ASSISTANT_ADMIN_TOOLS, ...ASSISTANT_TEAM_TOOLS]) expect(names(assistantToolsFor(agent, scope))).not.toContain(n);
+    }
+  });
+
+  it('the loop sends the claimed chat’s list, runs its tools in that chat and meters them to it', async () => {
+    const scopes: unknown[] = [];
+    const { deps, tracked } = fakeDeps({
+      claim: async () => ({ conversationId: 'c', seq: 1, handles: {}, chatScope: 'bulk_email', history: [] }),
+      tools: (scope) => assistantToolsFor(owner, scope),
+      runTool: async (_h, _n, _i, _p, scope) => {
+        scopes.push(scope);
+        return { label: 'x', result: {} };
+      },
+    });
+    const { client, requests } = fakeClient([msg([toolUse('t1', 'find_contacts', {})], 'tool_use'), msg([text('done')], 'end_turn')]);
+    await run({ client, deps });
+    expect(names(requests[0]!.tools as { name: string }[])).not.toContain('send_email');
+    expect(names(requests[0]!.tools as { name: string }[])).toContain('send_template_email');
+    expect(scopes).toEqual(['bulk_email']);
+    expect(tracked.map((t) => t.chatScope)).toEqual(['bulk_email', 'bulk_email']);
   });
 });

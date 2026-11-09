@@ -82,6 +82,7 @@
     "./deals/schema": "./src/deals/deal-schema.ts",
     "./assistant": "./src/assistant/index.ts",
     "./assistant/schema": "./src/assistant/schema.ts",
+    "./assistant/chat-scopes": "./src/assistant/chat-scopes.ts",
     "./dashboards": "./src/dashboards/index.ts",
     "./imports": "./src/imports/index.ts",
     "./reviews": "./src/reviews/index.ts",

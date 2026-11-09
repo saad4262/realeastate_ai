@@ -27,6 +27,8 @@ export type AiRunInput = {
   /** The agency the call was made for — the assistant's per-agency cap sums on it (ADR 0025). */
   agencyId?: string;
   promptVersion: string;
+  /** Which console chat this request came from (ADR 0088). */
+  chatScope?: string | null;
 };
 
 export async function trackAiRun(db: DbOrTx, input: AiRunInput): Promise<void> {
@@ -41,6 +43,9 @@ export async function trackAiRun(db: DbOrTx, input: AiRunInput): Promise<void> {
     userId: input.userId ?? null,
     agencyId: input.agencyId ?? null,
     promptVersion: input.promptVersion,
+    chatScope: input.chatScope ?? null,
+    cacheReadTokens: input.usage.cacheReadInputTokens ?? null,
+    cacheWriteTokens: input.usage.cacheCreationInputTokens ?? null,
   });
 }
 

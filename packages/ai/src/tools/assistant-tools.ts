@@ -1,4 +1,5 @@
 import type Anthropic from '@anthropic-ai/sdk';
+import { CHAT_SCOPE_RULES, CHAT_SCOPES, type ChatScope } from '@repo/core/assistant/chat-scopes';
 import { APPOINTMENT_RANGES, ASSISTANT_ADMIN_TOOLS, ASSISTANT_TEAM_TOOLS, ASSISTANT_APPOINTMENT_TYPES, LEAD_SINCE, LEAD_STATUSES, LIST_SEND, LISTING_STATUSES_FOR_FIND, PLANNABLE_TOOLS, TASK_LIMITS } from '@repo/core/assistant/schema';
 import { AU_STATES, PROPERTY_TYPES } from '@repo/core/listings/schema';
 import { can, type Actor } from '@repo/core/permissions';
@@ -1060,6 +1061,17 @@ const ADMIN_ONLY = new Set<string>([...ASSISTANT_ADMIN_TOOLS, ...ASSISTANT_TEAM_
 /** What everyone else is shown: the same definitions, without the owner/admin tools. */
 const MEMBER_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze(ASSISTANT_TOOLS.filter((t) => !ADMIN_ONLY.has(t.name)));
 
+/** ADR 0088: each chat's own two frozen lists, in `ASSISTANT_TOOLS` order, built once — each one is a cached prefix. */
+const SCOPED_TOOLS = Object.freeze(
+  Object.fromEntries(
+    CHAT_SCOPES.map((scope) => {
+      const allowed = new Set<string>(CHAT_SCOPE_RULES[scope].tools);
+      const full = Object.freeze(ASSISTANT_TOOLS.filter((t) => allowed.has(t.name)));
+      return [scope, { full, member: Object.freeze(full.filter((t) => !ADMIN_ONLY.has(t.name))) }];
+    }),
+  ),
+) as Readonly<Record<ChatScope, { full: readonly Anthropic.Beta.BetaTool[]; member: readonly Anthropic.Beta.BetaTool[] }>>;
+
 /**
  * The tools this person's model is shown. Owners and admins (`contact:assign`,
  * the same people as `team:manage`) get every tool; everyone else never sees
@@ -1067,6 +1079,9 @@ const MEMBER_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze(ASSISTANT
  * tools are also refused in core if asked for by name. Two frozen lists, so
  * each kind of person has one byte-identical cached prefix.
  */
-export function assistantToolsFor(actor: Actor): readonly Anthropic.Beta.BetaTool[] {
-  return actor.agencyId && can(actor, 'contact:assign', { type: 'contact', agencyId: actor.agencyId }) ? ASSISTANT_TOOLS : MEMBER_TOOLS;
+export function assistantToolsFor(actor: Actor, scope: ChatScope | null = null): readonly Anthropic.Beta.BetaTool[] {
+  const full = Boolean(actor.agencyId && can(actor, 'contact:assign', { type: 'contact', agencyId: actor.agencyId }));
+  if (!scope) return full ? ASSISTANT_TOOLS : MEMBER_TOOLS;
+  const lists = SCOPED_TOOLS[scope];
+  return full ? lists.full : lists.member;
 }

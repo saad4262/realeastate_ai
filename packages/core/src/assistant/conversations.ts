@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, gte, isNull, lt, or, sql } from 'drizzle-orm';
 import { assistantConversation, assistantTurn, type Db } from '@repo/db';
+import { parseChatScope, type ChatScope } from './chat-scopes';
 import { can, type Actor } from '../permissions';
 import { parseHandleMap, type HandleMap } from './handles';
 import { ASSISTANT_LIMITS, type AssistantFrame } from './schema';
@@ -31,6 +32,8 @@ export type ClaimedTurn = {
   /** This turn's number in the conversation. */
   seq: number;
   handles: HandleMap;
+  /** What this chat may do (ADR 0088): from its row, never from the request, once the chat exists. */
+  chatScope: ChatScope | null;
   /**
    * Every earlier completed turn's API messages, in order and unchanged — the
    * model's history. Opaque here (core never imports the model SDK).
@@ -56,7 +59,7 @@ function mayUse(actor: Actor): actor is Actor & { agencyId: string } {
 export async function claimTurn(
   db: Db,
   actor: Actor,
-  input: { conversationId?: string; message: string; surface: Surface },
+  input: { conversationId?: string; message: string; surface: Surface; chatScope?: ChatScope },
   now = new Date(),
 ): Promise<ClaimedTurn> {
   if (!mayUse(actor)) throw new AssistantError('forbidden', 'You do not have access to the assistant');
@@ -68,12 +71,13 @@ export async function claimTurn(
         agencyId: actor.agencyId,
         userId: actor.userId,
         surface: input.surface,
+        chatScope: input.chatScope ?? null,
         title: input.message.replace(/\s+/g, ' ').trim().slice(0, 80),
         turnStartedAt: now,
         lastTurnAt: now,
       })
       .returning({ id: assistantConversation.id });
-    return { conversationId: created!.id, seq: 1, handles: {}, history: [] };
+    return { conversationId: created!.id, seq: 1, handles: {}, chatScope: input.chatScope ?? null, history: [] };
   }
 
   const staleBefore = new Date(now.getTime() - CLAIM_STALE_MS);
@@ -95,6 +99,7 @@ export async function claimTurn(
       agencyId: assistantConversation.agencyId,
       userId: assistantConversation.userId,
       handles: assistantConversation.handles,
+      chatScope: assistantConversation.chatScope,
       turnCount: assistantConversation.turnCount,
     });
 
@@ -127,6 +132,7 @@ export async function claimTurn(
     conversationId: claimed.id,
     seq: claimed.turnCount + 1,
     handles: parseHandleMap(claimed.handles),
+    chatScope: parseChatScope(claimed.chatScope),
     history: turns.flatMap((t) => (Array.isArray(t.apiMessages) ? t.apiMessages : [])),
   };
 }

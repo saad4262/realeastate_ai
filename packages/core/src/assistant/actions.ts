@@ -1,7 +1,7 @@
 import { and, asc, eq, gt, inArray, lt, lte, sql } from 'drizzle-orm';
 import { proposeBriefCard, runSaveBuyerBrief, type SaveBriefArgs } from '../leads/brief-card';
 import { SUSPENDED_AGENCY_IDS } from '../platform/access';
-import { assistantTask, emailBatch, proposedAction, user, type Db, type DbOrTx } from '@repo/db';
+import { assistantConversation, assistantTask, emailBatch, proposedAction, user, type Db, type DbOrTx } from '@repo/db';
 import { notifyMyself } from '../notifications';
 import { activeMemberActor } from '../team/member-actor';
 import { can, type Actor } from '../permissions';
@@ -52,6 +52,7 @@ import { runListingAction, type FrozenPin } from './listing-tools';
 import { runSkillAction, runSwitchSkill } from './skill-tools';
 import { SKILL_OF_WORKFLOW_STEP, skillOffMessage, type SkillKey } from '../skill-switches/catalog';
 import { holderOf, isSkillOn } from '../skill-switches/switches';
+import { chatScopeAllowsCard, parseChatScope } from './chat-scopes';
 import { runWorkflowAction } from './workflow-tools';
 import { runTemplateAction } from './template-tools';
 import type { WorkflowSpec } from '../workflows/catalog';
@@ -1004,6 +1005,11 @@ export async function approveProposedAction(
   const row = await loadRow(db, actor, id);
   if (!can(actor, 'proposed_action:decide', actionResource(row))) {
     throw new AssistantError('forbidden', 'Only the person the assistant was working for can approve this.');
+  }
+  // A chat keeps to its job at Approve too (ADR 0088). A workflow's card has no chat.
+  if (row.conversationId) {
+    const [chat] = await db.select({ chatScope: assistantConversation.chatScope }).from(assistantConversation).where(eq(assistantConversation.id, row.conversationId)).limit(1);
+    if (!chatScopeAllowsCard(parseChatScope(chat?.chatScope), row.tool)) throw new AssistantError('forbidden', 'This card is not part of this chat, so it cannot be approved here.');
   }
   const runAt = opts.runAt && opts.runAt.getTime() > now.getTime() + NOW_SLACK_MS ? opts.runAt : null;
   if (runAt) return schedule(db, actor, row, runAt, deps, now);
