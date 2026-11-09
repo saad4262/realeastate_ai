@@ -34,6 +34,8 @@ like `assistant:bulk_email` (the budget sums `feature = 'assistant'`, so those c
 
 **Added while building.** `send_template_sms` is a tool only the Bulk SMS chat has: a chat from before this ADR keeps the tool list it had, so it is left out of that list and refused at run time. A saved list longer than one batch becomes a `plan_task` card, so the Bulk email chat may approve that card even though it does not have the tool. The Daily work and AI skills chats have no switch of their own and start from the Skills page.
 
+**Overview read-only.** Off until `ASSISTANT_OVERVIEW_READ_ONLY=1`, so it is turned on and back off without changing code. With it on, a new Overview chat is saved as `general`, and a chat from before this ADR is treated as one for that turn while its row stays null, so its old cards still approve. `open_chat` is Overview's way out: a button into the right chat, with the person's words typed in and not sent.
+
 **Done before the automations chats opened.** `change_workflow` and `create_workflow`'s `replaces` act on a stored workflow, so the
 input check cannot see its steps: they check the stored spec, and `find_workflows` shows only that chat's kind. A workflow
 holding both kinds of send keeps running and is changed on the Workflows page.

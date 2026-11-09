@@ -2345,3 +2345,10 @@ Phase 1 is the foundation and changes nothing on screen. Apply migration 0093 fi
 | CX33 | Bulk email chat, a saved list of more than 20 people → Approve | The plan card approves; parts go out as from the old chat |
 | CX34 | As an agent, `?chat=team_management` | Refused on the first message |
 | CX35 | An old chat from Recents: ask to send a bulk text | It has no such tool; the workflows and everything else as before |
+| CX36 | Without the flag: Overview → book an appraisal | As before: a card to approve |
+| CX37 | Set `ASSISTANT_OVERVIEW_READ_ONLY=1`, redeploy. Overview → "Which leads came in this week?" | Answers. The hint under the box says it only looks things up; the suggestions have no "Book…" |
+| CX38 | With the flag: "send a bulk email to my buyers" | No card. A button "Open the Bulk email chat"; it opens with those words in the box, not sent |
+| CX39 | With the flag, and that skill off | The button goes to Skills |
+| CX40 | With the flag: open an OLD chat with tool cards in it and carry on talking | It still answers. This is the one to watch: the old turns name tools it no longer has |
+| CX41 | With the flag: a pending card from before it | Approve still works |
+| CX42 | Remove the flag, redeploy | Overview is back to how it was, the Overview chats made meanwhile stay read-only |

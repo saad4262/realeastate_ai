@@ -1,5 +1,5 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { CHAT_SCOPE_RULES, CHAT_SCOPES, type ChatScope } from '@repo/core/assistant/chat-scopes';
+import { CHAT_SCOPE_RULES, CHAT_SCOPES, OPEN_CHAT_SCOPES, type ChatScope } from '@repo/core/assistant/chat-scopes';
 import { APPOINTMENT_RANGES, ASSISTANT_ADMIN_TOOLS, ASSISTANT_TEAM_TOOLS, ASSISTANT_APPOINTMENT_TYPES, LEAD_SINCE, LEAD_STATUSES, LIST_SEND, LISTING_STATUSES_FOR_FIND, PLANNABLE_TOOLS, TASK_LIMITS } from '@repo/core/assistant/schema';
 import { AU_STATES, PROPERTY_TYPES } from '@repo/core/listings/schema';
 import { can, type Actor } from '@repo/core/permissions';
@@ -1063,6 +1063,19 @@ const MEMBER_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze(ASSISTANT
 
 /** ADR 0088: tools only a skill chat is given, so a chat from before it keeps the list it had. */
 export const SCOPE_ONLY_ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze([
+  {
+    name: 'open_chat',
+    description: 'Put a button on the screen that opens the chat which can do what the person wants, because this chat only reads and answers. It changes nothing.',
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        chat: { type: 'string', enum: [...OPEN_CHAT_SCOPES], description: 'The chat that does this job.' },
+        message: { type: 'string', description: 'What the person asked for, in their words. It is typed into that chat for them to read and send.' },
+      },
+      required: ['chat'],
+    },
+  },
   {
     name: 'send_template_sms',
     description: `Propose texting one of the SMS templates from list_templates EITHER to contacts you found (C…) OR to one of the person's saved lists (an F reference from find_saved_lists), at most 20 people. You never write the text: it is the template. ${PROPOSES}`,

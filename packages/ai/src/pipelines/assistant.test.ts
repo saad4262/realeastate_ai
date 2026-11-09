@@ -5,7 +5,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
 import { ASSISTANT_TOOLS, assistantToolsFor, SCOPE_ONLY_ASSISTANT_TOOLS } from '../tools/assistant-tools';
 import { ASSISTANT_ADMIN_TOOLS, ASSISTANT_TEAM_TOOLS } from '@repo/core/assistant/schema';
-import { CHAT_SCOPE_RULES, CHAT_SCOPES } from '@repo/core/assistant/chat-scopes';
+import { CHAT_SCOPE_RULES, CHAT_SCOPES, OPEN_CHAT_SCOPES } from '@repo/core/assistant/chat-scopes';
 import { ASSISTANT_SYSTEM } from '../prompts/assistant-v31';
 import { assistantSystemBlocks, contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
@@ -639,6 +639,9 @@ describe('a chat keeps to its job (ADR 0088)', () => {
   it('a chat from before the ADR is never given a skill chat’s own tool', () => {
     for (const a of [owner, agent]) expect(names(assistantToolsFor(a))).not.toContain('send_template_sms');
     expect(names(ASSISTANT_TOOLS)).not.toContain('send_template_sms');
+    expect(names(assistantToolsFor(owner))).not.toContain('open_chat');
+    expect(names(assistantToolsFor(owner, 'general'))).toContain('open_chat');
+    expect(names(assistantToolsFor(owner, 'bulk_email'))).not.toContain('open_chat');
     expect(names(assistantToolsFor(owner, 'bulk_sms'))).toContain('send_template_sms');
     expect(names(assistantToolsFor(owner, 'bulk_email'))).not.toContain('send_template_sms');
   });
@@ -665,6 +668,17 @@ describe('a chat keeps to its job (ADR 0088)', () => {
     const { client, requests } = fakeClient([msg([text('ok')], 'end_turn')]);
     await run({ client, deps });
     expect(JSON.stringify(requests[0]!.system)).toContain('<this_chat>');
+  });
+
+  it('Overview is told to hand off, and is told every chat; a skill chat is not', () => {
+    const brief = assistantSystemBlocks('general')[1]!.text;
+    expect(brief).toContain('open_chat');
+    for (const s of OPEN_CHAT_SCOPES) expect(brief, s).toContain(`${s} (`);
+    expect(assistantSystemBlocks('bulk_email')[1]!.text).not.toContain('open_chat');
+  });
+
+  it('the real deps pass the flag on', () => {
+    expect(readFileSync(join(__dirname, 'assistant.ts'), 'utf8')).toContain('overviewReadOnly: overviewIsReadOnly(env)');
   });
 
   it('a scope only starts a chat: with a conversation, the request’s is not passed on', () => {

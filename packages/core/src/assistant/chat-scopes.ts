@@ -118,6 +118,20 @@ export const CHAT_SCOPE_FACE: Readonly<Record<OpenChatScope, { icon: string; gre
   },
 });
 
+/**
+ * Overview reads and answers, and hands anything else to the right chat (ADR 0088). Off until
+ * `ASSISTANT_OVERVIEW_READ_ONLY=1`, so it can be turned on, and back off, without a deploy of code.
+ */
+export function overviewIsReadOnly(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.ASSISTANT_OVERVIEW_READ_ONLY?.trim() === '1';
+}
+
+/** How the Overview chat presents itself once it only reads. */
+export const OVERVIEW_FACE = Object.freeze({
+  hint: 'Looks things up and answers. To change or send something, it opens the right chat.',
+  suggestions: ['Which leads came in this week?', 'What’s on my calendar tomorrow?', 'Is my Google Calendar connected?', 'What’s our sold value this month?'],
+});
+
 /** The chat a Skills card opens, by the skill's key. */
 export function chatScopeOfSkill(key: string): OpenChatScope | null {
   return CHAT_OF_SKILL[key] ?? null;
@@ -159,7 +173,7 @@ const AUTOMATION_TOOLS = [...EVERY_CHAT, 'find_workflows', 'find_listings', 'fin
 
 export const CHAT_SCOPE_RULES: Readonly<Record<ChatScope, ScopeRule>> = Object.freeze({
   general: {
-    tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'find_appointments', 'find_listings', 'find_buyers', 'find_deals', 'find_team_members', 'find_agents', 'find_colleagues', 'find_saved_lists', 'find_skills', 'find_workflows', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'describe_data', 'query_data', 'search_documents', 'read_document'],
+    tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'find_appointments', 'find_listings', 'find_buyers', 'find_deals', 'find_team_members', 'find_agents', 'find_colleagues', 'find_saved_lists', 'find_skills', 'find_workflows', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'describe_data', 'query_data', 'search_documents', 'read_document', 'open_chat'],
   },
   daily_work: {
     tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'find_appointments', 'find_listings', 'find_buyers', 'find_deals', 'find_team_members', 'find_colleagues', 'search_notes_and_emails', 'check_connections', 'start_import', 'add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'update_contact', 'set_contact_archived', 'record_marketing_consent', 'withdraw_marketing_consent', 'assign_contacts', 'create_reminder', 'plan_task', 'cancel_task', 'message_colleagues'],
@@ -220,7 +234,7 @@ export const SHARED_ACTION_TOOLS = ['create_template', 'create_workflow', 'chang
 export const UNSCOPED_ACTION_TOOLS = ['switch_skill'] as const satisfies readonly AssistantToolName[];
 
 /** Tools only a skill chat has: a chat from before ADR 0088 is never given one, in its list or at run time. */
-export const SCOPE_ONLY_TOOLS = ['send_template_sms'] as const satisfies readonly AssistantToolName[];
+export const SCOPE_ONLY_TOOLS = ['send_template_sms', 'open_chat'] as const satisfies readonly AssistantToolName[];
 
 /** A stored value. One this code does not know gets the fewest tools, never every tool. */
 export function parseChatScope(raw: string | null | undefined): ChatScope | null {

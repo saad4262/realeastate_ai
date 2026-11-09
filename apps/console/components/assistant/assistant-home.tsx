@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { CHAT_SCOPE_FACE, CHAT_SCOPE_LABELS, isOpenChatScope } from '@repo/core/assistant/chat-scopes';
+import { CHAT_SCOPE_FACE, CHAT_SCOPE_LABELS, isOpenChatScope, OVERVIEW_FACE } from '@repo/core/assistant/chat-scopes';
 import { clearPicks } from './picks';
 import { EXAMPLES, TurnList, type Surface } from './assistant-panel';
 import { useAssistant } from './use-assistant';
@@ -31,6 +31,7 @@ export function AssistantHome({
   name,
   notices,
   below,
+  overviewReadOnly = false,
 }: {
   surface: Surface;
   /** This page's own path — "start a new one" links here. */
@@ -38,6 +39,8 @@ export function AssistantHome({
   name: string | null;
   notices?: ReactNode;
   below?: ReactNode;
+  /** ADR 0088: read on the server, since the browser cannot see the flag. */
+  overviewReadOnly?: boolean;
 }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -149,7 +152,7 @@ export function AssistantHome({
         disabled={full}
       />
       <div className={styles.composerFoot}>
-        <span className={styles.hint}>{face ? face.hint : 'Looks things up, and prepares actions for you to approve.'}</span>
+        <span className={styles.hint}>{face ? face.hint : overviewReadOnly ? OVERVIEW_FACE.hint : 'Looks things up, and prepares actions for you to approve.'}</span>
         {busy ? (
           <button type="button" className={styles.send} onClick={a.stop} aria-label="Stop">
             <span className={styles.glyph} aria-hidden>
@@ -201,7 +204,7 @@ export function AssistantHome({
           </h1>
           {composer}
           <div className={styles.suggestions} aria-label="Suggestions">
-            {(face ? face.suggestions : SUGGESTIONS).map((s) => (
+            {(face ? face.suggestions : overviewReadOnly ? OVERVIEW_FACE.suggestions : SUGGESTIONS).map((s) => (
               <button key={s} type="button" className={styles.suggestion} onClick={() => setDraft(s)}>
                 {s}
               </button>

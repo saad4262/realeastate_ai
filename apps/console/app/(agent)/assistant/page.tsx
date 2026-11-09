@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import { overviewIsReadOnly } from '@repo/core/assistant/chat-scopes';
 import { AssistantHome } from '@/components/assistant/assistant-home';
 import { UpcomingMeetings } from '@/components/appointments/upcoming-meetings';
 import { OpportunitiesPanel } from '@/components/opportunities/opportunities-panel';
@@ -17,6 +18,7 @@ export default async function AgentHomePage() {
       <AssistantHome
         surface="agent"
         home="/assistant"
+        overviewReadOnly={overviewIsReadOnly()}
         name={name}
         below={
           <>

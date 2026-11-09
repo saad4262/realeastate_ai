@@ -60,6 +60,7 @@ import { mayCreateImport } from '../imports/imports';
 import { findSkills, proposeChangeSkill, proposeSetUpSkill, proposeSwitchSkill } from './skill-tools';
 import { CHAT_SCOPE_RULES, chatScopeRefusal, templateChannel, type ChatScope } from './chat-scopes';
 import { platformSkill, skillOffMessage, skillsForToolCall } from '../skill-switches/catalog';
+import { openChatTool } from './open-chat';
 import { proposeSendTemplateSms } from './sms-tools';
 import { holderOf, isSkillOnForChat, skillsOffForActor } from '../skill-switches/switches';
 import type { SkillKey } from '../skill-switches/catalog';
@@ -150,6 +151,7 @@ const LABELS: Record<AssistantToolName, string> = {
   cancel_appointment: 'Preparing the cancellation for you to approve…',
   send_template_email: 'Preparing the email for you to approve…',
   send_template_sms: 'Preparing the texts for you to approve…',
+  open_chat: 'Finding the right chat…',
   create_dashboard: 'Preparing the dashboard for you to approve…',
   update_dashboard: 'Preparing the change to the dashboard for you to approve…',
   find_team_members: 'Looking up the team…',
@@ -371,6 +373,8 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return proposeRescheduleAppointment(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.reschedule_appointment>, label);
     case 'cancel_appointment':
       return proposeCancelAppointment(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.cancel_appointment>, label);
+    case 'open_chat':
+      return openChatTool(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.open_chat>, label);
     case 'send_template_sms':
       return proposeSendTemplateSms(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.send_template_sms>, label);
     case 'send_template_email':

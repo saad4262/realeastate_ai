@@ -31,9 +31,9 @@ import styles from './assistant-panel.module.css';
 
 export type Surface = 'agent' | 'agency';
 
-const PATHS: Record<Surface, { contact: string; leads: string; templates: string; bulk: string; integrations: string; inbox: string; messages: string; listings: string; listingImport: string; contactImport: string; skills: string; workflows: string; knowledge: string }> = {
-  agency: { contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', bulk: '/bulk-email', integrations: '/settings/integrations', inbox: '/inbox', messages: '/messages', listings: '/live-listings', listingImport: '/live-listings/import', contactImport: '/customers/import', skills: '/skills', workflows: '/skills?tab=automations', knowledge: '/knowledge' },
-  agent: { contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', bulk: '/my-bulk-email', integrations: '/my-integrations', inbox: '/my-inbox', messages: '/my-messages', listings: '/listings', listingImport: '/listings/import', contactImport: '/my-contacts/import', skills: '/my-skills', workflows: '/my-skills?tab=automations', knowledge: '/my-knowledge' },
+const PATHS: Record<Surface, { home: string; contact: string; leads: string; templates: string; bulk: string; integrations: string; inbox: string; messages: string; listings: string; listingImport: string; contactImport: string; skills: string; workflows: string; knowledge: string }> = {
+  agency: { home: '/overview', contact: '/customers', leads: '/leads', templates: '/bulk-email/templates', bulk: '/bulk-email', integrations: '/settings/integrations', inbox: '/inbox', messages: '/messages', listings: '/live-listings', listingImport: '/live-listings/import', contactImport: '/customers/import', skills: '/skills', workflows: '/skills?tab=automations', knowledge: '/knowledge' },
+  agent: { home: '/assistant', contact: '/my-contacts', leads: '/my-leads', templates: '/my-bulk-email/templates', bulk: '/my-bulk-email', integrations: '/my-integrations', inbox: '/my-inbox', messages: '/my-messages', listings: '/listings', listingImport: '/listings/import', contactImport: '/my-contacts/import', skills: '/my-skills', workflows: '/my-skills?tab=automations', knowledge: '/my-knowledge' },
 };
 
 /** What the empty assistant suggests — the home turns the ones you can type into chips. */
@@ -185,6 +185,17 @@ function FrameView({ frame, surface }: { frame: AssistantFrame; surface: Surface
     case 'widget':
       // An open answer (ADR 0042) is the answer itself — its rows, how it was worked out — so it is drawn in full.
       return <Tile tile={frame.tile} compact={!(frame.tile.state === 'ok' && frame.tile.data.kind === 'open')} />;
+    case 'open_chat':
+      // ADR 0088: Overview's way out. What they asked for is only typed in; they read it and press Send.
+      return (
+        <div className={styles.frame}>
+          <div style={{ padding: '0.625rem' }}>
+            <Link href={frame.on ? `${p.home}?chat=${frame.scope}${frame.ask ? `&ask=${encodeURIComponent(frame.ask)}` : ''}` : p.skills} className={styles.meta}>
+              {frame.on ? `Open the ${frame.name} chat` : `Switch on ${frame.name} in Skills`}
+            </Link>
+          </div>
+        </div>
+      );
     case 'import': {
       // The import's own controls (ADR 0039 Phase 3): the file and the sheet go to the import screens, never to the model.
       const base = frame.what === 'contacts' ? p.contactImport : p.listingImport;

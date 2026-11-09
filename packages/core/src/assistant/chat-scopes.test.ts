@@ -5,7 +5,7 @@ import type { Db } from '@repo/db';
 import type { Actor } from '../permissions';
 import { PLATFORM_SKILLS } from '../skill-switches/catalog';
 import { approveProposedAction } from './actions';
-import { CHAT_SCOPE_FACE, CHAT_SCOPE_RULES, CHAT_SCOPES, OPEN_CHAT_SCOPES, SHARED_ACTION_TOOLS, UNSCOPED_ACTION_TOOLS, chatScopeAllowsCard, chatScopeOfSkill, chatScopeRefusal, isOpenChatScope, parseChatScope, templateChannel, workflowFitsChat, type ChatScope } from './chat-scopes';
+import { CHAT_SCOPE_FACE, CHAT_SCOPE_RULES, CHAT_SCOPES, OPEN_CHAT_SCOPES, OVERVIEW_FACE, SCOPE_ONLY_TOOLS, SHARED_ACTION_TOOLS, UNSCOPED_ACTION_TOOLS, chatScopeAllowsCard, chatScopeOfSkill, chatScopeRefusal, isOpenChatScope, overviewIsReadOnly, parseChatScope, templateChannel, workflowFitsChat, type ChatScope } from './chat-scopes';
 import { claimTurn } from './conversations';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, PLANNABLE_TOOLS, assistantTurnRequestSchema } from './schema';
 import { runAssistantTool } from './tools';
@@ -57,6 +57,55 @@ describe('the registry', () => {
   });
 });
 
+describe('Overview read-only (the flag)', () => {
+  const env = (v?: string) => ({ ASSISTANT_OVERVIEW_READ_ONLY: v }) as unknown as NodeJS.ProcessEnv;
+  it('is off unless it is exactly 1', () => {
+    expect(overviewIsReadOnly(env(undefined))).toBe(false);
+    for (const v of ['0', 'true', 'yes', '']) expect(overviewIsReadOnly(env(v))).toBe(false);
+    expect(overviewIsReadOnly(env('1'))).toBe(true);
+    expect(overviewIsReadOnly(env(' 1 '))).toBe(true);
+  });
+  it('its suggestions ask nothing that it would have to hand off', () => {
+    for (const s of OVERVIEW_FACE.suggestions) expect(s).not.toMatch(/^(Book|Send|Add|Remind|Create)/);
+  });
+  it('the way out reads, and only Overview has it', () => {
+    expect((ASSISTANT_READ_TOOLS as readonly string[]).includes('open_chat')).toBe(true);
+    expect(holders('open_chat')).toEqual(['general']);
+  });
+});
+
+describe('open_chat', () => {
+  const noDb = {} as Db;
+  const ctx = (over: object = {}) => ({ db: noDb, actor, timeZone: 'UTC', handles: {}, now: new Date(), chatScope: 'general' as ChatScope, ...over });
+  const on = { select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ enabled: true }] }) }) }) } as unknown as Db;
+  const off = { select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }) } as unknown as Db;
+
+  it('puts a button for a chat that is on, with what they asked typed in for them', async () => {
+    const out = await runAssistantTool(ctx({ db: on }), 'open_chat', { chat: 'bulk_email', message: 'email my buyers' });
+    expect(out.frame).toEqual({ kind: 'open_chat', scope: 'bulk_email', name: 'Bulk email', on: true, ask: 'email my buyers' });
+  });
+  it('a chat whose skill is off sends them to Skills instead, carrying nothing', async () => {
+    const out = await runAssistantTool(ctx({ db: off }), 'open_chat', { chat: 'bulk_email', message: 'email my buyers' });
+    expect(out.frame).toMatchObject({ on: false, ask: null });
+  });
+  it('a chat with no switch is always on, with no read', async () => {
+    const out = await runAssistantTool(ctx(), 'open_chat', { chat: 'daily_work' });
+    expect(out.frame).toMatchObject({ on: true });
+  });
+  it('an agent gets no button for the team chat', async () => {
+    const out = await runAssistantTool(ctx({ db: on, actor: { ...actor, membershipRole: 'agent' } }), 'open_chat', { chat: 'team_management' });
+    expect(out.frame).toBeUndefined();
+    expect(JSON.stringify(out.result)).toContain('owner or admin');
+  });
+  it('will not name a chat that cannot be opened', async () => {
+    expect((await runAssistantTool(ctx(), 'open_chat', { chat: 'general' })).isError).toBe(true);
+  });
+  it('only Overview may use it', async () => {
+    expect((await runAssistantTool(ctx({ chatScope: 'bulk_email' }), 'open_chat', { chat: 'daily_work' })).isError).toBe(true);
+    expect((await runAssistantTool(ctx({ chatScope: null }), 'open_chat', { chat: 'daily_work' })).isError).toBe(true);
+  });
+});
+
 describe('what can be opened', () => {
   it('is only what has been built', () => {
     expect(CHAT_SCOPES.filter((s) => !(OPEN_CHAT_SCOPES as readonly string[]).includes(s))).toEqual(['general']);
@@ -86,6 +135,18 @@ describe('what can be opened', () => {
     const base = { message: 'hi', timeZone: 'UTC' };
     expect(assistantTurnRequestSchema.safeParse({ ...base, chatScope: 'bulk_email' }).success).toBe(true);
     expect(assistantTurnRequestSchema.safeParse({ ...base, chatScope: 'everything' }).success).toBe(false);
+  });
+});
+
+describe('Overview’s pages and button, read from source', () => {
+  const ROOT = join(__dirname, '..', '..', '..', '..', 'apps', 'console');
+  const read = (...p: string[]) => readFileSync(join(ROOT, ...p), 'utf8');
+  it('both home pages read the flag on the server', () => {
+    for (const f of [['app', '(agency)', 'overview', 'page.tsx'], ['app', '(agent)', 'assistant', 'page.tsx']]) expect(read(...f)).toContain('overviewReadOnly={overviewIsReadOnly()}');
+  });
+  it('the button only types the request in, and goes to Skills when the skill is off', () => {
+    const panel = read('components', 'assistant', 'assistant-panel.tsx');
+    expect(panel).toContain('frame.on ? `${p.home}?chat=${frame.scope}${frame.ask ? `&ask=${encodeURIComponent(frame.ask)}` : \'\'}` : p.skills');
   });
 });
 
@@ -120,7 +181,7 @@ describe('parseChatScope', () => {
 
 describe('chatScopeRefusal', () => {
   it('lets a chat from before the ADR do everything it could', () => {
-    for (const t of ASSISTANT_TOOL_NAMES) if (t !== 'send_template_sms') expect(chatScopeRefusal(null, t, {})).toBeNull();
+    for (const t of ASSISTANT_TOOL_NAMES) if (!(SCOPE_ONLY_TOOLS as readonly string[]).includes(t)) expect(chatScopeRefusal(null, t, {})).toBeNull();
   });
   it('refuses another chat’s tool', () => {
     expect(chatScopeRefusal('bulk_email', 'send_email', {})).toContain('Bulk email');
@@ -291,6 +352,41 @@ describe('claimTurn', () => {
   it('will not start a chat whose skill is off', async () => {
     const db = { ...switchIs(false), insert: () => { throw new Error('must not write'); } } as unknown as Db;
     await expect(claimTurn(db, actor, { message: 'hi', surface: 'agency', chatScope: 'bulk_email' })).rejects.toThrow('switched off');
+  });
+
+  describe('with Overview read-only', () => {
+    const newChat = () => {
+      const written: unknown[] = [];
+      const db = { insert: () => ({ values: (v: { chatScope: unknown }) => (written.push(v.chatScope), { returning: async () => [{ id: 'c2' }] }) }) } as unknown as Db;
+      return { db, written };
+    };
+    const existing = (chatScope: string | null) =>
+      ({
+        update: () => ({ set: () => ({ where: () => ({ returning: async () => [{ id: 'c1', agencyId: 'a1', userId: 'u1', handles: {}, chatScope, turnCount: 1 }] }) }) }),
+        select: () => ({ from: () => ({ where: () => ({ orderBy: async () => [] }) }) }),
+      }) as unknown as Db;
+
+    it('a new Overview chat is saved as one', async () => {
+      const { db, written } = newChat();
+      expect((await claimTurn(db, actor, { message: 'hi', surface: 'agency', overviewReadOnly: true })).chatScope).toBe('general');
+      expect(written).toEqual(['general']);
+    });
+    it('an old chat becomes one for this turn, and its row is not changed', async () => {
+      expect((await claimTurn(existing(null), actor, { conversationId: 'c1', message: 'hi', surface: 'agency', overviewReadOnly: true })).chatScope).toBe('general');
+    });
+    it('a skill chat stays what it is', async () => {
+      expect((await claimTurn(existing('bulk_email'), actor, { conversationId: 'c1', message: 'hi', surface: 'agency', overviewReadOnly: true })).chatScope).toBe('bulk_email');
+    });
+    it('with the flag off, nothing changes', async () => {
+      expect((await claimTurn(existing(null), actor, { conversationId: 'c1', message: 'hi', surface: 'agency' })).chatScope).toBeNull();
+      const { db, written } = newChat();
+      await claimTurn(db, actor, { message: 'hi', surface: 'agency' });
+      expect(written).toEqual([null]);
+    });
+    it('the browser still cannot ask for it', async () => {
+      const { db } = newChat();
+      await expect(claimTurn(db, actor, { message: 'hi', surface: 'agency', chatScope: 'general' })).rejects.toMatchObject({ code: 'forbidden' });
+    });
   });
 
   it('a chat made without one is the old kind', async () => {
