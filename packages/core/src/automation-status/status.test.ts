@@ -4,7 +4,7 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '@repo/db';
 import type { Actor } from '../permissions';
-import { automationHref, automationStatus, runningAutomationCount, switchedOnHref, type AutomationItem, type AutomationPaths } from './index';
+import { automationHref, automationStatus, runningAutomationCount, skillsPanel, switchedOnHref, type AutomationItem, type AutomationPaths } from './index';
 
 const listSkillSwitches = vi.hoisted(() => vi.fn());
 vi.mock('../skill-switches/switches', async (real) => ({ ...(await real<object>()), listSkillSwitches }));
@@ -117,7 +117,7 @@ describe('what it reports', () => {
   });
 
   it('adds up what is active from the window count, not the rows sent', async () => {
-    const { db } = fakeDb([[], [], [], [{ id: 'w1', name: 'New enquiry', owner_id: AGENT, owner: 'Sam', last_at: null, total: 8 }], [{ id: 's1', name: 'Brief', user_id: AGENT, owner: 'Sam', next_at: '2026-11-10T07:00:00Z', total: 3 }]]);
+    const { db } = fakeDb([[], [], [], [{ id: 'w1', name: 'New enquiry', owner_id: AGENT, owner: 'Sam', status: 'active', paused_reason: null, last_at: null, runs_today: 0, active_total: 8 }], [{ id: 's1', name: 'Brief', user_id: AGENT, owner: 'Sam', next_at: '2026-11-10T07:00:00Z', total: 3 }]]);
     const s = await automationStatus(db, agent);
     expect(s!.activeTotal).toBe(11);
     expect(s!.active.map((a) => a.kind)).toEqual(['workflow', 'skill']);
@@ -130,35 +130,39 @@ describe('what it reports', () => {
   });
 });
 
-describe('the skills switched on', () => {
+describe('the Skills panel', () => {
   const skill = (key: string, on: boolean, over: object = {}) => ({ key, name: key, icon: 'bolt', on, ...over });
 
-  it('lists what is on, with its chat when it has one, in the panel', async () => {
+  it('lists what is on, with its chat when it has one', async () => {
     listSkillSwitches.mockResolvedValue({ holder: 'agency', skills: [skill('bulk_email', true), skill('buyer_matching', true), skill('cold_contacts', false)] });
-    const { db } = fakeDb();
-    const s = await automationStatus(db, owner);
-    expect(s!.skillsOn).toEqual([
+    const p = await skillsPanel({} as Db, owner);
+    expect(p!.skills).toEqual([
       { key: 'bulk_email', name: 'bulk_email', icon: 'bolt', chat: 'bulk_email' },
       { key: 'buyer_matching', name: 'buyer_matching', icon: 'bolt', chat: null },
     ]);
   });
 
-  it('asks for the person’s own switches: an agent’s, never the agency’s', async () => {
-    const { db } = fakeDb();
-    await automationStatus(db, agent);
+  it('asks for the person’s own switches', async () => {
+    await skillsPanel({} as Db, agent);
     expect(listSkillSwitches.mock.calls[0]![1]).toBe(agent);
   });
 
   it('an agent’s two-switch skill counts only when the agency has it on too', async () => {
     listSkillSwitches.mockResolvedValue({ holder: 'personal', skills: [skill('bulk_sms', true, { pair: true, agencyOn: false }), skill('workflow_texts', true, { pair: true, agencyOn: true })] });
-    const { db } = fakeDb();
-    expect((await automationStatus(db, agent))!.skillsOn.map((x) => x.key)).toEqual(['workflow_texts']);
+    expect((await skillsPanel({} as Db, agent))!.skills.map((x) => x.key)).toEqual(['workflow_texts']);
   });
 
-  it('a failed read of the switches leaves the panel standing', async () => {
-    listSkillSwitches.mockRejectedValue(new Error('down'));
-    const { db } = fakeDb();
-    expect((await automationStatus(db, owner))!.skillsOn).toEqual([]);
+  it('may flip them only if this person may manage the switches', async () => {
+    expect((await skillsPanel({} as Db, owner))!.mayManage).toBe(true);
+    listSkillSwitches.mockResolvedValue({ holder: 'personal', skills: [] });
+    expect((await skillsPanel({} as Db, agent))!.mayManage).toBe(true);
+    expect((await skillsPanel({} as Db, { userId: 'v', agencyId: A, membershipRole: 'read_only' }))!.mayManage).toBe(false);
+  });
+
+  it('nothing for someone with no agency, or an admin viewing one', async () => {
+    expect(await skillsPanel({} as Db, { userId: 'x' })).toBeNull();
+    expect(await skillsPanel({} as Db, { userId: 'x', agencyId: A, membershipRole: 'owner', via: 'platform' })).toBeNull();
+    expect(listSkillSwitches).not.toHaveBeenCalled();
   });
 
   it('goes to the skill’s chat, or to the switched-on skills when it has none', () => {
@@ -168,9 +172,88 @@ describe('the skills switched on', () => {
   });
 });
 
+describe('a long send and a task', () => {
+  const task = (over: object) => ({ id: 't1', conversation_id: 'c1', status: 'active', user_id: AGENT, owner: 'Sam', title: 'Spring to Buyers', error: null, done: 2, total: 5, next_at: '2026-11-10T03:00:00Z', send_parts: 0, people: 0, sent: 0, failed: 0, list: null, ...over });
+  const withTasks = (rows: object[]) => [[], rows, [], [], []] as Record<string, unknown>[][];
+
+  it('counts a long send in people, from the parts already sent, with its parts and its next time', async () => {
+    const { db } = fakeDb(withTasks([task({ send_parts: 5, people: 100, sent: 40, failed: 1, list: 'Buyers' })]));
+    expect((await automationStatus(db, agent))!.running[0]).toMatchObject({ kind: 'send_plan', done: 40, total: 100, failed: 1, subtitle: 'Buyers', parts: { done: 2, total: 5 }, nextAt: '2026-11-10T03:00:00.000Z' });
+  });
+
+  it('a task of other steps still counts steps', async () => {
+    const { db } = fakeDb(withTasks([task({})]));
+    expect((await automationStatus(db, agent))!.running[0]).toMatchObject({ kind: 'task', done: 2, total: 5, parts: null });
+  });
+
+  it('reads the people from each part’s own list and the sends from its batch', async () => {
+    const { db, seen } = fakeDb();
+    await automationStatus(db, owner);
+    expect(seen[1]!.sql).toContain("jsonb_array_length(p.args->'contactIds')");
+    expect(seen[1]!.sql).toContain("(p.result->>'batchId')::uuid");
+  });
+
+  it('whoever started it, or an owner or admin, may stop it; a read-only member may not', async () => {
+    const stop = async (a: Actor, by: string) => {
+      const { db } = fakeDb(withTasks([task({ user_id: by })]));
+      return (await automationStatus(db, a))!.running[0]!.canStop;
+    };
+    expect(await stop(agent, AGENT)).toBe(true);
+    expect(await stop(owner, AGENT)).toBe(true);
+    expect(await stop({ userId: AGENT, agencyId: A, membershipRole: 'read_only' }, AGENT)).toBe(false);
+  });
+
+  it('a batch, gone in seconds, has nothing to stop', async () => {
+    const { db } = fakeDb([[{ id: 'b1', channel: 'email', status: 'approved_sending', user_id: AGENT, owner: 'Sam', template: 'x', list: 'y', sent: '1', total: '2', failed: '0' }], [], [], [], []]);
+    expect((await automationStatus(db, agent))!.running[0]).toMatchObject({ canStop: false, parts: null });
+  });
+});
+
+describe('workflows and scheduled skills', () => {
+  const wf = (over: object) => ({ id: 'w1', name: 'New enquiry', owner_id: AGENT, owner: 'Sam', status: 'active', paused_reason: null, last_at: null, runs_today: 3, active_total: 2, ...over });
+  const flows = (rows: object[], skills: object[] = []) => [[], [], [], rows, skills] as Record<string, unknown>[][];
+
+  it('separates what is on from what is paused, and counts only what is on', async () => {
+    const { db } = fakeDb(flows([wf({}), wf({ id: 'w2', name: 'Old', status: 'paused', paused_reason: 'Its owner left' })]));
+    const s = await automationStatus(db, agent);
+    expect(s!.active.map((a) => a.key)).toEqual(['workflow:w1']);
+    expect(s!.active[0]).toMatchObject({ runsToday: 3 });
+    expect(s!.paused.map((a) => a.key)).toEqual(['workflow:w2']);
+    expect(s!.paused[0]).toMatchObject({ pausedReason: 'Its owner left' });
+    expect(s!.activeTotal).toBe(2);
+  });
+
+  it('reads paused workflows too', async () => {
+    const { db, seen } = fakeDb();
+    await automationStatus(db, owner);
+    expect(seen[3]!.sql).toContain("w.status in ('active', 'paused')");
+    expect(seen[3]!.sql).toContain("filter (where w.status = 'active') over ()");
+  });
+
+  it('a workflow can be managed by its owner or an admin, not another agent or a read-only member', async () => {
+    const may = async (a: Actor, by: string) => {
+      const { db } = fakeDb(flows([wf({ owner_id: by })]));
+      return (await automationStatus(db, a))!.active[0]!.canManage;
+    };
+    expect(await may(agent, AGENT)).toBe(true);
+    expect(await may(owner, AGENT)).toBe(true);
+    expect(await may({ userId: AGENT, agencyId: A, membershipRole: 'read_only' }, AGENT)).toBe(false);
+  });
+
+  it('a scheduled skill can be switched off only by the person whose it is', async () => {
+    const row = { id: 's1', name: 'Brief', user_id: AGENT, owner: 'Sam', next_at: null, total: 1 };
+    const of = async (a: Actor) => {
+      const { db } = fakeDb(flows([], [row]));
+      return (await automationStatus(db, a))!.active[0]!.canManage;
+    };
+    expect(await of(agent)).toBe(true);
+    expect(await of(owner)).toBe(false);
+  });
+});
+
 describe('automationHref', () => {
   const paths: AutomationPaths = { home: '/assistant', email: '/my-bulk-email', sms: '/my-bulk-sms', skills: '/my-skills' };
-  const item = (over: Partial<AutomationItem>): AutomationItem => ({ key: 'k', kind: 'batch', channel: 'email', state: 'running', title: 't', subtitle: null, done: 0, total: 0, failed: 0, nextAt: null, error: null, owner: null, mine: true, targetId: 'x', conversationId: null, ...over });
+  const item = (over: Partial<AutomationItem>): AutomationItem => ({ key: 'k', kind: 'batch', channel: 'email', state: 'running', title: 't', subtitle: null, done: 0, total: 0, failed: 0, parts: null, canStop: false, nextAt: null, error: null, owner: null, mine: true, targetId: 'x', conversationId: null, ...over });
 
   it('a batch goes to its channel’s page, even someone else’s, which an admin may open', () => {
     expect(automationHref(item({}), paths)).toBe('/my-bulk-email/x');
@@ -186,7 +269,7 @@ describe('automationHref', () => {
     expect(automationHref(item({ kind: 'skill_run', channel: null, mine: false }), paths)).toBeNull();
   });
   it('a workflow goes to Automations', () => {
-    expect(automationHref({ key: 'k', kind: 'workflow', title: 't', owner: null, mine: true, targetId: 'w', nextAt: null, lastAt: null }, paths)).toBe('/my-skills?tab=automations');
+    expect(automationHref({ key: 'k', kind: 'workflow', title: 't', owner: null, mine: true, targetId: 'w', nextAt: null, lastAt: null, runsToday: 0, pausedReason: null, canManage: true }, paths)).toBe('/my-skills?tab=automations');
   });
 });
 
@@ -198,7 +281,7 @@ describe('the route and the panel, read from source', () => {
     const route = read('app', 'api', 'automations', 'route.ts');
     expect(route.indexOf('actionUserId()')).toBeLessThan(route.indexOf('loadActor(userId)'));
     expect(route).toMatch(/if \(!userId\) return NextResponse\.json\(\{ error: 'Not signed in' \}, \{ status: 401 \}\)/);
-    expect(route).not.toMatch(/searchParams\.get\('(?!count)/);
+    expect(route).not.toMatch(/searchParams\.get\('(?!count|view)/);
     expect(route).not.toMatch(/role\s*===/);
   });
 
@@ -208,10 +291,25 @@ describe('the route and the panel, read from source', () => {
     expect(panel).not.toContain("from '@repo/core/automation-status'");
   });
 
-  it('shows the switched-on skills, and says nothing is on only when that is true', () => {
+  it('the two panels are two buttons in the top bar, with their names, and the dead Filters icon is gone', () => {
+    const shell = read('components', 'shell', 'console-shell.tsx');
+    expect(shell).toContain('<SkillsStatusButton');
+    expect(shell).toContain('<AutomationStatusButton');
+    expect(shell).not.toContain('aria-label="Filters"');
+    expect(read('components', 'automations', 'skills-status.tsx')).toContain('>Skills<');
+    expect(read('components', 'automations', 'automation-status.tsx')).toContain('>Automations<');
+  });
+
+  it('the panel’s controls are the screens’ own actions, and stopping asks first', () => {
     const panel = read('components', 'automations', 'automation-status.tsx');
-    expect(panel).toContain('status.skillsOn.map');
-    expect(panel).toContain('!status.skillsOn.length');
+    for (const a of ['setWorkflowStatusAction', 'setSkillEnabledAction', 'stopTaskAction']) expect(panel, a).toContain(a);
+    expect(panel).toContain('Stop the rest?');
+  });
+
+  it('the route reads the switched-on skills from core, and takes no id', () => {
+    const route = read('app', 'api', 'automations', 'route.ts');
+    expect(route).toContain("searchParams.get('view') === 'skills'");
+    expect(route).toContain('skillsPanel(db, actor)');
   });
 
   it('asks for the list only while the panel is open', () => {

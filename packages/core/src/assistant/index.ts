@@ -35,3 +35,4 @@ export {
   type SettleResult,
 } from './actions';
 export { cardUpdatesBlock, listConversationCards, takeCardUpdates, unreportCards, type CardUpdate, type CardUpdates } from './card-updates';
+export { stopAssistantTask } from './actions';

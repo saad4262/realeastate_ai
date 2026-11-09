@@ -522,16 +522,7 @@ async function execute(
       return { result: { taskId: args.taskId, steps }, taskId: args.taskId };
     }
     case 'cancel_task': {
-      const [t] = await tx
-        .select({ userId: assistantTask.userId, agencyId: assistantTask.agencyId, status: assistantTask.status })
-        .from(assistantTask)
-        .where(eq(assistantTask.id, args.taskId))
-        .limit(1);
-      if (!t || t.agencyId !== actor.agencyId) throw new AssistantError('not_found', 'That task was not found.');
-      if (t.userId !== actor.userId && !can(actor, 'proposed_action:cancel', { type: 'proposed_action', agencyId: t.agencyId, ownerId: t.userId })) {
-        throw new AssistantError('forbidden', 'Only the person who planned it, or an admin, can cancel this task.');
-      }
-      if (t.status !== 'active' && t.status !== 'proposed') throw new AssistantError('conflict', `This task is already ${t.status}.`);
+      await taskToCancel(tx, actor, args.taskId);
       const cancelled = await endTask(tx, args.taskId, 'cancelled', now);
       return { result: { cancelled } };
     }
@@ -1000,6 +991,41 @@ async function inviteAfterBooking(
  * it to `scheduled` instead, and the cron tick runs it then — as the person
  * as they are THEN, with every check repeated (`runScheduledActions`).
  */
+/** May this person cancel this task, and can it still be cancelled? Throws when not. One rule, for the chat's card and the top bar. */
+async function taskToCancel(tx: DbOrTx, actor: Actor, taskId: string): Promise<void> {
+  const [t] = await tx
+    .select({ userId: assistantTask.userId, agencyId: assistantTask.agencyId, status: assistantTask.status })
+    .from(assistantTask)
+    .where(eq(assistantTask.id, taskId))
+    .limit(1);
+  if (!t || t.agencyId !== actor.agencyId) throw new AssistantError('not_found', 'That task was not found.');
+  if (t.userId !== actor.userId && !can(actor, 'proposed_action:cancel', { type: 'proposed_action', agencyId: t.agencyId, ownerId: t.userId })) {
+    throw new AssistantError('forbidden', 'Only the person who planned it, or an admin, can cancel this task.');
+  }
+  if (t.status !== 'active' && t.status !== 'proposed') throw new AssistantError('conflict', `This task is already ${t.status}.`);
+}
+
+/**
+ * Stop what is left of a task, from the top bar (ADR 0088). Steps already done stay done, and a step that
+ * is sending finishes. A workflow's own task is not stopped here: the workflow is paused instead.
+ */
+export async function stopAssistantTask(db: Db, actor: Actor, taskId: string, now = new Date()): Promise<{ cancelled: number }> {
+  if (!actor.agencyId || !/^[0-9a-f-]{36}$/i.test(taskId)) throw NOT_FOUND();
+  if (!can(actor, 'proposed_action:cancel', { type: 'proposed_action', agencyId: actor.agencyId, ownerId: actor.userId })) {
+    throw new AssistantError('forbidden', 'You may look at this, but not change it.');
+  }
+  return db.transaction(async (tx) => {
+    await taskToCancel(tx, actor, taskId);
+    const [fromWorkflow] = await tx
+      .select({ id: proposedAction.id })
+      .from(proposedAction)
+      .where(and(eq(proposedAction.taskId, taskId), eq(proposedAction.origin, 'workflow')))
+      .limit(1);
+    if (fromWorkflow) throw new AssistantError('conflict', 'This belongs to a workflow. Pause the workflow instead.');
+    return { cancelled: await endTask(tx, taskId, 'cancelled', now) };
+  });
+}
+
 export async function approveProposedAction(
   db: Db,
   actor: Actor,

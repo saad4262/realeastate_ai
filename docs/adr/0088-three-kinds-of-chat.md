@@ -36,6 +36,8 @@ like `assistant:bulk_email` (the budget sums `feature = 'assistant'`, so those c
 
 **Overview read-only.** Off until `ASSISTANT_OVERVIEW_READ_ONLY=1`, so it is turned on and back off without changing code. With it on, a new Overview chat is saved as `general`, and a chat from before this ADR is treated as one for that turn while its row stays null, so its old cards still approve. `open_chat` is Overview's way out: a button into the right chat, with the person's words typed in and not sent.
 
+**The top bar has two panels (the user, 2026-11-09).** Skills are the platform's ready-made templates; automations are what an agent or agency sets up. Skills lists what is on, with its switch and chat. Automations lists what is running and how far it has got, what failed, the workflows and scheduled AI skills that are on, with Pause, Off and Stop. A bulk email of a saved list goes in parts of 20, one a day, so it is counted in people, not steps. Stopping one cancels its later parts, under the rule the chat's cancel uses; a part that is sending finishes.
+
 **Done before the automations chats opened.** `change_workflow` and `create_workflow`'s `replaces` act on a stored workflow, so the
 input check cannot see its steps: they check the stored spec, and `find_workflows` shows only that chat's kind. A workflow
 holding both kinds of send keeps running and is changed on the Workflows page.

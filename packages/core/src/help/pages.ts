@@ -143,7 +143,7 @@ const pagesOf = (groups: readonly HelpNavGroup[]) => groups.flatMap((g) => g.ite
 
 function aroundEveryPage(overviewReadOnly: boolean): string {
   return `- The sidebar on the left has every page, in groups that open and close. Recents, at its top, lists your chats; a skill chat has its name on a small tag.
-- The top bar: the search box; the bolt icon, which shows what is running, what failed in the last day, what is switched on, and how much of today's limits is used; the bell icon for notifications; New chat.
+- The top bar: the search box; the Skills panel, which lists the ready-made skills that are on, with a switch for each and a link to its chat; the Automations panel (the bolt icon), for what you or the agency set up: what is running and how far it has got (for example how many emails of a long send have gone), what failed in the last day, the workflows and scheduled AI skills that are on, buttons to pause or stop them, and how much of today's limits is used; the bell icon for notifications; New chat.
 - The home chat ${overviewReadOnly ? 'only looks things up and answers. To change or send something it shows a button that opens the right chat.' : 'looks things up and prepares actions as cards for you to approve.'}
 - A skill chat does one job only, and has a blue bar at the top saying which. Open one from its card on Skills, while the skill is on.
 - This help window sees which page you are on. It cannot see your records and cannot change anything.`;

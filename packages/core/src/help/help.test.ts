@@ -125,6 +125,8 @@ describe('what the guide teaches', () => {
       expect(g).toContain('bolt');
       expect(g).toContain('bell');
       expect(g).toContain('Recents');
+      expect(g).toContain('Skills panel');
+      expect(g).toContain('Automations panel');
     }
   });
 

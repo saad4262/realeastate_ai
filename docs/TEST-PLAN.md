@@ -2359,3 +2359,9 @@ Phase 1 is the foundation and changes nothing on screen. Apply migration 0093 fi
 | CX47 | Help, on Home, a customer's profile and Skills → Automations: ask "konsy page par hun?" | Names the page (and the tab), says in a line what it is for; never asks which page |
 | CX48 | Help, on a page: "what can I do here?" | Answers for that page, with its real button names |
 | CX49 | Help: "how do I send a bulk email?" | The real steps, starting from where you are, including Save this filter |
+| CX50 | Top bar | "Skills" and "Automations" are two named buttons; the Filters icon is gone; phone width shows icons only |
+| CX51 | Skills panel | Only the skills that are on; a switch for each (read-only: disabled); a skill with a chat has a Chat tag and opens it |
+| CX52 | In a chat, send one saved list of more than 20 people, then open Automations | "n of m sent · part 1 of k · next …" and a bar |
+| CX53 | That row → Stop → Keep going, then Stop → Stop | Asks first; after stopping, the row goes, later parts never send, parts already sent stay sent |
+| CX54 | Automations, a workflow that is on → Pause; then Turn on | It moves to Paused and back. An agent cannot touch a colleague's; an owner can |
+| CX55 | Automations, a scheduled AI skill → Off | It leaves the list and stops running |

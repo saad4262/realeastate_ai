@@ -4,6 +4,7 @@ import type { ConsoleChrome } from '../../lib/require-console-access';
 import { AssistantRoute } from '@/components/assistant/assistant-route';
 import { LiveRefresh } from '@/components/live-refresh';
 import { AutomationStatusButton } from '@/components/automations/automation-status';
+import { SkillsStatusButton } from '@/components/automations/skills-status';
 import { HelpWidget } from '@/components/help/help-widget';
 import { NotificationBell } from '@/components/notifications/notification-bell';
 import { listAssistantConversations } from '@repo/core/assistant';
@@ -160,13 +161,13 @@ export function ConsoleShell({ surface, children, userLabel, userId, chrome }: C
           ) : null}
 
           <div className={styles.topActions}>
-            {shell.automations ? <AutomationStatusButton paths={shell.automations} className={styles.iconBtn} glyphClassName={styles.glyph} /> : null}
+            {shell.automations ? (
+              <>
+                <SkillsStatusButton paths={shell.automations} className={styles.panelBtn} glyphClassName={styles.glyph} textClassName={styles.panelBtnText} />
+                <AutomationStatusButton paths={shell.automations} className={styles.panelBtn} glyphClassName={styles.glyph} textClassName={styles.panelBtnText} />
+              </>
+            ) : null}
             <NotificationBell className={styles.iconBtn} glyphClassName={styles.glyph} />
-            <button type="button" className={styles.iconBtn} aria-label="Filters">
-              <span className={styles.glyph} aria-hidden>
-                tune
-              </span>
-            </button>
             {/* A new conversation is the home page with no `?c=` — see assistant-home.tsx. */}
             <HomeLink home={shell.home} href={shell.home} className={styles.aiBtn}>
               <span className={styles.glyph} aria-hidden>
