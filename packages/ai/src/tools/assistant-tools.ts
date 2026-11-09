@@ -1061,12 +1061,30 @@ const ADMIN_ONLY = new Set<string>([...ASSISTANT_ADMIN_TOOLS, ...ASSISTANT_TEAM_
 /** What everyone else is shown: the same definitions, without the owner/admin tools. */
 const MEMBER_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze(ASSISTANT_TOOLS.filter((t) => !ADMIN_ONLY.has(t.name)));
 
+/** ADR 0088: tools only a skill chat is given, so a chat from before it keeps the list it had. */
+export const SCOPE_ONLY_ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze([
+  {
+    name: 'send_template_sms',
+    description: `Propose texting one of the SMS templates from list_templates EITHER to contacts you found (C…) OR to one of the person's saved lists (an F reference from find_saved_lists), at most 20 people. You never write the text: it is the template. ${PROPOSES}`,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        template: { type: 'string', description: 'A template reference from list_templates, e.g. T1.' },
+        recipients: { type: 'array', items: { type: 'string' }, description: 'Contact references, e.g. ["C3"]. 1 to 20. Omit when you give list.' },
+        list: { type: 'string', description: 'A saved list: an F reference from find_saved_lists. Omit when you give recipients.' },
+      },
+      required: ['template'],
+    },
+  },
+]);
+
 /** ADR 0088: each chat's own two frozen lists, in `ASSISTANT_TOOLS` order, built once — each one is a cached prefix. */
 const SCOPED_TOOLS = Object.freeze(
   Object.fromEntries(
     CHAT_SCOPES.map((scope) => {
       const allowed = new Set<string>(CHAT_SCOPE_RULES[scope].tools);
-      const full = Object.freeze(ASSISTANT_TOOLS.filter((t) => allowed.has(t.name)));
+      const full = Object.freeze([...ASSISTANT_TOOLS, ...SCOPE_ONLY_ASSISTANT_TOOLS].filter((t) => allowed.has(t.name)));
       return [scope, { full, member: Object.freeze(full.filter((t) => !ADMIN_ONLY.has(t.name))) }];
     }),
   ),

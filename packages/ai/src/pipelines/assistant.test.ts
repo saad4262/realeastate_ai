@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, issueHandle, type AssistantEvent, type HandleMap, type ToolOutcome } from '@repo/core/assistant';
-import { ASSISTANT_TOOLS, assistantToolsFor } from '../tools/assistant-tools';
+import { ASSISTANT_TOOLS, assistantToolsFor, SCOPE_ONLY_ASSISTANT_TOOLS } from '../tools/assistant-tools';
 import { ASSISTANT_ADMIN_TOOLS, ASSISTANT_TEAM_TOOLS } from '@repo/core/assistant/schema';
 import { CHAT_SCOPE_RULES, CHAT_SCOPES } from '@repo/core/assistant/chat-scopes';
 import { ASSISTANT_SYSTEM } from '../prompts/assistant-v31';
@@ -234,7 +234,7 @@ describe('caps', () => {
 
 describe('red team: a tricked model can read and propose, never act', () => {
   it('every tool either reads or only proposes — none approves, sends, runs or deletes', () => {
-    const names = ASSISTANT_TOOLS.map((t) => t.name).sort();
+    const names = [...ASSISTANT_TOOLS, ...SCOPE_ONLY_ASSISTANT_TOOLS].map((t) => t.name).sort();
     expect(names).toEqual([...ASSISTANT_TOOL_NAMES].sort());
     for (const n of names) {
       expect([...ASSISTANT_READ_TOOLS, ...ASSISTANT_WRITE_TOOLS] as string[]).toContain(n);
@@ -242,7 +242,8 @@ describe('red team: a tricked model can read and propose, never act', () => {
       // Two tools may SEND, and both only propose: an APPROVED template to references, and
       // (ADR 0035) one email to ONE contact reference whose exact text the person approves. Any
       // other tool that mentions email must be a read tool (search_notes_and_emails, ADR 0031).
-      if (/send/.test(n)) expect(['send_template_email', 'send_email']).toContain(n);
+      // ADR 0088: send_template_sms is the Bulk SMS chat's own, and only proposes too.
+      if (/send/.test(n)) expect(['send_template_email', 'send_template_sms', 'send_email']).toContain(n);
       if (/email/.test(n) && !['send_template_email', 'send_email'].includes(n)) expect(ASSISTANT_READ_TOOLS as readonly string[]).toContain(n);
       // Two tools may mention assigning (contacts, and leads — ADR 0040): each only proposes, owners/admins
       // alone are shown them, and core refuses them for anyone else (the "tools by role" tests below).
@@ -633,6 +634,13 @@ describe('a chat keeps to its job (ADR 0088)', () => {
     expect(names(requests[0]!.tools as { name: string }[])).toContain('send_template_email');
     expect(scopes).toEqual(['bulk_email']);
     expect(tracked.map((t) => t.chatScope)).toEqual(['bulk_email', 'bulk_email']);
+  });
+
+  it('a chat from before the ADR is never given a skill chat’s own tool', () => {
+    for (const a of [owner, agent]) expect(names(assistantToolsFor(a))).not.toContain('send_template_sms');
+    expect(names(ASSISTANT_TOOLS)).not.toContain('send_template_sms');
+    expect(names(assistantToolsFor(owner, 'bulk_sms'))).toContain('send_template_sms');
+    expect(names(assistantToolsFor(owner, 'bulk_email'))).not.toContain('send_template_sms');
   });
 
   it('a chat with no scope sends exactly the system prompt it always did', () => {

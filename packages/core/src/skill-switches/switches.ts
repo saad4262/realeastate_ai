@@ -119,6 +119,12 @@ export async function isSkillOn(db: DbOrTx, actor: Actor, key: SkillKey): Promis
   return row?.enabled === true;
 }
 
+/** The same question for a skill chat (ADR 0088), where a `pair` skill needs both switches. */
+export async function isSkillOnForChat(db: DbOrTx, actor: Actor, key: SkillKey): Promise<boolean> {
+  if (!actor.agencyId) return false;
+  return platformSkill(key).pair ? isPairedSkillOn(db, actor.agencyId, actor.userId, actor.membershipRole, key) : isSkillOn(db, actor, key);
+}
+
 /** Throws the refusal the person sees when the skill is off. */
 export async function requireSkillOn(db: DbOrTx, actor: Actor, key: SkillKey): Promise<void> {
   if (!(await isSkillOn(db, actor, key))) throw new SkillSwitchError('forbidden', skillOffMessage(key, holderOf(actor.membershipRole)));

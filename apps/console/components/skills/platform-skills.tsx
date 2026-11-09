@@ -74,7 +74,8 @@ export async function PlatformSkills({ actor, basePath, home, filter }: { actor:
 
 function SkillCard({ skill: s, holder, mayManage, home, chats }: { skill: SkillSwitchView; holder: 'agency' | 'personal'; mayManage: boolean; home: string; chats: readonly ConversationSummary[] }) {
   // ADR 0088: a skill with its own chat opens it from here, and only while it is on.
-  const scope = s.on ? chatScopeOfSkill(s.key) : null;
+  const usable = s.on && (!s.pair || holder === 'agency' || s.agencyOn);
+  const scope = usable ? chatScopeOfSkill(s.key) : null;
   const own = scope ? chats.filter((c) => c.chatScope === scope).slice(0, 3) : [];
   return (
     <article className={`${styles.card} ${s.on ? '' : styles.cardOff}`}>

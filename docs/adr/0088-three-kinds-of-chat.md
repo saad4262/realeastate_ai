@@ -32,8 +32,10 @@ read-only behind an env flag → per-chat limits. Removing tools from Overview i
 like `assistant:bulk_email` (the budget sums `feature = 'assistant'`, so those chats would escape it). Separate pipelines per chat
 (one loop, one set of checks is what keeps them the same).
 
-**Before the automations chats can be opened.** `change_workflow` and `create_workflow`'s `replaces` act on a stored workflow, so the
-input check cannot see its steps: they must check the stored spec, and `find_workflows` must show only that chat's kind. A workflow
+**Added while building.** `send_template_sms` is a tool only the Bulk SMS chat has: a chat from before this ADR keeps the tool list it had, so it is left out of that list and refused at run time. A saved list longer than one batch becomes a `plan_task` card, so the Bulk email chat may approve that card even though it does not have the tool. The Daily work and AI skills chats have no switch of their own and start from the Skills page.
+
+**Done before the automations chats opened.** `change_workflow` and `create_workflow`'s `replaces` act on a stored workflow, so the
+input check cannot see its steps: they check the stored spec, and `find_workflows` shows only that chat's kind. A workflow
 holding both kinds of send keeps running and is changed on the Workflows page.
 
 **Consequences.** Apply 0093 before deploying this code: every `ai_run` insert names the new columns. Each scope is its own cached prefix.

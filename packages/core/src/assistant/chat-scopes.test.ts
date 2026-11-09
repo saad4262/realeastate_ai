@@ -3,8 +3,9 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Db } from '@repo/db';
 import type { Actor } from '../permissions';
+import { PLATFORM_SKILLS } from '../skill-switches/catalog';
 import { approveProposedAction } from './actions';
-import { CHAT_SCOPE_FACE, CHAT_SCOPE_RULES, CHAT_SCOPES, OPEN_CHAT_SCOPES, SHARED_ACTION_TOOLS, UNSCOPED_ACTION_TOOLS, chatScopeAllowsCard, chatScopeOfSkill, chatScopeRefusal, isOpenChatScope, parseChatScope, templateChannel, type ChatScope } from './chat-scopes';
+import { CHAT_SCOPE_FACE, CHAT_SCOPE_RULES, CHAT_SCOPES, OPEN_CHAT_SCOPES, SHARED_ACTION_TOOLS, UNSCOPED_ACTION_TOOLS, chatScopeAllowsCard, chatScopeOfSkill, chatScopeRefusal, isOpenChatScope, parseChatScope, templateChannel, workflowFitsChat, type ChatScope } from './chat-scopes';
 import { claimTurn } from './conversations';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, PLANNABLE_TOOLS, assistantTurnRequestSchema } from './schema';
 import { runAssistantTool } from './tools';
@@ -58,19 +59,28 @@ describe('the registry', () => {
 
 describe('what can be opened', () => {
   it('is only what has been built', () => {
-    expect(OPEN_CHAT_SCOPES).toEqual(['bulk_email']);
-    expect(isOpenChatScope('bulk_email')).toBe(true);
-    for (const s of ['bulk_sms', 'general', null, undefined, 'nope']) expect(isOpenChatScope(s as string)).toBe(false);
+    expect(CHAT_SCOPES.filter((s) => !(OPEN_CHAT_SCOPES as readonly string[]).includes(s))).toEqual(['general']);
+    expect(isOpenChatScope('bulk_sms')).toBe(true);
+    for (const s of ['general', null, undefined, 'nope']) expect(isOpenChatScope(s as string)).toBe(false);
   });
-  it('every open chat has its skill and its face', () => {
+  it('every open chat has its face, and a skill unless it is one of the two with no switch', () => {
     for (const s of OPEN_CHAT_SCOPES) {
-      expect(CHAT_SCOPE_RULES[s].skill, s).toBeDefined();
       expect(CHAT_SCOPE_FACE[s].suggestions.length, s).toBeGreaterThan(0);
+      if (s !== 'daily_work' && s !== 'ai_skills') expect(CHAT_SCOPE_RULES[s].skill, s).toBeDefined();
     }
   });
-  it('a Skills card finds its chat by the skill’s key', () => {
-    expect(chatScopeOfSkill('bulk_email')).toBe('bulk_email');
+  it('a Skills card finds its chat, and a chat’s card is the skill that gates it', () => {
+    expect(chatScopeOfSkill('ai_listing_copy')).toBe('listing_copy');
+    expect(chatScopeOfSkill('workflow_texts')).toBe('sms_automations');
     expect(chatScopeOfSkill('cold_contacts')).toBeNull();
+    for (const key of PLATFORM_SKILLS.map((p) => p.key)) {
+      const scope = chatScopeOfSkill(key);
+      if (scope) expect(CHAT_SCOPE_RULES[scope].skill, key).toBe(key);
+    }
+  });
+  it('a skill that runs by itself has no chat, except the two whose workflows are built in one', () => {
+    const auto = PLATFORM_SKILLS.filter((p) => p.level === 'auto' && chatScopeOfSkill(p.key)).map((p) => p.key).sort();
+    expect(auto).toEqual(['workflow_emails', 'workflow_texts']);
   });
   it('the request carries a scope only as one of the known ones', () => {
     const base = { message: 'hi', timeZone: 'UTC' };
@@ -89,7 +99,9 @@ describe('the home and the hook, read from source', () => {
     expect(read('assistant', 'assistant-home.tsx')).toContain('newChatScope: !c && isOpenChatScope(chatParam) ? chatParam : null');
   });
   it('a card offers its chat only while the skill is on', () => {
-    expect(read('skills', 'platform-skills.tsx')).toContain('const scope = s.on ? chatScopeOfSkill(s.key) : null;');
+    const card = read('skills', 'platform-skills.tsx');
+    expect(card).toContain("const usable = s.on && (!s.pair || holder === 'agency' || s.agencyOn);");
+    expect(card).toContain('const scope = usable ? chatScopeOfSkill(s.key) : null;');
   });
 });
 
@@ -107,14 +119,19 @@ describe('parseChatScope', () => {
 });
 
 describe('chatScopeRefusal', () => {
-  it('lets a chat from before the ADR do everything', () => {
-    for (const t of ASSISTANT_TOOL_NAMES) expect(chatScopeRefusal(null, t, {})).toBeNull();
+  it('lets a chat from before the ADR do everything it could', () => {
+    for (const t of ASSISTANT_TOOL_NAMES) if (t !== 'send_template_sms') expect(chatScopeRefusal(null, t, {})).toBeNull();
   });
   it('refuses another chat’s tool', () => {
     expect(chatScopeRefusal('bulk_email', 'send_email', {})).toContain('Bulk email');
     expect(chatScopeRefusal('bulk_email', 'create_workflow', {})).not.toBeNull();
     expect(chatScopeRefusal('general', 'add_note', {})).not.toBeNull();
     expect(chatScopeRefusal('bulk_email', 'send_template_email', {})).toBeNull();
+  });
+  it('a skill chat’s own tool is refused in a chat from before the ADR, and in any other chat', () => {
+    expect(chatScopeRefusal(null, 'send_template_sms', {})).not.toBeNull();
+    expect(chatScopeRefusal('bulk_email', 'send_template_sms', {})).not.toBeNull();
+    expect(chatScopeRefusal('bulk_sms', 'send_template_sms', {})).toBeNull();
   });
   it('holds a plan to its own steps', () => {
     expect(chatScopeRefusal('daily_work', 'plan_task', { steps: [{ tool: 'add_note' }, { tool: 'remind' }] })).toBeNull();
@@ -145,6 +162,18 @@ describe('templateChannel and chatScopeAllowsCard', () => {
     expect(chatScopeAllowsCard('bulk_email', 'send_email')).toBe(false);
     expect(chatScopeAllowsCard('daily_work', 'remind')).toBe(true);
     expect(chatScopeAllowsCard('bulk_email', 'remind')).toBe(false);
+  });
+  it('a long bulk email is a plan card, and Approve lets it through there and nowhere it should not', () => {
+    expect(chatScopeAllowsCard('bulk_email', 'plan_task')).toBe(true);
+    expect(chatScopeAllowsCard('daily_work', 'plan_task')).toBe(true);
+    for (const s of ['bulk_sms', 'listing_copy', 'dashboards', 'email_automations'] as const) expect(chatScopeAllowsCard(s, 'plan_task')).toBe(false);
+  });
+  it('a stored workflow fits a chat only if it holds none of the other channel’s sends', () => {
+    expect(workflowFitsChat(null, ['send_template_sms', 'send_template_email'])).toBe(true);
+    expect(workflowFitsChat('email_automations', ['add_note', 'send_template_email'])).toBe(true);
+    expect(workflowFitsChat('email_automations', ['send_template_email', 'send_template_sms'])).toBe(false);
+    expect(workflowFitsChat('sms_automations', ['draft_email'])).toBe(false);
+    expect(workflowFitsChat('sms_automations', ['send_template_sms', 'wait'])).toBe(true);
   });
 });
 
@@ -243,7 +272,20 @@ describe('claimTurn', () => {
 
   it('will not start a chat that is not built yet, whatever the browser sends', async () => {
     const db = { ...switchIs(true), insert: () => { throw new Error('must not write'); } } as unknown as Db;
-    await expect(claimTurn(db, actor, { message: 'hi', surface: 'agency', chatScope: 'bulk_sms' })).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(claimTurn(db, actor, { message: 'hi', surface: 'agency', chatScope: 'general' })).rejects.toMatchObject({ code: 'forbidden' });
+  });
+
+  it('will not open the team chat for an agent, even by the URL, though it is no switch of theirs', async () => {
+    const db = { ...switchIs(true), insert: () => { throw new Error('must not write'); } } as unknown as Db;
+    await expect(claimTurn(db, { ...actor, membershipRole: 'agent' }, { message: 'hi', surface: 'agent', chatScope: 'team_management' })).rejects.toThrow('owner or admin');
+  });
+
+  it('a pair skill needs the agency’s switch as well as the agent’s', async () => {
+    const pair = (rows: { userId: string | null; enabled: boolean }[]) => ({ select: () => ({ from: () => ({ where: async () => rows }) }), insert: () => ({ values: () => ({ returning: async () => [{ id: 'c9' }] }) }) });
+    const me = { ...actor, membershipRole: 'agent' } as Actor;
+    await expect(claimTurn(pair([{ userId: me.userId, enabled: true }]) as unknown as Db, me, { message: 'hi', surface: 'agent', chatScope: 'bulk_sms' })).rejects.toThrow('switched off');
+    const both = [{ userId: null, enabled: true }, { userId: me.userId, enabled: true }];
+    expect((await claimTurn(pair(both) as unknown as Db, me, { message: 'hi', surface: 'agent', chatScope: 'bulk_sms' })).chatScope).toBe('bulk_sms');
   });
 
   it('will not start a chat whose skill is off', async () => {

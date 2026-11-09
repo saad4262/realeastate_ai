@@ -51,7 +51,7 @@ import type { ToolContext, ToolOutcome } from './tools';
 import { runListingAction, type FrozenPin } from './listing-tools';
 import { runSkillAction, runSwitchSkill } from './skill-tools';
 import { SKILL_OF_WORKFLOW_STEP, skillOffMessage, type SkillKey } from '../skill-switches/catalog';
-import { holderOf, isSkillOn } from '../skill-switches/switches';
+import { holderOf, isSkillOn, isSkillOnForChat } from '../skill-switches/switches';
 import { CHAT_SCOPE_RULES, chatScopeAllowsCard, parseChatScope } from './chat-scopes';
 import { runWorkflowAction } from './workflow-tools';
 import { runTemplateAction } from './template-tools';
@@ -211,6 +211,7 @@ export type FrozenArgs =
    * ADR 0074 part 2: a workflow's "Send SMS" step. Prepared and approved WHEN IT RUNS, as the workflow's owner
    * then (every SMS rule again), and texted after the commit — or at 9 am, outside the sending hours.
    */
+  | { tool: 'send_template_sms'; batchId: string; templateId: string; contactIds: string[] }
   | { tool: 'send_template_sms'; templateId: string; contactIds: string[]; workflowName: string }
   /** ADR 0078: a workflow step that leaves a `save_buyer_brief` card for its owner; it changes nothing itself. */
   | { tool: 'propose_ai_brief'; leadId: string; workflowName: string };
@@ -460,6 +461,11 @@ async function execute(
       // ADR 0078: contact:update again (createBuyerRequirement), then the brief and the buyer role.
       return runSaveBuyerBrief(tx, actor, args);
     case 'send_template_sms': {
+      // From the Bulk SMS chat (ADR 0088): the batch it prepared, the screen's own Approve. The minute tick sends it.
+      if ('batchId' in args) {
+        const { sendsAt } = await approveSmsBatch(tx, actor, args.batchId, now);
+        return { result: { smsBatchId: args.batchId, sendsAt: sendsAt.toISOString() }, smsBatchId: args.batchId };
+      }
       // Every SMS rule as the owner now: consent, STOP, a mobile, a number to send from, the dev allowlist.
       const c = await classifySmsRecipients(tx, actor, { templateId: args.templateId, contactIds: args.contactIds, workflowName: args.workflowName });
       if (!c.recipients.some((r) => r.status === 'queued')) {
@@ -1012,7 +1018,7 @@ export async function approveProposedAction(
     const scope = parseChatScope(chat?.chatScope);
     if (!chatScopeAllowsCard(scope, row.tool)) throw new AssistantError('forbidden', 'This card is not part of this chat, so it cannot be approved here.');
     const skill = scope ? CHAT_SCOPE_RULES[scope].skill : undefined;
-    if (skill && !(await isSkillOn(db, actor, skill))) throw new AssistantError('forbidden', skillOffMessage(skill, holderOf(actor.membershipRole)));
+    if (skill && !(await isSkillOnForChat(db, actor, skill))) throw new AssistantError('forbidden', skillOffMessage(skill, holderOf(actor.membershipRole)));
   }
   const runAt = opts.runAt && opts.runAt.getTime() > now.getTime() + NOW_SLACK_MS ? opts.runAt : null;
   if (runAt) return schedule(db, actor, row, runAt, deps, now);
@@ -1060,6 +1066,9 @@ async function schedule(db: Db, actor: Actor, row: RowT, runAt: Date, deps: RunD
   // and a role or invite change waiting for hours is a change nobody is watching.
   if (args.tool === 'update_agent' || args.tool === 'remove_agent' || args.tool === 'invite_agent') {
     throw new AssistantError('conflict', 'A team change runs when you approve it — it cannot be set for later.');
+  }
+  if (args.tool === 'send_template_sms' && 'batchId' in args) {
+    throw new AssistantError('conflict', 'A bulk text goes when you approve it. It cannot be set for later.');
   }
   if (args.tool === 'send_template_email' && 'batchId' in args) {
     // The prepared email (ADR 0022) has its own 48-hour life; the run must fall inside it.
@@ -1243,7 +1252,7 @@ async function settle(
     // A rejected or cancelled plan takes its task with it (ADR 0040): none of its steps will run.
     if (args.tool === 'plan_task') await endTask(tx, args.taskId, 'cancelled', new Date());
     // A rejected or cancelled email card takes its prepared batch with it.
-    if (args.tool === 'send_template_email' && 'batchId' in args) {
+    if ((args.tool === 'send_template_email' || args.tool === 'send_template_sms') && 'batchId' in args) {
       await tx.transaction((sp) => cancelBatch(sp as unknown as Db, actor, args.batchId)).catch(() => undefined);
     }
     for (const contactId of auditContacts(row)) {

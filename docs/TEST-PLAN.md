@@ -2337,3 +2337,11 @@ Phase 1 is the foundation and changes nothing on screen. Apply migration 0093 fi
 | CX25 | Prepare a card, turn the skill off in another tab, then Approve | Refused, saying it is switched off |
 | CX26 | Type `?chat=bulk_sms` in the URL | The ordinary home: that chat is not built |
 | CX27 | Overview → New chat, ask for a bulk email | Works as before, until Overview is narrowed in a later phase |
+| CX28 | Skills → switch on each of AI email drafts, AI listing copy, Dashboards, Workflow emails, Workflow texts, Team meetings | Each card offers its own chat; each opens with its own name and suggestions |
+| CX29 | Bulk SMS chat: prepare a text to a list → Approve | A card with every name and the text; goes within a minute, in sending hours; shows in the bolt panel |
+| CX30 | As an agent with Bulk SMS on, the agency's off | No chat link on the card, and the URL `?chat=bulk_sms` is refused on the first message |
+| CX31 | Email automations: ask for a workflow that also sends an SMS | Refused: it belongs in SMS automations |
+| CX32 | Email automations: "show my workflows", with one that sends both | That one is not listed. It still runs, and changes on the Workflows page |
+| CX33 | Bulk email chat, a saved list of more than 20 people → Approve | The plan card approves; parts go out as from the old chat |
+| CX34 | As an agent, `?chat=team_management` | Refused on the first message |
+| CX35 | An old chat from Recents: ask to send a bulk text | It has no such tool; the workflows and everything else as before |

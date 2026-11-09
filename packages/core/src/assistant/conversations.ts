@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from 'drizzle-o
 import { assistantConversation, assistantTurn, type Db } from '@repo/db';
 import { CHAT_SCOPE_RULES, isOpenChatScope, parseChatScope, type ChatScope } from './chat-scopes';
 import { skillOffMessage } from '../skill-switches/catalog';
-import { holderOf, isSkillOn } from '../skill-switches/switches';
+import { holderOf, isSkillOnForChat } from '../skill-switches/switches';
 import { can, type Actor } from '../permissions';
 import { parseHandleMap, type HandleMap } from './handles';
 import { ASSISTANT_LIMITS, type AssistantFrame } from './schema';
@@ -54,8 +54,9 @@ function mayUse(actor: Actor): actor is Actor & { agencyId: string } {
 /** May a chat of this kind be started? It must be built, and its skill switched on. */
 async function requireChatScopeOpen(db: Db, actor: Actor, scope: ChatScope): Promise<void> {
   if (!isOpenChatScope(scope)) throw new AssistantError('forbidden', 'That chat is not available yet.');
-  const skill = CHAT_SCOPE_RULES[scope].skill;
-  if (skill && !(await isSkillOn(db, actor, skill))) throw new AssistantError('forbidden', skillOffMessage(skill, holderOf(actor.membershipRole)));
+  const rule = CHAT_SCOPE_RULES[scope];
+  if (rule.adminOnly && !can(actor, 'team:manage', { type: 'team', agencyId: actor.agencyId })) throw new AssistantError('forbidden', 'Only an owner or admin can open this chat.');
+  if (rule.skill && !(await isSkillOnForChat(db, actor, rule.skill))) throw new AssistantError('forbidden', skillOffMessage(rule.skill, holderOf(actor.membershipRole)));
 }
 
 /**

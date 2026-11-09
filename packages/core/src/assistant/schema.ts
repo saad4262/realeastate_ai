@@ -257,6 +257,16 @@ export const sendTemplateEmailInput = z
   .strict()
   .refine((v) => Boolean(v.recipients) !== Boolean(v.list), { message: 'Give either recipients or a list, not both', path: ['recipients'] });
 
+/** ADR 0088: a bulk text, from the Bulk SMS chat only. One batch at most: 20 people. */
+export const sendTemplateSmsInput = z
+  .object({
+    template: templateHandleSchema,
+    recipients: z.array(contactHandleSchema).min(1).max(20).optional(),
+    list: listHandleSchema.optional(),
+  })
+  .strict()
+  .refine((v) => Boolean(v.recipients) !== Boolean(v.list), { message: 'Give either recipients or a list, not both', path: ['recipients'] });
+
 /**
  * A list larger than one batch (ADR 0040 part 2 §2, decided option a): one card, at most
  * `maxPeople`, sent in parts of the batch size — the first at once, each later one `gapHours`
@@ -914,7 +924,7 @@ export const scheduleTeamMeetingInput = z
 export const ASSISTANT_READ_TOOLS = ['find_contacts', 'find_leads', 'find_appointments', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'find_team_members', 'find_agents', 'find_colleagues', 'report_missing_data', 'check_cards', 'find_listings', 'find_buyers', 'find_deals', 'find_saved_lists', 'start_import', 'find_skills', 'find_workflows', 'describe_data', 'query_data', 'search_documents', 'read_document'] as const;
 /** ADR 0042: a turn that uses these may make more tool calls (`toolCallsPerAnalysisTurn`). */
 export const ASSISTANT_ANALYSIS_TOOLS = ['describe_data', 'query_data'] as const;
-export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'update_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill', 'switch_skill', 'create_workflow', 'change_workflow', 'create_template'] as const;
+export const ASSISTANT_WRITE_TOOLS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'send_template_sms', 'create_dashboard', 'update_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'create_reminder', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill', 'switch_skill', 'create_workflow', 'change_workflow', 'create_template'] as const;
 export type AssistantWriteTool = (typeof ASSISTANT_WRITE_TOOLS)[number];
 /**
  * What a `proposed_action` row's `tool` may be — the database CHECK (latest: migration 0056) holds
@@ -944,6 +954,7 @@ export const ASSISTANT_TOOL_INPUTS = {
   reschedule_appointment: rescheduleAppointmentInput,
   cancel_appointment: cancelAppointmentInput,
   send_template_email: sendTemplateEmailInput,
+  send_template_sms: sendTemplateSmsInput,
   create_dashboard: createDashboardInput,
   update_dashboard: updateDashboardInput,
   find_team_members: findTeamMembersInput,

@@ -57,9 +57,18 @@ export async function SkillsPage({ surface, tab = 'platform', show = 'all', runs
             {forAgency ? 'Switches here are for the whole agency' : 'Your own switches'}
           </span>
         </div>
-        <Link href={surface === 'agency' ? '/overview' : '/assistant'} className={contactStyles.btnGhost}>
-          Ask the assistant
-        </Link>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {/* ADR 0088: two chats with no switch of their own start here. */}
+          <Link href={`${surface === 'agency' ? '/overview' : '/assistant'}?chat=daily_work`} className={contactStyles.btnGhost}>
+            Daily work chat
+          </Link>
+          <Link href={`${surface === 'agency' ? '/overview' : '/assistant'}?chat=ai_skills`} className={contactStyles.btnGhost}>
+            AI skills chat
+          </Link>
+          <Link href={surface === 'agency' ? '/overview' : '/assistant'} className={contactStyles.btnGhost}>
+            Ask the assistant
+          </Link>
+        </div>
       </div>
 
       <nav className={contactStyles.tabs} aria-label="Skills sections">

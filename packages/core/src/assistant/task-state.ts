@@ -168,6 +168,16 @@ export async function verifyExecuted(
       return (await verifyTemplateAction(tx, args, result)) ? undefined : fail();
     case 'invite_agent':
       return one(tx.select({ id: agentInvite.id }).from(agentInvite).where(and(eq(agentInvite.id, String(result.inviteId)), eq(agentInvite.status, 'pending'))).limit(1));
+    case 'send_template_sms':
+      // Nobody could be texted: no batch to confirm.
+      if (!result.smsBatchId) return;
+      return one(
+        tx
+          .select({ id: emailBatch.id })
+          .from(emailBatch)
+          .where(and(eq(emailBatch.id, String(result.smsBatchId)), inArray(emailBatch.status, ['approved_sending', 'sent'])))
+          .limit(1),
+      );
     case 'send_template_email':
       // Approved (or already sending or sent, if the Bulk email screen got there first). A list part
       // with nobody left made no batch: nothing to confirm.

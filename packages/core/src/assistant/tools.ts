@@ -59,8 +59,9 @@ import { findDeals } from './deal-tools';
 import { mayCreateImport } from '../imports/imports';
 import { findSkills, proposeChangeSkill, proposeSetUpSkill, proposeSwitchSkill } from './skill-tools';
 import { CHAT_SCOPE_RULES, chatScopeRefusal, templateChannel, type ChatScope } from './chat-scopes';
-import { skillOffMessage, skillsForToolCall } from '../skill-switches/catalog';
-import { holderOf, skillsOffForActor } from '../skill-switches/switches';
+import { platformSkill, skillOffMessage, skillsForToolCall } from '../skill-switches/catalog';
+import { proposeSendTemplateSms } from './sms-tools';
+import { holderOf, isSkillOnForChat, skillsOffForActor } from '../skill-switches/switches';
 import type { SkillKey } from '../skill-switches/catalog';
 import { findWorkflows, proposeChangeWorkflow, proposeCreateWorkflow } from './workflow-tools';
 import { proposeCreateTemplate } from './template-tools';
@@ -148,6 +149,7 @@ const LABELS: Record<AssistantToolName, string> = {
   reschedule_appointment: 'Preparing the new time for you to approve…',
   cancel_appointment: 'Preparing the cancellation for you to approve…',
   send_template_email: 'Preparing the email for you to approve…',
+  send_template_sms: 'Preparing the texts for you to approve…',
   create_dashboard: 'Preparing the dashboard for you to approve…',
   update_dashboard: 'Preparing the change to the dashboard for you to approve…',
   find_team_members: 'Looking up the team…',
@@ -270,7 +272,11 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
   const gates = skillsForToolCall(tool, parsed.data);
   // A skill chat's actions need that skill on, the switch Bulk email's own page asks (ADR 0088). Old chats are not changed.
   const chatSkill = ctx.chatScope ? CHAT_SCOPE_RULES[ctx.chatScope].skill : undefined;
-  if (chatSkill && (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(tool)) gates.push(chatSkill);
+  if (chatSkill && (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(tool)) {
+    // A `pair` skill needs the agency's switch AND this person's, which the set below cannot say.
+    if (!platformSkill(chatSkill).pair) gates.push(chatSkill);
+    else if (!(await isSkillOnForChat(ctx.db, actor, chatSkill))) return refused(`${skillOffMessage(chatSkill, holderOf(actor.membershipRole))} Nothing was done.`, label);
+  }
   const off = gates.length ? await (ctx.skillsOff ?? (() => skillsOffForActor(ctx.db, actor)))() : null;
   for (const key of gates) {
     if (off!.has(key)) return refused(`${skillOffMessage(key, holderOf(actor.membershipRole))} Nothing was done. Offer to switch it on (switch_skill) if they want it.`, label);
@@ -365,6 +371,8 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return proposeRescheduleAppointment(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.reschedule_appointment>, label);
     case 'cancel_appointment':
       return proposeCancelAppointment(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.cancel_appointment>, label);
+    case 'send_template_sms':
+      return proposeSendTemplateSms(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.send_template_sms>, label);
     case 'send_template_email':
       return proposeSendTemplateEmail(ctx, parsed.data as z.infer<typeof ASSISTANT_TOOL_INPUTS.send_template_email>, label);
     case 'create_dashboard':

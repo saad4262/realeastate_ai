@@ -1,3 +1,4 @@
+import { workflowFitsChat } from './chat-scopes';
 import { and, eq } from 'drizzle-orm';
 import type { z } from 'zod';
 import { workflow as workflowTable, type Db, type DbOrTx } from '@repo/db';
@@ -187,9 +188,16 @@ function actionsFrom(ctx: Pick<ToolContext, 'handles'>, list: z.infer<typeof cre
   return { actions };
 }
 
+const OTHER_CHANNEL = 'That workflow also sends by the other channel, so it is not part of this chat. It can be changed on the Workflows page. Nothing was proposed.';
+
 export async function proposeCreateWorkflow(ctx: ToolContext, input: z.infer<typeof createWorkflowInput>, label: string): Promise<ToolOutcome> {
   const replaces = input.replaces ? resolveHandle(ctx.handles, input.replaces, 'workflow') : null;
   if (input.replaces && !replaces) return refused(UNKNOWN_REF, label);
+  // ADR 0088: the steps it asks for are checked already; these are the steps of the one it replaces.
+  if (replaces && ctx.chatScope) {
+    const old = (await listWorkflows(ctx.db, ctx.actor, ctx.now)).find((w) => w.id === replaces);
+    if (old && !workflowFitsChat(ctx.chatScope, old.stepTypes)) return refused(OTHER_CHANNEL, label);
+  }
   // Network before anything is stored: each place name to coordinates, by the geocoder (cached).
   const places: Record<string, FoundPlace | null> = {};
   for (const name of nearPlaces(input)) {
@@ -244,7 +252,7 @@ export async function proposeCreateWorkflow(ctx: ToolContext, input: z.infer<typ
 }
 
 export async function findWorkflows(ctx: ToolContext, label: string): Promise<ToolOutcome> {
-  const all = await listWorkflows(ctx.db, ctx.actor, ctx.now);
+  const all = (await listWorkflows(ctx.db, ctx.actor, ctx.now)).filter((w) => workflowFitsChat(ctx.chatScope ?? null, w.stepTypes));
   return {
     label,
     result: {
@@ -270,6 +278,7 @@ export async function proposeChangeWorkflow(ctx: ToolContext, input: z.infer<typ
   const w = (await listWorkflows(ctx.db, ctx.actor, ctx.now)).find((x) => x.id === id);
   if (!w) return refused('That workflow is not available to this person.', label);
   if (!w.mayManage) return refused('Only its owner or an owner/admin can change this workflow. Nothing was proposed.', label);
+  if (!workflowFitsChat(ctx.chatScope ?? null, w.stepTypes)) return refused(OTHER_CHANNEL, label);
   const now = w.status === 'paused' ? 'Paused' : 'On';
   if ((input.change === 'pause' && w.status === 'paused') || (input.change === 'resume' && w.status === 'active')) {
     return { label, result: { proposed: false, tell_the_user: `“${w.name}” is already ${w.status === 'paused' ? 'paused' : 'on'}.` } };

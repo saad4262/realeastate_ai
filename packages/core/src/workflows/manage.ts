@@ -187,6 +187,8 @@ export async function pauseWorkflowsOf(db: DbOrTx, agencyId: string, userId: str
 }
 
 export type WorkflowSummary = {
+  /** Every step's type, in every branch (ADR 0088: which channels it sends by). */
+  stepTypes: string[];
   id: string;
   name: string;
   scope: WorkflowScope;
@@ -231,6 +233,7 @@ export async function listWorkflows(db: Db, actor: Actor, now = new Date()): Pro
       words,
       triggerKind: parsed.success ? parsed.data.trigger.kind : null,
       decides: parsed.success && Boolean(parsed.data.decide),
+      stepTypes: parsed.success ? allActions(parsed.data).map((a) => a.type) : [],
       runsToday: Number(r.runsToday),
       mayManage: can(actor, 'workflow:manage', resource(r.w)),
     });
