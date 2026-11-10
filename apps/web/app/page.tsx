@@ -4,6 +4,7 @@ import { ListingCard } from '../components/listing-card';
 import { PrefetchOnIntent } from '../components/prefetch-on-intent';
 import { cachedFilterOptions, cachedSearch } from '../lib/cached';
 import { HomeAsk } from './home-ask';
+import { portalFonts } from './portal-fonts';
 import styles from './home.module.css';
 
 /**
@@ -76,58 +77,69 @@ export default async function HomePage() {
       not to a list rendered here: the list is per-person, and asking who is
       looking is the one thing this page cannot do.
     */
-    <WebShell>
-      <section className={styles.hero}>
-        <p className={styles.kicker}>AI-powered property search</p>
-        <h1 className={styles.title}>
-          Tell us what you need.
-          <span className={styles.titleMuted}> We&apos;ll search what&apos;s live.</span>
-        </h1>
-        <p className={styles.sub}>
-          Describe the home you are after the way you would to a local agent — suburb,
-          budget, bedrooms, or just the part of town you like. Every price and count comes
-          from live agency listings.
-        </p>
+    <WebShell wide>
+      {/*
+        The portal skin, as on /search and /listing (the user, 2026-11-10:
+        the home page looked like a different product). One attribute
+        redefines every token below, so home.module.css and the cards follow
+        without a class being renamed. It costs `/` the two portal fonts on
+        its critical path; the user chose the look.
+      */}
+      <div data-skin="portal" data-page="home" className={`${portalFonts} min-h-screen bg-canvas`}>
+        <div className="mx-auto w-full max-w-[1100px] px-gutter py-xl">
+          <section className={styles.hero}>
+            <p className={styles.kicker}>AI-powered property search</p>
+            <h1 className={styles.title}>
+              Tell us what you need.
+              <span className={styles.titleMuted}> We&apos;ll search what&apos;s live.</span>
+            </h1>
+            <p className={styles.sub}>
+              Describe the home you are after the way you would to a local agent — suburb,
+              budget, bedrooms, or just the part of town you like. Every price and count comes
+              from live agency listings.
+            </p>
 
-        <HomeAsk exampleSuburb={suburbs[0] ?? null} starters={STARTERS} />
+            <HomeAsk exampleSuburb={suburbs[0] ?? null} starters={STARTERS} />
 
-        {/*
-          The second door the visitor asked for: History reachable from the
-          home page, not only from inside the guide. It is a link to the
-          screen rather than the list itself, for the cookie reason above.
+            {/*
+              The second door the visitor asked for: History reachable from the
+              home page, not only from inside the guide. It is a link to the
+              screen rather than the list itself, for the cookie reason above.
 
-          `prefetch={false}`: /chat is force-dynamic, so prefetching it on
-          sight would server-render the guide for every visitor who scrolls
-          past this line. HomeAsk warms it on intent instead.
-        */}
-        <p className={styles.resume}>
-          Been here before?{' '}
-          <Link href="/chat?history=1" className={styles.resumeLink} prefetch={false}>
-            Open your past conversations
-          </Link>
-        </p>
-      </section>
+              `prefetch={false}`: /chat is force-dynamic, so prefetching it on
+              sight would server-render the guide for every visitor who scrolls
+              past this line. HomeAsk warms it on intent instead.
+            */}
+            <p className={styles.resume}>
+              Been here before?{' '}
+              <Link href="/chat?history=1" className={styles.resumeLink} prefetch={false}>
+                Open your past conversations
+              </Link>
+            </p>
+          </section>
 
-      <section className={styles.section}>
-        <div className={styles.sectionHead}>
-          <h2 className={styles.sectionTitle}>Latest listings</h2>
-          {latest.length ? <span className={styles.count}>{latest.length} live</span> : null}
+          <section className={styles.section}>
+            <div className={styles.sectionHead}>
+              <h2 className={styles.sectionTitle}>Latest listings</h2>
+              {latest.length ? <span className={styles.count}>{latest.length} live</span> : null}
+            </div>
+
+            {latest.length ? (
+              <PrefetchOnIntent className={styles.grid}>
+                {latest.map((listing) => (
+                  <ListingCard key={listing.id} listing={listing} />
+                ))}
+              </PrefetchOnIntent>
+            ) : (
+              <p className={styles.empty}>
+                {down
+                  ? 'Listings are temporarily unavailable. Please try again shortly.'
+                  : 'No listings are live yet. Agencies publish from their console, and they appear here straight away.'}
+              </p>
+            )}
+          </section>
         </div>
-
-        {latest.length ? (
-          <PrefetchOnIntent className={styles.grid}>
-            {latest.map((listing) => (
-              <ListingCard key={listing.id} listing={listing} />
-            ))}
-          </PrefetchOnIntent>
-        ) : (
-          <p className={styles.empty}>
-            {down
-              ? 'Listings are temporarily unavailable. Please try again shortly.'
-              : 'No listings are live yet. Agencies publish from their console, and they appear here straight away.'}
-          </p>
-        )}
-      </section>
+      </div>
     </WebShell>
   );
 }

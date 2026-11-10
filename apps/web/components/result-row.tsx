@@ -13,6 +13,7 @@ import {
   priceLabel,
 } from '@repo/core/listings/format';
 import { propertyTypeLabel } from '@repo/core/listings/schema';
+import { mediaUrl } from '@repo/core/media/url';
 import { ListingMedia } from './listing-card';
 import { Icon, type IconName } from './icons';
 
@@ -137,10 +138,20 @@ export function ResultRow({
           is legible for some listings and not others. A gradient to black
           along the bottom edge makes it legible for all of them without
           darkening the image a real photo will eventually be.
+
+          Only over a photo. With no photo the frame is the light drawn house
+          (ListingMedia's NoPhoto), where a black scrim reads as a grey smear
+          and dark ink is legible on its own.
         */}
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-md pb-md pt-xl">
-          <span className="font-display text-headline-lg text-white">{priceLabel(listing)}</span>
-        </div>
+        {mediaUrl(listing.mainPhotoKey) ? (
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-md pb-md pt-xl">
+            <span className="font-display text-headline-lg text-white">{priceLabel(listing)}</span>
+          </div>
+        ) : (
+          <div className="absolute inset-x-0 bottom-0 px-md pb-md">
+            <span className="font-display text-headline-lg text-ink">{priceLabel(listing)}</span>
+          </div>
+        )}
       </ListingMedia>
 
       <div className="grid gap-sm p-md sm:p-lg">

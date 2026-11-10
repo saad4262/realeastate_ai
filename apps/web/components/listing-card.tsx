@@ -42,8 +42,8 @@ export { priceLabel, specLine };
 export type ListingCardVariant = 'grid' | 'row' | 'compact';
 
 /**
- * The media slot: a real photo when there is one, the gradient when there is
- * not.
+ * The media slot: a real photo when there is one, the drawn house (NoPhoto)
+ * when there is not.
  *
  * THIS IS THE ONLY PLACE either decision is made. The results row, the chat's
  * sidebar card and the property page's gallery all render through here, so
@@ -52,13 +52,12 @@ export type ListingCardVariant = 'grid' | 'row' | 'compact';
  *
  * The shape has not moved: a frame that owns the aspect ratio, with the image
  * absolutely positioned inside it. `next/image` with `fill` needs precisely
- * that, so the photo dropped in as a sibling of the gradient and nothing about
- * any of the three layouts shifted.
+ * that, so the photo dropped in as a sibling of the placeholder and nothing
+ * about any of the three layouts shifted.
  *
- * The hue is derived from the listing id. A results page of 24 identical
- * rectangles reads as a page that failed to load; 24 different ones read as a
- * page whose photos have not been added. It is still the fallback, because
- * most listings in this database have no photos yet.
+ * The placeholder used to be a gradient whose hue came from the listing id,
+ * so a page of them read as "photos not added" rather than "failed to load".
+ * The drawn house says that outright, so it is the same on every listing.
  */
 export function ListingMedia({
   listing,
@@ -79,7 +78,7 @@ export function ListingMedia({
    * Overlays drawn on top of the frame — badges, the price.
    *
    * Not `aria-hidden` like the placeholder beneath it, which is why the
-   * attribute sits on the gradient itself rather than on the wrapper: a price
+   * attribute sits on the placeholder itself rather than on the wrapper: a price
    * hidden from a screen reader because it happens to sit on an image is a
    * price that page does not have.
    */
@@ -108,11 +107,6 @@ export function ListingMedia({
 }) {
   const src = mediaUrl(photoKey === undefined ? listing.mainPhotoKey : photoKey);
 
-  let hash = 0;
-  for (const ch of listing.id) hash = (hash * 31 + ch.charCodeAt(0)) % 360;
-  const from = `hsl(${(hash + 140) % 360} 42% 18%)`;
-  const to = `hsl(${(hash + 170) % 360} 38% 32%)`;
-
   return (
     <div className={`relative shrink-0 overflow-hidden ${className}`}>
       {src ? (
@@ -125,21 +119,59 @@ export function ListingMedia({
           className="object-cover"
         />
       ) : (
-        <>
-          <div
-            aria-hidden
-            className="absolute inset-0"
-            style={{ backgroundImage: `linear-gradient(135deg, ${from}, ${to})` }}
-          />
-          <span
-            aria-hidden
-            className="absolute inset-0 flex items-center justify-center px-2 text-center text-label-sm uppercase text-white/70"
-          >
-            {listing.suburb}
-          </span>
-        </>
+        <NoPhoto suburb={listing.suburb} />
       )}
       {children}
+    </div>
+  );
+}
+
+/**
+ * The frame of a listing with no photo: one drawn house, the same on every
+ * listing (the user, 2026-11-10, replacing the per-listing colour gradient).
+ *
+ * A drawing and not a stock photo, on purpose. A photograph of somebody's
+ * house on a listing that is not that house is a false picture of the
+ * property in an advertisement; a line drawing cannot be mistaken for the
+ * place. Inline SVG, so it costs no request and no image optimisation, and it
+ * reads the skin's tokens, so it is slate under the portal skin and warm on
+ * /chat.
+ */
+function NoPhoto({ suburb }: { suburb: string }) {
+  return (
+    <div
+      aria-hidden
+      className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-sunken px-2 text-center"
+    >
+      <svg
+        viewBox="0 0 120 80"
+        className="h-[48%] max-h-32 w-auto text-line-strong"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        {/* ground */}
+        <path d="M8 68h104" />
+        {/* chimney, behind the roof */}
+        <path d="M76 27V17h8v16" className="fill-card" />
+        {/* body */}
+        <path d="M34 38v30h52V38" className="fill-card" />
+        {/* roof */}
+        <path d="M26 41 60 14l34 27" />
+        {/* door */}
+        <path d="M54 68V52a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16" className="fill-sunken" />
+        {/* windows */}
+        <rect x="40" y="45" width="10" height="9" rx="1" />
+        <rect x="70" y="45" width="10" height="9" rx="1" />
+        {/* tree */}
+        <circle cx="101" cy="51" r="8" className="fill-card" />
+        <path d="M101 59v9" />
+        {/* shrub */}
+        <path d="M14 68a6 6 0 0 1 12 0" className="fill-card" />
+      </svg>
+      <span className="text-label-sm uppercase text-ink-faint">{suburb}</span>
     </div>
   );
 }

@@ -333,7 +333,9 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
                   <span className="text-label-sm uppercase tracking-wide">more photos</span>
                 </div>
               ) : photos.length === 0 ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-ink/55 text-center text-white backdrop-blur-[2px]">
+                /* Opaque and light: over the drawn house (no photo), a dark
+                   scrim reads as a grey smear. */
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-sunken text-center text-ink-faint">
                   <Icon name="gallery" className="size-6" />
                   <span className="font-display text-headline-md leading-none">0</span>
                   <span className="text-label-sm uppercase tracking-wide">photos yet</span>

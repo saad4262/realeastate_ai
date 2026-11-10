@@ -28,14 +28,18 @@
   line-height: 1.12;
   margin: 0 0 0.75rem;
   letter-spacing: -0.025em;
-  color: var(--color-brand, #0b3d2e);
+  font-weight: 700;
+  /* Ink, not brand: under the portal skin the brand is crimson, which on this
+     page means identity in small doses (the kicker, the button), never a
+     40px headline. */
+  color: var(--color-ink, #0f172a);
   text-wrap: balance;
 }
 
 /* The second clause, quieter than the first. One sentence, two weights of
    attention — the promise is what the guide does, not that it exists. */
 .titleMuted {
-  color: color-mix(in srgb, var(--color-brand, #0b3d2e) 55%, var(--color-canvas, #f7f4ef));
+  color: var(--color-ink-faint, #94a3b8);
 }
 
 .sub {
@@ -211,7 +215,7 @@
   letter-spacing: -0.01em;
 }
 
-.count { font-size: 0.8125rem; color: var(--color-muted, #5c5c5c); }
+.count { font-size: 0.8125rem; color: var(--color-ink-soft, #475569); }
 
 .grid {
   display: grid;
@@ -222,8 +226,8 @@
 .empty {
   padding: 2.5rem 1rem;
   text-align: center;
-  color: var(--color-muted, #5c5c5c);
-  border: 1px dashed var(--color-border, #d9d2c5);
+  color: var(--color-ink-soft, #475569);
+  border: 1px dashed var(--color-line, #e2e8f0);
   border-radius: 0.875rem;
   margin: 0;
 }
