@@ -9,7 +9,6 @@ import type { SkillKey } from '../skill-switches/catalog';
  */
 export const CHAT_SCOPES = [
   'general',
-  'daily_work',
   'email',
   'sms',
   'listing_copy',
@@ -24,7 +23,6 @@ export const chatScopeSchema = z.enum(CHAT_SCOPES);
 /** What a chat is called, to the model when it refuses and on screen. */
 export const CHAT_SCOPE_LABELS: Readonly<Record<ChatScope, string>> = Object.freeze({
   general: 'Overview',
-  daily_work: 'Daily work',
   email: 'Email',
   sms: 'SMS',
   listing_copy: 'Listing copy',
@@ -35,11 +33,13 @@ export const CHAT_SCOPE_LABELS: Readonly<Record<ChatScope, string>> = Object.fre
 });
 
 /** The chats a person can open today. A scope leaves this list only by being built; the server refuses any other. */
-export const OPEN_CHAT_SCOPES = ['daily_work', 'email', 'sms', 'listing_copy', 'dashboards', 'team_meetings', 'team_management', 'ai_skills'] as const satisfies readonly ChatScope[];
+export const OPEN_CHAT_SCOPES = ['email', 'sms', 'listing_copy', 'dashboards', 'team_meetings', 'team_management', 'ai_skills'] as const satisfies readonly ChatScope[];
 export type OpenChatScope = (typeof OPEN_CHAT_SCOPES)[number];
 
-/** The chats that were separate before Email and SMS each became one (ADR 0089). A chat saved under one carries on as the combined one. */
-export const LEGACY_CHAT_SCOPES: Readonly<Record<string, 'email' | 'sms'>> = Object.freeze({
+/** Chats that no longer exist on their own (ADR 0089). A chat saved under one carries on as what replaced it. */
+export const LEGACY_CHAT_SCOPES: Readonly<Record<string, ChatScope>> = Object.freeze({
+  // The Daily work chat did what Overview's AI Assistant now does (the user, 2026-11-10).
+  daily_work: 'general',
   bulk_email: 'email',
   ai_email_drafts: 'email',
   email_automations: 'email',
@@ -56,12 +56,6 @@ export function isOpenChatScope(raw: string | null | undefined): raw is OpenChat
 
 /** How a skill chat looks, so it is plainly not the Overview chat. */
 export const CHAT_SCOPE_FACE: Readonly<Record<OpenChatScope, { icon: string; greeting: string; hint: string; suggestions: readonly string[] }>> = Object.freeze({
-  daily_work: {
-    icon: 'task_alt',
-    greeting: 'What needs doing?',
-    hint: 'Notes, lead status, reminders, appointments and contact details. You approve each change.',
-    suggestions: ['Remind me tomorrow at 9 to call my new leads', 'Book an appraisal with this contact tomorrow at 3pm', 'Which leads came in this week?'],
-  },
   email: {
     icon: 'mail',
     greeting: 'What should we email?',
@@ -115,7 +109,6 @@ export const OVERVIEW_FACE = Object.freeze({
 /** What each chat is called, in Recents and at its top. */
 export const CHAT_ASSISTANT_NAMES: Readonly<Record<ChatScope, string>> = Object.freeze({
   general: 'AI Assistant',
-  daily_work: 'Daily Work Assistant',
   email: 'Email Assistant',
   sms: 'SMS Assistant',
   listing_copy: 'Listing Assistant',
@@ -134,6 +127,7 @@ export function chatAssistantName(raw: string | null | undefined): string {
 export function skillKeyOfChatScope(raw: string | null): string | null {
   const scope = raw ? (LEGACY_CHAT_SCOPES[raw] ?? raw) : null;
   if (scope === 'email' || scope === 'sms') return scope;
+  if (scope === 'general') return null;
   return Object.entries(CHAT_OF_SKILL).find(([, chat]) => chat === scope)?.[0] ?? null;
 }
 
@@ -179,7 +173,7 @@ type ScopeRule = {
 
 const EVERY_CHAT = ['check_cards', 'report_missing_data'] as const satisfies readonly AssistantToolName[];
 
-/** Everyday work, done from Overview's AI Assistant and the Daily work chat alike. */
+/** Everyday work: Overview's AI Assistant's, and no skill's. */
 const EVERYDAY_ACTIONS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'update_contact', 'set_contact_archived', 'record_marketing_consent', 'withdraw_marketing_consent', 'assign_contacts', 'create_reminder', 'plan_task', 'cancel_task', 'message_colleagues'] as const satisfies readonly AssistantToolName[];
 
 const EVERYDAY_STEPS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'message_colleagues', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'assign_contacts', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'remind'] as const satisfies readonly PlannableTool[];
@@ -194,10 +188,6 @@ export const CHAT_SCOPE_RULES: Readonly<Record<ChatScope, ScopeRule>> = Object.f
     tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'find_appointments', 'find_listings', 'find_buyers', 'find_deals', 'find_team_members', 'find_agents', 'find_colleagues', 'find_saved_lists', 'find_skills', 'find_workflows', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'describe_data', 'query_data', 'search_documents', 'read_document', 'start_import', ...EVERYDAY_ACTIONS, 'update_agent', 'remove_agent', 'invite_agent', 'schedule_team_meeting', 'open_chat'],
     planSteps: EVERYDAY_STEPS,
     toolSkills: { update_agent: 'team_management', remove_agent: 'team_management', invite_agent: 'team_management', schedule_team_meeting: 'team_meetings' },
-  },
-  daily_work: {
-    tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'find_appointments', 'find_listings', 'find_buyers', 'find_deals', 'find_team_members', 'find_colleagues', 'search_notes_and_emails', 'check_connections', 'start_import', ...EVERYDAY_ACTIONS],
-    planSteps: EVERYDAY_STEPS,
   },
   email: {
     tools: [...EVERY_CHAT, ...SEND_READS, 'search_notes_and_emails', 'send_template_email', 'send_email', 'create_template', 'create_automation', ...BUILD_TOOLS],

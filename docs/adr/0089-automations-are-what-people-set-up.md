@@ -25,6 +25,8 @@ own chat and history, running side by side. Nothing today runs a bulk send on a 
 
 **Overview is the AI Assistant (the user, 2026-11-10).** It looks things up and does everyday work (notes, leads, appointments, contacts, the team for owners and admins) on cards; a skill's job goes to that skill's assistant, by a button. This replaces ADR 0088's read-only flag: every new Overview chat is `general`, and so is a chat from before skills had chats. Recents names every chat's assistant. An automation one run of which would pass a daily limit is not made; the assistant says how many and what the limit is.
 
+**The Daily work chat is gone (the user, 2026-11-10).** Its tools were Overview's AI Assistant's exactly. A chat saved under it opens as the AI Assistant. The Team and Meetings assistants stay, though the AI Assistant can do their work too, under the same switches. Final shape: the AI Assistant does everyday work and no skill's; each skill has its own assistant; Help only guides.
+
 **Alternatives.** A time trigger on workflows (a workflow acts on one record per event; this acts on a list per clock). Moving workflows and
 tasks into one table (a migration of running work, for no gain on screen).
 

@@ -2389,3 +2389,5 @@ Phase 1 is the foundation and changes nothing on screen. Apply migration 0093 fi
 | CX77 | Owner clicks an agent's automation | A drawer on Skills, not the agent's chat |
 | CX78 | A chat that made two automations | Tabs in the panel, one each |
 | CX79 | Narrower than 1200 px | The panel is closed; an "Automation" button opens it |
+| CX80 | Skills page top | Only "AI skills chat" and "Ask the assistant"; no Daily work chat |
+| CX81 | An old Daily work chat from Recents | Opens as the AI Assistant, tag says AI Assistant, and still does notes, leads and appointments |

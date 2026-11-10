@@ -31,8 +31,8 @@ describe('the registry', () => {
 
   it('every action tool belongs to exactly one chat, unless it is named as shared or as in none', () => {
     for (const tool of ASSISTANT_WRITE_TOOLS) {
-      // Overview's AI Assistant and the Daily work chat share everyday work: count the skills' own chats.
-      const n = holders(tool).filter((h) => h !== 'general' && h !== 'daily_work').length;
+      // Overview's AI Assistant shares team work with the Team and Meetings assistants: count the skills' own chats.
+      const n = holders(tool).filter((h) => h !== 'general').length;
       if ((SHARED_ACTION_TOOLS as readonly string[]).includes(tool)) expect(n, tool).toBeGreaterThan(1);
       else if ((UNSCOPED_ACTION_TOOLS as readonly string[]).includes(tool)) expect(n, tool).toBe(0);
       else if (n) expect(n, `${tool} is in: ${holders(tool).join(', ')}`).toBe(1);
@@ -48,8 +48,8 @@ describe('the registry', () => {
   });
 
   it('a multi-step plan is only everyday work, and cannot carry another chat’s action', () => {
-    expect(holders('plan_task').sort()).toEqual(['daily_work', 'general']);
-    for (const scope of ['daily_work', 'general'] as const) {
+    expect(holders('plan_task')).toEqual(['general']);
+    for (const scope of ['general'] as const) {
       const steps = CHAT_SCOPE_RULES[scope].planSteps as readonly string[];
       for (const st of steps) expect(PLANNABLE_TOOLS as readonly string[]).toContain(st);
       for (const t of ['send_email', 'schedule_team_meeting', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing']) expect(steps).not.toContain(t);
@@ -83,7 +83,7 @@ describe('open_chat', () => {
     expect(out.frame).toMatchObject({ on: false, ask: null });
   });
   it('a chat with no switch is always on, with no read', async () => {
-    const out = await runAssistantTool(ctx(), 'open_chat', { chat: 'daily_work' });
+    const out = await runAssistantTool(ctx(), 'open_chat', { chat: 'ai_skills' });
     expect(out.frame).toMatchObject({ on: true });
   });
   it('an agent gets no button for the team chat', async () => {
@@ -95,8 +95,8 @@ describe('open_chat', () => {
     expect((await runAssistantTool(ctx(), 'open_chat', { chat: 'general' })).isError).toBe(true);
   });
   it('only Overview may use it', async () => {
-    expect((await runAssistantTool(ctx({ chatScope: 'email' }), 'open_chat', { chat: 'daily_work' })).isError).toBe(true);
-    expect((await runAssistantTool(ctx({ chatScope: null }), 'open_chat', { chat: 'daily_work' })).isError).toBe(true);
+    expect((await runAssistantTool(ctx({ chatScope: 'email' }), 'open_chat', { chat: 'ai_skills' })).isError).toBe(true);
+    expect((await runAssistantTool(ctx({ chatScope: null }), 'open_chat', { chat: 'ai_skills' })).isError).toBe(true);
   });
 });
 
@@ -117,10 +117,10 @@ describe('what can be opened', () => {
     expect(isOpenChatScope('sms')).toBe(true);
     for (const s of ['general', null, undefined, 'nope']) expect(isOpenChatScope(s as string)).toBe(false);
   });
-  it('every open chat has its face, and a skill unless it is one of the two with no switch', () => {
+  it('every open chat has its face, and a skill unless it is the one with no switch', () => {
     for (const s of OPEN_CHAT_SCOPES) {
       expect(CHAT_SCOPE_FACE[s].suggestions.length, s).toBeGreaterThan(0);
-      if (s !== 'daily_work' && s !== 'ai_skills') expect(CHAT_SCOPE_RULES[s].skill, s).toBeDefined();
+      if (s !== 'ai_skills') expect(CHAT_SCOPE_RULES[s].skill, s).toBeDefined();
     }
   });
   it('a Skills card finds its chat', () => {
@@ -195,8 +195,8 @@ describe('chatScopeRefusal', () => {
     expect(chatScopeRefusal('sms', 'send_template_sms', {})).toBeNull();
   });
   it('holds a plan to its own steps', () => {
-    expect(chatScopeRefusal('daily_work', 'plan_task', { steps: [{ tool: 'add_note' }, { tool: 'remind' }] })).toBeNull();
-    expect(chatScopeRefusal('daily_work', 'plan_task', { steps: [{ tool: 'add_note' }, { tool: 'send_email' }] })).not.toBeNull();
+    expect(chatScopeRefusal('general', 'plan_task', { steps: [{ tool: 'add_note' }, { tool: 'remind' }] })).toBeNull();
+    expect(chatScopeRefusal('general', 'plan_task', { steps: [{ tool: 'add_note' }, { tool: 'send_email' }] })).not.toBeNull();
   });
   it('finds the other channel’s send step, in the plain steps and inside a decision', () => {
     const sms = { type: 'send_template_sms' };
@@ -221,12 +221,12 @@ describe('templateChannel and chatScopeAllowsCard', () => {
     expect(chatScopeAllowsCard(null, 'send_email')).toBe(true);
     expect(chatScopeAllowsCard('email', 'send_template_email')).toBe(true);
     expect(chatScopeAllowsCard('email', 'add_note')).toBe(false);
-    expect(chatScopeAllowsCard('daily_work', 'remind')).toBe(true);
+    expect(chatScopeAllowsCard('general', 'remind')).toBe(true);
     expect(chatScopeAllowsCard('email', 'remind')).toBe(false);
   });
   it('a long bulk email is a plan card, and Approve lets it through there and nowhere it should not', () => {
     expect(chatScopeAllowsCard('email', 'plan_task')).toBe(true);
-    expect(chatScopeAllowsCard('daily_work', 'plan_task')).toBe(true);
+    expect(chatScopeAllowsCard('general', 'plan_task')).toBe(true);
     for (const s of ['sms', 'listing_copy', 'dashboards'] as const) expect(chatScopeAllowsCard(s, 'plan_task')).toBe(false);
   });
   it('a stored workflow fits a chat only if it holds none of the other channel’s sends', () => {

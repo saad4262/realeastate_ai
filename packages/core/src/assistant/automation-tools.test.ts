@@ -84,7 +84,7 @@ describe('create_automation', () => {
     expect((await runAssistantTool(ctx, 'create_automation', { ...input, schedule: { cadence: 'weekly', time: '09:30' } })).isError).toBe(true);
   });
   it('is refused in any other chat, and a chat from before ADR 0088', async () => {
-    for (const chatScope of ['daily_work', 'listing_copy', null] as const) {
+    for (const chatScope of ['ai_skills', 'listing_copy', null] as const) {
       const { ctx, input } = context({ chatScope });
       expect((await runAssistantTool(ctx, 'create_automation', input)).isError, String(chatScope)).toBe(true);
     }

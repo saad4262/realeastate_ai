@@ -139,7 +139,7 @@ export async function listEveryAutomation(db: Db, actor: Actor): Promise<Automat
       id: t.id,
       name: t.title,
       what: 'A task done once, in steps',
-      skill: CHAT_SCOPE_LABELS[parseChatScope(t.chat_scope) ?? 'daily_work'],
+      skill: CHAT_SCOPE_LABELS[parseChatScope(t.chat_scope) ?? 'general'],
       skillKey: skillKeyOfChatScope(t.chat_scope),
       when: 'Once',
       state: t.status === 'active' ? 'active' : 'finished',

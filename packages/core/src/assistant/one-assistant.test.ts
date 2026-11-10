@@ -35,12 +35,24 @@ describe('the AI Assistant on Overview', () => {
   });
 
   it('every action of a skill’s assistant is that skill’s alone', () => {
-    const skillChats = CHAT_SCOPES.filter((s) => s !== 'general' && s !== 'daily_work');
+    const skillChats = CHAT_SCOPES.filter((s) => s !== 'general');
     const shared = new Set(['create_workflow', 'change_workflow', 'create_automation']);
     for (const tool of WRITES) {
       const holders = skillChats.filter((s) => (CHAT_SCOPE_RULES[s].tools as readonly string[]).includes(tool));
       if (!shared.has(tool) && holders.length) expect(holders, tool).toHaveLength(1);
     }
+  });
+});
+
+describe('the Daily work chat is gone (the user, 2026-11-10)', () => {
+  it('cannot be opened, and is no chat of its own', () => {
+    expect(CHAT_SCOPES as readonly string[]).not.toContain('daily_work');
+  });
+  it('one saved under it carries on as the AI Assistant, which does the same work', () => {
+    expect(chatAssistantName('daily_work')).toBe('AI Assistant');
+  });
+  it('Skills has no button for it', () => {
+    expect(readFileSync(join(__dirname, '..', '..', '..', '..', 'apps', 'console', 'components', 'skills', 'skills-page.tsx'), 'utf8')).not.toContain('chat=daily_work');
   });
 });
 

@@ -21,6 +21,9 @@ Applied: `AI_DAILY_BUDGET_USD=20` on all 4, `REVALIDATE_SECRET` on Agent, Web's 
 The registry delegates to `haley` and `garret`, and those two serve **no A records for the apex and NXDOMAIN for `www`, `agency`, `agents`, `admin`**. The SOA serial has not moved.
 Authoritative servers do not wait for propagation, so waiting may not fix this: check the Cloudflare zone first. **Switch nothing until all five addresses load over HTTPS.**
 
+## Final shape of the assistants (the user, 2026-11-10, on `main`)
+The AI Assistant (Overview) does everyday work and no skill's; each skill has its own assistant (Email, SMS, Listing, Dashboard, Meetings, Team, AI Skills); Help only guides. The Daily work chat is gone: an old one opens as the AI Assistant. Clicking an automation opens its chat with a details panel on the right (or a drawer for someone else's): the run going now, what is left, its history.
+
 ## Overview is the AI Assistant (2026-11-10, on `main`)
 Overview's chat looks things up and does everyday work (notes, leads, appointments, contacts, the team for owners and admins) on cards; a skill's job goes to that skill's assistant by a button. The read-only flag is gone: every new Overview chat is `general`, and so is every chat from before skills had chats. Recents names each chat's assistant. An automation one run of which would pass a daily limit is not made. **Watch CX40 on live:** old chats now run as the AI Assistant with fewer tools than they were made with.
 

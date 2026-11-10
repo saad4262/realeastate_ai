@@ -56,7 +56,7 @@ describe('the assistant by kind of chat (ADR 0088)', () => {
     expect(lines).toEqual([
       { key: 'none', label: 'Older chats', spend: 3, calls: 2 },
       { key: 'email', label: 'Email', spend: 2, calls: 4 },
-      { key: 'daily_work', label: 'Daily work', spend: 1, calls: 4 },
+      { key: 'general', label: 'Overview', spend: 1, calls: 4 },
     ]);
   });
   it('shows a scope this code does not know under its own name', () => {
