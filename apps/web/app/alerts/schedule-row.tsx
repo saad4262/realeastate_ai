@@ -72,7 +72,7 @@ export function ScheduleRow({
     description.trim().toLowerCase() === name.trim().toLowerCase() ? null : description;
 
   return (
-    <li className="rounded-2xl border border-line bg-card p-5 shadow-[0_1px_2px_rgba(11,61,46,0.04)]">
+    <li className="rounded-2xl border border-line bg-card p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-base font-semibold leading-snug tracking-tight text-ink">{name}</p>

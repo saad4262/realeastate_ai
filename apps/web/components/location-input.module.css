@@ -16,7 +16,7 @@
 }
 
 .input:focus {
-  outline: 2px solid rgba(11, 61, 46, 0.35);
+  outline: 2px solid color-mix(in srgb, var(--color-brand, #e11d48) 35%, transparent);
   outline-offset: 1px;
 }
 
@@ -51,7 +51,7 @@
 }
 
 .optionOn {
-  background: rgba(11, 61, 46, 0.08);
+  background: var(--color-brand-soft, #fff1f2);
 }
 
 .optionMain {

@@ -1,21 +1,22 @@
 /*
  * Property guide — consumer chat.
  *
- * Aura-inspired conversation chrome on the platform's own cream / forest
- * palette (see packages/ui/src/styles.css). Geometry: soft cards, pill
- * composer, right-rail brief. Fraunces for the hero line only; body stays
- * Source Sans so it still reads as the same site as /search.
+ * Aura-inspired conversation chrome. Geometry: soft cards, pill composer,
+ * right-rail brief. Colours and type are the site skin's
+ * (apps/web/app/tailwind.css): it was cream and forest green with a Fraunces
+ * hero until 2026-11-10, when the whole public site moved to the portal look
+ * so the guide reads as the same product as /search.
  */
 
 .page {
-  --chat-page-bg: #f7f4ef;
-  --chat-cream-deep: #efeae2;
+  --chat-page-bg: var(--color-canvas, #f8fafc);
+  --chat-cream-deep: var(--color-sunken, #f1f5f9);
   --chat-surface: #ffffff;
   --chat-forest: var(--color-accent, #0b3d2e);
   --chat-forest-soft: color-mix(in srgb, var(--chat-forest) 8%, #fff);
-  --chat-muted: #6b716e;
+  --chat-muted: var(--color-ink-soft, #475569);
   --chat-border: color-mix(in srgb, var(--color-border, #d9d2c5) 70%, transparent);
-  --chat-shadow: 0 1px 2px rgba(11, 61, 46, 0.05), 0 18px 40px rgba(11, 61, 46, 0.07);
+  --chat-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 18px 40px rgba(15, 23, 42, 0.07);
   --chat-col: 42rem;
   --chat-rail: 16.5rem;
 
@@ -179,13 +180,16 @@
   max-width: 18ch;
 }
 
+/* Ink and faint ink, as the home page's hero: under the site skin the brand
+   is crimson, which is for buttons and small labels, not a 45px headline. */
 .heroTitleAccent {
-  color: var(--chat-forest);
+  color: var(--color-ink, #0f172a);
+  font-weight: 700;
 }
 
 .heroTitleMuted {
-  color: var(--chat-muted);
-  font-weight: 500;
+  color: var(--color-ink-faint, #94a3b8);
+  font-weight: 700;
 }
 
 .heroSub {
@@ -222,7 +226,7 @@
 
 .heroComposeBox:focus-within {
   border-color: color-mix(in srgb, var(--chat-forest) 35%, var(--chat-border));
-  box-shadow: 0 1px 2px rgba(11, 61, 46, 0.06), 0 20px 48px rgba(11, 61, 46, 0.1);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 20px 48px rgba(15, 23, 42, 0.1);
 }
 
 /* ---------- thread ---------- */
@@ -310,7 +314,7 @@
   border-radius: 0.4rem 1.15rem 1.15rem 1.15rem;
   background: var(--chat-surface);
   border: 1px solid var(--chat-border);
-  box-shadow: 0 1px 2px rgba(11, 61, 46, 0.03);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -577,7 +581,7 @@
 
 .chipBtn:hover:not(:disabled) {
   border-color: var(--chat-forest);
-  box-shadow: 0 2px 8px rgba(11, 61, 46, 0.08);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
   transform: translateY(-1px);
 }
 
@@ -1498,7 +1502,7 @@
   background: var(--chat-surface);
   border: 1px solid var(--chat-border);
   border-radius: 0.95rem;
-  box-shadow: 0 1px 2px rgba(11, 61, 46, 0.04);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .historyItemActive {
@@ -1767,8 +1771,8 @@
 
 .schedOff {
   border: 0;
-  background: #1a1a1a;
-  color: #f7f4ef;
+  background: var(--color-ink, #0f172a);
+  color: #ffffff;
 }
 
 .schedOff:hover {

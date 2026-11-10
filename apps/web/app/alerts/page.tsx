@@ -149,7 +149,7 @@ export default async function AlertsPage() {
               return (
                 <li
                   key={run.id}
-                  className="rounded-2xl border border-line bg-card p-5 shadow-[0_1px_2px_rgba(11,61,46,0.04)]"
+                  className="rounded-2xl border border-line bg-card p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <p className="font-semibold text-ink">

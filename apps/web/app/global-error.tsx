@@ -35,8 +35,8 @@ export default function GlobalError({
           display: 'grid',
           placeItems: 'center',
           padding: '1.5rem',
-          background: '#f7f4ef',
-          color: '#1a1a1a',
+          background: '#f8fafc',
+          color: '#0f172a',
           fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif',
         }}
       >
@@ -44,7 +44,7 @@ export default function GlobalError({
           <h1 style={{ fontSize: '1.75rem', margin: '0 0 0.75rem', letterSpacing: '-0.02em' }}>
             Something went wrong
           </h1>
-          <p style={{ color: '#5c5c5c', margin: '0 0 1.75rem', fontSize: '1.0625rem' }}>
+          <p style={{ color: '#475569', margin: '0 0 1.75rem', fontSize: '1.0625rem' }}>
             The site could not be loaded. Please try again.
           </p>
           <button
@@ -53,9 +53,9 @@ export default function GlobalError({
             style={{
               padding: '0.625rem 1.125rem',
               borderRadius: 6,
-              border: '1px solid #0b3d2e',
-              background: '#0b3d2e',
-              color: '#f7f4ef',
+              border: '1px solid #e11d48',
+              background: '#e11d48',
+              color: '#ffffff',
               fontSize: '0.9375rem',
               fontWeight: 600,
               cursor: 'pointer',
@@ -64,7 +64,7 @@ export default function GlobalError({
             Try again
           </button>
           {error.digest ? (
-            <p style={{ marginTop: '1.75rem', fontSize: '0.75rem', color: '#5c5c5c' }}>
+            <p style={{ marginTop: '1.75rem', fontSize: '0.75rem', color: '#475569' }}>
               Reference: {error.digest}
             </p>
           ) : null}

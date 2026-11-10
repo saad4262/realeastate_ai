@@ -102,7 +102,7 @@ export function SaveSearch({
           }
         });
       }}
-      className="w-full rounded-2xl border border-line bg-card p-4 shadow-[0_1px_2px_rgba(11,61,46,0.04)]"
+      className="w-full rounded-2xl border border-line bg-card p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
     >
       <input type="hidden" name="searchPath" value={searchPath} />
       {prompt ? <input type="hidden" name="prompt" value={prompt} /> : null}

@@ -221,6 +221,13 @@
  * with structure and values separated. The mock's own names are given beside
  * each one so the two can be checked against each other.
  */
+/*
+ * Site-wide since 2026-11-10 (the user: the chat and the buttons were still
+ * green, so the site read as two products). `:root` is unlayered and so beats
+ * the @theme block above; the attribute selector stays so a page that still
+ * carries the wrapper is unchanged.
+ */
+:root,
 [data-skin='portal'] {
   /* ---- surfaces ----
      surface-canvas / surface-card / surface-container-low, verbatim. Slate,
@@ -288,6 +295,22 @@
  * band scrolling shows it at both ends. The wrapper sets a variable the body
  * reads, so the colour still comes from one place.
  */
-body:has([data-skin='portal']) {
+body {
   background-color: #f8fafc;
+}
+
+/*
+ * The older names packages/ui/styles.css declares (unlayered, imported before
+ * this file) and that the CSS Modules from before Tailwind still read: the
+ * header, the chat, the account and sign-in pages. Same skin, old names.
+ * Redefined here and not in packages/ui, because the console reads that file
+ * too and keeps its own look.
+ */
+:root {
+  --color-bg: #f8fafc;
+  --color-fg: #0f172a;
+  --color-muted: #475569;
+  --color-accent: #e11d48;
+  --color-accent-fg: #ffffff;
+  --color-border: #e2e8f0;
 }

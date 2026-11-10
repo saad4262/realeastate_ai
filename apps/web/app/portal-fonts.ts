@@ -3,6 +3,9 @@ import { Inter, Plus_Jakarta_Sans } from 'next/font/google';
 /**
  * The two families the Stitch mock is set in.
  *
+ * Since 2026-11-10 the skin is site-wide and layout.tsx puts these on <html>.
+ * What follows is why they were first kept OFF the root, kept as history:
+ *
  * Imported HERE rather than in layout.tsx, and applied on the portal wrapper
  * rather than on <html>. next/font preloads a font on the routes whose module
  * graph reaches it, so putting these in the root layout would push both files

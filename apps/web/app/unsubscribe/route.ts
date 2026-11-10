@@ -86,11 +86,11 @@ function page(title: string, body: string, status = 200): NextResponse {
   <meta name="robots" content="noindex,nofollow">
   <title>${title}</title>
   <style>
-    body { margin:0; background:#f7f4ef; font:400 16px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; color:#1a1a1a; }
+    body { margin:0; background:#f8fafc; font:400 16px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; color:#0f172a; }
     .card { max-width:34rem; margin:12vh auto; background:#fff; border:1px solid #d9d2c5; border-radius:12px; padding:2rem; }
     h1 { font-size:1.35rem; margin:0 0 .5rem; }
     p { color:#5c5c5c; margin:.5rem 0; }
-    a.btn { display:inline-block; margin-top:1rem; padding:.7rem 1.2rem; background:#0b3d2e; color:#f7f4ef; border-radius:6px; text-decoration:none; font-weight:600; }
+    a.btn { display:inline-block; margin-top:1rem; padding:.7rem 1.2rem; background:#e11d48; color:#ffffff; border-radius:6px; text-decoration:none; font-weight:600; }
     a.plain { color:#5c5c5c; }
   </style>
 </head>

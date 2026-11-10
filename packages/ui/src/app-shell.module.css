@@ -10,7 +10,16 @@
 }
 
 .web {
-  --shell-accent: #0b3d2e;
+  /* The public site follows its own tokens (apps/web/app/tailwind.css): the
+     button and the hover take the brand, the page is the flat canvas and the
+     name is ink. The fallbacks are the old green, so a page without those
+     tokens looks as it did. The console's surfaces are untouched. */
+  --shell-accent: var(--color-brand, #0b3d2e);
+  background: var(--color-canvas, #f7f4ef);
+}
+
+.web .brand {
+  color: var(--color-ink, #0b3d2e);
 }
 
 .agent {
