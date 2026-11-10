@@ -15,12 +15,14 @@ which drops two unique constraints for partial ones, and 0095 (two new tables). 
 ## Vercel
 Applied: `AI_DAILY_BUDGET_USD=20` on all 4, `REVALIDATE_SECRET` on Agent, Web's addresses on `vercel.app`. Removed: admin credentials, `SMOKE_ENABLED`, debug variables,
 `ZOOM_OAUTH_RETURN_BASE` except on Agent (remove it at cutover). Domains attached and verified in Vercel, but `misconfigured` until DNS answers.
-- **To set (the user):** `ASSISTANT_OVERVIEW_READ_ONLY=1` on Agency and Agent when Overview should only read. Off, Overview is as before.
-  Locally it is on, in the root `.env.local` (`apps/console/.env.local` links to it).
+- `ASSISTANT_OVERVIEW_READ_ONLY` is no longer read (2026-11-10); the line in the local `.env.local` can go.
 
 ## DNS (checked 10:34 UTC)
 The registry delegates to `haley` and `garret`, and those two serve **no A records for the apex and NXDOMAIN for `www`, `agency`, `agents`, `admin`**. The SOA serial has not moved.
 Authoritative servers do not wait for propagation, so waiting may not fix this: check the Cloudflare zone first. **Switch nothing until all five addresses load over HTTPS.**
+
+## Overview is the AI Assistant (2026-11-10, on `main`)
+Overview's chat looks things up and does everyday work (notes, leads, appointments, contacts, the team for owners and admins) on cards; a skill's job goes to that skill's assistant by a button. The read-only flag is gone: every new Overview chat is `general`, and so is every chat from before skills had chats. Recents names each chat's assistant. An automation one run of which would pass a daily limit is not made. **Watch CX40 on live:** old chats now run as the AI Assistant with fewer tools than they were made with.
 
 ## ADR 0089: skills and automations (merged, on `main`)
 A skill is what the platform provides; an automation is what a person sets up with it. A repeating bulk email or text is approved once from its chat and runs on the minute tick (`recurring/`). Skills → Automations lists everything set up, whatever it is underneath; the top bar's Skills opens to each skill's automations and chats, and Automations shows only what is running or just ran. Bulk email, AI email drafts and Workflow emails are one Email card and chat; Bulk SMS and Workflow texts one SMS card and chat; their parts keep their own switches, and chats saved under the old names open as the combined one.
