@@ -47,7 +47,12 @@ export type SwitchedOnSkill = {
 /** The top bar's Skills panel: the ready-made skills that are on. `mayManage`: this person may flip the switches. */
 export type SkillsPanel = { skills: SwitchedOnSkill[]; mayManage: boolean };
 
+/** An automation that is on, waiting for its time or its trigger. */
+export type OnAutomation = { key: string; source: 'recurring' | 'workflow' | 'task' | 'ai_skill'; skillKey: string | null; name: string; skill: string; when: string; nextAt: string | null; owner: string | null; mine: boolean; conversationId: string | null };
+
 export type AutomationStatus = {
+  /** Switched on and waiting: what will run when its time comes or something happens. */
+  on: OnAutomation[];
   running: AutomationItem[];
   failed: AutomationItem[];
   /** Repeating automations that finished in the last day, with when they go next. */

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { automationHref, type AutomationItem, type AutomationPaths, type AutomationStatus } from '@repo/core/automation-status/links';
 import { useToast } from '@/components/toast';
 import { stopAutomationRunAction, stopTaskAction } from '@/lib/automation-actions';
+import { automationIcon, automationRowHref } from '@repo/core/recurring/detail-types';
 import { usePanelDismiss } from './use-panel';
 import styles from './automation-status.module.css';
 
@@ -177,7 +178,7 @@ export function AutomationStatusButton({ paths, className, glyphClassName, textC
 
   const close = useCallback(() => setOpen(false), []);
   usePanelDismiss(open, close, wrap);
-  const nothing = status && !status.running.length && !status.failed.length && !status.finished.length;
+  const nothing = status && !status.running.length && !status.failed.length && !status.finished.length && !status.on.length;
   const controls = { paths, onNavigate: close, reload: loadStatus };
 
   return (
@@ -199,7 +200,7 @@ export function AutomationStatusButton({ paths, className, glyphClassName, textC
 
           {failed && !status ? <p className={styles.empty}>This could not be loaded. It will try again.</p> : null}
           {!failed && !status ? <p className={styles.empty}>Loading…</p> : null}
-          {nothing ? <p className={styles.empty}>Nothing is running right now.</p> : null}
+          {nothing ? <p className={styles.empty}>Nothing is on or running right now.</p> : null}
 
           {status?.running.length ? (
             <section>
@@ -211,6 +212,29 @@ export function AutomationStatusButton({ paths, className, glyphClassName, textC
             <section>
               <h3 className={styles.group}>Needs a look · last 24 hours</h3>
               <ul className={styles.list}>{status.failed.map((i) => <ItemRow key={i.key} item={i} {...controls} />)}</ul>
+            </section>
+          ) : null}
+          {status?.on.length ? (
+            <section>
+              <h3 className={styles.group}>On · waiting to run</h3>
+              <ul className={styles.list}>
+                {status.on.map((o) => (
+                  <li key={o.key}>
+                    <Link href={automationRowHref(o, paths.home, `${paths.skills}?tab=automations`)} className={styles.row} onClick={close}>
+                      <span className={styles.skillGlyph} aria-hidden>
+                        {automationIcon(o)}
+                      </span>
+                      <span className={styles.rowText}>
+                        <span className={styles.title}>{o.name}</span>
+                        <span className={styles.note}>
+                          {o.skill} · {o.nextAt ? `next ${time(o.nextAt)}` : o.when}
+                          {o.owner ? ` · ${o.owner}` : ''}
+                        </span>
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
             </section>
           ) : null}
           {status?.finished.length ? (

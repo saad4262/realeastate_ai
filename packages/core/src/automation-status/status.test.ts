@@ -221,6 +221,43 @@ describe('a long send and a task', () => {
   });
 });
 
+describe('what is on, waiting', () => {
+  const row = (over: object) => ({ key: 'workflow:w1', source: 'workflow', skillKey: 'email', name: 'Welcome greeting', skill: 'Email', when: 'When a new lead arrives', nextAt: null, owner: null, mine: true, conversationId: 'c1', state: 'active', ...over });
+  it('lists every automation that is on, though nothing has triggered it yet', async () => {
+    listEveryAutomation.mockResolvedValue([row({}), row({ key: 'recurring:r1', source: 'recurring', nextAt: '2026-11-16T22:00:00.000Z' })]);
+    const { db } = fakeDb();
+    const s = await automationStatus(db, agent);
+    expect(s!.on.map((o) => o.key)).toEqual(['workflow:w1', 'recurring:r1']);
+    expect(s!.on[0]).toMatchObject({ name: 'Welcome greeting', skill: 'Email', when: 'When a new lead arrives' });
+  });
+  it('leaves out what is off or finished, and a task, which is under Running now', async () => {
+    listEveryAutomation.mockResolvedValue([row({ state: 'off' }), row({ key: 'task:t1', source: 'task' }), row({ key: 'x', state: 'finished' })]);
+    const { db } = fakeDb();
+    expect((await automationStatus(db, agent))!.on).toEqual([]);
+  });
+  it('a failed list only leaves this part out', async () => {
+    listEveryAutomation.mockRejectedValue(new Error('down'));
+    const { db } = fakeDb();
+    expect((await automationStatus(db, agent))!.on).toEqual([]);
+  });
+});
+
+describe('the side panel and the top bar, read from source', () => {
+  const css = (...p: string[]) => readFileSync(join(__dirname, '..', '..', '..', '..', 'apps', 'console', 'components', ...p), 'utf8');
+  const zOf = (src: string, selector: string) => Number(new RegExp(`\\${selector} \\{[^}]*?z-index: (\\d+)`).exec(src)?.[1]);
+  it('the chat’s panel and the drawer sit under the top bar, so its menus open over them', () => {
+    const topbar = zOf(css('shell', 'console-shell.module.css'), '.topbar');
+    const side = css('automations', 'automation-detail.module.css');
+    expect(topbar).toBe(30);
+    expect(zOf(side, '.side')).toBeLessThan(topbar);
+    expect(zOf(side, '.drawer')).toBeLessThan(topbar);
+    expect(zOf(side, '.toggle')).toBeLessThan(topbar);
+  });
+  it('the Automations panel shows what is on', () => {
+    expect(css('automations', 'automation-status.tsx')).toContain('status.on.map');
+  });
+});
+
 describe('a run of a repeating automation', () => {
   const run = (over: object) => ({ id: 'r1', automation_id: 'a1', status: 'running', user_id: AGENT, owner: 'Sam', name: 'Monday buyers', conversation_id: 'c1', next_at: '2026-11-10T03:00:00Z', total: 100, sent: 50, failed: 0, detail: null, ...over });
   const withRuns = (rows: object[]) => [[], [], [], rows] as Record<string, unknown>[][];

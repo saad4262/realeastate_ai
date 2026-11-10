@@ -60,7 +60,7 @@ export async function automationStatus(db: Db, actor: Actor, opts: { env?: NodeJ
   const whose = (column: SQL) => (mineOnly ? sql`and ${column} = ${actor.userId}::uuid` : sql``);
   const person = (u: string) => sql.raw(`coalesce(nullif(${u}.name, ''), ${u}.email)`);
 
-  const [batches, tasks, runs, recurring, usage] = await Promise.all([
+  const [batches, tasks, runs, recurring, usage, every] = await Promise.all([
     db.execute<{ id: string; channel: string; status: string; user_id: string; owner: string; template: string | null; list: string | null; sent: unknown; total: unknown; failed: unknown }>(sql`
       select b.id, b.channel, b.status, b.user_id, ${person('u')} as owner,
         b.template_snapshot->>'name' as template, b.filter_snapshot->>'name' as list, c.sent, c.total, c.failed
@@ -123,6 +123,8 @@ export async function automationStatus(db: Db, actor: Actor, opts: { env?: NodeJ
       order by r.created_at desc
       limit ${RUNNING_ROWS}`),
     usageFor(db, actor, opts),
+    // What is on and waiting (the user, 2026-11-10): the same list the Automations tab reads. A failure only leaves this part out.
+    listEveryAutomation(db, actor).catch(() => []),
   ]);
 
   const whoIs = (userId: string, owner: string) => ({ mine: userId === actor.userId, owner: userId === actor.userId ? null : owner });
@@ -211,6 +213,10 @@ export async function automationStatus(db: Db, actor: Actor, opts: { env?: NodeJ
     running: items.filter((i) => i.state === 'running'),
     failed: items.filter((i) => i.state === 'failed'),
     finished: items.filter((i) => i.state === 'done'),
+    // A task that is on is already under Running now; these are the ones waiting.
+    on: every
+      .filter((r) => r.state === 'active' && r.source !== 'task')
+      .map((r) => ({ key: r.key, source: r.source, skillKey: r.skillKey, name: r.name, skill: r.skill, when: r.when, nextAt: r.nextAt, owner: r.owner, mine: r.mine, conversationId: r.conversationId })),
     usage,
   };
 }

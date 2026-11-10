@@ -2395,3 +2395,5 @@ Phase 1 is the foundation and changes nothing on screen. Apply migration 0093 fi
 | CX83 | Type in Search automations | Cards narrow to those with the words in their name, what they do, skill, schedule or owner |
 | CX84 | All / On / Off / Finished | Each shows its count and narrows the cards |
 | CX85 | A card's switch | Turns it on or off without opening it; a click anywhere else opens it |
+| CX86 | A chat with its automation panel open → top bar Automations or Skills | The menu opens over the panel, not under it |
+| CX87 | Top bar Automations with automations on but nothing running | "On · waiting to run" lists each, with its skill and when; a click opens it |
