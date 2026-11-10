@@ -2378,3 +2378,8 @@ Phase 1 is the foundation and changes nothing on screen. Apply migration 0093 fi
 | CX66 | Email chat: "send a text" | Says that belongs in SMS |
 | CX67 | SMS chat: a send, "every Monday", and a workflow that texts | All in one chat. Run now outside 9 am to 8 pm waits and goes when the hours open |
 | CX68 | An old Bulk email or Email automations chat from Recents | Opens as the Email chat, chip says Email |
+| CX69 | Overview → "add a note to this contact", "update agent X's role" | The AI Assistant does it, on a card |
+| CX70 | Overview → "send a bulk email" or "every Monday" | It does not; a button opens the Email Assistant with the words typed in |
+| CX71 | Recents | Every chat has its assistant's name: AI Assistant, Email Assistant, SMS Assistant… |
+| CX72 | Email Assistant: an automation to a list larger than the daily limit | It says how many and what the limit is, and makes nothing |
+| CX73 | Email Assistant: one within the limit | The card has a Daily limit line: how much of it each run uses |

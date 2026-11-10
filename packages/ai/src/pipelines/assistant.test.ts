@@ -677,9 +677,6 @@ describe('a chat keeps to its job (ADR 0088)', () => {
     expect(assistantSystemBlocks('email')[1]!.text).not.toContain('open_chat');
   });
 
-  it('the real deps pass the flag on', () => {
-    expect(readFileSync(join(__dirname, 'assistant.ts'), 'utf8')).toContain('overviewReadOnly: overviewIsReadOnly(env)');
-  });
 
   it('a scope only starts a chat: with a conversation, the request’s is not passed on', () => {
     const source = readFileSync(join(__dirname, 'assistant.ts'), 'utf8');

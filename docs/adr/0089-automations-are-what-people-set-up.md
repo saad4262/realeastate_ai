@@ -23,6 +23,8 @@ own chat and history, running side by side. Nothing today runs a bulk send on a 
 
 **Email and SMS are one skill each (the user, 2026-11-09).** A send, a draft and a workflow are the same job on different clocks, so Bulk email, AI email drafts and Workflow emails are one card and one chat, and so are Bulk SMS and Workflow texts. Missed call text and AI calls back stay as they are. The parts keep their own switches underneath, so every gate that asks them is unchanged; one card flips them together. A chat saved under an old name opens as the combined one, with no data changed.
 
+**Overview is the AI Assistant (the user, 2026-11-10).** It looks things up and does everyday work (notes, leads, appointments, contacts, the team for owners and admins) on cards; a skill's job goes to that skill's assistant, by a button. This replaces ADR 0088's read-only flag: every new Overview chat is `general`, and so is a chat from before skills had chats. Recents names every chat's assistant. An automation one run of which would pass a daily limit is not made; the assistant says how many and what the limit is.
+
 **Alternatives.** A time trigger on workflows (a workflow acts on one record per event; this acts on a list per clock). Moving workflows and
 tasks into one table (a migration of running work, for no gain on screen).
 

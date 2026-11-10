@@ -106,19 +106,29 @@ export const CHAT_SCOPE_FACE: Readonly<Record<OpenChatScope, { icon: string; gre
   },
 });
 
-/**
- * Overview reads and answers, and hands anything else to the right chat (ADR 0088). Off until
- * `ASSISTANT_OVERVIEW_READ_ONLY=1`, so it can be turned on, and back off, without a deploy of code.
- */
-export function overviewIsReadOnly(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.ASSISTANT_OVERVIEW_READ_ONLY?.trim() === '1';
-}
-
-/** How the Overview chat presents itself once it only reads. */
+/** How Overview's AI Assistant presents itself. */
 export const OVERVIEW_FACE = Object.freeze({
-  hint: 'Looks things up and answers. To change or send something, it opens the right chat.',
-  suggestions: ['Which leads came in this week?', 'What’s on my calendar tomorrow?', 'Is my Google Calendar connected?', 'What’s our sold value this month?'],
+  hint: 'Finds things and does everyday work. For a skill’s job, it opens that skill’s assistant.',
+  suggestions: ['Which leads came in this week?', 'What’s on my calendar tomorrow?', 'Book an appraisal with this contact tomorrow at 3pm', 'Is my Google Calendar connected?'],
 });
+
+/** What each chat is called, in Recents and at its top. */
+export const CHAT_ASSISTANT_NAMES: Readonly<Record<ChatScope, string>> = Object.freeze({
+  general: 'AI Assistant',
+  daily_work: 'Daily Work Assistant',
+  email: 'Email Assistant',
+  sms: 'SMS Assistant',
+  listing_copy: 'Listing Assistant',
+  dashboards: 'Dashboard Assistant',
+  team_meetings: 'Meetings Assistant',
+  team_management: 'Team Assistant',
+  ai_skills: 'AI Skills Assistant',
+});
+
+/** A chat's assistant, from what is stored. A chat from before skills had chats is the AI Assistant. */
+export function chatAssistantName(raw: string | null | undefined): string {
+  return CHAT_ASSISTANT_NAMES[(raw ? parseChatScope(raw) : null) ?? 'general'];
+}
 
 /** The platform skill a chat belongs to: the reverse of the chat a card opens. */
 export function skillKeyOfChatScope(raw: string | null): string | null {
@@ -169,17 +179,25 @@ type ScopeRule = {
 
 const EVERY_CHAT = ['check_cards', 'report_missing_data'] as const satisfies readonly AssistantToolName[];
 
+/** Everyday work, done from Overview's AI Assistant and the Daily work chat alike. */
+const EVERYDAY_ACTIONS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'update_contact', 'set_contact_archived', 'record_marketing_consent', 'withdraw_marketing_consent', 'assign_contacts', 'create_reminder', 'plan_task', 'cancel_task', 'message_colleagues'] as const satisfies readonly AssistantToolName[];
+
+const EVERYDAY_STEPS = ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'message_colleagues', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'assign_contacts', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'remind'] as const satisfies readonly PlannableTool[];
+
 const SEND_READS = ['find_contacts', 'find_leads', 'find_saved_lists', 'list_templates', 'check_connections', 'find_workflows', 'find_listings', 'find_team_members', 'find_colleagues'] as const satisfies readonly AssistantToolName[];
 
 const BUILD_TOOLS = ['create_workflow', 'change_workflow'] as const satisfies readonly AssistantToolName[];
 
 export const CHAT_SCOPE_RULES: Readonly<Record<ChatScope, ScopeRule>> = Object.freeze({
+  // The AI Assistant on Overview (the user, 2026-11-10): looks things up and does everyday work. A skill's job is its own assistant's.
   general: {
-    tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'find_appointments', 'find_listings', 'find_buyers', 'find_deals', 'find_team_members', 'find_agents', 'find_colleagues', 'find_saved_lists', 'find_skills', 'find_workflows', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'describe_data', 'query_data', 'search_documents', 'read_document', 'open_chat'],
+    tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'find_appointments', 'find_listings', 'find_buyers', 'find_deals', 'find_team_members', 'find_agents', 'find_colleagues', 'find_saved_lists', 'find_skills', 'find_workflows', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'describe_data', 'query_data', 'search_documents', 'read_document', 'start_import', ...EVERYDAY_ACTIONS, 'update_agent', 'remove_agent', 'invite_agent', 'schedule_team_meeting', 'open_chat'],
+    planSteps: EVERYDAY_STEPS,
+    toolSkills: { update_agent: 'team_management', remove_agent: 'team_management', invite_agent: 'team_management', schedule_team_meeting: 'team_meetings' },
   },
   daily_work: {
-    tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'find_appointments', 'find_listings', 'find_buyers', 'find_deals', 'find_team_members', 'find_colleagues', 'search_notes_and_emails', 'check_connections', 'start_import', 'add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'update_contact', 'set_contact_archived', 'record_marketing_consent', 'withdraw_marketing_consent', 'assign_contacts', 'create_reminder', 'plan_task', 'cancel_task', 'message_colleagues'],
-    planSteps: ['add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'message_colleagues', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'assign_contacts', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'remind'],
+    tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'find_appointments', 'find_listings', 'find_buyers', 'find_deals', 'find_team_members', 'find_colleagues', 'search_notes_and_emails', 'check_connections', 'start_import', ...EVERYDAY_ACTIONS],
+    planSteps: EVERYDAY_STEPS,
   },
   email: {
     tools: [...EVERY_CHAT, ...SEND_READS, 'search_notes_and_emails', 'send_template_email', 'send_email', 'create_template', 'create_automation', ...BUILD_TOOLS],

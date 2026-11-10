@@ -73,7 +73,7 @@ async function requireChatScopeOpen(db: Db, actor: Actor, scope: ChatScope): Pro
 export async function claimTurn(
   db: Db,
   actor: Actor,
-  input: { conversationId?: string; message: string; surface: Surface; chatScope?: ChatScope; overviewReadOnly?: boolean },
+  input: { conversationId?: string; message: string; surface: Surface; chatScope?: ChatScope },
   now = new Date(),
 ): Promise<ClaimedTurn> {
   if (!mayUse(actor)) throw new AssistantError('forbidden', 'You do not have access to the assistant');
@@ -86,13 +86,13 @@ export async function claimTurn(
         agencyId: actor.agencyId,
         userId: actor.userId,
         surface: input.surface,
-        chatScope: input.chatScope ?? (input.overviewReadOnly ? 'general' : null),
+        chatScope: input.chatScope ?? 'general',
         title: input.message.replace(/\s+/g, ' ').trim().slice(0, 80),
         turnStartedAt: now,
         lastTurnAt: now,
       })
       .returning({ id: assistantConversation.id });
-    return { conversationId: created!.id, seq: 1, handles: {}, chatScope: input.chatScope ?? (input.overviewReadOnly ? 'general' : null), history: [] };
+    return { conversationId: created!.id, seq: 1, handles: {}, chatScope: input.chatScope ?? 'general', history: [] };
   }
 
   const staleBefore = new Date(now.getTime() - CLAIM_STALE_MS);
@@ -147,8 +147,8 @@ export async function claimTurn(
     conversationId: claimed.id,
     seq: claimed.turnCount + 1,
     handles: parseHandleMap(claimed.handles),
-    // With Overview read-only, a chat from before ADR 0088 is an Overview chat. Its old cards still approve: Approve reads the row.
-    chatScope: parseChatScope(claimed.chatScope) ?? (input.overviewReadOnly ? 'general' : null),
+    // A chat from before skills had chats is the AI Assistant's. Its old cards still approve: Approve reads the row.
+    chatScope: parseChatScope(claimed.chatScope) ?? 'general',
     history: turns.flatMap((t) => (Array.isArray(t.apiMessages) ? t.apiMessages : [])),
   };
 }

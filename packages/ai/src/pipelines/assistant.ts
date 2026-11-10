@@ -29,7 +29,7 @@ import { getModel, SERVER_FALLBACK_MODELS, type TokenUsage } from '../models';
 import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v31';
 import { embedderFromEnv } from '../search/voyage';
 import { assistantToolsFor } from '../tools/assistant-tools';
-import { overviewIsReadOnly, type ChatScope } from '@repo/core/assistant/chat-scopes';
+import type { ChatScope } from '@repo/core/assistant/chat-scopes';
 import { CHAT_SCOPE_PROMPT_VERSION, chatScopeBrief } from '../prompts/chat-scope-v1';
 import { skillsOffForActor } from '@repo/core/skill-switches';
 import type { SkillKey } from '@repo/core/skill-switches/catalog';
@@ -367,7 +367,7 @@ export function assistantDeps(db: Db, actor: Actor, request: AssistantTurnReques
   return {
     tools: (scope) => assistantToolsFor(actor, scope),
     // ADR 0088: a scope only starts a chat. Once there is a conversation, its own row decides.
-    claim: () => claimTurn(db, actor, { ...(request.conversationId ? { conversationId: request.conversationId } : request.chatScope ? { chatScope: request.chatScope } : {}), message: request.message, surface, overviewReadOnly: overviewIsReadOnly(env) }, now),
+    claim: () => claimTurn(db, actor, { ...(request.conversationId ? { conversationId: request.conversationId } : request.chatScope ? { chatScope: request.chatScope } : {}), message: request.message, surface }, now),
     selection: (handles) => selectionHandles(db, actor, handles, request.selection?.contactIds ?? []),
     cardUpdates: async (conversationId) => {
       const u = await takeCardUpdates(db, actor, conversationId, now);
@@ -382,6 +382,7 @@ export function assistantDeps(db: Db, actor: Actor, request: AssistantTurnReques
           actor,
           skillsOff,
           chatScope,
+          env,
           timeZone: request.timeZone,
           handles,
           now: new Date(),

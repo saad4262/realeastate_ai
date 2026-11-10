@@ -141,10 +141,11 @@ const SKILLS_PAGES = new Set(['/skills', '/my-skills']);
 
 const pagesOf = (groups: readonly HelpNavGroup[]) => groups.flatMap((g) => g.items.filter((i) => !i.signOut).map((i) => ({ ...i, group: g.label })));
 
-function aroundEveryPage(overviewReadOnly: boolean): string {
+function aroundEveryPage(): string {
   return `- The sidebar on the left has every page, in groups that open and close. Recents, at its top, lists your chats; a skill chat has its name on a small tag.
 - The top bar: the search box; the Skills panel, which lists the ready-made skills that are on, with a switch for each; open one to see what has been set up with it and its chats; the Automations panel (the bolt icon), which shows only what is running or just ran: how far it has got, what failed in the last day, a Stop button, and how much of today's limits is used; the bell icon for notifications; New chat.
-- The home chat ${overviewReadOnly ? 'only looks things up and answers. To change or send something it shows a button that opens the right chat.' : 'looks things up and prepares actions as cards for you to approve.'}
+- The home chat is the AI Assistant: it looks things up and does everyday work (notes, leads, appointments, contacts, and the team for owners and admins), each change on a card you approve. For a skill's job, such as email, texts or listings, it shows a button that opens that skill's assistant.
+- Each chat in Recents is labelled with its assistant, such as AI Assistant or Email Assistant.
 - A skill chat does one job only, and has a blue bar at the top saying which. Open one from its card on Skills, while the skill is on.
 - This help window sees which page you are on. It cannot see your records and cannot change anything.`;
 }
@@ -170,11 +171,11 @@ ${listing}
 }
 
 /** The guide for one console, from what that console shows. The same text every time: it is a cached prefix. */
-export function buildHelpGuide(surface: HelpSurface, groups: readonly HelpNavGroup[], opts: { overviewReadOnly?: boolean } = {}): string {
+export function buildHelpGuide(surface: HelpSurface, groups: readonly HelpNavGroup[]): string {
   const lines = pagesOf(groups).map((p) => `- ${p.label} (${p.href}), in the sidebar${p.group ? ` under ${p.group}` : ''}: ${HELP_PAGES[p.href] ?? ''}`);
   const extras = HELP_EXTRAS[surface].map((e) => `- ${e.label} (${e.href}), reached from ${e.where}: ${e.what}`);
   const details = HELP_DETAILS[surface].map((d) => `- ${d.name}${d.pattern.includes('[') ? '' : ` (${d.pattern})`}: ${d.what}`);
-  return `Pages:\n${[...lines, ...extras].join('\n')}\n\nPages you reach from those:\n${details.join('\n')}\n\nOn every page:\n${aroundEveryPage(opts.overviewReadOnly ?? false)}\n\nHow to do common things:\n${commonJobs(surface)}`;
+  return `Pages:\n${[...lines, ...extras].join('\n')}\n\nPages you reach from those:\n${details.join('\n')}\n\nOn every page:\n${aroundEveryPage()}\n\nHow to do common things:\n${commonJobs(surface)}`;
 }
 
 /** Every path the bot may link to in this console. A page with an id in it has no link of its own. */

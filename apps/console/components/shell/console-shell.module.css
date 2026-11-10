@@ -853,3 +853,9 @@
     display: inline;
   }
 }
+
+/* The AI Assistant's own chats: the same tag, quieter. */
+.recentChip[data-general] {
+  background: var(--surface-canvas);
+  color: var(--text-muted);
+}

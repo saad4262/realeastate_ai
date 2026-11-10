@@ -5,7 +5,7 @@ import type { Db } from '@repo/db';
 import type { Actor } from '../permissions';
 import { PLATFORM_SKILLS } from '../skill-switches/catalog';
 import { approveProposedAction } from './actions';
-import { CHAT_SCOPE_FACE, CHAT_SCOPE_RULES, CHAT_SCOPES, OPEN_CHAT_SCOPES, OVERVIEW_FACE, SCOPE_ONLY_TOOLS, SHARED_ACTION_TOOLS, UNSCOPED_ACTION_TOOLS, chatScopeAllowsCard, chatScopeOfSkill, chatScopeRefusal, isOpenChatScope, overviewIsReadOnly, parseChatScope, templateChannel, workflowFitsChat, type ChatScope } from './chat-scopes';
+import { CHAT_SCOPE_FACE, CHAT_SCOPE_RULES, CHAT_SCOPES, OPEN_CHAT_SCOPES, SCOPE_ONLY_TOOLS, SHARED_ACTION_TOOLS, UNSCOPED_ACTION_TOOLS, chatScopeAllowsCard, chatScopeOfSkill, chatScopeRefusal, isOpenChatScope, parseChatScope, templateChannel, workflowFitsChat, type ChatScope } from './chat-scopes';
 import { claimTurn } from './conversations';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, PLANNABLE_TOOLS, PROPOSED_ACTION_TOOLS, assistantTurnRequestSchema } from './schema';
 import { runAssistantTool } from './tools';
@@ -24,17 +24,19 @@ describe('the registry', () => {
     }
   });
 
-  it('Overview has no action tool at all', () => {
-    expect(CHAT_SCOPE_RULES.general.tools.filter((t) => WRITES.includes(t))).toEqual([]);
-    expect(CHAT_SCOPE_RULES.general.tools.every((t) => (ASSISTANT_READ_TOOLS as readonly string[]).includes(t))).toBe(true);
+  it('Overview’s AI Assistant does no skill’s job', () => {
+    const skillTools = ['email', 'sms', 'listing_copy', 'dashboards', 'ai_skills'].flatMap((x) => CHAT_SCOPE_RULES[x as ChatScope].tools as readonly string[]).filter((t) => WRITES.includes(t));
+    expect(CHAT_SCOPE_RULES.general.tools.filter((t) => skillTools.includes(t))).toEqual([]);
   });
 
   it('every action tool belongs to exactly one chat, unless it is named as shared or as in none', () => {
     for (const tool of ASSISTANT_WRITE_TOOLS) {
-      const n = holders(tool).length;
+      // Overview's AI Assistant and the Daily work chat share everyday work: count the skills' own chats.
+      const n = holders(tool).filter((h) => h !== 'general' && h !== 'daily_work').length;
       if ((SHARED_ACTION_TOOLS as readonly string[]).includes(tool)) expect(n, tool).toBeGreaterThan(1);
       else if ((UNSCOPED_ACTION_TOOLS as readonly string[]).includes(tool)) expect(n, tool).toBe(0);
-      else expect(n, `${tool} is in: ${holders(tool).join(', ')}`).toBe(1);
+      else if (n) expect(n, `${tool} is in: ${holders(tool).join(', ')}`).toBe(1);
+      else expect(holders(tool).length, tool).toBeGreaterThan(0);
     }
   });
 
@@ -45,11 +47,13 @@ describe('the registry', () => {
     expect(CHAT_SCOPE_RULES.sms.refusedWorkflowSteps).toEqual(expect.arrayContaining(['send_template_email', 'draft_email']));
   });
 
-  it('a multi-step plan is only in Daily work, and cannot carry another chat’s action', () => {
-    expect(holders('plan_task')).toEqual(['daily_work']);
-    const steps = CHAT_SCOPE_RULES.daily_work.planSteps as readonly string[];
-    for (const s of steps) expect(PLANNABLE_TOOLS as readonly string[]).toContain(s);
-    for (const t of ['send_email', 'schedule_team_meeting', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing']) expect(steps).not.toContain(t);
+  it('a multi-step plan is only everyday work, and cannot carry another chat’s action', () => {
+    expect(holders('plan_task').sort()).toEqual(['daily_work', 'general']);
+    for (const scope of ['daily_work', 'general'] as const) {
+      const steps = CHAT_SCOPE_RULES[scope].planSteps as readonly string[];
+      for (const st of steps) expect(PLANNABLE_TOOLS as readonly string[]).toContain(st);
+      for (const t of ['send_email', 'schedule_team_meeting', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing']) expect(steps).not.toContain(t);
+    }
   });
 
   it('every chat that lists templates has its channel set, or is Overview, which only reads', () => {
@@ -57,17 +61,7 @@ describe('the registry', () => {
   });
 });
 
-describe('Overview read-only (the flag)', () => {
-  const env = (v?: string) => ({ ASSISTANT_OVERVIEW_READ_ONLY: v }) as unknown as NodeJS.ProcessEnv;
-  it('is off unless it is exactly 1', () => {
-    expect(overviewIsReadOnly(env(undefined))).toBe(false);
-    for (const v of ['0', 'true', 'yes', '']) expect(overviewIsReadOnly(env(v))).toBe(false);
-    expect(overviewIsReadOnly(env('1'))).toBe(true);
-    expect(overviewIsReadOnly(env(' 1 '))).toBe(true);
-  });
-  it('its suggestions ask nothing that it would have to hand off', () => {
-    for (const s of OVERVIEW_FACE.suggestions) expect(s).not.toMatch(/^(Book|Send|Add|Remind|Create)/);
-  });
+describe('Overview’s way out', () => {
   it('the way out reads, and only Overview has it', () => {
     expect((ASSISTANT_READ_TOOLS as readonly string[]).includes('open_chat')).toBe(true);
     expect(holders('open_chat')).toEqual(['general']);
@@ -148,9 +142,6 @@ describe('what can be opened', () => {
 describe('Overview’s pages and button, read from source', () => {
   const ROOT = join(__dirname, '..', '..', '..', '..', 'apps', 'console');
   const read = (...p: string[]) => readFileSync(join(ROOT, ...p), 'utf8');
-  it('both home pages read the flag on the server', () => {
-    for (const f of [['app', '(agency)', 'overview', 'page.tsx'], ['app', '(agent)', 'assistant', 'page.tsx']]) expect(read(...f)).toContain('overviewReadOnly={overviewIsReadOnly()}');
-  });
   it('the button only types the request in, and goes to Skills when the skill is off', () => {
     const panel = read('components', 'assistant', 'assistant-panel.tsx');
     expect(panel).toContain('frame.on ? `${p.home}?chat=${frame.scope}${frame.ask ? `&ask=${encodeURIComponent(frame.ask)}` : \'\'}` : p.skills');
@@ -195,7 +186,7 @@ describe('chatScopeRefusal', () => {
   it('refuses another chat’s tool', () => {
     expect(chatScopeRefusal('email', 'add_note', {})).toContain('Email');
     expect(chatScopeRefusal('email', 'schedule_appointment', {})).not.toBeNull();
-    expect(chatScopeRefusal('general', 'add_note', {})).not.toBeNull();
+    expect(chatScopeRefusal('general', 'send_template_email', {})).not.toBeNull();
     expect(chatScopeRefusal('email', 'send_template_email', {})).toBeNull();
   });
   it('a skill chat’s own tool is refused in a chat from before the ADR, and in any other chat', () => {
@@ -363,43 +354,13 @@ describe('claimTurn', () => {
     await expect(claimTurn(db, actor, { message: 'hi', surface: 'agency', chatScope: 'email' })).rejects.toThrow('switched off');
   });
 
-  describe('with Overview read-only', () => {
-    const newChat = () => {
-      const written: unknown[] = [];
-      const db = { insert: () => ({ values: (v: { chatScope: unknown }) => (written.push(v.chatScope), { returning: async () => [{ id: 'c2' }] }) }) } as unknown as Db;
-      return { db, written };
-    };
-    const existing = (chatScope: string | null) =>
-      ({
-        update: () => ({ set: () => ({ where: () => ({ returning: async () => [{ id: 'c1', agencyId: 'a1', userId: 'u1', handles: {}, chatScope, turnCount: 1 }] }) }) }),
-        select: () => ({ from: () => ({ where: () => ({ orderBy: async () => [] }) }) }),
-      }) as unknown as Db;
-
-    it('a new Overview chat is saved as one', async () => {
-      const { db, written } = newChat();
-      expect((await claimTurn(db, actor, { message: 'hi', surface: 'agency', overviewReadOnly: true })).chatScope).toBe('general');
-      expect(written).toEqual(['general']);
-    });
-    it('an old chat becomes one for this turn, and its row is not changed', async () => {
-      expect((await claimTurn(existing(null), actor, { conversationId: 'c1', message: 'hi', surface: 'agency', overviewReadOnly: true })).chatScope).toBe('general');
-    });
-    it('a skill chat stays what it is', async () => {
-      expect((await claimTurn(existing('email'), actor, { conversationId: 'c1', message: 'hi', surface: 'agency', overviewReadOnly: true })).chatScope).toBe('email');
-    });
-    it('with the flag off, nothing changes', async () => {
-      expect((await claimTurn(existing(null), actor, { conversationId: 'c1', message: 'hi', surface: 'agency' })).chatScope).toBeNull();
-      const { db, written } = newChat();
-      await claimTurn(db, actor, { message: 'hi', surface: 'agency' });
-      expect(written).toEqual([null]);
-    });
-    it('the browser still cannot ask for it', async () => {
-      const { db } = newChat();
-      await expect(claimTurn(db, actor, { message: 'hi', surface: 'agency', chatScope: 'general' })).rejects.toMatchObject({ code: 'forbidden' });
-    });
+  it('the browser cannot ask for the AI Assistant’s scope: it is what a chat with none becomes', async () => {
+    const db = { insert: () => ({ values: () => ({ returning: async () => [{ id: 'c2' }] }) }) } as unknown as Db;
+    await expect(claimTurn(db, actor, { message: 'hi', surface: 'agency', chatScope: 'general' })).rejects.toMatchObject({ code: 'forbidden' });
   });
 
-  it('a chat made without one is the old kind', async () => {
+  it('a chat made without one is the AI Assistant’s', async () => {
     const db = { insert: () => ({ values: () => ({ returning: async () => [{ id: 'c3' }] }) }) } as unknown as Db;
-    expect((await claimTurn(db, actor, { message: 'hi', surface: 'agency' })).chatScope).toBeNull();
+    expect((await claimTurn(db, actor, { message: 'hi', surface: 'agency' })).chatScope).toBe('general');
   });
 });

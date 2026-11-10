@@ -143,9 +143,10 @@ describe('what the guide teaches', () => {
     expect(desk).toContain('Submit for approval');
   });
 
-  it('says what the home chat does, as it is set', () => {
-    expect(buildHelpGuide('agency', sidebar('agency'), { overviewReadOnly: true })).toContain('only looks things up');
-    expect(buildHelpGuide('agency', sidebar('agency'), { overviewReadOnly: false })).not.toContain('only looks things up');
+  it('says what the home chat does: everyday work, and a skill’s job goes to its assistant', () => {
+    const g = buildHelpGuide('agency', sidebar('agency'));
+    expect(g).toContain('AI Assistant');
+    expect(g).toContain('that skill\'s assistant');
   });
 
   it('never tells the browser to link a page with an id in it', () => {

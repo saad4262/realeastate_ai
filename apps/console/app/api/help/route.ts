@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { answerHelp } from '@repo/ai/help-bot';
-import { overviewIsReadOnly } from '@repo/core/assistant/chat-scopes';
 import { buildHelpGuide, checkHelpAllowed, helpHrefs, helpPageContext, helpReplyLinks, helpRequestSchema, type HelpSurface } from '@repo/core/help';
 import { SHELLS } from '@/components/shell/surfaces';
 import { getConsoleDb } from '../../../lib/db';
@@ -38,7 +37,7 @@ export async function POST(request: NextRequest) {
     const text = await answerHelp(
       { apiKey, db },
       {
-        guide: buildHelpGuide(surface, groups, { overviewReadOnly: overviewIsReadOnly() }),
+        guide: buildHelpGuide(surface, groups),
         page: helpPageContext(parsed.data.path, surface, groups),
         role: actor.membershipRole ?? null,
         messages: parsed.data.messages,

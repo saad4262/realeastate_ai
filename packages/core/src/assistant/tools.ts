@@ -105,6 +105,8 @@ export type ToolContext = {
   skillsOff?: () => Promise<ReadonlySet<SkillKey>>;
   /** What this chat may do (ADR 0088), from its row. Null or absent: a chat from before that ADR. */
   chatScope?: ChatScope | null;
+  /** The server's settings, for the limits a tool reads. Absent: the process's own. */
+  env?: NodeJS.ProcessEnv;
   /** The person's zone, from the browser: "today" is theirs. */
   timeZone: string;
   /** This conversation's names. Tools add to it; the turn saves it. */

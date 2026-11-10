@@ -2,7 +2,7 @@
 
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
-import { CHAT_SCOPE_LABELS, isOpenChatScope, type ChatScope } from '@repo/core/assistant/chat-scopes';
+import { chatAssistantName, type ChatScope } from '@repo/core/assistant/chat-scopes';
 import { HomeLink } from './home-link';
 import styles from './console-shell.module.css';
 
@@ -43,7 +43,7 @@ export function RecentsList({ home, rows }: { home: string; rows: { id: string; 
                   aria-current={active ? 'page' : undefined}
                   title={r.title}
                 >
-                  {isOpenChatScope(r.chatScope) ? <span className={styles.recentChip}>{CHAT_SCOPE_LABELS[r.chatScope]}</span> : null}
+                  <span className={styles.recentChip} data-general={chatAssistantName(r.chatScope) === 'AI Assistant' || undefined}>{chatAssistantName(r.chatScope)}</span>
                   {r.title}
                 </HomeLink>
               </li>

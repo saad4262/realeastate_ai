@@ -1,5 +1,6 @@
 import type { z } from 'zod';
-import { emailLimitsFromEnv } from '../email/limits';
+import { checkEmailLimits, emailLimitsFromEnv } from '../email/limits';
+import { loadSmsRules } from '../phone/sms-rules';
 import { can } from '../permissions';
 import { AUTOMATION_LIMITS, automationWords, type AutomationDraft } from '../recurring/kinds';
 import { classifyRecipients, mergeValuesFor } from '../template-email/batches';
@@ -53,6 +54,31 @@ export async function proposeCreateAutomation(ctx: ToolContext, input: z.infer<t
   const draft: AutomationDraft = { kind, name: input.name, spec, ...schedule, conversationId: ctx.proposal?.conversationId ?? null };
 
   const going = c.recipients.filter((r) => r.status === 'queued');
+
+  // One run must fit in a day's limit: told plainly here, never found out by a run that stops (the user, 2026-11-10).
+  let limitLine: { label: string; value: string };
+  if (isSms) {
+    const rules = await loadSmsRules(db, actor.agencyId);
+    const perNumber = new Map<string, number>();
+    for (const r of going) {
+      const id = (r as { phoneNumberId?: string | null }).phoneNumberId ?? 'none';
+      perNumber.set(id, (perNumber.get(id) ?? 0) + 1);
+    }
+    const most = Math.max(0, ...perNumber.values());
+    if (most > rules.perNumber) {
+      return { label, result: { proposed: false, tell_the_user: `Each run would send ${most} texts from one number, more than its daily limit of ${rules.perNumber}. Nothing was set up. Suggest a smaller list, or ask an owner to raise the limit in Missed calls → Settings.` } };
+    }
+    limitLine = { label: 'Daily limit', value: `Each run uses up to ${most} of a number’s ${rules.perNumber} texts a day` };
+  } else {
+    const limits = emailLimitsFromEnv(ctx.env);
+    const n = going.length;
+    if (n > limits.perAgentDay || n > limits.perAgencyDay) {
+      const which = n > limits.perAgentDay ? `your daily limit of ${limits.perAgentDay}` : `the agency’s daily limit of ${limits.perAgencyDay}`;
+      return { label, result: { proposed: false, tell_the_user: `Each run would send ${n} emails, more than ${which} (yours is ${limits.perAgentDay} a day, the agency’s ${limits.perAgencyDay}). Nothing was set up. Suggest a smaller list, or ask an owner to raise the limit.` } };
+    }
+    const today = await checkEmailLimits(db, { agencyId: actor.agencyId, userId: actor.userId }, limits, 0);
+    limitLine = { label: 'Daily limit', value: `Each run uses ${n} of your ${limits.perAgentDay} emails a day · ${today.agentUsed} sent so far today. Other sends that day count against it too` };
+  }
   const first = going[0];
   const values = first ? (await mergeValuesFor(db, { agencyId: c.agencyId, userId: actor.userId }))(first.name) : null;
   const card: ProposalCard = {
@@ -62,6 +88,7 @@ export async function proposeCreateAutomation(ctx: ToolContext, input: z.infer<t
       { label: 'What it does', value: automationWords(kind, spec) },
       { label: 'When', value: scheduleWords(schedule) },
       { label: 'Who today', value: `${going.length} could receive it today · ${c.recipients.length - going.length} could not` },
+      limitLine,
       ...('subject' in c.template ? [{ label: 'Subject', value: values ? renderMerge(c.template.subject, values) : c.template.subject }] : []),
     ],
     ...(values && first ? { text: { label: `${isSms ? 'Text' : 'Email'} to ${first.name} (each person gets their own name)`, value: renderMerge(c.template.body, values) } } : {}),
