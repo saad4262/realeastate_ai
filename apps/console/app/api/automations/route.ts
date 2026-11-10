@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { automationStatus, runningAutomationCount, skillsPanel } from '@repo/core/automation-status';
+import { AUTOMATION_KEY, automationDetail, automationsOfChat } from '@repo/core/recurring';
 import { getConsoleDb } from '../../../lib/db';
 import { loadActor } from '../../../lib/load-actor';
 import { actionUserId } from '../../../lib/auth-account';
@@ -25,6 +26,15 @@ export async function GET(request: NextRequest) {
       const count = await runningAutomationCount(db, actor);
       return count === null ? NextResponse.json({ error: 'Forbidden' }, { status: 403 }) : NextResponse.json({ count }, { headers: HEADERS });
     }
+    // One automation in full, or the ones made in one chat (the panel beside it). Each is narrowed to this person in core.
+    const detail = request.nextUrl.searchParams.get('detail');
+    if (detail !== null) {
+      if (!AUTOMATION_KEY.test(detail)) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      const d = await automationDetail(db, actor, detail);
+      return d ? NextResponse.json(d, { headers: HEADERS }) : NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+    const chat = request.nextUrl.searchParams.get('chat');
+    if (chat !== null) return NextResponse.json(await automationsOfChat(db, actor, chat), { headers: HEADERS });
     if (request.nextUrl.searchParams.get('view') === 'skills') {
       const panel = await skillsPanel(db, actor);
       return panel ? NextResponse.json(panel, { headers: HEADERS }) : NextResponse.json({ error: 'Forbidden' }, { status: 403 });

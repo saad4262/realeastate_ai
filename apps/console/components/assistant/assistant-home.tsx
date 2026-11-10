@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { CHAT_SCOPE_FACE, chatAssistantName, isOpenChatScope, OVERVIEW_FACE } from '@repo/core/assistant/chat-scopes';
+import { ChatAutomations } from '@/components/automations/chat-automations';
 import { clearPicks } from './picks';
 import { TurnList, type Surface } from './assistant-panel';
 import { useAssistant } from './use-assistant';
@@ -213,6 +214,14 @@ export function AssistantHome({
   return (
     <div className={`${styles.home} ${styles.homeStarted}`} data-full-bleed data-skill-chat={skillChat ?? undefined}>
       {skillBar}
+      {conversationId ? (
+        <ChatAutomations
+          conversationId={conversationId}
+          version={busy ? -1 : turns.length}
+          initial={params.get('automation')}
+          paths={{ home, email: surface === 'agency' ? '/bulk-email' : '/my-bulk-email', sms: surface === 'agency' ? '/bulk-sms' : '/my-bulk-sms', skills: surface === 'agency' ? '/skills' : '/my-skills' }}
+        />
+      ) : null}
       {/* Its own scroller: the shell's content area is a scroll container, so a sticky composer would not stick. */}
       <div className={styles.scroller}>
         <div className={styles.thread}>

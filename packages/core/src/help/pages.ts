@@ -164,7 +164,7 @@ ${listing}
 - Book an appointment: Daily work → Calendar → + Schedule. + Team meeting books colleagues.
 - Message a colleague: Daily work → Team messages → New message.
 - Switch a skill on or off: Automation → Skills, Platform skills tab, the switch on its card.
-- Set up an automation: open a skill's chat from its card on Skills and say what you want and when, for example a bulk email or a text every Monday. You approve one card and it runs by itself. It then shows on the Automations tab of Skills, where you can turn it on or off and see its history.
+- Set up an automation: open a skill's chat from its card on Skills and say what you want and when, for example a bulk email or a text every Monday. You approve one card and it runs by itself. It then shows on the Automations tab of Skills, where you can turn it on or off. Click one to see everything about it: the run going now, how many have gone and how many are left, and its history. One you made in a chat opens that chat, with the details beside it.
 - Get a dashboard: Knowledge & insights → Projects → New with the assistant. It needs Dashboards on in Skills.
 - Add a document for the assistant: Knowledge & insights → Knowledge base → Add documents.
 - Connect Gmail, Zoom and other accounts: Settings → Connectors. Search finds one.${surface === 'agency' ? '\n- Add or remove an agent: People → Agents & Team.' : ''}`;

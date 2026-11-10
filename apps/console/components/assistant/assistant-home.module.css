@@ -257,3 +257,10 @@
     padding-bottom: 4rem;
   }
 }
+
+/* A chat that made an automation has its panel on the right of a wide screen: keep the conversation clear of it. */
+@media (min-width: 1200px) {
+  .homeStarted:has(aside[aria-label='This chat’s automations']) {
+    padding-right: calc(24rem + 2rem);
+  }
+}

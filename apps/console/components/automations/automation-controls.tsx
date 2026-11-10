@@ -11,7 +11,7 @@ import styles from './automation-status.module.css';
 type Source = 'recurring' | 'workflow' | 'ai_skill' | 'task';
 
 /** On, off and Run now for one row of Skills → Automations (ADR 0089). The server asks can() again. */
-export function AutomationControls({ source, id, on, canToggle, canRun }: { source: Source; id: string; on: boolean; canToggle: boolean; canRun: boolean }) {
+export function AutomationControls({ source, id, on, canToggle, canRun, onDone }: { source: Source; id: string; on: boolean; canToggle: boolean; canRun: boolean; onDone?: () => void }) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, setPending] = useState(false);
@@ -23,6 +23,7 @@ export function AutomationControls({ source, id, on, canToggle, canRun }: { sour
     else if (done) toast({ title: done, variant: 'success' });
     setPending(false);
     router.refresh();
+    onDone?.();
   };
 
   const toggle = () => {

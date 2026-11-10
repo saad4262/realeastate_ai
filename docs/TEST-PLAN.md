@@ -2383,3 +2383,9 @@ Phase 1 is the foundation and changes nothing on screen. Apply migration 0093 fi
 | CX71 | Recents | Every chat has its assistant's name: AI Assistant, Email Assistant, SMS Assistant… |
 | CX72 | Email Assistant: an automation to a list larger than the daily limit | It says how many and what the limit is, and makes nothing |
 | CX73 | Email Assistant: one within the limit | The card has a Daily limit line: how much of it each run uses |
+| CX74 | Skills → Automations | A line on top: n active · n off; click anywhere on a card |
+| CX75 | Click one of your own made in a chat | Its chat opens with a panel on the right: what it does, schedule, on/off, Run now, the run going now (sent, left, failed), and its history |
+| CX76 | Run now in that panel | The bar and numbers move without a reload; Stop asks first |
+| CX77 | Owner clicks an agent's automation | A drawer on Skills, not the agent's chat |
+| CX78 | A chat that made two automations | Tabs in the panel, one each |
+| CX79 | Narrower than 1200 px | The panel is closed; an "Automation" button opens it |

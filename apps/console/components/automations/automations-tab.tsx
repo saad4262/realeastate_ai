@@ -1,12 +1,13 @@
 import Link from 'next/link';
 import { LocalTime } from '@repo/ui';
-import { listAutomationRuns, listEveryAutomation, type AutomationRow, type AutomationRunView } from '@repo/core/recurring';
+import { AUTOMATION_KEY, listAutomationRuns, listEveryAutomation, type AutomationRow, type AutomationRunView } from '@repo/core/recurring';
 import { listWaitingDrafts, workflowRuns, type WorkflowRunView } from '@repo/core/workflows';
 import contactStyles from '@/components/contacts/contacts.module.css';
 import { getConsoleDb } from '../../lib/db';
 import { requireConsoleAccess } from '../../lib/require-console-access';
 import { WaitingDrafts } from '../workflows/islands';
 import { AutomationControls } from './automation-controls';
+import { AutomationDrawer } from './chat-automations';
 import styles from './automations-tab.module.css';
 
 /**
@@ -26,13 +27,20 @@ function When({ label, iso }: { label: string; iso: string | null }) {
   );
 }
 
+/** Its own chat, with the panel beside it, when it is this person's; otherwise the panel here. A chat is only its author's. */
+export function automationRowHref(row: Pick<AutomationRow, 'key' | 'mine' | 'conversationId'>, home: string, base: string): string {
+  return row.mine && row.conversationId ? `${home}?c=${row.conversationId}&automation=${row.key}` : `${base}&open=${row.key}`;
+}
+
 function Row({ row, home, base }: { row: AutomationRow; home: string; base: string }) {
   const hasHistory = row.source === 'recurring' || row.source === 'workflow';
   return (
     <li className={styles.item}>
       <div className={styles.main}>
         <div className={styles.top}>
-          <strong className={styles.name}>{row.name}</strong>
+          <Link href={automationRowHref(row, home, base)} className={`${styles.name} ${styles.rowLink}`}>
+            {row.name}
+          </Link>
           <span className={styles.state} data-state={row.state}>
             {STATE_WORDS[row.state]}
           </span>
@@ -47,8 +55,7 @@ function Row({ row, home, base }: { row: AutomationRow; home: string; base: stri
         </div>
         {row.note ? <p className={styles.note}>{row.note}</p> : null}
         <div className={styles.links}>
-          {row.conversationId && row.mine ? <Link href={`${home}?c=${row.conversationId}`}>Open its chat</Link> : null}
-          {hasHistory ? <a href={`${base}&runs=${row.id}#runs`}>History</a> : null}
+          {hasHistory ? <a href={`${base}&open=${row.key}`}>Details</a> : null}
         </div>
       </div>
       {row.source !== 'task' ? <AutomationControls source={row.source} id={row.id} on={row.state === 'active'} canToggle={row.canToggle} canRun={row.canRun} /> : null}
@@ -93,7 +100,7 @@ function WorkflowRuns({ runs }: { runs: WorkflowRunView[] }) {
   );
 }
 
-export async function AutomationsTab({ surface, runs }: { surface: 'agency' | 'agent'; runs?: string }) {
+export async function AutomationsTab({ surface, runs, open }: { surface: 'agency' | 'agent'; runs?: string; open?: string }) {
   const session = await requireConsoleAccess(surface);
   const db = getConsoleDb();
   const [rows, drafts] = await Promise.all([listEveryAutomation(db, session.actor), listWaitingDrafts(db, session.actor)]);
@@ -104,8 +111,12 @@ export async function AutomationsTab({ surface, runs }: { surface: 'agency' | 'a
   const history = picked?.source === 'recurring' ? await listAutomationRuns(db, session.actor, picked.id) : null;
   const flowHistory = picked?.source === 'workflow' ? await workflowRuns(db, session.actor, picked.id) : null;
 
+  const count = (state: AutomationRow['state']) => rows.filter((r) => r.state === state).length;
+  const paths = { home, email: surface === 'agency' ? '/bulk-email' : '/my-bulk-email', sms: surface === 'agency' ? '/bulk-sms' : '/my-bulk-sms', skills };
+  const openKey = open && AUTOMATION_KEY.test(open) ? open : null;
   return (
     <>
+      {openKey ? <AutomationDrawer automationKey={openKey} paths={paths} closeHref={base} /> : null}
       <div className={contactStyles.head}>
         <div className={contactStyles.headText}>
           <p className={contactStyles.sub}>
@@ -123,6 +134,11 @@ export async function AutomationsTab({ surface, runs }: { surface: 'agency' | 'a
         </section>
       ) : null}
 
+      {rows.length ? (
+        <p className={styles.summary}>
+          <b>{count('active')}</b> active · <b>{count('off')}</b> off{count('finished') ? <> · <b>{count('finished')}</b> finished</> : null}. The top bar’s Automations shows what is running now.
+        </p>
+      ) : null}
       {rows.length ? (
         <ul className={styles.list}>
           {rows.map((r) => (

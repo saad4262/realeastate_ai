@@ -21,11 +21,11 @@ export type SkillTab = (typeof SKILL_TABS)[number];
 const TAB_LABELS: Record<SkillTab, string> = { platform: 'Platform skills', ai: 'AI skills', automations: 'Automations' };
 
 /** The page's own search params, read loosely: anything unknown is the default. */
-export function skillsParams(sp: { tab?: string; show?: string; runs?: string; lib?: string }): { tab: SkillTab; show: SkillFilter; runs?: string; lib?: LibraryGroup } {
+export function skillsParams(sp: { tab?: string; show?: string; runs?: string; lib?: string; open?: string }): { tab: SkillTab; show: SkillFilter; runs?: string; lib?: LibraryGroup; open?: string } {
   const tab = (SKILL_TABS as readonly string[]).includes(sp.tab ?? '') ? (sp.tab as SkillTab) : 'platform';
   const show = sp.show === 'on' || sp.show === 'off' ? sp.show : 'all';
   const lib = (LIBRARY_GROUPS as readonly string[]).includes(sp.lib ?? '') ? (sp.lib as LibraryGroup) : undefined;
-  return { tab, show, ...(sp.runs ? { runs: sp.runs } : {}), ...(lib ? { lib } : {}) };
+  return { tab, show, ...(sp.runs ? { runs: sp.runs } : {}), ...(lib ? { lib } : {}), ...(sp.open ? { open: sp.open } : {}) };
 }
 
 /**
@@ -34,7 +34,7 @@ export function skillsParams(sp: { tab?: string; show?: string; runs?: string; l
  * scheduled jobs of ADR 0021) and Automations (the workflows of ADR 0041). What each person sees and
  * may change is can()'s, in packages/core.
  */
-export async function SkillsPage({ surface, tab = 'platform', show = 'all', runs }: { surface: 'agency' | 'agent'; tab?: SkillTab; show?: SkillFilter; runs?: string; lib?: LibraryGroup }) {
+export async function SkillsPage({ surface, tab = 'platform', show = 'all', runs, open }: { surface: 'agency' | 'agent'; tab?: SkillTab; show?: SkillFilter; runs?: string; lib?: LibraryGroup; open?: string }) {
   const session = await requireConsoleAccess(surface);
   const basePath = surface === 'agency' ? '/skills' : '/my-skills';
   const forAgency = holderOf(session.actor.membershipRole) === 'agency';
@@ -81,7 +81,7 @@ export async function SkillsPage({ surface, tab = 'platform', show = 'all', runs
 
       {tab === 'platform' ? <PlatformSkills actor={session.actor} basePath={basePath} home={surface === 'agency' ? '/overview' : '/assistant'} filter={show} /> : null}
       {tab === 'ai' ? <AiSkills actor={session.actor} surface={surface} basePath={basePath} /> : null}
-      {tab === 'automations' ? <AutomationsTab surface={surface} {...(runs ? { runs } : {})} /> : null}
+      {tab === 'automations' ? <AutomationsTab surface={surface} {...(runs ? { runs } : {})} {...(open ? { open } : {})} /> : null}
     </div>
   );
 }
