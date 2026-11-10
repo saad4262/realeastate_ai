@@ -2391,3 +2391,7 @@ Phase 1 is the foundation and changes nothing on screen. Apply migration 0093 fi
 | CX79 | Narrower than 1200 px | The panel is closed; an "Automation" button opens it |
 | CX80 | Skills page top | Only "AI skills chat" and "Ask the assistant"; no Daily work chat |
 | CX81 | An old Daily work chat from Recents | Opens as the AI Assistant, tag says AI Assistant, and still does notes, leads and appointments |
+| CX82 | Skills → Automations | Cards like Platform skills, grouped by skill, each with a switch, its schedule and its last run |
+| CX83 | Type in Search automations | Cards narrow to those with the words in their name, what they do, skill, schedule or owner |
+| CX84 | All / On / Off / Finished | Each shows its count and narrows the cards |
+| CX85 | A card's switch | Turns it on or off without opening it; a click anywhere else opens it |

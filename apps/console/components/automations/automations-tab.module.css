@@ -152,3 +152,59 @@
 .summary b {
   color: var(--text-primary);
 }
+
+/* The cards (automations-board.tsx): the Platform skills' card, the whole of it a link, the switch above that. */
+.cardLink {
+  position: relative;
+}
+
+.cover {
+  color: inherit;
+  text-decoration: none;
+}
+
+.cover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 0.75rem;
+}
+
+.above {
+  position: relative;
+  z-index: 1;
+  margin-left: auto;
+}
+
+.clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.search {
+  flex: 1 1 14rem;
+  min-width: 0;
+  max-width: 22rem;
+  height: 2rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--border-default);
+  border-radius: 9999px;
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+  font: 0.8125rem/1 var(--font-body);
+}
+
+.search:focus {
+  outline: none;
+  border-color: var(--sapphire);
+}
+
+@media (max-width: 640px) {
+  .search {
+    max-width: none;
+    flex-basis: 100%;
+    font-size: 1rem;
+  }
+}

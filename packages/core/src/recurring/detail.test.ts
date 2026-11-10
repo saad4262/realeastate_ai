@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '@repo/db';
 import type { Actor } from '../permissions';
 import { automationDetail, automationsOfChat } from './detail';
+import { automationIcon, automationRowHref, filterAutomations } from './detail-types';
 
 /** One automation in full, and the ones beside a chat (the user, 2026-11-10). */
 
@@ -82,7 +83,10 @@ describe('on screen, read from source', () => {
   const ROOT = join(__dirname, '..', '..', '..', '..', 'apps', 'console');
   const read = (...p: string[]) => readFileSync(join(ROOT, ...p), 'utf8');
   it('a card opens its own chat only for its owner; anyone else gets the drawer', () => {
-    expect(read('components', 'automations', 'automations-tab.tsx')).toContain("return row.mine && row.conversationId ? `${home}?c=${row.conversationId}&automation=${row.key}` : `${base}&open=${row.key}`;");
+    const row = { key: 'recurring:k', mine: true, conversationId: 'c1' };
+    expect(automationRowHref(row, '/h', '/sk?tab=automations')).toBe('/h?c=c1&automation=recurring:k');
+    expect(automationRowHref({ ...row, mine: false }, '/h', '/sk?tab=automations')).toBe('/sk?tab=automations&open=recurring:k');
+    expect(automationRowHref({ ...row, conversationId: null }, '/h', '/sk?tab=automations')).toBe('/sk?tab=automations&open=recurring:k');
   });
   it('the chat shows its automations beside it', () => {
     expect(read('components', 'assistant', 'assistant-home.tsx')).toContain('<ChatAutomations');
@@ -97,5 +101,29 @@ describe('on screen, read from source', () => {
     const panel = read('components', 'automations', 'automation-detail.tsx');
     expect(panel).toContain("running ? 5_000 : 20_000");
     expect(panel).toContain("document.visibilityState === 'visible'");
+  });
+});
+
+describe('the Automations tab’s search and filter', () => {
+  const r = (over: object) => ({ name: 'Monday buyers', what: 'Sends “Spring” to everyone on “Buyers”', skill: 'Email', when: 'Every Monday at 9:00 am', owner: null, state: 'active' as const, ...over });
+  const rows = [r({}), r({ name: 'New enquiry', what: 'Remind you', skill: 'SMS', state: 'off' }), r({ name: 'Old task', skill: 'Overview', state: 'finished', owner: 'Sam' })];
+  it('finds by any word in its name, what it does, skill, when or whose, every word', () => {
+    expect(filterAutomations(rows, 'buyers', 'all').map((x) => x.name)).toEqual(['Monday buyers', 'Old task']);
+    expect(filterAutomations(rows, 'sms', 'all').map((x) => x.name)).toEqual(['New enquiry']);
+    expect(filterAutomations(rows, 'sam', 'all').map((x) => x.name)).toEqual(['Old task']);
+    expect(filterAutomations(rows, 'monday spring', 'all').map((x) => x.name)).toEqual(['Monday buyers', 'Old task']);
+    expect(filterAutomations(rows, 'monday nothing', 'all')).toEqual([]);
+  });
+  it('narrows by state, and an empty search finds everything', () => {
+    expect(filterAutomations(rows, '', 'off').map((x) => x.name)).toEqual(['New enquiry']);
+    expect(filterAutomations(rows, '  ', 'all')).toHaveLength(3);
+  });
+  it('shows each one in its skill’s icon', () => {
+    expect(automationIcon({ source: 'recurring', skillKey: 'email' })).toBe('mail');
+    expect(automationIcon({ source: 'workflow', skillKey: 'sms' })).toBe('sms');
+    expect(automationIcon({ source: 'task', skillKey: null })).toBe('task_alt');
+  });
+  it('the board searches with this, not a copy of its own', () => {
+    expect(readFileSync(join(__dirname, '..', '..', '..', '..', 'apps', 'console', 'components', 'automations', 'automations-board.tsx'), 'utf8')).toContain('filterAutomations(rows, query, filter)');
   });
 });

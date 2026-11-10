@@ -4,4 +4,4 @@ export { AUTOMATION_RUNNERS, type AutomationRunner, type RunnerDeps } from './ru
 export { claimDueAutomations, driveAutomationRun, runAutomationNow, runAutomationTick } from './tick';
 export { listEveryAutomation, type AutomationRow } from './list';
 export { automationDetail, automationsOfChat } from './detail';
-export { AUTOMATION_KEY, type AutomationDetail, type RunProgress } from './detail-types';
+export { AUTOMATION_KEY, automationIcon, automationRowHref, filterAutomations, type AutomationDetail, type AutomationFilter, type RunProgress } from './detail-types';

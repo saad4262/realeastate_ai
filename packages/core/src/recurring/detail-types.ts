@@ -16,3 +16,29 @@ export type AutomationDetail = AutomationRow & {
 };
 
 export const AUTOMATION_KEY = /^(recurring|workflow|task|ai_skill):[0-9a-f-]{36}$/i;
+
+/** Its own chat, with the panel beside it, when it is this person's; otherwise the panel on Skills. A chat is only its author's. */
+export function automationRowHref(row: Pick<AutomationRow, 'key' | 'mine' | 'conversationId'>, home: string, base: string): string {
+  return row.mine && row.conversationId ? `${home}?c=${row.conversationId}&automation=${row.key}` : `${base}&open=${row.key}`;
+}
+
+export type AutomationFilter = 'all' | 'active' | 'off' | 'finished';
+
+/** The Automations tab's search and filter: words anywhere in its name, what it does, its skill, when, or whose it is. */
+export function filterAutomations<T extends Pick<AutomationRow, 'name' | 'what' | 'skill' | 'when' | 'owner' | 'state'>>(rows: readonly T[], query: string, filter: AutomationFilter): T[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return rows.filter((r) => {
+    if (filter !== 'all' && r.state !== filter) return false;
+    const text = [r.name, r.what, r.skill, r.when, r.owner ?? ''].join(' ').toLowerCase();
+    return words.every((w) => text.includes(w));
+  });
+}
+
+/** The icon a row shows: its skill's. */
+export function automationIcon(row: Pick<AutomationRow, 'source' | 'skillKey'>): string {
+  if (row.skillKey === 'email') return 'mail';
+  if (row.skillKey === 'sms') return 'sms';
+  if (row.source === 'ai_skill') return 'auto_awesome';
+  if (row.source === 'task') return 'task_alt';
+  return 'account_tree';
+}

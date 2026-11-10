@@ -48,3 +48,32 @@ export function AutomationControls({ source, id, on, canToggle, canRun, onDone }
     </span>
   );
 }
+
+/** The on/off of one automation card, in the Platform skills switch's look: it moves at once and settles when the server answers. */
+export function AutomationSwitch({ source, id, name, on, disabled, className }: { source: Source; id: string; name: string; on: boolean; disabled: boolean; className: string }) {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [shown, setShown] = useState(on);
+  const [pending, setPending] = useState(false);
+  const flip = async () => {
+    const next = !shown;
+    setShown(next);
+    setPending(true);
+    const run =
+      source === 'recurring'
+        ? setAutomationStatusAction(id, next ? 'active' : 'paused')
+        : source === 'workflow'
+          ? setWorkflowStatusAction(id, next ? 'active' : 'paused')
+          : setSkillEnabledAction(id, next);
+    const r = await run.catch(() => ({ ok: false as const, error: 'That did not work. Please try again.' }));
+    setPending(false);
+    if (!r.ok) {
+      setShown(!next);
+      toast({ title: 'Not changed', description: 'error' in r ? r.error : '', variant: 'error' });
+      return;
+    }
+    toast({ title: `${name} is ${next ? 'on' : 'off'}`, variant: 'success' });
+    router.refresh();
+  };
+  return <button type="button" role="switch" aria-checked={shown} aria-label={name} className={className} disabled={disabled || pending} onClick={() => void flip()} />;
+}
