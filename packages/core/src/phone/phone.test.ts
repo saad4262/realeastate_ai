@@ -31,6 +31,28 @@ describe('Australian numbers (ADR 0070)', () => {
     expect(displayAu('+442079460958')).toBe('+442079460958');
   });
 
+  it('PHONE_TEST_COUNTRY_CODES lets the listed countries in for testing, and nothing else', () => {
+    const none = {} as NodeJS.ProcessEnv;
+    const us = { PHONE_TEST_COUNTRY_CODES: '1' } as NodeJS.ProcessEnv;
+    const usPk = { PHONE_TEST_COUNTRY_CODES: ' 1 , 92 ,abc,61' } as NodeJS.ProcessEnv;
+    // Unset: Australia only, as before.
+    expect(toAuE164('+1 415 555 0100', none)).toBeNull();
+    expect(isAuMobile('+14155550100', none)).toBe(false);
+    // "1": a US number written internationally is read and can be texted.
+    expect(toAuE164('+1 (415) 555-0100', us)).toBe('+14155550100');
+    expect(toAuE164('001 415 555 0100', us)).toBe('+14155550100');
+    expect(isAuMobile('+14155550100', us)).toBe(true);
+    // Never guessed from a number with no country, and other countries stay out.
+    expect(toAuE164('415 555 0100', us)).toBeNull();
+    expect(toAuE164('+92 300 1234567', us)).toBeNull();
+    expect(isAuMobile('+923001234567', us)).toBe(false);
+    expect(toAuE164('+44 20 7946 0958', usPk)).toBeNull();
+    // A list, with junk and Australia itself ignored; Australian landlines still cannot be texted.
+    expect(toAuE164('+92 300 1234567', usPk)).toBe('+923001234567');
+    expect(isAuMobile('+61395551234', usPk)).toBe(false);
+    expect(toAuE164('0412 345 678', usPk)).toBe('+61412345678');
+  });
+
   it('gives the no-reply forwarding code to the agent’s Twilio number, and the code to stop it', () => {
     expect(forwardingCodes('telstra', '+61480999888', 20)).toEqual({ on: '**61*0480999888**20#', off: '##61#' });
     expect(forwardingCodes('optus', '+61480999888', 15).on).toBe('**61*0480999888**15#');

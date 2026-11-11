@@ -7,16 +7,54 @@ import type { TokenKeys } from '../integrations/crypto';
  * and the per-number webhook token. No database, no network.
  */
 
-/** An Australian number in E.164 (+61…), or null when it isn't one. Uses the contacts' phone key rule. */
-export function toAuE164(raw: string | null | undefined): string | null {
-  const key = auPhoneKey(raw);
-  if (!key || !/^61\d{9}$/.test(key)) return null;
-  return `+${key}`;
+/**
+ * TESTING ONLY (the user, 2026-11-11): country calling codes accepted ALONGSIDE Australia, from
+ * PHONE_TEST_COUNTRY_CODES, comma-separated digits: "1" lets a Twilio trial's free US number (and a US
+ * phone) stand in until the client's Australian bundle is approved; "1,92" adds Pakistan.
+ *
+ * Unset = Australia only, which is what real customers get: the Spam Act rules, the 04… wording and the
+ * carrier forwarding codes all assume Australia. Take it off Vercel before the first real agency.
+ *
+ * Read at call time from the server's env. In a browser bundle it is unset, so the browser only ever
+ * sees the Australian rule, which is the stricter one.
+ */
+export function testCountryCodes(env: NodeJS.ProcessEnv = process.env): string[] {
+  return (env.PHONE_TEST_COUNTRY_CODES ?? '')
+    .split(',')
+    .map((c) => c.trim())
+    .filter((c) => /^[1-9]\d{0,2}$/.test(c) && c !== '61');
 }
 
-/** An Australian MOBILE (+614…): the only numbers that can receive a text. */
-export function isAuMobile(e164: string | null | undefined): boolean {
-  return Boolean(e164 && /^\+614\d{8}$/.test(e164));
+/** E.164 digits (no +) in one of the test countries. Calling codes are prefix-free, so startsWith is exact. */
+function inTestCountry(digits: string, env: NodeJS.ProcessEnv): boolean {
+  if (!/^\d{8,15}$/.test(digits)) return false;
+  return testCountryCodes(env).some((c) => digits.startsWith(c));
+}
+
+/**
+ * An Australian number in E.164 (+61…), or null when it isn't one. Uses the contacts' phone key rule.
+ *
+ * With PHONE_TEST_COUNTRY_CODES set, a number in one of those countries is read too, but only when it is
+ * written internationally (+… or 00…): "415 555 0100" with no country is never guessed at.
+ */
+export function toAuE164(raw: string | null | undefined, env: NodeJS.ProcessEnv = process.env): string | null {
+  const key = auPhoneKey(raw);
+  if (key && /^61\d{9}$/.test(key)) return `+${key}`;
+  const v = (raw ?? '').trim();
+  if (!/^(\+|00)/.test(v)) return null;
+  const digits = v.replace(/\D/g, '').replace(/^00/, '');
+  return inTestCountry(digits, env) ? `+${digits}` : null;
+}
+
+/**
+ * An Australian MOBILE (+614…): the only numbers that can receive a text. With PHONE_TEST_COUNTRY_CODES set,
+ * any number in those countries counts too: a US number does not say whether it is a mobile, and in a test
+ * Twilio says so itself if it cannot take a text.
+ */
+export function isAuMobile(e164: string | null | undefined, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (!e164) return false;
+  if (/^\+614\d{8}$/.test(e164)) return true;
+  return e164.startsWith('+') && inTestCountry(e164.slice(1), env);
 }
 
 /** "+61480999888" → "0480 999 888", "+61395551234" → "(03) 9555 1234"; anything else unchanged. */
