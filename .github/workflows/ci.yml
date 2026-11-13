@@ -29,3 +29,6 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+      # A critical advisory in a production dependency fails the build. Next.js 15.5.25 carried an
+      # unauthenticated RCE for weeks with every check above green; this is the check that would have said so.
+      - run: pnpm audit --prod --audit-level=critical
