@@ -4,7 +4,7 @@ import { checkAssistantBudget } from '../assistant/budget';
 import { checkEmailLimits, emailLimitsFromEnv } from '../email/limits';
 import { can, type Actor } from '../permissions';
 import { DEFAULT_TEXTS_PER_NUMBER_DAY, textsFromNumberToday } from '../phone/sms-rules';
-import type { BudgetWindow } from '../schedules/budget';
+import type { BudgetWindow } from '../ai-budget';
 
 /**
  * What one person has used in the last 24 hours, against the limits (ADR 0088). Asks the same functions

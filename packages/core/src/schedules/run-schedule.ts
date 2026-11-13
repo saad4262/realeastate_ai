@@ -11,7 +11,7 @@ import { describeSavedQuery, savedQueryToPath, type SavedSearchQuery } from '../
 import type { PublicListingSummary, PublicSearchQuery } from '../listings/search-listings';
 import type { ResolvedPlace } from '../geo/place-schema';
 import { pruneOldChats } from '../chat/threads';
-import { checkAiBudget } from './budget';
+import { checkAiBudget } from '../ai-budget';
 import { claimDueSchedules, DEFAULT_CLAIM_LIMIT, type ClaimedSchedule } from './claim';
 import { pausedConsumerSkills } from '../consumer-skills/catalog';
 import { alertExtras } from './alert-extras';

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { consumerSkillBlocks, consumerSkillOffMessage } from '@repo/core/consumer-skills';
 import { asState, buildRenovationPlan, renovationListing, RenovationError, ROOM_TYPES } from '@repo/core/renovation';
 import { renovationAiFromEnv } from '@repo/ai/renovation';
+import { aiBudgetAllows } from '@repo/core/ai-budget';
 import { getWebDb } from '../../../lib/db';
 import { rateLimiter } from '../../../lib/rate-limit';
 import { currentWebUser } from '../../../lib/session';
@@ -40,6 +41,8 @@ export async function POST(request: NextRequest) {
   const block = (await consumerSkillBlocks(db, user ? { userId: user.id } : null)).get('renovation');
   if (block) return fail(403, consumerSkillOffMessage('renovation', block));
   if (limits.overDailyCap()) return fail(503, 'The AI is resting for today. Try again tomorrow.');
+  // The platform's AI budget (AI_DAILY_BUDGET_USD over ai_run): shared by every instance, unlike the cap above.
+  if (!(await aiBudgetAllows(db))) return fail(503, 'The AI is resting for today. Try again tomorrow.');
 
   const { request: words, listingId, rooms } = parsed.data;
   let state = asState(parsed.data.state);

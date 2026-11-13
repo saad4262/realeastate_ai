@@ -31,6 +31,7 @@
     "./listings/url": "./src/listings/search-url.ts",
     "./email": "./src/email/index.ts",
     "./chat": "./src/chat/threads.ts",
+    "./ai-budget": "./src/ai-budget/index.ts",
     "./schedules": "./src/schedules/index.ts",
     "./schedules/schema": "./src/schedules/schedule-schema.ts",
     "./schedules/next-run": "./src/schedules/next-run.ts",

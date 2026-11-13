@@ -6,6 +6,7 @@ import { stripQuotedReply } from './body';
 import { holderOf, isSkillOn } from '../skill-switches/switches';
 import { skillOffMessage } from '../skill-switches/catalog';
 import { MAX_REPLY_INSTRUCTION, REPLY_TONES, type ReplyTone } from './mail-schema';
+import { capUsd, checkAiBudget } from '../ai-budget';
 
 /**
  * The inbox's assistant (ADR 0062, ROADMAP 1.6): a summary of one conversation and a reply drafted into
@@ -45,19 +46,10 @@ export class ReplyAssistError extends Error {
   }
 }
 
-function capFrom(raw: string | undefined, fallback: number): number {
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : fallback;
-}
-
 /** Today's spend on the inbox assistant for this agency, and on AI overall, under their caps. */
 export async function inboxAiAllowed(db: Db, agencyId: string, env: NodeJS.ProcessEnv, now: Date): Promise<boolean> {
-  const since = new Date(now.getTime() - 24 * 3_600_000).toISOString();
-  const [row] = await db.execute<{ agency: string; total: string }>(sql`
-    select
-      coalesce((select sum(r.cost_usd) from ai_run r where r.agency_id = ${agencyId} and r.feature in (${INBOX_SUMMARY_FEATURE}, ${INBOX_DRAFT_FEATURE}) and r.created_at >= ${since}), 0) as agency,
-      coalesce((select sum(r.cost_usd) from ai_run r where r.created_at >= ${since}), 0) as total`);
-  return Number(row?.total ?? 0) < capFrom(env.AI_DAILY_BUDGET_USD, 5) && Number(row?.agency ?? 0) < capFrom(env.INBOX_AI_DAILY_BUDGET_USD_PER_AGENCY, 2);
+  const agency = { id: agencyId, features: [INBOX_SUMMARY_FEATURE, INBOX_DRAFT_FEATURE], capUsd: capUsd(env.INBOX_AI_DAILY_BUDGET_USD_PER_AGENCY, 2) };
+  return (await checkAiBudget(db, { now, env, agency })).allowed;
 }
 
 /** The figure-like tokens in a text: prices, times, counts, dates' parts. */

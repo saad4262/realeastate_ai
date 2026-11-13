@@ -4,6 +4,7 @@ import { InspectionSummaryError, runInspectionSummary } from '@repo/core/inspect
 import { inspectionSummaryWriterFromEnv } from '@repo/ai/inspections';
 import { consumerSkillBlocks, consumerSkillOffMessage } from '@repo/core/consumer-skills';
 import { ensureConsumerAccount } from '../../../../lib/account';
+import { aiBudgetAllows } from '@repo/core/ai-budget';
 import { getWebDb } from '../../../../lib/db';
 import { rateLimiter } from '../../../../lib/rate-limit';
 
@@ -30,6 +31,8 @@ export async function POST(request: NextRequest) {
   const block = (await consumerSkillBlocks(db, actor)).get('inspection_notes');
   if (block) return fail(403, consumerSkillOffMessage('inspection_notes', block));
   if (limits.overDailyCap()) return fail(503, 'The AI is resting for today. Your notes are all here.');
+  // The platform's AI budget (AI_DAILY_BUDGET_USD over ai_run): shared by every instance, unlike the cap above.
+  if (!(await aiBudgetAllows(db))) return fail(503, 'The AI is resting for today. Your notes are all here.');
   try {
     return NextResponse.json(await runInspectionSummary(db, actor, inspectionSummaryWriterFromEnv(db), parsed.data.listingIds), { headers: { 'cache-control': 'private, no-store' } });
   } catch (err) {

@@ -213,11 +213,12 @@ describe('parseHelpReply', () => {
 function gateDb(rows: { help: number; spend: string }) {
   let queries = 0;
   const db = {
-    select: (shape: Record<string, unknown>) => {
-      const answer = 'n' in shape ? [{ n: rows.help }] : [{ total: rows.spend }];
-      const chain = { from: () => chain, where: () => chain, then: (res: (v: unknown) => unknown) => ((queries += 1), Promise.resolve(answer).then(res)) };
+    select: () => {
+      const chain = { from: () => chain, where: () => chain, then: (res: (v: unknown) => unknown) => ((queries += 1), Promise.resolve([{ n: rows.help }]).then(res)) };
       return chain;
     },
+    // The platform's spend: one statement from ai-budget.
+    execute: async () => ((queries += 1), [{ total: rows.spend, person: '0', agency: '0' }]),
   } as unknown as Db;
   return { db, count: () => queries };
 }

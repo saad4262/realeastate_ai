@@ -24,6 +24,7 @@ import {
   requireDraftSecret,
   updateSchedule,
 } from '@repo/core/schedules';
+import { aiBudgetAllows } from '@repo/core/ai-budget';
 import { getWebDb } from '../../../lib/db';
 import { ensureConsumerAccount } from '../../../lib/account';
 import { currentWebUser } from '../../../lib/session';
@@ -404,6 +405,23 @@ export async function POST(request: NextRequest) {
   }
 
   if (overDailyCap()) {
+    return errorResponse(
+      {
+        type: 'error',
+        code: 'daily_cap',
+        message: 'The property guide is resting for today. Try the search page instead.',
+      },
+      503,
+    );
+  }
+
+  /**
+   * The platform's AI budget (AI_DAILY_BUDGET_USD over ai_run, packages/core ai-budget). The cap above
+   * is per instance and resets on a cold start; this one is shared by every instance and every
+   * feature, so the guide stops when the console's AI has, and the other way round. Refused, too,
+   * when the spend cannot be read.
+   */
+  if (!(await aiBudgetAllows(getWebDb()))) {
     return errorResponse(
       {
         type: 'error',

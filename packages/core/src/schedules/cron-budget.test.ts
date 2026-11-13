@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decideBudget } from './budget';
+import { decideBudget } from '../ai-budget';
 import { authoriseCronRequest } from './cron-guard';
 
 const SECRET = 'a-cron-secret-value';

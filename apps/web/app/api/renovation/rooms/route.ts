@@ -5,6 +5,7 @@ import { consumerSkillBlocks, consumerSkillOffMessage } from '@repo/core/consume
 import { listingRooms, RenovationError } from '@repo/core/renovation';
 import { renovationAiFromEnv } from '@repo/ai/renovation';
 import { LISTINGS_TAG } from '../../../../lib/cached';
+import { aiBudgetAllows } from '@repo/core/ai-budget';
 import { getWebDb } from '../../../../lib/db';
 import { rateLimiter } from '../../../../lib/rate-limit';
 import { currentWebUser } from '../../../../lib/session';
@@ -31,6 +32,8 @@ export async function POST(request: NextRequest) {
   const block = (await consumerSkillBlocks(db, user ? { userId: user.id } : null)).get('renovation');
   if (block) return fail(403, consumerSkillOffMessage('renovation', block));
   if (limits.overDailyCap()) return fail(503, 'The AI is resting for today. Try again tomorrow.');
+  // The platform's AI budget (AI_DAILY_BUDGET_USD over ai_run): shared by every instance, unlike the cap above.
+  if (!(await aiBudgetAllows(db))) return fail(503, 'The AI is resting for today. Try again tomorrow.');
 
   const { listingId } = parsed.data;
   try {

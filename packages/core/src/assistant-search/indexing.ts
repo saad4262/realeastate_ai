@@ -3,6 +3,7 @@ import { agency, searchEmbedding, type Db } from '@repo/db';
 import { stripQuotedReply } from '../mail/body';
 import { chunkText } from './chunk';
 import { EMBEDDING_DIMENSIONS, type Embedder } from './embedder';
+import { capUsd, platformCapUsd } from '../ai-budget';
 
 /**
  * Keeping `search_embedding` in step with notes, emails and enquiries
@@ -70,11 +71,6 @@ async function pendingSources(db: Db, limit: number): Promise<Source[]> {
   return rows.map((r) => ({ kind: r.kind, agency_id: r.agency_id, id: r.id, contact_id: r.contact_id, text: r.text, inbound: r.inbound === true || (r.inbound as unknown) === 't' }));
 }
 
-function capFrom(raw: string | undefined, fallback: number): number {
-  const n = Number(raw);
-  return raw !== undefined && raw.trim() !== '' && Number.isFinite(n) && n >= 0 ? n : fallback;
-}
-
 /**
  * Agencies whose indexing spend in the last 24 h is under
  * EMBEDDINGS_DAILY_BUDGET_USD_PER_AGENCY (default 0.25) — and none at all once
@@ -83,8 +79,9 @@ function capFrom(raw: string | undefined, fallback: number): number {
 export async function agenciesWithinBudget(db: Db, agencyIds: string[], env: NodeJS.ProcessEnv, now: Date): Promise<Set<string>> {
   if (!agencyIds.length) return new Set();
   const since = new Date(now.getTime() - 24 * 3_600_000).toISOString();
-  const perAgency = capFrom(env.EMBEDDINGS_DAILY_BUDGET_USD_PER_AGENCY, 0.25);
-  const global = capFrom(env.AI_DAILY_BUDGET_USD, 5);
+  // A batch over many agencies keeps its own one statement; the caps are read the one way (ai-budget).
+  const perAgency = capUsd(env.EMBEDDINGS_DAILY_BUDGET_USD_PER_AGENCY, 0.25);
+  const global = platformCapUsd(env);
   // "agency"."id" spelled out: in a one-table select Drizzle renders ${agency.id} as a bare
   // "id", which inside the sub-select would mean ai_run.id — and the cap would never bite.
   const rows = await db

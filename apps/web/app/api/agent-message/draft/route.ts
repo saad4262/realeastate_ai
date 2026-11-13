@@ -4,6 +4,7 @@ import { AgentMessageError, draftAgentMessage } from '@repo/core/agent-messages'
 import { agentMessageWriterFromEnv } from '@repo/ai/acting';
 import { requireDraftSecret } from '@repo/core/schedules';
 import { ensureConsumerAccount } from '../../../../lib/account';
+import { aiBudgetAllows } from '@repo/core/ai-budget';
 import { getWebDb } from '../../../../lib/db';
 import { rateLimiter } from '../../../../lib/rate-limit';
 
@@ -33,6 +34,8 @@ export async function POST(request: NextRequest) {
     return fail(503, 'Drafting is not available on this site just now.');
   }
   const db = getWebDb();
+  // The platform's AI budget (AI_DAILY_BUDGET_USD over ai_run): shared by every instance, unlike the cap above it.
+  if (!(await aiBudgetAllows(db))) return fail(503, 'The AI is resting for today. You can still write your message yourself.');
   try {
     const d = await draftAgentMessage(db, { userId: user.id }, { listingId: parsed.data.listingId, buyerWords: parsed.data.words, latest: parsed.data.words }, { writer: agentMessageWriterFromEnv(db), secret });
     return NextResponse.json({ text: d.text, token: d.token, agencyName: d.agencyName, sentToday: d.sentToday, perDay: d.perDay, source: d.source }, { headers: { 'cache-control': 'private, no-store' } });

@@ -46,6 +46,12 @@ function fakeDb(answers: Record<string, unknown>[][] = []) {
   return { db, seen };
 }
 
+/** The spend statement apart from the automation data's. */
+const split = (seen: { sql: string; params: unknown[] }[]) => ({
+  data: seen.filter((q) => !/from ai_run/.test(q.sql)),
+  budget: seen.filter((q) => /from ai_run/.test(q.sql)),
+});
+
 describe('who may see it', () => {
   it('nothing for someone with no agency, an outsider, or an admin viewing an agency, and no statement runs', async () => {
     const { db, seen } = fakeDb();
@@ -60,8 +66,12 @@ describe('who may see it', () => {
     const { db, seen } = fakeDb();
     await automationStatus(db, agent);
     await runningAutomationCount(db, agent);
-    expect(seen).toHaveLength(5);
-    for (const q of seen) {
+    // The AI budget's statement (usageFor → ai-budget) reads the platform's spend by design; this test
+    // is about the automation data, so it is counted apart.
+    const { data, budget } = split(seen);
+    expect(budget).toHaveLength(1);
+    expect(data).toHaveLength(5);
+    for (const q of data) {
       expect(q.params).toContain(A);
       expect(q.params, q.sql).toContain(AGENT);
     }
@@ -77,8 +87,10 @@ describe('who may see it', () => {
   it('an owner reads the agency, never only their own, and always only this agency', async () => {
     const { db, seen } = fakeDb();
     await automationStatus(db, owner);
-    expect(seen).toHaveLength(4);
-    for (const q of seen) {
+    const { data, budget } = split(seen);
+    expect(budget).toHaveLength(1);
+    expect(data).toHaveLength(4);
+    for (const q of data) {
       expect(q.params).toContain(A);
       expect(q.params).not.toContain(OWNER);
     }

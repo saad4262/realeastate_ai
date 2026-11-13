@@ -6,6 +6,7 @@ import { CONTACT_NOT_FOUND, ContactError } from './list-contacts';
 import { listContactTimeline, type TimelineItem } from './timeline';
 import { contactResource } from './visibility';
 import { getContact, loadContactHead } from './get-contact';
+import { capUsd, checkAiBudget } from '../ai-budget';
 
 /**
  * The profile's summary (ADR 0083 §8): the one model call here, on a button. The model is handed the person's history
@@ -50,11 +51,6 @@ export function summaryLine(item: TimelineItem): string | null {
   }
 }
 
-function capFrom(raw: string | undefined, fallback: number): number {
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : fallback;
-}
-
 export async function summarizeContact(
   db: Db,
   actor: Actor,
@@ -70,12 +66,8 @@ export async function summarizeContact(
   if (!summarizer) throw new ContactError('invalid', 'Summaries are not set up on this server.');
 
   const env = opts.env ?? process.env;
-  const since = new Date((opts.now ?? new Date()).getTime() - 24 * 3_600_000).toISOString();
-  const [spend] = await db.execute<{ agency: string; total: string }>(sql`
-    select
-      coalesce((select sum(r.cost_usd) from ai_run r where r.agency_id = ${head.row.agencyId} and r.feature = ${CONTACT_SUMMARY_FEATURE} and r.created_at >= ${since}), 0) as agency,
-      coalesce((select sum(r.cost_usd) from ai_run r where r.created_at >= ${since}), 0) as total`);
-  if (Number(spend?.total ?? 0) >= capFrom(env.AI_DAILY_BUDGET_USD, 5) || Number(spend?.agency ?? 0) >= capFrom(env.CONTACT_SUMMARY_DAILY_BUDGET_USD_PER_AGENCY, 2)) {
+  const agency = { id: head.row.agencyId, features: [CONTACT_SUMMARY_FEATURE], capUsd: capUsd(env.CONTACT_SUMMARY_DAILY_BUDGET_USD_PER_AGENCY, 2) };
+  if (!(await checkAiBudget(db, { ...(opts.now ? { now: opts.now } : {}), env, agency })).allowed) {
     throw new ContactError('invalid', 'Today’s AI budget is used up. Try again tomorrow.');
   }
 

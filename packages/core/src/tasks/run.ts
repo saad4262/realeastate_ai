@@ -4,7 +4,7 @@ import { escapeHtml, requireSenderFooter, type EmailTransport, type MarketingMes
 import { unsubscribeUrl } from '../email/unsubscribe';
 import { claimDueSchedules, DEFAULT_CLAIM_LIMIT, type ClaimedSchedule } from '../schedules/claim';
 import { toRuntimeQuery, type ScheduleDeps } from '../schedules/run-schedule';
-import { checkAiBudget } from '../schedules/budget';
+import { checkAiBudget } from '../ai-budget';
 import { pausedConsumerSkills } from '../consumer-skills/catalog';
 import { passesVerdictRule } from '../research/assist';
 import { buildTaskReport, type TaskReport } from './report';

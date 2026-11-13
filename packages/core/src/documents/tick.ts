@@ -5,6 +5,7 @@ import { chunkPages } from './chunk-pages';
 import { DOCUMENT_READ_FEATURE, MAX_DOCUMENT_BYTES, documentMimeType, newDocumentKey, titleFromFilename } from './document-schema';
 import { cleanPageText, extractTextLayer, visionRefusal, type DocumentReader, type ExtractVia } from './extract';
 import { downloadDocumentObject, putDocumentObject } from './storage';
+import { capUsd, checkAiBudget } from '../ai-budget';
 
 /**
  * The document tick (ADR 0053 §4, §5, §7), run by /api/cron/documents. Three passes, each
@@ -56,21 +57,10 @@ export type DocumentTickReport = {
   embedded: number;
 };
 
-function capFrom(raw: string | undefined, fallback: number): number {
-  const n = Number(raw);
-  return raw !== undefined && raw.trim() !== '' && Number.isFinite(n) && n >= 0 ? n : fallback;
-}
-
 /** Is this agency still under its daily cap for reading scans (and the platform under AI_DAILY_BUDGET_USD)? */
 async function visionAllowed(db: Db, agencyId: string, env: NodeJS.ProcessEnv, now: Date): Promise<boolean> {
-  const since = new Date(now.getTime() - 24 * 3_600_000).toISOString();
-  const [row] = await db.execute<{ agency: string; total: string }>(sql`
-    select
-      coalesce((select sum(r.cost_usd) from ai_run r where r.agency_id = ${agencyId} and r.feature = ${DOCUMENT_READ_FEATURE} and r.created_at >= ${since}), 0) as agency,
-      coalesce((select sum(r.cost_usd) from ai_run r where r.created_at >= ${since}), 0) as total`);
-  const perAgency = capFrom(env.DOCUMENTS_VISION_DAILY_BUDGET_USD_PER_AGENCY, 1);
-  const global = capFrom(env.AI_DAILY_BUDGET_USD, 5);
-  return Number(row?.total ?? 0) < global && Number(row?.agency ?? 0) < perAgency;
+  const agency = { id: agencyId, features: [DOCUMENT_READ_FEATURE], capUsd: capUsd(env.DOCUMENTS_VISION_DAILY_BUDGET_USD_PER_AGENCY, 1) };
+  return (await checkAiBudget(db, { now, env, agency })).allowed;
 }
 
 type Claimed = { id: string; agency_id: string; storage_key: string; mime_type: string; size_bytes: number; uploaded_by: string | null; attempts: number };

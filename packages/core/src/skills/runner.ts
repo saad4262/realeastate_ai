@@ -4,7 +4,7 @@ import { agentSkill, membership, skill, skillRun, user, type Db } from '@repo/db
 import { can, type Actor, type MembershipRole } from '../permissions';
 import { requireIntegrations } from '../integrations/accounts';
 import { PROVIDERS } from '../integrations/providers';
-import { checkAiBudget } from '../schedules/budget';
+import { checkAiBudget } from '../ai-budget';
 import { nextRunFor } from '../schedules/next-run';
 import { buildSkillResultEmail, type EmailTransport, type SenderIdentity } from '../email';
 import { checkCitedText, parseRankedLines } from './citations';

@@ -13,7 +13,7 @@ export { savedQueryToPath, describeSavedQuery, parseSearchParams } from '../list
 
 export { authoriseCronRequest, type CronAuth } from './cron-guard';
 
-export { checkAiBudget, decideBudget, type BudgetDecision, type BudgetWindow } from './budget';
+export { checkAiBudget, decideBudget, type BudgetDecision, type BudgetWindow } from '../ai-budget';
 
 export {
   claimDueSchedules,

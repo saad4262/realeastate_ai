@@ -4,6 +4,7 @@ import type { Actor } from '../permissions';
 import { isSkillOn } from '../skill-switches/switches';
 import { stripQuotedReply } from '../mail/body';
 import { NOT_SURE, type Decide, type WorkflowAction, type WorkflowSpec } from './catalog';
+import { capUsd, checkAiBudget } from '../ai-budget';
 
 /**
  * "AI decides" (ADR 0067, ROADMAP 4.2): at the start of a run, the AI reads the trigger's record and picks
@@ -48,11 +49,6 @@ export async function decisionText(db: Db, f: { agencyId: string; leadId: string
   return null;
 }
 
-function capFrom(raw: string | undefined, fallback: number): number {
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : fallback;
-}
-
 /**
  * The features that share the agency's daily workflow-AI budget: "AI decides" (ADR 0067) and "AI understands"
  * (ADR 0078, `lead:understand` — named here as text so leads/understand.ts can import this file).
@@ -61,12 +57,8 @@ const SHARED_BUDGET_FEATURES = [WORKFLOW_DECIDE_FEATURE, 'lead:understand'];
 
 /** Today's spend on workflow AI for this agency, and on AI overall, under their caps. */
 export async function workflowAiAllowed(db: Db, agencyId: string, env: NodeJS.ProcessEnv, now: Date): Promise<boolean> {
-  const since = new Date(now.getTime() - 24 * 3_600_000).toISOString();
-  const [row] = await db.execute<{ agency: string; total: string }>(sql`
-    select
-      coalesce((select sum(r.cost_usd) from ai_run r where r.agency_id = ${agencyId} and r.feature in (${sql.join(SHARED_BUDGET_FEATURES.map((f) => sql`${f}`), sql`, `)}) and r.created_at >= ${since}), 0) as agency,
-      coalesce((select sum(r.cost_usd) from ai_run r where r.created_at >= ${since}), 0) as total`);
-  return Number(row?.total ?? 0) < capFrom(env.AI_DAILY_BUDGET_USD, 5) && Number(row?.agency ?? 0) < capFrom(env.WORKFLOW_AI_DAILY_BUDGET_USD_PER_AGENCY, 2);
+  const agency = { id: agencyId, features: SHARED_BUDGET_FEATURES, capUsd: capUsd(env.WORKFLOW_AI_DAILY_BUDGET_USD_PER_AGENCY, 2) };
+  return (await checkAiBudget(db, { now, env, agency })).allowed;
 }
 
 /** The chosen label's steps, or the workflow's own ("Not sure"). Pure. */

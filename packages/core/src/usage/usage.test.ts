@@ -25,6 +25,12 @@ function tableDb(answers: Record<string, unknown[]>) {
       };
       return chain;
     },
+    // The AI budget's one statement (ai-budget, over ai_run): the fixture's ai_run row, `all` as `total`.
+    execute: async () => {
+      queries += 1;
+      const r = (answers.ai_run?.[0] ?? {}) as { all?: string; person?: string; agency?: string };
+      return [{ total: r.all ?? '0', person: r.person ?? '0', agency: r.agency ?? '0' }];
+    },
   } as unknown as Db;
   return { db, count: () => queries };
 }

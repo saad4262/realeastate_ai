@@ -1,7 +1,6 @@
-import { gte, sql, and } from 'drizzle-orm';
-import { aiRun, type Db } from '@repo/db';
+import type { DbOrTx } from '@repo/db';
 import type { Actor } from '../permissions';
-import { decideBudget, type BudgetWindow } from '../schedules/budget';
+import { capUsd, checkAiBudget, platformCapUsd, type BudgetWindow } from '../ai-budget';
 
 /** The `ai_run.feature` every assistant request is metered under. */
 export const ASSISTANT_FEATURE = 'assistant';
@@ -16,23 +15,13 @@ export type AssistantBudget = {
   agency: BudgetWindow;
 };
 
-function cap(raw: string | undefined, fallback: number): number {
-  const n = Number(raw);
-  return raw !== undefined && raw.trim() !== '' && Number.isFinite(n) && n >= 0 ? n : fallback;
-}
-
 /** The limits as the server reads them: the checks below and the admin's AI cost page must agree. */
 export function aiBudgetCaps(env: NodeJS.ProcessEnv = process.env): { platform: number; person: number; agency: number } {
   return {
-    platform: cap(env.AI_DAILY_BUDGET_USD, 5),
-    person: cap(env.ASSISTANT_DAILY_BUDGET_USD_PER_USER, 1),
-    agency: cap(env.ASSISTANT_DAILY_BUDGET_USD_PER_AGENCY, 10),
+    platform: platformCapUsd(env),
+    person: capUsd(env.ASSISTANT_DAILY_BUDGET_USD_PER_USER, 1),
+    agency: capUsd(env.ASSISTANT_DAILY_BUDGET_USD_PER_AGENCY, 10),
   };
-}
-
-function num(v: unknown): number {
-  const n = typeof v === 'number' ? v : Number(v ?? 0);
-  return Number.isFinite(n) ? n : 0;
 }
 
 /**
@@ -50,35 +39,30 @@ function num(v: unknown): number {
  * console.
  */
 export async function checkAssistantBudget(
-  db: Db,
+  db: DbOrTx,
   actor: Actor,
   opts: { now?: Date; env?: NodeJS.ProcessEnv } = {},
 ): Promise<AssistantBudget> {
   const env = opts.env ?? process.env;
-  const since = new Date((opts.now ?? new Date()).getTime() - 24 * 60 * 60 * 1000);
-  const agencyId = actor.agencyId ?? '00000000-0000-0000-0000-000000000000';
-
-  const [row] = await db
-    .select({
-      all: sql<string>`coalesce(sum(${aiRun.costUsd}), 0)`,
-      person: sql<string>`coalesce(sum(${aiRun.costUsd}) filter (where ${aiRun.feature} = ${ASSISTANT_FEATURE} and ${aiRun.userId} = ${actor.userId}), 0)`,
-      agency: sql<string>`coalesce(sum(${aiRun.costUsd}) filter (where ${aiRun.feature} = ${ASSISTANT_FEATURE} and ${aiRun.agencyId} = ${agencyId}), 0)`,
-    })
-    .from(aiRun)
-    .where(and(gte(aiRun.createdAt, since)));
-
   const caps = aiBudgetCaps(env);
-  const global = decideBudget(num(row?.all), caps.platform);
-  const person = decideBudget(num(row?.person), caps.person);
-  const agency = decideBudget(num(row?.agency), caps.agency);
+  const agencyId = actor.agencyId ?? '00000000-0000-0000-0000-000000000000';
+  const b = await checkAiBudget(db, {
+    ...(opts.now ? { now: opts.now } : {}),
+    env,
+    user: { id: actor.userId, features: [ASSISTANT_FEATURE], capUsd: caps.person },
+    agency: { id: agencyId, features: [ASSISTANT_FEATURE], capUsd: caps.agency },
+  });
+  const global = b.global;
+  const person = b.user!;
+  const agency = b.agency!;
 
-  if (global.exceeded) {
+  if (b.reason === 'global_cap') {
     return { allowed: false, reason: 'global_cap', message: 'The assistant has reached today’s platform limit. Try again tomorrow.', global, person, agency };
   }
-  if (person.exceeded) {
+  if (b.reason === 'user_cap') {
     return { allowed: false, reason: 'person_cap', message: 'You have reached your assistant limit for today. It resets over the next 24 hours.', global, person, agency };
   }
-  if (agency.exceeded) {
+  if (b.reason === 'agency_cap') {
     return { allowed: false, reason: 'agency_cap', message: 'Your agency has reached its assistant limit for today.', global, person, agency };
   }
   return { allowed: true, reason: null, message: null, global, person, agency };

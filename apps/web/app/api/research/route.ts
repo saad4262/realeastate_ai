@@ -5,6 +5,7 @@ import { consumerSkillBlocks, consumerSkillOffMessage, type ConsumerSkillKey } f
 import { runResearch, ResearchError, type ResearchAsk } from '@repo/core/research';
 import { researchWriterFromEnv } from '@repo/ai/research';
 import { LISTINGS_TAG } from '../../../lib/cached';
+import { aiBudgetAllows } from '@repo/core/ai-budget';
 import { getWebDb } from '../../../lib/db';
 import { rateLimiter } from '../../../lib/rate-limit';
 import { currentWebUser } from '../../../lib/session';
@@ -39,6 +40,8 @@ export async function POST(request: NextRequest) {
   const block = (await consumerSkillBlocks(db, user ? { userId: user.id } : null)).get(SKILL[ask.kind]);
   if (block) return fail(403, consumerSkillOffMessage(SKILL[ask.kind], block));
   if (limits.overDailyCap()) return fail(503, 'The AI is resting for today. Every figure is still on the page.');
+  // The platform's AI budget (AI_DAILY_BUDGET_USD over ai_run): shared by every instance, unlike the cap above.
+  if (!(await aiBudgetAllows(db))) return fail(503, 'The AI is resting for today. Every figure is still on the page.');
 
   const key = ask.kind === 'suburb' ? [ask.state, ask.suburb.toLowerCase()] : ask.kind === 'compare' ? [ask.buyer, ...ask.listingIds] : [ask.listingId];
   try {

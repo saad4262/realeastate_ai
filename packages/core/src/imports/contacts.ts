@@ -7,6 +7,7 @@ import { auPhoneKey } from '../contacts/phone';
 import { normalizeContactRow, type CellError, type ContactImportMapping, type NormalizedContact } from './contact-columns';
 import { applyFix, IMPORT_CLEAN_FEATURE, IMPORT_MAP_FEATURE, rowToClean, type RowCleaner, type RowFix, type RowToClean } from './contact-ai';
 import { agencyTimeZone } from '../widgets/registry';
+import { capUsd, checkAiBudget } from '../ai-budget';
 
 /**
  * Contacts import (ADR 0029 amendment, "Contacts import"): the listing import's job with its own
@@ -18,24 +19,13 @@ import { agencyTimeZone } from '../widgets/registry';
 type ImportRow = typeof listingImport.$inferSelect;
 const CHUNK = 100;
 
-function capFrom(raw: string | undefined, fallback: number): number {
-  const n = Number(raw);
-  return raw !== undefined && raw.trim() !== '' && Number.isFinite(n) && n >= 0 ? n : fallback;
-}
-
 /**
  * Is this agency under its daily cap for import AI (ADR 0056), and the platform under AI_DAILY_BUDGET_USD?
  * The same advisory ceiling as the document reader's: read from `ai_run`, no second ledger.
  */
 export async function importAiAllowed(db: Db, agencyId: string, env: NodeJS.ProcessEnv, now: Date): Promise<boolean> {
-  const since = new Date(now.getTime() - 24 * 3_600_000).toISOString();
-  const [row] = await db.execute<{ agency: string; total: string }>(sql`
-    select
-      coalesce((select sum(r.cost_usd) from ai_run r where r.agency_id = ${agencyId} and r.feature in (${IMPORT_MAP_FEATURE}, ${IMPORT_CLEAN_FEATURE}) and r.created_at >= ${since}), 0) as agency,
-      coalesce((select sum(r.cost_usd) from ai_run r where r.created_at >= ${since}), 0) as total`);
-  const perAgency = capFrom(env.IMPORT_AI_DAILY_BUDGET_USD_PER_AGENCY, 1);
-  const global = capFrom(env.AI_DAILY_BUDGET_USD, 5);
-  return Number(row?.total ?? 0) < global && Number(row?.agency ?? 0) < perAgency;
+  const agency = { id: agencyId, features: [IMPORT_MAP_FEATURE, IMPORT_CLEAN_FEATURE], capUsd: capUsd(env.IMPORT_AI_DAILY_BUDGET_USD_PER_AGENCY, 1) };
+  return (await checkAiBudget(db, { now, env, agency })).allowed;
 }
 
 type Checked = { id: string; rowNumber: number; raw: unknown; row: NormalizedContact | null; errors: CellError[]; aiChanges?: CellError[] };

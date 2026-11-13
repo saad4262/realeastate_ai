@@ -6,6 +6,7 @@ import { skillOffMessage } from '../skill-switches/catalog';
 import { unsupportedFigures } from '../mail/reply-assist';
 import { DEAL_STAGE_LABELS } from '../deals/stages';
 import { audWhole, getPropertyView, listingStatusWords, type PropertyView } from './property-page';
+import { capUsd, checkAiBudget } from '../ai-budget';
 
 /**
  * A property's summary (ADR 0065 §5): on a button, never saved. Core turns what this person may see on the
@@ -153,19 +154,10 @@ export function checkPropertySummary(points: readonly PropertySummaryPoint[], re
   return out;
 }
 
-function capFrom(raw: string | undefined, fallback: number): number {
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : fallback;
-}
-
 /** Today's spend on property summaries for this agency, and on AI overall, under their caps. */
 export async function propertyAiAllowed(db: Db, agencyId: string, env: NodeJS.ProcessEnv, now: Date): Promise<boolean> {
-  const since = new Date(now.getTime() - 24 * 3_600_000).toISOString();
-  const [row] = await db.execute<{ agency: string; total: string }>(sql`
-    select
-      coalesce((select sum(r.cost_usd) from ai_run r where r.agency_id = ${agencyId} and r.feature = ${PROPERTY_SUMMARY_FEATURE} and r.created_at >= ${since}), 0) as agency,
-      coalesce((select sum(r.cost_usd) from ai_run r where r.created_at >= ${since}), 0) as total`);
-  return Number(row?.total ?? 0) < capFrom(env.AI_DAILY_BUDGET_USD, 5) && Number(row?.agency ?? 0) < capFrom(env.PROPERTY_AI_DAILY_BUDGET_USD_PER_AGENCY, 2);
+  const agency = { id: agencyId, features: [PROPERTY_SUMMARY_FEATURE], capUsd: capUsd(env.PROPERTY_AI_DAILY_BUDGET_USD_PER_AGENCY, 2) };
+  return (await checkAiBudget(db, { now, env, agency })).allowed;
 }
 
 /** "Summarise this property": up to six points, each citing the records it came from. */

@@ -1,7 +1,7 @@
 import { and, count, eq, gte } from 'drizzle-orm';
 import { aiRun, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
-import { checkAiBudget } from '../schedules/budget';
+import { checkAiBudget } from '../ai-budget';
 import { HELP_FEATURE, HELP_LIMITS } from './pages';
 
 export * from './pages';
