@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { SESSION_HEADER_PREFIXES, updateSession } from '@repo/auth/middleware';
+import { safeLocalPath } from '@repo/auth/safe-path';
 
 /**
  * Sessions on the consumer site.
@@ -100,10 +101,8 @@ export async function middleware(request: NextRequest) {
     // login redirect is an open redirect, and this one would be reachable
     // from any emailed link. Resolved against this request's own origin, so a
     // query in it (an emailed link's token) survives as a query.
-    const dest = new URL(
-      next && next.startsWith('/') && !next.startsWith('//') ? next : '/alerts',
-      request.nextUrl.origin,
-    );
+    // (`/\evil.example` resolved here was `https://evil.example/`: see safeLocalPath.)
+    const dest = new URL(safeLocalPath(next, '/alerts'), request.nextUrl.origin);
     const redirect = NextResponse.redirect(dest);
     // Whole cookies: name+value alone drops Domain/Max-Age — see packages/auth.
     response.cookies.getAll().forEach((c) => redirect.cookies.set(c));

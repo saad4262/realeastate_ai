@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { safeLocalPath } from '@repo/auth/safe-path';
 import { createServerSupabaseClient } from '@repo/auth/server';
 
 export const dynamic = 'force-dynamic';
@@ -33,7 +34,7 @@ function originOf(request: NextRequest): string {
 
 /** Relative only: `next` is user input, and an absolute value would make this an open redirect. */
 function safeNext(value: unknown): string {
-  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.startsWith('/\\') ? value : '/login';
+  return safeLocalPath(value, '/login');
 }
 
 export async function POST(request: NextRequest) {

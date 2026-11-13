@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { createBrowserSupabaseClient } from '@repo/auth/client';
+import { safeLocalPath } from '@repo/auth/safe-path';
 import { syncAccountAction } from '../account-actions';
 import styles from '../auth.module.css';
 
@@ -48,7 +49,8 @@ export function LoginForm({
     // Past this point the session exists and the cookies are set. Whatever
     // happens next, this form must not be where the user ends up — leaving a
     // signed-in person staring at a sign-in box is the worst of both states.
-    let destination = nextPath || '/';
+    // Checked again here, at the sink: the page checks it too, but this line is what navigates.
+    let destination = safeLocalPath(nextPath, '/');
 
     try {
       // Identity is re-read from the session server-side — never passed from here.

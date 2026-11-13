@@ -2,6 +2,7 @@
 
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { safeLocalPath } from '@repo/auth/safe-path';
 import { createServerSupabaseClient } from '@repo/auth/server';
 import { ensureAppUser } from '@repo/core/identity';
 import { getWebDb } from '../../lib/db';
@@ -43,8 +44,7 @@ function originOf(host: string | null): string {
 
 /** Relative only. This value lands an authenticated session. */
 function safeNext(value: FormDataEntryValue | null): string {
-  const candidate = typeof value === 'string' ? value : '';
-  return candidate.startsWith('/') && !candidate.startsWith('//') ? candidate : '/alerts';
+  return safeLocalPath(value, '/alerts');
 }
 
 function field(data: FormData, name: string): string {

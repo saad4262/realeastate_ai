@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { cookieDomainFor } from '@repo/auth/cookie-domain';
 import { updateSession } from '@repo/auth/middleware';
+import { safeLocalPath } from '@repo/auth/safe-path';
 
 export type ConsoleSurface = 'agent' | 'agency' | 'admin';
 
@@ -154,11 +155,9 @@ export async function middleware(request: NextRequest) {
 
   // Signed-in users should not linger on login/signup
   if (userId && isAuthEntry && isPageVisit && !carriesInvite && !carriesError) {
-    const dest = request.nextUrl.clone();
     const next = request.nextUrl.searchParams.get('next');
-    dest.pathname =
-      next && next.startsWith('/') ? next : homePath(surface);
-    dest.search = '';
+    // A path on this host only (safeLocalPath), resolved against this origin so its own query survives.
+    const dest = new URL(safeLocalPath(next, homePath(surface)), request.nextUrl.origin);
     const redirect = NextResponse.redirect(dest);
     // Whole cookies: name+value alone drops Domain/Max-Age — see packages/auth.
     response.cookies.getAll().forEach((c) => redirect.cookies.set(c));

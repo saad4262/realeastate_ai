@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { createBrowserSupabaseClient } from '@repo/auth/client';
+import { safeLocalPath } from '@repo/auth/safe-path';
 import { syncAccountAction } from '../account-actions';
 import styles from '../auth.module.css';
 
@@ -94,7 +95,7 @@ export function SignupForm({
       window.location.href = sync.hasMembership
         ? sync.claimed
           ? agentHome
-          : nextPath || '/'
+          : safeLocalPath(nextPath, '/')
         : '/get-started';
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign-up failed');

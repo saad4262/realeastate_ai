@@ -6,6 +6,7 @@ import { getConsoleDb } from '../../../lib/db';
 import { surfaceCopy } from '../../../lib/surface';
 import { AuthShell } from '../auth-shell';
 import { ClaimInvitePanel } from './claim-invite-panel';
+import { safeLocalPath } from '@repo/auth/safe-path';
 import { SignupForm } from './signup-form';
 import styles from '../auth.module.css';
 import { SignOutButton } from '@/components/sign-out-button';
@@ -26,7 +27,7 @@ export default async function SignupPage({
 }) {
   const params = await searchParams;
   const copy = await surfaceCopy();
-  const nextPath = params.next && params.next.startsWith('/') ? params.next : '/';
+  const nextPath = safeLocalPath(params.next, '/');
   const inviteToken = params.invite?.trim() || null;
 
   // Keep the token on the sign-in link — an agent who already has an account

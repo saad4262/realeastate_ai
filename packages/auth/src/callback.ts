@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { safeLocalPath } from './safe-path';
 import { createServerSupabaseClient } from './server';
 
 /**
@@ -42,8 +43,7 @@ export async function handleAuthCallback(request: NextRequest): Promise<NextResp
 
   // Relative only — this value decides where an authenticated session lands,
   // and `//evil.example` is a protocol-relative absolute URL.
-  const next =
-    nextParam && nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : '/';
+  const next = safeLocalPath(nextParam, '/');
 
   const fail = (reason?: string) =>
     NextResponse.redirect(

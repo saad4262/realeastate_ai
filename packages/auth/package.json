@@ -9,7 +9,8 @@
     "./server": "./src/server.ts",
     "./middleware": "./src/middleware.ts",
     "./callback": "./src/callback.ts",
-    "./cookie-domain": "./src/cookie-domain.ts"
+    "./cookie-domain": "./src/cookie-domain.ts",
+    "./safe-path": "./src/safe-path.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

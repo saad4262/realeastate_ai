@@ -5,6 +5,7 @@ import { getConsoleDb } from '../../../lib/db';
 import { ACCESS_BLOCK_MESSAGES } from '@repo/core/platform/access';
 import { surfaceCopy } from '../../../lib/surface';
 import { AuthShell } from '../auth-shell';
+import { safeLocalPath } from '@repo/auth/safe-path';
 import { LoginForm } from './login-form';
 
 export const metadata: Metadata = {
@@ -41,7 +42,7 @@ export default async function LoginPage({
   // relied on a refusal there to bounce them back to their own surface.
   const copy = await surfaceCopy();
   const home = copy.home;
-  const nextPath = params.next && params.next.startsWith('/') ? params.next : home;
+  const nextPath = safeLocalPath(params.next, home);
   const signupHref =
     nextPath !== home ? `/signup?next=${encodeURIComponent(nextPath)}` : '/signup';
   const bannerError =
