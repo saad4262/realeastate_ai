@@ -1,5 +1,6 @@
 import type { NextConfig } from 'next';
 import { withSentryConfig } from '@sentry/nextjs/config';
+import { securityHeaders } from '@repo/core/http/security-headers';
 
 const nextConfig: NextConfig = {
   /**
@@ -9,6 +10,10 @@ const nextConfig: NextConfig = {
    * build somewhere else entirely and never touch the running one.
    */
   distDir: process.env.NEXT_DIST_DIR || '.next',
+  /** Clickjacking, sniffing, referrer, HSTS and a report-only CSP on every response (packages/core/src/http/security-headers.ts). */
+  async headers() {
+    return [{ source: '/:path*', headers: securityHeaders('console') }];
+  },
   transpilePackages: ['@repo/ui', '@repo/auth', '@repo/core', '@repo/db', '@repo/config', '@repo/ai'],
   /**
    * The Postgres parser behind open questions (ADR 0042 L1) is WebAssembly that reads its .wasm

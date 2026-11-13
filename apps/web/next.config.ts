@@ -1,6 +1,7 @@
 import type { NextConfig } from 'next';
 import { withSentryConfig } from '@sentry/nextjs/config';
 import { mediaHostname } from '@repo/core/media/url';
+import { securityHeaders } from '@repo/core/http/security-headers';
 
 /** Null when Supabase is not configured — then no remote host is allowed. */
 const mediaHost = mediaHostname();
@@ -13,6 +14,10 @@ const nextConfig: NextConfig = {
    * build somewhere else entirely and never touch the running one.
    */
   distDir: process.env.NEXT_DIST_DIR || '.next',
+  /** Clickjacking, sniffing, referrer, HSTS and a report-only CSP on every response (packages/core/src/http/security-headers.ts). */
+  async headers() {
+    return [{ source: '/:path*', headers: securityHeaders('web') }];
+  },
   /**
    * @repo/ai is here so the chat route can import it, which also means a stray
    * *value* import in a client component would pull the Anthropic SDK and the

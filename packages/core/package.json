@@ -55,6 +55,7 @@
     "./profile": "./src/profile/index.ts",
     "./research": "./src/research/index.ts",
     "./observability": "./src/observability/sentry-options.ts",
+    "./http/security-headers": "./src/http/security-headers.ts",
     "./observability/browser": "./src/observability/browser-monitoring.ts",
     "./inspections": "./src/inspections/index.ts",
     "./inspections/open-home-rules": "./src/inspections/open-home-rules.ts",
