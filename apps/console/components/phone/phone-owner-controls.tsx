@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/toast';
-import { connectMyTwilioAction, connectTwilioAction, disconnectTwilioAction, getNumberAction, refreshKycAction, releaseNumberAction, setUpAiCallsAction } from '@/lib/phone-actions';
+import { connectMyTwilioAction, connectTwilioAction, disconnectTwilioAction, getNumberAction, refreshKycAction, releaseNumberAction, setUpAiCallsAction, startManagedPhoneAction } from '@/lib/phone-actions';
 import styles from './phone.module.css';
 
 /**
@@ -71,7 +71,28 @@ export function ConnectTwilioForm({ own = false }: { own?: boolean }) {
   );
 }
 
-export function DisconnectTwilio() {
+/** ADR 0090: "set it up for us" — a managed subaccount, nothing to paste. */
+export function StartManagedPhoneButton({ testMode }: { testMode: boolean }) {
+  const { pending, act } = useAct();
+  return (
+    <button
+      type="button"
+      className={styles.btnPrimary}
+      disabled={pending}
+      onClick={() =>
+        act(
+          () => startManagedPhoneAction(),
+          (status) => (status === 'approved' ? (testMode ? 'Phone numbers are ready (test mode, US numbers)' : 'Phone numbers are ready') : 'Set up. Next: your business details'),
+          'Not set up',
+        )
+      }
+    >
+      {pending ? 'Setting up…' : 'Set it up for me'}
+    </button>
+  );
+}
+
+export function DisconnectTwilio({ managed = false }: { managed?: boolean }) {
   const { pending, act } = useAct();
   return (
     <button
@@ -80,11 +101,14 @@ export function DisconnectTwilio() {
       disabled={pending}
       style={{ marginLeft: 'auto' }}
       onClick={() => {
-        if (!window.confirm('Disconnect Twilio? Your agents’ numbers stop working here. The numbers stay on your Twilio account until you release them there.')) return;
-        act(() => disconnectTwilioAction(), (note) => (note ? `Twilio disconnected. ${note}` : 'Twilio disconnected'), 'Not disconnected');
+        const ask = managed
+          ? 'Turn off phone numbers? Every agent’s number is given up for good and cannot be got back. Their texts so far stay in the history.'
+          : 'Disconnect Twilio? Your agents’ numbers stop working here. The numbers stay on your Twilio account until you release them there.';
+        if (!window.confirm(ask)) return;
+        act(() => disconnectTwilioAction(), (note) => (note ? `Twilio disconnected. ${note}` : managed ? 'Phone numbers turned off' : 'Twilio disconnected'), 'Not disconnected');
       }}
     >
-      Disconnect
+      {managed ? 'Turn off' : 'Disconnect'}
     </button>
   );
 }
@@ -107,7 +131,7 @@ export function SetUpAiCallsButton({ again }: { again: boolean }) {
   );
 }
 
-export function GetNumberButton({ agentUserId, name }: { agentUserId: string; name: string }) {
+export function GetNumberButton({ agentUserId, name, managed = false, usTest = false }: { agentUserId: string; name: string; managed?: boolean; usTest?: boolean }) {
   const { pending, act } = useAct();
   return (
     <button
@@ -115,7 +139,12 @@ export function GetNumberButton({ agentUserId, name }: { agentUserId: string; na
       className={styles.btn}
       disabled={pending}
       onClick={() => {
-        if (!window.confirm(`Get ${name} an Australian mobile number on your Twilio account? Twilio charges for it monthly.`)) return;
+        const ask = usTest
+          ? `Get ${name} a US (+1) test number? Test mode: for trying things out, not for customers.`
+          : managed
+            ? `Get ${name} an Australian mobile number? It is charged monthly through your plan.`
+            : `Get ${name} an Australian mobile number on your Twilio account? Twilio charges for it monthly.`;
+        if (!window.confirm(ask)) return;
         act(() => getNumberAction(agentUserId), (display) => `${name}’s number: ${display ?? 'ready'}`, 'No number');
       }}
     >

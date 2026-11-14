@@ -30,7 +30,12 @@ and want to. Most cannot, and stop at sign-up. The user wants both: connect your
    (`TWILIO_MASTER_ACCOUNT_SID`, `TWILIO_MASTER_API_KEY_SID`, `TWILIO_MASTER_API_KEY_SECRET`), never in
    the database. When an owner turns Phone on (not at sign-up: empty subaccounts count toward Twilio's
    1,000 default), the app creates the subaccount, then a Standard key inside it, stored encrypted like
-   a BYO key. A leaked key is one agency; the master key never leaves the server's env.
+   a BYO key. A parent's API key is refused a subaccount's own resources, so that key is made with the
+   subaccount's SID and the auth token Twilio returns once at creation; the token is used for that one
+   call and never stored. If the key or the row cannot be made, the new subaccount is closed. A leaked
+   key is one agency; the master key never leaves the server's env. "Turn off" closes the subaccount
+   (Twilio releases its numbers; it cannot be reopened) before the row is forgotten, and is refused when
+   the server has no master key, so a managed account is never orphaned while it bills the platform.
 4. **KYC.** BYO: read from Twilio, as today. Managed (phase 3): the agency fills a form here (business
    name, ABN, AU address and proof, authorised person and ID); the app creates the end-user, documents
    and bundle in the subaccount and submits. The bundle is always **the agency's business**, never ours.

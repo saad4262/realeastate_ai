@@ -1,10 +1,10 @@
 import Link from 'next/link';
-import { aiCallsStatus, forwardingCodes, FORWARD_SECONDS, getMyPhone, getPhoneSetup, PhoneError, voiceFromEnv, type KycStatus, type PhoneSetupView } from '@repo/core/phone';
+import { aiCallsStatus, forwardingCodes, FORWARD_SECONDS, getMyPhone, getPhoneSetup, managedTwilioFromEnv, PhoneError, voiceFromEnv, type KycStatus, type PhoneSetupView } from '@repo/core/phone';
 import { tokenKeysFromEnv } from '@repo/core/integrations';
 import contactStyles from '@/components/contacts/contacts.module.css';
 import { getConsoleDb } from '../../lib/db';
 import { requireConsoleAccess } from '../../lib/require-console-access';
-import { ConnectTwilioForm, DisconnectTwilio, GetNumberButton, KycCheckButton, ReleaseNumberButton, SetUpAiCallsButton } from './phone-owner-controls';
+import { ConnectTwilioForm, DisconnectTwilio, GetNumberButton, KycCheckButton, ReleaseNumberButton, SetUpAiCallsButton, StartManagedPhoneButton } from './phone-owner-controls';
 import { UseExistingNumberButton } from './existing-number-picker';
 import { MyPhoneSteps } from './my-phone-steps';
 import styles from './phone.module.css';
@@ -41,7 +41,7 @@ export async function PhoneSetupScreen() {
   const keys = keysOrNull();
   let view: PhoneSetupView;
   try {
-    view = await getPhoneSetup(getConsoleDb(), session.actor, { keys });
+    view = await getPhoneSetup(getConsoleDb(), session.actor, { keys, managed: managedTwilioFromEnv() });
   } catch (err) {
     return <p role="alert">{err instanceof PhoneError ? err.message : 'Could not load the phone setup.'}</p>;
   }
@@ -58,7 +58,7 @@ export async function PhoneSetupScreen() {
         <h1 className={contactStyles.title}>Phone &amp; SMS</h1>
         <p className={contactStyles.sub}>
           Your agents keep their own phones. Only the calls they miss come here, and they can text people from their own number.
-          The agency uses its own Twilio account, and Twilio bills the agency directly.
+          We can run the numbers for you, or you connect the agency’s own Twilio account.
         </p>
       </div>
 
@@ -74,23 +74,43 @@ export async function PhoneSetupScreen() {
         <section className={styles.step} aria-labelledby="s1">
           <div className={styles.stepHead}>
             <span className={`${styles.stepNum} ${a ? styles.stepDone : ''}`}>{a ? '✓' : '1'}</span>
-            <h2 id="s1" className={styles.stepTitle}>Connect your Twilio account</h2>
+            <h2 id="s1" className={styles.stepTitle}>{a?.kind === 'managed' ? 'Phone numbers, run by us' : 'Connect your Twilio account'}</h2>
             <span className={styles.stepRight}>
-              {a ? <span className={`${styles.pill} ${a.status === 'error' ? styles.bad : styles.ok}`}>{a.status === 'error' ? 'Key refused' : 'Connected'}</span> : <span className={styles.pill}>Not connected</span>}
+              {a ? <span className={`${styles.pill} ${a.status === 'error' ? styles.bad : styles.ok}`}>{a.status === 'error' ? 'Key refused' : a.kind === 'managed' ? 'On' : 'Connected'}</span> : <span className={styles.pill}>Not connected</span>}
             </span>
           </div>
           {a ? (
             <>
               <div className={styles.row}>
-                <span>Twilio account <b>{a.friendlyName ?? a.accountSidHint}</b></span>
-                <span className={styles.muted}>· {a.accountSidHint} · connected {a.connectedAt.toLocaleDateString('en-AU')}</span>
-                {view.canManage ? <DisconnectTwilio /> : null}
+                {a.kind === 'managed' ? (
+                  <span>Run by us, billed through your plan{view.managedTestMode ? <> · <span className={`${styles.pill} ${styles.warn}`}>test mode</span></> : null}</span>
+                ) : (
+                  <span>Twilio account <b>{a.friendlyName ?? a.accountSidHint}</b></span>
+                )}
+                <span className={styles.muted}>· {a.accountSidHint} · {a.kind === 'managed' ? 'since' : 'connected'} {a.connectedAt.toLocaleDateString('en-AU')}</span>
+                {view.canManage ? <DisconnectTwilio managed={a.kind === 'managed'} /> : null}
               </div>
               {a.status === 'error' ? <p className={`${styles.note} ${styles.noteBad}`}>{a.error ?? 'Twilio refused the saved key.'} Connect it again below.</p> : null}
               {view.canManage && a.status === 'error' ? <ConnectTwilioForm /> : null}
             </>
           ) : view.canManage ? (
             <>
+              {view.managedAvailable ? (
+                <div className={`${styles.note} ${styles.noteOk}`}>
+                  <span className={styles.glyph} aria-hidden>bolt</span>
+                  <div className={styles.steps}>
+                    <span>
+                      <b>Easiest: we set it up.</b> No Twilio account, card or keys for you. We make the account; you give us your business details for
+                      Australia’s check, and pay for numbers and texts with your plan.
+                      {view.managedTestMode ? ' Test mode is on: nothing is checked and every number is a US (+1) test number.' : ''}
+                    </span>
+                    <div className={styles.row}>
+                      <StartManagedPhoneButton testMode={view.managedTestMode} />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              {view.managedAvailable ? <p className={styles.muted}><b>Or connect your own Twilio</b>, if the agency already has one with its numbers.</p> : null}
               <div className={styles.note}>
                 <span className={styles.glyph} aria-hidden>checklist</span>
                 <div>
@@ -124,6 +144,11 @@ export async function PhoneSetupScreen() {
           </div>
           {!a ? (
             <p className={styles.muted}>Starts when you connect. You upload the documents in Twilio; the status shows here.</p>
+          ) : approved && a.kycNote ? (
+            <p className={`${styles.note} ${styles.noteWarn}`}>
+              <span className={styles.glyph} aria-hidden>science</span>
+              <span>{a.kycNote}</span>
+            </p>
           ) : approved ? (
             <p className={styles.muted}>Twilio approved the business{a.kycCheckedAt ? `, checked ${a.kycCheckedAt.toLocaleString('en-AU')}` : ''}.</p>
           ) : (
@@ -137,7 +162,7 @@ export async function PhoneSetupScreen() {
                       : 'Upload your business documents in Twilio (Regulatory Compliance → Australia, mobile numbers), then check again here.')}
                 </span>
               </p>
-              {view.canManage ? (
+              {view.canManage && a.kind === 'byo' ? (
                 <div className={styles.row}>
                   <a className={styles.btn} href="https://console.twilio.com/us1/develop/phone-numbers/regulatory-compliance/bundles" target="_blank" rel="noreferrer">Open Twilio ↗</a>
                   <KycCheckButton />
@@ -196,8 +221,9 @@ export async function PhoneSetupScreen() {
                               g.number.onOwnTwilio ? null : <ReleaseNumberButton numberId={g.number.id} display={g.number.display} hadBefore={g.number.hadBefore} />
                             ) : (
                               <div className={styles.row}>
-                                {approved ? <GetNumberButton agentUserId={g.userId} name={g.name} /> : null}
-                                <UseExistingNumberButton agentUserId={g.userId} name={g.name} />
+                                {approved ? <GetNumberButton agentUserId={g.userId} name={g.name} managed={a.kind === 'managed'} usTest={a.kind === 'managed' && view.managedTestMode} /> : null}
+                                {/* A subaccount we made holds no numbers of the agency's own. */}
+                                {a.kind === 'byo' ? <UseExistingNumberButton agentUserId={g.userId} name={g.name} /> : null}
                               </div>
                             )
                           ) : null}

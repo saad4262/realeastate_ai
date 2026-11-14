@@ -13,6 +13,7 @@ import {
   bringMyTwilioNumber,
   getMyPhone,
   getNumberForAgent,
+  startManagedPhone,
   listAgencyTwilioNumbers,
   assignAgencyTwilioNumber,
   type ExistingTwilioNumber,
@@ -75,6 +76,18 @@ export async function connectTwilioAction(input: ConnectTwilioInput): Promise<Ph
     return { ok: true, status: kycStatus };
   } catch (err) {
     return failure(err, 'Could not connect Twilio');
+  }
+}
+
+/** ADR 0090: the platform makes the agency a Twilio subaccount; the owner pastes nothing. */
+export async function startManagedPhoneAction(): Promise<PhoneActionResult> {
+  const who = await actor();
+  try {
+    const { kycStatus } = await startManagedPhone(getConsoleDb(), who, phoneDepsFromEnv());
+    refresh();
+    return { ok: true, status: kycStatus };
+  } catch (err) {
+    return failure(err, 'Could not set up phone numbers');
   }
 }
 

@@ -28,9 +28,13 @@ export interface TwilioApi {
   account(): Promise<{ friendlyName: string | null }>;
   /** The agency's business verification for Australian mobile numbers. */
   kyc(): Promise<KycResult>;
-  /** One Australian mobile number that can text and call, or null when Twilio has none to offer. */
-  findMobileNumber(): Promise<string | null>;
-  buyNumber(input: { e164: string; bundleSid: string; smsUrl: string; voiceUrl: string }): Promise<{ sid: string; e164: string }>;
+  /**
+   * One number that can text and call, or null when Twilio has none to offer: an Australian mobile, or
+   * (ADR 0090 test mode only) a US local number, which needs no bundle.
+   */
+  findMobileNumber(country?: 'AU' | 'US'): Promise<string | null>;
+  /** `bundleSid` null only for a US test number (ADR 0090); every Australian number is bought under one. */
+  buyNumber(input: { e164: string; bundleSid: string | null; smsUrl: string; voiceUrl: string }): Promise<{ sid: string; e164: string }>;
   /**
    * The numbers already on this account, with how Twilio routes each today (ADR 0087: an agent brings
    * the one they have; ADR 0090: so does a BYO agency). Up to 1,000.
@@ -124,15 +128,16 @@ export function twilioClient(creds: TwilioCreds, fetchImpl: Fetch = fetch): Twil
       const results = Array.isArray(r.json?.results) ? (r.json!.results as Record<string, unknown>[]) : [];
       return kycFromBundles(results.map((b) => ({ sid: str(b.sid), status: str(b.status) })));
     },
-    async findMobileNumber() {
-      const r = await get(`${acct}/AvailablePhoneNumbers/AU/Mobile.json?SmsEnabled=true&VoiceEnabled=true&PageSize=1`);
+    async findMobileNumber(country = 'AU') {
+      const kind = country === 'US' ? 'US/Local' : 'AU/Mobile';
+      const r = await get(`${acct}/AvailablePhoneNumbers/${kind}.json?SmsEnabled=true&VoiceEnabled=true&PageSize=1`);
       const list = Array.isArray(r.json?.available_phone_numbers) ? (r.json!.available_phone_numbers as Record<string, unknown>[]) : [];
       return str(list[0]?.phone_number);
     },
     async buyNumber(input) {
       const r = await post(`${acct}/IncomingPhoneNumbers.json`, {
         PhoneNumber: input.e164,
-        BundleSid: input.bundleSid,
+        BundleSid: input.bundleSid ?? undefined,
         SmsUrl: input.smsUrl,
         SmsMethod: 'POST',
         VoiceUrl: input.voiceUrl,
@@ -242,8 +247,8 @@ export function stubTwilioClient(): TwilioApi {
     async kyc() {
       return { status: 'approved', bundleSid: 'BUstub', note: null };
     },
-    async findMobileNumber() {
-      return `+61480${String(randomInt(0, 1_000_000)).padStart(6, '0')}`;
+    async findMobileNumber(country = 'AU') {
+      return country === 'US' ? `+1415555${String(randomInt(0, 10_000)).padStart(4, '0')}` : `+61480${String(randomInt(0, 1_000_000)).padStart(6, '0')}`;
     },
     async buyNumber(input) {
       return { sid: `PNstub${randomInt(0, 1e9)}`, e164: input.e164 };
@@ -272,6 +277,64 @@ export function stubTwilioClient(): TwilioApi {
     async createSipTrunk(input) {
       return { trunkSid: `TKstub${randomInt(0, 1e9)}`, domain: `${input.domainPrefix}.pstn.twilio.com` };
     },
+  };
+}
+
+// ── The platform's own Twilio (ADR 0090: managed subaccounts) ────────────────
+
+/**
+ * The platform's master account, driven with a Main API key (a Standard key is refused the Accounts
+ * resource; Main keys are made only in Twilio's console). A parent's API key is refused a subaccount's
+ * own resources, so the subaccount's key is made with the subaccount's SID and auth token, which Twilio
+ * returns once, when the subaccount is made; it is used for that one call and never stored.
+ * PROVISIONAL until tried with a real master account (Accounts and Keys v1, read 2026-11-14).
+ */
+export interface TwilioMasterApi {
+  readonly stub: boolean;
+  createSubaccount(friendlyName: string): Promise<{ sid: string; authToken: string }>;
+  /** A Standard key inside the subaccount. Its secret is returned only now. */
+  createSubaccountKey(subaccountSid: string, authToken: string, friendlyName: string): Promise<{ sid: string; secret: string }>;
+  /** Closed for good: Twilio releases every number on it, and it cannot be reopened. */
+  closeSubaccount(subaccountSid: string): Promise<void>;
+}
+
+export function twilioMasterClient(creds: TwilioCreds, fetchImpl: Fetch = fetch): TwilioMasterApi {
+  const master = { authorization: basicAuth(creds.apiKeySid, creds.apiKeySecret) };
+  const post = (url: string, headers: Record<string, string>, body: Record<string, string | undefined>) =>
+    call(fetchImpl, 'Twilio', url, { method: 'POST', headers: { ...headers, 'content-type': 'application/x-www-form-urlencoded' }, body: form(body) });
+  return {
+    stub: false,
+    async createSubaccount(friendlyName) {
+      const r = await post(`${API}/Accounts.json`, master, { FriendlyName: friendlyName.slice(0, 64) });
+      const sid = str(r.json?.sid);
+      const authToken = str(r.json?.auth_token);
+      if (!sid || !authToken) throw new Error('Twilio did not return the new subaccount');
+      return { sid, authToken };
+    },
+    async createSubaccountKey(subaccountSid, authToken, friendlyName) {
+      const r = await post('https://iam.twilio.com/v1/Keys', { authorization: basicAuth(subaccountSid, authToken) }, { AccountSid: subaccountSid, FriendlyName: friendlyName.slice(0, 64) });
+      const sid = str(r.json?.sid);
+      const secret = str(r.json?.secret);
+      if (!sid || !secret) throw new Error('Twilio did not return the new key');
+      return { sid, secret };
+    },
+    async closeSubaccount(subaccountSid) {
+      await post(`${API}/Accounts/${encodeURIComponent(subaccountSid)}.json`, master, { Status: 'closed' });
+    },
+  };
+}
+
+/** The dev stub's master (PHONE_STUB=1): subaccounts that exist nowhere. */
+export function stubTwilioMasterClient(): TwilioMasterApi {
+  return {
+    stub: true,
+    async createSubaccount() {
+      return { sid: `ACstub${randomInt(0, 1e9)}`, authToken: 'stub-token' };
+    },
+    async createSubaccountKey() {
+      return { sid: `SKstub${randomInt(0, 1e9)}`, secret: 'stub-secret' };
+    },
+    async closeSubaccount() {},
   };
 }
 

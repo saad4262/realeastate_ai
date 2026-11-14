@@ -6,8 +6,8 @@ import { can, isAgencyAdminRole, type Actor } from '../permissions';
 import { decryptToken, encryptToken, tokenKeysFromEnv, type TokenKeys } from '../integrations/crypto';
 import { ProviderError } from '../integrations/provider-http';
 import { auPhoneKey } from '../contacts/phone';
-import { displayAu, isAuMobile, toAuE164, webhookUrl } from './format';
-import { phoneStubEnabled, stubTwilioClient, twilioClient, type KycStatus, type NumberRouting, type TwilioApi, type TwilioCreds, type TwilioOwnedNumber } from './twilio';
+import { displayAu, isAuMobile, testCountryCodes, toAuE164, webhookUrl } from './format';
+import { phoneStubEnabled, stubTwilioClient, stubTwilioMasterClient, twilioClient, twilioMasterClient, type KycStatus, type NumberRouting, type TwilioApi, type TwilioCreds, type TwilioMasterApi, type TwilioOwnedNumber } from './twilio';
 
 /**
  * Phone & SMS setup (ADR 0070): the agency connects its own Twilio, Twilio checks the business, the
@@ -33,7 +33,29 @@ export type PhoneDeps = {
   client: (creds: TwilioCreds) => TwilioApi;
   /** The web app's public https URL Twilio calls back on. */
   webhookBase: string | null;
+  /** ADR 0090: the platform's own Twilio, for managed subaccounts. Absent or null = not offered. */
+  managed?: ManagedTwilio | null;
 };
+
+/**
+ * ADR 0090. `testMode` (PHONE_MANAGED_TEST_MODE=1, and only while PHONE_TEST_COUNTRY_CODES includes 1):
+ * a managed account is approved without Twilio checking anything, and its numbers are US (+1) local
+ * numbers. An Australian number still needs a real bundle, which a test approval never has.
+ */
+export type ManagedTwilio = { master: TwilioMasterApi; testMode: boolean };
+
+export const MANAGED_TEST_NOTE = 'Test mode: not checked by Twilio. Numbers are US (+1) test numbers only.';
+
+/** The managed side from env: the master's Main API key, or null when any part is missing. */
+export function managedTwilioFromEnv(env: NodeJS.ProcessEnv = process.env): ManagedTwilio | null {
+  const testMode = env.PHONE_MANAGED_TEST_MODE === '1' && testCountryCodes(env).includes('1');
+  if (phoneStubEnabled(env)) return { master: stubTwilioMasterClient(), testMode };
+  const accountSid = env.TWILIO_MASTER_ACCOUNT_SID?.trim();
+  const apiKeySid = env.TWILIO_MASTER_API_KEY_SID?.trim();
+  const apiKeySecret = env.TWILIO_MASTER_API_KEY_SECRET?.trim();
+  if (!accountSid || !apiKeySid || !apiKeySecret) return null;
+  return { master: twilioMasterClient({ accountSid, apiKeySid, apiKeySecret }), testMode };
+}
 
 export function phoneDepsFromEnv(env: NodeJS.ProcessEnv = process.env): PhoneDeps {
   let keys: TokenKeys | null = null;
@@ -46,6 +68,7 @@ export function phoneDepsFromEnv(env: NodeJS.ProcessEnv = process.env): PhoneDep
     keys,
     client: phoneStubEnabled(env) ? () => stubTwilioClient() : (creds) => twilioClient(creds),
     webhookBase: env.PHONE_WEBHOOK_BASE?.trim() || env.NEXT_PUBLIC_WEB_URL?.trim() || null,
+    managed: managedTwilioFromEnv(env),
   };
 }
 
@@ -157,6 +180,15 @@ async function forgetAccount(db: Db, agencyId: string, ownerUserId: string | nul
   // since a key that no longer works is a common reason to disconnect. Network before the transaction.
   const notRestored: string[] = [];
   const [acct] = await db.select().from(phoneAccount).where(whose(agencyId, ownerUserId)).limit(1);
+  if (acct?.kind === 'managed') {
+    // Ours to close: forgetting it would leave its numbers billing the platform. Closing releases them.
+    if (!deps.managed) throw new PhoneError('not_configured', 'This server cannot reach our Twilio account, so phone cannot be turned off here yet.');
+    try {
+      await deps.managed.master.closeSubaccount(acct.accountSid);
+    } catch (err) {
+      throw providerFailure(err, 'Our Twilio account refused to close it. Try again later.');
+    }
+  }
   const taken = acct
     ? await db
         .select({ sid: phoneNumber.numberSid, e164: phoneNumber.e164, prev: phoneNumber.previousWebhooks })
@@ -191,6 +223,62 @@ async function forgetAccount(db: Db, agencyId: string, ownerUserId: string | nul
 /** `notRestored`: numbers whose old routing Twilio would not take back — the owner sets them in Twilio. */
 export async function disconnectTwilio(db: Db, actor: Actor, deps: PhoneDeps): Promise<{ notRestored: string[] }> {
   return forgetAccount(db, agencyOf(actor, 'phone:manage'), null, deps);
+}
+
+/**
+ * ADR 0090: the platform makes the agency a Twilio subaccount under its own account, with a key of its
+ * own, stored encrypted like a connected one. The owner pastes nothing. Network first; if the row cannot
+ * be written (another click won), the new subaccount is closed so it does not linger.
+ */
+export async function startManagedPhone(db: Db, actor: Actor, deps: PhoneDeps): Promise<{ kycStatus: KycStatus }> {
+  const agencyId = agencyOf(actor, 'phone:manage');
+  const keys = needKeys(deps);
+  const managed = deps.managed;
+  if (!managed) throw new PhoneError('not_configured', 'Phone numbers run by us are not switched on for this server yet. Connect your own Twilio instead.');
+  const [existing] = await db.select({ id: phoneAccount.id }).from(phoneAccount).where(whose(agencyId, null)).limit(1);
+  if (existing) throw new PhoneError('invalid', 'The agency already has a Twilio here. Disconnect it first.');
+
+  let sub: { sid: string; authToken: string };
+  try {
+    // Only the agency's id goes to Twilio: no name, no person.
+    sub = await managed.master.createSubaccount(`agency ${agencyId}`);
+  } catch (err) {
+    throw providerFailure(err, 'Our Twilio account refused to make one for you. Try again later.');
+  }
+  const close = () => managed.master.closeSubaccount(sub.sid).catch((e: unknown) => console.error('[phone] subaccount not closed after a failed start', sub.sid, e instanceof Error ? e.message : e));
+  let key: { sid: string; secret: string };
+  try {
+    key = await managed.master.createSubaccountKey(sub.sid, sub.authToken, 'LocalAgentHub');
+  } catch (err) {
+    await close();
+    throw providerFailure(err, 'Our Twilio account refused to make one for you. Try again later.');
+  }
+  const kyc = managed.testMode
+    ? { status: 'approved' as const, note: MANAGED_TEST_NOTE }
+    : { status: 'none' as const, note: 'Next: your business details for Twilio’s Australian check. This form is not ready yet.' };
+  const id = randomUUID();
+  try {
+    await db.insert(phoneAccount).values({
+      id,
+      agencyId,
+      ownerUserId: null,
+      kind: 'managed',
+      accountSid: sub.sid,
+      apiKeySid: key.sid,
+      apiKeySecret: encryptToken(key.secret, { rowId: id, column: 'twilio_api_secret' }, keys),
+      friendlyName: null,
+      kycStatus: kyc.status,
+      bundleSid: null,
+      kycNote: kyc.note,
+      kycCheckedAt: new Date(),
+      status: 'connected',
+      connectedBy: actor.userId,
+    });
+  } catch (err) {
+    await close();
+    throw err;
+  }
+  return { kycStatus: kyc.status };
 }
 
 /** The actor's own Twilio: forgotten here; its numbers are theirs (a brought one gets its old routing back). */
@@ -244,7 +332,10 @@ async function saveKyc(db: DbOrTx, accountId: string, kyc: Awaited<ReturnType<Tw
 
 /** "Check now" on the setup page. */
 export async function refreshKyc(db: Db, actor: Actor, deps: PhoneDeps): Promise<{ kycStatus: KycStatus }> {
-  return checkKyc(db, await agencyTwilio(db, agencyOf(actor, 'phone:manage'), deps));
+  const tw = await agencyTwilio(db, agencyOf(actor, 'phone:manage'), deps);
+  // ADR 0090: a test-mode approval is ours, not Twilio's; asking Twilio would undo it.
+  if (tw.account.kind === 'managed' && deps.managed?.testMode && !tw.account.bundleSid) return { kycStatus: tw.account.kycStatus as KycStatus };
+  return checkKyc(db, tw);
 }
 
 /** "Check now" on My phone, for the actor's own Twilio. */
@@ -314,6 +405,8 @@ export type PhoneNumberView = {
 };
 
 export type TwilioAccountView = {
+  /** ADR 0090: byo = connected with the agency's own key; managed = a subaccount we run. */
+  kind: 'byo' | 'managed';
   friendlyName: string | null;
   accountSidHint: string;
   kycStatus: KycStatus;
@@ -328,6 +421,9 @@ export type PhoneSetupView = {
   /** False when this server can't hold a Twilio key yet. */
   configured: boolean;
   canManage: boolean;
+  /** ADR 0090: this server can make the agency a managed account, and whether that is in test mode. */
+  managedAvailable: boolean;
+  managedTestMode: boolean;
   /** The agency's own Twilio. */
   account: TwilioAccountView | null;
   /** `ownTwilio`: the agent connected a Twilio of their own (ADR 0087) — shown, never usable by the agency. */
@@ -336,6 +432,7 @@ export type PhoneSetupView = {
 
 function accountView(account: AccountRow): TwilioAccountView {
   return {
+    kind: account.kind === 'managed' ? 'managed' : 'byo',
     friendlyName: account.friendlyName,
     accountSidHint: `${account.accountSid.slice(0, 2)}…${account.accountSid.slice(-4)}`,
     kycStatus: account.kycStatus as KycStatus,
@@ -363,7 +460,7 @@ function numberView(n: typeof phoneNumber.$inferSelect, agencyAccountId: string 
   };
 }
 
-export async function getPhoneSetup(db: DbOrTx, actor: Actor, deps: Pick<PhoneDeps, 'keys'>): Promise<PhoneSetupView> {
+export async function getPhoneSetup(db: DbOrTx, actor: Actor, deps: Pick<PhoneDeps, 'keys' | 'managed'>): Promise<PhoneSetupView> {
   const agencyId = agencyOf(actor, 'phone:read');
   const canManage = can(actor, 'phone:manage', { type: 'phone', agencyId });
   const accounts = await db.select().from(phoneAccount).where(eq(phoneAccount.agencyId, agencyId));
@@ -384,6 +481,8 @@ export async function getPhoneSetup(db: DbOrTx, actor: Actor, deps: Pick<PhoneDe
   return {
     configured: Boolean(deps.keys),
     canManage,
+    managedAvailable: Boolean(deps.managed),
+    managedTestMode: Boolean(deps.managed?.testMode),
     account: account ? accountView(account) : null,
     agents: people
       .filter((p) => p.role !== 'read_only')
@@ -408,15 +507,18 @@ export async function getNumberForAgent(db: Db, actor: Actor, agentUserId: strin
   const keys = needKeys(deps);
   const base = needBase(deps);
   const { account, client } = await agencyTwilio(db, agencyId, deps);
-  if (account.kycStatus !== 'approved' || !account.bundleSid) throw new PhoneError('invalid', 'Twilio has not approved the business yet, so it will not give out Australian numbers.');
+  // ADR 0090 test mode: a managed account with no bundle gets a US number. Everything else needs a real
+  // bundle, so a test approval can never buy an Australian number.
+  const usTest = account.kind === 'managed' && !account.bundleSid && Boolean(deps.managed?.testMode);
+  if (!usTest && (account.kycStatus !== 'approved' || !account.bundleSid)) throw new PhoneError('invalid', 'Twilio has not approved the business yet, so it will not give out Australian numbers.');
   const member = await textingMember(db, agencyId, agentUserId);
 
   const id = randomUUID();
   let bought: { sid: string; e164: string };
   try {
-    const e164 = await client.findMobileNumber();
-    if (!e164) throw new PhoneError('provider', 'Twilio has no Australian mobile numbers to offer right now. Try again later.');
-    bought = await client.buyNumber({ e164, bundleSid: account.bundleSid, smsUrl: webhookUrl(base, id, 'sms', keys), voiceUrl: webhookUrl(base, id, 'voice', keys) });
+    const e164 = await client.findMobileNumber(usTest ? 'US' : 'AU');
+    if (!e164) throw new PhoneError('provider', `Twilio has no ${usTest ? 'US test' : 'Australian mobile'} numbers to offer right now. Try again later.`);
+    bought = await client.buyNumber({ e164, bundleSid: usTest ? null : account.bundleSid, smsUrl: webhookUrl(base, id, 'sms', keys), voiceUrl: webhookUrl(base, id, 'voice', keys) });
   } catch (err) {
     throw providerFailure(err, 'Twilio refused to give out a number with the saved key.');
   }
