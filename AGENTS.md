@@ -75,6 +75,14 @@ Either may touch shared packages. Handoff files are the source of truth.
 13. Auth cookie domain comes from env (COOKIE_DOMAIN). Never hardcode a domain.
 14. App user.id matches Supabase auth.users.id. Membership/roles live in our DB + can(), not only JWT claims.
 
+## Working style: ponytail (every task, any size)
+Follow the ponytail ruleset at full level on every task, from a one-line fix to a
+feature: @.claude/skills/ponytail/SKILL.md
+Reviews use /ponytail-review, whole-repo audits /ponytail-audit, deferred
+shortcuts /ponytail-debt. "Smallest change" never cuts what this file requires
+(transactions, can() checks, permission tests, ADRs, STATUS/SESSION handoff):
+where the two disagree, this file wins.
+
 ## Engineering rules
 ARCHITECTURE.md is the standing SOP: rendering, navigation, state, data
 fetching, caching, validation, performance budgets and the verification
