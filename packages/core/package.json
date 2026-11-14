@@ -92,6 +92,8 @@
     "./help": "./src/help/index.ts",
     "./help/pages": "./src/help/pages.ts",
     "./automation-status": "./src/automation-status/index.ts",
+    "./control-centre": "./src/control-centre/index.ts",
+    "./control-centre/types": "./src/control-centre/types.ts",
     "./automation-status/links": "./src/automation-status/links.ts",
     "./dashboards": "./src/dashboards/index.ts",
     "./imports": "./src/imports/index.ts",

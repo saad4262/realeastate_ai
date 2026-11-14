@@ -114,7 +114,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
         ],
       },
       // Workflows are the Automations tab of Skills (ADR 0058).
-      { label: 'Automation', items: [{ href: '/skills', label: 'Skills', icon: 'auto_awesome' }] },
+      { label: 'Automation', items: [{ href: '/control-centre', label: 'Control Centre', icon: 'monitoring' }, { href: '/skills', label: 'Skills', icon: 'auto_awesome' }] },
       {
         label: 'Knowledge & insights',
         items: [
@@ -182,7 +182,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
           { href: '/my-reviews', label: 'Agency reviews', icon: 'reviews' },
         ],
       },
-      { label: 'Automation', items: [{ href: '/my-skills', label: 'Skills', icon: 'auto_awesome' }] },
+      { label: 'Automation', items: [{ href: '/my-control-centre', label: 'Control Centre', icon: 'monitoring' }, { href: '/my-skills', label: 'Skills', icon: 'auto_awesome' }] },
       {
         label: 'Knowledge & insights',
         items: [

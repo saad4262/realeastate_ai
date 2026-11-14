@@ -63,6 +63,8 @@ export const HELP_PAGES: Readonly<Record<string, string>> = Object.freeze({
   '/my-bulk-sms': BULK_SMS,
   '/marketing': NOT_BUILT,
   '/my-reviews': 'The agency’s Google reviews.',
+  '/control-centre': 'Everything the agency’s automations did by themselves: workflows, repeating sends, skills, missed calls and opportunities, with what failed. Owners and admins see every agent’s.',
+  '/my-control-centre': 'Everything your automations did by themselves: workflows, repeating sends, skills, missed calls and opportunities, with what failed.',
   '/skills': SKILLS,
   '/my-skills': SKILLS,
   '/knowledge': 'The agency’s procedures and documents, which the assistant can answer from.',

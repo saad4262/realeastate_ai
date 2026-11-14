@@ -2792,6 +2792,8 @@ export const workflowRun = pgTable(
   (t) => [
     uniqueIndex('workflow_run_once_idx').on(t.workflowId, t.eventId),
     index('workflow_run_recent_idx').on(t.workflowId, desc(t.createdAt)),
+    /** The Control Centre (ADR 0091): an agency's runs, newest first. */
+    index('workflow_run_agency_idx').on(t.agencyId, desc(t.createdAt)),
   ],
 );
 
@@ -2855,6 +2857,8 @@ export const proposedAction = pgTable(
   (t) => [
     uniqueIndex('proposed_action_idempotency_idx').on(t.idempotencyKey),
     index('proposed_action_user_idx').on(t.userId, desc(t.createdAt)),
+    /** The Control Centre (ADR 0091): what waits for a person, across the agency. */
+    index('proposed_action_waiting_idx').on(t.agencyId).where(sql`status = 'proposed'`),
   ],
 );
 
@@ -3529,6 +3533,8 @@ export const opportunity = pgTable(
   (t) => [
     uniqueIndex('opportunity_dedupe_idx').on(t.agencyId, t.dedupeKey),
     index('opportunity_user_open_idx').on(t.userId, t.status, desc(t.createdAt)),
+    /** The Control Centre (ADR 0091): an agency's, newest first. */
+    index('opportunity_agency_idx').on(t.agencyId, desc(t.createdAt)),
   ],
 );
 
