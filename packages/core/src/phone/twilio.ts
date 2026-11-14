@@ -31,11 +31,22 @@ export interface TwilioApi {
   /** One Australian mobile number that can text and call, or null when Twilio has none to offer. */
   findMobileNumber(): Promise<string | null>;
   buyNumber(input: { e164: string; bundleSid: string; smsUrl: string; voiceUrl: string }): Promise<{ sid: string; e164: string }>;
-  /** The numbers already on this account (ADR 0087: an agent brings the one they have). First 50. */
-  listNumbers(): Promise<{ sid: string; e164: string }[]>;
+  /**
+   * The numbers already on this account, with how Twilio routes each today (ADR 0087: an agent brings
+   * the one they have; ADR 0090: so does a BYO agency). Up to 1,000.
+   */
+  listNumbers(): Promise<TwilioOwnedNumber[]>;
+  /**
+   * ADR 0090: the numbers inside a Messaging Service that answers their texts itself (its inbound
+   * setting is not "defer to the number's webhook"): changing such a number's own URL does nothing.
+   */
+  serviceRoutedNumberSids(): Promise<Set<string>>;
   releaseNumber(numberSid: string): Promise<void>;
-  /** Points a number's texts and calls at new webhook URLs (a domain cutover, ADR 0070). */
-  setNumberWebhooks(numberSid: string, urls: { smsUrl: string; voiceUrl: string }): Promise<void>;
+  /**
+   * Points a number's texts and calls at these URLs (a domain cutover, ADR 0070; a number taken over,
+   * ADR 0090). Methods default to POST; an empty URL clears it (putting back a number that had none).
+   */
+  setNumberWebhooks(numberSid: string, urls: { smsUrl: string; voiceUrl: string; smsMethod?: string; voiceMethod?: string }): Promise<void>;
   sendSms(input: { from: string; to: string; body: string; statusUrl: string | null }): Promise<{ sid: string; status: string }>;
   /** Twilio calls the mobile and asks for the code it returns here, which the person keys in. */
   startCallerId(input: { e164: string; name: string; statusUrl: string | null }): Promise<{ validationCode: string }>;
@@ -50,7 +61,23 @@ export interface TwilioApi {
   createSipTrunk(input: { friendlyName: string; domainPrefix: string; username: string; password: string }): Promise<{ trunkSid: string; domain: string }>;
 }
 
+/** How Twilio routes a number's texts and calls today. Null where Twilio has nothing ("" included). */
+export type NumberRouting = {
+  smsUrl: string | null;
+  smsMethod: string | null;
+  voiceUrl: string | null;
+  voiceMethod: string | null;
+  /** A TwiML App (AP…) that answers instead of the URLs. */
+  smsApplicationSid: string | null;
+  voiceApplicationSid: string | null;
+  /** An Elastic SIP trunk (TK…) that takes the calls instead of the URLs. */
+  trunkSid: string | null;
+};
+
+export type TwilioOwnedNumber = { sid: string; e164: string; routing: NumberRouting };
+
 const API = 'https://api.twilio.com/2010-04-01';
+const MESSAGING = 'https://messaging.twilio.com/v1';
 const NUMBERS = 'https://numbers.twilio.com/v2';
 const TRUNKING = 'https://trunking.twilio.com/v1';
 
@@ -116,19 +143,52 @@ export function twilioClient(creds: TwilioCreds, fetchImpl: Fetch = fetch): Twil
       return { sid, e164: str(r.json?.phone_number) ?? input.e164 };
     },
     async listNumbers() {
-      const r = await get(`${acct}/IncomingPhoneNumbers.json?PageSize=50`);
+      const r = await get(`${acct}/IncomingPhoneNumbers.json?PageSize=1000`);
       const list = Array.isArray(r.json?.incoming_phone_numbers) ? (r.json!.incoming_phone_numbers as Record<string, unknown>[]) : [];
       return list.flatMap((n) => {
         const sid = str(n.sid);
         const e164 = str(n.phone_number);
-        return sid && e164 ? [{ sid, e164 }] : [];
+        if (!sid || !e164) return [];
+        const routing: NumberRouting = {
+          smsUrl: str(n.sms_url),
+          smsMethod: str(n.sms_method),
+          voiceUrl: str(n.voice_url),
+          voiceMethod: str(n.voice_method),
+          smsApplicationSid: str(n.sms_application_sid),
+          voiceApplicationSid: str(n.voice_application_sid),
+          trunkSid: str(n.trunk_sid),
+        };
+        return [{ sid, e164, routing }];
       });
+    },
+    async serviceRoutedNumberSids() {
+      // PROVISIONAL until tried with a real account: Messaging Services v1, read 2026-11-14.
+      const r = await get(`${MESSAGING}/Services?PageSize=50`);
+      const services = Array.isArray(r.json?.services) ? (r.json!.services as Record<string, unknown>[]) : [];
+      const sids = new Set<string>();
+      for (const svc of services) {
+        const id = str(svc.sid);
+        // Deferring to the number's webhook leaves the number's own URL in charge: that one is fine.
+        if (!id || svc.use_inbound_webhook_on_number === true) continue;
+        const p = await get(`${MESSAGING}/Services/${encodeURIComponent(id)}/PhoneNumbers?PageSize=1000`);
+        const nums = Array.isArray(p.json?.phone_numbers) ? (p.json!.phone_numbers as Record<string, unknown>[]) : [];
+        for (const n of nums) {
+          const pn = str(n.sid);
+          if (pn) sids.add(pn);
+        }
+      }
+      return sids;
     },
     async releaseNumber(numberSid) {
       await call(fetchImpl, 'Twilio', `${acct}/IncomingPhoneNumbers/${encodeURIComponent(numberSid)}.json`, { method: 'DELETE', headers: auth }, [404]);
     },
     async setNumberWebhooks(numberSid, urls) {
-      await post(`${acct}/IncomingPhoneNumbers/${encodeURIComponent(numberSid)}.json`, { SmsUrl: urls.smsUrl, SmsMethod: 'POST', VoiceUrl: urls.voiceUrl, VoiceMethod: 'POST' });
+      await post(`${acct}/IncomingPhoneNumbers/${encodeURIComponent(numberSid)}.json`, {
+        SmsUrl: urls.smsUrl,
+        SmsMethod: urls.smsMethod ?? 'POST',
+        VoiceUrl: urls.voiceUrl,
+        VoiceMethod: urls.voiceMethod ?? 'POST',
+      });
     },
     async sendSms(input) {
       const r = await post(`${acct}/Messages.json`, { From: input.from, To: input.to, Body: input.body, StatusCallback: input.statusUrl ?? undefined });
@@ -189,7 +249,11 @@ export function stubTwilioClient(): TwilioApi {
       return { sid: `PNstub${randomInt(0, 1e9)}`, e164: input.e164 };
     },
     async listNumbers() {
-      return [{ sid: 'PNstubown1', e164: '+61480000111' }];
+      const routing = { smsUrl: null, smsMethod: null, voiceUrl: null, voiceMethod: null, smsApplicationSid: null, voiceApplicationSid: null, trunkSid: null };
+      return [{ sid: 'PNstubown1', e164: '+61480000111', routing }];
+    },
+    async serviceRoutedNumberSids() {
+      return new Set<string>();
     },
     async releaseNumber() {},
     async setNumberWebhooks() {},

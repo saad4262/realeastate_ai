@@ -7,8 +7,8 @@ import { encryptToken, tokenKeysFromEnv } from '../integrations/crypto';
 import { fakeFetch } from '../integrations/fake-fetch';
 import { ProviderError } from '../integrations/provider-http';
 import { displayAu, forwardingCodes, isAuMobile, smsKeyword, toAuE164, verifyWebhookToken, webhookToken, webhookUrl, xmlEscape } from './format';
-import { buyMyNumber, connectMyTwilio, connectTwilio, disconnectMyTwilio, listMyTwilioNumbers, numberTwilio, PhoneError, providerFailure, stopUsingMyNumber, bringMyTwilioNumber, type PhoneDeps } from './setup';
-import { kycFromBundles, TRIAL_NOTE, twilioClient } from './twilio';
+import { buyMyNumber, connectMyTwilio, connectTwilio, disconnectMyTwilio, disconnectTwilio, listAgencyTwilioNumbers, listMyTwilioNumbers, numberTwilio, PhoneError, providerFailure, releaseAgentNumber, routingToSave, stopUsingMyNumber, bringMyTwilioNumber, takeoverRefusal, assignAgencyTwilioNumber, type PhoneDeps } from './setup';
+import { kycFromBundles, TRIAL_NOTE, twilioClient, type NumberRouting } from './twilio';
 import { handleTwilioWebhook } from './webhooks';
 import { decideMissedCallText, DEFAULT_MISSED_CALL_SETTINGS, firstName, NO_TEXT_GREETING, renderMissedCallTemplate, unknownFields } from './missed-calls';
 
@@ -182,7 +182,7 @@ describe('an agent’s own Twilio (ADR 0087)', () => {
       const f = fakeFetch([]);
       const tries = [
         connectMyTwilio(noDb, who, { accountSid: `AC${'a'.repeat(32)}`, apiKeySid: `SK${'b'.repeat(32)}`, apiKeySecret: 'secret-secret-secret' }, deps(f)),
-        disconnectMyTwilio(noDb, who),
+        disconnectMyTwilio(noDb, who, deps(f)),
         buyMyNumber(noDb, who, deps(f)),
         listMyTwilioNumbers(noDb, who, deps(f)),
         bringMyTwilioNumber(noDb, who, 'PN1', deps(f)),
@@ -194,7 +194,7 @@ describe('an agent’s own Twilio (ADR 0087)', () => {
       }
       expect(f.calls).toHaveLength(0);
     }
-    const err = await stopUsingMyNumber(noDb, nobody).catch((e: unknown) => e);
+    const err = await stopUsingMyNumber(noDb, nobody, deps(fakeFetch([]))).catch((e: unknown) => e);
     expect((err as PhoneError).code).toBe('forbidden');
   });
 
@@ -232,8 +232,117 @@ describe('an agent’s own Twilio (ADR 0087)', () => {
   it('lists the numbers already on an account, with their SIDs', async () => {
     const creds = { accountSid: `AC${'a'.repeat(32)}`, apiKeySid: `SK${'b'.repeat(32)}`, apiKeySecret: 'secret-secret-secret' };
     const f = fakeFetch([{ status: 200, body: { incoming_phone_numbers: [{ sid: 'PN1', phone_number: '+61480111222' }, { sid: 'PN2', phone_number: '+12025550100' }, { sid: null }] } }]);
-    expect(await twilioClient(creds, f.impl).listNumbers()).toEqual([{ sid: 'PN1', e164: '+61480111222' }, { sid: 'PN2', e164: '+12025550100' }]);
-    expect(f.calls[0]!.url).toBe(`https://api.twilio.com/2010-04-01/Accounts/${creds.accountSid}/IncomingPhoneNumbers.json?PageSize=50`);
+    expect((await twilioClient(creds, f.impl).listNumbers()).map(({ sid, e164 }) => ({ sid, e164 }))).toEqual([{ sid: 'PN1', e164: '+61480111222' }, { sid: 'PN2', e164: '+12025550100' }]);
+    expect(f.calls[0]!.url).toBe(`https://api.twilio.com/2010-04-01/Accounts/${creds.accountSid}/IncomingPhoneNumbers.json?PageSize=1000`);
+  });
+});
+
+describe('numbers already on a BYO Twilio (ADR 0090)', () => {
+  const creds = { accountSid: `AC${'a'.repeat(32)}`, apiKeySid: `SK${'b'.repeat(32)}`, apiKeySecret: 'secret-secret-secret' };
+  const none: NumberRouting = { smsUrl: null, smsMethod: null, voiceUrl: null, voiceMethod: null, smsApplicationSid: null, voiceApplicationSid: null, trunkSid: null };
+  const deps = (f: ReturnType<typeof fakeFetch>): PhoneDeps => ({ keys, client: (c) => twilioClient(c, f.impl), webhookBase: 'https://site.example' });
+  const agent = { userId: 's', agencyId: 'a', membershipRole: 'agent' as const };
+  const owner = { userId: 'o', agencyId: 'a', membershipRole: 'owner' as const };
+
+  it('reads how Twilio routes each number, and an empty SID as none', async () => {
+    const f = fakeFetch([
+      {
+        status: 200,
+        body: {
+          incoming_phone_numbers: [
+            { sid: 'PN1', phone_number: '+61480111222', sms_url: 'https://old.crm/sms', sms_method: 'POST', voice_url: 'https://old.crm/voice', voice_method: 'GET', sms_application_sid: '', voice_application_sid: '', trunk_sid: null },
+            { sid: 'PN2', phone_number: '+61480111333', voice_application_sid: 'AP1', trunk_sid: 'TK1' },
+          ],
+        },
+      },
+    ]);
+    const [a, b] = await twilioClient(creds, f.impl).listNumbers();
+    expect(a!.routing).toEqual({ ...none, smsUrl: 'https://old.crm/sms', smsMethod: 'POST', voiceUrl: 'https://old.crm/voice', voiceMethod: 'GET' });
+    expect(b!.routing).toEqual({ ...none, voiceApplicationSid: 'AP1', trunkSid: 'TK1' });
+  });
+
+  it('finds only the numbers in a Messaging Service that answers their texts itself', async () => {
+    const f = fakeFetch([
+      { status: 200, body: { services: [{ sid: 'MG1', use_inbound_webhook_on_number: false }, { sid: 'MG2', use_inbound_webhook_on_number: true }] } },
+      { status: 200, body: { phone_numbers: [{ sid: 'PN1' }, { sid: 'PN2' }] } },
+    ]);
+    expect([...(await twilioClient(creds, f.impl).serviceRoutedNumberSids())]).toEqual(['PN1', 'PN2']);
+    // MG2 defers to the number's own webhook, so its numbers are never even asked for.
+    expect(f.calls.map((c) => c.url)).toEqual(['https://messaging.twilio.com/v1/Services?PageSize=50', 'https://messaging.twilio.com/v1/Services/MG1/PhoneNumbers?PageSize=1000']);
+  });
+
+  it('refuses a number a trunk, an app or a Messaging Service answers, and says what to change', () => {
+    const n = (routing: Partial<NumberRouting>, sid = 'PN1') => ({ sid, e164: '+61480111222', routing: { ...none, ...routing } });
+    expect(takeoverRefusal(n({ smsUrl: 'https://old.crm/sms' }), new Set())).toBeNull();
+    expect(takeoverRefusal(n({ trunkSid: 'TK1' }), new Set())).toMatch(/SIP trunk/);
+    expect(takeoverRefusal(n({ voiceApplicationSid: 'AP1' }), new Set())).toMatch(/TwiML App/);
+    expect(takeoverRefusal(n({ smsApplicationSid: 'AP1' }), new Set())).toMatch(/TwiML App/);
+    expect(takeoverRefusal(n({}), new Set(['PN1']))).toMatch(/Messaging Service/);
+  });
+
+  it('saves the routing it found, but not our own URLs from an earlier use here, on any domain', () => {
+    const now = new Date('2026-11-14T00:00:00Z');
+    expect(routingToSave({ ...none, smsUrl: 'https://old.crm/sms', smsMethod: 'GET', voiceUrl: 'https://old.crm/voice', voiceMethod: 'POST' }, now)).toEqual({
+      smsUrl: 'https://old.crm/sms',
+      smsMethod: 'GET',
+      voiceUrl: 'https://old.crm/voice',
+      voiceMethod: 'POST',
+      savedAt: '2026-11-14T00:00:00.000Z',
+    });
+    const ours = routingToSave({ ...none, smsUrl: 'https://old-domain.vercel.app/api/phone/twilio/abc.def/sms', smsMethod: 'POST', voiceUrl: 'https://site.example/api/phone/twilio/abc.def/voice', voiceMethod: 'POST' }, now);
+    expect(ours).toMatchObject({ smsUrl: null, smsMethod: null, voiceUrl: null, voiceMethod: null });
+  });
+
+  it('puts a number back with its own methods, and clears a URL it never had', async () => {
+    const f = fakeFetch([{ status: 200, body: { sid: 'PN1' } }]);
+    await twilioClient(creds, f.impl).setNumberWebhooks('PN1', { smsUrl: 'https://old.crm/sms', voiceUrl: '', smsMethod: 'GET' });
+    expect(Object.fromEntries(new URLSearchParams(f.calls[0]!.body))).toEqual({ SmsUrl: 'https://old.crm/sms', SmsMethod: 'GET', VoiceUrl: '', VoiceMethod: 'POST' });
+  });
+
+  it('only an owner or admin lists or hands out the agency’s numbers, refused before anything is read or sent', async () => {
+    const f = fakeFetch([]);
+    for (const t of [listAgencyTwilioNumbers(noDb, agent, deps(f)), assignAgencyTwilioNumber(noDb, agent, 's', 'PN1', deps(f)), disconnectTwilio(noDb, agent, deps(f))]) {
+      const err = await t.catch((e: unknown) => e);
+      expect((err as PhoneError).code).toBe('forbidden');
+    }
+    expect(f.calls).toHaveLength(0);
+  });
+
+  /** A db whose selects answer in turn, recording updates. Enough for releaseAgentNumber. */
+  function scriptedDb(answers: unknown[][]) {
+    const updates: unknown[] = [];
+    const db = {
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => answers.shift() ?? [] }) }) }),
+      update: () => ({ set: (v: unknown) => ({ where: async () => void updates.push(v) }) }),
+    } as unknown as Db;
+    return { db, updates };
+  }
+  const account = { id: 'acct', agencyId: 'a', ownerUserId: null, accountSid: creds.accountSid, apiKeySid: creds.apiKeySid, apiKeySecret: encryptToken(creds.apiKeySecret, { rowId: 'acct', column: 'twilio_api_secret' }, keys) };
+
+  it('releasing a number the agency already had puts its routing back and never gives it to Twilio', async () => {
+    const prev = { smsUrl: 'https://old.crm/sms', smsMethod: 'POST', voiceUrl: null, voiceMethod: null, savedAt: '2026-11-14T00:00:00.000Z' };
+    const { db, updates } = scriptedDb([[{ id: 'n1', agencyId: 'a', accountId: 'acct', numberSid: 'PN1', previousWebhooks: prev }], [account]]);
+    const f = fakeFetch([{ status: 200, body: { sid: 'PN1' } }]);
+    await releaseAgentNumber(db, owner, 'n1', deps(f));
+    expect(f.calls).toHaveLength(1);
+    expect(f.calls[0]!.method).toBe('POST');
+    expect(Object.fromEntries(new URLSearchParams(f.calls[0]!.body))).toEqual({ SmsUrl: 'https://old.crm/sms', SmsMethod: 'POST', VoiceUrl: '', VoiceMethod: 'POST' });
+    expect(updates).toEqual([expect.objectContaining({ status: 'released' })]);
+  });
+
+  it('releasing a number bought here gives it back to Twilio, as before', async () => {
+    const { db } = scriptedDb([[{ id: 'n1', agencyId: 'a', accountId: 'acct', numberSid: 'PN1', previousWebhooks: null }], [account]]);
+    const f = fakeFetch([{ status: 204 }]);
+    await releaseAgentNumber(db, owner, 'n1', deps(f));
+    expect(f.calls.map((c) => c.method)).toEqual(['DELETE']);
+  });
+
+  it('a release Twilio refuses leaves the number in use here', async () => {
+    const prev = { smsUrl: null, smsMethod: null, voiceUrl: null, voiceMethod: null, savedAt: '2026-11-14T00:00:00.000Z' };
+    const { db, updates } = scriptedDb([[{ id: 'n1', agencyId: 'a', accountId: 'acct', numberSid: 'PN1', previousWebhooks: prev }], [account]]);
+    const err = await releaseAgentNumber(db, owner, 'n1', deps(fakeFetch([{ status: 401, body: { code: 20003 } }]))).catch((e: unknown) => e);
+    expect((err as PhoneError).code).toBe('provider');
+    expect(updates).toHaveLength(0);
   });
 });
 

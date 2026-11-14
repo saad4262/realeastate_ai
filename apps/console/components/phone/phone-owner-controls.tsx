@@ -81,7 +81,7 @@ export function DisconnectTwilio() {
       style={{ marginLeft: 'auto' }}
       onClick={() => {
         if (!window.confirm('Disconnect Twilio? Your agents’ numbers stop working here. The numbers stay on your Twilio account until you release them there.')) return;
-        act(() => disconnectTwilioAction(), () => 'Twilio disconnected', 'Not disconnected');
+        act(() => disconnectTwilioAction(), (note) => (note ? `Twilio disconnected. ${note}` : 'Twilio disconnected'), 'Not disconnected');
       }}
     >
       Disconnect
@@ -124,7 +124,7 @@ export function GetNumberButton({ agentUserId, name }: { agentUserId: string; na
   );
 }
 
-export function ReleaseNumberButton({ numberId, display }: { numberId: string; display: string }) {
+export function ReleaseNumberButton({ numberId, display, hadBefore = false }: { numberId: string; display: string; hadBefore?: boolean }) {
   const { pending, act } = useAct();
   return (
     <button
@@ -132,7 +132,10 @@ export function ReleaseNumberButton({ numberId, display }: { numberId: string; d
       className={styles.btnLink}
       disabled={pending}
       onClick={() => {
-        if (!window.confirm(`Give ${display} back to Twilio? Calls and texts to it stop. Its texts stay in the history.`)) return;
+        const ask = hadBefore
+          ? `Stop using ${display} here? It stays on your Twilio, set back to what it was before. Its texts stay in the history.`
+          : `Give ${display} back to Twilio? Calls and texts to it stop. Its texts stay in the history.`;
+        if (!window.confirm(ask)) return;
         act(() => releaseNumberAction(numberId), () => `${display} released`, 'Not released');
       }}
     >

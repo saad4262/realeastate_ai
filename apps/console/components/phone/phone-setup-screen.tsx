@@ -5,6 +5,7 @@ import contactStyles from '@/components/contacts/contacts.module.css';
 import { getConsoleDb } from '../../lib/db';
 import { requireConsoleAccess } from '../../lib/require-console-access';
 import { ConnectTwilioForm, DisconnectTwilio, GetNumberButton, KycCheckButton, ReleaseNumberButton, SetUpAiCallsButton } from './phone-owner-controls';
+import { UseExistingNumberButton } from './existing-number-picker';
 import { MyPhoneSteps } from './my-phone-steps';
 import styles from './phone.module.css';
 
@@ -147,18 +148,25 @@ export async function PhoneSetupScreen() {
         </section>
 
         {/* 3. Numbers */}
-        <section className={`${styles.step} ${approved ? '' : styles.stepOff}`} aria-labelledby="s3">
+        {/* ADR 0090: numbers already on the agency's Twilio need no new approval, so the step opens once it is connected. */}
+        <section className={`${styles.step} ${a ? '' : styles.stepOff}`} aria-labelledby="s3">
           <div className={styles.stepHead}>
             <span className={styles.stepNum}>3</span>
             <h2 id="s3" className={styles.stepTitle}>A number for each agent</h2>
             <span className={styles.stepRight}>{approved ? <span className={`${styles.pill} ${live ? styles.ok : ''}`}>{live} of {view.agents.length} live</span> : null}</span>
           </div>
-          {!approved ? (
-            <p className={styles.muted}>Available once Twilio approves your business.</p>
+          {!a ? (
+            <p className={styles.muted}>Available once your Twilio is connected.</p>
           ) : (
             <>
+              {!approved ? (
+                <p className={`${styles.note} ${styles.noteWarn}`}>
+                  <span className={styles.glyph} aria-hidden>hourglass_top</span>
+                  <span>New numbers wait for Twilio to approve your business. A number already on your Twilio can be given to an agent now.</span>
+                </p>
+              ) : null}
               <p className={styles.muted}>
-                Each agent gets their own Australian mobile number on your Twilio account. Their missed calls forward to it, and their
+                Each agent gets their own Australian mobile number on your Twilio account, a new one or one you already have. Their missed calls forward to it, and their
                 texts come from it. Twilio charges for each number monthly. An agent may instead connect a Twilio of their own on My phone:
                 that number is theirs and billed to them, and you still read its texts.
               </p>
@@ -182,7 +190,18 @@ export async function PhoneSetupScreen() {
                         <td>{g.number ? (g.number.forwardingTestedAt ? <span className={`${styles.pill} ${styles.ok}`}>tested {g.number.forwardingTestedAt.toLocaleDateString('en-AU')}</span> : <span className={styles.pill}>not yet</span>) : '—'}</td>
                         <td>{g.number ? (g.number.live ? <span className={`${styles.pill} ${styles.ok}`}>Live</span> : <span className={`${styles.pill} ${styles.warn}`}>Waiting on {g.name.split(' ')[0]}</span>) : <span className={styles.pill}>No number</span>}</td>
                         {/* ADR 0087: a number on the agent's own Twilio is theirs — the agency neither releases nor replaces it. */}
-                        <td>{view.canManage ? (g.number ? (g.number.onOwnTwilio ? null : <ReleaseNumberButton numberId={g.number.id} display={g.number.display} />) : <GetNumberButton agentUserId={g.userId} name={g.name} />) : null}</td>
+                        <td>
+                          {view.canManage ? (
+                            g.number ? (
+                              g.number.onOwnTwilio ? null : <ReleaseNumberButton numberId={g.number.id} display={g.number.display} hadBefore={g.number.hadBefore} />
+                            ) : (
+                              <div className={styles.row}>
+                                {approved ? <GetNumberButton agentUserId={g.userId} name={g.name} /> : null}
+                                <UseExistingNumberButton agentUserId={g.userId} name={g.name} />
+                              </div>
+                            )
+                          ) : null}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

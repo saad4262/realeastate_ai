@@ -66,3 +66,14 @@
 @media (max-width: 860px) {
   .texts { grid-template-columns: 1fr; }
 }
+
+/* ADR 0090: the owner's picker for a number already on the agency's Twilio. */
+.backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 1rem; background: color-mix(in srgb, #000 45%, transparent); }
+.panel { width: 100%; max-width: 28rem; max-height: calc(100vh - 2rem); overflow-y: auto; display: grid; gap: 0.75rem; background: var(--surface-elevated); border: 1px solid var(--border-default); border-radius: 0.75rem; padding: 1.25rem; box-shadow: 0 20px 50px color-mix(in srgb, #000 35%, transparent); }
+.panelTitle { margin: 0; font-size: 1rem; font-weight: 600; color: var(--text-primary); }
+.pickList { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.375rem; }
+.pickItem { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.55rem 0.75rem; border: 1px solid var(--border-default); border-radius: 0.5rem; background: var(--surface-canvas); color: var(--text-primary); font: inherit; font-size: 0.8125rem; cursor: pointer; text-align: left; }
+.pickItem:hover:not(:disabled) { border-color: var(--text-primary); }
+.pickItem:focus-visible { outline: 2px solid var(--sapphire, #2563eb); outline-offset: 2px; }
+.pickItem:disabled { opacity: 0.5; cursor: not-allowed; }
+.pickRefused { display: grid; gap: 0.15rem; padding: 0.55rem 0.75rem; border: 1px dashed var(--border-default); border-radius: 0.5rem; }

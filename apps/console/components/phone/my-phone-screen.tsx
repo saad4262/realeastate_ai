@@ -158,14 +158,23 @@ function OwnTwilio({ view, offered, offeredError }: { view: MyPhoneView; offered
                   </span>
                 </p>
               ) : null}
-              {offered.length ? (
+              {offered.some((n) => !n.unavailable) ? (
                 <div className={styles.row}>
                   <span className={styles.muted}>Already on your Twilio:</span>
-                  {offered.map((n) => (
-                    <BringMyNumberButton key={n.sid} sid={n.sid} display={n.display} />
-                  ))}
+                  {offered
+                    .filter((n) => !n.unavailable)
+                    .map((n) => (
+                      <BringMyNumberButton key={n.sid} sid={n.sid} display={n.display} />
+                    ))}
                 </div>
               ) : null}
+              {offered
+                .filter((n) => n.unavailable)
+                .map((n) => (
+                  <p key={n.sid} className={styles.muted}>
+                    {n.display} can’t be used here yet: {n.unavailable}
+                  </p>
+                ))}
               {offeredError ? <p className={`${styles.note} ${styles.noteBad}`}>{offeredError}</p> : null}
               {approved ? (
                 <div className={styles.row}>

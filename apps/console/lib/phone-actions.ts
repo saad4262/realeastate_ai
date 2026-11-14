@@ -13,6 +13,9 @@ import {
   bringMyTwilioNumber,
   getMyPhone,
   getNumberForAgent,
+  listAgencyTwilioNumbers,
+  assignAgencyTwilioNumber,
+  type ExistingTwilioNumber,
   markMissedCallHandled,
   PhoneError,
   saveMissedCallSettings,
@@ -49,6 +52,11 @@ async function actor() {
   return loaded;
 }
 
+/** ADR 0090: numbers whose old Twilio settings could not be put back on disconnect, in words. */
+function notRestoredNote(numbers: string[]): string | undefined {
+  return numbers.length ? `Set these back in Twilio yourself: ${numbers.join(', ')}` : undefined;
+}
+
 function refresh() {
   for (const p of ['/settings/phone', '/my-phone', '/inbox/texts', '/my-inbox/texts']) revalidatePath(p);
 }
@@ -73,9 +81,9 @@ export async function connectTwilioAction(input: ConnectTwilioInput): Promise<Ph
 export async function disconnectTwilioAction(): Promise<PhoneActionResult> {
   const who = await actor();
   try {
-    await disconnectTwilio(getConsoleDb(), who);
+    const { notRestored } = await disconnectTwilio(getConsoleDb(), who, phoneDepsFromEnv());
     refresh();
-    return { ok: true };
+    return { ok: true, status: notRestoredNote(notRestored) };
   } catch (err) {
     return failure(err, 'Could not disconnect Twilio');
   }
@@ -100,6 +108,29 @@ export async function getNumberAction(agentUserId: string): Promise<PhoneActionR
     return { ok: true, id: n.id, status: n.display };
   } catch (err) {
     return failure(err, 'Could not get a number');
+  }
+}
+
+/** ADR 0090: the numbers already on the agency's Twilio, for the owner's picker. Read only. */
+export async function listAgencyNumbersAction(): Promise<{ ok: true; numbers: ExistingTwilioNumber[] } | { ok: false; error: string }> {
+  const who = await actor();
+  try {
+    return { ok: true, numbers: await listAgencyTwilioNumbers(getConsoleDb(), who, phoneDepsFromEnv()) };
+  } catch (err) {
+    const f = failure(err, 'Could not read the numbers on your Twilio');
+    return { ok: false, error: f.ok ? 'Could not read the numbers on your Twilio' : f.error };
+  }
+}
+
+/** ADR 0090: gives an agent one of those numbers; its old Twilio settings are kept to put back. */
+export async function assignAgencyNumberAction(agentUserId: string, numberSid: string): Promise<PhoneActionResult> {
+  const who = await actor();
+  try {
+    const n = await assignAgencyTwilioNumber(getConsoleDb(), who, agentUserId, numberSid, phoneDepsFromEnv());
+    refresh();
+    return { ok: true, id: n.id, status: n.display };
+  } catch (err) {
+    return failure(err, 'Could not use that number');
   }
 }
 
@@ -220,9 +251,9 @@ export async function connectMyTwilioAction(input: ConnectTwilioInput): Promise<
 export async function disconnectMyTwilioAction(): Promise<PhoneActionResult> {
   const who = await actor();
   try {
-    await disconnectMyTwilio(getConsoleDb(), who);
+    const { notRestored } = await disconnectMyTwilio(getConsoleDb(), who, phoneDepsFromEnv());
     refresh();
-    return { ok: true };
+    return { ok: true, status: notRestoredNote(notRestored) };
   } catch (err) {
     return failure(err, 'Could not disconnect your Twilio');
   }
@@ -264,7 +295,7 @@ export async function bringMyTwilioNumberAction(numberSid: string): Promise<Phon
 export async function stopUsingMyNumberAction(): Promise<PhoneActionResult> {
   const who = await actor();
   try {
-    await stopUsingMyNumber(getConsoleDb(), who);
+    await stopUsingMyNumber(getConsoleDb(), who, phoneDepsFromEnv());
     refresh();
     return { ok: true };
   } catch (err) {

@@ -3054,6 +3054,12 @@ export const phoneAccount = pgTable('phone_account', {
     .notNull()
     .references(() => agency.id, { onDelete: 'cascade' }),
   ownerUserId: uuid('owner_user_id').references(() => user.id, { onDelete: 'cascade' }),
+  /**
+   * ADR 0090: byo = an account the agency or agent made and connected with its key; managed = a
+   * subaccount the platform made under its own Twilio, whose SID is `accountSid`. A member's own
+   * account is always byo (CHECK).
+   */
+  kind: varchar('kind', { length: 8 }).notNull().default('byo'),
   accountSid: varchar('account_sid', { length: 64 }).notNull(),
   apiKeySid: varchar('api_key_sid', { length: 64 }).notNull(),
   apiKeySecret: text('api_key_secret').notNull(),
@@ -3083,6 +3089,20 @@ export const phoneAccount = pgTable('phone_account', {
   uniqueIndex('phone_account_agency_idx').on(t.agencyId).where(sql`owner_user_id is null`),
   uniqueIndex('phone_account_owner_idx').on(t.agencyId, t.ownerUserId).where(sql`owner_user_id is not null`),
 ]);
+
+/**
+ * ADR 0090: the four fields we change on a number we take over, as Twilio had them, so they can be put
+ * back. Null = Twilio had none (or it was our own URL from before). A number routed by an application,
+ * a trunk or a Messaging Service is refused, never taken over, so nothing else is ever changed.
+ */
+export type PreviousWebhooks = {
+  smsUrl: string | null;
+  smsMethod: string | null;
+  voiceUrl: string | null;
+  voiceMethod: string | null;
+  /** ISO time it was saved. */
+  savedAt: string;
+};
 
 /**
  * One agent's Twilio number on the agency's account (ADR 0070): their missed calls forward to it and
@@ -3123,6 +3143,11 @@ export const phoneNumber = pgTable(
     /** ADR 0072: when this number was registered with Retell for AI calls (PROVISIONAL until tried live). */
     retellRegisteredAt: timestamp('retell_registered_at', { withTimezone: true }),
     retellError: text('retell_error'),
+    /**
+     * ADR 0090: where Twilio sent this number's texts and calls before we pointed it here — set only
+     * for a number that already existed on a byo account, put back when it stops being used here.
+     */
+    previousWebhooks: jsonb('previous_webhooks').$type<PreviousWebhooks>(),
     ...timestamps,
   },
   (t) => [

@@ -7622,7 +7622,7 @@ async function main() {
       assert(forged instanceof PhoneError, 'brought a number Twilio did not list');
       const brought = await bringMyTwilioNumber(t, a1, offered[0]!.sid, deps);
       assert(brought.onOwnTwilio && (await listMyTwilioNumbers(t, a1, deps)).length === 0, 'the brought number still offered');
-      await stopUsingMyNumber(t, a1);
+      await stopUsingMyNumber(t, a1, deps);
       assert((await getPhoneSetup(t, owner, deps)).agents.find((g) => g.userId === f.people.a1)?.number === null, 'still in use after stopping');
       return 'two accounts (agency + A2), reconnect updates; A1 cannot reach A2’s; own number marked, one per agent; owner cannot release it or make it the agency number; texts on the right account; owner reads it; leaving: left, key gone, agency’s account kept, history kept, later texts dropped; bring a listed number only; stop using';
     }),

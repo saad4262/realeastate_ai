@@ -26,7 +26,7 @@ export function DisconnectMyTwilio() {
       style={{ marginLeft: 'auto' }}
       onClick={() => {
         if (!window.confirm('Disconnect your Twilio? A number on it stops working here. It stays yours in Twilio.')) return;
-        act(() => disconnectMyTwilioAction(), () => 'Your Twilio is disconnected', 'Not disconnected');
+        act(() => disconnectMyTwilioAction(), (note) => (note ? `Your Twilio is disconnected. ${note}` : 'Your Twilio is disconnected'), 'Not disconnected');
       }}
     >
       Disconnect

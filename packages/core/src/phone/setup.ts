@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { contact, membership, phoneAccount, phoneCall, phoneNumber, user, type Db, type DbOrTx } from '@repo/db';
+import { contact, membership, phoneAccount, phoneCall, phoneNumber, user, type Db, type DbOrTx, type PreviousWebhooks } from '@repo/db';
 import { can, isAgencyAdminRole, type Actor } from '../permissions';
 import { decryptToken, encryptToken, tokenKeysFromEnv, type TokenKeys } from '../integrations/crypto';
 import { ProviderError } from '../integrations/provider-http';
 import { auPhoneKey } from '../contacts/phone';
 import { displayAu, isAuMobile, toAuE164, webhookUrl } from './format';
-import { phoneStubEnabled, stubTwilioClient, twilioClient, type KycStatus, type TwilioApi, type TwilioCreds } from './twilio';
+import { phoneStubEnabled, stubTwilioClient, twilioClient, type KycStatus, type NumberRouting, type TwilioApi, type TwilioCreds, type TwilioOwnedNumber } from './twilio';
 
 /**
  * Phone & SMS setup (ADR 0070): the agency connects its own Twilio, Twilio checks the business, the
@@ -152,22 +152,50 @@ async function saveAccount(db: Db, actor: Actor, agencyId: string, ownerUserId: 
  * the Twilio account (release them first, or in Twilio, so they stop costing). Only that account's
  * numbers: the agency disconnecting leaves its agents' own Twilio alone, and the reverse.
  */
-async function forgetAccount(db: Db, agencyId: string, ownerUserId: string | null): Promise<void> {
+async function forgetAccount(db: Db, agencyId: string, ownerUserId: string | null, deps: PhoneDeps): Promise<{ notRestored: string[] }> {
+  // ADR 0090: before the key is forgotten, numbers taken over get their old routing back — best effort,
+  // since a key that no longer works is a common reason to disconnect. Network before the transaction.
+  const notRestored: string[] = [];
+  const [acct] = await db.select().from(phoneAccount).where(whose(agencyId, ownerUserId)).limit(1);
+  const taken = acct
+    ? await db
+        .select({ sid: phoneNumber.numberSid, e164: phoneNumber.e164, prev: phoneNumber.previousWebhooks })
+        .from(phoneNumber)
+        .where(and(eq(phoneNumber.accountId, acct.id), eq(phoneNumber.status, 'active'), isNotNull(phoneNumber.previousWebhooks)))
+    : [];
+  if (taken.length) {
+    let client: TwilioApi | null = null;
+    try {
+      client = clientFor(acct, deps, 'gone').client;
+    } catch {
+      client = null;
+    }
+    for (const t of taken) {
+      try {
+        if (!client || !t.prev) throw new Error('no client');
+        await restoreRouting(client, t.sid, t.prev);
+      } catch {
+        notRestored.push(displayAu(t.e164));
+      }
+    }
+  }
   await db.transaction(async (tx) => {
     const [account] = await tx.select({ id: phoneAccount.id }).from(phoneAccount).where(whose(agencyId, ownerUserId)).limit(1);
     if (!account) return;
     await tx.update(phoneNumber).set({ status: 'released', updatedAt: sql`now()` }).where(and(eq(phoneNumber.accountId, account.id), eq(phoneNumber.status, 'active')));
     await tx.delete(phoneAccount).where(eq(phoneAccount.id, account.id));
   });
+  return { notRestored };
 }
 
-export async function disconnectTwilio(db: Db, actor: Actor): Promise<void> {
-  await forgetAccount(db, agencyOf(actor, 'phone:manage'), null);
+/** `notRestored`: numbers whose old routing Twilio would not take back — the owner sets them in Twilio. */
+export async function disconnectTwilio(db: Db, actor: Actor, deps: PhoneDeps): Promise<{ notRestored: string[] }> {
+  return forgetAccount(db, agencyOf(actor, 'phone:manage'), null, deps);
 }
 
-/** The actor's own Twilio: forgotten here; its numbers are theirs and are not touched in Twilio. */
-export async function disconnectMyTwilio(db: Db, actor: Actor): Promise<void> {
-  await forgetAccount(db, ownAgency(actor), actor.userId);
+/** The actor's own Twilio: forgotten here; its numbers are theirs (a brought one gets its old routing back). */
+export async function disconnectMyTwilio(db: Db, actor: Actor, deps: PhoneDeps): Promise<{ notRestored: string[] }> {
+  return forgetAccount(db, ownAgency(actor), actor.userId, deps);
 }
 
 type AccountRow = typeof phoneAccount.$inferSelect;
@@ -281,6 +309,8 @@ export type PhoneNumberView = {
   live: boolean;
   /** On the agent's own Twilio (ADR 0087), not the agency's: only the agent may stop using it. */
   onOwnTwilio: boolean;
+  /** ADR 0090: was on the account before it was used here — releasing puts its old settings back and keeps it in Twilio. */
+  hadBefore: boolean;
 };
 
 export type TwilioAccountView = {
@@ -329,6 +359,7 @@ function numberView(n: typeof phoneNumber.$inferSelect, agencyAccountId: string 
     forwardingTestedAt: n.forwardingTestedAt,
     live: callerIdStatus === 'verified' && Boolean(n.forwardingTestedAt),
     onOwnTwilio: Boolean(n.accountId) && n.accountId !== agencyAccountId,
+    hadBefore: Boolean(n.previousWebhooks),
   };
 }
 
@@ -378,15 +409,7 @@ export async function getNumberForAgent(db: Db, actor: Actor, agentUserId: strin
   const base = needBase(deps);
   const { account, client } = await agencyTwilio(db, agencyId, deps);
   if (account.kycStatus !== 'approved' || !account.bundleSid) throw new PhoneError('invalid', 'Twilio has not approved the business yet, so it will not give out Australian numbers.');
-  const [member] = await db
-    .select({ role: membership.role, phone: user.phone })
-    .from(membership)
-    .innerJoin(user, eq(user.id, membership.userId))
-    .where(and(eq(membership.agencyId, agencyId), eq(membership.userId, agentUserId), eq(membership.status, 'active')))
-    .limit(1);
-  if (!member || member.role === 'read_only') throw new PhoneError('not_found', 'That person is not an active member who can text.');
-  const [has] = await db.select({ id: phoneNumber.id }).from(phoneNumber).where(and(eq(phoneNumber.agencyId, agencyId), eq(phoneNumber.userId, agentUserId), eq(phoneNumber.status, 'active'))).limit(1);
-  if (has) throw new PhoneError('invalid', 'They already have a number.');
+  const member = await textingMember(db, agencyId, agentUserId);
 
   const id = randomUUID();
   let bought: { sid: string; e164: string };
@@ -411,7 +434,47 @@ export async function getNumberForAgent(db: Db, actor: Actor, agentUserId: strin
   }
 }
 
-/** Gives one of the agency's numbers back to Twilio. Its texts stay in the history. */
+/** ADR 0090: the mobiles already on the agency's BYO Twilio, free to give an agent instead of buying one. */
+export async function listAgencyTwilioNumbers(db: Db, actor: Actor, deps: PhoneDeps): Promise<ExistingTwilioNumber[]> {
+  const agencyId = agencyOf(actor, 'phone:manage');
+  const { client } = await agencyTwilio(db, agencyId, deps);
+  try {
+    return (await existingNumbers(db, client)).offered;
+  } catch (err) {
+    throw providerFailure(err, 'Twilio refused to list the agency’s numbers with the saved key.');
+  }
+}
+
+/**
+ * ADR 0090: gives an agent a number the agency already has on its Twilio. Its routing is saved and
+ * put back when it is released here; the number itself is never given back to Twilio. No bundle check:
+ * the number exists, so Twilio has already accepted it on this account.
+ */
+export async function assignAgencyTwilioNumber(db: Db, actor: Actor, agentUserId: string, numberSid: string, deps: PhoneDeps): Promise<PhoneNumberView> {
+  const agencyId = agencyOf(actor, 'phone:manage');
+  needKeys(deps);
+  needBase(deps);
+  const member = await textingMember(db, agencyId, agentUserId);
+  const { account, client } = await agencyTwilio(db, agencyId, deps);
+  const mobile = toAuE164(member.phone);
+  const row = await takeOverNumber(db, client, numberSid, { agencyId, userId: agentUserId, accountId: account.id, callerIdE164: isAuMobile(mobile) ? mobile : null }, deps, 'Twilio refused to point the number here with the saved key.');
+  return numberView(row, account.id);
+}
+
+/** An active member who may text and has no number yet, or a refusal. */
+async function textingMember(db: DbOrTx, agencyId: string, userId: string): Promise<{ phone: string | null }> {
+  const [member] = await db
+    .select({ role: membership.role, phone: user.phone })
+    .from(membership)
+    .innerJoin(user, eq(user.id, membership.userId))
+    .where(and(eq(membership.agencyId, agencyId), eq(membership.userId, userId), eq(membership.status, 'active')))
+    .limit(1);
+  if (!member || member.role === 'read_only') throw new PhoneError('not_found', 'That person is not an active member who can text.');
+  if (await hasNumber(db, agencyId, userId)) throw new PhoneError('invalid', 'They already have a number.');
+  return member;
+}
+
+/** Stops using one of the agency's numbers here (ADR 0090: given back to Twilio only if bought here). Its texts stay in the history. */
 export async function releaseAgentNumber(db: Db, actor: Actor, numberId: string, deps: PhoneDeps): Promise<void> {
   const agencyId = agencyOf(actor, 'phone:manage');
   const [n] = await db.select().from(phoneNumber).where(and(eq(phoneNumber.id, numberId), eq(phoneNumber.agencyId, agencyId), eq(phoneNumber.status, 'active'))).limit(1);
@@ -420,7 +483,10 @@ export async function releaseAgentNumber(db: Db, actor: Actor, numberId: string,
   // ADR 0087: an agent's own number is theirs. The agency may not give it back to Twilio.
   if (n.accountId !== account.id) throw new PhoneError('forbidden', 'That number is on the agent’s own Twilio. Only they can stop using it, on My phone.');
   try {
-    await client.releaseNumber(n.numberSid);
+    // ADR 0090: a number the agency had before is its own to keep: its old routing goes back, and it
+    // is not given back to Twilio. One bought here is released.
+    if (n.previousWebhooks) await restoreRouting(client, n.numberSid, n.previousWebhooks);
+    else await client.releaseNumber(n.numberSid);
   } catch (err) {
     throw providerFailure(err, 'Twilio refused to release the number with the saved key.');
   }
@@ -600,55 +666,158 @@ export async function buyMyNumber(db: Db, actor: Actor, deps: PhoneDeps): Promis
   }
 }
 
-export type OwnTwilioNumber = { sid: string; e164: string; display: string };
+// ── Numbers already on a BYO account (ADR 0087 for an agent's own, ADR 0090 for the agency's) ──
 
-/** The Australian mobiles already on the actor's own Twilio that are not in use here — the ones they may bring. */
+/** A number already on a Twilio account, offered to use here. `unavailable`: why it cannot be, or null. */
+export type ExistingTwilioNumber = { sid: string; e164: string; display: string; unavailable: string | null };
+/** ADR 0087's name for it, kept for the agent's screen. */
+export type OwnTwilioNumber = ExistingTwilioNumber;
+
+/**
+ * Why a number Twilio routes some other way is not taken over, or null when it can be. We only ever
+ * change a number's two URLs and their methods; a trunk, a TwiML App or a Messaging Service would keep
+ * answering instead of us (half taken over), so such a number is refused with what to change. Pure.
+ */
+export function takeoverRefusal(n: TwilioOwnedNumber, serviceRouted: ReadonlySet<string>): string | null {
+  if (n.routing.trunkSid) return 'Its calls go to a SIP trunk in Twilio. Take it off the trunk first.';
+  if (n.routing.voiceApplicationSid || n.routing.smsApplicationSid) return 'A TwiML App in Twilio answers it. Clear the app on the number first.';
+  if (serviceRouted.has(n.sid)) return 'A Messaging Service in Twilio answers its texts. Take it out of the service, or set the service to use the number’s own webhook.';
+  return null;
+}
+
+/** One of our own webhook URLs, on any domain we have had (a number used here before). */
+const OUR_WEBHOOK = /\/api\/phone\/twilio\/[^/]+\/(sms|voice)$/;
+
+/**
+ * What to put back when the number stops being used here (ADR 0090). Our own URL from an earlier use
+ * here is not kept: it would point at a row that is no longer active. Pure.
+ */
+export function routingToSave(r: NumberRouting, now: Date): PreviousWebhooks {
+  const keep = (url: string | null) => (url && !OUR_WEBHOOK.test(url) ? url : null);
+  const smsUrl = keep(r.smsUrl);
+  const voiceUrl = keep(r.voiceUrl);
+  return { smsUrl, smsMethod: smsUrl ? r.smsMethod : null, voiceUrl, voiceMethod: voiceUrl ? r.voiceMethod : null, savedAt: now.toISOString() };
+}
+
+/** The number's routing put back as it was found. An empty URL clears ours. */
+async function restoreRouting(client: TwilioApi, numberSid: string, prev: PreviousWebhooks): Promise<void> {
+  await client.setNumberWebhooks(numberSid, {
+    smsUrl: prev.smsUrl ?? '',
+    voiceUrl: prev.voiceUrl ?? '',
+    smsMethod: prev.smsMethod ?? undefined,
+    voiceMethod: prev.voiceMethod ?? undefined,
+  });
+}
+
+/** The mobiles on an account (by Twilio's word, now), each with why it may not be used here. */
+async function existingNumbers(db: DbOrTx, client: TwilioApi): Promise<{ offered: ExistingTwilioNumber[]; bySid: Map<string, TwilioOwnedNumber> }> {
+  const mobiles = (await client.listNumbers()).filter((n) => isAuMobile(n.e164));
+  if (mobiles.length === 0) return { offered: [], bySid: new Map() };
+  const [used, serviceRouted] = await Promise.all([
+    db.select({ sid: phoneNumber.numberSid }).from(phoneNumber).where(and(inArray(phoneNumber.numberSid, mobiles.map((n) => n.sid)), eq(phoneNumber.status, 'active'))),
+    client.serviceRoutedNumberSids(),
+  ]);
+  const taken = new Set(used.map((u) => u.sid));
+  return {
+    offered: mobiles
+      .filter((n) => !taken.has(n.sid))
+      .map((n) => ({ sid: n.sid, e164: n.e164, display: displayAu(n.e164), unavailable: takeoverRefusal(n, serviceRouted) })),
+    bySid: new Map(mobiles.map((n) => [n.sid, n])),
+  };
+}
+
+/**
+ * Points an existing number here (ADR 0090): its routing saved first, then its URLs set, then the row.
+ * If the row cannot be written, the routing is put back. The number is picked again from Twilio's own
+ * list, never taken from the browser alone.
+ */
+async function takeOverNumber(
+  db: Db,
+  client: TwilioApi,
+  numberSid: string,
+  row: { agencyId: string; userId: string; accountId: string; callerIdE164: string | null },
+  deps: PhoneDeps,
+  refused: string,
+): Promise<typeof phoneNumber.$inferSelect> {
+  const keys = needKeys(deps);
+  const base = needBase(deps);
+  let pick: TwilioOwnedNumber | undefined;
+  let offered: ExistingTwilioNumber | undefined;
+  try {
+    const found = await existingNumbers(db, client);
+    offered = found.offered.find((n) => n.sid === numberSid);
+    pick = found.bySid.get(numberSid);
+  } catch (err) {
+    throw providerFailure(err, refused);
+  }
+  if (!offered || !pick) throw new PhoneError('not_found', 'That number is not a mobile free to use on this Twilio.');
+  if (offered.unavailable) throw new PhoneError('invalid', offered.unavailable);
+  const id = randomUUID();
+  const previousWebhooks = routingToSave(pick.routing, new Date());
+  try {
+    await client.setNumberWebhooks(pick.sid, { smsUrl: webhookUrl(base, id, 'sms', keys), voiceUrl: webhookUrl(base, id, 'voice', keys) });
+  } catch (err) {
+    throw providerFailure(err, refused);
+  }
+  try {
+    const [saved] = await db
+      .insert(phoneNumber)
+      .values({ id, ...row, e164: pick.e164, numberSid: pick.sid, previousWebhooks })
+      .returning();
+    return saved!;
+  } catch (err) {
+    // Lost a race for the same number: the winner's URLs are on it now, so leave them. Otherwise put
+    // back what we found.
+    const [winner] = await db.select({ id: phoneNumber.id }).from(phoneNumber).where(and(eq(phoneNumber.numberSid, pick.sid), eq(phoneNumber.status, 'active'))).limit(1);
+    if (!winner) await restoreRouting(client, pick.sid, previousWebhooks).catch((e: unknown) => console.error('[phone] routing not put back after a failed save', pick.sid, e instanceof Error ? e.message : e));
+    throw err;
+  }
+}
+
+/** The mobiles already on the actor's own Twilio that are not in use here — the ones they may bring. */
 export async function listMyTwilioNumbers(db: Db, actor: Actor, deps: PhoneDeps): Promise<OwnTwilioNumber[]> {
   const agencyId = ownAgency(actor);
   const { client } = await ownTwilio(db, agencyId, actor.userId, deps);
-  let all: { sid: string; e164: string }[];
   try {
-    all = await client.listNumbers();
+    return (await existingNumbers(db, client)).offered;
   } catch (err) {
     throw providerFailure(err, 'Twilio refused to list your numbers with your key.');
   }
-  const mobiles = all.filter((n) => isAuMobile(n.e164));
-  if (mobiles.length === 0) return [];
-  const used = await db.select({ sid: phoneNumber.numberSid }).from(phoneNumber).where(and(inArray(phoneNumber.numberSid, mobiles.map((n) => n.sid)), eq(phoneNumber.status, 'active')));
-  const taken = new Set(used.map((u) => u.sid));
-  return mobiles.filter((n) => !taken.has(n.sid)).map((n) => ({ ...n, display: displayAu(n.e164) }));
 }
 
 /**
  * Brings a number the actor already has on their own Twilio (ADR 0087): its texts and calls are
- * pointed here. This is how an agent who moves agency keeps their number. Only a number Twilio lists
- * on their account right now, never one named by the browser alone.
+ * pointed here, its routing before that saved (ADR 0090). This is how an agent who moves agency
+ * keeps their number.
  */
 export async function bringMyTwilioNumber(db: Db, actor: Actor, numberSid: string, deps: PhoneDeps): Promise<PhoneNumberView> {
   const agencyId = ownAgency(actor);
-  const keys = needKeys(deps);
-  const base = needBase(deps);
-  const offered = await listMyTwilioNumbers(db, actor, deps);
-  const pick = offered.find((n) => n.sid === numberSid);
-  if (!pick) throw new PhoneError('not_found', 'That number is not an Australian mobile free to use on your Twilio.');
+  needKeys(deps);
+  needBase(deps);
   if (await hasNumber(db, agencyId, actor.userId)) throw new PhoneError('invalid', ONE_NUMBER);
   const { account, client } = await ownTwilio(db, agencyId, actor.userId, deps);
-  const id = randomUUID();
-  try {
-    await client.setNumberWebhooks(pick.sid, { smsUrl: webhookUrl(base, id, 'sms', keys), voiceUrl: webhookUrl(base, id, 'voice', keys) });
-  } catch (err) {
-    throw providerFailure(err, 'Twilio refused to point the number here with your key.');
-  }
-  // Should the insert lose a race, Twilio points at a row that does not exist: the webhooks answer
-  // 404 and nothing is kept until the number is used again.
-  return saveOwnNumber(db, actor, agencyId, account.id, id, pick);
+  const [me] = await db.select({ phone: user.phone }).from(user).where(eq(user.id, actor.userId)).limit(1);
+  const mobile = toAuE164(me?.phone);
+  const row = await takeOverNumber(db, client, numberSid, { agencyId, userId: actor.userId, accountId: account.id, callerIdE164: isAuMobile(mobile) ? mobile : null }, deps, 'Twilio refused to point the number here with your key.');
+  return numberView(row, null);
 }
 
-/** Stops using the actor's own number here. It stays theirs in Twilio; nothing is sent to Twilio. */
-export async function stopUsingMyNumber(db: Db, actor: Actor): Promise<void> {
+/**
+ * Stops using the actor's own number here. It stays theirs in Twilio; a number they brought gets its
+ * old routing back (ADR 0090) — refused, and still in use here, if Twilio will not take it.
+ */
+export async function stopUsingMyNumber(db: Db, actor: Actor, deps: PhoneDeps): Promise<void> {
   const n = await myNumber(db, actor);
   const [own] = await db.select({ id: phoneAccount.id }).from(phoneAccount).where(whose(n.agencyId, actor.userId)).limit(1);
   if (!own || n.accountId !== own.id) throw new PhoneError('forbidden', 'This number is the agency’s. An owner or admin releases it.');
+  if (n.previousWebhooks) {
+    const { client } = await numberTwilio(db, n, deps);
+    try {
+      await restoreRouting(client, n.numberSid, n.previousWebhooks);
+    } catch (err) {
+      throw providerFailure(err, 'Twilio refused to put the number’s old settings back with your key.');
+    }
+  }
   await db.update(phoneNumber).set({ status: 'released', updatedAt: sql`now()` }).where(eq(phoneNumber.id, n.id));
 }
 
