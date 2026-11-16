@@ -84,7 +84,8 @@ export function voiceFromEnv(env: NodeJS.ProcessEnv = process.env): VoiceConfig 
   return {
     voice: apiKey && agentId ? retellClient(apiKey, agentId) : stub ? stubVoiceAi() : null,
     apiKey,
-    verifySignature: env.RETELL_VERIFY_SIGNATURE === '1',
+    // On unless explicitly '0': an escape hatch while a real delivery is first checked (TEST-PLAN BZ13).
+    verifySignature: env.RETELL_VERIFY_SIGNATURE !== '0',
   };
 }
 
@@ -111,8 +112,8 @@ export function retellWebhookUrl(base: string, keys: TokenKeys): string {
 
 /**
  * Retell's own signature, `x-retell-signature: v=<ms>,d=<hex>`: an HMAC-SHA256 under the API key of the
- * raw body followed by the timestamp. Checked only with RETELL_VERIFY_SIGNATURE=1 until it has been
- * seen to match a real delivery; the URL token is always required.
+ * raw body followed by the timestamp. Signed with the API key that has the webhook badge in Retell.
+ * Always checked, with the URL token, unless RETELL_VERIFY_SIGNATURE=0.
  */
 export function verifyRetellSignature(rawBody: string, header: string | null, apiKey: string, now = Date.now()): boolean {
   const m = /^v=(\d+),d=([0-9a-f]+)$/.exec(header ?? '');

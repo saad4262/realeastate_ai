@@ -26,7 +26,7 @@ reach a third party need a human; this is the one exception the client agreed, w
    each number into Retell with that trunk. Numbers are NOT moved onto the trunk, so their incoming
    calls still reach our voice webhook. Showing the agent's own mobile as caller ID: not yet (to test).
 5. **Retell's webhook** `/api/phone/retell/<token>`: the token (HMAC from INTEGRATION_TOKEN_KEY) always;
-   Retell's `x-retell-signature` when `RETELL_VERIFY_SIGNATURE=1`; only a call id we placed whose
+   Retell's `x-retell-signature` (on by default since 2026-11-16; `RETELL_VERIFY_SIGNATURE=0` skips it); only a call id we placed whose
    metadata carries our own id. `call_ended`: outcome, duration, transcript, https recording URL.
    `call_analyzed` (once): summary and priority (a label — high/medium/low), a note on the contact
    headed "written by the AI from the call; check it before you act", the agent's bell, and Retell's

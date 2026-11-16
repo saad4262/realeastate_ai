@@ -1852,7 +1852,7 @@ Retell: calls are "placed" but nobody is rung.
 | BZ10 | Mark a scheduled call handled before it is due | Not called: "the call was handled first". |
 | BZ11 | The same caller again the same day | Not scheduled again: "already called back today". |
 | BZ12 | They don't answer | Row: "AI: no answer". No second call. |
-| BZ13 | A POST to /api/phone/retell/<wrong token> | 403, nothing written. With RETELL_VERIFY_SIGNATURE=1 and a bad signature: 401. |
+| BZ13 | A POST to /api/phone/retell/<wrong token>; then the right token with no or a bad `x-retell-signature` | 403, nothing written; then 401 and a log line "bad signature". A real call's webhooks (BZ7) are accepted: if BZ7 shows nothing and the log says "bad signature", RETELL_API_KEY is not the key with the webhook badge in Retell. |
 
 ## CA — SMS everywhere, part 1: templates by channel, the "missed call" trigger (ADR 0074)
 
@@ -2304,6 +2304,38 @@ account needs its own paid account, API key (Standard) and approved AU mobile bu
 | CW9 | The same agent, in another agency: connect the same Twilio → "Already on your Twilio: Use 04…" | The number now brings that agency's texts and calls; the first agency keeps the old ones |
 | CW10 | Agent → Stop using it here | Gone from the owner's table; it stays on their Twilio |
 | CW11 | Another agent's My phone | Never shows a colleague's Twilio; the owner cannot connect one for them |
+
+## CY — Hybrid Twilio: numbers already on the agency's Twilio, and accounts we run (ADR 0090)
+
+Migration 0096 (on production, checked 2026-11-16). The phone test agency only. `PHONE_STUB=1` (dev) shows every screen but
+proves nothing at Twilio: the real run is what counts.
+- **Part A (CY1–CY9)** needs the agency's own paid Twilio, connected (BX4), with at least one AU mobile on it that is not used here.
+  Before CY3, write down that number's Voice and Messaging URLs from the Twilio console: CY6 and CY8 check they come back.
+- **Part B (CY10–CY19)** needs the platform's Twilio with a **Main** API key (Twilio console → API keys → Main; a Standard key
+  cannot make subaccounts) in `TWILIO_MASTER_ACCOUNT_SID`, `TWILIO_MASTER_API_KEY_SID`, `TWILIO_MASTER_API_KEY_SECRET`, plus
+  `PHONE_MANAGED_TEST_MODE=1` and `PHONE_TEST_COUNTRY_CODES=1,92`. Every number bought here bills the platform: end with CY16.
+
+| # | Do | Expect |
+|---|---|---|
+| CY1 | Owner, own Twilio connected, business not yet approved → Phone & SMS | "New numbers wait for Twilio to approve your business. A number already on your Twilio can be given to an agent now." "Use an existing number" works; "Get a number" stays locked. |
+| CY2 | Use an existing number | "Numbers already on your Twilio that are not used here…", only mobiles not in use here. With none: "No free mobile numbers on your Twilio. Use “Get a number” instead." |
+| CY3 | Pick the number for Sarah → Use | It shows in her row. In Twilio its Voice and Messaging URLs are now ours. A text to it reaches Inbox → Texts (as BX12); a missed call is logged (as BY). |
+| CY4 | A number on a SIP trunk, one with a TwiML App, one in a Messaging Service that does not use the number's own webhook | Each refused, nothing changed in Twilio: "…SIP trunk… Take it off the trunk first." / "A TwiML App in Twilio answers it…" / "A Messaging Service in Twilio answers its texts…" |
+| CY5 | Give a second number to Sarah, who has one | "They already have a number." |
+| CY6 | Release on the number from CY3 | Asks "Stop using … here? It stays on your Twilio, set back to what it was before…". In Twilio: the number is still on the account, with the URLs written down before CY3. Its texts stay in the history. |
+| CY7 | Release a number that was bought here (BX6) | Given back to Twilio: gone from the account (as before ADR 0090). |
+| CY8 | Give the existing number again, then Disconnect Twilio | Its URLs go back as written down. If one could not be put back, the message names that number. |
+| CY9 | Agent with their own Twilio (CW) → My phone → an existing number → Use, then "Stop using it here" | Same as CY3 and CY6, on the agent's account. The owner never sees the agent's key. |
+| CY10 | No `TWILIO_MASTER_*` on the server → Phone & SMS | Only the connect form. No "Set it up for me". |
+| CY11 | With the master key and test mode → Phone & SMS | "Easiest: we set it up…" with "Set it up for me", and "Or connect your own Twilio". |
+| CY12 | Set it up for me | Toast "Phone numbers are ready (test mode, US numbers)". Step 1 "Phone numbers, run by us", "On", "Run by us, billed through your plan · test mode". In the platform's Twilio: one new subaccount with one Standard API key in it. |
+| CY13 | The business step; then Check now | "Test mode: not checked by Twilio. Numbers are US (+1) test numbers only." Check now keeps it approved. |
+| CY14 | Get a number for Sarah | A US (+1) number, in the subaccount (not the master), with our URLs. |
+| CY15 | From a +92 tester phone: call it and miss it; text it; Sarah replies | The missed call and the text arrive here; the reply reaches the tester. A text to or from another US number may be blocked (A2P 10DLC): expected, not a bug. |
+| CY16 | Turn off | Asks "Turn off phone numbers? Every agent’s number is given up for good…". Toast "Phone numbers turned off". In Twilio: the subaccount is Closed and its numbers are gone. Texts stay in the history. |
+| CY17 | Set up again, then remove `PHONE_MANAGED_TEST_MODE` and redeploy → Get a number | Refused: "Twilio has not approved the business yet, so it will not give out Australian numbers." No number bought. |
+| CY18 | Remove the `TWILIO_MASTER_*` values, redeploy → Turn off | Refused: "This server cannot reach our Twilio account, so phone cannot be turned off here yet." The account stays. Put the values back and run CY16. |
+| CY19 | Master key, test mode off → Set it up for me | "Set up. Next: your business details", and "…This form is not ready yet." (phase 3, not built). Then CY16 to close it. |
 
 ## CX — Three kinds of chat (ADR 0088)
 Phase 1 is the foundation and changes nothing on screen. Apply migration 0093 first.

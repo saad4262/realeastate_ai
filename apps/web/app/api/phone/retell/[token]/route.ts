@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
  * Retell's webhook for the platform's AI call-back agent (docs/adr/0072): a call ended (transcript,
  * recording) and was analysed (summary, priority). Everything is decided in packages/core
  * (`handleRetellWebhook`): the token in the URL, which only this server can make; Retell's own
- * signature when RETELL_VERIFY_SIGNATURE=1; and a call id we placed, carrying our own id. The RAW body
+ * signature (unless RETELL_VERIFY_SIGNATURE=0); and a call id we placed, carrying our own id. The RAW body
  * is read because the signature is over the exact bytes.
  */
 export async function POST(request: NextRequest, ctx: { params: Promise<{ token: string }> }) {
@@ -33,6 +33,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
       apiKey: voice.apiKey,
       verifySignature: voice.verifySignature,
     });
+    if (result.status === 401) console.warn('[phone] retell webhook refused: bad signature. Is RETELL_API_KEY the key with the webhook badge?');
     return Response.json(result.body, { status: result.status, headers: { 'cache-control': 'no-store' } });
   } catch (err) {
     // A 5xx makes Retell retry.

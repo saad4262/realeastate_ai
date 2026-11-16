@@ -13,6 +13,7 @@ import {
   retellClient,
   retellWebhookToken,
   retellWebhookUrl,
+  voiceFromEnv,
   verifyRetellSignature,
   verifyRetellWebhookToken,
 } from './voice';
@@ -106,6 +107,13 @@ describe('Retell', () => {
     expect(retellWebhookUrl('https://site.example/', keys)).toBe(`https://site.example/api/phone/retell/${retellWebhookToken(keys)}`);
     expect(verifyRetellWebhookToken(retellWebhookToken(keys), keys)).toBe(true);
     expect(verifyRetellWebhookToken(retellWebhookToken(otherKeys), keys)).toBe(false);
+  });
+
+  it("checks Retell's signature unless it is explicitly turned off", () => {
+    expect(voiceFromEnv({} as NodeJS.ProcessEnv).verifySignature).toBe(true);
+    expect(voiceFromEnv({ RETELL_VERIFY_SIGNATURE: '' } as NodeJS.ProcessEnv).verifySignature).toBe(true);
+    expect(voiceFromEnv({ RETELL_VERIFY_SIGNATURE: '1' } as NodeJS.ProcessEnv).verifySignature).toBe(true);
+    expect(voiceFromEnv({ RETELL_VERIFY_SIGNATURE: '0' } as NodeJS.ProcessEnv).verifySignature).toBe(false);
   });
 
   it('refuses a webhook with a foreign token, or a bad signature when signatures are on, before any read', async () => {
