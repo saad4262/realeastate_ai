@@ -521,6 +521,35 @@ deploy — `0008` through `0013` — and the app will throw on a missing table.
 Use the **direct** connection for migrations, not the pooler. Run it before
 the first deploy, and after any deploy whose diff touches `drizzle/`.
 
+## Backups (PLATFORM-PLAN 0.3, 0.4)
+
+PITR is off for now (PLATFORM-PLAN decision 7). Recovery is Supabase's daily backup plus our own encrypted
+`pg_dump`, every 6 hours, by `.github/workflows/db-backup.yml` → `scripts/db-backup.sh`. The job encrypts to an
+**age public key**, so GitHub can write a backup but never read one. A dump with fewer than 100 tables, or taken
+from a database with no agency, fails the run instead of being stored.
+
+One-time setup (the boss creates the accounts; nothing here is in the code):
+1. **The repository is private** before any of the secrets below go into it.
+2. **Key pair:** `age-keygen -o backup-age-key.txt` on a laptop. The private key goes into the password manager and
+   the file is deleted; the `age1…` public key line becomes the variable `BACKUP_AGE_RECIPIENT`.
+3. **AWS, a separate account from everything else:** an S3 bucket in `ap-southeast-4` (Melbourne) with Object Lock
+   (Governance, 14 days) and a lifecycle rule that deletes objects after 35 days. An IAM role that trusts GitHub's
+   OIDC provider for this repository's `main` branch and may only `s3:PutObject` into that bucket. Its ARN is the
+   secret `BACKUP_AWS_ROLE_ARN`.
+4. **healthchecks.io:** a check with a 6-hour period and 1-hour grace; its ping URL is the secret
+   `BACKUP_HEALTHCHECK_URL`. A missed or failed run emails both developers.
+5. **GitHub** → Settings → Secrets and variables → Actions:
+   - secrets `BACKUP_DATABASE_URL` (production session pooler, port 5432), `BACKUP_AWS_ROLE_ARN`, `BACKUP_HEALTHCHECK_URL`
+   - variables `BACKUP_AGE_RECIPIENT`, `BACKUP_S3_URI` (`s3://<bucket>/db/`), and `BACKUP_ENABLED=true` last
+6. Actions → Database backup → **Run workflow** once, and check that the file is in the bucket and the check is green.
+
+**Restore** (the drill, monthly; and the real thing): download a file, then
+`age -d -i backup-age-key.txt prod-<stamp>.dump.age > prod.dump`, `pg_restore --list prod.dump` to look, and
+`pg_restore --no-owner --no-privileges --dbname=<scratch project's DIRECT_URL> prod.dump` into a **scratch** project,
+never into production. Compare row counts of `agency`, `user`, `listing`, `lead` with production.
+
+Before a production migration, also run the local encrypted backup (`backup.sh` in the private backups folder).
+
 ## The scheduler tick
 
 One Vercel cron on the web project: `*/5 * * * *` on `/api/cron/alerts`
