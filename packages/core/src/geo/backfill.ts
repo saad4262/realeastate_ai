@@ -1,3 +1,4 @@
+import { assertNotProduction } from '@repo/db/production-guard';
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
@@ -46,6 +47,7 @@ async function main() {
   }
 
   const url = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
+  assertNotProduction(url);
   if (!url) {
     console.error('DATABASE_URL is not set.');
     process.exitCode = 1;

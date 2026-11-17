@@ -7,6 +7,7 @@
  *
  * Prints counts only. Safe to run twice: it sets the same URLs again.
  */
+import { assertNotProduction } from '@repo/db/production-guard';
 import { config } from 'dotenv';
 import { getDb } from '@repo/db';
 import { phoneDepsFromEnv, repointNumberWebhooks } from './setup';
@@ -15,6 +16,7 @@ config({ path: '../../.env.local' });
 
 async function main() {
   const url = process.env.DATABASE_URL;
+  assertNotProduction(url);
   if (!url) throw new Error('Set DATABASE_URL first.');
   const deps = phoneDepsFromEnv();
   if (!deps.webhookBase?.startsWith('https://')) throw new Error('PHONE_WEBHOOK_BASE must be the new https web URL.');

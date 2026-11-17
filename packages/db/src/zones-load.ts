@@ -1,3 +1,4 @@
+import { assertNotProduction } from './production-guard';
 import { config } from 'dotenv';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -80,6 +81,7 @@ async function main() {
   console.log(`[zones] ${rows.length} polygons, ${zones.size} zones parsed from ${file}`);
   if (process.argv.includes('--dry-run')) return;
   const url = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
+  assertNotProduction(url);
   if (!url) throw new Error('DATABASE_URL is not set');
   const db = getDb(url);
 

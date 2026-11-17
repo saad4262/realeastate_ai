@@ -1,3 +1,4 @@
+import { assertNotProduction } from './production-guard';
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
 import postgres from 'postgres';
@@ -23,6 +24,7 @@ async function main() {
   const confirmed = process.argv.includes('--confirm');
 
   const url = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
+  assertNotProduction(url);
   if (!url) {
     console.error('DATABASE_URL is not set.');
     process.exitCode = 1;

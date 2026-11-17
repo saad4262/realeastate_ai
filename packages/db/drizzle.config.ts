@@ -1,11 +1,13 @@
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
 import { defineConfig } from 'drizzle-kit';
+import { assertNotProduction } from './src/production-guard';
 
 config({ path: resolve(process.cwd(), '../../.env.local') });
 config({ path: resolve(process.cwd(), '../../.env') });
 
 const url = process.env.DIRECT_URL ?? process.env.DATABASE_URL ?? '';
+assertNotProduction(url);
 
 export default defineConfig({
   schema: './src/schema.ts',

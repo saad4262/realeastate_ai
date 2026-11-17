@@ -1,3 +1,4 @@
+import { assertNotProduction } from '@repo/db/production-guard';
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
@@ -18,6 +19,7 @@ const AGENCY_SLUG = 'phone-test-agency-20261030-dev';
 
 async function main() {
   const url = process.env.DATABASE_URL;
+  assertNotProduction(url);
   if (!url) throw new Error('DATABASE_URL missing');
   const db = getDb(url);
   const [ag] = await db.select({ id: agency.id, name: agency.name }).from(agency).where(eq(agency.slug, AGENCY_SLUG)).limit(1);

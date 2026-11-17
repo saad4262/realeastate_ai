@@ -1,3 +1,4 @@
+import { assertNotProduction } from './production-guard';
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
 import { and, asc, eq } from 'drizzle-orm';
@@ -28,6 +29,7 @@ const DEMO_HEADLINE = 'Sunlit Bondi apartment near the beach';
 
 async function main() {
   const databaseUrl = process.env.DATABASE_URL;
+  assertNotProduction(databaseUrl);
   if (!databaseUrl || databaseUrl.includes('YOUR_PASSWORD')) {
     console.error('Set DATABASE_URL with the real password in .env.local before seeding.');
     process.exit(1);

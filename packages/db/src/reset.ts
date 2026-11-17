@@ -1,3 +1,4 @@
+import { assertNotProduction } from './production-guard';
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
 import { getDb } from './client';
@@ -41,6 +42,7 @@ async function main() {
   }
 
   const databaseUrl = process.env.DATABASE_URL;
+  assertNotProduction(databaseUrl);
   if (!databaseUrl || databaseUrl.includes('YOUR_PASSWORD')) {
     console.error('Set DATABASE_URL with the real password in .env.local first.');
     process.exit(1);

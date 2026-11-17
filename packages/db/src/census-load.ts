@@ -1,3 +1,4 @@
+import { assertNotProduction } from './production-guard';
 import { config } from 'dotenv';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -78,6 +79,7 @@ async function main() {
   console.log(`[census] ${rows.length} suburbs parsed from ${FILE}`);
   if (process.argv.includes('--dry-run')) return;
   const url = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
+  assertNotProduction(url);
   if (!url) throw new Error('DATABASE_URL is not set');
   const db = getDb(url);
   for (let i = 0; i < rows.length; i += 500) {

@@ -1,3 +1,4 @@
+import { assertNotProduction } from '@repo/db/production-guard';
 import { config } from 'dotenv';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -504,6 +505,7 @@ async function main() {
     process.exit(0);
   }
   const url = process.env.DATABASE_URL;
+  assertNotProduction(url);
   if (!url) {
     process.stdout.write('DATABASE_URL is not set — nothing can be checked.\n');
     process.exit(1);
@@ -9864,6 +9866,8 @@ async function main() {
       await t.execute(sql`insert into "user" (id, email, name) values (${adminId}, ${`cost.${A.f.tag}@smoke.test`}, 'Smoke Admin')`);
       await t.execute(sql`insert into platform_admin (user_id, note) values (${adminId}, 'smoke')`);
       const admin = (await loadPlatformAdmin(t, adminId))!;
+      // The isolation fixture writes its own $0.50 run for A; the sums below count only this check's rows.
+      await t.execute(sql`delete from ai_run where agency_id in (${A.f.agencyId}, ${B.f.agencyId})`);
       const before = await aiCostOverview(t, admin, { period: 7 });
       const run = (feature: string, cost: string, agencyId: string | null, userId: string | null, age: string) => t.execute(sql`
         insert into ai_run (feature, model, input_tokens, output_tokens, cost_usd, agency_id, user_id, created_at)
