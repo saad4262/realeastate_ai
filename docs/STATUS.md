@@ -1,23 +1,32 @@
-# Status — 2026-11-09 (Claude Code, Mac)
+# Status — 2026-11-17 (Claude Code, Mac)
 
-Short on purpose: where things stand now. History is in `docs/SESSION.md` and `docs/archive/`; how to work on either laptop is
-`docs/HANDOFF.md`. Overwrite this file at each handoff; do not append.
+Short on purpose: where things stand now. History is in `docs/SESSION.md` and `docs/archive/`. The plan and the V1 to-do list
+are `docs/PLATFORM-PLAN.md` (section 14, with progress). Overwrite this file at each handoff; do not append.
 
 ## Milestone
-`main` = ADR 0087 part 1 (an agent's own Twilio), ADR 0088 (three kinds of chat) and ADR 0089 (automations), pushed 2026-11-09 on the user's go, so Vercel deploys it.
-Before that, `main` held everything through ADR 0086. The sites run on their `vercel.app` addresses; the cutover to `findoraaus.com.au` waits on DNS.
+`main` = `e9745e0`: everything through ADR 0090 (hybrid Twilio) and ADR 0091 part A (control centre), live since 2026-11-16.
+V1 production-readiness: about 12% (PLATFORM-PLAN 14). Steps 0–2 nearly done; step 3 (backups) next.
+Branches waiting for a PR and merge: `chore/dev-db-and-prod-guard` (production guard + 0001 extensions fix), `docs/platform-plan` (this).
 
-## Database
-**One database: `xjklpoyxcvnlhjlxasmv`. It is production, and `.env.local` points at it.** No separate dev database yet.
-96 migrations (0000–0095), all applied 2026-11-09 on the user's go: 0093 and 0094 by hand first (additive), then `db:migrate` for 0092,
-which drops two unique constraints for partial ones, and 0095 (two new tables). **Do not run `db:reset` or `pnpm smoke` locally while `.env.local` points here.**
+## Databases
+- **Dev:** `realestate-dev`, ref `jhialeuioqqlwpzukdzo`, Sydney, Micro. Every `.env.local` on this laptop points here. Use the pooler
+  URLs (`postgres.<ref>@aws-0-ap-southeast-2.pooler.supabase.com`, 6543 and 5432): the direct `db.<ref>` host is IPv6-only and fails
+  with ENOTFOUND. 98 migrations, census loaded, buckets `media` (public), `documents`, `inspection-photos`, platform admin
+  `admin@test.com`. **No agency yet**, so `pnpm db:seed` waits for a sign-up at `localhost:3001/get-started`.
+- **Production:** ref `xjklpoyxcvnlhjlxasmv`. Its values live only in Vercel (Production) and the password manager. 98 migrations
+  (0097 applied 2026-11-17, after a backup and a dev run). **PITR is off** (PLATFORM-PLAN decision 7).
+- **Backups:** encrypted `pg_dump` with `/Users/saadiii/Job/secure_backups/backup.sh` (key kept apart, full decrypt check). Last:
+  `prod-20261117T104041Z.dump.enc`. Run it before every production migration until the scheduled dump (0.4) exists.
+- **The other laptop's `.env.local` still points at production.** Switch it to the dev values.
+- Smoke on dev, 2026-11-17: Database & migrations, Database health, Credentials, Tenant isolation (`SMOKE_CHECK_TIMEOUT_S=900`),
+  Platform admin, all green.
 
 ## Vercel
-Applied: `AI_DAILY_BUDGET_USD=20` on all 4, `REVALIDATE_SECRET` on Agent, Web's addresses on `vercel.app`. Removed: admin credentials, `SMOKE_ENABLED`, debug variables,
-`ZOOM_OAUTH_RETURN_BASE` except on Agent (remove it at cutover). Domains attached and verified in Vercel, but `misconfigured` until DNS answers.
-- `ASSISTANT_OVERVIEW_READ_ONLY` is no longer read (2026-11-10); the line in the local `.env.local` can go.
+Preview and Development hold the dev Supabase values (5 keys) on all 4 projects; Production is unchanged (checked by hash). Other
+preview values (`CRON_SECRET`, Retell keys) are still shared with production. Earlier: `AI_DAILY_BUDGET_USD=20` on all 4,
+`REVALIDATE_SECRET` on Agent. `ASSISTANT_OVERVIEW_READ_ONLY` is no longer read; the local line can go.
 
-## DNS (checked 10:34 UTC)
+## DNS (checked 2026-11-09 10:34 UTC; not rechecked since)
 The registry delegates to `haley` and `garret`, and those two serve **no A records for the apex and NXDOMAIN for `www`, `agency`, `agents`, `admin`**. The SOA serial has not moved.
 Authoritative servers do not wait for propagation, so waiting may not fix this: check the Cloudflare zone first. **Switch nothing until all five addresses load over HTTPS.**
 
@@ -57,11 +66,15 @@ On `main` with ADR 0088. Part 2, the office line, is not built. TEST-PLAN CW1–
 - The client: SMS rules, Control Centre 4.6/4.7, triggers 4.4, Microsoft Entra, brand colours, legal details, real listings.
 
 ## Next
-1. The user: set `ASSISTANT_OVERVIEW_READ_ONLY=1` on Vercel when ready; run TEST-PLAN CX, CX40 first.
-2. Limits (the user's numbers, still open): today's are 50 emails per agent and 200 per agency a day, so a large repeating send stops at them. Phase 8 per-chat limits after the AI cost page shows real use.
-3. DNS cutover (`docs/DNS-CUTOVER.md`), Sentry project, a separate dev database, real phone tests.
+1. Merge `chore/dev-db-and-prod-guard`, then `docs/platform-plan`.
+2. Step 3, backups: a scheduled encrypted off-site `pg_dump` with a missed-dump alert (0.4), then one restore into a scratch project.
+3. Step 4, accounts and alarms (the boss): spend stops, Sentry, Upstash, 2FA; branch protection, gitleaks, Dependabot.
+4. Dev: sign up an agency, then `pnpm db:seed`. The other laptop's `.env.local` to dev.
+5. The user: set `ASSISTANT_OVERVIEW_READ_ONLY=1` on Vercel when ready; run TEST-PLAN CX, CX40 first.
+6. Limits (the user's numbers, still open): today 50 emails per agent and 200 per agency a day. DNS cutover (`docs/DNS-CUTOVER.md`), Sentry project, real phone tests.
 
 ## Watch
+- Once the guard is merged, a script against production needs `CONFIRM_PRODUCTION=xjklpoyxcvnlhjlxasmv` for that run.
 - ADR 0083, before real customers: Listing activity names signed-in viewers to agencies, and the privacy policy does not say so yet. The user parked this for testing only.
 - Stamp duty and permit rules: re-check every 1 July. SA zones: reload at most fortnightly (`pnpm --filter @repo/db db:zones`).
 - Do not import `@sentry/nextjs` in browser code; use `lib/browser-monitoring.ts` (37 kB).

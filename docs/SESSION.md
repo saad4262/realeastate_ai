@@ -3,6 +3,24 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-17 — Claude Code (Mac) — V1 production plan; dev database; production guard; docs cleaned
+
+- The user asked for an audit against professional practice and a V1–V4 plan, then approved the step plan with decisions: dev database
+  yes; old CRM branches tagged, not merged; one plan file; prices later; 30-day deletion for an agency that leaves; PITR later turned
+  down for cost.
+- Done: 11 worktrees removed; `archive/*` tags pushed; an encrypted production backup (verified by a full decrypt); `realestate-dev`
+  built (98 migrations, census, buckets) and every local `.env.local` switched to it; 0097 applied to production after a dev run;
+  Vercel Preview and Development given the dev Supabase values, Production untouched; `PHONE_STUB=1` locally.
+- Production guard (branch `chore/dev-db-and-prod-guard`): every DB script, migrations and smoke refuse the production ref without
+  `CONFIRM_PRODUCTION`; break-tested. Same branch: 0001 creates PostGIS and pgvector in `extensions` (a fresh database put them in
+  `public`, which failed the browser-grants check), and the ADR 0086 smoke check, which never matched its fixture.
+- Docs (branch `docs/platform-plan`): the production plan folded into PLATFORM-PLAN section 14 with progress; decisions recorded in
+  section 15; `SCALING-PLAN.md` deleted; HANDOFF, TEST-ORDER and architecture moved to `docs/archive/`.
+- My mistakes, told to the user: sourcing `.env.local` in the shell printed parts of three secrets (the user is rotating two); I said
+  migrations would set up the extensions on a fresh database (they did, in the wrong schema); the dev URLs as pasted were IPv6-only
+  and the Supabase URL carried `/rest/v1/`, both caught only when a command failed.
+- NOT done: `db:seed` (no agency on dev), the other laptop, the full `pnpm test`, HTTP smoke groups, step 3's scheduled dump.
+
 ## 2026-11-09 (later) — Claude Code (Mac) — ADR 0089 automations; Email and SMS each one skill
 
 - The user set the model: skills are what the platform provides, an automation is what a person sets up with one, and automation, task and schedule are one thing. A workflow is only when, so Email and SMS are one skill and one assistant each.

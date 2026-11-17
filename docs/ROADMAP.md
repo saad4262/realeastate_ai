@@ -44,7 +44,7 @@ The brief's numbering skips #20 and #25. The brief marks some items "Yellow = in
 | 27 | AI Automation Engine | 55% | 13 triggers, AI decides, Automation Library, every automation behind a Skills switch (ADR 0066–0069) |
 | 28 | AI Missed Call — Voice & Text | 80% | Forwarding, greeting, text behind a skill, AI call back, Missed Calls page (ADR 0070–0072) |
 
-**Whole platform: ~45%** (was ~33–35% on 2026-10-27). Phases 1 and 2 done; 3 and 4 nearly; 5–7 not started. See docs/HANDOFF.md.
+**Whole platform: ~45%** (was ~33–35% on 2026-10-27). Phases 1 and 2 done; 3 and 4 nearly; 5–7 not started. See docs/archive/HANDOFF.md.
 permissions, platform admin, public site — so later work builds on it rather than around it.
 
 ### Built but not in the brief
