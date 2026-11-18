@@ -7,7 +7,7 @@ import { decryptToken, encryptToken } from '../integrations/crypto';
 import { isPairedSkillOn } from '../skill-switches/switches';
 import { agencyTwilio, myNumber, numberTwilio, PhoneError, providerFailure, type PhoneDeps, type TwilioFor } from './setup';
 import { isOptedOut } from './sms';
-import { aiOutcomeOf, verifyRetellSignature, verifyRetellWebhookToken, type VoiceAi } from './voice';
+import { aiOutcomeOf, verifyRetellSignature, verifyRetellWebhookToken, type VoiceAi, callbackTooLate } from './voice';
 import type { TokenKeys } from '../integrations/crypto';
 
 /**
@@ -125,7 +125,7 @@ async function setUpOn(db: Db, { account, client }: TwilioFor, deps: PhoneDeps, 
 
 // ── The tick: place the AI calls that are due ───────────────────────────────
 
-type Claimed = { id: string; agency_id: string; phone_number_id: string; from_e164: string | null; contact_id: string | null; created_at: Date | string; handled_at: Date | string | null };
+type Claimed = { id: string; agency_id: string; phone_number_id: string; from_e164: string | null; contact_id: string | null; created_at: Date | string; handled_at: Date | string | null; ai_due_at: Date | string | null };
 
 export async function runDueAiCallbacks(
   db: Db,
@@ -145,12 +145,17 @@ export async function runDueAiCallbacks(
         and agency_id not in ${SENDS_HELD_AGENCY_IDS}
       ${only.agencyId ? sql`and agency_id = ${only.agencyId}` : sql``}
       order by ai_due_at limit ${limit} for update skip locked)
-    returning id, agency_id, phone_number_id, from_e164, contact_id, created_at, handled_at`);
+    returning id, agency_id, phone_number_id, from_e164, contact_id, created_at, handled_at, ai_due_at`);
   for (const c of claimed) {
     const skip = async (reason: string) => {
       report.skipped += 1;
       await db.update(phoneCall).set({ aiStatus: 'skipped', aiReason: reason, updatedAt: sql`now()` }).where(eq(phoneCall.id, c.id));
     };
+    // PLATFORM-PLAN 3.9: hours late (an outage, a night), a call-back is not placed; the call stays for the agent.
+    if (callbackTooLate(c.ai_due_at, now)) {
+      await skip('too_late');
+      continue;
+    }
     const [n] = await db
       .select({ id: phoneNumber.id, e164: phoneNumber.e164, userId: phoneNumber.userId, status: phoneNumber.status, registered: phoneNumber.retellRegisteredAt, agentName: sql<string>`coalesce(${user.name}, ${user.email})`, role: membership.role, agencyName: agency.name })
       .from(phoneNumber)
