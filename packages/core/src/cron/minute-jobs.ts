@@ -12,6 +12,7 @@ import type { TickJob } from './tick';
 import { runJobs } from '../jobs';
 import { enqueueStuckSms, smsReconcileHandler } from '../phone/reconcile';
 import { detectSendSpikes } from '../safety/spikes';
+import { settleCredits } from '../billing/credits';
 
 /**
  * The every-minute tick's jobs (ADR 0035, batched by ADR 0073), in the order time matters most. Each
@@ -138,6 +139,12 @@ export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new
       mode: 'once',
       everyMinutes: 5,
       run: async () => ({ result: await enqueueStuckSms(db, now()), more: false }),
+    },
+    {
+      // ADR 0092: take the real cost of finished AI runs from the agencies' credit grants; drop lapsed holds.
+      name: 'settleCredits',
+      mode: 'once',
+      run: async () => ({ result: await settleCredits(db, now()), more: false }),
     },
     {
       // PLATFORM-PLAN 3.7: an agency far above its usual hour has its sends paused and its owners told.

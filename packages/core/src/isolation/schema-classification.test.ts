@@ -14,6 +14,9 @@ import * as schema from '@repo/db/schema';
 
 /** Carries `agency_id` itself. Every read of it filters by agency. */
 const OWN_AGENCY = [
+  // ADR 0092: an agency's own credits and holds.
+  'ai_credit_grant',
+  'ai_credit_hold',
   // PLATFORM-PLAN 1.20: the agency's own audit log, read by its owners and admins.
   'audit_log',
   'office',
@@ -136,7 +139,7 @@ const PUBLIC_SITE_USER = ['search_schedule', 'schedule_run', 'chat_thread', 'cha
 // site_activity (ADR 0051): public-site searches and listing views, read by the admin console, and (ADR 0083) by an
 // agency only through activity/scope.ts: rows on its own listings, and searches in the suburbs of its live listings.
 // platform_email + its recipients (ADR 0052): what platform admins emailed, and to whom.
-const PLATFORM = ['job', 'platform_admin', 'platform_view_log', 'platform_action', 'site_activity', 'platform_email', 'platform_email_recipient'] as const;
+const PLATFORM = ['job', 'stripe_event', 'platform_admin', 'platform_view_log', 'platform_action', 'site_activity', 'platform_email', 'platform_email_recipient'] as const;
 
 function tables() {
   return (Object.values(schema) as unknown[])

@@ -162,6 +162,12 @@ export const agency = pgTable('agency', {
    */
   sendsPausedAt: timestamp('sends_paused_at', { withTimezone: true }),
   sendsPausedReason: text('sends_paused_reason'),
+  /** ADR 0092: the agency's Stripe customer (one per agency; webhooks find the agency by this, never by metadata). */
+  stripeCustomerId: text('stripe_customer_id').unique(),
+  /** ADR 0092: null before billing; then active, past_due or canceled, set from Stripe's subscription. */
+  billingStatus: varchar('billing_status', { length: 12 }),
+  currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
+  pastDueSince: timestamp('past_due_since', { withTimezone: true }),
   ...timestamps,
 });
 
@@ -2097,6 +2103,54 @@ export const aiRun = pgTable('ai_run', {
   cacheReadTokens: integer('cache_read_tokens'),
   cacheWriteTokens: integer('cache_write_tokens'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  /** ADR 0092: when this run's cost was taken from the agency's credit grants (null: not yet, or no billing). */
+  creditSettledAt: timestamp('credit_settled_at', { withTimezone: true }),
+});
+
+/**
+ * AI credits an agency may spend (ADR 0092, PLATFORM-PLAN 2.3). A credit is US$0.01 of model cost. `plan` grants
+ * are the monthly allowance (valid for the billing period), `topup` grants last 12 months, `admin` grants are the
+ * platform's. `used` grows as runs are settled: the allowance first, then the grant that expires soonest.
+ */
+export const aiCreditGrant = pgTable(
+  'ai_credit_grant',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    credits: integer('credits').notNull(),
+    used: numeric('used', { precision: 14, scale: 4 }).notNull().default('0'),
+    source: varchar('source', { length: 8 }).notNull(),
+    validFrom: timestamp('valid_from', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    /** The Stripe invoice or payment that paid for it: a grant is made once per payment. */
+    stripeRef: text('stripe_ref').unique(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('ai_credit_grant_agency_idx').on(t.agencyId, t.expiresAt)],
+);
+
+/** A reservation taken under the agency's lock before a model call (ADR 0092); it lapses at `expires_at`. */
+export const aiCreditHold = pgTable(
+  'ai_credit_hold',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    credits: integer('credits').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [index('ai_credit_hold_agency_idx').on(t.agencyId, t.expiresAt)],
+);
+
+/** Every Stripe event, stored once by its id before it is handled (ADR 0092). */
+export const stripeEvent = pgTable('stripe_event', {
+  id: text('id').primaryKey(),
+  type: varchar('type', { length: 64 }).notNull(),
+  receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 
