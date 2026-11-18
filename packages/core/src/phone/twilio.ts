@@ -52,6 +52,11 @@ export interface TwilioApi {
    */
   setNumberWebhooks(numberSid: string, urls: { smsUrl: string; voiceUrl: string; smsMethod?: string; voiceMethod?: string }): Promise<void>;
   sendSms(input: { from: string; to: string; body: string; statusUrl: string | null }): Promise<{ sid: string; status: string }>;
+  /**
+   * The messages Twilio holds from one number to another, sent on or after a day (PLATFORM-PLAN 3.9): how a send
+   * whose answer was lost is settled — found means it went, not found means it did not.
+   */
+  findMessages(input: { from: string; to: string; since: Date }): Promise<{ sid: string; body: string; status: string; createdAt: Date | null }[]>;
   /** Twilio calls the mobile and asks for the code it returns here, which the person keys in. */
   startCallerId(input: { e164: string; name: string; statusUrl: string | null }): Promise<{ validationCode: string }>;
   isCallerIdVerified(e164: string): Promise<boolean>;
@@ -201,6 +206,20 @@ export function twilioClient(creds: TwilioCreds, fetchImpl: Fetch = fetch): Twil
       if (!sid) throw new Error('Twilio did not return the message');
       return { sid, status: str(r.json?.status) ?? 'queued' };
     },
+    async findMessages(input) {
+      // DateSent is a day filter; a day earlier covers a send just after midnight UTC.
+      const day = new Date(input.since.getTime() - 86_400_000).toISOString().slice(0, 10);
+      const q = new URLSearchParams({ From: input.from, To: input.to, 'DateSent>': day, PageSize: '50' });
+      const r = await get(`${acct}/Messages.json?${q}`);
+      const list = Array.isArray(r.json?.messages) ? (r.json.messages as Record<string, unknown>[]) : [];
+      return list.flatMap((m) => {
+        const sid = str(m.sid);
+        if (!sid) return [];
+        const created = str(m.date_created);
+        const at = created ? new Date(created) : null;
+        return [{ sid, body: str(m.body) ?? '', status: str(m.status) ?? '', createdAt: at && !Number.isNaN(at.getTime()) ? at : null }];
+      });
+    },
     async startCallerId(input) {
       const r = await post(`${acct}/OutgoingCallerIds.json`, { PhoneNumber: input.e164, FriendlyName: input.name.slice(0, 64), StatusCallback: input.statusUrl ?? undefined });
       const code = str(r.json?.validation_code);
@@ -264,6 +283,9 @@ export function stubTwilioClient(): TwilioApi {
     async setNumberWebhooks() {},
     async sendSms() {
       return { sid: `SMstub${randomInt(0, 1e9)}`, status: 'sent' };
+    },
+    async findMessages() {
+      return [];
     },
     async startCallerId() {
       return { validationCode: '123456' };
