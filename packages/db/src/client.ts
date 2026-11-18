@@ -1,9 +1,10 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
+import { poolOptions } from './pool-options';
 import * as schema from './schema';
 
 function create(connectionString: string) {
-  const client = postgres(connectionString, { prepare: false, max: 10 });
+  const client = postgres(connectionString, poolOptions());
   return drizzle(client, { schema });
 }
 
