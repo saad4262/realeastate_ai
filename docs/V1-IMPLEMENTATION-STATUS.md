@@ -18,6 +18,9 @@ Updated: 2026-11-18. Baseline (from 14.12): 80 tasks — 1 done, 3 built, 16 par
 | 2026-11-18 | 1.24 | `feat/1.24-ai-budget-pools` | Public, trial, paying pools; assistant's unknown-reason pass-through fixed |
 | 2026-11-18 | 1.8 (part 1) | `feat/1.8-db-pool` | Pool from env, default 5, with timeouts |
 | 2026-11-18 | merge | `main` 85d1a47 | Owner approved: 8 branches merged in order, no conflicts; clean-worktree typecheck, lint, tests green; Vercel production READY on all four projects; production HTTP checks passed. `SUPABASE_SERVICE_ROLE_KEY` already in every environment of all four projects (no env change made) |
+| 2026-11-18 | 1.20 | `feat/1.20-audit-log` | Agency audit log; migration 0098 on dev only |
+| 2026-11-18 | 1.7 | `fix/1.7-no-pii-in-logs` | 56 log lines cleaned; scan in tests |
+| 2026-11-18 | 1.15 | `fix/1.15-vendor-timeouts` | 4 unbounded Storage calls bounded; scan in tests |
 
 ## Tasks
 | ID | Task | P | Status | Implementation | Files | Tests | Evidence | External dependency | Remaining risk |
@@ -40,7 +43,7 @@ Updated: 2026-11-18. Baseline (from 14.12): 80 tasks — 1 done, 3 built, 16 par
 | 1.4 | Shared rate limiter (Upstash) | P0 | Partial | — | — | — | In-memory limiter on public routes only | Upstash (O-15) | — |
 | 1.5 | Firewall + Turnstile | P1 | Not started | — | — | — | — | Cloudflare Turnstile, Vercel Firewall (O-16) | — |
 | 1.6 | Retell signature on | P0 | Done | — | — | — | On `main` (e9745e0), live | — | — |
-| 1.7 | No PII in logs | P1 | Not started | — | — | — | `offer-action.ts:133` still logs an email | — | — |
+| 1.7 | No PII in logs | P1 | Built (branch) | The offer log names ids not the address; 55 log calls log `err.message` instead of the whole error; a scan in `pnpm test` refuses both patterns | 41 files in apps/web, apps/console, packages/core, packages/ai; `packages/core/src/observability/no-pii-logs.test.ts` | Scan (finds > 50 calls, none offends); break-test (a whole-error argument → fail); typecheck, lint, test green | `fix/1.7-no-pii-in-logs` a8a30a4 | Merge approval | An Error message can itself carry vendor text; Sentry scrubbing (0.7) is the second line |
 | 1.8 | DB pool, timeouts | P0 | Partial | Part 1: `poolOptions()` — `DB_POOL_MAX` (1–50, default 5), idle 20 s, connect 10 s, lifetime 30 min. Part 2 (`statement_timeout` per kind of work) not done: every app uses one DB role | `packages/db/src/pool-options.ts` (+ test), `client.ts`, `packages/config/src/env.ts`, `.env.example` | 4 tests; break-test (default → 2 fail); 8 parallel queries on dev through the pool; typecheck, lint, `pnpm test` green | Part 1 merged 85d1a47, live; `feat/1.8-db-pool` bec08c0 (stacked on the guard) | Load test sets the value (4.3) | Part 2 needs separate DB roles per kind of work |
 | 1.9 | Compute size + CPU alert | P0 | Unverified | — | — | — | Dashboard | Supabase compute (O-14) | — |
 | 1.10 | Indexes, first pass | P0 | Partial | — | — | — | 0097 indexes in production | — | — |
@@ -48,12 +51,12 @@ Updated: 2026-11-18. Baseline (from 14.12): 80 tasks — 1 done, 3 built, 16 par
 | 1.12 | UUIDv7, lz4, pg_trgm | P1 | Not started | — | — | — | — | — | — |
 | 1.13 | Migration rules | P1 | Not started | — | — | — | — | — | — |
 | 1.14 | /api/health + uptime | P0 | Not started | — | — | — | — | — | — |
-| 1.15 | Vendor fetch timeouts | P1 | Partial | — | — | — | 16 files with `AbortSignal.timeout` of 48 `fetch(` sites | — | — |
+| 1.15 | Vendor fetch timeouts | P1 | Built (branch) | Storage sign/head/delete 15 s; import photo upload 60 s (per-photo failure, import continues); a scan in `pnpm test`: every server `fetch(` carries a signal | `media/storage-client.ts`, `imports/photos.ts`, `integrations/fetch-timeouts.test.ts` | Scan red with exactly the 4 before, green after; typecheck, lint, test green | `fix/1.15-vendor-timeouts` fb907a4 | Merge approval | Anthropic SDK default timeout (10 min, 2 retries) not set per pipeline: follow-up |
 | 1.16 | error.tsx + API error shape | P1 | Partial | — | — | — | 5 `error.tsx` | — | — |
 | 1.17 | V1 caps in env | P0 | Not started | — | — | — | — | — | — |
 | 1.18 | Model prices | P1 | Not started | — | — | — | — | — | — |
 | 1.19 | Pooler pool size | P0 | Not started | — | — | — | — | Supabase pool size (O-14) | — |
-| 1.20 | Audit log | P1 | Not started | — | — | — | — | — | — |
+| 1.20 | Audit log | P1 | Built (branch) | Migration 0098 `audit_log` (RLS on, no browser grant); `recordAudit(tx, …)` inside the transaction of removeMember, restoreMember, editTeamMember, withdrawInvite, inviteAgent, claimAgentInvite (both paths), deleteListing; `audit:read` (owner/admin, same agency) and `listAuditLog`. Platform-admin changes and views were already audited (`platform_action`, `platform_view_log`, ADR 0050) | `packages/db/src/schema.ts`, `drizzle/0098_audit_log.sql`, `packages/core/src/audit/` (+ test), `permissions.ts`, `team/*`, `listings/delete-listing.ts` | 10 audit tests + 3 team tests; can() matrix and schema classification; break-tests (no audit on delete → fail; agents may read → fail); dev: migration applied, RLS on, 0 browser grants, rolled-back insert ok; typecheck, lint, test green | `feat/1.20-audit-log` 01555a2 + 5f213a5 | **Production migration 0098 before merge** (O-20); a UI page (Cursor) | IP address not recorded (core has no request); exports to be audited when 5.12 adds them |
 | 1.21 | Upload byte checks | P1 | Partial | — | — | — | Size cap, header MIME, random keys, 60 s signed links | — | — |
 | 1.22 | Session rules | P1 | Not started | — | — | — | — | — | — |
 | 1.23 | Alert lines | P0 | Not started | — | — | — | — | — | — |
