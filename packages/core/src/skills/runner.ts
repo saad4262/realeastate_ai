@@ -223,7 +223,7 @@ export async function executeSkillRun(db: Db, deps: SkillDeps, runId: string, no
     }
 
     // Before any model is called — over the cap, nothing is spent.
-    const budget = await checkAiBudget(db, { userId: row.userId, now, ...(deps.env ? { env: deps.env } : {}) });
+    const budget = await checkAiBudget(db, { userId: row.userId, agencyId: row.agencyId, now, ...(deps.env ? { env: deps.env } : {}) });
     if (!budget.allowed) {
       return await skip(budget.reason === 'user_cap' ? 'Your daily AI budget is used up' : 'The daily AI budget is used up');
     }
