@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { SESSION_HEADER_PREFIXES, updateSession } from '@repo/auth/middleware';
+import { SESSION_HEADER_PREFIXES, authUnavailableResponse, updateSession } from '@repo/auth/middleware';
 import { safeLocalPath } from '@repo/auth/safe-path';
 
 /**
@@ -59,12 +59,14 @@ export async function middleware(request: NextRequest) {
 
   let response: NextResponse;
   let userId: string | null = null;
+  let authUnavailable = false;
 
   try {
     const session = await updateSession(request, requestHeaders, {
       headerPrefix: 'x-web-user',
     });
     userId = session.user?.id ?? null;
+    authUnavailable = session.unavailable;
     response = session.response;
   } catch {
     /**
@@ -122,6 +124,9 @@ export async function middleware(request: NextRequest) {
    * so letting the POST through hands it nothing it could misuse.
    */
   const isServerAction = request.method === 'POST' && request.headers.has('next-action');
+
+  // Auth unreachable: the account pages answer 503 rather than /login; the rest of the site serves as anonymous.
+  if (needsAccount && authUnavailable) return authUnavailableResponse(request);
 
   if (needsAccount && !userId && !isServerAction) {
     const login = request.nextUrl.clone();

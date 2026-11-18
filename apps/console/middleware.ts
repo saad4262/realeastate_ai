@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { cookieDomainFor } from '@repo/auth/cookie-domain';
-import { updateSession } from '@repo/auth/middleware';
+import { authUnavailableResponse, updateSession } from '@repo/auth/middleware';
 import { safeLocalPath } from '@repo/auth/safe-path';
 
 export type ConsoleSurface = 'agent' | 'agency' | 'admin';
@@ -125,6 +125,8 @@ export async function middleware(request: NextRequest) {
 
   try {
     const session = await updateSession(request, requestHeaders);
+    // Auth unreachable: 503, never /login — the person is still signed in (PLATFORM-PLAN 1.1).
+    if (session.unavailable && !isPublic) return withSurface(authUnavailableResponse(request), surface, cookieDomain);
     userId = session.user?.id ?? null;
     response = withSurface(session.response, surface, cookieDomain);
   } catch {
