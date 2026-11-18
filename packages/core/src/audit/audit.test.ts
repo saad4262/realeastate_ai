@@ -7,7 +7,7 @@ import { listAuditLog } from './index';
 
 /** PLATFORM-PLAN 1.20: who may read an agency's audit log, and that every sensitive action writes to it. */
 const A = '11111111-1111-1111-1111-111111111111';
-const who = (membershipRole: Actor['membershipRole'], agencyId: string | null = A): Actor => ({ userId: '33333333-3333-3333-3333-333333333333', agencyId, membershipRole });
+const who = (membershipRole: Actor['membershipRole'], agencyId: string | undefined = A): Actor => ({ userId: '33333333-3333-3333-3333-333333333333', agencyId, membershipRole });
 
 function readDb() {
   const asked: string[] = [];
@@ -34,7 +34,7 @@ describe('listAuditLog', () => {
   });
 
   it('everyone else reads nothing, and no query runs', async () => {
-    for (const actor of [who('agent'), who('assistant'), who('read_only'), who('property_manager'), who('owner', null)]) {
+    for (const actor of [who('agent'), who('assistant'), who('read_only'), who('property_manager'), { userId: '33333333-3333-3333-3333-333333333333', membershipRole: 'owner' } as Actor]) {
       const { db, asked } = readDb();
       expect(await listAuditLog(db, actor)).toEqual([]);
       expect(asked).toEqual([]);
