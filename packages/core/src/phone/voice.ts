@@ -163,7 +163,7 @@ export function nextCallableTime(t: Date, hours: CallingHours, timeZone: string)
   return null;
 }
 
-export type AiSkipReason = 'skill_off' | 'not_ready' | 'private' | 'opted_out' | 'repeat' | 'limit' | 'no_hours' | 'handled' | 'replied' | 'provider';
+export type AiSkipReason = 'skill_off' | 'not_ready' | 'private' | 'opted_out' | 'repeat' | 'limit' | 'no_hours' | 'handled' | 'replied' | 'provider' | 'too_late';
 
 /** Pure: whether the AI calls this person back, or the first reason it doesn't. */
 export function decideAiCallback(f: {
@@ -196,7 +196,14 @@ export const AI_REASON_WORDS: Record<AiSkipReason, string> = {
   handled: 'the call was handled first',
   replied: 'they replied by text first',
   provider: 'the AI call could not be placed',
+  too_late: 'it was more than 2 hours late — call them yourself',
 };
+
+/** PLATFORM-PLAN 3.9: an AI call-back this late (an outage, a night) is not placed; the agent is shown the call instead. */
+export const AI_CALLBACK_LATE_MS = 2 * 3_600_000;
+export function callbackTooLate(dueAt: Date | string | null, now: Date): boolean {
+  return dueAt !== null && now.getTime() - new Date(dueAt).getTime() > AI_CALLBACK_LATE_MS;
+}
 
 /** Retell's word for how a call ended → ours. A call that never reached a person is `no_answer`. */
 export function aiOutcomeOf(disconnectionReason: string | null): 'done' | 'no_answer' | 'failed' {

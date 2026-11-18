@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { agency, appointment, appointmentParticipant, contact, mailThread, membership, notification, user, type Db } from '@repo/db';
 import { can, type Actor, type MembershipRole } from '../permissions';
@@ -140,7 +140,9 @@ export async function runReminderTick(db: Db, deps: ReminderDeps = {}): Promise<
     isNotNull(appointment.reminderMinutes),
     // A raw expression has no column type to map a Date through: bind the instant as text.
     sql`${appointment.startsAt} - make_interval(mins => ${appointment.reminderMinutes}) <= ${now.toISOString()}::timestamptz`,
-    gt(appointment.endsAt, now),
+    // PLATFORM-PLAN 3.9: only while it is still useful — until half its lead time is gone (a day's reminder by 12 hours
+    // before, an hour's by 30 minutes, 15 minutes' by 7½), never once the meeting has started. Later, it is not sent.
+    sql`${now.toISOString()}::timestamptz <= ${appointment.startsAt} - make_interval(secs => ${appointment.reminderMinutes} * 30)`,
   );
 
   const claimed = await db.transaction(async (tx) => {
@@ -310,4 +312,10 @@ export async function runReminderTick(db: Db, deps: ReminderDeps = {}): Promise<
 function calendarPath(p: Person, agencyId: string): '/calendar' | '/my-calendar' {
   const actor: Actor = { userId: p.userId, agencyId, membershipRole: p.role };
   return can(actor, 'console:agency', { type: 'console' }) ? '/calendar' : '/my-calendar';
+}
+
+/** Pure, the rule the due query applies (PLATFORM-PLAN 3.9): a reminder goes from its time until half its lead time is left. */
+export function reminderStillUseful(startsAt: Date, reminderMinutes: number, now: Date): boolean {
+  const lead = reminderMinutes * 60_000;
+  return now.getTime() >= startsAt.getTime() - lead && now.getTime() <= startsAt.getTime() - lead / 2;
 }
