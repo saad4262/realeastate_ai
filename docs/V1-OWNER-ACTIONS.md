@@ -46,7 +46,7 @@ else (`V1-IMPLEMENTATION-STATUS.md`). Never paste a secret into chat: put it str
 
 | # | Action | Why | Where | Configuration | Blocks | Defer |
 |---|---|---|---|---|---|---|
-| O-17 | **Stripe** account, **test mode** | Billing is built and tested in test mode only | dashboard.stripe.com → Developers → API keys (test) | Env `STRIPE_SECRET_KEY` (test, `sk_test_…`) in `.env.dev` and Vercel Preview only; the webhook secret after the endpoint exists | 2.4, 2.5 tests against Stripe | Until stage 7 |
+| O-17 | **Stripe** account, **test mode** | Billing is built and tested with a fake Stripe; a real test-mode run needs this | dashboard.stripe.com (test mode) → Developers → API keys; Workbench → Webhooks → Add destination | `STRIPE_SECRET_KEY` (`sk_test_…`) in `.env.dev` and Vercel Preview only. Webhook URL `https://<preview or web host>/api/stripe/webhook`, events: `customer.subscription.created/updated/deleted`, `invoice.paid`, `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `charge.refunded`, `charge.dispute.created`; its `whsec_…` as `STRIPE_WEBHOOK_SECRET`. Products/prices per plan and top-up → `STRIPE_PRICE_*`; credits/seats → `PLAN_*`, `TOPUP_*` (.env.example). Settings → Customer emails: failed payments on | Real test-mode run of stage 7 | Until prices (D-1) |
 | D-1 | **Decide prices and plans** (decision 2) | Code holds plan structure; the values are yours | — | Plan names, monthly prices, credits, seats, top-ups | 2.4 | Until week 5 |
 
 ## Decisions
