@@ -80,7 +80,7 @@ Two Next.js apps, one `packages/` layer, one database (ADR 0002):
 |---|---|---|
 | Apps | Next.js 15.5.x App Router, React 19, two apps, Turborepo + pnpm, TypeScript strict, Node 22 | ✅ |
 | Hosting | Vercel Pro, `syd1`, Fluid compute | ✅ |
-| Database | Supabase Postgres 17 (Sydney) + PostGIS + pgvector, Drizzle, postgres.js through the transaction pooler | ✅. ❌ dev database, guard, `max: 2` + timeouts |
+| Database | Supabase Postgres 17 (Sydney) + PostGIS + pgvector, Drizzle, postgres.js through the transaction pooler | ✅. Dev database ✅; guard 🟡 (PR); ❌ pool size from env + timeouts |
 | Auth | Supabase Auth, `getClaims()` checked locally, roles in our DB through `can()` | ✅. ❌ signed session header, MFA, 503 on outage |
 | Files | Supabase Storage now (photos, documents); Cloudflare R2 for photos at V2 | 🟡: photos kept as uploaded (10 MB max), no variants |
 | Background work | Our own Postgres jobs: `SKIP LOCKED` claims, outbox (`workflow_event`), minute tick (ADR 0073). Next: one `job` table with retries, backoff, dead-letter and per-agency fairness | 🟡: patterns in 14 modules, no `job` table |
@@ -173,13 +173,15 @@ when these exist:
 | 1 | Dev and production databases; DB scripts refuse production without `CONFIRM_PRODUCTION=<host>` | 0.1, 0.2 | ❌ |
 | 2 | Every cap is an env value with a default (most are: `EMAIL_LIMIT_*`, `AI_DAILY_BUDGET_*`) | — | 🟡 |
 | 3 | One shared rate limiter (Upstash, keys per IP, user and agency) | 1.4 | ❌ |
-| 4 | DB connection budget: `max: 2` per instance (today 10), timeouts, `statement_timeout` per role | 3.3, 3.14 | ❌ |
+| 4 | DB connection budget: `max` per instance from env (`DB_POOL_MAX`, start 5, set by the load test; today 10), the pooler's pool size raised from its default, timeouts, `statement_timeout` per role | 1.8, 1.19 | ❌ |
 | 5 | `job` table: webhooks first, then imports and sends | 7.2, 3.10 | ❌ |
 | 6 | Usage per agency per day (AI, emails, SMS, minutes, import rows, storage) | new | 🟡: AI only, in `ai_run` |
 | 7 | Photos as variants behind a storage adapter, so R2 is a config change | D2 | ❌ |
 | 8 | Agency-scoped queries, guarded by the isolation test (cells later) | 3.9 | 🟡 |
 | 9 | Data layout while it is cheap: FK indexes, UUIDv7, lz4, `pg_trgm` | D1, P1–P3 | ❌ |
 | 10 | One k6 load-test script with V1, V2 and V3 profiles, 60 minutes, on a seeded dev database | 3.6 | ❌ |
+| 11 | Background work in priority lanes, each with its own concurrency cap, and one limiter per vendor (Anthropic, Resend, Twilio, Google) | 3.6 (14.5) | ❌ |
+| 12 | Every automated send is idempotent and can be stopped: per agency, platform-wide, and automatically on a spike | 3.7 (14.5) | 🟡: pause-all per agency, one run per event, the five SMS rules |
 
 ### Infrastructure per version
 
@@ -244,6 +246,8 @@ Each move:
 | A webhook's 200 | < 1 s |
 | Import of 10,000 contacts, unattended | < 15 min |
 | A change showing in another open tab | ≤ 5 s with polling, ≤ 2 s with push |
+| Error rate during the load test | < 1% |
+| Cross-agency reads, lost webhooks, duplicate sends or charges | 0 |
 
 ### Known slow paths and when they are fixed
 
@@ -276,14 +280,16 @@ Each move:
 |---|---|---|---|
 | **RPO** (data we may lose) | ≤ 5 min with PITR (off for now: until then ≤ 24 h from the daily backup, ≤ 6 h once 0.4 runs); ≤ 6 h if the Supabase account is lost (S3 dump) | same | same, daily dump once above 200 GB |
 | **RTO** (time to come back) | 4 h | 2 h | 1 h (HA confirmed at V2) |
-| Restore drill | Monthly, automatic (2.4) | same | same |
+| Restore drill | Monthly, automatic (4.4): the app boots on the restored copy and smoke passes | same | same |
 | Restore one agency | By runbook | By runbook | By script (2.5) |
+| **Files** (photos, documents) | ≤ 24 h (daily copy to S3, 0.8) | same | same |
 
 ### Gaps, in order
 1. **Auth outage = everyone signed out.** `packages/auth/src/middleware.ts:131` treats any `getClaims`
    error as "no user". Fix: 503 + `Retry-After` (1.9).
-2. **Backups:** PITR, `pg_dump` every 6 h encrypted to S3 Melbourne (Object Lock), daily file sync, a
-   healthchecks.io dead-man (2.1–2.3).
+2. **Backups:** PITR (deferred, decision 7), `pg_dump` every 6 h encrypted to S3 Melbourne (Object Lock), a
+   daily copy of the Storage files (a database dump holds only their metadata), a healthchecks.io dead-man
+   (0.4, 0.8).
 3. **`/api/health`**, an uptime monitor, Sentry DSN, and these alerts: connections, disk, cron late,
    backup age, 5xx rate, transaction-ID age (3.4, 3.5, 3.16).
 4. **`job` table:** retries with backoff and a dead-letter state. Webhooks answer in about 1 s (7.2).
@@ -318,7 +324,10 @@ Each move:
 | 0.4, 0.5 | Frozen install in CI, branch protection, gitleaks, Dependabot, `pnpm audit` | Before the first agency |
 | 1.1 | **Signed session header** (HMAC + expiry). Today the header is unsigned and safe only while middleware always runs (CVE-2025-29927 showed it can be skipped) | Before the first agency |
 | 1.2, 1.3 | **MFA** (TOTP) for owners, admins and platform admins; admin session cap, optional IP allowlist | Before the first agency |
-| 1.7 | 15-minute JWT; "Sign out of all devices" | Before the first agency |
+| 1.22 | **Sessions:** the access token lasts 15 minutes and refreshes silently (rotating refresh token), so nobody is signed out every 15 minutes; an inactivity timeout (agents 7 days, platform admins 12 h); MFA asked again for billing, exports and role changes; a password change signs out the other devices; "Sign out of all devices"; a written MFA recovery path | Before the first agency |
+| 1.20 | **Audit log** for sensitive actions (member added or removed, role change, export, bulk delete, billing, MFA change, platform-admin views): actor, agency, action, target, IP, time; written in the same transaction; history cannot be added later, so it starts in V1 | Before the first agency |
+| 1.21 | **Uploads:** type checked from the file's bytes, not its name or header; no SVG or HTML; size caps (10 MB ✅); random keys ✅; private files only by short signed links ✅ | Before the first agency |
+| 4.9 | Tenant isolation beyond pages: exports, jobs, file links, search and the assistant's tools each get a cross-agency test | Before the first agency |
 | 7.1 | **Retell signature on by default** (today off unless `RETELL_VERIFY_SIGNATURE=1`, `voice.ts:87`) | Before the first agency |
 | 3.16 | **Hard spend stops**: Vercel, Anthropic console, Google quotas, Twilio triggers, Retell minutes | Before the first agency |
 | 1.4, 1.5 | Upstash rate limits; Turnstile on sign-up, login and reset | During V1 |
@@ -326,6 +335,7 @@ Each move:
 | 7.4 | Spend cap per Twilio subaccount; Australian destinations only | Before V2, or as soon as managed Twilio sells |
 | Billing | Stripe webhooks: signature checked, event id stored once, owner-only purchase with a permission test | With Stripe |
 | — | Paid penetration test | First large agency or first real revenue |
+| — | Per-agency RLS policies for the server's own role (defence in depth). Not V1: every query would run in a transaction with the agency set, and the scheduler's cross-agency jobs need a second role. Today RLS shuts the browser out completely (ADR 0017) and `can()` + the isolation tests guard the server | ADR at V2 (decision 11) |
 
 ---
 
@@ -355,10 +365,15 @@ activity, emails and texts, documents, AI prompts and answers, and later call re
 | Retention: trash 60 days, `site_activity` 13 months, AI prompts 90 days, an agency that leaves deleted 30 days after it leaves (decision 4); the agencies' own data otherwise kept while the account is active | APP 11.2 | During V1 |
 | Agency data export (2.9); a person's access request answered from it | APP 12 | During V1 |
 | Breach runbook: contain, assess within 30 days, the boss notifies the OAIC (NDB) | Notifiable Data Breaches scheme | Before the first agency |
-| SMS: consent, sender identity, `STOP` (✅ in code); sender ID on the ACMA register | Spam Act; ACMA register since 1 July 2026 | Before SMS sells |
+| SMS and email: consent with date and source, sender identity, `STOP` and one-click unsubscribe, sending hours and per-recipient caps (✅ in code: the five SMS rules, `sms_opt_out`, List-Unsubscribe). Sender ID on the ACMA register: since 1 July 2026 an unregistered branded sender ID shows as "Unverified". The sending hours are our courtesy rule; the Spam Act asks for consent, identity and an unsubscribe honoured within 5 working days, not hours | Spam Act; ACMA | Before SMS sells |
 | Calls: Telemarketing Standard hours, Do Not Call Register wash, "this is an AI", recording consent per state (a lawyer confirms) | Telemarketing Standard, state recording laws | Before voice AI sells (7.5) |
 | Recordings and transcripts: private bucket, `can()`, 90-day retention, the vendor's own copy off | Most personal data we will hold | Before voice AI sells (7.6) |
 | Model-written text that reaches a third party needs a human; anything the person asked for carries a label | CLAUDE.md #7 | ✅ rule in place |
+| **Automated decisions in the privacy policy:** which personal information the AI and the automations use, and which decisions they make (a workflow's AI choice, lead scoring, matching) | APP 1.7–1.9, in force from 10 Dec 2026 | Before the first agency |
+| A data-flow document: each vendor, what it receives, its region and retention; the sub-processor list for the DPA | APP 8; agencies will ask | Before the first agency |
+| Send the AI only what the task needs (no phone numbers or emails unless the task is about them) | APP 11; less sent overseas | During V1, per skill |
+| Deletion reaches files and backups: an agency's Storage files go with its rows; backups expire after 35 days, and the policy says so | APP 11.2 | During V1 |
+| Follow the APPs whether or not the small-business exemption covers us: covered agencies need it from their software | Contracts | Decision 12 |
 
 ---
 
@@ -388,7 +403,7 @@ activity, emails and texts, documents, AI prompts and answers, and later call re
 Today:  browser → middleware (getClaims; any error = sign-out) → unsigned x-console-user-*
         → Server Component → can() → DB (max 10, no timeout)
 Target: browser → middleware (getClaims; network error = 503, no session = /login)
-        → x-console-user-* + HMAC → page verifies → can() → DB (max 2, statement_timeout 10 s)
+        → x-console-user-* + HMAC → page verifies → can() → DB (max from env, start 5; statement_timeout 10 s)
 ```
 
 ### A public visitor
@@ -411,7 +426,7 @@ assistant / skill → can(actor, skill) [plan includes it, switch on]
 ```
 Today:  provider → route → all the work inside the request → 200
 Target: provider → verify signature/token → store the event id once (replay = no-op)
-        → write a job row → 200 within ~1 s
+        → write a job row → 200 within ~1 s (the write failed? 5xx, so the vendor retries)
         → minute tick claims the job (SKIP LOCKED) → work → retry with backoff → dead-letter
 ```
 
@@ -617,14 +632,14 @@ New:
 
 ## 14. Order of work
 
-**Progress, 2026-11-17** (about 12% of V1; estimates per step, not measured):
+**Progress, 2026-11-18** (about 11% of V1, after the reviews added tasks; estimates per step, not measured):
 
 | Step | Done | Left |
 |---|---|---|
-| 0 Clean the base | 80% → this PR | — |
+| 0 Clean the base | 85% | merge `docs/platform-plan` |
 | 1 Dev database | 90% | the other laptop's `.env.local`; an agency on dev, then `db:seed` |
 | 2 Production guard | 90% | merge `chore/dev-db-and-prod-guard` |
-| 3 Backups | 20% | one manual encrypted dump done; PITR deferred; 0.4 (scheduled off-site dump + alert) and the restore drill |
+| 3 Backups | 40% | 0.4 built and tested locally (`ops/step-3-backups`, not merged); the boss's AWS, age and healthchecks setup; the files copy (0.8); the restore drill |
 | 4 Accounts and alarms | 5% | spend stops, Sentry, Upstash, 2FA, branch protection, gitleaks, Dependabot |
 | 5–27 | 0–20% | 1.6 (Retell signature) and 0097's indexes are done; the rest not started |
 
@@ -661,9 +676,9 @@ task's proof. **Steps 1–4 come before any new skill or module.**
 |---|---|---|---|
 | **0** | **Clean the base** | Decisions a, b, d. Commit the two plan files. Remove the merged worktrees. Every later branch starts from `main` | — |
 | **1** | **Dev database** | The boss creates `realestate-dev` (Supabase, Sydney, Micro). We run migrate and seed against it. `.env.local` on both laptops points at dev. Production values move into Vercel (Production scope) and the password manager; Vercel Preview gets the dev values | 0.1 |
-| **2** | **Production guard** | One helper in `packages/db` that refuses a host listed in `PRODUCTION_DB_HOSTS` unless `CONFIRM_PRODUCTION=<host>` is set. Called by `reset.ts`, `seed.ts`, `clear-listings.ts`, the repair, census and zones scripts, smoke, and `drizzle.config.ts` (for `db:migrate`). Break-test: `db:reset` against production with no flag must exit | 0.2 |
-| **3** | **Backups** | The boss turns PITR on (7 days). We restore it once into a scratch project and compare row counts. Then a GitHub Actions schedule runs an encrypted `pg_dump` every 6 h to S3 Melbourne (Object Lock, separate AWS account), and healthchecks.io alerts when a dump is missed | 0.3, 0.4 |
-| **4** | **Accounts and alarms** | The boss: spend limits at every vendor, Sentry DSN, an Upstash account, accounts in the business's name with 2FA. CU: branch protection, gitleaks, Dependabot | 0.5, 0.6, 0.7 |
+| **2** | **Production guard** | One helper in `packages/db` that refuses a project ref listed in `PRODUCTION_DB_REFS` (default: the live one) unless `CONFIRM_PRODUCTION=<ref>` is set. Called by `reset.ts`, `seed.ts`, `clear-listings.ts`, the repair, census and zones scripts, smoke, and `drizzle.config.ts` (for `db:migrate`). Break-test: `db:reset` against production with no flag must exit | 0.2 |
+| **3** | **Backups** | PITR deferred (decision 7). A GitHub Actions schedule runs an encrypted `pg_dump` every 6 h to S3 Melbourne (Object Lock, separate AWS account), healthchecks.io alerts when a dump is missed, and the Storage files are copied daily. The Supabase settings that are not in the database are written down. One restore into a **new** project: the app boots on it and smoke passes | 0.3, 0.4, 0.8, 0.12 |
+| **4** | **Accounts and alarms** | The boss: **the repo private**, spend limits at every vendor, Sentry DSN, an Upstash account, accounts in the business's name with 2FA, **Supabase Auth on our own SMTP**, separate secrets for previews. CU: branch protection, gitleaks, Dependabot | 0.5, 0.6, 0.7, 0.9–0.11 |
 
 **Gate:** from here, new skills and modules may be built **on the dev database**, each following the
 checklist in 14.8.
@@ -672,12 +687,12 @@ checklist in 14.8.
 | Step | What | How | Tasks |
 |---|---|---|---|
 | **5** | Auth that fails safe | 503 instead of a sign-out when auth is unreachable; HMAC-signed session header. One PR, smoke on dev | 1.1, 1.2 |
-| **6** | Database connections | `max: 2`, connect and idle timeouts in `client.ts`; `statement_timeout` per role. Dev first, then production at night | 1.8, 1.9 |
+| **6** | Database connections | `max` from env (start 5), connect and idle timeouts in `client.ts`; `statement_timeout` per role; the pooler's pool size raised. Dev first, then production at night | 1.8, 1.9, 1.19 |
 | **7** | Indexes | One migration with ~20 indexes (the `agency_id` columns and big-table FKs in 1.10); `pg_stat_statements` on; the migration rules and the `CONCURRENTLY` script in DEPLOY.md | 1.10, 1.11, 1.13 |
 | **8** | Rate limits | The Upstash limiter replaces `apps/web/lib/rate-limit.ts`; console routes added; Vercel Firewall rules; Turnstile | 1.4, 1.5 |
-| **9** | Small fixes | PII out of the logs; timeouts on every vendor `fetch`; V1 caps in env (AI $300 a day); model prices. One PR | 1.7, 1.15, 1.17, 1.18 |
-| **10** | MFA | TOTP for owners, admins and platform admins; 15-minute JWT; sign out everywhere | 1.3 |
-| **11** | Health and errors | `/api/health` + an uptime monitor; `error.tsx` in each route group; one error shape for API routes | 1.14, 1.16 |
+| **9** | Small fixes | PII out of the logs; timeouts on every vendor `fetch`; V1 caps in env (AI $300 a day) **in three pools** (public, trial, paying); model prices; upload checks. One PR | 1.7, 1.15, 1.17, 1.18, 1.21, 1.24 |
+| **10** | MFA, sessions, audit log | TOTP for owners, admins and platform admins; the session rules in 1.22; the audit log | 1.3, 1.20, 1.22 |
+| **11** | Health, errors, metrics | `/api/health` + an uptime monitor; `error.tsx` in each route group; one error shape for API routes; the alert lines in 1.23; the schema-version check | 1.14, 1.16, 1.23, 1.25 |
 | **12** | Data layout | UUIDv7, lz4, `pg_trgm`, on dev first | 1.12 |
 
 Retell's signature check (1.6) is already done on `fix/retell-signature-and-0090-tests` and lands in
@@ -687,29 +702,29 @@ step 0.
 | Step | What | How | Tasks |
 |---|---|---|---|
 | **13** | ADR for plans and credits | Written by CC, reviewed by the user and the boss before any code | 2.1 |
-| **14** | Plan map and credit ledger | Plan → skills, credits, seats in `packages/core`; the `ai_credit_grant` table; the fourth window in `checkAiBudget`; a permission test for each plan | 2.2, 2.3 |
-| **15** | Stripe | Test mode first: prices, Checkout, Customer Portal, webhooks (signature + event id stored once), owner-only purchase, 80% and 100% emails, the admin cost page | 2.4–2.7 |
+| **14** | Plan map and credit ledger | Plan → skills, credits, seats in `packages/core`; the `ai_credit_grant` table; the fourth window in `checkAiBudget`, reserved atomically; a permission test for each plan | 2.2, 2.3 |
+| **15** | Stripe | Test mode first: prices, Checkout, Customer Portal, webhooks (signature + event id stored once), owner-only purchase, 80% and 100% emails, the admin cost page; failed payment, grace and cancel states; a daily reconciliation with Stripe; seat limits | 2.4–2.10 |
 
 #### Weeks 4–5: background work
 | Step | What | How | Tasks |
 |---|---|---|---|
-| **16** | `job` table | Retries, backoff, dead-letter, fair share per agency, on the minute tick | 3.1 |
-| **17** | Webhooks through jobs | Twilio, Retell, Zoom, Resend and Stripe answer 200 in about 1 s | 3.2 |
-| **18** | SMS and imports | A fair SMS drain; imports start no automations; incremental scans | 3.3, 3.4 |
-| **19** | When a vendor is down | AI → template; Twilio → email; email → retry, each with a fake-client test | 3.5 |
+| **16** | `job` table | Retries, backoff, dead-letter with replay, fair share per agency, priority lanes, one limiter per vendor, on the minute tick | 3.1, 3.6 |
+| **17** | Webhooks through jobs | Twilio, Retell, Zoom, Resend and Stripe answer 200 in about 1 s; Twilio's signature for managed subaccounts | 3.2, 3.10 |
+| **18** | SMS, imports, outages | A fair SMS drain; imports start no automations; incremental scans; after an outage, missed Twilio messages pulled back and late jobs handled by rule | 3.3, 3.4, 3.8, 3.9 |
+| **19** | When something goes wrong at night | AI → template; Twilio → email (only where the person agreed to email); email → retry; a spike in an agency's sends or AI spend pauses it and tells the owner; a platform-wide stop switch. Each with a fake-client test | 3.5, 3.7 |
 
 #### Week 5: proof
 | Step | What | How | Tasks |
 |---|---|---|---|
-| **20** | E2E | Playwright, five flows, on previews against the dev DB; smoke nightly in CI | 4.1, 4.2 |
-| **21** | Load test | k6, V1 and V2 profiles, 60 minutes, on a dev DB seeded to production size | 4.3 |
+| **20** | E2E | Playwright, five flows and four failure flows, on previews against the dev DB; smoke nightly in CI; isolation tests beyond pages; the AI SQL probes | 4.1, 4.2, 4.9, 4.10 |
+| **21** | Load test | k6: load, a 9 am spike, a 2-hour soak and a recovery run, at V1 and V2 numbers, on a dev DB seeded to production size and raised to production's compute for the day | 4.3 |
 | **22** | Quality checks | jsx-a11y + axe; iPhone, Android and slow 3G; route audit + ZAP | 4.5, 4.6, 4.7 |
-| **23** | Restore drill | Automatic and monthly from now on | 4.4 |
+| **23** | Restore and rollback drills | Restore: automatic and monthly from now on. Rollback: a bad deploy rolled back on Vercel while its migration stays | 4.4, 4.8 |
 
 #### Week 6: launch
 | Step | What | How | Tasks |
 |---|---|---|---|
-| **24** | Legal and runbooks | Privacy policy, terms, DPA; the breach runbook and the seven runbooks; secrets inventory | 5.1–5.4 |
+| **24** | Legal and runbooks | Privacy policy (with automated decisions), terms, DPA, the data-flow document; the breach runbook and the seven runbooks; secrets inventory; data lifecycle by script | 5.1–5.4, 5.11, 5.12 |
 | **25** | Domains and senders | Cloudflare DNS only; domains on Vercel; SPF, DKIM, DMARC; ACMA sender ID; EXIF removed from photos | 5.5–5.8 |
 | **26** | Clean up | Test data out of production; support inbox; status page | 5.9, 5.10 |
 | **27** | **Go / no-go** | The user, the boss and both developers walk the list in 14.7. All ticked → the first agency | — |
@@ -751,6 +766,122 @@ These came from an outside plan. Each was checked against our code and current v
 | Triggers: Vercel bill $200–300, a vendor's "move to Enterprise" email | We already expect ~$400/month on Vercel at V1 (images and bandwidth). A sales email is not a measurement | Use the measured triggers in 14.9 |
 | Supabase CPU 70% → read replica | Agrees with our trigger (p95 CPU above 60% for 7 days) | Kept, as in 14.9 |
 
+#### Second outside review (2026-11-18)
+A second outside review (22 points) was checked against the code and vendor documents. What it changed:
+
+| Point | What we found | Decision |
+|---|---|---|
+| `max: 2` connections per instance is too low | Right. A page runs several queries at once, and Vercel advises against tiny pools on Fluid compute. The review missed the bigger limit: the pooler's **pool size** (server-side connections every query shares) is 15 on Medium and 20 on Large by default | `DB_POOL_MAX` from env, start 5; raise the pool size (1.8, 1.19) |
+| Storage files are not in a database backup | Right: a dump holds their metadata only | Daily copy to S3 and a recovery list of keys (0.8) |
+| A 15-minute session signs people out | The plan meant the access token, which refreshes silently. Our client message said "session" | Session rules written out (1.22) |
+| ~20 indexes is not a target | Agreed; 1.10 was already per query with `EXPLAIN` | The load test's 15 hottest queries are checked too (1.10) |
+| PostgreSQL RLS per agency | RLS is on and the browser has no grants (ADR 0017). Server-side per-agency RLS would wrap every query in a transaction | Not V1; isolation tests widened (4.9); ADR at V2 (decision 11) |
+| Audit log | Only at V3 in this plan; history cannot be added later | Moved to V1 (1.20) |
+| Upload security | Size cap, random keys and signed links exist; the type is checked from the header | Check the bytes, refuse SVG and HTML (1.21) |
+| Rollback | Expand → contract and the runbook existed | A fresh dump before each production migration (1.13); a rollback drill (4.8) |
+| SMS law | Consent, `STOP`, sender identity, sending hours and caps are already in code. Sending hours are not a Spam Act rule | Wording fixed in section 8 and the risks |
+| Privacy Act | Sub-processors and NDB were planned. **New:** automated decisions must be in the privacy policy from 10 Dec 2026 | 5.11, decision 12 |
+| Atomic credits | Right: `checkAiBudget` reads a sum, so parallel calls can pass the balance | Atomic reservation (2.3) |
+| Billing states, GST | Missing | 2.8 |
+| 200 only after the job is stored | The flow already wrote the job first; now written down | 3.2 |
+| Metrics and alert lines | Partly in 1.14 | 1.23 |
+| Spike, soak and recovery tests; success numbers | Only a 60-minute load test before | 4.3 and section 5 |
+
+**Added by us, missed by both plans:** peak shaping for automations (priority lanes, spreading the 9 am sends, one limiter
+per vendor: Anthropic's tier, Resend's 10 requests a second, Twilio per number) (3.6); unattended safety (an idempotent
+send, auto-pause on a spike, a platform stop switch, the agency sees last night's failures) (3.7); the load test runs on
+production's compute size, or its numbers mean nothing (4.3).
+
+#### Code audit (2026-11-18)
+Twelve areas read in the code (`main` at `e9745e0`) and in vendor documents. **Built** = in code with a test; **partly** = in
+code, not complete; **missing**; **unverified** = cannot be seen from the code.
+
+| Area | Built | Gap → task |
+|---|---|---|
+| Tenant isolation | `can()` matrix for every action × role × agency (`isolation/can-matrix.test.ts`); every route and server action takes the actor from the session (`entrypoints.test.ts`); every table classified (`schema-classification.test.ts`); smoke 8/8; browser has no grants | Unsigned identity header (1.2); exports, jobs, files, tools (4.9) |
+| AI agent | Model-written SQL **probed on dev 2026-11-18**: 16 of 16 `ai` views filter by the ticket's agency; `auth`, `storage`, `public` and `pg_authid` refused to `ai_reader`; no `dblink`, `pg_net` or other network extension. Writes are proposals a person approves, then run through the same core function, which checks `can()` again; at most 3 cards and a tool-call cap per turn; snippets marked untrusted; model-written SQL runs read-only as `ai_reader`, 5 s, rolled back, scoped by a ticket (ADR 0042); budget checked every round | **One AI cap for public, trial and paying (1.24)**; budget not atomic (2.3) |
+| Jobs | Tick with `SKIP LOCKED` claims and a time budget; outbox with dedupe keys; email at-most-once with a stale-claim rule; SMS recorded before the vendor call; Twilio deliveries deduplicated | `job` table, retries, dead-letter (3.1); a crashed SMS claim stays `sending` unseen (3.7); Retell/Zoom dedupe unverified (3.2) |
+| Payments | **Absent.** No Stripe package, route, table or column; no plan, credit or seat model. `agency.status` (suspend) and `trial_ends_at` exist; the trial end is recorded, not enforced | All of 14.4 (2.1–2.10) |
+| Database | One pool per process; indexes on `ai_run`; `statement_timeout` only on AI SQL | Pool, pool size, timeouts (1.8, 1.19) |
+| Files | Type and size checked; random keys; documents by 60 s signed links | Byte check (1.21); files backup (0.8) |
+| Monitoring | Sentry in code (ADR 0082), no DSN | DSN (0.7); alert lines (1.23) |
+| Deploys | Guard on scripts (PR); CI: frozen install, typecheck, lint, test, audit | Schema-version check (1.25); rollback drill (4.8) |
+| API abuse | Cron and revalidate behind secrets; webhooks verified | **Repo public (0.9)**; in-memory limiter (1.4); preview secrets shared (0.11) |
+| Integrity | 36 unique indexes (membership, contact email per agency, outbox dedupe); 22 row locks | Credits (2.3); seats (2.10) |
+| Privacy | Consent, opt-outs, sending hours in code; chat retention purge | **Auth emails (0.10, unverified)**; other purges, agency deletion (5.12); ADM (5.11) |
+| Testing | Unit + smoke, offline | E2E, load, spike, soak, recovery (4.1, 4.3) |
+
+Not V1 (each has a trigger): per-agency RLS (decision 11); restore one agency by script (V3); a prompt regression set before a
+model or prompt change (V2); `ai_run` daily rollups instead of a 24-hour sum per call (V2); constant-time secret compares (V2, low risk).
+
+#### Three production scenarios (2026-11-18)
+**1. The Supabase project is gone. Can we bring everything back?** Today: **no.** After 0.4, 0.8, 0.12 and 4.4: yes,
+within the RTO (4 h, to be measured).
+
+| Piece | Where it comes back from | Today |
+|---|---|---|
+| Database rows (`public`) | The 6-hourly dump (0.4) | One manual dump (2026-11-17); the schedule is not running |
+| Users, password hashes, MFA factors (`auth`) | The same dump: it holds `auth.users`, `identities`, `mfa_factors` (checked in the 2026-11-17 dump's table of contents) | Never restored into a new project |
+| Schema, extensions, `ai_reader`, grants | The migrations, then data only (4.4). The dump has no roles or grants, and a new project would give browser keys access to restored tables | Proven once: dev was built from the 98 migrations |
+| File bucket settings and object rows | The dump (`storage.buckets`, `storage.objects`) | — |
+| The files themselves | The daily S3 copy (0.8) | **Not backed up** |
+| Auth settings, providers, SMTP, templates | The settings document (0.12) | **Only in the dashboard** |
+| API keys, JWT keys | New ones; Vercel updated; everyone signs in again | — |
+| App secrets (token-encryption keys, vendor keys) | Vercel, and the password manager list (0.8, 5.4) | Not listed |
+| Vault | Not used by our code; a new project has a new root key | — |
+
+**2. The cron or the app is down for 30 minutes. Does the work resume, without loss or duplicates?** Mostly, by design;
+three holes. Every due job is found by its state (`due <= now()`), not by its minute, so the first tick back picks
+everything up, and claims (`SKIP LOCKED`, guarded updates) stop two ticks doing the same row. Vercel does not replay
+missed cron runs, and nothing needs it to.
+
+| Work | After 30 minutes down | Hole → task |
+|---|---|---|
+| Workflow events, scheduled actions, lead understanding | Resume; dedupe keys stop a double run | — |
+| Email | Resumes. A send cut off mid-call is marked "may already have been sent" for a person, never re-sent (at-most-once) | — |
+| SMS batches, missed-call texts | Resume, inside sending hours; each recorded before the vendor call | A claim cut off mid-call stays `sending`, unseen (3.9) |
+| Meeting reminders | Sent late, until the meeting ends | A reminder minutes before the start (3.9) |
+| AI call-backs | Placed late, inside calling hours | A call hours late (3.9) |
+| Assistant cards, prepared batches | Expire on their own clock | The person is told; nothing goes |
+| **Inbound Twilio texts and call events** | **Lost to the CRM**: Twilio does not reliably retry | Pull back from Twilio's API (3.8) |
+| Stripe, Resend, Zoom webhooks | The vendor retries (Stripe for 3 days) | Stored once by event id (2.5, 3.2) |
+
+**3. Can model-written SQL reach another agency through joins, subqueries or tricks?** No, and it was checked in four
+ways. The query runs as `ai_reader`, which can read only the 16 views in `ai`; each view filters by `ai.ticket_agency()`,
+the agency of a ticket row inserted in the query's own transaction and never committed, so no other ticket can be
+seen. Joins and subqueries only combine views that are already filtered. `security_barrier` stops a predicate from
+running before the filter. Read-only, 5 s, `lock_timeout` 1 s, rollback. The smoke group proves: B invisible through
+six views, a forged ticket sees nothing, writes refused, four `public` tables refused, `pg_sleep` stopped, and removing
+the filter makes B visible (the test can fail). The live probe on dev (2026-11-18) added: no unfiltered view; `auth`,
+`storage` and `pg_authid` refused; no network extension. Those become smoke checks (4.10). Production uses the same
+migrations; it was not probed (no production access without a "go").
+
+**Twilio signature, reconsidered.** Today each Twilio webhook URL carries a per-number HMAC token (192 bits,
+constant-time check, keys rotatable). A leaked URL lets someone forge texts or STOPs **for that one number's agency
+only**; it cannot cross agencies. Twilio's signature would also tie the request to Twilio, but it needs the account's
+primary Auth Token. We already get that token for the subaccounts we make, and drop it. **Decision: V1 for
+platform-managed numbers (3.10), when managed Twilio sells; an agency's own account keeps the URL token**, because
+holding their primary Auth Token is a bigger risk than the one it removes.
+
+**Stripe:** not started. Nothing in code, schema or packages (only `agency.status` and `trial_ends_at`).
+
+#### Timeline, recalculated (2026-11-18)
+Counted from the task tables (S = 1 session, M = 2.5): **54 tasks / 69 sessions before the reviews → 79 tasks / 100 sessions
+now.** Claude Code's share, the longest path, went from ~39 to ~59 sessions. The first plan fitted 39 into 6 weeks, so the
+same pace gives **about 9 weeks** for V1, or 8–10. The weeks in 14.0 stay as the order of work, not the dates.
+
+| Weeks (est.) | What |
+|---|---|
+| 1–2 | Safety (steps 0–4): includes the boss's accounts, which can wait on other people |
+| 3–5 | Hardening (5–12) |
+| 5–6 | Money (13–15): only after the prices (decision 2) |
+| 6–7 | Background work and outages (16–19) |
+| 8 | Proof (20–23): load, spike, soak, restore and rollback drills |
+| 9 | Launch (24–27): the lawyer's review can take longer than a week; start it in week 5 |
+
+From 2026-11-17 that is **late January 2027**, and the Australian holidays (25 Dec–1 Jan) slow the boss, the lawyer and
+the vendors. A realistic first paying agency: **early February 2027**, if the prices are decided by week 4.
+
 ---
 
 ### 14.2 Phase 0: safety — before any new module (week 1)
@@ -764,6 +895,11 @@ comes first.
 | 0.2 | **Production guard:** every DB script (`db:migrate`, `db:reset`, seeds, smoke) refuses a production host unless `CONFIRM_PRODUCTION=<host>` is set | CC | S | Running `db:reset` with the production URL and no flag exits with an error (break-test) |
 | 0.3 | **Deferred 2026-11-17 (cost):** **Point-in-time recovery on** (7 days), then one restore into a scratch project | Boss + CC | S | Row counts of five tables match after the restore; `DEPLOY.md:67` ticked |
 | 0.4 | **Off-site backup:** encrypted `pg_dump` every 6 h to S3 Melbourne (Object Lock, separate AWS account); healthchecks.io pings on success | CC | M | A missed dump sends an alert; one dump restored on dev |
+| 0.8 | **Files backup:** a database dump holds only the Storage metadata. A daily job copies the buckets (photos, documents) to the same S3 account. The keys a restore needs (the age private key, the integration-token keys of ADR 0020, the env inventory) are listed in the password manager | CC + Boss | S | A deleted test file is brought back from S3; the recovery list exists |
+| 0.9 | **Repo private** (it answers publicly today) and a gitleaks scan of the whole history; anything found is rotated | Boss + CU | S | The GitHub API returns 404 without a token; the history scan is clean (a quick pattern scan on 2026-11-18 found no key-shaped strings) |
+| 0.10 | **Supabase Auth on our own SMTP** (Resend). The built-in sender delivers only to the project's team members, 2 an hour, so password resets (`resetPasswordForEmail`) and sign-up emails never reach a real agent. Also: email confirmation on, leaked-password protection, auth rate limits reviewed. Unverified: the production dashboard setting cannot be read from code | Boss + CU | S | A password reset reaches an address outside the team |
+| 0.11 | **Previews get their own secrets:** `CRON_SECRET`, `REVALIDATE_SECRET`, token-encryption keys and Retell/Twilio test keys differ from production (today `CRON_SECRET` and the Retell keys are shared); Vercel Deployment Protection on previews | Boss | S | Production's cron refuses the preview's secret |
+| 0.12 | **What a database backup cannot hold, written down:** Supabase Auth settings (site URL, redirect URLs, providers and their secrets, SMTP, email templates, rate limits, MFA, JWT expiry), Storage bucket settings, the Vercel env inventory, and the restore order. A new project gets new API keys and JWT keys: Vercel is updated and everyone signs in again (passwords and MFA factors come back with `auth`) | Boss + CC | S | The restore drill (4.4) rebuilds the settings from this document alone |
 | 0.5 | **CI:** branch protection on `main`, gitleaks, Dependabot (frozen install and `pnpm audit` are already in `ci.yml`) | CU | S | A PR with a fake key in it fails |
 | 0.6 | **Hard spend stops:** Vercel Spend Management, Supabase spend cap, Anthropic console limit, Google quotas, Twilio triggers, Retell minutes | Boss | S | Every vendor shows a limit in its console, written in the secrets inventory |
 | 0.7 | **Sentry DSN** set in both apps, alerts for new errors and 5xx rate | CU | S | A thrown test error reaches Sentry with no email, cookie or query string |
@@ -779,21 +915,25 @@ New modules may run in parallel from here, if each one follows 14.8.
 |---|---|---|---|---|
 | 1.1 | Auth outage → 503 + `Retry-After`, not a sign-out (`packages/auth/src/middleware.ts:131`) | CC | S | `getClaims` throwing a network error returns 503 in a test |
 | 1.2 | **Signed session header** (HMAC + expiry) between middleware and pages | CC | S | A forged `x-console-user-*` header without the signature is refused (smoke) |
-| 1.3 | **MFA** (TOTP) for owners, admins and platform admins; 15-minute JWT; "sign out of all devices" | CC + CU | M | An owner without MFA cannot open billing or team pages |
+| 1.3 | **MFA** (TOTP) for owners, admins and platform admins, checked on the server (AAL2), not only in the page | CC + CU | M | An owner without MFA cannot open billing or team pages |
 | 1.4 | **Rate limits on Upstash**, replacing the in-memory limiter in `apps/web/lib/rate-limit.ts` (each Vercel instance counts on its own today, so the limit is not real). Add the console routes. Limits as in section 11 | CC + CU | M | Two parallel instances share one count (test with two clients); `429` with `Retry-After` |
 | 1.5 | Vercel Firewall rules for IP floods; Turnstile on sign-up, login and reset | CU | S | A scripted login loop is blocked |
 | 1.6 | Retell signature check **on by default** (`voice.ts:87`) | CC | S | An unsigned Retell call is refused |
 | 1.7 | **No personal data in logs:** `apps/web/lib/offer-action.ts:133` logs an email; `apps/console/app/(agency)/team/actions.ts:40` logs a whole error object. Fix both and add a lint rule or grep check | CU | S | The grep check runs in CI |
+| 1.20 | **Audit log** (section 7): one `audit_log` table and one helper called inside the action's transaction; the agency's owner can read their own | CC | S | Each listed action writes one row (test); a platform-admin view writes one too |
+| 1.21 | **Uploads:** type from the file's first bytes; SVG and HTML refused; documents stay private behind signed links | CC | S | A `.png` that is really HTML is refused (test) |
+| 1.22 | **Sessions** (section 7): JWT 15 min with silent refresh; inactivity timeout; MFA again for billing, exports and role changes; a password change signs out the others; MFA recovery path written | CC + CU | S | An idle agent is not signed out at 15 min; an export asks for MFA again |
 
 #### Database
 | # | Task | Who | Size | Done when |
 |---|---|---|---|---|
-| 1.8 | **Connections:** `max: 2` per instance (today 10, `packages/db/src/client.ts:6`), connect and idle timeouts, `statement_timeout` per role (console 10 s, public 5 s, workers 60 s) | CC | S | 200 parallel requests in the load test stay under the pooler limit |
+| 1.8 | **Connections:** `max` per instance from `DB_POOL_MAX` (start 5, not 2: a page runs several queries at once; today 10, `packages/db/src/client.ts:6`), connect and idle timeouts, `statement_timeout` per role (console 10 s, public 5 s, workers 60 s). Check whether Vercel's `attachDatabasePool` supports postgres.js | CC | S | At the load test's peak, instances × `max` stays under 70% of the pooler's clients (Medium 600, Large 800) |
+| 1.19 | **Pool size:** the server-side connections every query shares are 15 on Medium and 20 on Large by default, whatever `max` is. Raise toward 80% of max connections (we do not use the Data API); alert at 80% of pooler clients | CC + Boss | S | Set in Supabase; the spike test shows no waits on the pool |
 | 1.9 | **Compute:** Medium at launch; set an alert at 60% CPU | Boss | S | Alert fires on a test |
-| 1.10 | **Indexes, first pass:** 146 of 260 foreign keys have no index that starts with them (script count, est.). Add only those on tables that grow (`agency_id` on `membership`, `team`, `office`, `notification`, `workflow_run`, `activity`, `note`, `team_message`, `ai_query_ticket`; FKs that `ON DELETE` walks on big tables). Skip audit columns such as `created_by` | CC | S | `EXPLAIN` on the agency's member list, notifications and workflow runs uses an index; tried on dev first |
+| 1.10 | **Indexes, first pass:** 146 of 260 foreign keys have no index that starts with them (script count, est.). Add only those on tables that grow (`agency_id` on `membership`, `team`, `office`, `notification`, `workflow_run`, `activity`, `note`, `team_message`, `ai_query_ticket`; FKs that `ON DELETE` walks on big tables). Skip audit columns such as `created_by` | CC | S | `EXPLAIN` on the agency's member list, notifications and workflow runs uses an index; the load test's 15 hottest queries checked with `EXPLAIN ANALYZE` on production-size data; tried on dev first |
 | 1.11 | **`pg_stat_statements` + Supabase index advisor** on; a weekly look at the top 10 slow queries | CC | S | The first weekly report is written in SESSION.md |
 | 1.12 | Data layout while tables are small: UUIDv7 for new big tables, lz4 on text-heavy columns, `pg_trgm` for name search (D1, P1–P3) | CC | M | Tried on dev, then production at night |
-| 1.13 | **Migration rules** in `DEPLOY.md`: expand → backfill → contract; a lock of at most 1 s; indexes on big tables with `CREATE INDEX CONCURRENTLY` in a separate script (Drizzle runs migrations in a transaction, where `CONCURRENTLY` cannot run) | CC | S | The rule is written and the script exists |
+| 1.13 | **Migration rules** in `DEPLOY.md`: expand → backfill → contract; a lock of at most 1 s; indexes on big tables with `CREATE INDEX CONCURRENTLY` in a separate script (Drizzle runs migrations in a transaction, where `CONCURRENTLY` cannot run). Before every production migration: a fresh dump (PITR is off), and the previous deploy must still run on the new schema, so a Vercel rollback is safe | CC | S | The rule is written and the script exists |
 
 #### Reliability
 | # | Task | Who | Size | Done when |
@@ -803,6 +943,9 @@ New modules may run in parallel from here, if each one follows 14.8.
 | 1.16 | `error.tsx` in each route group (5 today); one error shape for API routes (`{ error: { code, message } }`) | CU | S | Throwing in a page shows the group's error screen, not a blank page |
 | 1.17 | **V1 caps in env** (section 11): AI platform $300 a day (today $20, which runs out within hours at V1) | CC | S | `checkAiBudget` reads the new values |
 | 1.18 | Fix model prices in `packages/ai/src/models.ts`: Sonnet 5.5 cache read, add Haiku 5.5 | CC | S | A unit test checks the price table |
+| 1.23 | **Alert lines** (first values, tuned after the load test): API p95 > 1 s, 5xx > 2% for 5 min, DB CPU > 80%, pooler clients > 80%, job lag > 2 min, any new dead-letter job, AI or SMS spend in an hour > 3× usual, backup older than 7 h. Critical ones reach a phone at night: site down, sends stuck, spend spike | CC + CU | S | Each alert fired once on purpose |
+| 1.24 | **AI budget in three pools:** anonymous public use, trial agencies and paying agencies each get their own daily cap. Today one platform cap covers all three (`ai-budget/index.ts`), and the public limiter counts per instance, so a bot on the public chat or a wave of trial sign-ups can spend the cap and stop AI for every paying agency | CC | S | A test: the public pool spent → paying agencies' AI still runs |
+| 1.25 | **Schema-version check:** `/api/health` compares the newest migration in the build with the database's journal and reports "schema behind"; the deploy runbook migrates (expand) before it deploys | CC | S | A build with an unapplied migration shows "schema behind" |
 
 ---
 
@@ -814,11 +957,14 @@ Full design: section 13. ADR first.
 |---|---|---|---|---|
 | 2.1 | ADR: plans, credits, top-ups, trial rules | CC | S | ADR merged |
 | 2.2 | Plan map in `packages/core` (plan → skills, credits, seats); `can()` refuses a skill outside the plan | CC | S | A permission test for each plan |
-| 2.3 | `ai_credit_grant` table; balance as the fourth window in `checkAiBudget` | CC | M | A test: allowance spent first, then the top-up; at 0 only AI stops |
+| 2.3 | `ai_credit_grant` table; balance as the fourth window in `checkAiBudget`. Credits are **reserved atomically** before a call (one `UPDATE … WHERE balance − reserved ≥ estimate`) and settled with the real cost after it | CC | M | A test: allowance spent first, then the top-up; at 0 only AI stops; 20 parallel calls on the last credits never go below 0 |
 | 2.4 | Stripe: three plan prices, extra seat, two top-ups; Checkout + Customer Portal | CU | M | A test-mode purchase grants credits once |
-| 2.5 | Stripe webhooks: signature check, event id stored once (`invoice.paid`, `checkout.session.completed`, `customer.subscription.updated/deleted`) | CC | S | Replaying the same event grants nothing twice |
+| 2.5 | Stripe webhooks: signature check, event id stored once (`invoice.paid`, `checkout.session.completed`, `customer.subscription.updated/deleted`). Stripe does not keep the order and may send two events for one object, so each handler fetches the current object from Stripe and sets state from it, keyed by the object id; async payments (`checkout.session.async_payment_succeeded/failed`, e.g. BECS direct debit) grant only on success; refunds and disputes take back unused credits; every Stripe API call carries an idempotency key | CC | M | Replaying the same event grants nothing twice; events delivered in reverse order end in the right state |
 | 2.6 | `billing:manage` for owners only; emails at 80% and 100% | CC + CU | S | Permission test: an agent cannot buy |
 | 2.7 | Admin AI cost page shows grants and spend per agency | CU | S | One agency's month adds up to its `ai_run` rows |
+| 2.8 | Billing states: failed payment → 7 days' grace with emails → AI and sends stop, the data stays; cancel → runs to the period's end, then the 30-day deletion (decision 4); tax invoices with GST (the accountant checks) | CC + CU + Boss | S | Each state tested with Stripe test clocks |
+| 2.9 | **Daily reconciliation:** each agency's plan, status and credit grants compared with Stripe's subscriptions and paid invoices; a mismatch alerts and shows on the admin page | CC | S | A grant deleted by hand on dev is reported the next morning |
+| 2.10 | **Seat limits** checked in the same transaction as an invite claim, with the agency row locked, so two claims at once cannot pass the plan's seats | CC | S | Two parallel claims on the last seat: one succeeds |
 
 ---
 
@@ -826,11 +972,16 @@ Full design: section 13. ADR first.
 
 | # | Task | Who | Size | Done when |
 |---|---|---|---|---|
-| 3.1 | One **`job` table**: retries with backoff, dead-letter state, fair share per agency, claimed with `SKIP LOCKED` on the minute tick | CC | M | A job that fails 5 times lands in dead-letter and shows on the admin page |
-| 3.2 | Webhooks (Twilio, Retell, Zoom, Resend, Stripe) answer 200 within ~1 s and do their work as jobs | CC | M | A slow handler no longer delays the 200 |
+| 3.1 | One **`job` table**: retries with backoff, dead-letter state, fair share per agency, claimed with `SKIP LOCKED` on the minute tick | CC | M | A job that fails 5 times lands in dead-letter, shows on the admin page and can be replayed |
+| 3.2 | Webhooks (Twilio, Retell, Zoom, Resend, Stripe) answer 200 within ~1 s and do their work as jobs. The 200 goes only after the job row is written; if the write fails, 5xx so the vendor retries | CC | M | A slow handler no longer delays the 200; a failed write returns 5xx; Retell and Zoom deliveries are deduplicated like Twilio's (`provider_sid` is; the others are unverified) |
 | 3.3 | SMS drain with per-agency fairness (today ~100 a minute platform-wide) | CC | S | 200 agencies' 9 am batches finish within sending hours in a test |
 | 3.4 | Imports start no automations; scans are incremental | CC | S | A 10,000-row import fires zero workflow events |
 | 3.5 | When a vendor is down: AI → template + "AI was unavailable"; Twilio → email the agent; email → retry | CC | S | Each path has a fake-client test |
+| 3.6 | **Peak shaping:** priority lanes (webhooks and people waiting > sends > imports > rollups), each with a concurrency cap so bulk work never takes all the connections; scheduled sends spread over a few minutes instead of all at 9:00; one limiter per vendor that honours `Retry-After` (Anthropic's tier limits; Resend 10 requests a second, so batches of 100; Twilio per number) | CC | M | In the spike test a person's page and a webhook stay within budget while 200 agencies' 9 am sends drain |
+| 3.7 | **Unattended safety:** every send has an idempotency key written before the vendor call, so a retry never texts twice; an agency whose sends or AI spend in an hour pass 3× its usual is paused and the owner emailed; `SENDS_PAUSED` stops all sends platform-wide; the agency sees last night's failures in the morning; a fallback channel only where the person agreed to it | CC + CU | M | A retried SMS job sends once; a fake spike pauses the agency; the stop switch holds in a test |
+| 3.8 | **Inbound after an outage:** Twilio does not reliably retry a failed inbound webhook, so texts and call events sent while we were down are missing from the CRM (Twilio still has them). A job pulls each number's messages and calls for the outage window from Twilio's API and inserts the missing ones (deduplicated by `provider_sid`, as the webhook is). A fallback URL on separate infrastructure waits for V2 | CC | S | Texts sent to a dev number while the webhook route returns 503 appear in the inbox after it comes back |
+| 3.9 | **Late jobs, by rule:** every due-job type says what happens when it runs late. Meeting reminders: dropped if the meeting starts within 10 minutes (today: sent until it ends). AI call-backs: not placed if more than 2 hours late; the agent is told instead (today: placed whenever due, inside calling hours). Claims stuck in `sending` or `calling` for 15 minutes show to the agency as "may not have gone", never re-sent on their own (today: they stay unseen) | CC | S | Each rule tested with a clock 30 minutes and 3 hours late |
+| 3.10 | **Twilio signature (`X-Twilio-Signature`) for platform-managed subaccounts:** keep the subaccount's Auth Token, encrypted (ADR 0020), when it is made (today `setup.ts` uses it once and drops it), and check the signature on every webhook to those numbers. Numbers on an agency's own Twilio keep the per-number URL token, because the signature needs that account's primary Auth Token, which we should not hold. URL tokens are kept out of logs | CC | S | A request with the right URL token but no valid signature is refused on a managed number |
 
 ---
 
@@ -838,13 +989,16 @@ Full design: section 13. ADR first.
 
 | # | Task | Who | Size | Done when |
 |---|---|---|---|---|
-| 4.1 | **E2E (Playwright)** for five flows: sign in, publish a listing, a buyer's enquiry reaching the agent, an import, an AI assistant answer (fake model). Runs on previews pointed at the dev DB | CU | M | CI fails when one of them breaks |
+| 4.1 | **E2E (Playwright)** for five flows: sign in, publish a listing, a buyer's enquiry reaching the agent, an import, an AI assistant answer (fake model); and four failure flows: a cross-agency URL refused, a duplicate webhook ignored, a failed payment, a wrong MFA code. Runs on previews pointed at the dev DB | CU | M | CI fails when one of them breaks |
 | 4.2 | `pnpm smoke` nightly against the dev DB in CI | CC | S | A red smoke run alerts |
-| 4.3 | **k6 load test** with V1 and V2 profiles, 60 minutes, on a seeded dev DB at production size | CC | M | p95 targets of section 5 hold at V2 numbers |
-| 4.4 | Restore drill (monthly from now on, automatic) | CC | S | The last drill's date shows on `/api/health` |
+| 4.3 | **k6 load test:** load (60 min), a 9 am spike (10× for 5 min), a 2-hour soak, and a recovery run (DB connections cut, a vendor down), at V1 and V2 numbers, on a dev DB seeded to production size and **raised to production's compute for the day**; every vendor faked. The recovery run also kills a tick in the middle of an SMS batch | CC | M | Section 5 holds at V2 numbers: the p95s, error rate < 1%, zero cross-agency reads, zero lost webhooks, zero duplicate sends or charges |
+| 4.4 | **Restore drill into a new Supabase project** (monthly from now on, automatic): run every migration (it makes the schema, the `extensions` schema, `ai_reader` and the grants: the dump holds none of them, `--no-privileges`), then restore **data only** for `public`, `auth` and `storage` with `session_replication_role = replica`, copy the files back from S3, apply 0.12 | CC + Boss | M | A seeded user signs in with their old password; smoke passes (it checks the browser grants and the AI reader); the time taken is written next to the RTO; the drill's date shows on `/api/health` |
 | 4.5 | Accessibility: `eslint-plugin-jsx-a11y` + an axe check on the five E2E pages | CU | S | Zero serious issues |
 | 4.6 | Devices: TEST-PLAN on iPhone Safari, Android Chrome and a slow-3G profile | CU | S | Results written in TEST-PLAN.md |
 | 4.7 | Route audit (every handler listed as authed or public) + OWASP ZAP scan | CC | S | No unlisted route; ZAP has no high finding |
+| 4.8 | Rollback drill: a broken build on a preview, rolled back on Vercel; the previous deploy checked against the newest schema | CC + CU | S | Done once; the rollback runbook updated |
+| 4.9 | Tenant isolation beyond pages: exports, jobs, file links, search and the assistant's tools each get a cross-agency test | CC | S | Each test fails when its agency check is removed (break-test) |
+| 4.10 | **AI SQL probes in smoke**, added to the six that exist: no view in `ai` without the ticket filter; `auth`, `storage`, `extensions` and `pg_catalog.pg_authid` refused to `ai_reader`; other sessions' query text hidden | CC | S | Each probe fails when its grant is added on dev (break-test) |
 
 ---
 
@@ -862,15 +1016,18 @@ Full design: section 13. ADR first.
 | 5.8 | Photos resized in the browser, EXIF/GPS removed | CU | An uploaded phone photo has no GPS tag |
 | 5.9 | All vendor accounts in the business's name, with 2FA; a shared password manager; registrar lock | Boss | Checklist ticked |
 | 5.10 | Test data cleared from production; support inbox; a simple status page | CU + Boss | Done |
+| 5.11 | Data-flow document and sub-processor list (each vendor, data sent, region, retention); automated decisions in the privacy policy (APP 1.7–1.9); a privacy lawyer reviews | Boss + CC | The lawyer has signed off |
+| 5.12 | Data lifecycle by script: agency export; deletion 30 days after leaving, rows and files (no agency deletion exists in code today); a public user deletes their own account; the retention purges of section 8 (only the chat purge runs today); backups expire in 35 days | CC | A test agency exported, then deleted, files included; each purge has run once |
 
 #### Go / no-go for the first agency
 All must be true:
-- [ ] 0.1–0.7 done (dev DB, guard, PITR, off-site backup, CI, spend stops, Sentry)
-- [ ] 1.1–1.4, 1.6, 1.8, 1.14, 1.17 done
-- [ ] Stripe test-mode purchase works end to end (2.4, 2.5)
-- [ ] Five E2E flows green; the V1 load test passes
-- [ ] One restore drill passed
-- [ ] Privacy policy and terms published
+- [ ] 0.1–0.12 done (dev DB, guard, off-site backup with files, CI, spend stops, Sentry, repo private, auth SMTP, preview secrets, the settings document; PITR per decision 7)
+- [ ] 1.1–1.4, 1.6, 1.8, 1.14, 1.17, 1.19–1.25 done
+- [ ] Stripe test-mode purchase works end to end (2.4, 2.5), events out of order included; credits reserved atomically (2.3); reconciliation runs (2.9)
+- [ ] Webhooks through jobs (3.2); unattended safety (3.7); outage recovery and late-job rules (3.8, 3.9); Twilio signature on managed numbers if managed Twilio sells (3.10)
+- [ ] Five E2E flows and four failure flows green; isolation beyond pages (4.9); the V1 load, spike and soak tests meet section 5
+- [ ] One restore drill **into a new project** and one rollback drill passed
+- [ ] Privacy policy (with automated decisions) and terms published; the lawyer has read them
 
 ---
 
@@ -892,6 +1049,9 @@ Tomorrow's modules follow this, so growth does not undo the hardening.
 - [ ] Rate limit for any new public or AI route.
 - [ ] `loading.tsx` and an error state; keyboard and labels.
 - [ ] No personal data in logs.
+- [ ] Sensitive actions write an audit row.
+- [ ] Automated sends: idempotency key, consent and opt-out checked at send time, counted in the spike check.
+- [ ] Background work names its priority lane and its vendor limiter.
 - [ ] Unit test + a break-test; a smoke invariant if it guards data; the E2E list updated if it is a
       core flow.
 - [ ] Migration follows expand → contract; tried on dev first.
@@ -931,6 +1091,7 @@ Tomorrow's modules follow this, so growth does not undo the hardening.
 - Vector search per agency, if embeddings are on (3.15).
 - Phone gates 7.4–7.7 if managed Twilio sells (spend cap per subaccount, AU only).
 - Confirm Supabase HA and its failover time.
+- ADR: per-agency RLS for the server's own role (decision 11).
 - Compute XL; PITR 14 days.
 - **V2 load test passes.**
 
@@ -939,7 +1100,7 @@ Tomorrow's modules follow this, so growth does not undo the hardening.
 - Push instead of poll (Supabase Realtime nudge).
 - The isolation test for cells (3.9).
 - Imports via Storage with a global budget; `COPY` bulk loads.
-- Restore one agency by script; audit log.
+- Restore one agency by script.
 - On-call rota.
 - If job lag fires: the **worker container** (same `packages/core`, AWS Fargate, Sydney), draining the
   `job` table. The web apps stay on Vercel.
@@ -967,7 +1128,8 @@ Tomorrow's modules follow this, so growth does not undo the hardening.
 | 5 | 4: proof | E2E, load test, restore drill |
 | 6 | 5: launch | Go / no-go list |
 
-Two developers, est. Real speed decides; re-plan at the end of week 2.
+Two developers, est. **Recalculated 2026-11-18: about 9 weeks** (see "Timeline, recalculated" in 14.1). Real speed
+decides; re-plan at the end of week 2.
 
 Sources for vendor facts used here: [Vercel and Cloudflare](https://vercel.com/kb/guide/cloudflare-with-vercel),
 [Vercel reverse proxy](https://vercel.com/docs/security/reverse-proxy),
@@ -993,6 +1155,10 @@ and recordings; Microsoft Entra publisher verification; the decisions in section
 | 7 | PITR from launch day | The boss | **Decided 2026-11-17: off for now** (cost, early testing). Recovery is Supabase's daily backup plus our encrypted `pg_dump` (0.4). Recommended: turn it on before the first paying agency |
 | 8 | ADR 0083: keep naming viewers to agencies (and say so), or turn it off | The boss | Open. Recommended: say it in the policy, with an opt-out |
 | 9 | The older branches `feat/crm-visibility`, `feat/crm-assistant-more` | The user | **Decided:** not merged; tagged `archive/*` |
+| 10 | Data we may lose while PITR is off: up to 6 h of the database, 24 h of files | The boss | Open. Recommended: accept for testing; PITR on before the first paying agency |
+| 11 | Per-agency RLS for the server's own role | Both | Open. Recommended: not in V1; ADR at V2 (section 7) |
+| 12 | Follow the APPs even if the small-business exemption covers us | The boss | Open. Recommended: yes |
+| 13 | AI pools (1.24): public, trial and paying caps | The user + the boss | Open. Recommended: public $30 a day, trial $2 per agency a day, paying the rest |
 
 ---
 
@@ -1006,11 +1172,20 @@ and recordings; Microsoft Entra publisher verification; the decisions in section
 | Auth outage signs everyone out | Every user lands on /login during a blip | 1.1 |
 | Unsigned identity header | One middleware bypass = act as anyone | 1.2 |
 | No off-platform backup | Losing the Supabase account loses everything | 0.4 (more urgent while PITR is off) |
-| SMS 9 am rush | Texts sent late, past 8 pm | 3.3 |
+| SMS 9 am rush | Texts held to the next morning; agents think they were lost | 3.3, 3.6 |
 | Managed Twilio bills | The platform pays an agency's texting | Prepaid credit + cap per subaccount |
 | Photo bandwidth | Vercel bill at V2 | Variants + R2 |
 | Privacy (ADR 0083, sub-processors) | An OAIC complaint | The policy before launch |
 | Supabase without HA at V3 | Hours of downtime for 1,000 agencies | Confirm at V2; Aurora plan |
+| An automation runs away at night | Hundreds of texts or a large AI bill before anyone wakes | 3.7 |
+| Vendor rate limits at the 9 am peak | AI and email calls refused in a burst | 3.6 |
+| Pooler pool too small | Every request waits at peak while CPU is low | 1.19 |
+| Storage files not in the database backup | Photos and documents lost with the Supabase account | 0.8 |
+| A key needed to read a backup is lost | The backup cannot be used | 0.8 (recovery list) |
+| Public or trial AI use spends the shared cap | AI stops for every paying agency until the window rolls | 1.24 |
+| The repo is public | Architecture and any committed secret readable by anyone | 0.9 |
+| Auth emails do not arrive | Agents cannot reset passwords or confirm sign-up | 0.10 |
+| Stripe state drifts (missed or reordered events) | An agency paid but has no credits, or the reverse | 2.5, 2.9 |
 
 ### Docs that are out of date
 - `ARCHITECTURE.md` §14 says "no photos anywhere". Uploads exist now (`MAX_MEDIA_BYTES` 10 MB,
