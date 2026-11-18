@@ -719,3 +719,38 @@ export function buildReminderEmail(input: ReminderEmailInput): TransactionalMess
   const text = [heading, '', 'You asked to be reminded:', input.text, '', `Open the console: ${input.consoleUrl}`, '', ...textFooter(footer)].join('\n');
   return { kind: 'transactional', to: input.to, from: input.from, subject: `Reminder: ${input.text.slice(0, 80)}`, html, text, tags: { kind: 'reminder' } };
 }
+
+export type SendsPausedEmailInput = {
+  to: { email: string; name?: string };
+  from: { email: string; name: string };
+  postalAddress: string;
+  reason: string;
+  settingsUrl: string;
+};
+
+/**
+ * "Sends paused" (PLATFORM-PLAN 3.7): the spike check held this agency's texts, bulk email and AI call-backs.
+ * Sent once per pause to its owners and admins. Nothing was lost; it waits for them.
+ */
+export function buildSendsPausedEmail(input: SendsPausedEmailInput): TransactionalMessage {
+  requireSenderFooter(input.from, input.postalAddress, 'sends paused notice');
+  const heading = 'Your sends are paused: unusual activity';
+  const intro = 'We held your agency\'s texts, bulk email and AI call-backs because the last hour ran far above your usual.';
+  const fix = 'If this was expected (a big campaign, for example), resume sends in Settings. If not, check your automations first. Nothing was deleted: everything held is sent once you resume.';
+  const footer: Footer = { from: input.from, postalAddress: input.postalAddress, why: 'Sent because you are an owner or admin of this agency.' };
+  const html = layout({
+    heading,
+    intro,
+    body: `
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:18px;">
+            <tr><td style="padding:16px 0 0;border-top:1px solid #ece7dd;font:400 15px/1.6 ${FONT};color:#1a1a1a;">
+              What we saw: ${escapeHtml(input.reason)}
+            </td></tr>
+          </table>`,
+    button: { label: 'Open Settings', url: input.settingsUrl },
+    after: fix,
+    footer,
+  });
+  const text = [heading, intro, '', `What we saw: ${input.reason}`, '', fix, `Settings: ${input.settingsUrl}`, '', ...textFooter(footer)].join('\n');
+  return { kind: 'transactional', to: input.to, from: input.from, subject: heading, html, text, tags: { kind: 'sends-paused' } };
+}

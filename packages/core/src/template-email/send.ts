@@ -1,5 +1,5 @@
 import { and, eq, lt, sql } from 'drizzle-orm';
-import { SUSPENDED_AGENCY_IDS } from '../platform/access';
+import { SENDS_HELD_AGENCY_IDS } from '../platform/access';
 import {
   activity,
   contact,
@@ -252,7 +252,7 @@ export async function resumeSendingBatches(db: Db, deps: TemplateSendDeps): Prom
         sql`exists (select 1 from email_batch_recipient r where r.batch_id = ${emailBatch.id} and r.status = 'queued')`,
         // Not for a suspended agency, nor for a member who is no longer active — blocked by the platform
         // or removed (ADR 0050): what is left of their batch waits.
-        sql`${emailBatch.agencyId} not in ${SUSPENDED_AGENCY_IDS}`,
+        sql`${emailBatch.agencyId} not in ${SENDS_HELD_AGENCY_IDS}`,
         sql`exists (select 1 from membership bm where bm.user_id = ${emailBatch.userId} and bm.agency_id = ${emailBatch.agencyId} and bm.status = 'active')`,
       ),
     )

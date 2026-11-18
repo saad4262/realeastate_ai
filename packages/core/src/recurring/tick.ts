@@ -1,7 +1,7 @@
 import { and, asc, eq, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import { automation, automationRun, type Db } from '@repo/db';
 import type { Actor } from '../permissions';
-import { SUSPENDED_AGENCY_IDS } from '../platform/access';
+import { SENDS_HELD_AGENCY_IDS } from '../platform/access';
 import { skillOffMessage, type SkillKey } from '../skill-switches/catalog';
 import { holderOf, isSkillOnForChat } from '../skill-switches/switches';
 import { activeMemberActor } from '../team/member-actor';
@@ -23,7 +23,7 @@ export async function claimDueAutomations(db: Db, now: Date): Promise<number> {
     const due = await tx
       .select()
       .from(automation)
-      .where(and(eq(automation.status, 'active'), lte(automation.nextRunAt, now), sql`${automation.agencyId} not in ${SUSPENDED_AGENCY_IDS}`))
+      .where(and(eq(automation.status, 'active'), lte(automation.nextRunAt, now), sql`${automation.agencyId} not in ${SENDS_HELD_AGENCY_IDS}`))
       .orderBy(asc(automation.nextRunAt), asc(automation.id))
       .limit(CLAIM_LIMIT)
       .for('update', { of: automation, skipLocked: true });

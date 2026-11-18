@@ -16,7 +16,7 @@ import {
 import { can, type Actor, type MembershipRole } from '../permissions';
 import { contactListQuerySchema } from '../contacts/contact-schema';
 import { contactQueryFilters } from '../contacts/list-contacts';
-import { SUSPENDED_AGENCY_IDS } from '../platform/access';
+import { SENDS_HELD_AGENCY_IDS } from '../platform/access';
 import { isPairedSkillOn } from '../skill-switches/switches';
 import { toAuE164, webhookUrl } from '../phone/format';
 import { numberTwilio, providerFailure, type PhoneDeps } from '../phone/setup';
@@ -404,7 +404,7 @@ export async function resumeSmsBatches(db: Db, deps: SmsSendDeps, limit = 5, now
         eq(emailBatch.status, 'approved_sending'),
         lt(emailBatch.approvedAt, sql`now() - interval '1 minute'`),
         sql`exists (select 1 from email_batch_recipient r where r.batch_id = ${emailBatch.id} and r.status = 'queued')`,
-        sql`${emailBatch.agencyId} not in ${SUSPENDED_AGENCY_IDS}`,
+        sql`${emailBatch.agencyId} not in ${SENDS_HELD_AGENCY_IDS}`,
         sql`exists (select 1 from membership bm where bm.user_id = ${emailBatch.userId} and bm.agency_id = ${emailBatch.agencyId} and bm.status = 'active')`,
       ),
     )

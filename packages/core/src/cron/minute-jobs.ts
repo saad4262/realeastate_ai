@@ -11,6 +11,7 @@ import { runLeadUnderstanding, type LeadUnderstander } from '../leads/understand
 import type { TickJob } from './tick';
 import { runJobs } from '../jobs';
 import { enqueueStuckSms, smsReconcileHandler } from '../phone/reconcile';
+import { detectSendSpikes } from '../safety/spikes';
 
 /**
  * The every-minute tick's jobs (ADR 0035, batched by ADR 0073), in the order time matters most. Each
@@ -137,6 +138,13 @@ export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new
       mode: 'once',
       everyMinutes: 5,
       run: async () => ({ result: await enqueueStuckSms(db, now()), more: false }),
+    },
+    {
+      // PLATFORM-PLAN 3.7: an agency far above its usual hour has its sends paused and its owners told.
+      name: 'sendSpikes',
+      mode: 'once',
+      everyMinutes: 5,
+      run: async () => ({ result: await detectSendSpikes(db, now(), { notice: deps.reminders.notice ?? null }), more: false }),
     },
     {
       // The job queue's urgent lane (PLATFORM-PLAN 3.1): a fair share per agency per round.
