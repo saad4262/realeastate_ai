@@ -1,5 +1,5 @@
 import { createServerClient } from '@supabase/ssr';
-import type { JwtPayload } from '@supabase/supabase-js';
+import { isAuthRetryableFetchError, type JwtPayload } from '@supabase/supabase-js';
 import { type NextRequest, NextResponse } from 'next/server';
 import { cookieDomainFor } from './cookie-domain';
 
@@ -18,7 +18,21 @@ export type SessionIdentity = { id: string; email: string | null; label: string 
 export type SessionResult = {
   response: NextResponse;
   user: SessionIdentity | null;
+  /**
+   * The Auth server could not be reached (network error, 5xx, or no answer in time), so the session was
+   * neither confirmed nor refused. `user` is null and the session cookie is left as it was: the caller
+   * answers 503 (`authUnavailableResponse`) instead of sending a signed-in person to /login (PLATFORM-PLAN 1.1).
+   */
+  unavailable: boolean;
 };
+
+/**
+ * How long a request waits for the Auth server. auth-js retries a failed refresh with backoff for up to
+ * 30 s, which during an outage would hold every request that long; past this, the answer is 503.
+ */
+export const AUTH_WAIT_MS = 4_000;
+
+const TIMED_OUT = Symbol('auth timed out');
 
 /**
  * Every header name in this codebase that means "middleware verified a
@@ -84,7 +98,7 @@ export function identityFromClaims(claims: JwtPayload | null | undefined): Sessi
 export async function updateSession(
   request: NextRequest,
   forwardHeaders?: Headers,
-  opts?: { headerPrefix?: SessionHeaderPrefix },
+  opts?: { headerPrefix?: SessionHeaderPrefix; authWaitMs?: number },
 ): Promise<SessionResult> {
   const prefix = opts?.headerPrefix ?? 'x-console-user';
   const requestHeaders = forwardHeaders ?? new Headers(request.headers);
@@ -127,7 +141,19 @@ export async function updateSession(
   // x-console-user-id must not survive a request to the consumer app either.
   stripSessionHeaders(requestHeaders);
 
-  const { data, error } = await supabase.auth.getClaims();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const outcome = await Promise.race([
+    supabase.auth.getClaims(),
+    new Promise<typeof TIMED_OUT>((resolve) => {
+      timer = setTimeout(() => resolve(TIMED_OUT), opts?.authWaitMs ?? AUTH_WAIT_MS);
+    }),
+  ]).finally(() => clearTimeout(timer));
+  if (outcome === TIMED_OUT || isAuthRetryableFetchError(outcome.error)) {
+    // A fresh response: whatever the refresh attempt queued (a cleared or half-written cookie) never reaches
+    // the browser, so the person is still signed in when Auth answers again.
+    return { response: NextResponse.next({ request: { headers: requestHeaders } }), user: null, unavailable: true };
+  }
+  const { data, error } = outcome;
   const user = error ? null : identityFromClaims(data?.claims);
 
   if (user) {
@@ -153,7 +179,22 @@ export async function updateSession(
     });
   }
 
-  return { response, user };
+  return { response, user, unavailable: false };
+}
+
+/**
+ * The answer while Auth is down: 503 with Retry-After, never cached, no cookie touched. JSON in the API error
+ * shape for API routes and Server Actions (their callers parse it); a small page for everything else.
+ */
+export function authUnavailableResponse(request: NextRequest): NextResponse {
+  const message = 'Sign-in is briefly unavailable. Please try again in a few seconds.';
+  const headers = { 'retry-after': '15', 'cache-control': 'no-store' };
+  const wantsJson = request.nextUrl.pathname.startsWith('/api/') || request.headers.has('next-action');
+  if (wantsJson) {
+    return NextResponse.json({ error: { code: 'auth_unavailable', message } }, { status: 503, headers });
+  }
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="15"><title>Back in a moment</title></head><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem"><h1>Back in a moment</h1><p>${message} You are still signed in; this page reloads by itself.</p></body></html>`;
+  return new NextResponse(html, { status: 503, headers: { ...headers, 'content-type': 'text/html; charset=utf-8' } });
 }
 
 /** @deprecated Prefer `updateSession` — it already returns `user`. */

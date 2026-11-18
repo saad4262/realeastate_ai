@@ -1,7 +1,7 @@
 import type { JwtPayload } from '@supabase/supabase-js';
 import { NextRequest } from 'next/server';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { identityFromClaims, updateSession } from './middleware';
+import { authUnavailableResponse, identityFromClaims, updateSession } from './middleware';
 
 /**
  * ADR 0046: middleware verifies the session with getClaims — a local ES256
@@ -161,10 +161,67 @@ describe('updateSession (getClaims)', () => {
     expect(userCalls()).toBe(0);
   });
 
-  it('an expired session the Auth server will not refresh is nobody', async () => {
+  it('an expired session the Auth server will not refresh is nobody (and not an outage)', async () => {
     refreshAnswer = async () => Response.json({ error: 'invalid_grant', error_description: 'Invalid Refresh Token' }, { status: 400 });
     const stale = await sign(good, claimsFor(now() - 120));
-    const { user } = await updateSession(request(sessionCookie(stale, now() - 120)), new Headers());
+    const { user, unavailable } = await updateSession(request(sessionCookie(stale, now() - 120)), new Headers());
     expect(user).toBeNull();
+    expect(unavailable).toBe(false);
+  });
+});
+
+/**
+ * PLATFORM-PLAN 1.1: an Auth outage is not a sign-out. When the Auth server cannot be reached, the
+ * session is neither confirmed nor refused: `unavailable`, no identity, and the session cookie left
+ * exactly as it was, so the person is still signed in when Auth comes back.
+ */
+describe('updateSession when Auth cannot be reached', () => {
+  const authCookieWritten = (r: { response: { cookies: { getAll(): { name: string }[] } } }) =>
+    r.response.cookies.getAll().some((c) => c.name.startsWith(COOKIE));
+
+  it('a refresh that fails on the network: unavailable, nobody, cookie untouched', async () => {
+    refreshAnswer = async () => {
+      throw new TypeError('fetch failed');
+    };
+    const stale = await sign(good, claimsFor(now() - 120));
+    const fwd = new Headers({ 'x-console-user-id': USER_ID });
+    const result = await updateSession(request(sessionCookie(stale, now() - 120)), fwd, { authWaitMs: 300 });
+    expect(result.unavailable).toBe(true);
+    expect(result.user).toBeNull();
+    expect(fwd.get('x-console-user-id')).toBeNull();
+    expect(authCookieWritten(result)).toBe(false);
+  });
+
+  it('a refresh answered 503 by the Auth server: unavailable', async () => {
+    refreshAnswer = async () => new Response('upstream down', { status: 503 });
+    const stale = await sign(good, claimsFor(now() - 120));
+    const result = await updateSession(request(sessionCookie(stale, now() - 120)), new Headers(), { authWaitMs: 300 });
+    expect(result.unavailable).toBe(true);
+    expect(authCookieWritten(result)).toBe(false);
+  });
+
+  it('a valid session is not called unavailable, and no cookie means anonymous, not an outage', async () => {
+    const token = await sign(good, claimsFor(now() + 3600));
+    expect((await updateSession(request(sessionCookie(token, now() + 3600)), new Headers())).unavailable).toBe(false);
+    expect((await updateSession(request(null), new Headers())).unavailable).toBe(false);
+  });
+});
+
+describe('authUnavailableResponse', () => {
+  it('503 with Retry-After, never cached, and no cookie change', async () => {
+    const res = authUnavailableResponse(new NextRequest('http://agency.lvh.me:3001/leads', { headers: { accept: 'text/html' } }));
+    expect(res.status).toBe(503);
+    expect(res.headers.get('retry-after')).toBe('15');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.cookies.getAll()).toEqual([]);
+    expect(res.headers.get('content-type')).toMatch(/text\/html/);
+  });
+
+  it('JSON in the API error shape for API routes and Server Actions', async () => {
+    const api = authUnavailableResponse(new NextRequest('http://agency.lvh.me:3001/api/live'));
+    expect(api.headers.get('content-type')).toMatch(/application\/json/);
+    expect(await api.json()).toEqual({ error: { code: 'auth_unavailable', message: expect.any(String) } });
+    const action = authUnavailableResponse(new NextRequest('http://agency.lvh.me:3001/leads', { method: 'POST', headers: { 'next-action': 'abc' } }));
+    expect(action.headers.get('content-type')).toMatch(/application\/json/);
   });
 });
