@@ -21,6 +21,8 @@ export interface StripeApi {
   ): Promise<{ id: string; url: string }>;
   createPortalSession(input: { customer: string; returnUrl: string }): Promise<{ url: string }>;
   getSubscription(id: string): Promise<StripeSubscription>;
+  /** A customer's subscriptions, any status, newest first (the daily reconciliation). */
+  listSubscriptions(customer: string): Promise<StripeSubscription[]>;
   getInvoice(id: string): Promise<StripeInvoice>;
   getCheckoutSession(id: string): Promise<StripeCheckoutSession>;
   getCharge(id: string): Promise<StripeCharge>;
@@ -34,6 +36,23 @@ const firstPrice = (lines: unknown): string | null => {
   const first = Array.isArray(data) ? obj(data[0]) : {};
   return idOf(obj(first.price)) ?? idOf(obj(obj(first.pricing).price_details).price) ?? null;
 };
+
+function parseSubscription(s: Record<string, unknown>): StripeSubscription {
+  const data = obj(s.items).data;
+  const item = obj(Array.isArray(data) ? data[0] : {});
+  const idOrThrow = (v: string | null, what: string) => {
+    if (!v) throw new Error(`Stripe did not return ${what}`);
+    return v;
+  };
+  return {
+    id: idOrThrow(str(s.id), 'the subscription'),
+    customer: idOrThrow(idOf(s.customer), 'the customer'),
+    status: str(s.status) ?? 'incomplete',
+    priceId: idOf(obj(item.price)),
+    currentPeriodStart: secs(item.current_period_start ?? s.current_period_start),
+    currentPeriodEnd: secs(item.current_period_end ?? s.current_period_end),
+  };
+}
 
 export function stripeClient(secretKey: string, fetchImpl: Fetch = fetch): StripeApi {
   const auth = { authorization: `Bearer ${secretKey}` };
@@ -75,16 +94,11 @@ export function stripeClient(secretKey: string, fetchImpl: Fetch = fetch): Strip
       return { url: need(str(r.json?.url), 'the portal URL') };
     },
     async getSubscription(id) {
-      const s = (await get(`/subscriptions/${encodeURIComponent(id)}`)).json ?? {};
-      const item = obj(Array.isArray(obj(s.items).data) ? (obj(s.items).data as unknown[])[0] : {});
-      return {
-        id: need(str(s.id), 'the subscription'),
-        customer: need(idOf(s.customer), 'the customer'),
-        status: str(s.status) ?? 'incomplete',
-        priceId: idOf(obj(item.price)),
-        currentPeriodStart: secs(item.current_period_start ?? s.current_period_start),
-        currentPeriodEnd: secs(item.current_period_end ?? s.current_period_end),
-      };
+      return parseSubscription((await get(`/subscriptions/${encodeURIComponent(id)}`)).json ?? {});
+    },
+    async listSubscriptions(customer) {
+      const r = (await get(`/subscriptions?${new URLSearchParams({ customer, status: 'all', limit: '10' })}`)).json ?? {};
+      return (Array.isArray(r.data) ? r.data : []).map((s) => parseSubscription(obj(s)));
     },
     async getInvoice(id) {
       const i = (await get(`/invoices/${encodeURIComponent(id)}`)).json ?? {};

@@ -188,3 +188,47 @@ export function stripeEventHandler(deps: { stripe: StripeApi | null; env?: NodeJ
     }
   };
 }
+
+/**
+ * The daily reconciliation (PLATFORM-PLAN 2.9): once a day, one `billing.reconcile` job per agency with a Stripe
+ * customer (deduped by agency and date). Runs at the UTC hour given (default 16 = 2–3 am in Sydney).
+ */
+export async function enqueueBillingReconcile(db: Db, now: Date, hourUtc = 16): Promise<number> {
+  if (now.getUTCHours() !== hourUtc) return 0;
+  const day = now.toISOString().slice(0, 10);
+  const rows = await db.select({ id: agency.id }).from(agency).where(sql`${agency.stripeCustomerId} is not null`);
+  let n = 0;
+  for (const r of rows) {
+    if (await enqueueJob(db, { kind: 'billing.reconcile', lane: 'urgent', agencyId: r.id, dedupeKey: `${r.id}:${day}` })) n += 1;
+  }
+  return n;
+}
+
+/**
+ * One agency against Stripe: its plan and billing status against its newest subscription, and — while active — an
+ * allowance grant covering today. A difference throws, so the job retries and then lands in the dead letters the
+ * admin sees (and the dead-letter alert fires). Nothing is corrected automatically.
+ */
+export function billingReconcileHandler(deps: { stripe: StripeApi | null; env?: NodeJS.ProcessEnv; now?: () => Date }): JobHandler {
+  return async (db, j) => {
+    if (!deps.stripe) throw new Error('Stripe is not configured');
+    const env = deps.env ?? process.env;
+    const now = (deps.now ?? (() => new Date()))();
+    const [a] = await db.select({ id: agency.id, customer: agency.stripeCustomerId, plan: agency.plan, status: agency.billingStatus }).from(agency).where(eq(agency.id, j.agencyId ?? '')).limit(1);
+    if (!a?.customer) return;
+    const subs = await deps.stripe.listSubscriptions(a.customer);
+    const live = subs.find((s) => STATUS[s.status] && STATUS[s.status] !== 'canceled') ?? subs[0];
+    const problems: string[] = [];
+    const want = live ? STATUS[live.status] ?? null : null;
+    if ((want ?? null) !== (a.status ?? null)) problems.push(`billing status is ${a.status ?? 'none'}, Stripe says ${want ?? 'no subscription'}`);
+    const what = live ? whatIsPrice(live.priceId, env) : null;
+    const plan = what && 'plan' in what ? what.plan : null;
+    if (want === 'active' && plan && plan !== a.plan) problems.push(`plan is ${a.plan ?? 'none'}, Stripe says ${plan}`);
+    if (want === 'active') {
+      const at = now.toISOString();
+      const [g] = await db.execute<{ n: number }>(sql`select count(*)::int as n from ai_credit_grant where agency_id = ${a.id} and source = 'plan' and valid_from <= ${at}::timestamptz and expires_at > ${at}::timestamptz`);
+      if (!Number(g?.n)) problems.push('no allowance grant covers today (a paid invoice may have been missed)');
+    }
+    if (problems.length) throw new Error(`Billing mismatch: ${problems.join('; ')}`);
+  };
+}

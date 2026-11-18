@@ -65,3 +65,11 @@ describe('startCheckout: owners only, configured prices only', () => {
     await expect(startCheckout({} as Db, { userId: 'u', agencyId: A, membershipRole: 'owner' }, { topup: 'small' }, { ...deps, stripe: null })).rejects.toMatchObject({ code: 'not_configured' });
   });
 });
+
+describe('enqueueBillingReconcile (PLATFORM-PLAN 2.9)', () => {
+  it('runs only in its hour; the jobs and their checks are proven on the dev database', async () => {
+    const { enqueueBillingReconcile } = await import('./service');
+    const untouched = { select: () => { throw new Error('must not read outside its hour'); } } as unknown as Db;
+    expect(await enqueueBillingReconcile(untouched, new Date(Date.UTC(2026, 10, 19, 9, 0)))).toBe(0);
+  });
+});
