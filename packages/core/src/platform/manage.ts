@@ -1,5 +1,5 @@
 import { and, desc, eq, isNotNull, ne, sql } from 'drizzle-orm';
-import { agency, membership, platformAction, user, workflowEvent, type Db, type DbOrTx } from '@repo/db';
+import { agency, job, membership, platformAction, user, workflowEvent, type Db, type DbOrTx } from '@repo/db';
 import { can, type Actor, type MembershipRole } from '../permissions';
 import { PlatformError } from './admin';
 
@@ -26,7 +26,8 @@ export type PlatformActionKind =
   | 'owner_changed'
   | 'user_blocked'
   | 'user_unblocked'
-  | 'event_replayed';
+  | 'event_replayed'
+  | 'job_replayed';
 
 function requireManager(admin: Actor): void {
   if (!can(admin, 'platform:manage', PLATFORM)) {
@@ -356,5 +357,34 @@ export async function replayWorkflowEvent(db: Db, admin: Actor, eventId: string)
       .returning({ agencyId: workflowEvent.agencyId, kind: workflowEvent.kind, lastError: workflowEvent.lastError });
     if (!ev) throw new PlatformError('not_found', 'That event is not a failed one');
     await record(tx, admin, ev.agencyId, 'event_replayed', { eventId, kind: ev.kind, lastError: ev.lastError });
+  });
+}
+
+export type DeadJob = { id: string; agencyId: string | null; kind: string; attempts: number; lastError: string | null; createdAt: Date; finishedAt: Date };
+
+/** Jobs that failed every attempt (PLATFORM-PLAN 3.1), newest first. For the platform admin; the error is a message only. */
+export async function listDeadJobs(db: DbOrTx, admin: Actor, limit = 100): Promise<DeadJob[]> {
+  if (!can(admin, 'platform:read', { type: 'platform' })) throw new PlatformError('forbidden', 'Only a platform admin may see this');
+  const rows = await db
+    .select({ id: job.id, agencyId: job.agencyId, kind: job.kind, attempts: job.attempts, lastError: job.lastError, createdAt: job.createdAt, finishedAt: job.finishedAt })
+    .from(job)
+    .where(eq(job.status, 'dead'))
+    .orderBy(desc(job.finishedAt))
+    .limit(Math.min(Math.max(limit, 1), 500));
+  return rows as DeadJob[];
+}
+
+/** Put a dead job back in the queue once its cause is fixed: attempts reset, due now. Recorded as a platform action. */
+export async function replayJob(db: Db, admin: Actor, jobId: string, now = new Date()): Promise<void> {
+  requireManager(admin);
+  if (!UUID.test(jobId)) throw new PlatformError('not_found', 'That job was not found');
+  await db.transaction(async (tx) => {
+    const [j] = await tx
+      .update(job)
+      .set({ status: 'queued', attempts: 0, runAt: now, claimedAt: null, finishedAt: null })
+      .where(and(eq(job.id, jobId), eq(job.status, 'dead')))
+      .returning({ agencyId: job.agencyId, kind: job.kind, lastError: job.lastError });
+    if (!j) throw new PlatformError('not_found', 'That job is not a dead one');
+    await record(tx, admin, j.agencyId, 'job_replayed', { jobId, kind: j.kind, lastError: j.lastError });
   });
 }

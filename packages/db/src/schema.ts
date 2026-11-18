@@ -3593,6 +3593,40 @@ export const platformViewLog = pgTable(
 );
 
 /**
+ * The job queue (PLATFORM-PLAN 3.1): background work that must not be lost, run twice or starve another
+ * agency. Claimed by the minute tick, a fair share per agency at a time (`claimJobs`); a failure is retried
+ * with backoff and, after `max_attempts`, kept as a dead letter (`status = 'dead'`) for the admin to see and
+ * replay. `dedupe_key` makes an enqueue idempotent per kind. `lane` orders the work: urgent, send, bulk.
+ */
+export const job = pgTable(
+  'job',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id').references(() => agency.id, { onDelete: 'cascade' }),
+    kind: varchar('kind', { length: 48 }).notNull(),
+    lane: varchar('lane', { length: 12 }).notNull().default('send'),
+    payload: jsonb('payload').notNull().default({}),
+    dedupeKey: text('dedupe_key'),
+    /** queued → running → done, or back to queued (a retry), or dead (the last attempt failed). */
+    status: varchar('status', { length: 12 }).notNull().default('queued'),
+    attempts: integer('attempts').notNull().default(0),
+    maxAttempts: integer('max_attempts').notNull().default(5),
+    runAt: timestamp('run_at', { withTimezone: true }).notNull().defaultNow(),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('job_ready_idx').on(t.lane, t.runAt).where(sql`status = 'queued'`),
+    index('job_running_idx').on(t.claimedAt).where(sql`status = 'running'`),
+    index('job_dead_idx').on(desc(t.finishedAt)).where(sql`status = 'dead'`),
+    index('job_agency_idx').on(t.agencyId, t.status),
+    uniqueIndex('job_dedupe_idx').on(t.kind, t.dedupeKey).where(sql`dedupe_key is not null`),
+  ],
+);
+
+/**
  * Sensitive actions inside an agency (PLATFORM-PLAN 1.20): a member removed, restored or edited, an invite
  * sent, withdrawn or claimed, a listing deleted. Written in the same transaction as the change, by
  * `recordAudit`; read by the agency's owners and admins. The platform admin's own changes and views have
