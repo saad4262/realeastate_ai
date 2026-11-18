@@ -86,6 +86,9 @@ export {
   listFailedWorkflowEvents,
   replayWorkflowEvent,
   type FailedWorkflowEvent,
+  listDeadJobs,
+  replayJob,
+  type DeadJob,
 } from './manage';
 export {
   getPlatformAssistantChat,

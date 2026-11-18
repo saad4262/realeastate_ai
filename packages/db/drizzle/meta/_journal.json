@@ -701,6 +701,13 @@
       "when": 1795012072186,
       "tag": "0099_workflow_event_retries",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1795013058086,
+      "tag": "0100_job_queue",
+      "breakpoints": true
     }
   ]
 }

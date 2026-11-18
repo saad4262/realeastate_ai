@@ -24,6 +24,7 @@ const CHANGE_LABEL: Record<PlatformActionKind, string> = {
   user_blocked: 'User blocked',
   user_unblocked: 'User unblocked',
   event_replayed: 'Failed workflow event replayed',
+  job_replayed: 'Failed job replayed',
 };
 
 /** The reason, or what it became — from the change's own record. */
