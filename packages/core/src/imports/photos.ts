@@ -1,4 +1,5 @@
 import { lookup } from 'node:dns/promises';
+import { sniffMatches } from '../media/sniff';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP, type LookupFunction } from 'node:net';
@@ -161,6 +162,7 @@ export async function fetchPublicImage(raw: string, fetchImpl: Fetcher = pinnedF
     const bytes = new Uint8Array(await res.arrayBuffer());
     if (bytes.byteLength > MAX_PHOTO_BYTES) throw new PhotoError('The image is larger than 10 MB');
     if (!bytes.byteLength) throw new PhotoError('The image is empty');
+    if (!sniffMatches(contentType, bytes.subarray(0, 512))) throw new PhotoError('The file is not the image it claims to be');
     return { bytes, contentType };
   }
   throw new PhotoError('Too many redirects');

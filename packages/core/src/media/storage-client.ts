@@ -3,6 +3,7 @@ import {
   MEDIA_MIME_TYPES,
 } from './storage-key';
 import { storageObjectUrl, storageSignUploadUrl } from './media-url';
+import { fetchHead, sniffMatches } from './sniff';
 
 /** Supabase Storage answers small requests in well under a second; past this it is down (PLATFORM-PLAN 1.15). */
 const STORAGE_TIMEOUT_MS = 15_000;
@@ -115,6 +116,10 @@ export async function describeObject(
   }
   if (bytes > MAX_MEDIA_BYTES) {
     throw new MediaError('That image is larger than 10 MB');
+  }
+  // The declared type is the uploader's claim; the first bytes are the file (PLATFORM-PLAN 1.21).
+  if (!sniffMatches(contentType, await fetchHead(url, headers()))) {
+    throw new MediaError('That file is not the image it claims to be');
   }
 
   return { contentType, bytes };

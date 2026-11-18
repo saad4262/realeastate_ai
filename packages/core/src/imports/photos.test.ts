@@ -47,7 +47,10 @@ describe('photo links never reach a private network', () => {
     await expect(fetchPublicImage('https://photos.example/a', html, r)).rejects.toThrow(/JPEG, PNG or WebP/);
     const huge = (async () => new Response('x', { headers: { 'content-type': 'image/jpeg', 'content-length': String(11 * 1024 * 1024) } })) as unknown as typeof fetch;
     await expect(fetchPublicImage('https://photos.example/a', huge, r)).rejects.toThrow(/10 MB/);
-    const ok = (async () => new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })) as unknown as typeof fetch;
+    const ok = (async () => new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]), { headers: { 'content-type': 'image/png' } })) as unknown as typeof fetch;
     await expect(fetchPublicImage('https://photos.example/a', ok, r)).resolves.toMatchObject({ contentType: 'image/png' });
+    // PLATFORM-PLAN 1.21: the header says PNG, the bytes say HTML.
+    const disguised = (async () => new Response('<html><script>x()</script>', { headers: { 'content-type': 'image/png' } })) as unknown as typeof fetch;
+    await expect(fetchPublicImage('https://photos.example/a', disguised, r)).rejects.toThrow(/not the image it claims/);
   });
 });
