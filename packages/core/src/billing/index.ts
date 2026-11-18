@@ -2,6 +2,7 @@ export * from './plans';
 export * from './credits';
 export * from './stripe';
 export * from './service';
+export * from './seats';
 
 import { stripeClient, type StripeApi } from './stripe';
 

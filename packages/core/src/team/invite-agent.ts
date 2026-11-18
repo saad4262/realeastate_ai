@@ -1,5 +1,6 @@
 import { and, eq, gt, inArray, like, ne, sql } from 'drizzle-orm';
 import { recordAudit } from '../audit';
+import { assertSeatFree } from '../billing/seats';
 import { randomBytes } from 'node:crypto';
 import {
   agency,
@@ -471,6 +472,8 @@ export async function claimAgentInvite(
     // a failure between them leaves an accepted invite the agent cannot use
     // and a membership stuck at "invited".
     await db.transaction(async (tx) => {
+      // ADR 0092: a seat must be free, checked with the agency locked.
+      await assertSeatFree(tx, invite.agencyId);
       await tx
         .update(agentInvite)
         .set({ status: 'accepted', updatedAt: sql`now()` })
@@ -498,6 +501,8 @@ export async function claimAgentInvite(
    * an accepted invite pointing at a membership that was never activated.
    */
   const membershipId = await db.transaction(async (tx) => {
+    // ADR 0092: a seat must be free, checked with the agency locked.
+    await assertSeatFree(tx, invite.agencyId);
     const result = await materialiseAgent(tx, {
       agencyId: invite.agencyId,
       userId: opts.userId,

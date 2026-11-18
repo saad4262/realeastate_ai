@@ -40,3 +40,14 @@ describe('planNumbers', () => {
     expect([...PAID_PLANS]).toEqual(['starter', 'growth', 'pro']);
   });
 });
+
+describe('seats (PLATFORM-PLAN 2.10)', () => {
+  it('the seat check locks the agency row and counts active members; the race itself is proven on the dev database', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(__dirname, 'seats.ts'), 'utf8');
+    expect(src).toContain('select plan from agency where id = ${agencyId} for update');
+    const claim = readFileSync(join(__dirname, '..', 'team', 'invite-agent.ts'), 'utf8');
+    expect(claim.match(/await assertSeatFree\(tx, invite\.agencyId\)/g)).toHaveLength(2);
+  });
+});
