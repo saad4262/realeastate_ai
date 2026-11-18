@@ -118,7 +118,8 @@
     "./opportunities": "./src/opportunities/index.ts",
     "./phone": "./src/phone/index.ts",
     "./cron": "./src/cron/index.ts",
-    "./audit": "./src/audit/index.ts"
+    "./audit": "./src/audit/index.ts",
+    "./observability/health": "./src/observability/health.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
