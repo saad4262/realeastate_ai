@@ -67,7 +67,7 @@ Then **Cursor → Settings → MCP → reload**, or restart Cursor, so `stitch` 
 3. End of session: say **handoff** — update STATUS + append SESSION
 4. Prefer Cursor for UI; Claude Code for db/core/auth/ai
 
-See `AGENTS.md` for non-negotiables. Architecture: `docs/architecture.md`. ADRs: especially 0004 (Supabase Auth / Seoul=dev).
+See `AGENTS.md` for non-negotiables. How the app is built: `ARCHITECTURE.md`. The plan and to-do list: `docs/PLATFORM-PLAN.md`. ADRs: `docs/adr/`.
 
 ## Scripts
 

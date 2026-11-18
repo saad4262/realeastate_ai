@@ -59,12 +59,16 @@ Nothing below is optional for production. Each line names what proves it is done
       connecting a Microsoft 365 account and an Outlook.com account, each without an "unverified" warning.
 
 **Database**
-- [ ] A **separate Supabase project in Sydney** (`ap-southeast-2`) for production — never the
-      dev project (dev is Seoul and holds test data). PostGIS and pgvector enabled.
+- [x] Production and dev are **separate Supabase projects, both Sydney** (`ap-southeast-2`).
+      Local `.env.local` points at dev (`realestate-dev`); production values live only in Vercel
+      and the password manager. Migrations create PostGIS, pgvector and btree_gist themselves.
+      Use the pooler URLs: the direct `db.<ref>` host is IPv6-only.
 - [ ] All migrations applied (`pnpm --filter @repo/db db:migrate` against the production
       `DIRECT_URL`); the smoke "Database" group green against it (no grants, RLS on every
       table).
-- [ ] Point-in-time recovery / backups on; the restore procedure tried once.
+- [ ] Backups: PITR is **off** for now (cost, 2026-11-17); Supabase's daily backups plus a manual
+      encrypted `pg_dump` (`pg_dump --format=custom` → `openssl enc -aes-256-cbc -pbkdf2`, key kept
+      apart from the file) before every production migration. The restore procedure tried once.
 
 **Email**
 - [ ] **Resend domain** verified for the production domain with **SPF, DKIM and DMARC** records

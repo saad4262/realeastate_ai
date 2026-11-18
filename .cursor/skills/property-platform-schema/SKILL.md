@@ -20,5 +20,5 @@ description: >-
 
 ## Before migrating
 
-- Read `packages/db/src/schema.ts` and `docs/architecture.md` data model section.
+- Read `packages/db/src/schema.ts` and `docs/archive/architecture.md` data model section (archived 2026-11-17; the schema file is the source of truth).
 - If inventing a new core entity, write a short ADR first.
