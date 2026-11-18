@@ -1,0 +1,4 @@
+# gitleaks false positives, by fingerprint (commit:file:rule:line). Each one is reviewed, never added in bulk.
+# Zoom's URL-validation example token in a unit test fixture; not a credential.
+6ebc90fe7d529cd8ab39e52b876a45702c263edc:packages/core/src/integrations/zoom-webhook.test.ts:generic-api-key:71
+6ebc90fe7d529cd8ab39e52b876a45702c263edc:packages/core/src/integrations/zoom-webhook.test.ts:generic-api-key:75

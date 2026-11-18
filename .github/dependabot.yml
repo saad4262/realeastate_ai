@@ -1,0 +1,22 @@
+# Dependency updates (PLATFORM-PLAN 0.5). Weekly, grouped, so the PRs stay few enough to read; security
+# updates are separate and come as soon as an advisory is published. Next.js stays pinned exactly (section 9):
+# its updates arrive as their own PR, never inside a group.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Australia/Sydney
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+        exclude-patterns: [next, '@next/*']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Australia/Sydney
