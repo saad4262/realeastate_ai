@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema.ts",
-    "./production-guard": "./src/production-guard.ts"
+    "./production-guard": "./src/production-guard.ts",
+    "./journal": "./drizzle/meta/_journal.json"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

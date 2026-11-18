@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { syncDepsFromEnv, teamMeetingDepsFromEnv } from '@repo/core/appointments';
 import { minuteJobs, runTick } from '@repo/core/cron';
+import { pingHeartbeat } from '@repo/core/observability/health';
 import { noticeMailFromEnv } from '@repo/core/email';
 import { mailDepsFromEnv } from '@repo/core/mail';
 import { phoneDepsFromEnv, voiceFromEnv } from '@repo/core/phone';
@@ -64,9 +65,12 @@ async function handler(request: NextRequest) {
       voice: voiceFromEnv().voice,
     });
     const report = await runTick(jobs, { budgetMs: BUDGET_MS });
+    // The dead-man ping (PLATFORM-PLAN 1.14): healthchecks.io alerts when ticks stop arriving.
+    await pingHeartbeat(process.env.HEALTHCHECK_TICK_URL, 'ok');
     // Counts and timings only — this is read from a cron log.
     return NextResponse.json({ ok: true, ...report }, { headers: { 'cache-control': 'no-store' } });
   } catch (err) {
+    await pingHeartbeat(process.env.HEALTHCHECK_TICK_URL, 'fail');
     return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : 'tick failed' }, { status: 503 });
   }
 }

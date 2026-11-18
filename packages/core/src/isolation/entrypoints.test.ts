@@ -48,6 +48,8 @@ const PUBLIC_ROUTES: Record<string, { why: string; guard: RegExp }> = {
   'apps/console/app/integrations/stub/decide/route.ts': { why: 'dev-only fake OAuth consent', guard: /stubEnabled[\s\S]*verifyState|verifyState[\s\S]*stubEnabled/ },
   'apps/web/app/api/chat/route.ts': { why: 'the public property guide: anonymous, public listings only', guard: /runPropertyChat/ },
   'apps/web/app/api/places/route.ts': { why: 'public address autocomplete, rate-limited per IP', guard: /overLimit/ },
+  'apps/web/app/api/health/route.ts': { why: 'uptime monitors (PLATFORM-PLAN 1.14): ok/degraded flags only, no data', guard: /healthReport\(/ },
+  'apps/console/app/api/health/route.ts': { why: 'uptime monitors (PLATFORM-PLAN 1.14): ok/degraded flags only, no data', guard: /healthReport\(/ },
   'apps/web/app/api/reviews/[listingId]/route.ts': {
     why: 'a live listing’s agency Google rating (ADR 0028): public like the listing; the agency comes from the listing, rate-limited',
     guard: /overLimit\(request\)[\s\S]*publicListingReviews\(/,

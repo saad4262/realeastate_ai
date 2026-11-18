@@ -97,7 +97,9 @@ export async function middleware(request: NextRequest) {
     // The OAuth return (ADR 0020). In dev it lands on localhost, which never
     // has the .lvh.me session; the route itself hands over to the right host
     // and refuses unless the signed-in user is the one who started it.
-    pathname === '/api/integrations/oauth/return';
+    pathname === '/api/integrations/oauth/return' ||
+    // Uptime monitors (PLATFORM-PLAN 1.14): flags only, no data.
+    pathname === '/api/health';
 
   // Never in production: there it would skip sign-in on every page. The server also
   // refuses to start with it set (instrumentation-node.ts); this is the second line.
