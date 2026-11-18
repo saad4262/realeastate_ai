@@ -1,3 +1,4 @@
+import { assertNotProduction } from '@repo/db/production-guard';
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
 import { and, eq, sql } from 'drizzle-orm';
@@ -115,6 +116,7 @@ async function contactByEmail(db: Db, agencyId: string, email: string): Promise<
 
 async function main() {
   const url = process.env.DATABASE_URL;
+  assertNotProduction(url);
   if (!url) throw new Error('DATABASE_URL missing');
   const db = getDb(url);
 

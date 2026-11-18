@@ -1,3 +1,4 @@
+import { assertNotProduction } from '@repo/db/production-guard';
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
 import { getDb } from '@repo/db';
@@ -17,6 +18,7 @@ config({ path: resolve(process.cwd(), '../../.env') });
  */
 async function main() {
   const url = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
+  assertNotProduction(url);
   if (!url) throw new Error('DATABASE_URL is not set');
   const db = getDb(url);
   const embedder = embedderFromEnv(db);

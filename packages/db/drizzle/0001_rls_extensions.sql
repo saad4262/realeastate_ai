@@ -1,5 +1,6 @@
-CREATE EXTENSION IF NOT EXISTS postgis;--> statement-breakpoint
-CREATE EXTENSION IF NOT EXISTS vector;--> statement-breakpoint
+-- In `extensions`, as the dashboard puts them: in `public` the browser keys keep grants on PostGIS's own tables (owned by supabase_admin, so 0019 cannot revoke them). No-op where they already exist.
+CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA extensions;--> statement-breakpoint
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA extensions;--> statement-breakpoint
 ALTER TABLE agency ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE office ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE team ENABLE ROW LEVEL SECURITY;--> statement-breakpoint

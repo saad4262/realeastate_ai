@@ -1,3 +1,4 @@
+import { assertNotProduction } from './production-guard';
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
 import postgres from 'postgres';
@@ -95,6 +96,7 @@ function headlineFrom(r: {
 const write = process.argv.includes('--write');
 
 const url = process.env.DATABASE_URL;
+assertNotProduction(url);
 if (!url || url.includes('YOUR_PASSWORD')) {
   console.error('Set DATABASE_URL with the real password in .env.local first.');
   process.exit(1);

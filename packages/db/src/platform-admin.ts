@@ -1,3 +1,4 @@
+import { assertNotProduction } from './production-guard';
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
@@ -27,6 +28,7 @@ async function main() {
   const password = process.env.PLATFORM_ADMIN_PASSWORD ?? '';
   const revoke = process.argv.includes('--revoke');
   const databaseUrl = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
+  assertNotProduction(databaseUrl);
   if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Set PLATFORM_ADMIN_EMAIL to the admin’s email address.');
   if (!databaseUrl) throw new Error('DATABASE_URL (or DIRECT_URL) is not set.');
   const db = getDb(databaseUrl);
