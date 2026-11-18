@@ -83,6 +83,9 @@ export {
   type PlanInput,
   type PlatformActionKind,
   type PlatformActionRow,
+  listFailedWorkflowEvents,
+  replayWorkflowEvent,
+  type FailedWorkflowEvent,
 } from './manage';
 export {
   getPlatformAssistantChat,

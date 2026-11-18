@@ -1,5 +1,5 @@
-import { and, desc, eq, ne, sql } from 'drizzle-orm';
-import { agency, membership, platformAction, user, type Db, type DbOrTx } from '@repo/db';
+import { and, desc, eq, isNotNull, ne, sql } from 'drizzle-orm';
+import { agency, membership, platformAction, user, workflowEvent, type Db, type DbOrTx } from '@repo/db';
 import { can, type Actor, type MembershipRole } from '../permissions';
 import { PlatformError } from './admin';
 
@@ -25,7 +25,8 @@ export type PlatformActionKind =
   | 'member_unblocked'
   | 'owner_changed'
   | 'user_blocked'
-  | 'user_unblocked';
+  | 'user_unblocked'
+  | 'event_replayed';
 
 function requireManager(admin: Actor): void {
   if (!can(admin, 'platform:manage', PLATFORM)) {
@@ -322,4 +323,38 @@ export async function isUserBlocked(db: DbOrTx, userId: string): Promise<boolean
   if (!UUID.test(userId)) return false;
   const [row] = await db.execute<{ blocked: boolean }>(sql`select blocked_at is not null as blocked from "user" where id = ${userId}`);
   return row?.blocked === true || (row?.blocked as unknown) === 't';
+}
+
+// ── Dead letters (PLATFORM-PLAN 3.1) ──────────────────────────────────────
+
+export type FailedWorkflowEvent = { id: string; agencyId: string; kind: string; attempts: number; lastError: string | null; occurredAt: Date; failedAt: Date };
+
+/** Workflow events that failed every attempt, newest first. For the platform admin; the error is a message only. */
+export async function listFailedWorkflowEvents(db: DbOrTx, admin: Actor, limit = 100): Promise<FailedWorkflowEvent[]> {
+  if (!can(admin, 'platform:read', { type: 'platform' })) throw new PlatformError('forbidden', 'Only a platform admin may see this');
+  const rows = await db
+    .select({ id: workflowEvent.id, agencyId: workflowEvent.agencyId, kind: workflowEvent.kind, attempts: workflowEvent.attempts, lastError: workflowEvent.lastError, occurredAt: workflowEvent.occurredAt, failedAt: workflowEvent.failedAt })
+    .from(workflowEvent)
+    .where(isNotNull(workflowEvent.failedAt))
+    .orderBy(desc(workflowEvent.failedAt))
+    .limit(Math.min(Math.max(limit, 1), 500));
+  return rows as FailedWorkflowEvent[];
+}
+
+/**
+ * Put a dead-lettered event back in the queue, once its cause is fixed. Safe to repeat: a workflow that already
+ * ran for the event does not run again (`workflow_run_once_idx`). Recorded as a platform action.
+ */
+export async function replayWorkflowEvent(db: Db, admin: Actor, eventId: string): Promise<void> {
+  requireManager(admin);
+  if (!UUID.test(eventId)) throw new PlatformError('not_found', 'That event was not found');
+  await db.transaction(async (tx) => {
+    const [ev] = await tx
+      .update(workflowEvent)
+      .set({ attempts: 0, retryAt: null, failedAt: null, processedAt: null, claimedAt: null })
+      .where(and(eq(workflowEvent.id, eventId), isNotNull(workflowEvent.failedAt)))
+      .returning({ agencyId: workflowEvent.agencyId, kind: workflowEvent.kind, lastError: workflowEvent.lastError });
+    if (!ev) throw new PlatformError('not_found', 'That event is not a failed one');
+    await record(tx, admin, ev.agencyId, 'event_replayed', { eventId, kind: ev.kind, lastError: ev.lastError });
+  });
 }

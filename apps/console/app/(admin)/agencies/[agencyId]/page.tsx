@@ -23,6 +23,7 @@ const CHANGE_LABEL: Record<PlatformActionKind, string> = {
   owner_changed: 'Made owner',
   user_blocked: 'User blocked',
   user_unblocked: 'User unblocked',
+  event_replayed: 'Failed workflow event replayed',
 };
 
 /** The reason, or what it became — from the change's own record. */
