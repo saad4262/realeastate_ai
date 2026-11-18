@@ -64,7 +64,7 @@ async function cardAfter(id: string, message?: string): Promise<CardResult> {
 
 function cardFailure(err: unknown): CardResult {
   if (err instanceof AssistantError) return { ok: false, error: err.message };
-  console.error('[assistant] card action failed', err);
+  console.error('[assistant] card action failed', err instanceof Error ? err.message : err);
   return { ok: false, error: 'That did not work. Please try again.' };
 }
 

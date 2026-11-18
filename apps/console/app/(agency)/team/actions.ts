@@ -37,7 +37,7 @@ async function emailInvite(
     );
     return outcome.emailed;
   } catch (err) {
-    console.error('[invite] email failed', err);
+    console.error('[invite] email failed', err instanceof Error ? err.message : err);
     return false;
   }
 }
@@ -166,7 +166,7 @@ export async function editTeamMemberAction(
     return { ok: true, changed: result.changed, claimPath: result.claim?.claimPath ?? null, emailed };
   } catch (err) {
     if (err instanceof TeamEditError) return { ok: false, error: err.message };
-    console.error('[team] edit failed', err);
+    console.error('[team] edit failed', err instanceof Error ? err.message : err);
     return { ok: false, error: 'That did not save. Please try again.' };
   }
 }
@@ -180,7 +180,7 @@ export async function withdrawInviteAction(inviteId: string): Promise<{ ok: true
     return { ok: true };
   } catch (err) {
     if (err instanceof TeamEditError) return { ok: false, error: err.message };
-    console.error('[team] withdraw failed', err);
+    console.error('[team] withdraw failed', err instanceof Error ? err.message : err);
     return { ok: false, error: 'That did not work. Please try again.' };
   }
 }

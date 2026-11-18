@@ -44,7 +44,7 @@ async function run(agencyId: string, change: (admin: Actor) => Promise<void>, op
     await change(admin);
   } catch (err) {
     if (err instanceof PlatformError) return { ok: false, error: err.message };
-    console.error('[platform] action failed', err);
+    console.error('[platform] action failed', err instanceof Error ? err.message : err);
     return { ok: false, error: 'That did not save. Try again.' };
   }
   revalidatePath(`/agencies/${agencyId}`, 'layout');
@@ -103,7 +103,7 @@ async function runUser(userId: string, change: (admin: Actor) => Promise<{ signI
     return { ok: true, signInChanged: r.signInChanged };
   } catch (err) {
     if (err instanceof PlatformError) return { ok: false, error: err.message };
-    console.error('[platform] user action failed', err);
+    console.error('[platform] user action failed', err instanceof Error ? err.message : err);
     return { ok: false, error: 'That did not save. Try again.' };
   }
 }
@@ -168,7 +168,7 @@ export async function sendPlatformEmailAction(
     created = await createPlatformEmail(db, admin, audience, { subject: String(input.subject ?? ''), body: String(input.body ?? '') });
   } catch (err) {
     if (err instanceof PlatformError) return { ok: false, error: err.message };
-    console.error('[platform] email not recorded', err);
+    console.error('[platform] email not recorded', err instanceof Error ? err.message : err);
     return { ok: false, error: 'That did not save. Try again.' };
   }
   const notice = noticeMailFromEnv();

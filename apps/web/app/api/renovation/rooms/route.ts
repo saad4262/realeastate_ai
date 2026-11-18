@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ rooms: await run() });
   } catch (err) {
     if (err instanceof RenovationError) return fail(err.code === 'not_found' ? 404 : 503, err.message);
-    console.error('[renovation rooms] failed', err);
+    console.error('[renovation rooms] failed', err instanceof Error ? err.message : err);
     return fail(503, 'The AI could not read the photos just now.');
   }
 }

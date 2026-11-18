@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await run());
   } catch (err) {
     if (err instanceof ResearchError) return fail(err.code === 'invalid' ? 400 : err.code === 'not_found' ? 404 : 503, err.message);
-    console.error('[research] failed', err);
+    console.error('[research] failed', err instanceof Error ? err.message : err);
     return fail(503, 'The AI could not answer just now. Try again in a moment.');
   }
 }

@@ -77,7 +77,7 @@ function failure(err: unknown, fallback: string): Extract<ContactActionResult, {
   if (err instanceof ContactError) {
     return { ok: false, error: err.message, ...(err.existingId ? { existingId: err.existingId } : {}) };
   }
-  console.error('[contacts] action failed', err);
+  console.error('[contacts] action failed', err instanceof Error ? err.message : err);
   return { ok: false, error: fallback };
 }
 
@@ -144,7 +144,7 @@ function emailAssigneeAfter(contactId: string, assigneeId: string, assignedBy: s
     try {
       await notifyContactAssigned(getConsoleDb(), mail, contactId, assigneeId, assignedBy);
     } catch (err) {
-      console.error(`[contact-notice] assignment notice for contact ${contactId} failed`, err);
+      console.error(`[contact-notice] assignment notice for contact ${contactId} failed`, err instanceof Error ? err.message : err);
     }
   });
 }
@@ -153,7 +153,7 @@ export type SimpleResult = { ok: true } | { ok: false; error: string };
 
 function simpleFailure(err: unknown, fallback: string): SimpleResult {
   if (err instanceof ContactError) return { ok: false, error: err.message };
-  console.error('[contacts] action failed', err);
+  console.error('[contacts] action failed', err instanceof Error ? err.message : err);
   return { ok: false, error: fallback };
 }
 
@@ -264,7 +264,7 @@ export async function searchPropertiesAction(q: string): Promise<PropertyMatch[]
   try {
     return await searchLinkableProperties(getConsoleDb(), who, q);
   } catch (err) {
-    console.error('[contacts] property search failed', err);
+    console.error('[contacts] property search failed', err instanceof Error ? err.message : err);
     return [];
   }
 }

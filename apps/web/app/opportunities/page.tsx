@@ -73,7 +73,7 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
     try {
       found = await findOpportunities(db, ask);
     } catch (err) {
-      console.error('[opportunities] could not be read', err);
+      console.error('[opportunities] could not be read', err instanceof Error ? err.message : err);
       failed = true;
     }
   }

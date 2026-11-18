@@ -131,7 +131,7 @@ export async function replyAction(threadId: string, body: string): Promise<Reply
     return { ok: true };
   } catch (err) {
     if (err instanceof MailError) return { ok: false, error: err.message };
-    console.error('[mail] website reply failed', err);
+    console.error('[mail] website reply failed', err instanceof Error ? err.message : err);
     return { ok: false, error: 'Could not send that just now. Please try again.' };
   }
 }

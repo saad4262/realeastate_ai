@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await runInspectionSummary(db, actor, inspectionSummaryWriterFromEnv(db), parsed.data.listingIds), { headers: { 'cache-control': 'private, no-store' } });
   } catch (err) {
     if (err instanceof InspectionSummaryError) return fail(err.code === 'not_found' ? 404 : 503, err.message);
-    console.error('[inspection-summary] failed', err);
+    console.error('[inspection-summary] failed', err instanceof Error ? err.message : err);
     return fail(503, 'The summary could not be written just now. Try again in a moment.');
   }
 }

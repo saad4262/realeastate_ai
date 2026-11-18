@@ -82,7 +82,7 @@ export async function runInspectionSummary(db: DbOrTx, actor: Actor, writer: Ins
   try {
     draft = await writer({ records });
   } catch (err) {
-    console.error('[inspection-summary] the writer failed', err);
+    console.error('[inspection-summary] the writer failed', err instanceof Error ? err.message : err);
     throw new InspectionSummaryError('failed', 'The summary could not be written just now. Try again in a moment.');
   }
   return { lines: checkInspectionSummary(draft.lines, records), homes: used.map((b, i) => ({ ref: `N${i + 1}`, listingId: b.home.listingId, address: b.home.address })) };

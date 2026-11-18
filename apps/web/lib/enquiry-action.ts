@@ -118,6 +118,6 @@ async function emailListingAgents(leadId: string) {
   try {
     await notifyNewLead(getWebDb(), mail, leadId);
   } catch (err) {
-    console.error(`[lead-notice] new-lead notice for lead ${leadId} failed`, err);
+    console.error(`[lead-notice] new-lead notice for lead ${leadId} failed`, err instanceof Error ? err.message : err);
   }
 }

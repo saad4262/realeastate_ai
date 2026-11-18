@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ summary: out.summary, questions: out.questions });
   } catch (err) {
     if (err instanceof DueDiligenceError) return fail(err.code === 'not_found' ? 404 : 503, err.message);
-    console.error('[due-diligence] failed', err);
+    console.error('[due-diligence] failed', err instanceof Error ? err.message : err);
     return fail(503, 'The AI could not answer just now. Try again in a moment.');
   }
 }

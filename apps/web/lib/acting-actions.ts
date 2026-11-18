@@ -67,7 +67,7 @@ export async function sendGuideMessageAction(token: string, text: string): Promi
     return { ok: true, href: sent.kind === 'reply' ? `/account/messages/${sent.threadId}` : '/account/messages' };
   } catch (err) {
     if (err instanceof AgentMessageError) return { ok: false, error: err.message };
-    console.error('[agent-ai] send failed', err);
+    console.error('[agent-ai] send failed', err instanceof Error ? err.message : err);
     return { ok: false, error: 'Could not send that just now. Please try again.' };
   }
 }

@@ -17,7 +17,7 @@ async function actor() {
 
 function fail(err: unknown): { ok: false; error: string } {
   if (err instanceof WorkflowError) return { ok: false, error: err.message };
-  console.error('[workflows] action failed', err);
+  console.error('[workflows] action failed', err instanceof Error ? err.message : err);
   return { ok: false, error: 'That did not work. Please try again.' };
 }
 

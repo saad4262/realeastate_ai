@@ -352,7 +352,7 @@ async function persistTurn(input: {
       return threadId;
     });
   } catch (err) {
-    console.error('[chat] failed to save the conversation', err);
+    console.error('[chat] failed to save the conversation', err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -626,7 +626,7 @@ export async function POST(request: NextRequest) {
           controller.enqueue(encoder.encode(frame({ type: 'saved', threadId: savedId })));
         }
       } catch (err) {
-        console.error('[chat] stream failed', err);
+        console.error('[chat] stream failed', err instanceof Error ? err.message : err);
         try {
           controller.enqueue(
             encoder.encode(

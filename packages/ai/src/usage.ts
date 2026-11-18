@@ -61,6 +61,6 @@ export async function trackAiRunQuietly(db: DbOrTx, input: AiRunInput): Promise<
   try {
     await trackAiRun(db, input);
   } catch (err) {
-    console.error('[ai] failed to record ai_run', err);
+    console.error('[ai] failed to record ai_run', err instanceof Error ? err.message : err);
   }
 }

@@ -36,7 +36,7 @@ function refresh() {
 
 function failure(err: unknown, fallback: string): TeamActionResult {
   if (err instanceof TeamMessageError) return { ok: false, error: err.message };
-  console.error('[team] action failed', err);
+  console.error('[team] action failed', err instanceof Error ? err.message : err);
   return { ok: false, error: fallback };
 }
 

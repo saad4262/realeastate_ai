@@ -23,7 +23,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     const url = await signInspectionPhoto(key);
     return NextResponse.redirect(url, { status: 302, headers: { 'cache-control': 'private, no-store', 'referrer-policy': 'no-referrer' } });
   } catch (err) {
-    console.error('[inspection-photos] sign failed', err);
+    console.error('[inspection-photos] sign failed', err instanceof Error ? err.message : err);
     return new NextResponse(null, { status: 503 });
   }
 }

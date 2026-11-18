@@ -56,7 +56,7 @@ export default async function InspectionsPage({ searchParams }: { searchParams: 
     try {
       plan = await buildPlan(db, ask);
     } catch (err) {
-      console.error('[inspections] the plan could not be built', err);
+      console.error('[inspections] the plan could not be built', err instanceof Error ? err.message : err);
       failed = true;
     }
   }
