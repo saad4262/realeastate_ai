@@ -14,6 +14,8 @@ import * as schema from '@repo/db/schema';
 
 /** Carries `agency_id` itself. Every read of it filters by agency. */
 const OWN_AGENCY = [
+  // PLATFORM-PLAN 1.20: the agency's own audit log, read by its owners and admins.
+  'audit_log',
   'office',
   'team',
   'membership',

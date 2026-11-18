@@ -1,5 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { listing, type Db } from '@repo/db';
+import { recordAudit } from '../audit';
 import { can, type Actor } from '../permissions';
 import { ListingError, type ListingStatus } from './listing-schema';
 
@@ -68,10 +69,16 @@ export async function deleteListing(
   const refusal = UNDELETABLE[target.status as ListingStatus];
   if (refusal) throw new ListingError('conflict', refusal);
 
-  const [row] = await db
-    .delete(listing)
-    .where(and(eq(listing.id, listingId), eq(listing.agencyId, target.agencyId)))
-    .returning({ id: listing.id, propertyId: listing.propertyId });
+  const [row] = await db.transaction(async (tx) => {
+    const deleted = await tx
+      .delete(listing)
+      .where(and(eq(listing.id, listingId), eq(listing.agencyId, target.agencyId)))
+      .returning({ id: listing.id, propertyId: listing.propertyId });
+    if (deleted.length) {
+      await recordAudit(tx, { agencyId: target.agencyId, actorUserId: actor.userId, action: 'listing_deleted', refId: listingId, detail: { status: target.status } });
+    }
+    return deleted;
+  });
 
   if (!row) throw new ListingError('not_found', 'That listing no longer exists');
 

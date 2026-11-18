@@ -16,6 +16,7 @@ const inviteId = '99999999-9999-9999-9999-999999999999';
 function fakeDb(results: unknown[][]) {
   let i = 0;
   const writes: { table: unknown; set: unknown }[] = [];
+  const inserts: { table: unknown; values: unknown }[] = [];
   let pending: { table: unknown } | null = null;
   const chain: Record<string, unknown> = {};
   for (const m of ['select', 'from', 'innerJoin', 'leftJoin', 'where']) chain[m] = () => chain;
@@ -27,11 +28,19 @@ function fakeDb(results: unknown[][]) {
     writes.push({ table: pending?.table, set });
     return chain;
   };
+  chain.insert = (table: unknown) => {
+    pending = { table };
+    return chain;
+  };
+  chain.values = (values: unknown) => {
+    inserts.push({ table: pending?.table, values });
+    return chain;
+  };
   chain.limit = () => Promise.resolve(results[i++] ?? []);
   chain.returning = () => Promise.resolve(results[i++] ?? []);
   chain.then = (res: (v: unknown) => unknown) => Promise.resolve(undefined).then(res);
   chain.transaction = async (fn: (tx: unknown) => Promise<unknown>) => fn(chain);
-  return { db: chain as unknown as Db, writes };
+  return { db: chain as unknown as Db, writes, inserts };
 }
 
 const memberRow = {
@@ -121,12 +130,23 @@ describe('editTeamMember — who may', () => {
   });
 
   it('a role change also sets membership.role, as the wizard does', async () => {
-    const { db, writes } = fakeDb([[memberRow]]);
+    const { db, writes, inserts } = fakeDb([[memberRow]]);
     await editTeamMember(db, ownerA, { kind: 'member', userId: memberId }, { operationalRole: 'pm' });
     expect(writes.map((w) => w.set)).toEqual([
       expect.objectContaining({ operationalRole: 'pm' }),
       expect.objectContaining({ role: 'property_manager' }),
     ]);
+    // PLATFORM-PLAN 1.20: one audit row, in the same transaction, field names only.
+    expect(inserts.map((x) => x.values)).toEqual([
+      { agencyId: agencyA, actorUserId: ownerA.userId, action: 'member_edited', subjectUserId: memberId, refId: null, detail: { fields: ['operationalRole'], roleTo: 'property_manager' } },
+    ]);
+  });
+
+  it('an edit audits the field names, never the values', async () => {
+    const { db, inserts } = fakeDb([[memberRow]]);
+    await editTeamMember(db, ownerA, { kind: 'member', userId: memberId }, { phone: '0400 000 111' });
+    expect(JSON.stringify(inserts.map((x) => x.values))).not.toContain('0400');
+    expect(inserts[0]!.values).toMatchObject({ action: 'member_edited', detail: { fields: ['phone'] } });
   });
 });
 
@@ -205,8 +225,15 @@ describe('withdrawInvite', () => {
     expect((await refusal(withdrawInvite(db, ownerA, inviteId))).code).toBe('not_found');
   });
   it('a pending one is revoked', async () => {
-    const { db, writes } = fakeDb([[{ email: 'z@x.com' }]]);
+    const { db, writes, inserts } = fakeDb([[{ email: 'z@x.com' }]]);
     await withdrawInvite(db, ownerA, inviteId);
     expect(writes[0]!.set).toMatchObject({ status: 'revoked' });
+    expect(inserts.map((x) => x.values)).toEqual([expect.objectContaining({ agencyId: agencyA, action: 'invite_withdrawn', refId: inviteId })]);
+  });
+
+  it('nothing withdrawn, nothing audited', async () => {
+    const { db, inserts } = fakeDb([[]]);
+    await refusal(withdrawInvite(db, ownerA, inviteId));
+    expect(inserts).toEqual([]);
   });
 });

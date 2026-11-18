@@ -409,6 +409,8 @@ export type Action =
    * member who may write; a read-only member may not.
    */
   | 'report:query'
+  /** Read the agency's audit log (PLATFORM-PLAN 1.20): owners and admins of that agency only. */
+  | 'audit:read'
   /**
    * Start a CSV listing import (ADR 0029): any member who may write. An
    * agent's import is forced to `pending` (admin approval); only someone with
@@ -908,6 +910,9 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
 
     case 'dashboard:create':
     case 'report:read_agency':
+      return sameAgency(actor, resource) && isAgencyAdmin(actor);
+
+    case 'audit:read':
       return sameAgency(actor, resource) && isAgencyAdmin(actor);
 
     case 'report:query':

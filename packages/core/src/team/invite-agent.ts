@@ -1,4 +1,5 @@
 import { and, eq, gt, inArray, like, ne, sql } from 'drizzle-orm';
+import { recordAudit } from '../audit';
 import { randomBytes } from 'node:crypto';
 import {
   agency,
@@ -322,18 +323,22 @@ export async function inviteAgent(
   const token = newToken();
   const expiresAt = new Date(Date.now() + inviteTtlMinutes() * 60_000);
 
-  const [invite] = await db
-    .insert(agentInvite)
-    .values({
-      agencyId,
-      email: draft.email,
-      token,
-      status: 'pending',
-      draft,
-      invitedBy: actor.userId,
-      expiresAt,
-    })
-    .returning();
+  const invite = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(agentInvite)
+      .values({
+        agencyId,
+        email: draft.email,
+        token,
+        status: 'pending',
+        draft,
+        invitedBy: actor.userId,
+        expiresAt,
+      })
+      .returning();
+    if (row) await recordAudit(tx, { agencyId, actorUserId: actor.userId, action: 'invite_sent', refId: row.id });
+    return row;
+  });
 
   if (!invite) throw new Error('Failed to create invite');
 
@@ -474,6 +479,7 @@ export async function claimAgentInvite(
         .update(membership)
         .set({ status: 'active', updatedAt: sql`now()` })
         .where(eq(membership.id, membershipId));
+      await recordAudit(tx, { agencyId: invite.agencyId, actorUserId: opts.userId, action: 'invite_claimed', subjectUserId: opts.userId, refId: invite.id });
     });
     return { claimed: true, membershipId };
   }
@@ -513,6 +519,7 @@ export async function claimAgentInvite(
         updatedAt: sql`now()`,
       })
       .where(eq(agentInvite.id, invite.id));
+    await recordAudit(tx, { agencyId: invite.agencyId, actorUserId: opts.userId, action: 'invite_claimed', subjectUserId: opts.userId, refId: invite.id });
 
     return result.membershipId;
   });
