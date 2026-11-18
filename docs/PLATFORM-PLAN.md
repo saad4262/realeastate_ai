@@ -363,7 +363,7 @@ activity, emails and texts, documents, AI prompts and answers, and later call re
 | Photos stripped of EXIF/GPS (browser resize now, server for imports) | A phone photo can give away a home address | Before the first agency / during V1 |
 | Sign-up email confirmation on; real sender name and postal address | Spam Act; placeholders today (STATUS) | Before the first agency |
 | Retention: trash 60 days, `site_activity` 13 months, AI prompts 90 days, an agency that leaves deleted 30 days after it leaves (decision 4); the agencies' own data otherwise kept while the account is active | APP 11.2 | During V1 |
-| Agency data export (2.9); a person's access request answered from it | APP 12 | During V1 |
+| Agency data export (5.12); a person's access request answered from it | APP 12 | During V1 |
 | Breach runbook: contain, assess within 30 days, the boss notifies the OAIC (NDB) | Notifiable Data Breaches scheme | Before the first agency |
 | SMS and email: consent with date and source, sender identity, `STOP` and one-click unsubscribe, sending hours and per-recipient caps (✅ in code: the five SMS rules, `sms_opt_out`, List-Unsubscribe). Sender ID on the ACMA register: since 1 July 2026 an unregistered branded sender ID shows as "Unverified". The sending hours are our courtesy rule; the Spam Act asks for consent, identity and an unsubscribe honoured within 5 working days, not hours | Spam Act; ACMA | Before SMS sells |
 | Calls: Telemarketing Standard hours, Do Not Call Register wash, "this is an AI", recording consent per state (a lawyer confirms) | Telemarketing Standard, state recording laws | Before voice AI sells (7.5) |
@@ -632,7 +632,8 @@ New:
 
 ## 14. Order of work
 
-**Progress, 2026-11-18** (about 11% of V1, after the reviews added tasks; estimates per step, not measured):
+**Progress:** the final count, weighted and with evidence, is in **14.12** (2026-11-18: implementation ~11%, production
+readiness ~4%). The table below is the step view:
 
 | Step | Done | Left |
 |---|---|---|
@@ -882,6 +883,8 @@ same pace gives **about 9 weeks** for V1, or 8–10. The weeks in 14.0 stay as t
 From 2026-11-17 that is **late January 2027**, and the Australian holidays (25 Dec–1 Jan) slow the boss, the lawyer and
 the vendors. A realistic first paying agency: **early February 2027**, if the prices are decided by week 4.
 
+*Superseded by 14.12 (final timeline).*
+
 ---
 
 ### 14.2 Phase 0: safety — before any new module (week 1)
@@ -965,6 +968,7 @@ Full design: section 13. ADR first.
 | 2.8 | Billing states: failed payment → 7 days' grace with emails → AI and sends stop, the data stays; cancel → runs to the period's end, then the 30-day deletion (decision 4); tax invoices with GST (the accountant checks) | CC + CU + Boss | S | Each state tested with Stripe test clocks |
 | 2.9 | **Daily reconciliation:** each agency's plan, status and credit grants compared with Stripe's subscriptions and paid invoices; a mismatch alerts and shows on the admin page | CC | S | A grant deleted by hand on dev is reported the next morning |
 | 2.10 | **Seat limits** checked in the same transaction as an invite claim, with the agency row locked, so two claims at once cannot pass the plan's seats | CC | S | Two parallel claims on the last seat: one succeeds |
+| 2.11 | **Billing isolation:** one Stripe customer per agency, its id stored on the agency row; every webhook finds the agency **by our stored customer id**, never by metadata alone; Checkout and Portal sessions are made on the server for the actor's own agency (`billing:manage`); credit rows carry `agency_id` and sit in the isolation matrix; one agency's failed payment stops only that agency (2.8) | CC | S | Cross-agency tests: agency A's owner cannot open B's portal or checkout; an event for B's customer never changes A |
 
 ---
 
@@ -972,7 +976,7 @@ Full design: section 13. ADR first.
 
 | # | Task | Who | Size | Done when |
 |---|---|---|---|---|
-| 3.1 | One **`job` table**: retries with backoff, dead-letter state, fair share per agency, claimed with `SKIP LOCKED` on the minute tick | CC | M | A job that fails 5 times lands in dead-letter, shows on the admin page and can be replayed |
+| 3.1 | One **`job` table**: retries with backoff, dead-letter state, fair share per agency, claimed with `SKIP LOCKED` on the minute tick | CC | M | A job that fails 5 times lands in dead-letter, shows on the admin page and can be replayed; a failure is recorded, not lost (today a workflow event that throws is logged to the console and marked processed, `workflows/engine.ts`); one agency's failing rows do not delay another agency's (test) |
 | 3.2 | Webhooks (Twilio, Retell, Zoom, Resend, Stripe) answer 200 within ~1 s and do their work as jobs. The 200 goes only after the job row is written; if the write fails, 5xx so the vendor retries | CC | M | A slow handler no longer delays the 200; a failed write returns 5xx; Retell and Zoom deliveries are deduplicated like Twilio's (`provider_sid` is; the others are unverified) |
 | 3.3 | SMS drain with per-agency fairness (today ~100 a minute platform-wide) | CC | S | 200 agencies' 9 am batches finish within sending hours in a test |
 | 3.4 | Imports start no automations; scans are incremental | CC | S | A 10,000-row import fires zero workflow events |
@@ -980,8 +984,8 @@ Full design: section 13. ADR first.
 | 3.6 | **Peak shaping:** priority lanes (webhooks and people waiting > sends > imports > rollups), each with a concurrency cap so bulk work never takes all the connections; scheduled sends spread over a few minutes instead of all at 9:00; one limiter per vendor that honours `Retry-After` (Anthropic's tier limits; Resend 10 requests a second, so batches of 100; Twilio per number) | CC | M | In the spike test a person's page and a webhook stay within budget while 200 agencies' 9 am sends drain |
 | 3.7 | **Unattended safety:** every send has an idempotency key written before the vendor call, so a retry never texts twice; an agency whose sends or AI spend in an hour pass 3× its usual is paused and the owner emailed; `SENDS_PAUSED` stops all sends platform-wide; the agency sees last night's failures in the morning; a fallback channel only where the person agreed to it | CC + CU | M | A retried SMS job sends once; a fake spike pauses the agency; the stop switch holds in a test |
 | 3.8 | **Inbound after an outage:** Twilio does not reliably retry a failed inbound webhook, so texts and call events sent while we were down are missing from the CRM (Twilio still has them). A job pulls each number's messages and calls for the outage window from Twilio's API and inserts the missing ones (deduplicated by `provider_sid`, as the webhook is). A fallback URL on separate infrastructure waits for V2 | CC | S | Texts sent to a dev number while the webhook route returns 503 appear in the inbox after it comes back |
-| 3.9 | **Late jobs, by rule:** every due-job type says what happens when it runs late. Meeting reminders: dropped if the meeting starts within 10 minutes (today: sent until it ends). AI call-backs: not placed if more than 2 hours late; the agent is told instead (today: placed whenever due, inside calling hours). Claims stuck in `sending` or `calling` for 15 minutes show to the agency as "may not have gone", never re-sent on their own (today: they stay unseen) | CC | S | Each rule tested with a clock 30 minutes and 3 hours late |
-| 3.10 | **Twilio signature (`X-Twilio-Signature`) for platform-managed subaccounts:** keep the subaccount's Auth Token, encrypted (ADR 0020), when it is made (today `setup.ts` uses it once and drops it), and check the signature on every webhook to those numbers. Numbers on an agency's own Twilio keep the per-number URL token, because the signature needs that account's primary Auth Token, which we should not hold. URL tokens are kept out of logs | CC | S | A request with the right URL token but no valid signature is refused on a managed number |
+| 3.9 | **Late jobs, by rule:** every due-job type says what happens when it runs late. Meeting reminders: dropped if the meeting starts within 10 minutes (today: sent until it ends). AI call-backs: not placed if more than 2 hours late; the agent is told instead (today: placed whenever due, inside calling hours). Claims stuck in `sending` or `calling` for 15 minutes are **reconciled with Twilio**: the job looks the message up by number and time (the row was written before the call); found → marked sent with its SID; not found → shown to the agency as "not sent" with a Send again button; never re-sent on its own (today: they stay unseen) | CC | M | Each rule tested with a clock 30 minutes and 3 hours late; a stuck SMS with a matching Twilio message ends `sent`, one without ends "not sent", none is sent twice |
+| 3.10 | **Twilio signature (`X-Twilio-Signature`) for platform-managed subaccounts:** keep the subaccount's Auth Token, encrypted (ADR 0020), when it is made (today `setup.ts` uses it once and drops it), and check the signature on every webhook to those numbers. Numbers on an agency's own Twilio keep the per-number URL token, because the signature needs that account's primary Auth Token, which we should not hold. URL tokens are kept out of logs. **Rotation:** the token is stored with the ADR 0020 key version; rotating uses Twilio's secondary Auth Token (create secondary → store → promote), and during the switch a signature valid for either token is accepted; the per-number URL tokens rotate with the key (`repoint-cli` re-points the numbers) | CC | M | A request with the right URL token but no valid signature is refused on a managed number; a rotation test passes with requests signed by the old and the new token |
 
 ---
 
@@ -1050,6 +1054,7 @@ Tomorrow's modules follow this, so growth does not undo the hardening.
 - [ ] `loading.tsx` and an error state; keyboard and labels.
 - [ ] No personal data in logs.
 - [ ] Sensitive actions write an audit row.
+- [ ] **Blast radius named:** what stops when one agency misbehaves here (its cap, its fair share, its pause), and a test that another agency carries on.
 - [ ] Automated sends: idempotency key, consent and opt-out checked at send time, counted in the spike check.
 - [ ] Background work names its priority lane and its vendor limiter.
 - [ ] Unit test + a break-test; a smoke invariant if it guards data; the E2E list updated if it is a
@@ -1128,8 +1133,8 @@ Tomorrow's modules follow this, so growth does not undo the hardening.
 | 5 | 4: proof | E2E, load test, restore drill |
 | 6 | 5: launch | Go / no-go list |
 
-Two developers, est. **Recalculated 2026-11-18: about 9 weeks** (see "Timeline, recalculated" in 14.1). Real speed
-decides; re-plan at the end of week 2.
+Two developers, est. **Final 2026-11-18: see 14.12** (P0 for paying agencies about 8 weeks, all of V1 about 10).
+Real speed decides; re-plan after stage 2.
 
 Sources for vendor facts used here: [Vercel and Cloudflare](https://vercel.com/kb/guide/cloudflare-with-vercel),
 [Vercel reverse proxy](https://vercel.com/docs/security/reverse-proxy),
@@ -1139,6 +1144,286 @@ Sources for vendor facts used here: [Vercel and Cloudflare](https://vercel.com/k
 **The boss:** the accounts in the business's name, with 2FA (Supabase Pro, PITR when it is turned on, Vercel Pro, AWS,
 Sentry, Upstash, Stripe, Cloudflare); a shared password manager; the registrar lock; a lawyer for calls
 and recordings; Microsoft Entra publisher verification; the decisions in section 15.
+
+
+---
+
+### 14.12 Final V1 roadmap (2026-11-18)
+
+This section is the plan of record. It folds in the three reviews and the code audit. **Nothing here is ticked without
+its "Done when" proof**; a branch with tests is "Built", not "Done", until it is merged and live.
+
+#### The principle: one agency's failure stays in that agency
+A failure in one agency must never stop another agency or the platform. Every feature names its blast radius (14.8).
+
+| One agency… | Contained by | Today |
+|---|---|---|
+| runs away (automation loop, spend spike) | its own caps: AI (1.24, 2.3), SMS (rules 4–5), email; auto-pause on a spike and a platform stop switch (3.7); suspend (ADR 0050) | Partial: caps per agency and suspend exist; no auto-pause |
+| has bad data (a row that throws) | per-row error handling; failures recorded, retried, dead-lettered (3.1) | Partial: caught per row, but the failure is dropped |
+| imports or sends in bulk | fair share per agency; lanes with concurrency caps (3.1, 3.3, 3.6) | Missing: claims are first come, first served |
+| has a broken vendor account (its Twilio, Gmail, Zoom) | errors stay on its rows; per-agency backoff (3.1) | Partial: the tick carries on; no backoff |
+| runs heavy queries | `statement_timeout` per role (1.8); AI SQL 5 s and 150 an hour ✅ | Partial |
+| is attacked or abused | rate limits keyed by IP, user and agency (1.4); AI pools (1.24) | Missing: one shared AI cap, per-instance limiter |
+| stops paying | only its AI and sends stop (2.8, 2.11) | Missing (no billing) |
+| is the target of a leak | `can()` matrix, entrypoints, schema classes, smoke ✅; signed header (1.2); exports, jobs, files (4.9) | Partial |
+
+#### Final priorities
+**P0** = mandatory before the first paying agency. **P1** = strongly recommended for V1 (most before launch; the rest before
+the trigger named in the task). **P2** = deferred, each with its trigger. Status: **Done** (merged, live, proof met) ·
+**Built** (code and tests on a branch, not merged or enabled) · **Partial** · **Unverified** (a dashboard setting we cannot
+see) · **Not started** · **Blocked** (a decision or a vendor).
+
+**P0 (45 tasks)**
+
+| # | Task | Size | Who | Status | Evidence |
+|---|---|---|---|---|---|
+| 0.1 | Dev database | S | CC | Built | `realestate-dev` live; smoke green on dev 2026-11-17; the other laptop not switched |
+| 0.2 | Production guard | S | CC | Built | `chore/dev-db-and-prod-guard` f310c44: 4 unit tests + break-test; not merged |
+| 0.4 | Off-site DB backup (6 h) | M | CC | Built | `ops/step-3-backups` aec9cd5: tested locally with stand-ins; not merged, no AWS yet |
+| 0.6 | Vendor spend stops | S | Boss | Unverified | Dashboards |
+| 0.7 | Sentry DSN + alerts | S | CU | Partial | `@sentry/nextjs` wired (ADR 0082); DSN unverified |
+| 0.8 | Files backup + recovery key list | S | CC | Not started | — |
+| 0.9 | Repo private + history scan | S | Boss | Not started | GitHub API answers 200 without a token |
+| 0.10 | Supabase Auth on our SMTP | S | Boss | Unverified | Dashboard; the built-in sender reaches team only |
+| 0.12 | Settings document (what a dump cannot hold) | S | CC | Not started | — |
+| 1.1 | Auth outage → 503 | S | CC | Not started | — |
+| 1.2 | Signed session header | S | CC | Not started | — |
+| 1.3 | MFA (server-checked) | M | CC | Not started | — |
+| 1.4 | Shared rate limiter (Upstash) | M | CC | Partial | In-memory limiter on public routes only |
+| 1.6 | Retell signature on | S | CC | Done | On `main` (e9745e0), live |
+| 1.8 | DB pool, timeouts | S | CC | Not started | — |
+| 1.9 | Compute size + CPU alert | S | Boss | Unverified | Dashboard |
+| 1.10 | Indexes, first pass | S | CC | Partial | 0097 indexes in production |
+| 1.14 | /api/health + uptime | S | CU | Not started | — |
+| 1.17 | V1 caps in env | S | CC | Not started | — |
+| 1.19 | Pooler pool size | S | CC | Not started | — |
+| 1.23 | Alert lines | S | CC | Not started | — |
+| 1.24 | AI budget in three pools | S | CC | Not started | — |
+| 2.1 | ADR plans/credits | S | CC | Not started | — |
+| 2.2 | Plan map | S | CC | Not started | — |
+| 2.3 | Credit ledger, atomic | M | CC | Not started | — |
+| 2.4 | Stripe Checkout + Portal | M | CU | Blocked | Waits for prices (decision 2) |
+| 2.5 | Stripe webhooks (order, async, refunds) | M | CC | Not started | — |
+| 2.6 | billing:manage + 80/100% emails | S | CC | Not started | — |
+| 2.8 | Billing states | S | CC | Not started | — |
+| 2.9 | Daily reconciliation | S | CC | Not started | — |
+| 2.11 | Billing isolation | S | CC | Not started | — |
+| 3.1 | `job` table, retries, dead-letter | M | CC | Partial | Tick runner, `SKIP LOCKED`, outbox; no retries or dead-letter |
+| 3.4 | Imports start no automations | S | CC | Unverified | Imports write no `workflow_event`; trigger scans on changed contacts not checked |
+| 3.7 | Unattended safety | M | CC | Partial | Pause-all, five SMS rules, one run per event, email at-most-once |
+| 4.1 | E2E five flows + four failures | M | CU | Not started | — |
+| 4.3 | Load, spike, soak, recovery | M | CC | Not started | — |
+| 4.4 | Restore drill, new project | M | CC | Not started | — |
+| 4.9 | Isolation beyond pages | S | CC | Partial | can() matrix + smoke 8/8; exports, jobs, files not covered |
+| 5.1 | Privacy policy | S | Boss | Not started | — |
+| 5.2 | Terms + DPA | S | Boss | Not started | — |
+| 5.3 | Breach runbook + runbooks | S | CC | Not started | — |
+| 5.5 | DNS, domains, cookie domain | S | CU | Not started | — |
+| 5.6 | SPF/DKIM/DMARC, sender | S | CU | Not started | — |
+| 5.9 | Accounts in business name, 2FA | S | Boss | Not started | — |
+| 5.11 | Data-flow doc, ADM disclosure, lawyer | S | Boss | Not started | — |
+
+**P1 (35 tasks)**
+
+| # | Task | Size | Who | Status | Evidence |
+|---|---|---|---|---|---|
+| 0.3 | PITR | S | Boss | Blocked | Decision 7: off for cost |
+| 0.5 | Branch protection, gitleaks, Dependabot | S | CU | Partial | CI: frozen install, typecheck, lint, test, `pnpm audit`; no gitleaks/Dependabot; branch protection unverified |
+| 0.11 | Preview secrets separate | S | Boss | Not started | — |
+| 1.5 | Firewall + Turnstile | S | CU | Not started | — |
+| 1.7 | No PII in logs | S | CU | Not started | `offer-action.ts:133` still logs an email |
+| 1.11 | pg_stat_statements weekly | S | CC | Unverified | Supabase default; never reviewed |
+| 1.12 | UUIDv7, lz4, pg_trgm | M | CC | Not started | — |
+| 1.13 | Migration rules | S | CC | Not started | — |
+| 1.15 | Vendor fetch timeouts | S | CC | Partial | 16 files with `AbortSignal.timeout` of 48 `fetch(` sites |
+| 1.16 | error.tsx + API error shape | S | CU | Partial | 5 `error.tsx` |
+| 1.18 | Model prices | S | CC | Not started | — |
+| 1.20 | Audit log | S | CC | Not started | — |
+| 1.21 | Upload byte checks | S | CC | Partial | Size cap, header MIME, random keys, 60 s signed links |
+| 1.22 | Session rules | S | CC | Not started | — |
+| 1.25 | Schema-version check | S | CC | Not started | — |
+| 2.7 | Admin cost page | S | CU | Not started | — |
+| 2.10 | Seat limits | S | CC | Not started | — |
+| 3.2 | Webhooks through jobs | M | CC | Partial | Twilio deduped by `provider_sid`; work done in the request |
+| 3.3 | Fair SMS drain | S | CC | Partial | SMS batches drained per tick; five SMS rules |
+| 3.5 | Vendor-down fallbacks | S | CC | Not started | — |
+| 3.6 | Priority lanes, vendor limiters | M | CC | Not started | — |
+| 3.8 | Inbound pull-back after outage | S | CC | Not started | — |
+| 3.9 | Late jobs, stuck claims reconciled | M | CC | Not started | — |
+| 3.10 | Twilio signature + token rotation | M | CC | Not started | — |
+| 4.2 | Nightly smoke | S | CC | Not started | — |
+| 4.5 | Accessibility | S | CU | Not started | — |
+| 4.6 | Devices | S | CU | Not started | — |
+| 4.7 | Route audit + ZAP | S | CC | Partial | `isolation/entrypoints.test.ts` lists every route and action; no ZAP |
+| 4.8 | Rollback drill | S | CC | Not started | — |
+| 4.10 | AI SQL probes in smoke | S | CC | Partial | 6 smoke checks; 2026-11-18 dev probe not yet in smoke |
+| 5.4 | Secrets inventory | S | Boss | Not started | — |
+| 5.7 | ACMA sender ID | S | Boss | Not started | — |
+| 5.8 | Photo resize + EXIF | S | CU | Partial | Inspection photos stripped (`photo-bytes.ts`); listing media not checked |
+| 5.10 | Clean prod, support, status page | S | CU | Not started | — |
+| 5.12 | Agency export, deletion, purges | M | CC | Partial | Only the chat retention purge runs; no agency export or deletion |
+
+**P2 (V2 or later, each behind its trigger):** per-agency RLS for the server role (decision 11) · restore one agency by script ·
+a prompt regression set before a model or prompt change · `ai_run` daily rollups · Twilio fallback URL on separate
+infrastructure · constant-time compares for the cron and revalidate secrets · photo variants and R2 · log partitions ·
+read replica · Realtime push · storage quota per agency · paid penetration test (first large agency) · the 14.10 list.
+
+#### Where we stand (counted 2026-11-18)
+Weights: S = 1 session, M = 2.5. Credit: Done 1, Built 0.8, Partial 0.1–0.5 by what exists, the rest 0.
+
+| | |
+|---|---|
+| Tasks | **80**: 1 done, 3 built, 16 partial, 5 unverified, 53 not started, 2 blocked |
+| **Implementation progress** (weighted) | **~11%** (11.5 of 105.5 sessions); P0 ~12%, P1 ~9% |
+| **Production readiness** (P0 proofs met in production) | **~4%**: the dev database, Retell's signature, 0097's indexes |
+| Remaining | ~94 sessions: Claude Code ~66, Cursor ~17, the boss ~12 (P0 alone: ~37, ~9, ~8) |
+
+**Tested and passing:** unit tests (offline); smoke on dev 2026-11-17 (database, health, credentials, tenant isolation 8/8,
+platform admin); the guard's 4 tests and break-test; the backup script's three paths with stand-ins; the AI SQL probe
+on dev; the 2026-11-17 production dump fully decrypted and read.
+**Documented, not built:** everything marked Not started above, including the whole of billing (14.4), the `job` table,
+MFA, the signed header, health, alerts, E2E, load tests and the restore drill.
+**Needs a dashboard (nobody can do it from code):** Supabase: SMTP, auth settings, compute size, pool size, Storage S3
+keys for the files copy, spend cap, PITR (decision 7) · GitHub: repo private, branch protection, secrets and
+variables, Dependabot · AWS: account, bucket with Object Lock, OIDC role · healthchecks.io · Vercel: secrets per
+environment, Deployment Protection, spend management, Firewall · Upstash · Sentry · Stripe: account, products, prices,
+webhook endpoint, Stripe Tax · Twilio: spend triggers, sender ID (ACMA) · Anthropic: console spend limit, rate tier ·
+Google: quotas · Retell: minutes · Resend: domain, SPF/DKIM/DMARC · Cloudflare: DNS, Turnstile.
+
+#### The stages, in the safest order
+Each stage is one or more small PRs (one task or a tight group each). The gate must hold before the next stage starts.
+
+**Stage 1 — Land and lock** (week 1)
+- *Why:* nothing built so far protects production until it is merged and switched on, and the repo is public.
+- *Tasks:* merge the guard, docs and backups PRs (the user) · 0.9, 0.10, 0.11, 0.6, 0.5, 0.7 (the boss, CU) · 0.8 files
+  backup and 0.12 settings document (CC) · switch the backup on (0.4).
+- *Files:* `.github/workflows/db-backup.yml`, `scripts/db-backup.sh` (+ a files step), `docs/DEPLOY.md`, `.github/dependabot.yml`,
+  a gitleaks workflow. No application code.
+- *Depends on:* the boss's AWS, healthchecks and Supabase S3 keys.
+- *How CC builds it:* extend `ops/step-3-backups`; files copied bucket by bucket with the AWS CLI against Supabase's S3
+  endpoint; stand-ins for the vendors in the local test, as for 0.4.
+- *Tests:* the three backup paths again; a deleted dev file restored from S3.
+- *Done:* repo 404 without a token; first scheduled dump and files copy in S3; healthchecks green; a reset email reaches an
+  outside address.
+- *Gate:* the guard is on `main`; a backup older than 7 h alerts.
+
+**Stage 2 — Identity and the tenant boundary** (week 2)
+- *Why:* every later feature trusts the actor; today one middleware bypass is a forged identity, and an auth blip signs
+  everyone out.
+- *Tasks:* 1.1 → 1.2 → 1.3 → 1.22 → 1.20.
+- *Files:* `packages/auth/src/middleware.ts`, `apps/console/lib/require-console-access.ts`, the web app's session reader,
+  `packages/core/src/permissions.ts` (AAL2 for billing, team, export), new `packages/core/src/audit/`, a migration for
+  `audit_log`; CU: the MFA screens.
+- *Depends on:* stage 1 (guard merged; dev only).
+- *How CC builds it:* 1.1 and 1.2 in one small PR each, test first (a thrown `getClaims` → 503; a forged header refused);
+  MFA with Supabase's TOTP API, checked in `can()`'s callers on the server; the audit helper takes `DbOrTx` and runs in the
+  action's transaction.
+- *Tests:* unit tests for each; smoke "forged header" and a new "MFA required" check; permission tests for the new actions.
+- *Done:* the five tasks' proofs; break-tests red then green.
+- *Gate:* the tenant isolation smoke still 8/8; nobody signed out during a simulated auth outage.
+
+**Stage 3 — Database capacity** (week 3, in parallel with stage 4)
+- *Why:* connections and indexes decide whether 200 agencies fit; fixing them under load is the expensive way.
+- *Tasks:* 1.8, 1.19, 1.9, 1.10, 1.13, 1.25, 1.11; 1.12 if time allows.
+- *Files:* `packages/db/src/client.ts`, `packages/config/src/env.ts`, a migration for indexes, a `CONCURRENTLY` script,
+  `docs/DEPLOY.md`.
+- *Depends on:* stage 1. Independent of stage 2.
+- *How CC builds it:* `DB_POOL_MAX` with a default; timeouts per role through `ALTER ROLE` in a migration; indexes from
+  `EXPLAIN` on dev, one migration.
+- *Tests:* `query-count.test.ts`; an `EXPLAIN` check for the named queries; the smoke database group.
+- *Done:* the proofs; pool size set in both projects.
+- *Gate:* smoke green on dev; production migration run at night by one developer, watched by the other.
+
+**Stage 4 — Containment of abuse and cost** (week 3)
+- *Why:* the principle: one bot or one agency must not spend the platform's money or capacity.
+- *Tasks:* 1.24 → 1.17 → 1.4 → 1.5; 1.7, 1.15, 1.21, 1.18.
+- *Files:* `packages/core/src/ai-budget/index.ts`, `apps/web/lib/rate-limit.ts` → a shared limiter in `packages/core`,
+  `packages/core/src/integrations/provider-http.ts`, `packages/core/src/media/storage-client.ts`, `packages/ai/src/models.ts`,
+  the two logging sites.
+- *Depends on:* stage 1 (Upstash account).
+- *How CC builds it:* pools as separate windows in the one budget function; the limiter keyed by IP, user and agency;
+  a CI grep for `fetch(` without a signal.
+- *Tests:* the public pool spent → paying AI still runs; two instances share one count; a `.png` that is HTML refused.
+- *Done:* the proofs. *Gate:* `ai-budget.test.ts` and the new tests green; caps set in production env.
+
+**Stage 5 — See problems first** (week 4)
+- *Why:* jobs and billing come next; their failures must be visible before they exist.
+- *Tasks:* 1.14, 1.23, 1.16 (+ 1.25's health line).
+- *Files:* `apps/*/app/api/health/route.ts`, `packages/core/src/observability/`, `error.tsx` per route group.
+- *Depends on:* stage 1 (Sentry, healthchecks), stage 3 (schema check).
+- *Tests:* stopping the cron makes health "late"; each alert fired once.
+- *Gate:* an alert reaches a phone.
+
+**Stage 6 — The job engine and unattended safety** (weeks 4–6)
+- *Why:* the product is automation that runs while agents sleep; today a failed workflow event is dropped, a stuck SMS
+  is unseen, inbound texts during an outage are lost, and one agency's bulk work can delay everyone.
+- *Tasks:* 3.1 → 3.7 → 3.9 → 3.6 → 3.2 → 3.8 → 3.4 → 3.3 → 3.5 → 3.10.
+- *Files:* a `job` table migration, new `packages/core/src/jobs/`, `cron/minute-jobs.ts`, `cron/tick.ts`, `workflows/engine.ts`,
+  `template-email/sms-batches.ts`, `phone/webhooks.ts`, `phone/ai-callback.ts`, `phone/setup.ts`, `phone/format.ts`,
+  `appointments/reminders.ts`, `integrations/crypto.ts`, `imports/`.
+- *Depends on:* stages 3 and 5.
+- *How CC builds it:* the `job` table behind one small interface (claim, complete, fail with backoff, dead-letter), moved
+  onto one job type at a time, starting with workflow events; the tick stays the runner.
+- *Tests:* a poisoned agency does not delay another; a retried SMS sends once; clocks 30 min and 3 h late; a stuck SMS
+  reconciled both ways; a webhook during a 503 recovered; a forged Twilio request refused.
+- *Done:* the proofs. *Gate:* the recovery run (kill a tick mid-batch on dev) shows no duplicate and no silent loss.
+
+**Stage 7 — Billing** (weeks 6–7)
+- *Why:* paying agencies; money must be exact and isolated per agency.
+- *Tasks:* 2.1 (draft any time) → 2.2 → 2.3 → 2.11 → 2.5 → 2.4 → 2.6 → 2.8 → 2.9 → 2.10 → 2.7.
+- *Files:* `docs/adr/NNNN-plans-and-credits.md`, new `packages/core/src/billing/`, schema (customer id on agency,
+  `ai_credit_grant`, a Stripe event table), `ai-budget`, `permissions.ts`, a webhook route, CU: the billing pages.
+- *Depends on:* stage 6 (webhooks through jobs), stage 2 (MFA for billing), **decision 2 (prices) before 2.4**.
+- *How CC builds it:* test mode only; handlers fetch the current object from Stripe; every API call with an idempotency key.
+- *Tests:* replay, reverse order, async payment, refund; 20 parallel calls on the last credits; cross-agency billing tests.
+- *Gate:* a test-mode month for two agencies reconciles to the cent.
+
+**Stage 8 — Proof** (weeks 7–8)
+- *Why:* readiness is measured, not declared.
+- *Tasks:* 4.9, 4.10, 4.1, 4.2, 4.3, 4.4, 4.8, 4.7, 4.5, 4.6.
+- *Files:* `e2e/` (Playwright), `load/` (k6), `packages/smoke`, a nightly workflow, `docs/TEST-PLAN.md`, the restore runbook.
+- *Depends on:* stages 2–7.
+- *Tests:* they are the stage. *Gate:* section 5's numbers at V2 load; a restore into a new project within the RTO.
+
+**Stage 9 — Launch** (week 9; the legal work starts in week 3)
+- *Tasks:* 5.1, 5.2, 5.3, 5.5, 5.6, 5.9, 5.11 (P0); 5.12, 5.4, 5.7, 5.8, 5.10 (P1); the go/no-go list (14.7).
+- *Depends on:* everything; the lawyer's review is the long pole.
+- *Gate:* every go/no-go line has its proof.
+
+**In parallel:** the boss's dashboard work (stage 1, then Stripe and legal) · Cursor's UI tasks (1.5, 1.14, 1.16, MFA screens,
+billing pages, E2E) beside Claude Code's · stages 3 and 4 together · the ADR for billing (2.1) and the legal drafts (5.1,
+5.11) from week 3. **Strictly in order:** stage 1 before all; 3 and 5 before 6; 6 and 2 before 7; 2–7 before 8.
+
+#### How each task is done (our working process)
+1. Inspect what exists for the task (code, tests, ADRs) and write down what is already there.
+2. A small plan: files touched, tests to add, what is out of scope. The user approves it.
+3. A worktree and a branch per task (`<type>/<task-id>-<name>`), from `main`.
+4. Tests first; then the change; then the break-test (undo the fix, see the test go red).
+5. `pnpm typecheck`, `pnpm lint`, `pnpm test`; the smoke group it touches, on **dev** only.
+6. Read the whole diff; nothing unrelated; no business logic in `apps/`.
+7. Report: what changed, the tests and their output, what was not checked, the risks left.
+8. PR → CI → review → merge by the user. Production changes only after an explicit "go".
+9. Tick the task here with its evidence; STATUS.md and SESSION.md updated.
+One task, or one tight group, per session. Tests are never skipped to save time.
+
+#### Timeline
+Claude Code is the longest path at ~6.5 sessions a week (the pace the first plan assumed).
+
+| | Sessions left (CC) | Weeks | From 2026-11-19, with the 25 Dec–1 Jan break |
+|---|---|---|---|
+| **P0 only** (first paying agency) | ~37, plus stage order and the proof stage | **~8** | **late January 2027** |
+| **All of V1** (P0 + P1) | ~66 | **~10** | **mid-February 2027** |
+
+Conditions: prices decided by week 5 (decision 2); the boss's dashboard work done in week 1; the lawyer engaged by week 3.
+Re-plan after stage 2 with the real pace.
+
+#### The first task
+**0.8, the files backup**, on the existing `ops/step-3-backups` branch. Why first: production today has no running backup
+at all (PITR off, the schedule not merged), the files have no backup of any kind, and the task needs no product decision.
+Before it starts: the user merges the guard PR; the boss creates S3 access keys for the **dev** project's Storage (Storage
+→ S3 connection). Scope: a files step in `scripts/db-backup.sh` (or a sibling script) that copies each bucket to
+`$BACKUP_S3_URI/files/`, the same stand-in tests as 0.4, the DEPLOY.md lines, and the recovery key list (0.8's second half).
+If those keys cannot be made this week, start with **1.1** (auth outage → 503), which needs nothing outside the code.
 
 ---
 
