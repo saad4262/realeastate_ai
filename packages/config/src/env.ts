@@ -6,6 +6,8 @@ import { z } from 'zod';
  */
 export const envSchema = z.object({
   DATABASE_URL: z.string().optional(),
+  /** Connections per server instance (PLATFORM-PLAN 1.8); 5 when unset. */
+  DB_POOL_MAX: z.string().optional(),
   DIRECT_URL: z.string().optional(),
   NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().optional(),
