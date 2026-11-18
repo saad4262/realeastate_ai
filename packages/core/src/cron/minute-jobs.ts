@@ -9,6 +9,8 @@ import { runWorkflowTick, type WorkflowTickDeps } from '../workflows';
 import { runAutomationTick, type RunnerDeps } from '../recurring';
 import { runLeadUnderstanding, type LeadUnderstander } from '../leads/understand';
 import type { TickJob } from './tick';
+import { runJobs } from '../jobs';
+import { enqueueStuckSms, smsReconcileHandler } from '../phone/reconcile';
 
 /**
  * The every-minute tick's jobs (ADR 0035, batched by ADR 0073), in the order time matters most. Each
@@ -25,6 +27,7 @@ export const MINUTE_BATCH = {
   kycAccounts: 5,
   smsBatches: 5,
   automationSlices: 3,
+  urgentJobs: 20,
 } as const;
 
 export type MinuteDeps = {
@@ -127,6 +130,22 @@ export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new
       mode: 'once',
       everyMinutes: 5,
       run: async () => ({ result: await refreshDueKyc(db, deps.phone, now(), MINUTE_BATCH.kycAccounts), more: false }),
+    },
+    {
+      // PLATFORM-PLAN 3.9: a text whose answer from Twilio was lost gets a check job, once.
+      name: 'stuckSms',
+      mode: 'once',
+      everyMinutes: 5,
+      run: async () => ({ result: await enqueueStuckSms(db, now()), more: false }),
+    },
+    {
+      // The job queue's urgent lane (PLATFORM-PLAN 3.1): a fair share per agency per round.
+      name: 'urgentJobs',
+      mode: 'drain',
+      run: async () => {
+        const r = await runJobs(db, { 'sms.reconcile': smsReconcileHandler(deps.phone) }, { lane: 'urgent', limit: MINUTE_BATCH.urgentJobs, now });
+        return { result: { claimed: r.claimed, done: r.done, retried: r.retried, dead: r.dead }, more: r.more };
+      },
     },
   ];
 }
