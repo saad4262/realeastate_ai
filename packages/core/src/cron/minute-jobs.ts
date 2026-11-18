@@ -13,6 +13,8 @@ import { runJobs } from '../jobs';
 import { enqueueStuckSms, smsReconcileHandler } from '../phone/reconcile';
 import { detectSendSpikes } from '../safety/spikes';
 import { settleCredits } from '../billing/credits';
+import { stripeEventHandler } from '../billing/service';
+import type { StripeApi } from '../billing/stripe';
 
 /**
  * The every-minute tick's jobs (ADR 0035, batched by ADR 0073), in the order time matters most. Each
@@ -45,6 +47,8 @@ export type MinuteDeps = {
   platformMail: PlatformMailDeps | null;
   phone: PhoneDeps;
   voice: VoiceAi | null;
+  /** ADR 0092: Stripe for the `stripe.event` jobs; null when billing is not set up. */
+  stripe?: StripeApi | null;
 };
 
 export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new Date()): TickJob[] {
@@ -158,7 +162,7 @@ export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new
       name: 'urgentJobs',
       mode: 'drain',
       run: async () => {
-        const r = await runJobs(db, { 'sms.reconcile': smsReconcileHandler(deps.phone) }, { lane: 'urgent', limit: MINUTE_BATCH.urgentJobs, now });
+        const r = await runJobs(db, { 'sms.reconcile': smsReconcileHandler(deps.phone), 'stripe.event': stripeEventHandler({ stripe: deps.stripe ?? null }) }, { lane: 'urgent', limit: MINUTE_BATCH.urgentJobs, now });
         return { result: { claimed: r.claimed, done: r.done, retried: r.retried, dead: r.dead }, more: r.more };
       },
     },

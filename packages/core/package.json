@@ -120,7 +120,8 @@
     "./cron": "./src/cron/index.ts",
     "./audit": "./src/audit/index.ts",
     "./observability/health": "./src/observability/health.ts",
-    "./jobs": "./src/jobs/index.ts"
+    "./jobs": "./src/jobs/index.ts",
+    "./billing": "./src/billing/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
