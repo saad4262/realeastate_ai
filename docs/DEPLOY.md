@@ -521,32 +521,77 @@ deploy — `0008` through `0013` — and the app will throw on a missing table.
 Use the **direct** connection for migrations, not the pooler. Run it before
 the first deploy, and after any deploy whose diff touches `drizzle/`.
 
-## Backups (PLATFORM-PLAN 0.3, 0.4)
+## Backups (PLATFORM-PLAN 0.3, 0.4, 0.8, 0.12)
 
-PITR is off for now (PLATFORM-PLAN decision 7). Recovery is Supabase's daily backup plus our own encrypted
-`pg_dump`, every 6 hours, by `.github/workflows/db-backup.yml` → `scripts/db-backup.sh`. The job encrypts to an
-**age public key**, so GitHub can write a backup but never read one. A dump with fewer than 100 tables, or taken
-from a database with no agency, fails the run instead of being stored.
+PITR is off for now (PLATFORM-PLAN decision 7). Recovery is Supabase's daily backup plus two jobs of our own:
 
-One-time setup (the boss creates the accounts; nothing here is in the code):
+| Job | What | When | Script |
+|---|---|---|---|
+| Database backup | `pg_dump` of the whole database (`public`, `auth`, `storage` rows), encrypted to an **age public key**, so GitHub can write a backup but never read one. A dump with fewer than 100 tables, or from a database with no agency, fails instead of being stored | Every 6 h | `.github/workflows/db-backup.yml` → `scripts/db-backup.sh` |
+| Files backup | Every Storage bucket (`media`, `documents`, `inspection-photos`, and any new one) copied to S3, only what changed, then checked file by file | Daily, 02:47 Sydney | `.github/workflows/files-backup.yml` → `scripts/files-backup.sh` |
+
+One-time setup (the boss creates the accounts; nothing here is in the code). Also in `V1-OWNER-ACTIONS.md`, O-2 and O-6–O-10.
 1. **The repository is private** before any of the secrets below go into it.
 2. **Key pair:** `age-keygen -o backup-age-key.txt` on a laptop. The private key goes into the password manager and
    the file is deleted; the `age1…` public key line becomes the variable `BACKUP_AGE_RECIPIENT`.
-3. **AWS, a separate account from everything else:** an S3 bucket in `ap-southeast-4` (Melbourne) with Object Lock
-   (Governance, 14 days) and a lifecycle rule that deletes objects after 35 days. An IAM role that trusts GitHub's
-   OIDC provider for this repository's `main` branch and may only `s3:PutObject` into that bucket. Its ARN is the
-   secret `BACKUP_AWS_ROLE_ARN`.
-4. **healthchecks.io:** a check with a 6-hour period and 1-hour grace; its ping URL is the secret
-   `BACKUP_HEALTHCHECK_URL`. A missed or failed run emails both developers.
-5. **GitHub** → Settings → Secrets and variables → Actions:
-   - secrets `BACKUP_DATABASE_URL` (production session pooler, port 5432), `BACKUP_AWS_ROLE_ARN`, `BACKUP_HEALTHCHECK_URL`
-   - variables `BACKUP_AGE_RECIPIENT`, `BACKUP_S3_URI` (`s3://<bucket>/db/`), and `BACKUP_ENABLED=true` last
-6. Actions → Database backup → **Run workflow** once, and check that the file is in the bucket and the check is green.
+3. **AWS, a separate account from everything else:** an S3 bucket in `ap-southeast-4` (Melbourne) with **versioning
+   and Object Lock** (Governance, 14 days), and lifecycle rules: current objects under `db/` expire after 35 days;
+   noncurrent versions everywhere expire after 35 days. An IAM role that trusts GitHub's OIDC provider for this
+   repository's `main` branch only, maximum session 5 hours, allowed `s3:PutObject`, `s3:GetObject`,
+   `s3:ListBucket` and `s3:DeleteObject` on that bucket (a delete only adds a delete marker: locked versions stay).
+   Its ARN is the secret `BACKUP_AWS_ROLE_ARN`.
+4. **Supabase Storage S3 keys:** Supabase → production project → Storage → Settings → S3 connection → enable, then
+   New access key. The endpoint shown there is the variable `SUPABASE_S3_ENDPOINT`.
+5. **healthchecks.io:** two checks. Database: period 6 h, grace 1 h → secret `BACKUP_HEALTHCHECK_URL`. Files: period
+   1 day, grace 2 h → secret `FILES_HEALTHCHECK_URL`. A missed or failed run emails both developers.
+6. **GitHub** → Settings → Secrets and variables → Actions:
+   - secrets `BACKUP_DATABASE_URL` (production session pooler, port 5432), `BACKUP_AWS_ROLE_ARN`,
+     `BACKUP_HEALTHCHECK_URL`, `FILES_HEALTHCHECK_URL`, `SUPABASE_S3_ACCESS_KEY_ID`, `SUPABASE_S3_SECRET_ACCESS_KEY`
+   - variables `BACKUP_AGE_RECIPIENT`, `BACKUP_S3_URI` (`s3://<bucket>/db/`), `BACKUP_FILES_S3_URI`
+     (`s3://<bucket>/files`), `SUPABASE_S3_ENDPOINT`, and `BACKUP_ENABLED=true` last
+7. Actions → Database backup → **Run workflow**, then Files backup → **Run workflow** (the first files run copies the
+   whole store and can take hours). Check the bucket and that both checks are green.
 
-**Restore** (the drill, monthly; and the real thing): download a file, then
-`age -d -i backup-age-key.txt prod-<stamp>.dump.age > prod.dump`, `pg_restore --list prod.dump` to look, and
-`pg_restore --no-owner --no-privileges --dbname=<scratch project's DIRECT_URL> prod.dump` into a **scratch** project,
-never into production. Compare row counts of `agency`, `user`, `listing`, `lead` with production.
+### What a backup cannot hold (PLATFORM-PLAN 0.12)
+Written down here and kept current, because a new Supabase project starts without them. **Values that are secrets
+live in the password manager, never here.**
+
+| Setting | Where in Supabase | Ours |
+|---|---|---|
+| Site URL | Authentication → URL Configuration | the console's production origin |
+| Redirect URLs | Authentication → URL Configuration | each app's `/auth/callback` (sign-up and reset use `?next=`), for production, preview and `localhost:3000` / `3001` |
+| Email confirmation | Authentication → Sign In / Providers → Email | on |
+| SMTP | Authentication → Emails → SMTP Settings | Resend (`smtp.resend.com`, 465, user `resend`); password: password manager |
+| Email templates | Authentication → Emails → Templates | copy each template's text into the password manager's notes when it changes |
+| Auth rate limits, MFA (TOTP), leaked-password protection | Authentication → Rate Limits / Multi-Factor / Attack Protection | as set; record the values here when 1.3 and 1.22 land |
+| JWT expiry | Authentication → Sessions (or JWT keys) | 1.22: 15 minutes once set |
+| Storage buckets | Storage | `media` public, `documents` and `inspection-photos` private; size and type limits come back with `storage.buckets` rows |
+| Compute size, pool size | Project Settings → Compute and Disk; Database → Settings → Connection pooling | 1.9, 1.19 |
+| Network restrictions, SSL enforcement | Database → Settings | as set |
+
+**App secrets a restore needs** (all in Vercel and the password manager; a new Supabase project changes only the
+first three): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
+`DATABASE_URL`, `DIRECT_URL`, `INTEGRATION_TOKEN_KEY` (+ `_PREVIOUS`; **without it every stored integration token in
+the backup is unreadable**), `CRON_SECRET`, `REVALIDATE_SECRET`, `ALERT_UNSUBSCRIBE_SECRET`, `MAIL_REPLY_SECRET`,
+`RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `ANTHROPIC_API_KEY`, `GOOGLE_OAUTH_CLIENT_SECRET`,
+`ZOOM_OAUTH_CLIENT_SECRET`, the Twilio and Retell keys, and the age private key for the backups themselves.
+
+### Restore (the drill, monthly; and the real thing, PLATFORM-PLAN 4.4)
+Always into a **new or scratch** project, never into production or dev.
+1. Create the project (Sydney). Apply this section's settings table.
+2. Run every migration against it (`db:migrate` with its URL; the guard lets a non-production ref through). This
+   makes the schema, the `extensions` schema, the `ai_reader` role and every grant and revoke: **the dump holds none
+   of them** (`--no-owner --no-privileges`), and restoring the schema from the dump instead would leave the browser
+   keys with access to every table.
+3. Decrypt: `age -d -i backup-age-key.txt prod-<stamp>.dump.age > prod.dump`.
+4. Data only, with triggers off so nothing fires twice. The new project already has Supabase's own migration rows,
+   so those tables are left out through a list file:
+   `pg_restore -l prod.dump | grep -E ' TABLE DATA (public|auth|storage) ' | grep -vE ' (schema_migrations|migrations) ' > restore.list`
+   then `PGOPTIONS='-c session_replication_role=replica' pg_restore --data-only --no-owner -L restore.list --dbname=<DIRECT_URL> prod.dump`.
+   Untested until the first drill: write down every adjustment it needed here.
+5. Files: `rclone sync dst:<bucket>/files/<name> new:<name>` for each bucket, with the new project's S3 keys.
+6. Point a preview deployment at it (the env list above), run `pnpm smoke` against it, and sign in as a seeded user
+   with their old password. Write the time taken next to the RTO in PLATFORM-PLAN section 6.
 
 Before a production migration, also run the local encrypted backup (`backup.sh` in the private backups folder).
 

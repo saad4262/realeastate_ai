@@ -1,0 +1,39 @@
+# Daily copy of the Supabase Storage files (photos, documents, inspection photos) to the backup S3 account
+# (PLATFORM-PLAN 0.8). Off until BACKUP_ENABLED is "true". Setup: docs/DEPLOY.md, "Backups".
+name: Files backup
+
+on:
+  schedule:
+    - cron: '47 15 * * *' # 02:47 Sydney (AEDT), after the night's sends
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # AWS role via OIDC
+
+concurrency:
+  group: files-backup
+  cancel-in-progress: false
+
+jobs:
+  files:
+    if: vars.BACKUP_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300 # the first copy is the whole store; later runs copy only what changed
+    steps:
+      - uses: actions/checkout@v5
+      - name: rclone
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq rclone && rclone version | head -1
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.BACKUP_AWS_ROLE_ARN }}
+          aws-region: ap-southeast-4
+          role-duration-seconds: 18000
+      - name: Copy and check every bucket
+        run: bash scripts/files-backup.sh
+        env:
+          SUPABASE_S3_ENDPOINT: ${{ vars.SUPABASE_S3_ENDPOINT }}
+          SUPABASE_S3_ACCESS_KEY_ID: ${{ secrets.SUPABASE_S3_ACCESS_KEY_ID }}
+          SUPABASE_S3_SECRET_ACCESS_KEY: ${{ secrets.SUPABASE_S3_SECRET_ACCESS_KEY }}
+          BACKUP_FILES_S3_URI: ${{ vars.BACKUP_FILES_S3_URI }}
+          HEALTHCHECK_URL: ${{ secrets.FILES_HEALTHCHECK_URL }}
