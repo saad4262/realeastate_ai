@@ -15,8 +15,10 @@ type Price = {
 };
 
 const PRICES: Readonly<Record<string, Price>> = Object.freeze({
-  // Opus 5.5 and Sonnet 5.5: from the Claude API reference (cached 2026-09-25),
-  // added 2026-10-05 for the skill tiers. Cache reads $0.20/MTok = 0.1x input.
+  // Opus 5.5 and Sonnet 5.5: platform.claude.com/docs/en/about-claude/pricing, read 2026-11-18 (PLATFORM-PLAN 1.18).
+  // Their cache hits are 0.05x input ($0.20 and $0.10/MTok), not the 0.1x of earlier models.
+  // shortcut: Haiku 5.5 is not priced — it is used nowhere, and its price has two tiers (prompts over 100k tokens
+  // cost 5x), which this table cannot express; add the tier with it when a feature adopts it.
   // Voyage voyage-4 embeddings (ADR 0031), docs.voyageai.com/docs/pricing 2026-10-07:
   // $0.06 per 1M tokens, input only (the first 200M tokens per account are free — not modelled).
   'voyage-4': {
@@ -38,13 +40,13 @@ const PRICES: Readonly<Record<string, Price>> = Object.freeze({
     inputPerMTok: 4,
     outputPerMTok: 20,
     cacheWriteMultiplier: 1.25,
-    cacheReadMultiplier: 0.1,
+    cacheReadMultiplier: 0.05,
   },
   'claude-sonnet-5-5': {
     inputPerMTok: 2,
     outputPerMTok: 10,
     cacheWriteMultiplier: 1.25,
-    cacheReadMultiplier: 0.1,
+    cacheReadMultiplier: 0.05,
   },
   'claude-opus-5': {
     inputPerMTok: 5,
