@@ -130,6 +130,28 @@ describe('skill tiers (ADR 0021)', () => {
 
   it('costs Sonnet 5.5 and Opus 5.5 at their published rates', () => {
     expect(costUsd('claude-sonnet-5-5', { inputTokens: 1_000_000, outputTokens: 1_000_000 })).toBe(12);
-    expect(costUsd('claude-opus-5-5', { inputTokens: 1_000_000, outputTokens: 0, cacheReadInputTokens: 1_000_000 })).toBeCloseTo(4.4);
+    expect(costUsd('claude-opus-5-5', { inputTokens: 1_000_000, outputTokens: 0, cacheReadInputTokens: 1_000_000 })).toBeCloseTo(4.2); // $4 input + $0.20 cache hits (0.05x)
+  });
+});
+
+/**
+ * PLATFORM-PLAN 1.18: the table against the published prices (platform.claude.com/docs/en/about-claude/pricing,
+ * read 2026-11-18), per million tokens: input, 5-minute cache write, cache hit, output. One million of each
+ * kind costs exactly that.
+ */
+describe('prices match the published table', () => {
+  const PUBLISHED: Record<string, { input: number; write: number; read: number; output: number }> = {
+    'claude-opus-5-5': { input: 4, write: 5, read: 0.2, output: 20 },
+    'claude-sonnet-5-5': { input: 2, write: 2.5, read: 0.1, output: 10 },
+    'claude-opus-5': { input: 5, write: 6.25, read: 0.5, output: 25 },
+    'claude-sonnet-5': { input: 2, write: 2.5, read: 0.2, output: 10 },
+    'claude-haiku-4-5': { input: 1, write: 1.25, read: 0.1, output: 5 },
+  };
+  const M = 1_000_000;
+  it.each(Object.entries(PUBLISHED))('%s', (id, p) => {
+    expect(costUsd(id, { inputTokens: M, outputTokens: 0 })).toBeCloseTo(p.input, 6);
+    expect(costUsd(id, { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: M })).toBeCloseTo(p.write, 6);
+    expect(costUsd(id, { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: M })).toBeCloseTo(p.read, 6);
+    expect(costUsd(id, { inputTokens: 0, outputTokens: M })).toBeCloseTo(p.output, 6);
   });
 });
