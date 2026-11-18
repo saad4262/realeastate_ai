@@ -65,5 +65,9 @@ export async function checkAssistantBudget(
   if (b.reason === 'agency_cap') {
     return { allowed: false, reason: 'agency_cap', message: 'Your agency has reached its assistant limit for today.', global, person, agency };
   }
+  if (!b.allowed) {
+    // The pool (PLATFORM-PLAN 1.24): a trial agency's share, or public use, is spent for today.
+    return { allowed: false, reason: 'agency_cap', message: 'Your agency has reached its AI limit for today.', global, person, agency };
+  }
   return { allowed: true, reason: null, message: null, global, person, agency };
 }

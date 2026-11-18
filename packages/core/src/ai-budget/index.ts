@@ -26,11 +26,20 @@ export type BudgetWindow = {
   exceeded: boolean;
 };
 
+/**
+ * Which pool a call spends from (PLATFORM-PLAN 1.24). `public`: anonymous and consumer use (no agency on the
+ * `ai_run` row). `trial`: agencies whose status is trial. `paying`: every other agency. Public and trial each have
+ * a ceiling below the platform's, so neither can spend the share that keeps paying agencies running.
+ */
+export type AiPool = 'public' | 'trial' | 'paying';
+
 export type AiBudget = {
   allowed: boolean;
-  /** Which cap is spent; the platform's is named first when more than one is. */
-  reason: 'global_cap' | 'user_cap' | 'agency_cap' | null;
+  /** Which cap is spent; the platform's is named first, then the pool's, when more than one is. */
+  reason: 'global_cap' | 'pool_cap' | 'user_cap' | 'agency_cap' | null;
   global: BudgetWindow;
+  /** The pool's own ceiling (null for paying) and, for a trial agency, its share of the trial pool. */
+  pool: { name: AiPool; window: BudgetWindow | null; agency: BudgetWindow | null };
   user: BudgetWindow | null;
   agency: BudgetWindow | null;
 };
@@ -60,6 +69,21 @@ export function platformCapUsd(env: NodeJS.ProcessEnv = process.env): number {
   return capUsd(env.AI_DAILY_BUDGET_USD, PLATFORM_DEFAULT_USD);
 }
 
+/**
+ * The pools' ceilings. Unset, each is a share of the platform cap that leaves paying agencies at least 60% of it:
+ * public 20%, trial 20%, one trial agency $2 (never more than the trial pool). The values are the owner's
+ * decision (PLATFORM-PLAN decision 13); these defaults only keep the split safe until it is made.
+ */
+export function poolCapsUsd(env: NodeJS.ProcessEnv = process.env): { public: number; trial: number; trialPerAgency: number } {
+  const platform = platformCapUsd(env);
+  const trial = capUsd(env.AI_DAILY_BUDGET_USD_TRIAL, platform * 0.2);
+  return {
+    public: capUsd(env.AI_DAILY_BUDGET_USD_PUBLIC, platform * 0.2),
+    trial,
+    trialPerAgency: capUsd(env.AI_DAILY_BUDGET_USD_TRIAL_PER_AGENCY, Math.min(2, trial)),
+  };
+}
+
 /** The arithmetic. `>=`: at exactly the cap the budget is spent, and a cap of 0 refuses everything. */
 export function decideBudget(spentUsd: number, cap: number): BudgetWindow {
   return { spentUsd, capUsd: cap, remainingUsd: Math.max(0, cap - spentUsd), exceeded: spentUsd >= cap };
@@ -87,6 +111,11 @@ export type CheckAiBudgetOptions = {
   userId?: string;
   user?: UserWindow;
   agency?: AgencyWindow;
+  /**
+   * The agency the call is for, when there is one but no agency window (a member's scheduled skill). It decides
+   * the pool. Without an agency (here or in `agency`) the call is public.
+   */
+  agencyId?: string;
 };
 
 function featureClause(f: FeatureFilter): SQL {
@@ -99,8 +128,8 @@ function featureClause(f: FeatureFilter): SQL {
 }
 
 /**
- * May one more model call run? The platform's spend, and optionally one person's and one agency's,
- * over the last 24 hours of `ai_run`, in one statement on `ai_run_created_at_idx`.
+ * May one more model call run? The platform's spend, the call's pool (public, trial or paying), and optionally one
+ * person's and one agency's, over the last 24 hours of `ai_run`, in one statement on `ai_run_created_at_idx`.
  */
 export async function checkAiBudget(db: DbOrTx, opts: CheckAiBudgetOptions = {}): Promise<AiBudget> {
   const env = opts.env ?? process.env;
@@ -112,20 +141,45 @@ export async function checkAiBudget(db: DbOrTx, opts: CheckAiBudgetOptions = {})
     opts.user ?? (opts.userId ? { id: opts.userId, exceptFeatures: ['assistant'], capUsd: capUsd(env.AI_DAILY_BUDGET_USD_PER_USER, 0.25) } : undefined);
   const agency = opts.agency;
 
+  const poolAgency = agency?.id ?? opts.agencyId ?? null;
+
   const personSum = user ? sql`coalesce(sum(r.cost_usd) filter (where r.user_id = ${user.id}${featureClause(user)}), 0)` : sql`0`;
   const agencySum = agency ? sql`coalesce(sum(r.cost_usd) filter (where r.agency_id = ${agency.id}${featureClause(agency)}), 0)` : sql`0`;
+  const poolAgencySum = poolAgency ? sql`coalesce(sum(r.cost_usd) filter (where r.agency_id = ${poolAgency}), 0)` : sql`0`;
+  const poolStatus = poolAgency ? sql`(select a.status::text from agency a where a.id = ${poolAgency})` : sql`null::text`;
 
-  const [row] = await db.execute<{ total: string; person: string; agency: string }>(sql`
-    select coalesce(sum(r.cost_usd), 0) as total, ${personSum} as person, ${agencySum} as agency
+  const [row] = await db.execute<{ total: string; person: string; agency: string; public_spend: string; trial_spend: string; pool_agency_spend: string; pool_status: string | null }>(sql`
+    select coalesce(sum(r.cost_usd), 0) as total, ${personSum} as person, ${agencySum} as agency,
+      coalesce(sum(r.cost_usd) filter (where r.agency_id is null), 0) as public_spend,
+      coalesce(sum(r.cost_usd) filter (where r.agency_id in (select a.id from agency a where a.status = 'trial')), 0) as trial_spend,
+      ${poolAgencySum} as pool_agency_spend, ${poolStatus} as pool_status
     from ai_run r
     where r.created_at >= ${since}`);
+
+  const caps = poolCapsUsd(env);
+  // An agency we cannot find is public, never paying: the safe direction.
+  const name: AiPool = row?.pool_status == null ? 'public' : row.pool_status === 'trial' ? 'trial' : 'paying';
+  const pool: AiBudget['pool'] =
+    name === 'public'
+      ? { name, window: decideBudget(toNumber(row?.public_spend), caps.public), agency: null }
+      : name === 'trial'
+        ? { name, window: decideBudget(toNumber(row?.trial_spend), caps.trial), agency: decideBudget(toNumber(row?.pool_agency_spend), caps.trialPerAgency) }
+        : { name, window: null, agency: null };
 
   const global = decideBudget(toNumber(row?.total), platformCapUsd(env));
   const userWindow = user ? decideBudget(toNumber(row?.person), user.capUsd) : null;
   const agencyWindow = agency ? decideBudget(toNumber(row?.agency), agency.capUsd) : null;
 
-  const reason = global.exceeded ? 'global_cap' : userWindow?.exceeded ? 'user_cap' : agencyWindow?.exceeded ? 'agency_cap' : null;
-  return { allowed: reason === null, reason, global, user: userWindow, agency: agencyWindow };
+  const reason = global.exceeded
+    ? 'global_cap'
+    : pool.window?.exceeded || pool.agency?.exceeded
+      ? 'pool_cap'
+      : userWindow?.exceeded
+        ? 'user_cap'
+        : agencyWindow?.exceeded
+          ? 'agency_cap'
+          : null;
+  return { allowed: reason === null, reason, global, pool, user: userWindow, agency: agencyWindow };
 }
 
 /**

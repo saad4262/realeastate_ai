@@ -4,19 +4,20 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import type { SQL } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import type { Db } from '@repo/db';
-import { aiBudgetAllows, capUsd, checkAiBudget, platformCapUsd } from './index';
+import { aiBudgetAllows, capUsd, checkAiBudget, platformCapUsd, poolCapsUsd } from './index';
 
 const NOW = new Date('2026-11-13T00:00:00Z');
 const env = (over: Record<string, string> = {}) => ({ AI_DAILY_BUDGET_USD: '20', ...over }) as unknown as NodeJS.ProcessEnv;
 
 /** One `execute`, answering the spend row; keeps every statement rendered so a test can read it. */
-function spendDb(row: { total?: string; person?: string; agency?: string }) {
+type SpendRow = { total?: string; person?: string; agency?: string; public_spend?: string; trial_spend?: string; pool_agency_spend?: string; pool_status?: string | null };
+function spendDb(row: SpendRow) {
   const statements: { sql: string; params: unknown[] }[] = [];
   const db = {
     execute: async (q: SQL) => {
       const r = new PgDialect().sqlToQuery(q);
       statements.push({ sql: r.sql, params: r.params });
-      return [{ total: '0', person: '0', agency: '0', ...row }];
+      return [{ total: '0', person: '0', agency: '0', public_spend: '0', trial_spend: '0', pool_agency_spend: '0', pool_status: null, ...row }];
     },
   } as unknown as Db;
   return { db, statements };
@@ -97,6 +98,63 @@ describe('checkAiBudget', () => {
     const r = await checkAiBudget(spendDb({ total: '0.004688' }).db, { now: NOW, env: env() });
     expect(typeof r.global.spentUsd).toBe('number');
     expect(r.global.remainingUsd).toBeCloseTo(19.995312);
+  });
+});
+
+/**
+ * PLATFORM-PLAN 1.24: three pools, so anonymous public use or a wave of trial sign-ups cannot spend the
+ * platform's cap and stop AI for paying agencies. Public and trial each have a ceiling below the platform's;
+ * a paying agency is held only by the platform cap and its own windows.
+ */
+describe('AI pools: public, trial, paying', () => {
+  const caps = env({ AI_DAILY_BUDGET_USD: '100', AI_DAILY_BUDGET_USD_PUBLIC: '30', AI_DAILY_BUDGET_USD_TRIAL: '20', AI_DAILY_BUDGET_USD_TRIAL_PER_AGENCY: '2' });
+  const paying = { id: 'pay-1', features: ['inbox:draft'], capUsd: 50 };
+
+  it('reads the pool caps from env; defaults keep paying agencies at least 60% of the platform cap', () => {
+    expect(poolCapsUsd(caps)).toEqual({ public: 30, trial: 20, trialPerAgency: 2 });
+    expect(poolCapsUsd(env({ AI_DAILY_BUDGET_USD: '100' }))).toEqual({ public: 20, trial: 20, trialPerAgency: 2 });
+    expect(poolCapsUsd(env({ AI_DAILY_BUDGET_USD: '5' }))).toEqual({ public: 1, trial: 1, trialPerAgency: 1 });
+  });
+
+  it('the public pool spent: public use refused, a paying agency still runs', async () => {
+    const row = { total: '30', public_spend: '30' };
+    const pub = await checkAiBudget(spendDb(row).db, { now: NOW, env: caps });
+    expect(pub).toMatchObject({ allowed: false, reason: 'pool_cap', pool: { name: 'public' } });
+    expect(await aiBudgetAllows(spendDb(row).db, { now: NOW, env: caps })).toBe(false);
+    const pay = await checkAiBudget(spendDb({ ...row, pool_status: 'active' }).db, { now: NOW, env: caps, agency: paying });
+    expect(pay).toMatchObject({ allowed: true, reason: null, pool: { name: 'paying', window: null } });
+  });
+
+  it('the trial pool spent: every trial agency refused, a paying agency still runs', async () => {
+    const row = { total: '20', trial_spend: '20' };
+    expect(await checkAiBudget(spendDb({ ...row, pool_status: 'trial' }).db, { now: NOW, env: caps, agency: { ...paying, id: 'trial-1' } })).toMatchObject({ allowed: false, reason: 'pool_cap', pool: { name: 'trial' } });
+    expect(await checkAiBudget(spendDb({ ...row, pool_status: 'active' }).db, { now: NOW, env: caps, agency: paying })).toMatchObject({ allowed: true });
+  });
+
+  it('one trial agency at its own daily cap is refused; the other trial agencies are not', async () => {
+    const at = await checkAiBudget(spendDb({ total: '2', trial_spend: '2', pool_agency_spend: '2', pool_status: 'trial' }).db, { now: NOW, env: caps, agencyId: 'trial-1' });
+    expect(at).toMatchObject({ allowed: false, reason: 'pool_cap' });
+    expect(at.pool.agency).toMatchObject({ spentUsd: 2, capUsd: 2 });
+    const other = await checkAiBudget(spendDb({ total: '2', trial_spend: '2', pool_agency_spend: '0', pool_status: 'trial' }).db, { now: NOW, env: caps, agencyId: 'trial-2' });
+    expect(other).toMatchObject({ allowed: true });
+  });
+
+  it('an unknown agency id counts as public, never as paying', async () => {
+    const r = await checkAiBudget(spendDb({ total: '30', public_spend: '30', pool_status: null }).db, { now: NOW, env: caps, agencyId: 'gone' });
+    expect(r).toMatchObject({ allowed: false, pool: { name: 'public' } });
+  });
+
+  it('the platform cap still holds over every pool, paying included', async () => {
+    const r = await checkAiBudget(spendDb({ total: '100', pool_status: 'active' }).db, { now: NOW, env: caps, agency: paying });
+    expect(r).toMatchObject({ allowed: false, reason: 'global_cap' });
+  });
+
+  it('pools are read in the same single statement, with the agency named', async () => {
+    const { db, statements } = spendDb({ pool_status: 'active' });
+    await checkAiBudget(db, { now: NOW, env: caps, agency: paying });
+    expect(statements).toHaveLength(1);
+    expect(statements[0]!.sql).toMatch(/status = 'trial'/);
+    expect(statements[0]!.params).toContain('pay-1');
   });
 });
 
