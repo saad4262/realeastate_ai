@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 300 # the first copy is the whole store; later runs copy only what changed
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: rclone
         run: sudo apt-get update -qq && sudo apt-get install -y -qq rclone && rclone version | head -1
       - uses: aws-actions/configure-aws-credentials@v4
