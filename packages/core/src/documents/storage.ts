@@ -1,4 +1,5 @@
 import { DOCUMENT_MIME_TYPES, MAX_DOCUMENT_BYTES } from './document-schema';
+import { fetchHead, sniffMatches } from '../media/sniff';
 
 /**
  * The PRIVATE documents bucket (ADR 0053 §1). SERVER ONLY — every call sends the
@@ -62,6 +63,10 @@ export async function describeDocumentObject(key: string): Promise<{ contentType
   if (!DOCUMENT_MIME_TYPES[contentType]) throw new DocumentStorageError(`That file is a ${contentType || 'type we do not keep'}`);
   if (!Number.isFinite(bytes) || bytes <= 0) throw new DocumentStorageError('That upload arrived empty');
   if (bytes > MAX_DOCUMENT_BYTES) throw new DocumentStorageError('Documents must be 25 MB or smaller');
+  // The declared type is the uploader's claim; the first bytes are the file (PLATFORM-PLAN 1.21).
+  if (!sniffMatches(contentType, await fetchHead(`${root()}/object/${bucket()}/${key}`, headers()))) {
+    throw new DocumentStorageError('That file is not the type it claims to be');
+  }
   return { contentType, bytes };
 }
 
@@ -74,6 +79,7 @@ export async function downloadDocumentObject(key: string): Promise<Uint8Array> {
 
 /** Write bytes the SERVER fetched (an email attachment). Never overwrites: every key is new. */
 export async function putDocumentObject(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+  if (!sniffMatches(contentType, bytes.subarray(0, 512))) throw new DocumentStorageError('That file is not the type it claims to be');
   const res = await fetch(`${root()}/object/${bucket()}/${key}`, {
     method: 'POST',
     headers: { ...headers(), 'content-type': contentType, 'x-upsert': 'false' },
