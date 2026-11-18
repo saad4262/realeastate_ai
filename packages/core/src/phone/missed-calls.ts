@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { sendsHeld } from '../platform/access';
+import { SENDS_PAUSED_REASON } from '../safety/spikes';
 import { and, count, desc, eq, gt, gte, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { agency, missedCallSetting, notification, phoneAccount, phoneCall, phoneNumber, smsMessage, user, type Db, type DbOrTx } from '@repo/db';
@@ -360,7 +362,10 @@ export async function recordMissedCall(db: Db, n: NumberRow, callSid: string, fr
     throw err;
   });
 
-  if (kept && smsId && from) {
+  if (kept && smsId && from && (await sendsHeld(db, n.agencyId))) {
+    // PLATFORM-PLAN 3.7: the agency's sends are paused; the call is kept, the text is not sent.
+    await db.update(smsMessage).set({ status: 'failed', error: SENDS_PAUSED_REASON, updatedAt: sql`now()` }).where(eq(smsMessage.id, smsId));
+  } else if (kept && smsId && from) {
     try {
       const { client } = await numberTwilio(db, n, deps);
       const statusUrl = deps.keys && deps.webhookBase ? webhookUrl(deps.webhookBase, n.id, 'sms-status', deps.keys) : null;

@@ -411,6 +411,8 @@ export type Action =
   | 'report:query'
   /** Read the agency's audit log (PLATFORM-PLAN 1.20): owners and admins of that agency only. */
   | 'audit:read'
+  /** Resume the agency's sends after a spike paused them (PLATFORM-PLAN 3.7): owners and admins only. */
+  | 'sends:resume'
   /**
    * Start a CSV listing import (ADR 0029): any member who may write. An
    * agent's import is forced to `pending` (admin approval); only someone with
@@ -913,6 +915,7 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       return sameAgency(actor, resource) && isAgencyAdmin(actor);
 
     case 'audit:read':
+    case 'sends:resume':
       return sameAgency(actor, resource) && isAgencyAdmin(actor);
 
     case 'report:query':

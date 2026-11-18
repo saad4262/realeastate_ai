@@ -155,6 +155,13 @@ export const agency = pgTable('agency', {
   suspendedReason: text('suspended_reason'),
   /** When a trial ends — recorded and shown to the platform team; nothing is switched off by it yet. */
   trialEndsAt: timestamp('trial_ends_at', { withTimezone: true }),
+  /**
+   * PLATFORM-PLAN 3.7: this agency's outbound sends (texts, bulk email, AI call-backs) are held — set by the spike
+   * check when an hour's sends or AI spend run far above its usual, cleared by an owner or admin. Nothing is lost:
+   * the work waits.
+   */
+  sendsPausedAt: timestamp('sends_paused_at', { withTimezone: true }),
+  sendsPausedReason: text('sends_paused_reason'),
   ...timestamps,
 });
 

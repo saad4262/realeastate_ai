@@ -136,10 +136,10 @@ describe('the clock', () => {
     await claimDueAutomations(db, NOW);
     expect(inserts[0]!.values).toMatchObject({ status: 'skipped' });
   });
-  it('claims with SKIP LOCKED, and never a suspended agency', () => {
+  it('claims with SKIP LOCKED, and never a suspended agency nor one whose sends are paused (PLATFORM-PLAN 3.7)', () => {
     const src = readFileSync(join(__dirname, 'tick.ts'), 'utf8');
     expect(src).toContain("for('update', { of: automation, skipLocked: true })");
-    expect(src).toContain('not in ${SUSPENDED_AGENCY_IDS}');
+    expect(src).toContain('not in ${SENDS_HELD_AGENCY_IDS}');
   });
 });
 
