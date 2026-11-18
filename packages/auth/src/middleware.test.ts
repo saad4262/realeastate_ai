@@ -2,6 +2,7 @@ import type { JwtPayload } from '@supabase/supabase-js';
 import { NextRequest } from 'next/server';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { authUnavailableResponse, identityFromClaims, updateSession } from './middleware';
+import { readSignedIdentity } from './session-header';
 
 /**
  * ADR 0046: middleware verifies the session with getClaims — a local ES256
@@ -77,6 +78,8 @@ beforeAll(async () => {
 beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = SUPABASE_URL;
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_test';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-test';
+  delete process.env.SESSION_HEADER_SECRET;
   calls.length = 0;
   refreshAnswer = null;
   vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
@@ -123,6 +126,19 @@ describe('updateSession (getClaims)', () => {
     expect(fwd.get('x-console-user-id')).toBe(USER_ID);
     expect(decodeURIComponent(fwd.get('x-console-user-label') ?? '')).toBe('Sara Khan');
     expect(userCalls()).toBe(0);
+    // PLATFORM-PLAN 1.2: what middleware forwards is signed, and a reader believes it.
+    expect(await readSignedIdentity((n) => fwd.get(n), 'x-console-user', Date.now(), 'service-role-test')).toEqual({ id: USER_ID, email: 'sara@example.com', label: 'Sara Khan' });
+  });
+
+  it('forged identity headers, signature included, are stripped before anything is written', async () => {
+    const fwd = new Headers({ 'x-console-user-id': USER_ID, 'x-console-user-exp': String(Date.now() + 60_000), 'x-console-user-sig': 'forged', 'x-web-user-sig': 'forged' });
+    await updateSession(request(null), fwd);
+    for (const n of ['x-console-user-id', 'x-console-user-exp', 'x-console-user-sig', 'x-web-user-sig']) expect(fwd.get(n), n).toBeNull();
+  });
+
+  it('with no key to sign with, it refuses like a missing URL', async () => {
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    await expect(updateSession(request(null), new Headers())).rejects.toThrow(/SESSION_HEADER_SECRET/);
   });
 
   it('a token signed by any other key is nobody — and a forged id header does not survive', async () => {

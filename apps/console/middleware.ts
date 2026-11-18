@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { cookieDomainFor } from '@repo/auth/cookie-domain';
-import { authUnavailableResponse, updateSession } from '@repo/auth/middleware';
+import { authUnavailableResponse, stripSessionHeaders, updateSession } from '@repo/auth/middleware';
 import { safeLocalPath } from '@repo/auth/safe-path';
 
 export type ConsoleSurface = 'agent' | 'agency' | 'admin';
@@ -83,9 +83,7 @@ export async function middleware(request: NextRequest) {
    * headers intact. A typo in NEXT_PUBLIC_SUPABASE_URL should cost the
    * console its sessions, not hand out impersonation.
    */
-  requestHeaders.delete('x-console-user-id');
-  requestHeaders.delete('x-console-user-email');
-  requestHeaders.delete('x-console-user-label');
+  stripSessionHeaders(requestHeaders);
 
   const isAuthEntry =
     pathname.startsWith('/login') || pathname.startsWith('/signup');

@@ -10,7 +10,8 @@
     "./middleware": "./src/middleware.ts",
     "./callback": "./src/callback.ts",
     "./cookie-domain": "./src/cookie-domain.ts",
-    "./safe-path": "./src/safe-path.ts"
+    "./safe-path": "./src/safe-path.ts",
+    "./session-header": "./src/session-header.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

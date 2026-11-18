@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { SESSION_HEADER_PREFIXES, authUnavailableResponse, updateSession } from '@repo/auth/middleware';
+import { authUnavailableResponse, stripSessionHeaders, updateSession } from '@repo/auth/middleware';
 import { safeLocalPath } from '@repo/auth/safe-path';
 
 /**
@@ -51,11 +51,7 @@ export async function middleware(request: NextRequest) {
    * throwing on a missing env var, before its own delete. That was found live.
    * The same mistake on this app would hand out a consumer's saved searches.
    */
-  for (const prefix of SESSION_HEADER_PREFIXES) {
-    requestHeaders.delete(`${prefix}-id`);
-    requestHeaders.delete(`${prefix}-email`);
-    requestHeaders.delete(`${prefix}-label`);
-  }
+  stripSessionHeaders(requestHeaders);
 
   let response: NextResponse;
   let userId: string | null = null;
