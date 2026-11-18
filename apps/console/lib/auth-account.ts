@@ -1,6 +1,7 @@
 import { cache } from 'react';
 import { headers } from 'next/headers';
 import { createServerSupabaseClient } from '@repo/auth/server';
+import { readSignedIdentity, sessionHeaderSecret } from '@repo/auth/session-header';
 
 /** The signed-in Supabase account, read from the session cookie — never from client input. */
 export type AuthAccount = {
@@ -65,7 +66,8 @@ export async function requireAuthAccount(): Promise<AuthAccount> {
  * fails closed either way: no header and no session is still not signed in.
  */
 export const actionUserId = cache(async (): Promise<string | null> => {
-  const verified = (await headers()).get('x-console-user-id');
+  const h = await headers();
+  const verified = (await readSignedIdentity((n) => h.get(n), 'x-console-user', Date.now(), sessionHeaderSecret()))?.id;
   if (verified) return verified;
 
   const account = await getAuthAccount();

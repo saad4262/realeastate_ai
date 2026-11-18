@@ -1,6 +1,7 @@
 import { cache } from 'react';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { readSignedIdentity, sessionHeaderSecret } from '@repo/auth/session-header';
 import { can, type Actor, type MembershipRole } from '@repo/core/permissions';
 import { loadActorContext } from './load-actor';
 
@@ -41,23 +42,9 @@ export type ConsoleSession = {
  */
 async function sessionFromMiddleware() {
   const h = await headers();
-  const userId = h.get('x-console-user-id');
-  if (!userId) return null;
-
-  const decode = (value: string | null) => {
-    if (!value) return null;
-    try {
-      return decodeURIComponent(value);
-    } catch {
-      return null;
-    }
-  };
-
-  return {
-    userId,
-    email: decode(h.get('x-console-user-email')),
-    label: decode(h.get('x-console-user-label')),
-  };
+  // Believed only when middleware's signature verifies (PLATFORM-PLAN 1.2).
+  const who = await readSignedIdentity((n) => h.get(n), 'x-console-user', Date.now(), sessionHeaderSecret());
+  return who ? { userId: who.id, email: who.email, label: who.label || null } : null;
 }
 
 /** The chrome's own data. Never a permission input — those stay in can(). */

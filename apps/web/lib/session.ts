@@ -1,6 +1,7 @@
 import { cache } from 'react';
 import { cookies, headers } from 'next/headers';
 import { identityFromClaims } from '@repo/auth/middleware';
+import { readSignedIdentity, sessionHeaderSecret } from '@repo/auth/session-header';
 import { createServerSupabaseClient } from '@repo/auth/server';
 import { isUserBlocked } from '@repo/core/platform';
 import { getWebDb } from './db';
@@ -27,21 +28,12 @@ export type WebUser = {
   label: string | null;
 };
 
-function decode(value: string | null): string | null {
-  if (!value) return null;
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    // Middleware encoded it; a value that will not decode did not come from
-    // there, so it is not an identity.
-    return null;
-  }
-}
-
 export const currentWebUser = cache(async (): Promise<WebUser | null> => {
   const h = await headers();
-  const id = h.get('x-web-user-id');
-  if (!id) return null;
+  // Believed only when middleware's signature verifies (PLATFORM-PLAN 1.2).
+  const who = await readSignedIdentity((n) => h.get(n), 'x-web-user', Date.now(), sessionHeaderSecret());
+  if (!who) return null;
+  const id = who.id;
 
   /**
    * A site user the platform blocked (ADR 0052) is signed out here, whatever
@@ -55,11 +47,7 @@ export const currentWebUser = cache(async (): Promise<WebUser | null> => {
   const blocked = await isUserBlocked(getWebDb(), id).catch(() => false);
   if (blocked) return null;
 
-  return {
-    id,
-    email: decode(h.get('x-web-user-email')),
-    label: decode(h.get('x-web-user-label')),
-  };
+  return { id, email: who.email, label: who.label || null };
 });
 
 /**

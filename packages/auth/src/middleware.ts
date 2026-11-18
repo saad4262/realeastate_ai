@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { isAuthRetryableFetchError, type JwtPayload } from '@supabase/supabase-js';
 import { type NextRequest, NextResponse } from 'next/server';
 import { cookieDomainFor } from './cookie-domain';
+import { SESSION_HEADER_SUFFIXES, sessionHeaderSecret, signIdentity } from './session-header';
 
 function publicEnv() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -9,7 +10,10 @@ function publicEnv() {
   if (!url || !key) {
     throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY');
   }
-  return { url, key };
+  // No key to sign the forwarded identity: refuse like a missing URL (the apps then treat everyone as signed out).
+  const secret = sessionHeaderSecret();
+  if (!secret) throw new Error('Missing SESSION_HEADER_SECRET or SUPABASE_SERVICE_ROLE_KEY');
+  return { url, key, secret };
 }
 
 /** Who middleware verified: the token's own claims, never the cookie's unverified copy of the user. */
@@ -49,12 +53,10 @@ export const SESSION_HEADER_PREFIXES = ['x-console-user', 'x-web-user'] as const
 
 export type SessionHeaderPrefix = (typeof SESSION_HEADER_PREFIXES)[number];
 
-const HEADER_SUFFIXES = ['id', 'email', 'label'] as const;
-
 /** Drop every session header a caller might have sent, under any prefix. */
-function stripSessionHeaders(headers: Headers): void {
+export function stripSessionHeaders(headers: Headers): void {
   for (const prefix of SESSION_HEADER_PREFIXES) {
-    for (const suffix of HEADER_SUFFIXES) {
+    for (const suffix of SESSION_HEADER_SUFFIXES) {
       headers.delete(`${prefix}-${suffix}`);
     }
   }
@@ -107,7 +109,7 @@ export async function updateSession(
     request: { headers: requestHeaders },
   });
 
-  const { url, key } = publicEnv();
+  const { url, key, secret } = publicEnv();
   // Host-aware: `.lvh.me` on a localhost request is discarded silently.
   const domain = cookieDomainFor(request.headers.get('host'));
 
@@ -157,12 +159,9 @@ export async function updateSession(
   const user = error ? null : identityFromClaims(data?.claims);
 
   if (user) {
-    requestHeaders.set(`${prefix}-id`, user.id);
-    if (user.email) {
-      requestHeaders.set(`${prefix}-email`, encodeURIComponent(user.email));
-    }
-    if (user.label) {
-      requestHeaders.set(`${prefix}-label`, encodeURIComponent(user.label));
+    // Signed (PLATFORM-PLAN 1.2): readers believe these only with a valid signature and expiry.
+    for (const [name, value] of Object.entries((await signIdentity(prefix, user, Date.now(), secret))!)) {
+      requestHeaders.set(name, value);
     }
     // Rebuild so mutated headers are visible to the App Router
     const cookies = response.cookies.getAll();
