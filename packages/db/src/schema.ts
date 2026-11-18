@@ -3583,6 +3583,30 @@ export const platformViewLog = pgTable(
 );
 
 /**
+ * Sensitive actions inside an agency (PLATFORM-PLAN 1.20): a member removed, restored or edited, an invite
+ * sent, withdrawn or claimed, a listing deleted. Written in the same transaction as the change, by
+ * `recordAudit`; read by the agency's owners and admins. The platform admin's own changes and views have
+ * their tables (`platform_action`, `platform_view_log`). Field names only in `detail`, never their values.
+ */
+export const auditLog = pgTable(
+  'audit_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    actorUserId: uuid('actor_user_id').references(() => user.id, { onDelete: 'set null' }),
+    action: varchar('action', { length: 32 }).notNull(),
+    subjectUserId: uuid('subject_user_id').references(() => user.id, { onDelete: 'set null' }),
+    /** The one row acted on, when it is not a person: an invite, a listing. */
+    refId: uuid('ref_id'),
+    detail: jsonb('detail').notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('audit_log_agency_idx').on(t.agencyId, desc(t.createdAt))],
+);
+
+/**
  * Every change a platform admin made (ADR 0050): suspending or reactivating an agency, its plan and
  * trial, blocking a member, a new owner. Written in the same transaction as the change.
  */

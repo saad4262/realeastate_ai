@@ -1,4 +1,5 @@
 import { and, eq, gt, inArray, ne, sql } from 'drizzle-orm';
+import { recordAudit } from '../audit';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { agentInvite, agentProfile, membership, user, type Db } from '@repo/db';
@@ -343,6 +344,14 @@ export async function editTeamMember(
           .set({ role: membershipRoleFromOperational(patch.operationalRole as OperationalRole), updatedAt: sql`now()` })
           .where(and(eq(membership.userId, target.userId), eq(membership.agencyId, actor.agencyId as string)));
       }
+      // Field names only: what changed, never the values (a phone number is not audit material).
+      await recordAudit(tx, {
+        agencyId: actor.agencyId as string,
+        actorUserId: actor.userId,
+        action: 'member_edited',
+        subjectUserId: target.userId,
+        detail: { fields, ...(has('operationalRole') ? { roleTo: membershipRoleFromOperational(patch.operationalRole as OperationalRole) } : {}) },
+      });
     });
     return { changed: fields, claim: null };
   }
@@ -381,11 +390,15 @@ export async function editTeamMember(
 export async function withdrawInvite(db: Db, actor: Actor, inviteId: string): Promise<{ email: string }> {
   const agencyId = requireTeam(actor);
   if (!uuid.safeParse(inviteId).success) throw NOT_FOUND();
-  const [done] = await db
-    .update(agentInvite)
-    .set({ status: 'revoked', updatedAt: sql`now()` })
-    .where(and(eq(agentInvite.id, inviteId), eq(agentInvite.agencyId, agencyId), eq(agentInvite.status, 'pending')))
-    .returning({ email: agentInvite.email });
+  const done = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(agentInvite)
+      .set({ status: 'revoked', updatedAt: sql`now()` })
+      .where(and(eq(agentInvite.id, inviteId), eq(agentInvite.agencyId, agencyId), eq(agentInvite.status, 'pending')))
+      .returning({ email: agentInvite.email });
+    if (row) await recordAudit(tx, { agencyId, actorUserId: actor.userId, action: 'invite_withdrawn', refId: inviteId });
+    return row;
+  });
   if (!done) throw new TeamEditError('not_found', 'That invite is no longer waiting (claimed, withdrawn or not found)');
   return done;
 }

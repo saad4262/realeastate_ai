@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, ne, notExists, sql } from 'drizzle-orm';
+import { recordAudit } from '../audit';
 import { pauseWorkflowsOf } from '../workflows/manage';
 import { z } from 'zod';
 import {
@@ -288,6 +289,7 @@ export async function removeMember(db: Db, actor: Actor, userId: string, rawChoi
     if (t.role === 'owner' && (await activeOwners(tx as unknown as Db, agencyId)) < 1) {
       throw new OffboardError('conflict', 'The agency’s last owner cannot be removed');
     }
+    await recordAudit(tx, { agencyId, actorUserId: actor.userId, action: 'member_removed', subjectUserId: userId, detail: { role: t.role, workTo: receiverId } });
     const flag = receiverId ? null : now;
 
     const contacts = await tx
@@ -550,10 +552,16 @@ export async function restoreMember(db: Db, actor: Actor, userId: string, now = 
     throw new OffboardError('conflict', `Only a removal from the last ${RESTORE_DAYS} days can be undone`);
   }
   try {
-    await db
-      .update(membership)
-      .set({ status: 'active', removedAt: null, removedBy: null, updatedAt: sql`now()` })
-      .where(and(eq(membership.id, t.id), eq(membership.status, 'suspended')));
+    await db.transaction(async (tx) => {
+      const restored = await tx
+        .update(membership)
+        .set({ status: 'active', removedAt: null, removedBy: null, updatedAt: sql`now()` })
+        .where(and(eq(membership.id, t.id), eq(membership.status, 'suspended')))
+        .returning({ id: membership.id });
+      if (restored.length) {
+        await recordAudit(tx, { agencyId: actor.agencyId as string, actorUserId: actor.userId, action: 'member_restored', subjectUserId: userId });
+      }
+    });
   } catch (err) {
     // membership_one_active_idx: they have joined another agency since.
     if (/membership_one_active_idx|duplicate key/i.test(String((err as { message?: string }).message))) {

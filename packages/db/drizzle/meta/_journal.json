@@ -687,6 +687,13 @@
       "when": 1794652156071,
       "tag": "0097_control_centre_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1795008734911,
+      "tag": "0098_audit_log",
+      "breakpoints": true
     }
   ]
 }
