@@ -15,6 +15,8 @@ Updated: 2026-11-18. Baseline (from 14.12): 80 tasks — 1 done, 3 built, 16 par
 | 2026-11-18 | 0.8, 0.12 | `ops/step-3-backups` | Files backup script and workflow; restore-into-new-project procedure; settings and secrets list |
 | 2026-11-18 | 1.1 | `fix/1.1-auth-outage-503` | Auth outage → 503, cookie kept; 4 s cap on the Auth wait |
 | 2026-11-18 | 1.2 | `fix/1.2-signed-session-header` | Forwarded identity signed and verified |
+| 2026-11-18 | 1.24 | `feat/1.24-ai-budget-pools` | Public, trial, paying pools; assistant's unknown-reason pass-through fixed |
+| 2026-11-18 | 1.8 (part 1) | `feat/1.8-db-pool` | Pool from env, default 5, with timeouts |
 
 ## Tasks
 | ID | Task | P | Status | Implementation | Files | Tests | Evidence | External dependency | Remaining risk |
@@ -38,7 +40,7 @@ Updated: 2026-11-18. Baseline (from 14.12): 80 tasks — 1 done, 3 built, 16 par
 | 1.5 | Firewall + Turnstile | P1 | Not started | — | — | — | — | Cloudflare Turnstile, Vercel Firewall (O-16) | — |
 | 1.6 | Retell signature on | P0 | Done | — | — | — | On `main` (e9745e0), live | — | — |
 | 1.7 | No PII in logs | P1 | Not started | — | — | — | `offer-action.ts:133` still logs an email | — | — |
-| 1.8 | DB pool, timeouts | P0 | Not started | — | — | — | — | — | — |
+| 1.8 | DB pool, timeouts | P0 | Partial | Part 1: `poolOptions()` — `DB_POOL_MAX` (1–50, default 5), idle 20 s, connect 10 s, lifetime 30 min. Part 2 (`statement_timeout` per kind of work) not done: every app uses one DB role | `packages/db/src/pool-options.ts` (+ test), `client.ts`, `packages/config/src/env.ts`, `.env.example` | 4 tests; break-test (default → 2 fail); 8 parallel queries on dev through the pool; typecheck, lint, `pnpm test` green | `feat/1.8-db-pool` bec08c0 (stacked on the guard) | Load test sets the value (4.3) | Part 2 needs separate DB roles per kind of work |
 | 1.9 | Compute size + CPU alert | P0 | Unverified | — | — | — | Dashboard | Supabase compute (O-14) | — |
 | 1.10 | Indexes, first pass | P0 | Partial | — | — | — | 0097 indexes in production | — | — |
 | 1.11 | pg_stat_statements weekly | P1 | Unverified | — | — | — | Supabase default; never reviewed | — | — |
@@ -54,7 +56,7 @@ Updated: 2026-11-18. Baseline (from 14.12): 80 tasks — 1 done, 3 built, 16 par
 | 1.21 | Upload byte checks | P1 | Partial | — | — | — | Size cap, header MIME, random keys, 60 s signed links | — | — |
 | 1.22 | Session rules | P1 | Not started | — | — | — | — | — | — |
 | 1.23 | Alert lines | P0 | Not started | — | — | — | — | — | — |
-| 1.24 | AI budget in three pools | P0 | Not started | — | — | — | — | — | — |
+| 1.24 | AI budget in three pools | P0 | Built (branch) | Public (no agency), trial (agency status trial) and paying pools read in the one budget statement; public and trial ceilings below the platform cap, one trial agency's own share; unknown agency = public; new reason `pool_cap`; assistant refuses on any refusal (it let unknown reasons through); members' skills spend from their agency's pool | `packages/core/src/ai-budget/index.ts` (+ test), `assistant/budget.ts` (+ new test), `skills/runner.ts`, `.env.example` | 7 pool + 2 assistant tests; break-tests (pool check off → 4 fail; assistant mapping off → 1 fails); query run read-only on dev (valid SQL); typecheck, lint, `pnpm test` green | `feat/1.24-ai-budget-pools` a956b1a | D-3 values (env `AI_DAILY_BUDGET_USD_PUBLIC`, `_TRIAL`, `_TRIAL_PER_AGENCY`; defaults 20%/20%/$2) | Pipelines that write `ai_run` without an agency (e.g. visual embeddings) count as public; still a read-then-call budget (atomic only with 2.3) |
 | 1.25 | Schema-version check | P1 | Not started | — | — | — | — | — | — |
 | 2.1 | ADR plans/credits | P0 | Not started | — | — | — | — | — | — |
 | 2.2 | Plan map | P0 | Not started | — | — | — | — | — | — |
