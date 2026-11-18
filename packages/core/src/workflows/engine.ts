@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import { SUSPENDED_AGENCY_IDS } from '../platform/access';
 import { agency, assistantTask, notification, proposedAction, workflow, workflowEvent, workflowRun, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
@@ -31,7 +31,24 @@ import { decideRun, stepsOfChoice, type RunDecision, type WorkflowDecider } from
  * Nothing here sends, writes a note or changes a lead: the steps do, later, through the screens' code.
  */
 
-export type WorkflowTickReport = { events: number; runs: number; skipped: number; paused: number; waiting: number; noReplyEvents: number; scanned: ScanReport | null };
+export type WorkflowTickReport = { events: number; runs: number; skipped: number; paused: number; waiting: number; failed: number; noReplyEvents: number; scanned: ScanReport | null };
+
+/** PLATFORM-PLAN 3.1: tries before an event is dead-lettered, and the waits between them. */
+export const EVENT_MAX_ATTEMPTS = 5;
+const RETRY_MINUTES = [1, 5, 15, 60];
+
+/**
+ * What a failed event becomes. Before its last attempt: back to the queue after a wait, claim released. On the
+ * last: processed and failed — out of the queue, kept as a dead letter with its error. Never "processed" as if
+ * it had run. Safe to retry: `workflow_run_once_idx` stops a workflow that already ran for it from running twice.
+ */
+export function failureUpdate(ev: { attempts: number }, message: string, now: Date): Partial<typeof workflowEvent.$inferInsert> {
+  const attempts = ev.attempts + 1;
+  const lastError = message.slice(0, 500);
+  if (attempts >= EVENT_MAX_ATTEMPTS) return { attempts, lastError, processedAt: now, failedAt: now };
+  const wait = RETRY_MINUTES[Math.min(attempts - 1, RETRY_MINUTES.length - 1)]!;
+  return { attempts, lastError, claimedAt: null, retryAt: new Date(now.getTime() + wait * 60_000) };
+}
 
 const LEASE_MS = 2 * 60_000;
 const DAY_MS = 86_400_000;
@@ -349,7 +366,14 @@ async function claimEvents(db: Db, now: Date, limit: number): Promise<EventRow[]
     const ids = await tx
       .select({ id: workflowEvent.id })
       .from(workflowEvent)
-      .where(and(isNull(workflowEvent.processedAt), or(isNull(workflowEvent.claimedAt), lt(workflowEvent.claimedAt, stale))))
+      .where(
+        and(
+          isNull(workflowEvent.processedAt),
+          or(isNull(workflowEvent.claimedAt), lt(workflowEvent.claimedAt, stale)),
+          // A failed event waits for its retry time (PLATFORM-PLAN 3.1).
+          or(isNull(workflowEvent.retryAt), lte(workflowEvent.retryAt, now)),
+        ),
+      )
       .orderBy(asc(workflowEvent.occurredAt))
       .limit(limit)
       .for('update', { skipLocked: true });
@@ -423,7 +447,7 @@ export type WorkflowTickDeps = {
 };
 
 export async function runWorkflowTick(db: Db, now = new Date(), limit = 50, deps: WorkflowTickDeps = {}): Promise<WorkflowTickReport> {
-  const report: WorkflowTickReport = { events: 0, runs: 0, skipped: 0, paused: 0, waiting: 0, noReplyEvents: 0, scanned: null };
+  const report: WorkflowTickReport = { events: 0, runs: 0, skipped: 0, paused: 0, waiting: 0, failed: 0, noReplyEvents: 0, scanned: null };
   if (deps.scans !== false) {
     report.noReplyEvents = await scanNoReply(db, now);
     report.scanned = await runTriggerScans(db, now);
@@ -471,7 +495,11 @@ export async function runWorkflowTick(db: Db, now = new Date(), limit = 50, deps
         }
       }
     } catch (err) {
-      console.error('[workflow] event failed', ev.id, err instanceof Error ? err.message : err);
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[workflow] event failed', ev.id, `attempt ${ev.attempts + 1}`, message);
+      await db.update(workflowEvent).set(failureUpdate(ev, message, now)).where(eq(workflowEvent.id, ev.id));
+      report.failed += 1;
+      continue;
     }
     await db.update(workflowEvent).set({ processedAt: now }).where(eq(workflowEvent.id, ev.id));
   }

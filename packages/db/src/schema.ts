@@ -2755,9 +2755,19 @@ export const workflowEvent = pgTable(
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
     claimedAt: timestamp('claimed_at', { withTimezone: true }),
     processedAt: timestamp('processed_at', { withTimezone: true }),
+    /**
+     * PLATFORM-PLAN 3.1: an event that throws is retried, not spent. `attempts` failures so far; `retry_at` the
+     * earliest next claim; `failed_at` set (with `processed_at`) when the last attempt failed — the dead letter,
+     * kept for the admin to see and replay. `last_error` is the message only.
+     */
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+    retryAt: timestamp('retry_at', { withTimezone: true }),
+    failedAt: timestamp('failed_at', { withTimezone: true }),
   },
   (t) => [
     index('workflow_event_pending_idx').on(t.occurredAt).where(sql`processed_at is null`),
+    index('workflow_event_failed_idx').on(desc(t.failedAt)).where(sql`failed_at is not null`),
     uniqueIndex('workflow_event_dedupe_idx').on(t.agencyId, t.dedupeKey).where(sql`dedupe_key is not null`),
   ],
 );

@@ -694,6 +694,13 @@
       "when": 1795008734911,
       "tag": "0098_audit_log",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1795012072186,
+      "tag": "0099_workflow_event_retries",
+      "breakpoints": true
     }
   ]
 }
