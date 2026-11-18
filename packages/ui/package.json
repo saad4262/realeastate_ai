@@ -15,16 +15,16 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   },
   "devDependencies": {
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "typescript": "^5.7.2",
-    "@types/google.maps": "^3.58.1",
+    "@types/google.maps": "^3.66.10",
     "vitest": "^2.1.8",
     "@repo/config": "workspace:*"
   }
