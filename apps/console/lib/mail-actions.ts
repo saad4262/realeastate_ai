@@ -46,7 +46,7 @@ function refresh() {
 
 function failure(err: unknown, fallback: string): MailActionResult {
   if (err instanceof MailError) return { ok: false, error: err.message };
-  console.error('[mail] action failed', err);
+  console.error('[mail] action failed', err instanceof Error ? err.message : err);
   return { ok: false, error: fallback };
 }
 
@@ -87,7 +87,7 @@ export async function sendNewEmailAction(contactId: string, subject: string, bod
     return { ok: true, threadId: outcome.threadId, status: outcome.status, error: outcome.error };
   } catch (err) {
     if (err instanceof MailError) return { ok: false, error: err.message };
-    console.error('[mail] new email failed', err);
+    console.error('[mail] new email failed', err instanceof Error ? err.message : err);
     return { ok: false, error: 'Could not send the email' };
   }
 }

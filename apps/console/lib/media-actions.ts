@@ -51,7 +51,7 @@ type Done = { ok: true } | Fail;
 
 function fail(err: unknown): Fail {
   if (err instanceof MediaError) return { ok: false, error: err.message };
-  console.error('[media] action failed', err);
+  console.error('[media] action failed', err instanceof Error ? err.message : err);
   return { ok: false, error: 'That image could not be saved. Try again.' };
 }
 

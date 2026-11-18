@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     if (key) await deleteInspectionPhotos([key]);
     if (err instanceof PhotoBytesError) return fail(400, err.message);
     if (err instanceof NotebookError) return fail(err.code === 'forbidden' ? 403 : err.code === 'not_found' ? 404 : err.code === 'limit' ? 409 : 400, err.message);
-    console.error('[inspection-photos] upload failed', err);
+    console.error('[inspection-photos] upload failed', err instanceof Error ? err.message : err);
     return fail(503, 'The photo could not be saved just now. Try again.');
   }
 }

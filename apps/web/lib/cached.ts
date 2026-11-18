@@ -134,7 +134,7 @@ export async function cachedSearch(query: PublicSearchQuery): Promise<{
     // show. A search that 500s is worse than one with no results under it.
     // Caught outside the cache: a failure caught inside was stored, and showed
     // every visitor "unavailable" for 30 seconds, with nothing in the logs.
-    console.error('[search] failed', err);
+    console.error('[search] failed', err instanceof Error ? err.message : err);
     return { rows: [], total: 0, down: true };
   }
 }

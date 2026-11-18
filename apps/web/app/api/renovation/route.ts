@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(plan);
   } catch (err) {
     if (err instanceof RenovationError) return fail(err.code === 'invalid' ? 400 : 503, err.message);
-    console.error('[renovation] failed', err);
+    console.error('[renovation] failed', err instanceof Error ? err.message : err);
     return fail(503, 'The AI could not answer just now. Try again in a moment.');
   }
 }

@@ -21,7 +21,7 @@ async function run(form: FormData, write: boolean, fn: (actor: { userId: string 
   try {
     await fn(actor, propertyId);
   } catch (err) {
-    if (!(err instanceof DiscoveryError)) console.error('[for-you] failed', err);
+    if (!(err instanceof DiscoveryError)) console.error('[for-you] failed', err instanceof Error ? err.message : err);
   }
   revalidatePath('/account/for-you');
 }

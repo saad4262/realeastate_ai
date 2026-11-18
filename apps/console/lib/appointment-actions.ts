@@ -80,7 +80,7 @@ async function tell(id: string, event: 'booked' | 'moved' | 'cancelled' | 'decli
 
 function failure(err: unknown, fallback: string): { ok: false; error: string } {
   if (err instanceof AppointmentError || err instanceof ContactError) return { ok: false, error: err.message };
-  console.error('[appointments] action failed', err);
+  console.error('[appointments] action failed', err instanceof Error ? err.message : err);
   return { ok: false, error: fallback };
 }
 

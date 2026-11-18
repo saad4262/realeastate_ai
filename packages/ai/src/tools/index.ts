@@ -649,7 +649,7 @@ export async function dispatchTool(
   } catch (err) {
     // The database was unreachable, or the geocoder was. Say so to the model so
     // it can tell the visitor, rather than letting the stream die mid-sentence.
-    console.error(`[ai] tool ${name} failed`, err);
+    console.error(`[ai] tool ${name} failed`, err instanceof Error ? err.message : err);
     return {
       isError: true,
       result: {

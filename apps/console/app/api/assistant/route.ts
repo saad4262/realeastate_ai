@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
       try {
         for await (const event of turn) controller.enqueue(encoder.encode(frame(event)));
       } catch (err) {
-        console.error('[assistant] stream failed', err);
+        console.error('[assistant] stream failed', err instanceof Error ? err.message : err);
         try {
           controller.enqueue(encoder.encode(frame({ type: 'error', code: 'upstream', message: 'The answer stopped unexpectedly. Please try again.' })));
         } catch {

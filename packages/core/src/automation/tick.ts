@@ -143,7 +143,7 @@ async function checkAutomations(db: Db, deps: AutomationTickDeps, now: Date): Pr
   for (const { a } of due) {
     // The network (a search) before the transaction; then one short write (ARCHITECTURE § 8).
     const found = await detectEvents(db, a, now, deps).catch((err: unknown) => {
-      console.error('[automation] detect failed', a.id, err);
+      console.error('[automation] detect failed', a.id, err instanceof Error ? err.message : err);
       return null;
     });
     await db.transaction(async (tx) => {

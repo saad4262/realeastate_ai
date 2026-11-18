@@ -29,7 +29,7 @@ export async function createAutomationAction(form: FormData): Promise<void> {
     await createAutomation(getWebDb(), { userId: user.id }, input);
   } catch (err) {
     const message = err instanceof AutomationError ? err.message : 'That automation could not be saved. Try again.';
-    if (!(err instanceof AutomationError)) console.error('[automation] create failed', err);
+    if (!(err instanceof AutomationError)) console.error('[automation] create failed', err instanceof Error ? err.message : err);
     redirect(`/account/automations?error=${encodeURIComponent(message)}`);
   }
   revalidatePath('/account/automations');
@@ -42,7 +42,7 @@ async function own(form: FormData, fn: (actor: { userId: string }, id: string) =
   try {
     await fn({ userId: user.id }, String(form.get('id') ?? ''));
   } catch (err) {
-    if (!(err instanceof AutomationError)) console.error('[automation] change failed', err);
+    if (!(err instanceof AutomationError)) console.error('[automation] change failed', err instanceof Error ? err.message : err);
   }
   revalidatePath('/account/automations');
   revalidatePath('/account/shortlist');

@@ -79,7 +79,7 @@ async function mirrorAppUser(user: { id: string; email?: string | null }, name?:
       ...(name ? { name } : {}),
     });
   } catch (err) {
-    console.error('[auth] could not mirror the account into public.user', err);
+    console.error('[auth] could not mirror the account into public.user', err instanceof Error ? err.message : err);
   }
 }
 

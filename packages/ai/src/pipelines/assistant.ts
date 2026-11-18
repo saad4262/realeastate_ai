@@ -152,7 +152,7 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
       const code = err.code === 'busy' || err.code === 'limit' ? err.code : 'forbidden';
       yield { type: 'error', code, message: err.message };
     } else {
-      console.error('[assistant] claim failed', err);
+      console.error('[assistant] claim failed', err instanceof Error ? err.message : err);
       yield { type: 'error', code: 'upstream', message: 'The assistant could not start. Please try again.' };
     }
     yield { type: 'done' };
@@ -331,7 +331,7 @@ export async function* runAssistantTurn(input: AssistantTurnInput): AsyncGenerat
   } catch (err) {
     status = 'failed';
     if (!signal?.aborted) {
-      console.error('[assistant] turn failed', err);
+      console.error('[assistant] turn failed', err instanceof Error ? err.message : err);
       yield { type: 'error', code: 'upstream', message: 'Something went wrong reaching the assistant. Please try again.' };
     }
     try {

@@ -130,13 +130,13 @@ async function notify(
 
       const result = await transport.send(sendable);
       if (!result.ok) {
-        console.error(`[offer] could not notify ${recipient.email}: ${result.error}`);
+        console.error(`[offer] could not notify a recipient of lead ${leadId} (agency ${agencyId}): ${result.error}`);
       }
     }
   } catch (err) {
     // A missing sender identity, an unconfigured key, a provider outage. None of
     // them un-record the offer, so none of them reach the visitor.
-    console.error('[offer] notification failed', err);
+    console.error('[offer] notification failed', err instanceof Error ? err.message : err);
   }
 }
 

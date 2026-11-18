@@ -242,7 +242,7 @@ export async function runOneSchedule(
     const extras = await alertExtras(db, { query: claimed.query, lastEmailedAt: claimed.lastEmailedAt, sentListingIds: claimed.sentListingIds })
       .then((x) => ({ ...x, priceChanges: x.priceChanges.map((c) => ({ address: c.address, text: c.text, url: `${base}/listing/${c.listingId}` })) }))
       .catch((err: unknown) => {
-        console.error('[alerts] extras failed', err);
+        console.error('[alerts] extras failed', err instanceof Error ? err.message : err);
         return undefined;
       });
 
@@ -450,7 +450,7 @@ export async function runScheduleTick(
     report.chatsPruned = await pruneOldChats(db, { now });
   } catch (err) {
     // A failed prune must not cost anybody their alert.
-    console.error('[scheduler] chat retention sweep failed', err);
+    console.error('[scheduler] chat retention sweep failed', err instanceof Error ? err.message : err);
   }
 
   /**
@@ -464,7 +464,7 @@ export async function runScheduleTick(
   try {
     report.runsSwept = await sweepAbandonedRuns(db, { now });
   } catch (err) {
-    console.error('[scheduler] abandoned-run sweep failed', err);
+    console.error('[scheduler] abandoned-run sweep failed', err instanceof Error ? err.message : err);
   }
 
   /**

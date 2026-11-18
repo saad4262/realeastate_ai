@@ -86,6 +86,6 @@ async function emailAssignee(leadId: string, assigneeUserId: string, assignedBy:
   try {
     await notifyLeadAssigned(getConsoleDb(), mail, leadId, assigneeUserId, assignedBy);
   } catch (err) {
-    console.error(`[lead-notice] assignment notice for lead ${leadId} failed`, err);
+    console.error(`[lead-notice] assignment notice for lead ${leadId} failed`, err instanceof Error ? err.message : err);
   }
 }

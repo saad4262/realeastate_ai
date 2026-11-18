@@ -30,7 +30,7 @@ async function run(fn: (actor: { userId: string }) => Promise<string[] | void>, 
     return { ok: true };
   } catch (err) {
     if (err instanceof NotebookError) return { ok: false, error: err.message };
-    console.error('[inspection-notes] failed', err);
+    console.error('[inspection-notes] failed', err instanceof Error ? err.message : err);
     return { ok: false, error: 'Something went wrong. Try again.' };
   }
 }

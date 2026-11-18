@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ text: d.text, token: d.token, agencyName: d.agencyName, sentToday: d.sentToday, perDay: d.perDay, source: d.source }, { headers: { 'cache-control': 'private, no-store' } });
   } catch (err) {
     if (err instanceof AgentMessageError) return fail(err.code === 'not_found' ? 404 : 403, err.message);
-    console.error('[agent-ai] draft failed', err);
+    console.error('[agent-ai] draft failed', err instanceof Error ? err.message : err);
     return fail(503, 'The draft could not be written just now. You can write it yourself.');
   }
 }

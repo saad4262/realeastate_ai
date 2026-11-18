@@ -432,7 +432,7 @@ export async function* runPropertyChat(
       // requests that did run were already written above.
       return;
     }
-    console.error('[ai] property chat failed', err);
+    console.error('[ai] property chat failed', err instanceof Error ? err.message : err);
     failed = true;
     yield {
       type: 'error',

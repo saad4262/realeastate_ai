@@ -41,7 +41,7 @@ export async function createTaskAction(form: FormData): Promise<void> {
     id = (await createTask(getWebDb(), { userId: user.id }, input)).id;
   } catch (err) {
     const message = err instanceof ScheduleError ? err.message : 'That task could not be saved. Try again.';
-    if (!(err instanceof ScheduleError)) console.error('[tasks] create failed', err);
+    if (!(err instanceof ScheduleError)) console.error('[tasks] create failed', err instanceof Error ? err.message : err);
     redirect(`/account/tasks?error=${encodeURIComponent(message)}`);
   }
   revalidatePath('/account/tasks');
@@ -55,7 +55,7 @@ async function own(form: FormData, fn: (actor: { userId: string }, id: string) =
   try {
     await fn({ userId: user.id }, id);
   } catch (err) {
-    if (!(err instanceof ScheduleError)) console.error('[tasks] change failed', err);
+    if (!(err instanceof ScheduleError)) console.error('[tasks] change failed', err instanceof Error ? err.message : err);
   }
   revalidatePath('/account/tasks');
   revalidatePath(`/account/tasks/${id}`);

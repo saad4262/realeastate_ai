@@ -27,7 +27,7 @@ async function run(listingId: string, write: (actor: NonNullable<Awaited<ReturnT
     return { ok: true };
   } catch (err) {
     if (err instanceof OpenHomeError) return { ok: false, error: err.message, ...(err.confirm ? { confirm: true } : {}) };
-    console.error('[open-homes] action failed', err);
+    console.error('[open-homes] action failed', err instanceof Error ? err.message : err);
     return { ok: false, error: 'That time could not be saved. Try again.' };
   }
 }
