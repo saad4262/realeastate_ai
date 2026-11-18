@@ -4,6 +4,9 @@ import {
 } from './storage-key';
 import { storageObjectUrl, storageSignUploadUrl } from './media-url';
 
+/** Supabase Storage answers small requests in well under a second; past this it is down (PLATFORM-PLAN 1.15). */
+const STORAGE_TIMEOUT_MS = 15_000;
+
 /**
  * The Supabase Storage calls, and the service role key that makes them work.
  *
@@ -64,7 +67,7 @@ export async function signUpload(
   const endpoint = storageSignUploadUrl(key);
   if (!endpoint) throw new MediaError('Image uploads are not configured');
 
-  const res = await fetch(endpoint, { method: 'POST', headers: headers() });
+  const res = await fetch(endpoint, { method: 'POST', headers: headers(), signal: AbortSignal.timeout(STORAGE_TIMEOUT_MS) });
   if (!res.ok) {
     throw new MediaError(`Storage refused to sign the upload (HTTP ${res.status})`);
   }
@@ -97,7 +100,7 @@ export async function describeObject(
   const url = storageObjectUrl(key);
   if (!url) throw new MediaError('Image uploads are not configured');
 
-  const res = await fetch(url, { method: 'HEAD', headers: headers() });
+  const res = await fetch(url, { method: 'HEAD', headers: headers(), signal: AbortSignal.timeout(STORAGE_TIMEOUT_MS) });
   if (res.status === 404) return null;
   if (!res.ok) throw new MediaError(`Storage could not be read (HTTP ${res.status})`);
 
@@ -128,6 +131,6 @@ export async function describeObject(
 export async function deleteObject(key: string): Promise<boolean> {
   const url = storageObjectUrl(key);
   if (!url) return false;
-  const res = await fetch(url, { method: 'DELETE', headers: headers() });
+  const res = await fetch(url, { method: 'DELETE', headers: headers(), signal: AbortSignal.timeout(STORAGE_TIMEOUT_MS) });
   return res.ok;
 }

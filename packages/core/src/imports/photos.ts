@@ -173,6 +173,8 @@ async function storeInBucket(listingId: string, bytes: Uint8Array, contentType: 
     method: 'PUT',
     headers: { 'Content-Type': contentType },
     body: new Blob([bytes as BlobPart], { type: contentType }),
+    // Up to 10 MB to Storage (PLATFORM-PLAN 1.15): a minute, then this photo fails and the import carries on.
+    signal: AbortSignal.timeout(60_000),
   });
   if (!res.ok) throw new PhotoError(`Storage refused the image (HTTP ${res.status})`);
   return key;
