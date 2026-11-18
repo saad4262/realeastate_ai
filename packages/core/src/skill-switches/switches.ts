@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { skillSwitch, user, type Db, type DbOrTx } from '@repo/db';
+import { planAllowsSkill } from '../billing/plans';
 import { can, isAgencyAdminRole, type Actor, type MembershipRole } from '../permissions';
 import { comboOfSkill, SKILL_COMBOS, platformSkill, skillOffMessage, skillsForHolder, type PlatformSkill, type SkillKey, type SwitchHolder } from './catalog';
 
@@ -185,6 +186,11 @@ export async function setSkillSwitch(db: DbOrTx, actor: Actor, key: SkillKey, on
   const holder = holderOf(actor.membershipRole);
   if (!skillsForHolder(holder).some((s) => s.key === key)) throw new SkillSwitchError('not_found', `“${platformSkill(key).name}” is not one of your skills.`);
   const userId = holder === 'agency' ? null : actor.userId;
+  if (on) {
+    // ADR 0092: a skill outside the agency's paid plan cannot be switched on.
+    const [a] = await db.execute<{ plan: string | null }>(sql`select plan from agency where id = ${actor.agencyId}`);
+    if (!planAllowsSkill(a?.plan, key)) throw new SkillSwitchError('forbidden', `“${platformSkill(key).name}” is not in your plan. An owner can change the plan in Billing.`);
+  }
   // The conflict target is the unique index's own expressions (agency, coalesce(user, 0), key).
   await db.execute(sql`
     insert into skill_switch (agency_id, user_id, skill_key, enabled, changed_by)

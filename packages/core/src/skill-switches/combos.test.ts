@@ -53,7 +53,21 @@ describe('the combined skills', () => {
     const db = { transaction: async (fn: (t: unknown) => unknown) => fn(tx) } as unknown as Db;
     const owner: Actor = { userId: 'u', agencyId: 'a', membershipRole: 'owner' };
     await setSkillCombo(db, owner, 'email', true);
-    expect(execute).toHaveBeenCalledTimes(3);
+    // Each part: the agency's plan read (ADR 0092), then its switch written.
+    expect(execute).toHaveBeenCalledTimes(6);
+  });
+  it('a part outside the agency’s paid plan cannot be switched on; nothing is written (ADR 0092)', async () => {
+    const execute = vi.fn(async (q: { queryChunks?: unknown[] }) => (JSON.stringify(q).includes('select plan from agency') ? [{ plan: 'starter' }] : []));
+    const db = { transaction: async (fn: (t: unknown) => unknown) => fn({ execute }) } as unknown as Db;
+    const owner: Actor = { userId: 'u', agencyId: 'a', membershipRole: 'owner' };
+    await expect(setSkillCombo(db, owner, 'sms', true)).rejects.toMatchObject({ code: 'forbidden', message: expect.stringMatching(/not in your plan/) });
+    expect(execute.mock.calls.filter(([q]) => JSON.stringify(q).includes('insert into skill_switch'))).toHaveLength(0);
+  });
+  it('switching off is never refused by the plan', async () => {
+    const execute = vi.fn(async () => [{ plan: 'starter' }]);
+    const db = { transaction: async (fn: (t: unknown) => unknown) => fn({ execute }) } as unknown as Db;
+    await setSkillCombo(db, { userId: 'u', agencyId: 'a', membershipRole: 'owner' }, 'sms', false);
+    expect(execute.mock.calls.length).toBeGreaterThan(0);
   });
   it('refuses a read-only member', async () => {
     const db = { transaction: async (fn: (t: unknown) => unknown) => fn({ execute: vi.fn() }) } as unknown as Db;
