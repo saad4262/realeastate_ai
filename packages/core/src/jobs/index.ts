@@ -1,5 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { job, type Db, type DbOrTx } from '@repo/db';
+import { BILLING_HELD } from '../platform/access';
 
 /**
  * The job queue (PLATFORM-PLAN 3.1). Background work goes in with `enqueueJob` and is run by `runJobs` from the
@@ -61,7 +62,7 @@ export async function claimJobs(db: DbOrTx, opts: { lane: JobLane; limit: number
       where j.lane = ${opts.lane}
         and ((j.status = 'queued' and j.run_at <= ${now}::timestamptz) or (j.status = 'running' and j.claimed_at < ${stale}::timestamptz))
         and (j.agency_id is null or j.agency_id not in (select a.id from agency a where a.status = 'suspended'
-          or (${opts.lane} = 'send' and a.sends_paused_at is not null)))
+          or (${opts.lane} = 'send' and (a.sends_paused_at is not null or ${BILLING_HELD('a')}))))
     ), picked as (
       select j.id from job j join ready r on r.id = j.id
       where r.rn <= ${opts.perAgency}

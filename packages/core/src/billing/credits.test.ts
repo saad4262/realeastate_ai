@@ -56,3 +56,14 @@ describe('checkAiBudget and credits', () => {
     expect(r).toMatchObject({ allowed: false, reason: 'credits', credits: { refused: true, balance: 3 } });
   });
 });
+
+describe('the billing hold (PLATFORM-PLAN 2.8)', () => {
+  it('past due beyond 7 days, or canceled past the paid period; proven per case on the dev database', async () => {
+    const { BILLING_HELD, SENDS_HELD_AGENCY_IDS } = await import('../platform/access');
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const held = new PgDialect().sqlToQuery(BILLING_HELD('a')).sql;
+    expect(held).toContain("a.billing_status = 'past_due' and a.past_due_since < now() - interval '7 days'");
+    expect(held).toContain("a.billing_status = 'canceled' and a.current_period_end < now()");
+    expect(new PgDialect().sqlToQuery(SENDS_HELD_AGENCY_IDS).sql).toContain("sa.billing_status = 'past_due'");
+  });
+});

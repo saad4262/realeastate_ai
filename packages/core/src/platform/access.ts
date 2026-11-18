@@ -21,10 +21,17 @@ export type AccessBlock = 'agency_suspended' | 'member_blocked';
 export const SUSPENDED_AGENCY_IDS = sql`(select sa.id from agency sa where sa.status = 'suspended')`;
 
 /**
+ * A billing hold (ADR 0092, PLATFORM-PLAN 2.8): past due for more than 7 days' grace, or canceled and past the end of
+ * the period it paid for. Only that agency's AI and sends stop; its data stays.
+ */
+export const BILLING_HELD = (a: string) =>
+  sql.raw(`((${a}.billing_status = 'past_due' and ${a}.past_due_since < now() - interval '7 days') or (${a}.billing_status = 'canceled' and ${a}.current_period_end < now()))`);
+
+/**
  * Agencies whose outbound sends wait (PLATFORM-PLAN 3.7): suspended, or sends paused after a spike. For the send
  * paths only — texts, bulk email, repeating automations, AI call-backs, the job queue's send lane.
  */
-export const SENDS_HELD_AGENCY_IDS = sql`(select sa.id from agency sa where sa.status = 'suspended' or sa.sends_paused_at is not null)`;
+export const SENDS_HELD_AGENCY_IDS = sql`(select sa.id from agency sa where sa.status = 'suspended' or sa.sends_paused_at is not null or ${BILLING_HELD('sa')})`;
 
 export function accessBlock(row: {
   membershipStatus: string | null | undefined;
@@ -44,6 +51,6 @@ export const ACCESS_BLOCK_MESSAGES: Record<AccessBlock, string> = {
 
 /** Whether this agency's outbound sends are held right now (PLATFORM-PLAN 3.7), for a send that happens at once. */
 export async function sendsHeld(db: DbOrTx, agencyId: string): Promise<boolean> {
-  const rows = await db.execute<{ held: boolean }>(sql`select (status = 'suspended' or sends_paused_at is not null) as held from agency where id = ${agencyId}`);
+  const rows = await db.execute<{ held: boolean }>(sql`select (a.status = 'suspended' or a.sends_paused_at is not null or ${BILLING_HELD('a')}) as held from agency a where a.id = ${agencyId}`);
   return rows[0]?.held === true;
 }

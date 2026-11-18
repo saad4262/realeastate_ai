@@ -2,6 +2,7 @@ import { sql, type SQL } from 'drizzle-orm';
 import type { DbOrTx } from '@repo/db';
 import { creditEstimate, reserveCredits } from '../billing/credits';
 import { isPaidPlan } from '../billing/plans';
+import { BILLING_HELD } from '../platform/access';
 
 /**
  * The AI budget: ONE place that reads the caps and ONE statement that reads what has been spent.
@@ -38,7 +39,7 @@ export type AiPool = 'public' | 'trial' | 'paying';
 export type AiBudget = {
   allowed: boolean;
   /** Which cap is spent; the platform's is named first, then the pool's, when more than one is. */
-  reason: 'global_cap' | 'pool_cap' | 'user_cap' | 'agency_cap' | 'credits' | null;
+  reason: 'global_cap' | 'pool_cap' | 'user_cap' | 'agency_cap' | 'credits' | 'billing_hold' | null;
   global: BudgetWindow;
   /** The pool's own ceiling (null for paying) and, for a trial agency, its share of the trial pool. */
   pool: { name: AiPool; window: BudgetWindow | null; agency: BudgetWindow | null };
@@ -152,12 +153,13 @@ export async function checkAiBudget(db: DbOrTx, opts: CheckAiBudgetOptions = {})
   const poolAgencySum = poolAgency ? sql`coalesce(sum(r.cost_usd) filter (where r.agency_id = ${poolAgency}), 0)` : sql`0`;
   const poolStatus = poolAgency ? sql`(select a.status::text from agency a where a.id = ${poolAgency})` : sql`null::text`;
   const poolPlan = poolAgency ? sql`(select a.plan from agency a where a.id = ${poolAgency})` : sql`null::text`;
+  const poolHeld = poolAgency ? sql`(select ${BILLING_HELD('a')} from agency a where a.id = ${poolAgency})` : sql`false`;
 
-  const [row] = await db.execute<{ total: string; person: string; agency: string; public_spend: string; trial_spend: string; pool_agency_spend: string; pool_status: string | null; pool_plan: string | null }>(sql`
+  const [row] = await db.execute<{ total: string; person: string; agency: string; public_spend: string; trial_spend: string; pool_agency_spend: string; pool_status: string | null; pool_plan: string | null; pool_held: boolean | null }>(sql`
     select coalesce(sum(r.cost_usd), 0) as total, ${personSum} as person, ${agencySum} as agency,
       coalesce(sum(r.cost_usd) filter (where r.agency_id is null), 0) as public_spend,
       coalesce(sum(r.cost_usd) filter (where r.agency_id in (select a.id from agency a where a.status = 'trial')), 0) as trial_spend,
-      ${poolAgencySum} as pool_agency_spend, ${poolStatus} as pool_status, ${poolPlan} as pool_plan
+      ${poolAgencySum} as pool_agency_spend, ${poolStatus} as pool_status, ${poolPlan} as pool_plan, ${poolHeld} as pool_held
     from ai_run r
     where r.created_at >= ${since}`);
 
@@ -184,6 +186,10 @@ export async function checkAiBudget(db: DbOrTx, opts: CheckAiBudgetOptions = {})
         : agencyWindow?.exceeded
           ? 'agency_cap'
           : null;
+  // ADR 0092 / PLATFORM-PLAN 2.8: an agency on a billing hold has no AI until its payment is sorted.
+  if (reason === null && row?.pool_held === true) {
+    return { allowed: false, reason: 'billing_hold', global, pool, user: userWindow, agency: agencyWindow, credits: null };
+  }
   // ADR 0092: a paid plan's credits, last — reserved only when every cap above allows the call.
   let credits: AiBudget['credits'] = null;
   if (reason === null && poolAgency && isPaidPlan(row?.pool_plan)) {
