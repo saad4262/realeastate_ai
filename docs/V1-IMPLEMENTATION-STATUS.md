@@ -30,6 +30,8 @@ Updated: 2026-11-18. Baseline (from 14.12): 80 tasks — 1 done, 3 built, 16 par
 | 2026-11-18 | 3.1 part 1 | `fix/3.1-workflow-event-retries` | Failed workflow events retried and dead-lettered; migration 0099 on dev only |
 | 2026-11-18 | production | migration 0099 + `main` f78f911 | Owner's go: backup `prod-20261118T144203Z` (verified, 141 tables) → 0099 applied from a checkout whose journal ends at 0099 (100 migrations; 4 columns + index; `job` table absent, as intended) → merged → Vercel READY ×4 → /api/health ok |
 | 2026-11-18 | 3.1 part 2 | `feat/3.1-job-table` | Job queue with fair share; migration 0100 on dev only |
+| 2026-11-18 | 3.9 | `feat/3.9-sms-reconcile` | Stuck texts settled with Twilio; urgent job lane wired to the tick |
+| 2026-11-18 | 3.7 | `feat/3.7-night-safety` | Spike pause with owner alerts; migration 0101 on dev only |
 
 ## Tasks
 | ID | Task | P | Status | Implementation | Files | Tests | Evidence | External dependency | Remaining risk |
@@ -88,9 +90,9 @@ Updated: 2026-11-18. Baseline (from 14.12): 80 tasks — 1 done, 3 built, 16 par
 | 3.4 | Imports start no automations | P0 | Unverified | — | — | — | Imports write no `workflow_event`; trigger scans on changed contacts not checked | — | — |
 | 3.5 | Vendor-down fallbacks | P1 | Not started | — | — | — | — | — | — |
 | 3.6 | Priority lanes, vendor limiters | P1 | Not started | — | — | — | — | — | — |
-| 3.7 | Unattended safety | P0 | Partial | — | — | — | Pause-all, five SMS rules, one run per event, email at-most-once | — | — |
+| 3.7 | Unattended safety | P0 | Built (branch) | Spike check every 5 min (texts, bulk email, AI spend vs the agency's own usual hour; floor and 3x); pause held on SMS/email batches, recurring automations, AI call-backs, job send lane, missed-call text; owners/admins get a bell and one email; audited pause and resume; `sends:resume` for owners/admins; `SENDS_PAUSED` platform stop (in 3.1). Idempotent sends: texts recorded before the call and settled by 3.9, never re-sent automatically | migration 0101, `safety/spikes.ts` (+ test), `platform/access.ts`, 5 send paths, `jobs`, `audit`, `permissions.ts`, `email/team-notices.ts`, minute jobs | 6 unit tests; dev end to end (A paused, B/C not; one bell; one audit; second pass no change; held vs not; send lane held, urgent runs; agent refused, owner resumed); break-test (no usual-hour rule → busy B paused); typecheck, lint, test green | `feat/3.7-night-safety` afde349 | Migrations 0100 + 0101 on production; a Resume button (Cursor) | "Last night's failures" morning view for agencies not built |
 | 3.8 | Inbound pull-back after outage | P1 | Not started | — | — | — | — | — | — |
-| 3.9 | Late jobs, stuck claims reconciled | P1 | Not started | — | — | — | — | — | — |
+| 3.9 | Late jobs, stuck claims reconciled | P1 | Partial (stuck SMS built) | Stuck texts (queued, no SID, 15 min–3 days) get one `sms.reconcile` job; Twilio asked (`findMessages`); found → status + SID, batch recipient sent; not found → failed with the reason, never re-sent on its own; same words whose only match is another row's SID → failed, not stolen; unstarted batch recipients requeued. Not yet: reminder/AI call-back lateness rules | `phone/reconcile.ts` (+ test), `phone/twilio.ts`, `cron/minute-jobs.ts` | Unit (Twilio query/parse); dev end to end (3 stuck enqueued once; found/missing/same-words; fair share 2 then 1); break-test (no taken-SID check → stuck, retried); typecheck, lint, test green | `feat/3.9-sms-reconcile` 1427fda | Migration 0100 on production | Twilio `DateSent` is a day filter; a page holds 50 messages per pair (enough per 15 minutes) |
 | 3.10 | Twilio signature + token rotation | P1 | Not started | — | — | — | — | — | — |
 | 4.1 | E2E five flows + four failures | P0 | Not started | — | — | — | — | — | — |
 | 4.2 | Nightly smoke | P1 | Not started | — | — | — | — | — | — |
