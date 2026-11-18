@@ -21,7 +21,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', async (_url: string, init?: RequestInit) => {
     if (init?.method === 'HEAD') return new Response(null, { headers: { 'content-type': declared, 'content-length': '1000' } });
     ranges.push(new Headers(init?.headers).get('range'));
-    return new Response(body);
+    return new Response(body as BodyInit);
   });
 });
 afterEach(() => vi.unstubAllGlobals());
