@@ -41,6 +41,7 @@ Updated: 2026-11-19. Baseline (from 14.12): 80 tasks — 1 done, 3 built, 16 par
 | 2026-11-18 | stage 7 | `feat/2.3-credits` | Credit ledger (0102 on dev), Stripe Checkout/Portal/webhooks, billing holds, reconciliation, seats; all with a fake Stripe |
 | 2026-11-19 | production | migration 0102 + `main` 985da81 | Owner's go: backup `prod-20261119T110437Z` (verified, 142 tables) → 0102 applied from a checkout ending at 0102 (103 migrations; RLS on grant/hold/stripe_event; 5 columns, 5 indexes; all 6 agencies on trial) → `feat/2.1-billing` then `feat/2.3-credits` merged (clean-worktree typecheck, lint, 2918 tests green) → Vercel success ×4 (the 5 stale console/web projects failed as on the previous commit) → /api/health ok ×4; unsigned Stripe webhook → 400. First tick settled all 232 agency runs; 125 public runs (no agency) stay unsettled by design; 0 jobs, 0 paused |
 | 2026-11-19 | 2.6 | `feat/2.6-credit-alerts` | 80%/100% credit alerts to owners; no migration |
+| 2026-11-19 | 4.10 | `test/4.10-ai-sql-probes` | AI SQL probes added to smoke as their own group; passed on dev with break-tests |
 
 ## Tasks
 | ID | Task | P | Status | Implementation | Files | Tests | Evidence | External dependency | Remaining risk |
@@ -112,7 +113,7 @@ Updated: 2026-11-19. Baseline (from 14.12): 80 tasks — 1 done, 3 built, 16 par
 | 4.7 | Route audit + ZAP | P1 | Partial | — | — | — | `isolation/entrypoints.test.ts` lists every route and action; no ZAP | — | — |
 | 4.8 | Rollback drill | P1 | Not started | — | — | — | — | — | — |
 | 4.9 | Isolation beyond pages | P0 | Partial | — | — | — | can() matrix + smoke 8/8; exports, jobs, files not covered | — | — |
-| 4.10 | AI SQL probes in smoke | P1 | Partial | — | — | — | 6 smoke checks; 2026-11-18 dev probe not yet in smoke | — | — |
+| 4.10 | AI SQL probes in smoke | P1 | Built (branch) | New smoke group: every `ai` view carries `ai.ticket_agency()`; ai_reader has no USAGE on auth, storage, extensions, vault, graphql, realtime; auth.users, storage.objects, pg_authid refused (42501); no pg_read_all_stats/data; other sessions' query text hidden | `packages/smoke/src/index.ts` (group 'AI SQL probes') | Dev: passed in 50 s (16 views, 15 other sessions, 0 texts; owner role sees 6); break-tests built in (unfiltered view → red, schema grant → red), rolled back (16 views, no grant after) | `test/4.10-ai-sql-probes` 34eefbd | Owner approval to merge (test only) | pg_read_all_stats cannot be granted by postgres, so that break is shown by the owner role seeing the text instead |
 | 5.1 | Privacy policy | P0 | Not started | — | — | — | — | Lawyer (O-21) | — |
 | 5.2 | Terms + DPA | P0 | Not started | — | — | — | — | Lawyer (O-21) | — |
 | 5.3 | Breach runbook + runbooks | P0 | Not started | — | — | — | — | — | — |
