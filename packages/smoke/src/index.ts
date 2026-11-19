@@ -2,7 +2,7 @@ import { assertNotProduction } from '@repo/db/production-guard';
 import { config } from 'dotenv';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { documentDownloadUrl } from '@repo/core/documents';
-import { agencyCatalog, ARCHIVE_AGENCY_SLUG, closeAgency, deleteAgency, exportAgency, unclassified } from '@repo/core/lifecycle';
+import { agencyCatalog, ARCHIVE_AGENCY_SLUG, closeAgency, deleteAgency, deleteOwnAccount, exportAgency, purgeRetention, retentionDue, unclassified } from '@repo/core/lifecycle';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import ts from 'typescript';
@@ -9976,6 +9976,45 @@ async function main() {
       const direct = await t.transaction(async (sp) => sp.execute(sql`delete from agency where id = ${B.f.agencyId}`)).then(() => 'ran', (e: unknown) => String(e));
       assert(direct.includes('listing_agency_id_agency_id_fk'), `deleting an agency with listings directly: ${direct}`);
       return `export ${Object.keys(exp.tables).length} tables / ${exported} rows / 1 file, no B row, no secret, no shortlist; refused open, early, misnamed; deleted: 0 rows left, ${del.listingsArchived} listings archived (${arch!.status}, 0 agents), shortlist kept, B's ${contactsB} contacts kept, 1 file deleted; direct delete with listings → refused by the listing FK; new child table → flagged`;
+    }),
+  );
+
+  group('Account deletion and retention (PLATFORM-PLAN 5.12)');
+  await check('5.12: a public user deletes their account — their own data gone, the agency\'s enquiry kept and unlinked, the sign-in deleted first; someone at an agency is refused; the daily purge removes only what is past its time', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const [buyer] = await t.execute<{ id: string }>(sql`insert into "user" (id, email) values (${randomUUID()}, ${`del.${f.tag}@smoke.test`}) returning id`);
+      const id = buyer!.id;
+      const [lst] = await t.execute<{ id: string; property_id: string }>(sql`select id, property_id from listing where agency_id = ${f.agencyId} limit 1`);
+      await t.execute(sql`insert into shortlist (user_id, listing_id) values (${id}, ${lst!.id})`);
+      const [lead] = await t.execute<{ id: string }>(sql`insert into lead (agency_id, property_id, listing_id, name, email, kind, user_id)
+        values (${f.agencyId}, ${lst!.property_id}, ${lst!.id}, 'Del Buyer', ${`del.${f.tag}@smoke.test`}, 'enquiry', ${id}) returning id`);
+      const calls: string[] = [];
+      const deps = { deleteAuthUser: async (u: string) => void calls.push(`auth:${u}`), deletePhotos: async (k: readonly string[]) => (calls.push(`photos:${k.length}`), true) };
+      const refused = await deleteOwnAccount(t, { userId: f.people.a1 }, deps).then(() => 'ran', (e: unknown) => (e as { code?: string }).code ?? String(e));
+      assert(refused === 'works_at_agency' && calls.length === 0, `an agent's account: ${refused}, calls ${calls.join(',')}`);
+      const r = await deleteOwnAccount(t, { userId: id }, deps);
+      assert(calls[0] === `auth:${id}`, `the sign-in was not deleted first: ${calls.join(',')}`);
+      assert((await count(t, sql`select count(*)::int as n from "user" where id = ${id}`)) === 0, 'the user row is still there');
+      assert((await count(t, sql`select count(*)::int as n from shortlist where user_id = ${id}`)) === 0, 'the shortlist survived');
+      const [kept] = await t.execute<{ user_id: string | null }>(sql`select user_id from lead where id = ${lead!.id}`);
+      assert(kept && kept.user_id === null, `the agency's enquiry: ${JSON.stringify(kept)}`);
+      // Retention: one row each side of every cutoff.
+      const old = (days: number) => new Date(Date.now() - (days + 1) * 86_400_000).toISOString();
+      const fresh = new Date(Date.now() - 86_400_000).toISOString();
+      for (const at of [old(395), fresh]) await t.execute(sql`insert into site_activity (kind, suburb, created_at) values ('search', ${'Smoke ' + f.tag}, ${at}::timestamptz)`);
+      for (const at of [old(90), fresh]) await t.execute(sql`insert into dashboard_gap_log (agency_id, request, created_at) values (${f.agencyId}, ${'smoke ' + f.tag}, ${at}::timestamptz)`);
+      for (const at of [old(90), fresh]) await t.execute(sql`insert into ai_query_log (agency_id, via, sql, outcome, created_at) values (${f.agencyId}, 'tile', 'select 1', 'ok', ${at}::timestamptz)`);
+      for (const at of [old(60), fresh]) await t.execute(sql`insert into note (agency_id, contact_id, author_id, body, deleted_at) values (${f.agencyId}, ${f.contacts.p1}, ${f.people.owner}, ${'trash ' + f.tag}, ${at}::timestamptz)`);
+      const report = await purgeRetention(t);
+      const left = async (q: SQL) => count(t, q);
+      const sa = await left(sql`select count(*)::int as n from site_activity where suburb = ${'Smoke ' + f.tag}`);
+      const gap = await left(sql`select count(*)::int as n from dashboard_gap_log where agency_id = ${f.agencyId} and request = ${'smoke ' + f.tag}`);
+      const ql = await left(sql`select count(*)::int as n from ai_query_log where agency_id = ${f.agencyId}`);
+      const notes = await left(sql`select count(*)::int as n from note where agency_id = ${f.agencyId} and body = ${'trash ' + f.tag}`);
+      assert(sa === 1 && gap === 1 && ql === 1 && notes === 1, `left after the purge (each should be 1, the fresh one): site ${sa}, requests ${gap}, sql ${ql}, trash ${notes}`);
+      assert(!retentionDue(new Date('2026-11-19T09:00:00Z')) && retentionDue(new Date('2026-11-19T17:02:00Z')), 'retentionDue gate');
+      return `agent refused (no call made); public user: sign-in deleted first, row and shortlist gone, the agency's enquiry kept (user unlinked), ${r.photos} photo(s); purge removed ${JSON.stringify(report)} and kept every fresh row`;
     }),
   );
 
