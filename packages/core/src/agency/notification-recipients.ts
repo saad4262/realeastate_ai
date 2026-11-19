@@ -30,6 +30,8 @@ export type NotificationRecipient = {
 export async function agencyNotificationRecipients(
   db: Db,
   agencyId: string,
+  /** Billing notices go to owners only (`billing:manage`). */
+  roles: ('owner' | 'admin')[] = ['owner', 'admin'],
 ): Promise<NotificationRecipient[]> {
   const rows = await db
     .select({ userId: user.id, email: user.email, name: user.name })
@@ -39,7 +41,7 @@ export async function agencyNotificationRecipients(
       and(
         eq(membership.agencyId, agencyId),
         eq(membership.status, 'active'),
-        inArray(membership.role, ['owner', 'admin']),
+        inArray(membership.role, roles),
       ),
     );
 
