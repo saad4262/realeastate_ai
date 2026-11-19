@@ -1,6 +1,8 @@
 import { cache } from 'react';
 import { notFound, redirect } from 'next/navigation';
 import type { Actor } from '@repo/core/permissions';
+import { mfaMark } from '@repo/core/permissions';
+import { sessionAal } from './session-aal';
 import { loadPlatformAdmin, logPlatformView, platformViewActor, PlatformError, type PlatformView } from '@repo/core/platform';
 import { getConsoleDb } from './db';
 import { requireConsoleSession } from './require-console-access';
@@ -22,7 +24,8 @@ export const requirePlatformAdmin = cache(async (): Promise<PlatformAdminSession
     redirect('/login?error=database');
   }
   if (!admin) redirect('/login?error=forbidden');
-  return { admin, userLabel: session.label };
+  // PLATFORM-PLAN 1.3: platform admins too need a second factor for platform:manage once MFA is enforced.
+  return { admin: { ...admin, ...mfaMark(admin, await sessionAal(session.userId)) }, userLabel: session.label };
 });
 
 /**

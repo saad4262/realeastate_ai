@@ -8,7 +8,7 @@ import { readSignedIdentity, sessionHeaderSecret, signIdentity, SIGNED_HEADER_TT
 
 const SECRET = 'test-secret-for-session-headers';
 const NOW = 1_800_000_000_000;
-const who = { id: '7d3f1c2a-0b5e-4c1d-9a8f-2e6b4d0c1a99', email: 'sara@example.com', label: 'Sara Khan' };
+const who = { id: '7d3f1c2a-0b5e-4c1d-9a8f-2e6b4d0c1a99', email: 'sara@example.com', label: 'Sara Khan', aal: 'aal1' as const };
 
 async function headersFor(prefix: 'x-console-user' | 'x-web-user' = 'x-console-user', now = NOW, secret = SECRET) {
   const h = new Headers();
@@ -28,11 +28,21 @@ describe('signed session headers', () => {
       ['x-console-user-id', '00000000-0000-0000-0000-000000000001'],
       ['x-console-user-email', encodeURIComponent('owner@other.example')],
       ['x-console-user-label', encodeURIComponent('Someone else')],
+      // PLATFORM-PLAN 1.3: a second factor claimed by the header alone is not believed.
+      ['x-console-user-aal', 'aal2'],
     ] as const) {
       const h = await headersFor();
       h.set(name, value);
       expect(await read(h), name).toBeNull();
     }
+  });
+
+  it('carries the assurance level: aal2 round-trips; a header without one is nobody', async () => {
+    const h = new Headers();
+    for (const [k, v] of Object.entries((await signIdentity('x-console-user', { ...who, aal: 'aal2' }, NOW, SECRET))!)) h.set(k, v);
+    expect(await read(h)).toEqual({ ...who, aal: 'aal2' });
+    h.delete('x-console-user-aal');
+    expect(await read(h)).toBeNull();
   });
 
   it('refuses headers with no signature, a made-up one, or another secret', async () => {

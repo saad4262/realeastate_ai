@@ -34,5 +34,4 @@ test('a duplicate webhook is ignored: the same Stripe event twice is stored and 
 // Needs Stripe test mode (O-17): a declined card in Checkout, then the agency past due.
 test.fixme('a failed payment marks the agency past due, and nothing is held for 7 days', async () => {});
 
-// Needs MFA (PLATFORM-PLAN 1.3), not built yet.
-test.fixme('a wrong MFA code is refused', async () => {});
+// A wrong MFA code: tests/mfa.spec.ts (PLATFORM-PLAN 1.3).

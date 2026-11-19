@@ -1,10 +1,11 @@
 import { cache } from 'react';
 import { desc, eq, sql } from 'drizzle-orm';
 import { agency, listingAgent, membership, user } from '@repo/db/schema';
-import { can, type Actor, type MembershipRole } from '@repo/core/permissions';
+import { can, mfaMark, type Actor, type MembershipRole } from '@repo/core/permissions';
 import { narrowedContactIdsSql } from '@repo/core/contacts';
 import { accessBlock, type AccessBlock } from '@repo/core/platform/access';
 import { getConsoleDb } from './db';
+import { sessionAal } from './session-aal';
 
 /**
  * Build a can() actor from the membership row.
@@ -163,6 +164,8 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
     agencyId: mem.agencyId,
     membershipRole: mem.role as MembershipRole,
   };
+  // PLATFORM-PLAN 1.3: owners and admins without a second factor are marked, and can() keeps billing and team shut.
+  Object.assign(actor, mfaMark(actor, await sessionAal(userId)));
 
   // The same question the inbox asks. Asked here too so the chrome cannot
   // disclose by counting what the screen would refuse to show.
