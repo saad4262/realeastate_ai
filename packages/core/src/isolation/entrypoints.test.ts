@@ -50,6 +50,7 @@ const PUBLIC_ROUTES: Record<string, { why: string; guard: RegExp }> = {
   'apps/web/app/api/places/route.ts': { why: 'public address autocomplete, rate-limited per IP', guard: /overLimit/ },
   'apps/web/app/api/stripe/webhook/route.ts': { why: 'Stripe calls it (ADR 0092): no session; its signature is the check', guard: /receiveStripeWebhook\(/ },
   'apps/web/app/api/health/route.ts': { why: 'uptime monitors (PLATFORM-PLAN 1.14): ok/degraded flags only, no data', guard: /healthReport\(/ },
+  'apps/web/app/api/health/alerts/route.ts': { why: 'the paging monitor (PLATFORM-PLAN 1.23): ok/alert flags only, no data', guard: /alertLines\(/ },
   'apps/console/app/api/health/route.ts': { why: 'uptime monitors (PLATFORM-PLAN 1.14): ok/degraded flags only, no data', guard: /healthReport\(/ },
   'apps/web/app/api/reviews/[listingId]/route.ts': {
     why: 'a live listing’s agency Google rating (ADR 0028): public like the listing; the agency comes from the listing, rate-limited',

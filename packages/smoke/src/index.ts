@@ -1,4 +1,5 @@
 import { assertNotProduction } from '@repo/db/production-guard';
+import { alertLines } from '@repo/core/observability/health';
 import { config } from 'dotenv';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { documentDownloadUrl } from '@repo/core/documents';
@@ -10015,6 +10016,33 @@ async function main() {
       assert(sa === 1 && gap === 1 && ql === 1 && notes === 1, `left after the purge (each should be 1, the fresh one): site ${sa}, requests ${gap}, sql ${ql}, trash ${notes}`);
       assert(!retentionDue(new Date('2026-11-19T09:00:00Z')) && retentionDue(new Date('2026-11-19T17:02:00Z')), 'retentionDue gate');
       return `agent refused (no call made); public user: sign-in deleted first, row and shortlist gone, the agency's enquiry kept (user unlinked), ${r.photos} photo(s); purge removed ${JSON.stringify(report)} and kept every fresh row`;
+    }),
+  );
+
+  group('Alert lines (PLATFORM-PLAN 1.23)');
+  await check('1.23: each alert line fires once on purpose — job lag, a dead job, a stuck text, a paused agency — and a held agency\'s waiting send job is not lag', async () =>
+    inRollback(async (t) => {
+      const before = await alertLines(t, {} as NodeJS.ProcessEnv);
+      assert(before.status === 'ok', `dev is not quiet before the check: ${JSON.stringify(before.lines)}`);
+      const f = await contactFixture(t);
+      const job = (lane: string, status: string, extra = sql``) => t.execute(sql`insert into job (agency_id, kind, lane, status, run_at, finished_at)
+        values (${f.agencyId}, 'smoke.alert', ${lane}, ${status}, now() - interval '5 minutes', ${status === 'dead' ? sql`now()` : null}) ${extra}`);
+      // Held (sends paused): its send job waits by design, which is not lag; the pause itself is a line.
+      await t.execute(sql`update agency set sends_paused_at = now() where id = ${f.agencyId}`);
+      await job('send', 'queued');
+      const held = await alertLines(t, {} as NodeJS.ProcessEnv);
+      assert(held.lines.jobLag === 'ok' && held.lines.sendsPaused === 'alert', `held: ${JSON.stringify(held.lines)}`);
+      await job('urgent', 'queued');
+      const lag = await alertLines(t, {} as NodeJS.ProcessEnv);
+      await job('urgent', 'dead');
+      const dead = await alertLines(t, {} as NodeJS.ProcessEnv);
+      const [num] = await t.execute<{ id: string }>(sql`insert into phone_number (agency_id, user_id, e164, number_sid) values (${f.agencyId}, ${f.people.a1}, '+61480000123', ${`PN123${f.tag}`}) returning id`);
+      await t.execute(sql`insert into sms_message (agency_id, phone_number_id, counterpart, direction, body, status, created_at)
+        values (${f.agencyId}, ${num!.id}, '+61412000123', 'out', 'smoke', 'queued', now() - interval '40 minutes')`);
+      const stuck = await alertLines(t, {} as NodeJS.ProcessEnv);
+      assert(lag.lines.jobLag === 'alert' && dead.lines.deadJobs === 'alert' && stuck.lines.stuckTexts === 'alert' && stuck.status === 'alert',
+        `lag ${lag.lines.jobLag}, dead ${dead.lines.deadJobs}, stuck ${stuck.lines.stuckTexts}`);
+      return `quiet before; held send job not lag, pause → sendsPaused; overdue urgent job → jobLag; dead job → deadJobs; text queued 40 min → stuckTexts; status alert`;
     }),
   );
 
