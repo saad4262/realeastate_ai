@@ -181,7 +181,11 @@ export const office = pgTable('office', {
   address: text('address'),
   phone: text('phone'),
   ...timestamps,
-});
+},
+  (t) => [
+    index('office_agency_id_fk_idx').on(t.agencyId),
+  ],
+);
 
 export const team = pgTable('team', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -190,7 +194,11 @@ export const team = pgTable('team', {
     .references(() => agency.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   ...timestamps,
-});
+},
+  (t) => [
+    index('team_agency_id_fk_idx').on(t.agencyId),
+  ],
+);
 
 export const teamMember = pgTable(
   'team_member',
@@ -230,6 +238,7 @@ export const membership = pgTable(
     ...timestamps,
   },
   (t) => [
+    index('membership_agency_id_fk_idx').on(t.agencyId),
     uniqueIndex('membership_user_agency_idx').on(t.userId, t.agencyId),
     // ADR 0030, decided Q4: one ACTIVE agency per person.
     uniqueIndex('membership_one_active_idx').on(t.userId).where(sql`status = 'active'`),
@@ -310,7 +319,11 @@ export const agentInvite = pgTable('agent_invite', {
   membershipId: uuid('membership_id').references(() => membership.id, { onDelete: 'set null' }),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   ...timestamps,
-});
+},
+  (t) => [
+    index('agent_invite_agency_id_fk_idx').on(t.agencyId),
+  ],
+);
 
 /** Physical place — permanent. Never merge with listing. */
 export const property = pgTable('property', {
@@ -489,6 +502,7 @@ export const listingAgent = pgTable(
     ...timestamps,
   },
   (t) => [
+    index('listing_agent_user_id_fk_idx').on(t.userId),
     primaryKey({ columns: [t.listingId, t.userId] }),
     /**
      * One lead agent per listing (ADR 0036 P4): at most one row at display
@@ -515,7 +529,11 @@ export const media = pgTable('media', {
   aiTags: jsonb('ai_tags'),
   aiQualityScore: numeric('ai_quality_score', { precision: 4, scale: 2 }),
   ...timestamps,
-});
+},
+  (t) => [
+    index('media_listing_id_fk_idx').on(t.listingId),
+  ],
+);
 
 /**
  * Visual Search AI (ADR 0080, C9 decisions 8–11): one image vector per listing photo, from Voyage
@@ -564,7 +582,9 @@ export const listingPriceChange = pgTable(
     newTo: numeric('new_to', { precision: 14, scale: 2 }),
     changedAt: timestamp('changed_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('listing_price_change_listing_idx').on(t.listingId, t.changedAt)],
+  (t) => [
+    index('listing_price_change_agency_id_fk_idx').on(t.agencyId),
+    index('listing_price_change_listing_idx').on(t.listingId, t.changedAt)],
 );
 
 export const inspection = pgTable('inspection', {
@@ -656,6 +676,9 @@ export const lead = pgTable(
     ...timestamps,
   },
   (t) => [
+    index('lead_listing_id_fk_idx').on(t.listingId),
+    index('lead_assigned_to_fk_idx').on(t.assignedTo),
+    index('lead_user_id_fk_idx').on(t.userId),
     index('lead_search_idx').using('gin', t.searchTsv),
     /** The agency inbox: their leads, newest first. There was no index at all. */
     index('lead_agency_created_idx').on(t.agencyId, desc(t.createdAt)),
@@ -910,7 +933,9 @@ export const teamMessage = pgTable(
     providerId: text('provider_id').unique(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('team_message_thread_idx').on(t.threadId, t.createdAt)],
+  (t) => [
+    index('team_message_agency_id_fk_idx').on(t.agencyId),
+    index('team_message_thread_idx').on(t.threadId, t.createdAt)],
 );
 
 // ── Contacts (docs/adr/0018) ────────────────────────────────────────────────
@@ -1037,6 +1062,7 @@ export const contact = pgTable(
     ...timestamps,
   },
   (t) => [
+    index('contact_assigned_to_fk_idx').on(t.assignedTo),
     /**
      * One live contact per address per agency — what makes the trigger's
      * upsert an upsert. Partial: a merged row keeps its old email without
@@ -1169,7 +1195,9 @@ export const note = pgTable(
     searchTsv: tsvector('search_tsv').generatedAlwaysAs(sql`to_tsvector('english', coalesce(body, ''))`),
     ...timestamps,
   },
-  (t) => [index('note_contact_idx').on(t.contactId, desc(t.createdAt)), index('note_search_idx').using('gin', t.searchTsv)],
+  (t) => [
+    index('note_agency_id_fk_idx').on(t.agencyId),
+    index('note_contact_idx').on(t.contactId, desc(t.createdAt)), index('note_search_idx').using('gin', t.searchTsv)],
 );
 
 /**
@@ -1202,7 +1230,9 @@ export const activity = pgTable(
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
     ...timestamps,
   },
-  (t) => [index('activity_contact_idx').on(t.contactId, desc(t.occurredAt))],
+  (t) => [
+    index('activity_agency_id_fk_idx').on(t.agencyId),
+    index('activity_contact_idx').on(t.contactId, desc(t.occurredAt))],
 );
 
 // ── Appointments (docs/adr/0019) ────────────────────────────────────────────
@@ -1353,6 +1383,7 @@ export const appointmentParticipant = pgTable(
     declinedAt: timestamp('declined_at', { withTimezone: true }),
   },
   (t) => [
+    index('appointment_participant_agency_id_fk_idx').on(t.agencyId),
     primaryKey({ columns: [t.appointmentId, t.userId] }),
     index('appointment_participant_user_idx').on(t.userId, t.appointmentId),
   ],
@@ -1390,6 +1421,7 @@ export const notification = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    index('notification_agency_id_fk_idx').on(t.agencyId),
     uniqueIndex('notification_user_dedupe_key').on(t.userId, t.dedupeKey),
     index('notification_user_created_idx').on(t.userId, t.createdAt),
   ],
@@ -1773,7 +1805,9 @@ export const shortlist = pgTable(
     note: text('note'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.userId, t.listingId] })],
+  (t) => [
+    index('shortlist_listing_id_fk_idx').on(t.listingId),
+    primaryKey({ columns: [t.userId, t.listingId] })],
 );
 
 /**
@@ -1816,7 +1850,9 @@ export const propertyWatch = pgTable(
     checkedAt: timestamp('checked_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.userId, t.propertyId] }), index('property_watch_checked_idx').on(t.checkedAt)],
+  (t) => [
+    index('property_watch_property_id_fk_idx').on(t.propertyId),
+    primaryKey({ columns: [t.userId, t.propertyId] }), index('property_watch_checked_idx').on(t.checkedAt)],
 );
 
 /** What happened at a watched address, as the buyer reads it: the Watching page's history and the daily email's lines. */
@@ -1839,7 +1875,9 @@ export const propertyWatchEvent = pgTable(
     emailedAt: timestamp('emailed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('property_watch_event_user_idx').on(t.userId, t.emailedAt), index('property_watch_event_property_idx').on(t.userId, t.propertyId, t.happenedAt)],
+  (t) => [
+    index('property_watch_event_property_id_fk_idx').on(t.propertyId),
+    index('property_watch_event_user_idx').on(t.userId, t.emailedAt), index('property_watch_event_property_idx').on(t.userId, t.propertyId, t.happenedAt)],
 );
 
 /**
@@ -1936,7 +1974,9 @@ export const inspectionNote = pgTable(
     notes: text('notes'),
     ...timestamps,
   },
-  (t) => [uniqueIndex('inspection_note_user_listing_idx').on(t.userId, t.listingId), index('inspection_note_user_idx').on(t.userId, t.updatedAt)],
+  (t) => [
+    index('inspection_note_listing_id_fk_idx').on(t.listingId),
+    uniqueIndex('inspection_note_user_listing_idx').on(t.userId, t.listingId), index('inspection_note_user_idx').on(t.userId, t.updatedAt)],
 );
 
 /**
@@ -2189,6 +2229,7 @@ export const skill = pgTable(
     ...timestamps,
   },
   (t) => [
+    index('skill_agency_id_fk_idx').on(t.agencyId),
     uniqueIndex('skill_scope_slug_idx').on(sql`coalesce(${t.agencyId}, '00000000-0000-0000-0000-000000000000'::uuid)`, t.slug),
   ],
 );
@@ -2230,6 +2271,7 @@ export const agentSkill = pgTable(
     ...timestamps,
   },
   (t) => [
+    index('agent_skill_agency_id_fk_idx').on(t.agencyId),
     uniqueIndex('agent_skill_user_skill_idx').on(t.userId, t.skillId).where(sql`archived_at is null`),
     index('agent_skill_due_idx').on(t.nextRunAt).where(sql`enabled and archived_at is null`),
   ],
@@ -2375,7 +2417,9 @@ export const dealCondition = pgTable(
     sort: integer('sort').notNull().default(0),
     ...timestamps,
   },
-  (t) => [index('deal_condition_deal_idx').on(t.dealId, t.sort)],
+  (t) => [
+    index('deal_condition_agency_id_fk_idx').on(t.agencyId),
+    index('deal_condition_deal_idx').on(t.dealId, t.sort)],
 );
 
 /** What happened to a deal, newest last (ADR 0063 §3): stage moves, settling, a condition met. */
@@ -2400,7 +2444,9 @@ export const dealEvent = pgTable(
     note: text('note'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('deal_event_deal_idx').on(t.dealId, t.createdAt)],
+  (t) => [
+    index('deal_event_agency_id_fk_idx').on(t.agencyId),
+    index('deal_event_deal_idx').on(t.dealId, t.createdAt)],
 );
 
 
@@ -2422,7 +2468,9 @@ export const contactFilter = pgTable(
     query: jsonb('query').notNull(),
     ...timestamps,
   },
-  (t) => [index('contact_filter_user_idx').on(t.userId, desc(t.createdAt))],
+  (t) => [
+    index('contact_filter_agency_id_fk_idx').on(t.agencyId),
+    index('contact_filter_user_idx').on(t.userId, desc(t.createdAt))],
 );
 
 export const emailTemplateStatusEnum = pgEnum('email_template_status', [
@@ -2566,6 +2614,7 @@ export const emailBatchRecipient = pgTable(
     ...timestamps,
   },
   (t) => [
+    index('email_batch_recipient_sms_message_id_fk_idx').on(t.smsMessageId),
     uniqueIndex('email_batch_recipient_unique_idx').on(t.batchId, t.contactId),
     index('email_batch_recipient_status_idx').on(t.batchId, t.status),
   ],
@@ -2610,6 +2659,7 @@ export const assistantConversation = pgTable(
     ...timestamps,
   },
   (t) => [
+    index('assistant_conversation_agency_id_fk_idx').on(t.agencyId),
     index('assistant_conversation_user_idx').on(t.userId, desc(t.lastTurnAt)),
     index('assistant_conversation_last_turn_idx').on(t.lastTurnAt),
   ],
@@ -2672,7 +2722,9 @@ export const assistantTask = pgTable(
     finishedAt: timestamp('finished_at', { withTimezone: true }),
     ...timestamps,
   },
-  (t) => [index('assistant_task_user_idx').on(t.userId, t.status), index('assistant_task_agency_idx').on(t.agencyId, t.status)],
+  (t) => [
+    index('assistant_task_conversation_id_fk_idx').on(t.conversationId),
+    index('assistant_task_user_idx').on(t.userId, t.status), index('assistant_task_agency_idx').on(t.agencyId, t.status)],
 );
 
 /**
@@ -2711,6 +2763,7 @@ export const automation = pgTable(
     ...timestamps,
   },
   (t) => [
+    index('automation_conversation_id_fk_idx').on(t.conversationId),
     index('automation_due_idx').on(t.nextRunAt).where(sql`status = 'active'`),
     index('automation_agency_idx').on(t.agencyId, t.status),
     index('automation_user_idx').on(t.userId, t.status),
@@ -2861,6 +2914,7 @@ export const workflowRun = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    index('workflow_run_event_id_fk_idx').on(t.eventId),
     uniqueIndex('workflow_run_once_idx').on(t.workflowId, t.eventId),
     index('workflow_run_recent_idx').on(t.workflowId, desc(t.createdAt)),
     /** The Control Centre (ADR 0091): an agency's runs, newest first. */
@@ -2926,6 +2980,7 @@ export const proposedAction = pgTable(
     ...timestamps,
   },
   (t) => [
+    index('proposed_action_conversation_id_fk_idx').on(t.conversationId),
     uniqueIndex('proposed_action_idempotency_idx').on(t.idempotencyKey),
     index('proposed_action_user_idx').on(t.userId, desc(t.createdAt)),
     /** The Control Centre (ADR 0091): what waits for a person, across the agency. */
@@ -2980,7 +3035,9 @@ export const dashboardGapLog = pgTable(
     wanted: text('wanted'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('dashboard_gap_log_dataset_idx').on(t.nearestDataset, desc(t.createdAt))],
+  (t) => [
+    index('dashboard_gap_log_agency_id_fk_idx').on(t.agencyId),
+    index('dashboard_gap_log_dataset_idx').on(t.nearestDataset, desc(t.createdAt))],
 );
 
 // ── Open questions on an agency's data (docs/adr/0042) ─────────────────────
@@ -2999,7 +3056,11 @@ export const aiQueryTicket = pgTable('ai_query_ticket', {
     .references(() => agency.id, { onDelete: 'cascade' }),
   userId: uuid('user_id').references(() => user.id, { onDelete: 'cascade' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+},
+  (t) => [
+    index('ai_query_ticket_agency_id_fk_idx').on(t.agencyId),
+  ],
+);
 
 /**
  * Every open query that ran (ADR 0042): who, what, how long, how it ended.
@@ -3282,7 +3343,9 @@ export const smsRead = pgTable(
       .references(() => agency.id, { onDelete: 'cascade' }),
     lastReadAt: timestamp('last_read_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.phoneNumberId, t.counterpart, t.userId] })],
+  (t) => [
+    index('sms_read_agency_id_fk_idx').on(t.agencyId),
+    primaryKey({ columns: [t.phoneNumberId, t.counterpart, t.userId] })],
 );
 
 /** A number that replied STOP to one agency: it is never texted by that agency again until it replies START. */
@@ -3762,6 +3825,7 @@ export const siteActivity = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    index('site_activity_listing_id_fk_idx').on(t.listingId),
     index('site_activity_user_idx').on(t.userId, desc(t.createdAt)),
     index('site_activity_created_idx').on(t.createdAt),
     index('site_activity_agency_idx').on(t.agencyId, desc(t.createdAt)),
