@@ -1,7 +1,7 @@
 import type { JwtPayload } from '@supabase/supabase-js';
 import { NextRequest } from 'next/server';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { authUnavailableResponse, identityFromClaims, updateSession } from './middleware';
+import { authUnavailableResponse, identityFromClaims, sessionTooOld, updateSession } from './middleware';
 import { readSignedIdentity } from './session-header';
 
 /**
@@ -109,6 +109,10 @@ describe('identityFromClaims', () => {
     expect(identityFromClaims({ ...claimsFor(1), user_metadata: { name: 'Sara' } })?.label).toBe('Sara');
     expect(identityFromClaims({ ...claimsFor(1), aal: 'aal2' })?.aal).toBe('aal2');
     expect(identityFromClaims({ ...claimsFor(1), aal: 'AAL2 please' })?.aal).toBe('aal1');
+    const amr = [{ method: 'password', timestamp: 100 }, { method: 'totp', timestamp: 250 }];
+    expect(identityFromClaims({ ...claimsFor(1), amr } as never)).toMatchObject({ authAt: 250, mfaAt: 250 });
+    expect(identityFromClaims({ ...claimsFor(1), amr: [amr[0]] } as never)).toMatchObject({ authAt: 100 });
+    expect(identityFromClaims({ ...claimsFor(1), amr: [amr[0]] } as never)?.mfaAt).toBeUndefined();
     expect(identityFromClaims({ ...claimsFor(1), user_metadata: { full_name: '  ' } })?.label).toBe('sara');
   });
 
@@ -241,5 +245,15 @@ describe('authUnavailableResponse', () => {
     expect(await api.json()).toEqual({ error: { code: 'auth_unavailable', message: expect.any(String) } });
     const action = authUnavailableResponse(new NextRequest('http://agency.lvh.me:3001/leads', { method: 'POST', headers: { 'next-action': 'abc' } }));
     expect(action.headers.get('content-type')).toMatch(/application\/json/);
+  });
+});
+
+describe('sessionTooOld (PLATFORM-PLAN 1.22: the admin console signs in again after 12 hours)', () => {
+  const NOW = 1_800_000_000_000;
+  it('12 hours by default; ADMIN_SESSION_MAX_HOURS changes it; nonsense keeps 12', () => {
+    expect(sessionTooOld(NOW / 1000 - 11 * 3600, NOW)).toBe(false);
+    expect(sessionTooOld(NOW / 1000 - 13 * 3600, NOW)).toBe(true);
+    expect(sessionTooOld(NOW / 1000 - 3 * 3600, NOW, '2')).toBe(true);
+    expect(sessionTooOld(NOW / 1000 - 11 * 3600, NOW, 'soon')).toBe(false);
   });
 });

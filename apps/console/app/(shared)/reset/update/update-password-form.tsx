@@ -36,6 +36,8 @@ export function UpdatePasswordForm({ email }: { email: string }) {
       setLoading(false);
       return;
     }
+    // PLATFORM-PLAN 1.22: a new password ends every other session (a lost laptop, a shared one).
+    await supabase.auth.signOut({ scope: 'others' });
 
     setDone(true);
     // The recovery session is already a full session, so there is nowhere to

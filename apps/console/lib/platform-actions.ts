@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { mfaMark, type Actor } from '@repo/core/permissions';
-import { sessionAal } from './session-aal';
+import { sessionAuth } from './session-aal';
 import { noticeMailFromEnv } from '@repo/core/email';
 import {
   blockMember,
@@ -37,7 +37,7 @@ async function adminForAction(): Promise<Actor | null> {
   const userId = await requireActionUserId();
   const admin = await loadPlatformAdmin(getConsoleDb(), userId);
   // PLATFORM-PLAN 1.3: platform:manage needs a second factor once MFA is enforced.
-  return admin ? { ...admin, ...mfaMark(admin, await sessionAal(userId)) } : null;
+  return admin ? { ...admin, ...mfaMark(admin, await sessionAuth(userId)) } : null;
 }
 
 async function run(agencyId: string, change: (admin: Actor) => Promise<void>, opts: { publicSite?: boolean } = {}): Promise<PlatformActionResult> {

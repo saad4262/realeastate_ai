@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { cookieDomainFor } from '@repo/auth/cookie-domain';
-import { authUnavailableResponse, stripSessionHeaders, updateSession } from '@repo/auth/middleware';
+import { authUnavailableResponse, sessionTooOld, stripSessionHeaders, updateSession } from '@repo/auth/middleware';
 import { safeLocalPath } from '@repo/auth/safe-path';
 
 export type ConsoleSurface = 'agent' | 'agency' | 'admin';
@@ -122,12 +122,14 @@ export async function middleware(request: NextRequest) {
   // One session check via updateSession (getClaims, ADR 0046) — never also call getMiddlewareUser
   let response: NextResponse;
   let userId: string | null = null;
+  let authAt: number | undefined;
 
   try {
     const session = await updateSession(request, requestHeaders);
     // Auth unreachable: 503, never /login — the person is still signed in (PLATFORM-PLAN 1.1).
     if (session.unavailable && !isPublic) return withSurface(authUnavailableResponse(request), surface, cookieDomain);
     userId = session.user?.id ?? null;
+    authAt = session.user?.authAt;
     response = withSurface(session.response, surface, cookieDomain);
   } catch {
     response = withSurface(
@@ -135,6 +137,19 @@ export async function middleware(request: NextRequest) {
       surface,
       cookieDomain,
     );
+  }
+
+  // PLATFORM-PLAN 1.22: the platform admin console signs in again after 12 hours (ADMIN_SESSION_MAX_HOURS), however
+  // active the session: the cookies go and the person is sent to sign in, told why.
+  if (surface === 'admin' && userId && authAt && !isPublic && sessionTooOld(authAt, Date.now(), process.env.ADMIN_SESSION_MAX_HOURS)) {
+    const login = request.nextUrl.clone();
+    login.pathname = '/login';
+    login.search = '?error=session_expired';
+    const expired = NextResponse.redirect(login);
+    for (const c of request.cookies.getAll()) {
+      if (c.name.startsWith('sb-')) expired.cookies.set(c.name, '', { maxAge: 0, path: '/', ...(cookieDomain ? { domain: cookieDomain } : {}) });
+    }
+    return withSurface(expired, surface, cookieDomain);
   }
 
   // An invite link must reach the page even with a session already present.

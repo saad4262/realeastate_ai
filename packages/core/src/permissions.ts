@@ -647,15 +647,22 @@ export const MFA_ACTIONS: ReadonlySet<Action> = new Set<Action>(['billing:manage
 /**
  * Who must use MFA (decision D-6: owners, admins and platform admins at launch; agents later) and whether it is
  * enforced yet (`MFA_ENFORCED=1`, set once the enrolment page ships). Returns the `aal` to put on the actor.
+ * PLATFORM-PLAN 1.22: the second factor must also be recent (`MFA_STEP_UP_MINUTES`, default 30), so billing, team
+ * and role changes ask for a code again in a long-lived session.
  */
 export function mfaMark(
   who: { membershipRole?: MembershipRole; platformAdmin?: boolean },
-  sessionAal: 'aal1' | 'aal2' | undefined,
+  session: { aal?: 'aal1' | 'aal2'; mfaAt?: number } | undefined,
   env: Record<string, string | undefined> = process.env,
+  nowMs = Date.now(),
 ): { aal?: 'aal1' | 'aal2' } {
   if (env.MFA_ENFORCED?.trim() !== '1') return {};
   const required = who.platformAdmin || who.membershipRole === 'owner' || who.membershipRole === 'admin';
-  return required ? { aal: sessionAal === 'aal2' ? 'aal2' : 'aal1' } : {};
+  if (!required) return {};
+  const minutes = Number(env.MFA_STEP_UP_MINUTES?.trim());
+  const windowS = (Number.isFinite(minutes) && minutes > 0 ? minutes : 30) * 60;
+  const recent = session?.aal === 'aal2' && !!session.mfaAt && nowMs / 1000 - session.mfaAt <= windowS;
+  return { aal: recent ? 'aal2' : 'aal1' };
 }
 
 export function can(actor: Actor, action: Action, resource: Resource): boolean {

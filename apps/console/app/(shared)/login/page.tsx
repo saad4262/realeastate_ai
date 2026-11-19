@@ -19,6 +19,7 @@ const ERROR_MESSAGES: Record<string, string> = {
     'Database is not configured (check DATABASE_URL). Membership checks cannot run.',
   auth_link:
     'That email link could not be used — it may have expired or already been opened. Request a new one.',
+  session_expired: 'For safety the admin console signs you out after 12 hours. Please sign in again.',
 };
 
 export default async function LoginPage({
