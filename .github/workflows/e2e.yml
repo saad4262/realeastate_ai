@@ -1,5 +1,5 @@
 # PLATFORM-PLAN 4.1: the E2E suite (packages/e2e) against the preview deployments, on the DEV database.
-# Off until the owner sets it up (V1-OWNER-ACTIONS O-24): repository variable E2E_ENABLED=true, variables
+# Off until the owner sets it up (V1-OWNER-ACTIONS O-27): repository variable E2E_ENABLED=true, variables
 # E2E_WEB / E2E_AGENT / E2E_AGENCY (the previews' stable URLs, each pointed at the dev project, vendors faked), and
 # secrets E2E_DIRECT_URL, E2E_SUPABASE_URL, E2E_SERVICE_ROLE_KEY, E2E_STRIPE_WEBHOOK_SECRET — all DEV values.
 # The suite refuses the production project. A failure here fails the deployment's check.

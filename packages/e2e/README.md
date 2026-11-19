@@ -15,4 +15,4 @@ run left, at the end (`E2E_KEEP=1` keeps it for a look).
 **Locally:** the dev servers on the dev database (`pnpm dev`, the web app on :3000 and the console on :3001; give the
 web app `STRIPE_WEBHOOK_SECRET=whsec_e2e_test` for the webhook test), then, with the dev env loaded,
 `pnpm e2e` (`E2E_STRIPE_WEBHOOK_SECRET=whsec_e2e_test`). `npx playwright install chromium` once.
-**In CI:** `.github/workflows/e2e.yml`, after a preview deploys, once the owner has set it up (O-24).
+**In CI:** `.github/workflows/e2e.yml`, after a preview deploys, once the owner has set it up (O-27).
