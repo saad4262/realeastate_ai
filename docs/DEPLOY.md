@@ -599,6 +599,23 @@ Always into a **new or scratch** project, never into production or dev.
 
 Before a production migration, also run the local encrypted backup (`backup.sh` in the private backups folder).
 
+## Alert lines (PLATFORM-PLAN 1.23)
+
+First values, tuned after the load test (4.3). **Critical** lines page a phone at night; the rest email.
+
+| Line | Where it is watched | Threshold | Critical |
+|---|---|---|---|
+| Site down | Uptime monitor on `/api/health` (web and console) | not 200 for 2 checks (1 min apart) | yes |
+| Database-only lines: job lag, dead job, stuck text, sends paused by a spike | Uptime monitor on `https://findoraaus.com.au/api/health/alerts` (flags only; 503 when one is in alert) | not 200 for 2 checks | yes (sends stuck, spend spike) |
+| Scheduler stopped | healthchecks.io via `HEALTHCHECK_TICK_URL` (1.25) | no ping for 5 min | yes |
+| API p95 > 1 s; 5xx > 2% for 5 min | Sentry performance + issue alerts (O-13) | as written | 5xx yes |
+| DB CPU > 80%; pooler clients > 80% | Supabase → Reports / alerts, or the metrics endpoint into the uptime tool (O-14) | 10 min sustained | no |
+| AI or SMS spend in an hour > 3× usual | The spike pause (3.7) pauses that agency and emails its owners; `/api/health/alerts` shows `sendsPaused` | as 3.7 | yes |
+| Backup older than 7 h | healthchecks.io backup check (O-8): period 6 h, grace 1 h | missed | no |
+
+Each line is fired once on purpose before launch and the date written here: the database-only lines by the smoke
+group "Alert lines" (2026-11-19, dev); the others by the owner when each tool is set up.
+
 ## The scheduler tick
 
 One Vercel cron on the web project: `*/5 * * * *` on `/api/cron/alerts`
