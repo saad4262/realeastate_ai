@@ -2,6 +2,7 @@ import { after, NextResponse, type NextRequest } from 'next/server';
 import { runAppointmentSyncTick, syncDepsFromEnv } from '@repo/core/appointments';
 import { expireProposedActions, purgeAssistantConversations } from '@repo/core/assistant';
 import { purgeImportFiles, runImportTick } from '@repo/core/imports';
+import { purgeRetention, retentionDue } from '@repo/core/lifecycle';
 import { runEmbeddingTick } from '@repo/core/assistant-search';
 import { embedderFromEnv } from '@repo/ai/search-embedder';
 import { importAssistFromEnv } from '@repo/ai/import-assist';
@@ -165,6 +166,12 @@ async function handler(request: NextRequest) {
       .then(([purged, expired, workflowHistory]) => ({ purged, expired, workflowHistory }))
       .catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'assistant purge failed' }));
 
+    // Section 8 retention (PLATFORM-PLAN 5.12): trash, site activity and AI prompts, once a day.
+    const now = new Date();
+    const retention = retentionDue(now)
+      ? await purgeRetention(getWebDb(), now).catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'retention purge failed' }))
+      : 'not due';
+
     /**
      * CSV listing imports (ADR 0029): carry on an import whose tab was closed,
      * one chunk each, as the person who started it (re-checked every tick);
@@ -188,7 +195,7 @@ async function handler(request: NextRequest) {
 
     // No ids, no addresses, no listing text — this is read from a cron log.
     return NextResponse.json(
-      { ok: true, ...report, watch, tasks, automation, floorplans, visual, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, stuckMail, skills, templateEmail, appointmentSync, assistant, imports, searchIndex },
+      { ok: true, ...report, watch, tasks, automation, floorplans, visual, mail: mail.ok ? { stored: mail.stored } : { skipped: mail.reason }, stuckMail, skills, templateEmail, appointmentSync, assistant, retention, imports, searchIndex },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (err) {

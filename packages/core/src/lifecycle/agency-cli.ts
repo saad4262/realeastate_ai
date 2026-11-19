@@ -3,12 +3,16 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { getDb } from '@repo/db';
 import { closeAgency, deleteAgency, exportAgency } from './agency-closure';
+import { authAdminFromEnv, deleteOwnAccount } from './user-deletion';
+import { deleteInspectionPhotos } from '../inspections/photo-storage';
+import { sql } from 'drizzle-orm';
 
 /**
  * ADR 0093, by hand (an operator, never a page):
  *   tsx src/lifecycle/agency-cli.ts close  <agencyId> --by "<who asked>"
  *   tsx src/lifecycle/agency-cli.ts export <agencyId> <dir> [--files]
  *   tsx src/lifecycle/agency-cli.ts delete <agencyId> --confirm <slug>
+ *   tsx src/lifecycle/agency-cli.ts delete-user <userId> --confirm <email>   (a public user's request, by email)
  * Production needs CONFIRM_PRODUCTION (the database guard). Export before deleting.
  */
 async function main() {
@@ -49,8 +53,16 @@ async function main() {
     if (!confirmSlug) throw new Error('Name the agency: --confirm <slug>');
     const r = await deleteAgency(db, agencyId, { confirmSlug });
     console.log(`Deleted. ${r.listingsArchived} listings archived, ${r.filesDeleted} files deleted${r.filesFailed.length ? `, ${r.filesFailed.length} files FAILED: re-run their deletes: ${r.filesFailed.join(', ')}` : ''}.`);
+  } else if (cmd === 'delete-user') {
+    const email = flag('--confirm');
+    const [u] = await db.execute<{ email: string }>(sql`select email from "user" where id = ${agencyId}`);
+    if (!email || u?.email.toLowerCase() !== email.toLowerCase()) throw new Error('Name the account: --confirm <its email>');
+    const deleteAuthUser = authAdminFromEnv();
+    if (!deleteAuthUser) throw new Error('NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are needed to delete the sign-in');
+    const r = await deleteOwnAccount(db, { userId: agencyId }, { deleteAuthUser, deletePhotos: deleteInspectionPhotos });
+    console.log(`Deleted the account and its own data; ${r.photos} photos${r.photosDeleted ? ' deleted' : ' — SOME FILES REMAIN, re-run their delete'}.`);
   } else {
-    throw new Error('Command: close | export | delete');
+    throw new Error('Command: close | export | delete | delete-user');
   }
   process.exit(0);
 }
