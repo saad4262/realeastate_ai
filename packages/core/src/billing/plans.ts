@@ -72,3 +72,23 @@ export async function applyPlanToSwitches(tx: DbOrTx, agencyId: string, plan: st
     returning skill_key`);
   return off.length;
 }
+
+export const TOPUPS = ['small', 'large'] as const;
+export type Topup = (typeof TOPUPS)[number];
+
+/** A top-up pack's credits and Stripe Price ID from env (TOPUP_SMALL_CREDITS, STRIPE_PRICE_TOPUP_SMALL, …); unset → null. */
+export function topupNumbers(t: Topup, env: NodeJS.ProcessEnv = process.env): { credits: number | null; stripePriceId: string | null } {
+  const T = t.toUpperCase();
+  return { credits: whole(env[`TOPUP_${T}_CREDITS`]), stripePriceId: env[`STRIPE_PRICE_TOPUP_${T}`]?.trim() || null };
+}
+
+/** Which paid plan or top-up a Stripe Price ID is, by the env above. Unknown → null. */
+export function whatIsPrice(priceId: string | null, env: NodeJS.ProcessEnv = process.env): { plan: PaidPlan } | { topup: Topup; credits: number | null } | null {
+  if (!priceId) return null;
+  for (const p of PAID_PLANS) if (planNumbers(p, env).stripePriceId === priceId) return { plan: p };
+  for (const t of TOPUPS) {
+    const n = topupNumbers(t, env);
+    if (n.stripePriceId === priceId) return { topup: t, credits: n.credits };
+  }
+  return null;
+}

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { syncDepsFromEnv, teamMeetingDepsFromEnv } from '@repo/core/appointments';
 import { minuteJobs, runTick } from '@repo/core/cron';
 import { pingHeartbeat } from '@repo/core/observability/health';
+import { stripeFromEnv } from '@repo/core/billing';
 import { noticeMailFromEnv } from '@repo/core/email';
 import { mailDepsFromEnv } from '@repo/core/mail';
 import { phoneDepsFromEnv, voiceFromEnv } from '@repo/core/phone';
@@ -63,6 +64,7 @@ async function handler(request: NextRequest) {
       platformMail: notice ? notice.mailer : null,
       phone,
       voice: voiceFromEnv().voice,
+      stripe: stripeFromEnv(),
     });
     const report = await runTick(jobs, { budgetMs: BUDGET_MS });
     // The dead-man ping (PLATFORM-PLAN 1.14): healthchecks.io alerts when ticks stop arriving.

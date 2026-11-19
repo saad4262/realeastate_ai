@@ -12,6 +12,9 @@ import type { TickJob } from './tick';
 import { runJobs } from '../jobs';
 import { enqueueStuckSms, smsReconcileHandler } from '../phone/reconcile';
 import { detectSendSpikes } from '../safety/spikes';
+import { settleCredits } from '../billing/credits';
+import { billingReconcileHandler, enqueueBillingReconcile, stripeEventHandler } from '../billing/service';
+import type { StripeApi } from '../billing/stripe';
 
 /**
  * The every-minute tick's jobs (ADR 0035, batched by ADR 0073), in the order time matters most. Each
@@ -44,6 +47,8 @@ export type MinuteDeps = {
   platformMail: PlatformMailDeps | null;
   phone: PhoneDeps;
   voice: VoiceAi | null;
+  /** ADR 0092: Stripe for the `stripe.event` jobs; null when billing is not set up. */
+  stripe?: StripeApi | null;
 };
 
 export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new Date()): TickJob[] {
@@ -140,6 +145,19 @@ export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new
       run: async () => ({ result: await enqueueStuckSms(db, now()), more: false }),
     },
     {
+      // PLATFORM-PLAN 2.9: once a day (16:xx UTC), a reconciliation job per agency with a Stripe customer.
+      name: 'billingReconcile',
+      mode: 'once',
+      everyMinutes: 60,
+      run: async () => ({ result: { enqueued: await enqueueBillingReconcile(db, now()) }, more: false }),
+    },
+    {
+      // ADR 0092: take the real cost of finished AI runs from the agencies' credit grants; drop lapsed holds.
+      name: 'settleCredits',
+      mode: 'once',
+      run: async () => ({ result: await settleCredits(db, now()), more: false }),
+    },
+    {
       // PLATFORM-PLAN 3.7: an agency far above its usual hour has its sends paused and its owners told.
       name: 'sendSpikes',
       mode: 'once',
@@ -151,7 +169,7 @@ export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new
       name: 'urgentJobs',
       mode: 'drain',
       run: async () => {
-        const r = await runJobs(db, { 'sms.reconcile': smsReconcileHandler(deps.phone) }, { lane: 'urgent', limit: MINUTE_BATCH.urgentJobs, now });
+        const r = await runJobs(db, { 'sms.reconcile': smsReconcileHandler(deps.phone), 'stripe.event': stripeEventHandler({ stripe: deps.stripe ?? null }), 'billing.reconcile': billingReconcileHandler({ stripe: deps.stripe ?? null }) }, { lane: 'urgent', limit: MINUTE_BATCH.urgentJobs, now });
         return { result: { claimed: r.claimed, done: r.done, retried: r.retried, dead: r.dead }, more: r.more };
       },
     },

@@ -452,6 +452,8 @@ export type Action =
   /** Remove (or restore) another OWNER (ADR 0030): owners only. Never yourself, never the last owner — checked in core. */
   | 'team:remove_owner'
   | 'agency:billing'
+  /** Buy a plan or credits, open the Stripe portal (ADR 0092): the agency's owners only. */
+  | 'billing:manage'
   /** Agency OS host — owner|admin only */
   | 'console:agency'
   /** Agent desk host — any active membership */
@@ -1008,6 +1010,7 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
         (!resource.ownerId || actor.userId === resource.ownerId);
 
     case 'team:remove_owner':
+    case 'billing:manage':
       return sameAgency(actor, resource) && actor.membershipRole === 'owner';
 
     case 'team:manage':
