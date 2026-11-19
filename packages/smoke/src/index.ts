@@ -9005,6 +9005,40 @@ async function main() {
     }),
   );
 
+  group('AI SQL probes (PLATFORM-PLAN 4.10)');
+  await check('PLATFORM-PLAN 4.10: every ai view carries the ticket filter; ai_reader reaches no auth, storage, extensions, vault or pg_authid; other sessions\' query text stays hidden — each probe goes red when its grant is added', async () =>
+    inRollback(async (t) => {
+      const { a } = await openFixture(t);
+      const owner = a.actor('owner');
+      const unfiltered = async () => count(t, sql`select count(*)::int as n from pg_views where schemaname = 'ai' and definition not like '%ticket_agency()%'`);
+      const views = await count(t, sql`select count(*)::int as n from pg_views where schemaname = 'ai'`);
+      assert(views >= 16 && (await unfiltered()) === 0, `ai views ${views}, unfiltered ${await unfiltered()}`);
+      const closed = ['auth', 'storage', 'extensions', 'vault', 'graphql', 'realtime'];
+      const reachable = async () =>
+        (await t.execute<{ nspname: string }>(sql`select nspname from pg_namespace where nspname in (${sql.join(closed.map((n) => sql`${n}`), sql`, `)}) and has_schema_privilege('ai_reader', nspname, 'USAGE')`)).map((r) => r.nspname);
+      assert((await reachable()).length === 0, `ai_reader may use schema ${(await reachable()).join(', ')}`);
+      for (const q of ['select count(*) from auth.users', 'select count(*) from storage.objects', 'select count(*) from pg_catalog.pg_authid']) {
+        assert((await pgErr(runAsReader(t, owner, sql.raw(q)))) === '42501', `${q} was readable`);
+      }
+      const [roles] = await t.execute<{ stats: boolean; data: boolean }>(sql`select pg_has_role('ai_reader', 'pg_read_all_stats', 'USAGE') as stats, pg_has_role('ai_reader', 'pg_read_all_data', 'USAGE') as data`);
+      assert(!roles!.stats && !roles!.data, 'ai_reader holds pg_read_all_stats or pg_read_all_data');
+      const visibleText = `select count(*)::int as n from pg_stat_activity where pid <> pg_backend_pid() and coalesce(query, '') not in ('', '<insufficient privilege>')`;
+      const others = Number((await runAsReader(t, owner, sql.raw('select count(*)::int as n from pg_stat_activity where pid <> pg_backend_pid()'))).rows[0]?.n ?? 0);
+      const seen = Number((await runAsReader(t, owner, sql.raw(visibleText))).rows[0]?.n ?? -1);
+      assert(seen === 0, `ai_reader read the query text of ${seen} other sessions`);
+      // The break-tests, inside this rollback: each probe sees what it guards once it is opened.
+      const asOwner = await count(t, sql.raw(visibleText));
+      await t.execute(sql`create view ai.smoke_unfiltered as select 1 as x`);
+      await t.execute(sql`grant usage on schema extensions to ai_reader`);
+      const brokeView = await unfiltered();
+      const brokeSchema = await reachable();
+      assert(brokeView === 1 && brokeSchema.includes('extensions'), `break-tests did not go red: view ${brokeView}, schemas ${brokeSchema.join(',')}`);
+      return `${views} ai views, all filtered; 6 schemas closed; auth.users, storage.objects, pg_authid refused; no read-all roles; ${others} other sessions, 0 query texts (the owner role sees ${asOwner}); unfiltered view → red; schema grant → red`;
+    }),
+  );
+
+  group('Open questions (ADR 0042)');
+
   await check('I5: an agent’s datasets are exactly what their own screens count; an owner’s are the agency’s', async () =>
     inRollback(async (t) => {
       const { a } = await openFixture(t);
