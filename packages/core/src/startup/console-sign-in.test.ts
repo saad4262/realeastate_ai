@@ -32,9 +32,10 @@ describe('console sign-in flow', () => {
     expect(page).toMatch(/\(await currentSurface\(\)\) === 'agency' \? '' :/);
   });
 
-  it("sign-out ends this browser's session only", () => {
+  it("sign-out ends this browser's session only, unless the form asks for every device (PLATFORM-PLAN 1.22)", () => {
     const route = read('app', '(shared)', 'sign-out', 'route.ts');
-    expect(route).toMatch(/signOut\(\{ scope: 'local' \}\)/);
+    expect(route).toMatch(/signOut\(\{ scope: form\?\.get\('scope'\) === 'global' \? 'global' : 'local' \}\)/);
+    expect(route).not.toMatch(/auth\.signOut\(\)/);
   });
 
   it('sign-out sits in the Settings group of both consoles, not the profile footer', () => {

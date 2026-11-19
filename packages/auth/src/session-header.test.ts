@@ -30,6 +30,9 @@ describe('signed session headers', () => {
       ['x-console-user-label', encodeURIComponent('Someone else')],
       // PLATFORM-PLAN 1.3: a second factor claimed by the header alone is not believed.
       ['x-console-user-aal', 'aal2'],
+      // PLATFORM-PLAN 1.22: a fresher second factor or sign-in claimed by the header alone is not believed.
+      ['x-console-user-mfa', '1800000000'],
+      ['x-console-user-auth', '1800000000'],
     ] as const) {
       const h = await headersFor();
       h.set(name, value);
@@ -43,6 +46,12 @@ describe('signed session headers', () => {
     expect(await read(h)).toEqual({ ...who, aal: 'aal2' });
     h.delete('x-console-user-aal');
     expect(await read(h)).toBeNull();
+  });
+
+  it('carries when the session signed in and last verified MFA (1.22)', async () => {
+    const h = new Headers();
+    for (const [k, v] of Object.entries((await signIdentity('x-console-user', { ...who, aal: 'aal2', authAt: 1_799_990_000, mfaAt: 1_799_999_000 }, NOW, SECRET))!)) h.set(k, v);
+    expect(await read(h)).toEqual({ ...who, aal: 'aal2', authAt: 1_799_990_000, mfaAt: 1_799_999_000 });
   });
 
   it('refuses headers with no signature, a made-up one, or another secret', async () => {

@@ -11,6 +11,7 @@ export type World = {
   tag: string;
   a: { agencyId: string; owner: Person; agent: Person; contactId: string; liveListingId: string; draftListingId: string };
   b: { agencyId: string; agent: Person };
+  admin: Person;
 };
 type Person = { id: string; email: string };
 
@@ -49,6 +50,8 @@ export async function seed(): Promise<World> {
     const owner = await person(sql, `${tag}-owner@e2e.test`);
     const agent = await person(sql, `${tag}-agent@e2e.test`);
     const other = await person(sql, `${tag}-other@e2e.test`);
+    const admin = await person(sql, `${tag}-admin@e2e.test`);
+    await sql`insert into platform_admin (user_id, note) values (${admin.id}, 'e2e')`;
     await sql`insert into membership (user_id, agency_id, role, status) values
       (${owner.id}, ${A}, 'owner', 'active'), (${agent.id}, ${A}, 'agent', 'active'), (${other.id}, ${B}, 'agent', 'active')`;
     const contactId = (await sql`insert into contact (agency_id, name, email, assigned_to) values (${A}, ${`Cora ${tag}`}, ${`cora.${tag}@e2e.test`}, ${agent.id}) returning id`)[0]!.id as string;
@@ -60,7 +63,7 @@ export async function seed(): Promise<World> {
       await sql`insert into listing_agent (listing_id, user_id, role, snapshot_name, snapshot_phone, snapshot_email) values (${l!.id}, ${agent.id}, 'lead', 'E2E Agent', '0400 000 000', ${agent.email})`;
       return l!.id as string;
     };
-    const w: World = { tag, a: { agencyId: A, owner, agent, contactId, liveListingId: await listing('live', 1), draftListingId: await listing('draft', 2) }, b: { agencyId: B, agent: other } };
+    const w: World = { tag, a: { agencyId: A, owner, agent, contactId, liveListingId: await listing('live', 1), draftListingId: await listing('draft', 2) }, b: { agencyId: B, agent: other }, admin };
     writeFileSync(STATE, JSON.stringify(w, null, 2));
     return w;
   } finally {

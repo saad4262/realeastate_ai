@@ -278,6 +278,8 @@ export async function setPasswordAction(formData: FormData): Promise<void> {
   const { error } = await supabase.auth.updateUser({ password });
 
   if (error) redirect(`/reset?error=${classify(error, 'set-password', '(session)')}`);
+  // PLATFORM-PLAN 1.22: a new password ends every other session.
+  await supabase.auth.signOut({ scope: 'others' });
 
   redirect('/alerts?password=updated');
 }

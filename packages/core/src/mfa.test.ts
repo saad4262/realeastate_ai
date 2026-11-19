@@ -19,17 +19,25 @@ describe('MFA in can()', () => {
   });
 });
 
-describe('mfaMark (decision D-6, MFA_ENFORCED)', () => {
+describe('mfaMark (decision D-6, MFA_ENFORCED; step-up 1.22)', () => {
   const on = { MFA_ENFORCED: '1' };
+  const NOW = 1_800_000_000_000;
+  const fresh = { aal: 'aal2' as const, mfaAt: NOW / 1000 - 60 };
   it('off until enforced: nobody is marked', () => {
-    expect(mfaMark({ membershipRole: 'owner' }, 'aal1', {})).toEqual({});
+    expect(mfaMark({ membershipRole: 'owner' }, { aal: 'aal1' }, {}, NOW)).toEqual({});
   });
   it('owners, admins and platform admins are marked with their session level', () => {
-    expect(mfaMark({ membershipRole: 'owner' }, 'aal1', on)).toEqual({ aal: 'aal1' });
-    expect(mfaMark({ membershipRole: 'admin' }, undefined, on)).toEqual({ aal: 'aal1' });
-    expect(mfaMark({ platformAdmin: true }, 'aal2', on)).toEqual({ aal: 'aal2' });
+    expect(mfaMark({ membershipRole: 'owner' }, { aal: 'aal1' }, on, NOW)).toEqual({ aal: 'aal1' });
+    expect(mfaMark({ membershipRole: 'admin' }, undefined, on, NOW)).toEqual({ aal: 'aal1' });
+    expect(mfaMark({ platformAdmin: true }, fresh, on, NOW)).toEqual({ aal: 'aal2' });
+  });
+  it('a second factor older than the step-up window counts as none: billing and team ask again', () => {
+    expect(mfaMark({ membershipRole: 'owner' }, { aal: 'aal2', mfaAt: NOW / 1000 - 31 * 60 }, on, NOW)).toEqual({ aal: 'aal1' });
+    expect(mfaMark({ membershipRole: 'owner' }, { aal: 'aal2', mfaAt: NOW / 1000 - 29 * 60 }, on, NOW)).toEqual({ aal: 'aal2' });
+    expect(mfaMark({ membershipRole: 'owner' }, { aal: 'aal2', mfaAt: NOW / 1000 - 9 * 60 }, { ...on, MFA_STEP_UP_MINUTES: '5' }, NOW)).toEqual({ aal: 'aal1' });
+    expect(mfaMark({ membershipRole: 'owner' }, { aal: 'aal2' }, on, NOW)).toEqual({ aal: 'aal1' });
   });
   it('agents and viewers are not (yet): D-6 brings agents in three months later', () => {
-    expect(mfaMark({ membershipRole: 'agent' }, 'aal1', on)).toEqual({});
+    expect(mfaMark({ membershipRole: 'agent' }, { aal: 'aal1' }, on, NOW)).toEqual({});
   });
 });

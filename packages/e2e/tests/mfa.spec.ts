@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { env, PASSWORD, world } from '../fixture';
 import { urls } from '../playwright.config';
-import { signIn } from './helpers';
+import { signIn, useSession } from './helpers';
 
 /** RFC 6238 TOTP (SHA-1, 30 s, 6 digits) from a base32 secret: what an authenticator app shows. */
 function totp(secret: string, at = Date.now()): string {
@@ -56,13 +56,7 @@ test('MFA: a wrong code is refused; the right one gives an aal2 session; with MF
   await expect(page).toHaveURL(/\/overview/);
   // aal2: the verified session in the browser's cookie, as @supabase/ssr writes it (base64url, 3,180-character chunks).
   await context.clearCookies();
-  const ref = new URL(env().url).hostname.split('.')[0]!;
-  const value = `base64-${Buffer.from(JSON.stringify(right.json)).toString('base64url')}`;
-  const chunks = value.match(/.{1,3180}/g)!;
-  const host = new URL(urls.agency).hostname;
-  await context.addCookies(
-    chunks.map((v, i) => ({ name: chunks.length === 1 ? `sb-${ref}-auth-token` : `sb-${ref}-auth-token.${i}`, value: v, domain: host, path: '/', sameSite: 'Lax' as const })),
-  );
+  await useSession(context, urls.agency, right.json);
   await page.goto(`${urls.agency}/team`);
   await expect(page).toHaveURL(/\/team/);
 });

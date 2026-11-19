@@ -20,7 +20,7 @@ export const SIGNED_HEADER_TTL_MS = 120_000;
 const SKEW_MS = 30_000;
 
 /** Every header suffix that carries the identity; middleware strips them all from incoming requests. */
-export const SESSION_HEADER_SUFFIXES = ['id', 'email', 'label', 'aal', 'exp', 'sig'] as const;
+export const SESSION_HEADER_SUFFIXES = ['id', 'email', 'label', 'aal', 'auth', 'mfa', 'exp', 'sig'] as const;
 
 /** `SESSION_HEADER_SECRET` if set, else the service-role key (server-only in both apps). None: nothing is believed. */
 export function sessionHeaderSecret(env: Record<string, string | undefined> = process.env): string | null {
@@ -39,8 +39,9 @@ function keyFor(secret: string): Promise<CryptoKey> {
 
 /** The signed text: versioned and prefixed, so a console identity never verifies as a consumer one. */
 // v2 signs the assurance level too (PLATFORM-PLAN 1.3): an `aal2` the signature does not cover is not believed.
-const message = (prefix: SignedHeaderPrefix, id: string, email: string, label: string, aal: string, exp: string) =>
-  new TextEncoder().encode(['session-header-v2', prefix, id, email, label, aal, exp].join('\n'));
+const message = (prefix: SignedHeaderPrefix, id: string, email: string, label: string, aal: string, auth: string, mfa: string, exp: string) =>
+  new TextEncoder().encode(['session-header-v2', prefix, id, email, label, aal, auth, mfa, exp].join('\n'));
+const seconds = (v: number | undefined) => (v && Number.isInteger(v) && v > 0 ? String(v) : '');
 
 const b64url = (bytes: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 function fromB64url(s: string): Uint8Array<ArrayBuffer> | null {
@@ -61,12 +62,16 @@ export async function signIdentity(prefix: SignedHeaderPrefix, who: SessionIdent
   const label = who.label ? encodeURIComponent(who.label) : '';
   const aal = who.aal === 'aal2' ? 'aal2' : 'aal1';
   const exp = String(now + SIGNED_HEADER_TTL_MS);
-  const sig = await crypto.subtle.sign('HMAC', await keyFor(secret), message(prefix, who.id, email, label, aal, exp));
+  const auth = seconds(who.authAt);
+  const mfa = seconds(who.mfaAt);
+  const sig = await crypto.subtle.sign('HMAC', await keyFor(secret), message(prefix, who.id, email, label, aal, auth, mfa, exp));
   return {
     [`${prefix}-id`]: who.id,
     ...(email ? { [`${prefix}-email`]: email } : {}),
     ...(label ? { [`${prefix}-label`]: label } : {}),
     [`${prefix}-aal`]: aal,
+    ...(auth ? { [`${prefix}-auth`]: auth } : {}),
+    ...(mfa ? { [`${prefix}-mfa`]: mfa } : {}),
     [`${prefix}-exp`]: exp,
     [`${prefix}-sig`]: b64url(sig),
   };
@@ -92,12 +97,15 @@ export async function readSignedIdentity(get: (name: string) => string | null, p
   const rawLabel = get(`${prefix}-label`) ?? '';
   const aal = get(`${prefix}-aal`);
   if (aal !== 'aal1' && aal !== 'aal2') return null;
+  const auth = get(`${prefix}-auth`) ?? '';
+  const mfa = get(`${prefix}-mfa`) ?? '';
+  if (!/^\d*$/.test(auth) || !/^\d*$/.test(mfa)) return null;
   // verify() compares in constant time.
-  const ok = await crypto.subtle.verify('HMAC', await keyFor(secret), sig, message(prefix, id, rawEmail, rawLabel, aal, exp));
+  const ok = await crypto.subtle.verify('HMAC', await keyFor(secret), sig, message(prefix, id, rawEmail, rawLabel, aal, auth, mfa, exp));
   if (!ok) return null;
   const email = rawEmail ? decode(rawEmail) : null;
   const label = rawLabel ? decode(rawLabel) : '';
   if (email === null && rawEmail) return null;
   if (label === null) return null;
-  return { id, email, label, aal };
+  return { id, email, label, aal, ...(auth ? { authAt: Number(auth) } : {}), ...(mfa ? { mfaAt: Number(mfa) } : {}) };
 }

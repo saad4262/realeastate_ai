@@ -18,7 +18,8 @@ function publicEnv() {
 
 /** Who middleware verified: the token's own claims, never the cookie's unverified copy of the user. */
 /** `aal`: Supabase's assurance level for this session: `aal2` once a second factor (TOTP) was verified (PLATFORM-PLAN 1.3). */
-export type SessionIdentity = { id: string; email: string | null; label: string; aal?: 'aal1' | 'aal2' };
+/** `authAt` / `mfaAt`: when (Unix seconds) this session last signed in, and last verified a TOTP code (1.22). */
+export type SessionIdentity = { id: string; email: string | null; label: string; aal?: 'aal1' | 'aal2'; authAt?: number; mfaAt?: number };
 
 export type SessionResult = {
   response: NextResponse;
@@ -76,7 +77,16 @@ export function identityFromClaims(claims: JwtPayload | null | undefined): Sessi
   const email = typeof claims?.email === 'string' && claims.email ? claims.email : null;
   const meta = claims?.user_metadata as { full_name?: unknown; name?: unknown } | undefined;
   const named = [meta?.full_name, meta?.name].find((v): v is string => typeof v === 'string' && v.trim() !== '');
-  return { id, email, label: named ?? email?.split('@')[0] ?? '', aal: claims?.aal === 'aal2' ? 'aal2' : 'aal1' };
+  const amr = (Array.isArray(claims?.amr) ? claims.amr : []) as { method?: unknown; timestamp?: unknown }[];
+  const at = (only?: string) => Math.max(0, ...amr.filter((m) => !only || m.method === only).map((m) => (typeof m.timestamp === 'number' ? m.timestamp : 0)));
+  return {
+    id,
+    email,
+    label: named ?? email?.split('@')[0] ?? '',
+    aal: claims?.aal === 'aal2' ? 'aal2' : 'aal1',
+    ...(at() ? { authAt: at() } : {}),
+    ...(at('totp') ? { mfaAt: at('totp') } : {}),
+  };
 }
 
 /**
@@ -201,4 +211,10 @@ export function authUnavailableResponse(request: NextRequest): NextResponse {
 export async function getMiddlewareUser(request: NextRequest) {
   const { user } = await updateSession(request);
   return user;
+}
+
+/** PLATFORM-PLAN 1.22: a session that signed in more than `maxHours` (default 12) ago, by its `authAt` (seconds). */
+export function sessionTooOld(authAtS: number, nowMs: number, maxHours?: string): boolean {
+  const h = Number(maxHours?.trim());
+  return nowMs / 1000 - authAtS > (Number.isFinite(h) && h > 0 ? h : 12) * 3600;
 }

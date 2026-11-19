@@ -121,3 +121,16 @@ Who decides: the boss, with the lawyer (O-21). The developer's job is the facts,
 | | 6 Vendor down | | |
 | | 7 Lost access | | |
 | | 8 Breach (tabletop) | | |
+| | 9 MFA recovery | | |
+
+## 9. Someone lost their second factor (MFA recovery, PLATFORM-PLAN 1.22)
+An owner, admin or platform admin whose phone (authenticator app) is lost or reset cannot reach billing, the team page
+or platform controls once MFA is enforced.
+1. **Prove it is them,** out of band: a call to the number on file for the agency, and an answer only they would know
+   (their agency's ABN, a recent invoice amount). Never on the strength of an email alone: that is how accounts are
+   taken over.
+2. A platform admin removes the lost factor: Supabase → Authentication → Users → the person → MFA factors → delete
+   (record who asked, who checked and when in the incident note).
+3. Ask them to sign in, enrol a new factor at once, and change their password (which signs out every other device).
+4. If it was an owner and the request looks wrong in any way, suspend the agency (Suspend on
+   the agency from the admin site) until it is resolved.

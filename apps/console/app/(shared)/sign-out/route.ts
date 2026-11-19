@@ -45,7 +45,8 @@ export async function POST(request: NextRequest) {
   // This browser's session only. The default, 'global', revoked every session
   // the person had — the agent desk and admin tabs on their own hosts too, which
   // then dropped to sign-in without warning once their token ran out.
-  await supabase.auth.signOut({ scope: 'local' });
+  // `scope=global` is "Sign out of all devices" (PLATFORM-PLAN 1.22): every session this person has, everywhere.
+  await supabase.auth.signOut({ scope: form?.get('scope') === 'global' ? 'global' : 'local' });
 
   // 303 turns the POST into a GET at the destination.
   return NextResponse.redirect(`${originOf(request)}${next}`, { status: 303 });
