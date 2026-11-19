@@ -4294,21 +4294,6 @@
         }
       },
       "indexes": {
-        "contact_assigned_to_fk_idx": {
-          "name": "contact_assigned_to_fk_idx",
-          "columns": [
-            {
-              "expression": "assigned_to",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "contact_agency_email_idx": {
           "name": "contact_agency_email_idx",
           "columns": [

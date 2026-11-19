@@ -9,7 +9,6 @@ CREATE INDEX IF NOT EXISTS "appointment_participant_agency_id_fk_idx" ON "appoin
 CREATE INDEX IF NOT EXISTS "assistant_conversation_agency_id_fk_idx" ON "assistant_conversation" USING btree ("agency_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "assistant_task_conversation_id_fk_idx" ON "assistant_task" USING btree ("conversation_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "automation_conversation_id_fk_idx" ON "automation" USING btree ("conversation_id");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "contact_assigned_to_fk_idx" ON "contact" USING btree ("assigned_to");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "contact_filter_agency_id_fk_idx" ON "contact_filter" USING btree ("agency_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "dashboard_gap_log_agency_id_fk_idx" ON "dashboard_gap_log" USING btree ("agency_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "deal_condition_agency_id_fk_idx" ON "deal_condition" USING btree ("agency_id");--> statement-breakpoint

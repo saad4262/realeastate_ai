@@ -1062,7 +1062,6 @@ export const contact = pgTable(
     ...timestamps,
   },
   (t) => [
-    index('contact_assigned_to_fk_idx').on(t.assignedTo),
     /**
      * One live contact per address per agency — what makes the trigger's
      * upsert an upsert. Partial: a merged row keeps its old email without
