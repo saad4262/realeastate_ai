@@ -15,7 +15,8 @@
     "smoke": "pnpm --filter @repo/smoke smoke",
     "db:reset": "pnpm --filter @repo/db db:reset",
     "db:repair-listings": "pnpm --filter @repo/db db:repair-listings",
-    "smoke:ai": "pnpm --filter @repo/smoke smoke:ai"
+    "smoke:ai": "pnpm --filter @repo/smoke smoke:ai",
+    "e2e": "pnpm --filter @repo/e2e e2e"
   },
   "devDependencies": {
     "cross-env": "^10.1.0",
