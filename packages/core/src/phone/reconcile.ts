@@ -43,7 +43,9 @@ type TwilioForNumber = (db: Db, n: { accountId: string | null }) => Promise<Twil
 export function smsReconcileHandler(deps: PhoneDeps, twilioFor: TwilioForNumber = async (db, n) => (await numberTwilio(db, n, deps)).client): JobHandler {
   return async (db, j) => {
     const id = String((j.payload as { smsMessageId?: unknown }).smsMessageId ?? '');
-    const [row] = await db.select().from(smsMessage).where(eq(smsMessage.id, id)).limit(1);
+    // PLATFORM-PLAN 4.9: a job acts only on its own agency's rows, whatever its payload names.
+    if (!j.agencyId) return;
+    const [row] = await db.select().from(smsMessage).where(and(eq(smsMessage.id, id), eq(smsMessage.agencyId, j.agencyId))).limit(1);
     if (!row || row.status !== 'queued' || row.providerSid) return;
     const [num] = await db.select({ accountId: phoneNumber.accountId, e164: phoneNumber.e164 }).from(phoneNumber).where(eq(phoneNumber.id, row.phoneNumberId)).limit(1);
     if (!num) throw new Error('The text’s number no longer exists');
