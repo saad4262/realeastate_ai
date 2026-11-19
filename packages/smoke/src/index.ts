@@ -1,6 +1,7 @@
 import { assertNotProduction } from '@repo/db/production-guard';
 import { config } from 'dotenv';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { agencyCatalog, ARCHIVE_AGENCY_SLUG, closeAgency, deleteAgency, exportAgency, unclassified } from '@repo/core/lifecycle';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import ts from 'typescript';
@@ -9873,6 +9874,64 @@ async function main() {
         assert(!(await listAssistantConversations(t, B.f.actor(role === 'viewer' ? 'viewer' : role))).some((c) => c.id === A.ids.conversation), `B ${role} lists A's conversation`);
       }
       return 'agency caps per agency; conversations and cards stay in their agency';
+    }),
+  );
+
+  group('Agency closure (PLATFORM-PLAN 5.12)');
+  await check('5.12 / ADR 0093: a closed agency is exported (its rows and files, no secrets, no buyer\'s data) and deleted 30 days later — its rows gone, its listings archived with the buyers\' shortlists kept, the other agency untouched', async () =>
+    inRollback(async (t) => {
+      const { A, B } = await isolationFixture(t);
+      const id = A.f.agencyId;
+      const slug = (await t.execute<{ slug: string }>(sql`select slug from agency where id = ${id}`))[0]!.slug;
+      const [buyer] = await t.execute<{ id: string }>(sql`insert into "user" (id, email) values (${randomUUID()}, ${`buyer.${A.f.tag}@smoke.test`}) returning id`);
+      await t.execute(sql`insert into shortlist (user_id, listing_id) values (${buyer!.id}, ${A.ids.listing})`);
+      await t.execute(sql`insert into agent_invite (agency_id, email, token, draft, invited_by, expires_at) values (${id}, ${`inv.${A.f.tag}@smoke.test`}, ${'SECRET-' + A.f.tag}, '{}'::jsonb, ${A.f.people.owner}, now() + interval '7 days')`);
+      await t.execute(sql`insert into document (agency_id, scope, uploaded_by, title, storage_key, mime_type, size_bytes)
+        values (${id}, 'knowledge', ${A.f.people.owner}, 'Policy', ${`${id}/policy-${A.f.tag}.pdf`}, 'application/pdf', 10)`);
+      // Every table the database has today is classified; a new child table is not (the check can fail).
+      assert(unclassified(await agencyCatalog(t)).length === 0, `unclassified: ${unclassified(await agencyCatalog(t)).join('; ')}`);
+      await t.execute(sql`create table smoke_new_child (id uuid primary key, contact_id uuid references contact(id) on delete cascade)`);
+      const gap = unclassified(await agencyCatalog(t));
+      assert(gap.length === 1 && gap[0]!.includes('smoke_new_child'), `a new child table went unnoticed: ${gap.join('; ')}`);
+      await t.execute(sql`drop table smoke_new_child`);
+      // Export.
+      const out: Record<string, unknown[]> = {};
+      const files: string[] = [];
+      const exp = await exportAgency(t, id, { rows: async (table, rows) => void (out[table] = rows), file: async (key) => void files.push(key) }, async () => new Uint8Array([1]));
+      const json = JSON.stringify(out);
+      const bLeak = B.ids.contacts.find((c) => json.includes(c)) ?? (json.includes(B.f.agencyId) ? B.f.agencyId : undefined);
+      assert(!bLeak, `the export carried agency B's row ${bLeak}`);
+      assert(!json.includes(`SECRET-${A.f.tag}`) && !('shortlist' in out) && !('site_activity' in out) && !('job' in out), 'a secret, a buyer\'s shortlist or a platform table was exported');
+      assert((out.contact?.length ?? 0) >= 3 && (out.listing?.length ?? 0) >= 1 && (out.agent_invite?.length ?? 0) === 1 && files.length === 1, `export: ${JSON.stringify(exp.tables).slice(0, 300)}; files ${files.length}`);
+      const exported = Object.values(exp.tables).reduce((a, b) => a + b, 0);
+      // Deletion: refused open, refused early, refused without the right name.
+      const refusal = (p: Promise<unknown>) => p.then(() => 'ran', (e: unknown) => (e as Error).message);
+      assert((await refusal(deleteAgency(t, id, { confirmSlug: slug }))).includes('Close the agency first'), 'deleted while open');
+      await closeAgency(t, id, 'smoke');
+      assert((await refusal(deleteAgency(t, id, { confirmSlug: slug }))).includes('30 days'), 'deleted before 30 days');
+      const later = new Date(Date.now() + 31 * 86_400_000);
+      assert((await refusal(deleteAgency(t, id, { confirmSlug: 'someone-else', now: later }))).includes('does not name'), 'deleted with the wrong name');
+      const contactsB = await count(t, sql`select count(*)::int as n from contact where agency_id = ${B.f.agencyId}`);
+      const deletedFiles: string[] = [];
+      const del = await deleteAgency(t, id, { confirmSlug: slug, now: later, deleteFile: async (k) => (deletedFiles.push(k), true) });
+      // Nothing of A's left in any agency table; its listings archived and withdrawn; the buyer's shortlist kept; B untouched.
+      const left: string[] = [];
+      for (const table of (await agencyCatalog(t)).direct) {
+        const n = await count(t, sql`select count(*)::int as n from ${sql.raw(`"${table}"`)} where agency_id = ${id}`);
+        if (n) left.push(`${table} ${n}`);
+      }
+      assert(left.length === 0, `rows left: ${left.join(', ')}`);
+      const [arch] = await t.execute<{ agency: string; status: string; agents: number }>(sql`
+        select a.slug as agency, l.status::text as status, (select count(*)::int from listing_agent la where la.listing_id = l.id) as agents
+        from listing l join agency a on a.id = l.agency_id where l.id = ${A.ids.listing}`);
+      assert(arch?.agency === ARCHIVE_AGENCY_SLUG && arch.agents === 0 && ['withdrawn', 'sold'].includes(arch.status), `listing after: ${JSON.stringify(arch)}`);
+      assert((await count(t, sql`select count(*)::int as n from shortlist where user_id = ${buyer!.id}`)) === 1, 'the buyer lost their shortlist');
+      assert((await count(t, sql`select count(*)::int as n from contact where agency_id = ${B.f.agencyId}`)) === contactsB && contactsB > 0, 'agency B lost rows');
+      assert(deletedFiles.length === 1 && del.filesDeleted === 1, `files deleted: ${deletedFiles.length}`);
+      // Why the listings move first: deleting B as it stands is refused by the listing's restrict.
+      const direct = await t.transaction(async (sp) => sp.execute(sql`delete from agency where id = ${B.f.agencyId}`)).then(() => 'ran', (e: unknown) => String(e));
+      assert(direct.includes('listing_agency_id_agency_id_fk'), `deleting an agency with listings directly: ${direct}`);
+      return `export ${Object.keys(exp.tables).length} tables / ${exported} rows / 1 file, no B row, no secret, no shortlist; refused open, early, misnamed; deleted: 0 rows left, ${del.listingsArchived} listings archived (${arch!.status}, 0 agents), shortlist kept, B's ${contactsB} contacts kept, 1 file deleted; direct delete with listings → refused by the listing FK; new child table → flagged`;
     }),
   );
 
