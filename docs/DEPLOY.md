@@ -517,13 +517,42 @@ settles a send that was interrupted, and resumes an approved batch left queued.
 
 ## Migrations
 
-Vercel does not run them. `packages/db/drizzle/` gained six since the last
-deploy — `0008` through `0013` — and the app will throw on a missing table.
+Vercel does not run them. Migrate first, then deploy the code that reads the change:
 
-    DATABASE_URL=<DIRECT url, port 5432> pnpm db:migrate
+    DIRECT_URL=<direct url> pnpm --filter @repo/db db:migrate          (production also needs CONFIRM_PRODUCTION=<ref>)
 
-Use the **direct** connection for migrations, not the pooler. Run it before
-the first deploy, and after any deploy whose diff touches `drizzle/`.
+Use the **direct** connection, not the transaction pooler.
+
+### Rules (PLATFORM-PLAN 1.13)
+
+`packages/db/src/migration-rules.test.ts` checks the first three rules on every migration from 0104 onward.
+
+1. **The first statement is `SET LOCAL lock_timeout = '1s';`.** Drizzle runs every pending migration in one
+   transaction, so this covers the whole run. A statement that cannot get its lock within a second fails instead of
+   queueing every query on that table behind it. Re-run it at a quieter moment.
+2. **Indexes are `CREATE INDEX IF NOT EXISTS "<name>"`.** On a table big enough that building the index takes more
+   than a few seconds (roughly 1M rows or more), build it first with
+   `pnpm --filter @repo/db db:concurrent-indexes drizzle/NNNN_name.sql`. That builds each of the migration's indexes
+   CONCURRENTLY, outside a transaction, without blocking writes. It drops and rebuilds an index left invalid by an
+   interrupted build. Then `db:migrate` finds the indexes there already.
+3. **Never `CONCURRENTLY` inside a migration.** It cannot run inside the migration's transaction.
+4. **Expand → backfill → contract.** A change that the running code would not survive is split up:
+   - **Expand:** add the new column or table, nullable or with a default. Deploy code that writes both and reads the
+     old.
+   - **Backfill:** in batches, by script, never in the migration.
+   - **Contract:** switch reads to the new. Drop the old only in a later release.
+
+   So the previous deploy always runs on the new schema, and a Vercel rollback is safe.
+5. **Before every production migration, take a fresh encrypted dump** (PITR is off). "Backups" below and
+   `backups.log` say how. Restore it once to prove it reads.
+6. **New tables that will grow get `uuid_v7()` ids:** ``.default(sql`uuid_v7()`)`` in `schema.ts`, migration 0104.
+   Time-ordered ids keep the primary key's inserts at its right edge.
+
+### The weekly look at slow statements (PLATFORM-PLAN 1.11)
+
+Every Monday, run `pnpm --filter @repo/db db:slow-queries` against production. It is read-only and prints the top 10
+statements by total time, each with the index advisor's suggestion. Paste the table into `docs/SESSION.md`. An
+index the advisor suggests goes through these rules like any other. It is not created by hand.
 
 ## Backups (PLATFORM-PLAN 0.3, 0.4, 0.8, 0.12)
 
