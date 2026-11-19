@@ -1,6 +1,7 @@
 import { assertNotProduction } from '@repo/db/production-guard';
 import { config } from 'dotenv';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { documentDownloadUrl } from '@repo/core/documents';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import ts from 'typescript';
@@ -332,11 +333,14 @@ import {
   stubTwilioClient,
   webhookToken,
   type PhoneDeps,
+  smsReconcileHandler,
+  type TwilioApi,
 } from '@repo/core/phone';
 import { skillsForHolder } from '@repo/core/skill-switches/catalog';
 import {
   cancelImport,
   createImport,
+  importReportCsv,
   getImport,
   importReport,
   listImports,
@@ -9034,6 +9038,46 @@ async function main() {
       const brokeSchema = await reachable();
       assert(brokeView === 1 && brokeSchema.includes('extensions'), `break-tests did not go red: view ${brokeView}, schemas ${brokeSchema.join(',')}`);
       return `${views} ai views, all filtered; 6 schemas closed; auth.users, storage.objects, pg_authid refused; no read-all roles; ${others} other sessions, 0 query texts (the owner role sees ${asOwner}); unfiltered view → red; schema grant → red`;
+    }),
+  );
+
+  group('Isolation beyond pages (PLATFORM-PLAN 4.9)');
+  await check('4.9: an export, a file link and a job reach only their own agency — B\'s import report, B\'s document and a job naming B\'s text are refused from A, while each works for its own agency', async () =>
+    inRollback(async (t) => {
+      const A = await contactFixture(t);
+      const B = await contactFixture(t);
+      const outcome = (p: Promise<unknown>) => p.then(() => 'ran', (e: unknown) => String((e as { code?: string }).code ?? e));
+      // Exports: the import report CSV.
+      const csv = (tag: string) => `suburb,state,postcode,channel,status,headline\nPakenham,VIC,3810,sale,draft,${tag}`;
+      const impA = await createImport(t, A.actor('owner'), { fileName: `a-${A.tag}.csv`, text: csv(A.tag) });
+      const impB = await createImport(t, B.actor('owner'), { fileName: `b-${B.tag}.csv`, text: csv(B.tag) });
+      assert((await importReportCsv(t, A.actor('owner'), impA.id)).startsWith('row,status'), 'A could not export its own report');
+      const exportB = await outcome(importReportCsv(t, A.actor('owner'), impB.id));
+      assert(exportB !== 'ran', 'A exported B\'s import report');
+      // File links: a document's download link.
+      const doc = async (f: typeof A) =>
+        (await t.execute<{ id: string }>(sql`insert into document (agency_id, scope, uploaded_by, title, storage_key, mime_type, size_bytes)
+          values (${f.agencyId}, 'knowledge', ${f.people.owner}, ${'Doc ' + f.tag}, ${`${f.agencyId}/smoke-${f.tag}.pdf`}, 'application/pdf', 10) returning id`))[0]!.id;
+      const docA = await doc(A);
+      const docB = await doc(B);
+      const ownLink = await outcome(documentDownloadUrl(t, A.actor('owner'), docA));
+      assert(ownLink !== 'not_found', 'A could not reach its own document');
+      const linkB = await outcome(documentDownloadUrl(t, A.actor('owner'), docB));
+      assert(linkB === 'not_found', `A's link to B's document: ${linkB}`);
+      // Jobs: a job acts only on its own agency's rows, whatever its payload names.
+      const [num] = await t.execute<{ id: string }>(sql`insert into phone_number (agency_id, user_id, e164, number_sid) values (${B.agencyId}, ${B.people.a1}, '+61480000949', ${`PN49${B.tag}`}) returning id`);
+      const [sms] = await t.execute<{ id: string }>(sql`insert into sms_message (agency_id, phone_number_id, counterpart, direction, body, status)
+        values (${B.agencyId}, ${num!.id}, '+61412000949', 'out', ${'smoke ' + B.tag}, 'queued') returning id`);
+      const handler = smsReconcileHandler({} as PhoneDeps, async () => ({ findMessages: async () => [] }) as unknown as TwilioApi);
+      const job = (agencyId: string) => ({ id: randomUUID(), kind: 'sms.reconcile', agencyId, payload: { smsMessageId: sms!.id } }) as unknown as Parameters<typeof handler>[1];
+      const status = async () => (await t.execute<{ status: string }>(sql`select status from sms_message where id = ${sms!.id}`))[0]!.status;
+      await handler(t, job(A.agencyId));
+      const afterA = await status();
+      assert(afterA === 'queued', `a job of agency A changed B's text to ${afterA}`);
+      await handler(t, job(B.agencyId));
+      const afterB = await status();
+      assert(afterB === 'failed', `B's own job left its stuck text ${afterB} — the check could never fail`);
+      return `export: own ok, B's ${exportB}; link: own ${ownLink}, B's ${linkB}; job: A's job left B's text ${afterA}, B's own job settled it ${afterB}`;
     }),
   );
 
