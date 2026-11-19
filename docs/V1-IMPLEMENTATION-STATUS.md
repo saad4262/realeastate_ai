@@ -46,6 +46,9 @@ Updated: 2026-11-19. Baseline (from 14.12): 80 tasks — 1 done, 3 built, 16 par
 | 2026-11-19 | 4.9 | `test/4.9-isolation` | Exports, file links, jobs: cross-agency checks + SMS reconcile job scoped to its agency |
 | 2026-11-19 | 5.12 part 1 | `feat/5.12-agency-closure` | ADR 0093; close/export/delete by script; proven on dev |
 | 2026-11-19 | merge | `main` ac97d2b | Owner approved 4.9 and 5.12 part 1 (D-8: archived listings); smoke import conflict resolved (both kept); clean-worktree checks green; Vercel success ×4; /api/health ok ×4 |
+| 2026-11-19 | 5.3, 5.4 | `docs/5.3-runbooks` | Runbooks and secrets inventory |
+| 2026-11-19 | 4.3 | `test/4.3-load` | k6 scripts, seed, checks; smoke-run on dev |
+| 2026-11-19 | 5.12 part 2 | `feat/5.12-part2-user-deletion` | Account self-deletion + retention purges; proven on dev |
 
 ## Tasks
 | ID | Task | P | Status | Implementation | Files | Tests | Evidence | External dependency | Remaining risk |
@@ -110,7 +113,7 @@ Updated: 2026-11-19. Baseline (from 14.12): 80 tasks — 1 done, 3 built, 16 par
 | 3.10 | Twilio signature + token rotation | P1 | Not started | — | — | — | — | — | — |
 | 4.1 | E2E five flows + four failures | P0 | Not started | — | — | — | — | — | — |
 | 4.2 | Nightly smoke | P1 | Not started | — | — | — | — | — | — |
-| 4.3 | Load, spike, soak, recovery | P0 | Not started | — | — | — | — | — | — |
+| 4.3 | Load, spike, soak, recovery | P0 | Built (scripts; full runs pending) | k6 `load/platform.js` (listing, search, console, /api/live, signed webhook; v1/v2/v3 rates; smoke/load/spike/soak; section 5 p95s and <1% errors as thresholds; refuses production), `seed.sql`/`cleanup.sql`, `targets.mjs`, `after-run.sql` (duplicates, stuck, lost events, dead jobs), README with the recovery run | `load/` | Dev: seed 20 agencies, targets, 30 s smoke vs a local server (75 req, 0 errors, webhook 200, thresholds can fail), after-run all 0, cleanup 0 left | `test/4.3-load` f7943d6 | Owner: raise dev compute for the day; a preview on dev with vendors faked | Console scenarios need a preview + cookie |
 | 4.4 | Restore drill, new project | P0 | Not started | — | — | — | — | A scratch Supabase project (O-19) | — |
 | 4.5 | Accessibility | P1 | Not started | — | — | — | — | — | — |
 | 4.6 | Devices | P1 | Not started | — | — | — | — | — | — |
@@ -120,8 +123,8 @@ Updated: 2026-11-19. Baseline (from 14.12): 80 tasks — 1 done, 3 built, 16 par
 | 4.10 | AI SQL probes in smoke | P1 | Done | New smoke group: every `ai` view carries `ai.ticket_agency()`; ai_reader has no USAGE on auth, storage, extensions, vault, graphql, realtime; auth.users, storage.objects, pg_authid refused (42501); no pg_read_all_stats/data; other sessions' query text hidden | `packages/smoke/src/index.ts` (group 'AI SQL probes') | Dev: passed in 50 s (16 views, 15 other sessions, 0 texts; owner role sees 6); break-tests built in (unfiltered view → red, schema grant → red), rolled back (16 views, no grant after) | merged 8d8387b, live; `test/4.10-ai-sql-probes` 34eefbd | — | pg_read_all_stats cannot be granted by postgres, so that break is shown by the owner role seeing the text instead |
 | 5.1 | Privacy policy | P0 | Not started | — | — | — | — | Lawyer (O-21) | — |
 | 5.2 | Terms + DPA | P0 | Not started | — | — | — | — | Lawyer (O-21) | — |
-| 5.3 | Breach runbook + runbooks | P0 | Not started | — | — | — | — | — | — |
-| 5.4 | Secrets inventory | P1 | Not started | — | — | — | — | — | — |
+| 5.3 | Breach runbook + runbooks | P0 | Built (branch) | `docs/RUNBOOKS.md`: rollback, restore, key leaked, bot flood, AI bill, vendor down, lost access, NDB breach (assess ≤30 days, notify OAIC + people); a table of switches that exist (SENDS_PAUSED, AI caps where 0 refuses, suspend, spike pause) | `docs/RUNBOOKS.md` | Every switch checked in code (capUsd: 0 refuses; SENDS_PAUSED holds the send lane) | `docs/5.3-runbooks` dd0f97c | Each runbook drilled once (Boss + CC); lawyer on 8 | Drills not yet run |
+| 5.4 | Secrets inventory | P1 | Built (branch) | `docs/SECRETS-INVENTORY.md`: every secret by name, project, where to make a new one, expiry (Microsoft Entra: at most 24 months), rotation notes; never values | `docs/SECRETS-INVENTORY.md` | Found: INTEGRATION_TOKEN_KEY also encrypts agencies' Twilio keys (noted) | `docs/5.3-runbooks` dd0f97c | Boss: copy into the password manager, fill expiry dates | — |
 | 5.5 | DNS, domains, cookie domain | P0 | Not started | — | — | — | — | DNS (O-22) | — |
 | 5.6 | SPF/DKIM/DMARC, sender | P0 | Not started | — | — | — | — | DNS, Resend domain (O-22) | — |
 | 5.7 | ACMA sender ID | P1 | Not started | — | — | — | — | ACMA (O-23) | — |
@@ -129,4 +132,4 @@ Updated: 2026-11-19. Baseline (from 14.12): 80 tasks — 1 done, 3 built, 16 par
 | 5.9 | Accounts in business name, 2FA | P0 | Not started | — | — | — | — | Boss (O-1) | — |
 | 5.10 | Clean prod, support, status page | P1 | Not started | — | — | — | — | — | — |
 | 5.11 | Data-flow doc, ADM disclosure, lawyer | P0 | Not started | — | — | — | — | Lawyer (O-21) | — |
-| 5.12 | Agency export, deletion, purges | P1 | Partial (part 1 live) | ADR 0093: close (suspend + audit), export (every agency table + allowlisted children as JSON lines, document files, manifest; secrets dropped; buyers' data excluded), delete ≥30 days after closing (listings archived, everything else cascades, files deleted after commit); a new table or secret column stops the export until classified | `lifecycle/agency-closure.ts` (+ test), `lifecycle/agency-cli.ts`, `audit`, ADR 0093, smoke group 'Agency closure' | 3 unit tests; dev: 65 tables / 131 rows / 1 file; refused open, early, misnamed; 0 rows left; listing archived; shortlist kept; B intact; break-tests (token unredacted, shortlist exported) red | merged ac97d2b; `feat/5.12-agency-closure` c5a11b6 | D-8 decided (archive); part 2 | Part 2 not built: a public user deleting their own account; section 8 retention purges |
+| 5.12 | Agency export, deletion, purges | P1 | Built (part 2 on branch) | ADR 0093: close (suspend + audit), export (every agency table + allowlisted children as JSON lines, document files, manifest; secrets dropped; buyers' data excluded), delete ≥30 days after closing (listings archived, everything else cascades, files deleted after commit); a new table or secret column stops the export until classified. Part 2: a public user deletes their own account (refused for agency members/admins; sign-in deleted first; their data cascades; agency enquiries kept, unlinked); daily retention purge (trash 60 d, site_activity 13 months, AI SQL log + dashboard requests 90 d) | `lifecycle/agency-closure.ts` (+ test), `lifecycle/agency-cli.ts`, `audit`, ADR 0093, smoke group 'Agency closure' | 3 unit tests; dev: 65 tables / 131 rows / 1 file; refused open, early, misnamed; 0 rows left; listing archived; shortlist kept; B intact; break-tests (token unredacted, shortlist exported) red | merged ac97d2b; `feat/5.12-agency-closure` c5a11b6; part 2 `feat/5.12-part2-user-deletion` 78edfbe | Merge approval (part 2); the delete-account page (Cursor) | Smoke found: the chat, assistant, workflow and import purges already ran
