@@ -1,0 +1,48 @@
+# PLATFORM-PLAN 4.1: the E2E suite (packages/e2e) against the preview deployments, on the DEV database.
+# Off until the owner sets it up (V1-OWNER-ACTIONS O-27): repository variable E2E_ENABLED=true, variables
+# E2E_WEB / E2E_AGENT / E2E_AGENCY (the previews' stable URLs, each pointed at the dev project, vendors faked), and
+# secrets E2E_DIRECT_URL, E2E_SUPABASE_URL, E2E_SERVICE_ROLE_KEY, E2E_STRIPE_WEBHOOK_SECRET — all DEV values.
+# The suite refuses the production project. A failure here fails the deployment's check.
+name: E2E
+
+on:
+  deployment_status:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    if: vars.E2E_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || (github.event.deployment_status.state == 'success' && github.event.deployment.environment != 'Production'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @repo/e2e exec playwright install --with-deps chromium
+      - run: pnpm --filter @repo/e2e e2e
+        env:
+          CI: '1'
+          E2E_WEB: ${{ vars.E2E_WEB }}
+          E2E_AGENT: ${{ vars.E2E_AGENT }}
+          E2E_AGENCY: ${{ vars.E2E_AGENCY }}
+          DIRECT_URL: ${{ secrets.E2E_DIRECT_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.E2E_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.E2E_SERVICE_ROLE_KEY }}
+          E2E_STRIPE_WEBHOOK_SECRET: ${{ secrets.E2E_STRIPE_WEBHOOK_SECRET }}
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-traces
+          path: packages/e2e/test-results
+          retention-days: 7
