@@ -10061,6 +10061,20 @@ async function main() {
     return `${n} statements + 1 transaction answered in ${Date.now() - started} ms`;
   });
 
+  group('Foreign key indexes (PLATFORM-PLAN 1.10)');
+  await check('1.10: every tenant table\'s agency_id has an index that starts with it (agency reads, and the cascade when an agency is deleted)', async () =>
+    inRollback(async (t) => {
+      const rows = await t.execute<{ tbl: string }>(sql`
+        select c.conrelid::regclass::text as tbl from pg_constraint c join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+        where c.contype = 'f' and c.connamespace = 'public'::regnamespace and a.attname = 'agency_id' and array_length(c.conkey, 1) = 1
+          and c.conrelid::regclass::text <> 'platform_email' -- a platform record: mail the admin sent, read by the admin only
+          and not exists (select 1 from pg_index i where i.indrelid = c.conrelid and i.indkey[0] = c.conkey[1])
+        order by 1`);
+      assert(rows.length === 0, `agency_id without an index: ${rows.map((r) => r.tbl).join(', ')} — add index('<table>_agency_id_fk_idx') in schema.ts`);
+      return 'every agency_id foreign key is indexed';
+    }),
+  );
+
   // -------------------------------------------------------- platform admin --
   group('Platform admin');
 
