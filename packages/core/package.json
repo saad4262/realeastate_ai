@@ -119,6 +119,7 @@
     "./phone": "./src/phone/index.ts",
     "./cron": "./src/cron/index.ts",
     "./audit": "./src/audit/index.ts",
+    "./lifecycle": "./src/lifecycle/index.ts",
     "./observability/health": "./src/observability/health.ts",
     "./jobs": "./src/jobs/index.ts",
     "./billing": "./src/billing/index.ts"
