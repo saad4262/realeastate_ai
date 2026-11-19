@@ -10046,6 +10046,21 @@ async function main() {
     }),
   );
 
+  group('Database pool through the pooler (ADR 0094)');
+  await check('0094: three times the pool in statements at once, with a transaction among them, all answer — nothing is pipelined onto Supavisor', async () => {
+    // Statements without parameters are the ones postgres.js would pipeline; Supavisor's transaction mode loses some replies.
+    const n = 3 * Number(process.env.DB_POOL_MAX || 5);
+    const started = Date.now();
+    const all = Promise.all([
+      ...Array.from({ length: n }, (_, i) => db.execute(sql.raw(`select pg_sleep(${(i % 4) / 10}), ${i} as i`))),
+      db.transaction(async (t) => (await t.execute<{ ok: number }>(sql`select 1 as ok`))[0]!.ok),
+    ]);
+    const timeout = new Promise<'hung'>((r) => setTimeout(() => r('hung'), 20_000).unref());
+    const res = await Promise.race([all, timeout]);
+    assert(res !== 'hung', `${n} statements and a transaction did not all answer in 20 s: a statement was pipelined and lost`);
+    return `${n} statements + 1 transaction answered in ${Date.now() - started} ms`;
+  });
+
   // -------------------------------------------------------- platform admin --
   group('Platform admin');
 
