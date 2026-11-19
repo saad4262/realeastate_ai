@@ -28,7 +28,7 @@
     "@repo/config": "workspace:*",
     "@supabase/supabase-js": "^2.47.10",
     "drizzle-orm": "^0.38.3",
-    "postgres": "^3.4.5"
+    "postgres": "^4.1.1"
   },
   "devDependencies": {
     "dotenv": "^16.4.7",
