@@ -13,6 +13,7 @@ import { runJobs } from '../jobs';
 import { enqueueStuckSms, smsReconcileHandler } from '../phone/reconcile';
 import { detectSendSpikes } from '../safety/spikes';
 import { settleCredits } from '../billing/credits';
+import { creditUsageAlerts } from '../billing/alerts';
 import { billingReconcileHandler, enqueueBillingReconcile, stripeEventHandler } from '../billing/service';
 import type { StripeApi } from '../billing/stripe';
 
@@ -156,6 +157,13 @@ export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new
       name: 'settleCredits',
       mode: 'once',
       run: async () => ({ result: await settleCredits(db, now()), more: false }),
+    },
+    {
+      // PLATFORM-PLAN 2.6: owners hear at 80% and 100% of their AI credits, once per level per period.
+      name: 'creditAlerts',
+      mode: 'once',
+      everyMinutes: 5,
+      run: async () => ({ result: await creditUsageAlerts(db, now(), { notice: deps.reminders.notice ?? null }), more: false }),
     },
     {
       // PLATFORM-PLAN 3.7: an agency far above its usual hour has its sends paused and its owners told.

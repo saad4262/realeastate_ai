@@ -754,3 +754,32 @@ export function buildSendsPausedEmail(input: SendsPausedEmailInput): Transaction
   const text = [heading, intro, '', `What we saw: ${input.reason}`, '', fix, `Settings: ${input.settingsUrl}`, '', ...textFooter(footer)].join('\n');
   return { kind: 'transactional', to: input.to, from: input.from, subject: heading, html, text, tags: { kind: 'sends-paused' } };
 }
+
+// ── AI credits 80% / 100% (PLATFORM-PLAN 2.6) ───────────────────────────────
+
+export type CreditUsageEmailInput = {
+  to: { email: string; name?: string };
+  from: { email: string; name: string };
+  postalAddress: string;
+  level: 80 | 100;
+  /** This period's credits and what is left, from SQL. */
+  credits: number;
+  left: number;
+  settingsUrl: string;
+};
+
+export function buildCreditUsageEmail(input: CreditUsageEmailInput): TransactionalMessage {
+  requireSenderFooter(input.from, input.postalAddress, 'credit usage notice');
+  const done = input.level === 100;
+  const heading = done ? 'Your AI credits are used up' : "You've used 80% of your AI credits";
+  const intro = done
+    ? 'Your agency has used all of this period’s AI credits, so AI features are paused.'
+    : `Your agency has ${input.left} of ${input.credits} AI credits left this period.`;
+  const fix = done
+    ? 'They start again with your next billing period, or straight away with a top-up in Settings. Texts and emails you send yourself are not affected.'
+    : 'When they run out, AI features pause until your next billing period. A top-up in Settings adds more.';
+  const footer: Footer = { from: input.from, postalAddress: input.postalAddress, why: 'Sent because you are an owner of this agency.' };
+  const html = layout({ heading, intro, body: '', button: { label: 'Open Settings', url: input.settingsUrl }, after: fix, footer });
+  const text = [heading, intro, '', fix, `Settings: ${input.settingsUrl}`, '', ...textFooter(footer)].join('\n');
+  return { kind: 'transactional', to: input.to, from: input.from, subject: heading, html, text, tags: { kind: `credits-${input.level}` } };
+}
