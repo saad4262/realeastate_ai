@@ -60,6 +60,7 @@ else (`V1-IMPLEMENTATION-STATUS.md`). Never paste a secret into chat: put it str
 | D-5 | PITR (decisions 7, 10) | On before the first paying agency | 0.3 |
 | D-6 | MFA for agents (decision 5) | Owners/admins at launch, agents in 3 months | 1.3 scope |
 | D-7 | APPs regardless of exemption (decision 12); ADR 0083 wording (decision 8) | Yes; disclose with opt-out | 5.1 |
+| D-8 | A closed agency's listings at deletion (ADR 0093) | Kept in an "archived listings" agency, withdrawn, no agent names, so buyers' shortlists/notes and sales history survive. The alternative deletes them and those buyers lose them | 5.12 |
 
 ## Launch (stage 9)
 
