@@ -17,7 +17,8 @@ function publicEnv() {
 }
 
 /** Who middleware verified: the token's own claims, never the cookie's unverified copy of the user. */
-export type SessionIdentity = { id: string; email: string | null; label: string };
+/** `aal`: Supabase's assurance level for this session: `aal2` once a second factor (TOTP) was verified (PLATFORM-PLAN 1.3). */
+export type SessionIdentity = { id: string; email: string | null; label: string; aal?: 'aal1' | 'aal2' };
 
 export type SessionResult = {
   response: NextResponse;
@@ -75,7 +76,7 @@ export function identityFromClaims(claims: JwtPayload | null | undefined): Sessi
   const email = typeof claims?.email === 'string' && claims.email ? claims.email : null;
   const meta = claims?.user_metadata as { full_name?: unknown; name?: unknown } | undefined;
   const named = [meta?.full_name, meta?.name].find((v): v is string => typeof v === 'string' && v.trim() !== '');
-  return { id, email, label: named ?? email?.split('@')[0] ?? '' };
+  return { id, email, label: named ?? email?.split('@')[0] ?? '', aal: claims?.aal === 'aal2' ? 'aal2' : 'aal1' };
 }
 
 /**

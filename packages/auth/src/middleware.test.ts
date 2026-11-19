@@ -102,11 +102,13 @@ const userCalls = () => calls.filter((u) => u.startsWith(`${SUPABASE_URL}/auth/v
 
 describe('identityFromClaims', () => {
   it('takes the id from sub, the address, and the name given at sign-up', () => {
-    expect(identityFromClaims(claimsFor(now() + 60))).toEqual({ id: USER_ID, email: 'sara@example.com', label: 'Sara Khan' });
+    expect(identityFromClaims(claimsFor(now() + 60))).toEqual({ id: USER_ID, email: 'sara@example.com', label: 'Sara Khan', aal: 'aal1' });
   });
 
   it('falls back to `name`, then to the address before the @', () => {
     expect(identityFromClaims({ ...claimsFor(1), user_metadata: { name: 'Sara' } })?.label).toBe('Sara');
+    expect(identityFromClaims({ ...claimsFor(1), aal: 'aal2' })?.aal).toBe('aal2');
+    expect(identityFromClaims({ ...claimsFor(1), aal: 'AAL2 please' })?.aal).toBe('aal1');
     expect(identityFromClaims({ ...claimsFor(1), user_metadata: { full_name: '  ' } })?.label).toBe('sara');
   });
 
@@ -122,12 +124,12 @@ describe('updateSession (getClaims)', () => {
     const token = await sign(good, claimsFor(now() + 3600));
     const fwd = new Headers();
     const { user } = await updateSession(request(sessionCookie(token, now() + 3600)), fwd);
-    expect(user).toEqual({ id: USER_ID, email: 'sara@example.com', label: 'Sara Khan' });
+    expect(user).toEqual({ id: USER_ID, email: 'sara@example.com', label: 'Sara Khan', aal: 'aal1' });
     expect(fwd.get('x-console-user-id')).toBe(USER_ID);
     expect(decodeURIComponent(fwd.get('x-console-user-label') ?? '')).toBe('Sara Khan');
     expect(userCalls()).toBe(0);
     // PLATFORM-PLAN 1.2: what middleware forwards is signed, and a reader believes it.
-    expect(await readSignedIdentity((n) => fwd.get(n), 'x-console-user', Date.now(), 'service-role-test')).toEqual({ id: USER_ID, email: 'sara@example.com', label: 'Sara Khan' });
+    expect(await readSignedIdentity((n) => fwd.get(n), 'x-console-user', Date.now(), 'service-role-test')).toEqual({ id: USER_ID, email: 'sara@example.com', label: 'Sara Khan', aal: 'aal1' });
   });
 
   it('forged identity headers, signature included, are stripped before anything is written', async () => {

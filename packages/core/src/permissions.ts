@@ -35,6 +35,12 @@ export type Actor = {
    * still refuses it. Reading an agency's data goes through a `platform` view actor.
    */
   platformAdmin?: boolean;
+  /**
+   * PLATFORM-PLAN 1.3: the session's assurance level, set by the console loaders (`mfaMark`) for owners, admins
+   * and platform admins once MFA is enforced. `aal1` refuses every MFA_ACTIONS action; unset (agents, system
+   * actors, before enforcement) changes nothing.
+   */
+  aal?: 'aal1' | 'aal2';
 };
 
 export type Action =
@@ -635,8 +641,26 @@ export const PLATFORM_READ: ReadonlySet<Action> = new Set<Action>([
   'review:read',
 ]);
 
+/** Actions that need a second factor (TOTP, AAL2) from whoever is marked for it (PLATFORM-PLAN 1.3, 1.22). */
+export const MFA_ACTIONS: ReadonlySet<Action> = new Set<Action>(['billing:manage', 'agency:billing', 'team:manage', 'team:remove_owner', 'platform:manage']);
+
+/**
+ * Who must use MFA (decision D-6: owners, admins and platform admins at launch; agents later) and whether it is
+ * enforced yet (`MFA_ENFORCED=1`, set once the enrolment page ships). Returns the `aal` to put on the actor.
+ */
+export function mfaMark(
+  who: { membershipRole?: MembershipRole; platformAdmin?: boolean },
+  sessionAal: 'aal1' | 'aal2' | undefined,
+  env: Record<string, string | undefined> = process.env,
+): { aal?: 'aal1' | 'aal2' } {
+  if (env.MFA_ENFORCED?.trim() !== '1') return {};
+  const required = who.platformAdmin || who.membershipRole === 'owner' || who.membershipRole === 'admin';
+  return required ? { aal: sessionAal === 'aal2' ? 'aal2' : 'aal1' } : {};
+}
+
 export function can(actor: Actor, action: Action, resource: Resource): boolean {
   if (actor.via === 'platform' && !PLATFORM_READ.has(action)) return false;
+  if (actor.aal === 'aal1' && MFA_ACTIONS.has(action)) return false;
   switch (action) {
     case 'listing:read':
       // The agency's own listings only — drafts, pending and withdrawn ones
