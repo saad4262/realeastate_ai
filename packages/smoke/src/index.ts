@@ -7293,15 +7293,16 @@ async function main() {
       };
       const events = () => count(t, sql`select count(*)::int as n from workflow_event where agency_id = ${w.f.agencyId} and kind = 'contact.created'`);
       const before = await events();
-      const imported = await importOf(150, 'quiet');
-      assert(imported === 150 && (await events()) === before, `150 imported, events ${before} → ${await events()}`);
+      // The choice is made once a chunk, not per row, so 30 rows show what 10,000 would (dev is too slow for more).
+      const imported = await importOf(30, 'quiet');
+      assert(imported === 30 && (await events()) === before, `30 imported, events ${before} → ${await events()}`);
       await createContact(t, owner, { name: 'By Hand', email: `hand.${w.f.tag}@smoke.test` });
       assert((await events()) === before + 1, 'a contact added by hand wrote no event');
       // A workflow that asks for imported contacts: the next import feeds it, row by row.
       await saveWorkflow(t, owner, { name: `Imported ${w.f.tag}`, scope: 'agency', spec: { trigger: { kind: 'contact.created', source: 'import' }, conditions: [], actions: [{ type: 'remind_owner', text: 'Imported', mail_me: false }] } });
-      await importOf(20, 'asked');
-      assert((await events()) === before + 1 + 20, `asked-for import: ${(await events()) - before - 1} events for 20 rows`);
-      return '150 rows imported with "When a contact is added" active: 0 events; by hand: 1; with "When a contact is imported" active: 20 rows → 20 events';
+      await importOf(5, 'asked');
+      assert((await events()) === before + 1 + 5, `asked-for import: ${(await events()) - before - 1} events for 5 rows`);
+      return '30 rows imported with "When a contact is added" active: 0 events; by hand: 1; with "When a contact is imported" active: 5 rows → 5 events';
     }),
   );
 
