@@ -10357,6 +10357,17 @@ async function main() {
     return `${n} statements + 1 transaction answered in ${Date.now() - started} ms`;
   });
 
+  await check('0094: the app role ends a session left idle inside a transaction within a minute (migration 0106), so a stuck connection cannot hold locks', async () => {
+    const [row] = await db.execute<{ v: string; stored: string | null }>(sql`
+      select current_setting('idle_in_transaction_session_timeout') as v,
+        (select array_to_string(s.setconfig, ',') from pg_db_role_setting s join pg_roles r on r.oid = s.setrole where r.rolname = current_user and s.setdatabase = 0) as stored`);
+    const unit: Record<string, number> = { '': 1, ms: 1, s: 1000, min: 60_000 }; // Postgres keeps the value as written
+    const ms = (v: string) => { const m = /^(\d+)(ms|s|min)?$/.exec(v.trim()); return m ? Number(m[1]) * unit[m[2] ?? '']! : NaN; };
+    const stored = /idle_in_transaction_session_timeout=([^,]+)/.exec(row?.stored ?? '')?.[1] ?? null;
+    assert(stored !== null && ms(stored) > 0 && ms(stored) <= 60_000, `role setting: ${row?.stored}`);
+    return `role ${stored}; this session ${row!.v}`;
+  });
+
   // -------------------------------------------------------- platform admin --
   group('Platform admin');
 

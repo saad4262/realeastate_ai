@@ -743,6 +743,13 @@
       "when": 1795158766082,
       "tag": "0105_twilio_auth_token",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1795175259260,
+      "tag": "0106_idle_tx_timeout",
+      "breakpoints": true
     }
   ]
 }

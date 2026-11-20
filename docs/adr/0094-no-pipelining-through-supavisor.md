@@ -24,3 +24,45 @@ transaction must all answer. It turned red with pipelining back on.
 
 **Upgrading postgres.js.** pnpm refuses a patch that no longer applies. Check whether upstream fixed `onexecute`,
 re-make the patch or drop it, and run the smoke check.
+
+## Second attempt, 2026-11-20
+
+**The first rollout was reverted.** Within minutes of deploying it, the minute tick on production left sessions
+idle in a transaction, holding locks across the tick's tables (one for over 6 minutes). It was reverted (db76874).
+A dev probe at the time seemed to show the patched driver deadlocking on a pool of 2. That probe was wrong: its 20 s
+limit was shorter than dev's slow round trips, and the patched run simply took longer.
+
+**Measured again on dev** with a 90 s limit: 40 operations (a quarter of them transactions with two statements,
+the rest plain statements, with and without parameters), at pool sizes 1, 2 and 5, direct and through the pooler.
+
+| Driver | Through the pooler | Direct |
+|---|---|---|
+| Unpatched (pipelining) | **Hangs** at 1, 2 and 5 | Finishes at 1, 2 and 5 |
+| Patched, `max_pipeline: 0` | Finishes at 1, 2 and 5 | Finishes at 1, 2 and 5 |
+
+- Through the pooler, patched, pool 2 finished in 2 of 3 runs. The third ended with a Node error, not a hang, and
+  did not recur.
+- Earlier 8 s and 20 s limits made both drivers look hung. That was dev's latency.
+
+Real minute ticks, run on dev through the pooler with the patched driver, never left a session idle in a
+transaction for more than 3 s: 2 and 4 overlapping, at pools 2 and 5. **The production incident has not been
+reproduced on dev.** Its cause is unknown. It may involve Vercel freezing a function between invocations, or
+production's own data.
+
+**So the fix ships with a guard against the unknown: an idle-in-transaction timeout (migration 0106).** The app's
+role ends a session idle inside a transaction after 30 s:
+`ALTER ROLE postgres SET idle_in_transaction_session_timeout = '30s'`.
+- Our code never waits on the network inside a transaction, so nothing legitimate idles that long.
+- A stuck connection now costs one failed round instead of minutes of held locks.
+- On dev, six transactions left idle for 35 s were ended at 30 s.
+- Overlapping real ticks ran clean with the timeout in force.
+- Smoke check: "the app role ends a session left idle inside a transaction".
+
+**Rollout.** Deploy, then watch production for 10 minutes for sessions idle in a transaction. If one lasts over
+20 s, revert at once (the owner's go covers that revert).
+
+**postgres.js 4** (4.1.1, 2026-11-11) was considered and set aside:
+- It rewrites the pool, but still pipelines onto busy connections.
+- It changes how parameter types are inferred, which would need its own review of every query.
+- Supavisor's own fix (supabase/supavisor#1207) is unreleased.
+- Revisit when either ships and has been out a few weeks.
