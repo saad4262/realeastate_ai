@@ -339,6 +339,7 @@ import {
   startManagedPhone,
   twilioSignature,
   type TwilioMasterApi,
+  tellAgentsOfFailedTexts,
   smsReconcileHandler,
   type TwilioApi,
 } from '@repo/core/phone';
@@ -7278,6 +7279,30 @@ async function main() {
     }),
   );
 
+  await check('PLATFORM-PLAN 3.5: the model down → the step still leaves a DRAFT, a plain template labelled "the AI was unavailable"; nothing is sent', async () =>
+    inRollback(async (t) => {
+      const w = await workflowFixture(t, { trigger: { kind: 'lead.created' }, conditions: [], actions: [{ type: 'draft_email', instructions: 'Thank them' }] });
+      const { id: buyer } = await createContact(t, w.actor, { name: 'Tia Template', email: `tia.${w.f.tag}@smoke.test` });
+      await createManualLead(t, w.actor, { contactId: buyer, listingId: w.listingId, kind: 'enquiry', message: null });
+      await runWorkflowTick(t, new Date());
+      const prev = process.env.EMAIL_DEV_ALLOWLIST;
+      process.env.EMAIL_DEV_ALLOWLIST = '@smoke.test';
+      try {
+        await runScheduledActions(t, { draftWriter: async () => { throw new Error('Anthropic 529 overloaded'); } }, new Date());
+      } finally {
+        if (prev === undefined) delete process.env.EMAIL_DEV_ALLOWLIST;
+        else process.env.EMAIL_DEV_ALLOWLIST = prev;
+      }
+      const [draft] = await t.execute<{ status: string; args: { subject: string; body: string }; card: { title: string; notes: string[] } }>(sql`
+        select status, args, card from proposed_action where user_id = ${w.f.people.a1} and origin = 'workflow' and tool = 'send_email'`);
+      assert(draft?.status === 'proposed', `no draft card: ${JSON.stringify(draft)}`);
+      assert(/the AI was unavailable/.test(draft.card.title) && draft.card.notes.some((n) => /The AI was unavailable/.test(n)), `not labelled: ${draft.card.title}`);
+      assert(draft.args.body.startsWith('Hi Tia,') && draft.args.body.includes('I wanted to follow up'), `template body: ${draft.args.body}`);
+      assert((await count(t, sql`select count(*)::int as n from mail_message m join mail_thread th on th.id = m.thread_id where th.agency_id = ${w.f.agencyId} and m.direction = 'out'`)) === 0, 'something was sent');
+      return 'writer threw → send_email draft card, title and note say the AI was unavailable, body the follow-up template; nothing sent';
+    }),
+  );
+
   await check('a removed owner’s workflow is paused (with the reason) and never runs as them; resuming checks it again', async () =>
     inRollback(async (t) => {
       const w = await workflowFixture(t, { trigger: { kind: 'contact.created' }, conditions: [], actions: [{ type: 'remind_owner', text: 'x', mail_me: false }] });
@@ -7615,6 +7640,32 @@ async function main() {
       const afterRace = await codes('tok-rival', 'tok-ours');
       assert(afterRace === '200,403', `after a raced rotation — the token Twilio holds, ours: ${afterRace}`);
       return 'stored encrypted; no/wrong signature 403, right 200; interrupted rotation: old and new 200; finished: new 200, old 403; raced: the token Twilio holds is stored';
+    }),
+  );
+
+  await check('PLATFORM-PLAN 3.5: texts Twilio did not take → the number\'s agent gets one bell and one email an hour; a delivery failure, a paused send and an old failure do not count', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const [num] = await t.execute<{ id: string }>(sql`
+        insert into phone_number (agency_id, user_id, e164, number_sid) values (${f.agencyId}, ${f.people.a1}, '+61480000555', ${`PNfail${f.tag}`}) returning id`);
+      const text = (status: string, sid: string | null, error: string | null, minutesAgo = 1) => t.execute(sql`
+        insert into sms_message (agency_id, phone_number_id, counterpart, direction, body, status, provider_sid, error, created_at, updated_at)
+        values (${f.agencyId}, ${num!.id}, '+61400111222', 'out', 'hi', ${status}, ${sid}, ${error}, now() - make_interval(mins => ${minutesAgo}), now() - make_interval(mins => ${minutesAgo}))`);
+      await text('failed', null, 'Twilio could not be reached');
+      await text('failed', null, 'Twilio could not be reached');
+      await text('failed', `SMdeliv${f.tag}`, 'Twilio: undelivered'); // Twilio had it; the handset did not take it
+      await text('failed', null, "Not sent: this agency's sends are paused. An owner or admin can resume them.");
+      await text('failed', null, 'Twilio could not be reached', 30); // before the window
+      const transport = fakeTransport();
+      const notice = { mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport }, urls: { agentUrl: 'https://agents.smoke.test', agencyUrl: 'https://agency.smoke.test' } };
+      const now = new Date();
+      const first = await tellAgentsOfFailedTexts(t, now, { notice });
+      const again = await tellAgentsOfFailedTexts(t, now, { notice });
+      const bells = await t.execute<{ user_id: string; title: string }>(sql`select user_id, title from notification where agency_id = ${f.agencyId} and kind = 'texts_failed'`);
+      assert(bells.length === 1 && bells[0]!.user_id === f.people.a1 && /^2 texts/.test(bells[0]!.title), `bells: ${JSON.stringify(bells)}`);
+      assert(first.emailed === 1 && again.notified === 0 && again.emailed === 0 && transport.sent.length === 1, `first ${JSON.stringify(first)} again ${JSON.stringify(again)}`);
+      assert(/2 texts from your number were not sent/.test(transport.sent[0]!.subject) && transport.sent[0]!.text.includes('https://agents.smoke.test/my-inbox/texts'), `email: ${transport.sent[0]!.subject}`);
+      return '2 refused texts → A1: one bell ("2 texts…"), one email linking their texts; delivery failure, paused send, 30-min-old failure not counted; a second run in the hour adds nothing';
     }),
   );
 

@@ -755,6 +755,45 @@ export function buildSendsPausedEmail(input: SendsPausedEmailInput): Transaction
   return { kind: 'transactional', to: input.to, from: input.from, subject: heading, html, text, tags: { kind: 'sends-paused' } };
 }
 
+// ── Texts Twilio did not take (PLATFORM-PLAN 3.5) ──────────────────────────
+
+export type TextsFailedEmailInput = {
+  to: { email: string; name?: string };
+  from: { email: string; name: string };
+  postalAddress: string;
+  count: number;
+  /** As the send recorded it ("Twilio could not be reached"). Never a provider body. */
+  reason: string;
+  textsUrl: string;
+};
+
+/**
+ * "Texts from your number were not sent": Twilio refused or could not be reached, so the people they were
+ * for did not get them. At most one an hour per agent. Nothing is re-sent on its own.
+ */
+export function buildTextsFailedEmail(input: TextsFailedEmailInput): TransactionalMessage {
+  requireSenderFooter(input.from, input.postalAddress, 'texts failed notice');
+  const heading = input.count === 1 ? 'A text from your number was not sent' : `${input.count} texts from your number were not sent`;
+  const intro = 'Twilio, which sends your texts, did not take them, so the people they were for have not received them.';
+  const fix = 'Nothing is sent again on its own. Open your texts to see who they were for, and reach anyone urgent another way (a call or an email).';
+  const footer: Footer = { from: input.from, postalAddress: input.postalAddress, why: 'Sent because these texts were from your number.' };
+  const html = layout({
+    heading,
+    intro,
+    body: `
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:18px;">
+            <tr><td style="padding:16px 0 0;border-top:1px solid #ece7dd;font:400 15px/1.6 ${FONT};color:#1a1a1a;">
+              Why: ${escapeHtml(input.reason)}
+            </td></tr>
+          </table>`,
+    button: { label: 'Open your texts', url: input.textsUrl },
+    after: fix,
+    footer,
+  });
+  const text = [heading, intro, '', `Why: ${input.reason}`, '', fix, `Your texts: ${input.textsUrl}`, '', ...textFooter(footer)].join('\n');
+  return { kind: 'transactional', to: input.to, from: input.from, subject: heading, html, text, tags: { kind: 'texts-failed' } };
+}
+
 // ── AI credits 80% / 100% (PLATFORM-PLAN 2.6) ───────────────────────────────
 
 export type CreditUsageEmailInput = {
