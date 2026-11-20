@@ -10,26 +10,24 @@ evidence) and `V1-OWNER-ACTIONS.md`.
 | | Tasks | Which |
 |---|---|---|
 | Total in the roadmap (14.12) | **80** | |
-| Done (merged, live where it applies, proof held) | **46** | 0.1 0.2 0.12 · 1.1 1.2 1.3 1.6 1.7 1.10–1.15 1.17 1.18 1.20–1.25 · 2.1 2.2 2.3 2.6 2.8–2.11 · 3.1–3.5 3.7–3.10 · 4.1 4.2 4.9 4.10 · 5.3 5.4 5.12 |
+| Done (merged, live where it applies, proof held) | **47** | 0.1 0.2 0.12 · 1.1 1.2 1.3 1.6 1.7 1.10–1.15 1.17 1.18 1.20–1.25 · 2.1 2.2 2.3 2.6 2.8–2.11 · 3.1–3.5 3.7–3.10 · 4.1 4.2 4.7 4.9 4.10 · 5.3 5.4 5.12 |
 | Live, waiting on a vendor test | **2** | 2.4, 2.5 (Stripe test mode: O-17) |
-| Built, waiting to be switched on, run or merged | **4** | 0.4, 0.8 (off-site backups: O-6…O-10) · 4.3 (load scripts live; the runs need O-28) · 4.7 (`fix/4.7-zap-findings`, waiting for the owner's go) |
+| Built, waiting to be switched on or run | **3** | 0.4, 0.8 (off-site backups: O-6…O-10) · 4.3 (load scripts live; the runs need O-28) |
 | Partial / unverified | **10** | 0.5 0.6 0.7 0.10 · 1.4 1.8 1.9 1.16 · 3.6 · 5.8 |
 | Blocked | **1** | 0.3 PITR (decision 7: off for now) |
 | Not started | **17** | 0.9 0.11 · 1.5 1.19 · 2.7 · 4.4 4.5 4.6 4.8 · 5.1 5.2 5.5 5.6 5.7 5.9 5.10 5.11 |
 
-Straight count: **46 / 80 done (57%)**, up from 31 on 2026-11-19.
+Straight count: **47 / 80 done (59%)**, up from 31 on 2026-11-19.
 
 **Not finished, by who can move it:**
 - **Code (Claude Code: can continue now, nothing needed from anyone).**
-  The final backend batch is built and waiting for the owner's go (production untouched):
-  1. `fix/0094-pooler-v2` 4cc8aec: the `/platform` pooler hang (ADR 0094 second attempt) + migration 0106.
-  2. `fix/4.7-zap-findings` 8b482a5: 4.7's ZAP findings.
-  3. 3.1 closed as Done, without moving the older job types (not low-risk).
-  4. 1.8 part 2 deferred past V1 (owner, 2026-11-20).
+  The final backend batch is live (2026-11-20, `main` c8013e5, migration 0106): the `/platform` pooler fix (ADR 0094
+  second attempt), 4.7's ZAP findings, 3.1 closed. 1.8 part 2 deferred past V1. Remaining code work is the UI list,
+  now with Claude Code (owner, 2026-11-20).
 - **Code that needs an owner account or event first:** 1.4 (Upstash, O-15), 1.5 (Turnstile, O-16), 1.19/1.9
   (pool size, compute: O-14), 2.4/2.5 (Stripe test mode, O-17), 3.6's spike test and 4.3 (load-test day, O-28), 4.4
   (O-19), 4.8 (O-30), 3.8's live drill (O-36), 4.2 switched on (O-35).
-- **Cursor (UI):** 1.3 MFA setup screen, 1.22 "Sign out of all devices", self-hosted Google Fonts, 2.7 admin cost
+- **UI (Claude Code since 2026-11-20, previously Cursor):** 1.3 MFA setup screen, 1.22 "Sign out of all devices", self-hosted Google Fonts, 2.7 admin cost
   page, the delete-account page, 4.5 accessibility, 4.6 devices, 5.8 photo resize, 1.16 error pages.
 - **Owner, lawyer or a vendor:** 0.3, 0.5, 0.6, 0.7, 0.9 (repo stays public by decision), 0.10, 0.11, 5.1, 5.2,
   5.5, 5.6, 5.7, 5.9, 5.10, 5.11.
