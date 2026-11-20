@@ -378,6 +378,10 @@ untouched — but every Google/Zoom connection must be disconnected and connecte
 again by its owner (agents their own, an admin the agency's). There is no recovery
 path by design.
 
+**Managed Twilio Auth Tokens** (yearly, or at once if one may have leaked): run
+`pnpm --filter @repo/core phone:rotate-auth-tokens` with the env of the database. Twilio emails the platform
+account's owners about each change. No signature is refused during the switch. A failed run is safe to repeat.
+
 **Rotating the key** (yearly, or at once if it may have leaked):
 
 1. Generate a new key: `openssl rand -base64 32`.
@@ -389,6 +393,11 @@ path by design.
    (Until a re-encrypt script exists, ask owners to reconnect. A token renewal
    re-saves only the access token — and Zoom's rotated refresh token — so a
    Google refresh token stays on the old key until its owner reconnects.)
+   Phone numbers (PLATFORM-PLAN 3.10, ADR 0096):
+   - Run `pnpm --filter @repo/core phone:repoint`. Every number gets webhook URLs under the new key. Until then,
+     URLs under the previous key keep working.
+   - Then run `pnpm --filter @repo/core phone:rotate-auth-tokens`. Each managed subaccount gets a new Auth Token,
+     stored under the new key.
 4. When no row is left on the old key, remove `INTEGRATION_TOKEN_KEY_PREVIOUS` and
    redeploy. If the old key leaked, do not wait: remove it at once and have
    everyone reconnect — a leaked key must not keep working.

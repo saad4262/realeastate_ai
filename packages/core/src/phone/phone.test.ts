@@ -6,7 +6,7 @@ import type { Db } from '@repo/db';
 import { encryptToken, tokenKeysFromEnv } from '../integrations/crypto';
 import { fakeFetch } from '../integrations/fake-fetch';
 import { ProviderError } from '../integrations/provider-http';
-import { displayAu, forwardingCodes, isAuMobile, smsKeyword, toAuE164, verifyWebhookToken, webhookToken, webhookUrl, xmlEscape } from './format';
+import { displayAu, forwardingCodes, isAuMobile, smsKeyword, toAuE164, twilioSignature, validTwilioSignature, verifyWebhookToken, webhookToken, webhookUrl, xmlEscape } from './format';
 import { buyMyNumber, connectMyTwilio, connectTwilio, disconnectMyTwilio, disconnectTwilio, listAgencyTwilioNumbers, listMyTwilioNumbers, numberTwilio, PhoneError, providerFailure, releaseAgentNumber, routingToSave, stopUsingMyNumber, bringMyTwilioNumber, takeoverRefusal, assignAgencyTwilioNumber, type PhoneDeps } from './setup';
 import { kycFromBundles, TRIAL_NOTE, twilioClient, type NumberRouting } from './twilio';
 import { handleTwilioWebhook } from './webhooks';
@@ -396,5 +396,37 @@ describe('the webhook door', () => {
   });
   it('refuses a kind it does not know', async () => {
     expect((await call(webhookToken(numberId, keys), 'recording')).status).toBe(404);
+  });
+  it('PLATFORM-PLAN 3.2: a database that cannot be written throws, so the route answers 500 and Twilio may retry', async () => {
+    await expect(call(webhookToken(numberId, keys), 'sms')).rejects.toThrow(/database was reached/);
+  });
+});
+
+describe('PLATFORM-PLAN 3.10: the URL token through a key rotation', () => {
+  const rotated = { current: otherKeys.current, previous: keys.current };
+  it('takes a token made with the previous key, so numbers keep working until they are re-pointed', () => {
+    expect(verifyWebhookToken(webhookToken(numberId, keys), rotated)).toBe(numberId);
+    expect(verifyWebhookToken(webhookToken(numberId, otherKeys), rotated)).toBe(numberId);
+  });
+  it('refuses it once the previous key is removed', () => {
+    expect(verifyWebhookToken(webhookToken(numberId, keys), { current: otherKeys.current, previous: null })).toBeNull();
+  });
+});
+
+describe('PLATFORM-PLAN 3.10: Twilio\'s request signature (ADR 0096)', () => {
+  it('matches the worked example in Twilio\'s security docs', () => {
+    const params = { CallSid: 'CA1234567890ABCDE', Caller: '+14158675310', Digits: '1234', From: '+14158675310', To: '+18005551212' };
+    expect(twilioSignature('https://example.com/myapp.php?foo=1&bar=2', params, '12345')).toBe('L/OH5YylLD5NRKLltdqwSvS0BnU=');
+  });
+  const url = 'https://example.com/api/phone/twilio/t/sms';
+  const params = { Body: 'hi', From: '+61400123456' };
+  it('accepts a signature by either token on either URL, and nothing else', () => {
+    const byNew = twilioSignature(url, params, 'new');
+    expect(validTwilioSignature(byNew, ['https://proxy.internal/x', url], params, ['old', 'new'])).toBe(true);
+    expect(validTwilioSignature(twilioSignature(url, params, 'old'), [url], params, ['old', 'new'])).toBe(true);
+    expect(validTwilioSignature(byNew, [url], params, ['old'])).toBe(false);
+    expect(validTwilioSignature(byNew, [url], { ...params, Body: 'changed' }, ['new'])).toBe(false);
+    expect(validTwilioSignature(null, [url], params, ['new'])).toBe(false);
+    expect(validTwilioSignature(byNew, [url], params, [])).toBe(false);
   });
 });

@@ -204,7 +204,7 @@ export async function missedCallSkillSummary(db: DbOrTx, actor: Actor): Promise<
 
 // ── What to do about one missed call ────────────────────────────────────────
 
-export type MissedCallOutcome = 'texted' | 'skill_off' | 'private' | 'not_mobile' | 'opted_out' | 'repeat' | 'limit' | 'text_failed';
+export type MissedCallOutcome = 'texted' | 'skill_off' | 'private' | 'not_mobile' | 'opted_out' | 'repeat' | 'limit' | 'text_failed' | 'found_late';
 
 export const OUTCOME_WORDS: Record<MissedCallOutcome, string> = {
   texted: 'Texted',
@@ -215,6 +215,7 @@ export const OUTCOME_WORDS: Record<MissedCallOutcome, string> = {
   repeat: 'Not texted: already sent the most automatic texts for today',
   limit: 'Not texted: daily limit reached',
   text_failed: 'The text failed',
+  found_late: 'Not texted: found after an outage, too late to text',
 };
 
 /** Pure: whether this caller gets the text, or the first reason they don't. Order matters only for the words. */
@@ -247,9 +248,11 @@ const AI_COUNTED = ['scheduled', 'calling', 'done', 'no_answer'];
 /**
  * A missed call reached an agent's number (the voice webhook, after the token): keep it, decide the
  * text, tell the agent, and return the greeting (TwiML) the caller hears. The text is written queued in
- * the transaction and sent to Twilio after it (never inside).
+ * the transaction; sending it to Twilio is `followUp`, which the route runs after answering (PLATFORM-PLAN 3.2:
+ * a slow Twilio never holds the call's answer). A follow-up that never runs leaves the text queued with no SID:
+ * the stuck-text check (3.9) settles it and the agent is told (3.5).
  */
-export async function recordMissedCall(db: Db, n: NumberRow, callSid: string, from: string | null, deps: PhoneDeps & { voice?: VoiceAi | null }): Promise<string> {
+export async function recordMissedCall(db: Db, n: NumberRow, callSid: string, from: string | null, deps: PhoneDeps & { voice?: VoiceAi | null }): Promise<{ twiml: string; followUp: (() => Promise<void>) | null }> {
   const day = sql`now() - interval '24 hours'`;
   const settings = await loadMissedCallSettings(db, n.agencyId);
   const who = from ? await contactByPhone(db, n.agencyId, from) : null;
@@ -362,24 +365,26 @@ export async function recordMissedCall(db: Db, n: NumberRow, callSid: string, fr
     throw err;
   });
 
-  if (kept && smsId && from && (await sendsHeld(db, n.agencyId))) {
-    // PLATFORM-PLAN 3.7: the agency's sends are paused; the call is kept, the text is not sent.
-    await db.update(smsMessage).set({ status: 'failed', error: SENDS_PAUSED_REASON, updatedAt: sql`now()` }).where(eq(smsMessage.id, smsId));
-  } else if (kept && smsId && from) {
-    try {
-      const { client } = await numberTwilio(db, n, deps);
-      const statusUrl = deps.keys && deps.webhookBase ? webhookUrl(deps.webhookBase, n.id, 'sms-status', deps.keys) : null;
-      const r = await client.sendSms({ from: n.e164, to: from, body, statusUrl });
-      await db.update(smsMessage).set({ status: r.status === 'sent' ? 'sent' : 'queued', providerSid: r.sid, updatedAt: sql`now()` }).where(eq(smsMessage.id, smsId));
-    } catch (err) {
-      const failure = providerFailure(err, 'Twilio refused the saved key.');
-      await db.update(smsMessage).set({ status: 'failed', error: failure.message, updatedAt: sql`now()` }).where(eq(smsMessage.id, smsId));
-      await db.update(phoneCall).set({ outcome: 'text_failed', updatedAt: sql`now()` }).where(eq(phoneCall.id, kept));
+  const sendText = async () => {
+    if (kept && smsId && from && (await sendsHeld(db, n.agencyId))) {
+      // PLATFORM-PLAN 3.7: the agency's sends are paused; the call is kept, the text is not sent.
+      await db.update(smsMessage).set({ status: 'failed', error: SENDS_PAUSED_REASON, updatedAt: sql`now()` }).where(eq(smsMessage.id, smsId));
+    } else if (kept && smsId && from) {
+      try {
+        const { client } = await numberTwilio(db, n, deps);
+        const statusUrl = deps.keys && deps.webhookBase ? webhookUrl(deps.webhookBase, n.id, 'sms-status', deps.keys) : null;
+        const r = await client.sendSms({ from: n.e164, to: from, body, statusUrl });
+        await db.update(smsMessage).set({ status: r.status === 'sent' ? 'sent' : 'queued', providerSid: r.sid, updatedAt: sql`now()` }).where(eq(smsMessage.id, smsId));
+      } catch (err) {
+        const failure = providerFailure(err, 'Twilio refused the saved key.');
+        await db.update(smsMessage).set({ status: 'failed', error: failure.message, updatedAt: sql`now()` }).where(eq(smsMessage.id, smsId));
+        await db.update(phoneCall).set({ outcome: 'text_failed', updatedAt: sql`now()` }).where(eq(phoneCall.id, kept));
+      }
     }
-  }
+  };
 
   const greeting = renderMissedCallTemplate(smsId ? settings.greeting : NO_TEXT_GREETING, values);
-  return `<Say language="en-AU">${xmlEscape(greeting)}</Say><Hangup/>`;
+  return { twiml: `<Say language="en-AU">${xmlEscape(greeting)}</Say><Hangup/>`, followUp: kept && smsId && from ? sendText : null };
 }
 
 class DuplicateCall extends Error {}

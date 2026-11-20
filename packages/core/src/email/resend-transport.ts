@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mailConfigFromEnv, type MailConfig } from '../mail/address';
 import { dryRunTransport, EmailError, type EmailMessage, type EmailTransport, type SendResult } from './transport';
 
@@ -24,98 +25,129 @@ function formatAddress(address: { email: string; name?: string }): string {
 export function resendTransport(opts: {
   apiKey: string;
   fetchImpl?: typeof fetch;
+  /** PLATFORM-PLAN 3.5: the waits before each retry of a busy or unreachable Resend. Tests pass zeros. */
+  retryDelaysMs?: readonly number[];
 }): EmailTransport {
   const doFetch = opts.fetchImpl ?? fetch;
+  const delays = opts.retryDelaysMs ?? [500, 2000];
+  // After one email used up its retries, the rest fail fast for a while: a tick sending fifty emails into an
+  // outage must not spend 2.5 s on each and run past its time.
+  let downUntil = 0;
 
-  return {
-    async send(message: EmailMessage): Promise<SendResult> {
-      const threadingHeaders = message.threading
+  /**
+   * PLATFORM-PLAN 3.5, one place for every email the platform sends: a 429, a 5xx or a dropped connection is
+   * tried again, twice, under the same Idempotency-Key, so Resend sends it once however many attempts reach
+   * it. A timeout is not tried again here: it already took 15 s of a tick's budget, and the caller's own
+   * record (failed, retried by its tick or shown to the person) takes it from there. Once an email has used up
+   * its retries, the next 30 s of sends from this transport try once each.
+   * shortcut: retries within the one call only; a Resend outage longer than ~3 s still fails the send, so
+   * callers without their own retry lose that email — move them onto the job queue (3.1) if that is seen.
+   */
+  async function send(message: EmailMessage): Promise<SendResult> {
+    const withKey = message.idempotencyKey ? message : { ...message, idempotencyKey: randomUUID() };
+    const tries = Date.now() < downUntil ? 0 : delays.length;
+    for (let attempt = 0; ; attempt++) {
+      const r = await sendOnce(withKey);
+      if (r.ok || !r.retryable || 'timedOut' in r || attempt >= tries) {
+        if (!r.ok && r.retryable && tries > 0) downUntil = Date.now() + 30_000;
+        return r.ok ? r : { ok: false, error: r.error, retryable: r.retryable };
+      }
+      // Resend says how long to wait on a 429: longer than 5 s is an outage for this call, not a pause.
+      const wait = Math.max(delays[attempt]!, 'retryAfterMs' in r ? (r.retryAfterMs as number) : 0);
+      if (wait > 5000) return { ok: false, error: r.error, retryable: true };
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
+  }
+
+  return { send };
+
+  async function sendOnce(message: EmailMessage): Promise<SendResult | { ok: false; error: string; retryable: true; timedOut: true } | { ok: false; error: string; retryable: boolean; retryAfterMs?: number }> {
+    const threadingHeaders = message.threading
+      ? {
+          'In-Reply-To': message.threading.inReplyTo,
+          References: message.threading.references.join(' '),
+        }
+      : null;
+
+    const body = {
+      from: formatAddress(message.from),
+      to: [formatAddress(message.to)],
+      subject: message.subject,
+      html: message.html,
+      text: message.text,
+      ...(message.replyTo ? { reply_to: [formatAddress(message.replyTo)] } : {}),
+      // Threading headers never meet the unsubscribe pair: a marketing
+      // message is never a reply, so at most one of these two spreads applies.
+      ...(threadingHeaders && message.kind === 'transactional' ? { headers: threadingHeaders } : {}),
+      /**
+       * RFC 8058, on marketing mail only.
+       *
+       * The `-Post` header is what makes Gmail and Outlook show their own
+       * one-click unsubscribe control, which is both the best unsubscribe
+       * experience and a large deliverability signal. Sending the first
+       * without the second gets the link ignored — so both go together or
+       * neither does, which is why this is one spread and not two.
+       *
+       * Transactional mail sends neither. `-Post` promises the URL accepts an
+       * unauthenticated POST, and there is no such URL for a notification
+       * nobody subscribed to. See TransactionalMessage.
+       */
+      ...(message.kind === 'marketing'
         ? {
-            'In-Reply-To': message.threading.inReplyTo,
-            References: message.threading.references.join(' '),
+            headers: {
+              'List-Unsubscribe': `<${message.listUnsubscribeUrl}>`,
+              'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+            },
           }
-        : null;
+        : {}),
+      ...(message.tags
+        ? { tags: Object.entries(message.tags).map(([name, value]) => ({ name, value })) }
+        : {}),
+      // Resend: base64 `content`, with the type given rather than guessed from the name.
+      ...(message.attachments?.length
+        ? { attachments: message.attachments.map((a) => ({ filename: a.filename, content: a.contentBase64, content_type: a.contentType })) }
+        : {}),
+    };
 
-      const body = {
-        from: formatAddress(message.from),
-        to: [formatAddress(message.to)],
-        subject: message.subject,
-        html: message.html,
-        text: message.text,
-        ...(message.replyTo ? { reply_to: [formatAddress(message.replyTo)] } : {}),
-        // Threading headers never meet the unsubscribe pair: a marketing
-        // message is never a reply, so at most one of these two spreads applies.
-        ...(threadingHeaders && message.kind === 'transactional' ? { headers: threadingHeaders } : {}),
-        /**
-         * RFC 8058, on marketing mail only.
-         *
-         * The `-Post` header is what makes Gmail and Outlook show their own
-         * one-click unsubscribe control, which is both the best unsubscribe
-         * experience and a large deliverability signal. Sending the first
-         * without the second gets the link ignored — so both go together or
-         * neither does, which is why this is one spread and not two.
-         *
-         * Transactional mail sends neither. `-Post` promises the URL accepts an
-         * unauthenticated POST, and there is no such URL for a notification
-         * nobody subscribed to. See TransactionalMessage.
-         */
-        ...(message.kind === 'marketing'
-          ? {
-              headers: {
-                'List-Unsubscribe': `<${message.listUnsubscribeUrl}>`,
-                'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-              },
-            }
-          : {}),
-        ...(message.tags
-          ? { tags: Object.entries(message.tags).map(([name, value]) => ({ name, value })) }
-          : {}),
-        // Resend: base64 `content`, with the type given rather than guessed from the name.
-        ...(message.attachments?.length
-          ? { attachments: message.attachments.map((a) => ({ filename: a.filename, content: a.contentBase64, content_type: a.contentType })) }
-          : {}),
+    let response: Response;
+    try {
+      response = await doFetch(RESEND_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${opts.apiKey}`,
+          'content-type': 'application/json',
+          // Resend keeps a key 24 hours: the same key and body are sent once (ADR 0039 Phase 1).
+          ...(message.idempotencyKey ? { 'Idempotency-Key': message.idempotencyKey } : {}),
+        },
+        body: JSON.stringify(body),
+        // A hung provider must not hold a cron tick open until the platform
+        // kills the whole function and every remaining schedule with it.
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (err) {
+      // A network failure or a timeout is worth trying again; a rejected
+      // address is not, and this is the former.
+      const error = err instanceof Error ? err.message : 'Network error';
+      if (err instanceof Error && err.name === 'TimeoutError') return { ok: false, error, retryable: true, timedOut: true };
+      return { ok: false, error, retryable: true };
+    }
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      return {
+        ok: false,
+        error: `Resend ${response.status}: ${detail.slice(0, 300)}`,
+        // 429 and 5xx are the provider's problem. 4xx is ours, and repeating
+        // it just tells them we are not listening.
+        retryable: response.status === 429 || response.status >= 500,
+        // PLATFORM-PLAN 3.6: Resend's own wait on a 429 (10 requests a second), honoured by the retry below.
+        ...(response.status === 429 ? { retryAfterMs: Number(response.headers.get('retry-after')) * 1000 || 0 } : {}),
       };
+    }
 
-      let response: Response;
-      try {
-        response = await doFetch(RESEND_ENDPOINT, {
-          method: 'POST',
-          headers: {
-            authorization: `Bearer ${opts.apiKey}`,
-            'content-type': 'application/json',
-            // Resend keeps a key 24 hours: the same key and body are sent once (ADR 0039 Phase 1).
-            ...(message.idempotencyKey ? { 'Idempotency-Key': message.idempotencyKey } : {}),
-          },
-          body: JSON.stringify(body),
-          // A hung provider must not hold a cron tick open until the platform
-          // kills the whole function and every remaining schedule with it.
-          signal: AbortSignal.timeout(15_000),
-        });
-      } catch (err) {
-        // A network failure or a timeout is worth trying again; a rejected
-        // address is not, and this is the former.
-        return {
-          ok: false,
-          error: err instanceof Error ? err.message : 'Network error',
-          retryable: true,
-        };
-      }
-
-      if (!response.ok) {
-        const detail = await response.text().catch(() => '');
-        return {
-          ok: false,
-          error: `Resend ${response.status}: ${detail.slice(0, 300)}`,
-          // 429 and 5xx are the provider's problem. 4xx is ours, and repeating
-          // it just tells them we are not listening.
-          retryable: response.status === 429 || response.status >= 500,
-        };
-      }
-
-      const payload = (await response.json().catch(() => ({}))) as { id?: string };
-      return { ok: true, id: payload.id ?? 'unknown' };
-    },
-  };
+    const payload = (await response.json().catch(() => ({}))) as { id?: string };
+    return { ok: true, id: payload.id ?? 'unknown' };
+  }
 }
 
 export type SenderIdentity = {

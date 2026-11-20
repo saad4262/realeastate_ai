@@ -114,7 +114,7 @@ describe('the minute jobs', () => {
   const noDb = new Proxy({}, { get: () => { throw new Error('the database was reached'); } }) as unknown as Db;
   it('puts the time-critical jobs first and builds without touching the database', () => {
     const jobs = minuteJobs(noDb, { decider: null, understander: null, scheduled: {}, automations: { templateSend: null, sms: null }, reminders: {}, zoomAlerts: {}, platformMail: null, phone: { keys: null, client: () => { throw new Error('x'); }, webhookBase: null }, voice: null });
-    expect(jobs.map((j) => j.name)).toEqual(['understandLeads', 'workflows', 'automations', 'scheduled', 'reminders', 'aiCalls', 'smsBatches', 'platformEmails', 'zoomAlerts', 'deals', 'phoneKyc', 'stuckSms', 'billingReconcile', 'settleCredits', 'creditAlerts', 'sendSpikes', 'urgentJobs']);
+    expect(jobs.map((j) => j.name)).toEqual(['understandLeads', 'workflows', 'automations', 'scheduled', 'reminders', 'aiCalls', 'smsBatches', 'platformEmails', 'zoomAlerts', 'deals', 'phoneKyc', 'stuckSms', 'pullInbound', 'billingReconcile', 'settleCredits', 'creditAlerts', 'sendSpikes', 'failedTexts', 'urgentJobs']);
     expect(jobs.find((j) => j.name === 'stuckSms')!.everyMinutes).toBe(5);
     expect(jobs.find((j) => j.name === 'urgentJobs')!.mode).toBe('drain');
     expect(jobs.find((j) => j.name === 'scheduled')!.concurrency).toBe(2);

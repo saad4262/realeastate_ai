@@ -13,6 +13,8 @@ import { runJobs } from '../jobs';
 import { enqueueStuckSms, smsReconcileHandler } from '../phone/reconcile';
 import { detectSendSpikes } from '../safety/spikes';
 import { settleCredits } from '../billing/credits';
+import { tellAgentsOfFailedTexts } from '../phone/failed-texts';
+import { pullInbound, PULL_WINDOW_HOURS } from '../phone/pull-inbound';
 import { creditUsageAlerts } from '../billing/alerts';
 import { billingReconcileHandler, enqueueBillingReconcile, stripeEventHandler } from '../billing/service';
 import type { StripeApi } from '../billing/stripe';
@@ -30,7 +32,8 @@ export const MINUTE_BATCH = {
   platformEmails: 100,
   aiCalls: 10,
   kycAccounts: 5,
-  smsBatches: 5,
+  /** Agencies per round of the SMS drain (PLATFORM-PLAN 3.3). */
+  smsBatches: 20,
   automationSlices: 3,
   urgentJobs: 20,
 } as const;
@@ -109,8 +112,12 @@ export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new
     {
       // ADR 0074 part 2: approved texts held for the sending hours (9 am) or left by a crash, carried on.
       name: 'smsBatches',
-      mode: 'once',
-      run: async () => ({ result: await resumeSmsBatches(db, { phone: deps.phone }, MINUTE_BATCH.smsBatches, now), more: false }),
+      // PLATFORM-PLAN 3.3: a slice per agency per round, rounds while the tick has time.
+      mode: 'drain',
+      run: async () => {
+        const r = await resumeSmsBatches(db, { phone: deps.phone }, { agencies: MINUTE_BATCH.smsBatches, perBatch: 5 }, now);
+        return { result: r, more: r.more };
+      },
     },
     {
       name: 'platformEmails',
@@ -146,6 +153,16 @@ export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new
       run: async () => ({ result: await enqueueStuckSms(db, now()), more: false }),
     },
     {
+      // PLATFORM-PLAN 3.8: texts and calls Twilio has that our webhook missed (we were down); each number every 30 min.
+      name: 'pullInbound',
+      mode: 'once',
+      run: async () => {
+        const at = now();
+        const since = new Date(at.getTime() - PULL_WINDOW_HOURS * 3_600_000);
+        return { result: await pullInbound(db, deps.phone, since, { part: at.getUTCMinutes() % 30, of: 30 }), more: false };
+      },
+    },
+    {
       // PLATFORM-PLAN 2.9: once a day (16:xx UTC), a reconciliation job per agency with a Stripe customer.
       name: 'billingReconcile',
       mode: 'once',
@@ -171,6 +188,13 @@ export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new
       mode: 'once',
       everyMinutes: 5,
       run: async () => ({ result: await detectSendSpikes(db, now(), { notice: deps.reminders.notice ?? null }), more: false }),
+    },
+    {
+      // PLATFORM-PLAN 3.5: texts Twilio did not take → the number's agent hears, once an hour.
+      name: 'failedTexts',
+      mode: 'once',
+      everyMinutes: 5,
+      run: async () => ({ result: await tellAgentsOfFailedTexts(db, now(), { notice: deps.reminders.notice ?? null }), more: false }),
     },
     {
       // The job queue's urgent lane (PLATFORM-PLAN 3.1): a fair share per agency per round.

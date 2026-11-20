@@ -4,7 +4,7 @@ import { checkEmailLimits } from '../email/limits';
 import { approveBatch, classifyRecipients, storePreparedBatch } from '../template-email/batches';
 import { sendBatch, type TemplateSendDeps } from '../template-email/send';
 import { TemplateEmailError } from '../template-email/templates';
-import { inSmsHours, loadSmsRules, nextSmsTime } from '../phone/sms-rules';
+import { inSmsHours, loadSmsRules, nextSmsTime, spreadOpening } from '../phone/sms-rules';
 import { approveSmsBatch, classifySmsRecipients, SMS_BATCH_MAX, sendSmsBatch, storePreparedSmsBatch, type SmsSendDeps } from '../template-email/sms-batches';
 import { AUTOMATION_LIMITS, bulkEmailSpecSchema, bulkSmsSpecSchema, type AutomationKind } from './kinds';
 
@@ -80,7 +80,7 @@ const bulkSms: AutomationRunner = {
     try {
       // Outside the sending hours nothing is prepared: the slice comes back when they open.
       const rules = await loadSmsRules(db, actor.agencyId as string);
-      if (!inSmsHours(now, rules.hours, rules.timeZone)) return { sent: 0, failed: 0, skipped: 0, retryAt: nextSmsTime(now, rules.hours, rules.timeZone) };
+      if (!inSmsHours(now, rules.hours, rules.timeZone)) return { sent: 0, failed: 0, skipped: 0, retryAt: spreadOpening(nextSmsTime(now, rules.hours, rules.timeZone), actor.agencyId as string) };
       const c = await classifySmsRecipients(db, actor, { templateId: spec.templateId, contactIds }, deps.sms.env);
       const toSend = c.recipients.filter((r) => r.status === 'queued').length;
       if (!toSend) return { sent: 0, failed: 0, skipped: contactIds.length };

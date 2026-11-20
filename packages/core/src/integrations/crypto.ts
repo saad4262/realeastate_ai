@@ -44,8 +44,11 @@ export function stateKey(keys: TokenKeys): Buffer {
   return Buffer.from(hkdfSync('sha256', keys.current.bytes, Buffer.alloc(0), 'oauth-state-v1', 32));
 }
 
-/** `twilio_api_secret`: an agency's own Twilio API key secret on `phone_account` (ADR 0070). */
-export type TokenSlot = { rowId: string; column: 'access_token' | 'refresh_token' | 'twilio_api_secret' | 'sip_password' };
+/**
+ * `twilio_api_secret`: an agency's own Twilio API key secret on `phone_account` (ADR 0070).
+ * `twilio_auth_token` / `twilio_auth_token_next`: a managed subaccount's Auth Token and, during a rotation, its secondary (ADR 0096).
+ */
+export type TokenSlot = { rowId: string; column: 'access_token' | 'refresh_token' | 'twilio_api_secret' | 'twilio_auth_token' | 'twilio_auth_token_next' | 'sip_password' };
 
 const aad = (slot: TokenSlot) => Buffer.from(`${slot.rowId}:${slot.column}`, 'utf8');
 

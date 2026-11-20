@@ -266,6 +266,8 @@ export async function startManagedPhone(db: Db, actor: Actor, deps: PhoneDeps): 
       accountSid: sub.sid,
       apiKeySid: key.sid,
       apiKeySecret: encryptToken(key.secret, { rowId: id, column: 'twilio_api_secret' }, keys),
+      // ADR 0096: kept to check the signature on this subaccount's webhooks.
+      authToken: encryptToken(sub.authToken, { rowId: id, column: 'twilio_auth_token' }, keys),
       friendlyName: null,
       kycStatus: kyc.status,
       bundleSid: null,
@@ -969,6 +971,47 @@ export async function repointNumberWebhooks(db: Db, deps: PhoneDeps): Promise<{ 
       }
     } catch (err) {
       report.failed.push({ accountId: a.id, agencyId: a.agencyId, error: providerFailure(err, 'Twilio refused the saved key.').message });
+    }
+  }
+  return report;
+}
+
+/**
+ * PLATFORM-PLAN 3.10, ADR 0096: a new Auth Token for every managed subaccount, with no gap in which
+ * Twilio's signatures are refused. A secondary is made and stored as `authTokenNext` (the webhooks
+ * accept either), then promoted, then stored as the token. Each value is written under the current
+ * INTEGRATION_TOKEN_KEY, so this also moves the tokens onto a new key after a key rotation. Run again
+ * after a failure: a stored secondary is picked up where it stopped (promoted already, or not yet), and
+ * a token Twilio no longer takes is replaced by the one the master reads from the subaccount.
+ * A platform job, no actor; the CLI is the door. One account's failure does not stop the rest.
+ */
+export async function rotateManagedAuthTokens(db: Db, deps: PhoneDeps): Promise<{ accounts: number; rotated: number; failed: { accountId: string; error: string }[] }> {
+  const keys = needKeys(deps);
+  const master = deps.managed?.master;
+  if (!master) throw new PhoneError('not_configured', 'The platform Twilio (TWILIO_MASTER_*) is not configured on this server.');
+  const report = { accounts: 0, rotated: 0, failed: [] as { accountId: string; error: string }[] };
+  const accounts = await db.select().from(phoneAccount).where(and(eq(phoneAccount.kind, 'managed'), eq(phoneAccount.status, 'connected')));
+  for (const a of accounts) {
+    report.accounts += 1;
+    try {
+      if (!a.authToken) throw new Error('no stored auth token');
+      const slot = (column: 'twilio_auth_token' | 'twilio_auth_token_next') => ({ rowId: a.id, column });
+      const current = decryptToken(a.authToken, slot('twilio_auth_token'), keys);
+      let next = a.authTokenNext ? decryptToken(a.authTokenNext, slot('twilio_auth_token_next'), keys) : null;
+      if (!next) {
+        next = await master.createSecondaryAuthToken(a.accountSid, current);
+        await db.update(phoneAccount).set({ authTokenNext: encryptToken(next, slot('twilio_auth_token_next'), keys), updatedAt: sql`now()` }).where(eq(phoneAccount.id, a.id));
+        await master.promoteSecondaryAuthToken(a.accountSid, current);
+      } else if (await master.authTokenWorks(a.accountSid, current)) {
+        await master.promoteSecondaryAuthToken(a.accountSid, current); // stopped before the promotion
+      }
+      // Two runs at once each make a secondary and the later replaces the earlier, so the token in hand may not be
+      // the one Twilio now holds: store only one it takes, asking the master for the subaccount's own when not.
+      if (!(await master.authTokenWorks(a.accountSid, next))) next = await master.subaccountAuthToken(a.accountSid);
+      await db.update(phoneAccount).set({ authToken: encryptToken(next, slot('twilio_auth_token'), keys), authTokenNext: null, updatedAt: sql`now()` }).where(eq(phoneAccount.id, a.id));
+      report.rotated += 1;
+    } catch (err) {
+      report.failed.push({ accountId: a.id, error: err instanceof Error ? err.message : 'failed' });
     }
   }
   return report;

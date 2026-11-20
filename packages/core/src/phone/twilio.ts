@@ -57,6 +57,11 @@ export interface TwilioApi {
    * whose answer was lost is settled — found means it went, not found means it did not.
    */
   findMessages(input: { from: string; to: string; since: Date }): Promise<{ sid: string; body: string; status: string; createdAt: Date | null }[]>;
+  /**
+   * PLATFORM-PLAN 3.8: the texts and calls that came IN to a number since a moment, as Twilio holds them, newest
+   * first, one page each. What our webhook may have missed while we were down.
+   */
+  inboundSince(input: { to: string; since: Date }): Promise<{ messages: { sid: string; from: string; body: string }[]; calls: { sid: string; from: string | null }[] }>;
   /** Twilio calls the mobile and asks for the code it returns here, which the person keys in. */
   startCallerId(input: { e164: string; name: string; statusUrl: string | null }): Promise<{ validationCode: string }>;
   isCallerIdVerified(e164: string): Promise<boolean>;
@@ -220,6 +225,33 @@ export function twilioClient(creds: TwilioCreds, fetchImpl: Fetch = fetch): Twil
         return [{ sid, body: str(m.body) ?? '', status: str(m.status) ?? '', createdAt: at && !Number.isNaN(at.getTime()) ? at : null }];
       });
     },
+    async inboundSince(input) {
+      // DateSent / StartTime filter by day; a day earlier covers midnight UTC, and each row's own time is checked.
+      const day = new Date(input.since.getTime() - 86_400_000).toISOString().slice(0, 10);
+      const after = (raw: unknown) => {
+        const at = new Date(str(raw) ?? '');
+        return !Number.isNaN(at.getTime()) && at >= input.since;
+      };
+      // shortcut: one page of 100 of each; a number with more in one window is missed past that — page on next_page_uri if seen.
+      const [m, c] = await Promise.all([
+        get(`${acct}/Messages.json?${new URLSearchParams({ To: input.to, 'DateSent>': day, PageSize: '100' })}`),
+        get(`${acct}/Calls.json?${new URLSearchParams({ To: input.to, 'StartTime>': day, PageSize: '100' })}`),
+      ]);
+      const rows = (r: typeof m, key: string) => (Array.isArray(r.json?.[key]) ? (r.json[key] as Record<string, unknown>[]) : []);
+      return {
+        messages: rows(m, 'messages').flatMap((x) => {
+          const sid = str(x.sid);
+          const from = str(x.from);
+          return sid && from && str(x.direction) === 'inbound' && after(x.date_created) ? [{ sid, from, body: str(x.body) ?? '' }] : [];
+        }),
+        // Only calls Twilio has finished: one still ringing is the webhook's to keep (and to text back).
+        calls: rows(c, 'calls').flatMap((x) => {
+          const sid = str(x.sid);
+          const done = ['completed', 'busy', 'no-answer', 'failed', 'canceled'].includes(str(x.status) ?? '');
+          return sid && done && str(x.direction) === 'inbound' && after(x.start_time ?? x.date_created) ? [{ sid, from: str(x.from) }] : [];
+        }),
+      };
+    },
     async startCallerId(input) {
       const r = await post(`${acct}/OutgoingCallerIds.json`, { PhoneNumber: input.e164, FriendlyName: input.name.slice(0, 64), StatusCallback: input.statusUrl ?? undefined });
       const code = str(r.json?.validation_code);
@@ -287,6 +319,9 @@ export function stubTwilioClient(): TwilioApi {
     async findMessages() {
       return [];
     },
+    async inboundSince() {
+      return { messages: [], calls: [] };
+    },
     async startCallerId() {
       return { validationCode: '123456' };
     },
@@ -308,8 +343,9 @@ export function stubTwilioClient(): TwilioApi {
  * The platform's master account, driven with a Main API key (a Standard key is refused the Accounts
  * resource; Main keys are made only in Twilio's console). A parent's API key is refused a subaccount's
  * own resources, so the subaccount's key is made with the subaccount's SID and auth token, which Twilio
- * returns once, when the subaccount is made; it is used for that one call and never stored.
- * PROVISIONAL until tried with a real master account (Accounts and Keys v1, read 2026-11-14).
+ * returns once, when the subaccount is made. ADR 0096: that token is kept, encrypted, to check webhook
+ * signatures and to rotate it (Accounts v1 AuthTokens: a secondary made, then promoted).
+ * PROVISIONAL until tried with a real master account (Accounts and Keys v1, read 2026-11-14; AuthTokens 2026-11-20).
  */
 export interface TwilioMasterApi {
   readonly stub: boolean;
@@ -318,6 +354,14 @@ export interface TwilioMasterApi {
   createSubaccountKey(subaccountSid: string, authToken: string, friendlyName: string): Promise<{ sid: string; secret: string }>;
   /** Closed for good: Twilio releases every number on it, and it cannot be reopened. */
   closeSubaccount(subaccountSid: string): Promise<void>;
+  /** A secondary Auth Token on the subaccount (made with its current one). Twilio signs with the primary until a promotion. */
+  createSecondaryAuthToken(subaccountSid: string, authToken: string): Promise<string>;
+  /** The secondary becomes the primary; the old primary stops working at once. */
+  promoteSecondaryAuthToken(subaccountSid: string, authToken: string): Promise<void>;
+  /** Whether Twilio accepts this token for the subaccount: how a rotation interrupted mid-way tells where it stopped. */
+  authTokenWorks(subaccountSid: string, authToken: string): Promise<boolean>;
+  /** The subaccount's current primary Auth Token, read by the parent: the way back when no stored token works. */
+  subaccountAuthToken(subaccountSid: string): Promise<string>;
 }
 
 export function twilioMasterClient(creds: TwilioCreds, fetchImpl: Fetch = fetch): TwilioMasterApi {
@@ -343,6 +387,26 @@ export function twilioMasterClient(creds: TwilioCreds, fetchImpl: Fetch = fetch)
     async closeSubaccount(subaccountSid) {
       await post(`${API}/Accounts/${encodeURIComponent(subaccountSid)}.json`, master, { Status: 'closed' });
     },
+    async createSecondaryAuthToken(subaccountSid, authToken) {
+      const r = await post('https://accounts.twilio.com/v1/AuthTokens/Secondary', { authorization: basicAuth(subaccountSid, authToken) }, {});
+      const token = str(r.json?.secondary_auth_token);
+      if (!token) throw new Error('Twilio did not return the secondary auth token');
+      return token;
+    },
+    async promoteSecondaryAuthToken(subaccountSid, authToken) {
+      await post('https://accounts.twilio.com/v1/AuthTokens/Promote', { authorization: basicAuth(subaccountSid, authToken) }, {});
+    },
+    async authTokenWorks(subaccountSid, authToken) {
+      const url = `${API}/Accounts/${encodeURIComponent(subaccountSid)}.json`;
+      const r = await call(fetchImpl, 'Twilio', url, { method: 'GET', headers: { authorization: basicAuth(subaccountSid, authToken) } }, [401]);
+      return r.status !== 401;
+    },
+    async subaccountAuthToken(subaccountSid) {
+      const r = await call(fetchImpl, 'Twilio', `${API}/Accounts/${encodeURIComponent(subaccountSid)}.json`, { method: 'GET', headers: master });
+      const token = str(r.json?.auth_token);
+      if (!token) throw new Error('Twilio did not return the subaccount\'s auth token');
+      return token;
+    },
   };
 }
 
@@ -357,6 +421,16 @@ export function stubTwilioMasterClient(): TwilioMasterApi {
       return { sid: `SKstub${randomInt(0, 1e9)}`, secret: 'stub-secret' };
     },
     async closeSubaccount() {},
+    async createSecondaryAuthToken() {
+      return `stub-token-${randomInt(0, 1e9)}`;
+    },
+    async promoteSecondaryAuthToken() {},
+    async authTokenWorks() {
+      return true;
+    },
+    async subaccountAuthToken() {
+      return 'stub-token';
+    },
   };
 }
 

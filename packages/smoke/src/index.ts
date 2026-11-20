@@ -241,6 +241,7 @@ import {
   approveSmsBatch,
   prepareSmsBatch,
   sendSmsBatch,
+  resumeSmsBatches,
   TemplateEmailError,
   type TemplateSendDeps,
 } from '@repo/core/template-email';
@@ -335,6 +336,12 @@ import {
   stubTwilioClient,
   webhookToken,
   type PhoneDeps,
+  rotateManagedAuthTokens,
+  startManagedPhone,
+  twilioSignature,
+  type TwilioMasterApi,
+  tellAgentsOfFailedTexts,
+  pullInbound,
   smsReconcileHandler,
   type TwilioApi,
 } from '@repo/core/phone';
@@ -7274,6 +7281,62 @@ async function main() {
     }),
   );
 
+  await check('PLATFORM-PLAN 3.5: the model down → the step still leaves a DRAFT, a plain template labelled "the AI was unavailable"; nothing is sent', async () =>
+    inRollback(async (t) => {
+      const w = await workflowFixture(t, { trigger: { kind: 'lead.created' }, conditions: [], actions: [{ type: 'draft_email', instructions: 'Thank them' }] });
+      const { id: buyer } = await createContact(t, w.actor, { name: 'Tia Template', email: `tia.${w.f.tag}@smoke.test` });
+      await createManualLead(t, w.actor, { contactId: buyer, listingId: w.listingId, kind: 'enquiry', message: null });
+      await runWorkflowTick(t, new Date());
+      const prev = process.env.EMAIL_DEV_ALLOWLIST;
+      process.env.EMAIL_DEV_ALLOWLIST = '@smoke.test';
+      try {
+        await runScheduledActions(t, { draftWriter: async () => { throw new Error('Anthropic 529 overloaded'); } }, new Date());
+      } finally {
+        if (prev === undefined) delete process.env.EMAIL_DEV_ALLOWLIST;
+        else process.env.EMAIL_DEV_ALLOWLIST = prev;
+      }
+      const [draft] = await t.execute<{ status: string; args: { subject: string; body: string }; card: { title: string; notes: string[] } }>(sql`
+        select status, args, card from proposed_action where user_id = ${w.f.people.a1} and origin = 'workflow' and tool = 'send_email'`);
+      assert(draft?.status === 'proposed', `no draft card: ${JSON.stringify(draft)}`);
+      assert(/the AI was unavailable/.test(draft.card.title) && draft.card.notes.some((n) => /The AI was unavailable/.test(n)), `not labelled: ${draft.card.title}`);
+      assert(draft.args.body.startsWith('Hi Tia,') && draft.args.body.includes('I wanted to follow up'), `template body: ${draft.args.body}`);
+      assert((await count(t, sql`select count(*)::int as n from mail_message m join mail_thread th on th.id = m.thread_id where th.agency_id = ${w.f.agencyId} and m.direction = 'out'`)) === 0, 'something was sent');
+      return 'writer threw → send_email draft card, title and note say the AI was unavailable, body the follow-up template; nothing sent';
+    }),
+  );
+
+  await check('PLATFORM-PLAN 3.4: a contacts import starts no automation — "When a contact is added" and a hand-added contact are untouched; only a workflow that asks for imported contacts gets events', async () =>
+    inRollback(async (t) => {
+      const w = await workflowFixture(t, { trigger: { kind: 'contact.created' }, conditions: [], actions: [{ type: 'remind_owner', text: 'Say hello', mail_me: false }] }, 'agency', 'owner');
+      const owner = w.f.actor('owner');
+      const importOf = async (people: number, tag: string) => {
+        const [imp] = await t.execute<{ id: string }>(sql`
+          insert into listing_import (agency_id, created_by, file_name, file_hash, kind, status, mode)
+          values (${w.f.agencyId}, ${w.f.people.owner}, ${`${tag}.csv`}, ${`${tag}${w.f.tag}`}, 'contacts', 'importing', 'live') returning id`);
+        await t.execute(sql`
+          insert into listing_import_row (import_id, row_number, status, normalized)
+          select ${imp!.id}, g, 'valid', jsonb_build_object('name', 'Imported ' || g, 'email', ${tag} || '.' || g || ${`.${w.f.tag}@smoke.test`}, 'phone', null,
+            'addressLine', null, 'addressSuburb', null, 'addressState', null, 'addressPostcode', null, 'roles', '[]'::jsonb,
+            'assignedEmail', null, 'note', null, 'nextAction', null, 'nextActionAt', null)
+          from generate_series(1, ${people}) g`);
+        for (let i = 0; i < 10; i++) if ((await runImportChunk(t, owner, imp!.id)).status === 'done') break;
+        return count(t, sql`select count(*)::int as n from listing_import_row where import_id = ${imp!.id} and status = 'imported'`);
+      };
+      const events = () => count(t, sql`select count(*)::int as n from workflow_event where agency_id = ${w.f.agencyId} and kind = 'contact.created'`);
+      const before = await events();
+      // The choice is made once a chunk, not per row, so 30 rows show what 10,000 would (dev is too slow for more).
+      const imported = await importOf(30, 'quiet');
+      assert(imported === 30 && (await events()) === before, `30 imported, events ${before} → ${await events()}`);
+      await createContact(t, owner, { name: 'By Hand', email: `hand.${w.f.tag}@smoke.test` });
+      assert((await events()) === before + 1, 'a contact added by hand wrote no event');
+      // A workflow that asks for imported contacts: the next import feeds it, row by row.
+      await saveWorkflow(t, owner, { name: `Imported ${w.f.tag}`, scope: 'agency', spec: { trigger: { kind: 'contact.created', source: 'import' }, conditions: [], actions: [{ type: 'remind_owner', text: 'Imported', mail_me: false }] } });
+      await importOf(5, 'asked');
+      assert((await events()) === before + 1 + 5, `asked-for import: ${(await events()) - before - 1} events for 5 rows`);
+      return '30 rows imported with "When a contact is added" active: 0 events; by hand: 1; with "When a contact is imported" active: 5 rows → 5 events';
+    }),
+  );
+
   await check('a removed owner’s workflow is paused (with the reason) and never runs as them; resuming checks it again', async () =>
     inRollback(async (t) => {
       const w = await workflowFixture(t, { trigger: { kind: 'contact.created' }, conditions: [], actions: [{ type: 'remind_owner', text: 'x', mail_me: false }] });
@@ -7355,7 +7418,8 @@ async function main() {
     inRollback(async (t) => {
       const f = await contactFixture(t);
       const a1 = f.actor('a1');
-      const conv = await claimTurn(t, a1, { message: 'workflow', surface: 'agent' });
+      // An email chat builds workflows since ADR 0088; a general chat may not approve one.
+      const conv = await claimTurn(t, a1, { message: 'workflow', surface: 'agent', chatScope: 'email' });
       const handles: HandleMap = {};
       const input = { name: `Welcome ${f.tag}`, scope: 'mine', trigger: { kind: 'lead.created', source: 'website' }, actions: [{ type: 'remind_owner', text: 'Call {{contact_first_name}}' }, { type: 'wait', hours: 24 }, { type: 'draft_email', instructions: 'Follow up' }] };
       const agencyWide = await runAssistantTool(proposeCtx(t, a1, handles, conv.conversationId), 'create_workflow', { ...input, scope: 'agency' });
@@ -7382,7 +7446,8 @@ async function main() {
         t.execute(sql`update property set suburb = ${suburb}, state = 'NSW', postcode = '2000', latitude = ${lat}, longitude = ${lng} where id = ${f.propertyId}`);
       await t.execute(sql`update agency set time_zone = 'Australia/Sydney' where id = ${f.agencyId}`);
       await moveTo('Parramatta', -33.8151, 151.0034);
-      const conv = await claimTurn(t, owner, { message: 'automatic emails', surface: 'agency' });
+      // An email chat builds workflows since ADR 0088; a general chat may not approve one.
+      const conv = await claimTurn(t, owner, { message: 'automatic emails', surface: 'agency', chatScope: 'email' });
       const handles: HandleMap = {};
 
       // BB1: the template, written in the chat — nothing saved before Approve.
@@ -7529,6 +7594,7 @@ async function main() {
       // A missed call: kept, the agent told, the caller hears the greeting — and no text goes out by itself.
       const outBefore = await count(t, sql`select count(*)::int as n from sms_message where phone_number_id = ${n.id} and direction = 'out'`);
       const v = await handleTwilioWebhook({ db: () => t, token, kind: 'voice', params: { CallSid: `CAmiss${f.tag}`, From: '+61400999000' }, keys: testKeys });
+      await v.followUp?.(); // as the route does after answering (PLATFORM-PLAN 3.2)
       assert(v.status === 200 && /<Say[^>]*>Sorry, .* can&apos;t take your call/.test(v.body), `voice: ${v.body}`);
       assert((await count(t, sql`select count(*)::int as n from phone_call where phone_number_id = ${n.id} and kind = 'missed'`)) === 1, 'missed call not kept');
       assert((await count(t, sql`select count(*)::int as n from sms_message where phone_number_id = ${n.id} and direction = 'out'`)) === outBefore, 'a text went out by itself');
@@ -7548,6 +7614,160 @@ async function main() {
       await releaseAgentNumber(t, owner, n.id, deps);
       assert((await getPhoneSetup(t, owner, deps)).agents.find((g) => g.userId === f.people.a1)?.number === null, 'released number still shown');
       return 'connect (owner only, secret encrypted) → number with profile mobile → code 123456 → verified → test passed → live; text in once (retry ignored), told once; A1 + owner see it, A2 refused; reply sent; STOP blocks, START lifts; landline refused; missed call kept with greeting, no text by itself; webhook test pass; bad token 403; released';
+    }),
+  );
+
+  await check('phone (PLATFORM-PLAN 3.10, ADR 0096): a managed number needs Twilio\'s signature as well as the URL token; a rotation interrupted before its promotion accepts both tokens, and after it only the new one', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      // Twilio's side of one subaccount: which tokens it accepts. The first promotion fails, as a network error would.
+      const tw = { primary: 'tok-old', secondary: null as string | null, failPromote: true };
+      const master: TwilioMasterApi = {
+        stub: true,
+        createSubaccount: async () => ({ sid: `ACsmoke${f.tag}`, authToken: tw.primary }),
+        createSubaccountKey: async () => ({ sid: `SKsmoke${f.tag}`, secret: 'key-secret' }),
+        closeSubaccount: async () => {},
+        createSecondaryAuthToken: async (_sid, auth) => {
+          assert(auth === tw.primary, 'secondary asked for with a token that is not the primary');
+          return (tw.secondary = 'tok-new');
+        },
+        promoteSecondaryAuthToken: async (_sid, auth) => {
+          assert(auth === tw.primary, 'promotion asked for with a token that is not the primary');
+          if (tw.failPromote) throw ((tw.failPromote = false), new Error('Twilio could not be reached'));
+          tw.primary = tw.secondary!;
+          tw.secondary = null;
+        },
+        authTokenWorks: async (_sid, tok) => tok === tw.primary || tok === tw.secondary,
+        subaccountAuthToken: async () => tw.primary,
+      };
+      const deps: PhoneDeps = { keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test', managed: { master, testMode: true } };
+      await startManagedPhone(t, f.actor('owner'), deps);
+      const [acct] = await t.execute<{ id: string; auth_token: string | null }>(sql`select id, auth_token from phone_account where agency_id = ${f.agencyId} and kind = 'managed'`);
+      if (!acct) throw new Error('no managed account was made');
+      assert(acct.auth_token?.startsWith('v1.') && !acct.auth_token.includes('tok-'), 'the auth token was not stored encrypted');
+      const [num] = await t.execute<{ id: string }>(sql`
+        insert into phone_number (agency_id, user_id, account_id, e164, number_sid) values (${f.agencyId}, ${f.people.a1}, ${acct.id}, '+15005550006', ${`PNsmoke${f.tag}`}) returning id`);
+      const token = webhookToken(num!.id, testKeys);
+      let k = 0;
+      const smsIn = (by: string | null) => {
+        const params = { From: '+61400123456', To: '+15005550006', Body: 'hi', MessageSid: `SMsig${f.tag}${k++}` };
+        const signature = by ? twilioSignature(`https://smoke.test/api/phone/twilio/${token}/sms`, params, by) : null;
+        return handleTwilioWebhook({ db: () => t, token, kind: 'sms', params, keys: testKeys, webhookBase: 'https://smoke.test', signature });
+      };
+      const codes = async (...by: (string | null)[]) => (await Promise.all(by.map((b) => smsIn(b)))).map((r) => r.status).join(',');
+      const before = await codes(null, 'tok-wrong', 'tok-old');
+      assert(before === '403,403,200', `right URL token, no / wrong / right signature: ${before}`);
+
+      const first = await rotateManagedAuthTokens(t, deps);
+      assert(first.failed.length === 1 && first.rotated === 0, `first rotation: ${JSON.stringify(first)}`);
+      const midway = await codes('tok-old', 'tok-new', 'tok-wrong');
+      assert(midway === '200,200,403', `stopped before the promotion — old, new, wrong: ${midway}`);
+
+      const second = await rotateManagedAuthTokens(t, deps);
+      assert(second.rotated === 1 && second.failed.length === 0 && tw.primary === 'tok-new', `second rotation: ${JSON.stringify(second)}`);
+      const after = await codes('tok-new', 'tok-old');
+      assert(after === '200,403', `after the promotion — new, old: ${after}`);
+      const [left] = await t.execute<{ next: string | null }>(sql`select auth_token_next as next from phone_account where id = ${acct.id}`);
+      assert(left?.next === null, 'the secondary is still stored after the promotion');
+
+      // A second run at the same moment replaces our secondary before we promote: Twilio ends up on the rival's token.
+      master.createSecondaryAuthToken = async () => ((tw.secondary = 'tok-rival'), 'tok-ours');
+      const raced = await rotateManagedAuthTokens(t, deps);
+      assert(raced.rotated === 1 && (tw.primary as string) === 'tok-rival', `raced rotation: ${JSON.stringify(raced)}`);
+      const afterRace = await codes('tok-rival', 'tok-ours');
+      assert(afterRace === '200,403', `after a raced rotation — the token Twilio holds, ours: ${afterRace}`);
+      return 'stored encrypted; no/wrong signature 403, right 200; interrupted rotation: old and new 200; finished: new 200, old 403; raced: the token Twilio holds is stored';
+    }),
+  );
+
+  await check('PLATFORM-PLAN 3.5: texts Twilio did not take → the number\'s agent gets one bell and one email an hour; a delivery failure, a paused send and an old failure do not count', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const [num] = await t.execute<{ id: string }>(sql`
+        insert into phone_number (agency_id, user_id, e164, number_sid) values (${f.agencyId}, ${f.people.a1}, '+61480000555', ${`PNfail${f.tag}`}) returning id`);
+      const text = (status: string, sid: string | null, error: string | null, minutesAgo = 1) => t.execute(sql`
+        insert into sms_message (agency_id, phone_number_id, counterpart, direction, body, status, provider_sid, error, created_at, updated_at)
+        values (${f.agencyId}, ${num!.id}, '+61400111222', 'out', 'hi', ${status}, ${sid}, ${error}, now() - make_interval(mins => ${minutesAgo}), now() - make_interval(mins => ${minutesAgo}))`);
+      await text('failed', null, 'Twilio could not be reached');
+      await text('failed', null, 'Twilio could not be reached');
+      await text('failed', `SMdeliv${f.tag}`, 'Twilio: undelivered'); // Twilio had it; the handset did not take it
+      await text('failed', null, "Not sent: this agency's sends are paused. An owner or admin can resume them.");
+      await text('failed', null, 'Twilio could not be reached', 30); // before the window
+      const transport = fakeTransport();
+      const notice = { mailer: { sender: { from: { email: 'smoke@example.com', name: 'Smoke' }, postalAddress: '1 Smoke St' }, transport }, urls: { agentUrl: 'https://agents.smoke.test', agencyUrl: 'https://agency.smoke.test' } };
+      const now = new Date();
+      const first = await tellAgentsOfFailedTexts(t, now, { notice });
+      const again = await tellAgentsOfFailedTexts(t, now, { notice });
+      const bells = await t.execute<{ user_id: string; title: string }>(sql`select user_id, title from notification where agency_id = ${f.agencyId} and kind = 'texts_failed'`);
+      assert(bells.length === 1 && bells[0]!.user_id === f.people.a1 && /^2 texts/.test(bells[0]!.title), `bells: ${JSON.stringify(bells)}`);
+      assert(first.emailed === 1 && again.notified === 0 && again.emailed === 0 && transport.sent.length === 1, `first ${JSON.stringify(first)} again ${JSON.stringify(again)}`);
+      assert(/2 texts from your number were not sent/.test(transport.sent[0]!.subject) && transport.sent[0]!.text.includes('https://agents.smoke.test/my-inbox/texts'), `email: ${transport.sent[0]!.subject}`);
+      return '2 refused texts → A1: one bell ("2 texts…"), one email linking their texts; delivery failure, paused send, 30-min-old failure not counted; a second run in the hour adds nothing';
+    }),
+  );
+
+  await check('PLATFORM-PLAN 3.8: after an outage, what Twilio has and we do not is kept — texts as the webhook would (STOP honoured, bell), calls as missed "found after an outage"; nothing twice; the tick takes its shard', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const found = {
+        messages: [
+          { sid: `SMkept${f.tag}`, from: '+61400111001', body: 'Kept by the webhook already' },
+          { sid: `SMlost${f.tag}`, from: '+61400111002', body: 'Is it still available?' },
+          { sid: `SMstop${f.tag}`, from: '+61400111003', body: 'STOP' },
+        ],
+        calls: [
+          { sid: `CAlost${f.tag}`, from: '+61400111004' },
+          { sid: `CAself${f.tag}`, from: '+61480000777' }, // the forwarding test calling itself
+        ],
+      };
+      const deps: PhoneDeps = { keys: testKeys, client: () => ({ ...stubTwilioClient(), inboundSince: async () => found }), webhookBase: 'https://smoke.test' };
+      await connectTwilio(t, f.actor('owner'), { accountSid: 'ACpull', apiKeySid: 'SKpull', apiKeySecret: 'pull-secret' }, deps);
+      const [num] = await t.execute<{ id: string; part: number }>(sql`
+        insert into phone_number (agency_id, user_id, account_id, e164, number_sid)
+        select ${f.agencyId}, ${f.people.a1}, id, '+61480000777', ${`PNpull${f.tag}`} from phone_account where agency_id = ${f.agencyId}
+        returning id, abs(hashtext(id::text)) % 30 as part`);
+      await t.execute(sql`
+        insert into sms_message (agency_id, phone_number_id, counterpart, direction, body, status, provider_sid)
+        values (${f.agencyId}, ${num!.id}, '+61400111001', 'in', 'Kept by the webhook already', 'received', ${`SMkept${f.tag}`})`);
+      const since = new Date(Date.now() - 2 * 3_600_000);
+      const otherShard = await pullInbound(t, deps, since, { part: (num!.part + 1) % 30, of: 30 });
+      assert(otherShard.texts === 0 && otherShard.calls === 0, `another shard pulled this number: ${JSON.stringify(otherShard)}`);
+      const first = await pullInbound(t, deps, since, { part: num!.part, of: 30 });
+      const again = await pullInbound(t, deps, since);
+      assert(first.texts === 2 && first.calls === 1 && first.failed.length === 0, `first: ${JSON.stringify(first)}`);
+      assert(again.texts === 0 && again.calls === 0, `again: ${JSON.stringify(again)}`);
+      assert((await count(t, sql`select count(*)::int as n from sms_message where phone_number_id = ${num!.id} and direction = 'in'`)) === 3, 'texts not kept once each');
+      assert((await count(t, sql`select count(*)::int as n from sms_opt_out where agency_id = ${f.agencyId} and e164 = '+61400111003'`)) === 1, 'STOP not honoured');
+      assert((await count(t, sql`select count(*)::int as n from notification where user_id = ${f.people.a1} and kind = 'sms'`)) === 2, 'A1 not told of each new text once');
+      const calls = await t.execute<{ call_sid: string; outcome: string; sms_message_id: string | null }>(sql`select call_sid, outcome, sms_message_id from phone_call where phone_number_id = ${num!.id}`);
+      assert(calls.length === 1 && calls[0]!.call_sid === `CAlost${f.tag}` && calls[0]!.outcome === 'found_late' && calls[0]!.sms_message_id === null, `calls: ${JSON.stringify(calls)}`);
+      assert((await count(t, sql`select count(*)::int as n from notification where user_id = ${f.people.a1} and kind = 'missed_call' and body like 'Found after an outage%'`)) === 1, 'no bell for the late missed call');
+      return 'other shard: nothing; 2 lost texts kept (1 already there skipped), STOP honoured, 2 bells; 1 lost call kept as missed "found_late", not texted, bell; the forwarding test call skipped; a second run adds nothing';
+    }),
+  );
+
+  await check('PLATFORM-PLAN 3.2: a slow Twilio does not hold a missed call\'s answer — the greeting comes back at once, the text goes in the follow-up', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      let release: () => void = () => {};
+      const slowSend = new Promise<void>((r) => (release = r));
+      const slow = (): TwilioApi => ({ ...stubTwilioClient(), sendSms: async () => (await slowSend, { sid: `SMslow${f.tag}`, status: 'sent' }) });
+      const deps: PhoneDeps = { keys: testKeys, client: slow, webhookBase: 'https://smoke.test' };
+      await t.execute(sql`update "user" set phone = '0412 111 222' where id = ${f.people.a1}`);
+      await connectTwilio(t, owner, { accountSid: '', apiKeySid: '', apiKeySecret: '' }, deps);
+      const n = await getNumberForAgent(t, owner, f.people.a1, deps);
+      const started = Date.now();
+      const r = await handleTwilioWebhook({ db: () => t, token: webhookToken(n.id, testKeys), kind: 'voice', params: { CallSid: `CAslow${f.tag}`, From: '+61400555222' }, keys: testKeys, client: slow, webhookBase: 'https://smoke.test' });
+      const tookMs = Date.now() - started;
+      const status = async () => (await t.execute<{ status: string }>(sql`select status from sms_message where phone_number_id = ${n.id} and kind = 'missed_call_text'`))[0]?.status;
+      assert(r.status === 200 && /<Say/.test(r.body) && typeof r.followUp === 'function', `answer: ${r.status} followUp ${typeof r.followUp}`);
+      assert((await status()) === 'queued', `before the follow-up the text is ${await status()}`);
+      const sending = r.followUp!();
+      release();
+      await sending;
+      assert((await status()) === 'sent', `after the follow-up the text is ${await status()}`);
+      return `answered in ${tookMs} ms while Twilio hung; text queued → sent by the follow-up`;
     }),
   );
 
@@ -7647,7 +7867,7 @@ async function main() {
       const n = await getNumberForAgent(t, owner, f.people.a1, deps);
       const token = webhookToken(n.id, testKeys);
       const missed = (sid: string, from = '+61400555111') =>
-        handleTwilioWebhook({ db: () => t, token, kind: 'voice', params: { CallSid: sid, From: from }, keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test' });
+        handleTwilioWebhook({ db: () => t, token, kind: 'voice', params: { CallSid: sid, From: from }, keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test' }).then(async (r) => (await r.followUp?.(), r));
       const outTexts = () => count(t, sql`select count(*)::int as n from sms_message where phone_number_id = ${n.id} and kind = 'missed_call_text'`);
       // The fixture switches every skill on; start from "nobody switched it on".
       await t.execute(sql`delete from skill_switch where agency_id = ${f.agencyId} and skill_key = 'missed_call_text'`);
@@ -7662,7 +7882,8 @@ async function main() {
       assert(agentSave instanceof PhoneError && agentSave.code === 'forbidden', 'an agent changed the settings');
       const madeUp = await saveMissedCallSettings(t, owner, { ...DEFAULT_MISSED_CALL_SETTINGS, smsTemplate: 'Hi {{first_name}}, the price is {{price}}' }).catch((e: unknown) => e);
       assert(madeUp instanceof PhoneError && /\{\{price\}\}/.test(madeUp.message), 'a made-up field was saved');
-      await saveMissedCallSettings(t, owner, { ...DEFAULT_MISSED_CALL_SETTINGS, smsTemplate: 'Hi {{first_name}}, {{agent_first_name}} here, sorry I missed you!' });
+      // One automatic text a caller a day here (ADR 0074 rule 4's default is 3), so "not texted twice" is tested.
+      await saveMissedCallSettings(t, owner, { ...DEFAULT_MISSED_CALL_SETTINGS, autoTextsPerCallerDay: 1, smsTemplate: 'Hi {{first_name}}, {{agent_first_name}} here, sorry I missed you!' });
 
       // The agency's switch alone is not enough for an agent; both is.
       await setSkillSwitch(t, owner, 'missed_call_text', true);
@@ -7709,7 +7930,7 @@ async function main() {
       // A known caller: P6 has this mobile, so the summary can land on their contact.
       await t.execute(sql`update contact set phone = '0400 777 888' where id = ${f.contacts.p6}`);
       const missed = (sid: string, from: string) =>
-        handleTwilioWebhook({ db: () => t, token, kind: 'voice', params: { CallSid: sid, From: from }, keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test', voice });
+        handleTwilioWebhook({ db: () => t, token, kind: 'voice', params: { CallSid: sid, From: from }, keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test', voice }).then(async (r) => (await r.followUp?.(), r));
       const aiOf = async (sid: string) => (await t.execute<{ id: string; ai_status: string | null; ai_reason: string | null; ai_due_at: Date | null; ai_call_id: string | null }>(sql`select id, ai_status, ai_reason, ai_due_at, ai_call_id from phone_call where call_sid = ${sid}`))[0]!;
 
       // Not set up: the fixture has every skill on, but the number is not registered with Retell.
@@ -7733,7 +7954,9 @@ async function main() {
       // Another caller who texts back before the AI is due: not called.
       await missed(`CAtxt${f.tag}`, '+61400777222');
       await handleTwilioWebhook({ db: () => t, token, kind: 'sms', params: { From: '+61400777222', Body: 'Call me after 5 please', MessageSid: `SMtxt${f.tag}` }, keys: testKeys });
-      const due = new Date(Date.now() + 8 * 24 * 60 * 60 * 1000);
+      // The tick a minute after the later of the two is due: a call-back hours late is not placed (PLATFORM-PLAN 3.9).
+      const [last] = await t.execute<{ at: string }>(sql`select max(ai_due_at)::text as at from phone_call where agency_id = ${f.agencyId} and ai_status = 'scheduled'`);
+      const due = new Date(new Date(last!.at).getTime() + 60_000);
       const ran = await runDueAiCallbacks(t, voice, due, 10, { agencyId: f.agencyId });
       assert(ran.placed === 1 && ran.skipped === 1, `tick: ${JSON.stringify(ran)}`);
       assert((await aiOf(`CAtxt${f.tag}`)).ai_reason === 'replied', 'called someone who texted back');
@@ -8799,6 +9022,43 @@ async function main() {
 
   // ── ADR 0074 part 2: SMS everywhere — the five rules (needs migration 0079) ─────────────────────
   group('SMS everywhere (ADR 0074)');
+
+  await check('PLATFORM-PLAN 3.3: the SMS drain is fair by agency — a round texts a slice of each agency\'s batch, so a big batch never holds a small one back', async () =>
+    inRollback(async (t) => {
+      const deps: PhoneDeps = { keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test' };
+      const env = { NODE_ENV: 'development', PHONE_STUB: '1' } as NodeJS.ProcessEnv;
+      const noon = new Date('2026-11-03T01:00:00Z'); // 12:00 in Sydney
+      const batchOf = async (people: number, tag: string) => {
+        const f = await contactFixture(t);
+        const owner = f.actor('owner');
+        await connectTwilio(t, owner, { accountSid: `AC${tag}`, apiKeySid: `SK${tag}`, apiKeySecret: 'secret' }, deps);
+        await getNumberForAgent(t, owner, f.people.owner, deps);
+        const ids: string[] = [];
+        for (let i = 0; i < people; i++) {
+          const { id } = await createContact(t, owner, { name: `Fair ${tag} ${i}`, email: `fair.${tag}.${i}.${f.tag}@smoke.test` });
+          await t.execute(sql`update contact set phone = ${`04${tag === 'big' ? '13' : '14'} 600 ${String(100 + i)}`}, marketing_consent_at = now() where id = ${id}`);
+          ids.push(id);
+        }
+        const tpl = await createEmailTemplate(t, owner, { channel: 'sms', name: `Fair ${tag}`, body: 'Hi {{first_name}}' });
+        const { id } = await prepareSmsBatch(t, owner, { templateId: tpl.id, contactIds: ids }, noon, env);
+        await approveSmsBatch(t, owner, id, noon);
+        return id;
+      };
+      const big = await batchOf(12, 'big'); // approved first: oldest-first would text all of it before anyone else
+      const small = await batchOf(3, 'small');
+      // The tick takes batches approved over a minute ago (Approve sends its own first slice).
+      await t.execute(sql`update email_batch set approved_at = now() - interval '10 minutes' where id = ${big}`);
+      await t.execute(sql`update email_batch set approved_at = now() - interval '5 minutes' where id = ${small}`);
+      const sentIn = async (id: string) => count(t, sql`select count(*)::int as n from email_batch_recipient where batch_id = ${id} and status = 'sent'`);
+      const round = await resumeSmsBatches(t, { phone: deps, env }, { agencies: 50, perBatch: 5 }, () => noon);
+      const afterOne = [await sentIn(big), await sentIn(small)];
+      assert(afterOne[0] === 5 && afterOne[1] === 3 && round.more, `after one round big ${afterOne[0]}, small ${afterOne[1]}, more ${round.more}`);
+      await resumeSmsBatches(t, { phone: deps, env }, { agencies: 50, perBatch: 5 }, () => noon);
+      await resumeSmsBatches(t, { phone: deps, env }, { agencies: 50, perBatch: 5 }, () => noon);
+      assert((await sentIn(big)) === 12, `big batch not finished in three rounds: ${await sentIn(big)}`);
+      return 'round 1: big 5 of 12, small 3 of 3 (oldest-first would have texted 12 before the small one began); big done by round 3';
+    }),
+  );
 
   await check('Bulk SMS: prepare (who, from which number, why skipped) → approve once → texted with STOP → held after 8 pm → 100 a number → 3 automatic a caller → the pair skill → never as email, never another agency (stub Twilio)', async () =>
     inRollback(async (t) => {

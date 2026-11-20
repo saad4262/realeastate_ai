@@ -100,24 +100,50 @@ export const SMS_MAX_LENGTH = 1600;
 // give us. So each number's webhook URL carries its own token instead: the number's id and an HMAC of
 // it under a key derived from INTEGRATION_TOKEN_KEY. Unguessable, per number, nothing stored.
 
-function webhookKey(keys: TokenKeys): Buffer {
-  return Buffer.from(hkdfSync('sha256', keys.current.bytes, Buffer.alloc(0), 'twilio-webhook-v1', 32));
+function webhookKey(bytes: Buffer): Buffer {
+  return Buffer.from(hkdfSync('sha256', bytes, Buffer.alloc(0), 'twilio-webhook-v1', 32));
 }
+
+const tokenSig = (phoneNumberId: string, bytes: Buffer) =>
+  createHmac('sha256', webhookKey(bytes)).update(`phone-number:${phoneNumberId}`).digest('base64url').slice(0, 32);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export function webhookToken(phoneNumberId: string, keys: TokenKeys): string {
-  const sig = createHmac('sha256', webhookKey(keys)).update(`phone-number:${phoneNumberId}`).digest('base64url').slice(0, 32);
-  return `${phoneNumberId}.${sig}`;
+  return `${phoneNumberId}.${tokenSig(phoneNumberId, keys.current.bytes)}`;
 }
 
-/** The number's id when the token is ours; null for anything else. Constant-time on the signature. */
+const sameText = (a: string, b: string) => {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+};
+
+/**
+ * The number's id when the token is ours; null for anything else. Constant-time on the signature.
+ * A token made with INTEGRATION_TOKEN_KEY_PREVIOUS still works, so a key rotation does not cut the
+ * numbers off before `phone:repoint` gives them URLs under the new key (PLATFORM-PLAN 3.10).
+ */
 export function verifyWebhookToken(token: string, keys: TokenKeys): string | null {
   const [id, sig] = token.split('.');
   if (!id || !sig || !UUID.test(id)) return null;
-  const want = Buffer.from(webhookToken(id, keys).split('.')[1]!);
-  const got = Buffer.from(sig);
-  return want.length === got.length && timingSafeEqual(want, got) ? id : null;
+  return [keys.current, keys.previous].some((k) => k && sameText(tokenSig(id, k.bytes), sig)) ? id : null;
+}
+
+/**
+ * Twilio's request signature (`X-Twilio-Signature`): HMAC-SHA1, keyed with the account's Auth Token, over
+ * the URL Twilio called followed by every POST field, sorted by name, as name + value with no separators;
+ * base64. https://www.twilio.com/docs/usage/security
+ */
+export function twilioSignature(url: string, params: Record<string, string>, authToken: string): string {
+  const fields = Object.keys(params).sort().map((k) => k + params[k]).join('');
+  return createHmac('sha1', authToken).update(url + fields, 'utf8').digest('base64');
+}
+
+/** True when the header matches a signature by any of the tokens on any of the URLs this request may have been signed for. */
+export function validTwilioSignature(header: string | null, urls: readonly string[], params: Record<string, string>, authTokens: readonly string[]): boolean {
+  if (!header) return false;
+  return authTokens.some((t) => urls.some((u) => sameText(twilioSignature(u, params, t), header)));
 }
 
 export type WebhookKind = 'sms' | 'sms-status' | 'voice' | 'caller-id';

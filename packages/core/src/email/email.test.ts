@@ -218,6 +218,7 @@ describe('resendTransport', () => {
     const make = (status: number) =>
       resendTransport({
         apiKey: 'k',
+        retryDelaysMs: [0, 0],
         fetchImpl: (async () => new Response('nope', { status })) as unknown as typeof fetch,
       });
 
@@ -228,9 +229,59 @@ describe('resendTransport', () => {
     expect(rejected).toMatchObject({ ok: false, retryable: false });
   });
 
+  it('PLATFORM-PLAN 3.5: tries a busy Resend again under one Idempotency-Key, and never a rejected address or a timeout', async () => {
+    const keys: (string | undefined)[] = [];
+    const answers = [503, 429, 200];
+    const busyThenOk = resendTransport({
+      apiKey: 'k',
+      retryDelaysMs: [0, 0],
+      fetchImpl: (async (_url: string, init: RequestInit) => {
+        keys.push((init.headers as Record<string, string>)['Idempotency-Key']);
+        const status = answers.shift()!;
+        return new Response(status === 200 ? JSON.stringify({ id: 'msg_3' }) : 'busy', { status });
+      }) as unknown as typeof fetch,
+    });
+    expect(await busyThenOk.send(buildScheduleDigestEmail(BASE))).toEqual({ ok: true, id: 'msg_3' });
+    expect(keys).toHaveLength(3);
+    expect(new Set(keys).size).toBe(1);
+    expect(keys[0]).toBeTruthy();
+
+    let calls = 0;
+    const counting = (fail: () => Response) =>
+      resendTransport({ apiKey: 'k', retryDelaysMs: [0, 0], fetchImpl: (async () => (calls++, fail())) as unknown as typeof fetch });
+    expect(await counting(() => new Response('bad address', { status: 422 })).send(buildScheduleDigestEmail(BASE))).toMatchObject({ ok: false, retryable: false });
+    expect(calls).toBe(1);
+    calls = 0;
+    const timeout = Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+    const timedOut = resendTransport({ apiKey: 'k', retryDelaysMs: [0, 0], fetchImpl: (async () => { calls++; throw timeout; }) as unknown as typeof fetch });
+    expect(await timedOut.send(buildScheduleDigestEmail(BASE))).toMatchObject({ ok: false, retryable: true });
+    expect(calls).toBe(1);
+    calls = 0;
+    const down = counting(() => new Response('down', { status: 502 }));
+    expect(await down.send(buildScheduleDigestEmail(BASE))).toMatchObject({ ok: false, retryable: true });
+    expect(calls).toBe(3);
+    // The next email in the same outage tries once: a tick of fifty emails does not wait on each.
+    calls = 0;
+    expect(await down.send(buildScheduleDigestEmail(BASE))).toMatchObject({ ok: false, retryable: true });
+    expect(calls).toBe(1);
+  });
+
+  it('PLATFORM-PLAN 3.6: waits as long as Resend asks on a 429, and gives up at once when it asks for more than 5 s', async () => {
+    const answers = [new Response('slow down', { status: 429, headers: { 'retry-after': '1' } }), new Response(JSON.stringify({ id: 'msg_4' }), { status: 200 })];
+    const polite = resendTransport({ apiKey: 'k', retryDelaysMs: [0, 0], fetchImpl: (async () => answers.shift()!) as unknown as typeof fetch });
+    const started = Date.now();
+    expect(await polite.send(buildScheduleDigestEmail(BASE))).toEqual({ ok: true, id: 'msg_4' });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(950);
+    let calls = 0;
+    const longWait = resendTransport({ apiKey: 'k', retryDelaysMs: [0, 0], fetchImpl: (async () => (calls++, new Response('later', { status: 429, headers: { 'retry-after': '60' } }))) as unknown as typeof fetch });
+    expect(await longWait.send(buildScheduleDigestEmail(BASE))).toMatchObject({ ok: false, retryable: true });
+    expect(calls).toBe(1);
+  });
+
   it('treats a network failure as retryable rather than throwing', async () => {
     const transport = resendTransport({
       apiKey: 'k',
+      retryDelaysMs: [0, 0],
       fetchImpl: (async () => {
         throw new Error('ECONNRESET');
       }) as unknown as typeof fetch,
