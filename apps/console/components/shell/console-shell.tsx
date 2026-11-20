@@ -13,6 +13,7 @@ import { loadActor } from '../../lib/load-actor';
 import { HomeLink } from './home-link';
 import { NavList } from './nav-list';
 import { RecentsList } from './recents-list';
+import { SendsPausedBanner } from './sends-paused-banner';
 import { SHELLS, type ShellSurface } from './surfaces';
 import styles from './console-shell.module.css';
 
@@ -178,7 +179,13 @@ export function ConsoleShell({ surface, children, userLabel, userId, chrome }: C
           </div>
         </header>
 
-        <div className={styles.content}>{children}</div>
+        <div className={styles.content}>
+          {/* PLATFORM-PLAN 3.7: streams in with the chrome; nothing renders while sends run normally. */}
+          <Suspense fallback={null}>
+            <SendsPaused chrome={chrome} />
+          </Suspense>
+          {children}
+        </div>
       </div>
       {/* New mail, team messages and the bell show up without a reload (ADR 0035). */}
       <LiveRefresh />
@@ -252,6 +259,11 @@ function RecentsFallback() {
       <span className={styles.shimmerLine} style={{ width: '60%', margin: '0.375rem 0.75rem' }} />
     </div>
   );
+}
+
+async function SendsPaused({ chrome }: { chrome: Promise<ConsoleChrome> }) {
+  const { sendsPaused } = await chrome;
+  return sendsPaused ? <SendsPausedBanner reason={sendsPaused.reason} mayResume={sendsPaused.mayResume} /> : null;
 }
 
 async function ProfileRole({ chrome }: { chrome: Promise<ConsoleChrome> }) {

@@ -3,7 +3,7 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { readSignedIdentity, sessionHeaderSecret } from '@repo/auth/session-header';
 import { can, type Actor, type MembershipRole } from '@repo/core/permissions';
-import { loadActorContext } from './load-actor';
+import { loadActorContext, type ActorContext } from './load-actor';
 
 const ROLE_LABELS: Record<MembershipRole, string> = {
   owner: 'Licensee in Charge',
@@ -51,6 +51,8 @@ async function sessionFromMiddleware() {
 export type ConsoleChrome = {
   userRole: string;
   agencyName: string | null;
+  /** PLATFORM-PLAN 3.7: shown as a banner on every page; can() already decided `mayResume`. */
+  sendsPaused: ActorContext['sendsPaused'];
   /**
    * `newOffers` is already zeroed for anyone who may not read a private offer —
    * the decision is made by can() in load-actor.ts, never re-made by the chrome.
@@ -70,6 +72,7 @@ export type ConsoleChrome = {
 const CHROME_FALLBACK: ConsoleChrome = {
   userRole: 'Member',
   agencyName: null,
+  sendsPaused: null,
   summary: { members: 0, liveListings: 0, pendingInvites: 0, newOffers: 0, unreadMail: 0, unreadTeam: 0 },
 };
 
@@ -109,6 +112,7 @@ export async function loadConsoleChrome(userId: string): Promise<ConsoleChrome> 
     return {
       userRole: role ? ROLE_LABELS[role] : 'Member',
       agencyName: context.agencyName,
+      sendsPaused: context.sendsPaused,
       summary: context.summary,
     };
   } catch {
