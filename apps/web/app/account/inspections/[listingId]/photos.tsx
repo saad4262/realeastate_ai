@@ -56,7 +56,7 @@ export function Photos({ listingId, photos, max, maxCameraBytes, longEdge, disab
         {photos.map((p) => (
           <figure key={p.id} className="relative m-0 aspect-square overflow-hidden rounded-lg bg-sunken">
             {/* eslint-disable-next-line @next/next/no-img-element -- a private, short-lived signed link: no image optimiser */}
-            <img src={`/api/inspections/photos/${p.id}`} alt="Your inspection photo" className="size-full object-cover" loading="lazy" />
+            <img src={`/api/inspections/photos/${p.id}`} alt="Taken at your inspection" className="size-full object-cover" loading="lazy" />
             <button
               type="button"
               disabled={pending}

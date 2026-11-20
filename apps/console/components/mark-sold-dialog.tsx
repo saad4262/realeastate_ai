@@ -86,6 +86,7 @@ export function MarkSoldDialog({
   return (
     <div
       className={styles.backdrop}
+      role="presentation"
       /**
        * Clicking the backdrop cancels, but only the backdrop — the check stops a
        * click that started inside the panel and drifted out from closing it and

@@ -241,7 +241,8 @@
   /* ---- ink ---- text-primary / text-secondary / text-muted */
   --color-ink: #0f172a;
   --color-ink-soft: #475569;
-  --color-ink-faint: #94a3b8;
+  /* 4.5:1 or better on white, canvas and sunken (was #94a3b8; PLATFORM-PLAN 4.5). */
+  --color-ink-faint: #5f6b7d;
 
   /* ---- rules ---- border-subtle / border-default / border-strong */
   --color-line-subtle: #f1f5f9;
@@ -262,9 +263,9 @@
      The mock names these by what they mean rather than by hue —
      emerald-success, amber-luxury, sapphire-intelligence — and uses each for
      exactly one job: verified, premium, data-derived. */
-  --color-success: #059669;
+  --color-success: #047857;
   --color-success-soft: #ecfdf5;
-  --color-notice: #d97706;
+  --color-notice: #b45309;
   --color-notice-soft: #fffbeb;
   --color-alert: #b45309;
   --color-alert-soft: #fffbeb;

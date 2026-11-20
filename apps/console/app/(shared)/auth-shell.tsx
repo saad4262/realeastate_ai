@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import styles from './auth.module.css';
 
+const WEB = process.env.NEXT_PUBLIC_WEB_URL ?? '';
+
 type AuthShellProps = {
   title: string;
   subtitle: string;
@@ -47,10 +49,6 @@ export function AuthShell({
             <span className={styles.pulse} />
             Sydney Metro Datacenter: 14ms
           </div>
-          <a className={styles.supportLink} href="#">
-            <span className={styles.glyphMd}>contact_support</span>
-            Support Desk
-          </a>
         </div>
       </header>
 
@@ -115,9 +113,9 @@ export function AuthShell({
           </span>
         </div>
         <div className={styles.footerLinks}>
-          <a href="#">Compliance Disclosure</a>
-          <a href="#">Privacy Charter</a>
-          <a href="#">Hardware Key Diagnostics</a>
+          {/* Links that went nowhere (href="#") are gone; these two are the public site's real pages. */}
+          <a href={`${WEB}/privacy-policy`}>Privacy policy</a>
+          <a href={`${WEB}/terms-of-service`}>Terms of service</a>
         </div>
       </footer>
     </div>
