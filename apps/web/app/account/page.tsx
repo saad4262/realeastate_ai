@@ -239,6 +239,10 @@ export default async function AccountPage() {
             You will stay signed in on any other device.
           </span>
         </form>
+        {/* PLATFORM-PLAN 5.12: deleting is a page of its own, with what goes and what stays, then a typed confirmation. */}
+        <p className={styles.signOutNote}>
+          <Link href="/account/delete">Delete my account</Link>
+        </p>
       </main>
     </WebShell>
   );
