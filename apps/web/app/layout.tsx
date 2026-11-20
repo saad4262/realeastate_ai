@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Source_Sans_3 } from 'next/font/google';
+import localFont from 'next/font/local';
 import '@repo/ui/styles.css';
 // After the shared tokens, so `@theme` can build on them and a utility class
 // always wins over a base rule rather than depending on file order.
@@ -12,8 +12,10 @@ import { portalFonts } from './portal-fonts';
  * These were two render-blocking <link>s to fonts.googleapis.com: a DNS lookup,
  * a TLS handshake and a CSS round trip to another origin before the page could
  * paint any text — on the consumer site, where that is the first impression and
- * the Core Web Vitals. next/font downloads them at build time, serves them from
- * this origin and emits the @font-face itself. The size-adjusted fallback it
+ * the Core Web Vitals. next/font/local serves them from this origin and emits
+ * the @font-face itself. The files are in ./fonts (Google's latin variable cuts,
+ * OFL): next/font/google fetched them at build time, and a slow answer from
+ * Google failed the Vercel build. The size-adjusted fallback it
  * generates is what stops the headline moving when the real face lands.
  *
  * The portal skin is site-wide (2026-11-10), so its two families (Inter and
@@ -22,9 +24,9 @@ import { portalFonts } from './portal-fonts';
  * font stacks name it as the fallback, and an undefined var() in a stack
  * would void the whole declaration.
  */
-const sourceSans = Source_Sans_3({
-  subsets: ['latin'],
-  weight: ['400', '600', '700'],
+const sourceSans = localFont({
+  src: './fonts/source-sans-3-latin-var.woff2',
+  weight: '400 700',
   display: 'swap',
   variable: '--font-source-sans',
 });
