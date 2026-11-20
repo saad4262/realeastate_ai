@@ -255,7 +255,8 @@ export async function approveSmsBatch(db: DbOrTx, actor: Actor, id: string, now 
   const claimed = await db
     .update(emailBatch)
     .set({ status: 'approved_sending', approvedAt: sql`now()`, updatedAt: sql`now()` })
-    .where(and(eq(emailBatch.id, b.id), eq(emailBatch.status, 'prepared'), gt(emailBatch.expiresAt, sql`now()`)))
+    // The same clock as the expiry check above: a batch is never refused here after passing it there.
+    .where(and(eq(emailBatch.id, b.id), eq(emailBatch.status, 'prepared'), gt(emailBatch.expiresAt, now)))
     .returning({ id: emailBatch.id });
   return { result: claimed.length ? 'approved' : 'already', sendsAt };
 }
