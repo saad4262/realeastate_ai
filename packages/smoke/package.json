@@ -13,12 +13,12 @@
     "@repo/ai": "workspace:*",
     "@repo/core": "workspace:*",
     "@repo/db": "workspace:*",
-    "drizzle-orm": "^0.38.3"
+    "drizzle-orm": "^0.45.4"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "dotenv": "^16.4.7",
-    "tsx": "^4.19.2",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.2"
   }
 }
