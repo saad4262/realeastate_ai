@@ -49,7 +49,13 @@ export async function POST(request: NextRequest) {
   await supabase.auth.signOut({ scope: form?.get('scope') === 'global' ? 'global' : 'local' });
 
   // 303 turns the POST into a GET at the destination.
-  return NextResponse.redirect(`${originOf(request)}${next}`, { status: 303 });
+  const response = NextResponse.redirect(`${originOf(request)}${next}`, { status: 303 });
+  // signOut() clears the session cookie under COOKIE_DOMAIN, but the sign-in form's browser client wrote it
+  // host-only: a different cookie, which stayed, and the person was still signed in. Clear that one too.
+  for (const c of request.cookies.getAll()) {
+    if (c.name.startsWith('sb-')) response.headers.append('Set-Cookie', `${c.name}=; Path=/; Max-Age=0; SameSite=Lax`);
+  }
+  return response;
 }
 
 /** An old link or a prefetch: never signs anyone out, just goes home. */

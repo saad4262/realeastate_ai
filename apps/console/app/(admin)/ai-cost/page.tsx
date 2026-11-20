@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { aiCostOverview, parseAiCostPeriod, type AiCostWho } from '@repo/core/platform';
-import { CapBadge, count, FeatureTable, LimitCard, pct, perCall, PeriodTabs, periodWords, ShareBar, SpendChart, TextStat, usd } from '@/components/admin/ai-cost';
+import { CapBadge, count, credits, FeatureTable, LimitCard, pct, perCall, PeriodTabs, periodWords, ShareBar, SpendChart, TextStat, usd } from '@/components/admin/ai-cost';
 import styles from '@/components/admin/admin.module.css';
 import { getConsoleDb } from '@/lib/db';
 import { recordPlatformView, requirePlatformAdmin } from '@/lib/require-platform-admin';
@@ -91,6 +91,7 @@ export default async function AiCostPage({ searchParams }: { searchParams: Promi
                   <th>Share</th>
                   <th className={styles.num}>Calls</th>
                   <th>Assistant, 24 hours (limit {usd(c.caps.agency)})</th>
+                  <th>Credits left</th>
                   <th>Biggest use</th>
                 </tr>
               </thead>
@@ -104,6 +105,9 @@ export default async function AiCostPage({ searchParams }: { searchParams: Promi
                     <td data-label="Assistant, 24 hours">
                       {w.assistantDay === null ? '—' : <>{usd(w.assistantDay)} <CapBadge spent={w.assistantDay} cap={c.caps.agency} /></>}
                     </td>
+                    <td data-label="Credits left">
+                      {w.credits ? <>{credits(w.credits.left)} <span className={styles.muted}>of {Math.round(w.credits.granted).toLocaleString('en-AU')}</span></> : <span className={styles.muted}>—</span>}
+                    </td>
                     <td data-label="Biggest use">{w.kind === 'agency' ? w.topFeature : <span className={styles.muted}>{NOTE[w.kind]}</span>}</td>
                   </tr>
                 ))}
@@ -114,6 +118,7 @@ export default async function AiCostPage({ searchParams }: { searchParams: Promi
                   <td className={styles.num} data-label="Spend"><strong>{usd(c.spend)}</strong></td>
                   <td />
                   <td className={styles.num} data-label="Calls"><strong>{count(c.calls)}</strong></td>
+                  <td />
                   <td />
                   <td />
                 </tr>

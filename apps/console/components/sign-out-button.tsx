@@ -3,7 +3,8 @@ import type { CSSProperties, ReactNode } from 'react';
 /**
  * Sign out, as a form that POSTs to /sign-out — never a link, which Next would
  * prefetch (see app/(shared)/sign-out/route.ts). No client JavaScript: it works
- * with it off. `next` is where to land afterwards (relative; /login by default).
+ * with it off. `next` is where to land afterwards (relative; /login by default). `scope="global"` signs out
+ * every session the person has, on every device (PLATFORM-PLAN 1.22).
  *
  * Without a className it looks like the text around it. With one, the class
  * decides: the reset's `font: inherit` used to beat `.glyph`'s icon font, so
@@ -15,9 +16,11 @@ export function SignOutButton({
   className,
   style,
   title,
+  scope,
 }: {
   children: ReactNode;
   next?: string;
+  scope?: 'global';
   className?: string;
   style?: CSSProperties;
   title?: string;
@@ -25,6 +28,7 @@ export function SignOutButton({
   return (
     <form method="post" action="/sign-out" style={{ display: 'contents' }}>
       {next ? <input type="hidden" name="next" value={next} /> : null}
+      {scope ? <input type="hidden" name="scope" value={scope} /> : null}
       <button
         type="submit"
         title={title}

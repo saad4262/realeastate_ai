@@ -4,6 +4,7 @@ import { runDocumentTick } from '@repo/core/documents/tick';
 import { documentReaderFromEnv } from '@repo/ai/document-reader';
 import { embedderFromEnv } from '@repo/ai/search-embedder';
 import { getWebDb } from '../../../../lib/db';
+import { apiError } from '@repo/core/http/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,7 +26,7 @@ export const maxDuration = 300;
  */
 async function handler(request: NextRequest) {
   const auth = authoriseCronRequest(request.headers);
-  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  if (!auth.ok) return apiError(auth.status, auth.error);
   try {
     const db = getWebDb();
     const report = await runDocumentTick(db, {

@@ -162,7 +162,8 @@ export function SpecBar({ specs }: { specs: SpecTile[] }) {
   if (specs.length === 0) return null;
 
   return (
-    <dl
+    // A list, not a <dl>: each tile holds an icon beside its value and label, which a <dl> may not (axe, PLATFORM-PLAN 4.5).
+    <ul
       /*
         auto-fit, not a fixed five.
 
@@ -172,20 +173,20 @@ export function SpecBar({ specs }: { specs: SpecTile[] }) {
         wrapped between the number and the unit. auto-fit gives each tile a
         floor of 8rem and still fits five across the 8-of-12 column.
       */
-      className="grid gap-md rounded-xl bg-canvas p-md [grid-template-columns:repeat(auto-fit,minmax(8rem,1fr))]"
+      className="m-0 grid list-none gap-md rounded-xl bg-canvas p-md [grid-template-columns:repeat(auto-fit,minmax(8rem,1fr))]"
     >
       {specs.map((s) => (
-        <div key={s.label} className="flex items-center gap-sm">
+        <li key={s.label} className="flex items-center gap-sm">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-card text-ink shadow-card">
             <Icon name={s.icon} className="size-5" />
           </span>
           <div className="min-w-0">
-            <dd className="font-display text-headline-md text-ink">{s.value}</dd>
-            <dt className="truncate text-label-sm uppercase text-ink-soft">{s.label}</dt>
+            <p className="m-0 font-display text-headline-md text-ink">{s.value}</p>
+            <p className="m-0 truncate text-label-sm uppercase text-ink-soft">{s.label}</p>
           </div>
-        </div>
+        </li>
       ))}
-    </dl>
+    </ul>
   );
 }
 
@@ -501,7 +502,7 @@ export function AgentPanel({
               ) : (
                 <span
                   aria-hidden
-                  className="flex size-11 shrink-0 items-center justify-center rounded-full bg-brand-soft text-title-sm uppercase text-brand"
+                  className="flex size-11 shrink-0 items-center justify-center rounded-full bg-brand-soft text-title-sm uppercase text-brand-deep"
                 >
                   {a.name
                     .split(/\s+/)

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { apiErrorMessage } from '@repo/core/http/api-error';
 
 type Line = { text: string; refs: string[] };
 
@@ -21,7 +22,7 @@ export function DueDiligenceAi({ subject }: { subject: { listingId: string } | {
     start(async () => {
       const res = await fetch('/api/due-diligence', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(subject) }).catch(() => null);
       const body = (await res?.json().catch(() => null)) as { summary?: Line[]; questions?: Line[]; error?: string } | null;
-      if (!res?.ok || !body?.summary) return setError(body?.error ?? 'The AI could not answer just now. Try again in a moment.');
+      if (!res?.ok || !body?.summary) return setError(apiErrorMessage(body, 'The AI could not answer just now. Try again in a moment.'));
       setAnswer({ summary: body.summary, questions: body.questions ?? [] });
       setChosen(new Set((body.questions ?? []).slice(0, 3).map((_, i) => i)));
     });

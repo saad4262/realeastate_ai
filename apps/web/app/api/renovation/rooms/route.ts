@@ -9,6 +9,7 @@ import { aiBudgetAllows } from '@repo/core/ai-budget';
 import { getWebDb } from '../../../../lib/db';
 import { rateLimiter } from '../../../../lib/rate-limit';
 import { currentWebUser } from '../../../../lib/session';
+import { apiError } from '@repo/core/http/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,7 +21,7 @@ export const dynamic = 'force-dynamic';
  */
 const limits = rateLimiter('renovation-rooms', { perMinute: 3, dailyCapEnv: 'AI_RENOVATION_ROOMS_DAILY_CAP', dailyCapDefault: 200 });
 const bodySchema = z.object({ listingId: z.string().uuid() }).strict();
-const fail = (status: number, error: string) => NextResponse.json({ error }, { status });
+const fail = (status: number, error: string) => apiError(status, error);
 
 export async function POST(request: NextRequest) {
   if (limits.overLimit(request)) return fail(429, 'Too many requests. Wait a moment.');

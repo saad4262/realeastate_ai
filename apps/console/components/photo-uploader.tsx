@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition, type ChangeEvent } from 'react';
 import { mediaUrl } from '@repo/core/media/url';
 // The key module, not the barrel: the barrel reaches the database client.
-import { MAX_LISTING_PHOTOS, MAX_MEDIA_BYTES, MEDIA_MIME_TYPES } from '@repo/core/media/key';
+import { MAX_LISTING_PHOTOS, MEDIA_MIME_TYPES } from '@repo/core/media/key';
 import type { ListingPhoto } from '@repo/core/media';
 import {
   attachAgentPhotoAction,
@@ -15,7 +15,7 @@ import {
   signAgentPhotoUploadAction,
   signListingPhotoUploadAction,
 } from '../lib/media-actions';
-import { imageDimensions, putSignedUpload } from '../lib/upload-file';
+import { imageDimensions, MAX_EDGE, prepareImage, putSignedUpload } from '../lib/upload-file';
 import styles from './photo-uploader.module.css';
 
 /**
@@ -65,9 +65,11 @@ function initials(name: string): string {
  */
 export async function uploadListingPhoto(
   listingId: string,
-  file: File,
+  picked: File,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
+    // Smaller and without its EXIF (GPS) before anything else sees it (PLATFORM-PLAN 5.8).
+    const file = await prepareImage(picked, MAX_EDGE.listingPhoto);
     const signed = await signListingPhotoUploadAction(listingId, {
       type: file.type,
       size: file.size,
@@ -272,8 +274,9 @@ export function PendingListingPhotos({
         refused.push(`${file.name}: images only — JPEG, PNG, WebP or AVIF`);
         return false;
       }
-      if (file.size <= 0 || file.size > MAX_MEDIA_BYTES) {
-        refused.push(`${file.name}: images must be 10 MB or smaller`);
+      // The 10 MB ceiling is checked on the resized file (uploadListingPhoto → the sign action): a big phone photo fits once resized.
+      if (file.size <= 0) {
+        refused.push(`${file.name}: that file is empty`);
         return false;
       }
       return true;
@@ -401,13 +404,14 @@ export function AgentPhoto({
   const src = mediaUrl(photoKey) ?? photoUrl;
 
   function onPick(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
+    const picked = event.target.files?.[0];
     event.target.value = '';
-    if (!file) return;
+    if (!picked) return;
 
     setError(null);
     start(async () => {
       try {
+        const file = await prepareImage(picked, MAX_EDGE.portrait);
         const signed = await signAgentPhotoUploadAction(agentUserId, {
           type: file.type,
           size: file.size,

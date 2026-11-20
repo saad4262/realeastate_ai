@@ -26,6 +26,7 @@ import {
 } from '@repo/core/template-email';
 import { getWebDb } from '../../../../lib/db';
 import { schedulerDeps, skillDeps } from '../../../../lib/scheduler';
+import { apiError } from '@repo/core/http/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -69,7 +70,7 @@ export const maxDuration = 60;
 async function handler(request: NextRequest) {
   const auth = authoriseCronRequest(request.headers);
   if (!auth.ok) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
+    return apiError(auth.status, auth.error);
   }
 
   try {

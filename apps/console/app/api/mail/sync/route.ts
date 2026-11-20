@@ -3,6 +3,7 @@ import { NextResponse, after } from 'next/server';
 import { pullReceivedMail } from '@repo/core/mail';
 import { getConsoleDb } from '../../../../lib/db';
 import { actionUserId } from '../../../../lib/auth-account';
+import { apiError } from '@repo/core/http/api-error';
 
 /**
  * Pull new mail from Resend (core `pullReceivedMail`). The inbox calls this
@@ -24,7 +25,7 @@ export const dynamic = 'force-dynamic';
 const LAST_PULL = ((globalThis as { __mailPull?: { at: number } }).__mailPull ??= { at: 0 });
 
 export async function POST() {
-  if (!(await actionUserId())) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+  if (!(await actionUserId())) return apiError(401, 'Not signed in');
   const gap = process.env.RESEND_WEBHOOK_SECRET?.trim() ? 60_000 : 10_000;
   if (Date.now() - LAST_PULL.at < gap) return NextResponse.json({ stored: 0, configured: true });
   LAST_PULL.at = Date.now();

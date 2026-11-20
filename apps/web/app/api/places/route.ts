@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { resolvePlace, suggestPlaces } from '@repo/core/geo';
 import { getWebDb } from '../../../lib/db';
+import { apiError } from '@repo/core/http/api-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -71,7 +72,7 @@ export async function GET(request: NextRequest) {
   if (overLimit(request)) {
     // 429 rather than an empty list: an empty list reads as "no such suburb",
     // which is a different and wrong thing to tell someone.
-    return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+    return apiError(429, 'Too many requests');
   }
 
   try {

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { authoriseCronRequest } from '@repo/core/schedules';
 import { runOpportunityScan } from '@repo/core/opportunities';
 import { getWebDb } from '../../../../lib/db';
+import { apiError } from '@repo/core/http/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,7 +17,7 @@ export const maxDuration = 60;
  */
 async function handler(request: NextRequest) {
   const auth = authoriseCronRequest(request.headers);
-  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  if (!auth.ok) return apiError(auth.status, auth.error);
   try {
     const report = await runOpportunityScan(getWebDb());
     return NextResponse.json({ ok: true, ...report }, { headers: { 'cache-control': 'no-store' } });

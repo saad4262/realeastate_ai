@@ -7,6 +7,7 @@ import { ensureConsumerAccount } from '../../../../lib/account';
 import { aiBudgetAllows } from '@repo/core/ai-budget';
 import { getWebDb } from '../../../../lib/db';
 import { rateLimiter } from '../../../../lib/rate-limit';
+import { apiError } from '@repo/core/http/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,7 +19,7 @@ export const dynamic = 'force-dynamic';
  */
 const limits = rateLimiter('inspection-summary', { perMinute: 4, dailyCapEnv: 'AI_INSPECTION_SUMMARY_DAILY_CAP', dailyCapDefault: 300 });
 const bodySchema = z.object({ listingIds: z.array(z.string().uuid()).min(1).max(8).optional() }).strict();
-const fail = (status: number, error: string) => NextResponse.json({ error }, { status });
+const fail = (status: number, error: string) => apiError(status, error);
 
 export async function POST(request: NextRequest) {
   if (limits.overLimit(request)) return fail(429, 'Too many requests. Wait a moment.');

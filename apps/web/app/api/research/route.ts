@@ -9,6 +9,7 @@ import { aiBudgetAllows } from '@repo/core/ai-budget';
 import { getWebDb } from '../../../lib/db';
 import { rateLimiter } from '../../../lib/rate-limit';
 import { currentWebUser } from '../../../lib/session';
+import { apiError } from '@repo/core/http/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,7 +28,7 @@ const bodySchema = z.discriminatedUnion('kind', [
 ]);
 
 const SKILL: Record<ResearchAsk['kind'], ConsumerSkillKey> = { suburb: 'suburb_insights', compare: 'comparison', explain: 'property_analyst' };
-const fail = (status: number, error: string) => NextResponse.json({ error }, { status });
+const fail = (status: number, error: string) => apiError(status, error);
 
 export async function POST(request: NextRequest) {
   if (limits.overLimit(request)) return fail(429, 'Too many requests. Wait a moment.');

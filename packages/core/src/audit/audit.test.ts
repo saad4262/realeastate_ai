@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Db } from '@repo/db';
 import type { Actor } from '../permissions';
-import { listAuditLog } from './index';
+import { auditSentence, listAuditLog } from './index';
 
 /** PLATFORM-PLAN 1.20: who may read an agency's audit log, and that every sensitive action writes to it. */
 const A = '11111111-1111-1111-1111-111111111111';
@@ -12,7 +12,7 @@ const who = (membershipRole: Actor['membershipRole'], agencyId: string | undefin
 function readDb() {
   const asked: string[] = [];
   const chain: Record<string, unknown> = {};
-  for (const m of ['select', 'from', 'orderBy']) chain[m] = () => chain;
+  for (const m of ['select', 'from', 'leftJoin', 'orderBy']) chain[m] = () => chain;
   chain.where = () => {
     asked.push('where');
     return chain;
@@ -73,5 +73,19 @@ describe('every sensitive action writes the audit log', () => {
     const b = body(file, fn);
     expect(b).toMatch(/recordAudit\(tx,/);
     expect(b).toContain(`'${action}'`);
+  });
+});
+
+describe('auditSentence', () => {
+  const row = (action: string, detail: Record<string, unknown> = {}, subjectName: string | null = 'Sam Lee') => ({ action, detail, subjectName });
+  it('says what happened, to whom, with roles and field names only', () => {
+    expect(auditSentence(row('member_removed', { role: 'agent', workTo: 'x' }))).toBe('Removed Sam Lee (agent) from the agency');
+    expect(auditSentence(row('member_edited', { fields: ['phone', 'operationalRole'], roleTo: 'admin' }))).toBe('Edited Sam Lee (phone, operationalRole); role now admin');
+    expect(auditSentence(row('sends_paused', { reason: 'Far above usual.', figures: {} }, null))).toBe('Sends paused automatically: Far above usual.');
+    expect(auditSentence(row('listing_deleted', { status: 'draft' }, null))).toBe('Deleted a listing (it was draft)');
+  });
+  it('a deleted person is "a former member"; an unknown action is shown as stored', () => {
+    expect(auditSentence(row('member_restored', {}, null))).toBe('Restored a former member to the agency');
+    expect(auditSentence(row('something_new'))).toBe('something_new');
   });
 });

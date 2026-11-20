@@ -7,6 +7,7 @@ import { aiBudgetAllows } from '@repo/core/ai-budget';
 import { getWebDb } from '../../../lib/db';
 import { rateLimiter } from '../../../lib/rate-limit';
 import { currentWebUser } from '../../../lib/session';
+import { apiError } from '@repo/core/http/api-error';
 
 /** postgres.js opens raw sockets, so this cannot run on the edge runtime. */
 export const runtime = 'nodejs';
@@ -29,7 +30,7 @@ const bodySchema = z
   })
   .strict();
 
-const fail = (status: number, error: string) => NextResponse.json({ error }, { status });
+const fail = (status: number, error: string) => apiError(status, error);
 
 export async function POST(request: NextRequest) {
   if (limits.overLimit(request)) return fail(429, 'Too many requests. Wait a moment.');

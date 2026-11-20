@@ -1,5 +1,6 @@
-import { desc, eq } from 'drizzle-orm';
-import { auditLog, type DbOrTx } from '@repo/db';
+import { desc, eq, getTableColumns } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
+import { auditLog, user, type DbOrTx } from '@repo/db';
 import { can, type Actor } from '../permissions';
 
 /**
@@ -28,12 +29,58 @@ export async function recordAudit(db: DbOrTx, e: AuditEntry): Promise<void> {
   });
 }
 
-export type AuditRow = typeof auditLog.$inferSelect;
+/** A row with the names of who did it and to whom (our own `user` mirror; null when the person was deleted). */
+export type AuditRow = typeof auditLog.$inferSelect & { actorName: string | null; subjectName: string | null };
 
-/** The actor's own agency's log, newest first. Owners and admins only; anyone else gets nothing. */
+const actorUser = alias(user, 'audit_actor');
+const subjectUser = alias(user, 'audit_subject');
+
+/** The actor's own agency's log, newest first. Owners and admins only; anyone else gets nothing. One query. */
 export async function listAuditLog(db: DbOrTx, actor: Actor, opts: { limit?: number } = {}): Promise<AuditRow[]> {
   const agencyId = actor.agencyId;
   if (!agencyId || !can(actor, 'audit:read', { type: 'audit', agencyId })) return [];
   const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
-  return db.select().from(auditLog).where(eq(auditLog.agencyId, agencyId)).orderBy(desc(auditLog.createdAt)).limit(limit);
+  return db
+    .select({ ...getTableColumns(auditLog), actorName: actorUser.name, subjectName: subjectUser.name })
+    .from(auditLog)
+    .leftJoin(actorUser, eq(actorUser.id, auditLog.actorUserId))
+    .leftJoin(subjectUser, eq(subjectUser.id, auditLog.subjectUserId))
+    .where(eq(auditLog.agencyId, agencyId))
+    .orderBy(desc(auditLog.createdAt))
+    .limit(limit);
+}
+
+const ROLE: Record<string, string> = { owner: 'owner', admin: 'admin', agent: 'agent', assistant: 'assistant', read_only: 'read-only member', property_manager: 'property manager' };
+
+/** What happened, in words, for the audit page. Field names and roles only: `detail` never holds personal values. */
+export function auditSentence(r: Pick<AuditRow, 'action' | 'subjectName' | 'detail'>): string {
+  const who = r.subjectName ?? 'a former member';
+  const d = (r.detail ?? {}) as Record<string, unknown>;
+  switch (r.action as AuditAction) {
+    case 'member_removed':
+      return `Removed ${who}${typeof d.role === 'string' ? ` (${ROLE[d.role] ?? d.role})` : ''} from the agency`;
+    case 'member_restored':
+      return `Restored ${who} to the agency`;
+    case 'member_edited': {
+      const fields = Array.isArray(d.fields) ? d.fields.join(', ') : '';
+      const role = typeof d.roleTo === 'string' ? `; role now ${ROLE[d.roleTo] ?? d.roleTo}` : '';
+      return `Edited ${who}${fields ? ` (${fields})` : ''}${role}`;
+    }
+    case 'invite_sent':
+      return 'Sent an agent invite';
+    case 'invite_withdrawn':
+      return 'Withdrew an agent invite';
+    case 'invite_claimed':
+      return `${who} accepted an invite and joined`;
+    case 'listing_deleted':
+      return `Deleted a listing${typeof d.status === 'string' ? ` (it was ${d.status})` : ''}`;
+    case 'sends_paused':
+      return `Sends paused automatically${typeof d.reason === 'string' ? `: ${d.reason}` : ''}`;
+    case 'sends_resumed':
+      return 'Resumed sends';
+    case 'agency_closed':
+      return 'Closed the agency';
+    default:
+      return r.action;
+  }
 }

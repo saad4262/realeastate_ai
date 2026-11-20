@@ -250,7 +250,7 @@ describe('the route and the window, read from source', () => {
     const route = read('app', 'api', 'help', 'route.ts');
     expect(route.indexOf('actionUserId()')).toBeLessThan(route.indexOf('checkHelpAllowed('));
     expect(route.indexOf('checkHelpAllowed(')).toBeLessThan(route.indexOf('answerHelp('));
-    expect(route).toMatch(/if \(!gate\.allowed\) return NextResponse\.json\(\{ error: gate\.message \}, \{ status: 429 \}\);/);
+    expect(route).toMatch(/if \(!gate\.allowed\) return apiError\(429, gate\.message /);
   });
   it('takes the console from the middleware’s header, never the browser', () => {
     const route = read('app', 'api', 'help', 'route.ts');

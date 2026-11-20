@@ -1,4 +1,4 @@
-import { Inter, Plus_Jakarta_Sans } from 'next/font/google';
+import localFont from 'next/font/local';
 
 /**
  * The two families the Stitch mock is set in.
@@ -20,20 +20,21 @@ import { Inter, Plus_Jakarta_Sans } from 'next/font/google';
  * setting a slate portal in a warm humanist serif is most of what made the
  * first attempt look like a different design.
  *
- * Weights are only the ones the mock's own config declares: Inter 400/500/600/
- * 700, Jakarta 600/700. `display: 'swap'` and next/font's size-adjusted
+ * Each is one variable file (the mock uses Inter 400–700 and Jakarta 600/700;
+ * the console's Jakarta 500–800 shares the file). `display: 'swap'` and next/font's size-adjusted
  * fallback are what stop the headline moving when the real face lands.
  */
-export const inter = Inter({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+// Local files (./fonts), not next/font/google: the build fetches nothing from Google (see layout.tsx).
+export const inter = localFont({
+  src: './fonts/inter-latin-var.woff2',
+  weight: '100 900',
   display: 'swap',
   variable: '--font-inter',
 });
 
-export const jakarta = Plus_Jakarta_Sans({
-  subsets: ['latin'],
-  weight: ['600', '700'],
+export const jakarta = localFont({
+  src: './fonts/plus-jakarta-sans-latin-var.woff2',
+  weight: '500 800',
   display: 'swap',
   variable: '--font-jakarta',
 });

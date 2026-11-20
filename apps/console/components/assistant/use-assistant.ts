@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AssistantEvent, AssistantFrame } from '@repo/core/assistant/schema';
 import { getAssistantConversationAction } from '@/lib/assistant-actions';
 import { usePicks } from './picks';
+import { apiErrorMessage } from '@repo/core/http/api-error';
 
 /**
  * The assistant's conversation state and its one door to the server — the
@@ -85,8 +86,8 @@ export function useAssistant({ contactId, newChatScope = null }: { contactId: st
         }),
       });
       if (!res.body || !(res.headers.get('content-type') ?? '').includes('ndjson')) {
-        const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        update(key, (t) => ({ ...t, error: body?.error ?? 'The assistant is unavailable right now.' }));
+        const body: unknown = await res.json().catch(() => null);
+        update(key, (t) => ({ ...t, error: apiErrorMessage(body, 'The assistant is unavailable right now.') }));
         return;
       }
       const reader = res.body.getReader();

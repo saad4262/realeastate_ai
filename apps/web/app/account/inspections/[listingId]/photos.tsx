@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { removePhoto } from '../actions';
+import { apiErrorMessage } from '@repo/core/http/api-error';
 
 /**
  * Photos (C6 decision 8). The browser draws each photo onto a canvas at most `longEdge` pixels long and sends that
@@ -39,7 +40,7 @@ export function Photos({ listingId, photos, max, maxCameraBytes, longEdge, disab
         body.set('listingId', listingId);
         body.set('photo', await shrink(file), 'photo.jpg');
         const res = await fetch('/api/inspections/photos', { method: 'POST', body });
-        if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? 'The photo could not be saved.');
+        if (!res.ok) throw new Error(apiErrorMessage(await res.json().catch(() => null), 'The photo could not be saved.'));
       }
       router.refresh();
     } catch (err) {
@@ -56,7 +57,7 @@ export function Photos({ listingId, photos, max, maxCameraBytes, longEdge, disab
         {photos.map((p) => (
           <figure key={p.id} className="relative m-0 aspect-square overflow-hidden rounded-lg bg-sunken">
             {/* eslint-disable-next-line @next/next/no-img-element -- a private, short-lived signed link: no image optimiser */}
-            <img src={`/api/inspections/photos/${p.id}`} alt="Your inspection photo" className="size-full object-cover" loading="lazy" />
+            <img src={`/api/inspections/photos/${p.id}`} alt="Taken at your inspection" className="size-full object-cover" loading="lazy" />
             <button
               type="button"
               disabled={pending}

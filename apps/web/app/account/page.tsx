@@ -216,12 +216,21 @@ export default async function AccountPage() {
         <section className={styles.card}>
           <h2 className={styles.cardLabel}>Security</h2>
           <p className={styles.body}>
-            Changing your password signs you out of nothing else — this is the only device
-            holding this session.
+            A new password signs you out on your other devices. Lost a phone or used a shared
+            computer? Sign out everywhere, this device included.
           </p>
-          <Link href="/reset" className={styles.secondary}>
-            Change password
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/reset" className={styles.secondary}>
+              Change password
+            </Link>
+            {/* PLATFORM-PLAN 1.22. POST, like Log out below. */}
+            <form method="post" action="/sign-out">
+              <input type="hidden" name="scope" value="global" />
+              <button type="submit" className={styles.secondary}>
+                Sign out of all devices
+              </button>
+            </form>
+          </div>
         </section>
 
         {/*
@@ -239,6 +248,10 @@ export default async function AccountPage() {
             You will stay signed in on any other device.
           </span>
         </form>
+        {/* PLATFORM-PLAN 5.12: deleting is a page of its own, with what goes and what stays, then a typed confirmation. */}
+        <p className={styles.signOutNote}>
+          <Link href="/account/delete">Delete my account</Link>
+        </p>
       </main>
     </WebShell>
   );

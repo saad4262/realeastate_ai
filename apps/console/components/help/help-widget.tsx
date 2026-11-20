@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { parseChatMarkdown, type InlineNode } from '@repo/core/markdown';
 import { helpPageName, parseHelpReply, type HelpNavGroup, type HelpSurface } from '@repo/core/help/pages';
 import styles from './help-widget.module.css';
+import { apiErrorMessage } from '@repo/core/http/api-error';
 
 /**
  * The floating help window (ADR 0088). It lives in the shell, which stays mounted between pages, so the
@@ -112,10 +113,10 @@ export function HelpWidget({ surface, groups }: { surface: HelpSurface; groups: 
       // The page and its tab only: the rest of a URL is no business of the help window.
       body: JSON.stringify({ path: tab ? `${pathname}?tab=${encodeURIComponent(tab)}` : pathname, messages: recent.map((l) => ({ role: l.role, text: l.text })) }),
     }).catch(() => null);
-    const body = (await res?.json().catch(() => null)) as { text?: string; links?: string[]; error?: string } | null | undefined;
+    const body = (await res?.json().catch(() => null)) as { text?: string; links?: string[] } | null | undefined;
     setBusy(false);
     if (res?.ok && body?.text) setLines((l) => [...l, { role: 'assistant', text: body.text!, links: body.links ?? [] }]);
-    else setProblem(body?.error ?? 'Help is not available right now. Please try again.');
+    else setProblem(apiErrorMessage(body, 'Help is not available right now. Please try again.'));
   };
 
   const submit = (e: FormEvent) => {
@@ -152,6 +153,7 @@ export function HelpWidget({ surface, groups }: { surface: HelpSurface; groups: 
 
   return (
     <div className={styles.root}>
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape from any control inside closes the window (keydown bubbles) */}
       <section
         className={styles.window}
         aria-label="Help"

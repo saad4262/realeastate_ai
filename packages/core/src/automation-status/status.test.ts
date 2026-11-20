@@ -328,7 +328,7 @@ describe('the route and the panel, read from source', () => {
   it('asks who is signed in before anything else, and takes no id from the browser', () => {
     const route = read('app', 'api', 'automations', 'route.ts');
     expect(route.indexOf('actionUserId()')).toBeLessThan(route.indexOf('loadActor(userId)'));
-    expect(route).toMatch(/if \(!userId\) return NextResponse\.json\(\{ error: 'Not signed in' \}, \{ status: 401 \}\)/);
+    expect(route).toMatch(/if \(!userId\) return apiError\(401, 'Not signed in'\)/);
     expect(route).not.toMatch(/searchParams\.get\('(?!count|view|detail|chat)/);
     expect(route).not.toMatch(/role\s*===/);
   });

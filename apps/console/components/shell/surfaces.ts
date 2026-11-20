@@ -33,6 +33,9 @@ export type NavItem = {
 /** Last in each console's Settings group — where an account is left, not the profile footer. */
 const SIGN_OUT: NavItem = { href: '/sign-out', label: 'Sign out', icon: 'logout', signOut: true };
 
+/** Two-step sign-in and "Sign out of all devices" (PLATFORM-PLAN 1.3, 1.22): one page on every surface. */
+const SECURITY: NavItem = { href: '/security', label: 'Security', icon: 'shield_lock' };
+
 /**
  * A section of the sidebar (ADR 0057). A labelled group has a heading that
  * collapses it; one without a label is always shown and has no heading.
@@ -131,6 +134,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
         items: [
           { href: '/settings/integrations', label: 'Connectors', icon: 'hub' },
           { href: '/settings', label: 'Settings', icon: 'settings' },
+          SECURITY,
           SIGN_OUT,
         ],
       },
@@ -191,7 +195,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
         ],
       },
       { label: 'Money', items: [{ href: '/my-commission', label: 'My commission', icon: 'account_balance' }] },
-      { label: 'Settings', items: [{ href: '/my-integrations', label: 'Connectors', icon: 'hub' }, SIGN_OUT] },
+      { label: 'Settings', items: [{ href: '/my-integrations', label: 'Connectors', icon: 'hub' }, SECURITY, SIGN_OUT] },
     ],
     openByDefault: 'Daily work',
     brandFallback: 'Agent desk',
@@ -202,7 +206,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
   admin: {
     home: '/platform',
     navLabel: 'Platform',
-    // One group without a heading: eight pages need no sections (ADR 0057).
+    // One group without a heading: nine pages need no sections (ADR 0057).
     groups: [
       {
         items: [
@@ -216,6 +220,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
           { href: '/emails', label: 'Emails', icon: 'mail' },
           // ADR 0086: what the platform's AI calls have cost.
           { href: '/ai-cost', label: 'AI cost', icon: 'payments' },
+          SECURITY,
         ],
       },
     ],

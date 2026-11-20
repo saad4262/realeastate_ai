@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { aiBudgetCaps } from '../assistant/budget';
-import { aiCostDays, aiCostForAgency, aiCostOverview, aiFeatureGroup, capState, chatLines, foldAiCost, parseAiCostPeriod, type AiCostRow } from './ai-cost';
+import { aiCostDays, aiCostForAgency, aiCostOverview, aiFeatureGroup, capState, chatLines, foldAiCost, parseAiCostPeriod, withCredits, type AiCostRow } from './ai-cost';
 
 /** ADR 0086: the admin's AI cost page. Admins only, a fixed number of statements, and totals that agree. */
 
@@ -66,7 +66,7 @@ describe('the assistant by kind of chat (ADR 0088)', () => {
     const row = (chat_scope: string | null, spend: string, day: string) => ({ user_id: owner.userId, name: 'Sam', role: 'owner', feature: 'assistant', chat_scope, model: 'm', spend, calls: 1, day_spend: day });
     const { db, seen } = fakeDb([[row(null, '1', '0.5'), row('bulk_email', '2', '1')], [{ total: '10' }]]);
     const c = await aiCostForAgency(db, admin, A, { period: 7 });
-    expect(seen).toHaveLength(2);
+    expect(seen).toHaveLength(3);
     expect(c.people).toHaveLength(1);
     expect(c.people[0]).toMatchObject({ spend: 3, calls: 2, assistantDay: 1.5 });
     expect(c.chats.map((l) => l.spend)).toEqual([2, 1]);
@@ -165,10 +165,14 @@ describe('aiCostDays', () => {
 });
 
 describe('the reads', () => {
-  it('the overview is two statements for any number of agencies, and reads the period and the same 24 hours', async () => {
-    const { db, seen } = fakeDb([[row({ day_spend: '2' }) as unknown as Record<string, unknown>, row({ agency_id: B }) as unknown as Record<string, unknown>], [{ day: '2026-11-07', spend: '2' }]]);
+  it('the overview is three statements for any number of agencies, and reads the period and the same 24 hours', async () => {
+    const { db, seen } = fakeDb([[row({ day_spend: '2' }) as unknown as Record<string, unknown>, row({ agency_id: B }) as unknown as Record<string, unknown>], [{ day: '2026-11-07', spend: '2' }], [{ agency_id: A, granted: '1000', left: '965.5' }]]);
     const out = await aiCostOverview(db, admin, { period: 7, now: NOW, env: { AI_DAILY_BUDGET_USD: '20' } as NodeJS.ProcessEnv });
-    expect(seen).toHaveLength(2);
+    expect(seen).toHaveLength(3);
+    expect(seen[2]!.sql).toContain('from ai_credit_grant g');
+    expect(seen[2]!.params).toEqual([NOW.toISOString(), NOW.toISOString()]);
+    expect(out.who.find((w) => w.agencyId === A)?.credits).toEqual({ granted: 1000, left: 965.5 });
+    expect(out.who.find((w) => w.agencyId === B)?.credits).toBeNull();
     expect(seen[0]!.params).toEqual(expect.arrayContaining(['2026-10-31T02:00:00.000Z', '2026-11-06T02:00:00.000Z']));
     expect(seen[0]!.sql).toContain('group by r.agency_id');
     expect(seen[1]!.sql).toContain("at time zone 'Australia/Sydney'");
@@ -180,7 +184,7 @@ describe('the reads', () => {
     await aiCostOverview(db, admin, { period: 30, now: NOW });
     expect(seen[0]!.sql).toContain("r.model not like 'voyage%'");
   });
-  it('an agency’s page is two statements, only its own rows, and adds up by person and by feature', async () => {
+  it('an agency’s page is three statements, only its own rows, and adds up by person and by feature', async () => {
     const { db, seen } = fakeDb([
       [
         { user_id: 'u1', name: 'Priya', role: 'owner', feature: 'assistant', model: 'claude-sonnet-5-5', spend: '3', calls: 30, day_spend: '0.75' },
@@ -189,9 +193,16 @@ describe('the reads', () => {
         { user_id: null, name: null, role: null, feature: 'workflow:draft_email', model: 'claude-haiku-4-5', spend: '1', calls: 5, day_spend: '0' },
       ],
       [{ total: '14' }],
+      [
+        { id: 'g2', source: 'topup', credits: 500, used: '0', valid_from: '2026-11-01T00:00:00Z', expires_at: '2027-11-01T00:00:00Z' },
+        { id: 'g1', source: 'plan', credits: 1000, used: '700', valid_from: '2026-10-01T00:00:00Z', expires_at: '2026-11-01T00:00:00Z' },
+      ],
     ]);
     const out = await aiCostForAgency(db, admin, A, { period: 30, now: NOW, env: {} as NodeJS.ProcessEnv });
-    expect(seen).toHaveLength(2);
+    expect(seen).toHaveLength(3);
+    expect(seen[2]!.params).toContain(A);
+    expect(out.grants.map((g) => [g.id, g.active])).toEqual([['g2', true], ['g1', false]]);
+    expect(out.creditsLeft).toBe(500);
     expect(seen[0]!.sql).toContain('r.agency_id = $');
     expect(seen[0]!.params).toContain(A);
     expect(out.spend).toBe(7);
@@ -207,5 +218,12 @@ describe('the limits on the page are the ones the checks read', () => {
   it('reads the same variables with the same defaults', () => {
     expect(aiBudgetCaps({} as NodeJS.ProcessEnv)).toEqual({ platform: 5, person: 1, agency: 10 });
     expect(aiBudgetCaps({ AI_DAILY_BUDGET_USD: '20', ASSISTANT_DAILY_BUDGET_USD_PER_USER: '2', ASSISTANT_DAILY_BUDGET_USD_PER_AGENCY: '15' } as NodeJS.ProcessEnv)).toEqual({ platform: 20, person: 2, agency: 15 });
+  });
+});
+
+describe('withCredits', () => {
+  it('puts each agency’s credits in force on its line; the public and unattributed lines have none', () => {
+    const lines = [{ key: A, kind: 'agency', agencyId: A }, { key: 'public', kind: 'public', agencyId: null }] as unknown as Parameters<typeof withCredits>[0];
+    expect(withCredits(lines, [{ agency_id: A, granted: '300', left: '12.25' }]).map((l) => l.credits)).toEqual([{ granted: 300, left: 12.25 }, null]);
   });
 });

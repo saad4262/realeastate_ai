@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { can, mfaMark, MFA_ACTIONS, type Actor } from './permissions';
+import { can, mfaMark, MFA_ACTIONS, refusedForMfa, type Actor } from './permissions';
 
 /** PLATFORM-PLAN 1.3: an owner, admin or platform admin without a second factor cannot reach billing or the team. */
 const A = '11111111-1111-1111-1111-111111111111';
@@ -16,6 +16,20 @@ describe('MFA in can()', () => {
   it('everything else is unchanged for an aal1 owner (MFA guards only its own actions)', () => {
     expect(can({ ...owner, aal: 'aal1' }, 'listing:create', { type: 'listing', agencyId: A })).toBe(true);
     expect(MFA_ACTIONS.has('listing:create')).toBe(false);
+  });
+});
+
+describe('refusedForMfa: the refusal is only the missing second factor', () => {
+  it('an aal1 owner on team or billing: yes (verify, then come back)', () => {
+    expect(refusedForMfa({ ...owner, aal: 'aal1' }, 'team:manage', agency)).toBe(true);
+    expect(refusedForMfa({ ...owner, aal: 'aal1' }, 'agency:billing', agency)).toBe(true);
+  });
+  it('no: allowed already, an action MFA does not guard, or refused anyway (an agent, another agency)', () => {
+    expect(refusedForMfa({ ...owner, aal: 'aal2' }, 'team:manage', agency)).toBe(false);
+    expect(refusedForMfa(owner, 'team:manage', agency)).toBe(false);
+    expect(refusedForMfa({ ...owner, aal: 'aal1' }, 'listing:create', { type: 'listing', agencyId: A })).toBe(false);
+    expect(refusedForMfa({ userId: 'u', agencyId: A, membershipRole: 'agent', aal: 'aal1' }, 'team:manage', agency)).toBe(false);
+    expect(refusedForMfa({ ...owner, aal: 'aal1' }, 'team:manage', { type: 'agency', agencyId: '22222222-2222-2222-2222-222222222222' })).toBe(false);
   });
 });
 

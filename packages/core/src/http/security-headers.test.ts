@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { securityHeaders, type SecurityApp } from './security-headers';
 
@@ -70,6 +70,25 @@ describe('wiring', () => {
     const src = readFileSync(resolve(__dirname, `../../../../apps/${app}/next.config.ts`), 'utf8');
     expect(src).toMatch(new RegExp(`source: '/:path\\*', headers: securityHeaders\\('${app}'\\)`));
     expect(src).toContain('poweredByHeader: false');
+  });
+});
+
+describe('fonts are self-hosted', () => {
+  const repo = resolve(__dirname, '../../../..');
+  const files = (dir: string): string[] =>
+    readdirSync(dir).flatMap((n) => {
+      const p = join(dir, n);
+      if (n === 'node_modules' || n.startsWith('.next')) return [];
+      return statSync(p).isDirectory() ? files(p) : /\.(tsx?|css)$/.test(n) ? [p] : [];
+    });
+
+  // next/font/google fetches from Google during the build (a slow answer failed Vercel builds); a stylesheet
+  // <link> to Google fetches on every page view.
+  it.each(['web', 'console'])('apps/%s loads no font from Google', (app) => {
+    const hits = files(join(repo, 'apps', app))
+      .filter((f) => /from 'next\/font\/google'|fonts\.googleapis\.com\/css/.test(readFileSync(f, 'utf8')))
+      .map((f) => relative(repo, f));
+    expect(hits).toEqual([]);
   });
 });
 

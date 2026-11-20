@@ -11,8 +11,10 @@ import { listAssistantConversations } from '@repo/core/assistant';
 import { getConsoleDb } from '../../lib/db';
 import { loadActor } from '../../lib/load-actor';
 import { HomeLink } from './home-link';
+import { MobileNavButton } from './mobile-nav';
 import { NavList } from './nav-list';
 import { RecentsList } from './recents-list';
+import { SendsPausedBanner } from './sends-paused-banner';
 import { SHELLS, type ShellSurface } from './surfaces';
 import styles from './console-shell.module.css';
 
@@ -64,7 +66,7 @@ export function ConsoleShell({ surface, children, userLabel, userId, chrome }: C
 
   return (
     <div className={styles.shell}>
-      <aside className={styles.sidebar}>
+      <aside className={styles.sidebar} id="console-sidebar">
         <div className={styles.sidebarTop}>
           <div className={styles.brandRow}>
             <Link href={shell.home} className={styles.brandLeft}>
@@ -131,6 +133,7 @@ export function ConsoleShell({ surface, children, userLabel, userId, chrome }: C
 
       <div className={styles.mainCol}>
         <header className={styles.topbar}>
+          <MobileNavButton />
           <div className={styles.searchWrap}>
             <span className={styles.searchIcon}>
               <span className={styles.glyphSm} aria-hidden>
@@ -173,12 +176,18 @@ export function ConsoleShell({ surface, children, userLabel, userId, chrome }: C
               <span className={styles.glyph} aria-hidden>
                 add
               </span>
-              New chat
+              <span className={styles.aiBtnText}>New chat</span>
             </HomeLink>
           </div>
         </header>
 
-        <div className={styles.content}>{children}</div>
+        <div className={styles.content}>
+          {/* PLATFORM-PLAN 3.7: streams in with the chrome; nothing renders while sends run normally. */}
+          <Suspense fallback={null}>
+            <SendsPaused chrome={chrome} />
+          </Suspense>
+          {children}
+        </div>
       </div>
       {/* New mail, team messages and the bell show up without a reload (ADR 0035). */}
       <LiveRefresh />
@@ -252,6 +261,11 @@ function RecentsFallback() {
       <span className={styles.shimmerLine} style={{ width: '60%', margin: '0.375rem 0.75rem' }} />
     </div>
   );
+}
+
+async function SendsPaused({ chrome }: { chrome: Promise<ConsoleChrome> }) {
+  const { sendsPaused } = await chrome;
+  return sendsPaused ? <SendsPausedBanner reason={sendsPaused.reason} mayResume={sendsPaused.mayResume} /> : null;
 }
 
 async function ProfileRole({ chrome }: { chrome: Promise<ConsoleChrome> }) {

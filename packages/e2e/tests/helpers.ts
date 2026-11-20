@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { expect, type BrowserContext, type Page } from '@playwright/test';
 import { env, PASSWORD } from '../fixture';
 
@@ -26,4 +27,25 @@ export async function passwordSession(email: string): Promise<Record<string, unk
   const res = await fetch(`${url}/auth/v1/token?grant_type=password`, { method: 'POST', headers: { apikey: key, 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD }) });
   if (!res.ok) throw new Error(`sign-in ${res.status}`);
   return (await res.json()) as Record<string, unknown>;
+}
+
+/** RFC 6238 TOTP (SHA-1, 30 s, 6 digits) from a base32 secret: what an authenticator app shows. */
+export function totp(secret: string, at = Date.now()): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = '';
+  for (const c of secret.replace(/=+$/, '').toUpperCase()) bits += alphabet.indexOf(c).toString(2).padStart(5, '0');
+  const key = Buffer.from((bits.match(/.{8}/g) ?? []).map((b) => parseInt(b, 2)));
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(at / 30_000)));
+  const h = createHmac('sha1', key).update(counter).digest();
+  const o = h[h.length - 1]! & 0xf;
+  return String((h.readUInt32BE(o) & 0x7fffffff) % 1_000_000).padStart(6, '0');
+}
+
+/** Removes every MFA factor a test gave this person, so later files sign in with a password alone. */
+export async function dropFactors(userId: string) {
+  const { url, key } = env();
+  const headers = { apikey: key, authorization: `Bearer ${key}` };
+  const u = (await (await fetch(`${url}/auth/v1/admin/users/${userId}`, { headers })).json()) as { factors?: { id: string }[] };
+  for (const f of u.factors ?? []) await fetch(`${url}/auth/v1/admin/users/${userId}/factors/${f.id}`, { method: 'DELETE', headers });
 }

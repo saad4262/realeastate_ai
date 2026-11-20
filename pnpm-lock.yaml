@@ -317,6 +317,9 @@ importers:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.4
+      axe-core:
+        specifier: 4.13.0
+        version: 4.13.0
       postgres:
         specifier: ^3.4.5
         version: 3.4.9(patch_hash=hxpyerqpbvr6zucnyjmkas4cmm)
@@ -335,6 +338,9 @@ importers:
       eslint-config-next:
         specifier: 15.5.28
         version: 15.5.28(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
+      eslint-plugin-jsx-a11y:
+        specifier: 6.10.2
+        version: 6.10.2(eslint@9.39.5(jiti@2.7.0))
 
   packages/smoke:
     dependencies:
