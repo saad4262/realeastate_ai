@@ -1,31 +1,30 @@
 # V1 completion report (mission section 10), updated 2026-11-20
 
-**Status: not complete, and not production-ready.** 45 of 80 tasks are done. **Every code task that can be
-built and proven without the owner, a vendor account or Cursor is now done, except the four listed under "Code" in
-A.** The rest waits on the owner, a lawyer or Cursor. Sources: `V1-IMPLEMENTATION-STATUS.md` (each task, with
-evidence) and `V1-OWNER-ACTIONS.md`.
+**Status: code-complete for V1, not yet production-ready.** 52 of 80 tasks are done. Every task that can be built and
+proven in code is built and live, except one small fix waiting for the owner's go (O-41, sign-out) and two owner
+decisions that may turn into small code changes (O-40, the AI page's mock figures; 3.7's morning view). Everything
+else waits on the owner's accounts and switches, a lawyer, a vendor or a drill (O-5 … O-41). Sources:
+`V1-IMPLEMENTATION-STATUS.md` (each task, with evidence) and `V1-OWNER-ACTIONS.md`.
 
 ## A. Implementation summary
 
 | | Tasks | Which |
 |---|---|---|
 | Total in the roadmap (14.12) | **80** | |
-| Done (merged, live where it applies, proof held) | **47** | 0.1 0.2 0.12 · 1.1 1.2 1.3 1.6 1.7 1.10–1.15 1.17 1.18 1.20–1.25 · 2.1 2.2 2.3 2.6 2.8–2.11 · 3.1–3.5 3.7–3.10 · 4.1 4.2 4.7 4.9 4.10 · 5.3 5.4 5.12 |
+| Done (merged, live where it applies, proof held) | **52** | 0.1 0.2 0.12 · 1.1 1.2 1.3 1.6 1.7 1.10–1.18 1.20–1.25 · 2.1 2.2 2.3 2.6 2.7 2.8–2.11 · 3.1–3.5 3.7–3.10 · 4.1 4.2 4.5 4.6 4.7 4.9 4.10 · 5.3 5.4 5.8 5.12 |
 | Live, waiting on a vendor test | **2** | 2.4, 2.5 (Stripe test mode: O-17) |
 | Built, waiting to be switched on or run | **3** | 0.4, 0.8 (off-site backups: O-6…O-10) · 4.3 (load scripts live; the runs need O-28) |
-| Partial / unverified | **10** | 0.5 0.6 0.7 0.10 · 1.4 1.8 1.9 1.16 · 3.6 · 5.8 |
+| Partial / unverified | **8** | 0.5 0.6 0.7 0.10 · 1.4 1.8 (part 2 deferred past V1) 1.9 · 3.6 |
 | Blocked | **1** | 0.3 PITR (decision 7: off for now) |
-| Not started | **17** | 0.9 0.11 · 1.5 1.19 · 2.7 · 4.4 4.5 4.6 4.8 · 5.1 5.2 5.5 5.6 5.7 5.9 5.10 5.11 |
+| Not started | **14** | 0.9 0.11 · 1.5 1.19 · 4.4 4.8 · 5.1 5.2 5.5 5.6 5.7 5.9 5.10 5.11 (all owner, vendor, lawyer or drill) |
 
-Straight count: **47 / 80 done (59%)**, up from 31 on 2026-11-19.
+Straight count: **52 / 80 done (65%)**, up from 31 on 2026-11-19.
 
 **Not finished, by who can move it:**
 - **Code (Claude Code: can continue now, nothing needed from anyone).**
-  The final backend batch is live (2026-11-20, `main` c8013e5, migration 0106). 1.8 part 2 deferred past V1.
-  The UI batch is built and waiting for the owner's go (`integrate/v1-ui` c697632, no migration): self-hosted fonts,
-  3.7 paused banner + Resume, 1.3/1.22 Security page (MFA set-up and code, Sign out of all devices), 1.20 audit log
-  page, 2.7 credits on the admin cost page, 5.12 delete-account page, 1.16 one API error shape, 5.8 photo resize +
-  EXIF strip, 4.5 accessibility, 4.6 phone layout and device checks. After merge: O-37 (switch on MFA), O-38, O-39.
+  None left to build on our own. Open: the sign-out fix (`fix/sign-out-both-cookies`, O-41, waiting for the go); a
+  decision on the AI page's mock figures (O-40); 3.7's "last night's failures" morning view if wanted. 1.8 part 2 is
+  deferred past V1 (owner).
 - **Code that needs an owner account or event first:** 1.4 (Upstash, O-15), 1.5 (Turnstile, O-16), 1.19/1.9
   (pool size, compute: O-14), 2.4/2.5 (Stripe test mode, O-17), 3.6's spike test and 4.3 (load-test day, O-28), 4.4
   (O-19), 4.8 (O-30), 3.8's live drill (O-36), 4.2 switched on (O-35).
