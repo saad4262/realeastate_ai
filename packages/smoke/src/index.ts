@@ -7576,6 +7576,7 @@ async function main() {
           tw.secondary = null;
         },
         authTokenWorks: async (_sid, tok) => tok === tw.primary || tok === tw.secondary,
+        subaccountAuthToken: async () => tw.primary,
       };
       const deps: PhoneDeps = { keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test', managed: { master, testMode: true } };
       await startManagedPhone(t, f.actor('owner'), deps);
@@ -7606,7 +7607,14 @@ async function main() {
       assert(after === '200,403', `after the promotion — new, old: ${after}`);
       const [left] = await t.execute<{ next: string | null }>(sql`select auth_token_next as next from phone_account where id = ${acct.id}`);
       assert(left?.next === null, 'the secondary is still stored after the promotion');
-      return 'stored encrypted; no/wrong signature 403, right 200; interrupted rotation: old and new 200; finished: new 200, old 403';
+
+      // A second run at the same moment replaces our secondary before we promote: Twilio ends up on the rival's token.
+      master.createSecondaryAuthToken = async () => ((tw.secondary = 'tok-rival'), 'tok-ours');
+      const raced = await rotateManagedAuthTokens(t, deps);
+      assert(raced.rotated === 1 && (tw.primary as string) === 'tok-rival', `raced rotation: ${JSON.stringify(raced)}`);
+      const afterRace = await codes('tok-rival', 'tok-ours');
+      assert(afterRace === '200,403', `after a raced rotation — the token Twilio holds, ours: ${afterRace}`);
+      return 'stored encrypted; no/wrong signature 403, right 200; interrupted rotation: old and new 200; finished: new 200, old 403; raced: the token Twilio holds is stored';
     }),
   );
 

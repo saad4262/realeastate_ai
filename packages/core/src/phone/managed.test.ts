@@ -43,6 +43,9 @@ function fakeMaster(fail: Partial<Record<keyof Omit<TwilioMasterApi, 'stub'>, bo
     async authTokenWorks() {
       return true;
     },
+    async subaccountAuthToken() {
+      return 'sub-token';
+    },
   };
   return { master, calls };
 }
@@ -129,21 +132,26 @@ describe('the master client', () => {
       { status: 200, body: { account_sid: 'ACsub1' } },
       { status: 401, body: { code: 20003, message: 'Authenticate' } },
       { status: 200, body: { sid: 'ACsub1' } },
+      { status: 200, body: { sid: 'ACsub1', auth_token: 'tok-2' } },
     ]);
     const m = twilioMasterClient(masterCreds, f.impl);
     expect(await m.createSecondaryAuthToken('ACsub1', 'tok-1')).toBe('tok-2');
     await m.promoteSecondaryAuthToken('ACsub1', 'tok-1');
     expect(await m.authTokenWorks('ACsub1', 'tok-1')).toBe(false);
     expect(await m.authTokenWorks('ACsub1', 'tok-2')).toBe(true);
+    expect(await m.subaccountAuthToken('ACsub1')).toBe('tok-2');
     const basic = (a: string, b: string) => `Basic ${Buffer.from(`${a}:${b}`).toString('base64')}`;
     expect(f.calls.map((c) => c.url)).toEqual([
       'https://accounts.twilio.com/v1/AuthTokens/Secondary',
       'https://accounts.twilio.com/v1/AuthTokens/Promote',
       'https://api.twilio.com/2010-04-01/Accounts/ACsub1.json',
       'https://api.twilio.com/2010-04-01/Accounts/ACsub1.json',
+      'https://api.twilio.com/2010-04-01/Accounts/ACsub1.json',
     ]);
     expect(f.calls[0]!.headers.authorization).toBe(basic('ACsub1', 'tok-1'));
     expect(f.calls[3]!.headers.authorization).toBe(basic('ACsub1', 'tok-2'));
+    // The way back reads the subaccount as its parent, with the master key.
+    expect(f.calls[4]!.headers.authorization).toBe(basic(masterCreds.apiKeySid, masterCreds.apiKeySecret));
   });
 
   it('looks for a US local number only when asked, and buys it with no bundle', async () => {

@@ -325,6 +325,8 @@ export interface TwilioMasterApi {
   promoteSecondaryAuthToken(subaccountSid: string, authToken: string): Promise<void>;
   /** Whether Twilio accepts this token for the subaccount: how a rotation interrupted mid-way tells where it stopped. */
   authTokenWorks(subaccountSid: string, authToken: string): Promise<boolean>;
+  /** The subaccount's current primary Auth Token, read by the parent: the way back when no stored token works. */
+  subaccountAuthToken(subaccountSid: string): Promise<string>;
 }
 
 export function twilioMasterClient(creds: TwilioCreds, fetchImpl: Fetch = fetch): TwilioMasterApi {
@@ -364,6 +366,12 @@ export function twilioMasterClient(creds: TwilioCreds, fetchImpl: Fetch = fetch)
       const r = await call(fetchImpl, 'Twilio', url, { method: 'GET', headers: { authorization: basicAuth(subaccountSid, authToken) } }, [401]);
       return r.status !== 401;
     },
+    async subaccountAuthToken(subaccountSid) {
+      const r = await call(fetchImpl, 'Twilio', `${API}/Accounts/${encodeURIComponent(subaccountSid)}.json`, { method: 'GET', headers: master });
+      const token = str(r.json?.auth_token);
+      if (!token) throw new Error('Twilio did not return the subaccount\'s auth token');
+      return token;
+    },
   };
 }
 
@@ -384,6 +392,9 @@ export function stubTwilioMasterClient(): TwilioMasterApi {
     async promoteSecondaryAuthToken() {},
     async authTokenWorks() {
       return true;
+    },
+    async subaccountAuthToken() {
+      return 'stub-token';
     },
   };
 }
