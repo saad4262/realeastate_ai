@@ -1,34 +1,40 @@
-# V1 completion report (mission section 10), 2026-11-19
+# V1 completion report (mission section 10), updated 2026-11-20
 
-**Status: not complete, and not production-ready.** About half of V1 is done. Every task that could be built and
-proven without the owner is built. **Code tasks remain** (listed in A). The rest waits on the owner, a lawyer or
-Cursor. Sources: `V1-IMPLEMENTATION-STATUS.md` (each task, with evidence) and `V1-OWNER-ACTIONS.md`.
+**Status: not complete, and not production-ready.** 45 of 80 tasks are done. **Every code task that can be
+built and proven without the owner, a vendor account or Cursor is now done, except the four listed under "Code" in
+A.** The rest waits on the owner, a lawyer or Cursor. Sources: `V1-IMPLEMENTATION-STATUS.md` (each task, with
+evidence) and `V1-OWNER-ACTIONS.md`.
 
 ## A. Implementation summary
 
 | | Tasks | Which |
 |---|---|---|
 | Total in the roadmap (14.12) | **80** | |
-| Done (merged, live where it applies, proof held) | **31** | 0.1 0.2 0.12 · 1.1 1.2 1.6 1.7 1.14 1.15 1.18 1.20 1.21 1.24 1.25 · 2.1–2.6 2.8–2.11 · 3.7 3.9 · 4.9 4.10 · 5.3 5.4 5.12 |
-| Built, waiting to be switched on or run | **4** | 0.4, 0.8 (backups: owner's accounts) · 4.1 (E2E: branch, CI needs O-27) · 4.3 (load scripts live; the runs need O-28) |
-| Partial / unverified | **16** | 0.5 0.6 0.7 0.10 · 1.4 1.8 1.9 1.10 1.11 1.16 · 3.1 3.2 3.3 3.4 · 4.7 · 5.8 |
+| Done (merged, live where it applies, proof held) | **45** | 0.1 0.2 0.12 · 1.1 1.2 1.3 1.6 1.7 1.10–1.15 1.17 1.18 1.20–1.25 · 2.1 2.2 2.3 2.6 2.8–2.11 · 3.2–3.5 3.7–3.10 · 4.1 4.2 4.9 4.10 · 5.3 5.4 5.12 |
+| Live, waiting on a vendor test | **2** | 2.4, 2.5 (Stripe test mode: O-17) |
+| Built, waiting to be switched on or run | **3** | 0.4, 0.8 (off-site backups: O-6…O-10) · 4.3 (load scripts live; the runs need O-28) |
+| Partial / unverified | **12** | 0.5 0.6 0.7 0.10 · 1.4 1.8 1.9 1.16 · 3.1 3.6 · 4.7 · 5.8 |
 | Blocked | **1** | 0.3 PITR (decision 7: off for now) |
-| Not started | **28** | below |
+| Not started | **17** | 0.9 0.11 · 1.5 1.19 · 2.7 · 4.4 4.5 4.6 4.8 · 5.1 5.2 5.5 5.6 5.7 5.9 5.10 5.11 |
 
-Weighted progress (done 1, built 0.75, partial 0.4): **about 50%**, up from ~23% on 2026-11-18.
+Straight count: **45 / 80 done (56%)**, up from 31 on 2026-11-19.
 
 **Not finished, by who can move it:**
-- **Code (Claude Code: can continue now).** In this order:
-  1. 1.3 MFA, 1.22 sessions, 1.23 alert lines, 1.17 V1 caps in env.
-  2. 1.10/1.11/1.12 indexes, `pg_stat_statements`, UUIDv7 and `pg_trgm`; 1.13 migration rules.
-  3. 3.10 Twilio signature and token rotation; 3.5, 3.6, 3.8; the rest of 3.1, 3.2, 3.3; 3.4 verification.
-  4. 4.2 nightly smoke; 1.8 part 2.
-  5. The fake-model switch for 4.1's assistant flow.
-- **Code that needs an owner account first:** 1.4 (Upstash, O-15), 1.5 (Turnstile, O-16).
-- **Cursor (UI):** 2.7 admin cost page, the delete-account page, 4.5 accessibility, 4.6 devices, 5.8 photo resize,
-  1.16 error pages.
-- **Owner, lawyer or a vendor:** 0.3, 0.9 (repo stays public by decision), 0.11, 1.9, 1.19, 4.4, 4.8, 5.1, 5.2, 5.5,
-  5.6, 5.7, 5.9, 5.10, 5.11.
+- **Code (Claude Code: can continue now, nothing needed from anyone).**
+  1. 4.7: the route audit (a test listing every API handler as authed, cron, webhook or public, red on an unlisted
+     one). The ZAP scan half needs a running preview.
+  2. 3.1: close it out. Its "done when" is met and live. Moving the older job types onto the queue is optional
+     clean-up.
+  3. The `/platform` pooler hang (ADR 0094), deferred by the owner. It needs a correct fix, tested at pools 1, 2
+     and 5 on direct and pooler connections.
+  4. 1.8 part 2 (`statement_timeout` per kind of work): needs a second database role, a decision for the owner.
+- **Code that needs an owner account or event first:** 1.4 (Upstash, O-15), 1.5 (Turnstile, O-16), 1.19/1.9
+  (pool size, compute: O-14), 2.4/2.5 (Stripe test mode, O-17), 3.6's spike test and 4.3 (load-test day, O-28), 4.4
+  (O-19), 4.8 (O-30), 3.8's live drill (O-36), 4.2 switched on (O-35).
+- **Cursor (UI):** 1.3 MFA setup screen, 1.22 "Sign out of all devices", self-hosted Google Fonts, 2.7 admin cost
+  page, the delete-account page, 4.5 accessibility, 4.6 devices, 5.8 photo resize, 1.16 error pages.
+- **Owner, lawyer or a vendor:** 0.3, 0.5, 0.6, 0.7, 0.9 (repo stays public by decision), 0.10, 0.11, 5.1, 5.2,
+  5.5, 5.6, 5.7, 5.9, 5.10, 5.11.
 
 ## B. Technical changes (2026-11-18 → 2026-11-19, `main` e9745e0 → f818d1a)
 
@@ -88,11 +94,40 @@ and the lockfile). Most of the work is in `packages/core` (78 files), `apps/web`
 - 0092: plans, credits and Stripe
 - 0093: agency closure
 
+## B2. Technical changes (2026-11-20, `main` f818d1a → 8c7dd25)
+
+Each merge was approved by the owner. Each production migration ran after a verified encrypted backup.
+
+- **5501c9e:** 1.3 MFA (server side), 1.22 sessions, 1.23 alert lines, 1.17 V1 caps documented. Production caps
+  are kept low until launch (owner).
+- **4667916, reverted in db76874:** the pooler fix for the `/platform` hang (ADR 0094).
+  - The patched driver deadlocked with a small pool.
+  - The production minute tick hung for about 7 hours with sessions idle in transaction. Nothing was lost.
+  - The fix is deferred; a retry must be tested at pool sizes 1, 2 and 5.
+- **3ad29ec:** 1.10, 34 foreign-key indexes (migration 0103).
+- **1f794c2:** 1.11–1.13 (migration 0104):
+  - `pg_stat_statements` report, index advisor, `uuid_v7()` ids on 29 growing tables, lz4;
+  - trigram contact search;
+  - migration rules: 1 s lock timeout, concurrent-index script.
+- **8c7dd25 (`integrate/v1-3x`):**
+  - 3.10: Twilio signature on managed numbers and auth-token rotation (migration 0105).
+  - 3.5: email retry under one idempotency key, a labelled template draft when the model is down, agents told of
+    texts Twilio did not take.
+  - 3.6: held sends spread over the opening's first 5 minutes; Retry-After honoured.
+  - 3.8: pull-back of texts and calls missed during an outage.
+  - 3.2: webhooks answer first; Retell deduplicated.
+  - 3.3: fair SMS drain by agency.
+  - 3.4: imports start no automation; behaviour change approved.
+  - 4.2: nightly smoke workflow, and four stale smoke checks fixed.
+  - **A real bug found on the way:** batch approval checked expiry on two clocks and could silently not approve.
+
+Migrations applied to production today: **0103, 0104, 0105** (106 in all).
+
 ## C. Testing evidence (actual results)
 
 | Kind | Result |
 |---|---|
-| Unit | On `main` f818d1a in a clean worktree: **2,924 passed, 0 failed** (core 2,412 · ai 462 · auth 38 · db 8 · ui 4). No network, no live AI |
+| Unit | On `main` 8c7dd25 in a clean worktree: **all passed, 0 failed** (core 2,429 · ai 462 · auth, db, ui). No network, no live AI |
 | Type checks | `pnpm typecheck`: all packages pass (11 with `@repo/e2e` on its branch) |
 | Lint | `pnpm lint`: **0 errors**, 1 warning (`<img>` in web, older than this work) |
 | Build | Vercel production builds: **success** on all four projects for every merge, last f818d1a. Five old console/web projects fail, as they did before this work |
@@ -102,7 +137,8 @@ and the lockfile). Most of the work is in `packages/core` (78 files), `apps/web`
 | Security | Every CI run has gitleaks over the full history and `pnpm audit` for critical advisories. Isolation sweep (every read as A against B's ids). AI SQL probes. Webhook signature tests. Unsigned Stripe webhook on production → 400 |
 | Load | Only a **30 s smoke** of the k6 suite against a local dev server (75 requests, 0 errors; the thresholds were evaluated and can fail). **The 60 min load, spike, soak and V2 runs have not been done** (O-28) |
 | Recovery | **Not done:** the restore drill (4.4) and rollback drill (4.8) need O-19/O-30. Done: 5 encrypted production backups (one before each production migration), each fully decrypted and read back (latest 142 tables) |
-| Production checks | After every deploy: `/api/health` ok on all four domains; after 0102, the first tick settled all 232 agency AI runs; 0 dead jobs; 0 agencies paused |
+| Integration (2026-11-20, dev) | The batch on `integrate/v1-3x`: smoke Phone, Workflows and SMS groups **22/22 passed**; each new check break-tested red (3.10, 3.5 ×2, 3.8, 3.2, 3.3, 3.4, the fixed 4.2 checks) |
+| Production checks | After every deploy: `/api/health` ok on all four domains (schema ok), `/api/health/alerts` ok; after 8c7dd25, 0 sessions idle in transaction over 3.5 min and the tick completing each minute |
 
 ## D. Remaining owner actions (only what needs a person)
 
@@ -128,14 +164,14 @@ From `V1-OWNER-ACTIONS.md`, most urgent first:
 ## E. Remaining risks
 
 **Security**
-- No MFA yet (1.3).
+- MFA is enforced on the server (1.3); its setup screen is Cursor's.
 - No shared rate limiter or bot check on sign-up, login and reset (1.4/1.5). Vercel Firewall is the stopgap
   (runbook 4).
 - The repository is public (accepted by the owner).
 - Preview deployments share some production secrets (O-4).
 - The dev password was once printed in a log (O-5).
 - Production env copies are on a laptop (O-5b).
-- Session rules (1.22) are not set.
+- Session rules (1.22) are merged; the Supabase settings are O-31.
 
 **Reliability**
 - Off-site backups are built but not running (O-6…O-10).
@@ -143,8 +179,10 @@ From `V1-OWNER-ACTIONS.md`, most urgent first:
 - A restore has never been drilled.
 - No load run at V2 numbers.
 - Pooler size and compute are at their defaults (1.9/1.19).
-- No Sentry DSN, no alert lines (1.23), the tick dead-man ping is not set (O-26).
-- Older job types are not yet on the queue (3.2/3.6).
+- No Sentry DSN (O-13); the alert lines (1.23) are live but no monitor pages anyone yet (O-33); the tick dead-man ping is not set (O-26).
+- The `/platform` admin home can hang through the pooler (ADR 0094); the fix was reverted after it deadlocked the tick and waits for a correct one.
+- Twilio's auth-token rotation (3.10) has not been run against a real managed account (none exists yet).
+- The nightly smoke is built but off until O-35.
 
 **Billing**
 - Never run against real Stripe (test mode needs O-17); prices undecided (D-1).
@@ -180,11 +218,13 @@ From `V1-OWNER-ACTIONS.md`, most urgent first:
 | Backups | Local encrypted: **verified**. Off-site: **implemented but not enabled**. Restore: **unverified** |
 | Load and recovery | **Implemented but unverified** (scripts only) |
 | E2E | **Verified locally**; CI **blocked** on O-27 |
-| MFA, sessions, rate limiting, bot protection | **Not implemented** (1.4/1.5 blocked on O-15/O-16) |
-| Error monitoring and alerts | **Blocked** (O-13) / **not implemented** (1.23) |
+| MFA, sessions | **Implemented** (server); setup screens with Cursor |
+| Rate limiting, bot protection | **Not implemented** (1.4/1.5 blocked on O-15/O-16) |
+| Error monitoring and alerts | Sentry **blocked** (O-13); alert lines **live**, monitor not set (O-33) |
+| Vendor outages, webhooks, peak shaping (3.2–3.8, 3.10) | **Verified** on dev and live; load proof on the load-test day (O-28) |
 | Legal (privacy, terms, DPA, ADM, ACMA) | **Blocked** (lawyer, O-21/O-23) |
 | DNS, email authentication, domains | **Blocked** (O-22) |
 
 **Verdict:** the core of the platform (isolation, money paths, unattended work, data lifecycle) is built, proven and
-live. **It is not ready to launch:** MFA, rate limiting, monitoring, off-site backups, a restore drill, a V2 load run,
-and the legal documents are each a launch blocker.
+live. **It is not ready to launch:** rate limiting and bot protection, monitoring, off-site backups, a restore drill, a
+V2 load run, the MFA setup screen, and the legal documents are each a launch blocker.
