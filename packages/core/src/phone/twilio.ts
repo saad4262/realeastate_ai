@@ -244,9 +244,11 @@ export function twilioClient(creds: TwilioCreds, fetchImpl: Fetch = fetch): Twil
           const from = str(x.from);
           return sid && from && str(x.direction) === 'inbound' && after(x.date_created) ? [{ sid, from, body: str(x.body) ?? '' }] : [];
         }),
+        // Only calls Twilio has finished: one still ringing is the webhook's to keep (and to text back).
         calls: rows(c, 'calls').flatMap((x) => {
           const sid = str(x.sid);
-          return sid && str(x.direction) === 'inbound' && after(x.start_time ?? x.date_created) ? [{ sid, from: str(x.from) }] : [];
+          const done = ['completed', 'busy', 'no-answer', 'failed', 'canceled'].includes(str(x.status) ?? '');
+          return sid && done && str(x.direction) === 'inbound' && after(x.start_time ?? x.date_created) ? [{ sid, from: str(x.from) }] : [];
         }),
       };
     },
