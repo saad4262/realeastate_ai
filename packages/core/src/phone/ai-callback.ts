@@ -279,7 +279,13 @@ export async function handleRetellWebhook(opts: {
     const priority = typeof custom.priority === 'string' && PRIORITIES.has(custom.priority) ? custom.priority : null;
     const cost = call.call_cost && typeof call.call_cost === 'object' ? (call.call_cost as Record<string, unknown>).combined_cost : null;
     await db.transaction(async (tx) => {
-      await tx.update(phoneCall).set({ aiSummary: summary ?? '', aiPriority: priority, updatedAt: sql`now()` }).where(eq(phoneCall.id, row.id));
+      // Retell retries, and can deliver twice at once: only the delivery that writes the summary adds the note and the bell.
+      const [won] = await tx
+        .update(phoneCall)
+        .set({ aiSummary: summary ?? '', aiPriority: priority, updatedAt: sql`now()` })
+        .where(and(eq(phoneCall.id, row.id), isNull(phoneCall.aiSummary)))
+        .returning({ id: phoneCall.id });
+      if (!won) return;
       if (summary && row.contactId) {
         await tx.insert(note).values({ agencyId: row.agencyId, contactId: row.contactId, authorId: null, body: `AI call back — written by the AI from the call; check it before you act:\n${summary}` });
       }

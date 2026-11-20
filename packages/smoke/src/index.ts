@@ -7559,6 +7559,7 @@ async function main() {
       // A missed call: kept, the agent told, the caller hears the greeting — and no text goes out by itself.
       const outBefore = await count(t, sql`select count(*)::int as n from sms_message where phone_number_id = ${n.id} and direction = 'out'`);
       const v = await handleTwilioWebhook({ db: () => t, token, kind: 'voice', params: { CallSid: `CAmiss${f.tag}`, From: '+61400999000' }, keys: testKeys });
+      await v.followUp?.(); // as the route does after answering (PLATFORM-PLAN 3.2)
       assert(v.status === 200 && /<Say[^>]*>Sorry, .* can&apos;t take your call/.test(v.body), `voice: ${v.body}`);
       assert((await count(t, sql`select count(*)::int as n from phone_call where phone_number_id = ${n.id} and kind = 'missed'`)) === 1, 'missed call not kept');
       assert((await count(t, sql`select count(*)::int as n from sms_message where phone_number_id = ${n.id} and direction = 'out'`)) === outBefore, 'a text went out by itself');
@@ -7710,6 +7711,31 @@ async function main() {
     }),
   );
 
+  await check('PLATFORM-PLAN 3.2: a slow Twilio does not hold a missed call\'s answer — the greeting comes back at once, the text goes in the follow-up', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      let release: () => void = () => {};
+      const slowSend = new Promise<void>((r) => (release = r));
+      const slow = (): TwilioApi => ({ ...stubTwilioClient(), sendSms: async () => (await slowSend, { sid: `SMslow${f.tag}`, status: 'sent' }) });
+      const deps: PhoneDeps = { keys: testKeys, client: slow, webhookBase: 'https://smoke.test' };
+      await t.execute(sql`update "user" set phone = '0412 111 222' where id = ${f.people.a1}`);
+      await connectTwilio(t, owner, { accountSid: '', apiKeySid: '', apiKeySecret: '' }, deps);
+      const n = await getNumberForAgent(t, owner, f.people.a1, deps);
+      const started = Date.now();
+      const r = await handleTwilioWebhook({ db: () => t, token: webhookToken(n.id, testKeys), kind: 'voice', params: { CallSid: `CAslow${f.tag}`, From: '+61400555222' }, keys: testKeys, client: slow, webhookBase: 'https://smoke.test' });
+      const tookMs = Date.now() - started;
+      const status = async () => (await t.execute<{ status: string }>(sql`select status from sms_message where phone_number_id = ${n.id} and kind = 'missed_call_text'`))[0]?.status;
+      assert(r.status === 200 && /<Say/.test(r.body) && typeof r.followUp === 'function', `answer: ${r.status} followUp ${typeof r.followUp}`);
+      assert((await status()) === 'queued', `before the follow-up the text is ${await status()}`);
+      const sending = r.followUp!();
+      release();
+      await sending;
+      assert((await status()) === 'sent', `after the follow-up the text is ${await status()}`);
+      return `answered in ${tookMs} ms while Twilio hung; text queued → sent by the follow-up`;
+    }),
+  );
+
   await check('phone (ADR 0087): an agent’s own Twilio — only theirs to use; texts go from the account the number is on; never the agency number; leaving keeps the number theirs and the texts the agency’s', async () =>
     inRollback(async (t) => {
       const f = await contactFixture(t);
@@ -7806,7 +7832,7 @@ async function main() {
       const n = await getNumberForAgent(t, owner, f.people.a1, deps);
       const token = webhookToken(n.id, testKeys);
       const missed = (sid: string, from = '+61400555111') =>
-        handleTwilioWebhook({ db: () => t, token, kind: 'voice', params: { CallSid: sid, From: from }, keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test' });
+        handleTwilioWebhook({ db: () => t, token, kind: 'voice', params: { CallSid: sid, From: from }, keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test' }).then(async (r) => (await r.followUp?.(), r));
       const outTexts = () => count(t, sql`select count(*)::int as n from sms_message where phone_number_id = ${n.id} and kind = 'missed_call_text'`);
       // The fixture switches every skill on; start from "nobody switched it on".
       await t.execute(sql`delete from skill_switch where agency_id = ${f.agencyId} and skill_key = 'missed_call_text'`);
@@ -7868,7 +7894,7 @@ async function main() {
       // A known caller: P6 has this mobile, so the summary can land on their contact.
       await t.execute(sql`update contact set phone = '0400 777 888' where id = ${f.contacts.p6}`);
       const missed = (sid: string, from: string) =>
-        handleTwilioWebhook({ db: () => t, token, kind: 'voice', params: { CallSid: sid, From: from }, keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test', voice });
+        handleTwilioWebhook({ db: () => t, token, kind: 'voice', params: { CallSid: sid, From: from }, keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test', voice }).then(async (r) => (await r.followUp?.(), r));
       const aiOf = async (sid: string) => (await t.execute<{ id: string; ai_status: string | null; ai_reason: string | null; ai_due_at: Date | null; ai_call_id: string | null }>(sql`select id, ai_status, ai_reason, ai_due_at, ai_call_id from phone_call where call_sid = ${sid}`))[0]!;
 
       // Not set up: the fixture has every skill on, but the number is not registered with Retell.

@@ -21,7 +21,8 @@ import type { VoiceAi } from './voice';
  * untrusted text.
  */
 
-export type TwilioWebhookResult = { status: number; contentType: string; body: string };
+/** `followUp`: work the route runs after answering (PLATFORM-PLAN 3.2), never before — Twilio waits for the answer. */
+export type TwilioWebhookResult = { status: number; contentType: string; body: string; followUp?: () => Promise<void> };
 
 const XML = 'text/xml; charset=utf-8';
 const twiml = (inner = '') => `<?xml version="1.0" encoding="UTF-8"?><Response>${inner}</Response>`;
@@ -174,7 +175,8 @@ export async function handleTwilioWebhook(opts: {
       // A caller the agent did not answer (ADR 0071): kept, the agent told, and texted only while the
       // "Missed call text" skill is on for the agency and the agent.
       const deps = { keys: opts.keys, client: opts.client ?? phoneDepsFromEnv().client, webhookBase: opts.webhookBase ?? null, voice: opts.voice ?? null };
-      return ok(await recordMissedCall(db, { id: n.id, agencyId: n.agencyId, userId: n.userId, accountId: n.accountId, e164: n.e164, agentName: n.agentName, role: n.role, retellRegisteredAt: n.retellRegisteredAt }, callSid, from, deps));
+      const missed = await recordMissedCall(db, { id: n.id, agencyId: n.agencyId, userId: n.userId, accountId: n.accountId, e164: n.e164, agentName: n.agentName, role: n.role, retellRegisteredAt: n.retellRegisteredAt }, callSid, from, deps);
+      return { ...ok(missed.twiml), ...(missed.followUp ? { followUp: missed.followUp } : {}) };
     }
 
     case 'caller-id': {
