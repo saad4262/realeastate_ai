@@ -10340,6 +10340,8 @@ async function main() {
       where not i.indisvalid and c.relnamespace = 'public'::regnamespace`);
     assert(rows.length === 0, `invalid: ${rows.map((r) => r.name).join(', ')} — run db:concurrent-indexes on its migration`);
     return 'every index valid';
+  });
+
   group('Database pool through the pooler (ADR 0094)');
   await check('0094: three times the pool in statements at once, with a transaction among them, all answer — nothing is pipelined onto Supavisor', async () => {
     // Statements without parameters are the ones postgres.js would pipeline; Supavisor's transaction mode loses some replies.
