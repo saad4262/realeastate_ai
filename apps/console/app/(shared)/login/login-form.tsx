@@ -85,10 +85,11 @@ export function LoginForm({
       // in the outer catch and strand the user here. Navigate regardless.
     }
 
-    // PLATFORM-PLAN 1.3: an account with an authenticator app gives its code before going in (a same-host path only).
+    // PLATFORM-PLAN 1.3: an account with an authenticator app gives its code before going in (on this host: the
+    // agent desk, after an invite claim, asks on its own pages).
     try {
       const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-      if (aal?.nextLevel === 'aal2' && aal.currentLevel !== 'aal2' && destination.startsWith('/')) {
+      if (aal?.nextLevel === 'aal2' && aal.currentLevel !== 'aal2' && destination !== agentHome) {
         destination = `/security?next=${encodeURIComponent(destination)}`;
       }
     } catch {
