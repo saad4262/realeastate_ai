@@ -241,6 +241,7 @@ import {
   approveSmsBatch,
   prepareSmsBatch,
   sendSmsBatch,
+  resumeSmsBatches,
   TemplateEmailError,
   type TemplateSendDeps,
 } from '@repo/core/template-email';
@@ -8984,6 +8985,43 @@ async function main() {
 
   // ── ADR 0074 part 2: SMS everywhere — the five rules (needs migration 0079) ─────────────────────
   group('SMS everywhere (ADR 0074)');
+
+  await check('PLATFORM-PLAN 3.3: the SMS drain is fair by agency — a round texts a slice of each agency\'s batch, so a big batch never holds a small one back', async () =>
+    inRollback(async (t) => {
+      const deps: PhoneDeps = { keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test' };
+      const env = { NODE_ENV: 'development', PHONE_STUB: '1' } as NodeJS.ProcessEnv;
+      const noon = new Date('2026-11-03T01:00:00Z'); // 12:00 in Sydney
+      const batchOf = async (people: number, tag: string) => {
+        const f = await contactFixture(t);
+        const owner = f.actor('owner');
+        await connectTwilio(t, owner, { accountSid: `AC${tag}`, apiKeySid: `SK${tag}`, apiKeySecret: 'secret' }, deps);
+        await getNumberForAgent(t, owner, f.people.owner, deps);
+        const ids: string[] = [];
+        for (let i = 0; i < people; i++) {
+          const { id } = await createContact(t, owner, { name: `Fair ${tag} ${i}`, email: `fair.${tag}.${i}.${f.tag}@smoke.test` });
+          await t.execute(sql`update contact set phone = ${`04${tag === 'big' ? '13' : '14'} 600 ${String(100 + i)}`}, marketing_consent_at = now() where id = ${id}`);
+          ids.push(id);
+        }
+        const tpl = await createEmailTemplate(t, owner, { channel: 'sms', name: `Fair ${tag}`, body: 'Hi {{first_name}}' });
+        const { id } = await prepareSmsBatch(t, owner, { templateId: tpl.id, contactIds: ids }, noon, env);
+        await approveSmsBatch(t, owner, id, noon);
+        return id;
+      };
+      const big = await batchOf(12, 'big'); // approved first: oldest-first would text all of it before anyone else
+      const small = await batchOf(3, 'small');
+      // The tick takes batches approved over a minute ago (Approve sends its own first slice).
+      await t.execute(sql`update email_batch set approved_at = now() - interval '10 minutes' where id = ${big}`);
+      await t.execute(sql`update email_batch set approved_at = now() - interval '5 minutes' where id = ${small}`);
+      const sentIn = async (id: string) => count(t, sql`select count(*)::int as n from email_batch_recipient where batch_id = ${id} and status = 'sent'`);
+      const round = await resumeSmsBatches(t, { phone: deps, env }, { agencies: 50, perBatch: 5 }, () => noon);
+      const afterOne = [await sentIn(big), await sentIn(small)];
+      assert(afterOne[0] === 5 && afterOne[1] === 3 && round.more, `after one round big ${afterOne[0]}, small ${afterOne[1]}, more ${round.more}`);
+      await resumeSmsBatches(t, { phone: deps, env }, { agencies: 50, perBatch: 5 }, () => noon);
+      await resumeSmsBatches(t, { phone: deps, env }, { agencies: 50, perBatch: 5 }, () => noon);
+      assert((await sentIn(big)) === 12, `big batch not finished in three rounds: ${await sentIn(big)}`);
+      return 'round 1: big 5 of 12, small 3 of 3 (oldest-first would have texted 12 before the small one began); big done by round 3';
+    }),
+  );
 
   await check('Bulk SMS: prepare (who, from which number, why skipped) → approve once → texted with STOP → held after 8 pm → 100 a number → 3 automatic a caller → the pair skill → never as email, never another agency (stub Twilio)', async () =>
     inRollback(async (t) => {

@@ -32,7 +32,8 @@ export const MINUTE_BATCH = {
   platformEmails: 100,
   aiCalls: 10,
   kycAccounts: 5,
-  smsBatches: 5,
+  /** Agencies per round of the SMS drain (PLATFORM-PLAN 3.3). */
+  smsBatches: 20,
   automationSlices: 3,
   urgentJobs: 20,
 } as const;
@@ -111,8 +112,12 @@ export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new
     {
       // ADR 0074 part 2: approved texts held for the sending hours (9 am) or left by a crash, carried on.
       name: 'smsBatches',
-      mode: 'once',
-      run: async () => ({ result: await resumeSmsBatches(db, { phone: deps.phone }, MINUTE_BATCH.smsBatches, now), more: false }),
+      // PLATFORM-PLAN 3.3: a slice per agency per round, rounds while the tick has time.
+      mode: 'drain',
+      run: async () => {
+        const r = await resumeSmsBatches(db, { phone: deps.phone }, { agencies: MINUTE_BATCH.smsBatches, perBatch: 5 }, now);
+        return { result: r, more: r.more };
+      },
     },
     {
       name: 'platformEmails',
