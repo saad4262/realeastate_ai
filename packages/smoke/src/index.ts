@@ -7293,9 +7293,9 @@ async function main() {
         select status, args, card from proposed_action where user_id = ${w.f.people.a1} and origin = 'workflow' and tool = 'send_email'`);
       assert(draft?.status === 'proposed', `no draft card: ${JSON.stringify(draft)}`);
       assert(/the AI was unavailable/.test(draft.card.title) && draft.card.notes.some((n) => /The AI was unavailable/.test(n)), `not labelled: ${draft.card.title}`);
-      assert(draft.args.body.startsWith('Hi Tia,') && !/\d/.test(draft.args.body), `template body: ${draft.args.body}`);
+      assert(draft.args.body.startsWith('Hi Tia,') && draft.args.body.includes('I wanted to follow up'), `template body: ${draft.args.body}`);
       assert((await count(t, sql`select count(*)::int as n from mail_message m join mail_thread th on th.id = m.thread_id where th.agency_id = ${w.f.agencyId} and m.direction = 'out'`)) === 0, 'something was sent');
-      return 'writer threw → send_email draft card, title and note say the AI was unavailable, body a figure-free template; nothing sent';
+      return 'writer threw → send_email draft card, title and note say the AI was unavailable, body the follow-up template; nothing sent';
     }),
   );
 
