@@ -1,4 +1,4 @@
-import { type NextRequest } from 'next/server';
+import { after, type NextRequest } from 'next/server';
 import { tokenKeysFromEnv } from '@repo/core/integrations';
 import { handleTwilioWebhook, phoneDepsFromEnv, voiceFromEnv } from '@repo/core/phone';
 import { getWebDb } from '../../../../../../lib/db';
@@ -31,6 +31,17 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
     });
     const env = phoneDepsFromEnv();
     const result = await handleTwilioWebhook({ db: getWebDb, token, kind, params, keys, client: env.client, webhookBase: env.webhookBase, voice: voiceFromEnv().voice });
+    // PLATFORM-PLAN 3.2: Twilio's answer first; a missed-call text goes to Twilio after it.
+    const followUp = result.followUp;
+    if (followUp) {
+      after(async () => {
+        try {
+          await followUp();
+        } catch (err) {
+          console.error('[phone] twilio webhook follow-up failed', err instanceof Error ? err.message : err);
+        }
+      });
+    }
     return new Response(result.body, { status: result.status, headers: { 'content-type': result.contentType, 'cache-control': 'no-store' } });
   } catch (err) {
     // A 5xx makes Twilio retry a status callback; an incoming call just hears nothing.

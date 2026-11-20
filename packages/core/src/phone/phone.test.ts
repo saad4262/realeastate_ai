@@ -397,4 +397,7 @@ describe('the webhook door', () => {
   it('refuses a kind it does not know', async () => {
     expect((await call(webhookToken(numberId, keys), 'recording')).status).toBe(404);
   });
+  it('PLATFORM-PLAN 3.2: a database that cannot be written throws, so the route answers 500 and Twilio may retry', async () => {
+    await expect(call(webhookToken(numberId, keys), 'sms')).rejects.toThrow(/database was reached/);
+  });
 });
