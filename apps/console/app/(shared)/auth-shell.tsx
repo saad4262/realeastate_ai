@@ -44,12 +44,6 @@ export function AuthShell({
             <div className={styles.brandSub}>Antipodean Agency Operating System</div>
           </div>
         </div>
-        <div className={styles.headerRight}>
-          <div className={styles.statusPill}>
-            <span className={styles.pulse} />
-            Sydney Metro Datacenter: 14ms
-          </div>
-        </div>
       </header>
 
       <main className={styles.main}>
@@ -80,22 +74,7 @@ export function AuthShell({
           </div>
 
           <div className={styles.badges}>
-            <div className={styles.badgeRow}>
-              <span className={styles.badgeItem}>
-                <span className={styles.glyphSm}>lock</span>
-                256-bit AES
-              </span>
-              <span>•</span>
-              <span className={styles.badgeItem}>
-                <span className={styles.glyphSm}>verified_user</span>
-                ISO 27001 Certified
-              </span>
-              <span>•</span>
-              <span className={styles.badgeItem}>
-                <span className={styles.glyphSm}>gavel</span>
-                NSW Property and Stock Agents Act 2002 Compliant
-              </span>
-            </div>
+            {/* O-38: no security or compliance claim we cannot back (it was ISO 27001, 256-bit AES, NSW Act compliant, 14 ms). */}
             <p className={styles.sessionMeta}>Session edge · LocalAgentHub OS · AU-NSW</p>
           </div>
         </div>
