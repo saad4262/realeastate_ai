@@ -33,6 +33,16 @@ function fakeMaster(fail: Partial<Record<keyof Omit<TwilioMasterApi, 'stub'>, bo
       calls.push(`close:${sid}`);
       if (fail.closeSubaccount) throw new Error('refused');
     },
+    async createSecondaryAuthToken(sid) {
+      calls.push(`secondary:${sid}`);
+      return 'sub-token-2';
+    },
+    async promoteSecondaryAuthToken(sid) {
+      calls.push(`promote:${sid}`);
+    },
+    async authTokenWorks() {
+      return true;
+    },
   };
   return { master, calls };
 }
@@ -113,6 +123,29 @@ describe('the master client', () => {
     expect(Object.fromEntries(new URLSearchParams(f.calls[2]!.body))).toEqual({ Status: 'closed' });
   });
 
+  it('rotates a subaccount\'s auth token as the subaccount: a secondary, then its promotion; a refused token reads as not working', async () => {
+    const f = fakeFetch([
+      { status: 201, body: { account_sid: 'ACsub1', secondary_auth_token: 'tok-2' } },
+      { status: 200, body: { account_sid: 'ACsub1' } },
+      { status: 401, body: { code: 20003, message: 'Authenticate' } },
+      { status: 200, body: { sid: 'ACsub1' } },
+    ]);
+    const m = twilioMasterClient(masterCreds, f.impl);
+    expect(await m.createSecondaryAuthToken('ACsub1', 'tok-1')).toBe('tok-2');
+    await m.promoteSecondaryAuthToken('ACsub1', 'tok-1');
+    expect(await m.authTokenWorks('ACsub1', 'tok-1')).toBe(false);
+    expect(await m.authTokenWorks('ACsub1', 'tok-2')).toBe(true);
+    const basic = (a: string, b: string) => `Basic ${Buffer.from(`${a}:${b}`).toString('base64')}`;
+    expect(f.calls.map((c) => c.url)).toEqual([
+      'https://accounts.twilio.com/v1/AuthTokens/Secondary',
+      'https://accounts.twilio.com/v1/AuthTokens/Promote',
+      'https://api.twilio.com/2010-04-01/Accounts/ACsub1.json',
+      'https://api.twilio.com/2010-04-01/Accounts/ACsub1.json',
+    ]);
+    expect(f.calls[0]!.headers.authorization).toBe(basic('ACsub1', 'tok-1'));
+    expect(f.calls[3]!.headers.authorization).toBe(basic('ACsub1', 'tok-2'));
+  });
+
   it('looks for a US local number only when asked, and buys it with no bundle', async () => {
     const creds = { accountSid: 'ACsub1', apiKeySid: 'SKsub1', apiKeySecret: 's' };
     const f = fakeFetch([
@@ -157,8 +190,9 @@ describe('starting managed phone numbers', () => {
     expect(row).toMatchObject({ kind: 'managed', ownerUserId: null, accountSid: 'ACsub1', apiKeySid: 'SKsub1', kycStatus: 'approved', bundleSid: null, kycNote: MANAGED_TEST_NOTE });
     expect(row.apiKeySecret).not.toBe('sub-key-secret');
     expect(decryptToken(row.apiKeySecret as string, { rowId: row.id as string, column: 'twilio_api_secret' }, keys)).toBe('sub-key-secret');
-    // The subaccount's auth token is used once and never kept.
+    // ADR 0096: the subaccount's auth token is kept for webhook signatures, encrypted, never in the clear.
     expect(JSON.stringify(row)).not.toContain('sub-token');
+    expect(decryptToken(row.authToken as string, { rowId: row.id as string, column: 'twilio_auth_token' }, keys)).toBe('sub-token');
   });
 
   it('outside test mode: not approved, waiting on the business details', async () => {

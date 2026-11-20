@@ -3206,6 +3206,13 @@ export const phoneAccount = pgTable('phone_account', {
   accountSid: varchar('account_sid', { length: 64 }).notNull(),
   apiKeySid: varchar('api_key_sid', { length: 64 }).notNull(),
   apiKeySecret: text('api_key_secret').notNull(),
+  /**
+   * ADR 0096: a managed subaccount's Auth Token, encrypted (AAD `<id>:twilio_auth_token`), to check
+   * `X-Twilio-Signature` on its numbers' webhooks. Null on byo accounts: we never hold an agency's own token.
+   */
+  authToken: text('auth_token'),
+  /** During a rotation only: the secondary token, accepted alongside `authToken` until it is promoted. */
+  authTokenNext: text('auth_token_next'),
   /** Twilio's name for the account, to show which one is connected. */
   friendlyName: text('friendly_name'),
   /** unknown | none | pending | needs_fix | approved. From Twilio's regulatory bundles for AU mobile numbers. */
