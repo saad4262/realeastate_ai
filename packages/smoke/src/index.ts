@@ -10342,6 +10342,32 @@ async function main() {
     return 'every index valid';
   });
 
+  group('Database pool through the pooler (ADR 0094)');
+  await check('0094: three times the pool in statements at once, with a transaction among them, all answer — nothing is pipelined onto Supavisor', async () => {
+    // Statements without parameters are the ones postgres.js would pipeline; Supavisor's transaction mode loses some replies.
+    const n = 3 * Number(process.env.DB_POOL_MAX || 5);
+    const started = Date.now();
+    const all = Promise.all([
+      ...Array.from({ length: n }, (_, i) => db.execute(sql.raw(`select pg_sleep(${(i % 4) / 10}), ${i} as i`))),
+      db.transaction(async (t) => (await t.execute<{ ok: number }>(sql`select 1 as ok`))[0]!.ok),
+    ]);
+    const timeout = new Promise<'hung'>((r) => setTimeout(() => r('hung'), 20_000).unref());
+    const res = await Promise.race([all, timeout]);
+    assert(res !== 'hung', `${n} statements and a transaction did not all answer in 20 s: a statement was pipelined and lost`);
+    return `${n} statements + 1 transaction answered in ${Date.now() - started} ms`;
+  });
+
+  await check('0094: the app role ends a session left idle inside a transaction within a minute (migration 0106), so a stuck connection cannot hold locks', async () => {
+    const [row] = await db.execute<{ v: string; stored: string | null }>(sql`
+      select current_setting('idle_in_transaction_session_timeout') as v,
+        (select array_to_string(s.setconfig, ',') from pg_db_role_setting s join pg_roles r on r.oid = s.setrole where r.rolname = current_user and s.setdatabase = 0) as stored`);
+    const unit: Record<string, number> = { '': 1, ms: 1, s: 1000, min: 60_000 }; // Postgres keeps the value as written
+    const ms = (v: string) => { const m = /^(\d+)(ms|s|min)?$/.exec(v.trim()); return m ? Number(m[1]) * unit[m[2] ?? '']! : NaN; };
+    const stored = /idle_in_transaction_session_timeout=([^,]+)/.exec(row?.stored ?? '')?.[1] ?? null;
+    assert(stored !== null && ms(stored) > 0 && ms(stored) <= 60_000, `role setting: ${row?.stored}`);
+    return `role ${stored}; this session ${row!.v}`;
+  });
+
   // -------------------------------------------------------- platform admin --
   group('Platform admin');
 
