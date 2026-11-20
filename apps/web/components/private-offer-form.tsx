@@ -187,7 +187,7 @@ export function PrivateOfferForm({
     'placeholder:text-ink-faint focus:border-brand focus:outline-none';
 
   return (
-    <form id="offer" onSubmit={onSubmit} className={card}>
+    <form id="offer" method="post" onSubmit={onSubmit} className={card}>
       <div>
         <h2 className="text-headline-md font-display text-ink">Make a private offer</h2>
         <p className="mt-0.5 text-body-sm text-ink-soft">

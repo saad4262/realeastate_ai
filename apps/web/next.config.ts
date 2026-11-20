@@ -14,6 +14,8 @@ const nextConfig: NextConfig = {
    * build somewhere else entirely and never touch the running one.
    */
   distDir: process.env.NEXT_DIST_DIR || '.next',
+  /** No `X-Powered-By: Next.js`: it only tells a scanner what to try (ZAP, PLATFORM-PLAN 4.7). */
+  poweredByHeader: false,
   /** Clickjacking, sniffing, referrer, HSTS and a report-only CSP on every response (packages/core/src/http/security-headers.ts). */
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders('web') }];

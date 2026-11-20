@@ -97,6 +97,7 @@ export function EnquiryForm({
          several screens above. The id is on both branches, so following the
          link after a message has been sent still lands on the confirmation. */
       id="enquire"
+      method="post"
       onSubmit={onSubmit}
       className="grid gap-sm scroll-mt-xl rounded-lg border border-line-subtle bg-card p-lg shadow-card"
     >

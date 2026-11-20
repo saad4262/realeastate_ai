@@ -69,6 +69,7 @@ describe('wiring', () => {
   it.each<SecurityApp>(['web', 'console'])('apps/%s/next.config.ts sends them on every path', (app) => {
     const src = readFileSync(resolve(__dirname, `../../../../apps/${app}/next.config.ts`), 'utf8');
     expect(src).toMatch(new RegExp(`source: '/:path\\*', headers: securityHeaders\\('${app}'\\)`));
+    expect(src).toContain('poweredByHeader: false');
   });
 });
 
