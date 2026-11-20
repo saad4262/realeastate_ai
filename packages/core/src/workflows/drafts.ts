@@ -59,15 +59,20 @@ export async function createWorkflowDraft(
     agentName: who?.agent || who?.agentEmail || 'your agent',
     agencyName: who?.agencyName || 'the agency',
   };
-  const written = await writer({ instructions: input.instructions, facts, workflowName: input.workflowName, agencyId: actor.agencyId ?? '', userId: actor.userId });
-  const subject = written.subject.trim().slice(0, 200);
-  const body = written.body.trim().slice(0, 5000);
-  if (!subject || !body) return { draftError: 'The draft came back empty. Nothing was sent.' };
+  // PLATFORM-PLAN 3.5: the model down or empty → a plain template, labelled, still only a draft for the owner.
+  const written = await writer({ instructions: input.instructions, facts, workflowName: input.workflowName, agencyId: actor.agencyId ?? '', userId: actor.userId }).catch((err: unknown) => {
+    console.error('[workflow] draft writer failed, template used', err instanceof Error ? err.message : err);
+    return null;
+  });
+  let subject = written?.subject.trim().slice(0, 200) ?? '';
+  let body = written?.body.trim().slice(0, 5000) ?? '';
+  const aiUnavailable = !subject || !body;
+  if (aiUnavailable) ({ subject, body } = templateDraft(facts));
 
   const limits = await checkEmailLimits(db, { agencyId: target.contact.agencyId, userId: actor.userId }, emailLimitsFromEnv());
   const figures = figuresIn(`${subject}\n${body}`);
   const card: ProposalCard = {
-    title: `Email ${target.contact.name} — a draft from your workflow “${input.workflowName}”`,
+    title: `Email ${target.contact.name} — a draft from your workflow “${input.workflowName}”${aiUnavailable ? ' (a template: the AI was unavailable)' : ''}`,
     contact: { id: target.contact.id, name: target.contact.name },
     lines: [
       { label: 'To', value: `${target.contact.name} · ${target.contact.email}` },
@@ -79,7 +84,9 @@ export async function createWorkflowDraft(
     ...(figures.length ? { figures } : {}),
     notes: [
       'Nothing is sent until you press Approve. A workflow never sends an email the AI wrote.',
-      'Written by the assistant. Read every word — names, dates and figures — before you approve; what you approve is what is sent.',
+      aiUnavailable
+        ? 'The AI was unavailable, so this is a plain template, not what your workflow asked for. Approve it only if it fits; otherwise leave it and write your own.'
+        : 'Written by the assistant. Read every word — names, dates and figures — before you approve; what you approve is what is sent.',
       `This draft goes away after ${WORKFLOW_LIMITS.draftDays} days if you leave it.`,
     ],
   };
@@ -99,4 +106,12 @@ export async function createWorkflowDraft(
     return draftId;
   });
   return { draftId: id };
+}
+
+/** The draft when the model cannot write one: a neutral follow-up, every word from the database, no figure. */
+export function templateDraft(facts: DraftFacts): { subject: string; body: string } {
+  return {
+    subject: `Following up from ${facts.agencyName}`,
+    body: `Hi ${facts.contactFirstName},\n\nI wanted to follow up and see whether there is anything I can help you with. Just reply to this email and I will get back to you.\n\nKind regards,\n${facts.agentName}\n${facts.agencyName}`,
+  };
 }

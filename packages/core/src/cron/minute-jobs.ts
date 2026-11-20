@@ -13,6 +13,7 @@ import { runJobs } from '../jobs';
 import { enqueueStuckSms, smsReconcileHandler } from '../phone/reconcile';
 import { detectSendSpikes } from '../safety/spikes';
 import { settleCredits } from '../billing/credits';
+import { tellAgentsOfFailedTexts } from '../phone/failed-texts';
 import { creditUsageAlerts } from '../billing/alerts';
 import { billingReconcileHandler, enqueueBillingReconcile, stripeEventHandler } from '../billing/service';
 import type { StripeApi } from '../billing/stripe';
@@ -171,6 +172,13 @@ export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new
       mode: 'once',
       everyMinutes: 5,
       run: async () => ({ result: await detectSendSpikes(db, now(), { notice: deps.reminders.notice ?? null }), more: false }),
+    },
+    {
+      // PLATFORM-PLAN 3.5: texts Twilio did not take → the number's agent hears, once an hour.
+      name: 'failedTexts',
+      mode: 'once',
+      everyMinutes: 5,
+      run: async () => ({ result: await tellAgentsOfFailedTexts(db, now(), { notice: deps.reminders.notice ?? null }), more: false }),
     },
     {
       // The job queue's urgent lane (PLATFORM-PLAN 3.1): a fair share per agency per round.
