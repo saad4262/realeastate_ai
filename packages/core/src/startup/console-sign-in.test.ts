@@ -34,7 +34,7 @@ describe('console sign-in flow', () => {
 
   it("sign-out ends this browser's session only, unless the form asks for every device (PLATFORM-PLAN 1.22)", () => {
     const route = read('app', '(shared)', 'sign-out', 'route.ts');
-    expect(route).toMatch(/signOut\(\{ scope: form\?\.get\('scope'\) === 'global' \? 'global' : 'local' \}\)/);
+    expect(route).toMatch(/signOutResponse\(request, form\?\.get\('scope'\) === 'global' \? 'global' : 'local',/);
     expect(route).not.toMatch(/auth\.signOut\(\)/);
   });
 
