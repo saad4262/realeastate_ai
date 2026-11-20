@@ -57,6 +57,11 @@ export interface TwilioApi {
    * whose answer was lost is settled — found means it went, not found means it did not.
    */
   findMessages(input: { from: string; to: string; since: Date }): Promise<{ sid: string; body: string; status: string; createdAt: Date | null }[]>;
+  /**
+   * PLATFORM-PLAN 3.8: the texts and calls that came IN to a number since a moment, as Twilio holds them, newest
+   * first, one page each. What our webhook may have missed while we were down.
+   */
+  inboundSince(input: { to: string; since: Date }): Promise<{ messages: { sid: string; from: string; body: string }[]; calls: { sid: string; from: string | null }[] }>;
   /** Twilio calls the mobile and asks for the code it returns here, which the person keys in. */
   startCallerId(input: { e164: string; name: string; statusUrl: string | null }): Promise<{ validationCode: string }>;
   isCallerIdVerified(e164: string): Promise<boolean>;
@@ -220,6 +225,33 @@ export function twilioClient(creds: TwilioCreds, fetchImpl: Fetch = fetch): Twil
         return [{ sid, body: str(m.body) ?? '', status: str(m.status) ?? '', createdAt: at && !Number.isNaN(at.getTime()) ? at : null }];
       });
     },
+    async inboundSince(input) {
+      // DateSent / StartTime filter by day; a day earlier covers midnight UTC, and each row's own time is checked.
+      const day = new Date(input.since.getTime() - 86_400_000).toISOString().slice(0, 10);
+      const after = (raw: unknown) => {
+        const at = new Date(str(raw) ?? '');
+        return !Number.isNaN(at.getTime()) && at >= input.since;
+      };
+      // shortcut: one page of 100 of each; a number with more in one window is missed past that — page on next_page_uri if seen.
+      const [m, c] = await Promise.all([
+        get(`${acct}/Messages.json?${new URLSearchParams({ To: input.to, 'DateSent>': day, PageSize: '100' })}`),
+        get(`${acct}/Calls.json?${new URLSearchParams({ To: input.to, 'StartTime>': day, PageSize: '100' })}`),
+      ]);
+      const rows = (r: typeof m, key: string) => (Array.isArray(r.json?.[key]) ? (r.json[key] as Record<string, unknown>[]) : []);
+      return {
+        messages: rows(m, 'messages').flatMap((x) => {
+          const sid = str(x.sid);
+          const from = str(x.from);
+          return sid && from && str(x.direction) === 'inbound' && after(x.date_created) ? [{ sid, from, body: str(x.body) ?? '' }] : [];
+        }),
+        // Only calls Twilio has finished: one still ringing is the webhook's to keep (and to text back).
+        calls: rows(c, 'calls').flatMap((x) => {
+          const sid = str(x.sid);
+          const done = ['completed', 'busy', 'no-answer', 'failed', 'canceled'].includes(str(x.status) ?? '');
+          return sid && done && str(x.direction) === 'inbound' && after(x.start_time ?? x.date_created) ? [{ sid, from: str(x.from) }] : [];
+        }),
+      };
+    },
     async startCallerId(input) {
       const r = await post(`${acct}/OutgoingCallerIds.json`, { PhoneNumber: input.e164, FriendlyName: input.name.slice(0, 64), StatusCallback: input.statusUrl ?? undefined });
       const code = str(r.json?.validation_code);
@@ -286,6 +318,9 @@ export function stubTwilioClient(): TwilioApi {
     },
     async findMessages() {
       return [];
+    },
+    async inboundSince() {
+      return { messages: [], calls: [] };
     },
     async startCallerId() {
       return { validationCode: '123456' };

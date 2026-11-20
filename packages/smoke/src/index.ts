@@ -340,6 +340,7 @@ import {
   twilioSignature,
   type TwilioMasterApi,
   tellAgentsOfFailedTexts,
+  pullInbound,
   smsReconcileHandler,
   type TwilioApi,
 } from '@repo/core/phone';
@@ -7666,6 +7667,46 @@ async function main() {
       assert(first.emailed === 1 && again.notified === 0 && again.emailed === 0 && transport.sent.length === 1, `first ${JSON.stringify(first)} again ${JSON.stringify(again)}`);
       assert(/2 texts from your number were not sent/.test(transport.sent[0]!.subject) && transport.sent[0]!.text.includes('https://agents.smoke.test/my-inbox/texts'), `email: ${transport.sent[0]!.subject}`);
       return '2 refused texts → A1: one bell ("2 texts…"), one email linking their texts; delivery failure, paused send, 30-min-old failure not counted; a second run in the hour adds nothing';
+    }),
+  );
+
+  await check('PLATFORM-PLAN 3.8: after an outage, what Twilio has and we do not is kept — texts as the webhook would (STOP honoured, bell), calls as missed "found after an outage"; nothing twice; the tick takes its shard', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const found = {
+        messages: [
+          { sid: `SMkept${f.tag}`, from: '+61400111001', body: 'Kept by the webhook already' },
+          { sid: `SMlost${f.tag}`, from: '+61400111002', body: 'Is it still available?' },
+          { sid: `SMstop${f.tag}`, from: '+61400111003', body: 'STOP' },
+        ],
+        calls: [
+          { sid: `CAlost${f.tag}`, from: '+61400111004' },
+          { sid: `CAself${f.tag}`, from: '+61480000777' }, // the forwarding test calling itself
+        ],
+      };
+      const deps: PhoneDeps = { keys: testKeys, client: () => ({ ...stubTwilioClient(), inboundSince: async () => found }), webhookBase: 'https://smoke.test' };
+      await connectTwilio(t, f.actor('owner'), { accountSid: 'ACpull', apiKeySid: 'SKpull', apiKeySecret: 'pull-secret' }, deps);
+      const [num] = await t.execute<{ id: string; part: number }>(sql`
+        insert into phone_number (agency_id, user_id, account_id, e164, number_sid)
+        select ${f.agencyId}, ${f.people.a1}, id, '+61480000777', ${`PNpull${f.tag}`} from phone_account where agency_id = ${f.agencyId}
+        returning id, abs(hashtext(id::text)) % 30 as part`);
+      await t.execute(sql`
+        insert into sms_message (agency_id, phone_number_id, counterpart, direction, body, status, provider_sid)
+        values (${f.agencyId}, ${num!.id}, '+61400111001', 'in', 'Kept by the webhook already', 'received', ${`SMkept${f.tag}`})`);
+      const since = new Date(Date.now() - 2 * 3_600_000);
+      const otherShard = await pullInbound(t, deps, since, { part: (num!.part + 1) % 30, of: 30 });
+      assert(otherShard.texts === 0 && otherShard.calls === 0, `another shard pulled this number: ${JSON.stringify(otherShard)}`);
+      const first = await pullInbound(t, deps, since, { part: num!.part, of: 30 });
+      const again = await pullInbound(t, deps, since);
+      assert(first.texts === 2 && first.calls === 1 && first.failed.length === 0, `first: ${JSON.stringify(first)}`);
+      assert(again.texts === 0 && again.calls === 0, `again: ${JSON.stringify(again)}`);
+      assert((await count(t, sql`select count(*)::int as n from sms_message where phone_number_id = ${num!.id} and direction = 'in'`)) === 3, 'texts not kept once each');
+      assert((await count(t, sql`select count(*)::int as n from sms_opt_out where agency_id = ${f.agencyId} and e164 = '+61400111003'`)) === 1, 'STOP not honoured');
+      assert((await count(t, sql`select count(*)::int as n from notification where user_id = ${f.people.a1} and kind = 'sms'`)) === 2, 'A1 not told of each new text once');
+      const calls = await t.execute<{ call_sid: string; outcome: string; sms_message_id: string | null }>(sql`select call_sid, outcome, sms_message_id from phone_call where phone_number_id = ${num!.id}`);
+      assert(calls.length === 1 && calls[0]!.call_sid === `CAlost${f.tag}` && calls[0]!.outcome === 'found_late' && calls[0]!.sms_message_id === null, `calls: ${JSON.stringify(calls)}`);
+      assert((await count(t, sql`select count(*)::int as n from notification where user_id = ${f.people.a1} and kind = 'missed_call' and body like 'Found after an outage%'`)) === 1, 'no bell for the late missed call');
+      return 'other shard: nothing; 2 lost texts kept (1 already there skipped), STOP honoured, 2 bells; 1 lost call kept as missed "found_late", not texted, bell; the forwarding test call skipped; a second run adds nothing';
     }),
   );
 

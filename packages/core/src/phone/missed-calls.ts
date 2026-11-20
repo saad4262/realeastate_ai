@@ -204,7 +204,7 @@ export async function missedCallSkillSummary(db: DbOrTx, actor: Actor): Promise<
 
 // ── What to do about one missed call ────────────────────────────────────────
 
-export type MissedCallOutcome = 'texted' | 'skill_off' | 'private' | 'not_mobile' | 'opted_out' | 'repeat' | 'limit' | 'text_failed';
+export type MissedCallOutcome = 'texted' | 'skill_off' | 'private' | 'not_mobile' | 'opted_out' | 'repeat' | 'limit' | 'text_failed' | 'found_late';
 
 export const OUTCOME_WORDS: Record<MissedCallOutcome, string> = {
   texted: 'Texted',
@@ -215,6 +215,7 @@ export const OUTCOME_WORDS: Record<MissedCallOutcome, string> = {
   repeat: 'Not texted: already sent the most automatic texts for today',
   limit: 'Not texted: daily limit reached',
   text_failed: 'The text failed',
+  found_late: 'Not texted: found after an outage, too late to text',
 };
 
 /** Pure: whether this caller gets the text, or the first reason they don't. Order matters only for the words. */

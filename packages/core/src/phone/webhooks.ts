@@ -54,6 +54,42 @@ function signedByTwilio(accountId: string, authToken: string | null, authTokenNe
   return validTwilioSignature(opts.signature ?? null, urls, opts.params, tokens);
 }
 
+/**
+ * A text to an agent's number, kept once (by Twilio's SID): its conversation, STOP/START, the agent's bell.
+ * The webhook calls it, and so does the pull after an outage (PLATFORM-PLAN 3.8), so both keep a text the same way.
+ * True when it was new.
+ */
+export async function recordInboundSms(db: Db, n: { id: string; agencyId: string; userId: string; role: string | null }, m: { from: string; sid: string; body: string }): Promise<boolean> {
+  const body = m.body.slice(0, SMS_MAX_LENGTH);
+  const { from, sid } = m;
+  const who = await contactByPhone(db, n.agencyId, from);
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(smsMessage)
+      .values({ agencyId: n.agencyId, phoneNumberId: n.id, counterpart: from, contactId: who?.id ?? null, direction: 'in', body, status: 'received', providerSid: sid })
+      .onConflictDoNothing({ target: smsMessage.providerSid })
+      .returning({ id: smsMessage.id });
+    if (!row) return false; // Twilio sent it twice (or the pull found one the webhook already kept)
+    const word = smsKeyword(body);
+    if (word === 'stop') await tx.insert(smsOptOut).values({ agencyId: n.agencyId, e164: from }).onConflictDoNothing();
+    if (word === 'start') await tx.delete(smsOptOut).where(and(eq(smsOptOut.agencyId, n.agencyId), eq(smsOptOut.e164, from)));
+    const name = who?.name ?? displayAu(from);
+    await tx
+      .insert(notification)
+      .values({
+        userId: n.userId,
+        agencyId: n.agencyId,
+        kind: 'sms',
+        title: word === 'stop' ? `${name} replied STOP: no more texts to them` : `Text from ${name}`.slice(0, 300),
+        body: body.slice(0, 280),
+        href: `${textsPathFor(n.role)}?n=${n.id}&with=${encodeURIComponent(from)}`,
+        dedupeKey: `sms:${sid}`,
+      })
+      .onConflictDoNothing();
+    return true;
+  });
+}
+
 const SMS_STATUSES = new Set(['queued', 'sending', 'sent', 'delivered', 'undelivered', 'failed']);
 const TEST_WINDOW_MS = 5 * 60 * 1000;
 
@@ -98,32 +134,7 @@ export async function handleTwilioWebhook(opts: {
       const sid = (p.MessageSid || p.SmsSid || '').slice(0, 64);
       if (!from || !sid) return plain(400, 'bad request');
       if (n.status !== 'active') return ok();
-      const body = (p.Body ?? '').slice(0, SMS_MAX_LENGTH);
-      const who = await contactByPhone(db, n.agencyId, from);
-      await db.transaction(async (tx) => {
-        const [row] = await tx
-          .insert(smsMessage)
-          .values({ agencyId: n.agencyId, phoneNumberId: n.id, counterpart: from, contactId: who?.id ?? null, direction: 'in', body, status: 'received', providerSid: sid })
-          .onConflictDoNothing({ target: smsMessage.providerSid })
-          .returning({ id: smsMessage.id });
-        if (!row) return; // Twilio sent it twice
-        const word = smsKeyword(body);
-        if (word === 'stop') await tx.insert(smsOptOut).values({ agencyId: n.agencyId, e164: from }).onConflictDoNothing();
-        if (word === 'start') await tx.delete(smsOptOut).where(and(eq(smsOptOut.agencyId, n.agencyId), eq(smsOptOut.e164, from)));
-        const name = who?.name ?? displayAu(from);
-        await tx
-          .insert(notification)
-          .values({
-            userId: n.userId,
-            agencyId: n.agencyId,
-            kind: 'sms',
-            title: word === 'stop' ? `${name} replied STOP: no more texts to them` : `Text from ${name}`.slice(0, 300),
-            body: body.slice(0, 280),
-            href: `${textsPathFor(n.role)}?n=${n.id}&with=${encodeURIComponent(from)}`,
-            dedupeKey: `sms:${sid}`,
-          })
-          .onConflictDoNothing();
-      });
+      await recordInboundSms(db, n, { from, sid, body: p.Body ?? '' });
       return ok();
     }
 
