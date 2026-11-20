@@ -122,6 +122,7 @@ const HELP_DETAILS: Readonly<Record<HelpSurface, readonly HelpDetail[]>> = Objec
     ...sharedDetails({ people: '/customers', listing: '/live-listings', email: '/bulk-email', sms: '/bulk-sms', inbox: '/inbox', projects: '/projects', property: '/properties', skills: '/skills' }),
     { pattern: '/missed-calls/settings', name: 'Missed call settings', what: 'The greeting, the text and the daily limits.' },
     { pattern: '/settings/reviews', name: 'Google reviews', what: 'The agency’s public Google rating and reviews, shown on live listings’ pages.' },
+    { pattern: '/settings/audit', name: 'Audit log', what: 'Who changed the team, sent or withdrew invites, deleted listings or resumed sends, and when. Owners and admins.' },
     { pattern: '/skills/library/new', name: 'New library skill', what: 'Add a skill to the agency’s own library.' },
     { pattern: '/team/onboarding', name: 'Agent onboarding', what: ONBOARDING },
     { pattern: '/team/onboarding/dispatch', name: 'Agent onboarding: dispatch', what: ONBOARDING },
