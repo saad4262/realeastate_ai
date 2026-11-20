@@ -903,3 +903,80 @@
   background: var(--surface-canvas);
   color: var(--text-muted);
 }
+
+/* PLATFORM-PLAN 4.6: phones. The sidebar becomes a drawer (mobile-nav.tsx), the top bar keeps its icons only. */
+.menuBtn,
+.navShade {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    z-index: 60;
+  }
+
+  :global(html[data-nav='open']) .sidebar {
+    transform: none;
+    box-shadow: 0 10px 40px rgba(15, 23, 42, 0.25);
+  }
+
+  .navShade {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(15, 23, 42, 0.35);
+  }
+
+  .mainCol {
+    margin-left: 0;
+  }
+
+  .topbar {
+    padding: 0 0.75rem;
+    gap: 0.5rem;
+  }
+
+  .menuBtn {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--border-default);
+    border-radius: 0.5rem;
+    background: var(--surface-elevated);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  .searchWrap {
+    min-width: 0;
+  }
+
+  .searchKbd,
+  .aiBtnText {
+    display: none;
+  }
+
+  .topActions {
+    gap: 0.25rem;
+  }
+
+  .aiBtn {
+    padding: 0 0.625rem;
+  }
+
+  .content {
+    padding: 1rem;
+  }
+}
+
+@media (max-width: 767px) and (prefers-reduced-motion: reduce) {
+  .sidebar {
+    transition: none;
+  }
+}

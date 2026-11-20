@@ -11,6 +11,7 @@ import { listAssistantConversations } from '@repo/core/assistant';
 import { getConsoleDb } from '../../lib/db';
 import { loadActor } from '../../lib/load-actor';
 import { HomeLink } from './home-link';
+import { MobileNavButton } from './mobile-nav';
 import { NavList } from './nav-list';
 import { RecentsList } from './recents-list';
 import { SendsPausedBanner } from './sends-paused-banner';
@@ -65,7 +66,7 @@ export function ConsoleShell({ surface, children, userLabel, userId, chrome }: C
 
   return (
     <div className={styles.shell}>
-      <aside className={styles.sidebar}>
+      <aside className={styles.sidebar} id="console-sidebar">
         <div className={styles.sidebarTop}>
           <div className={styles.brandRow}>
             <Link href={shell.home} className={styles.brandLeft}>
@@ -132,6 +133,7 @@ export function ConsoleShell({ surface, children, userLabel, userId, chrome }: C
 
       <div className={styles.mainCol}>
         <header className={styles.topbar}>
+          <MobileNavButton />
           <div className={styles.searchWrap}>
             <span className={styles.searchIcon}>
               <span className={styles.glyphSm} aria-hidden>
@@ -174,7 +176,7 @@ export function ConsoleShell({ surface, children, userLabel, userId, chrome }: C
               <span className={styles.glyph} aria-hidden>
                 add
               </span>
-              New chat
+              <span className={styles.aiBtnText}>New chat</span>
             </HomeLink>
           </div>
         </header>

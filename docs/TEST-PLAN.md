@@ -207,6 +207,23 @@ Suburb and pin are two different things. These cases are about the pin.
 > G4 and G5 are client-side redirects since the shell now flushes before the permission
 > gate resolves. They work, but they are the two paths most likely to regress.
 
+### G2. Devices (PLATFORM-PLAN 4.6)
+
+Automated in `packages/e2e/tests/devices.spec.ts` (Playwright device emulation: the iPhone in WebKit, Safari's engine,
+with `E2E_WEBKIT=1` after `pnpm exec playwright install webkit`; the Android phone in Chromium). Emulation is the
+engine and the screen, not the handset: a pass on a real iPhone and a real Android phone is still worth five minutes
+before launch (rows G2.6–G2.7).
+
+| # | Do this | Expect | Result 2026-11-20 (dev) |
+|---|---|---|---|
+| G2.1 | iPhone 14 (Safari engine, 390 px): home, search, a listing, sign-in | Each loads, shows its content, never scrolls sideways | Pass |
+| G2.2 | Pixel 7 (Chrome, 412 px): the same four | The same | Pass |
+| G2.3 | Both phones: the agent desk's Leads and Contacts | Heading shown, no sideways scroll; the sidebar is a drawer behind the menu button, a link goes there and closes it | Pass after a fix: the console had no phone layout (the desktop sidebar took 256 of 390 px and the top bar ran 224 px off the screen). Now a drawer below 768 px; the top bar keeps its icons |
+| G2.4 | Pixel 7 on Chrome's "Slow 3G" (400 ms, 400 kbit/s): open a listing | The headline is readable within 15 s | Pass: 5.9 s on the dev server |
+| G2.5 | Desktop (1280 px): any console page | The sidebar is always there; no menu button | Unchanged (the drawer rules apply below 768 px only) |
+| G2.6 | A real iPhone, Safari: sign in to the console, open the menu, send an enquiry on a listing | As above; the keyboard does not cover the field being typed in | Not yet run (needs a handset) |
+| G2.7 | A real Android phone, Chrome, on mobile data: the same | As above | Not yet run (needs a handset) |
+
 ### H. The property guide (`/chat`)
 
 Needs `ANTHROPIC_API_KEY`. Without it the page still renders and the composer answers
