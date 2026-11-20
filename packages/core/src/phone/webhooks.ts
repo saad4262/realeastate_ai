@@ -1,7 +1,7 @@
 import { and, desc, eq, gt, sql } from 'drizzle-orm';
-import { membership, notification, phoneCall, phoneNumber, smsMessage, smsOptOut, user, type Db } from '@repo/db';
-import type { TokenKeys } from '../integrations/crypto';
-import { displayAu, smsKeyword, SMS_MAX_LENGTH, toAuE164, verifyWebhookToken, WEBHOOK_KINDS, type WebhookKind } from './format';
+import { membership, notification, phoneAccount, phoneCall, phoneNumber, smsMessage, smsOptOut, user, type Db } from '@repo/db';
+import { decryptToken, type TokenKeys } from '../integrations/crypto';
+import { displayAu, smsKeyword, SMS_MAX_LENGTH, toAuE164, validTwilioSignature, verifyWebhookToken, WEBHOOK_KINDS, type WebhookKind } from './format';
 import { recordMissedCall } from './missed-calls';
 import { contactByPhone, phoneDepsFromEnv, textsPathFor, type PhoneDeps } from './setup';
 import type { VoiceAi } from './voice';
@@ -14,9 +14,11 @@ import type { VoiceAi } from './voice';
  *   missed (kept and told, and texted only behind the "Missed call text" skill: missed-calls.ts);
  * - `caller-id`: Twilio's answer on an agent's mobile verification.
  *
- * The token in the URL is the only credential (a bring-your-own API key gives us no Auth Token to check
- * Twilio's signature with): it names one number and is an HMAC only this server can make. Everything
- * Twilio sends is form data we treat as untrusted text.
+ * The token in the URL names one number and is an HMAC only this server can make. On an agency's own
+ * Twilio it is the only credential (we do not hold that account's Auth Token). On a managed subaccount
+ * (ADR 0096) Twilio's signature is checked too, against the stored Auth Token or, during a rotation, its
+ * secondary: a leaked URL alone is not enough there. Everything Twilio sends is form data we treat as
+ * untrusted text.
  */
 
 export type TwilioWebhookResult = { status: number; contentType: string; body: string };
@@ -33,6 +35,25 @@ function callerE164(raw: string | undefined): string | null {
   return toAuE164(v);
 }
 
+/**
+ * A managed number's request carries a signature by its subaccount's Auth Token (or the secondary, mid-rotation).
+ * No stored token, or one this server cannot decrypt, refuses: fail closed. The URL may be the one the
+ * request arrived on or the one we gave Twilio (PHONE_WEBHOOK_BASE), which differ behind a proxy.
+ */
+function signedByTwilio(accountId: string, authToken: string | null, authTokenNext: string | null, opts: { keys: TokenKeys | null; token: string; kind: string; params: Record<string, string>; signature?: string | null; url?: string | null; webhookBase?: string | null }): boolean {
+  const tokens: string[] = [];
+  for (const [stored, column] of [[authToken, 'twilio_auth_token'], [authTokenNext, 'twilio_auth_token_next']] as const) {
+    if (!stored) continue;
+    try {
+      tokens.push(decryptToken(stored, { rowId: accountId, column }, opts.keys!));
+    } catch {
+      console.error('[phone] a managed account\'s auth token cannot be decrypted on this server', accountId);
+    }
+  }
+  const urls = [opts.url, opts.webhookBase && `${opts.webhookBase.replace(/\/+$/, '')}/api/phone/twilio/${opts.token}/${opts.kind}`].filter((u): u is string => !!u);
+  return validTwilioSignature(opts.signature ?? null, urls, opts.params, tokens);
+}
+
 const SMS_STATUSES = new Set(['queued', 'sending', 'sent', 'delivered', 'undelivered', 'failed']);
 const TEST_WINDOW_MS = 5 * 60 * 1000;
 
@@ -44,8 +65,11 @@ export async function handleTwilioWebhook(opts: {
   keys: TokenKeys | null;
   /** Sends a missed-call text. Default: the env's (the dev stub when PHONE_STUB=1). */
   client?: PhoneDeps['client'];
-  /** For the missed-call text's delivery callback. */
+  /** For the missed-call text's delivery callback, and one of the URLs a signature may be over. */
   webhookBase?: string | null;
+  /** `X-Twilio-Signature`, and the URL the request came in on (ADR 0096: checked on managed numbers). */
+  signature?: string | null;
+  url?: string | null;
   /** Retell (or the dev stub): an AI call back is scheduled only when there is one (ADR 0072). */
   voice?: VoiceAi | null;
   now?: Date;
@@ -57,14 +81,16 @@ export async function handleTwilioWebhook(opts: {
   const db = opts.db();
   const now = opts.now ?? new Date();
   const [n] = await db
-    .select({ id: phoneNumber.id, agencyId: phoneNumber.agencyId, userId: phoneNumber.userId, accountId: phoneNumber.accountId, e164: phoneNumber.e164, callerIdE164: phoneNumber.callerIdE164, retellRegisteredAt: phoneNumber.retellRegisteredAt, status: phoneNumber.status, agentName: sql<string>`coalesce(${user.name}, ${user.email})`, role: membership.role })
+    .select({ id: phoneNumber.id, agencyId: phoneNumber.agencyId, userId: phoneNumber.userId, accountId: phoneNumber.accountId, e164: phoneNumber.e164, callerIdE164: phoneNumber.callerIdE164, retellRegisteredAt: phoneNumber.retellRegisteredAt, status: phoneNumber.status, agentName: sql<string>`coalesce(${user.name}, ${user.email})`, role: membership.role, accountKind: phoneAccount.kind, authToken: phoneAccount.authToken, authTokenNext: phoneAccount.authTokenNext })
     .from(phoneNumber)
     .innerJoin(user, eq(user.id, phoneNumber.userId))
     .leftJoin(membership, and(eq(membership.userId, phoneNumber.userId), eq(membership.agencyId, phoneNumber.agencyId)))
+    .leftJoin(phoneAccount, eq(phoneAccount.id, phoneNumber.accountId))
     .where(eq(phoneNumber.id, numberId))
     .limit(1);
   if (!n) return plain(404, 'not found');
   const p = opts.params;
+  if (n.accountKind === 'managed' && !signedByTwilio(n.accountId!, n.authToken, n.authTokenNext, opts)) return plain(403, 'forbidden');
 
   switch (opts.kind as WebhookKind) {
     case 'sms': {

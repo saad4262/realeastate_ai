@@ -335,6 +335,10 @@ import {
   stubTwilioClient,
   webhookToken,
   type PhoneDeps,
+  rotateManagedAuthTokens,
+  startManagedPhone,
+  twilioSignature,
+  type TwilioMasterApi,
   smsReconcileHandler,
   type TwilioApi,
 } from '@repo/core/phone';
@@ -7548,6 +7552,69 @@ async function main() {
       await releaseAgentNumber(t, owner, n.id, deps);
       assert((await getPhoneSetup(t, owner, deps)).agents.find((g) => g.userId === f.people.a1)?.number === null, 'released number still shown');
       return 'connect (owner only, secret encrypted) → number with profile mobile → code 123456 → verified → test passed → live; text in once (retry ignored), told once; A1 + owner see it, A2 refused; reply sent; STOP blocks, START lifts; landline refused; missed call kept with greeting, no text by itself; webhook test pass; bad token 403; released';
+    }),
+  );
+
+  await check('phone (PLATFORM-PLAN 3.10, ADR 0096): a managed number needs Twilio\'s signature as well as the URL token; a rotation interrupted before its promotion accepts both tokens, and after it only the new one', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      // Twilio's side of one subaccount: which tokens it accepts. The first promotion fails, as a network error would.
+      const tw = { primary: 'tok-old', secondary: null as string | null, failPromote: true };
+      const master: TwilioMasterApi = {
+        stub: true,
+        createSubaccount: async () => ({ sid: `ACsmoke${f.tag}`, authToken: tw.primary }),
+        createSubaccountKey: async () => ({ sid: `SKsmoke${f.tag}`, secret: 'key-secret' }),
+        closeSubaccount: async () => {},
+        createSecondaryAuthToken: async (_sid, auth) => {
+          assert(auth === tw.primary, 'secondary asked for with a token that is not the primary');
+          return (tw.secondary = 'tok-new');
+        },
+        promoteSecondaryAuthToken: async (_sid, auth) => {
+          assert(auth === tw.primary, 'promotion asked for with a token that is not the primary');
+          if (tw.failPromote) throw ((tw.failPromote = false), new Error('Twilio could not be reached'));
+          tw.primary = tw.secondary!;
+          tw.secondary = null;
+        },
+        authTokenWorks: async (_sid, tok) => tok === tw.primary || tok === tw.secondary,
+        subaccountAuthToken: async () => tw.primary,
+      };
+      const deps: PhoneDeps = { keys: testKeys, client: () => stubTwilioClient(), webhookBase: 'https://smoke.test', managed: { master, testMode: true } };
+      await startManagedPhone(t, f.actor('owner'), deps);
+      const [acct] = await t.execute<{ id: string; auth_token: string | null }>(sql`select id, auth_token from phone_account where agency_id = ${f.agencyId} and kind = 'managed'`);
+      if (!acct) throw new Error('no managed account was made');
+      assert(acct.auth_token?.startsWith('v1.') && !acct.auth_token.includes('tok-'), 'the auth token was not stored encrypted');
+      const [num] = await t.execute<{ id: string }>(sql`
+        insert into phone_number (agency_id, user_id, account_id, e164, number_sid) values (${f.agencyId}, ${f.people.a1}, ${acct.id}, '+15005550006', ${`PNsmoke${f.tag}`}) returning id`);
+      const token = webhookToken(num!.id, testKeys);
+      let k = 0;
+      const smsIn = (by: string | null) => {
+        const params = { From: '+61400123456', To: '+15005550006', Body: 'hi', MessageSid: `SMsig${f.tag}${k++}` };
+        const signature = by ? twilioSignature(`https://smoke.test/api/phone/twilio/${token}/sms`, params, by) : null;
+        return handleTwilioWebhook({ db: () => t, token, kind: 'sms', params, keys: testKeys, webhookBase: 'https://smoke.test', signature });
+      };
+      const codes = async (...by: (string | null)[]) => (await Promise.all(by.map((b) => smsIn(b)))).map((r) => r.status).join(',');
+      const before = await codes(null, 'tok-wrong', 'tok-old');
+      assert(before === '403,403,200', `right URL token, no / wrong / right signature: ${before}`);
+
+      const first = await rotateManagedAuthTokens(t, deps);
+      assert(first.failed.length === 1 && first.rotated === 0, `first rotation: ${JSON.stringify(first)}`);
+      const midway = await codes('tok-old', 'tok-new', 'tok-wrong');
+      assert(midway === '200,200,403', `stopped before the promotion — old, new, wrong: ${midway}`);
+
+      const second = await rotateManagedAuthTokens(t, deps);
+      assert(second.rotated === 1 && second.failed.length === 0 && tw.primary === 'tok-new', `second rotation: ${JSON.stringify(second)}`);
+      const after = await codes('tok-new', 'tok-old');
+      assert(after === '200,403', `after the promotion — new, old: ${after}`);
+      const [left] = await t.execute<{ next: string | null }>(sql`select auth_token_next as next from phone_account where id = ${acct.id}`);
+      assert(left?.next === null, 'the secondary is still stored after the promotion');
+
+      // A second run at the same moment replaces our secondary before we promote: Twilio ends up on the rival's token.
+      master.createSecondaryAuthToken = async () => ((tw.secondary = 'tok-rival'), 'tok-ours');
+      const raced = await rotateManagedAuthTokens(t, deps);
+      assert(raced.rotated === 1 && (tw.primary as string) === 'tok-rival', `raced rotation: ${JSON.stringify(raced)}`);
+      const afterRace = await codes('tok-rival', 'tok-ours');
+      assert(afterRace === '200,403', `after a raced rotation — the token Twilio holds, ours: ${afterRace}`);
+      return 'stored encrypted; no/wrong signature 403, right 200; interrupted rotation: old and new 200; finished: new 200, old 403; raced: the token Twilio holds is stored';
     }),
   );
 

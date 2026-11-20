@@ -308,8 +308,9 @@ export function stubTwilioClient(): TwilioApi {
  * The platform's master account, driven with a Main API key (a Standard key is refused the Accounts
  * resource; Main keys are made only in Twilio's console). A parent's API key is refused a subaccount's
  * own resources, so the subaccount's key is made with the subaccount's SID and auth token, which Twilio
- * returns once, when the subaccount is made; it is used for that one call and never stored.
- * PROVISIONAL until tried with a real master account (Accounts and Keys v1, read 2026-11-14).
+ * returns once, when the subaccount is made. ADR 0096: that token is kept, encrypted, to check webhook
+ * signatures and to rotate it (Accounts v1 AuthTokens: a secondary made, then promoted).
+ * PROVISIONAL until tried with a real master account (Accounts and Keys v1, read 2026-11-14; AuthTokens 2026-11-20).
  */
 export interface TwilioMasterApi {
   readonly stub: boolean;
@@ -318,6 +319,14 @@ export interface TwilioMasterApi {
   createSubaccountKey(subaccountSid: string, authToken: string, friendlyName: string): Promise<{ sid: string; secret: string }>;
   /** Closed for good: Twilio releases every number on it, and it cannot be reopened. */
   closeSubaccount(subaccountSid: string): Promise<void>;
+  /** A secondary Auth Token on the subaccount (made with its current one). Twilio signs with the primary until a promotion. */
+  createSecondaryAuthToken(subaccountSid: string, authToken: string): Promise<string>;
+  /** The secondary becomes the primary; the old primary stops working at once. */
+  promoteSecondaryAuthToken(subaccountSid: string, authToken: string): Promise<void>;
+  /** Whether Twilio accepts this token for the subaccount: how a rotation interrupted mid-way tells where it stopped. */
+  authTokenWorks(subaccountSid: string, authToken: string): Promise<boolean>;
+  /** The subaccount's current primary Auth Token, read by the parent: the way back when no stored token works. */
+  subaccountAuthToken(subaccountSid: string): Promise<string>;
 }
 
 export function twilioMasterClient(creds: TwilioCreds, fetchImpl: Fetch = fetch): TwilioMasterApi {
@@ -343,6 +352,26 @@ export function twilioMasterClient(creds: TwilioCreds, fetchImpl: Fetch = fetch)
     async closeSubaccount(subaccountSid) {
       await post(`${API}/Accounts/${encodeURIComponent(subaccountSid)}.json`, master, { Status: 'closed' });
     },
+    async createSecondaryAuthToken(subaccountSid, authToken) {
+      const r = await post('https://accounts.twilio.com/v1/AuthTokens/Secondary', { authorization: basicAuth(subaccountSid, authToken) }, {});
+      const token = str(r.json?.secondary_auth_token);
+      if (!token) throw new Error('Twilio did not return the secondary auth token');
+      return token;
+    },
+    async promoteSecondaryAuthToken(subaccountSid, authToken) {
+      await post('https://accounts.twilio.com/v1/AuthTokens/Promote', { authorization: basicAuth(subaccountSid, authToken) }, {});
+    },
+    async authTokenWorks(subaccountSid, authToken) {
+      const url = `${API}/Accounts/${encodeURIComponent(subaccountSid)}.json`;
+      const r = await call(fetchImpl, 'Twilio', url, { method: 'GET', headers: { authorization: basicAuth(subaccountSid, authToken) } }, [401]);
+      return r.status !== 401;
+    },
+    async subaccountAuthToken(subaccountSid) {
+      const r = await call(fetchImpl, 'Twilio', `${API}/Accounts/${encodeURIComponent(subaccountSid)}.json`, { method: 'GET', headers: master });
+      const token = str(r.json?.auth_token);
+      if (!token) throw new Error('Twilio did not return the subaccount\'s auth token');
+      return token;
+    },
   };
 }
 
@@ -357,6 +386,16 @@ export function stubTwilioMasterClient(): TwilioMasterApi {
       return { sid: `SKstub${randomInt(0, 1e9)}`, secret: 'stub-secret' };
     },
     async closeSubaccount() {},
+    async createSecondaryAuthToken() {
+      return `stub-token-${randomInt(0, 1e9)}`;
+    },
+    async promoteSecondaryAuthToken() {},
+    async authTokenWorks() {
+      return true;
+    },
+    async subaccountAuthToken() {
+      return 'stub-token';
+    },
   };
 }
 
