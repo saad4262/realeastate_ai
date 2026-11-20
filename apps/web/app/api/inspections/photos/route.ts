@@ -5,6 +5,7 @@ import { consumerSkillBlocks, consumerSkillOffMessage } from '@repo/core/consume
 import { ensureConsumerAccount } from '../../../../lib/account';
 import { getWebDb } from '../../../../lib/db';
 import { rateLimiter } from '../../../../lib/rate-limit';
+import { apiError } from '@repo/core/http/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,7 +16,7 @@ export const dynamic = 'force-dynamic';
  * whatever the browser did — and the file goes to the PRIVATE bucket before its row is written.
  */
 const limits = rateLimiter('inspection-photos', { perMinute: 30, dailyCapEnv: 'INSPECTION_PHOTOS_DAILY_CAP', dailyCapDefault: 5000 });
-const fail = (status: number, error: string) => NextResponse.json({ error }, { status });
+const fail = (status: number, error: string) => apiError(status, error);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(request: NextRequest) {

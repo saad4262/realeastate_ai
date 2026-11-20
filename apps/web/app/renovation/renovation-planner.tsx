@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { RENOVATION_CATEGORIES, TRIGGER_LABELS, type PermitTrigger } from '@repo/core/renovation/categories';
+import { apiErrorMessage } from '@repo/core/http/api-error';
 
 type Card = { category: string; name: string; note: string; costDrivers: string[]; trades: string[] };
 type Permit = { trigger: PermitTrigger; verified: true; note: string; source: { name: string; url: string; checkedOn: string } } | { trigger: PermitTrigger; verified: false };
@@ -29,7 +30,7 @@ export function RenovationPlanner({ listing }: { listing: { id: string; state: s
     const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null);
     const data = (await res?.json().catch(() => null)) as (T & { error?: string }) | null;
     if (!res?.ok || !data) {
-      setError(data?.error ?? 'That did not work. Try again in a moment.');
+      setError(apiErrorMessage(data, 'That did not work. Try again in a moment.'));
       return null;
     }
     return data;

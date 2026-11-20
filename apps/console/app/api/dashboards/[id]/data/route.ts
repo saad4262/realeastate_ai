@@ -3,6 +3,7 @@ import { DashboardError, getDashboardData, type DashboardData } from '@repo/core
 import { getConsoleDb } from '../../../../../lib/db';
 import { loadActor } from '../../../../../lib/load-actor';
 import { actionUserId } from '../../../../../lib/auth-account';
+import { apiError } from '@repo/core/http/api-error';
 
 /**
  * A dashboard's figures, for the live page (ADR 0027 §7). The session decides
@@ -19,7 +20,7 @@ const cache = ((globalThis as { __dashboardCache?: Map<string, { at: number; dat
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = await actionUserId();
   const actor = userId ? await loadActor(userId) : null;
-  if (!actor?.agencyId) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+  if (!actor?.agencyId) return apiError(401, 'Not signed in');
   const { id } = await params;
   const key = `${actor.userId}:${id}`;
   let data = cache.get(key);
@@ -27,7 +28,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     try {
       data = { at: Date.now(), data: await getDashboardData(getConsoleDb(), actor, id) };
     } catch (err) {
-      if (err instanceof DashboardError) return NextResponse.json({ error: err.message }, { status: 404 });
+      if (err instanceof DashboardError) return apiError(404, err.message);
       throw err;
     }
     cache.set(key, data);

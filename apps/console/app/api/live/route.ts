@@ -4,6 +4,7 @@ import { touchLastSeen } from '@repo/core/platform';
 import { getConsoleDb } from '../../../lib/db';
 import { loadListingActor } from '../../../lib/load-actor';
 import { actionUserId } from '../../../lib/auth-account';
+import { apiError } from '@repo/core/http/api-error';
 
 /**
  * The open console's "anything new?" (ADR 0035, instant delivery) — a stamp,
@@ -38,7 +39,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const userId = await actionUserId();
-  if (!userId) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+  if (!userId) return apiError(401, 'Not signed in');
   if (dueForSeen(userId)) await touchLastSeen(getConsoleDb(), userId).catch(() => undefined);
   try {
     const actor = await loadListingActor(userId);
