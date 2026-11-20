@@ -266,6 +266,18 @@ describe('resendTransport', () => {
     expect(calls).toBe(1);
   });
 
+  it('PLATFORM-PLAN 3.6: waits as long as Resend asks on a 429, and gives up at once when it asks for more than 5 s', async () => {
+    const answers = [new Response('slow down', { status: 429, headers: { 'retry-after': '1' } }), new Response(JSON.stringify({ id: 'msg_4' }), { status: 200 })];
+    const polite = resendTransport({ apiKey: 'k', retryDelaysMs: [0, 0], fetchImpl: (async () => answers.shift()!) as unknown as typeof fetch });
+    const started = Date.now();
+    expect(await polite.send(buildScheduleDigestEmail(BASE))).toEqual({ ok: true, id: 'msg_4' });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(950);
+    let calls = 0;
+    const longWait = resendTransport({ apiKey: 'k', retryDelaysMs: [0, 0], fetchImpl: (async () => (calls++, new Response('later', { status: 429, headers: { 'retry-after': '60' } }))) as unknown as typeof fetch });
+    expect(await longWait.send(buildScheduleDigestEmail(BASE))).toMatchObject({ ok: false, retryable: true });
+    expect(calls).toBe(1);
+  });
+
   it('treats a network failure as retryable rather than throwing', async () => {
     const transport = resendTransport({
       apiKey: 'k',

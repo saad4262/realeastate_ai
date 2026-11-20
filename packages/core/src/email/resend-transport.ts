@@ -52,13 +52,16 @@ export function resendTransport(opts: {
         if (!r.ok && r.retryable && tries > 0) downUntil = Date.now() + 30_000;
         return r.ok ? r : { ok: false, error: r.error, retryable: r.retryable };
       }
-      await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+      // Resend says how long to wait on a 429: longer than 5 s is an outage for this call, not a pause.
+      const wait = Math.max(delays[attempt]!, 'retryAfterMs' in r ? (r.retryAfterMs as number) : 0);
+      if (wait > 5000) return { ok: false, error: r.error, retryable: true };
+      await new Promise((resolve) => setTimeout(resolve, wait));
     }
   }
 
   return { send };
 
-  async function sendOnce(message: EmailMessage): Promise<SendResult | { ok: false; error: string; retryable: true; timedOut: true }> {
+  async function sendOnce(message: EmailMessage): Promise<SendResult | { ok: false; error: string; retryable: true; timedOut: true } | { ok: false; error: string; retryable: boolean; retryAfterMs?: number }> {
     const threadingHeaders = message.threading
       ? {
           'In-Reply-To': message.threading.inReplyTo,
@@ -137,6 +140,8 @@ export function resendTransport(opts: {
         // 429 and 5xx are the provider's problem. 4xx is ours, and repeating
         // it just tells them we are not listening.
         retryable: response.status === 429 || response.status >= 500,
+        // PLATFORM-PLAN 3.6: Resend's own wait on a 429 (10 requests a second), honoured by the retry below.
+        ...(response.status === 429 ? { retryAfterMs: Number(response.headers.get('retry-after')) * 1000 || 0 } : {}),
       };
     }
 

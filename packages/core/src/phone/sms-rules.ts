@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { and, count, eq, gt, inArray, sql } from 'drizzle-orm';
 import { agency, missedCallSetting, phoneNumber, smsMessage, type DbOrTx } from '@repo/db';
 import { isAuMobile, toAuE164 } from './format';
@@ -26,6 +27,16 @@ export const BULK_TEXT_KIND = 'bulk_sms';
 export function readSmsHours(v: unknown): SmsHours {
   if (Array.isArray(v) && v.length === 2 && v.every((n) => Number.isInteger(n)) && v[0] >= 0 && v[1] <= 24 && v[0] < v[1]) return [v[0], v[1]];
   return DEFAULT_SMS_HOURS;
+}
+
+/**
+ * PLATFORM-PLAN 3.6: a moment the system picked (sends held overnight, carried on "at 9") moved by a fixed
+ * 0–`minutes` offset for this key (the agency), so every agency's held sends do not land on the same tick.
+ * The same key always gets the same offset. Never for a time a person chose.
+ */
+export function spreadOpening(at: Date, key: string, minutes = 5): Date {
+  const n = createHash('sha256').update(key).digest().readUInt32BE(0);
+  return new Date(at.getTime() + (n % (minutes * 60)) * 1000);
 }
 
 /** The first instant at or after `t` inside the sending hours (`t` itself when inside them). */
