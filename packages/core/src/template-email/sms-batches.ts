@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, gt, inArray, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, sql } from 'drizzle-orm';
 import {
   activity,
   contact,
@@ -265,6 +265,13 @@ export async function approveSmsBatch(db: DbOrTx, actor: Actor, id: string, now 
 export type SmsSendDeps = { phone: PhoneDeps; env?: NodeJS.ProcessEnv };
 export type SmsSendReport = { sent: number; failed: number; skipped: number; held: boolean };
 
+/**
+ * PLATFORM-PLAN 3.3: the most people one call of `sendSmsBatch` takes. Approve, a workflow step and a recurring
+ * send text the first slice at once; the minute tick carries the rest, a slice per agency per round, so one big
+ * batch never holds up every other agency's 9 am texts (nor a request or a tick past its time).
+ */
+export const SMS_SLICE = 20;
+
 type Claimed = { id: string; contact_id: string; name: string; phone: string | null; phone_number_id: string | null; sms_message_id: string | null };
 
 async function claimNext(db: Db, batchId: string): Promise<Claimed | null> {
@@ -295,7 +302,7 @@ async function roleOf(db: DbOrTx, agencyId: string, userId: string): Promise<Mem
  * left queued — so outside the sending hours it sends nothing and reports `held`. Each person is claimed on
  * their own (FOR UPDATE SKIP LOCKED): two loops never text anyone twice. A retry re-sends the SAME text row.
  */
-export async function sendSmsBatch(db: Db, deps: SmsSendDeps, batchId: string, now: () => Date = () => new Date()): Promise<SmsSendReport> {
+export async function sendSmsBatch(db: Db, deps: SmsSendDeps, batchId: string, now: () => Date = () => new Date(), max = SMS_SLICE): Promise<SmsSendReport> {
   const report: SmsSendReport = { sent: 0, failed: 0, skipped: 0, held: false };
   const [batch] = await db.select().from(emailBatch).where(eq(emailBatch.id, batchId)).limit(1);
   if (!batch || batch.channel !== 'sms' || batch.status !== 'approved_sending') return report;
@@ -308,7 +315,7 @@ export async function sendSmsBatch(db: Db, deps: SmsSendDeps, batchId: string, n
   const allowed = smsDevAllowlist(env);
   const skillOn = new Map<string, boolean>();
 
-  for (;;) {
+  while (report.sent + report.failed + report.skipped < max) {
     // Rule 3, checked before each person: a batch that runs into 8 pm stops there and carries on at 9.
     if (!inSmsHours(now(), rules.hours, rules.timeZone)) {
       report.held = true;
@@ -392,31 +399,39 @@ export async function sendSmsBatch(db: Db, deps: SmsSendDeps, batchId: string, n
 
 /**
  * The minute tick: approved SMS batches with people still queued — held for the sending hours, or left by a
- * crash or timeout. Not for a suspended agency, nor for a member who is no longer active.
+ * crash, a timeout or the slice. Not for a suspended agency, nor for a member who is no longer active.
+ * PLATFORM-PLAN 3.3, fair by agency: each round takes one batch per agency (its oldest), the agencies served
+ * longest ago first, and texts at most `perBatch` from each. `more` while anyone is still queued.
  */
-export async function resumeSmsBatches(db: Db, deps: SmsSendDeps, limit = 5, now: () => Date = () => new Date()): Promise<SmsSendReport & { batches: number }> {
-  const due = await db
-    .select({ id: emailBatch.id })
-    .from(emailBatch)
-    .where(
-      and(
-        eq(emailBatch.channel, 'sms'),
-        eq(emailBatch.status, 'approved_sending'),
-        lt(emailBatch.approvedAt, sql`now() - interval '1 minute'`),
-        sql`exists (select 1 from email_batch_recipient r where r.batch_id = ${emailBatch.id} and r.status = 'queued')`,
-        sql`${emailBatch.agencyId} not in ${SENDS_HELD_AGENCY_IDS}`,
-        sql`exists (select 1 from membership bm where bm.user_id = ${emailBatch.userId} and bm.agency_id = ${emailBatch.agencyId} and bm.status = 'active')`,
-      ),
-    )
-    .orderBy(asc(emailBatch.approvedAt))
-    .limit(limit);
-  const total = { sent: 0, failed: 0, skipped: 0, held: false, batches: due.length };
+export async function resumeSmsBatches(
+  db: Db,
+  deps: SmsSendDeps,
+  opts: { agencies?: number; perBatch?: number } = {},
+  now: () => Date = () => new Date(),
+): Promise<SmsSendReport & { batches: number; more: boolean }> {
+  const agencies = opts.agencies ?? 20;
+  const due = await db.execute<{ id: string }>(sql`
+    select id from (
+      select distinct on (b.agency_id) b.id, b.approved_at,
+        (select max(r.updated_at) from email_batch_recipient r where r.batch_id = b.id and r.status <> 'queued') as served_at
+      from email_batch b
+      where b.channel = 'sms' and b.status = 'approved_sending' and b.approved_at < now() - interval '1 minute'
+        and exists (select 1 from email_batch_recipient r where r.batch_id = b.id and r.status = 'queued')
+        and b.agency_id not in ${SENDS_HELD_AGENCY_IDS}
+        and exists (select 1 from membership bm where bm.user_id = b.user_id and bm.agency_id = b.agency_id and bm.status = 'active')
+      order by b.agency_id, b.approved_at
+    ) per_agency
+    order by served_at asc nulls first, approved_at
+    limit ${agencies}`);
+  const total = { sent: 0, failed: 0, skipped: 0, held: false, batches: due.length, more: false };
   for (const b of due) {
-    const r = await sendSmsBatch(db, deps, b.id, now);
+    const r = await sendSmsBatch(db, deps, b.id, now, opts.perBatch ?? 5);
     total.sent += r.sent;
     total.failed += r.failed;
     total.skipped += r.skipped;
     total.held ||= r.held;
   }
+  // Another round only if this one moved someone: a batch held for its agency's hours moves nobody.
+  total.more = total.sent + total.failed + total.skipped > 0;
   return total;
 }
