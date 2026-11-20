@@ -39,7 +39,6 @@ export function AuthShell({
           <div>
             <div className={styles.brandTitle}>
               LocalAgentHub OS
-              <span className={styles.versionPill}>v4.8 Core Active</span>
             </div>
             <div className={styles.brandSub}>Antipodean Agency Operating System</div>
           </div>
@@ -75,7 +74,6 @@ export function AuthShell({
 
           <div className={styles.badges}>
             {/* O-38: no security or compliance claim we cannot back (it was ISO 27001, 256-bit AES, NSW Act compliant, 14 ms). */}
-            <p className={styles.sessionMeta}>Session edge · LocalAgentHub OS · AU-NSW</p>
           </div>
         </div>
       </main>

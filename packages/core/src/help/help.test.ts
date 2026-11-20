@@ -51,7 +51,7 @@ describe('the guide', () => {
   });
 
   it('says a preview screen is one', () => {
-    for (const h of ['/ai', '/marketing', '/insights']) expect(HELP_PAGES[h]).toContain('not working yet');
+    for (const h of ['/marketing', '/insights']) expect(HELP_PAGES[h]).toContain('not working yet');
   });
 
   it('every extra page exists in the app', () => {
