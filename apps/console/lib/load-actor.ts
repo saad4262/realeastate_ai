@@ -30,6 +30,11 @@ export type ActorContext = {
    */
   blocked?: AccessBlock;
   /**
+   * PLATFORM-PLAN 3.7: the agency's sends are paused (a spike, or by hand). `mayResume` is can()'s answer for
+   * this actor, so the banner offers the button only to whoever the server would let press it.
+   */
+  sendsPaused: { reason: string | null; mayResume: boolean } | null;
+  /**
    * Counts for the console header. Sub-selected in the same statement so the
    * chrome still costs one round trip, and every figure comes from SQL —
    * the header used to show invented market stats.
@@ -82,6 +87,8 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
       agencyStatus: agency.status,
       agencyName: agency.name,
       agencySlug: agency.slug,
+      sendsPausedAt: agency.sendsPausedAt,
+      sendsPausedReason: agency.sendsPausedReason,
       userName: user.name,
       members: sql<number>`(
         select count(*) from membership m2
@@ -154,6 +161,7 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
       agencyName: null,
       agencySlug: null,
       userName: null,
+      sendsPaused: null,
       summary: empty,
       ...(blocked ? { blocked } : {}),
     };
@@ -185,6 +193,9 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
     agencyName: mem.agencyName,
     agencySlug: mem.agencySlug,
     userName: mem.userName,
+    sendsPaused: mem.sendsPausedAt
+      ? { reason: mem.sendsPausedReason, mayResume: can(actor, 'sends:resume', { type: 'agency', agencyId: mem.agencyId }) }
+      : null,
     summary: {
       members: Number(mem.members ?? 0),
       liveListings: Number(mem.liveListings ?? 0),

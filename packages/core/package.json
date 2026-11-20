@@ -111,6 +111,7 @@
     "./open-query": "./src/open-query/index.ts",
     "./platform": "./src/platform/index.ts",
     "./platform/access": "./src/platform/access.ts",
+    "./safety": "./src/safety/spikes.ts",
     "./activity": "./src/activity/index.ts",
     "./documents": "./src/documents/index.ts",
     "./documents/schema": "./src/documents/document-schema.ts",
