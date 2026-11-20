@@ -10060,6 +10060,28 @@ async function main() {
     }),
   );
 
+  group('Data layout (PLATFORM-PLAN 1.12, 1.13)');
+  await check('1.12: uuid_v7() gives version 7, RFC variant, the current millisecond, in order; the growing tables use it', async () => {
+    const [v] = await db.execute<{ version: string; variant_ok: boolean; skew_ms: number; ordered: boolean }>(sql`
+      with x as (select public.uuid_v7() as a, pg_sleep(0.002), public.uuid_v7() as b)
+      select substr(a::text, 15, 1) as version, substr(a::text, 20, 1) in ('8', '9', 'a', 'b') as variant_ok,
+        abs(extract(epoch from clock_timestamp()) * 1000 - ('x' || lpad(replace(left(a::text, 13), '-', ''), 16, '0'))::bit(64)::bigint)::int as skew_ms,
+        a < b as ordered from x`);
+    assert(v!.version === '7' && v!.variant_ok && v!.skew_ms < 5000 && v!.ordered, `uuid_v7(): ${JSON.stringify(v)}`);
+    const want = ['site_activity', 'lead', 'contact', 'mail_message', 'sms_message', 'activity', 'notification', 'job', 'ai_run'];
+    const rows = await db.execute<{ t: string }>(sql`select table_name::text as t from information_schema.columns
+      where table_schema = 'public' and column_name = 'id' and column_default = 'uuid_v7()'`);
+    const missing = want.filter((t) => !rows.some((r) => r.t === t));
+    assert(missing.length === 0, `id default is not uuid_v7() on: ${missing.join(', ')}`);
+    return `version 7, skew ${v!.skew_ms} ms, ordered; ${rows.length} tables default to it`;
+  });
+  await check('1.13: no index is left INVALID (an interrupted concurrent build is dropped and rebuilt, never skipped)', async () => {
+    const rows = await db.execute<{ name: string }>(sql`select c.relname::text as name from pg_index i join pg_class c on c.oid = i.indexrelid
+      where not i.indisvalid and c.relnamespace = 'public'::regnamespace`);
+    assert(rows.length === 0, `invalid: ${rows.map((r) => r.name).join(', ')} — run db:concurrent-indexes on its migration`);
+    return 'every index valid';
+  });
+
   // -------------------------------------------------------- platform admin --
   group('Platform admin');
 

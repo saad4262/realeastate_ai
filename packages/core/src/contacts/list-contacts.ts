@@ -1,6 +1,6 @@
 import { and, desc, eq, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
-import { contact, user, type Db } from '@repo/db';
+import { contact, contactSearchText, user, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import {
   CONTACT_PAGE_SIZE,
@@ -93,12 +93,8 @@ export function contactQueryFilters(actor: Actor, query: Partial<ContactListQuer
     const key = auPhoneKey(q);
     filters.push(
       or(
-        sql`${contact.name} ilike ${pattern}`,
-        sql`${contact.email} ilike ${pattern}`,
-        sql`${contact.phone} ilike ${pattern}`,
-        // ADR 0079: "Parramatta" finds the people who live there.
-        sql`${contact.addressSuburb} ilike ${pattern}`,
-        sql`${contact.addressLine} ilike ${pattern}`,
+        // Name, email, phone, and (ADR 0079) suburb and street: "Parramatta" finds the people who live there. Trigram-indexed.
+        sql`${contactSearchText(contact)} ilike ${pattern}`,
         ...(key ? [eq(contact.phoneKey, key)] : []),
       )!,
     );

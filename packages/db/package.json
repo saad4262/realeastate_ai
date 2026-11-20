@@ -22,7 +22,9 @@
     "db:reset": "tsx src/reset.ts",
     "db:platform-admin": "tsx src/platform-admin.ts",
     "db:census": "tsx src/census-load.ts",
-    "db:zones": "tsx src/zones-load.ts"
+    "db:zones": "tsx src/zones-load.ts",
+    "db:concurrent-indexes": "tsx src/concurrent-indexes.ts",
+    "db:slow-queries": "tsx src/slow-queries.ts"
   },
   "dependencies": {
     "@repo/config": "workspace:*",

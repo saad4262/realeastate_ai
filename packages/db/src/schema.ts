@@ -1,4 +1,4 @@
-import { desc, sql } from 'drizzle-orm';
+import { desc, sql, type AnyColumn } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   boolean,
@@ -567,7 +567,7 @@ export const mediaEmbedding = pgTable(
 export const listingPriceChange = pgTable(
   'listing_price_change',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     listingId: uuid('listing_id')
       .notNull()
       .references(() => listing.id, { onDelete: 'cascade' }),
@@ -617,7 +617,7 @@ export const inspection = pgTable('inspection', {
 export const lead = pgTable(
   'lead',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     propertyId: uuid('property_id')
       .notNull()
       .references(() => property.id, { onDelete: 'restrict' }),
@@ -762,7 +762,7 @@ export const mailThread = pgTable(
 export const mailMessage = pgTable(
   'mail_message',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     threadId: uuid('thread_id')
       .notNull()
       .references(() => mailThread.id, { onDelete: 'cascade' }),
@@ -917,7 +917,7 @@ export const teamThreadMember = pgTable(
 export const teamMessage = pgTable(
   'team_message',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     threadId: uuid('thread_id')
       .notNull()
       .references(() => teamThread.id, { onDelete: 'cascade' }),
@@ -979,6 +979,13 @@ export const contactPropertyRelationEnum = pgEnum('contact_property_relation', [
 export const activityActorTypeEnum = pgEnum('activity_actor_type', ['user', 'system', 'skill', 'ai']);
 
 /**
+ * The text the contacts directory searches (ADR 0079): name, email, phone, suburb and street. One expression, so one
+ * trigram index (PLATFORM-PLAN 1.12) serves the search; the query must use this same function for the index to apply.
+ */
+export const contactSearchText = (c: Record<'name' | 'email' | 'phone' | 'addressSuburb' | 'addressLine', AnyColumn>) =>
+  sql`(coalesce(${c.name}, '') || ' ' || coalesce(${c.email}, '') || ' ' || coalesce(${c.phone}, '') || ' ' || coalesce(${c.addressSuburb}, '') || ' ' || coalesce(${c.addressLine}, ''))`;
+
+/**
  * One person the agency deals with, whatever they are to it (ADR 0018).
  *
  * Per agency, deliberately: the same buyer approaching two agencies is two
@@ -996,7 +1003,7 @@ export const activityActorTypeEnum = pgEnum('activity_actor_type', ['user', 'sys
 export const contact = pgTable(
   'contact',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     agencyId: uuid('agency_id')
       .notNull()
       .references(() => agency.id, { onDelete: 'cascade' }),
@@ -1073,6 +1080,7 @@ export const contact = pgTable(
     index('contact_agency_phone_key_idx').on(t.agencyId, t.phoneKey),
     index('contact_agency_assigned_idx').on(t.agencyId, t.assignedTo),
     index('contact_agency_created_idx').on(t.agencyId, desc(t.createdAt)),
+    index('contact_search_trgm_idx').using('gin', sql`${contactSearchText(t)} extensions.gin_trgm_ops`),
   ],
 );
 
@@ -1169,7 +1177,7 @@ export const buyerRequirement = pgTable(
 export const note = pgTable(
   'note',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     agencyId: uuid('agency_id')
       .notNull()
       .references(() => agency.id, { onDelete: 'cascade' }),
@@ -1215,7 +1223,7 @@ export const note = pgTable(
 export const activity = pgTable(
   'activity',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     agencyId: uuid('agency_id')
       .notNull()
       .references(() => agency.id, { onDelete: 'cascade' }),
@@ -1400,7 +1408,7 @@ export type CalendarConflict = { startsAt: string | null; endsAt: string | null;
 export const notification = pgTable(
   'notification',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     userId: uuid('user_id')
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
@@ -1765,7 +1773,7 @@ export const chatThread = pgTable(
 export const chatMessage = pgTable(
   'chat_message',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     threadId: uuid('thread_id')
       .notNull()
       .references(() => chatThread.id, { onDelete: 'cascade' }),
@@ -1858,7 +1866,7 @@ export const propertyWatch = pgTable(
 export const propertyWatchEvent = pgTable(
   'property_watch_event',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     userId: uuid('user_id')
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
@@ -2053,7 +2061,7 @@ export const buyerAutomation = pgTable(
 export const automationEvent = pgTable(
   'automation_event',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     automationId: uuid('automation_id')
       .notNull()
       .references(() => buyerAutomation.id, { onDelete: 'cascade' }),
@@ -2084,7 +2092,7 @@ export const automationEvent = pgTable(
 export const guideMessage = pgTable(
   'guide_message',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     userId: uuid('user_id')
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
@@ -2107,7 +2115,7 @@ export const event = pgTable('event', {
 });
 
 export const aiRun = pgTable('ai_run', {
-  id: uuid('id').primaryKey().defaultRandom(),
+  id: uuid('id').primaryKey().default(sql`uuid_v7()`),
   feature: varchar('feature', { length: 128 }).notNull(),
   model: varchar('model', { length: 128 }).notNull(),
   inputTokens: integer('input_tokens'),
@@ -2425,7 +2433,7 @@ export const dealCondition = pgTable(
 export const dealEvent = pgTable(
   'deal_event',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     dealId: uuid('deal_id')
       .notNull()
       .references(() => deal.id, { onDelete: 'cascade' }),
@@ -2587,7 +2595,7 @@ export const emailRecipientStatusEnum = pgEnum('email_recipient_status', [
 export const emailBatchRecipient = pgTable(
   'email_batch_recipient',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     batchId: uuid('batch_id')
       .notNull()
       .references(() => emailBatch.id, { onDelete: 'cascade' }),
@@ -2675,7 +2683,7 @@ export const assistantConversation = pgTable(
 export const assistantTurn = pgTable(
   'assistant_turn',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     conversationId: uuid('conversation_id')
       .notNull()
       .references(() => assistantConversation.id, { onDelete: 'cascade' }),
@@ -2773,7 +2781,7 @@ export const automation = pgTable(
 export const automationRun = pgTable(
   'automation_run',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     automationId: uuid('automation_id')
       .notNull()
       .references(() => automation.id, { onDelete: 'cascade' }),
@@ -2849,7 +2857,7 @@ export const workflow = pgTable(
 export const workflowEvent = pgTable(
   'workflow_event',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     agencyId: uuid('agency_id')
       .notNull()
       .references(() => agency.id, { onDelete: 'cascade' }),
@@ -2889,7 +2897,7 @@ export const workflowEvent = pgTable(
 export const workflowRun = pgTable(
   'workflow_run',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     workflowId: uuid('workflow_id')
       .notNull()
       .references(() => workflow.id, { onDelete: 'cascade' }),
@@ -2934,7 +2942,7 @@ export const workflowRun = pgTable(
 export const proposedAction = pgTable(
   'proposed_action',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     agencyId: uuid('agency_id')
       .notNull()
       .references(() => agency.id, { onDelete: 'cascade' }),
@@ -3296,7 +3304,7 @@ export const phoneNumber = pgTable(
 export const smsMessage = pgTable(
   'sms_message',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     agencyId: uuid('agency_id')
       .notNull()
       .references(() => agency.id, { onDelete: 'cascade' }),
@@ -3367,7 +3375,7 @@ export const smsOptOut = pgTable(
 export const phoneCall = pgTable(
   'phone_call',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     agencyId: uuid('agency_id')
       .notNull()
       .references(() => agency.id, { onDelete: 'cascade' }),
@@ -3519,7 +3527,7 @@ export const agencyGooglePlace = pgTable(
 export const searchEmbedding = pgTable(
   'search_embedding',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     agencyId: uuid('agency_id')
       .notNull()
       .references(() => agency.id, { onDelete: 'cascade' }),
@@ -3606,7 +3614,7 @@ export const document = pgTable(
 export const documentChunk = pgTable(
   'document_chunk',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     documentId: uuid('document_id')
       .notNull()
       .references(() => document.id, { onDelete: 'cascade' }),
@@ -3641,7 +3649,7 @@ export const documentChunk = pgTable(
 export const opportunity = pgTable(
   'opportunity',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     agencyId: uuid('agency_id')
       .notNull()
       .references(() => agency.id, { onDelete: 'cascade' }),
@@ -3697,7 +3705,7 @@ export const platformAdmin = pgTable('platform_admin', {
 export const platformViewLog = pgTable(
   'platform_view_log',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     adminUserId: uuid('admin_user_id')
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
@@ -3724,7 +3732,7 @@ export const platformViewLog = pgTable(
 export const job = pgTable(
   'job',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     agencyId: uuid('agency_id').references(() => agency.id, { onDelete: 'cascade' }),
     kind: varchar('kind', { length: 48 }).notNull(),
     lane: varchar('lane', { length: 12 }).notNull().default('send'),
@@ -3758,7 +3766,7 @@ export const job = pgTable(
 export const auditLog = pgTable(
   'audit_log',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     agencyId: uuid('agency_id')
       .notNull()
       .references(() => agency.id, { onDelete: 'cascade' }),
@@ -3809,7 +3817,7 @@ export const platformAction = pgTable(
 export const siteActivity = pgTable(
   'site_activity',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
     /** `search` or `listing_view`. */
     kind: varchar('kind', { length: 16 }).notNull(),
