@@ -14,8 +14,7 @@ import {
   nextSmsTime,
   readSmsHours,
   smsDevAllowlist,
-  smsSkipReason,
-} from './sms-rules';
+  smsSkipReason, spreadOpening } from './sms-rules';
 
 /** ADR 0074 part 2: the five SMS rules (the user's answers, 2026-11-02) and the workflow step "Send SMS". */
 
@@ -141,5 +140,15 @@ describe('an SMS batch never goes out as email', () => {
     expect(send).toMatch(/batch\.channel !== 'email'/);
     expect(send).toMatch(/eq\(emailBatch\.channel, 'email'\)/);
     expect(batches).toMatch(/if \(b\.channel !== 'email'\) throw/);
+  });
+});
+
+describe('PLATFORM-PLAN 3.6: held sends spread over the first minutes', () => {
+  it('moves a system-picked opening by a fixed 0–5 minute offset per agency', () => {
+    const nine = new Date('2026-11-23T22:00:00Z');
+    const offsets = Array.from({ length: 50 }, (_, i) => spreadOpening(nine, `agency-${i}`).getTime() - nine.getTime());
+    expect(offsets.every((o) => o >= 0 && o < 5 * 60_000)).toBe(true);
+    expect(new Set(offsets).size).toBeGreaterThan(30);
+    expect(spreadOpening(nine, 'agency-7')).toEqual(spreadOpening(nine, 'agency-7'));
   });
 });

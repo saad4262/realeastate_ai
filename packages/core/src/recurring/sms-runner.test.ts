@@ -59,7 +59,9 @@ describe('the bulk SMS runner', () => {
     const at = new Date('2026-11-09T22:00:00Z');
     nextSmsTime.mockReturnValue(at);
     const r = await runner.send({} as Db, actor, spec, ['c1'], deps, NOW);
-    expect(r.retryAt).toEqual(at);
+    // At the opening, spread over its first 5 minutes by agency (PLATFORM-PLAN 3.6).
+    const after = r.retryAt!.getTime() - at.getTime();
+    expect(after >= 0 && after < 5 * 60_000).toBe(true);
     expect(storePreparedSmsBatch).not.toHaveBeenCalled();
   });
   it('nobody left in a slice: nothing is prepared', async () => {
