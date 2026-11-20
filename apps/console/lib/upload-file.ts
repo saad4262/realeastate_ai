@@ -33,6 +33,45 @@ export async function imageDimensions(
   }
 }
 
+/** Long edges for each kind of upload (PLATFORM-PLAN 5.8): sharp on a big screen, far under the 10 MB ceiling. */
+export const MAX_EDGE = { listingPhoto: 2560, floorplan: 3000, portrait: 1024 } as const;
+
+/**
+ * PLATFORM-PLAN 5.8: a photo is redrawn before it is uploaded: at most `maxEdge` pixels on its long side (never
+ * enlarged), upright, and re-encoded, which leaves its EXIF behind (GPS position, camera, time taken). PNG stays
+ * PNG, so a floorplan keeps its sharp lines; anything else becomes JPEG on white.
+ * shortcut: a file this browser cannot decode (HEIC in Chrome) goes up as it is, metadata included; strip it on
+ * the server if such uploads become common.
+ */
+export async function prepareImage(file: File, maxEdge: number): Promise<File> {
+  try {
+    if (typeof createImageBitmap !== 'function' || !file.type.startsWith('image/')) return file;
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      bitmap.close();
+      return file;
+    }
+    const type = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+    if (type === 'image/jpeg') {
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, 0.85));
+    if (!blob || blob.type !== type) return file;
+    const name = type === 'image/png' ? file.name : `${file.name.replace(/\.[^.]+$/, '')}.jpg`;
+    return new File([blob], name, { type, lastModified: file.lastModified });
+  } catch {
+    return file;
+  }
+}
+
 /**
  * PUT the bytes.
  *

@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState, useTransition, type ChangeEvent, type FormEvent } from 'react';
 import { addListingLinkAction, attachListingFloorplanAction, removeListingExtraAction, signListingPhotoUploadAction } from '../lib/media-actions';
-import { imageDimensions, putSignedUpload } from '../lib/upload-file';
+import { imageDimensions, MAX_EDGE, prepareImage, putSignedUpload } from '../lib/upload-file';
 import styles from './listing-extras.module.css';
 
 /**
@@ -18,12 +18,13 @@ export function ListingExtras({ listingId, items }: { listingId: string; items: 
   const [link, setLink] = useState('');
 
   function onPick(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
+    const picked = event.target.files?.[0];
     event.target.value = '';
-    if (!file) return;
+    if (!picked) return;
     setError(null);
     start(async () => {
       try {
+        const file = await prepareImage(picked, MAX_EDGE.floorplan);
         const signed = await signListingPhotoUploadAction(listingId, { type: file.type, size: file.size });
         if (!signed.ok) return setError(signed.error);
         const dimensions = await imageDimensions(file);

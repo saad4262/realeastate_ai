@@ -3,7 +3,7 @@
 import { useState, useTransition, type ChangeEvent } from 'react';
 import { mediaUrl } from '@repo/core/media/url';
 import { signOnboardingPhotoUploadAction } from '../../../../lib/media-actions';
-import { putSignedUpload } from '../../../../lib/upload-file';
+import { MAX_EDGE, prepareImage, putSignedUpload } from '../../../../lib/upload-file';
 import styles from './wizard.module.css';
 
 /**
@@ -52,14 +52,15 @@ export function PhotoField({
   const preview = uploaded ?? photoUrl;
 
   function onPick(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
+    const picked = event.target.files?.[0];
     // Cleared immediately so picking the same file twice still fires.
     event.target.value = '';
-    if (!file) return;
+    if (!picked) return;
 
     setError(null);
     start(async () => {
       try {
+        const file = await prepareImage(picked, MAX_EDGE.portrait);
         const signed = await signOnboardingPhotoUploadAction({
           type: file.type,
           size: file.size,
