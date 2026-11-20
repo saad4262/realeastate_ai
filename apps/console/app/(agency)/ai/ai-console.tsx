@@ -57,8 +57,7 @@ export function AiConsole({ agencyName }: { agencyName: string | null }) {
           </div>
           <p className={styles.sub}>
             Ingesting <strong>148 data points/sec</strong> · Agency Model:{' '}
-            <strong>GPT-RealEstate-2030</strong> · Trust &amp; Privacy Guardrails Active (NSW Fair
-            Trading &amp; REINSW Compliant)
+            <strong>GPT-RealEstate-2030</strong> · Trust &amp; Privacy Guardrails Active
           </p>
         </div>
         <div className={styles.telemetry}>

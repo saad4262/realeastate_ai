@@ -74,49 +74,6 @@
   color: var(--text-muted);
 }
 
-.headerRight {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.statusPill {
-  display: none;
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.25rem 0.625rem;
-  border-radius: 9999px;
-  background: var(--emerald-subtle);
-  border: 1px solid color-mix(in srgb, var(--emerald) 20%, transparent);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--emerald);
-}
-
-@media (min-width: 640px) {
-  .statusPill {
-    display: inline-flex;
-  }
-}
-
-.pulse {
-  width: 6px;
-  height: 6px;
-  border-radius: 9999px;
-  background: var(--emerald);
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
-}
-
 .main {
   flex: 1;
   display: flex;
@@ -510,22 +467,6 @@
 .badges {
   margin-top: 1.5rem;
   text-align: center;
-}
-
-.badgeRow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 0.375rem 0.75rem;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.badgeItem {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
 }
 
 .sessionMeta {
