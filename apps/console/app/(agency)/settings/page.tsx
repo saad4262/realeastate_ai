@@ -18,6 +18,10 @@ export default function SettingsPage() {
           <Link href="/settings/reviews" className={contactStyles.name}>Google reviews →</Link>
           <p className={contactStyles.note}>Find your agency’s Google listing; its rating and reviews show on your live listings.</p>
         </div>
+        <div className={contactStyles.section}>
+          <Link href="/settings/audit" className={contactStyles.name}>Audit log →</Link>
+          <p className={contactStyles.note}>Who changed the team, sent invites, deleted listings or resumed sends, and when. Owners and admins.</p>
+        </div>
       </div>
     </div>
   );
