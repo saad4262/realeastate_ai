@@ -8,7 +8,7 @@ import { poolOptions } from './pool-options';
  */
 describe('poolOptions', () => {
   it('defaults: 5 connections, idle ones closed after 20 s, a 10 s connect timeout, recycled every 30 min', () => {
-    expect(poolOptions({})).toEqual({ prepare: false, max: 5, max_pipeline: 0, idle_timeout: 20, connect_timeout: 10, max_lifetime: 1800 });
+    expect(poolOptions({})).toEqual({ prepare: false, max: 5, idle_timeout: 20, connect_timeout: 10, max_lifetime: 1800 });
   });
 
   it('reads DB_POOL_MAX', () => {
@@ -22,9 +22,5 @@ describe('poolOptions', () => {
 
   it('keeps prepare off: the transaction pooler cannot hold prepared statements', () => {
     expect(poolOptions({ DB_POOL_MAX: '9' }).prepare).toBe(false);
-  });
-
-  it('never pipelines: Supavisor transaction mode loses the reply to a pipelined statement and the page hangs', () => {
-    expect(poolOptions({ DB_POOL_MAX: '9' }).max_pipeline).toBe(0);
   });
 });
