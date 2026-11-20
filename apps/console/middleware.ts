@@ -37,13 +37,8 @@ export function isAdminPath(pathname: string): boolean {
 function withSurface(
   response: NextResponse,
   surface: ConsoleSurface,
-  cookieDomain: string | undefined,
 ) {
   response.headers.set('x-console-surface', surface);
-  response.cookies.set('console-surface', surface, {
-    path: '/',
-    ...(cookieDomain ? { domain: cookieDomain } : {}),
-  });
   return response;
 }
 
@@ -108,13 +103,13 @@ export async function middleware(request: NextRequest) {
   // Escape hatch for UI mocks only — keep off for real sessions
   if (uiPreview) {
     let response = NextResponse.next({ request: { headers: requestHeaders } });
-    response = withSurface(response, surface, cookieDomain);
+    response = withSurface(response, surface);
 
     if (pathname === '/') {
       const dest = request.nextUrl.clone();
       dest.pathname = homePath(surface);
       const redirect = NextResponse.redirect(dest);
-      return withSurface(redirect, surface, cookieDomain);
+      return withSurface(redirect, surface);
     }
     return response;
   }
@@ -127,15 +122,14 @@ export async function middleware(request: NextRequest) {
   try {
     const session = await updateSession(request, requestHeaders);
     // Auth unreachable: 503, never /login — the person is still signed in (PLATFORM-PLAN 1.1).
-    if (session.unavailable && !isPublic) return withSurface(authUnavailableResponse(request), surface, cookieDomain);
+    if (session.unavailable && !isPublic) return withSurface(authUnavailableResponse(request), surface);
     userId = session.user?.id ?? null;
     authAt = session.user?.authAt;
-    response = withSurface(session.response, surface, cookieDomain);
+    response = withSurface(session.response, surface);
   } catch {
     response = withSurface(
       NextResponse.next({ request: { headers: requestHeaders } }),
       surface,
-      cookieDomain,
     );
   }
 
@@ -149,7 +143,7 @@ export async function middleware(request: NextRequest) {
     for (const c of request.cookies.getAll()) {
       if (c.name.startsWith('sb-')) expired.cookies.set(c.name, '', { maxAge: 0, path: '/', ...(cookieDomain ? { domain: cookieDomain } : {}) });
     }
-    return withSurface(expired, surface, cookieDomain);
+    return withSurface(expired, surface);
   }
 
   // An invite link must reach the page even with a session already present.
@@ -178,7 +172,7 @@ export async function middleware(request: NextRequest) {
     const redirect = NextResponse.redirect(dest);
     // Whole cookies: name+value alone drops Domain/Max-Age — see packages/auth.
     response.cookies.getAll().forEach((c) => redirect.cookies.set(c));
-    return withSurface(redirect, surface, cookieDomain);
+    return withSurface(redirect, surface);
   }
 
   if (!isPublic && !userId) {
@@ -190,7 +184,7 @@ export async function middleware(request: NextRequest) {
     );
     const redirect = NextResponse.redirect(login);
     response.cookies.getAll().forEach((c) => redirect.cookies.set(c));
-    return withSurface(redirect, surface, cookieDomain);
+    return withSurface(redirect, surface);
   }
 
   // Each host keeps to its own pages (ADR 0049). On the admin host: no sign-up
@@ -206,7 +200,7 @@ export async function middleware(request: NextRequest) {
     if (offSurface) dest.search = '';
     const redirect = NextResponse.redirect(dest);
     response.cookies.getAll().forEach((c) => redirect.cookies.set(c));
-    return withSurface(redirect, surface, cookieDomain);
+    return withSurface(redirect, surface);
   }
 
   return response;
