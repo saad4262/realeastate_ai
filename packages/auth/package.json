@@ -11,7 +11,8 @@
     "./callback": "./src/callback.ts",
     "./cookie-domain": "./src/cookie-domain.ts",
     "./safe-path": "./src/safe-path.ts",
-    "./session-header": "./src/session-header.ts"
+    "./session-header": "./src/session-header.ts",
+    "./sign-out": "./src/sign-out.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

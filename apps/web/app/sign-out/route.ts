@@ -1,5 +1,5 @@
-import { NextResponse, type NextRequest } from 'next/server';
-import { createServerSupabaseClient } from '@repo/auth/server';
+import type { NextRequest } from 'next/server';
+import { signOutResponse } from '@repo/auth/sign-out';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,17 +33,8 @@ function originOf(request: NextRequest): string {
 
 export async function POST(request: NextRequest) {
   const form = await request.formData().catch(() => null);
-  const supabase = await createServerSupabaseClient();
-  // This browser only, as the account page promises: Supabase's default, 'global', ended every session the person
-  // had. `scope=global` is "Sign out of all devices" (PLATFORM-PLAN 1.22).
-  await supabase.auth.signOut({ scope: form?.get('scope') === 'global' ? 'global' : 'local' });
-
-  // Back to the public site, not to /login — signing out is not a prelude to
-  // signing in, and bouncing someone to a sign-in form is the opposite of
-  // what they just asked for.
-  return NextResponse.redirect(`${originOf(request)}/`, {
-    // 303: turn the POST into a GET for the redirect, so the browser does not
-    // re-post to the destination.
-    status: 303,
-  });
+  // This browser only, as the account page promises; `scope=global` is "Sign out of all devices" (PLATFORM-PLAN
+  // 1.22). Back to the public site, not to /login: signing out is not a prelude to signing in. Both copies of the
+  // session cookie go (host-only and COOKIE_DOMAIN): see @repo/auth/sign-out.
+  return signOutResponse(request, form?.get('scope') === 'global' ? 'global' : 'local', `${originOf(request)}/`);
 }

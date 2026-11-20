@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { safeLocalPath } from '@repo/auth/safe-path';
-import { createServerSupabaseClient } from '@repo/auth/server';
+import { signOutResponse } from '@repo/auth/sign-out';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,21 +41,11 @@ export async function POST(request: NextRequest) {
   const form = await request.formData().catch(() => null);
   const next = safeNext(form?.get('next') ?? request.nextUrl.searchParams.get('next'));
 
-  const supabase = await createServerSupabaseClient();
-  // This browser's session only. The default, 'global', revoked every session
-  // the person had — the agent desk and admin tabs on their own hosts too, which
-  // then dropped to sign-in without warning once their token ran out.
-  // `scope=global` is "Sign out of all devices" (PLATFORM-PLAN 1.22): every session this person has, everywhere.
-  await supabase.auth.signOut({ scope: form?.get('scope') === 'global' ? 'global' : 'local' });
-
+  // This browser's session only, unless `scope=global`: "Sign out of all devices" (PLATFORM-PLAN 1.22). The
+  // default, 'global', used to end every session the person had — the agent desk and admin tabs too.
+  // Both copies of the session cookie go (host-only and COOKIE_DOMAIN): see @repo/auth/sign-out.
   // 303 turns the POST into a GET at the destination.
-  const response = NextResponse.redirect(`${originOf(request)}${next}`, { status: 303 });
-  // signOut() clears the session cookie under COOKIE_DOMAIN, but the sign-in form's browser client wrote it
-  // host-only: a different cookie, which stayed, and the person was still signed in. Clear that one too.
-  for (const c of request.cookies.getAll()) {
-    if (c.name.startsWith('sb-')) response.headers.append('Set-Cookie', `${c.name}=; Path=/; Max-Age=0; SameSite=Lax`);
-  }
-  return response;
+  return signOutResponse(request, form?.get('scope') === 'global' ? 'global' : 'local', `${originOf(request)}${next}`);
 }
 
 /** An old link or a prefetch: never signs anyone out, just goes home. */
