@@ -134,7 +134,9 @@
   color: var(--color-ink, #1a1a1a);
   font-size: 0.875rem;
   font-weight: 600;
+  font-family: inherit;
   text-decoration: none;
+  cursor: pointer;
 }
 
 .secondary:hover {

@@ -192,8 +192,10 @@ export async function middleware(request: NextRequest) {
   // /get-started included, where the login form sends an account with no
   // agency, which is exactly what a platform admin is.
   const adminSignup = surface === 'admin' && pathname.startsWith('/signup');
+  // The sign-in security page (PLATFORM-PLAN 1.3, 1.22) is every surface's: platform admins need MFA too.
+  const everySurface = pathname === '/security';
   const offSurface =
-    surface === 'admin' ? adminSignup || (!isPublic && !isAdminPath(pathname)) : isAdminPath(pathname);
+    surface === 'admin' ? adminSignup || (!isPublic && !isAdminPath(pathname) && !everySurface) : isAdminPath(pathname);
   if (pathname === '/' || offSurface) {
     const dest = request.nextUrl.clone();
     dest.pathname = adminSignup ? '/login' : homePath(surface);
