@@ -13,6 +13,7 @@ import { runJobs } from '../jobs';
 import { enqueueStuckSms, smsReconcileHandler } from '../phone/reconcile';
 import { detectSendSpikes } from '../safety/spikes';
 import { settleCredits } from '../billing/credits';
+import { pullInbound, PULL_WINDOW_HOURS } from '../phone/pull-inbound';
 import { creditUsageAlerts } from '../billing/alerts';
 import { billingReconcileHandler, enqueueBillingReconcile, stripeEventHandler } from '../billing/service';
 import type { StripeApi } from '../billing/stripe';
@@ -144,6 +145,16 @@ export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new
       mode: 'once',
       everyMinutes: 5,
       run: async () => ({ result: await enqueueStuckSms(db, now()), more: false }),
+    },
+    {
+      // PLATFORM-PLAN 3.8: texts and calls Twilio has that our webhook missed (we were down); each number every 30 min.
+      name: 'pullInbound',
+      mode: 'once',
+      run: async () => {
+        const at = now();
+        const since = new Date(at.getTime() - PULL_WINDOW_HOURS * 3_600_000);
+        return { result: await pullInbound(db, deps.phone, since, { part: at.getUTCMinutes() % 30, of: 30 }), more: false };
+      },
     },
     {
       // PLATFORM-PLAN 2.9: once a day (16:xx UTC), a reconciliation job per agency with a Stripe customer.

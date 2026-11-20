@@ -130,7 +130,8 @@
     "test": "vitest run",
     "geo:backfill": "tsx src/geo/backfill.ts",
     "contacts:backfill": "tsx src/contacts/backfill-cli.ts",
-    "phone:repoint": "tsx src/phone/repoint-cli.ts"
+    "phone:repoint": "tsx src/phone/repoint-cli.ts",
+    "phone:pull-inbound": "tsx src/phone/pull-inbound-cli.ts"
   },
   "dependencies": {
     "@repo/db": "workspace:*",
