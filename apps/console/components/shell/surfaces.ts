@@ -76,7 +76,6 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
       {
         items: [
           { href: '/overview', label: 'Overview', icon: 'home' },
-          { href: '/ai', label: 'LocalAgent AI', icon: 'smart_toy', badge: '2030', badgeTone: 'blue' },
         ],
       },
       {

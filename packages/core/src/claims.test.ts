@@ -8,7 +8,8 @@ import { describe, expect, it } from 'vitest';
  * misleading conduct under the Australian Consumer Law. A new one needs the owner's say-so and a line here.
  */
 const repo = resolve(__dirname, '../../..');
-const CLAIMS = /ISO\s*27001|SOC\s*2|256-bit|\bCertified\b|\bCompliant\b|Datacenter:\s*\d+\s*ms/i;
+// O-40 (2026-11-21) added the AI page's and the sign-in page's mock status: invented versions, throughput, latency, syncs.
+const CLAIMS = /ISO\s*27001|SOC\s*2|256-bit|\bCertified\b|\bCompliant\b|Datacenter:\s*\d+\s*ms|Core Active|Autonomous v\d|data points\/sec|GPT-RealEstate|\d+\s*ms Mesh|LIVE REINSW|Pre-populates REINSW|Session edge/i;
 const files = (dir: string): string[] =>
   readdirSync(dir).flatMap((n) => {
     const p = join(dir, n);

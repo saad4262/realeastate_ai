@@ -40,8 +40,9 @@ type WizardChromeProps = {
 export function WizardChrome({
   step,
   title = 'Add New Licensed Agent',
-  badge = 'LIVE REINSW SYNC',
-  subtitle = 'Identity & Australian statutory verification. Pre-populates REINSW registry and Fair Trading NSW digital credentials.',
+  // No badge by default (O-40): the old one claimed a live registry sync that does not exist.
+  badge,
+  subtitle = 'The agent’s details, territory and permissions, then the invite.',
   extraBadges,
   headerAside,
   children,
@@ -108,10 +109,12 @@ export function WizardChrome({
           <div>
             <div className={styles.titleRow}>
               <h1 className={styles.title}>{title}</h1>
-              <span className={styles.liveBadge}>
-                <span className={styles.dot} />
-                {badge}
-              </span>
+              {badge ? (
+                <span className={styles.liveBadge}>
+                  <span className={styles.dot} />
+                  {badge}
+                </span>
+              ) : null}
               {extraBadges}
             </div>
             <p className={styles.sub}>{subtitle}</p>
