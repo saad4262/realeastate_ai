@@ -8824,6 +8824,9 @@ async function main() {
       };
       const big = await batchOf(12, 'big'); // approved first: oldest-first would text all of it before anyone else
       const small = await batchOf(3, 'small');
+      // The tick takes batches approved over a minute ago (Approve sends its own first slice).
+      await t.execute(sql`update email_batch set approved_at = now() - interval '10 minutes' where id = ${big}`);
+      await t.execute(sql`update email_batch set approved_at = now() - interval '5 minutes' where id = ${small}`);
       const sentIn = async (id: string) => count(t, sql`select count(*)::int as n from email_batch_recipient where batch_id = ${id} and status = 'sent'`);
       const round = await resumeSmsBatches(t, { phone: deps, env }, { agencies: 50, perBatch: 5 }, () => noon);
       const afterOne = [await sentIn(big), await sentIn(small)];
