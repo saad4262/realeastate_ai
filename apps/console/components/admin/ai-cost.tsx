@@ -5,6 +5,8 @@ import styles from './admin.module.css';
 /** The pieces of the admin's AI cost page (ADR 0086). Server only: the figures all come from packages/core. */
 
 export const usd = (n: number) => `$${n.toFixed(2)}`;
+/** ADR 0092: a credit is US$0.01 of model cost; shown with its dollar value. */
+export const credits = (n: number) => `${Math.round(n).toLocaleString('en-AU')} credits (${usd(n / 100)})`;
 const count = (n: number) => n.toLocaleString('en-AU');
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 

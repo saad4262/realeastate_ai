@@ -84,6 +84,8 @@ export type AiCostWho = {
   /** The agency's assistant spend in the last 24 hours, against its limit. Null when there is no agency. */
   assistantDay: number | null;
   topFeature: string | null;
+  /** ADR 0092 credits in force now (1 credit = US$0.01): granted and left. Null: no grant (trial, no billing, or not an agency). */
+  credits: { granted: number; left: number } | null;
 };
 
 export type AiCostFeature = { label: string; features: string[]; model: string; spend: number; calls: number };
@@ -124,7 +126,18 @@ export type AiCostAgency = {
   features: AiCostFeature[];
   /** ADR 0088: the assistant's spend by kind of chat. */
   chats: AiCostChat[];
+  /** ADR 0092: the agency's credit grants, newest first (24 at most), and the credits left in those in force now. */
+  grants: AiCostGrant[];
+  creditsLeft: number | null;
 };
+
+export type AiCostGrant = { id: string; source: string; credits: number; used: number; validFrom: Date; expiresAt: Date; active: boolean };
+
+/** Credits in force per agency, onto the lines. Pure. */
+export function withCredits(lines: readonly AiCostWho[], rows: readonly { agency_id: string; granted: unknown; left: unknown }[]): AiCostWho[] {
+  const by = new Map(rows.map((r) => [r.agency_id, { granted: n(r.granted), left: n(r.left) }]));
+  return lines.map((l) => ({ ...l, credits: (l.agencyId && by.get(l.agencyId)) || null }));
+}
 
 const UUID = /^[0-9a-f-]{36}$/i;
 const DAY_MS = 24 * 3_600_000;
@@ -198,6 +211,7 @@ export function foldAiCost(rows: readonly AiCostRow[], caps: AiCostOverview['cap
         calls: 0,
         assistantDay: r.agency_id ? 0 : null,
         topFeature: null,
+        credits: null,
         byFeature: new Map<string, number>(),
       } satisfies Line);
     line.spend += n(r.spend);
@@ -250,7 +264,7 @@ export function aiCostDays(rows: readonly { day: string; spend: unknown }[], now
   });
 }
 
-/** The whole platform for one period. Two statements, whatever the number of agencies. */
+/** The whole platform for one period. Three statements, whatever the number of agencies. */
 export async function aiCostOverview(db: Db, admin: Actor, opts: { period: AiCostPeriod; now?: Date; env?: NodeJS.ProcessEnv }): Promise<AiCostOverview> {
   requireAdmin(admin);
   const now = opts.now ?? new Date();
@@ -258,7 +272,8 @@ export async function aiCostOverview(db: Db, admin: Actor, opts: { period: AiCos
   const day = new Date(now.getTime() - DAY_MS).toISOString();
   // A day more than the chart shows: 30 Sydney days can start more than 30 × 24 hours ago.
   const chartFrom = new Date(now.getTime() - 31 * DAY_MS).toISOString();
-  const [rows, daily] = await Promise.all([
+  const at = now.toISOString();
+  const [rows, daily, credits] = await Promise.all([
     db.execute<AiCostRow>(sql`
       select r.agency_id, a.name as agency_name, r.feature, r.model,
         coalesce(sum(r.cost_usd), 0) as spend,
@@ -274,8 +289,14 @@ export async function aiCostOverview(db: Db, admin: Actor, opts: { period: AiCos
       from ai_run r
       where r.created_at >= ${chartFrom}::timestamptz
       group by 1`),
+    db.execute<{ agency_id: string; granted: unknown; left: unknown }>(sql`
+      select g.agency_id, sum(g.credits) as granted, sum(g.credits - g.used) as left
+      from ai_credit_grant g
+      where g.valid_from <= ${at}::timestamptz and g.expires_at > ${at}::timestamptz
+      group by g.agency_id`),
   ]);
-  return { period: opts.period, days: aiCostDays([...daily], now), ...foldAiCost([...rows], aiBudgetCaps(opts.env)) };
+  const folded = foldAiCost([...rows], aiBudgetCaps(opts.env));
+  return { period: opts.period, days: aiCostDays([...daily], now), ...folded, who: withCredits(folded.who, [...credits]) };
 }
 
 /** The assistant's rows by kind of chat, dearest first. Null is a chat from before ADR 0088. Pure. */
@@ -294,14 +315,14 @@ export function chatLines(rows: readonly { feature: string; chat_scope?: string 
   return [...lines.values()].sort((a, b) => b.spend - a.spend || a.key.localeCompare(b.key));
 }
 
-/** One agency for one period, by person, by feature and by chat. Two statements. */
+/** One agency for one period, by person, by feature and by chat, with its credit grants. Three statements. */
 export async function aiCostForAgency(db: Db, admin: Actor, agencyId: string, opts: { period: AiCostPeriod; now?: Date; env?: NodeJS.ProcessEnv }): Promise<AiCostAgency> {
   requireAdmin(admin);
   if (!UUID.test(agencyId)) throw new PlatformError('not_found', 'That agency was not found');
   const now = opts.now ?? new Date();
   const since = new Date(now.getTime() - opts.period * DAY_MS).toISOString();
   const day = new Date(now.getTime() - DAY_MS).toISOString();
-  const [rows, platform] = await Promise.all([
+  const [rows, platform, grants] = await Promise.all([
     db.execute<{ user_id: string | null; name: string | null; role: string | null; feature: string; chat_scope: string | null; model: string; spend: unknown; calls: unknown; day_spend: unknown }>(sql`
       select r.user_id, coalesce(nullif(u.name, ''), u.email) as name, m.role, r.feature, r.chat_scope, r.model,
         coalesce(sum(r.cost_usd), 0) as spend,
@@ -313,7 +334,19 @@ export async function aiCostForAgency(db: Db, admin: Actor, agencyId: string, op
       where r.agency_id = ${agencyId}::uuid and r.created_at >= ${since}::timestamptz
       group by r.user_id, u.name, u.email, m.role, r.feature, r.chat_scope, r.model`),
     db.execute<{ total: unknown }>(sql`select coalesce(sum(r.cost_usd), 0) as total from ai_run r where r.created_at >= ${since}::timestamptz`),
+    db.execute<{ id: string; source: string; credits: unknown; used: unknown; valid_from: string | Date; expires_at: string | Date }>(sql`
+      select g.id, g.source, g.credits, g.used, g.valid_from, g.expires_at
+      from ai_credit_grant g
+      where g.agency_id = ${agencyId}::uuid
+      order by g.created_at desc
+      limit 24`),
   ]);
+  const grantLines: AiCostGrant[] = [...grants].map((g) => {
+    const validFrom = new Date(g.valid_from);
+    const expiresAt = new Date(g.expires_at);
+    return { id: g.id, source: g.source, credits: n(g.credits), used: n(g.used), validFrom, expiresAt, active: validFrom <= now && expiresAt > now };
+  });
+  const active = grantLines.filter((g) => g.active);
 
   const people = new Map<string, AiCostPerson>();
   let spend = 0;
@@ -343,5 +376,7 @@ export async function aiCostForAgency(db: Db, admin: Actor, agencyId: string, op
     people: [...people.values()].sort((a, b) => b.spend - a.spend || a.key.localeCompare(b.key)),
     features: featureLines([...rows]),
     chats: chatLines([...rows]),
+    grants: grantLines,
+    creditsLeft: active.length ? active.reduce((s, g) => s + g.credits - g.used, 0) : null,
   };
 }
