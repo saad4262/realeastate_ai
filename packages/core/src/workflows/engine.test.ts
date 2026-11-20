@@ -211,3 +211,14 @@ describe('conditionsHold — ADR 0048: names, listings, distance', () => {
     expect(conditionsHold([near(50)], facts({ listingLat: null, listingLng: null }))).toBe(false);
   });
 });
+
+describe('PLATFORM-PLAN 3.4: an import starts only what asked for imports', () => {
+  it('"When a contact is added" leaves imported contacts alone; "…is imported" takes only them; "…by hand" only manual ones', () => {
+    const any = { kind: 'contact.created' } as Parameters<typeof triggerMatches>[0];
+    const imported = { kind: 'contact.created', source: 'import' } as Parameters<typeof triggerMatches>[0];
+    const byHand = { kind: 'contact.created', source: 'manual' } as Parameters<typeof triggerMatches>[0];
+    expect([triggerMatches(any, { source: 'manual' }), triggerMatches(any, { source: 'import' })]).toEqual([true, false]);
+    expect([triggerMatches(imported, { source: 'manual' }), triggerMatches(imported, { source: 'import' })]).toEqual([false, true]);
+    expect([triggerMatches(byHand, { source: 'manual' }), triggerMatches(byHand, { source: 'import' })]).toEqual([true, false]);
+  });
+});

@@ -7305,6 +7305,38 @@ async function main() {
     }),
   );
 
+  await check('PLATFORM-PLAN 3.4: a contacts import starts no automation — "When a contact is added" and a hand-added contact are untouched; only a workflow that asks for imported contacts gets events', async () =>
+    inRollback(async (t) => {
+      const w = await workflowFixture(t, { trigger: { kind: 'contact.created' }, conditions: [], actions: [{ type: 'remind_owner', text: 'Say hello', mail_me: false }] }, 'agency', 'owner');
+      const owner = w.f.actor('owner');
+      const importOf = async (people: number, tag: string) => {
+        const [imp] = await t.execute<{ id: string }>(sql`
+          insert into listing_import (agency_id, created_by, file_name, file_hash, kind, status, mode)
+          values (${w.f.agencyId}, ${w.f.people.owner}, ${`${tag}.csv`}, ${`${tag}${w.f.tag}`}, 'contacts', 'importing', 'live') returning id`);
+        await t.execute(sql`
+          insert into listing_import_row (import_id, row_number, status, normalized)
+          select ${imp!.id}, g, 'valid', jsonb_build_object('name', 'Imported ' || g, 'email', ${tag} || '.' || g || ${`.${w.f.tag}@smoke.test`}, 'phone', null,
+            'addressLine', null, 'addressSuburb', null, 'addressState', null, 'addressPostcode', null, 'roles', '[]'::jsonb,
+            'assignedEmail', null, 'note', null, 'nextAction', null, 'nextActionAt', null)
+          from generate_series(1, ${people}) g`);
+        for (let i = 0; i < 10; i++) if ((await runImportChunk(t, owner, imp!.id)).status === 'done') break;
+        return count(t, sql`select count(*)::int as n from listing_import_row where import_id = ${imp!.id} and status = 'imported'`);
+      };
+      const events = () => count(t, sql`select count(*)::int as n from workflow_event where agency_id = ${w.f.agencyId} and kind = 'contact.created'`);
+      const before = await events();
+      // The choice is made once a chunk, not per row, so 30 rows show what 10,000 would (dev is too slow for more).
+      const imported = await importOf(30, 'quiet');
+      assert(imported === 30 && (await events()) === before, `30 imported, events ${before} → ${await events()}`);
+      await createContact(t, owner, { name: 'By Hand', email: `hand.${w.f.tag}@smoke.test` });
+      assert((await events()) === before + 1, 'a contact added by hand wrote no event');
+      // A workflow that asks for imported contacts: the next import feeds it, row by row.
+      await saveWorkflow(t, owner, { name: `Imported ${w.f.tag}`, scope: 'agency', spec: { trigger: { kind: 'contact.created', source: 'import' }, conditions: [], actions: [{ type: 'remind_owner', text: 'Imported', mail_me: false }] } });
+      await importOf(5, 'asked');
+      assert((await events()) === before + 1 + 5, `asked-for import: ${(await events()) - before - 1} events for 5 rows`);
+      return '30 rows imported with "When a contact is added" active: 0 events; by hand: 1; with "When a contact is imported" active: 5 rows → 5 events';
+    }),
+  );
+
   await check('a removed owner’s workflow is paused (with the reason) and never runs as them; resuming checks it again', async () =>
     inRollback(async (t) => {
       const w = await workflowFixture(t, { trigger: { kind: 'contact.created' }, conditions: [], actions: [{ type: 'remind_owner', text: 'x', mail_me: false }] });

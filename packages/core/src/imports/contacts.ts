@@ -176,6 +176,8 @@ export async function importContactChunk(db: Db, actor: Actor, imp: ImportRow): 
         .where(inArray(sql`lower(${user.email})`, emails))
     : [];
   const byEmail = new Map(members.map((m) => [m.email, m.id]));
+  // PLATFORM-PLAN 3.4: an import starts no automation unless a workflow asked for imported contacts — one look a chunk.
+  const events = await workflowWantsImports(db, imp.agencyId);
 
   await db.transaction(async (tx) => {
     for (const r of rows) {
@@ -207,7 +209,7 @@ export async function importContactChunk(db: Db, actor: Actor, imp: ImportRow): 
               ...(assignedTo ? { assignedTo } : {}),
               ...(n.note ? { note: n.note } : {}),
             },
-            { source: 'import', schema: 'contact' },
+            { source: 'import', schema: 'contact', events },
           ),
         );
         if (saved.outcome === 'filled') {
@@ -231,4 +233,12 @@ export async function importContactChunk(db: Db, actor: Actor, imp: ImportRow): 
     }
   });
   return { status: 'importing', processed: rows.length };
+}
+
+/** Whether an active workflow of the agency starts on "When a contact is imported" (the only one an import feeds). */
+async function workflowWantsImports(db: Db, agencyId: string): Promise<boolean> {
+  const [r] = await db.execute<{ yes: boolean }>(sql`
+    select exists (select 1 from workflow where agency_id = ${agencyId} and status = 'active'
+      and spec->'trigger'->>'kind' = 'contact.created' and spec->'trigger'->>'source' = 'import') as yes`);
+  return Boolean(r?.yes);
 }
