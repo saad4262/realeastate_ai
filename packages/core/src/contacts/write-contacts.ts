@@ -178,8 +178,11 @@ export async function createContact(
   db: Db,
   actor: Actor,
   input: CreateContactInput,
-  /** `import`: a row of a contacts import (ADR 0029 amendment); the timeline says so. */
-  opts: { source?: 'manual' | 'import' } = {},
+  /**
+   * `import`: a row of a contacts import (ADR 0029 amendment); the timeline says so. `events: false`: no workflow
+   * event — an import writes one only for a workflow that asked for imported contacts (PLATFORM-PLAN 3.4).
+   */
+  opts: { source?: 'manual' | 'import'; events?: boolean } = {},
 ): Promise<{ id: string }> {
   if (!actor.agencyId) throw new ContactError('forbidden', 'You cannot add contacts');
   const agencyId = actor.agencyId;
@@ -233,7 +236,7 @@ export async function createContact(
       }
       await recordActivity(tx, actor, agencyId, id, 'contact_created', { roles: v.roles, ...(opts.source === 'import' ? { via: 'import' } : {}) });
       // ADR 0041: a new contact may trigger a workflow — in the same transaction.
-      await emitWorkflowEvent(tx, { agencyId, kind: 'contact.created', contactId: id, actor, data: { source: opts.source ?? 'manual' } });
+      if (opts.events !== false) await emitWorkflowEvent(tx, { agencyId, kind: 'contact.created', contactId: id, actor, data: { source: opts.source ?? 'manual' } });
       if (v.marketingConsent) {
         await recordActivity(tx, actor, agencyId, id, 'consent_recorded', {
           note: v.marketingConsentNote ?? null,
@@ -287,7 +290,7 @@ export async function addOrFillContact(
   db: Db,
   actor: Actor,
   input: AddCustomerInput & { note?: string },
-  opts: { source: 'manual' | 'import'; schema: 'add_customer' | 'contact' },
+  opts: { source: 'manual' | 'import'; schema: 'add_customer' | 'contact'; events?: boolean },
 ): Promise<SavedContact> {
   if (!actor.agencyId || !can(actor, 'contact:create', { type: 'contact', agencyId: actor.agencyId })) {
     throw new ContactError('forbidden', 'You cannot add contacts');
@@ -300,7 +303,7 @@ export async function addOrFillContact(
   const holder = v.email ? await holderOf(db, actor.agencyId, v.email) : undefined;
   if (!holder) {
     try {
-      const made = await createContact(db, actor, input, { source: opts.source });
+      const made = await createContact(db, actor, input, { source: opts.source, events: opts.events });
       if (noteText) await db.insert(note).values({ agencyId: actor.agencyId, contactId: made.id, authorId: actor.userId, body: noteText });
       return { id: made.id, outcome: 'created' };
     } catch (err) {

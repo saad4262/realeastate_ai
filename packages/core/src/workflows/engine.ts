@@ -155,8 +155,10 @@ async function loadFacts(db: Db, ev: EventRow): Promise<Facts> {
 export function triggerMatches(t: Trigger, data: Record<string, unknown>): boolean {
   switch (t.kind) {
     case 'lead.created':
-    case 'contact.created':
       return !t.source || data.source === t.source;
+    case 'contact.created':
+      // PLATFORM-PLAN 3.4: "When a contact is added" means one at a time; only "…is imported" runs on an import.
+      return t.source ? data.source === t.source : data.source !== 'import';
     case 'lead.status_changed':
     case 'listing.status_changed':
       return data.to === t.to;
