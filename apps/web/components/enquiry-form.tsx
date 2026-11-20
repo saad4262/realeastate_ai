@@ -4,6 +4,7 @@ import { useRef, useState, useTransition, type FormEvent } from 'react';
 import { sendEnquiryAction } from '../lib/enquiry-action';
 import { sendGuideMessageAction } from '../lib/acting-actions';
 import { Spinner } from './spinner';
+import { apiErrorMessage } from '@repo/core/http/api-error';
 
 /**
  * The one interactive thing on the listing page.
@@ -48,7 +49,7 @@ export function EnquiryForm({
     try {
       const res = await fetch('/api/agent-message/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ listingId, words }) });
       const body = (await res.json().catch(() => null)) as { text?: string; token?: string; agencyName?: string; sentToday?: number; perDay?: number; error?: string } | null;
-      if (!res.ok || !body?.text || !body.token) return setError(body?.error ?? 'The draft could not be written just now.');
+      if (!res.ok || !body?.text || !body.token) return setError(apiErrorMessage(body, 'The draft could not be written just now.'));
       if (box.current) box.current.value = body.text;
       setGuide({ token: body.token, note: `Drafted with the guide from your words — read it and change anything. It goes from your account's name and email when you press Send (${body.sentToday ?? 0} of ${body.perDay ?? 5} today).` });
     } finally {

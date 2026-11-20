@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { receiveStripeWebhook } from '@repo/core/billing';
 import { getWebDb } from '../../../../lib/db';
+import { apiError } from '@repo/core/http/api-error';
 
 /**
  * Stripe's webhook (ADR 0092). Verified by its signature, stored once, enqueued — then 200. Anything that fails
@@ -13,6 +14,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result.body, { status: result.status });
   } catch (err) {
     console.error('[stripe] webhook not stored', err instanceof Error ? err.message : 'unknown');
-    return NextResponse.json({ error: 'not stored' }, { status: 500 });
+    return apiError(500, 'not stored');
   }
 }

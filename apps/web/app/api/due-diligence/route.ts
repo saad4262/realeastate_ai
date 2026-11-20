@@ -8,6 +8,7 @@ import { LISTINGS_TAG } from '../../../lib/cached';
 import { aiBudgetAllows } from '@repo/core/ai-budget';
 import { getWebDb } from '../../../lib/db';
 import { currentWebUser } from '../../../lib/session';
+import { apiError } from '@repo/core/http/api-error';
 
 /** postgres.js opens raw sockets, so this cannot run on the edge runtime. */
 export const runtime = 'nodejs';
@@ -59,7 +60,7 @@ function overDailyCap(): boolean {
 
 const bodySchema = z.union([z.object({ listingId: z.string().uuid() }).strict(), z.object({ propertyId: z.string().uuid() }).strict()]);
 
-const fail = (status: number, error: string) => NextResponse.json({ error }, { status });
+const fail = (status: number, error: string) => apiError(status, error);
 
 export async function POST(request: NextRequest) {
   if (overLimit(request)) return fail(429, 'Too many requests. Wait a moment.');

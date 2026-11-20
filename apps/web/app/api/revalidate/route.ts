@@ -1,6 +1,7 @@
 import { revalidateTag } from 'next/cache';
 import { NextResponse, type NextRequest } from 'next/server';
 import { LISTINGS_TAG } from '../../../lib/cached';
+import { apiError } from '@repo/core/http/api-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +22,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   const secret = process.env.REVALIDATE_SECRET?.trim();
   if (!secret) {
-    return NextResponse.json({ error: 'Revalidation is not configured' }, { status: 503 });
+    return apiError(503, 'Revalidation is not configured');
   }
 
   const offered = request.headers.get('x-revalidate-secret');
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
   // the secret's length, and a plain !== after it — this is a shared secret in
   // a header, not a password, and constant time here buys nothing real.
   if (!offered || offered.length !== secret.length || offered !== secret) {
-    return NextResponse.json({ error: 'Not allowed' }, { status: 401 });
+    return apiError(401, 'Not allowed');
   }
 
   let listingId: string | null = null;

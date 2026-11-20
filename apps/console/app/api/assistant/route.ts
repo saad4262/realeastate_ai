@@ -1,9 +1,10 @@
-import { NextResponse, type NextRequest } from 'next/server';
+import type { NextRequest } from 'next/server';
 import { can } from '@repo/core/permissions';
 import { assistantDeps, assistantTurnRequestSchema, runAssistantTurn, type AssistantEvent } from '@repo/ai/assistant';
 import { getConsoleDb } from '../../../lib/db';
 import { loadListingActor } from '../../../lib/load-actor';
 import { actionUserId } from '../../../lib/auth-account';
+import { apiError } from '@repo/core/http/api-error';
 
 /**
  * One turn of the console assistant, as NDJSON (docs/adr/0025, Phase A).
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   const parsed = assistantTurnRequestSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request' }, { status: 400 });
+    return apiError(400, parsed.error.issues[0]?.message ?? 'Invalid request');
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim();

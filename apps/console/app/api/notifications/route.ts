@@ -3,6 +3,7 @@ import { listNotifications } from '@repo/core/notifications';
 import { getConsoleDb } from '../../../lib/db';
 import { loadActor } from '../../../lib/load-actor';
 import { actionUserId } from '../../../lib/auth-account';
+import { apiError } from '@repo/core/http/api-error';
 
 /**
  * The bell's latest 20 and unread count (ADR 0032 §4). Core narrows the read to
@@ -16,10 +17,10 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const userId = await actionUserId();
-  if (!userId) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+  if (!userId) return apiError(401, 'Not signed in');
   try {
     const actor = await loadActor(userId);
-    if (!actor) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+    if (!actor) return apiError(401, 'Not signed in');
     return NextResponse.json(await listNotifications(getConsoleDb(), actor), { headers: { 'cache-control': 'no-store' } });
   } catch (err) {
     // A failure is an empty bell, never an error page.

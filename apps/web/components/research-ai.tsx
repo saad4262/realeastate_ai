@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { apiErrorMessage } from '@repo/core/http/api-error';
 
 type Ask = { kind: 'suburb'; state: string; suburb: string } | { kind: 'compare'; listingIds: string[]; buyer: string } | { kind: 'explain'; listingId: string };
 type Line = { text: string; refs: string[] };
@@ -19,7 +20,7 @@ export function ResearchAi({ ask, label }: { ask: Ask; label: string }) {
     start(async () => {
       const res = await fetch('/api/research', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(ask) }).catch(() => null);
       const body = (await res?.json().catch(() => null)) as { lines?: Line[]; error?: string } | null;
-      if (!res?.ok || !body?.lines) return setError(body?.error ?? 'The AI could not answer just now. Try again in a moment.');
+      if (!res?.ok || !body?.lines) return setError(apiErrorMessage(body, 'The AI could not answer just now. Try again in a moment.'));
       setLines(body.lines);
     });
   }

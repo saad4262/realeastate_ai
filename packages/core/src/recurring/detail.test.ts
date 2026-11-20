@@ -93,7 +93,7 @@ describe('on screen, read from source', () => {
   });
   it('the route checks a key before reading anything', () => {
     const route = read('app', 'api', 'automations', 'route.ts');
-    const check = route.indexOf("if (!AUTOMATION_KEY.test(detail)) return NextResponse.json({ error: 'Not found' }, { status: 404 });");
+    const check = route.indexOf("if (!AUTOMATION_KEY.test(detail)) return apiError(404, 'Not found');");
     expect(check).toBeGreaterThan(-1);
     expect(check).toBeLessThan(route.indexOf('automationDetail(db, actor, detail)'));
   });

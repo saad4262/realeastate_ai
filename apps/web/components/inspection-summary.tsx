@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { apiErrorMessage } from '@repo/core/http/api-error';
 
 type Line = { text: string; refs: string[] };
 type Result = { lines: Line[]; homes: { ref: string; listingId: string; address: string }[] };
@@ -17,7 +18,7 @@ export function InspectionSummary({ listingIds, label = 'Summarise my notes' }: 
     try {
       const res = await fetch('/api/inspections/summary', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(listingIds?.length ? { listingIds } : {}) });
       const body = (await res.json().catch(() => null)) as (Result & { error?: string }) | null;
-      if (!res.ok || !body || body.error) setState({ status: 'error', error: body?.error ?? 'The summary could not be written just now.' });
+      if (!res.ok || !body || body.error) setState({ status: 'error', error: apiErrorMessage(body, 'The summary could not be written just now.') });
       else setState({ status: 'done', result: body });
     } catch {
       setState({ status: 'error', error: 'The summary could not be written just now.' });

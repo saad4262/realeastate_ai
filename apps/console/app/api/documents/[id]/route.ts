@@ -3,6 +3,7 @@ import { DocumentError, documentDownloadUrl } from '@repo/core/documents';
 import { getConsoleDb } from '../../../../lib/db';
 import { loadListingActor } from '../../../../lib/load-actor';
 import { actionUserId } from '../../../../lib/auth-account';
+import { apiError } from '@repo/core/http/api-error';
 
 /**
  * Open a document (ADR 0053 §2): the list's own visibility rule, asked again for this id, then a
@@ -14,18 +15,18 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const userId = await actionUserId();
-  if (!userId) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+  if (!userId) return apiError(401, 'Not signed in');
   const actor = await loadListingActor(userId);
-  if (!actor) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+  if (!actor) return apiError(401, 'Not signed in');
   const { id } = await params;
   try {
     const url = await documentDownloadUrl(getConsoleDb(), actor, id);
     return NextResponse.redirect(url, { status: 302, headers: { 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
   } catch (err) {
     if (err instanceof DocumentError && err.code === 'not_found') {
-      return NextResponse.json({ error: err.message }, { status: 404, headers: { 'cache-control': 'no-store' } });
+      return apiError(404, err.message, { headers: { 'cache-control': 'no-store' } });
     }
     console.error('[documents] download failed', err instanceof Error ? err.message : err);
-    return NextResponse.json({ error: 'That document could not be opened. Try again.' }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    return apiError(503, 'That document could not be opened. Try again.', { headers: { 'cache-control': 'no-store' } });
   }
 }

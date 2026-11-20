@@ -4,6 +4,7 @@ import { AUTOMATION_KEY, automationDetail, automationsOfChat } from '@repo/core/
 import { getConsoleDb } from '../../../lib/db';
 import { loadActor } from '../../../lib/load-actor';
 import { actionUserId } from '../../../lib/auth-account';
+import { apiError } from '@repo/core/http/api-error';
 
 /**
  * The top bar's two panels (ADR 0088). `?count=1` is the Automations badge, `?view=skills` the Skills panel; with neither, Automations. Core narrows every
@@ -17,33 +18,33 @@ const HEADERS = { 'cache-control': 'no-store' };
 
 export async function GET(request: NextRequest) {
   const userId = await actionUserId();
-  if (!userId) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+  if (!userId) return apiError(401, 'Not signed in');
   try {
     const actor = await loadActor(userId);
-    if (!actor) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+    if (!actor) return apiError(401, 'Not signed in');
     const db = getConsoleDb();
     if (request.nextUrl.searchParams.get('count') === '1') {
       const count = await runningAutomationCount(db, actor);
-      return count === null ? NextResponse.json({ error: 'Forbidden' }, { status: 403 }) : NextResponse.json({ count }, { headers: HEADERS });
+      return count === null ? apiError(403, 'Forbidden') : NextResponse.json({ count }, { headers: HEADERS });
     }
     // One automation in full, or the ones made in one chat (the panel beside it). Each is narrowed to this person in core.
     const detail = request.nextUrl.searchParams.get('detail');
     if (detail !== null) {
-      if (!AUTOMATION_KEY.test(detail)) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      if (!AUTOMATION_KEY.test(detail)) return apiError(404, 'Not found');
       const d = await automationDetail(db, actor, detail);
-      return d ? NextResponse.json(d, { headers: HEADERS }) : NextResponse.json({ error: 'Not found' }, { status: 404 });
+      return d ? NextResponse.json(d, { headers: HEADERS }) : apiError(404, 'Not found');
     }
     const chat = request.nextUrl.searchParams.get('chat');
     if (chat !== null) return NextResponse.json(await automationsOfChat(db, actor, chat), { headers: HEADERS });
     if (request.nextUrl.searchParams.get('view') === 'skills') {
       const panel = await skillsPanel(db, actor);
-      return panel ? NextResponse.json(panel, { headers: HEADERS }) : NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      return panel ? NextResponse.json(panel, { headers: HEADERS }) : apiError(403, 'Forbidden');
     }
     const status = await automationStatus(db, actor);
-    return status ? NextResponse.json(status, { headers: HEADERS }) : NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return status ? NextResponse.json(status, { headers: HEADERS }) : apiError(403, 'Forbidden');
   } catch (err) {
     // A failure is an empty panel, never an error page.
     console.error('[automations] read failed', err instanceof Error ? err.message : 'unknown');
-    return NextResponse.json({ error: 'Unavailable' }, { status: 503, headers: HEADERS });
+    return apiError(503, 'Unavailable', { headers: HEADERS });
   }
 }
