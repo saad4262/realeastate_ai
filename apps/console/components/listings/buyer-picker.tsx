@@ -226,6 +226,7 @@ export function BuyerPicker({
       {open ? (
         <div
           className={styles.scrim}
+          role="presentation"
           onClick={(e) => {
             if (e.target === e.currentTarget && !pending) setOpen(false);
           }}

@@ -7,14 +7,15 @@
   --border-strong: #cbd5e1;
   --text-primary: #0f172a;
   --text-secondary: #475569;
-  --text-muted: #94a3b8;
+  /* 4.5:1 or better on white, canvas and the slate-100 fills (was #94a3b8, 2.3–2.6:1; PLATFORM-PLAN 4.5). */
+  --text-muted: #5f6b7d;
   --sapphire: #2563eb;
   --sapphire-subtle: #eff6ff;
-  --emerald: #059669;
+  --emerald: #047857;
   --emerald-subtle: #ecfdf5;
   --rose: #e11d48;
   --rose-subtle: #fff1f2;
-  --amber: #d97706;
+  --amber: #b45309;
   --amber-subtle: #fffbeb;
   /* next/font supplies the family names via these variables and generates a
      size-adjusted fallback, so a slow font swap no longer moves the layout. */

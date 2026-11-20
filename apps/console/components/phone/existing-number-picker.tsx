@@ -69,7 +69,7 @@ export function UseExistingNumberButton({ agentUserId, name }: { agentUserId: st
         Use an existing number
       </button>
       {open ? (
-        <div className={styles.backdrop} onMouseDown={(e) => e.target === e.currentTarget && close()}>
+        <div className={styles.backdrop} role="presentation" onMouseDown={(e) => e.target === e.currentTarget && close()}>
           <div className={styles.panel} role="dialog" aria-modal="true" aria-labelledby={`pick-${agentUserId}`}>
             <h2 id={`pick-${agentUserId}`} className={styles.panelTitle}>
               A number for {name}

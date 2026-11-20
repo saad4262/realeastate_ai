@@ -27,6 +27,8 @@ const config = [
     ignores: ['.next/**', '.next-*/**', 'next-env.d.ts', 'node_modules/**'],
   },
   ...compat.extends('next/core-web-vitals', 'next/typescript'),
+  // PLATFORM-PLAN 4.5: the whole recommended accessibility set, not only the six rules Next turns on.
+  ...compat.extends('plugin:jsx-a11y/recommended'),
   {
     rules: {
       // Pages Router rule: it looks for font links outside pages/_document.js.
@@ -34,6 +36,11 @@ const config = [
       // the documented placement. (next/font is the real upgrade, not
       // _document.)
       '@next/next/no-page-custom-font': 'off',
+      // Autofocus is used where the person just opened the field (a dialog, an inline editor, the help window) and on
+      // sign-in forms whose one job is that field; nowhere does it move focus on its own.
+      'jsx-a11y/no-autofocus': 'off',
+      // A checkbox's label text sits a span or two inside the <label> that wraps the input.
+      'jsx-a11y/label-has-associated-control': ['error', { depth: 3 }],
       // Unused args are allowed when prefixed with _, matching the repo's
       // tsconfig-strict style rather than fighting it.
       '@typescript-eslint/no-unused-vars': [

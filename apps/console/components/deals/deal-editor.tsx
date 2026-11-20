@@ -246,7 +246,12 @@ export function DealEditor({ deal, buyerOptions, contactBase }: { deal: EditorDe
       </section>
 
       {settling ? (
-        <div className={styles.scrim} onClick={(e) => { if (e.target === e.currentTarget && !pending) setSettling(false); }}>
+        <div
+          className={styles.scrim}
+          role="presentation"
+          onClick={(e) => { if (e.target === e.currentTarget && !pending) setSettling(false); }}
+          onKeyDown={(e) => { if (e.key === 'Escape' && !pending) setSettling(false); }}
+        >
           <div className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="settle-title">
             <form action={settle}>
               <div className={styles.dHead}>

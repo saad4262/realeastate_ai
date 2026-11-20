@@ -153,6 +153,7 @@ export function HelpWidget({ surface, groups }: { surface: HelpSurface; groups: 
 
   return (
     <div className={styles.root}>
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape from any control inside closes the window (keydown bubbles) */}
       <section
         className={styles.window}
         aria-label="Help"
