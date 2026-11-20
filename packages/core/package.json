@@ -113,6 +113,7 @@
     "./platform": "./src/platform/index.ts",
     "./platform/access": "./src/platform/access.ts",
     "./safety": "./src/safety/spikes.ts",
+    "./safety/overnight": "./src/safety/overnight.ts",
     "./activity": "./src/activity/index.ts",
     "./documents": "./src/documents/index.ts",
     "./documents/schema": "./src/documents/document-schema.ts",

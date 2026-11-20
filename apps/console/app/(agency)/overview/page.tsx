@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { AssistantHome } from '@/components/assistant/assistant-home';
 import { NeedsOwner } from '@/components/offboarding/needs-owner';
+import { OvernightFailures } from '@/components/safety/overnight-failures';
 import { UpcomingMeetings } from '@/components/appointments/upcoming-meetings';
 import { OpportunitiesPanel } from '@/components/opportunities/opportunities-panel';
 import { requireConsoleAccess } from '../../../lib/require-console-access';
@@ -8,8 +9,8 @@ import { requireConsoleAccess } from '../../../lib/require-console-access';
 /**
  * The agency console's home: the assistant, centred, as the page itself.
  *
- * The two real notices this page always carried stay — an offboarded member
- * whose work needs a new owner above the greeting, and the next meetings
+ * The real notices stay — last night's failures (PLATFORM-PLAN 3.7) and an
+ * offboarded member whose work needs a new owner above the greeting, and the next meetings
  * under the composer. The demo briefing, KPIs and recommendations that used
  * to fill it were sample figures, labelled as such; they are gone rather than
  * moved, because nothing on this page may show a number that is not SQL's.
@@ -24,9 +25,15 @@ export default async function AgencyHomePage() {
         home="/overview"
         name={name}
         notices={
-          <Suspense fallback={null}>
-            <NeedsOwner actor={session.actor} />
-          </Suspense>
+          <>
+            {/* PLATFORM-PLAN 3.7: last night's failures, owners and admins; its own boundary. */}
+            <Suspense fallback={null}>
+              <OvernightFailures actor={session.actor} />
+            </Suspense>
+            <Suspense fallback={null}>
+              <NeedsOwner actor={session.actor} />
+            </Suspense>
+          </>
         }
         below={
           <>
