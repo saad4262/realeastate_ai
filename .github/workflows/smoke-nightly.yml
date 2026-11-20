@@ -1,0 +1,57 @@
+# PLATFORM-PLAN 4.2: `pnpm smoke` every night against the DEV database, so a check that goes red is seen the next
+# morning, not on the day of a release.
+#
+# Off until the owner sets it up (V1-OWNER-ACTIONS O-35):
+# - repository variable SMOKE_NIGHTLY_ENABLED=true;
+# - secrets SMOKE_DATABASE_URL, SMOKE_DIRECT_URL, SMOKE_SUPABASE_URL, SMOKE_SUPABASE_PUBLISHABLE_KEY and
+#   SMOKE_SERVICE_ROLE_KEY, all DEV values (the smoke refuses the production project);
+# - optionally SMOKE_HEALTHCHECK_URL, a healthchecks.io check that alerts when a night is red or missing.
+#
+# A red run fails this workflow, and GitHub emails whoever last changed the schedule. No servers run here, so
+# the HTTP checks skip themselves, and no AI key is given, so nothing is spent. Every check writes inside a
+# rolled-back transaction.
+name: Smoke (nightly)
+
+on:
+  schedule:
+    - cron: '17 16 * * *' # 03:17 Sydney (AEDT), after the night's sends and backups
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-nightly
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    if: vars.SMOKE_NIGHTLY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: pnpm smoke (dev database)
+        run: pnpm smoke
+        env:
+          SMOKE_ENABLED: 'true'
+          SMOKE_CHECK_TIMEOUT_S: '300'
+          DATABASE_URL: ${{ secrets.SMOKE_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.SMOKE_DIRECT_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SMOKE_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SMOKE_SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SMOKE_SERVICE_ROLE_KEY }}
+      - name: Tell healthchecks.io
+        if: always()
+        env:
+          HEALTHCHECK_URL: ${{ secrets.SMOKE_HEALTHCHECK_URL }}
+          OUTCOME: ${{ job.status }}
+        run: |
+          [ -n "$HEALTHCHECK_URL" ] || exit 0
+          if [ "$OUTCOME" = "success" ]; then curl -fsS -m 10 --retry 3 "$HEALTHCHECK_URL" >/dev/null; else curl -fsS -m 10 --retry 3 "$HEALTHCHECK_URL/fail" >/dev/null; fi
