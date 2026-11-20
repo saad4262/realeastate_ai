@@ -429,6 +429,43 @@
   color: #e11d48;
 }
 
+.note {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.qr {
+  display: block;
+  width: 180px;
+  height: 180px;
+  margin: 0 auto;
+  border: 1px solid var(--border-default);
+  border-radius: 0.5rem;
+  background: #fff;
+}
+
+.secret {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  word-break: break-all;
+  user-select: all;
+}
+
+.secondary {
+  width: 100%;
+  padding: 0.625rem 1rem;
+  border: 1px solid var(--border-default);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .success {
   margin: 0;
   font-size: 0.75rem;

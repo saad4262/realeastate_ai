@@ -76,6 +76,7 @@ export const HELP_PAGES: Readonly<Record<string, string>> = Object.freeze({
   '/my-commission': 'Your commission: earned, expected and paid out.',
   '/settings/integrations': 'Connect the agency’s accounts, such as Zoom, Google Reviews and Google Sheets. Phone & SMS is here too.',
   '/my-integrations': 'Connect your own accounts, such as Gmail and Zoom. My phone is here too.',
+  '/security': 'Two-step sign-in with an authenticator app, a new password, and Sign out of all devices.',
   '/settings': 'The agency’s settings. Connectors is the section that exists so far.',
 });
 

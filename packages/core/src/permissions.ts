@@ -665,6 +665,14 @@ export function mfaMark(
   return { aal: recent ? 'aal2' : 'aal1' };
 }
 
+/**
+ * True when can() refuses only for want of a recent second factor: the caller then sends the person to verify
+ * (the console's /security) instead of away with no reason (PLATFORM-PLAN 1.3, 1.22).
+ */
+export function refusedForMfa(actor: Actor, action: Action, resource: Resource): boolean {
+  return actor.aal === 'aal1' && MFA_ACTIONS.has(action) && can({ ...actor, aal: undefined }, action, resource);
+}
+
 export function can(actor: Actor, action: Action, resource: Resource): boolean {
   if (actor.via === 'platform' && !PLATFORM_READ.has(action)) return false;
   if (actor.aal === 'aal1' && MFA_ACTIONS.has(action)) return false;
