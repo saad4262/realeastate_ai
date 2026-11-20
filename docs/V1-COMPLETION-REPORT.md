@@ -1,10 +1,9 @@
 # V1 completion report (mission section 10), updated 2026-11-20
 
-**Status: code-complete for V1, not yet production-ready.** 52 of 80 tasks are done. Every task that can be built and
-proven in code is built and live, except one small fix waiting for the owner's go (O-41, sign-out) and two owner
-decisions that may turn into small code changes (O-40, the AI page's mock figures; 3.7's morning view). Everything
-else waits on the owner's accounts and switches, a lawyer, a vendor or a drill (O-5 … O-41). Sources:
-`V1-IMPLEMENTATION-STATUS.md` (each task, with evidence) and `V1-OWNER-ACTIONS.md`.
+**Status: code-complete for V1 once `integrate/v1-final` is merged (O-42); not yet production-ready.** 52 of 80 tasks are
+done. The sign-out fix is live (1591105). The last code — the /ai mock removed (O-40) and 3.7's morning view — is built
+and tested on dev, waiting for the owner's go. Everything else waits on the owner's accounts and switches, a lawyer, a
+vendor or a drill (O-5 … O-42). Sources: `V1-IMPLEMENTATION-STATUS.md` (each task, with evidence) and `V1-OWNER-ACTIONS.md`.
 
 ## A. Implementation summary
 
@@ -22,9 +21,8 @@ Straight count: **52 / 80 done (65%)**, up from 31 on 2026-11-19.
 
 **Not finished, by who can move it:**
 - **Code (Claude Code: can continue now, nothing needed from anyone).**
-  None left to build on our own. Open: the sign-out fix (`fix/sign-out-both-cookies`, O-41, waiting for the go); a
-  decision on the AI page's mock figures (O-40); 3.7's "last night's failures" morning view if wanted. 1.8 part 2 is
-  deferred past V1 (owner).
+  None left to build on our own. Waiting for the go: `integrate/v1-final` (O-42: O-40 removal + 3.7 morning view).
+  1.8 part 2 is deferred past V1 (owner).
 - **Code that needs an owner account or event first:** 1.4 (Upstash, O-15), 1.5 (Turnstile, O-16), 1.19/1.9
   (pool size, compute: O-14), 2.4/2.5 (Stripe test mode, O-17), 3.6's spike test and 4.3 (load-test day, O-28), 4.4
   (O-19), 4.8 (O-30), 3.8's live drill (O-36), 4.2 switched on (O-35).
