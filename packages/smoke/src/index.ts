@@ -7355,7 +7355,8 @@ async function main() {
     inRollback(async (t) => {
       const f = await contactFixture(t);
       const a1 = f.actor('a1');
-      const conv = await claimTurn(t, a1, { message: 'workflow', surface: 'agent' });
+      // An email chat builds workflows since ADR 0088; a general chat may not approve one.
+      const conv = await claimTurn(t, a1, { message: 'workflow', surface: 'agent', chatScope: 'email' });
       const handles: HandleMap = {};
       const input = { name: `Welcome ${f.tag}`, scope: 'mine', trigger: { kind: 'lead.created', source: 'website' }, actions: [{ type: 'remind_owner', text: 'Call {{contact_first_name}}' }, { type: 'wait', hours: 24 }, { type: 'draft_email', instructions: 'Follow up' }] };
       const agencyWide = await runAssistantTool(proposeCtx(t, a1, handles, conv.conversationId), 'create_workflow', { ...input, scope: 'agency' });
@@ -7382,7 +7383,8 @@ async function main() {
         t.execute(sql`update property set suburb = ${suburb}, state = 'NSW', postcode = '2000', latitude = ${lat}, longitude = ${lng} where id = ${f.propertyId}`);
       await t.execute(sql`update agency set time_zone = 'Australia/Sydney' where id = ${f.agencyId}`);
       await moveTo('Parramatta', -33.8151, 151.0034);
-      const conv = await claimTurn(t, owner, { message: 'automatic emails', surface: 'agency' });
+      // An email chat builds workflows since ADR 0088; a general chat may not approve one.
+      const conv = await claimTurn(t, owner, { message: 'automatic emails', surface: 'agency', chatScope: 'email' });
       const handles: HandleMap = {};
 
       // BB1: the template, written in the chat — nothing saved before Approve.
@@ -7662,7 +7664,8 @@ async function main() {
       assert(agentSave instanceof PhoneError && agentSave.code === 'forbidden', 'an agent changed the settings');
       const madeUp = await saveMissedCallSettings(t, owner, { ...DEFAULT_MISSED_CALL_SETTINGS, smsTemplate: 'Hi {{first_name}}, the price is {{price}}' }).catch((e: unknown) => e);
       assert(madeUp instanceof PhoneError && /\{\{price\}\}/.test(madeUp.message), 'a made-up field was saved');
-      await saveMissedCallSettings(t, owner, { ...DEFAULT_MISSED_CALL_SETTINGS, smsTemplate: 'Hi {{first_name}}, {{agent_first_name}} here, sorry I missed you!' });
+      // One automatic text a caller a day here (ADR 0074 rule 4's default is 3), so "not texted twice" is tested.
+      await saveMissedCallSettings(t, owner, { ...DEFAULT_MISSED_CALL_SETTINGS, autoTextsPerCallerDay: 1, smsTemplate: 'Hi {{first_name}}, {{agent_first_name}} here, sorry I missed you!' });
 
       // The agency's switch alone is not enough for an agent; both is.
       await setSkillSwitch(t, owner, 'missed_call_text', true);
@@ -7733,7 +7736,9 @@ async function main() {
       // Another caller who texts back before the AI is due: not called.
       await missed(`CAtxt${f.tag}`, '+61400777222');
       await handleTwilioWebhook({ db: () => t, token, kind: 'sms', params: { From: '+61400777222', Body: 'Call me after 5 please', MessageSid: `SMtxt${f.tag}` }, keys: testKeys });
-      const due = new Date(Date.now() + 8 * 24 * 60 * 60 * 1000);
+      // The tick a minute after the later of the two is due: a call-back hours late is not placed (PLATFORM-PLAN 3.9).
+      const [last] = await t.execute<{ at: string }>(sql`select max(ai_due_at)::text as at from phone_call where agency_id = ${f.agencyId} and ai_status = 'scheduled'`);
+      const due = new Date(new Date(last!.at).getTime() + 60_000);
       const ran = await runDueAiCallbacks(t, voice, due, 10, { agencyId: f.agencyId });
       assert(ran.placed === 1 && ran.skipped === 1, `tick: ${JSON.stringify(ran)}`);
       assert((await aiOf(`CAtxt${f.tag}`)).ai_reason === 'replied', 'called someone who texted back');
