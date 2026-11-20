@@ -30,20 +30,28 @@ export function resendTransport(opts: {
 }): EmailTransport {
   const doFetch = opts.fetchImpl ?? fetch;
   const delays = opts.retryDelaysMs ?? [500, 2000];
+  // After one email used up its retries, the rest fail fast for a while: a tick sending fifty emails into an
+  // outage must not spend 2.5 s on each and run past its time.
+  let downUntil = 0;
 
   /**
    * PLATFORM-PLAN 3.5, one place for every email the platform sends: a 429, a 5xx or a dropped connection is
    * tried again, twice, under the same Idempotency-Key, so Resend sends it once however many attempts reach
    * it. A timeout is not tried again here: it already took 15 s of a tick's budget, and the caller's own
-   * record (failed, retried by its tick or shown to the person) takes it from there.
+   * record (failed, retried by its tick or shown to the person) takes it from there. Once an email has used up
+   * its retries, the next 30 s of sends from this transport try once each.
    * shortcut: retries within the one call only; a Resend outage longer than ~3 s still fails the send, so
    * callers without their own retry lose that email — move them onto the job queue (3.1) if that is seen.
    */
   async function send(message: EmailMessage): Promise<SendResult> {
     const withKey = message.idempotencyKey ? message : { ...message, idempotencyKey: randomUUID() };
+    const tries = Date.now() < downUntil ? 0 : delays.length;
     for (let attempt = 0; ; attempt++) {
       const r = await sendOnce(withKey);
-      if (r.ok || !r.retryable || 'timedOut' in r || attempt >= delays.length) return r.ok ? r : { ok: false, error: r.error, retryable: r.retryable };
+      if (r.ok || !r.retryable || 'timedOut' in r || attempt >= tries) {
+        if (!r.ok && r.retryable && tries > 0) downUntil = Date.now() + 30_000;
+        return r.ok ? r : { ok: false, error: r.error, retryable: r.retryable };
+      }
       await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
     }
   }

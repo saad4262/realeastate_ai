@@ -19,6 +19,8 @@ export type FailedTextsReport = { agents: number; notified: number; emailed: num
  * whichever path the texts came from (missed-call text, batch, workflow, reconcile). Network after the insert,
  * never inside a transaction.
  */
+// shortcut: a scan of sms_message's recent rows every 5 minutes, no index for it; add a partial index on updated_at
+// where status = 'failed' and provider_sid is null once sms_message passes ~1M rows (or the tick shows it slow).
 export async function tellAgentsOfFailedTexts(db: Db, now: Date, deps: { notice?: ReminderDeps['notice'] }): Promise<FailedTextsReport> {
   const since = new Date(now.getTime() - WINDOW_MINUTES * 60_000).toISOString();
   const rows = await db.execute<{ user_id: string; agency_id: string; email: string; role: string | null; n: number; reason: string }>(sql`

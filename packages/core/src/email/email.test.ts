@@ -257,8 +257,13 @@ describe('resendTransport', () => {
     expect(await timedOut.send(buildScheduleDigestEmail(BASE))).toMatchObject({ ok: false, retryable: true });
     expect(calls).toBe(1);
     calls = 0;
-    expect(await counting(() => new Response('down', { status: 502 })).send(buildScheduleDigestEmail(BASE))).toMatchObject({ ok: false, retryable: true });
+    const down = counting(() => new Response('down', { status: 502 }));
+    expect(await down.send(buildScheduleDigestEmail(BASE))).toMatchObject({ ok: false, retryable: true });
     expect(calls).toBe(3);
+    // The next email in the same outage tries once: a tick of fifty emails does not wait on each.
+    calls = 0;
+    expect(await down.send(buildScheduleDigestEmail(BASE))).toMatchObject({ ok: false, retryable: true });
+    expect(calls).toBe(1);
   });
 
   it('treats a network failure as retryable rather than throwing', async () => {
