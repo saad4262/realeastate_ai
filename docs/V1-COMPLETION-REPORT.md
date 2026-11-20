@@ -1,8 +1,8 @@
-# V1 completion report (mission section 10), updated 2026-11-20
+# V1 completion report (mission section 10), updated 2026-11-21
 
-**Status: code-complete for V1 once `integrate/v1-final` is merged (O-42); not yet production-ready.** 52 of 80 tasks are
-done. The sign-out fix is live (1591105). The last code — the /ai mock removed (O-40) and 3.7's morning view — is built
-and tested on dev, waiting for the owner's go. Everything else waits on the owner's accounts and switches, a lawyer, a
+**Status: V1 is code-complete (live `main` 25f8aea, 2026-11-21); not yet production-ready.** 52 of 80 tasks are
+done. The last code is live: the sign-out fix (1591105), the /ai mock removed (O-40) and 3.7's morning view (25f8aea).
+The coding phase is closed. Everything else waits on the owner's accounts and switches, a lawyer, a
 vendor or a drill (O-5 … O-42). Sources: `V1-IMPLEMENTATION-STATUS.md` (each task, with evidence) and `V1-OWNER-ACTIONS.md`.
 
 ## A. Implementation summary
@@ -21,7 +21,7 @@ Straight count: **52 / 80 done (65%)**, up from 31 on 2026-11-19.
 
 **Not finished, by who can move it:**
 - **Code (Claude Code: can continue now, nothing needed from anyone).**
-  None left to build on our own. Waiting for the go: `integrate/v1-final` (O-42: O-40 removal + 3.7 morning view).
+  None left to build on our own. The final batch (`integrate/v1-final`, O-42) is live on `main` 25f8aea.
   1.8 part 2 is deferred past V1 (owner).
 - **Code that needs an owner account or event first:** 1.4 (Upstash, O-15), 1.5 (Turnstile, O-16), 1.19/1.9
   (pool size, compute: O-14), 2.4/2.5 (Stripe test mode, O-17), 3.6's spike test and 4.3 (load-test day, O-28), 4.4
