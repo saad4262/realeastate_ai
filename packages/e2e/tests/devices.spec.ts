@@ -39,6 +39,8 @@ for (const phone of PHONES) {
       ];
       await onPhone(phone, async (page) => {
         for (const p of pages) {
+          // Leave the last page first: a dev server's hot reload of it could otherwise cut the next navigation short.
+          await page.goto('about:blank');
           await page.goto(p.url, { waitUntil: 'networkidle' });
           await expect(page.locator(p.main).first(), p.name).toBeVisible();
           expect.soft(await sideways(page), `${p.name} scrolls sideways`).toBeLessThanOrEqual(1);
