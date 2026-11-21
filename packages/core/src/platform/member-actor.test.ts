@@ -18,7 +18,7 @@ function fakeDb(rows: unknown[]) {
 
 const active = {
   agencyId: 'ag-1', role: 'agent', status: 'active', removedAt: null, agencyStatus: 'active',
-  agencyName: 'Acme', agencySlug: 'acme', sendsPausedAt: null, sendsPausedReason: null, userName: 'Sam', links: ['l-1', 'l-2'],
+  agencyName: 'Acme', agencySlug: 'acme', agencyTimeZone: 'Australia/Perth', sendsPausedAt: null, sendsPausedReason: null, userName: 'Sam', links: ['l-1', 'l-2'],
 };
 
 describe('memberContext (V1-PERFORMANCE-PLAN steps 3–4)', () => {
@@ -27,7 +27,7 @@ describe('memberContext (V1-PERFORMANCE-PLAN steps 3–4)', () => {
     const ctx = await memberContext(db, 'u-1');
     expect(count()).toBe(1);
     expect(ctx.actor).toEqual({ userId: 'u-1', agencyId: 'ag-1', membershipRole: 'agent', listingAgentOf: ['l-1', 'l-2'] });
-    expect(ctx).toMatchObject({ blocked: null, agencyName: 'Acme', agencySlug: 'acme', userName: 'Sam', sendsPaused: null });
+    expect(ctx).toMatchObject({ blocked: null, agencyName: 'Acme', agencySlug: 'acme', agencyTimeZone: 'Australia/Perth', userName: 'Sam', sendsPaused: null });
   });
 
   it('carries the sends pause', async () => {

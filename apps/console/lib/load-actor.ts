@@ -23,6 +23,8 @@ export type ActorContext = {
   /** For chrome only — never a permission input; those stay in can(). */
   agencyName: string | null;
   agencySlug: string | null;
+  /** The agency's clock, from the same statement (V1-PERFORMANCE-PLAN step 5). */
+  agencyTimeZone: string | null;
   /** Our own mirror of the name, so the chrome never needs the auth service. */
   userName: string | null;
   /**
@@ -74,7 +76,7 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
   const m = await memberContext(getConsoleDb(), userId);
   // Suspended agency, blocked member or no active membership (ADR 0050): no agency on the actor, so nothing passes can().
   if (!m.actor.agencyId) {
-    return { actor: { userId }, listingAgentOf: [], agencyName: null, agencySlug: null, userName: null, sendsPaused: null, ...(m.blocked ? { blocked: m.blocked } : {}) };
+    return { actor: { userId }, listingAgentOf: [], agencyName: null, agencySlug: null, agencyTimeZone: null, userName: null, sendsPaused: null, ...(m.blocked ? { blocked: m.blocked } : {}) };
   }
   const agencyId = m.actor.agencyId;
   const actor: Actor = { userId, agencyId, membershipRole: m.actor.membershipRole };
@@ -85,6 +87,7 @@ async function queryActorContext(userId: string): Promise<ActorContext | null> {
     listingAgentOf: m.actor.listingAgentOf ?? [],
     agencyName: m.agencyName,
     agencySlug: m.agencySlug,
+    agencyTimeZone: m.agencyTimeZone,
     userName: m.userName,
     sendsPaused: m.sendsPaused ? { reason: m.sendsPaused.reason, mayResume: can(actor, 'sends:resume', { type: 'agency', agencyId }) } : null,
   };

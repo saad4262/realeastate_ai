@@ -22,6 +22,8 @@ export type MemberContext = {
   blocked: AccessBlock | null;
   agencyName: string | null;
   agencySlug: string | null;
+  /** The agency's clock (never null in an agency), so a page needs no lookup of its own (step 5). */
+  agencyTimeZone: string | null;
   userName: string | null;
   sendsPaused: { reason: string | null } | null;
 };
@@ -36,6 +38,7 @@ export async function memberContext(db: DbOrTx, userId: string): Promise<MemberC
       agencyStatus: agency.status,
       agencyName: agency.name,
       agencySlug: agency.slug,
+      agencyTimeZone: agency.timeZone,
       sendsPausedAt: agency.sendsPausedAt,
       sendsPausedReason: agency.sendsPausedReason,
       userName: user.name,
@@ -50,13 +53,14 @@ export async function memberContext(db: DbOrTx, userId: string): Promise<MemberC
 
   const blocked = mem ? accessBlock({ membershipStatus: mem.status, removedAt: mem.removedAt, agencyStatus: mem.agencyStatus }) : null;
   if (!mem || mem.status !== 'active' || blocked) {
-    return { actor: { userId }, blocked, agencyName: null, agencySlug: null, userName: null, sendsPaused: null };
+    return { actor: { userId }, blocked, agencyName: null, agencySlug: null, agencyTimeZone: null, userName: null, sendsPaused: null };
   }
   return {
     actor: { userId, agencyId: mem.agencyId, membershipRole: mem.role as MembershipRole, listingAgentOf: mem.links ?? [] },
     blocked: null,
     agencyName: mem.agencyName,
     agencySlug: mem.agencySlug,
+    agencyTimeZone: mem.agencyTimeZone,
     userName: mem.userName,
     sendsPaused: mem.sendsPausedAt ? { reason: mem.sendsPausedReason } : null,
   };

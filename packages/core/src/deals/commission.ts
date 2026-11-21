@@ -179,11 +179,12 @@ export type FinanceReport = {
 const cents = (xs: (number | null)[]) => Math.round(xs.reduce<number>((s, x) => s + Math.round((x ?? 0) * 100), 0)) / 100;
 
 /** The Finance page (ADR 0064 §6): owners and admins see the agency; anyone else their own deals and share. */
-export async function financeReport(db: DbOrTx, actor: Actor, opts: { period: FinancePeriod; now?: Date }): Promise<FinanceReport> {
+/** `timeZone`: the actor's agency's clock when the caller already has it (the console's actor carries it), saving a lookup. */
+export async function financeReport(db: DbOrTx, actor: Actor, opts: { period: FinancePeriod; now?: Date; timeZone?: string }): Promise<FinanceReport> {
   if (!actor.agencyId || !can(actor, 'listing:read', { type: 'listing', agencyId: actor.agencyId })) throw new DealError('forbidden', 'You do not have access to Finance.');
   const agencyId = actor.agencyId;
   const scope = can(actor, 'report:read_agency', { type: 'report', agencyId }) ? 'agency' : 'mine';
-  const today = instantToLocalInput(opts.now ?? new Date(), await agencyTimeZone(db, agencyId)).slice(0, 10);
+  const today = instantToLocalInput(opts.now ?? new Date(), opts.timeZone ?? (await agencyTimeZone(db, agencyId))).slice(0, 10);
   const range = periodRange(opts.period, today);
   const rows = await db.execute<{
     id: string; listing_id: string | null; address: string; suburb: string; property_type: string | null; agent_id: string | null; agent_name: string | null;
