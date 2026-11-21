@@ -72,7 +72,9 @@ Headroom toward V2 (≈ 542 req/s) is part of the goal.
 - **Reporting.** Report to the owner in Roman Urdu, with the straight count (52/80).
 
 ## How Claude finishes every code step (1–9)
-1. `git worktree add -b <branch> /Users/saadiii/Job/realestate_ai-<short> origin/main`.
+1. `git worktree add -b <branch> /Users/saadiii/Job/realestate_ai-<short> origin/main`. Steps 1–4 touch the same
+   files (`packages/db/src/client.ts`, `/api/live`, `load-actor.ts`), so they stack instead: step 2 on step 1's
+   branch, 3 on 2, 4 on 3. Steps 5–9 start from `origin/main`.
 2. Read the files named in the step and every caller of what you change (grep) before editing.
 3. Make the change. Add or extend the test named in the step. Read paths keep or lower their statement count:
    `packages/core/src/listings/query-count.test.ts` or a sibling.
@@ -255,6 +257,9 @@ Headroom toward V2 (≈ 542 req/s) is part of the goal.
 
 ### Step 12. Smoke from Sydney
 - **Who:** Claude.
+- **First, on `test/4.3-load-judged`:** k6 and `load/report.mjs` count a `503` with `Retry-After` on `/api/live`,
+  `/api/notifications` and `/api/activity` as **shed**, not failed (ADR 0098). Give it its own column, and keep
+  shed out of the error rate.
 - **Claude does:** `load/run.sh -e MODE=smoke` with the preview URLs (`-e WEB=… -e AGENTS_URL=… -e AGENCY_URL=…
   -e ADMIN_URL=…`) and `-e STRIPE_WEBHOOK_SECRET=whsec_load_test`.
 - **Done when** there are 0 errors and the report's validity block is all green.
