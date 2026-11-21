@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { healthReport } from '@repo/core/observability/health';
-import { getConsoleDb } from '../../../lib/db';
+import { getConsoleHealthDb } from '../../../lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +9,6 @@ export const dynamic = 'force-dynamic';
  * expects, else 503. Flags only — no versions, hosts or error text — so it is public.
  */
 export async function GET() {
-  const report = await healthReport(getConsoleDb());
+  const report = await healthReport(getConsoleHealthDb());
   return NextResponse.json(report, { status: report.status === 'ok' ? 200 : 503, headers: { 'cache-control': 'no-store' } });
 }

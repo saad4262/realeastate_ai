@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { alertLines } from '@repo/core/observability/health';
-import { getWebDb } from '../../../../lib/db';
+import { getWebHealthDb } from '../../../../lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
  * not (or the database cannot answer). Flags only — no counts, ids or text — so it is public, like /api/health.
  */
 export async function GET() {
-  const report = await alertLines(getWebDb()).catch(() => null);
+  const report = await alertLines(getWebHealthDb()).catch(() => null);
   if (!report) return NextResponse.json({ status: 'alert', lines: { database: 'alert' } }, { status: 503, headers: { 'cache-control': 'no-store' } });
   return NextResponse.json(report, { status: report.status === 'ok' ? 200 : 503, headers: { 'cache-control': 'no-store' } });
 }

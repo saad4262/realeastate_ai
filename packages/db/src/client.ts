@@ -1,10 +1,10 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import { poolOptions } from './pool-options';
+import { healthPoolOptions, poolOptions } from './pool-options';
 import * as schema from './schema';
 
-function create(connectionString: string) {
-  const client = postgres(connectionString, poolOptions());
+function create(connectionString: string, options: ReturnType<typeof poolOptions | typeof healthPoolOptions> = poolOptions()) {
+  const client = postgres(connectionString, options);
   return drizzle(client, { schema });
 }
 
@@ -51,5 +51,17 @@ export function getDb(connectionString: string): Db {
 
   const db = create(connectionString);
   pools.set(connectionString, db);
+  return db;
+}
+
+/** The health check's own one-connection pool (healthPoolOptions): it never waits behind the app's queries. */
+export function getHealthDb(connectionString: string): Db {
+  const pools = registry();
+  const key = `health\u0000${connectionString}`;
+  const existing = pools.get(key);
+  if (existing) return existing;
+
+  const db = create(connectionString, healthPoolOptions());
+  pools.set(key, db);
   return db;
 }

@@ -16,17 +16,29 @@ export type Health = {
 /** The newest migration in this build, from drizzle's journal. */
 export const BUILD_MIGRATIONS = { count: journal.entries.length, lastWhen: journal.entries[journal.entries.length - 1]?.when ?? 0 };
 
-export async function healthReport(db: DbOrTx, expected = BUILD_MIGRATIONS): Promise<Health> {
+/**
+ * A database that has not answered within `timeoutMs` (2 s) counts as down: a monitor gets its answer at once instead
+ * of waiting on a request that may never finish (V1-PERFORMANCE-PLAN step 1).
+ */
+export async function healthReport(db: DbOrTx, expected = BUILD_MIGRATIONS, timeoutMs = 2_000): Promise<Health> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const [row] = await db.execute<{ n: number | string; last: number | string | null }>(
-      sql`select count(*)::int as n, max(created_at) as last from drizzle.__drizzle_migrations`,
-    );
+    const [row] = await Promise.race([
+      db.execute<{ n: number | string; last: number | string | null }>(
+        sql`select count(*)::int as n, max(created_at) as last from drizzle.__drizzle_migrations`,
+      ),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('timeout')), timeoutMs);
+      }),
+    ]);
     // Behind = this code expects a migration the database has not had. Ahead is fine: migrations go first.
     const behind = Number(row?.n ?? 0) < expected.count || Number(row?.last ?? 0) < expected.lastWhen;
     const schema = behind ? 'behind' : 'ok';
     return { status: schema === 'ok' ? 'ok' : 'degraded', checks: { database: 'ok', schema } };
   } catch {
     return { status: 'degraded', checks: { database: 'down', schema: 'unknown' } };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
