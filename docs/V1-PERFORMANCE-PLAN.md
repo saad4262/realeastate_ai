@@ -36,7 +36,7 @@ Headroom toward V2 (≈ 542 req/s) is part of the goal.
   |---|---|
   | Actor query | 0.15 ms |
   | `site_activity` insert | 0.4 ms |
-  | Agent listings | 12 ms |
+  | Public search (`searchPublicListings`, ISR-cached 30 s) | 12 ms |
   | Listing-activity counts | **96 ms** |
   | Admin `siteTrend` | **115 ms** |
 
@@ -71,10 +71,23 @@ Headroom toward V2 (≈ 542 req/s) is part of the goal.
   - A big decision gets an ADR first.
 - **Reporting.** Report to the owner in Roman Urdu, with the straight count (52/80).
 
+## Status (2026-11-21)
+| Step | Branch | Result |
+|---|---|---|
+| 1 | `perf/1-health-own-pool` | Built |
+| 2 | `perf/2-load-shedding` (on 1) | Built; ADR 0098 proposed |
+| 3 | `perf/3-live-one-statement` (on 2) | Built; `/api/live` 2 statements, not 1 (the stamp's scope is `can()`'s) |
+| 4 | `perf/4-actor-badges-split` (on 3) | Built |
+| 5 | `perf/5-waterfalls` (on 4) | Built |
+| 6 | `perf/6-no-write-on-read` | Built |
+| 7 | `perf/7-slow-queries` | Built; migration 0107 (index) |
+| 8 | — | Finding, no code: `statement_timeout` per connection is ignored by Supavisor's transaction pooler; the server default (2 min) bounds statements today; lowering it is the owner's decision |
+| 9 | `perf/9-clientread-alert` | Built; the production check waits for the go |
+
 ## How Claude finishes every code step (1–9)
 1. `git worktree add -b <branch> /Users/saadiii/Job/realestate_ai-<short> origin/main`. Steps 1–4 touch the same
-   files (`packages/db/src/client.ts`, `/api/live`, `load-actor.ts`), so they stack instead: step 2 on step 1's
-   branch, 3 on 2, 4 on 3. Steps 5–9 start from `origin/main`.
+   files (`packages/db/src/client.ts`, `/api/live`, `load-actor.ts`), so they stack instead: 2 on 1, 3 on 2, 4 on 3,
+   5 on 4 (it needs the actor's statement). Steps 6, 7 and 9 start from `origin/main`.
 2. Read the files named in the step and every caller of what you change (grep) before editing.
 3. Make the change. Add or extend the test named in the step. Read paths keep or lower their statement count:
    `packages/core/src/listings/query-count.test.ts` or a sibling.
