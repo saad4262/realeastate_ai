@@ -270,7 +270,7 @@ Headroom toward V2 (≈ 542 req/s) is part of the goal.
 
 ### Step 12. Smoke from Sydney
 - **Who:** Claude.
-- **First, on `test/4.3-load-judged`:** k6 and `load/report.mjs` count a `503` with `Retry-After` on `/api/live`,
+- **Done 2026-11-21 (`test/4.3-load-judged` 3494ee2):** k6 and `load/report.mjs` count a `503` on `/api/live`,
   `/api/notifications` and `/api/activity` as **shed**, not failed (ADR 0098). Give it its own column, and keep
   shed out of the error rate.
 - **Claude does:** `load/run.sh -e MODE=smoke` with the preview URLs (`-e WEB=… -e AGENTS_URL=… -e AGENCY_URL=…
