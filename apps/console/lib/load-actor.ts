@@ -1,9 +1,10 @@
 import { cache } from 'react';
 import { desc, eq, sql } from 'drizzle-orm';
-import { agency, listingAgent, membership, user } from '@repo/db/schema';
+import { agency, membership, user } from '@repo/db/schema';
 import { can, mfaMark, type Actor, type MembershipRole } from '@repo/core/permissions';
 import { narrowedContactIdsSql } from '@repo/core/contacts';
 import { accessBlock, type AccessBlock } from '@repo/core/platform/access';
+import { memberContext } from '@repo/core/platform/member-actor';
 import { getConsoleDb } from './db';
 import { sessionAuth } from './session-aal';
 
@@ -222,18 +223,15 @@ export async function loadActor(userId: string): Promise<Actor | null> {
 }
 
 /**
- * The same actor plus its listing_agent links, for pages that decide on a
- * specific listing. Kept separate so the console chrome does not pay for it.
+ * The same actor plus its listing_agent links, for pages and actions that decide on a specific listing, and for
+ * /api/live. One light statement (memberContext): it used to be the header-count query and then the links, two
+ * round trips, on every 5-second poll (V1-PERFORMANCE-PLAN step 3).
  */
 export async function loadListingActor(userId: string): Promise<Actor | null> {
-  const actor = await loadActor(userId);
-  if (!actor?.agencyId) return actor;
+  const url = process.env.DATABASE_URL;
+  if (!url || url.includes('YOUR_PASSWORD')) return null;
 
-  const db = getConsoleDb();
-  const links = await db
-    .select({ listingId: listingAgent.listingId })
-    .from(listingAgent)
-    .where(eq(listingAgent.userId, userId));
-
-  return { ...actor, listingAgentOf: links.map((l) => l.listingId) };
+  const { actor } = await memberContext(getConsoleDb(), userId);
+  if (!actor.agencyId) return actor;
+  return { ...actor, ...mfaMark(actor, await sessionAuth(userId)) };
 }

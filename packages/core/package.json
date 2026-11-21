@@ -113,6 +113,7 @@
     "./open-query": "./src/open-query/index.ts",
     "./platform": "./src/platform/index.ts",
     "./platform/access": "./src/platform/access.ts",
+    "./platform/member-actor": "./src/platform/member-actor.ts",
     "./safety": "./src/safety/spikes.ts",
     "./safety/overnight": "./src/safety/overnight.ts",
     "./activity": "./src/activity/index.ts",
