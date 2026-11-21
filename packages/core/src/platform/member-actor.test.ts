@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Db } from '@repo/db';
 import { memberContext } from './member-actor';
@@ -46,5 +48,34 @@ describe('memberContext (V1-PERFORMANCE-PLAN steps 3–4)', () => {
       expect(ctx.blocked).toBe(blocked);
       expect(ctx.agencyName).toBeNull();
     }
+  });
+});
+
+/**
+ * Step 4: the console's actor (gate, pages, actions, polls) never pays for the header's counts. A scan, because the
+ * console app has no test runner: the counts load only in the chrome, and the actor's query counts nothing.
+ */
+describe('the header counts stay in the chrome', () => {
+  const ROOT = join(__dirname, '..', '..', '..', '..');
+  const CONSOLE = join(ROOT, 'apps', 'console');
+  const walk = (dir: string): string[] =>
+    readdirSync(dir).flatMap((n) => {
+      if (n === 'node_modules' || n.startsWith('.next')) return [];
+      const p = join(dir, n);
+      return statSync(p).isDirectory() ? walk(p) : /\.tsx?$/.test(n) ? [p] : [];
+    });
+
+  it('only loadConsoleChrome loads them', () => {
+    const callers = [...walk(join(CONSOLE, 'app')), ...walk(join(CONSOLE, 'lib')), ...walk(join(CONSOLE, 'components'))]
+      .filter((f) => /\bloadHeaderCounts\(/.test(readFileSync(f, 'utf8')))
+      .map((f) => relative(ROOT, f));
+    expect(callers).toEqual(['apps/console/lib/require-console-access.ts']);
+  });
+
+  it('the actor is memberContext, with no count of its own', () => {
+    const src = readFileSync(join(CONSOLE, 'lib', 'load-actor.ts'), 'utf8');
+    const body = src.slice(src.indexOf('async function queryActorContext'), src.indexOf('export const loadActorContext'));
+    expect(body).toContain('memberContext(');
+    expect(body).not.toMatch(/count\(/i);
   });
 });

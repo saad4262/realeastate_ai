@@ -152,8 +152,8 @@ export function ConsoleShell({ surface, children, userLabel, userId, chrome }: C
           {/*
             This strip used to show invented market figures (a clearance rate,
             a metro median). Numbers come from SQL or they do not get shown —
-            these are the agency's own, counted in the same query that builds
-            the session.
+            these are the agency's own, counted by the chrome's own statement
+            (loadHeaderCounts), which the gate and the page never wait for.
           */}
           {shell.ticker ? (
             <div className={styles.ticker} aria-label="Agency summary">
