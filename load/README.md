@@ -74,6 +74,24 @@ database (2026-11-20), against ~1–2 ms from Vercel syd1. Run the servers next 
 Dev at ~20k rows is the house rule since the 2026-11-20 disk incident: more data needs the owner to raise dev's disk
 and compute first.
 
+## A free machine in Sydney (k6 beside the servers and the database)
+Users, Vercel (`syd1`) and the database are all in Sydney, so k6 must be too: from Pakistan every request carries
+~300 ms of distance and the TTFB targets fail on geography alone.
+1. **Owner:** a new AWS account on the **Free plan** (credits; the account is not charged, it stops when they run
+   out). Region **Asia Pacific (Sydney) ap-southeast-2** → EC2 → Ubuntu 24.04, `m7i-flex.large` (2 vCPU, 8 GB; free
+   plan eligible), 20 GB disk, SSH from your IP only. **Stop the instance after the test.**
+2. On it: `curl -fsSL https://raw.githubusercontent.com/saad4262/realeastate_ai/test/4.3-load-judged/load/vm-setup.sh | bash`,
+   then `scp .env.dev ubuntu@<ip>:realestate_ai/` and log in again.
+3. Vercel previews of all four projects on dev (step 3 below), a firewall **System Bypass** rule for the VM's IP and
+   the bypass secret as `VERCEL_BYPASS` (rotate it afterwards).
+4. Seed, `targets.mjs`, `sessions.mjs` from the VM (it is 1–2 ms from the database, so the seed is fast too), then
+   `load/run.sh -e MODE=step -e PROFILE=v1 -e WEB=… -e AGENTS_URL=… -e AGENCY_URL=… -e ADMIN_URL=… -e STRIPE_WEBHOOK_SECRET=whsec_load_test`.
+   The report's validity block must be all green; k6 over 80% CPU (2 cores) means V2 needs a second machine.
+5. `scp -r ubuntu@<ip>:realestate_ai/load/runs/<time> load/runs/` to read the report here.
+
+Not free: Vercel function time during the run (watch Usage) and raising dev's compute (optional: a pass on dev's
+smaller compute is a pass; a failure there may be the compute).
+
 ## The day
 1. **Owner:** raise the dev database to production's compute for the day (Supabase → dev → Compute; a few minutes
    of restart). Lower it again at the end: it costs by the hour.
