@@ -46,22 +46,30 @@ export async function pingHeartbeat(url: string | undefined, outcome: 'ok' | 'fa
  * - jobLag: a job due more than 2 minutes ago and not started (held agencies' send jobs and SENDS_PAUSED aside);
  * - deadJobs: a job dead-lettered in the last 24 hours (replay or resolve it in the admin console);
  * - stuckTexts: a text queued without a Twilio id for over 30 minutes (the reconcile check should have settled it);
- * - sendsPaused: an agency's sends paused by the spike check in the last 24 hours.
+ * - sendsPaused: an agency's sends paused by the spike check in the last 24 hours;
+ * - stuckClients: a statement waiting on its client (`active`, `ClientRead`) with its transaction open for over a
+ *   minute (V1-PERFORMANCE-PLAN step 9). A client or the pooler stalled mid-statement and holds a connection, and the
+ *   locks its transaction took. `idle_in_transaction_session_timeout` (0106) does not end these: the session is
+ *   active, not idle. Seen on dev on 2026-11-21, open for up to 1,020 s.
  * Sentry (errors, p95), Supabase (CPU, pooler) and the backups' healthchecks carry the other lines (O-13, O-14, O-8).
  */
-export type AlertLines = { status: 'ok' | 'alert'; lines: Record<'jobLag' | 'deadJobs' | 'stuckTexts' | 'sendsPaused', 'ok' | 'alert'> };
+export type AlertLines = { status: 'ok' | 'alert'; lines: Record<'jobLag' | 'deadJobs' | 'stuckTexts' | 'sendsPaused' | 'stuckClients', 'ok' | 'alert'> };
 
-export async function alertLines(db: DbOrTx, env: NodeJS.ProcessEnv = process.env): Promise<AlertLines> {
+export async function alertLines(db: DbOrTx, env: NodeJS.ProcessEnv = process.env, opts: { stuckClientSeconds?: number } = {}): Promise<AlertLines> {
   const sendsPaused = env.SENDS_PAUSED?.trim() === '1';
-  const [r] = await db.execute<{ lag: boolean; dead: boolean; stuck: boolean; paused: boolean }>(sql`
+  const stuckAfter = opts.stuckClientSeconds ?? 60;
+  const [r] = await db.execute<{ lag: boolean; dead: boolean; stuck: boolean; paused: boolean; clients: boolean }>(sql`
     select
       exists (select 1 from job j where j.status = 'queued' and j.run_at < now() - interval '2 minutes'
         and (j.lane = 'urgent' or (${!sendsPaused} and (j.agency_id is null or j.agency_id not in ${SENDS_HELD_AGENCY_IDS})))) as lag,
       exists (select 1 from job where status = 'dead' and finished_at > now() - interval '24 hours') as dead,
       exists (select 1 from sms_message where direction = 'out' and status = 'queued' and provider_sid is null
         and created_at < now() - interval '30 minutes' and created_at > now() - interval '3 days') as stuck,
-      exists (select 1 from agency where sends_paused_at > now() - interval '24 hours') as paused`);
+      exists (select 1 from agency where sends_paused_at > now() - interval '24 hours') as paused,
+      exists (select 1 from pg_stat_activity a where a.datname = current_database() and a.backend_type = 'client backend'
+        and a.pid <> pg_backend_pid() and a.state = 'active' and a.wait_event = 'ClientRead'
+        and a.xact_start < now() - make_interval(secs => ${stuckAfter})) as clients`);
   const flag = (b: boolean | undefined) => (b ? 'alert' : 'ok') as 'ok' | 'alert';
-  const lines = { jobLag: flag(r?.lag), deadJobs: flag(r?.dead), stuckTexts: flag(r?.stuck), sendsPaused: flag(r?.paused) };
+  const lines = { jobLag: flag(r?.lag), deadJobs: flag(r?.dead), stuckTexts: flag(r?.stuck), sendsPaused: flag(r?.paused), stuckClients: flag(r?.clients) };
   return { status: Object.values(lines).includes('alert') ? 'alert' : 'ok', lines };
 }
