@@ -112,7 +112,8 @@ branch pushed and not merged:
 ### P2. Load shedding: fail fast for low-priority requests (ADR first)
 - **Problem.** Nothing limits the wait for a connection. Requests queue until the client's 10 s timeout, so past the
   knee every request fails (80% at every step above 25%).
-- **ADR.** Write `docs/adr/NNNN-load-shedding.md` (10 lines). It sets:
+- **ADR.** Read ADR 0097 (peak shaping) first, so shedding agrees with it. Then write `docs/adr/NNNN-load-shedding.md`
+  (10 lines). It sets:
   - the priority classes: webhooks > user actions > pages > polls and beacons;
   - the signal: in-flight count per pool, or the wait time;
   - the threshold.
@@ -192,7 +193,8 @@ branch pushed and not merged:
   - suburb aggregate, 13 ms.
 - **Change.** Indexes through `packages/db/src/concurrent-indexes.ts`, built concurrently. A migration for an index
   needs the owner's go for production. Use counters only if an index cannot do it.
-- **Proof.** Before and after `EXPLAIN` in the branch's commit message. `pnpm db:slow-queries` shows the drop.
+- **Proof.** Before and after `EXPLAIN` in the branch's commit message. `pnpm --filter @repo/db db:slow-queries`
+  shows the drop.
 - **Done when** each is < 20 ms on dev, or the reason it cannot be is written down.
 
 ### P8. `statement_timeout` per kind of work (tracker 1.8 part 2)
