@@ -75,14 +75,14 @@ Headroom toward V2 (≈ 542 req/s) is part of the goal.
 | Step | Branch | Result |
 |---|---|---|
 | 1 | `perf/1-health-own-pool` | Built |
-| 2 | `perf/2-load-shedding` (on 1) | Built; ADR 0098 proposed |
+| 2 | `perf/2-load-shedding` (on 1) | Built; ADR 0098 accepted by the owner |
 | 3 | `perf/3-live-one-statement` (on 2) | Built; `/api/live` 2 statements, not 1 (the stamp's scope is `can()`'s) |
 | 4 | `perf/4-actor-badges-split` (on 3) | Built |
 | 5 | `perf/5-waterfalls` (on 4) | Built |
 | 6 | `perf/6-no-write-on-read` | Built |
 | 7 | `perf/7-slow-queries` | Built; migration 0107 (index) |
-| 8 | — | Finding, no code: `statement_timeout` per connection is ignored by Supavisor's transaction pooler; the server default (2 min) bounds statements today; lowering it is the owner's decision |
-| 9 | `perf/9-clientread-alert` | Built; the production check waits for the go |
+| 8 | — | Finding, no code: `statement_timeout` per connection is ignored by Supavisor's transaction pooler; the server default (2 min) bounds statements today; owner: stays 2 min for V1; a request-traffic DB role is V2 |
+| 9 | `perf/9-clientread-alert` | Built; production checked (owner's go): nothing stuck |
 
 ## How Claude finishes every code step (1–9)
 1. `git worktree add -b <branch> /Users/saadiii/Job/realestate_ai-<short> origin/main`. Steps 1–4 touch the same
@@ -372,6 +372,8 @@ Headroom toward V2 (≈ 542 req/s) is part of the goal.
 - A read replica for admin and insights.
 - Realtime push instead of polling (V3).
 - `site_activity` partitions (V3).
+- A separate database role for request traffic with its own `statement_timeout` (owner, step 8): the pooler ignores
+  per-connection settings, and a role-level limit on `postgres` would also bound cron and migrations.
 
 ## Owner actions that block launch (outside this plan)
 | Area | Tasks |
