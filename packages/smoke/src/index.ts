@@ -12730,6 +12730,29 @@ async function main() {
     }
   });
 
+  await check('an unchanged account is not rewritten on every page', async () => {
+    /**
+     * V1-PERFORMANCE-PLAN step 6: every account page runs `ensureAppUser`. An unconditional
+     * ON CONFLICT DO UPDATE wrote a new row version, WAL and a row lock on each view. `xmin` is
+     * the row's version: an update makes a new one. A synthetic row, deleted in `finally`.
+     */
+    const id = randomUUID();
+    const email = `smoke-nowrite-${id.slice(0, 8)}@example.com`;
+    const version = async () => (await db.execute<{ v: string }>(sql`select xmin::text as v from "user" where id = ${id}`))[0]?.v;
+    try {
+      await ensureAppUser(db, { id, email, name: 'Smoke' });
+      const first = await version();
+      await ensureAppUser(db, { id, email, name: 'Smoke' });
+      await ensureAppUser(db, { id, email: email.toUpperCase() }); // a missing name never wipes; the address is stored lower-case
+      assert((await version()) === first, 'an unchanged account was written again');
+      await ensureAppUser(db, { id, email, name: 'Smoke 2' });
+      assert((await version()) !== first, 'a changed name was not written');
+      return 'repeat calls write nothing; a change still writes';
+    } finally {
+      await db.execute(sql`delete from "user" where id = ${id}`);
+    }
+  });
+
   await check('every account is mirrored into public.user', async () => {
     const rows = (await db.execute(sql`
       select count(*)::int as orphans
