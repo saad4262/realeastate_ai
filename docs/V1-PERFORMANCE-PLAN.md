@@ -79,7 +79,8 @@ Headroom toward V2 (≈ 542 req/s) is part of the goal.
 4. **Break-test:** undo the fix (or break what the check guards), watch the test go red, then restore it.
 5. `pnpm typecheck`, `pnpm lint` and `pnpm test` must be green. Run the smoke group only if the step names one.
 6. Commit, then push the branch. **Do not merge.**
-7. Add a Log row to `V1-IMPLEMENTATION-STATUS.md` on the docs branch: date, step, branch, result.
+7. Add a Log row to `docs/V1-IMPLEMENTATION-STATUS.md` on branch `docs/platform-plan` (worktree
+   `/Users/saadiii/Job/realestate_ai-docs`; the copy on `main` is stale): date, step, branch and commit, result.
 8. Tell the owner in Roman Urdu: what changed, the proof, the branch, and what was not checked.
 
 ## The steps
