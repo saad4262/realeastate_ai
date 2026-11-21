@@ -1,6 +1,6 @@
 # 0098: Load shedding — polls give way to people
 
-**Status:** proposed 2026-11-21 (V1-PERFORMANCE-PLAN step 2, PLATFORM-PLAN 4.3). Builds on 0097 (peak shaping) and
+**Status:** accepted 2026-11-21 by the owner (V1-PERFORMANCE-PLAN step 2, PLATFORM-PLAN 4.3). Builds on 0097 (peak shaping) and
 0094 (no pipelining: one statement per connection, the rest queue).
 
 **Problem.** Each server instance has one pool (`DB_POOL_MAX`, default 5), and nothing bounds the wait for it. In the
