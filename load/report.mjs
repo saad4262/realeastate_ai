@@ -3,11 +3,13 @@
 //   results.md   the same findings as text, to paste into a conversation (Claude) or a ticket
 //   results.json the numbers, for a later comparison
 // node load/report.mjs load/runs/<time>     (run.sh calls it)
-import { createReadStream, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpus } from 'node:os';
 import { createInterface } from 'node:readline';
 import { constants, createGunzip } from 'node:zlib';
-import { join } from 'node:path';
-import { ENDPOINTS, ROLES, population } from './catalog.js';
+import { basename, dirname, join } from 'node:path';
+import { ENDPOINTS, ROLES, TARGETS, population, stepFractions, wholeBudget } from './catalog.js';
+import { judgeValidity, stepTable } from './judge.mjs';
 
 const dir = process.argv[2];
 if (!dir || !existsSync(join(dir, 'k6.csv.gz'))) throw new Error('usage: node load/report.mjs load/runs/<time>');
@@ -25,17 +27,22 @@ const argsText = read('args.txt');
 const env = Object.fromEntries([...argsText.matchAll(/-e ([A-Z_]+)=(\S+)/g)].map((m) => [m[1], m[2]]));
 const poolLine = argsText.match(/DB_POOL_MAX=(\d+)/);
 const MODE = env.MODE ?? 'smoke';
-const PROFILE = env.PROFILE ?? 'pop';
+const PROFILE = env.PROFILE ?? 'v1';
 const pop = population(env);
+const argNum = (k) => {
+  const m = argsText.match(new RegExp(`^${k}=(\\d+)`, 'm'));
+  return m ? Number(m[1]) : null;
+};
 const toSec = (d) => (d.endsWith('m') ? Number(d.slice(0, -1)) * 60 : d.endsWith('s') ? Number(d.slice(0, -1)) : Number(d));
 const RAMP = MODE === 'run' ? toSec(env.RAMP ?? '2m') : 0;
 const HOLD = MODE === 'run' ? toSec(env.HOLD ?? '5m') : MODE === 'smoke' ? 30 : MODE === 'soak' ? 7200 : 3600;
+const STEP_HOLD = toSec(env.STEP ?? '3m');
 const byKind = Object.fromEntries(ENDPOINTS.map((e) => [e.kind, e]));
 const profile = json('profile.json');
 const poolMax = profile?.poolMax ?? (poolLine ? Number(poolLine[1]) : 5);
 const APPS = 2; // web and console, one process each when run on one machine
-// A person waits for the whole page, not its first byte: a streamed page sends its shell at once and the rest later.
-const WHOLE_MAX_MS = 3000;
+// MODE=step: every outcome and first-byte time, to grade each step on its own (judge.mjs).
+const stepReqs = [];
 const appOf = (e) => (e.kind === 'system_health_console' ? 'console' : ROLES[e.role].app);
 
 // ---------- every request ----------
@@ -121,14 +128,17 @@ for await (const line of lines) {
     c.n += 1;
     k.times.push(t);
     k.status[status] = (k.status[status] ?? 0) + 1;
+    if (MODE === 'step') stepReqs.push({ t, ok: status >= 200 && status < 300 });
     if (status < 200 || status >= 300) {
       k.bad += 1;
       c.bad += 1;
       const why = reason(status, f[col.error]);
       k.why[why] = (k.why[why] ?? 0) + 1;
     }
-  } else if (metric === 'http_req_waiting') k.waits.push(v);
-  else {
+  } else if (metric === 'http_req_waiting') {
+    k.waits.push(v);
+    if (MODE === 'step') stepReqs.push({ t, ms: v, overBudget: v > byKind[kind].budget });
+  } else {
     k.fulls.push(v);
     c.fulls.push(v);
   }
@@ -148,16 +158,16 @@ const sum = (xs) => xs.reduce((a, b) => a + b, 0);
 // ---------- per kind ----------
 const rows = ENDPOINTS.filter((e) => kinds.has(e.kind)).map((e) => {
   const k = kinds.get(e.kind);
-  const target = Math.max(1, Math.round(PROFILE === 'pop' ? e.perMin(pop) : 0));
+  const target = Math.max(1, Math.round(e.perMin(pop)));
   const p95 = pct(k.waits, 95);
   const alone = profile?.endpoints?.[e.kind];
   const okPct = ((k.n - k.bad) / k.n) * 100;
   return {
     kind: e.kind, role: e.role, method: e.method, path: e.path, does: e.does, code: e.code, budget: e.budget,
-    targetPerMin: PROFILE === 'pop' ? target : null, sent: k.n, okPct,
+    targetPerMin: target, sent: k.n, okPct,
     p50: pct(k.waits, 50), p95, p99: pct(k.waits, 99), full95: pct(k.fulls, 95), dropped: k.dropped,
-    full95Max: Math.max(e.budget, WHOLE_MAX_MS),
-    pass: p95 !== null && p95 < e.budget && okPct >= 99 && pct(k.fulls, 95) < Math.max(e.budget, WHOLE_MAX_MS),
+    full95Max: wholeBudget(e),
+    pass: p95 !== null && p95 < e.budget && okPct >= 99 && pct(k.fulls, 95) < wholeBudget(e),
     why: Object.entries(k.why).sort((a, b) => b[1] - a[1]), status: k.status,
     alone: alone ? { status: alone.first.status, firstMs: alone.first.totalMs, secondMs: alone.second.totalMs, statements: alone.first.statements, statementsCached: alone.second.statements } : null,
   };
@@ -209,12 +219,15 @@ const series = {
 // ---------- the database and the machines ----------
 const samples = read('samples.csv').trim().split('\n').filter(Boolean);
 const sh = samples.length > 1 ? samples[0].split(',') : [];
-const srows = samples.slice(1).map((l) => Object.fromEntries(l.split(',').map((v, i) => [sh[i], v === '' ? null : Number(v)])));
+const TEXT_COLS = new Set(['longest_wait', 'waits']);
+const srows = samples.slice(1).map((l) => Object.fromEntries(l.split(',').map((v, i) => [sh[i], v === '' ? null : TEXT_COLS.has(sh[i]) ? v : Number(v)])));
 const res = { labels: srows.map((r) => label(r.t)) };
 for (const k of ['connections', 'active', 'idle', 'idle_in_tx', 'waiting_lock', 'tps', 'cache_hit_pct', 'longest_active_s', 'web_cpu', 'console_cpu', 'k6_cpu', 'web_rss_mb', 'console_rss_mb']) res[k] = srows.map((r) => r[k]);
 const vals = (k) => res[k].filter((v) => v !== null && !Number.isNaN(v));
 const peak = (k) => Math.max(0, ...vals(k));
 const lowest = (k) => (vals(k).length ? Math.min(...vals(k)) : 100);
+// What the longest statement of the run was waiting on, at its longest (sampler.mjs; older runs have no column).
+const longestWait = srows.reduce((best, r) => (r.longest_wait && (!best || r.longest_active_s > best.longest_active_s) ? r : best), null)?.longest_wait ?? null;
 
 // ---------- bottlenecks ----------
 const findings = [];
@@ -225,8 +238,8 @@ const measured = rows.filter((r) => r.alone && ok2xx(r.alone.status));
 // Statements a second each app's pool would have to carry at the target rates, from the one-by-one profile.
 const perApp = ['web', 'console'].map((app) => {
   const rs = measured.filter((r) => appOf(byKind[r.kind]) === app);
-  const reqPerSec = PROFILE === 'pop' ? sum(rs.map((r) => r.targetPerMin / 60)) : 0;
-  const stmtsPerSec = PROFILE === 'pop' ? sum(rs.map((r) => (r.targetPerMin / 60) * r.alone.statements)) : 0;
+  const reqPerSec = sum(rs.map((r) => r.targetPerMin / 60));
+  const stmtsPerSec = sum(rs.map((r) => (r.targetPerMin / 60) * r.alone.statements));
   const capacity = rtt ? poolMax / (rtt / 1000) : null;
   return { app, reqPerSec, stmtsPerSec, avg: reqPerSec ? stmtsPerSec / reqPerSec : 0, capacity, roomReqPerSec: capacity && reqPerSec ? capacity / (stmtsPerSec / reqPerSec) : null };
 });
@@ -236,7 +249,8 @@ if (rtt !== null && rtt > 20) {
     `Every database statement waits ${rtt.toFixed(0)} ms on the network. A request of 10 statements cannot take less than ${((rtt * 10) / 1000).toFixed(1)} s, whatever the code does.`,
     'Run the servers next to the database (a Vercel preview on dev, or a machine in Sydney). Until then these numbers describe the network, not the platform.');
 }
-if (rtt !== null && PROFILE === 'pop' && measured.length) {
+// No statements counted at all means the profile could not count (a busy database), not free requests.
+if (rtt !== null && measured.length && sum(measured.map((r) => r.alone.statements)) > 0) {
   const over = perApp.filter((a) => a.capacity !== null && a.stmtsPerSec > a.capacity);
   add(over.length ? 'critical' : 'info', over.length ? `The connection pool is the ceiling (${over.map((a) => a.app).join(' and ')})` : 'The connection pools had room',
     perApp.map((a) => `${a.app}: ${poolMax} connections, each busy ${rtt.toFixed(0)} ms per statement → at most ${a.capacity.toFixed(0)} statements/s; the target needs ~${a.stmtsPerSec.toFixed(0)}/s (${a.reqPerSec.toFixed(0)} requests/s × ${a.avg.toFixed(1)} statements each, from the profile) → room for about ${a.roomReqPerSec === null ? '—' : a.roomReqPerSec.toFixed(1)} requests/s`).join('. ') + '.',
@@ -262,7 +276,7 @@ if (samples.length > 1) {
   const busy = peak('active');
   const dbIdle = busy < poolMax * APPS && peak('waiting_lock') === 0;
   add(dbIdle ? 'info' : 'warning', dbIdle ? 'The database itself was not busy' : 'The database was busy',
-    `Peak connections ${peak('connections')}, peak active ${busy}, peak transactions ${peak('tps').toFixed(0)}/s, waiting on a lock ${peak('waiting_lock')}, longest running query ${peak('longest_active_s').toFixed(1)} s, lowest cache hit ${lowest('cache_hit_pct').toFixed(1)}%.`,
+    `Peak connections ${peak('connections')}, peak active ${busy}, peak transactions ${peak('tps').toFixed(0)}/s, waiting on a lock ${peak('waiting_lock')}, longest running query ${peak('longest_active_s').toFixed(1)} s${longestWait ? ` (waiting on ${longestWait}${longestWait === 'ClientWrite' ? ': a client that stopped reading, not a slow query' : longestWait === 'ClientRead' ? ': Postgres waiting for the client to finish sending, with the transaction open; a stalled client or pooler, not a slow query. Check whether another run shares the database' : ''})` : ''}, lowest cache hit ${lowest('cache_hit_pct').toFixed(1)}%.`,
     dbIdle ? 'Postgres had spare capacity: the requests never reached it fast enough.' : 'Look at the slowest queries (pnpm db:slow-queries) and at lock waits.',
     dbIdle ? 'Not a database problem in this run.' : 'Indexes, statements per request, and the compute size.');
   const cpu = Math.max(peak('web_cpu'), peak('console_cpu'));
@@ -294,21 +308,103 @@ const order = { critical: 0, warning: 1, info: 2 };
 findings.sort((a, b) => order[a.severity] - order[b.severity]);
 const cutShort = !read('summary.json');
 
+// ---------- 1. was this a valid test? 2. section 5 3. steps 4. against the last run ----------
+const redirectCount = sum(rows.map((r) => sum(r.why.filter(([w]) => w.includes('redirect')).map(([, n]) => n))));
+const validity = judgeValidity({
+  rttMs: rtt, dropped: droppedTotal, k6CpuPeakPct: samples.length > 1 ? peak('k6_cpu') : null, cores: argNum('CORES') ?? cpus().length,
+  // The sampler finds the servers by their local ports: if it did, k6 shared their machine.
+  sameMachine: vals('web_cpu').length + vals('console_cpu').length > 0,
+  generatorErrors: (read('k6.log').match(/too many open files|assign requested address/gi) ?? []).length,
+  redirects: redirectCount,
+  otherTrafficPerSec: profile?.noiseMeanPerSec ?? null,
+});
+const failedShare = (totalBad / total) * 100;
+const afterRunCounts = [...read('after-run.txt').matchAll(/\|\s*(\d+)\s*$/gm)].map((m) => Number(m[1]));
+const section5 = [
+  ...TARGETS.map((t) => {
+    const rs = rows.filter((r) => (t.kinds ? t.kinds.includes(r.kind) : t.roles.includes(r.role) && (!t.pagesOnly || (r.method === 'GET' && !r.path.startsWith('/api/')))));
+    const p95 = pct(rs.flatMap((r) => (t.firstByte ? kinds.get(r.kind).waits : kinds.get(r.kind).fulls)), 95);
+    return { what: t.what, target: `< ${t.p95} ms`, got: p95 === null ? 'not run' : ms95(p95), pass: p95 === null ? null : p95 < t.p95 };
+  }),
+  { what: 'Error rate', target: '< 1%', got: `${failedShare.toFixed(2)}%`, pass: failedShare < 1 },
+  { what: 'Duplicate sends or charges, lost webhooks, dead jobs (after-run.sql)', target: 'all 0',
+    got: afterRunCounts.length ? (afterRunCounts.every((n) => n === 0) ? 'all 0' : afterRunCounts.join(', ')) : 'not run', pass: afterRunCounts.length ? afterRunCounts.every((n) => n === 0) : null },
+];
+function ms95(v) {
+  return v >= 1000 ? `${(v / 1000).toFixed(2)} s` : `${Math.round(v)} ms`;
+}
+
+let steps = null;
+if (MODE === 'step') {
+  const start = argNum('START') ?? t0;
+  const windows = stepFractions(env).map((f, i) => {
+    const from = start + i * (30 + STEP_HOLD) + 30; // graded on the hold, not the 30 s climb
+    // What k6 was asked, kind by kind, as stepStages rounds it (never under 1 a minute).
+    const offered = sum(rows.map((r) => Math.max(1, Math.round(r.targetPerMin * f)))) / 60;
+    return { from, to: from + STEP_HOLD, offered, fraction: f };
+  });
+  const st = stepTable(windows, stepReqs);
+  steps = { ...st, rows: st.rows.map((r, i) => ({ ...r, fraction: windows[i].fraction })) };
+  const kneeRow = steps.knee === null ? null : steps.rows[steps.knee];
+  const lastGood = steps.knee === null ? steps.rows.at(-1) : steps.rows[steps.knee - 1];
+  add(kneeRow ? 'critical' : 'info', kneeRow ? `Steps: the knee is at ${(kneeRow.fraction * 100).toFixed(0)}% of ${PROFILE} (${kneeRow.offered.toFixed(1)} requests/s asked)` : `Steps: every step held, up to ${PROFILE}'s full rate`,
+    steps.rows.map((r) => `${(r.fraction * 100).toFixed(0)}%: asked ${r.offered.toFixed(1)}/s, carried ${r.achieved.toFixed(1)}/s, failed ${r.errPct.toFixed(1)}%, first byte p95 ${r.p95 === null ? '—' : ms95(r.p95)}`).join('; ') + '.',
+    kneeRow ? `The last step that held carried ${lastGood ? `${lastGood.achieved.toFixed(1)} requests/s` : 'nothing'}: that is the capacity of this setup.` : 'The knee is above this profile: step to the next version.',
+    kneeRow ? 'Compare with the pool ceiling above; fix what the findings name, then step again.' : 'Run the next profile up (v2 after v1).');
+  findings.sort((a, b) => order[a.severity] - order[b.severity]);
+}
+
+// The run before this one in the same folder, for what changed.
+const prevName = readdirSync(dirname(dir)).filter((n) => /^\d{8}-\d{6}$/.test(n) && n < basename(dir)).sort().reverse()
+  .find((n) => existsSync(join(dirname(dir), n, 'results.json')));
+let compare = null;
+if (prevName) {
+  try {
+    const prev = JSON.parse(readFileSync(join(dirname(dir), prevName, 'results.json'), 'utf8'));
+    const was = Object.fromEntries((prev.rows ?? []).map((r) => [r.kind, r]));
+    const changes = rows.filter((r) => was[r.kind]?.p95 && r.p95).map((r) => ({ kind: r.kind, before: was[r.kind].p95, after: r.p95, ratio: r.p95 / was[r.kind].p95 }))
+      .sort((a, b) => Math.abs(Math.log(b.ratio)) - Math.abs(Math.log(a.ratio))).slice(0, 8);
+    const prevTotal = sum((prev.rows ?? []).map((r) => r.sent));
+    const prevBad = sum((prev.rows ?? []).map((r) => r.sent * (1 - r.okPct / 100)));
+    compare = { prev: prevName, mode: prev.meta?.mode, profile: prev.meta?.profile, failedBefore: prevTotal ? (prevBad / prevTotal) * 100 : null, failedNow: failedShare, changes };
+  } catch {
+    compare = null;
+  }
+}
+const dashboard = existsSync(join(dir, 'k6-dashboard.html'));
+
 // ---------- results.md / results.json ----------
 const ms = (v) => (v === null || v === undefined ? '—' : v >= 1000 ? `${(v / 1000).toFixed(2)} s` : `${Math.round(v)} ms`);
 const failedPct = (totalBad / total) * 100;
-const verdict = knee
+const setupVerdict = knee
   ? `Held up to about ${knee.sentPerSec.toFixed(0)} requests/s, then failed (${failedPct.toFixed(0)}% of all requests).`
   : failedPct >= 1 ? `Did not hold: ${failedPct.toFixed(0)}% of requests failed.` : `Held the whole run: ${failedPct.toFixed(2)}% failed.`;
-const meta = { dir, started: new Date(t0 * 1000).toISOString(), seconds, mode: MODE, profile: PROFILE, population: pop, poolMax, rttMs: rtt, cutShort, args: argsText.trim() };
+// A target not run (no requests of its kind) is not met: a version passes only with every target measured.
+const s5pass = section5.every((r) => r.pass === true);
+const passWord = (p) => (p === null ? 'not run' : p ? 'pass' : 'FAIL');
+const verdict = !validity.valid
+  ? `NOT A VALID TEST of the platform (${validity.checks.filter((c) => !c.ok).map((c) => c.name).join('; ')}): the numbers describe this setup. ${setupVerdict}`
+  : `${s5pass ? 'PASSED' : 'FAILED'} section 5 at ${PROFILE}: ${section5.filter((r) => r.pass === true).length} of ${section5.length} targets met. ${setupVerdict}`;
+const meta = { dir, started: new Date(t0 * 1000).toISOString(), seconds, mode: MODE, profile: PROFILE, population: pop, poolMax, rttMs: rtt, cutShort, args: argsText.trim(), valid: validity.valid };
 
 const md = [];
 md.push(`# Load run ${dir.split('/').pop()}`, '');
-md.push(`- Mode ${MODE}, profile ${PROFILE}${PROFILE === 'pop' ? ` — online at once: ${pop.agencies} agencies, ${pop.agents} agents, ${pop.owners} owners, ${Math.round(pop.visitors)} visitors, ${Math.round(pop.buyers)} signed-in buyers, ${pop.admins} platform admins` : ''}`);
+md.push(`- Mode ${MODE}, profile ${PROFILE} — online at once: ${pop.agencies} agencies, ${pop.agents} agents, ${pop.owners} owners, ${Math.round(pop.visitors)} visitors, ${Math.round(pop.buyers)} signed-in buyers, ${pop.admins} platform admins`);
 md.push(`- Started ${meta.started}, ran ${Math.floor(seconds / 60)} min ${seconds % 60} s${cutShort ? ' (cut short: k6 did not finish)' : ''}`);
 md.push(`- Database round trip from the app servers: ${rtt === null ? 'not measured' : `${rtt.toFixed(0)} ms`}; pool ${poolMax} per app × ${APPS} apps`);
 md.push(`- Requests ${total.toLocaleString()}, failed ${failedPct.toFixed(2)}%`, '', `**Verdict:** ${verdict}`, '');
-md.push('## Bottlenecks, most serious first', '');
+md.push('## 1. Was this a valid test?', '', '| Check | Result | Got |', '|---|---|---|');
+for (const c of validity.checks) md.push(`| ${c.name} | ${c.ok ? 'ok' : 'NO'} | ${c.got} |`);
+md.push('', `## 2. Section 5 targets${validity.valid ? '' : ' (shown, not graded: the test was not valid)'}`, '', '| Target | p95 / value | Wanted | Result |', '|---|---|---|---|');
+for (const r of section5) md.push(`| ${r.what} | ${r.got} | ${r.target} | ${passWord(r.pass)} |`);
+if (steps) {
+  md.push('', '## Steps', '', '| Step | Asked /s | Carried /s | Failed | First byte p50 / p95 | Over budget |', '|---|---|---|---|---|---|');
+  steps.rows.forEach((r, i) => md.push(`| ${(r.fraction * 100).toFixed(0)}%${i === steps.knee ? ' (knee)' : ''} | ${r.offered.toFixed(1)} | ${r.achieved.toFixed(1)} | ${r.errPct.toFixed(1)}% | ${r.p50 === null ? '—' : ms95(r.p50)} / ${r.p95 === null ? '—' : ms95(r.p95)} | ${r.overBudgetPct.toFixed(0)}% |`));
+}
+if (compare) {
+  md.push('', `## Against the run before (${compare.prev}, ${compare.mode}/${compare.profile})`, '', `Failed ${compare.failedBefore === null ? '—' : `${compare.failedBefore.toFixed(2)}%`} → ${compare.failedNow.toFixed(2)}%. Biggest first-byte p95 changes: ${compare.changes.map((c) => `${c.kind} ${ms95(c.before)} → ${ms95(c.after)}`).join('; ') || '—'}.`);
+}
+md.push('', '## Bottlenecks, most serious first', '');
 findings.forEach((f, i) => md.push(`${i + 1}. **[${f.severity}] ${f.title}.** ${f.evidence} *Meaning:* ${f.meaning} *Next:* ${f.next}`));
 for (const [role, info] of Object.entries(ROLES)) {
   const rs = rows.filter((r) => r.role === role);
@@ -324,7 +420,7 @@ md.push('', '## Database and machines (peaks)', '');
 md.push(samples.length > 1 ? `Connections ${peak('connections')}, active ${peak('active')}, transactions ${peak('tps').toFixed(0)}/s, lock waits ${peak('waiting_lock')}, longest query ${peak('longest_active_s').toFixed(1)} s, lowest cache hit ${lowest('cache_hit_pct').toFixed(1)}%; CPU web ${peak('web_cpu').toFixed(0)}%, console ${peak('console_cpu').toFixed(0)}%, k6 ${peak('k6_cpu').toFixed(0)}% (100% = one core).` : 'Not sampled.');
 md.push('', '## How this run was made', '', 'k6 sends each request at its own rate (load/catalog.js: who, what, how often); every request is in k6.csv.gz. Before the load, load/profile.mjs called each request alone and counted its database statements (profile.json). load/sampler.mjs read the database and the machines every 5 s (samples.csv). Code: load/ on branch test/4.3-load-runs.');
 writeFileSync(join(dir, 'results.md'), `${md.join('\n')}\n`);
-writeFileSync(join(dir, 'results.json'), JSON.stringify({ meta, verdict, findings, rows, peaks: samples.length > 1 ? Object.fromEntries(['connections', 'active', 'tps', 'waiting_lock', 'longest_active_s', 'web_cpu', 'console_cpu', 'k6_cpu'].map((k) => [k, peak(k)])) : null }, null, 1));
+writeFileSync(join(dir, 'results.json'), JSON.stringify({ meta, verdict, validity, section5, steps, compare, findings, rows, peaks: samples.length > 1 ? Object.fromEntries(['connections', 'active', 'tps', 'waiting_lock', 'longest_active_s', 'web_cpu', 'console_cpu', 'k6_cpu'].map((k) => [k, peak(k)])) : null }, null, 1));
 
 // ---------- report.html ----------
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -381,8 +477,8 @@ details{margin:8px 0;background:var(--card);border:1px solid var(--line);border-
 </style></head><body><main>
 <h1>Load run report</h1>
 <p class="mute">${esc(meta.started.replace('T', ' ').slice(0, 19))} UTC · ${Math.floor(seconds / 60)} min ${seconds % 60} s · ${esc(MODE)} / ${esc(PROFILE)}${cutShort ? ' · <b class="bad">cut short</b>' : ''} · ${esc(dir)}</p>
-${PROFILE === 'pop' ? `<p class="mute">Online at once: ${pop.agencies} agencies · ${pop.agents} agents · ${pop.owners} owners · ${Math.round(pop.visitors).toLocaleString()} visitors · ${Math.round(pop.buyers).toLocaleString()} signed-in buyers · ${pop.admins} platform admins</p>` : ''}
-<nav><a href="#bottlenecks">Bottlenecks</a>${Object.entries(ROLES).filter(([r]) => rows.some((x) => x.role === r)).map(([r, i]) => `<a href="#${r}">${esc(i.label)}</a>`).join('')}<a href="#resources">Database &amp; machines</a><a href="#logs">Logs</a></nav>
+<p class="mute">Online at once: ${pop.agencies} agencies · ${pop.agents} agents · ${pop.owners} owners · ${Math.round(pop.visitors).toLocaleString()} visitors · ${Math.round(pop.buyers).toLocaleString()} signed-in buyers · ${pop.admins} platform admins</p>
+<nav><a href="#valid">Valid?</a><a href="#targets">Targets</a>${steps ? '<a href="#steps">Steps</a>' : ''}<a href="#bottlenecks">Bottlenecks</a>${Object.entries(ROLES).filter(([r]) => rows.some((x) => x.role === r)).map(([r, i]) => `<a href="#${r}">${esc(i.label)}</a>`).join('')}<a href="#resources">Database &amp; machines</a><a href="#logs">Logs</a></nav>
 <div class="verdict"><div><b>${esc(verdict)}</b><p class="mute">${findings[0] ? esc(`Main cause: ${findings[0].title}.`) : ''}</p></div><button class="btn" id="copy">Copy results for Claude</button></div>
 <div class="tiles">
 <div class="tile"><span>Requests</span><b>${total.toLocaleString()}</b></div>
@@ -392,6 +488,22 @@ ${PROFILE === 'pop' ? `<p class="mute">Online at once: ${pop.agencies} agencies 
 <div class="tile"><span>DB round trip</span><b>${rtt === null ? '—' : `${rtt.toFixed(0)} ms`}</b></div>
 <div class="tile"><span>Within budget</span><b class="${rows.every((r) => r.pass) ? 'good' : 'bad'}">${rows.filter((r) => r.pass).length} / ${rows.length}</b></div>
 </div>
+
+${dashboard ? '<p class="mute" style="margin-top:10px">k6\'s own report: <a href="k6-dashboard.html">k6-dashboard.html</a></p>' : ''}
+<h2 id="valid">1. Was this a valid test?</h2>
+<p class="mute">A run far from the database, or one where k6 could not send what it was asked, measures the setup, not the platform.</p>
+<div class="wrap"><table style="min-width:600px"><thead><tr><th>Check</th><th>Result</th><th>Got</th></tr></thead><tbody>
+${validity.checks.map((c) => `<tr><td>${esc(c.name)}</td><td><span class="tag ${c.ok ? 'good' : 'bad'}">${c.ok ? 'ok' : 'no'}</span></td><td>${esc(c.got)}</td></tr>`).join('')}
+</tbody></table></div>
+<h2 id="targets">2. Section 5 targets${validity.valid ? '' : ' <span class="mute">(shown, not graded)</span>'}</h2>
+<div class="wrap"><table style="min-width:600px"><thead><tr><th>Target</th><th>p95 / value</th><th>Wanted</th><th>Result</th></tr></thead><tbody>
+${section5.map((r) => `<tr><td>${esc(r.what)}</td><td class="n">${esc(r.got)}</td><td class="n">${esc(r.target)}</td><td><span class="tag ${r.pass === null ? 'info' : r.pass ? 'good' : 'bad'}">${passWord(r.pass)}</span></td></tr>`).join('')}
+</tbody></table></div>
+${steps ? `<h2 id="steps">Steps</h2><div class="wrap"><table style="min-width:600px"><thead><tr><th>Step</th><th>Asked /s</th><th>Carried /s</th><th>Failed</th><th>First byte p50 / p95</th><th>Over budget</th></tr></thead><tbody>
+${steps.rows.map((r, i) => `<tr><td>${(r.fraction * 100).toFixed(0)}%${i === steps.knee ? ' <span class="tag bad">knee</span>' : ''}</td><td class="n">${r.offered.toFixed(1)}</td><td class="n">${r.achieved.toFixed(1)}</td><td class="n ${r.errPct > 1 ? 'bad' : 'good'}">${r.errPct.toFixed(1)}%</td><td class="n">${r.p50 === null ? '—' : ms95(r.p50)} / ${r.p95 === null ? '—' : ms95(r.p95)}</td><td class="n">${r.overBudgetPct.toFixed(0)}%</td></tr>`).join('')}
+</tbody></table></div>` : ''}
+${compare ? `<h2 id="compare">Against the run before</h2><p>${esc(compare.prev)} (${esc(compare.mode)}/${esc(compare.profile)}): failed ${compare.failedBefore === null ? '—' : `${compare.failedBefore.toFixed(2)}%`} → ${compare.failedNow.toFixed(2)}%.</p>
+${compare.changes.length ? `<div class="wrap"><table style="min-width:600px"><thead><tr><th>Request</th><th>First byte p95 before</th><th>Now</th></tr></thead><tbody>${compare.changes.map((c) => `<tr><td><code>${esc(c.kind)}</code></td><td class="n">${ms95(c.before)}</td><td class="n ${c.ratio > 1.2 ? 'bad' : c.ratio < 0.8 ? 'good' : ''}">${ms95(c.after)}</td></tr>`).join('')}</tbody></table></div>` : ''}` : ''}
 
 <h2 id="bottlenecks">Bottlenecks, most serious first</h2>
 ${findings.map((f) => `<div class="finding ${f.severity}"><h4><span class="tag ${f.severity}">${f.severity}</span>${esc(f.title)}</h4><dl><dt>Evidence</dt><dd>${esc(f.evidence)}</dd><dt>Meaning</dt><dd>${esc(f.meaning)}</dd><dt>Next</dt><dd>${esc(f.next)}</dd></dl></div>`).join('')}

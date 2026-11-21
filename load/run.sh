@@ -30,13 +30,22 @@ if [[ -z "${SKIP_PROFILE:-}" ]]; then
   node profile.mjs "$OUT/profile.json" | tee "$OUT/profile.txt"
 fi
 echo "DB_POOL_MAX=${DB_POOL_MAX:-5 (default)}" >> "$OUT/args.txt"
+# The load generator's own limits, for the report's "was this a valid test?" (k6: "Running large tests").
+{
+  echo "CORES=$(sysctl -n hw.ncpu 2>/dev/null || nproc)"
+  echo "ULIMIT_N=$(ulimit -n)"
+  echo "SOMAXCONN=$(sysctl -n kern.ipc.somaxconn 2>/dev/null || cat /proc/sys/net/core/somaxconn 2>/dev/null || echo ?)"
+} >> "$OUT/args.txt"
 
 START=$(date +%s)
+echo "START=$START" >> "$OUT/args.txt"
 node sampler.mjs "$OUT/samples.csv" 2> "$OUT/sampler.log" &
 SAMPLER=$!
 trap 'kill $SAMPLER 2>/dev/null || true' EXIT
 
 # Every request goes into k6.csv.gz; k6 exits non-zero when a threshold fails, which is a result, not an error here.
+# k6's own HTML report beside ours (no HTTP port opened).
+K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_PORT=-1 K6_WEB_DASHBOARD_EXPORT="$OUT/k6-dashboard.html" \
 k6 run --out "csv=$OUT/k6.csv.gz" --summary-export "$OUT/summary.json" "$@" platform.js 2> "$OUT/k6.log" | tee "$OUT/k6-console.txt" || true
 
 kill "$SAMPLER" 2>/dev/null || true

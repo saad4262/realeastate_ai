@@ -12,12 +12,21 @@ export const ROLES = {
   system: { label: 'Systems', who: 'Machines: payment webhooks and uptime monitors', app: 'web' },
 };
 
-// People online at once (change with -e AGENCIES=… AGENTS=… USERS=… on the k6 command line).
-// AGENTS counts every console member; one per agency is its owner. BUYER_SHARE of USERS are signed in.
+// PLATFORM-PLAN section 3: the people each version carries. PROFILE=v1|v2|v3 starts from these; PROFILE=pop takes
+// AGENCIES/AGENTS/USERS (V1's when unset). Either way -e AGENCIES=… AGENTS=… USERS=… overrides a number.
+export const VERSIONS = {
+  v1: { agencies: 200, agents: 500, users: 2000 },
+  v2: { agencies: 500, agents: 1000, users: 5000 },
+  v3: { agencies: 1000, agents: 2000, users: 10000 },
+};
+
+// People online at once. AGENTS counts every console member; one per agency is its owner. BUYER_SHARE of USERS
+// are signed in.
 export function population(env) {
-  const agencies = Number(env.AGENCIES || 200);
-  const agents = Number(env.AGENTS || 1000);
-  const users = Number(env.USERS || 10000);
+  const base = VERSIONS[env.PROFILE] ?? VERSIONS.v1;
+  const agencies = Number(env.AGENCIES || base.agencies);
+  const agents = Number(env.AGENTS || base.agents);
+  const users = Number(env.USERS || base.users);
   const buyerShare = Number(env.BUYER_SHARE || 0.1);
   return { agencies, owners: agencies, agents: Math.max(0, agents - agencies), buyers: users * buyerShare, visitors: users * (1 - buyerShare), admins: Number(env.ADMINS || 2) };
 }
@@ -80,12 +89,40 @@ export const ENDPOINTS = [
   ...pages('admin', ADMIN_PAGES, (p) => p.admins * PER_MIN.adminPage, (path) => `Admin page ${path}: reads across every agency; each view writes platform_view_log`, (path) => `apps/console/app/(admin)${path.replace('{agency}', '[agencyId]')}/page.tsx`, 2000),
 
   // Systems
-  { kind: 'system_stripe_webhook', role: 'system', method: 'POST', path: '/api/stripe/webhook', perMin: () => 600, budget: 1000,
+  // Section 3: 5 / 10 / 20 webhooks a second at V1 / V2 / V3 → about 1.5 a minute per agency.
+  { kind: 'system_stripe_webhook', role: 'system', method: 'POST', path: '/api/stripe/webhook', perMin: (p) => p.agencies * 1.5, budget: 1000,
     does: 'A signed Stripe event of a type we do not handle: signature checked, answered 200, nothing stored', code: 'apps/web/app/api/stripe/webhook/route.ts' },
   { kind: 'system_health_web', role: 'system', method: 'GET', path: '/api/health', perMin: () => 60, budget: 300,
     does: 'Uptime monitor on the public site: database reachable, schema current', code: 'apps/web/app/api/health/route.ts' },
   { kind: 'system_health_console', role: 'system', method: 'GET', path: '/api/health', perMin: () => 60, budget: 300,
     does: 'Uptime monitor on the console', code: 'apps/console/app/api/health/route.ts' },
+];
+
+// MODE=step (find the knee): the full rate in STEPS fractions, each held STEP long after a 30 s climb. The report
+// grades each step on its own; the first step over 1% failures or over its budgets is the knee.
+export const DEFAULT_STEPS = '0.05,0.1,0.25,0.5,1';
+export function stepFractions(env) {
+  const fr = String(env.STEPS || DEFAULT_STEPS).split(',').map(Number);
+  if (fr.some((f) => !(f > 0))) throw new Error(`STEPS must be positive fractions, not ${env.STEPS}`);
+  return fr;
+}
+export function stepStages(rate, env) {
+  return stepFractions(env).flatMap((f) => {
+    const target = Math.max(1, Math.round(rate * f));
+    return [{ target, duration: '30s' }, { target, duration: env.STEP || '3m' }];
+  });
+}
+
+// The whole response may take longer than a first-byte budget (a streamed page), but never past 3 s.
+export const wholeBudget = (e) => Math.max(e.budget, 3000);
+
+// Section 5's targets, the requests each one is judged on (whole response, except the listing's ISR TTFB).
+export const TARGETS = [
+  { what: 'Public listing page (ISR hit), TTFB', p95: 200, kinds: ['visitor_listing'], firstByte: true },
+  { what: 'Public search', p95: 500, kinds: ['visitor_search'] },
+  { what: 'Console page navigation', p95: 800, roles: ['agent', 'owner'], pagesOnly: true },
+  { what: '/api/live', p95: 100, kinds: ['agent_live', 'owner_live'] },
+  { what: "A webhook's 200", p95: 1000, kinds: ['system_stripe_webhook'] },
 ];
 
 // Which server answers a role (console surfaces are picked by the host name).

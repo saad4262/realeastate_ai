@@ -38,17 +38,26 @@ for (let i = 0; i < 7; i += 1) {
 const rttMs = median(trips);
 
 const statements = async () => Number((await sql`select coalesce(sum(calls), 0)::bigint as n from pg_stat_statements`)[0].n);
-// Other traffic on the same database (another developer, a cron) counts too: measure it with nothing sent.
+// Other traffic on the same database (another developer, a cron, Supabase's own monitoring) counts too: measure it
+// with nothing sent, before every request, and take the median rate off each call's count (a burst from someone
+// else's run must not wipe a real count to 0). The raw count is kept. A busy database makes every count unreliable:
+// report.mjs then says so (noiseMeanPerSec).
+const noiseRates = []; // statements per ms
 async function noise() {
   const a = await statements();
   await wait(1500);
-  return (await statements()) - a - 1;
+  const n = Math.max(0, (await statements()) - a - 1);
+  noiseRates.push(n / 1500);
+  return n;
 }
+const meanNoise = () => noiseRates.reduce((s, r) => s + r, 0) / noiseRates.length;
+const medianNoise = () => [...noiseRates].sort((a, b) => a - b)[Math.floor(noiseRates.length / 2)];
 const noiseBefore = await noise();
 
 async function call(e) {
   const pool = SESSION_OF[e.role];
   const headers = { 'x-forwarded-for': '10.0.0.1' };
+  if (process.env.VERCEL_BYPASS) headers['x-vercel-protection-bypass'] = process.env.VERCEL_BYPASS;
   if (pool) headers.cookie = sessions[pool][0];
   const payload = body(e.kind, targets, pick, `profile_${Date.now()}`);
   if (payload) headers['content-type'] = 'application/json';
@@ -72,12 +81,15 @@ async function call(e) {
 const endpoints = {};
 const usable = ENDPOINTS.filter((e) => (!SESSION_OF[e.role] || (sessions[SESSION_OF[e.role]] || []).length) && (e.kind !== 'system_stripe_webhook' || secret));
 for (const e of usable) {
+  await noise();
   const runs = [];
   for (const label of ['first', 'second']) {
     const before = await statements();
+    const t = performance.now();
     const r = await call(e);
     await wait(1200); // work a route does after answering (`after()`) is counted too
-    runs.push({ label, ...r, statements: Math.max(0, (await statements()) - before - 1) });
+    const raw = Math.max(0, (await statements()) - before - 1);
+    runs.push({ label, ...r, statementsRaw: raw, statements: Math.max(0, raw - Math.round(medianNoise() * (performance.now() - t))) });
   }
   endpoints[e.kind] = { first: runs[0], second: runs[1] };
   const f = runs[0];
@@ -87,7 +99,7 @@ const noiseAfter = await noise();
 await sql.end();
 
 writeFileSync(out, JSON.stringify({
-  at: new Date().toISOString(), rttMs, trips, noisePer1500ms: [noiseBefore, noiseAfter],
+  at: new Date().toISOString(), rttMs, trips, noisePer1500ms: [noiseBefore, noiseAfter], noiseMeanPerSec: meanNoise() * 1000,
   poolMax: Number(process.env.DB_POOL_MAX || 5), endpoints,
 }, null, 1));
-console.log(`round trip to the database ${rttMs.toFixed(0)} ms; other traffic ${noiseBefore}/${noiseAfter} statements per 1.5 s`);
+console.log(`round trip to the database ${rttMs.toFixed(0)} ms; other traffic ${(meanNoise() * 1000).toFixed(1)} statements/s on average (taken off each count)`);

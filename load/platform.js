@@ -2,20 +2,24 @@
 // What is requested, by whom and how often: catalog.js. Targets: targets.json (targets.mjs). Sessions: sessions.json
 // (sessions.mjs). NEVER point it at production; every vendor must be faked on the target.
 //   MODE   smoke (30 s, each request a few times) | run (ramp RAMP, hold HOLD, ramp down 1 min; 2m + 5m by default)
+//          | step (find the knee: STEPS fractions of the full rate, each held STEP; catalog.js)
 //          | load (60 min) | spike (a 9 am spike: 10x for 5 min) | soak (2 h)
-//   PROFILE pop (rates from AGENCIES, AGENTS, USERS — catalog.js) | v1 | v2 | v3 (PLATFORM-PLAN section 3)
+//   PROFILE v1 | v2 | v3 (section 3's people online; catalog.js VERSIONS) | pop (AGENCIES, AGENTS, USERS alone)
 //   WEB, AGENTS_URL, AGENCY_URL, ADMIN_URL: the servers (local *.lvh.me by default); STRIPE_WEBHOOK_SECRET: the target's.
-//   ONLY=agent,owner: only these roles. TIMEOUT: give up on a request after this long (30s).
+//   VERCEL_BYPASS: a preview's "Protection Bypass for Automation" secret, sent on every request.
+//   ONLY=agent,owner: only these roles. TIMEOUT: give up on a request after this long (10s: past that a person has
+//   left, and a longer wait only measures the queue).
 import http from 'k6/http';
 import crypto from 'k6/crypto';
 import exec from 'k6/execution';
 import { check } from 'k6';
-import { ENDPOINTS, SESSION_OF, baseUrl, body, fill, population } from './catalog.js';
+import { ENDPOINTS, SESSION_OF, VERSIONS, baseUrl, body, fill, population, stepStages, wholeBudget } from './catalog.js';
 
 const MODE = __ENV.MODE || 'smoke';
-const PROFILE = __ENV.PROFILE || 'pop';
+const PROFILE = __ENV.PROFILE || 'v1';
+if (PROFILE !== 'pop' && !VERSIONS[PROFILE]) throw new Error(`PROFILE must be v1, v2, v3 or pop, not ${PROFILE}`);
 const WEBHOOK_SECRET = __ENV.STRIPE_WEBHOOK_SECRET || '';
-const TIMEOUT = __ENV.TIMEOUT || '30s';
+const TIMEOUT = __ENV.TIMEOUT || '10s';
 const ONLY = (__ENV.ONLY || '').split(',').filter(Boolean);
 const urls = ENDPOINTS.map((e) => baseUrl(e.role, e.kind, __ENV)).join(' ');
 if (/findoraaus\.com\.au/.test(urls)) throw new Error('Refusing: that is production');
@@ -28,18 +32,9 @@ try {
   sessions = {};
 }
 
-// Requests a minute per kind.
+// Requests a minute per kind: every profile is a population of people with their habits (catalog.js).
 const pop = population(__ENV);
-const fixed = { v1: [15, 5, 17, 100, 5], v2: [35, 12, 33, 200, 10], v3: [70, 25, 67, 400, 20] }[PROFILE];
-function perMin(e) {
-  if (PROFILE === 'pop') return e.perMin(pop);
-  if (!fixed) throw new Error(`PROFILE must be pop, v1, v2 or v3, not ${PROFILE}`);
-  // Section 3's five numbers a second: listing, search, agent pages (shared), the poll, the webhook.
-  const isAgentPage = (x) => x.role === 'agent' && x.method === 'GET' && !x.path.startsWith('/api/');
-  const s = { visitor_listing: fixed[0], visitor_search: fixed[1], agent_live: fixed[3], system_stripe_webhook: fixed[4] }[e.kind]
-    ?? (isAgentPage(e) ? fixed[2] / ENDPOINTS.filter(isAgentPage).length : 0);
-  return s * 60;
-}
+const perMin = (e) => e.perMin(pop);
 
 const usable = (e) => {
   if (ONLY.length && !ONLY.includes(e.role)) return false;
@@ -60,6 +55,9 @@ function scenario(e) {
     return { ...base, executor: 'ramping-arrival-rate', startRate: 0, preAllocatedVUs: vus, maxVUs: vus * 8,
       stages: [{ target: rate, duration: __ENV.RAMP || '2m' }, { target: rate, duration: __ENV.HOLD || '5m' }, { target: 0, duration: '1m' }] };
   }
+  if (MODE === 'step') {
+    return { ...base, executor: 'ramping-arrival-rate', startRate: 0, preAllocatedVUs: vus, maxVUs: vus * 8, stages: stepStages(rate, __ENV) };
+  }
   if (MODE === 'spike') {
     return { ...base, executor: 'ramping-arrival-rate', startRate: rate, preAllocatedVUs: vus, maxVUs: vus * 4,
       stages: [{ target: rate, duration: '5m' }, { target: rate * 10, duration: '30s' }, { target: rate * 10, duration: '5m' }, { target: rate, duration: '30s' }, { target: rate, duration: '5m' }] };
@@ -71,7 +69,11 @@ export const options = {
   scenarios: Object.fromEntries(active.map((e) => [e.kind, scenario(e)])),
   thresholds: {
     http_req_failed: ['rate<0.01'],
+    // Any iteration k6 could not start means it sent less than asked: the run is not valid (report.mjs says so).
+    dropped_iterations: ['count==0'],
     ...Object.fromEntries(active.map((e) => [`http_req_waiting{kind:${e.kind}}`, [`p(95)<${e.budget}`]])),
+    // A streamed page sends its first byte at once; the person waits for the whole of it.
+    ...Object.fromEntries(active.map((e) => [`http_req_duration{kind:${e.kind}}`, [`p(95)<${wholeBudget(e)}`]])),
   },
   summaryTrendStats: ['avg', 'p(50)', 'p(95)', 'p(99)', 'max'],
   discardResponseBodies: true,
@@ -88,6 +90,7 @@ const visitorIp = () => `10.${__VU % 250}.${Math.floor(Math.random() * 250)}.${1
 export function hit() {
   const e = byKind[exec.scenario.name];
   const headers = { 'x-forwarded-for': visitorIp() };
+  if (__ENV.VERCEL_BYPASS) headers['x-vercel-protection-bypass'] = __ENV.VERCEL_BYPASS;
   const pool = SESSION_OF[e.role];
   // One session per VU, so many people's data is read, not one person's a thousand times.
   if (pool) headers.cookie = sessions[pool][__VU % sessions[pool].length];

@@ -21,12 +21,37 @@ and `targets.mjs` refuses the production database). Pass: section 5 holds **at V
 **Always first, in every terminal:** `set -a; source .env.dev; set +a`. Every script refuses the production database,
 but `.env.local` on a laptop may still point at it (O-5c).
 
+## How a run is judged (2026-11-21, after the first full run)
+The report answers two questions, in this order:
+1. **Was it a valid test?** Servers within 5 ms of the database, k6 sent everything it was asked (`dropped_iterations`
+   0), k6's machine under 80% CPU and apart from the servers, no load-generator errors, sessions held, and the
+   database quiet before the run (under 2 statements/s of other traffic: two runs on one dev database spoil both,
+   and statements stuck `active`/`ClientRead` with the transaction open are another client's). If not, the
+   report says so at the top and grades nothing: the numbers describe the setup (the 2026-11-21 laptop run: 366 ms
+   round trip, 57,933 requests never sent, k6 on the same machine as both apps).
+2. **Did it meet section 5?** p95 against each target (listing TTFB 200 ms, search 500 ms, console pages 800 ms,
+   `/api/live` 100 ms, webhook 1 s), errors under 1%, `after-run.sql` all 0. Each request also has its own budget for
+   the first byte and 3 s for the whole response (a streamed page can send its shell early and the rest never).
+
+Lessons built in (k6 "Running large tests", Vercel's load-testing guide, Supabase pooling limits): an open model
+(arrival rate, so a slow server does not quietly get less load); step up to find the knee instead of starting past
+it (`MODE=step`); a 10 s timeout (past that a person has left; 30 s only measured the queue); the profile takes other
+traffic off each statement count; the sampler records what the longest statement waits on (`ClientWrite` = a client
+that stopped reading). `node load/catalog.test.mjs` checks the rates, steps and both judgements.
+
 ## A population run (5–10 minutes, any size)
-`PROFILE=pop` turns people online into requests a minute per kind (`catalog.js`, above `PER_MIN`): public pages and the
-activity beacon, a buyer's account pages and presence ping, an agent's pages, poll, bell and inbox pull, an owner's
-agency pages, poll and bell, the platform admin's pages, the Stripe webhook and both health checks. No AI route
-(tokens) and no Google route (`/api/places`). `MODE=run` ramps up for `RAMP` (2m), holds for `HOLD` (5m), ramps down
-for 1 minute.
+Every `PROFILE` is people online, turned into requests a minute per kind (`catalog.js`, above `PER_MIN`): public
+pages and the activity beacon, a buyer's account pages and presence ping, an agent's pages, poll, bell and inbox
+pull, an owner's agency pages, poll and bell, the platform admin's pages, the Stripe webhook (1.5 a minute per agency)
+and both health checks. `v1`/`v2`/`v3` are section 3's numbers (200/500/2,000 · 500/1,000/5,000 · 1,000/2,000/10,000
+agencies/agents/users); `pop` takes `AGENCIES`/`AGENTS`/`USERS`. No AI route (tokens) and no Google route
+(`/api/places`). `MODE=run` ramps up for `RAMP` (2m), holds for `HOLD` (5m), ramps down for 1 minute. `MODE=step`
+holds `STEPS` fractions of the full rate (`0.05,0.1,0.25,0.5,1`) for `STEP` (3m) each: the report grades every step
+and names the first one that failed (the knee).
+
+**On a laptop far from the database**, keep the population small enough to stay under the pool's ceiling
+(10 connections ÷ the round trip, e.g. 10 ÷ 0.31 s ≈ 32 statements a second) and read per-request times, not failure
+rates: `-e PROFILE=pop -e AGENCIES=2 -e AGENTS=6 -e USERS=40`.
 
 ```
 set -a; source .env.dev; set +a
@@ -36,7 +61,7 @@ node load/targets.mjs
 load/local-servers.sh build && load/local-servers.sh start   # or point WEB/AGENTS_URL/… at a preview
 node load/sessions.mjs            # right before the run: the cookies live as long as an access token
 WEB_LOG=load/runs/servers/web.log CONSOLE_LOG=load/runs/servers/console.log \
-  load/run.sh -e MODE=run -e PROFILE=pop -e AGENCIES=200 -e AGENTS=1000 -e USERS=10000 -e STRIPE_WEBHOOK_SECRET=whsec_load_test
+  load/run.sh -e MODE=step -e PROFILE=v1 -e STRIPE_WEBHOOK_SECRET=whsec_load_test
 open load/runs/<time>/report.html  # results.md beside it is the text to give to Claude
 ```
 Servers: `WEB`, `AGENTS_URL`, `AGENCY_URL`, `ADMIN_URL` (local `*.lvh.me` by default). `ONLY=agent,owner` runs only those

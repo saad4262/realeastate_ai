@@ -22,7 +22,9 @@ function proc(pid) {
 }
 const k6cpu = () => sh('ps', ['-A', '-o', '%cpu=,comm=']).split('\n').filter((l) => /\bk6$/.test(l)).reduce((s, l) => s + Number(l.trim().split(/\s+/)[0]), 0);
 
-writeFileSync(out, 't,connections,active,idle,idle_in_tx,waiting_lock,longest_active_s,tps,cache_hit_pct,web_cpu,web_rss_mb,console_cpu,console_rss_mb,k6_cpu\n');
+// longest_wait: what the longest running statement waits on (ClientWrite = a client that stopped reading; Lock;
+// IO…; empty = on CPU). waits: active backends by wait event, `event:count` joined by `;`.
+writeFileSync(out, 't,connections,active,idle,idle_in_tx,waiting_lock,longest_active_s,longest_wait,waits,tps,cache_hit_pct,web_cpu,web_rss_mb,console_cpu,console_rss_mb,k6_cpu\n');
 let last = null;
 async function sample() {
   const [a] = await sql`select count(*)::int as total,
@@ -32,6 +34,11 @@ async function sample() {
       count(*) filter (where wait_event_type = 'Lock')::int as waiting_lock,
       coalesce(extract(epoch from max(now() - query_start) filter (where state = 'active' and pid <> pg_backend_pid())), 0)::float as longest
     from pg_stat_activity where backend_type = 'client backend' and pid <> pg_backend_pid()`;
+  const [w] = await sql`select
+      (select coalesce(wait_event, 'CPU') from pg_stat_activity where backend_type = 'client backend' and state = 'active'
+         and pid <> pg_backend_pid() order by query_start limit 1) as longest,
+      (select string_agg(e || ':' || n, ';' order by n desc) from (select coalesce(wait_event, 'CPU') as e, count(*) as n
+         from pg_stat_activity where backend_type = 'client backend' and state = 'active' and pid <> pg_backend_pid() group by 1) x) as waits`;
   const [d] = await sql`select (xact_commit + xact_rollback)::float as xacts, blks_hit::float as hit, blks_read::float as rd
     from pg_stat_database where datname = current_database()`;
   const now = Date.now();
@@ -39,7 +46,7 @@ async function sample() {
   const reads = last ? d.hit - last.hit + (d.rd - last.rd) : 0;
   const hit = last && reads > 0 ? (((d.hit - last.hit) / reads) * 100).toFixed(2) : '';
   last = { ...d, at: now };
-  appendFileSync(out, [Math.round(now / 1000), a.total, a.active, a.idle, a.idle_in_tx, a.waiting_lock, a.longest.toFixed(1), tps, hit,
+  appendFileSync(out, [Math.round(now / 1000), a.total, a.active, a.idle, a.idle_in_tx, a.waiting_lock, a.longest.toFixed(1), w.longest ?? '', w.waits ?? '', tps, hit,
     ...proc(pids.web), ...proc(pids.console), k6cpu().toFixed(0)].join(',') + '\n');
 }
 
