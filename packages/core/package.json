@@ -58,6 +58,7 @@
     "./observability": "./src/observability/sentry-options.ts",
     "./http/api-error": "./src/http/api-error.ts",
     "./http/security-headers": "./src/http/security-headers.ts",
+    "./http/shed": "./src/http/shed.ts",
     "./observability/browser": "./src/observability/browser-monitoring.ts",
     "./inspections": "./src/inspections/index.ts",
     "./inspections/open-home-rules": "./src/inspections/open-home-rules.ts",

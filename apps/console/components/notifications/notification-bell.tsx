@@ -25,10 +25,13 @@ const POLL_MS = 60_000;
 
 const EMPTY: NotificationList = { rows: [], unread: 0 };
 
-/** The bell's rows; JSON carries the dates as strings. A failure is an empty bell. */
-async function fetchNotifications(): Promise<NotificationList> {
+/**
+ * The bell's rows; JSON carries the dates as strings. A failed or shed poll (ADR 0098) is null: the bell keeps what it
+ * showed. Emptying it reset `seen`, and the next good poll toasted every unread notification again.
+ */
+async function fetchNotifications(): Promise<NotificationList | null> {
   const res = await fetch('/api/notifications', { cache: 'no-store' }).catch(() => null);
-  if (!res?.ok) return EMPTY;
+  if (!res?.ok) return null;
   const body = (await res.json().catch(() => EMPTY)) as NotificationList;
   return {
     unread: body.unread,
@@ -63,6 +66,7 @@ export function NotificationBell({
 
   const load = useCallback(async () => {
     const next = await fetchNotifications();
+    if (!next) return;
     setData(next);
     // The first load only remembers what is there; later loads toast what is new.
     if (seen.current) {
