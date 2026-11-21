@@ -1,14 +1,12 @@
-# V1 performance plan: from a failed laptop load test to a graded pass in Sydney
+# V1 performance plan
 
-Written 2026-11-21 for Claude Code sessions that will carry it out. Owner of every "go": the project owner.
-Tracker: `V1-IMPLEMENTATION-STATUS.md` (task 4.3 stays **Built** until Phase 4 passes; the count stays 52/80 until then).
-Load tooling: branch `test/4.3-load-judged` (`load/`, README "How a run is judged" and "A free machine in Sydney").
+Written 2026-11-21 for the Claude Code sessions that carry it out, step by step, in order. Every "go" is the owner's.
+Tracker: `V1-IMPLEMENTATION-STATUS.md` (4.3 stays **Built** until step 15 passes; the count stays 52/80 until then).
+Load tooling: branch `test/4.3-load-judged` (`load/`; README "How a run is judged", "A free machine in Sydney").
 
-## 0. Read this first
-
-### The goal
-V1 carries **section 3's V1 population** (200 agencies, 500 agents, 2,000 users ≈ **244 requests/s at peak**, see
-`load/catalog.js`) and meets **PLATFORM-PLAN section 5**:
+## Goal
+V1 carries section 3's V1 population (200 agencies, 500 agents, 2,000 users ≈ **244 requests/s at peak**, from
+`load/catalog.js`) and meets PLATFORM-PLAN section 5:
 
 | Target | p95 |
 |---|---|
@@ -17,279 +15,346 @@ V1 carries **section 3's V1 population** (200 agencies, 500 agents, 2,000 users 
 | Console page | < 800 ms |
 | `/api/live` | < 100 ms |
 | Webhook 200 | < 1 s |
-| Errors | < 1% (SLO: **99.99% request success** at normal load) |
+| Success | **99.99%** at normal load |
 | `after-run.sql` | all 0 |
 
-Section 3 also sizes V2 (≈ 542 req/s) and V3 (≈ 1,082 req/s). V1 must show headroom toward V2.
+Headroom toward V2 (≈ 542 req/s) is part of the goal.
 
-### What we know (evidence, 2026-11-21)
-| Run | Where | Result | Meaning |
-|---|---|---|---|
-| `load/runs/20261121-133937` | k6 + both apps on a laptop in Pakistan, dev DB in Sydney | 23% failed, not valid | Setup only |
-| `load/runs/20261121-144026` | Same, 52,344 requests, 4 → 40 req/s | 78.7% failed, knee at ~3 req/s, **not valid** | Setup only, but the pattern below is real |
-
-- **The setup was the main cause.** The DB round trip was 307 ms. 5 connections ÷ 0.307 s ≈ 16 statements/s per app.
+## What we know (2026-11-21)
+- **Two laptop runs**, `load/runs/20261121-133937` and `load/runs/20261121-144026`:
+  - k6 and both apps on a laptop in Pakistan, with the dev DB in Sydney;
+  - 52,344 requests in the second run;
+  - 78.7% failed, knee at ~3 req/s;
+  - the report marked both **not valid**.
+- **The setup was the main cause.** The DB round trip was 307 ms, so 5 connections ÷ 0.307 s ≈ 16 statements/s per
+  app.
 - **Requests that do not touch the DB passed at every step:** ISR pages, search, webhook, mail sync. p95 was 21–63 ms.
-- **Requests that touch the DB failed from step 1.** That includes `/api/health`.
-- **DB execution time is small** (`pg_stat_statements` on dev, ~20k rows):
+  Every request that touches the DB failed from the first step, `/api/health` included.
+- **DB execution time is small**, measured with `pg_stat_statements` on dev (~20k rows):
 
   | Query | Mean time |
   |---|---|
-  | Actor query | 0.15 ms (19,210 calls) |
+  | Actor query | 0.15 ms |
   | `site_activity` insert | 0.4 ms |
-  | Agent listings list | 12 ms |
+  | Agent listings | 12 ms |
   | Listing-activity counts | **96 ms** |
   | Admin `siteTrend` | **115 ms** |
 
-- **Data was never at risk.** `after-run.sql` was all 0: no duplicate texts or charges, no lost webhooks, no dead jobs.
-- **Another client holds transactions open on dev.** Backends stayed `active`/`ClientRead` with the transaction open for up to 1,020 s. The query was a listing select through Supavisor.
+- **No data was harmed.** `after-run.sql` was all 0: no duplicate texts or charges, no lost webhooks, no dead jobs.
+- **Another client holds transactions open on dev.** Backends stayed `active`/`ClientRead` with the transaction open
+  for up to 1,020 s. The query was a listing select through Supavisor.
+- **Theory, until step 13 proves it.** On Vercel `syd1` beside the DB (1–2 ms), V1 fits even with today's code (est.
+  500–700 req/s of the V1 mix). Steps 1–8 are for:
+  - spikes and 99.99% success under overload;
+  - V2/V3 headroom;
+  - DB cost.
 
-**Theory (to be proven in Phase 4):** with the app on Vercel `syd1` beside the DB (1–2 ms round trip), V1 fits even
-with today's code (est. 500–700 req/s of the V1 mix on ~2 DB cores). The code work below is for:
-- spikes and 99.99% success under overload;
-- V2/V3 headroom;
-- DB cost.
-
-### Rules (from the owner; non-negotiable)
+## Rules (from the owner; never bend them)
 - **Environments.**
   - Dev first. **Never touch production** without the owner's explicit go: no merge to `main`, no migration, no
     setting change.
   - `.env.local` and `.env.dev` are dev.
 - **Git.**
-  - One task, one branch, one worktree from `origin/main`.
+  - One step, one branch, one worktree from `origin/main`.
   - Never work in `/Users/saadiii/Job/realestate_ai`: parallel sessions use it.
-  - Never `git checkout` over uncommitted work.
   - Never force-push.
+  - Never `git checkout` over uncommitted work.
 - **Secrets and AI.**
   - Never print or commit secrets.
   - No live LLM calls in tests.
   - Smoke runs only small named groups.
-- **Dev data.** Synthetic data on dev stays ≤ ~20k rows. The disk is small.
-- **Checks.**
-  - Every new check is **break-tested**: break the thing it guards and watch it go red.
-  - Every changed read path keeps or lowers its statement count, proven in `packages/core/src/listings/query-count.test.ts` or a sibling test.
-- **House rules (CLAUDE.md).**
+- **Dev data.** Synthetic data on dev stays ≤ ~20k rows. More needs the owner to raise dev's disk first.
+- **House rules (CLAUDE.md, ARCHITECTURE.md).**
   - `can()` decides permissions.
   - Multi-step writes go in `db.transaction`.
   - Business logic lives in `packages/core`.
   - A big decision gets an ADR first.
 - **Reporting.** Report to the owner in Roman Urdu, with the straight count (52/80).
 
-## 1. The order (dependencies)
+## How Claude finishes every code step (1–9)
+1. `git worktree add -b <branch> /Users/saadiii/Job/realestate_ai-<short> origin/main`.
+2. Read the files named in the step and every caller of what you change (grep) before editing.
+3. Make the change. Add or extend the test named in the step. Read paths keep or lower their statement count:
+   `packages/core/src/listings/query-count.test.ts` or a sibling.
+4. **Break-test:** undo the fix (or break what the check guards), watch the test go red, then restore it.
+5. `pnpm typecheck`, `pnpm lint` and `pnpm test` must be green. Run the smoke group only if the step names one.
+6. Commit, then push the branch. **Do not merge.**
+7. Add a Log row to `V1-IMPLEMENTATION-STATUS.md` on the docs branch: date, step, branch, result.
+8. Tell the owner in Roman Urdu: what changed, the proof, the branch, and what was not checked.
 
-```
-Phase 1 (Claude, dev)   P1 → P2 → P3 → P4 → P5 → P6 → P7 → P8     each its own branch, pushed, not merged
-Phase 2 (Claude + go)   production read-only check for stuck ClientRead transactions; alerts
-Phase 3 (Owner)         Sydney VM, Vercel previews on dev, firewall bypass, compute/pool settings
-Phase 4 (Claude)        valid runs in Sydney: smoke → step V1 → V2 60 min → spike → soak → recovery
-Phase 5 (Claude)        fix what the knee names; re-run the step
-Phase 6 (Owner go)      one integration branch → production, backup first, watch
-```
+## The steps
 
-Phases 1 and 3 run in parallel. Phase 4 needs both.
-
-## 2. Phase 1: code fixes (Claude, on dev)
-
-For every task: **problem → files → change → proof → done when**. Each task ends with the following, and with the
-branch pushed and not merged:
-- `pnpm typecheck`, `pnpm lint` and `pnpm test` green;
-- a break-test;
-- a row in the tracker's Log.
-
-### P1. Health check off the shared queue
-- **Problem.** `/api/health` waits in the same 5-connection pool as every page. Under load it failed 96–99%, so an
-  uptime monitor would report the site down while it is only busy.
-- **Files:**
-  - `apps/web/app/api/health/route.ts`
-  - `apps/console/app/api/health/route.ts`
-  - `packages/db/src/client.ts` (`getDb` keys pools by connection string)
-- **Change.** Health uses its own pool of 1 connection (e.g. the same URL with `application_name=health`, which
-  `getDb` keys separately) and a short timeout. A slow DB answers `503 db_slow` within ~2 s instead of timing out.
-- **Proof.** A test where the main pool is held busy and health still answers.
-- **Break-test.** Point health back at the shared pool and watch the test go red.
+### Step 1. Health check off the shared queue
+- **Who:** Claude.
+- **Why.** `/api/health` waits in the same 5-connection pool as every page. Under load it failed 96–99%, so an uptime
+  monitor would call a busy site "down".
+- **Claude does:**
+  1. Read `apps/web/app/api/health/route.ts`, `apps/console/app/api/health/route.ts`, and `packages/db/src/client.ts`
+     (`getDb` keeps one pool per connection string).
+  2. Give health its own 1-connection pool. For example, the same URL with `application_name=health`, which `getDb`
+     keys separately.
+  3. Bound the check at ~2 s. A slow DB answers `503 db_slow` instead of hanging.
+  4. Test: hold the main pool busy, and health still answers within 2 s.
+  5. Break-test: point health back at the shared pool and watch it go red.
 - **Done when** health answers in < 2 s while the main pool is saturated.
 
-### P2. Load shedding: fail fast for low-priority requests (ADR first)
-- **Problem.** Nothing limits the wait for a connection. Requests queue until the client's 10 s timeout, so past the
-  knee every request fails (80% at every step above 25%).
-- **ADR.** Read ADR 0097 (peak shaping) first, so shedding agrees with it. Then write `docs/adr/NNNN-load-shedding.md`
-  (10 lines). It sets:
-  - the priority classes: webhooks > user actions > pages > polls and beacons;
-  - the signal: in-flight count per pool, or the wait time;
-  - the threshold.
-- **Files:**
-  - `packages/db/src/client.ts` (count in-flight statements per pool, cheap)
-  - `apps/console/app/api/live/route.ts`
-  - `apps/console/app/api/notifications/route.ts`
-  - `apps/web/app/api/activity/route.ts`
-  - `apps/console/components/live-refresh.tsx` (a 503 skips the tick)
-- **Change.** When the pool is past the threshold, the low-priority routes return `503` with `Retry-After` at once.
-  Pages and actions are untouched.
-- **Proof.** A unit test of the threshold function, and a route test showing a 503 when busy.
-- **Break-test.** Set the threshold to infinity and watch the test go red.
-- **Done when** a saturated pool sheds polls in < 50 ms, and pages still get connections.
+### Step 2. Load shedding: fail fast for low-priority requests
+- **Who:** Claude. The ADR is shown to the owner with the branch.
+- **Why.** Nothing limits the wait for a connection. Requests queue until the client's 10 s timeout, so past the knee
+  everything fails (80% at every step above 25%).
+- **Claude does:**
+  1. Read ADR 0097 (peak shaping) and ADR 0094 (no pipelining through Supavisor).
+  2. Write `docs/adr/NNNN-load-shedding.md` (10 lines). It sets:
+     - the priority classes: webhooks > user actions > pages > polls and beacons;
+     - the signal: in-flight statements per pool;
+     - the threshold.
+  3. In `packages/db/src/client.ts`, count in-flight statements per pool (cheap; no extra round trip).
+  4. In `apps/console/app/api/live/route.ts`, `apps/console/app/api/notifications/route.ts` and
+     `apps/web/app/api/activity/route.ts`: past the threshold, return `503` with `Retry-After` at once.
+  5. In `apps/console/components/live-refresh.tsx`, a 503 skips that tick quietly.
+  6. Tests:
+     - the threshold function;
+     - a route returns 503 when busy;
+     - pages are never shed.
+  7. Break-test: set the threshold to infinity and watch it go red.
+- **Done when** a saturated pool sheds polls in < 50 ms and pages still get connections.
 
-### P3. `/api/live`: one light statement
-- **Problem.** At V1 this is 100 req/s, 41% of all traffic. Each poll runs 3 serial statements, and the first carries 7
+### Step 3. `/api/live`: one light statement
+- **Who:** Claude.
+- **Why.** At V1 this is 100 req/s, 41% of all traffic. Each poll runs 3 serial statements, and the first carries 7
   count sub-queries the route throws away:
   - `loadListingActor` → `loadActorContext` (`apps/console/lib/load-actor.ts`);
   - then `listing_agent`;
   - then `consoleLiveStamp` (`packages/core/src/mail/live.ts`).
-- **Change.** One SQL statement that reads the membership (agency, role, status), the listing links (`array_agg`)
-  and the stamp. No badges. `can()` still decides the mail scope, so the actor is built from the same row.
-- **Later (V2, migration).** A `live_stamp` version row per user, bumped on writes. The poll becomes a primary-key
-  lookup.
-- **Proof.** A query-count test: `/api/live` = 1 statement, plus 1 a minute for last-seen.
-- **Break-test.** Restore `loadListingActor` and watch the count test go red.
-- **Done when** it is 1 statement and the stamp is identical to the old one on the seeded fixtures.
+- **Claude does:**
+  1. Write one SQL statement that reads:
+     - the membership: agency, role, status, removed, agency status;
+     - the listing links, with `array_agg`;
+     - the stamp parts.
 
-### P4. Split the actor (permissions) from the badges (chrome)
-- **Problem.** The 7-count actor query runs on every page, every bell (`/api/notifications`) and every poll. Only the
-  shell's header needs the counts.
-- **Files:**
-  - `apps/console/lib/load-actor.ts`
-  - `apps/console/lib/require-console-access.ts` (`loadConsoleChrome`, `requireConsoleAccess`)
-  - `apps/console/app/api/notifications/route.ts`
-- **Change.**
-  - `loadActor` reads membership, agency status and sends-paused only.
-  - The badges move to `loadConsoleChrome` alone, still one statement.
-  - Keep `blocked`, `mfaMark` and `sendsPaused` behaviour exactly as today.
-- **Proof.**
-  - Permission tests unchanged and green.
-  - The query count for the bell drops.
-  - The chrome still shows the same counts.
-- **Done when** API routes no longer run the badge sub-queries.
+     No badges.
+  2. Build the actor from that row, so `can()` still decides the mail scope (`threadScopeFilters`).
+  3. Keep last-seen at most once a minute.
+  4. Tests:
+     - query count = 1 (+1 a minute for last-seen);
+     - the stamp equals the old one on the same fixtures;
+     - a blocked member gets no stamp.
+  5. Break-test: restore the old path and watch the count test go red.
+- **Done when** `/api/live` is one statement with the same answers.
 
-### P5. Waterfalls into one round trip
-- **Problem.** Independent reads are awaited one after another. Each `await` costs a round trip and holds a pool
-  connection longer.
-- **Known places:**
-  - `apps/console/components/deals/finance-page.tsx`: actor → listing links → `agencyTimeZone` → report;
-  - `apps/console/app/(agent)/listings/page.tsx`: list → `matchingBuyerCounts`;
-  - `apps/web/app/account/*/page.tsx`: `isUserBlocked` → upsert → threads → guide threads.
-- **Change.**
-  - `Promise.all` for independent reads.
-  - Fold the timezone and the links into existing statements where it is one join or `array_agg`.
-- **Proof.** Query-count tests per changed page; the serial depth goes down.
-- **Done when** no changed page has two sequential awaits that do not depend on each other.
+### Step 4. Split the actor (permissions) from the badges (chrome)
+- **Who:** Claude.
+- **Why.** The 7-count actor query runs on every page, every bell and every poll. Only the console header shows the
+  counts.
+- **Claude does:**
+  1. Read:
+     - `apps/console/lib/load-actor.ts`;
+     - `apps/console/lib/require-console-access.ts` (`loadConsoleChrome`, `requireConsoleAccess`);
+     - `apps/console/app/api/notifications/route.ts`.
+  2. `loadActor` reads membership, agency status, sends-paused and user name only.
+  3. The badges become a separate single statement used only by `loadConsoleChrome`.
+  4. Keep the following behaviour exactly as today:
+     - `blocked` (ADR 0050);
+     - `mfaMark` (1.3);
+     - `sendsPaused` and `mayResume` (3.7);
+     - offers zeroed by `can()`.
+  5. Tests:
+     - permission tests unchanged and green;
+     - the bell's statement count drops;
+     - the header shows the same numbers.
+- **Done when** no API route runs the badge sub-queries.
 
-### P6. No write on a read
-- **Problem.** Every buyer account page runs `ensureConsumerAccount` → `ensureAppUser` → `INSERT … ON CONFLICT DO
+### Step 5. Waterfalls into one round trip
+- **Who:** Claude.
+- **Why.** Independent reads are awaited one after another. Each `await` is a round trip, and holds a pool connection
+  longer.
+- **Claude does:**
+  1. `apps/console/components/deals/finance-page.tsx`: actor → listing links → `agencyTimeZone` → report. Fold the
+     links and the timezone into existing statements, or run them with `Promise.all`.
+  2. `apps/console/app/(agent)/listings/page.tsx`: list → `matchingBuyerCounts`. Fold the counts into the list, or
+     run them in parallel where they do not depend on the list.
+  3. `apps/web/app/account/*/page.tsx`: `isUserBlocked` → upsert → threads → guide threads. Run the independent ones
+     in parallel; step 6 removes the upsert.
+  4. Grep for other pages with two sequential independent `await`s on the DB, and list them in the commit.
+  5. Tests: a query count per changed page.
+- **Done when** no changed page awaits two independent reads one after another.
+
+### Step 6. No write on a read
+- **Who:** Claude.
+- **Why.** Every buyer account page runs `ensureConsumerAccount` → `ensureAppUser` → `INSERT … ON CONFLICT DO
   UPDATE SET updated_at = now()`. That is a row lock, a new tuple and WAL on every page view.
-- **Files:**
-  - `apps/web/lib/account.ts`
-  - `packages/core/src/identity/ensure-app-user.ts`
-- **Change.** `… DO UPDATE … WHERE (email, name, …) IS DISTINCT FROM (excluded…)`: a no-op writes nothing. Or move
-  the call to the auth callback only. Choose by reading the callers; the first keeps behaviour.
-- **Proof.** A test that a second call with unchanged data updates 0 rows.
-- **Break-test.** Drop the `WHERE` and watch the test go red.
+- **Claude does:**
+  1. Read `apps/web/lib/account.ts`, `packages/core/src/identity/ensure-app-user.ts` and every caller.
+  2. Add `WHERE (email, name, phone, avatar_url) IS DISTINCT FROM (excluded…)`, keeping the `coalesce` rules, so
+     an unchanged account writes nothing.
+  3. Test: a second call with unchanged data updates 0 rows, and a changed email still updates.
+  4. Break-test: drop the `WHERE` and watch it go red.
 - **Done when** a repeat page view writes nothing.
 
-### P7. The slow queries
-- **Targets** (dev means; confirm with `EXPLAIN (ANALYZE, BUFFERS)`):
-  - listing-activity counts, 96 ms (`packages/core/src/activity/scope.ts` and its callers);
-  - admin `siteTrend`, 115 ms (`packages/core/src/platform/site-users.ts:354`);
-  - agent listings list, 12 ms;
-  - suburb aggregate, 13 ms.
-- **Change.** Indexes through `packages/db/src/concurrent-indexes.ts`, built concurrently. A migration for an index
-  needs the owner's go for production. Use counters only if an index cannot do it.
-- **Proof.** Before and after `EXPLAIN` in the branch's commit message. `pnpm --filter @repo/db db:slow-queries`
-  shows the drop.
+### Step 7. The slow queries
+- **Who:** Claude. A production index needs the owner's go in step 19.
+- **Claude does:**
+  1. `EXPLAIN (ANALYZE, BUFFERS)` on dev for each:
+     - listing-activity counts, 96 ms (`packages/core/src/activity/scope.ts` and its callers);
+     - admin `siteTrend`, 115 ms (`packages/core/src/platform/site-users.ts:354`);
+     - agent listings, 12 ms;
+     - suburb aggregate, 13 ms.
+  2. Add indexes through `packages/db/src/concurrent-indexes.ts` (built concurrently). Use counters only where an
+     index cannot do it.
+  3. Put the before and after plans in the commit message. Check with `pnpm --filter @repo/db db:slow-queries`.
 - **Done when** each is < 20 ms on dev, or the reason it cannot be is written down.
 
-### P8. `statement_timeout` per kind of work (tracker 1.8 part 2)
-- **Problem.** A runaway or stuck statement holds a connection indefinitely.
-- **Change.** Per pool or role:
-  - requests: e.g. 5 s;
-  - cron and jobs: longer;
-  - set on the connection.
+### Step 8. `statement_timeout` per kind of work (tracker 1.8 part 2)
+- **Who:** Claude.
+- **Why.** A stuck or runaway statement holds a connection indefinitely.
+- **Claude does:**
+  1. Read ADR 0094 first. The pool runs with `max_pipeline: 0` and a postgres.js patch, and an earlier patch
+     deadlocked the production cron.
+  2. Set the timeout on the connection, per pool or role: requests ~5 s, cron and jobs longer.
+  3. Test pools of size 1, 2 and 5, direct and through the pooler, with a transaction mixed in.
+  4. Test: `pg_sleep` past the limit is cancelled.
+- **Done when** no request statement can outlive its limit.
 
-  Read ADR 0094 first: the pool runs with `max_pipeline: 0` and a postgres.js patch. Test pools of size 1, 2 and 5,
-  direct and through the pooler, with a transaction mixed in. The ADR 0094 patch once deadlocked the production cron.
-- **Proof.** A test where `pg_sleep` past the limit is cancelled.
-- **Done when** no request statement can run longer than its limit.
+### Step 9. Watch for stuck transactions
+- **Who:** Claude. The production check needs the owner's go.
+- **Claude does:**
+  1. Add to `/api/health/alerts` a count of backends `state = 'active' AND wait_event = 'ClientRead' AND now() -
+     xact_start > interval '60 seconds'`. Today's watch only sees `idle in transaction`.
+  2. Break-test it on dev with a client that stalls mid-statement.
+  3. **After the owner's go:** run one read-only query on production for the same pattern. Report it, change
+     nothing.
+  4. On dev, read `client_addr` and `application_name` of the stuck backends, and ask the owner whose they are.
+- **Done when** the alert exists and the production answer is reported.
 
-**Deferred to V2** (write down, do not build now):
-- `live_stamp` version table;
-- beacon batching;
-- badge counter tables;
-- read replica for admin and insights;
-- Realtime push instead of polling (V3);
+### Step 10. A machine in Sydney
+- **Who:** the owner creates it; Claude sets it up. The owner can do this any time during steps 1–9.
+- **Owner does:**
+  1. A new AWS account on the **Free plan**.
+  2. Region `ap-southeast-2` → EC2: Ubuntu 24.04, `m7i-flex.large`, 20 GB, SSH from the owner's IP only.
+  3. Gives Claude the IP and the path of the SSH key, never the key's contents.
+- **Claude does:**
+  1. On the VM: `load/vm-setup.sh`.
+  2. `scp` `.env.dev` (never git).
+  3. Log in again, then check `k6 version`, `node -v`, and `psql "$DIRECT_URL" -c 'select 1'`.
+- **Done when** the VM reaches the dev DB in ≤ 5 ms (`load/profile.mjs` prints the round trip).
+
+### Step 11. Previews, firewall and settings
+- **Who:** the owner. Claude checks the result.
+- **Owner does:**
+  1. Vercel previews of all four projects pointed at dev, every vendor stubbed (README "The day", step 3).
+  2. A Firewall **System Bypass** rule for the VM's IP; the bypass secret to Claude as `VERCEL_BYPASS`; Attack Mode
+     off.
+  3. Dev compute and pooler pool size as production (tracker 1.9, 1.19). Optional: a pass on smaller compute still
+     counts.
+  4. Nobody else on the dev DB during the runs.
+- **Claude does:**
+  1. Seed V1 from the VM within the 20k-row rule, then `node load/targets.mjs`.
+  2. `node load/sessions.mjs`.
+- **Done when** the previews answer the VM with no 403 or 429.
+
+### Step 12. Smoke from Sydney
+- **Who:** Claude.
+- **Claude does:** `load/run.sh -e MODE=smoke` with the preview URLs (`-e WEB=… -e AGENTS_URL=… -e AGENCY_URL=…
+  -e ADMIN_URL=…`) and `-e STRIPE_WEBHOOK_SECRET=whsec_load_test`.
+- **Done when** there are 0 errors and the report's validity block is all green.
+
+### Step 13. Step test at V1
+- **Who:** Claude.
+- **Claude does:**
+  1. Fresh sessions.
+  2. `load/run.sh -e MODE=step -e PROFILE=v1 …` (~90k requests, ~17 min).
+  3. Bring the run folder back with `scp`, and report the steps table.
+- **Done when** every step has ≤ 1% errors, the section 5 p95s hold, and no knee is found. If not, go to step 17.
+
+### Step 14. Step test at V2
+- **Who:** Claude.
+- **Claude does:** `-e MODE=step -e PROFILE=v2`. V2-sized data needs the owner to raise dev's disk first. Without it,
+  run V2 rates on V1 data and say so.
+- **Done when** the knee is found and V1's rate sits at ≤ 50% of it.
+
+### Step 15. Long runs
+- **Who:** Claude.
+- **Claude does**, each with fresh sessions and a report:
+
+  | Run | Command | Pass |
+  |---|---|---|
+  | Load V2 | `-e MODE=load -e PROFILE=v2` (60 min) | Section 5 holds; **99.99% success** |
+  | Spike | `-e MODE=spike -e PROFILE=v2` (10× for 5 min) | Pages and webhooks ≥ 99.9%; polls may shed (step 2); back to normal within 2 min |
+  | Soak | `-e MODE=soak -e PROFILE=v1` (2 h) | No memory growth; p95 does not drift |
+
+- **Done when** all three pass.
+
+### Step 16. Recovery drills
+- **Who:** Claude. The owner is told before each one.
+- **Claude does**, during a `MODE=load` run (README "The day", step 6):
+  1. Cut the pooler for a minute.
+  2. Point the SMS vendor at a black hole.
+  3. Kill a tick mid-batch.
+- **Done when** errors return to normal within 2 minutes without a redeploy, and `after-run.sql` is all 0.
+
+### Step 17. When a run fails: read the knee, fix, re-run
+- **Who:** Claude.
+- **Claude does:** match the report to the row below, fix one cause on its own branch (the code-step routine), re-run
+  the same step, and compare in the report's "Against the run before" block.
+
+  | The report shows | Cause | Fix |
+  |---|---|---|
+  | DB CPU high, slow queries on top | Heavy statements | Step 7 on the named query, or the compute size (owner) |
+  | Pooler "max client connections" | Instances × `DB_POOL_MAX` over the pooler's clients | Lower `DB_POOL_MAX`, or a bigger compute (owner) |
+  | Pool wait high, DB CPU low | Too many statements per request | Steps 3–5 on the busiest request |
+  | Function 5xx, server CPU high | Rendering cost | Profile the page; cache what can be cached |
+  | 403/429 from Vercel | Firewall | Fix the bypass and re-run (not a platform result) |
+  | `ClientRead` backends grow | A stalled client or pooler | Step 9; ADR 0094 settings |
+
+### Step 18. Clean up after the runs
+- **Who:** Claude and the owner.
+- **Claude does:**
+  1. `node load/sessions.mjs --delete`.
+  2. `psql "$DIRECT_URL" -f load/cleanup.sql`.
+  3. Delete `.env.dev` from the VM.
+- **Owner does:**
+  1. Stop the VM.
+  2. Lower dev's compute.
+  3. Rotate the bypass secret.
+  4. Remove the firewall rule.
+
+### Step 19. Production
+- **Who:** Claude carries it out, **only after the owner's go**.
+- **Claude does:**
+  1. Merge the code steps' branches into one `integrate/v1-performance` branch. In a clean worktree: typecheck,
+     lint, tests and builds.
+  2. If an index or migration is included:
+     - a production backup, verified;
+     - then apply from a checkout whose journal ends at it (the procedure in the tracker's Log).
+  3. Merge into `main` with `--no-ff`, then push.
+  4. Check:
+     - Vercel success on all four projects;
+     - `/api/health` ok on all four;
+     - the `/ai` redirect and the login page unchanged.
+  5. Watch for 10 minutes:
+     - 5xx;
+     - p95;
+     - pool waits;
+     - `idle in transaction` **and** `active/ClientRead`.
+- **Done when** production is live and quiet.
+
+### Step 20. Close out
+- **Who:** Claude.
+- **Claude does:**
+  1. Tracker row 4.3 → **Done**, with the date, the p95s, the success rate and the after-run counts.
+  2. A Log row.
+  3. Report the new count straight.
+  4. Write the V2 items below into the tracker as V2 work.
+
+## Not built for V1 (V2/V3, written down only)
+- A `live_stamp` version row bumped on writes. The poll becomes a primary-key lookup.
+- Beacon batching.
+- Badge counter tables.
+- A read replica for admin and insights.
+- Realtime push instead of polling (V3).
 - `site_activity` partitions (V3).
 
-## 3. Phase 2: watch for stuck transactions (Claude; production needs the go)
-1. Add to `/api/health/alerts` (or the stability watch) a count of backends `state = 'active' AND wait_event =
-   'ClientRead' AND now() - xact_start > interval '60 seconds'`. Today's watch only looks at `idle in transaction`
-   and misses this.
-2. **With the owner's go:** one read-only `pg_stat_activity` query on production for that pattern. Report it, change
-   nothing.
-3. On dev, find the other client: `client_addr` and `application_name`. Ask the owner whether the other developer or
-   a dev preview was running.
-
-## 4. Phase 3: the Sydney setup (owner, with Claude's help)
-| Step | Who | What |
-|---|---|---|
-| 3.1 | Owner | AWS account on the **Free plan** → region `ap-southeast-2` → EC2 Ubuntu 24.04, `m7i-flex.large`, 20 GB, SSH from the owner's IP only |
-| 3.2 | Claude | On the VM: `load/vm-setup.sh`; copy `.env.dev` with `scp`, never git |
-| 3.3 | Owner | Vercel previews of all four projects pointed at dev, every vendor stubbed (README "The day", step 3) |
-| 3.4 | Owner | Vercel Firewall **System Bypass** rule for the VM's IP; bypass secret to Claude as `VERCEL_BYPASS`; Attack Mode off |
-| 3.5 | Owner | Dev compute and pooler pool size as production (1.9, 1.19). Optional: a pass on smaller compute still counts |
-| 3.6 | Both | Nobody else on the dev DB during the runs (the `ClientRead` backends spoil them) |
-
-## 5. Phase 4: the runs (Claude, from the Sydney VM)
-Every run goes through `load/run.sh`. The report's **validity block must be all green** before any number counts.
-
-| # | Run | Command (plus the preview URLs and `STRIPE_WEBHOOK_SECRET=whsec_load_test`) | Pass |
-|---|---|---|---|
-| 4.1 | Smoke | `-e MODE=smoke` | Script works, 0 errors |
-| 4.2 | Step V1 | `-e MODE=step -e PROFILE=v1` (~90k requests, ~17 min) | Every step ≤ 1% errors, section 5 p95s, no knee |
-| 4.3 | Step V2 | `-e MODE=step -e PROFILE=v2` | Find the knee; V1 must sit at ≤ 50% of it |
-| 4.4 | Load V2 | `-e MODE=load -e PROFILE=v2` (60 min) | Section 5 holds; **99.99% success** |
-| 4.5 | Spike | `-e MODE=spike -e PROFILE=v2` (10× for 5 min) | Pages and webhooks ≥ 99.9%; polls may shed (P2); recovers within 2 min |
-| 4.6 | Soak | `-e MODE=soak -e PROFILE=v1` (2 h) | No memory growth, no drift in p95 |
-| 4.7 | Recovery | README "The day", step 6: pooler cut, vendor down, tick killed mid-batch | Errors return to normal within 2 min; `after-run.sql` 0 |
-
-Before each run:
-- `node load/sessions.mjs` (sessions live about an hour);
-- seed only within the dev disk rule. V2 data needs the owner to raise dev's disk first.
-
-After all runs:
-- `node load/sessions.mjs --delete`;
-- `psql "$DIRECT_URL" -f load/cleanup.sql`;
-- lower the compute;
-- stop the VM;
-- rotate the bypass secret.
-
-## 6. Phase 5: when a step fails, read the knee
-| The report shows | Cause | Next |
-|---|---|---|
-| DB CPU high, slow queries on top | Heavy statements | P7 on the named query, or the compute size |
-| `max client connections` / pooler errors | Instances × `DB_POOL_MAX` over the pooler's clients | Lower `DB_POOL_MAX` or raise the compute |
-| Pool wait high, DB CPU low | Too many statements per request | P3–P5 on the busiest kind |
-| Function 5xx, server CPU high | Rendering cost | Profile the page; cache what can be cached |
-| 403/429 from Vercel | Firewall | Bypass rule, then re-run (not a platform result) |
-| `ClientRead` backends grow | A stalled client or pooler | Phase 2; ADR 0094 settings |
-
-Fix one cause, re-run the same step, and compare in the report's "Against the run before" block.
-
-## 7. Phase 6: production (only with the owner's go)
-1. All Phase 1 branches merged into one `integrate/v1-performance` branch. Clean-worktree typecheck, lint, tests and
-   builds pass.
-2. If a migration or index is involved:
-   - a production backup, verified;
-   - then apply from a checkout whose journal ends at that migration (the house procedure in the tracker's Log).
-3. Merge with `--no-ff`. Vercel success on all four projects. `/api/health` ok on all four.
-4. Watch for 10 minutes:
-   - 5xx rate;
-   - p95;
-   - pool waits;
-   - `idle in transaction` **and** `active/ClientRead`.
-5. Tracker:
-   - 4.3 → Done, with the p95s, error rate and after-run counts;
-   - the Log row;
-   - the count reported straight.
-
-## 8. What is not in this plan (owner actions that block launch, tracked elsewhere)
+## Owner actions that block launch (outside this plan)
 | Area | Tasks |
 |---|---|
 | Rate limit and bot protection | Shared rate limiter 1.4 (Upstash, O-15); firewall and Turnstile 1.5 (O-16) |
@@ -301,13 +366,13 @@ Fix one cause, re-run the same step, and compare in the report's "Against the ru
 
 Full list: `V1-OWNER-ACTIONS.md`.
 
-## 9. Expected numbers (theory; Phase 4 replaces them)
+## Expected numbers (theory; steps 13–15 replace them)
 | | Capacity (V1 mix) | `/api/live` p95 | Console page p95 |
 |---|---|---|---|
 | Laptop run (measured) | ~3 req/s | 10 s (timeout) | 10 s (timeout) |
 | Sydney, today's code | ~500–700 req/s | ~20–40 ms | ~200–400 ms |
-| Sydney + P1–P6 | ~700–900 req/s | ~10–20 ms | ~150–300 ms |
-| + P7 | ~1,200–1,500 req/s | same | lower on the heavy pages |
+| Sydney + steps 1–6 | ~700–900 req/s | ~10–20 ms | ~150–300 ms |
+| + step 7 | ~1,200–1,500 req/s | same | lower on the heavy pages |
 
 Assumptions:
 - ~2 DB cores at 70%;
@@ -315,5 +380,5 @@ Assumptions:
 - 1–2 ms round trip;
 - dev-sized data.
 
-Data at V2 size (2.5M contacts) can make the count queries 10–50× slower. That is the largest unknown, and run 4.3
+V2-sized data (2.5M contacts) can make the count queries 10–50× slower. That is the largest unknown, and step 14
 answers it.
