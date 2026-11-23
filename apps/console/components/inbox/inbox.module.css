@@ -145,7 +145,8 @@ details:not([open]) > summary.messageHead .toLine { display: none; }
   padding: 0.75rem 1.5rem 1.1rem 4.75rem;
   font-size: 0.9rem; line-height: 1.6; color: var(--text-primary);
   white-space: pre-wrap; overflow-wrap: anywhere;
-  display: grid; gap: 0.6rem;
+  /* minmax(0, 1fr): a grid's default track grows to a wide table or image in a mail and pushes past the card. */
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.6rem;
 }
 .bodyText { white-space: pre-wrap; }
 

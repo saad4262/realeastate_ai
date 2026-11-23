@@ -305,7 +305,8 @@
   padding: 0.8rem 1.1rem;
   border-radius: 1.15rem 1.15rem 0.4rem 1.15rem;
   background: var(--chat-cream-deep);
-  color: var(--chat-forest);
+  /* --chat-forest is the site's accent (crimson since the portal look): a message is text, not a label. */
+  color: var(--color-ink, #0f172a);
 }
 
 .bubbleAi {

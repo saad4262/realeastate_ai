@@ -16,12 +16,15 @@ export function SkillsStatusButton({ paths, className, glyphClassName, textClass
   const [panel, setPanel] = useState<SkillsPanel | null>(null);
   const [failed, setFailed] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Skills switched off from this panel: dropped from the list at once; the next open asks the server again.
+  const [turnedOff, setTurnedOff] = useState<readonly string[]>([]);
   const wrap = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setOpen(false), []);
   usePanelDismiss(open, close, wrap);
 
   useEffect(() => {
     if (!open) return;
+    setTurnedOff([]);
     let live = true;
     void fetch('/api/automations?view=skills', { cache: 'no-store' })
       .then((r) => (r.ok ? (r.json() as Promise<SkillsPanel>) : null))
@@ -36,6 +39,8 @@ export function SkillsStatusButton({ paths, className, glyphClassName, textClass
     };
   }, [open]);
 
+  const skills = panel?.skills.filter((s) => !turnedOff.includes(s.key)) ?? [];
+
   return (
     <div className={styles.wrap} ref={wrap}>
       <button type="button" className={className} aria-label="Skills" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((o) => !o)}>
@@ -49,15 +54,15 @@ export function SkillsStatusButton({ paths, className, glyphClassName, textClass
         <div className={styles.panel} role="dialog" aria-label="Skills">
           <div className={styles.head}>
             <h2 className={styles.heading}>Skills</h2>
-            {panel ? <span className={styles.note}>{panel.skills.length} on</span> : null}
+            {panel ? <span className={styles.note}>{skills.length} on</span> : null}
           </div>
           {failed && !panel ? <p className={styles.empty}>This could not be loaded.</p> : null}
           {!failed && !panel ? <p className={styles.empty}>Loading…</p> : null}
-          {panel && !panel.skills.length ? <p className={styles.empty}>No skill is switched on yet.</p> : null}
+          {panel && !skills.length ? <p className={styles.empty}>No skill is switched on yet.</p> : null}
 
-          {panel?.skills.length ? (
+          {skills.length ? (
             <ul className={styles.list}>
-              {panel.skills.map((s) => {
+              {skills.map((s) => {
                 const hasMenu = s.automations.length > 0 || s.chats.length > 0 || Boolean(s.chat);
                 const isOpen = expanded === s.key;
                 return (
@@ -76,7 +81,7 @@ export function SkillsStatusButton({ paths, className, glyphClassName, textClass
                         </span>
                       </button>
                       <span className={styles.control}>
-                        <SkillSwitch skillKey={s.key} name={s.name} on disabled={!panel.mayManage} />
+                        <SkillSwitch skillKey={s.key} name={s.name} on disabled={!panel?.mayManage} onChange={(now) => !now && setTurnedOff((k) => [...k, s.key])} />
                       </span>
                     </div>
                     {isOpen ? (
