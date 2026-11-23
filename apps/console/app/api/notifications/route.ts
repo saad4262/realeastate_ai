@@ -4,6 +4,7 @@ import { getConsoleDb } from '../../../lib/db';
 import { loadActor } from '../../../lib/load-actor';
 import { actionUserId } from '../../../lib/auth-account';
 import { apiError } from '@repo/core/http/api-error';
+import { withLowPriority } from '@repo/core/http/shed';
 
 /**
  * The bell's latest 20 and unread count (ADR 0032 §4). Core narrows the read to
@@ -15,7 +16,7 @@ import { apiError } from '@repo/core/http/api-error';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+async function bell() {
   const userId = await actionUserId();
   if (!userId) return apiError(401, 'Not signed in');
   try {
@@ -27,4 +28,9 @@ export async function GET() {
     console.error('[notifications] list failed', err instanceof Error ? err.message : 'unknown');
     return NextResponse.json({ rows: [], unread: 0 }, { headers: { 'cache-control': 'no-store' } });
   }
+}
+
+/** Low priority (ADR 0098): answers 503 at once when this process's polls already hold their share of the pool. */
+export function GET() {
+  return withLowPriority(bell);
 }

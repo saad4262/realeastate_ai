@@ -3,6 +3,7 @@ import { recordSiteActivity } from '@repo/core/activity';
 import { touchLastSeen } from '@repo/core/platform';
 import { getWebDb } from '../../../lib/db';
 import { currentWebUser } from '../../../lib/session';
+import { withLowPriority } from '@repo/core/http/shed';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,7 +43,7 @@ const BOT = /bot|crawl|spider|slurp|preview|headless|lighthouse|facebookexternal
 
 const DONE = () => new NextResponse(null, { status: 204, headers: { 'cache-control': 'no-store' } });
 
-export async function POST(request: NextRequest) {
+async function record(request: NextRequest) {
   if (overLimit(request) || BOT.test(request.headers.get('user-agent') ?? '')) return DONE();
   let body: unknown;
   try {
@@ -62,4 +63,9 @@ export async function POST(request: NextRequest) {
     console.error('[activity] not recorded', err instanceof Error ? err.message : err);
   }
   return DONE();
+}
+
+/** Low priority (ADR 0098): answers 503 at once when this process's polls already hold their share of the pool. */
+export function POST(request: NextRequest) {
+  return withLowPriority(() => record(request));
 }

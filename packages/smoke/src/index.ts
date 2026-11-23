@@ -10306,6 +10306,36 @@ async function main() {
     }),
   );
 
+  group('Stuck clients (V1-PERFORMANCE-PLAN step 9)');
+  await check('a client stalled mid-statement with its transaction open raises stuckClients', async () => {
+    /**
+     * On dev on 2026-11-21, statements sat `active`/`ClientRead` with their transaction open for up to 1,020 s,
+     * and the watch then only knew `idle in transaction`. Here a real stall: COPY FROM STDIN, and no data sent, so
+     * the server waits on the client. Its own connection (DIRECT_URL), a temp table dropped with the transaction.
+     * The line is asked with a 3 s threshold instead of 60 s, so the check takes seconds.
+     */
+    const stallDb = getDb(process.env.DIRECT_URL ?? url);
+    const before = await alertLines(db, {} as NodeJS.ProcessEnv, { stuckClientSeconds: 3 });
+    assert(before.lines.stuckClients === 'ok', 'a client is already stuck mid-statement on this database: find it in pg_stat_activity (active, ClientRead)');
+    const conn = await stallDb.$client.reserve();
+    try {
+      await conn`begin`;
+      await conn`create temp table smoke_stall (x int) on commit drop`;
+      const input = await conn`copy smoke_stall from stdin`.writable();
+      await new Promise((r) => setTimeout(r, 5_000));
+      const during = await alertLines(db, {} as NodeJS.ProcessEnv, { stuckClientSeconds: 3 });
+      input.end();
+      await new Promise((r) => input.on('finish', r));
+      await conn`rollback`;
+      assert(during.lines.stuckClients === 'alert' && during.status === 'alert', `stalled 5 s: ${JSON.stringify(during.lines)}`);
+      const after = await alertLines(db, {} as NodeJS.ProcessEnv, { stuckClientSeconds: 3 });
+      assert(after.lines.stuckClients === 'ok', 'still in alert after the stalled client finished');
+      return 'quiet before; a COPY left waiting 5 s with its transaction open → stuckClients; quiet once it finished';
+    } finally {
+      conn.release();
+    }
+  });
+
   group('Foreign key indexes (PLATFORM-PLAN 1.10)');
   await check('1.10: every tenant table\'s agency_id has an index that starts with it (agency reads, and the cascade when an agency is deleted)', async () =>
     inRollback(async (t) => {
@@ -12727,6 +12757,29 @@ async function main() {
       return 'the new id got its row; the orphan kept its data under a freed address';
     } finally {
       await db.execute(sql`delete from "user" where id in (${orphan}, ${fresh})`);
+    }
+  });
+
+  await check('an unchanged account is not rewritten on every page', async () => {
+    /**
+     * V1-PERFORMANCE-PLAN step 6: every account page runs `ensureAppUser`. An unconditional
+     * ON CONFLICT DO UPDATE wrote a new row version, WAL and a row lock on each view. `xmin` is
+     * the row's version: an update makes a new one. A synthetic row, deleted in `finally`.
+     */
+    const id = randomUUID();
+    const email = `smoke-nowrite-${id.slice(0, 8)}@example.com`;
+    const version = async () => (await db.execute<{ v: string }>(sql`select xmin::text as v from "user" where id = ${id}`))[0]?.v;
+    try {
+      await ensureAppUser(db, { id, email, name: 'Smoke' });
+      const first = await version();
+      await ensureAppUser(db, { id, email, name: 'Smoke' });
+      await ensureAppUser(db, { id, email: email.toUpperCase() }); // a missing name never wipes; the address is stored lower-case
+      assert((await version()) === first, 'an unchanged account was written again');
+      await ensureAppUser(db, { id, email, name: 'Smoke 2' });
+      assert((await version()) !== first, 'a changed name was not written');
+      return 'repeat calls write nothing; a change still writes';
+    } finally {
+      await db.execute(sql`delete from "user" where id = ${id}`);
     }
   });
 

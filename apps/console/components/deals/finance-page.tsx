@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { DealError, FINANCE_PERIODS, financeReport, groupFinance, type FinanceDeal, type FinancePeriod } from '@repo/core/deals';
 import contactStyles from '@/components/contacts/contacts.module.css';
 import { getConsoleDb } from '../../lib/db';
-import { loadListingActor } from '../../lib/load-actor';
+import { loadActorContext, loadListingActor } from '../../lib/load-actor';
 import { requireConsoleAccess } from '../../lib/require-console-access';
 import styles from './deals.module.css';
 
@@ -29,12 +29,14 @@ export function financeParams(sp: { period?: string; by?: string }): { period: F
  */
 export async function FinancePage({ surface, period, by }: { surface: 'agency' | 'agent'; period: FinancePeriod; by: By }) {
   const session = await requireConsoleAccess(surface);
+  // Both from the request's cached actor statement: no round trip of their own (V1-PERFORMANCE-PLAN step 5).
   const actor = (await loadListingActor(session.actor.userId)) ?? session.actor;
+  const timeZone = (await loadActorContext(session.actor.userId))?.agencyTimeZone ?? undefined;
   const base = surface === 'agency' ? '/finance' : '/my-commission';
   const listingBase = surface === 'agency' ? '/live-listings' : '/listings';
   let r;
   try {
-    r = await financeReport(getConsoleDb(), actor, { period });
+    r = await financeReport(getConsoleDb(), actor, { period, ...(timeZone ? { timeZone } : {}) });
   } catch (err) {
     return <p role="alert" style={{ padding: '1rem', color: 'var(--rose)' }}>{err instanceof DealError ? err.message : 'Could not load Finance'}</p>;
   }

@@ -1,6 +1,10 @@
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Db } from '@repo/db';
-import { BUILD_MIGRATIONS, healthReport, pingHeartbeat } from './health';
+import { PgDialect } from 'drizzle-orm/pg-core';
+import type { SQL } from 'drizzle-orm';
+import { alertLines, BUILD_MIGRATIONS, healthReport, pingHeartbeat } from './health';
 
 const db = (row: Record<string, unknown> | Error) =>
   ({ execute: async () => { if (row instanceof Error) throw row; return [row]; } }) as unknown as Db;
@@ -22,9 +26,40 @@ describe('healthReport', () => {
     expect(JSON.stringify(r)).not.toMatch(/password|postgres/);
   });
 
+  it('answers down within its timeout when the database never answers (a monitor must not hang)', async () => {
+    const silent = { execute: () => new Promise(() => undefined) } as unknown as Db;
+    const started = Date.now();
+    expect(await healthReport(silent, expected, 50)).toEqual({ status: 'degraded', checks: { database: 'down', schema: 'unknown' } });
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
   it('reads the build’s migrations from drizzle’s journal', () => {
     expect(BUILD_MIGRATIONS.count).toBeGreaterThan(90);
     expect(BUILD_MIGRATIONS.lastWhen).toBeGreaterThan(1_700_000_000_000);
+  });
+});
+
+describe('alertLines: stuckClients (V1-PERFORMANCE-PLAN step 9)', () => {
+  const capture = (row: Record<string, boolean>) => {
+    const seen: SQL[] = [];
+    return { db: { execute: async (q: SQL) => { seen.push(q); return [row]; } } as unknown as Db, sql: () => new PgDialect().sqlToQuery(seen[0]!) };
+  };
+
+  it('a statement waiting on its client with the transaction open past the threshold is an alert', async () => {
+    const { db, sql } = capture({ clients: true });
+    const r = await alertLines(db, {} as NodeJS.ProcessEnv, { stuckClientSeconds: 7 });
+    expect(r.lines.stuckClients).toBe('alert');
+    expect(r.status).toBe('alert');
+    const q = sql();
+    expect(q.sql).toContain("a.state = 'active' and a.wait_event = 'ClientRead'");
+    expect(q.sql).toContain('a.xact_start < now() - make_interval(secs => ');
+    expect(q.params).toContain(7);
+  });
+
+  it('quiet otherwise, a minute by default', async () => {
+    const { db, sql } = capture({ clients: false });
+    expect((await alertLines(db, {} as NodeJS.ProcessEnv)).lines.stuckClients).toBe('ok');
+    expect(sql().params).toContain(60);
   });
 });
 
@@ -36,5 +71,25 @@ describe('pingHeartbeat', () => {
     await pingHeartbeat('https://hc-ping.com/abc/', 'fail', f);
     await pingHeartbeat(undefined, 'ok', f);
     expect(calls).toEqual(['https://hc-ping.com/abc', 'https://hc-ping.com/abc/fail']);
+  });
+});
+
+/**
+ * V1-PERFORMANCE-PLAN step 1: every health route reads through its app's health pool (getWebHealthDb,
+ * getConsoleHealthDb), never the shared one: behind a busy pool the check failed 96–99% in the 2026-11-21 load run.
+ */
+describe('health routes', () => {
+  const ROOT = join(__dirname, '..', '..', '..', '..');
+  const walk = (dir: string): string[] =>
+    readdirSync(dir).flatMap((n) => (statSync(join(dir, n)).isDirectory() ? walk(join(dir, n)) : [join(dir, n)]));
+  const routes = ['web', 'console'].flatMap((app) => walk(join(ROOT, 'apps', app, 'app', 'api', 'health'))).filter((f) => f.endsWith('route.ts'));
+
+  it('use the health pool, not the app pool', () => {
+    expect(routes.length).toBeGreaterThanOrEqual(3);
+    for (const f of routes) {
+      const src = readFileSync(f, 'utf8');
+      expect(src, f).toMatch(/\bget(Web|Console)HealthDb\(/);
+      expect(src, f).not.toMatch(/\bget(Web|Console)Db\(/);
+    }
   });
 });

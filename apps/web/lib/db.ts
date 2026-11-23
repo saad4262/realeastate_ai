@@ -1,4 +1,4 @@
-import { getDb, type Db } from '@repo/db';
+import { getDb, getHealthDb, type Db } from '@repo/db';
 
 /**
  * Database access for the public site.
@@ -11,10 +11,19 @@ import { getDb, type Db } from '@repo/db';
  * getDb memoises one pool per connection string, so calling this per request
  * costs nothing after the first.
  */
-export function getWebDb(): Db {
+function databaseUrl(): string {
   const url = process.env.DATABASE_URL;
   if (!url || url.includes('YOUR_PASSWORD')) {
     throw new Error('DATABASE_URL is not configured.');
   }
-  return getDb(url);
+  return url;
+}
+
+export function getWebDb(): Db {
+  return getDb(databaseUrl());
+}
+
+/** For /api/health and its alerts only: their own connection, so a busy site is never reported down. */
+export function getWebHealthDb(): Db {
+  return getHealthDb(databaseUrl());
 }

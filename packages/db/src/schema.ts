@@ -3843,6 +3843,9 @@ export const siteActivity = pgTable(
     index('site_activity_user_idx').on(t.userId, desc(t.createdAt)),
     index('site_activity_created_idx').on(t.createdAt),
     index('site_activity_agency_idx').on(t.agencyId, desc(t.createdAt)),
+    // Listing activity's searches by place (V1-PERFORMANCE-PLAN step 7): without it, every agency's page read the
+    // whole platform's activity for the period.
+    index('site_activity_search_suburb_idx').on(sql`lower(${t.suburb})`, t.createdAt).where(sql`${t.kind} = 'search'`),
   ],
 );
 

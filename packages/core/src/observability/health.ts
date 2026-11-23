@@ -16,17 +16,30 @@ export type Health = {
 /** The newest migration in this build, from drizzle's journal. */
 export const BUILD_MIGRATIONS = { count: journal.entries.length, lastWhen: journal.entries[journal.entries.length - 1]?.when ?? 0 };
 
-export async function healthReport(db: DbOrTx, expected = BUILD_MIGRATIONS): Promise<Health> {
+/**
+ * A database that has not answered within `timeoutMs` (5 s) counts as down: a monitor gets its answer instead of waiting
+ * on a request that may never finish (V1-PERFORMANCE-PLAN step 1). The time includes opening the health pool's
+ * connection after it idled out: 2 s was too tight from far away (cold connects of 1.8–2.3 s read as down).
+ */
+export async function healthReport(db: DbOrTx, expected = BUILD_MIGRATIONS, timeoutMs = 5_000): Promise<Health> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const [row] = await db.execute<{ n: number | string; last: number | string | null }>(
-      sql`select count(*)::int as n, max(created_at) as last from drizzle.__drizzle_migrations`,
-    );
+    const [row] = await Promise.race([
+      db.execute<{ n: number | string; last: number | string | null }>(
+        sql`select count(*)::int as n, max(created_at) as last from drizzle.__drizzle_migrations`,
+      ),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('timeout')), timeoutMs);
+      }),
+    ]);
     // Behind = this code expects a migration the database has not had. Ahead is fine: migrations go first.
     const behind = Number(row?.n ?? 0) < expected.count || Number(row?.last ?? 0) < expected.lastWhen;
     const schema = behind ? 'behind' : 'ok';
     return { status: schema === 'ok' ? 'ok' : 'degraded', checks: { database: 'ok', schema } };
   } catch {
     return { status: 'degraded', checks: { database: 'down', schema: 'unknown' } };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -46,22 +59,30 @@ export async function pingHeartbeat(url: string | undefined, outcome: 'ok' | 'fa
  * - jobLag: a job due more than 2 minutes ago and not started (held agencies' send jobs and SENDS_PAUSED aside);
  * - deadJobs: a job dead-lettered in the last 24 hours (replay or resolve it in the admin console);
  * - stuckTexts: a text queued without a Twilio id for over 30 minutes (the reconcile check should have settled it);
- * - sendsPaused: an agency's sends paused by the spike check in the last 24 hours.
+ * - sendsPaused: an agency's sends paused by the spike check in the last 24 hours;
+ * - stuckClients: a statement waiting on its client (`active`, `ClientRead`) with its transaction open for over a
+ *   minute (V1-PERFORMANCE-PLAN step 9). A client or the pooler stalled mid-statement and holds a connection, and the
+ *   locks its transaction took. `idle_in_transaction_session_timeout` (0106) does not end these: the session is
+ *   active, not idle. Seen on dev on 2026-11-21, open for up to 1,020 s.
  * Sentry (errors, p95), Supabase (CPU, pooler) and the backups' healthchecks carry the other lines (O-13, O-14, O-8).
  */
-export type AlertLines = { status: 'ok' | 'alert'; lines: Record<'jobLag' | 'deadJobs' | 'stuckTexts' | 'sendsPaused', 'ok' | 'alert'> };
+export type AlertLines = { status: 'ok' | 'alert'; lines: Record<'jobLag' | 'deadJobs' | 'stuckTexts' | 'sendsPaused' | 'stuckClients', 'ok' | 'alert'> };
 
-export async function alertLines(db: DbOrTx, env: NodeJS.ProcessEnv = process.env): Promise<AlertLines> {
+export async function alertLines(db: DbOrTx, env: NodeJS.ProcessEnv = process.env, opts: { stuckClientSeconds?: number } = {}): Promise<AlertLines> {
   const sendsPaused = env.SENDS_PAUSED?.trim() === '1';
-  const [r] = await db.execute<{ lag: boolean; dead: boolean; stuck: boolean; paused: boolean }>(sql`
+  const stuckAfter = opts.stuckClientSeconds ?? 60;
+  const [r] = await db.execute<{ lag: boolean; dead: boolean; stuck: boolean; paused: boolean; clients: boolean }>(sql`
     select
       exists (select 1 from job j where j.status = 'queued' and j.run_at < now() - interval '2 minutes'
         and (j.lane = 'urgent' or (${!sendsPaused} and (j.agency_id is null or j.agency_id not in ${SENDS_HELD_AGENCY_IDS})))) as lag,
       exists (select 1 from job where status = 'dead' and finished_at > now() - interval '24 hours') as dead,
       exists (select 1 from sms_message where direction = 'out' and status = 'queued' and provider_sid is null
         and created_at < now() - interval '30 minutes' and created_at > now() - interval '3 days') as stuck,
-      exists (select 1 from agency where sends_paused_at > now() - interval '24 hours') as paused`);
+      exists (select 1 from agency where sends_paused_at > now() - interval '24 hours') as paused,
+      exists (select 1 from pg_stat_activity a where a.datname = current_database() and a.backend_type = 'client backend'
+        and a.pid <> pg_backend_pid() and a.state = 'active' and a.wait_event = 'ClientRead'
+        and a.xact_start < now() - make_interval(secs => ${stuckAfter})) as clients`);
   const flag = (b: boolean | undefined) => (b ? 'alert' : 'ok') as 'ok' | 'alert';
-  const lines = { jobLag: flag(r?.lag), deadJobs: flag(r?.dead), stuckTexts: flag(r?.stuck), sendsPaused: flag(r?.paused) };
+  const lines = { jobLag: flag(r?.lag), deadJobs: flag(r?.dead), stuckTexts: flag(r?.stuck), sendsPaused: flag(r?.paused), stuckClients: flag(r?.clients) };
   return { status: Object.values(lines).includes('alert') ? 'alert' : 'ok', lines };
 }

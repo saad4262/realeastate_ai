@@ -50,12 +50,12 @@ export default async function MessagesPage({
   const session = await ensureConsumerAccount();
   if (!session) return null;
 
-  const { rows: threads, addressProved } = await listCustomerThreads(getWebDb(), {
-    userId: session.id,
-    email: session.email ?? '',
-  });
-  // ADR 0080, C8 decision 4: the buyer's own copy says when the guide drafted it; the agency's copy never does.
-  const guide = await guideDraftedThreads(getWebDb(), { userId: session.id }).catch(() => ({ threadIds: new Set<string>(), leadIds: new Set<string>() }));
+  // Independent reads, side by side (V1-PERFORMANCE-PLAN step 5).
+  const [{ rows: threads, addressProved }, guide] = await Promise.all([
+    listCustomerThreads(getWebDb(), { userId: session.id, email: session.email ?? '' }),
+    // ADR 0080, C8 decision 4: the buyer's own copy says when the guide drafted it; the agency's copy never does.
+    guideDraftedThreads(getWebDb(), { userId: session.id }).catch(() => ({ threadIds: new Set<string>(), leadIds: new Set<string>() })),
+  ]);
 
   return (
     <WebShell account={{ signedIn: true }}>

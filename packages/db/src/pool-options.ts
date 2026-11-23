@@ -16,3 +16,12 @@ export function poolOptions(env: Record<string, string | undefined> = process.en
   const max = n >= 1 && n <= 50 ? n : DEFAULT_MAX;
   return { prepare: false, max, max_pipeline: 0, idle_timeout: 20, connect_timeout: 10, max_lifetime: 1800 } as const;
 }
+
+/**
+ * `/api/health`'s own pool (V1-PERFORMANCE-PLAN step 1): one connection, never queued behind the app's pool, so
+ * a busy site is not reported down (the 2026-11-21 load run: health failed 96–99% waiting behind pages). It
+ * closes when idle, so between monitor checks it holds nothing; at most one more client per instance.
+ */
+export function healthPoolOptions(env: Record<string, string | undefined> = process.env) {
+  return { ...poolOptions(env), max: 1, connect_timeout: 5 } as const;
+}

@@ -750,6 +750,13 @@
       "when": 1795175259260,
       "tag": "0106_idle_tx_timeout",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1795262471099,
+      "tag": "0107_site_activity_search_idx",
+      "breakpoints": true
     }
   ]
 }
