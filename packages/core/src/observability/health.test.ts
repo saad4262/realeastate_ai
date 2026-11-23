@@ -2,7 +2,9 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Db } from '@repo/db';
-import { BUILD_MIGRATIONS, healthReport, pingHeartbeat } from './health';
+import { PgDialect } from 'drizzle-orm/pg-core';
+import type { SQL } from 'drizzle-orm';
+import { alertLines, BUILD_MIGRATIONS, healthReport, pingHeartbeat } from './health';
 
 const db = (row: Record<string, unknown> | Error) =>
   ({ execute: async () => { if (row instanceof Error) throw row; return [row]; } }) as unknown as Db;
@@ -34,6 +36,30 @@ describe('healthReport', () => {
   it('reads the build’s migrations from drizzle’s journal', () => {
     expect(BUILD_MIGRATIONS.count).toBeGreaterThan(90);
     expect(BUILD_MIGRATIONS.lastWhen).toBeGreaterThan(1_700_000_000_000);
+  });
+});
+
+describe('alertLines: stuckClients (V1-PERFORMANCE-PLAN step 9)', () => {
+  const capture = (row: Record<string, boolean>) => {
+    const seen: SQL[] = [];
+    return { db: { execute: async (q: SQL) => { seen.push(q); return [row]; } } as unknown as Db, sql: () => new PgDialect().sqlToQuery(seen[0]!) };
+  };
+
+  it('a statement waiting on its client with the transaction open past the threshold is an alert', async () => {
+    const { db, sql } = capture({ clients: true });
+    const r = await alertLines(db, {} as NodeJS.ProcessEnv, { stuckClientSeconds: 7 });
+    expect(r.lines.stuckClients).toBe('alert');
+    expect(r.status).toBe('alert');
+    const q = sql();
+    expect(q.sql).toContain("a.state = 'active' and a.wait_event = 'ClientRead'");
+    expect(q.sql).toContain('a.xact_start < now() - make_interval(secs => ');
+    expect(q.params).toContain(7);
+  });
+
+  it('quiet otherwise, a minute by default', async () => {
+    const { db, sql } = capture({ clients: false });
+    expect((await alertLines(db, {} as NodeJS.ProcessEnv)).lines.stuckClients).toBe('ok');
+    expect(sql().params).toContain(60);
   });
 });
 
