@@ -5,6 +5,7 @@ import { getConsoleDb } from '../../../lib/db';
 import { loadListingActor } from '../../../lib/load-actor';
 import { actionUserId } from '../../../lib/auth-account';
 import { apiError } from '@repo/core/http/api-error';
+import { withLowPriority } from '@repo/core/http/shed';
 
 /**
  * The open console's "anything new?" (ADR 0035, instant delivery) — a stamp,
@@ -37,7 +38,7 @@ function dueForSeen(userId: string): boolean {
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+async function live() {
   const userId = await actionUserId();
   if (!userId) return apiError(401, 'Not signed in');
   if (dueForSeen(userId)) await touchLastSeen(getConsoleDb(), userId).catch(() => undefined);
@@ -49,4 +50,9 @@ export async function GET() {
     // A missed tick is retried on the next one.
     return NextResponse.json({ stamp: '' }, { headers: { 'cache-control': 'no-store' } });
   }
+}
+
+/** Low priority (ADR 0098): answers 503 at once when this process's polls already hold their share of the pool. */
+export function GET() {
+  return withLowPriority(live);
 }

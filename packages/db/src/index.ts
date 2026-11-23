@@ -1,2 +1,3 @@
 export * from './schema';
-export { getDb, type Db, type DbOrTx } from './client';
+export { getDb, getHealthDb, type Db, type DbOrTx } from './client';
+export { poolOptions } from './pool-options';

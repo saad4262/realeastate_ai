@@ -3,7 +3,7 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { readSignedIdentity, sessionHeaderSecret } from '@repo/auth/session-header';
 import { can, type Actor, type MembershipRole } from '@repo/core/permissions';
-import { loadActorContext, type ActorContext } from './load-actor';
+import { loadActorContext, loadHeaderCounts, NO_COUNTS, type ActorContext, type HeaderCounts } from './load-actor';
 
 const ROLE_LABELS: Record<MembershipRole, string> = {
   owner: 'Licensee in Charge',
@@ -20,8 +20,6 @@ export type ConsoleSession = {
   userRole: string;
   /** The signed-in account's agency, for chrome. Null only before onboarding. */
   agencyName: string | null;
-  /** Live counts for the header — every one of them from SQL. */
-  summary: { members: number; liveListings: number; pendingInvites: number };
   actor: Actor;
 };
 
@@ -54,26 +52,17 @@ export type ConsoleChrome = {
   /** PLATFORM-PLAN 3.7: shown as a banner on every page; can() already decided `mayResume`. */
   sendsPaused: ActorContext['sendsPaused'];
   /**
-   * `newOffers` is already zeroed for anyone who may not read a private offer —
-   * the decision is made by can() in load-actor.ts, never re-made by the chrome.
+   * `newOffers` is already zeroed for anyone who may not read a private offer, and `unreadMail` narrowed — the
+   * decisions are made by can() in load-actor.ts, never re-made by the chrome.
    */
-  summary: {
-    members: number;
-    liveListings: number;
-    pendingInvites: number;
-    newOffers: number;
-    /** Unopened conversations — already narrowed by can() in load-actor.ts. */
-    unreadMail: number;
-    /** Team conversations you are on with something new (ADR 0035). */
-    unreadTeam: number;
-  };
+  summary: HeaderCounts;
 };
 
 const CHROME_FALLBACK: ConsoleChrome = {
   userRole: 'Member',
   agencyName: null,
   sendsPaused: null,
-  summary: { members: 0, liveListings: 0, pendingInvites: 0, newOffers: 0, unreadMail: 0, unreadTeam: 0 },
+  summary: NO_COUNTS,
 };
 
 /**
@@ -113,7 +102,8 @@ export async function loadConsoleChrome(userId: string): Promise<ConsoleChrome> 
       userRole: role ? ROLE_LABELS[role] : 'Member',
       agencyName: context.agencyName,
       sendsPaused: context.sendsPaused,
-      summary: context.summary,
+      // Its own statement, after the actor: the gate and the page never wait for it (V1-PERFORMANCE-PLAN step 4).
+      summary: await loadHeaderCounts(userId),
     };
   } catch {
     return CHROME_FALLBACK;
@@ -165,7 +155,6 @@ export const requireConsoleAccess = cache(
       userLabel,
       userRole,
       agencyName: context?.agencyName ?? null,
-      summary: context?.summary ?? { members: 0, liveListings: 0, pendingInvites: 0 },
       actor,
     };
   },

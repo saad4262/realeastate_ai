@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { poolOptions } from './pool-options';
+import { healthPoolOptions, poolOptions } from './pool-options';
 
 /**
  * PLATFORM-PLAN 1.8: the connections each server instance holds come from env, not a constant. With Fluid
@@ -26,5 +26,11 @@ describe('poolOptions', () => {
 
   it('never pipelines: Supavisor transaction mode loses the reply to a pipelined statement and the page hangs', () => {
     expect(poolOptions({ DB_POOL_MAX: '9' }).max_pipeline).toBe(0);
+  });
+});
+
+describe('healthPoolOptions', () => {
+  it('one connection and a 2 s connect timeout, with the same pooler rules as the app pool', () => {
+    expect(healthPoolOptions({ DB_POOL_MAX: '9' })).toEqual({ prepare: false, max: 1, max_pipeline: 0, idle_timeout: 20, connect_timeout: 2, max_lifetime: 1800 });
   });
 });

@@ -29,6 +29,7 @@ import { contactLeadSummary } from '../contacts/lead-summary';
 import { contactSignalFacts, listMatchingListings } from '../contacts/signals';
 import { listContactSiteHistory } from '../contacts/site-history';
 import { getListingActivity } from '../activity/listing-activity';
+import { financeReport } from '../deals/commission';
 import { listAccountCustomerRecords, listContactAccounts, listEveryone } from '../platform/people';
 import { listContactNotes } from '../contacts/notes';
 import { listBuyerRequirements } from '../contacts/buyer-requirements';
@@ -419,6 +420,15 @@ describe('reads cost a fixed number of queries', () => {
       await read(db);
       expect(count()).toBe(1);
     }
+  });
+
+  it('Finance is one query when the caller hands it the agency’s clock, two when it must look it up (V1-PERFORMANCE-PLAN step 5)', async () => {
+    const withClock = countingDb([]);
+    await financeReport(withClock.db, actor, { period: 'fy', timeZone: 'Australia/Sydney' });
+    expect(withClock.count()).toBe(1);
+    const without = countingDb([]);
+    await financeReport(without.db, actor, { period: 'fy' });
+    expect(without.count()).toBe(2);
   });
 
   it('Listing activity is three queries, however many people looked (ADR 0083)', async () => {
