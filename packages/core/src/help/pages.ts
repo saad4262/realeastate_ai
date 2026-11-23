@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { skillsGuide } from './skills';
 
 /**
  * The console's help bot (ADR 0088): how to use the site, from a written guide and the page the person
@@ -179,7 +180,7 @@ export function buildHelpGuide(surface: HelpSurface, groups: readonly HelpNavGro
   const lines = pagesOf(groups).map((p) => `- ${p.label} (${p.href}), in the sidebar${p.group ? ` under ${p.group}` : ''}: ${HELP_PAGES[p.href] ?? ''}`);
   const extras = HELP_EXTRAS[surface].map((e) => `- ${e.label} (${e.href}), reached from ${e.where}: ${e.what}`);
   const details = HELP_DETAILS[surface].map((d) => `- ${d.name}${d.pattern.includes('[') ? '' : ` (${d.pattern})`}: ${d.what}`);
-  return `Pages:\n${[...lines, ...extras].join('\n')}\n\nPages you reach from those:\n${details.join('\n')}\n\nOn every page:\n${aroundEveryPage()}\n\nHow to do common things:\n${commonJobs(surface)}`;
+  return `Pages:\n${[...lines, ...extras].join('\n')}\n\nPages you reach from those:\n${details.join('\n')}\n\nOn every page:\n${aroundEveryPage()}\n\nHow to do common things:\n${commonJobs(surface)}\n\nThe skills, one by one:\n${skillsGuide(surface)}`;
 }
 
 /** Every path the bot may link to in this console. A page with an id in it has no link of its own. */

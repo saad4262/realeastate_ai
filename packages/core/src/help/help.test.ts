@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Db } from '@repo/db';
 import type { Actor } from '../permissions';
+import { PLATFORM_SKILLS, skillsForHolder } from '../skill-switches/catalog';
 import { HELP_LIMITS, HELP_PAGES, buildHelpGuide, checkHelpAllowed, helpHrefs, helpPageContext, helpPageName, helpReplyLinks, helpRequestSchema, parseHelpReply, type HelpNavGroup } from './help';
 
 /** ADR 0088: the help bot's guide, its limits and its links. */
@@ -147,6 +148,19 @@ describe('what the guide teaches', () => {
     const g = buildHelpGuide('agency', sidebar('agency'));
     expect(g).toContain('AI Assistant');
     expect(g).toContain('that skill\'s assistant');
+  });
+
+  it('knows every skill its reader holds, with where it shows and what it will not do, and no one else’s', () => {
+    for (const s of skillsForHolder('agency')) {
+      expect(agency, s.name).toContain(`${s.name} (`);
+      expect(agency).toContain(s.description);
+    }
+    for (const s of PLATFORM_SKILLS.filter((x) => x.scope === 'both')) expect(desk, s.name).toContain(`${s.name} (`);
+    for (const s of PLATFORM_SKILLS.filter((x) => x.scope === 'agency')) expect(desk, s.name).not.toContain(`${s.name} (`);
+    expect(agency.match(/ Where: /g)?.length).toBe(PLATFORM_SKILLS.length);
+    expect(agency.match(/ It will not: /g)?.length).toBe(PLATFORM_SKILLS.length);
+    expect(desk).toContain('the agency’s switch and their own');
+    expect(desk).toContain('Your switches are your own');
   });
 
   it('never tells the browser to link a page with an id in it', () => {
