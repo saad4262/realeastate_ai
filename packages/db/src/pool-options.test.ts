@@ -30,7 +30,7 @@ describe('poolOptions', () => {
 });
 
 describe('healthPoolOptions', () => {
-  it('one connection and a 2 s connect timeout, with the same pooler rules as the app pool', () => {
-    expect(healthPoolOptions({ DB_POOL_MAX: '9' })).toEqual({ prepare: false, max: 1, max_pipeline: 0, idle_timeout: 20, connect_timeout: 2, max_lifetime: 1800 });
+  it('one connection and a 5 s connect timeout, with the same pooler rules as the app pool', () => {
+    expect(healthPoolOptions({ DB_POOL_MAX: '9' })).toEqual({ prepare: false, max: 1, max_pipeline: 0, idle_timeout: 20, connect_timeout: 5, max_lifetime: 1800 });
   });
 });

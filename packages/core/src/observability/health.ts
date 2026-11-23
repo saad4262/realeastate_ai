@@ -17,10 +17,11 @@ export type Health = {
 export const BUILD_MIGRATIONS = { count: journal.entries.length, lastWhen: journal.entries[journal.entries.length - 1]?.when ?? 0 };
 
 /**
- * A database that has not answered within `timeoutMs` (2 s) counts as down: a monitor gets its answer at once instead
- * of waiting on a request that may never finish (V1-PERFORMANCE-PLAN step 1).
+ * A database that has not answered within `timeoutMs` (5 s) counts as down: a monitor gets its answer instead of waiting
+ * on a request that may never finish (V1-PERFORMANCE-PLAN step 1). The time includes opening the health pool's
+ * connection after it idled out: 2 s was too tight from far away (cold connects of 1.8–2.3 s read as down).
  */
-export async function healthReport(db: DbOrTx, expected = BUILD_MIGRATIONS, timeoutMs = 2_000): Promise<Health> {
+export async function healthReport(db: DbOrTx, expected = BUILD_MIGRATIONS, timeoutMs = 5_000): Promise<Health> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const [row] = await Promise.race([

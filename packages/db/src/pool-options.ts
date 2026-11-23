@@ -23,5 +23,5 @@ export function poolOptions(env: Record<string, string | undefined> = process.en
  * closes when idle, so between monitor checks it holds nothing; at most one more client per instance.
  */
 export function healthPoolOptions(env: Record<string, string | undefined> = process.env) {
-  return { ...poolOptions(env), max: 1, connect_timeout: 2 } as const;
+  return { ...poolOptions(env), max: 1, connect_timeout: 5 } as const;
 }
