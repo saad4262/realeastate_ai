@@ -3,5 +3,5 @@ export { AutomationError, createAutomation, listAutomationRuns, setAutomationSta
 export { AUTOMATION_RUNNERS, type AutomationRunner, type RunnerDeps } from './runners';
 export { claimDueAutomations, driveAutomationRun, runAutomationNow, runAutomationTick } from './tick';
 export { listEveryAutomation, type AutomationRow } from './list';
-export { automationDetail, automationsOfChat } from './detail';
-export { AUTOMATION_KEY, automationIcon, automationRowHref, filterAutomations, type AutomationDetail, type AutomationFilter, type RunProgress } from './detail-types';
+export { automationDetail, automationsOfChat, chatActionDetail } from './detail';
+export { AUTOMATION_KEY, CHAT_ACTION_KEY, automationIcon, automationRowHref, filterAutomations, type AutomationDetail, type AutomationFilter, type ChatActionDetail, type RunProgress } from './detail-types';

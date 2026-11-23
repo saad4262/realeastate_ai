@@ -17,6 +17,34 @@ export type AutomationDetail = AutomationRow & {
 
 export const AUTOMATION_KEY = /^(recurring|workflow|task|ai_skill):[0-9a-f-]{36}$/i;
 
+/** Something approved once in a chat (the user, 2026-11-23): a send, a booking, a change. Beside the chat with its automations. */
+export const CHAT_ACTION_KEY = /^action:[0-9a-f-]{36}$/i;
+
+export type ChatActionDetail = {
+  key: string;
+  name: string;
+  /** The card's status: approved, scheduled, running, done, failed. */
+  status: string;
+  /** What the card said it would do, as approved. */
+  lines: { label: string; value: string }[];
+  decidedAt: string | null;
+  runAt: string | null;
+  finishedAt: string | null;
+  error: string | null;
+  /** A bulk email or text: how far it has got, and every person in it with what happened to them. */
+  send: {
+    channel: 'email' | 'sms';
+    batchId: string;
+    total: number;
+    sent: number;
+    failed: number;
+    skipped: number;
+    /** Not sent yet: waiting, or going out now. */
+    left: number;
+    people: { name: string; to: string | null; status: 'queued' | 'sending' | 'sent' | 'failed' | 'skipped'; why: string | null; at: string | null }[];
+  } | null;
+};
+
 /** Its own chat, with the panel beside it, when it is this person's; otherwise the panel on Skills. A chat is only its author's. */
 export function automationRowHref(row: Pick<AutomationRow, 'key' | 'mine' | 'conversationId'>, home: string, base: string): string {
   return row.mine && row.conversationId ? `${home}?c=${row.conversationId}&automation=${row.key}` : `${base}&open=${row.key}`;

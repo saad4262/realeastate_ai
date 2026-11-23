@@ -3,12 +3,14 @@
 import { useEffect, useState } from 'react';
 import type { AutomationPaths } from '@repo/core/automation-status/links';
 import { AutomationDetailPanel } from './automation-detail';
+import { ChatActionPanel } from './chat-action-detail';
 import styles from './automation-detail.module.css';
 
 type Made = { key: string; name: string; state: string };
 
 /**
- * The automations made in this chat, beside it (the user, 2026-11-10). Nothing shows until the chat has made one. On a wide screen
+ * The automations made in this chat, and what was approved once in it (a send, a booking), beside it (the user, 2026-11-10 and
+ * 2026-11-23). Nothing shows until the chat has made or done something. On a wide screen
  * it sits on the right; on a narrow one a button opens it. `version` changes after each answer, so a card just approved shows up.
  */
 export function ChatAutomations({ conversationId, paths, version, initial }: { conversationId: string; paths: AutomationPaths; version: number; initial: string | null }) {
@@ -44,9 +46,9 @@ export function ChatAutomations({ conversationId, paths, version, initial }: { c
         <span className={styles.glyph} aria-hidden>
           bolt
         </span>
-        Automation{made.length > 1 ? `s (${made.length})` : ''}
+        In this chat{made.length > 1 ? ` (${made.length})` : ''}
       </button>
-      <aside className={styles.side} data-open={open || undefined} aria-label="This chat’s automations">
+      <aside className={styles.side} data-open={open || undefined} aria-label="What this chat made or did">
         <div className={styles.sideHead}>
           {made.length > 1 ? (
             <div className={styles.tabs} role="tablist">
@@ -57,7 +59,7 @@ export function ChatAutomations({ conversationId, paths, version, initial }: { c
               ))}
             </div>
           ) : (
-            <span className={styles.sideTitle}>This chat’s automation</span>
+            <span className={styles.sideTitle}>{current.startsWith('action:') ? 'Done in this chat' : 'This chat’s automation'}</span>
           )}
           <button type="button" className={styles.close} aria-label="Close" onClick={() => setOpen(false)}>
             <span className={styles.glyph} aria-hidden>
@@ -65,7 +67,7 @@ export function ChatAutomations({ conversationId, paths, version, initial }: { c
             </span>
           </button>
         </div>
-        <AutomationDetailPanel key={current} automationKey={current} paths={paths} inChat />
+        {current.startsWith('action:') ? <ChatActionPanel key={current} actionKey={current} paths={paths} /> : <AutomationDetailPanel key={current} automationKey={current} paths={paths} inChat />}
       </aside>
     </>
   );

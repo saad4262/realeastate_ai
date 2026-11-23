@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { automationStatus, runningAutomationCount, skillsPanel } from '@repo/core/automation-status';
-import { AUTOMATION_KEY, automationDetail, automationsOfChat } from '@repo/core/recurring';
+import { AUTOMATION_KEY, CHAT_ACTION_KEY, automationDetail, automationsOfChat, chatActionDetail } from '@repo/core/recurring';
 import { getConsoleDb } from '../../../lib/db';
 import { loadActor } from '../../../lib/load-actor';
 import { actionUserId } from '../../../lib/auth-account';
@@ -30,8 +30,9 @@ export async function GET(request: NextRequest) {
     // One automation in full, or the ones made in one chat (the panel beside it). Each is narrowed to this person in core.
     const detail = request.nextUrl.searchParams.get('detail');
     if (detail !== null) {
-      if (!AUTOMATION_KEY.test(detail)) return apiError(404, 'Not found');
-      const d = await automationDetail(db, actor, detail);
+      const isAction = CHAT_ACTION_KEY.test(detail);
+      if (!isAction && !AUTOMATION_KEY.test(detail)) return apiError(404, 'Not found');
+      const d = isAction ? await chatActionDetail(db, actor, detail) : await automationDetail(db, actor, detail);
       return d ? NextResponse.json(d, { headers: HEADERS }) : apiError(404, 'Not found');
     }
     const chat = request.nextUrl.searchParams.get('chat');
