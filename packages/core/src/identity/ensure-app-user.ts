@@ -75,5 +75,11 @@ async function upsert(db: Db, input: AppUserInput, email: string): Promise<void>
         avatarUrl: sql`coalesce(excluded.avatar_url, ${user.avatarUrl})`,
         updatedAt: sql`now()`,
       },
+      // Only when something changes (V1-PERFORMANCE-PLAN step 6): every account page calls this, and an unconditional
+      // update wrote a row version, WAL and a row lock on each page view of an unchanged account.
+      setWhere: sql`${user.email} is distinct from excluded.email
+        or coalesce(excluded.name, ${user.name}) is distinct from ${user.name}
+        or coalesce(excluded.phone, ${user.phone}) is distinct from ${user.phone}
+        or coalesce(excluded.avatar_url, ${user.avatarUrl}) is distinct from ${user.avatarUrl}`,
     });
 }
