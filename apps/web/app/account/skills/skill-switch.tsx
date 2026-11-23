@@ -31,7 +31,8 @@ export function SkillSwitch({ skillKey, name, on }: { skillKey: string; name: st
         aria-label={`${name}: ${shown ? 'on' : 'off'}`}
         disabled={pending}
         onClick={flip}
-        className={`relative inline-flex h-6 w-11 flex-none items-center rounded-full transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--shell-accent,#0b3d2e)] disabled:opacity-70 ${
+        // border-0 p-0: this site skips Tailwind's preflight, so a bare <button> keeps the browser's border and padding.
+        className={`relative inline-flex h-6 w-11 flex-none appearance-none items-center rounded-full border-0 p-0 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--shell-accent,#0b3d2e)] disabled:opacity-70 ${
           shown ? 'bg-[var(--shell-accent,#0b3d2e)]' : 'bg-line'
         }`}
       >

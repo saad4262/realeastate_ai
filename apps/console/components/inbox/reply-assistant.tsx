@@ -38,7 +38,7 @@ export function ReplyAssistant({
         <div className={styles.assistHead}>
           <span className={styles.assistGlyph} aria-hidden>auto_awesome</span>Assistant
         </div>
-        <p className={styles.assistNote}>{offMessage}</p>
+        <p className={styles.assistOff}>{offMessage}</p>
       </section>
     );
   }

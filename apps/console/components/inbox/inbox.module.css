@@ -268,6 +268,8 @@ details:not([open]) > summary.messageHead .toLine { display: none; }
 .assistTitle { font-size: 0.8125rem; font-weight: 600; color: var(--text-primary); }
 .points { margin: 0.3rem 0 0; padding-left: 1.15rem; display: grid; gap: 0.25rem; font-size: 0.84375rem; color: var(--text-primary); }
 .cite { margin-left: 0.25rem; padding: 0 0.3rem; border-radius: 0.25rem; background: #f5f3ff; color: #6d28d9; font-size: 0.6875rem; white-space: nowrap; }
+/* The "switched off" line sits straight in the box, not in .assistBody: it needs its own padding or it touches the border. */
+.assistOff { margin: 0; padding: 0.65rem 0.9rem; font-size: 0.8125rem; line-height: 1.45; color: var(--text-secondary); }
 .assistNote { margin: 0.35rem 0 0; font-size: 0.75rem; color: var(--text-muted); }
 .assistGhost, .assistButton, .discard {
   display: inline-flex; align-items: center; gap: 0.35rem;
