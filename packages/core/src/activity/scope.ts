@@ -33,6 +33,21 @@ export function searchInScopeSql(actor: Actor): SQL {
   )`;
 }
 
+/**
+ * A pre-filter over `a` that every row in scope passes (V1-PERFORMANCE-PLAN step 7):
+ * - this agency's views;
+ * - searches in a suburb where one of the actor's listings is live.
+ *
+ * It lets Postgres use `site_activity_agency_idx` and `site_activity_search_suburb_idx` instead of reading the whole
+ * platform's activity for the period. `viewInScopeSql` and `searchInScopeSql` still decide what counts.
+ */
+export function activityCandidateSql(actor: Actor): SQL {
+  return sql`((a.kind = 'listing_view' and a.agency_id = ${actor.agencyId ?? NO_AGENCY}) or (a.kind = 'search' and lower(a.suburb) in (
+    select lower(sp.suburb) from listing sl join property sp on sp.id = sl.property_id
+    where sl.status = ${PUBLIC_STATUS} and sl.id in (${activityListingIdsSql(actor)})
+  )))`;
+}
+
 const CHANNEL: Record<string, string> = { sale: 'buy', rent: 'rent', sold: 'sold', leased: 'leased' };
 
 /** A search's filters in words. Figures only as the person typed them. Pure. */

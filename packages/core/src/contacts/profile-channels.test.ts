@@ -122,6 +122,18 @@ describe('the Listing activity page', () => {
     for (const s of statements) expect(text(s).sql).toContain('membership');
   });
 
+  it('narrows the totals and the people to this agency’s views and searches in its suburbs, so indexes can serve them', async () => {
+    // V1-PERFORMANCE-PLAN step 7: with only the period to go on, every agency's page read the whole platform's
+    // activity (89 ms mean on dev's 12k rows, 10.8 ms with this; the gap grows with the table).
+    const { db, statements } = fakeDb();
+    await getListingActivity(db, owner);
+    for (const i of [0, 2]) {
+      const q = text(statements[i]!).sql;
+      expect(q, `statement ${i}`).toContain("a.kind = 'listing_view' and a.agency_id = ");
+      expect(q, `statement ${i}`).toContain("a.kind = 'search' and lower(a.suburb) in (");
+    }
+  });
+
   it('never counts a private offer as an enquiry on the listing table', async () => {
     const { db, statements } = fakeDb();
     await getListingActivity(db, owner);

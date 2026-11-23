@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 import type { Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { visibleContactIdsSql } from '../contacts/visibility';
-import { activityListingIdsSql, PROPERTY_ADDRESS, searchInScopeSql, searchWords, viewInScopeSql } from './scope';
+import { activityCandidateSql, activityListingIdsSql, PROPERTY_ADDRESS, searchInScopeSql, searchWords, viewInScopeSql } from './scope';
 
 /**
  * The Listing activity page (ADR 0083): who looked at this agency's listings, or at an agent's own. Signed-in people by
@@ -62,6 +62,7 @@ export async function getListingActivity(
   const notStaff = sql`(a.user_id is null or not exists (select 1 from membership m where m.user_id = a.user_id and m.agency_id = ${agencyId}))`;
   const view = viewInScopeSql(actor);
   const search = searchInScopeSql(actor);
+  const candidate = activityCandidateSql(actor);
 
   const [totalsRows, listingRows, peopleRows] = await Promise.all([
     db.execute<{ views: string; people: string; anonymous: string; searches: string }>(sql`
@@ -71,7 +72,7 @@ export async function getListingActivity(
         count(*) filter (where ${view} and a.user_id is null) as anonymous,
         count(*) filter (where ${search}) as searches
       from site_activity a
-      where a.created_at >= ${since} and ${notStaff}`),
+      where a.created_at >= ${since} and ${notStaff} and ${candidate}`),
     db.execute<{ listing_id: string; address: string | null; views: string; people: string; saves: string; enquiries: string }>(sql`
       select v.listing_id, ${PROPERTY_ADDRESS} as address, v.views, v.people,
         (select count(*) from shortlist s where s.listing_id = v.listing_id and s.created_at >= ${since}
@@ -91,7 +92,7 @@ export async function getListingActivity(
       with acts as (
         select a.user_id, case when a.kind = 'search' then 'search' else 'view' end as kind, a.listing_id, a.query, a.suburb, a.state, a.channel, a.created_at as at
         from site_activity a
-        where a.user_id is not null and a.created_at >= ${since} and ${notStaff} and ((${view}) or (${search}))
+        where a.user_id is not null and a.created_at >= ${since} and ${notStaff} and ${candidate} and ((${view}) or (${search}))
         union all
         select s.user_id, 'saved', s.listing_id, null, null, null, null, s.created_at
         from shortlist s
