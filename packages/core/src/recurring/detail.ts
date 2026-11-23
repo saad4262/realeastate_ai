@@ -8,7 +8,7 @@ import { getBatch } from '../template-email/batches';
 import { SKIP_REASON_LABELS } from '../template-email/schema';
 import { TemplateEmailError } from '../template-email/templates';
 import { workflowRuns } from '../workflows/manage';
-import { AUTOMATION_KEY, CHAT_ACTION_KEY, type AutomationDetail, type ChatActionDetail, type RunProgress } from './detail-types';
+import { AUTOMATION_KEY, CHAT_ACTION_KEY, readableSendError, type AutomationDetail, type ChatActionDetail, type RunProgress } from './detail-types';
 import { listEveryAutomation, type AutomationRow } from './list';
 import { listAutomationRuns } from './manage';
 
@@ -121,7 +121,7 @@ export async function chatActionDetail(db: Db, actor: Actor, key: string): Promi
   if (!row || !can(actor, 'proposed_action:read', { type: 'proposed_action', id: row.id, agencyId: row.agencyId, ownerId: row.userId })) return null;
   const card = row.card as ProposalCard;
   const args = row.args as { tool: string; batchId?: string };
-  const base: ChatActionDetail = { key, name: card.title, status: row.status, lines: card.lines ?? [], decidedAt: iso(row.decidedAt), runAt: iso(row.runAt), finishedAt: iso(row.finishedAt), error: row.error, send: null };
+  const base: ChatActionDetail = { key, tool: row.tool, name: card.title, status: row.status, lines: card.lines ?? [], decidedAt: iso(row.decidedAt), runAt: iso(row.runAt), finishedAt: iso(row.finishedAt), error: row.error, send: null };
   if ((args.tool !== 'send_template_email' && args.tool !== 'send_template_sms') || !args.batchId) return base;
 
   const channel = args.tool === 'send_template_sms' ? 'sms' : 'email';
@@ -140,7 +140,7 @@ export async function chatActionDetail(db: Db, actor: Actor, key: string): Promi
       failed: c.failed,
       skipped: c.skipped,
       left: c.toSend + c.sending,
-      people: b.recipients.map((r) => ({ name: r.name, to: channel === 'sms' ? r.phone : r.email, status: r.status, why: r.status === 'failed' ? r.error : r.skipReason ? (reasons[r.skipReason] ?? r.skipReason) : null, at: iso(r.sentAt) })),
+      people: b.recipients.map((r) => ({ name: r.name, to: channel === 'sms' ? r.phone : r.email, status: r.status, why: r.status === 'failed' ? readableSendError(r.error) : r.skipReason ? (reasons[r.skipReason] ?? r.skipReason) : null, at: iso(r.sentAt) })),
     },
   };
 }

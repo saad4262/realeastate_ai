@@ -7,7 +7,7 @@ import type { Db } from '@repo/db';
 import type { Actor } from '../permissions';
 import { TemplateEmailError } from '../template-email/templates';
 import { automationDetail, automationsOfChat, chatActionDetail } from './detail';
-import { automationIcon, automationRowHref, filterAutomations } from './detail-types';
+import { automationIcon, automationRowHref, filterAutomations, readableDuration, readableSendError, sendTimeLeftMs } from './detail-types';
 
 /** One automation in full, and the ones beside a chat (the user, 2026-11-10). */
 
@@ -121,6 +121,33 @@ describe('automationsOfChat', () => {
   });
 });
 
+describe('reading a send for a person', () => {
+  it('a provider refusal shows its message, not its JSON', () => {
+    const raw = 'Resend 422: {"message":"Invalid `to` field. Please use our testing email address","name":"validation_error","statusCode":422}';
+    expect(readableSendError(raw)).toBe('Refused by the sending service: Invalid `to` field. Please use our testing email address');
+    expect(readableSendError('Resend 400: mailbox full')).toBe('Refused by the sending service: mailbox full');
+  });
+  it('a 5xx is the service’s problem; anything else is shown as it came', () => {
+    expect(readableSendError('Resend 503: {"message":"down"}')).toBe('The sending service had a problem (503). It can be tried again later.');
+    expect(readableSendError('Carrier rejected')).toBe('Carrier rejected');
+    expect(readableSendError(null)).toBeNull();
+  });
+  it('durations in words', () => {
+    expect(readableDuration(20_000)).toBe('under a minute');
+    expect(readableDuration(4 * 60_000)).toBe('4 min');
+    expect(readableDuration(80 * 60_000)).toBe('1 h 20 min');
+    expect(readableDuration(120 * 60_000)).toBe('2 h');
+    expect(readableDuration(72 * 3_600_000)).toBe('3 days');
+  });
+  it('time left at the pace so far: none without a pace or with nothing left', () => {
+    const t = (s: number) => new Date(Date.UTC(2026, 10, 23, 1, 0, s)).toISOString();
+    expect(sendTimeLeftMs([t(0), null, t(10), t(20)], 5)).toBe(50_000);
+    expect(sendTimeLeftMs([t(20), t(0)], 1)).toBe(20_000);
+    expect(sendTimeLeftMs([t(0)], 5)).toBeNull();
+    expect(sendTimeLeftMs([t(0), t(10)], 0)).toBeNull();
+  });
+});
+
 describe('chatActionDetail', () => {
   const card = { title: 'Send “Welcome” to 3 people', contact: { id: 'c', name: 'x' }, lines: [{ label: 'Template', value: 'Welcome' }], notes: [] };
   const action = (over: object = {}) => ({ id: ACTION, agencyId: 'a1', userId: 'u1', status: 'done', card, args: { tool: 'send_template_email', batchId: BATCH }, decidedAt: new Date('2026-11-23T01:00:00Z'), runAt: null, finishedAt: null, error: null, ...over });
@@ -220,6 +247,10 @@ describe('the Automations tab’s search and filter', () => {
     expect(automationIcon({ source: 'recurring', skillKey: 'email' })).toBe('mail');
     expect(automationIcon({ source: 'workflow', skillKey: 'sms' })).toBe('sms');
     expect(automationIcon({ source: 'task', skillKey: null })).toBe('task_alt');
+  });
+  it('the panels show progress the same way, from one component', () => {
+    const dir = join(__dirname, '..', '..', '..', '..', 'apps', 'console', 'components', 'automations');
+    for (const f of ['chat-action-detail.tsx', 'automation-detail.tsx']) expect(readFileSync(join(dir, f), 'utf8')).toContain('<Progress ');
   });
   it('the board searches with this, not a copy of its own', () => {
     expect(readFileSync(join(__dirname, '..', '..', '..', '..', 'apps', 'console', 'components', 'automations', 'automations-board.tsx'), 'utf8')).toContain('filterAutomations(rows, query, filter)');

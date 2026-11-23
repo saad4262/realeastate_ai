@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import type { AutomationDetail, RunProgress } from '@repo/core/recurring/detail-types';
+import { automationIcon, readableDuration, type AutomationDetail, type RunProgress } from '@repo/core/recurring/detail-types';
 import type { AutomationPaths } from '@repo/core/automation-status/links';
 import { useToast } from '@/components/toast';
 import { stopAutomationRunAction, stopTaskAction } from '@/lib/automation-actions';
 import { AutomationControls } from './automation-controls';
+import { Progress } from './progress';
 import styles from './automation-detail.module.css';
 
 /**
@@ -15,6 +16,7 @@ import styles from './automation-detail.module.css';
  */
 
 const STATE = { active: 'Active', off: 'Off', finished: 'Finished' } as const;
+const TONE = { active: 'good', off: 'wait', finished: 'wait' } as const;
 const RUN = { running: 'Running', done: 'Done', stopped: 'Stopped', failed: 'Failed', skipped: 'Skipped', succeeded: 'Done', started: 'Started' } as Record<string, string>;
 
 function when(at: string | null): string {
@@ -110,18 +112,27 @@ export function AutomationDetailPanel({ automationKey, paths, inChat = false }: 
   if (!d) return <p className={styles.muted}>Loading…</p>;
 
   const noun = d.source === 'workflow' ? 'steps done' : d.source === 'ai_skill' ? 'items' : 'sent';
-  const percent = d.current && d.current.total ? Math.min(100, Math.floor(((d.current.sent + d.current.failed) / d.current.total) * 100)) : null;
+  const c = d.current;
+  const cLeft = c ? Math.max(0, c.total - c.sent - c.failed - c.skipped) : 0;
+  // At the pace of this run so far: a guess, shown as "about".
+  const cDone = c ? c.sent + c.failed : 0;
+  const cTimeLeft = c && cDone > 0 && cLeft > 0 ? readableDuration(((Date.now() - new Date(c.at).getTime()) / cDone) * cLeft) : null;
   const stoppable = d.canStop ? (d.source === 'task' ? () => stopTaskAction(d.id) : d.current ? () => stopAutomationRunAction(d.current!.id) : null) : null;
 
   return (
     <div className={styles.panel}>
-      <div className={styles.head}>
-        <h2 className={styles.name}>{d.name}</h2>
-        <span className={styles.state} data-state={d.state}>
-          {STATE[d.state]}
+      <header className={styles.hero}>
+        <span className={styles.heroIcon} aria-hidden>
+          {automationIcon(d)}
         </span>
-      </div>
-      <p className={styles.what}>{d.what}</p>
+        <div className={styles.heroText}>
+          <h2 className={styles.name}>{d.name}</h2>
+          <span className={styles.pill} data-tone={c ? 'live' : TONE[d.state]}>
+            {c ? 'Running now' : STATE[d.state]}
+          </span>
+        </div>
+      </header>
+      <p className={styles.summary}>{d.what}</p>
       <dl className={styles.facts}>
         <dt>Skill</dt>
         <dd>{d.skill}</dd>
@@ -162,18 +173,15 @@ export function AutomationDetailPanel({ automationKey, paths, inChat = false }: 
         ) : null}
       </div>
 
-      {d.current ? (
-        <section className={styles.section}>
+      {c ? (
+        <section className={styles.card}>
           <h3 className={styles.sectionTitle}>Running now</h3>
-          {percent !== null ? (
-            <span className={styles.bar} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} aria-label="Progress">
-              <span className={styles.barFill} style={{ width: `${percent}%` }} />
-            </span>
+          {c.total ? (
+            <Progress sent={c.sent} failed={c.failed} skipped={c.skipped} left={cLeft} noun={noun[0]!.toUpperCase() + noun.slice(1)} timeLeft={cTimeLeft} />
           ) : (
             <p className={styles.muted}>Finding who it is for…</p>
           )}
-          <Numbers r={d.current} noun={noun} />
-          <p className={styles.muted}>Started {when(d.current.at)}{d.current.manual ? ' · run by hand' : ''}</p>
+          <p className={styles.muted}>Started {when(c.at)}{c.manual ? ' · run by hand' : ''}</p>
         </section>
       ) : null}
 

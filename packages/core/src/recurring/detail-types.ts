@@ -22,6 +22,8 @@ export const CHAT_ACTION_KEY = /^action:[0-9a-f-]{36}$/i;
 
 export type ChatActionDetail = {
   key: string;
+  /** The card's tool, for its icon. */
+  tool: string;
   name: string;
   /** The card's status: approved, scheduled, running, done, failed. */
   status: string;
@@ -44,6 +46,47 @@ export type ChatActionDetail = {
     people: { name: string; to: string | null; status: 'queued' | 'sending' | 'sent' | 'failed' | 'skipped'; why: string | null; at: string | null }[];
   } | null;
 };
+
+/**
+ * A provider's refusal as a person reads it. The transport stores `Resend 422: {"message":"…"}`; the panel shows the message,
+ * and a 5xx as the service's problem, not the person's.
+ */
+export function readableSendError(raw: string | null): string | null {
+  if (!raw) return null;
+  const m = /^\w+ (\d{3}):\s*([\s\S]*)$/.exec(raw.trim());
+  if (!m) return raw;
+  if (Number(m[1]) >= 500) return `The sending service had a problem (${m[1]}). It can be tried again later.`;
+  let message = m[2]!.trim();
+  try {
+    const body = JSON.parse(message) as { message?: unknown };
+    if (typeof body.message === 'string' && body.message.trim()) message = body.message.trim();
+  } catch {
+    // Not JSON: the text as it came.
+  }
+  return `Refused by the sending service: ${message}`;
+}
+
+/** "under a minute", "4 min", "1 h 20 min", "2 days": how long something took or has left. */
+export function readableDuration(ms: number): string {
+  const min = Math.round(ms / 60_000);
+  if (min < 1) return 'under a minute';
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 48) return min % 60 ? `${h} h ${min % 60} min` : `${h} h`;
+  return `${Math.round(h / 24)} days`;
+}
+
+/**
+ * Time left for a send going out now, at the pace it has gone so far: null until two have gone (no pace yet) or when nothing is left.
+ * A guess from the send's own timestamps, never a promise; the panel says "about".
+ */
+export function sendTimeLeftMs(sentAt: readonly (string | null)[], left: number): number | null {
+  if (left <= 0) return null;
+  const times = sentAt.filter((t): t is string => Boolean(t)).map((t) => new Date(t).getTime()).sort((a, b) => a - b);
+  if (times.length < 2) return null;
+  const each = (times[times.length - 1]! - times[0]!) / (times.length - 1);
+  return Math.round(each * left);
+}
 
 /** Its own chat, with the panel beside it, when it is this person's; otherwise the panel on Skills. A chat is only its author's. */
 export function automationRowHref(row: Pick<AutomationRow, 'key' | 'mine' | 'conversationId'>, home: string, base: string): string {
