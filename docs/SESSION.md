@@ -3,6 +3,20 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-24/25 — Claude Code (Mac) — ADR 0099: the home page search, like realestate.com.au
+
+- The user asked for the home page to look and search like realestate.com.au: tabs, several suburbs, a distance, address pin-point.
+  Mock first (`docs/mocks/home-search.html`); the user approved every decision as recommended, Build tab option A (a new tick and
+  column), "10 mins walk" answered with a "within 2 km" suggestion, and asked for the portal look and flow to match closely.
+- Built on `feat/home-search-rea` in its own worktree, in the mock's order: core (several places, distance per place, URL `loc`,
+  saved searches and alerts, no migration), the home box, the same box on `/search` and `/sold`, `/address`, `/agents`, the
+  Build tick (migration 0108, dev only), then `/sold` with several suburbs and the sidebar no longer suggesting picked suburbs.
+- Found by rendering it in headless Chrome (the cached Playwright Chromium, driven over CDP, no new package): the old box on
+  `/search` dropped extra suburbs on the next search; the field overlapped Filters on a phone; a weak test passed with OR
+  turned into AND (tightened, then red when broken). An address that Google does not know returns no suggestion, by design.
+- Dev data touched: migration 0108 applied; one listing's `is_new_build` set for the Build check, then set back.
+- NOT done: smoke, a sold page with real sale rows, production (waits for the user's go), merge.
+
 ## 2026-11-17 — Claude Code (Mac) — V1 production plan; dev database; production guard; docs cleaned
 
 - The user asked for an audit against professional practice and a V1–V4 plan, then approved the step plan with decisions: dev database

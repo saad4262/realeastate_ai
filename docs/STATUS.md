@@ -1,4 +1,4 @@
-# Status — 2026-11-17 (Claude Code, Mac)
+# Status — 2026-11-25 (Claude Code, Mac)
 
 Short on purpose: where things stand now. History is in `docs/SESSION.md` and `docs/archive/`. The plan and the V1 to-do list
 are `docs/PLATFORM-PLAN.md` (section 14, with progress). Overwrite this file at each handoff; do not append.
@@ -8,10 +8,23 @@ are `docs/PLATFORM-PLAN.md` (section 14, with progress). Overwrite this file at 
 V1 production-readiness: about 12% (PLATFORM-PLAN 14). Steps 0–2 nearly done; step 3 (backups) next.
 Branches waiting for a PR and merge: `chore/dev-db-and-prod-guard` (production guard + 0001 extensions fix), `docs/platform-plan` (this).
 
+## Home page search like realestate.com.au (ADR 0099) — branch `feat/home-search-rea`, NOT merged
+Worktree `/Users/saadiii/Job/realestate_ai-homesearch`, 4 commits on `origin/main` (`bee454a`), pushed. The user's rule: dev only,
+no merge, no production until their go. Mock `docs/mocks/home-search.html` (approved 2026-11-24; Build tab option A).
+- Built: tabs Buy / Rent / Build / Sold / Address / Agents; several suburbs as chips (`loc=Suburb|STATE|pc`, up to 10) with a
+  Distance around each, on `/search`, `/sold`, saved searches and alerts; "within 10 km of X" read without the AI; Filters panel;
+  recent searches in the browser; AI toggle; the same box above `/search` and `/sold` results; `/address` pin-point (property
+  page only where the public once saw a listing); `/agents` (counts only); "New home / off the plan" tick on the listing form
+  (`listing.is_new_build`, migration **0108, applied on DEV only**); header Buy, Rent, Sold, New homes, Find agents.
+- Checked: typecheck, lint, `pnpm test` (core 2518, AI 462), both builds, break-tests, new SQL on dev (read-only), headless Chrome
+  on dev (TEST-PLAN CZ mostly). NOT run: smoke; a sold page with real sale rows (dev's sold listings have no price/date);
+  the drafts-only address case against real data (unit test only).
+- To ship, on the user's go: production backup, migration 0108 (additive), merge `--no-ff`, check `/`, `/search`, `/sold`, `/agents`.
+
 ## Databases
 - **Dev:** `realestate-dev`, ref `jhialeuioqqlwpzukdzo`, Sydney, Micro. Every `.env.local` on this laptop points here. Use the pooler
   URLs (`postgres.<ref>@aws-0-ap-southeast-2.pooler.supabase.com`, 6543 and 5432): the direct `db.<ref>` host is IPv6-only and fails
-  with ENOTFOUND. 98 migrations, census loaded, buckets `media` (public), `documents`, `inspection-photos`, platform admin
+  with ENOTFOUND. 109 migrations (0000–0108; 0108 is `feat/home-search-rea`'s, not on `main`), census loaded, buckets `media` (public), `documents`, `inspection-photos`, platform admin
   `admin@test.com`. **No agency yet**, so `pnpm db:seed` waits for a sign-up at `localhost:3001/get-started`.
 - **Production:** ref `xjklpoyxcvnlhjlxasmv`. Its values live only in Vercel (Production) and the password manager. 98 migrations
   (0097 applied 2026-11-17, after a backup and a dev run). **PITR is off** (PLATFORM-PLAN decision 7).
