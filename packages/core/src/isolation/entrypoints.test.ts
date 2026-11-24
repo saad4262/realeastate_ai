@@ -48,6 +48,8 @@ const PUBLIC_ROUTES: Record<string, { why: string; guard: RegExp }> = {
   'apps/console/app/integrations/stub/decide/route.ts': { why: 'dev-only fake OAuth consent', guard: /stubEnabled[\s\S]*verifyState|verifyState[\s\S]*stubEnabled/ },
   'apps/web/app/api/chat/route.ts': { why: 'the public property guide: anonymous, public listings only', guard: /runPropertyChat/ },
   'apps/web/app/api/places/route.ts': { why: 'public address autocomplete, rate-limited per IP', guard: /overLimit/ },
+  // ADR 0099: the Address tab. Answers only with a redirect, and only for an address the public could once see a listing at.
+  'apps/web/app/address/route.ts': { why: 'public address pin-point, a redirect to a page the public can already open', guard: /findPublicPropertyAt/ },
   'apps/web/app/api/stripe/webhook/route.ts': { why: 'Stripe calls it (ADR 0092): no session; its signature is the check', guard: /receiveStripeWebhook\(/ },
   'apps/web/app/api/health/route.ts': { why: 'uptime monitors (PLATFORM-PLAN 1.14): ok/degraded flags only, no data', guard: /healthReport\(/ },
   'apps/web/app/api/health/alerts/route.ts': { why: 'the paging monitor (PLATFORM-PLAN 1.23): ok/alert flags only, no data', guard: /alertLines\(/ },

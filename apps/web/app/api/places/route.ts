@@ -83,14 +83,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ place });
     }
 
+    // The home page's Address tab (ADR 0099) asks for street addresses: the
+    // priciest lookup, still behind the per-IP limit above and the cache.
+    const addresses = searchParams.get('kind') === 'address';
     const suggestions = await suggestPlaces(db, query, {
-      // A buyer searches a suburb, a postcode or a region — never a specific
-      // street address, which would also be the most expensive lookup of the
-      // three and the one most worth abusing.
-      kinds: ['locality', 'postcode', 'region'],
+      // Otherwise a buyer searches a suburb, a postcode or a region.
+      kinds: addresses ? ['address'] : ['locality', 'postcode', 'region'],
       // Offering a suburb with nothing live in it produces an empty results
-      // page that reads as a broken site.
-      liveOnly: true,
+      // page that reads as a broken site. An address is a lookup, not a search.
+      liveOnly: !addresses,
     });
     return NextResponse.json({ suggestions });
   } catch {

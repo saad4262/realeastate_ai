@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { PublicSearchQuery } from './search-listings';
 import {
+  asksForTravelTime,
   discountPlaceWords,
+  parseDistancePhrase,
   searchQueryToParams,
   searchQueryToPath,
   SEARCH_PARAM_KEYS,
@@ -122,5 +124,31 @@ describe('several places in a deep link (ADR 0099)', () => {
     expect(params.get('radius')).toBe('10');
     expect(params.getAll('type')).toEqual(['house', 'townhouse']);
     expect(params.has('lat')).toBe(false);
+  });
+});
+
+describe('parseDistancePhrase (ADR 0099)', () => {
+  it.each([
+    ['within 10 km of Pakenham', 10, 'Pakenham'],
+    ['10km from berwick', 10, 'berwick'],
+    ['5 kms around 3810', 5, '3810'],
+    ['Within 12 kilometres of Officer VIC', 10, 'Officer VIC'],
+    ['within 40 km near Bondi', 50, 'Bondi'],
+  ])('reads "%s"', (text, km, place) => {
+    expect(parseDistancePhrase(text)).toEqual({ km, place });
+  });
+
+  it.each(['Pakenham', '10 km', 'within km of Pakenham', '0 km from Pakenham', '3 bed house'])(
+    'leaves "%s" alone',
+    (text) => {
+      expect(parseDistancePhrase(text)).toBeNull();
+    },
+  );
+
+  it('knows travel time when it sees it, and not otherwise', () => {
+    expect(asksForTravelTime('10 mins walk from Pakenham station')).toBe(true);
+    expect(asksForTravelTime('walk to the beach')).toBe(true);
+    expect(asksForTravelTime('within 2 km of Pakenham')).toBe(false);
+    expect(asksForTravelTime('Walker Street, Berwick')).toBe(false);
   });
 });

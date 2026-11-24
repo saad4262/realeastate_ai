@@ -2446,3 +2446,29 @@ Phase 1 is the foundation and changes nothing on screen. Apply migration 0093 fi
 | CX85 | A card's switch | Turns it on or off without opening it; a click anywhere else opens it |
 | CX86 | A chat with its automation panel open → top bar Automations or Skills | The menu opens over the panel, not under it |
 | CX87 | Top bar Automations with automations on but nothing running | "On · waiting to run" lists each, with its skill and when; a click opens it |
+
+## CZ — Home page search: tabs, several suburbs, distance, filters (ADR 0099)
+
+Mock: `docs/mocks/home-search.html`. Public site, signed out unless said.
+
+| # | Do | Expect |
+|---|---|---|
+| CZ1 | Open `/` | Hero with tabs Buy · Rent · Build · Sold · Address · Agents, the box, Filters, Search, "AI search: Off" under it; header has Buy, Rent, Sold, New homes, Find agents |
+| CZ2 | Click the box with no history | A hint; after one search, "Recent searches" lists it (this browser only) |
+| CZ3 | Type "Pak", pick Pakenham, type "Ber", pick Berwick | Two chips in the box; × or Backspace removes one |
+| CZ4 | Distance "+ within 10 km", Search | `/search?…loc=…&loc=…&radius=10`; heading "… in Pakenham or Berwick and within 10 km of each"; results from both and around |
+| CZ5 | Page 2 and a sort of that search | Both suburbs and the radius stay in the URL |
+| CZ6 | Type "within 10 km of Pakenham" | "We'll search for Pakenham + within 10 km"; Enter searches it |
+| CZ7 | Type "10 mins walk from Pakenham" | The amber note; its button rewrites the box to "within 2 km of Pakenham" |
+| CZ8 | Filters: House + Townhouse, 3+ beds, price max | Button reads "Filters · 3"; the URL has `type=house&type=townhouse&beds=3&priceTo=…`; Rent tab shows per-week prices |
+| CZ9 | Save that search signed in, then open Alerts | The alert's name lists every suburb and both types |
+| CZ10 | Sold tab | One suburb only; goes to `/sold?suburb=…` |
+| CZ11 | Address tab: an address with a past public listing | Opens its property page (or the live ad) |
+| CZ12 | Address tab: an address we have never seen | Homes for sale within 2 km of it |
+| CZ13 | Address tab: an address whose only listing is a DRAFT | Never its property page: the 2 km search |
+| CZ14 | Agents tab: pick a suburb | `/agents?loc=…`: agents with listings there; for sale, sold (12 mo), median days, all counts |
+| CZ15 | Console: tick "New home, house-and-land or off the plan" on a live listing, save, reopen | The tick stays; untick and save, it clears |
+| CZ16 | Build tab with that listing's suburb | Only the ticked listing; heading "New homes for sale in …" |
+| CZ17 | AI search: On, type a sentence, Enter | Opens `/chat` with it; the starters show when the box is empty |
+| CZ18 | Phone width (375 px) | Tabs scroll sideways; Filters and Search share a row under the box; no page scroll sideways |
+| CZ19 | An old link `/search?suburb=Pakenham&radius=10` and an old alert | Same results as before this change |

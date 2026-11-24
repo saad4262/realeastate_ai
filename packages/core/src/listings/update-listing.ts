@@ -108,6 +108,8 @@ export async function updateListing(
         availableFrom: l.availableFrom ?? null,
         // ADR 0081: only when given. The Details form has no such field, so null here wiped the date on every save.
         ...(l.auctionDate !== undefined ? { auctionDate: l.auctionDate } : {}),
+        // Only the form sends it; an import or the assistant leaves the tick alone.
+        ...(l.isNewBuild !== undefined ? { isNewBuild: l.isNewBuild } : {}),
         // ADR 0075: the facts as this ad states them — blanks clear them (the agent correcting their own ad).
         ...physicalFields(draft.property),
         updatedAt: sql`now()`,

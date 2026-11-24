@@ -2,8 +2,8 @@ import Link from 'next/link';
 import { WebShell } from '../components/web-shell';
 import { ListingCard } from '../components/listing-card';
 import { PrefetchOnIntent } from '../components/prefetch-on-intent';
-import { cachedFilterOptions, cachedSearch } from '../lib/cached';
-import { HomeAsk } from './home-ask';
+import { HomeSearch } from '../components/home-search';
+import { cachedSearch } from '../lib/cached';
 import { portalFonts } from './portal-fonts';
 import styles from './home.module.css';
 
@@ -25,9 +25,9 @@ import styles from './home.module.css';
  * cannot reach: a site where nothing has been published yet, whose first build
  * happened to run without a database and baked the "unavailable" state.
  *
- * The filter bar that used to sit in the hero is gone and this is still
- * static, because what replaced it — HomeAsk — reads no session either. See
- * the note in that file.
+ * The search hero (HomeSearch, ADR 0099) reads no session and asks the server
+ * nothing until someone types, so the page is still static. Recent searches
+ * live in the visitor's browser for the same reason.
  */
 export const revalidate = 300;
 
@@ -51,16 +51,33 @@ const STARTERS = [
   '2-bed rental under $650 a week near Bondi',
 ] as const;
 
+/** Pages we already have, as a portal's "explore" row. No news: we have none. */
+const EXPLORE = [
+  {
+    href: '/affordability',
+    title: 'What can I afford?',
+    text: 'Repayments, stamp duty and the cash you need upfront, from rates we check.',
+    cta: 'Open the calculator',
+    icon: '$',
+  },
+  {
+    href: '/sold',
+    title: 'Recently sold',
+    text: 'What homes near you actually sold for, and when.',
+    cta: 'See sold homes',
+    icon: '✓',
+  },
+  {
+    href: '/alerts',
+    title: 'Get property alerts',
+    text: 'New listings that match your search, emailed when they appear.',
+    cta: 'Set up an alert',
+    icon: '✉',
+  },
+] as const;
+
 export default async function HomePage() {
-  /*
-    Both cached, and both already warm: cachedFilterOptions is derived from
-    the same cachedFacets call /search and /chat make, so asking for one
-    suburb here costs a map over a cached array rather than a query.
-  */
-  const [{ rows: latest, down }, { suburbs }] = await Promise.all([
-    cachedSearch({ limit: 6 }),
-    cachedFilterOptions(),
-  ]);
+  const { rows: latest, down } = await cachedSearch({ limit: 6 });
 
   return (
     /*
@@ -87,35 +104,26 @@ export default async function HomePage() {
       */}
       <div data-skin="portal" data-page="home" className={`${portalFonts} min-h-screen bg-canvas`}>
         <div className="mx-auto w-full max-w-[1100px] px-gutter py-xl">
-          <section className={styles.hero}>
-            <p className={styles.kicker}>AI-powered property search</p>
-            <h1 className={styles.title}>
-              Tell us what you need.
-              <span className={styles.titleMuted}> We&apos;ll search what&apos;s live.</span>
-            </h1>
-            <p className={styles.sub}>
-              Describe the home you are after the way you would to a local agent — suburb,
-              budget, bedrooms, or just the part of town you like. Every price and count comes
-              from live agency listings.
-            </p>
+          <HomeSearch starters={STARTERS} />
 
-            <HomeAsk exampleSuburb={suburbs[0] ?? null} starters={STARTERS} />
-
-            {/*
-              The second door the visitor asked for: History reachable from the
-              home page, not only from inside the guide. It is a link to the
-              screen rather than the list itself, for the cookie reason above.
-
-              `prefetch={false}`: /chat is force-dynamic, so prefetching it on
-              sight would server-render the guide for every visitor who scrolls
-              past this line. HomeAsk warms it on intent instead.
-            */}
-            <p className={styles.resume}>
-              Been here before?{' '}
-              <Link href="/chat?history=1" className={styles.resumeLink} prefetch={false}>
-                Open your past conversations
-              </Link>
-            </p>
+          <section className={styles.section} aria-labelledby="explore-title">
+            <div className={styles.sectionHead}>
+              <h2 id="explore-title" className={styles.sectionTitle}>
+                Explore all things property
+              </h2>
+            </div>
+            <div className={styles.explore}>
+              {EXPLORE.map((tile) => (
+                <Link key={tile.href} href={tile.href} className={styles.tile}>
+                  <span className={styles.tileArt} aria-hidden>
+                    {tile.icon}
+                  </span>
+                  <h3 className={styles.tileTitle}>{tile.title}</h3>
+                  <p className={styles.tileText}>{tile.text}</p>
+                  <span className={styles.tileLink}>{tile.cta}</span>
+                </Link>
+              ))}
+            </div>
           </section>
 
           <section className={styles.section}>
@@ -139,6 +147,10 @@ export default async function HomePage() {
             )}
           </section>
         </div>
+        {/* prefetch off: /chat is force-dynamic, so prefetching it on sight renders the guide for every visitor. */}
+        <Link href="/chat" prefetch={false} className={styles.askFloat}>
+          <span aria-hidden>✦</span> Ask AI
+        </Link>
       </div>
     </WebShell>
   );

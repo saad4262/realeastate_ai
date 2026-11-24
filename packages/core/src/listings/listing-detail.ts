@@ -10,6 +10,7 @@ import {
   type Db,
 } from '@repo/db';
 import { formatAddress, type ListingChannel, type ListingStatus } from './listing-schema';
+import { addressKey, type AddressParts } from './address-key';
 import { publicListing } from './search-listings';
 import { lastAdFact, type FactColumn } from './facts';
 
@@ -490,4 +491,51 @@ export async function listingAgentCards(
       licenceNumber: shown ? r.licenceNumber : null,
     };
   });
+}
+
+/**
+ * The property at a typed street address, for the home page's Address tab
+ * (ADR 0099) — only if the public could ever see a listing there.
+ *
+ * The same rule as `getOffMarketProperty`: a property with nothing but drafts
+ * behind it is an agency's unpublished pipeline, and answering "yes, we have
+ * that address" would leak it. So the candidates are filtered in SQL to those
+ * with a listing in HISTORIC_STATUSES, and matched on the address key in JS,
+ * exactly as `upsertProperty` matches an address. One statement.
+ */
+export async function findPublicPropertyAt(db: Db, address: AddressParts): Promise<string | null> {
+  if (!address.streetNumber?.trim() || !address.street?.trim()) return null;
+  const key = addressKey(address);
+  // The key's number part ("1a" of "12/1A"); every stored spelling of it ends with it.
+  const number = key.split('|')[1] ?? '';
+
+  const candidates = await db
+    .select({
+      id: property.id,
+      unit: property.unit,
+      streetNumber: property.streetNumber,
+      street: property.street,
+      suburb: property.suburb,
+      state: property.state,
+      postcode: property.postcode,
+    })
+    .from(property)
+    .where(
+      and(
+        eq(sql`lower(trim(${property.suburb}))`, address.suburb.trim().toLowerCase()),
+        eq(property.postcode, address.postcode.trim()),
+        eq(property.state, address.state.trim().toUpperCase()),
+        sql`lower(replace(replace(coalesce(${property.streetNumber}, ''), ' ', ''), '-', '')) like ${`%${number}`}`,
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(listing)
+            .where(and(eq(listing.propertyId, property.id), inArray(listing.status, [...HISTORIC_STATUSES]))),
+        ),
+      ),
+    )
+    .orderBy(property.createdAt)
+    .limit(200);
+
+  return candidates.find((c) => addressKey(c) === key)?.id ?? null;
 }

@@ -36,6 +36,7 @@ export const SEARCH_PARAM_KEYS = [
   'state',
   'postcode',
   'loc',
+  'new',
   'lat',
   'lng',
   'radius',
@@ -177,6 +178,7 @@ export function searchQueryToParams(query: PublicSearchQuery): URLSearchParams {
 
   put(params, 'q', discountPlaceWords(query.text, query));
   put(params, 'channel', query.channel);
+  if (query.newBuild) put(params, 'new', 1);
   put(params, 'beds', query.bedrooms);
   put(params, 'baths', query.bathrooms);
   put(params, 'cars', query.carSpaces);
@@ -242,6 +244,8 @@ export const savedSearchQuerySchema = z
     /** More suburbs beside `suburb` (ADR 0099). The radius applies to each. */
     places: z.array(placeRefSchema).min(1).max(MAX_SEARCH_PLACES).optional(),
     channel: listingChannelSchema.optional(),
+    /** ADR 0099: the Build tab — new homes only. */
+    newBuild: z.literal(true).optional(),
     priceFrom: z.number().nonnegative().optional(),
     priceTo: z.number().nonnegative().optional(),
     bedrooms: z.number().int().min(0).max(20).optional(),
@@ -289,6 +293,7 @@ export function parseSearchParams(params: URLSearchParams): SavedSearchQuery {
     state: params.get('state')?.trim().toUpperCase() || undefined,
     postcode: params.get('postcode')?.trim() || undefined,
     channel: params.get('channel')?.trim() || undefined,
+    newBuild: params.get('new') === '1' ? true : undefined,
     priceFrom: numOf(params.get('priceFrom')),
     priceTo: numOf(params.get('priceTo')),
     bedrooms: numOf(params.get('beds')),
@@ -358,6 +363,7 @@ export function savedQueryToPath(query: SavedSearchQuery): string {
 
   put(params, 'q', query.text);
   put(params, 'channel', query.channel);
+  if (query.newBuild) put(params, 'new', 1);
   put(params, 'beds', query.bedrooms);
   put(params, 'baths', query.bathrooms);
   put(params, 'cars', query.carSpaces);
@@ -395,7 +401,9 @@ export function describeSavedQuery(query: SavedSearchQuery): string {
 
   if (query.bedrooms) bits.push(`${query.bedrooms}+ bed`);
   const types = query.propertyTypes ?? (query.propertyType ? [query.propertyType] : []);
-  bits.push(types.length ? listOf(types.map((t) => `${t}s`), 'or') : 'homes');
+  bits.push(
+    (query.newBuild ? 'new ' : '') + (types.length ? listOf(types.map((t) => `${t}s`), 'or') : 'homes'),
+  );
   if (query.channel === 'rent') bits.push('to rent');
   else if (query.channel === 'sale') bits.push('for sale');
 
@@ -427,4 +435,34 @@ function listOf(items: string[], word: 'or' | 'and'): string {
   return items.length <= 1
     ? (items[0] ?? '')
     : `${items.slice(0, -1).join(', ')} ${word} ${items[items.length - 1]}`;
+}
+
+/** The Distance control's steps, in km. A typed distance snaps to the nearest one. */
+export const DISTANCE_STEPS_KM = [2, 5, 10, 20, 50] as const;
+
+/**
+ * "within 10 km of Pakenham", "10km from Berwick", "5 kms around 3810".
+ *
+ * Read in the box, without the AI, so the commonest sentence a buyer types
+ * works as a plain search (ADR 0099). Returns the snapped distance and the
+ * place words left to look up; null when the text is not that sentence.
+ */
+export function parseDistancePhrase(text: string): { km: number; place: string } | null {
+  const m = text.match(
+    /^\s*(?:within\s+)?(\d{1,3}(?:\.\d+)?)\s*(?:km|kms|kilomet(?:er|re)s?)\s+(?:of|from|around|near)\s+(.+?)\s*$/i,
+  );
+  if (!m?.[1] || !m[2]) return null;
+  const typed = Number(m[1]);
+  if (!(typed > 0)) return null;
+  const km = DISTANCE_STEPS_KM.reduce((a, b) => (Math.abs(b - typed) < Math.abs(a - typed) ? b : a));
+  return { km, place: m[2] };
+}
+
+/**
+ * "10 mins walk from …": travel time, which we have no data for (ADR 0099).
+ * The box says so instead of guessing with a straight line.
+ */
+export function asksForTravelTime(text: string): boolean {
+  return /\b\d+\s*(?:min|mins|minutes?|hrs?|hours?)\b.*\b(?:walk|drive|driving|walking|cycle|bike|train|commute)\b/i.test(text)
+    || /\b(?:walk|drive|walking|driving)\s+(?:from|to)\b/i.test(text);
 }

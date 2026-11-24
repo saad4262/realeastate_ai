@@ -8,7 +8,15 @@ import { SearchBarSkeleton, ResultListSkeleton, PanelSkeleton } from '../../comp
 import { ResultsList, ResultsSummary } from './results';
 import { Refreshing, SortBar, SortingProvider } from './sorting';
 import { NearbySuburbsPanel, NotConnectedPanel, TopAgentsPanel } from './sidebar';
-import { parseSearchParams, savedQueryToPath } from '@repo/core/listings/url';
+import {
+  normalisePlaces,
+  parseLoc,
+  parseSearchParams,
+  savedQueryToPath,
+  type PlaceRef,
+} from '@repo/core/listings/url';
+import type { SearchPlace } from '@repo/core/listings';
+import { PROPERTY_TYPES } from '@repo/core/listings/schema';
 import { SaveSearch } from '../../components/save-search';
 import { ActivityBeacon } from '../../components/activity-beacon';
 import { looksSignedIn } from '../../lib/session';
@@ -95,20 +103,31 @@ export default async function SearchPage({
    * vocabulary, both directions. `looksSignedIn` is a cookie sniff and
    * decides nothing; the Server Action reads the real session.
    */
-  const savedQuery = parseSearchParams(
-    new URLSearchParams(
-      Object.entries(params).flatMap(([key, value]) =>
-        value === undefined
-          ? []
-          : [[key, Array.isArray(value) ? (value[0] ?? '') : value] as [string, string]],
-      ),
+  // Every value of a repeated key (`loc`, `type`), not just the first (ADR 0099).
+  const allParams = new URLSearchParams(
+    Object.entries(params).flatMap(([key, value]) =>
+      value === undefined
+        ? []
+        : (Array.isArray(value) ? value : [value]).map((v) => [key, v] as [string, string]),
     ),
   );
+  const savedQuery = parseSearchParams(allParams);
   const signedIn = await looksSignedIn();
 
-  const suburb = one('suburb')?.trim() || undefined;
-  const state = one('state')?.trim() || undefined;
-  const postcode = one('postcode')?.trim() || undefined;
+  /*
+   * Several suburbs (ADR 0099). normalisePlaces turns ONE `loc` into the plain
+   * suburb/state/postcode below, so a one-place search runs exactly as before.
+   */
+  const located = normalisePlaces({
+    suburb: one('suburb')?.trim() || undefined,
+    state: one('state')?.trim() || undefined,
+    postcode: one('postcode')?.trim() || undefined,
+    places: allParams
+      .getAll('loc')
+      .map(parseLoc)
+      .filter((p): p is PlaceRef => p !== null),
+  });
+  const { suburb, state, postcode } = located;
   const radiusParam = one('radius');
 
   let near = nearOf(one('lat'), one('lng'), radiusParam);
@@ -161,6 +180,35 @@ export default async function SearchPage({
   const typed = one('q')?.trim() || undefined;
 
   /**
+   * Each extra place's centre, from place_cache like the single suburb's above
+   * and in parallel. One that cannot be found keeps its name match.
+   */
+  const radiusKm = Number(radiusParam);
+  const places: SearchPlace[] | undefined = located.places
+    ? await Promise.all(
+        located.places.map(async (p): Promise<SearchPlace> => {
+          if (!(radiusKm > 0)) return p;
+          try {
+            const centre = await cachedPlace(
+              [p.suburb, p.state, p.postcode, 'Australia'].filter(Boolean).join(', '),
+            );
+            const parsed = centre
+              ? nearSchema.safeParse({ lat: centre.latitude, lng: centre.longitude, radiusKm })
+              : null;
+            return parsed?.success ? { ...p, near: parsed.data } : p;
+          } catch {
+            return p;
+          }
+        }),
+      )
+    : undefined;
+
+  /** Any of several types, from the Filters panel; one type stays `propertyType`. */
+  const types = [...new Set(allParams.getAll('type').map((t) => t.trim().toLowerCase()))].filter(
+    (t): t is (typeof PROPERTY_TYPES)[number] => (PROPERTY_TYPES as readonly string[]).includes(t),
+  );
+
+  /**
    * The keyword, once the place's own name has been discounted.
    *
    * A picked suburb leaves its name in the search box, and that name used to
@@ -174,7 +222,7 @@ export default async function SearchPage({
    * "Pakenham" plus "pool" — still filters, because only the place's own name
    * is treated as a label rather than a term.
    */
-  const placeWords = [suburb, state, postcode]
+  const placeWords = [suburb, state, postcode, ...(places ?? []).map((p) => p.suburb)]
     .filter(Boolean)
     .map((v) => (v as string).trim().toLowerCase());
   const text =
@@ -183,10 +231,12 @@ export default async function SearchPage({
   const query: PublicSearchQuery = {
     text,
     channel: channelOf(one('channel')),
+    newBuild: one('new') === '1' || undefined,
     bedrooms: num(one('beds')),
     bathrooms: num(one('baths')),
     carSpaces: num(one('cars')),
-    propertyType: one('type')?.trim() || undefined,
+    propertyType: types.length === 1 ? types[0] : undefined,
+    propertyTypes: types.length > 1 ? types : undefined,
     priceFrom: num(one('priceFrom')),
     priceTo: num(one('priceTo')),
     sort: sortOf(one('sort')),
@@ -196,19 +246,25 @@ export default async function SearchPage({
     suburb,
     state,
     postcode,
+    places,
     limit: PAGE_SIZE,
     offset: (page - 1) * PAGE_SIZE,
   };
 
-  const place = [suburb, state, postcode].filter(Boolean).join(' ');
+  /** "Pakenham, Berwick or Officer" when several were picked (ADR 0099). */
+  const names = [suburb, ...(places ?? []).map((p) => p.suburb)].filter(Boolean) as string[];
+  const severalPlaces =
+    names.length > 1
+      ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}${
+          radiusKm > 0 ? ` and within ${radiusKm} km of each` : ''
+        }`
+      : null;
+  const place = severalPlaces ?? [suburb, state, postcode].filter(Boolean).join(' ');
 
   /** A link to another page of this same search, keeping every other filter. */
   const pageHref = (n: number) => {
     const next = new URLSearchParams();
-    for (const [k, v] of Object.entries(params)) {
-      const val = Array.isArray(v) ? v[0] : v;
-      if (val && k !== 'page') next.set(k, val);
-    }
+    for (const [k, v] of allParams) if (v && k !== 'page') next.append(k, v);
     if (n > 1) next.set('page', String(n));
     const qs = next.toString();
     return qs ? `/search?${qs}` : '/search';
@@ -217,13 +273,10 @@ export default async function SearchPage({
   /** The same link, with one parameter replaced and the page reset to one. */
   const withParam = (key: string, value: string) => {
     const next = new URLSearchParams();
-    for (const [k, v] of Object.entries(params)) {
-      const val = Array.isArray(v) ? v[0] : v;
-      // `page` is dropped: changing the sort of a 20-page search and landing
-      // on page 7 of the new order is a different search with the old
-      // scroll position, which reads as results that will not settle.
-      if (val && k !== 'page' && k !== key) next.set(k, val);
-    }
+    // `page` is dropped: changing the sort of a 20-page search and landing
+    // on page 7 of the new order is a different search with the old
+    // scroll position, which reads as results that will not settle.
+    for (const [k, v] of allParams) if (v && k !== 'page' && k !== key) next.append(k, v);
     if (value) next.set(key, value);
     const qs = next.toString();
     return qs ? `/search?${qs}` : '/search';
@@ -245,11 +298,13 @@ export default async function SearchPage({
    * the summary sentence below, so it is left alone. A heading is prose and
    * wants the comma an address is written with.
    */
-  const headingPlace = suburb
+  const headingPlace = severalPlaces
+    ? severalPlaces
+    : suburb
     ? [suburb, [state, postcode].filter(Boolean).join(' ')].filter(Boolean).join(', ')
     : place;
   const whereLabel = near ? 'in the area you searched' : 'across Australia';
-  const heading = `Real estate & property ${kindLabel} ${
+  const heading = `${query.newBuild ? 'New homes' : 'Real estate & property'} ${kindLabel} ${
     headingPlace ? `in ${headingPlace}` : whereLabel
   }`;
 
@@ -273,7 +328,11 @@ export default async function SearchPage({
     { value: 'price_desc', label: 'Price ↓' },
   ].map((s) => ({ ...s, href: withParam('sort', s.value) }));
 
-  const shared = { query, suburb, place, near, page, pageSize: PAGE_SIZE, pageHref };
+  // Several places: no single suburb to split "in X" from "nearby" by, so the
+  // summary reads the whole set as one area (`place` already says "of each").
+  const shared = severalPlaces
+    ? { query, suburb: undefined, place, near: undefined, page, pageSize: PAGE_SIZE, pageHref }
+    : { query, suburb, place, near, page, pageSize: PAGE_SIZE, pageHref };
 
   /**
    * Changes whenever the SEARCH does, which is what makes the spinner appear.

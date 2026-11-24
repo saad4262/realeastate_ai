@@ -276,3 +276,15 @@ describe('several places', () => {
     expect(text).toContain('"townhouse"');
   });
 });
+
+describe('the Build tab (ADR 0099)', () => {
+  it('filters to listings ticked as new homes only when asked', async () => {
+    const asked = capturingDb();
+    await searchPublicListings(asked.db, { newBuild: true });
+    expect(asked.sql()).toContain('"listing"."is_new_build" = $');
+
+    const notAsked = capturingDb();
+    await searchPublicListings(notAsked.db, {});
+    expect(notAsked.sql()).not.toContain('is_new_build');
+  });
+});

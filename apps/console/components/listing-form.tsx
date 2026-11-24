@@ -306,6 +306,7 @@ export function ListingForm({
         priceFrom: opt(get('priceFrom')),
         priceTo: opt(get('priceTo')),
         rentPw: opt(get('rentPw')),
+        isNewBuild: data.get('isNewBuild') === 'on',
       },
       ...(editing ? {} : { agentUserIds: [] }),
     };
@@ -662,6 +663,19 @@ export function ListingForm({
               defaultValue={initial?.listing.headline ?? ''}
             />
             <Err name="headline" />
+          </div>
+
+          {/* ADR 0099: the public site's Build ("New homes") tab searches this. */}
+          <div className={`${styles.field} ${styles.wide}`}>
+            <label htmlFor="isNewBuild" className="flex items-center gap-2">
+              <input
+                id="isNewBuild"
+                name="isNewBuild"
+                type="checkbox"
+                defaultChecked={initial?.listing.isNewBuild ?? false}
+              />
+              New home, house-and-land or off the plan
+            </label>
           </div>
 
           {channel === 'rent' ? (

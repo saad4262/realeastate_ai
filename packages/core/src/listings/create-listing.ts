@@ -91,6 +91,7 @@ export async function createListing(
         rentPw: money(l.rentPw),
         availableFrom: l.availableFrom ?? null,
         auctionDate: l.auctionDate ?? null,
+        isNewBuild: l.isNewBuild ?? false,
         source: 'portal',
         // ADR 0075: the facts as this ad states them.
         ...physicalFields(draft.property),

@@ -249,6 +249,8 @@ export const listingDraftSchema = z
     rentPw: z.coerce.number().min(0).max(1_000_000).optional(),
     availableFrom: z.coerce.date().optional(),
     auctionDate: z.coerce.date().optional(),
+    /** ADR 0099: a new home, house-and-land or off the plan. Omitted = left as it is. */
+    isNewBuild: z.boolean().optional(),
   })
   .refine((v) => !(v.priceFrom && v.priceTo) || v.priceTo >= v.priceFrom, {
     message: 'Upper price cannot be below the lower price',
@@ -391,6 +393,7 @@ export type ListingForEdit = {
     priceFrom: number | null;
     priceTo: number | null;
     rentPw: number | null;
+    isNewBuild: boolean;
   };
   /** Address as one line, for the page heading. */
   address: string;

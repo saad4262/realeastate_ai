@@ -110,6 +110,8 @@ export type PublicSearchQuery = {
   propertyType?: string;
   /** Any of these types (the Filters panel's multi-pick). ANDed with `propertyType`. */
   propertyTypes?: string[];
+  /** ADR 0099: only listings ticked as a new home / house-and-land / off the plan (the Build tab). */
+  newBuild?: boolean;
   /** Minimum land size in m², for buyers who care about the block. */
   landFrom?: number;
   /** A point and a radius. Requires the property to have been geocoded. */
@@ -308,6 +310,7 @@ function baseFilters(query: PublicSearchQuery): SQL[] {
   const filters: SQL[] = [publicListing()];
 
   if (query.channel) filters.push(eq(listing.channel, query.channel));
+  if (query.newBuild) filters.push(eq(listing.isNewBuild, true));
 
   // Suburb and radius are decided together in locationFilter below, because
   // they combine rather than stack.

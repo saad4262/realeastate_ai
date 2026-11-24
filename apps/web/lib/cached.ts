@@ -1,5 +1,6 @@
 import { unstable_cache } from 'next/cache';
 import {
+  findLocalAgents,
   getOffMarketProperty,
   getPublicListing,
   listingAgentCards,
@@ -21,6 +22,7 @@ import {
   type PublicTimelineEntry,
   type PublicSearchQuery,
   type PublicSuburbAgent,
+  type PublicLocalAgent,
   type PublicNearbySuburb,
   type SearchFacets,
   type NearbyMarket,
@@ -769,4 +771,25 @@ export async function cachedNearbyMarket(query: NearbyMarketQuery): Promise<Near
     { tags: [LISTINGS_TAG], revalidate: 30 },
   );
   return run();
+}
+
+/**
+ * The Find agents page (ADR 0099). Five minutes, like the market reads: who is
+ * selling in a suburb does not change by the second, and the listings tag
+ * clears it when something is published or sold.
+ */
+export async function cachedLocalAgents(
+  scope: Parameters<typeof findLocalAgents>[1],
+): Promise<{ agents: PublicLocalAgent[]; down: boolean }> {
+  const run = unstable_cache(
+    async () => ({ agents: await findLocalAgents(getWebDb(), scope), down: false }),
+    ['local-agents', JSON.stringify(scope)],
+    { tags: [LISTINGS_TAG], revalidate: 300 },
+  );
+  try {
+    return await run();
+  } catch (err) {
+    console.error('[agents] failed', err instanceof Error ? err.message : err);
+    return { agents: [], down: true };
+  }
 }

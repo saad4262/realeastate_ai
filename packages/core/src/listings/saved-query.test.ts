@@ -199,3 +199,13 @@ describe('several places in the URL', () => {
     ).toBe('houses or townhouses for sale in Pakenham, Berwick or Officer and within 10 km of each');
   });
 });
+
+describe('new homes in the URL (ADR 0099)', () => {
+  it('reads new=1, round-trips it, and says it', () => {
+    const q = parse('channel=sale&new=1&loc=Officer|VIC');
+    expect(q).toEqual({ channel: 'sale', newBuild: true, suburb: 'Officer', state: 'VIC' });
+    expect(savedQueryToPath(q)).toContain('new=1');
+    expect(describeSavedQuery(q)).toBe('new homes for sale in Officer');
+    expect(parse('new=0').newBuild).toBeUndefined();
+  });
+});

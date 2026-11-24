@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Db } from '@repo/db';
+import { drizzle } from 'drizzle-orm/pg-proxy';
 import {
+  findPublicPropertyAt,
   getOffMarketProperty,
   HISTORIC_STATUSES,
   listingAgentCards,
@@ -253,5 +255,52 @@ describe('the agents on a public listing', () => {
     );
     expect(JSON.stringify(card)).not.toContain('@');
     expect(Object.keys(card ?? {})).not.toContain('email');
+  });
+});
+
+/** ADR 0099: the home page's Address tab, pin-pointing a typed address. */
+describe('findPublicPropertyAt', () => {
+  const PAKENHAM = { suburb: 'Pakenham', state: 'VIC', postcode: '3810' };
+  const rows = [
+    { id: 'p-12', unit: null, streetNumber: '12', street: 'Rogers St', ...PAKENHAM },
+    { id: 'p-14', unit: null, streetNumber: '14', street: 'Rogers Street', ...PAKENHAM },
+    { id: 'p-u3', unit: '3', streetNumber: '14', street: 'Rogers Street', ...PAKENHAM },
+  ];
+
+  it('matches the address the way a listing is matched to it (St = Street)', async () => {
+    expect(
+      await findPublicPropertyAt(fakeDb(rows), { streetNumber: '12', street: 'Rogers Street', ...PAKENHAM }),
+    ).toBe('p-12');
+  });
+
+  it('tells a unit from the house at the same number', async () => {
+    expect(
+      await findPublicPropertyAt(fakeDb(rows), { streetNumber: '3/14', street: 'Rogers Street', ...PAKENHAM }),
+    ).toBe('p-u3');
+    expect(
+      await findPublicPropertyAt(fakeDb(rows), { streetNumber: '14', street: 'Rogers Street', ...PAKENHAM }),
+    ).toBe('p-14');
+  });
+
+  it('answers nothing for a place that is not a street address', async () => {
+    expect(await findPublicPropertyAt(fakeDb(rows), { street: 'Rogers Street', ...PAKENHAM })).toBeNull();
+  });
+
+  /**
+   * The privacy rule, in the statement itself: only addresses with a listing
+   * the public could once see are candidates, so a drafts-only address (an
+   * agency's unpublished pipeline) is never confirmed to exist.
+   */
+  it('only considers properties with a listing the public could see', async () => {
+    const seen: string[] = [];
+    const db = drizzle(async (text: string, params: unknown[]) => {
+      seen.push(`${text} ${JSON.stringify(params)}`);
+      return { rows: [] };
+    }) as unknown as Db;
+    await findPublicPropertyAt(db, { streetNumber: '14', street: 'Rogers Street', ...PAKENHAM });
+    const statement = seen.join('\n');
+    expect(statement).toMatch(/exists \(select 1 from "listing" where \("listing"\."property_id" = "property"\."id" and "listing"\."status" in/);
+    for (const s of HISTORIC_STATUSES) expect(statement).toContain(`"${s}"`);
+    expect(statement).not.toContain('"draft"');
   });
 });
