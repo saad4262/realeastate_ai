@@ -108,3 +108,19 @@ describe('discountPlaceWords', () => {
     expect(discountPlaceWords(undefined, { suburb: 'Pakenham' })).toBeUndefined();
   });
 });
+
+describe('several places in a deep link (ADR 0099)', () => {
+  it('writes one loc per place and the shared radius, never their coordinates', () => {
+    const params = searchQueryToParams({
+      places: [
+        { suburb: 'Pakenham', state: 'VIC', postcode: '3810', near: { lat: -38.08, lng: 145.48, radiusKm: 10 } },
+        { suburb: 'Berwick', state: 'VIC', near: { lat: -38.03, lng: 145.35, radiusKm: 10 } },
+      ],
+      propertyTypes: ['house', 'townhouse'],
+    });
+    expect(params.getAll('loc')).toEqual(['Pakenham|VIC|3810', 'Berwick|VIC']);
+    expect(params.get('radius')).toBe('10');
+    expect(params.getAll('type')).toEqual(['house', 'townhouse']);
+    expect(params.has('lat')).toBe(false);
+  });
+});

@@ -123,3 +123,79 @@ describe('describeSavedQuery', () => {
     expect(describeSavedQuery({ channel: 'sale', priceTo: 900000 })).not.toContain('a week');
   });
 });
+
+/** ADR 0099: `loc` repeats, one per suburb picked in the box. */
+describe('several places in the URL', () => {
+  it('reads every loc as a place', () => {
+    expect(parse('channel=sale&loc=Pakenham|VIC|3810&loc=Berwick|VIC|3806&radius=10')).toEqual({
+      channel: 'sale',
+      places: [
+        { suburb: 'Pakenham', state: 'VIC', postcode: '3810' },
+        { suburb: 'Berwick', state: 'VIC', postcode: '3806' },
+      ],
+      radiusKm: 10,
+    });
+  });
+
+  it('turns ONE loc into the plain suburb every other reader understands', () => {
+    expect(parse('loc=Pakenham|vic|3810')).toEqual({
+      suburb: 'Pakenham',
+      state: 'VIC',
+      postcode: '3810',
+    });
+  });
+
+  it('drops a repeat, a nonsense value, and the suburb already named', () => {
+    const q = parse(
+      'suburb=Pakenham&state=VIC&postcode=3810&loc=Pakenham|VIC|3810&loc=Berwick|VIC&loc=Berwick|VIC&loc=|XX|abc&loc=Officer|ZZ',
+    );
+    expect(q.suburb).toBe('Pakenham');
+    expect(q.places).toEqual([{ suburb: 'Berwick', state: 'VIC' }]);
+  });
+
+  it('keeps at most ten places in all', () => {
+    const qs = Array.from({ length: 14 }, (_, i) => `loc=Place${i}|VIC`).join('&');
+    expect(parse(qs).places).toHaveLength(10);
+    expect(parse(`suburb=Pakenham&${qs}`).places).toHaveLength(9);
+  });
+
+  it('reads several types as propertyTypes and one as propertyType', () => {
+    expect(parse('type=house&type=townhouse&type=nonsense')).toEqual({
+      propertyTypes: ['house', 'townhouse'],
+    });
+    expect(parse('type=house')).toEqual({ propertyType: 'house' });
+  });
+
+  it('does not keep any picked place name as a keyword', () => {
+    expect(parse('loc=Pakenham|VIC&loc=Berwick|VIC&q=berwick').text).toBeUndefined();
+    expect(parse('loc=Pakenham|VIC&loc=Berwick|VIC&q=pool').text).toBe('pool');
+  });
+
+  it('survives the round trip to a link and back', () => {
+    const saved: SavedSearchQuery = {
+      channel: 'sale',
+      places: [
+        { suburb: 'Pakenham', state: 'VIC', postcode: '3810' },
+        { suburb: 'Berwick', state: 'VIC' },
+      ],
+      radiusKm: 10,
+      propertyTypes: ['house', 'townhouse'],
+      bedrooms: 3,
+    };
+    const path = savedQueryToPath(saved);
+    expect(path).not.toContain('lat=');
+    expect(parse(path.split('?')[1] ?? '')).toEqual(saved);
+  });
+
+  it('says every suburb in words', () => {
+    expect(
+      describeSavedQuery({
+        channel: 'sale',
+        suburb: 'Pakenham',
+        places: [{ suburb: 'Berwick' }, { suburb: 'Officer' }],
+        radiusKm: 10,
+        propertyTypes: ['house', 'townhouse'],
+      }),
+    ).toBe('houses or townhouses for sale in Pakenham, Berwick or Officer and within 10 km of each');
+  });
+});

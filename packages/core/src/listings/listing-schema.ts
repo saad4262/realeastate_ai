@@ -470,3 +470,9 @@ export function formatAddress(p: {
   const line = [p.unit ? `${p.unit}/` : '', street].join('').trim();
   return [line, p.suburb, `${p.state} ${p.postcode}`].filter(Boolean).join(', ');
 }
+
+/**
+ * Suburbs one search may name at once (ADR 0099). More than this is a scrape,
+ * not a search; every parser and the query itself cap at this number.
+ */
+export const MAX_SEARCH_PLACES = 10;

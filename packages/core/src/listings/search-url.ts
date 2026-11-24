@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { auStateSchema, listingChannelSchema, propertyTypeSchema, sortSchema } from './listing-schema';
+import {
+  auStateSchema,
+  listingChannelSchema,
+  MAX_SEARCH_PLACES,
+  PROPERTY_TYPES,
+  propertyTypeSchema,
+  sortSchema,
+} from './listing-schema';
 import type { PublicSearchQuery } from './search-listings';
 
 /**
@@ -28,12 +35,84 @@ export const SEARCH_PARAM_KEYS = [
   'suburb',
   'state',
   'postcode',
+  'loc',
   'lat',
   'lng',
   'radius',
 ] as const;
 
 export type SearchParamKey = (typeof SEARCH_PARAM_KEYS)[number];
+
+/** A suburb as a multi-suburb search names it, without a centre (the server finds that). */
+export type PlaceRef = { suburb: string; state?: string; postcode?: string };
+
+/**
+ * One `loc` value: `Pakenham|VIC|3810` (ADR 0099). A pipe never appears in an
+ * Australian suburb name, so the three parts need no escaping. State and
+ * postcode are optional, as they are for `suburb=`.
+ */
+export function formatLoc(p: PlaceRef): string {
+  return [p.suburb, p.state ?? '', p.postcode ?? ''].join('|').replace(/\|+$/, '');
+}
+
+const placeRefSchema = z
+  .object({
+    suburb: z.string().trim().min(1).max(120),
+    state: auStateSchema.optional(),
+    postcode: z.string().trim().regex(/^\d{3,4}$/).optional(),
+  })
+  .strict();
+
+/** The inverse of `formatLoc`; null for anything that is not a real place. */
+export function parseLoc(raw: string): PlaceRef | null {
+  const [suburb, state, postcode] = raw.split('|').map((v) => v.trim());
+  const parsed = placeRefSchema.safeParse({
+    suburb,
+    state: state ? state.toUpperCase() : undefined,
+    postcode: postcode || undefined,
+  });
+  return parsed.success ? parsed.data : null;
+}
+
+const placeKey = (p: { suburb?: string; state?: string; postcode?: string }) =>
+  [p.suburb?.toLowerCase(), p.state?.toUpperCase(), p.postcode].join('|');
+
+/**
+ * The places of a search, cleaned the one way every reader needs.
+ *
+ * Dropped: a repeat, and the single `suburb=` if it is also listed. Capped at
+ * MAX_SEARCH_PLACES. When what is left is ONE place and there is no single
+ * suburb, it becomes `suburb`/`state`/`postcode` — the path every other part of
+ * the site (results headings, chat, alerts) has always understood — so a
+ * one-suburb search reads the same however the box wrote it.
+ */
+export function normalisePlaces<T extends { suburb?: string; state?: string; postcode?: string; places?: PlaceRef[] }>(
+  query: T,
+): T {
+  const seen = new Set(query.suburb ? [placeKey(query)] : []);
+  const places: PlaceRef[] = [];
+  for (const p of query.places ?? []) {
+    const key = placeKey(p);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    places.push(p);
+    if (places.length + (query.suburb ? 1 : 0) >= MAX_SEARCH_PLACES) break;
+  }
+
+  const out = { ...query };
+  delete out.places;
+  const [only] = places;
+  if (!query.suburb && places.length === 1 && only) {
+    out.suburb = only.suburb;
+    if (only.state) out.state = only.state;
+    else delete out.state;
+    if (only.postcode) out.postcode = only.postcode;
+    else delete out.postcode;
+  } else if (places.length) {
+    out.places = places;
+  }
+  return out;
+}
 
 /**
  * The keyword, once the place's own name has been discounted.
@@ -52,12 +131,13 @@ export type SearchParamKey = (typeof SEARCH_PARAM_KEYS)[number];
  */
 export function discountPlaceWords(
   text: string | undefined,
-  place: { suburb?: string; state?: string; postcode?: string },
+  place: { suburb?: string; state?: string; postcode?: string; places?: PlaceRef[] },
 ): string | undefined {
   const typed = text?.trim();
   if (!typed) return undefined;
 
-  const placeWords = [place.suburb, place.state, place.postcode]
+  const placeWords = [place, ...(place.places ?? [])]
+    .flatMap((p) => [p.suburb, p.state, p.postcode])
     .filter((v): v is string => Boolean(v))
     .map((v) => v.trim().toLowerCase());
 
@@ -67,6 +147,15 @@ export function discountPlaceWords(
 function put(params: URLSearchParams, key: SearchParamKey, value: unknown): void {
   if (value === undefined || value === null || value === '') return;
   params.set(key, String(value));
+}
+
+/** The repeatable keys: one `loc` per place, one `type` per extra property type. */
+function putLists(
+  params: URLSearchParams,
+  query: { places?: PlaceRef[]; propertyTypes?: string[] },
+): void {
+  for (const p of query.places ?? []) params.append('loc', formatLoc(p));
+  for (const t of query.propertyTypes ?? []) params.append('type', t);
 }
 
 /**
@@ -98,10 +187,18 @@ export function searchQueryToParams(query: PublicSearchQuery): URLSearchParams {
   put(params, 'suburb', query.suburb);
   put(params, 'state', query.state);
   put(params, 'postcode', query.postcode);
+  putLists(params, {
+    places: query.places?.map(({ suburb, state, postcode }) => ({ suburb, state, postcode })),
+    propertyTypes: query.propertyTypes,
+  });
 
+  // A multi-suburb search carries its radius on each place's centre; the
+  // radius is the same for all of them (one Distance control).
+  const near = query.near ?? query.places?.find((p) => p.near)?.near;
+  if (near && !query.near) put(params, 'radius', near.radiusKm);
   if (query.near) {
     put(params, 'radius', query.near.radiusKm);
-    if (!query.suburb) {
+    if (!query.suburb && !query.places?.length) {
       put(params, 'lat', query.near.lat);
       put(params, 'lng', query.near.lng);
     }
@@ -142,6 +239,8 @@ export const savedSearchQuerySchema = z
     suburb: z.string().trim().min(1).max(120).optional(),
     state: auStateSchema.optional(),
     postcode: z.string().trim().min(3).max(4).optional(),
+    /** More suburbs beside `suburb` (ADR 0099). The radius applies to each. */
+    places: z.array(placeRefSchema).min(1).max(MAX_SEARCH_PLACES).optional(),
     channel: listingChannelSchema.optional(),
     priceFrom: z.number().nonnegative().optional(),
     priceTo: z.number().nonnegative().optional(),
@@ -149,6 +248,8 @@ export const savedSearchQuerySchema = z
     bathrooms: z.number().int().min(0).max(20).optional(),
     carSpaces: z.number().int().min(0).max(20).optional(),
     propertyType: propertyTypeSchema.optional(),
+    /** Any of these (the Filters panel). Set only when more than one was picked. */
+    propertyTypes: z.array(propertyTypeSchema).min(2).max(PROPERTY_TYPES.length).optional(),
     landFrom: z.number().nonnegative().optional(),
     /** Widen beyond the suburb. Meaningless without a suburb or a lat/lng. */
     radiusKm: z.number().positive().max(200).optional(),
@@ -210,7 +311,29 @@ export function parseSearchParams(params: URLSearchParams): SavedSearchQuery {
     if (parsed.success && parsed.data !== undefined) out[key] = parsed.data;
   }
 
-  const saved = out as SavedSearchQuery;
+  // The repeatable keys, item by item for the same reason.
+  const places = params
+    .getAll('loc')
+    .map(parseLoc)
+    .filter((p): p is PlaceRef => p !== null);
+  if (places.length) out.places = places;
+
+  const types = [
+    ...new Set(
+      params
+        .getAll('type')
+        .map((t) => propertyTypeSchema.safeParse(t))
+        .flatMap((r) => (r.success ? [r.data] : [])),
+    ),
+  ];
+  if (types.length > 1) {
+    delete out.propertyType;
+    out.propertyTypes = types.slice(0, PROPERTY_TYPES.length);
+  } else if (types.length === 1) {
+    out.propertyType = types[0];
+  }
+
+  const saved = normalisePlaces(out as SavedSearchQuery);
 
   // A suburb's own name must never also travel as free text — the text filter
   // is ANDed, so it deletes every neighbouring suburb a radius just added.
@@ -245,12 +368,13 @@ export function savedQueryToPath(query: SavedSearchQuery): string {
   put(params, 'suburb', query.suburb);
   put(params, 'state', query.state);
   put(params, 'postcode', query.postcode);
+  putLists(params, query);
 
   if (query.radiusKm !== undefined) {
     put(params, 'radius', query.radiusKm);
     // Same asymmetry as searchQueryToParams: a named suburb is re-resolved by
     // /search, so sending coordinates alongside it can only disagree with it.
-    if (!query.suburb) {
+    if (!query.suburb && !query.places) {
       put(params, 'lat', query.lat);
       put(params, 'lng', query.lng);
     }
@@ -270,11 +394,18 @@ export function describeSavedQuery(query: SavedSearchQuery): string {
   const bits: string[] = [];
 
   if (query.bedrooms) bits.push(`${query.bedrooms}+ bed`);
-  bits.push(query.propertyType ? `${query.propertyType}s` : 'homes');
+  const types = query.propertyTypes ?? (query.propertyType ? [query.propertyType] : []);
+  bits.push(types.length ? listOf(types.map((t) => `${t}s`), 'or') : 'homes');
   if (query.channel === 'rent') bits.push('to rent');
   else if (query.channel === 'sale') bits.push('for sale');
 
-  if (query.suburb) {
+  const names = [query.suburb, ...(query.places ?? []).map((p) => p.suburb)].filter(
+    (n): n is string => Boolean(n),
+  );
+  if (names.length > 1) {
+    const where = `in ${listOf(names, 'or')}`;
+    bits.push(query.radiusKm ? `${where} and within ${query.radiusKm} km of each` : where);
+  } else if (query.suburb) {
     bits.push(query.radiusKm ? `in ${query.suburb} and within ${query.radiusKm} km` : `in ${query.suburb}`);
   } else if (query.radiusKm) {
     bits.push(`within ${query.radiusKm} km`);
@@ -289,4 +420,11 @@ export function describeSavedQuery(query: SavedSearchQuery): string {
   }
 
   return bits.join(' ');
+}
+
+/** "a, b or c" */
+function listOf(items: string[], word: 'or' | 'and'): string {
+  return items.length <= 1
+    ? (items[0] ?? '')
+    : `${items.slice(0, -1).join(', ')} ${word} ${items[items.length - 1]}`;
 }

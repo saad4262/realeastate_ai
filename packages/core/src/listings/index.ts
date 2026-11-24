@@ -89,6 +89,7 @@ export {
   type PublicListing,
   type PublicListingSummary,
   type PublicSearchQuery,
+  type SearchPlace,
   type SearchSort,
 } from './search-listings';
 export {

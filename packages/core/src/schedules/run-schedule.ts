@@ -101,6 +101,25 @@ export async function toRuntimeQuery(
 
   if (!radiusKm) return query;
 
+  // ADR 0099: each extra suburb gets its own centre, looked up the same way and
+  // in parallel. One that cannot be found keeps its name match, not the circle.
+  if (stored.places?.length) {
+    query.places = await Promise.all(
+      stored.places.map(async (p) => {
+        try {
+          const centre = await resolvePlace(
+            [p.suburb, p.state, p.postcode, 'Australia'].filter(Boolean).join(', '),
+          );
+          return centre
+            ? { ...p, near: { lat: Number(centre.latitude), lng: Number(centre.longitude), radiusKm } }
+            : p;
+        } catch {
+          return p;
+        }
+      }),
+    );
+  }
+
   if (stored.suburb) {
     try {
       const centre = await resolvePlace(

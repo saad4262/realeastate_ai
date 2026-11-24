@@ -1,8 +1,8 @@
-import { and, asc, desc, eq, gte, lte, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, lte, or, sql, type SQL } from 'drizzle-orm';
 import { agency, listing, property, type Db } from '@repo/db';
 import type { Near } from '../geo/place-schema';
 import { SUSPENDED_AGENCY_IDS } from '../platform/access';
-import { formatAddress, type ListingChannel, type SearchSort } from './listing-schema';
+import { formatAddress, MAX_SEARCH_PLACES, type ListingChannel, type SearchSort } from './listing-schema';
 import { adFacts } from './facts';
 
 /**
@@ -90,6 +90,12 @@ export type PublicSearchQuery = {
   /** Disambiguates the suburb. There is a Richmond in four states. */
   state?: string;
   postcode?: string;
+  /**
+   * Several suburbs at once (ADR 0099): listings in ANY of them. Each one with
+   * a `near` also takes its surrounds, the same union as `suburb` + `near`.
+   * ORed with `suburb`/`near` above, so an old single-suburb query is unchanged.
+   */
+  places?: SearchPlace[];
   channel?: ListingChannel;
   /**
    * For sale these read price_from / price_to; for rent they read rent_pw.
@@ -102,6 +108,8 @@ export type PublicSearchQuery = {
   bathrooms?: number;
   carSpaces?: number;
   propertyType?: string;
+  /** Any of these types (the Filters panel's multi-pick). ANDed with `propertyType`. */
+  propertyTypes?: string[];
   /** Minimum land size in m², for buyers who care about the block. */
   landFrom?: number;
   /** A point and a radius. Requires the property to have been geocoded. */
@@ -111,6 +119,9 @@ export type PublicSearchQuery = {
   /** Rows to skip. Page N of a paged search is (N - 1) * limit. */
   offset?: number;
 };
+
+/** One suburb of a multi-suburb search, with its own resolved centre when a radius was asked for. */
+export type SearchPlace = { suburb: string; state?: string; postcode?: string; near?: Near };
 
 const num = (v: string | number | null): number | null => {
   if (v === null) return null;
@@ -313,6 +324,10 @@ function baseFilters(query: PublicSearchQuery): SQL[] {
       eq(sql`lower(coalesce(${adFacts.propertyType}, ''))`, query.propertyType.trim().toLowerCase()),
     );
   }
+  const types = (query.propertyTypes ?? []).map((t) => t.trim().toLowerCase()).filter(Boolean);
+  if (types.length) {
+    filters.push(inArray(sql`lower(coalesce(${adFacts.propertyType}, ''))`, types));
+  }
 
   if (isRental(query.channel)) {
     // One number per rental, so both bounds read the same column. A listing
@@ -359,21 +374,21 @@ function baseFilters(query: PublicSearchQuery): SQL[] {
 }
 
 /** Listings whose address is in this suburb, by name rather than by distance. */
-function suburbMatch(query: PublicSearchQuery): SQL | null {
-  const suburb = query.suburb?.trim();
+function suburbMatch(place: { suburb?: string; state?: string; postcode?: string }): SQL | null {
+  const suburb = place.suburb?.trim();
   if (!suburb) return null;
 
   const parts: SQL[] = [eq(sql`lower(${property.suburb})`, suburb.toLowerCase())];
   // There is a Richmond in NSW, VIC, QLD, SA and TAS. When the visitor picked
   // from the dropdown we know which one they meant, so we say so.
-  if (query.state) parts.push(eq(sql`upper(${property.state})`, query.state.trim().toUpperCase()));
-  if (query.postcode) parts.push(eq(property.postcode, query.postcode.trim()));
+  if (place.state) parts.push(eq(sql`upper(${property.state})`, place.state.trim().toUpperCase()));
+  if (place.postcode) parts.push(eq(property.postcode, place.postcode.trim()));
 
   return and(...parts)!;
 }
 
 /**
- * Where to look: the named suburb, the circle around it, or both.
+ * One place: the named suburb, the circle around it, or both.
  *
  * Both is the case that matters and the one that was wrong. "Pakenham" alone
  * means exactly Pakenham. "Pakenham within 10 km" means Pakenham **and** its
@@ -386,15 +401,23 @@ function suburbMatch(query: PublicSearchQuery): SQL | null {
  * property with no coordinates is invisible to ST_DWithin but still matches
  * its suburb by name.
  */
-function locationFilter(query: PublicSearchQuery): SQL | null {
-  const byName = suburbMatch(query);
+function placeFilter(place: { suburb?: string; state?: string; postcode?: string; near?: Near }): SQL | null {
+  const byName = suburbMatch(place);
+  if (!place.near) return byName;
 
-  if (!query.near) return byName;
-
-  const centre = sql`ST_SetSRID(ST_MakePoint(${query.near.lng}, ${query.near.lat}), 4326)::geography`;
-  const within = sql`ST_DWithin(${GEOM}, ${centre}, ${query.near.radiusKm * 1000})`;
+  const centre = sql`ST_SetSRID(ST_MakePoint(${place.near.lng}, ${place.near.lat}), 4326)::geography`;
+  const within = sql`ST_DWithin(${GEOM}, ${centre}, ${place.near.radiusKm * 1000})`;
 
   return byName ? or(byName, within)! : within;
+}
+
+/** Where to look: the single place, plus every one of `places`, ORed (ADR 0099). */
+function locationFilter(query: PublicSearchQuery): SQL | null {
+  const parts = [query, ...(query.places ?? []).slice(0, MAX_SEARCH_PLACES)]
+    .map(placeFilter)
+    .filter((p): p is SQL => p !== null);
+  if (parts.length <= 1) return parts[0] ?? null;
+  return or(...parts)!;
 }
 
 /**

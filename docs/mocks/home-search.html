@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Home search — mock</title>
+<style>
+  :root {
+    --canvas: #f8fafc; --card: #fff; --sunken: #f1f5f9;
+    --ink: #0f172a; --ink-soft: #475569; --ink-faint: #5f6b7d;
+    --line-subtle: #f1f5f9; --line: #e2e8f0; --line-strong: #cbd5e1;
+    --brand: #e11d48; --brand-deep: #be123c; --brand-soft: #fff1f2;
+    --info: #2563eb; --info-soft: #eff6ff; --ok: #047857; --ok-soft: #ecfdf5; --warn: #b45309; --warn-soft: #fffbeb;
+    --shadow: 0 12px 32px rgba(15, 23, 42, .14);
+    --font: Inter, "Segoe UI", system-ui, sans-serif;
+    --display: "Plus Jakarta Sans", Inter, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 15px/1.5 var(--font); }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  a { color: var(--info); text-decoration: none; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
+
+  /* mock chrome */
+  .mockbar { background: #0f172a; color: #e2e8f0; font-size: 13px; }
+  .mockbar .wrap { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding-top: 8px; padding-bottom: 8px; }
+  .mockbar b { margin-right: 8px; }
+  .mockbar a { color: #e2e8f0; padding: 3px 9px; border-radius: 999px; border: 1px solid #334155; }
+  .mockbar a.on { background: #e2e8f0; color: #0f172a; }
+
+  /* header */
+  header.site { background: #fff; border-bottom: 1px solid var(--line); }
+  header.site .wrap { display: flex; align-items: center; gap: 22px; height: 64px; }
+  .logo { display: flex; align-items: center; gap: 8px; font: 700 19px var(--display); color: var(--ink); }
+  .logo i { width: 26px; height: 26px; border-radius: 50%; background: var(--brand); display: grid; place-items: center; }
+  nav.main { display: flex; gap: 18px; font-size: 14px; font-weight: 500; }
+  nav.main a { color: var(--ink); }
+  .spacer { flex: 1; }
+  .join { background: var(--brand); color: #fff; border: 0; padding: 9px 18px; border-radius: 8px; font-weight: 600; }
+  @media (max-width: 860px) { nav.main { display: none; } }
+
+  /* hero */
+  .hero { margin-top: 18px; border-radius: 10px; min-height: 260px; position: relative; padding: 28px 16px 64px;
+    background:
+      radial-gradient(circle at 18% 30%, rgba(255,255,255,.08) 0 2px, transparent 3px) 0 0/38px 38px,
+      linear-gradient(115deg, #0b3954 0%, #12506b 32%, #3d6b3a 52%, #6f7d3b 68%, #8a6a3a 82%, #5b6b4a 100%); }
+  .hero h1 { margin: 0 0 16px; text-align: center; color: #fff; font: 700 18px var(--display); text-shadow: 0 1px 3px rgba(0,0,0,.4); }
+  .searchcard { position: relative; max-width: 600px; margin: 0 auto; background: #fff; border-radius: 10px; box-shadow: var(--shadow); padding: 0 12px 14px; z-index: 5; }
+  .tabs { display: flex; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .tabs button { flex: 1; min-width: 72px; background: none; border: 0; padding: 14px 6px 12px; color: var(--ink-soft); font-size: 14px; border-bottom: 2px solid transparent; white-space: nowrap; }
+  .tabs button.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--brand); }
+  .row { display: flex; gap: 8px; align-items: center; padding-top: 12px; }
+  .field { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: 8px; padding: 6px 8px; min-height: 44px; }
+  .field:focus-within { border-color: var(--line-strong); }
+  .field svg { flex: none; color: var(--ink-faint); }
+  .field input { flex: 1; min-width: 140px; border: 0; outline: 0; font: inherit; padding: 4px 2px; background: transparent; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; background: var(--sunken); border: 1px solid var(--line); border-radius: 999px; padding: 2px 6px 2px 10px; font-size: 13px; font-weight: 500; white-space: nowrap; }
+  .chip button { border: 0; background: none; width: 18px; height: 18px; line-height: 16px; border-radius: 50%; color: var(--ink-faint); padding: 0; }
+  .chip button:hover { background: var(--line); }
+  .btn { border: 1px solid var(--line-strong); background: #fff; border-radius: 999px; padding: 9px 16px; font-weight: 500; font-size: 14px; display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+  .btn.count { border-color: var(--ink); }
+  .go { background: var(--brand); color: #fff; border: 0; border-radius: 999px; padding: 10px 20px; font-weight: 600; font-size: 14px; }
+  .go:hover { background: var(--brand-deep); }
+  @media (max-width: 560px) { .row { flex-wrap: wrap; } .row .btn, .row .go { flex: 1; justify-content: center; } }
+
+  .distance { display: flex; gap: 8px; align-items: center; padding: 10px 8px 0; font-size: 13px; color: var(--ink-soft); flex-wrap: wrap; }
+  .distance select { font: inherit; font-size: 13px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line-strong); background: #fff; color: var(--ink); }
+
+  /* dropdown */
+  .drop { border-top: 1px solid var(--line-subtle); margin-top: 10px; padding: 10px 8px 4px; }
+  .drop h4 { margin: 4px 0 8px; font-size: 12px; font-weight: 600; color: var(--ink); }
+  .opt { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: none; border: 0; padding: 8px 6px; border-radius: 8px; }
+  .opt:hover, .opt.on { background: var(--sunken); }
+  .opt .ic { width: 30px; height: 30px; border-radius: 6px; background: var(--sunken); display: grid; place-items: center; flex: none; color: var(--ink-soft); font-size: 13px; }
+  .opt .main { flex: 1; }
+  .opt .sub { color: var(--ink-faint); font-size: 12px; }
+  .opt .kind { font-size: 11px; color: var(--ink-faint); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; }
+  .pills { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+  .pill { background: var(--sunken); border-radius: 999px; padding: 4px 12px; font-size: 13px; font-weight: 500; border: 1px solid var(--line); }
+  .hint { font-size: 12px; color: var(--ink-faint); padding: 4px 6px 6px; }
+  .understood { display: flex; gap: 6px; align-items: center; font-size: 12px; font-weight: 600; margin: 2px 0 8px; }
+  .notsupported { background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 8px 10px; font-size: 13px; margin: 4px 0 8px; }
+
+  /* ai toggle */
+  .aitoggle { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 4; }
+  .aitoggle > button { background: #fff; border: 0; border-radius: 999px; padding: 6px 12px 6px 6px; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.18); }
+  .beta { background: var(--sunken); border-radius: 999px; font-size: 11px; padding: 2px 8px; color: var(--ink-soft); }
+  .aimenu { position: absolute; top: 40px; left: 50%; transform: translateX(-50%); width: 300px; background: #fff; border-radius: 10px; box-shadow: var(--shadow); padding: 8px; }
+  .aimenu button { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 8px; padding: 10px; }
+  .aimenu button:hover, .aimenu button.on { background: var(--sunken); }
+  .aimenu small { display: block; color: var(--ink-faint); font-size: 12px; }
+
+  /* modal */
+  .scrim { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: none; align-items: flex-start; justify-content: center; z-index: 50; padding: 40px 16px; overflow: auto; }
+  .scrim.open { display: flex; }
+  .modal { background: #fff; border-radius: 12px; width: 100%; max-width: 560px; box-shadow: var(--shadow); }
+  .modal header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line); font-weight: 600; }
+  .modal header button { background: none; border: 0; font-size: 20px; }
+  .modal .body { padding: 6px 18px 12px; max-height: 65vh; overflow: auto; }
+  .modal section { padding: 14px 0; border-bottom: 1px solid var(--line-subtle); }
+  .modal section h5 { margin: 0 0 10px; font-size: 14px; }
+  .seg { display: flex; flex-wrap: wrap; gap: 8px; }
+  .seg button { border: 1px solid var(--line-strong); background: #fff; border-radius: 999px; padding: 6px 14px; font-size: 13px; }
+  .seg button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .two { display: flex; gap: 10px; }
+  .two select { flex: 1; font: inherit; padding: 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: #fff; }
+  .modal footer { display: flex; justify-content: space-between; padding: 12px 18px; border-top: 1px solid var(--line); }
+  .linkbtn { background: none; border: 0; text-decoration: underline; font-weight: 500; }
+
+  /* result preview */
+  .preview { max-width: 600px; margin: 14px auto 0; background: var(--info-soft); border: 1px solid #bfdbfe; border-radius: 10px; padding: 12px 14px; font-size: 13px; display: none; }
+  .preview.show { display: block; }
+  .preview code { display: block; margin-top: 6px; word-break: break-all; font-size: 12px; color: #1e3a8a; }
+
+  /* page sections */
+  h2 { font: 700 20px var(--display); margin: 36px 0 14px; }
+  .explore { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .tile { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+  .tile .art { height: 70px; border-radius: 8px; background: var(--brand-soft); display: grid; place-items: center; font-size: 30px; margin-bottom: 12px; }
+  .tile h3 { margin: 0 0 6px; font: 600 16px var(--display); }
+  .tile p { margin: 0 0 8px; color: var(--ink-soft); font-size: 14px; }
+  .listings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .lcard { background: #fff; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .lcard .ph { height: 130px; background: linear-gradient(135deg, #cbd5e1, #e2e8f0); }
+  .lcard .b { padding: 12px; font-size: 14px; }
+  .lcard .p { font-weight: 700; }
+  .muted { color: var(--ink-faint); font-size: 13px; }
+  @media (max-width: 760px) { .explore, .listings { grid-template-columns: 1fr; } }
+  .askai { position: fixed; right: 20px; bottom: 20px; background: #fff; border: 2px solid var(--brand); border-radius: 999px; padding: 10px 18px; font-weight: 600; box-shadow: var(--shadow); z-index: 20; }
+
+  /* tab results */
+  .tabresult { max-width: 600px; margin: 14px auto 0; display: none; }
+  .tabresult.show { display: block; }
+  .agent { display: flex; gap: 12px; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 8px; }
+  .avatar { width: 46px; height: 46px; border-radius: 50%; background: var(--sunken); display: grid; place-items: center; font-weight: 700; color: var(--ink-soft); }
+  .agent .stats { margin-left: auto; text-align: right; font-size: 13px; }
+
+  /* rules page */
+  .rules { max-width: 860px; margin: 24px auto 60px; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 22px 26px; }
+  .rules h1 { font: 700 22px var(--display); margin: 0 0 6px; }
+  .rules ol > li { margin: 14px 0; }
+  .rules .rec { display: inline-block; background: var(--ok-soft); color: var(--ok); font-size: 12px; font-weight: 600; border-radius: 4px; padding: 1px 7px; margin-left: 6px; }
+  .rules .alt { color: var(--ink-soft); font-size: 14px; }
+  .rules table { border-collapse: collapse; width: 100%; font-size: 14px; margin-top: 8px; }
+  .rules td, .rules th { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+  .page { display: none; } .page.show { display: block; }
+</style>
+</head>
+<body>
+
+<div class="mockbar"><div class="wrap">
+  <b>MOCK · home search</b>
+  <a href="#rules">#rules (decisions)</a>
+  <a href="#home">#home</a>
+  <a href="#typing">#typing (multi-suburb)</a>
+  <a href="#distance">#distance</a>
+  <a href="#filters">#filters</a>
+  <a href="#address">#address</a>
+  <a href="#agents">#agents</a>
+  <a href="#build">#build</a>
+  <a href="#ai">#ai</a>
+</div></div>
+
+<!-- ======================= DECISIONS ======================= -->
+<div class="page" id="p-rules">
+  <div class="rules">
+    <h1>Home page search: decisions</h1>
+    <p class="alt">Sample data. The look is our portal skin (slate and <code>#E11D48</code>), not another site's brand. Taken already (2026-11-24): all 6 tabs, the Filters panel is back, the AI toggle (On = guide, Off = normal search), mock first.</p>
+    <ol>
+      <li><b>Several suburbs in one search.</b> Each place you pick becomes a chip, up to <b>10</b>. Results = listings in ANY of them. <span class="rec">recommended</span>
+        <div class="alt">The URL gains a repeatable <code>loc=Pakenham|VIC|3810</code>. Old links, saved searches and alerts with a single <code>suburb=</code> keep working unchanged. A saved search and an alert can then hold several suburbs, which changes <code>packages/core</code> (search, saved search, alert matching) but needs no migration (saved queries are JSON).</div></li>
+      <li><b>Distance applies to every chosen suburb.</b> "Pakenham + Berwick, within 10 km" = both suburbs, plus anything within 10 km of either one. Options: <i>Only these suburbs</i> (default), 2, 5, 10, 20, 50 km. <span class="rec">recommended</span>
+        <div class="alt">Each suburb's centre still comes from the server (place_cache), never the browser, the same rule as today.</div></li>
+      <li><b>Typing "within 10 km of Pakenham" works without the AI.</b> A small parser in the box reads <code>within N km of</code> / <code>N km from</code> / <code>N km around</code>, sets the distance, and looks up the rest as the place. <span class="rec">recommended</span>
+        <div class="alt">"10 mins walk from" is <b>not</b> offered: we have no travel-time data, and a straight-line guess would be wrong. The box says so and offers the km version.</div></li>
+      <li><b>Recent searches are kept in the browser</b> (the last 5, on this device). <span class="rec">recommended</span>
+        <div class="alt">This keeps <code>/</code> a cached page (33 ms): reading a session would make it render per visitor. Saved searches for signed-in users are unchanged.</div></li>
+      <li><b>Address tab: pin-point.</b> Pick a street address. If we have that property, it opens its page (<code>/property/[id]</code>: history, sold and listed). If we don't, it shows homes for sale within 2 km of that point. <span class="rec">recommended</span></li>
+      <li><b>Agents tab: a new public page <code>/agents</code>.</b> Search by suburb (or agent or agency name). It lists agents of active agencies who have live or sold listings there. Every count comes from SQL: for sale now, sold in 12 months, median days on market. <span class="rec">recommended</span>
+        <div class="alt">It shows only what a listing already shows publicly (name, photo, agency, the listing phone). No ranking score. A blocked or removed member never appears. It needs a new core query and a permission test.</div></li>
+      <li><b>Build tab ("New homes").</b> We have no "new home" data today. Choose one:
+        <table>
+          <tr><th></th><th>What it shows</th><th>Cost</th></tr>
+          <tr><td><b>A</b> <span class="rec">recommended</span></td><td>A new tick on the listing form, "New home / house-and-land / off the plan" (<code>listing.is_new_build</code>). The Build tab shows only listings with that tick.</td><td>One additive column (dev first, production on your go), one checkbox in the console form</td></tr>
+          <tr><td><b>B</b></td><td>No new field. Build = land for sale + homes built in the last 2 years (<code>year_built</code>)</td><td>No migration, but it will show old homes with a wrong year and miss off-the-plan listings</td></tr>
+        </table></li>
+      <li><b>Filters panel:</b> property type (multi), price min/max (sale prices, or per week for Rent), bedrooms, bathrooms, car spaces. It writes the <b>same</b> URL parameters as today (<code>beds, baths, cars, type, priceFrom, priceTo</code>), so links and alerts don't break. The button shows how many are set ("Filters · 3").
+        <div class="alt">Several property types needs <code>type</code> to repeat in the URL. The saved query already stores <code>propertyTypes[]</code>.</div></li>
+      <li><b>AI toggle</b> under the box, default <b>Off</b>. On: the same box takes a sentence and opens the guide (<code>/chat?ask=…</code>), exactly as the current home box does. The floating "Ask AI" button bottom-right opens the guide too.</li>
+      <li><b>Below the box:</b> "Explore" tiles for pages we already have (Affordability, Suburb profiles, Recently sold), then the "Latest listings" grid as today. No news section: we have no news.</li>
+    </ol>
+    <p class="alt"><b>Order of building after approval:</b> (1) core: several suburbs + distance per suburb, with tests. (2) the home page box: tabs, chips, distance, filters, recent searches, AI toggle. (3) the same box on /search and /sold. (4) Address pin-point. (5) /agents. (6) Build (A or B). Each part goes on a dev branch; production in one go at the end, on your go.</p>
+  </div>
+</div>
+
+<!-- ======================= THE PAGE ======================= -->
+<div class="page" id="p-site">
+<header class="site"><div class="wrap">
+  <span class="logo"><i><svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M12 3 2 11h3v9h5v-6h4v6h5v-9h3z"/></svg></i>LocalAgentHub</span>
+  <nav class="main"><a href="#">Buy</a><a href="#">Rent</a><a href="#">Sold</a><a href="#">New homes</a><a href="#">Find agents</a><a href="#">Suburbs</a><a href="#">Affordability</a></nav>
+  <span class="spacer"></span>
+  <a href="#" style="color:var(--ink);font-weight:500">Sign in</a>
+  <button class="join">Join</button>
+</div></header>
+
+<div class="wrap">
+  <div class="hero">
+    <h1 id="heroTitle">Search properties for sale</h1>
+
+    <div class="searchcard" id="card">
+      <div class="tabs" role="tablist" id="tabs">
+        <button data-tab="buy" class="on">Buy</button>
+        <button data-tab="rent">Rent</button>
+        <button data-tab="build">Build</button>
+        <button data-tab="sold">Sold</button>
+        <button data-tab="address">Address</button>
+        <button data-tab="agents">Agents</button>
+      </div>
+
+      <form class="row" id="form" onsubmit="return submitSearch(event)">
+        <label class="field" id="field">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+          <span id="chips" style="display:contents"></span>
+          <input id="q" autocomplete="off" placeholder="Suburb, postcode or region — add as many as you like" />
+        </label>
+        <button type="button" class="btn" id="filtersBtn" onclick="openFilters()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+          <span id="filtersLabel">Filters</span>
+        </button>
+        <button class="go" type="submit" id="goBtn">Search</button>
+      </form>
+
+      <div class="distance" id="distanceRow">
+        <span>Distance:</span>
+        <select id="distance" onchange="state.radius=this.value; render()">
+          <option value="">Only these suburbs</option>
+          <option value="2">+ within 2 km</option>
+          <option value="5">+ within 5 km</option>
+          <option value="10">+ within 10 km</option>
+          <option value="20">+ within 20 km</option>
+          <option value="50">+ within 50 km</option>
+        </select>
+        <span id="distanceNote" class="muted"></span>
+      </div>
+
+      <div class="drop" id="drop" hidden></div>
+    </div>
+
+    <div class="aitoggle">
+      <button type="button" onclick="toggleAiMenu()"><span class="beta">Beta</span><span id="aiLabel">AI search: Off</span> ▾</button>
+      <div class="aimenu" id="aimenu" hidden>
+        <button data-ai="off" class="on" onclick="setAi(false)"><b>Off: normal search</b><small>Pick suburbs, distance and filters. Exact, instant.</small></button>
+        <button data-ai="on" onclick="setAi(true)"><b>On: ask the property guide</b><small>Describe it in a sentence. Prices and counts still come from live listings, never from the model.</small></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="preview" id="preview"></div>
+  <div class="tabresult" id="tabresult"></div>
+
+  <h2>Explore all things property</h2>
+  <div class="explore">
+    <div class="tile"><div class="art">🧮</div><h3>What can I afford?</h3><p>Repayments, stamp duty and cash upfront, from the rates we check.</p><a href="#">Open the calculator</a></div>
+    <div class="tile"><div class="art">📍</div><h3>Explore suburb profiles</h3><p>Prices, days on market and what's for sale, from live listings.</p><a href="#">Research suburbs</a></div>
+    <div class="tile"><div class="art">🏷️</div><h3>Recently sold</h3><p>What homes near you actually sold for.</p><a href="#">See sold homes</a></div>
+  </div>
+
+  <h2>Latest listings</h2>
+  <div class="listings">
+    <div class="lcard"><div class="ph"></div><div class="b"><div class="p">$780,000 – $830,000</div>12/1A Rogers Street, Pakenham VIC 3810<div class="muted">3 bed · 2 bath · 2 car · Townhouse</div></div></div>
+    <div class="lcard"><div class="ph"></div><div class="b"><div class="p">Auction</div>8 Henry Road, Berwick VIC 3806<div class="muted">4 bed · 2 bath · 2 car · House</div></div></div>
+    <div class="lcard"><div class="ph"></div><div class="b"><div class="p">$620 per week</div>5/22 Station St, Officer VIC 3809<div class="muted">2 bed · 1 bath · 1 car · Unit</div></div></div>
+  </div>
+  <div style="height:80px"></div>
+</div>
+<button class="askai" onclick="alert('Opens /chat (the property guide)')">✦ Ask AI</button>
+</div>
+
+<!-- filters modal -->
+<div class="scrim" id="scrim" onclick="if(event.target===this)closeFilters()">
+  <div class="modal" role="dialog" aria-label="Filters">
+    <header>Filters <button onclick="closeFilters()" aria-label="Close">×</button></header>
+    <div class="body">
+      <section><h5>Property type</h5><div class="seg" data-multi="type">
+        <button data-v="">All types</button><button data-v="house">House</button><button data-v="apartment">Apartment &amp; unit</button><button data-v="townhouse">Townhouse</button><button data-v="villa">Villa</button><button data-v="land">Land</button><button data-v="acreage">Acreage</button><button data-v="rural">Rural</button>
+      </div></section>
+      <section><h5 id="priceTitle">Price</h5><div class="two">
+        <select id="pmin"></select><select id="pmax"></select>
+      </div></section>
+      <section><h5>Bedrooms</h5><div class="seg" data-one="beds"><button data-v="">Any</button><button data-v="1">1+</button><button data-v="2">2+</button><button data-v="3">3+</button><button data-v="4">4+</button><button data-v="5">5+</button></div></section>
+      <section><h5>Bathrooms</h5><div class="seg" data-one="baths"><button data-v="">Any</button><button data-v="1">1+</button><button data-v="2">2+</button><button data-v="3">3+</button></div></section>
+      <section style="border:0"><h5>Car spaces</h5><div class="seg" data-one="cars"><button data-v="">Any</button><button data-v="1">1+</button><button data-v="2">2+</button><button data-v="3">3+</button></div></section>
+    </div>
+    <footer><button class="linkbtn" onclick="clearFilters()">Clear filters</button><button class="go" onclick="closeFilters(); submitSearch()">Search</button></footer>
+  </div>
+</div>
+
+<script>
+const PLACES = [
+  { label: 'Pakenham', st: 'VIC', pc: '3810', kind: 'Suburb' },
+  { label: 'Pakenham Upper', st: 'VIC', pc: '3810', kind: 'Suburb' },
+  { label: 'Berwick', st: 'VIC', pc: '3806', kind: 'Suburb' },
+  { label: 'Officer', st: 'VIC', pc: '3809', kind: 'Suburb' },
+  { label: 'Beaconsfield', st: 'VIC', pc: '3807', kind: 'Suburb' },
+  { label: 'Narre Warren', st: 'VIC', pc: '3805', kind: 'Suburb' },
+  { label: 'Cranbourne', st: 'VIC', pc: '3977', kind: 'Suburb' },
+  { label: 'Clyde', st: 'VIC', pc: '3978', kind: 'Suburb' },
+  { label: 'Townsville - Greater Region', st: 'QLD', pc: '', kind: 'Region' },
+  { label: 'Bondi', st: 'NSW', pc: '2026', kind: 'Suburb' },
+  { label: 'Bondi Beach', st: 'NSW', pc: '2026', kind: 'Suburb' },
+  { label: '3810', st: 'VIC', pc: '3810', kind: 'Postcode', sub: 'Pakenham, Pakenham Upper' },
+];
+const ADDRESSES = [
+  { label: '12/1A Rogers Street, Pakenham VIC 3810', known: true, note: 'For sale · $780k–$830k · sold 2019 for $512,000' },
+  { label: '14 Rogers Street, Pakenham VIC 3810', known: true, note: 'Sold Mar 2025 · $705,000' },
+  { label: '19 Rogers Street, Pakenham VIC 3810', known: false },
+  { label: 'Pakenham Railway Station, Pakenham VIC 3810', known: false, landmark: true },
+];
+const RECENT = [
+  { locs: [{ label: 'Pakenham', st: 'VIC', pc: '3810' }], radius: '' },
+  { locs: [{ label: 'Pakenham', st: 'VIC', pc: '3810' }, { label: 'Berwick', st: 'VIC', pc: '3806' }], radius: '10', filters: '3+ beds' },
+];
+const TITLES = { buy: 'Search properties for sale', rent: 'Search properties for rent', build: 'Search new homes and house-and-land', sold: 'Search recently sold properties', address: 'Find a property by its address', agents: 'Find a local agent' };
+const SALE_PRICES = ['Any', '$300k', '$400k', '$500k', '$600k', '$700k', '$800k', '$900k', '$1m', '$1.25m', '$1.5m', '$2m', '$3m'];
+const RENT_PRICES = ['Any', '$300 pw', '$400 pw', '$500 pw', '$600 pw', '$700 pw', '$800 pw', '$1,000 pw', '$1,500 pw'];
+
+const state = { tab: 'buy', locs: [], radius: '', ai: false, filters: { type: [], beds: '', baths: '', cars: '', pmin: 'Any', pmax: 'Any' }, active: -1 };
+const $ = (id) => document.getElementById(id);
+const q = $('q');
+
+function fmtLoc(l) { return [l.label, [l.st, l.pc].filter(Boolean).join(' ')].filter(Boolean).join(', '); }
+
+/* "within 10 km of Pakenham", "10km from berwick", "5 km around 3810" */
+function parseDistance(text) {
+  const m = text.match(/^\s*(?:within\s+)?(\d{1,3})\s*(?:km|kms|kilomet(?:er|re)s?)\s+(?:of|from|around|near)\s+(.+)$/i);
+  return m ? { km: m[1], rest: m[2] } : null;
+}
+function snapKm(km) { const opts = [2, 5, 10, 20, 50]; return String(opts.reduce((a, b) => Math.abs(b - km) < Math.abs(a - km) ? b : a)); }
+
+function render() {
+  $('heroTitle').textContent = state.ai ? 'Describe the home you want' : TITLES[state.tab];
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === state.tab));
+  const simple = state.tab === 'address' || state.tab === 'agents';
+  $('filtersBtn').style.display = simple || state.ai ? 'none' : '';
+  $('distanceRow').style.display = simple || state.ai ? 'none' : '';
+  $('chips').innerHTML = (simple || state.ai) ? '' : state.locs.map((l, i) => `<span class="chip">${fmtLoc(l)}<button type="button" aria-label="Remove ${l.label}" onclick="removeLoc(${i})">×</button></span>`).join('');
+  q.placeholder = state.ai ? 'e.g. a 3-bed family home near Berwick under $900k, close to a station'
+    : state.tab === 'address' ? 'Enter a street address, e.g. 14 Rogers Street, Pakenham'
+    : state.tab === 'agents' ? 'Suburb, postcode, or an agent or agency name'
+    : state.locs.length ? 'Add another suburb…' : 'Suburb, postcode or region — or "within 10 km of Pakenham"';
+  $('distance').value = state.radius;
+  $('distanceNote').textContent = state.radius && state.locs.length ? `each of ${state.locs.length === 1 ? 'the suburb' : 'the ' + state.locs.length + ' suburbs'} plus everything within ${state.radius} km` : '';
+  const n = countFilters();
+  $('filtersLabel').textContent = n ? `Filters · ${n}` : 'Filters';
+  $('filtersBtn').classList.toggle('count', n > 0);
+  $('aiLabel').textContent = state.ai ? 'AI search: On' : 'AI search: Off';
+  document.querySelectorAll('.aimenu button').forEach(b => b.classList.toggle('on', (b.dataset.ai === 'on') === state.ai));
+  $('goBtn').textContent = state.ai ? 'Ask the guide' : 'Search';
+}
+
+function countFilters() { const f = state.filters; return (f.type.length ? 1 : 0) + (f.beds ? 1 : 0) + (f.baths ? 1 : 0) + (f.cars ? 1 : 0) + (f.pmin !== 'Any' || f.pmax !== 'Any' ? 1 : 0); }
+
+function showDrop(html) { const d = $('drop'); d.innerHTML = html; d.hidden = !html; }
+
+function dropFor(text) {
+  const t = text.trim();
+  if (state.ai) return t ? '' : `<h4>Try asking</h4><div class="pills"><button class="pill" onclick="aiAsk(this.textContent)">Berwick is home — where should I look next?</button><button class="pill" onclick="aiAsk(this.textContent)">2-bed rental under $650 a week near Bondi</button></div>`;
+
+  if (state.tab === 'address') {
+    if (t.length < 3) return `<div class="hint">Type a street address. Picking one shows that property's page: its sales, its listings and what's around it.</div>`;
+    const hits = ADDRESSES.filter(a => a.label.toLowerCase().includes(t.toLowerCase()));
+    return hits.length ? `<h4>Addresses</h4>` + hits.map((a, i) => `<button type="button" class="opt" onclick="pickAddress(${ADDRESSES.indexOf(a)})"><span class="ic">${a.landmark ? '🚉' : '📍'}</span><span class="main">${a.label}<div class="sub">${a.known ? a.note : a.landmark ? 'A place, not a home: homes within 2 km of it' : 'No records yet: homes for sale within 2 km'}</div></span></button>`).join('') : `<div class="hint">No address found.</div>`;
+  }
+
+  if (state.tab === 'agents') {
+    if (t.length < 2) return `<div class="hint">Search a suburb to see the agents selling there, or type an agent's or agency's name.</div>`;
+    const hits = PLACES.filter(p => p.kind === 'Suburb' && p.label.toLowerCase().startsWith(t.toLowerCase()));
+    return `<h4>Suburbs</h4>` + hits.map(p => `<button type="button" class="opt" onclick="agentsIn('${p.label}')"><span class="ic">📍</span><span class="main">Agents in ${fmtLoc(p)}</span></button>`).join('') + `<h4>Agents &amp; agencies</h4><button type="button" class="opt" onclick="agentsIn('Pakenham')"><span class="ic">SA</span><span class="main">Sarah Ahmed<div class="sub">Alpha Realty Pakenham</div></span></button>`;
+  }
+
+  if (!t) {
+    return `<h4>Recent searches <span class="muted" style="font-weight:400">· on this device</span></h4>` +
+      RECENT.map((r, i) => `<button type="button" class="opt" onclick="useRecent(${i})"><span class="ic">🕘</span><span class="main">${r.locs.map(fmtLoc).join(' · ')}${r.radius ? `<div class="sub">+ within ${r.radius} km${r.filters ? ' · ' + r.filters : ''}</div>` : ''}</span><span>›</span></button>`).join('') +
+      `<div class="hint">Tip: type <b>within 10 km of Pakenham</b>, or pick several suburbs.</div>`;
+  }
+
+  if (/\bmins?\b.*\b(walk|drive)\b|\b(walk|drive)\b/i.test(t)) {
+    return `<div class="notsupported">Travel time ("10 mins walk") isn't something we can search yet: we don't have walking or driving times. Try <button type="button" class="linkbtn" onclick="q.value='within 2 km of Pakenham'; onType()">within 2 km of Pakenham</button>.</div>`;
+  }
+
+  const dist = parseDistance(t);
+  const needle = (dist ? dist.rest : t).toLowerCase();
+  const hits = PLACES.filter(p => p.label.toLowerCase().startsWith(needle) || (p.kind === 'Postcode' && p.pc.startsWith(needle))).filter(p => !state.locs.some(l => l.label === p.label));
+  let html = '';
+  if (dist && hits[0]) html += `<div class="understood">✦ We'll search for</div><div class="pills"><span class="pill">${fmtLoc(hits[0])}</span><span class="pill">+ within ${snapKm(+dist.km)} km</span></div>`;
+  html += hits.length ? hits.map((p, i) => `<button type="button" class="opt ${i === state.active ? 'on' : ''}" onclick="addLoc(${PLACES.indexOf(p)}, ${dist ? snapKm(+dist.km) : 'null'})"><span class="ic">${p.kind === 'Region' ? '🗺️' : p.kind === 'Postcode' ? '#' : '📍'}</span><span class="main">${fmtLoc(p)}${p.sub ? `<div class="sub">${p.sub}</div>` : ''}</span><span class="kind">${p.kind}</span></button>`).join('')
+    : `<div class="hint">No suburb starts with "${t}". Press Search to look for it as a keyword.</div>`;
+  if (state.locs.length >= 10) html = `<div class="notsupported">Up to 10 places in one search.</div>`;
+  return html;
+}
+
+function onType() { state.active = -1; showDrop(dropFor(q.value)); }
+q.addEventListener('input', onType);
+q.addEventListener('focus', onType);
+q.addEventListener('keydown', (e) => {
+  if (e.key === 'Backspace' && !q.value && state.locs.length) { state.locs.pop(); render(); onType(); }
+  if (e.key === 'Escape') showDrop('');
+});
+document.addEventListener('mousedown', (e) => { if (!$('card').contains(e.target)) showDrop(''); if (!e.target.closest('.aitoggle')) $('aimenu').hidden = true; });
+
+function addLoc(i, km) { state.locs.push(PLACES[i]); if (km) state.radius = String(km); q.value = ''; render(); onType(); q.focus(); }
+function removeLoc(i) { state.locs.splice(i, 1); render(); }
+function useRecent(i) { const r = RECENT[i]; state.locs = r.locs.map(l => ({ ...l, kind: 'Suburb' })); state.radius = r.radius; if (r.filters) state.filters.beds = '3'; render(); submitSearch(); }
+
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => { state.tab = b.dataset.tab; q.value = ''; hideResults(); render(); fillPrices(); showDrop(''); });
+
+function toggleAiMenu() { $('aimenu').hidden = !$('aimenu').hidden; }
+function setAi(on) { state.ai = on; $('aimenu').hidden = true; q.value = ''; hideResults(); render(); }
+function aiAsk(text) { preview(`<b>Opens the property guide</b> with your sentence, as the home box does today.<code>/chat?ask=${encodeURIComponent(text)}</code>`); }
+
+/* filters */
+function fillPrices() {
+  const list = state.tab === 'rent' ? RENT_PRICES : SALE_PRICES;
+  $('priceTitle').textContent = state.tab === 'rent' ? 'Price per week' : 'Price';
+  $('pmin').innerHTML = list.map(v => `<option>${v === 'Any' ? 'Min: Any' : v}</option>`).join('');
+  $('pmax').innerHTML = list.map(v => `<option>${v === 'Any' ? 'Max: Any' : v}</option>`).join('');
+}
+function openFilters() { $('scrim').classList.add('open'); syncSeg(); }
+function closeFilters() { const f = state.filters; f.pmin = $('pmin').value.replace('Min: ', ''); f.pmax = $('pmax').value.replace('Max: ', ''); $('scrim').classList.remove('open'); render(); }
+function clearFilters() { state.filters = { type: [], beds: '', baths: '', cars: '', pmin: 'Any', pmax: 'Any' }; $('pmin').selectedIndex = 0; $('pmax').selectedIndex = 0; syncSeg(); render(); }
+function syncSeg() {
+  document.querySelectorAll('[data-one]').forEach(s => s.querySelectorAll('button').forEach(b => b.classList.toggle('on', state.filters[s.dataset.one] === b.dataset.v)));
+  document.querySelectorAll('[data-multi]').forEach(s => s.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v ? state.filters.type.includes(b.dataset.v) : !state.filters.type.length)));
+}
+document.querySelectorAll('[data-one] button').forEach(b => b.onclick = () => { state.filters[b.parentElement.dataset.one] = b.dataset.v; syncSeg(); });
+document.querySelectorAll('[data-multi] button').forEach(b => b.onclick = () => {
+  const t = state.filters.type, v = b.dataset.v;
+  if (!v) t.length = 0; else if (t.includes(v)) t.splice(t.indexOf(v), 1); else t.push(v);
+  syncSeg();
+});
+
+/* results */
+function preview(html) { const p = $('preview'); p.innerHTML = html; p.classList.add('show'); }
+function hideResults() { $('preview').classList.remove('show'); $('tabresult').classList.remove('show'); }
+function submitSearch(e) {
+  if (e) e.preventDefault();
+  showDrop('');
+  if (state.ai) return aiAsk(q.value || 'A family home near Berwick under $900k'), false;
+  if (state.tab === 'address') { const hit = ADDRESSES.find(a => a.label.toLowerCase().includes(q.value.trim().toLowerCase())); if (hit && q.value.trim()) pickAddress(ADDRESSES.indexOf(hit)); return false; }
+  if (state.tab === 'agents') { agentsIn(q.value.trim() || 'Pakenham'); return false; }
+  const dist = parseDistance(q.value);
+  if (dist) { const p = PLACES.find(p => p.label.toLowerCase().startsWith(dist.rest.toLowerCase())); if (p) { state.locs.push(p); state.radius = snapKm(+dist.km); q.value = ''; render(); } }
+  const f = state.filters, url = new URLSearchParams();
+  const path = { buy: '/search', rent: '/search', build: '/search', sold: '/sold' }[state.tab];
+  if (state.tab === 'buy' || state.tab === 'build') url.append('channel', 'sale');
+  if (state.tab === 'rent') url.append('channel', 'rent');
+  if (state.tab === 'build') url.append('new', '1');
+  state.locs.forEach(l => url.append('loc', [l.label, l.st, l.pc].join('|')));
+  if (state.radius && state.locs.length) url.append('radius', state.radius);
+  if (!state.locs.length && q.value.trim()) url.append('q', q.value.trim());
+  f.type.forEach(t => url.append('type', t));
+  if (f.beds) url.append('beds', f.beds); if (f.baths) url.append('baths', f.baths); if (f.cars) url.append('cars', f.cars);
+  if (f.pmin !== 'Any') url.append('priceFrom', f.pmin); if (f.pmax !== 'Any') url.append('priceTo', f.pmax);
+  const what = { buy: 'For sale', rent: 'For rent', build: 'New homes', sold: 'Sold' }[state.tab];
+  const where = state.locs.length ? ' in ' + state.locs.map(l => l.label).join(', ') + (state.radius ? ` and within ${state.radius} km of each` : '') : q.value.trim() ? ` matching "${q.value.trim()}"` : ' everywhere';
+  const extra = [f.type.length ? f.type.join('/') : '', f.beds && f.beds + '+ beds', f.baths && f.baths + '+ baths', f.cars && f.cars + '+ cars', (f.pmin !== 'Any' || f.pmax !== 'Any') && `${f.pmin === 'Any' ? '' : f.pmin}–${f.pmax === 'Any' ? '' : f.pmax}`].filter(Boolean).join(' · ');
+  preview(`<b>Results page heading:</b> ${what}${where}${extra ? ' · ' + extra : ''}<br><span class="muted">Saved to recent searches on this device.</span><code>${path}?${decodeURIComponent(url.toString())}</code>`);
+  return false;
+}
+function pickAddress(i) {
+  const a = ADDRESSES[i]; q.value = a.label; showDrop('');
+  const r = $('tabresult'); r.classList.add('show'); $('preview').classList.remove('show');
+  r.innerHTML = a.known
+    ? `<div class="agent"><span class="avatar">🏠</span><div><b>${a.label}</b><div class="muted">${a.note}</div></div><div class="stats"><a href="#">Open property page ›</a><div class="muted">/property/[id]</div></div></div>`
+    : `<div class="agent"><span class="avatar">📍</span><div><b>${a.label}</b><div class="muted">${a.landmark ? 'A place, not a home.' : 'We have no records for this address yet.'} Showing homes for sale within 2 km.</div></div><div class="stats"><a href="#">See 14 homes ›</a><div class="muted">/search?lat=…&lng=…&radius=2</div></div></div>`;
+}
+function agentsIn(where) {
+  showDrop(''); $('preview').classList.remove('show');
+  const r = $('tabresult'); r.classList.add('show');
+  const rows = [['SA', 'Sarah Ahmed', 'Alpha Realty Pakenham', 7, 23, 28], ['JT', 'James Tran', 'Southeast Property Group', 4, 31, 22], ['MK', 'Mia Kelly', 'Berwick & Co', 2, 12, 35]];
+  r.innerHTML = `<p class="muted" style="margin:0 0 8px">Agents with listings in <b>${where}</b> · opens <code>/agents?suburb=${where}</code> · counts from listings, never a score</p>` + rows.map(a => `<div class="agent"><span class="avatar">${a[0]}</span><div><b>${a[1]}</b><div class="muted">${a[2]}</div></div><div class="stats"><b>${a[3]}</b> for sale · <b>${a[4]}</b> sold (12 mo)<div class="muted">median ${a[5]} days on market</div></div></div>`).join('');
+}
+
+/* hash states for review */
+function route() {
+  const h = location.hash.replace('#', '') || 'rules';
+  document.querySelectorAll('.mockbar a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + h));
+  $('p-rules').classList.toggle('show', h === 'rules');
+  $('p-site').classList.toggle('show', h !== 'rules');
+  Object.assign(state, { tab: 'buy', locs: [], radius: '', ai: false, active: -1 });
+  state.filters = { type: [], beds: '', baths: '', cars: '', pmin: 'Any', pmax: 'Any' };
+  q.value = ''; hideResults(); showDrop(''); $('scrim').classList.remove('open');
+  fillPrices(); render();
+  if (h === 'home') { q.focus(); onType(); }
+  if (h === 'typing') { state.locs = [PLACES[0]]; render(); q.value = 'Town'; q.focus(); onType(); }
+  if (h === 'distance') { q.value = 'within 10 km of Pak'; q.focus(); onType(); }
+  if (h === 'filters') { state.locs = [PLACES[0], PLACES[2]]; state.filters.beds = '3'; state.filters.type = ['house', 'townhouse']; render(); openFilters(); }
+  if (h === 'address') { state.tab = 'address'; render(); q.value = 'Rogers'; q.focus(); onType(); }
+  if (h === 'agents') { state.tab = 'agents'; render(); q.value = 'Pakenham'; agentsIn('Pakenham'); }
+  if (h === 'build') { state.tab = 'build'; state.locs = [PLACES[3], PLACES[7]]; render(); }
+  if (h === 'ai') { setAi(true); q.focus(); onType(); }
+}
+window.addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>

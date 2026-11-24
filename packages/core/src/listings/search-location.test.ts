@@ -213,3 +213,66 @@ describe('paging', () => {
     expect(render(total)).toContain('count(*) over()');
   });
 });
+
+/** ADR 0099: several suburbs in one search, each with its own surrounds. */
+describe('several places', () => {
+  const BERWICK = { suburb: 'Berwick', state: 'VIC', postcode: '3806' };
+  const BERWICK_CENTRE = { lat: -38.0333, lng: 145.35, radiusKm: 10 };
+
+  it('matches listings in ANY of the places, not all of them', async () => {
+    const { db, sql } = capturingDb();
+    await searchPublicListings(db, { places: [PAKENHAM, BERWICK] });
+    const text = sql();
+
+    expect(text).toContain('pakenham');
+    expect(text).toContain('berwick');
+    // The two suburb matches are ORed. ANDing them would match nothing: no
+    // address is in two suburbs.
+    expect(text).toMatch(/"postcode" = \$\d+\) or \(lower\("property"\."suburb"\)/);
+    expect(text).not.toContain('st_dwithin');
+  });
+
+  it('draws one circle per place when each has a centre', async () => {
+    const { db, sql } = capturingDb();
+    await searchPublicListings(db, {
+      places: [
+        { ...PAKENHAM, near: CENTRE },
+        { ...BERWICK, near: BERWICK_CENTRE },
+      ],
+    });
+    const text = sql();
+
+    expect(text.match(/st_dwithin/g)?.length).toBe(2);
+    expect(text).toContain('145.35');
+    expect(text).toContain('145.4842');
+  });
+
+  it('keeps a single suburb as before and adds the places beside it', async () => {
+    const { db, sql } = capturingDb();
+    await searchPublicListings(db, { ...PAKENHAM, places: [BERWICK] });
+    const text = sql();
+
+    expect(text).toContain('pakenham');
+    expect(text).toContain('berwick');
+  });
+
+  it('never searches more than ten places, whatever the caller passes', async () => {
+    const { db, sql } = capturingDb();
+    const many = Array.from({ length: 15 }, (_, i) => ({ suburb: `Place${i}` }));
+    await searchPublicListings(db, { places: many });
+    const text = sql();
+
+    expect(text).toContain('place9');
+    expect(text).not.toContain('place10');
+  });
+
+  it('matches any of several property types', async () => {
+    const { db, sql } = capturingDb();
+    await searchPublicListings(db, { propertyTypes: ['house', 'Townhouse'] });
+    const text = sql();
+
+    expect(text).toContain(' in (');
+    expect(text).toContain('"house"');
+    expect(text).toContain('"townhouse"');
+  });
+});
