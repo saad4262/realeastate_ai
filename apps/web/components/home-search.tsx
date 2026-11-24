@@ -127,8 +127,7 @@ export function HomeSearch({
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   const isPlaceTab = tab === 'buy' || tab === 'rent' || tab === 'build' || tab === 'sold';
-  // shortcut: /sold searches one suburb (recent-sales has no `places` yet); lift when it does.
-  const maxChips = tab === 'sold' ? 1 : MAX_SEARCH_PLACES;
+  const maxChips = MAX_SEARCH_PLACES;
   const phrase = parseDistancePhrase(text);
   const travelTime = !ai && isPlaceTab && asksForTravelTime(text);
   const lookup = (phrase ? phrase.place : text).trim();
@@ -176,7 +175,8 @@ export function HomeSearch({
     setTab(next);
     setText('');
     setSuggestions([]);
-    if (next === 'sold') setChips((c) => c.slice(0, 1));
+    // /sold names suburbs only, so a region or address point does not carry over.
+    if (next === 'sold') setPoint(null);
     if (next === 'address' || next === 'agents') {
       setPoint(null);
       setRadius('');
@@ -288,14 +288,7 @@ export function HomeSearch({
     if (tab === 'rent') params.set('channel', 'rent');
     if (tab === 'build') params.set('new', '1');
 
-    if (tab === 'sold' && chips[0]) {
-      // /sold reads the single-suburb vocabulary.
-      params.set('suburb', chips[0].suburb);
-      if (chips[0].state) params.set('state', chips[0].state);
-      if (chips[0].postcode) params.set('postcode', chips[0].postcode);
-    } else {
-      for (const c of chips) params.append('loc', formatLoc(c));
-    }
+    for (const c of chips) params.append('loc', formatLoc(c));
     if (point) {
       params.set('lat', point.lat.toFixed(6));
       params.set('lng', point.lng.toFixed(6));
@@ -571,9 +564,7 @@ export function HomeSearch({
                   ? "Type a street address to see that property: what it sold for, and what's listed."
                   : tab === 'agents'
                     ? 'Search a suburb to see the agents selling there.'
-                    : tab === 'sold'
-                      ? 'Search one suburb to see what sold there.'
-                      : 'Pick as many suburbs as you like, or type "within 10 km of Pakenham".'}
+                    : 'Pick as many suburbs as you like, or type "within 10 km of Pakenham".'}
               </p>
             ) : null}
           </div>

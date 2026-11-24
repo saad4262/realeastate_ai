@@ -2462,7 +2462,8 @@ Mock: `docs/mocks/home-search.html`. Public site, signed out unless said.
 | CZ7 | Type "10 mins walk from Pakenham" | The amber note; its button rewrites the box to "within 2 km of Pakenham" |
 | CZ8 | Filters: House + Townhouse, 3+ beds, price max | Button reads "Filters · 3"; the URL has `type=house&type=townhouse&beds=3&priceTo=…`; Rent tab shows per-week prices |
 | CZ9 | Save that search signed in, then open Alerts | The alert's name lists every suburb and both types |
-| CZ10 | Sold tab | One suburb only; goes to `/sold?suburb=…` |
+| CZ10 | Sold tab: pick Richmond VIC and Glenelg SA, Search | `/sold?loc=…&loc=…`; heading "Recently sold properties in Richmond or Glenelg"; sales from both; page 2 and the sorts keep both |
+| CZ20 | `/search` with two suburbs picked | "Other suburbs" in the sidebar never lists either of them |
 | CZ11 | Address tab: an address with a past public listing | Opens its property page (or the live ad) |
 | CZ12 | Address tab: an address we have never seen | Homes for sale within 2 km of it |
 | CZ13 | Address tab: an address whose only listing is a DRAFT | Never its property page: the 2 km search |

@@ -521,6 +521,7 @@ export default async function SearchPage({
                     state={state}
                     channel={query.channel}
                     near={near}
+                    exclude={names}
                   />
                 </Suspense>
 

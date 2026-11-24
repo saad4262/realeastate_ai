@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gte, isNotNull, or, sql, type SQL } from 'drizzle-orm';
 import { agency, listing, property, type Db } from '@repo/db';
-import { formatAddress } from './listing-schema';
+import { formatAddress, MAX_SEARCH_PLACES } from './listing-schema';
 import type { Near } from '../geo/place-schema';
 import { adFacts } from './facts';
 
@@ -83,6 +83,11 @@ export type RecentSalesQuery = {
   suburb?: string;
   state?: string;
   near?: Near;
+  /**
+   * Several suburbs (ADR 0099), as on /search: sales in ANY of them, each with
+   * a `near` also taking its circle. ORed with `suburb`/`near` above.
+   */
+  places?: { suburb: string; state?: string; postcode?: string; near?: Near }[];
   /** Only sales on or after this date. */
   since?: Date;
   bedrooms?: number;
@@ -165,15 +170,26 @@ export async function recentSales(db: Db, query: RecentSalesQuery): Promise<Rece
   if (query.propertyType) {
     filters.push(sql`lower(${adFacts.propertyType}) = lower(${query.propertyType})`);
   }
-  if (centre) {
-    // geom is the generated geography column, GiST-indexed (migration 0006).
-    // A property with no pin cannot be placed and is near nothing, so it drops
-    // out of the circle rather than appearing at distance zero.
-    const inCircle = sql`ST_DWithin(${sql.raw('property.geom')}, ${centre}, ${query.near!.radiusKm * 1000})`;
-    filters.push(inSuburb ? (or(inSuburb, inCircle) as SQL) : inCircle);
-  } else if (inSuburb) {
-    filters.push(inSuburb);
-  }
+  // geom is the generated geography column, GiST-indexed (migration 0006).
+  // A property with no pin cannot be placed and is near nothing, so it drops
+  // out of the circle rather than appearing at distance zero.
+  const circle = (near: Near) =>
+    sql`ST_DWithin(${sql.raw('property.geom')}, ST_SetSRID(ST_MakePoint(${near.lng}, ${near.lat}), 4326)::geography, ${near.radiusKm * 1000})`;
+  const here: SQL | undefined = centre
+    ? inSuburb
+      ? (or(inSuburb, circle(query.near!)) as SQL)
+      : circle(query.near!)
+    : inSuburb;
+  const there = (query.places ?? []).slice(0, MAX_SEARCH_PLACES).map((p) => {
+    const byName = and(
+      sql`lower(${property.suburb}) = lower(${p.suburb})`,
+      p.state ? sql`upper(${property.state}) = upper(${p.state})` : undefined,
+      p.postcode ? sql`${property.postcode} = ${p.postcode}` : undefined,
+    ) as SQL;
+    return p.near ? (or(byName, circle(p.near)) as SQL) : byName;
+  });
+  const where = [here, ...there].filter((w): w is SQL => w !== undefined);
+  if (where.length) filters.push(where.length === 1 ? where[0]! : (or(...where) as SQL));
 
   const limit = Math.min(Math.max(query.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
 

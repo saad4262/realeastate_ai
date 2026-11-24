@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, ne, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { agency, listing, listingAgent, membership, property, type Db } from '@repo/db';
 import type { Near } from '../geo/place-schema';
 import type { ListingChannel } from './listing-schema';
@@ -140,7 +140,11 @@ export async function topSuburbAgents(
  */
 export async function nearbySuburbs(
   db: Db,
-  scope: Scope & { near?: Near } = {},
+  scope: Scope & {
+    near?: Near;
+    /** ADR 0099: the suburbs already in the search; a suggestion is somewhere else. */
+    exclude?: string[];
+  } = {},
 ): Promise<PublicNearbySuburb[]> {
   const listings = sql<string>`count(distinct ${listing.id})`;
 
@@ -156,6 +160,8 @@ export async function nearbySuburbs(
   if (scope.suburb) {
     filters.push(sql`lower(${property.suburb}) <> lower(${scope.suburb})`);
   }
+  const exclude = (scope.exclude ?? []).map((s) => s.trim().toLowerCase()).filter(Boolean);
+  if (exclude.length) filters.push(notInArray(sql`lower(${property.suburb})`, exclude));
 
   const rows = await db
     .select({
