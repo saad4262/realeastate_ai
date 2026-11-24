@@ -8,7 +8,7 @@ import { WebShell } from '../../components/web-shell';
 import { SoldResultRow } from '../../components/sold-row';
 import { ResultsMap } from '../../components/results-map';
 import { NotConnectedPanel, Panel } from '../search/sidebar';
-import { SearchBar } from '../../components/search-bar';
+import { ResultsSearch } from '../../components/results-search';
 import { SearchBarSkeleton } from '../../components/skeletons';
 import { Refreshing, SortBar, SortingProvider } from '../search/sorting';
 import type { RecentSalesSort } from '@repo/core/listings';
@@ -236,7 +236,7 @@ export default async function SoldPage({
 
           {/* The same box /search has, searching sales instead of listings. */}
           <Suspense fallback={<SearchBarSkeleton />}>
-            <SearchBar action="/sold" />
+            <ResultsSearch sold />
           </Suspense>
 
           <h1 className="pt-lg text-headline-xl font-display text-ink">

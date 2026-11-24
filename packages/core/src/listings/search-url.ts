@@ -18,7 +18,7 @@ import type { PublicSearchQuery } from './search-listings';
  * filter the visitor watched the chat apply disappears on the way.
  *
  * Three things now write this vocabulary: apps/web/app/search/page.tsx parses
- * it, apps/web/components/search-bar.tsx builds it, and this builds it again.
+ * it, apps/web/components/home-search.tsx builds it, and this builds it again.
  * That is one too many, and this constant exists so the drift is findable when
  * somebody comes to fix it.
  */

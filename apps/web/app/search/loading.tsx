@@ -6,7 +6,7 @@ import { ResultListSkeleton, PanelSkeleton, SearchBarSkeleton, Bar } from '../..
  * Only ever seen on a COLD arrival at /search — from the home page, or a
  * pasted link.
  *
- * Searching from the search page does not reach this: SearchBar pushes inside
+ * Searching from the search page does not reach this: The search box pushes inside
  * a useTransition, and a transition suppresses loading.tsx by design. That is
  * the better behaviour there — the box stays on screen with its own spinner in
  * the button, and the keyed Suspense boundaries swap only the results. The two

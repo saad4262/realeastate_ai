@@ -13,6 +13,18 @@
     linear-gradient(115deg, #0b3954 0%, #12506b 34%, #2f5d46 55%, #5d6b3c 72%, #6b5a3a 86%, #3f4f3c 100%);
 }
 
+.bar {
+  position: relative;
+}
+
+.bar .card {
+  max-width: none;
+  margin: 0;
+  padding-top: 0.1rem;
+  border: 1px solid var(--color-line, #e2e8f0);
+  box-shadow: var(--shadow-card, 0 1px 2px rgb(15 23 42 / 0.06));
+}
+
 .title {
   margin: 0 0 1rem;
   text-align: center;
@@ -442,12 +454,16 @@ button.pill {
 }
 
 .group legend {
+  /* Floated so the legend sits in the flow, not on the fieldset's border. */
+  float: left;
+  width: 100%;
   padding: 0 0 0.6rem;
   font-size: 0.875rem;
   font-weight: 600;
 }
 
 .seg {
+  clear: both;
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
@@ -471,6 +487,7 @@ button.pill {
 }
 
 .two {
+  clear: both;
   display: flex;
   gap: 0.6rem;
 }
@@ -488,6 +505,10 @@ button.pill {
 @media (max-width: 560px) {
   .row {
     flex-wrap: wrap;
+  }
+
+  .field {
+    flex-basis: 100%;
   }
 
   .row .filters,

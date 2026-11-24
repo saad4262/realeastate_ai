@@ -26,7 +26,7 @@ import styles from './home-search.module.css';
  * lives in packages/core and the results page, not here.
  */
 
-type Tab = 'buy' | 'rent' | 'build' | 'sold' | 'address' | 'agents';
+export type Tab = 'buy' | 'rent' | 'build' | 'sold' | 'address' | 'agents';
 
 const TABS: { id: Tab; label: string; title: string }[] = [
   { id: 'buy', label: 'Buy', title: 'Search properties for sale' },
@@ -37,10 +37,10 @@ const TABS: { id: Tab; label: string; title: string }[] = [
   { id: 'agents', label: 'Agents', title: 'Find a local agent' },
 ];
 
-type Chip = PlaceRef & { label: string };
+export type Chip = PlaceRef & { label: string };
 /** A region or a street address: a point with a circle, never a chip beside suburbs. */
-type Point = { label: string; lat: number; lng: number };
-type Filters = {
+export type Point = { label: string; lat: number; lng: number };
+export type Filters = {
   types: string[];
   beds: string;
   baths: string;
@@ -50,7 +50,7 @@ type Filters = {
 };
 type Recent = { label: string; detail: string; href: string };
 
-const NO_FILTERS: Filters = { types: [], beds: '', baths: '', cars: '', priceFrom: '', priceTo: '' };
+export const NO_FILTERS: Filters = { types: [], beds: '', baths: '', cars: '', priceFrom: '', priceTo: '' };
 const SALE_PRICES = [200_000, 300_000, 400_000, 500_000, 600_000, 700_000, 800_000, 900_000, 1_000_000, 1_250_000, 1_500_000, 2_000_000, 3_000_000, 5_000_000];
 const RENT_PRICES = [150, 200, 300, 400, 500, 600, 700, 800, 1000, 1500, 2000];
 const TYPE_LABELS: Record<string, string> = {
@@ -84,17 +84,39 @@ function saveRecent(entry: Recent) {
   }
 }
 
-export function HomeSearch({ starters }: { starters: readonly string[] }) {
+/** The box's starting state; the results pages fill it from their URL (results-search.tsx). */
+export type SearchStart = {
+  tab: Tab;
+  text: string;
+  chips: Chip[];
+  point: Point | null;
+  radius: string;
+  filters: Filters;
+  /** Carried to the next search, not shown: the results page's own order. */
+  sort?: string;
+};
+
+export function HomeSearch({
+  starters = [],
+  variant = 'hero',
+  start,
+}: {
+  starters?: readonly string[];
+  /** `bar`: the box above /search and /sold results — no hero, title, tabs or AI toggle. */
+  variant?: 'hero' | 'bar';
+  start?: SearchStart;
+}) {
   const router = useRouter();
   const id = useId();
-  const [tab, setTab] = useState<Tab>('buy');
+  const bar = variant === 'bar';
+  const [tab, setTab] = useState<Tab>(start?.tab ?? 'buy');
   const [ai, setAi] = useState(false);
   const [aiMenu, setAiMenu] = useState(false);
-  const [text, setText] = useState('');
-  const [chips, setChips] = useState<Chip[]>([]);
-  const [point, setPoint] = useState<Point | null>(null);
-  const [radius, setRadius] = useState('');
-  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
+  const [text, setText] = useState(start?.text ?? '');
+  const [chips, setChips] = useState<Chip[]>(start?.chips ?? []);
+  const [point, setPoint] = useState<Point | null>(start?.point ?? null);
+  const [radius, setRadius] = useState(start?.radius ?? '');
+  const [filters, setFilters] = useState<Filters>(start?.filters ?? NO_FILTERS);
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
@@ -221,7 +243,8 @@ export function HomeSearch({ starters }: { starters: readonly string[] }) {
       setChips((c) =>
         c.some((x) => formatLoc(x) === formatLoc(chip)) || c.length >= maxChips ? c : [...c, chip],
       );
-    } else if (place) {
+    } else if (place && tab !== 'sold') {
+      // /sold names suburbs only: it never takes coordinates from a URL.
       setChips([]);
       setPoint({ label: s.label, lat: place.latitude, lng: place.longitude });
       if (!typedKm) setRadius(String(DEFAULT_RADIUS_KM[place.kind]));
@@ -286,6 +309,7 @@ export function HomeSearch({ starters }: { starters: readonly string[] }) {
     if (filters.cars) params.set('cars', filters.cars);
     if (filters.priceFrom) params.set('priceFrom', filters.priceFrom);
     if (filters.priceTo) params.set('priceTo', filters.priceTo);
+    if (start?.sort) params.set('sort', start.sort);
 
     const where = point ? [point.label] : chips.map((c) => c.label);
     const detail = [
@@ -333,17 +357,17 @@ export function HomeSearch({ starters }: { starters: readonly string[] }) {
           ? chips.length >= maxChips
             ? ''
             : 'Add another suburb'
-          : 'Suburb, postcode or region, or "within 10 km of Pakenham"';
+          : 'Search suburb, postcode or region';
   const listId = `${id}-list`;
   const showDistance = !ai && isPlaceTab && (chips.length > 0 || point !== null);
   const typedPlaceAfterFrom = text.split(/\bfrom\b/i)[1]?.trim();
 
   return (
-    <div className={styles.wrap} ref={boxRef}>
-      <h1 className={styles.title}>{title}</h1>
+    <div className={bar ? styles.bar : styles.wrap} ref={boxRef}>
+      {bar ? null : <h1 className={styles.title}>{title}</h1>}
 
       <div className={styles.card}>
-        {!ai ? (
+        {!ai && !bar ? (
           <div className={styles.tabs} role="tablist" aria-label="What are you searching for">
             {TABS.map((t) => (
               <button
@@ -436,7 +460,10 @@ export function HomeSearch({ starters }: { starters: readonly string[] }) {
             <label htmlFor={`${id}-km`}>Distance</label>
             <select id={`${id}-km`} value={radius} onChange={(e) => setRadius(e.target.value)}>
               <option value="">{point ? 'Around this place' : 'Only these suburbs'}</option>
-              {DISTANCE_STEPS_KM.map((km) => (
+              {[...new Set([...DISTANCE_STEPS_KM, ...(radius ? [Number(radius)] : [])])]
+                .filter((km) => km > 0)
+                .sort((a, b) => a - b)
+                .map((km) => (
                 <option key={km} value={km}>
                   + within {km} km
                 </option>
@@ -553,6 +580,7 @@ export function HomeSearch({ starters }: { starters: readonly string[] }) {
         ) : null}
       </div>
 
+      {bar ? null : (
       <div className={styles.aiWrap}>
         <button
           type="button"
@@ -590,6 +618,7 @@ export function HomeSearch({ starters }: { starters: readonly string[] }) {
           </div>
         ) : null}
       </div>
+      )}
 
       <dialog ref={dialogRef} className={styles.dialog} aria-label="Filters">
         <form method="dialog">
@@ -639,7 +668,9 @@ export function HomeSearch({ starters }: { starters: readonly string[] }) {
                     onChange={(e) => setFilters((f) => ({ ...f, [key]: e.target.value }))}
                   >
                     <option value="">{key === 'priceFrom' ? 'Min: Any' : 'Max: Any'}</option>
-                    {(perWeek ? RENT_PRICES : SALE_PRICES).map((n) => (
+                    {[...new Set([...(perWeek ? RENT_PRICES : SALE_PRICES), ...(filters[key] ? [Number(filters[key])] : [])])]
+                      .sort((a, b) => a - b)
+                      .map((n) => (
                       <option key={n} value={n}>
                         {money(n, perWeek)}
                       </option>

@@ -11,7 +11,7 @@ export function Bar({ w = '100%', h = '1rem' }: { w?: string; h?: string }) {
 /**
  * The search bar's footprint.
  *
- * SearchBar reads useSearchParams, which forces a Suspense boundary around it.
+ * The search box reads useSearchParams, which forces a Suspense boundary around it.
  * That fallback used to be `null`, so the hero collapsed and then reflowed
  * once the bar hydrated — a layout shift on the two most-visited pages.
  */

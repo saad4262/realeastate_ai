@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 import type { ListingChannel, PublicSearchQuery, SearchSort } from '@repo/core/listings';
 import { nearSchema } from '@repo/core/geo/schema';
 import { WebShell } from '../../components/web-shell';
-import { SearchBar } from '../../components/search-bar';
+import { ResultsSearch } from '../../components/results-search';
 import { SearchBarSkeleton, ResultListSkeleton, PanelSkeleton } from '../../components/skeletons';
 import { ResultsList, ResultsSummary } from './results';
 import { Refreshing, SortBar, SortingProvider } from './sorting';
@@ -424,11 +424,9 @@ export default async function SearchPage({
             it.
           */}
             <div className="py-md">
-              {/* Still inside a boundary: SearchBar reads useSearchParams, which
-                requires one. It no longer waits on a database read to fill its
-                options, because it no longer has any. */}
+              {/* Inside a boundary: the box reads useSearchParams, which requires one. */}
               <Suspense fallback={<SearchBarSkeleton />}>
-                <SearchBar />
+                <ResultsSearch />
               </Suspense>
             </div>
 
