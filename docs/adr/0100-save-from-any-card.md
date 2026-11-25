@@ -14,3 +14,10 @@
 - **Writes** stay the existing `setSaved` action and core's `can()`. The store toggles optimistically, rolls back
   on failure and ignores a second press on the same home while one is in flight.
 - **Not done:** sync between open tabs (each page reads fresh on its own), and a count in the header.
+- **Addendum, same day: what a press feels like.** The heart is drawn empty from the first paint. A press
+  before the read answers waits for it. A signed-out press is remembered for ten minutes in sessionStorage and
+  saved on the way back from sign-in. One toaster in `WebShell` says what happened ("Home saved · View saved",
+  "Removed · Undo"); notices have their own listeners, so it never starts a read. Undo is
+  `restoreToShortlist`: the note and date come back, and only for a listing that was ever published. The Saved page
+  is one `useOptimistic` list: the action's re-render is the rollback. The store's tests are apps/web's first
+  (`pnpm --filter @repo/web test`, offline like every package).

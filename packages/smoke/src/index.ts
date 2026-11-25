@@ -277,7 +277,7 @@ import { isSkillOn, setSkillSwitch, skillsOffForActor } from '@repo/core/skill-s
 import { consumerSkillBlocks, listConsumerSkills, setConsumerSkill, usersWithConsumerSkillOff } from '@repo/core/consumer-skills';
 import { dutyRatesDue } from '@repo/core/affordability';
 import { buildRenovationPlan, listingRooms, renovationListing, renovationRulesDue } from '@repo/core/renovation';
-import { addToShortlist, listShortlist, removeFromShortlist, setShortlistNote, shortlistIds } from '@repo/core/shortlist';
+import { addToShortlist, listShortlist, removeFromShortlist, restoreToShortlist, setShortlistNote, shortlistIds } from '@repo/core/shortlist';
 import { listWatches, localClock, runWatchTick, watchProperty } from '@repo/core/watch';
 import { editProfile, forgetProfile, loadProfile } from '@repo/core/profile';
 import { comparables, homeRows, passesVerdictRule, researchData, runResearch, suburbProfile } from '@repo/core/research';
@@ -8256,9 +8256,18 @@ async function main() {
       assert((await listShortlist(t, a))[0]!.standing === 'not_advertised', 'withdrawn did not read "not advertised"');
       const refused = await addToShortlist(t, b, l!.id).catch((e: unknown) => e as Error);
       assert(refused instanceof Error && /not available/.test(refused.message), `saving a withdrawn home: ${String(refused)}`);
-      await removeFromShortlist(t, a, l!.id);
+      const savedAt = (await listShortlist(t, a))[0]!.savedAt;
+      const removed = await removeFromShortlist(t, a, l!.id);
       assert((await listShortlist(t, a)).length === 0, 'remove left it');
-      return 'saved once with a cleaned note; B sees nothing and cannot note it; withdrawn → "not advertised", unsaveable; removed';
+      // ADR 0100: Undo puts it back as it was, even though it is withdrawn now; a never-published listing never.
+      assert(removed?.note === 'Big yard, check the train noise.', `removed: ${JSON.stringify(removed)}`);
+      await restoreToShortlist(t, a, l!.id, removed!);
+      const back = await listShortlist(t, a);
+      assert(back.length === 1 && back[0]!.note === removed!.note && back[0]!.savedAt.getTime() === savedAt.getTime(), `undo: ${JSON.stringify(back)}`);
+      await t.execute(sql`update listing set published_at = null where id = ${l!.id}`);
+      const draft = await restoreToShortlist(t, b, l!.id, { note: null, savedAt: new Date() }).catch((e: unknown) => e as Error);
+      assert(draft instanceof Error && /not available/.test(draft.message), `restoring a never-published home: ${String(draft)}`);
+      return 'saved once with a cleaned note; B sees nothing and cannot note it; withdrawn → "not advertised", unsaveable; removed; Undo → back with its note and date; never-published → refused';
     }),
   );
 

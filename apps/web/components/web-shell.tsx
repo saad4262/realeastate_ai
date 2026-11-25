@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { AppShell } from '@repo/ui';
 import { PresencePing } from './presence-ping';
+import { SavedToast } from './saved-toast';
 
 /**
  * The public site's chrome.
@@ -44,6 +45,8 @@ export function WebShell({
       {/* Online for the admin console (ADR 0052) — signed-in visitors only. */}
       {account?.signedIn ? <PresencePing /> : null}
       {children}
+      {/* Says what a heart did (ADR 0100). Reads no session, so `/` stays static. */}
+      <SavedToast />
     </AppShell>
   );
 }

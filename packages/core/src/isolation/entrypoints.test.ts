@@ -123,7 +123,7 @@ describe('tenant isolation — every door asks who is calling', () => {
       // Local helpers that check the session (`actor()`, `run()`…), found transitively.
       const fnBodies = new Map<string, string>();
       // A body ends at a closing brace in column 0 followed by a newline (not `}):` of a parameter type).
-      for (const m of src.matchAll(/(?:async\s+)?function\s+([A-Za-z0-9_]+)\s*\([\s\S]*?\n\}(?=\n|$)/g)) fnBodies.set(m[1]!, m[0]);
+      for (const m of src.matchAll(/(?:async\s+)?function\s+([A-Za-z0-9_]+)\s*(?:<[^(]*>)?\s*\([\s\S]*?\n\}(?=\n|$)/g)) fnBodies.set(m[1]!, m[0]);
       const guarded = new Set<string>();
       for (let changed = true; changed; ) {
         changed = false;
