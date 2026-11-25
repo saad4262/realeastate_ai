@@ -12,6 +12,51 @@ passes ~10 entries, move the older ones to a new archive file.
 - Brief for Claude Code: `docs/briefs/agency-data-export.md`. Next: write ADR, then phase 1 Customers +
   Listings quick CSV. Ask before merge / production / live. Privacy policy mention before real customers.
 
+## 2026-11-25 (night, late) — Claude Code (Mac) — smart search: rules first, AI for the rest (ADR 0101)
+
+- The user asked for search that reads a sentence the way realestate.com.au's AI search does. Research came from
+  launch coverage; the site itself refused automated fetches, so it was not visited. What it showed:
+  - natural-language search went to everyone in Dec 2025;
+  - a conversational beta followed in Feb 2026;
+  - REA calls it "a partner, not a replacement, for search filters";
+  - 72% of users refine at least once.
+
+  The user approved "mix both" and the build order.
+- Branch `feat/smart-search-rules` (from `bb453af`).
+  - **Part 1** (`f9ad59f`): `parseSearchText` in core reads distance, rooms, price, type, rent and "new", and leaves the
+    place text. The box offers the reading as the first option: Enter sets it, Search sets it and searches.
+    It replaces `parseDistancePhrase`.
+  - **Part 2**:
+    - core `verifyUnderstood` keeps a model's number only if the sentence has it, keeps a phrase only if the user typed
+      its words, and lets the rules win;
+    - packages/ai `search-understand` runs on the summary tier, metered as `search:understand`;
+    - `POST /api/search/understand` has a per-IP and a daily limit, the AI budget, a day's cache and a 4 s timeout;
+    - the box shows ✦ keywords and "Not searchable yet: …" on the Distance line;
+    - `kw` on /search matches the headline or description;
+    - the guide toggle is renamed "Guide chat".
+  - **Part 3**: refining from the results bar is the same box ("make it 4 bed", "add clyde").
+- Checked:
+  - unit tests: core 2557, ai 466;
+  - break-tests: the number guard, the budget route list, the `kw` SQL, the public-route guard, and the parser's
+    boundary and postcode guards. All went red, then green;
+  - full `pnpm --filter @repo/web build`;
+  - headless Chromium on dev with the model route faked: smart 7/7, AI 10/10 (including AI off → keyword search), and
+    refine. No live model call was made.
+- Live model test, on the user's OK: 5 sentences through the dev route on real Haiku.
+  - v1 read places, a misspelt suburb, rent, keywords and the asks correctly, and ignored an injection.
+  - Three weaknesses showed up, all of them would return no results:
+    - "double garage" also became a keyword;
+    - "near the beach" became a keyword;
+    - the injection's "$50" became a price.
+  - Fixed in **prompt v2** plus core:
+    - a keyword or ask must be in the rules' raw leftover (`rest`);
+    - prices must be plausible (a sale at least $10k, rent at most $20k a week);
+    - nearness goes to "not searchable".
+  - The route now caches the RAW model answer, keyed on the prompt version, and core checks it after the cache.
+  - All 5 were right on v2.
+  - Totals: 15 calls, $0.0172, model about 1.4 s. The rate limit (10 a minute) was seen working.
+- NOT done: saved searches and alerts carrying `kw`.
+
 ## 2026-11-25 (later still) — Claude Code (Mac) — the empty search box types out examples
 
 - The user asked for a placeholder that types and changes, as on realestate.com.au. Branch `feat/typed-placeholder` (from

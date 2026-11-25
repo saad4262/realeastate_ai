@@ -201,6 +201,7 @@ describe('one budget', () => {
     'apps/web/app/api/due-diligence/route.ts',
     'apps/web/app/api/inspections/summary/route.ts',
     'apps/web/app/api/agent-message/draft/route.ts',
+    'apps/web/app/api/search/understand/route.ts',
   ];
 
   it.each(PUBLIC_AI_ROUTES)('%s asks the AI budget', (file) => {

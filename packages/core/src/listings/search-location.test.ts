@@ -288,3 +288,22 @@ describe('the Build tab (ADR 0099)', () => {
     expect(notAsked.sql()).not.toContain('is_new_build');
   });
 });
+
+/** ADR 0101: smart search's keywords must each be in the listing's own words, headline or description. */
+describe('keywords', () => {
+  it('requires every keyword, in the headline or the description', async () => {
+    const { db, sql } = capturingDb();
+    await searchPublicListings(db, { ...PAKENHAM, mustMention: ['Pool', 'ocean views', 'x', 'garage', 'shed'] });
+    const text = sql();
+    expect(text.match(/lower\(coalesce\("listing"\."headline", ''\) \|\| ' ' \|\| coalesce\("listing"\."description", ''\)\) like/g)?.length).toBe(3);
+    for (const w of ['"%pool%"', '"%ocean views%"', '"%garage%"']) expect(text).toContain(w);
+    expect(text).not.toContain('"%shed%"');
+    expect(text).not.toContain('"%x%"');
+  });
+
+  it('adds nothing without keywords', async () => {
+    const { db, sql } = capturingDb();
+    await searchPublicListings(db, PAKENHAM);
+    expect(sql()).not.toContain('"description"');
+  });
+});

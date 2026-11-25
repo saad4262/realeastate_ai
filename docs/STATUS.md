@@ -89,6 +89,11 @@ On `main` with ADR 0088. Part 2, the office line, is not built. TEST-PLAN CW1–
 1. Fix the two smoke checks that assume a small database (`paging walks the result set…`, `the page agrees with the database`).
    Search box layout fix LIVE: merge `10b4394` (layout shift 0.18 → 0 on findoraaus.com.au, 1280 and 390 px).
    Typed placeholder examples LIVE: merge `ddd517e`.
+   **Smart search (ADR 0101) — branch `feat/smart-search-rules`, NOT merged, waiting for the user's go.**
+   - Rules read a sentence in the box. The model (Haiku, faked in every test) reads only the leftovers, checked against the
+     user's words.
+   - New: `POST /api/search/understand`, and `kw` on /search. No migration.
+   - Live-tested on dev: 5 real sentences on Haiku (prompt v2), all right, about $0.001 each.
 2. Merge `chore/dev-db-and-prod-guard`, then `docs/platform-plan`.
 3. Step 3, backups: a scheduled encrypted off-site `pg_dump` with a missed-dump alert (0.4), then one restore into a scratch project.
 4. Step 4, accounts and alarms (the boss): spend stops, Sentry, Upstash, 2FA; branch protection, gitleaks, Dependabot.

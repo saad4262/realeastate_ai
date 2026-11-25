@@ -50,6 +50,7 @@ export function ResultsSearch({ sold = false }: { sold?: boolean }) {
       priceTo: get('priceTo'),
     },
     sort: get('sort') || undefined,
+    keywords: params.getAll('kw'),
   };
 
   return <HomeSearch key={params.toString()} variant="bar" start={start} />;

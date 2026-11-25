@@ -78,6 +78,13 @@ export { SORT_OPTIONS, type SearchSort } from './listing-schema';
 export type PublicSearchQuery = {
   text?: string;
   /**
+   * Words the listing's own text must contain ("pool", "ocean views"), from smart
+   * search (ADR 0101). Each one must match, in the headline or the description.
+   * shortcut: a substring scan over the rows the other filters leave; a trigram
+   * index on description when a suburb holds thousands of live listings.
+   */
+  mustMention?: string[];
+  /**
    * The suburb the visitor actually chose.
    *
    * On its own this is an exact match — "Pakenham" means Pakenham, not the
@@ -358,6 +365,12 @@ function baseFilters(query: PublicSearchQuery): SQL[] {
         or(gte(listing.priceTo, String(query.priceFrom)), sql`${listing.priceTo} is null`)!,
       );
     }
+  }
+
+  for (const word of (query.mustMention ?? []).map((k) => k.trim().toLowerCase()).filter((k) => k.length >= 2).slice(0, 3)) {
+    filters.push(
+      sql`lower(coalesce(${listing.headline}, '') || ' ' || coalesce(${listing.description}, '')) like ${`%${word}%`}`,
+    );
   }
 
   const text = query.text?.trim();
