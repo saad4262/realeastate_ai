@@ -2245,6 +2245,52 @@ async function main() {
     return `${links.length} sale(s) listed, each linked, noindex`;
   });
 
+  await check('the sold index honours its Filters, and caches each filter apart', async () => {
+    /**
+     * The Sold tab's Filters (realestate.com.au parity brief): type, beds,
+     * baths, cars and a sold-price range reach recentSales. The count the page
+     * prints must be the count SQL gives for the same filter — and the plain
+     * page next to it must not be served the filtered answer from cache, which
+     * a cache key missing a filter would do.
+     */
+    if (!webUp) skip('web app is not running');
+
+    const [pick] = await db.execute<{ suburb: string; type: string; all: number; filtered: number }>(
+      sql`with s as (
+            select p.suburb, lower(coalesce(l.property_type, p.property_type)) as type,
+                   coalesce(l.bedrooms, p.bedrooms) as beds
+            from listing l join property p on p.id = l.property_id
+            where l.status = 'sold' and l.sold_price is not null
+              and l.sold_date > now() - interval '24 months')
+          select suburb, type, count(*) over (partition by suburb)::int as all,
+                 count(*) filter (where beds >= 3) over (partition by suburb, type)::int as filtered
+          from s where type is not null
+          order by 4 desc limit 1`,
+    );
+    if (!pick || !pick.filtered) skip('no sale with a type and 3+ beds to filter on');
+
+    const [want] = await db.execute<{ n: number }>(
+      sql`select count(*)::int as n from listing l join property p on p.id = l.property_id
+          where l.status = 'sold' and l.sold_price is not null
+            and l.sold_date > now() - interval '24 months'
+            and lower(p.suburb) = lower(${pick.suburb})
+            and lower(coalesce(l.property_type, p.property_type)) = ${pick.type}
+            and coalesce(l.bedrooms, p.bedrooms) >= 3`,
+    );
+    const shown = async (qs: string) => {
+      const res = await http(`${WEB}/sold?${qs}`);
+      assert(res.ok, `/sold?${qs} returned HTTP ${res.status}`);
+      const m = (await res.text()).match(/>(\d+) sales? (?:—|recorded)/);
+      return m ? Number(m[1]) : 0;
+    };
+    const base = `suburb=${encodeURIComponent(pick.suburb)}`;
+    const filtered = await shown(`${base}&type=${pick.type}&beds=3`);
+    const plain = await shown(base);
+    assert(filtered === want!.n, `/sold with type=${pick.type}&beds=3 shows ${filtered}, SQL says ${want!.n}`);
+    assert(plain === pick.all, `/sold without filters shows ${plain}, SQL says ${pick.all}`);
+    return `${pick.suburb}: ${plain} sales, ${filtered} ${pick.type} with 3+ beds — both match SQL`;
+  });
+
   await check('an on-market property sends its history link to the live listing', async () => {
     /**
      * The off-market page and the private offer on it exist only while nothing

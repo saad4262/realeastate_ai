@@ -49,3 +49,33 @@ describe('recentSales with several places', () => {
     expect(sql()).not.toContain('"Place10"');
   });
 });
+
+/** The Sold tab's Filters, as on /search (realestate.com.au parity brief). */
+describe('recentSales filters', () => {
+  it('applies beds, baths, cars, several types and a sold-price range', async () => {
+    const { db, sql } = proxy();
+    await recentSales(db, {
+      bedrooms: 3,
+      bathrooms: 2,
+      carSpaces: 1,
+      propertyTypes: ['House', 'townhouse'],
+      priceFrom: 500000,
+      priceTo: 900000,
+    });
+    const text = sql();
+    expect(text).toMatch(/"bedrooms"\) >= \$\d+/);
+    expect(text).toMatch(/"bathrooms"\) >= \$\d+/);
+    expect(text).toMatch(/"car_spaces"\) >= \$\d+/);
+    expect(text).toMatch(/"property_type"\), ''\)\) in \(\$\d+, \$\d+\)/);
+    expect(text).toMatch(/"sold_price" >= \$\d+ and "listing"\."sold_price" <= \$\d+/);
+    expect(text).toContain('["sold",3,"2",1,"house","townhouse","500000","900000",');
+  });
+
+  it('adds nothing when no filter is set', async () => {
+    const { db, sql } = proxy();
+    await recentSales(db, { suburb: 'Pakenham' });
+    expect(sql()).not.toMatch(/"(bathrooms|car_spaces)"\) >=/);
+    expect(sql()).not.toMatch(/"sold_price" [<>]=/);
+    expect(sql()).not.toMatch(/''\)\) in \(/);
+  });
+});

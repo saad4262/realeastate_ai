@@ -19,7 +19,12 @@ the column checked read-only), merge `--no-ff`, pushed; Vercel built all 4 proje
 - Checked: typecheck, lint, `pnpm test` (core 2518, AI 462), both builds, break-tests, new SQL on dev (read-only), headless Chrome
   on dev (TEST-PLAN CZ mostly). NOT run: smoke; a sold page with real sale rows (dev's sold listings have no price/date);
   the drafts-only address case against real data (unit test only).
-- Still open: smoke; agents tick "New home" on real listings before the Build tab shows anything on production (0 of 43 today).
+- Still open: agents tick "New home" on real listings before the Build tab shows anything on production (0 of 43 today).
+- **Sold tab Filters (brief `docs/briefs/rea-home-search-parity.md`) — branch `feat/sold-filters-rea`, NOT merged, waiting for
+  the user's go.** Type (several), beds, baths, cars and a recorded sold-price range on the Sold tab and above `/sold`; kept by
+  the pager, sort, "Homes for sale" (not the price) and a Clear link; the sales cache key is now the whole query. Checked:
+  `pnpm test`, break-tests, full `pnpm --filter @repo/web build`, headless Chromium on dev (15/15), smoke (below).
+  First-suggestion latency parked: measured, the server adds nothing a cache could remove (see SESSION).
 
 ## Databases
 - **Dev:** `realestate-dev`, ref `jhialeuioqqlwpzukdzo`, Sydney, Micro. Every `.env.local` on this laptop points here. Use the pooler
@@ -79,6 +84,8 @@ On `main` with ADR 0088. Part 2, the office line, is not built. TEST-PLAN CW1–
 - The client: SMS rules, Control Centre 4.6/4.7, triggers 4.4, Microsoft Entra, brand colours, legal details, real listings.
 
 ## Next
+0. **Waiting for the user's go:** merge `feat/sold-filters-rea` (Sold Filters; no migration). Then fix the two smoke checks
+   that assume a small database (`paging walks the result set…`, `the page agrees with the database`) — red on dev's 3600 listings.
 1. Merge `chore/dev-db-and-prod-guard`, then `docs/platform-plan`.
 2. Step 3, backups: a scheduled encrypted off-site `pg_dump` with a missed-dump alert (0.4), then one restore into a scratch project.
 3. Step 4, accounts and alarms (the boss): spend stops, Sentry, Upstash, 2FA; branch protection, gitleaks, Dependabot.
