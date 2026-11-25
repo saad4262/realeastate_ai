@@ -155,3 +155,31 @@ describe('suggestionToPlace: a chip without a second request', () => {
     expect(suggestionToPlace({ label: 'Wal|lan', secondary: 'VIC', kind: 'locality' })).toBeNull();
   });
 });
+
+/** Per-place distance: each suburb carries its own km in its `loc`. */
+describe('a distance per place', () => {
+  it('writes and reads the km as the fourth part, and old links still read', async () => {
+    const { formatLoc, parseLoc } = await import('./search-url');
+    expect(formatLoc({ suburb: 'Pakenham', state: 'VIC', postcode: '3810', km: 10 })).toBe('Pakenham|VIC|3810|10');
+    expect(formatLoc({ suburb: 'Perth', state: 'WA', km: 20 })).toBe('Perth|WA||20');
+    expect(parseLoc('Perth|WA||20')).toEqual({ suburb: 'Perth', state: 'WA', km: 20 });
+    expect(parseLoc('Pakenham|VIC|3810')).toEqual({ suburb: 'Pakenham', state: 'VIC', postcode: '3810' });
+    // A bad distance costs the distance, never the place.
+    expect(parseLoc('Pakenham|VIC|3810|999')).toEqual({ suburb: 'Pakenham', state: 'VIC', postcode: '3810' });
+    expect(parseLoc('Pakenham|VIC|3810|abc')).toEqual({ suburb: 'Pakenham', state: 'VIC', postcode: '3810' });
+  });
+
+  it('keeps the one place\'s own distance when it becomes the plain suburb', async () => {
+    const { normalisePlaces, parseLoc } = await import('./search-url');
+    expect(normalisePlaces({ places: [parseLoc('Perth|WA||20')!] })).toEqual({ suburb: 'Perth', state: 'WA', km: 20 });
+  });
+
+  it('says the distances the way they were picked', async () => {
+    const { placesPhrase } = await import('./search-url');
+    expect(placesPhrase([{ suburb: 'Pakenham', km: 10 }, { suburb: 'Perth', km: 20 }])).toBe('Pakenham (+10 km) or Perth (+20 km)');
+    expect(placesPhrase([{ suburb: 'Pakenham', km: 10 }, { suburb: 'Officer', km: 10 }])).toBe('Pakenham or Officer and within 10 km of each');
+    expect(placesPhrase([{ suburb: 'Pakenham' }, { suburb: 'Officer' }], 5)).toBe('Pakenham or Officer and within 5 km of each');
+    expect(placesPhrase([{ suburb: 'Pakenham', km: 10 }, { suburb: 'Officer' }])).toBe('Pakenham (+10 km) or Officer');
+    expect(placesPhrase([{ suburb: 'Pakenham' }, { suburb: 'Officer' }])).toBe('Pakenham or Officer');
+  });
+});

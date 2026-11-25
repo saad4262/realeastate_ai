@@ -88,7 +88,8 @@ On `main` with ADR 0088. Part 2, the office line, is not built. TEST-PLAN CW1–
    Decisions locked: agents AND agency (owner/admin) can export (scoped); full export = all business data including message bodies; photos + documents as real files in the zip. Exclusions: tokens, AI internals, platform logs, consumer-only shortlists, ADR 0083 viewer identity until policy. Start with ADR, then phase 1 Customers + Listings quick CSV. Ask before merge/live.
 1. Fix the two smoke checks that assume a small database (`paging walks the result set…`, `the page agrees with the database`).
    Search box layout fix LIVE: merge `10b4394` (layout shift 0.18 → 0 on findoraaus.com.au, 1280 and 390 px).
-   Typed placeholder examples LIVE: merge `ddd517e`.
+   Typed placeholder examples LIVE: merge `ddd517e`. Smart search LIVE: merge `65419ca`.
+   **Distance per suburb (ADR 0099 amended): branch `feat/per-place-distance`, NOT merged, waiting for the user's go.**
    **Smart search (ADR 0101) — branch `feat/smart-search-rules`, NOT merged, waiting for the user's go.**
    - Rules read a sentence in the box. The model (Haiku, faked in every test) reads only the leftovers, checked against the
      user's words.
