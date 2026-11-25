@@ -356,7 +356,7 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
                       </div>
                     ))}
                     {p.photos.filter((x) => x.status === 'failed').map((x, i) => (
-                      <div key={`p${i}`}>Photo {x.url.slice(0, 60)} — {x.error}</div>
+                      <div key={`p${i}`}>Photo {(x.url ?? x.path ?? '').slice(0, 60)} — {x.error}</div>
                     ))}
                   </td>
                 </tr>
