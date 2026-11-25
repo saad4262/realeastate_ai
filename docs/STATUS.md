@@ -8,7 +8,7 @@ are `docs/PLATFORM-PLAN.md` (section 14, with progress). Overwrite this file at 
 V1 production-readiness: about 12% (PLATFORM-PLAN 14). Steps 0–2 nearly done; step 3 (backups) next.
 Branches waiting for a PR and merge: `chore/dev-db-and-prod-guard` (production guard + 0001 extensions fix), `docs/platform-plan` (this).
 
-## Listing import: photos from a folder (ADR 0102) — BUILT (core + screens) on `feat/import-photo-folder`, 2026-11-25
+## Listing import: photos from a folder (ADR 0102) — LIVE: merge `8c8a17b` on `main`, all 4 Vercel builds Ready, 2026-11-25
 CSV + a dropped folder of photos, matched by the address in a folder name at any depth (or the listing id); the browser
 shrinks and uploads straight to Storage; every listing says what photos it got (links or folder). No migration.
 Checked: `pnpm test`, typecheck, lint, smoke group (2/2, dev), break-tests, Playwright on the local console against dev

@@ -24,6 +24,9 @@ passes ~10 entries, move the older ones to a new archive file.
   Sydney). Test listings on dev: "(TEST) Folder import: …", withdrawn, external ids cleared.
 - Found, not fixed: the dry run accepted Google's nearest match for made-up template addresses ("2/6E Main St, Officer" →
   "34 Station St, Officer"). ADR 0029 says ✗ "Check the address". Raised with the user.
+- On the user's go: merged onto `d3dd718` as `8c8a17b` (main had moved once; re-merged and re-checked: typecheck, `pnpm test`
+  core 2574 / AI 466, lint, full console and web builds, all exit 0); pushed; all 4 Vercel production builds Ready. No migration.
+  Not tried on production: an import with a folder (it would write listings into a real agency).
   ADR numbered 0102: 0100 and 0101 are taken on other branches.
 
 ## 2026-11-25 (afternoon) — Cursor handoff — USER ORDER: agency data export (decisions locked)
