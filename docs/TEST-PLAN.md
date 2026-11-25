@@ -2490,3 +2490,9 @@ Mock: `docs/mocks/home-search.html`. Public site, signed out unless said.
 | DA10 | Calendar → Export CSV | Past and upcoming; times on the appointment's own clock |
 | DA11 | Pipeline → Export CSV, then "Only mine" → Export CSV | Every deal incl. settled; the second only the owner's own |
 | DA12 | As an agent, Customers → Export notes | Their visible customers' notes; another member's private note never appears |
+| DA13 | Owner: Settings → Download your data → Prepare my data | Row "Waiting to start", button disabled; within a few minutes (cron) "Ready", with data.zip and photos-N / documents-N parts; a bell and an email "Your data export is ready" |
+| DA14 | Open data.zip | README.txt, customers.csv … emails.csv, team.csv; photos.csv names files found in photos-1.zip |
+| DA15 | Agent: sidebar Settings → My data → Prepare my data | Only their own customers, listings, texts and files; no team.csv |
+| DA16 | Copy an owner's part link, open it signed in as an agent | 404 "That download was not found" |
+| DA17 | Prepare 6 times in one day | The sixth says "You can prepare 5 exports a day" |
+| DA18 | 24 hours later | Status "Deleted", no links; the files are gone from storage (exports/<agency>/<id>/) |

@@ -243,6 +243,9 @@ importers:
       drizzle-orm:
         specifier: ^0.38.3
         version: 0.38.4(@opentelemetry/api@1.10.0)(@types/react@19.3.0)(postgres@3.4.9(patch_hash=hxpyerqpbvr6zucnyjmkas4cmm))(react@19.3.0)
+      fflate:
+        specifier: 0.8.3
+        version: 0.8.3
       libpg-query:
         specifier: 18.1.5
         version: 18.1.5
@@ -356,6 +359,9 @@ importers:
       drizzle-orm:
         specifier: ^0.38.3
         version: 0.38.4(@opentelemetry/api@1.10.0)(@types/react@19.3.0)(postgres@3.4.9(patch_hash=hxpyerqpbvr6zucnyjmkas4cmm))(react@19.3.0)
+      fflate:
+        specifier: 0.8.3
+        version: 0.8.3
     devDependencies:
       '@types/node':
         specifier: ^22.10.2

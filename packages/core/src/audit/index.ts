@@ -81,6 +81,7 @@ export function auditSentence(r: Pick<AuditRow, 'action' | 'subjectName' | 'deta
     case 'agency_closed':
       return 'Closed the agency';
     case 'data_exported': {
+      if (d.dataset === 'all') return `Asked for a full data export${typeof d.rows === 'number' ? ` (${d.rows} rows)` : ''}`;
       const what = typeof d.dataset === 'string' ? d.dataset : 'data';
       const rows = typeof d.rows === 'number' ? `${d.rows} row${d.rows === 1 ? '' : 's'}` : 'rows not counted';
       return `Downloaded ${what} as CSV (${rows}${d.complete === false ? ', stopped before the end' : ''})`;

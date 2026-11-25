@@ -13,7 +13,8 @@
     "@repo/ai": "workspace:*",
     "@repo/core": "workspace:*",
     "@repo/db": "workspace:*",
-    "drizzle-orm": "^0.38.3"
+    "drizzle-orm": "^0.38.3",
+    "fflate": "0.8.3"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

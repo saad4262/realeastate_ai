@@ -52,17 +52,17 @@ export const APPOINTMENT_EXPORT_HEADERS = ['title', 'kind', 'type', 'status', 's
 export const DEAL_EXPORT_HEADERS = ['address', 'suburb', 'state', 'postcode', 'stage', 'status', 'agent_email', 'vendor_name', 'vendor_email', 'buyer_name', 'buyer_email', 'sale_price', 'contract_date', 'deposit_amount', 'deposit_paid_on', 'settlement_date', 'buyer_solicitor', 'settled_on', 'commission_basis', 'commission_rate', 'commission_fixed', 'agent_split', 'commission_paid_on', 'id', 'listing_id', 'created_at'] as const;
 export const NOTE_EXPORT_HEADERS = ['contact_name', 'contact_email', 'body', 'private', 'author_email', 'created_at', 'updated_at', 'id', 'contact_id'] as const;
 
-const BOM = '﻿';
-const line = (cells: readonly (string | number | null | undefined)[]) => `${cells.map((c) => csvCell(c == null ? '' : String(c))).join(',')}\r\n`;
+export const BOM = '\uFEFF';
+export const line = (cells: readonly (string | number | null | undefined)[]) => `${cells.map((c) => csvCell(c == null ? '' : String(c))).join(',')}\r\n`;
 /** A numeric column as the import writes it: `780000`, not `780000.00`; empty when null. */
 const num = (v: unknown) => (v == null || v === '' ? '' : String(Number(v)));
-const day = (v: Date | string | null, tz: string) => (v ? instantToLocalInput(v, tz).slice(0, 10) : '');
+export const day = (v: Date | string | null, tz: string) => (v ? instantToLocalInput(v, tz).slice(0, 10) : '');
 /** `YYYY-MM-DD HH:mm` on a wall clock, as the imports write a time. */
-const at = (v: Date | string | null, tz: string) => (v ? instantToLocalInput(v, tz).replace('T', ' ') : '');
-const iso = (v: Date | string | null) => (v ? new Date(v).toISOString() : '');
+export const at = (v: Date | string | null, tz: string) => (v ? instantToLocalInput(v, tz).replace('T', ' ') : '');
+export const iso = (v: Date | string | null) => (v ? new Date(v).toISOString() : '');
 const first = (v: unknown) => (Array.isArray(v) ? v[0] : v);
 
-type Page = { id: string; cells: string }[];
+export type Page = { id: string; cells: string }[];
 type Prepared = { filters: string[]; page: (after: string | null) => Promise<Page> };
 type Spec = {
   file: string;
@@ -131,6 +131,12 @@ const SPECS: Record<QuickDataset, Spec> = {
     prepare: (db, actor) => ({ filters: [], page: (after) => notePage(db, actor, after) }),
   },
 };
+
+/** For the full export (phase 3): a dataset's headers and pages exactly as the quick export reads them, minus its audit row. */
+export function datasetPages(db: Db, actor: Actor, dataset: QuickDataset, query: QuickQuery, tz: string): { headers: readonly string[]; page: (after: string | null) => Promise<Page> } {
+  const spec = SPECS[dataset];
+  return { headers: spec.headers, page: spec.prepare(db, actor, query, tz).page };
+}
 
 export type QuickExport = { filename: string; chunks: AsyncGenerator<string> };
 

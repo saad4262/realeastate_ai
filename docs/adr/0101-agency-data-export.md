@@ -1,6 +1,6 @@
 # 0101 — Agency data export: quick CSV, then a full zip
 
-**Status:** accepted 2026-11-25 (the user's decisions in `docs/briefs/agency-data-export.md`). Phases 1 and 2 built; phase 3 to come.
+**Status:** accepted 2026-11-25 (the user's decisions in `docs/briefs/agency-data-export.md`). Phases 1, 2 and 3 built (phase 3's migration 0109 on dev only).
 
 **Why.** An agency must be able to take its data away, any day, without asking us. ADR 0030 §5 and ADR 0093
 cover the agency that leaves (a platform operator runs a JSON-lines export). This ADR covers the agency that stays:
@@ -19,10 +19,22 @@ agency. It is not in `PLATFORM_READ`, so a platform admin's read-only view canno
    and upcoming together), `visibleDealsSql` (every deal, settled and withdrawn too, though the board shows the open
    ones; `?mine=1` as the board's "Only mine"), and notes on the customers the member sees, private ones only for
    their author or an admin (`noteVisibleSql`). Notes have no list page: their button is on Customers.
-2. *Full export* (phase 3). "Download all my data" in Settings → Data, for every member, same scope: one CSV per
-   dataset (full SMS, email and call bodies included), the real photo and document files in `photos/` and
-   `documents/`, and a README. Built by the minute cron into a private Storage bucket; the member gets an email and
-   a link that expires in 24 hours. Needs an `export_job` table (a migration, asked before production).
+2. *Full export* (phase 3). "Download all my data": `/settings/data` for owners and admins, `/my-data` for agents,
+   same scope as their screens. An `export_job` row (migration 0109) holds its state; the job queue's `bulk` lane
+   builds it one step per job, each step enqueuing the next, so no step outlives the minute tick:
+   - one step per dataset: customers, listings, leads, appointments, deals, notes, activity, SMS, calls (with the
+     AI call-back transcript), emails (full text), documents and photos (an index of each), and the team (owners
+     and admins only). Each CSV is written to storage on its own;
+   - one step packs them, with a README, into `data.zip`;
+   - then the real files, `photos-N.zip` and `documents-N.zip`, each at most ~40 MB (Vercel's memory and Storage's
+     default 50 MB upload limit), the files stored as they are (already compressed).
+   The parts live in the private `documents` bucket under `exports/<agency>/<export>/` (no new bucket). When the
+   last step is done the member gets a bell and an email that link to the page, never to a file; the page signs a
+   60-second link per part on click, only for the member who asked. Parts are deleted 24 hours later (the hourly
+   expiry), or at once if the export fails. One export at a time per member, at most 5 a day. The member must
+   still be one when each step runs: someone removed mid-export gets a failed export, not the rest of it.
+   The CSVs are read step by step, so they are not one snapshot: a row changed during the build may be in one file
+   and not the next.
 
 **The file.** UTF-8 with a byte-order mark (Excel reads it right), CRLF, every cell through `csvCell` (quoted; a
 cell starting `= + - @`, tab or CR is prefixed with `'` so opening it runs nothing). Headers are the import's own
