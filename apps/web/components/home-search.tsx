@@ -61,6 +61,8 @@ const TYPE_LABELS: Record<string, string> = {
 const RECENT_KEY = 'lah:recent-searches';
 const MIN_CHARS = 2;
 const DEBOUNCE_MS = 200;
+/** Chips shown while the box is not in use; the rest are "+N more". */
+const SHOWN_CHIPS = 2;
 /** Answers already fetched this visit: Backspace, re-typing and tab switches cost no request. */
 const SUGGESTED = new Map<string, PlaceSuggestion[]>();
 
@@ -133,6 +135,7 @@ export function HomeSearch({
   const [recent, setRecent] = useState<Recent[]>([]);
   const [going, startGoing] = useTransition();
   const boxRef = useRef<HTMLDivElement>(null);
+  const fieldRef = useRef<HTMLLabelElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -147,6 +150,12 @@ export function HomeSearch({
   const searching = wantsSuggestions && answered !== lookupKey;
 
   useEffect(() => setRecent(readRecent()), []);
+
+  // A new chip pushes the input right: scroll it back into view.
+  useEffect(() => {
+    const field = fieldRef.current;
+    if (field) field.scrollLeft = field.scrollWidth;
+  }, [chips.length, point]);
 
   // Suggestions: from memory at once, otherwise debounced, and a request
   // overtaken by more typing is aborted. A failure is silent: the box still
@@ -407,7 +416,8 @@ export function HomeSearch({
             : 'Add another suburb'
           : 'Search suburb, postcode or region';
   const listId = `${id}-list`;
-  const showDistance = !ai && isPlaceTab && (chips.length > 0 || point !== null);
+  const showDistance = !ai && isPlaceTab;
+  const placed = chips.length > 0 || point !== null;
   const typedPlaceAfterFrom = text.split(/\bfrom\b/i)[1]?.trim();
 
   return (
@@ -434,14 +444,20 @@ export function HomeSearch({
 
         <form className={styles.row} onSubmit={submit} role="search">
           {/* A label, so a click anywhere in the field focuses the input natively. */}
-          <label className={styles.field}>
+          <label className={styles.field} ref={fieldRef}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden className={styles.glass}>
               <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
               <path d="m20 20-4-4" stroke="currentColor" strokeWidth="2" />
             </svg>
             {!ai && isPlaceTab
-              ? chips.map((c) => (
-                  <span key={formatLoc(c)} className={styles.chip}>
+              ? chips.map((c, i) => (
+                  // Past the second (the first on a phone), a chip waits behind "+N more" until the box is in use.
+                  <span
+                    key={formatLoc(c)}
+                    className={styles.chip}
+                    data-extra={i >= SHOWN_CHIPS ? '' : undefined}
+                    data-extra-narrow={i >= 1 ? '' : undefined}
+                  >
                     {c.label}
                     <button
                       type="button"
@@ -453,6 +469,12 @@ export function HomeSearch({
                   </span>
                 ))
               : null}
+            {!ai && isPlaceTab && chips.length > SHOWN_CHIPS ? (
+              <span className={`${styles.more} ${styles.wideOnly}`}>+{chips.length - SHOWN_CHIPS} more</span>
+            ) : null}
+            {!ai && isPlaceTab && chips.length > 1 ? (
+              <span className={`${styles.more} ${styles.narrowOnly}`}>+{chips.length - 1} more</span>
+            ) : null}
             {!ai && isPlaceTab && point ? (
               <span className={styles.chip}>
                 {point.label}
@@ -480,6 +502,8 @@ export function HomeSearch({
                 setOpen(true);
               }}
               onClick={() => setOpen(true)}
+              // Back to the first chips, beside "+N more", once the box is put down.
+              onBlur={() => fieldRef.current?.scrollTo({ left: 0 })}
               onFocus={() => {
                 setOpen(true);
                 setRecent(readRecent());
@@ -508,8 +532,14 @@ export function HomeSearch({
         {showDistance ? (
           <div className={styles.distance}>
             <label htmlFor={`${id}-km`}>Distance</label>
-            <select id={`${id}-km`} value={radius} onChange={(e) => setRadius(e.target.value)}>
-              <option value="">{point ? 'Around this place' : 'Only these suburbs'}</option>
+            <select
+              id={`${id}-km`}
+              value={placed ? radius : ''}
+              disabled={!placed}
+              title={placed ? undefined : 'Pick a suburb first'}
+              onChange={(e) => setRadius(e.target.value)}
+            >
+              <option value="">{point ? 'Around this place' : placed ? 'Only these suburbs' : 'Pick a suburb first'}</option>
               {[...new Set([...DISTANCE_STEPS_KM, ...(radius ? [Number(radius)] : [])])]
                 .filter((km) => km > 0)
                 .sort((a, b) => a - b)

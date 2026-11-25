@@ -85,22 +85,32 @@
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 0.35rem;
-  min-height: 2.75rem;
+  height: 2.75rem;
+  overflow-x: auto;
+  scrollbar-width: none;
   padding: 0.3rem 0.5rem;
   border: 1px solid transparent;
   border-radius: 8px;
   cursor: text;
 }
 
+.field::-webkit-scrollbar {
+  display: none;
+}
+
 .field:focus-within {
   border-color: var(--color-line-strong, #cbd5e1);
 }
 
-.glass {
+.glass,
+.chip {
   flex: none;
+}
+
+.glass {
   color: var(--color-ink-faint, #5f6b7d);
 }
 
@@ -127,6 +137,26 @@
   font-size: 0.8125rem;
   font-weight: 500;
   white-space: nowrap;
+}
+
+.field:not(:focus-within) [data-extra] {
+  display: none;
+}
+
+.more {
+  flex: none;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: var(--color-ink, #0f172a);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.narrowOnly,
+.field:focus-within .more {
+  display: none;
 }
 
 .chip button {
@@ -193,6 +223,11 @@
   color: var(--color-ink-soft, #475569);
 }
 
+.distance select:disabled {
+  color: var(--color-ink-faint, #5f6b7d);
+  cursor: not-allowed;
+}
+
 .distance select {
   font: inherit;
   padding: 0.25rem 0.5rem;
@@ -207,9 +242,18 @@
 }
 
 .drop {
-  margin-top: 0.6rem;
-  padding: 0.6rem 0.25rem 0.1rem;
-  border-top: 1px solid var(--color-line-subtle, #f1f5f9);
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  max-height: min(24rem, 60vh);
+  overflow-y: auto;
+  background: var(--color-card, #fff);
+  border: 1px solid var(--color-line, #e2e8f0);
+  border-radius: 10px;
+  box-shadow: var(--shadow-float, 0 12px 32px rgb(15 23 42 / 0.14));
+  padding: 0.5rem 0.35rem 0.25rem;
 }
 
 .dropHead {
@@ -505,6 +549,15 @@ button.pill {
 @media (max-width: 560px) {
   .row {
     flex-wrap: wrap;
+  }
+
+  .field:not(:focus-within) [data-extra-narrow],
+  .field:not(:focus-within) .wideOnly {
+    display: none;
+  }
+
+  .field:not(:focus-within) .narrowOnly {
+    display: inline;
   }
 
   .field {

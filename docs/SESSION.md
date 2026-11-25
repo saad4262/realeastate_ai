@@ -3,6 +3,20 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-25 (late night) — Claude Code (Mac) — Sold Filters live; the search box stops moving the page
+
+- On the user's go: `feat/sold-filters-rea` merged as `d61dd3c`; all 4 Vercel builds Ready; on findoraaus.com.au
+  `/sold?loc=Pakenham|VIC&type=house&beds=3` → 200 with "Filters: House · 3+ beds", new box code in the live chunk.
+- The user, with a screenshot: picking suburbs should change only the text field, not the whole box. Measured on the live site
+  (headless Chromium, 4 suburbs): the form grew 56 → 115 px, Search moved 30 px, the section below jumped up to 262 px while the
+  list was open; layout shift 0.18. Keystrokes were already ≤ 16 ms (one frame), so re-rendering was never the cost.
+- Branch `fix/search-box-stable` (from `d61dd3c`, NOT merged): chips on one line that scrolls sideways (input kept in view),
+  two chips then "+N more" while the box is not in use (one on a phone), all of them on focus; Distance always present on a
+  place tab, disabled until a suburb is picked; the suggestion list is an overlay instead of pushing the page down.
+  Measured on dev at 1280 and 390 px: form height, Search and the next section never move; layout shift 0.0000. The
+  earlier box and Sold checks still pass; full `pnpm --filter @repo/web build` green.
+- Note: dev's `/sold` counts in the Sold check came from the 5-minute sales cache after the dev data was set back.
+
 ## 2026-11-25 (night) — Claude Code (Mac) — Sold tab Filters (REA parity brief), smoke, latency parked
 
 - Brief `docs/briefs/rea-home-search-parity.md`, branch `feat/sold-filters-rea` from `d5e031b`. Not merged: waiting for the user.
