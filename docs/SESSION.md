@@ -31,6 +31,17 @@ passes ~10 entries, move the older ones to a new archive file.
 - Smoke on dev: "Tenant isolation" 6/6 (38 B tables unchanged), "Data export" 1/1: A1 data+photos+documents in 17 steps, A2 data only,
   team owner-only, 3 bells, 3 audit rows, every file gone at 24 h. ~5 s a step from this laptop through the pooler.
 - NOT done: browser, a real Storage upload, Resend, production migration, merge.
+- 2026-11-26, the user: test DA1–DA18 in a browser, with a real Storage upload and a real Resend email, and report before
+  production. Wrote `e2e/tests/data-export.spec.ts` on the e2e world (dev), and `smoke/src/run-export-jobs.ts` to run only the
+  bulk lane (the whole minute tick would run every due job on dev). The owner's address is swapped in OUR table to
+  `delivered+<tag>@resend.dev` for the one email and put back; Resend's API then reports it `delivered`.
+- Found on the way: notice emails (this one, failed texts, credit alerts) are NOT held by `EMAIL_DEV_ALLOWLIST` on dev — that
+  gate is per caller (template, compose). Pre-existing; told the user. Also: "Deleted <date>" under a ready export read as if it
+  was gone: now "Kept until <date>".
+- My test mistakes, fixed in the test, not the product: buyers made by seeded leads; an agent sees the enquirer through their
+  listing; `getByText('Ready')` matched "ready" in the subtitle; the job ran before the request's row existed. The dev server's
+  first-visit compile cancelled downloads, so the run uses `next start`. 8/8 on the 15th run.
+- Failed runs left 21 export files in dev Storage (their agencies already gone); deleted, `exports/` now empty, no e2e files left.
 
 ## 2026-11-25 (later still) — Claude Code (Mac) — the empty search box types out examples
 

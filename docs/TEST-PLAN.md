@@ -2485,14 +2485,19 @@ Mock: `docs/mocks/home-search.html`. Public site, signed out unless said.
 | DA5 | Import the listings file back (Listings → Import from CSV, as draft) into a test agency | Mapping fills itself; dry run has no errors; photos, video link and open homes come across |
 | DA6 | A customer named `=1+1` | The cell reads `'=1+1` in Excel, never `2` |
 | DA7 | As owner, Settings → Audit log after DA1–DA4 | One "Downloaded … as CSV (N rows)" line per download, with who and when |
-| DA8 | Platform admin → an agency's customers | No Export button; `/api/exports/contacts` from the admin session answers 401 |
+| DA8 | Platform admin → an agency's customers | No Export button; `/api/exports/contacts` from the admin session never gives a CSV (admin host → /platform; agency host → sign in) |
 | DA9 | Leads → Offers tab → Export CSV (owner), then as an agent | Owner: the offers with amounts. Agent: no Offers tab, and no offer in any export |
 | DA10 | Calendar → Export CSV | Past and upcoming; times on the appointment's own clock |
 | DA11 | Pipeline → Export CSV, then "Only mine" → Export CSV | Every deal incl. settled; the second only the owner's own |
 | DA12 | As an agent, Customers → Export notes | Their visible customers' notes; another member's private note never appears |
-| DA13 | Owner: Settings → Download your data → Prepare my data | Row "Waiting to start", button disabled; within a few minutes (cron) "Ready", with data.zip and photos-N / documents-N parts; a bell and an email "Your data export is ready" |
+| DA13 | Owner: Settings → Download your data → Prepare my data | Row "Waiting to start", button disabled; when built, "Ready" and "Kept until …"; within a few minutes (cron) "Ready", with data.zip and photos-N / documents-N parts; a bell and an email "Your data export is ready" |
 | DA14 | Open data.zip | README.txt, customers.csv … emails.csv, team.csv; photos.csv names files found in photos-1.zip |
 | DA15 | Agent: sidebar Settings → My data → Prepare my data | Only their own customers, listings, texts and files; no team.csv |
 | DA16 | Copy an owner's part link, open it signed in as an agent | 404 "That download was not found" |
 | DA17 | Prepare 6 times in one day | The sixth says "You can prepare 5 exports a day" |
 | DA18 | 24 hours later | Status "Deleted", no links; the files are gone from storage (exports/<agency>/<id>/) |
+
+Automated: `packages/e2e/tests/data-export.spec.ts` runs DA1–DA18 on dev (real Storage; one email to Resend's test inbox).
+2026-11-26: 8/8 passed against the console's production build (`next start`), not the dev server (its first-visit compile
+reloads pages and cancels downloads). Run: console on :3001, then from packages/e2e
+`node --env-file=../../.env.local node_modules/@playwright/test/cli.js test data-export`.

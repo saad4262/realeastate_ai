@@ -16,8 +16,10 @@ tick) builds it a step a job: 13 CSVs → `data.zip` (+ README) → `photos-N.zi
 under `exports/`; bell + email; 60 s signed link per part, asker only; deleted after 24 h (hourly sweep). Any member, their screens' scope;
 never a platform view; `data_exported` audit rows. New dependency: `fflate@0.8.3` (already in the lockfile) for core and smoke.
 Checked: `pnpm test` (core 2544, AI 462, db 20), typecheck, lint, console AND web builds, 26 guards broken and red; smoke on dev
-"Tenant isolation" 6/6 and "Data export" 1/1 (end to end, storage in memory). NOT run: a browser (TEST-PLAN DA1–DA18), a real upload to
-Storage, the email through Resend, a large agency's timing. Before production: backup, then 0109. Privacy policy must mention export.
+"Tenant isolation" 6/6 and "Data export" 1/1. **Browser, 2026-11-26: TEST-PLAN DA1–DA18 all pass** (`e2e/tests/data-export.spec.ts`,
+8/8, console production build on dev): real Storage upload, signed download and 24 h deletion; the ready email through Resend
+to its test inbox, `delivered`. Dev Storage left clean. NOT run: a large agency's timing. Waiting on the user: production backup,
+migration 0109, merge. Privacy policy must mention export.
 
 ## Home page search like realestate.com.au (ADR 0099) — LIVE: `main` = `1d3ad71` (ADR 0099 merge `ba6ba16`, then the no-lag fix `501eb4b` + `1d3ad71`), 2026-11-25
 On the user's go: production backup `prod-20261125T065102Z.dump.enc` (145 tables), migration 0108 on production (109 applied,

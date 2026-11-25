@@ -57,9 +57,9 @@ export async function DataExportPage({ actor, page, error }: { actor: Actor; pag
                     <time dateTime={e.createdAt.toISOString()}>{when.format(e.createdAt)}</time>
                   </td>
                   <td>
-                    {STATUS[e.status] ?? e.status}
+                    <span>{STATUS[e.status] ?? e.status}</span>
                     {e.status === 'building' || e.status === 'queued' ? ` (${e.progress}%)` : ''}
-                    {e.status === 'ready' && e.expiresAt ? <div className={contactStyles.muted}>Deleted {when.format(e.expiresAt)}</div> : null}
+                    {e.status === 'ready' && e.expiresAt ? <div className={contactStyles.muted}>Kept until {when.format(e.expiresAt)}</div> : null}
                     {e.status === 'failed' && e.error ? <div className={contactStyles.muted}>{e.error}</div> : null}
                   </td>
                   <td>
