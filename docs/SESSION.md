@@ -37,6 +37,8 @@ passes ~10 entries, move the older ones to a new archive file.
     (model faked); layout shift 0 at 1280 and 390 px.
 - Live model spend: one check script had no fake route and made 1 real call ($0.0011). The script now fakes the
   route. Total so far: 16 calls, $0.0183.
+- On the user's go: merged as `a18b1de`. The new code was served in about 100 s. The same 13 checks passed on
+  findoraaus.com.au (model route faked, no production AI call).
 
 ## 2026-11-25 (night, late) — Claude Code (Mac) — smart search: rules first, AI for the rest (ADR 0101)
 
