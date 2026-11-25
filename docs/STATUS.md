@@ -8,7 +8,7 @@ are `docs/PLATFORM-PLAN.md` (section 14, with progress). Overwrite this file at 
 V1 production-readiness: about 12% (PLATFORM-PLAN 14). Steps 0–2 nearly done; step 3 (backups) next.
 Branches waiting for a PR and merge: `chore/dev-db-and-prod-guard` (production guard + 0001 extensions fix), `docs/platform-plan` (this).
 
-## Home page search like realestate.com.au (ADR 0099) — LIVE: `main` = `ba6ba16` (merge of `feat/home-search-rea`), 2026-11-25
+## Home page search like realestate.com.au (ADR 0099) — LIVE: `main` = `1d3ad71` (ADR 0099 merge `ba6ba16`, then the no-lag fix `501eb4b` + `1d3ad71`), 2026-11-25
 On the user's go: production backup `prod-20261125T065102Z.dump.enc` (145 tables), migration 0108 on production (109 applied,
 the column checked read-only), merge `--no-ff`, pushed; Vercel built all 4 projects. Mock `docs/mocks/home-search.html` (approved 2026-11-24; Build tab option A).
 - Built: tabs Buy / Rent / Build / Sold / Address / Agents; several suburbs as chips (`loc=Suburb|STATE|pc`, up to 10) with a
