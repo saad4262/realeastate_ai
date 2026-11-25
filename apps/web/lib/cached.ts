@@ -1,5 +1,6 @@
 import { unstable_cache } from 'next/cache';
 import {
+  findLocalAgents,
   getOffMarketProperty,
   getPublicListing,
   listingAgentCards,
@@ -21,6 +22,7 @@ import {
   type PublicTimelineEntry,
   type PublicSearchQuery,
   type PublicSuburbAgent,
+  type PublicLocalAgent,
   type PublicNearbySuburb,
   type SearchFacets,
   type NearbyMarket,
@@ -425,6 +427,8 @@ function salesKey(query: RecentSalesQuery): string[] {
       ? `${query.near.lat.toFixed(4)},${query.near.lng.toFixed(4)},${query.near.radiusKm}`
       : '',
     query.since ? query.since.toISOString().slice(0, 10) : '',
+    // ADR 0099: several suburbs, each with its own centre — part of the answer, so part of the key.
+    JSON.stringify(query.places ?? []),
     String(query.bedrooms ?? ''),
     query.propertyType ?? '',
     query.sort ?? '',
@@ -677,6 +681,7 @@ export async function cachedNearbySuburbs(scope: {
   state?: string;
   channel?: PublicSearchQuery['channel'];
   near?: PublicSearchQuery['near'];
+  exclude?: string[];
 }): Promise<PublicNearbySuburb[]> {
   const run = unstable_cache(
     async () => {
@@ -695,6 +700,7 @@ export async function cachedNearbySuburbs(scope: {
       // different radius is drawn from the same point, but a street-address
       // search is not, and two of those must not share an entry.
       scope.near ? `${scope.near.lat},${scope.near.lng}` : '',
+      (scope.exclude ?? []).map((s) => s.toLowerCase()).sort().join('|'),
     ],
     { tags: [LISTINGS_TAG], revalidate: 300 },
   );
@@ -769,4 +775,25 @@ export async function cachedNearbyMarket(query: NearbyMarketQuery): Promise<Near
     { tags: [LISTINGS_TAG], revalidate: 30 },
   );
   return run();
+}
+
+/**
+ * The Find agents page (ADR 0099). Five minutes, like the market reads: who is
+ * selling in a suburb does not change by the second, and the listings tag
+ * clears it when something is published or sold.
+ */
+export async function cachedLocalAgents(
+  scope: Parameters<typeof findLocalAgents>[1],
+): Promise<{ agents: PublicLocalAgent[]; down: boolean }> {
+  const run = unstable_cache(
+    async () => ({ agents: await findLocalAgents(getWebDb(), scope), down: false }),
+    ['local-agents', JSON.stringify(scope)],
+    { tags: [LISTINGS_TAG], revalidate: 300 },
+  );
+  try {
+    return await run();
+  } catch (err) {
+    console.error('[agents] failed', err instanceof Error ? err.message : err);
+    return { agents: [], down: true };
+  }
 }

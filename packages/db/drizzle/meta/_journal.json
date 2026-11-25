@@ -757,6 +757,13 @@
       "when": 1795262471099,
       "tag": "0107_site_activity_search_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1795525542802,
+      "tag": "0108_new_build",
+      "breakpoints": true
     }
   ]
 }

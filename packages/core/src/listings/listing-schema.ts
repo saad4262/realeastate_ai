@@ -249,6 +249,8 @@ export const listingDraftSchema = z
     rentPw: z.coerce.number().min(0).max(1_000_000).optional(),
     availableFrom: z.coerce.date().optional(),
     auctionDate: z.coerce.date().optional(),
+    /** ADR 0099: a new home, house-and-land or off the plan. Omitted = left as it is. */
+    isNewBuild: z.boolean().optional(),
   })
   .refine((v) => !(v.priceFrom && v.priceTo) || v.priceTo >= v.priceFrom, {
     message: 'Upper price cannot be below the lower price',
@@ -391,6 +393,7 @@ export type ListingForEdit = {
     priceFrom: number | null;
     priceTo: number | null;
     rentPw: number | null;
+    isNewBuild: boolean;
   };
   /** Address as one line, for the page heading. */
   address: string;
@@ -470,3 +473,9 @@ export function formatAddress(p: {
   const line = [p.unit ? `${p.unit}/` : '', street].join('').trim();
   return [line, p.suburb, `${p.state} ${p.postcode}`].filter(Boolean).join(', ');
 }
+
+/**
+ * Suburbs one search may name at once (ADR 0099). More than this is a scrape,
+ * not a search; every parser and the query itself cap at this number.
+ */
+export const MAX_SEARCH_PLACES = 10;

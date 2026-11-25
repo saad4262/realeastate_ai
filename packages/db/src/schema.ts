@@ -470,6 +470,8 @@ export const listing = pgTable(
     landAreaSqm: numeric('land_area_sqm', { precision: 12, scale: 2 }),
     buildingAreaSqm: numeric('building_area_sqm', { precision: 12, scale: 2 }),
     yearBuilt: integer('year_built'),
+    /** ADR 0099: the agent ticked "New home / house-and-land / off the plan". The Build tab searches it. */
+    isNewBuild: boolean('is_new_build').notNull().default(false),
     ...timestamps,
   },
   (t) => [

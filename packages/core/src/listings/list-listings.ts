@@ -311,6 +311,7 @@ export async function getListingForEdit(
       priceFrom: listing.priceFrom,
       priceTo: listing.priceTo,
       rentPw: listing.rentPw,
+      isNewBuild: listing.isNewBuild,
       propertyId: property.id,
       unit: property.unit,
       streetNumber: property.streetNumber,
@@ -370,6 +371,7 @@ export async function getListingForEdit(
       priceFrom: num(row.priceFrom),
       priceTo: num(row.priceTo),
       rentPw: num(row.rentPw),
+      isNewBuild: row.isNewBuild,
     },
     address: formatAddress(row),
   };

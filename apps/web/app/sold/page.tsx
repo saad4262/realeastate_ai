@@ -8,7 +8,8 @@ import { WebShell } from '../../components/web-shell';
 import { SoldResultRow } from '../../components/sold-row';
 import { ResultsMap } from '../../components/results-map';
 import { NotConnectedPanel, Panel } from '../search/sidebar';
-import { SearchBar } from '../../components/search-bar';
+import { ResultsSearch } from '../../components/results-search';
+import { formatLoc, normalisePlaces, parseLoc, type PlaceRef } from '@repo/core/listings/url';
 import { SearchBarSkeleton } from '../../components/skeletons';
 import { Refreshing, SortBar, SortingProvider } from '../search/sorting';
 import type { RecentSalesSort } from '@repo/core/listings';
@@ -64,9 +65,19 @@ export default async function SoldPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
-  const suburb = strParam(params.suburb);
-  const state = strParam(params.state);
-  const postcode = strParam(params.postcode);
+  /*
+   * Several suburbs (ADR 0099), read the way /search reads them: one `loc`
+   * becomes the plain suburb below, so a one-suburb page is unchanged.
+   */
+  const located = normalisePlaces({
+    suburb: strParam(params.suburb),
+    state: strParam(params.state),
+    postcode: strParam(params.postcode),
+    places: (Array.isArray(params.loc) ? params.loc : params.loc ? [params.loc] : [])
+      .map(parseLoc)
+      .filter((p): p is PlaceRef => p !== null),
+  });
+  const { suburb, state, postcode } = located;
   // `radius` is what the search box and /search write; `radiusKm` is what the
   // guide's links have always carried. Both mean the same circle.
   const radiusRaw = params.radius ?? params.radiusKm;
@@ -89,6 +100,28 @@ export default async function SoldPage({
     if (parsed?.success) near = parsed.data;
   }
 
+  /** Each extra suburb's centre, from place_cache like the one above. One that cannot be found keeps its name match. */
+  const places = located.places
+    ? await Promise.all(
+        located.places.map(async (p) => {
+          if (!radiusKm) return p;
+          try {
+            const centre = await cachedPlace([p.suburb, p.state, 'Australia'].filter(Boolean).join(', '));
+            const parsed = centre
+              ? nearSchema.safeParse({ lat: centre.latitude, lng: centre.longitude, radiusKm })
+              : null;
+            return parsed?.success ? { ...p, near: parsed.data } : p;
+          } catch {
+            return p;
+          }
+        }),
+      )
+    : undefined;
+  /** Every place as `loc`, for the links below that must keep the whole search. */
+  const locs = (located.places ?? []).map(formatLoc);
+  const names = [suburb, ...(located.places ?? []).map((p) => p.suburb)].filter(Boolean) as string[];
+  const several = names.length > 1;
+
   const since = new Date();
   since.setMonth(since.getMonth() - months);
 
@@ -97,9 +130,11 @@ export default async function SoldPage({
       ...(suburb ? { suburb } : {}),
       ...(state ? { state } : {}),
       ...(near ? { near } : {}),
+      ...(places ? { places } : {}),
       since,
-      // Nearest is the default once there is a centre, as on /search.
-      sort: sort ?? (near ? 'nearest' : 'newest'),
+      // Nearest is the default once there is ONE centre, as on /search; with
+      // several, "nearest" would mean nearest to which.
+      sort: sort ?? (near && !several ? 'nearest' : 'newest'),
       limit: PAGE_SIZE,
       offset: (page - 1) * PAGE_SIZE,
     }),
@@ -112,6 +147,7 @@ export default async function SoldPage({
     if (suburb) q.set('suburb', suburb);
     if (state) q.set('state', state);
     if (postcode) q.set('postcode', postcode);
+    for (const l of locs) q.append('loc', l);
     if (radiusKm) q.set('radius', String(radiusKm));
     if (months !== DEFAULT_MONTHS) q.set('months', String(months));
     if (sort) q.set('sort', sort);
@@ -154,8 +190,12 @@ export default async function SoldPage({
       href: s.historyPath ?? undefined,
     }));
 
-  const place = [suburb, state].filter(Boolean).join(' ');
-  const where = suburb
+  const place = several
+    ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
+    : [suburb, state].filter(Boolean).join(' ');
+  const where = several
+    ? `in ${place}${radiusKm ? ` and within ${radiusKm} km of each` : ''}`
+    : suburb
     ? near
       ? `in ${place} and within ${near.radiusKm} km of it`
       : `in ${place}`
@@ -177,7 +217,7 @@ export default async function SoldPage({
   const summary =
     result.total === 0
       ? `No sales recorded ${where} in the last ${months} months.`
-      : near && suburb && !paged
+      : near && suburb && !paged && !several
         ? `${count} — ${inSuburb} in ${place}, ${
             sales.length - inSuburb
               ? `and ${sales.length - inSuburb} more within ${near.radiusKm} km of it`
@@ -190,6 +230,7 @@ export default async function SoldPage({
     const q = new URLSearchParams({ channel: 'sale' });
     if (suburb) q.set('suburb', suburb);
     if (state) q.set('state', state);
+    for (const l of locs) q.append('loc', l);
     if (radiusKm) q.set('radius', String(radiusKm));
     return `/search?${q.toString()}`;
   })();
@@ -200,6 +241,7 @@ export default async function SoldPage({
     if (suburb) q.set('suburb', suburb);
     if (state) q.set('state', state);
     if (postcode) q.set('postcode', postcode);
+    for (const l of locs) q.append('loc', l);
     if (radiusKm) q.set('radius', String(radiusKm));
     if (months !== DEFAULT_MONTHS) q.set('months', String(months));
     if (value) q.set('sort', value);
@@ -207,12 +249,12 @@ export default async function SoldPage({
     return qs ? `/sold?${qs}` : '/sold';
   };
   const sorts = [
-    { value: '', label: near ? 'Nearest' : 'Newest' },
-    ...(near ? [{ value: 'newest', label: 'Newest' }] : []),
+    { value: '', label: near && !several ? 'Nearest' : 'Newest' },
+    ...(near && !several ? [{ value: 'newest', label: 'Newest' }] : []),
     { value: 'price_asc', label: 'Price ↑' },
     { value: 'price_desc', label: 'Price ↓' },
   ].map((o) => ({ ...o, href: sortHref(o.value) }));
-  const currentSort = sort === 'newest' && !near ? '' : (sort ?? '');
+  const currentSort = sort === 'newest' && !(near && !several) ? '' : (sort ?? '');
 
   return (
     <WebShell wide account={{ signedIn }}>
@@ -236,11 +278,12 @@ export default async function SoldPage({
 
           {/* The same box /search has, searching sales instead of listings. */}
           <Suspense fallback={<SearchBarSkeleton />}>
-            <SearchBar action="/sold" />
+            <ResultsSearch sold />
           </Suspense>
 
           <h1 className="pt-lg text-headline-xl font-display text-ink">
-            Recently sold properties {suburb ? `in ${[suburb, state].filter(Boolean).join(', ')}` : ''}
+            Recently sold properties{' '}
+            {several ? where : suburb ? `in ${[suburb, state].filter(Boolean).join(', ')}` : ''}
           </h1>
 
           <div className="mt-sm flex flex-wrap items-center justify-between gap-sm border-b border-line-subtle pb-md">

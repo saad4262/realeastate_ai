@@ -116,13 +116,16 @@ export async function NearbySuburbsPanel({
   state,
   channel,
   near,
+  exclude,
 }: {
   suburb?: string;
   state?: string;
   channel?: PublicSearchQuery['channel'];
   near?: PublicSearchQuery['near'];
+  /** Suburbs already in the search (ADR 0099): never suggested back. */
+  exclude?: string[];
 }) {
-  const suburbs = await cachedNearbySuburbs({ suburb, state, channel, near });
+  const suburbs = await cachedNearbySuburbs({ suburb, state, channel, near, exclude });
   if (!suburbs.length) return null;
 
   const href = (s: { suburb: string; state: string; postcode: string }) => {

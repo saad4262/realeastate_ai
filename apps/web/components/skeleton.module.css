@@ -50,7 +50,7 @@
   background: var(--color-surface, #fff);
 }
 
-/* The field and the button stack below 720px — see search-bar.module.css. */
+/* The field and the button stack below 720px. */
 @media (max-width: 720px) {
   .searchBar { height: 120px; }
 }

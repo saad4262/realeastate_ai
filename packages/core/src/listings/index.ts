@@ -53,6 +53,7 @@ export {
   type SearchFacets,
 } from './search-facets';
 export {
+  findPublicPropertyAt,
   getOffMarketProperty,
   liveListingIdForProperty,
   formerListingDestination,
@@ -89,12 +90,15 @@ export {
   type PublicListing,
   type PublicListingSummary,
   type PublicSearchQuery,
+  type SearchPlace,
   type SearchSort,
 } from './search-listings';
 export {
+  findLocalAgents,
   nearbySuburbs,
   topSuburbAgents,
   type PublicNearbySuburb,
+  type PublicLocalAgent,
   type PublicSuburbAgent,
 } from './search-sidebar';
 export {

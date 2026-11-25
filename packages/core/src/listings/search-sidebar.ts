@@ -1,5 +1,5 @@
-import { and, eq, sql, type SQL } from 'drizzle-orm';
-import { agency, listing, listingAgent, property, type Db } from '@repo/db';
+import { and, eq, isNull, ne, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { agency, listing, listingAgent, membership, property, type Db } from '@repo/db';
 import type { Near } from '../geo/place-schema';
 import type { ListingChannel } from './listing-schema';
 import { PROPERTY_GEOM, publicListing } from './search-listings';
@@ -140,7 +140,11 @@ export async function topSuburbAgents(
  */
 export async function nearbySuburbs(
   db: Db,
-  scope: Scope & { near?: Near } = {},
+  scope: Scope & {
+    near?: Near;
+    /** ADR 0099: the suburbs already in the search; a suggestion is somewhere else. */
+    exclude?: string[];
+  } = {},
 ): Promise<PublicNearbySuburb[]> {
   const listings = sql<string>`count(distinct ${listing.id})`;
 
@@ -156,6 +160,8 @@ export async function nearbySuburbs(
   if (scope.suburb) {
     filters.push(sql`lower(${property.suburb}) <> lower(${scope.suburb})`);
   }
+  const exclude = (scope.exclude ?? []).map((s) => s.trim().toLowerCase()).filter(Boolean);
+  if (exclude.length) filters.push(notInArray(sql`lower(${property.suburb})`, exclude));
 
   const rows = await db
     .select({
@@ -186,5 +192,107 @@ export async function nearbySuburbs(
     postcode: r.postcode,
     listingCount: int(r.listingCount),
     distanceKm: dec(r.distanceKm),
+  }));
+}
+
+/** A row of the public Find agents page (ADR 0099). Counts only, never a score. */
+export type PublicLocalAgent = {
+  userId: string;
+  name: string;
+  agencyName: string;
+  forSale: number;
+  soldLastYear: number;
+  /** Median days from published to sold, over the last 12 months' sales; null with none. */
+  medianDaysOnMarket: number | null;
+};
+
+/** Agents to list per search. A directory page, not an export. */
+const AGENTS_PAGE = 30;
+
+/**
+ * Agents selling in these suburbs, or matching a name, for `/agents`.
+ *
+ * Who appears: the agent named on a listing the public can see there now
+ * (live, under offer) or that sold there in the last 12 months — and only
+ * while they are still an active, not-removed member of that listing's agency,
+ * and the agency is not suspended. Someone who left, or was removed, is not
+ * advertised on their old sales. Names come from `listing_agent`'s snapshot,
+ * the name already printed on those public listings. One statement.
+ */
+export async function findLocalAgents(
+  db: Db,
+  scope: { places?: { suburb: string; state?: string; postcode?: string }[]; name?: string },
+): Promise<PublicLocalAgent[]> {
+  const places = (scope.places ?? []).slice(0, 10);
+  const name = scope.name?.trim().slice(0, 80);
+  if (!places.length && !name) return [];
+
+  const where: SQL[] = [
+    eq(membership.status, 'active'),
+    isNull(membership.removedAt),
+    ne(agency.status, 'suspended'),
+    or(
+      sql`${listing.status} in ('live', 'under_offer')`,
+      sql`${listing.status} = 'sold' and ${listing.soldDate} > now() - interval '12 months'`,
+    )!,
+  ];
+  if (places.length) {
+    where.push(
+      or(
+        ...places.map((p) =>
+          and(
+            sql`lower(${property.suburb}) = ${p.suburb.trim().toLowerCase()}`,
+            p.state ? sql`upper(${property.state}) = ${p.state.trim().toUpperCase()}` : undefined,
+            p.postcode ? eq(property.postcode, p.postcode.trim()) : undefined,
+          ),
+        ),
+      )!,
+    );
+  }
+  if (name) {
+    // Escaped: a typed % or _ is a character, not a wildcard.
+    const like = `%${name.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    where.push(
+      or(
+        sql`lower(${listingAgent.snapshotName}) like ${like}`,
+        sql`lower(${agency.name}) like ${like}`,
+      )!,
+    );
+  }
+
+  const forSale = sql<string>`count(distinct ${listing.id}) filter (where ${listing.status} in ('live', 'under_offer'))`;
+  const sold = sql<string>`count(distinct ${listing.id}) filter (where ${listing.status} = 'sold')`;
+
+  const rows = await db
+    .select({
+      userId: listingAgent.userId,
+      name: sql<string>`max(${listingAgent.snapshotName})`,
+      agencyName: sql<string>`max(${agency.name})`,
+      forSale,
+      sold,
+      medianDays: sql<string | null>`round((percentile_cont(0.5) within group (
+        order by extract(epoch from ${listing.soldDate} - ${listing.publishedAt}) / 86400
+      ) filter (where ${listing.status} = 'sold' and ${listing.publishedAt} is not null))::numeric)`,
+    })
+    .from(listingAgent)
+    .innerJoin(listing, eq(listing.id, listingAgent.listingId))
+    .innerJoin(property, eq(property.id, listing.propertyId))
+    .innerJoin(agency, eq(agency.id, listing.agencyId))
+    .innerJoin(
+      membership,
+      and(eq(membership.userId, listingAgent.userId), eq(membership.agencyId, listing.agencyId)),
+    )
+    .where(and(...where))
+    .groupBy(listingAgent.userId)
+    .orderBy(sql`${sold} desc, ${forSale} desc, max(${listingAgent.snapshotName}) asc`)
+    .limit(AGENTS_PAGE);
+
+  return rows.map((r) => ({
+    userId: r.userId,
+    name: r.name,
+    agencyName: r.agencyName,
+    forSale: int(r.forSale),
+    soldLastYear: int(r.sold),
+    medianDaysOnMarket: r.medianDays === null ? null : int(r.medianDays),
   }));
 }

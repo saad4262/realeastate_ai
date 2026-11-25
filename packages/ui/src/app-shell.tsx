@@ -69,6 +69,15 @@ type AppShellProps = {
  * Shared shell for all three surfaces. Branding follows `surface`
  * (resolved from host in console middleware — never hardcode in pages).
  */
+/** The public site's sections, in a portal's order. */
+const WEB_NAV = [
+  ['/search?channel=sale', 'Buy'],
+  ['/search?channel=rent', 'Rent'],
+  ['/sold', 'Sold'],
+  ['/search?channel=sale&new=1', 'New homes'],
+  ['/agents', 'Find agents'],
+] as const;
+
 export function AppShell({
   surface,
   children,
@@ -88,22 +97,16 @@ export function AppShell({
         {isWeb ? (
           <nav className={styles.nav} aria-label="Primary">
             {/*
-              There is no Search link here any more, and `/search` is not
-              gone — it is no longer an ENTRANCE.
-
-              The way in is the guide: somebody says what they want in a
-              sentence, and the answer hands them a `/search?…` link built
-              from what the guide actually understood. That link, the ones
-              in an alert email, and the ones on a listing page all still
-              resolve; the route, its filters and its tests are untouched.
-              What changed is that nobody is asked to choose a set of
-              filters before they have said anything.
-
-              A nav link back to a bare `/search` would undo that by being
-              the first thing on every page — so it is removed rather than
-              hidden, because a control nobody can see is one nobody
-              maintains.
+              A portal's own doors (ADR 0099, the user 2026-11-24: the home
+              page should work like realestate.com.au). These are plain
+              links to the same results pages the guide's answers link to;
+              the guide is still one click away on the right.
             */}
+            {WEB_NAV.map(([href, label]) => (
+              <Link key={href} href={href} className={styles.navLink}>
+                {label}
+              </Link>
+            ))}
             {/*
               One link for both states, on purpose.
 
