@@ -185,10 +185,10 @@ export default async function AccountPage() {
         </section>
 
         <section className={styles.card}>
-          <h2 className={styles.cardLabel}>Shortlist</h2>
+          <h2 className={styles.cardLabel}>Saved homes</h2>
           <p className={styles.body}>Homes you saved, with your own notes. Only you can see them.</p>
           <Link href="/account/shortlist" className={styles.secondary}>
-            Open shortlist
+            Open saved homes
           </Link>
         </section>
 
