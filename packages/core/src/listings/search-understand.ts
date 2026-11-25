@@ -72,6 +72,12 @@ export type SearchUnderstander = (input: { text: string }) => Promise<unknown>;
 const WORD_NUMBERS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, single: 1, double: 2, triple: 3 };
 
 /** Every number the sentence actually contains, with its k/m meaning: the only numbers a model may hand back. */
+/** A sale price under $10,000 or a weekly rent over $20,000 is a typo or a trick, not a budget. */
+export function plausiblePrice(n: number | undefined, rent: boolean): number | undefined {
+  if (n === undefined) return undefined;
+  return rent ? (n <= 20_000 ? n : undefined) : n >= 10_000 ? n : undefined;
+}
+
 export function numbersIn(text: string): Set<number> {
   const found = new Set<number>();
   for (const m of text.matchAll(/(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?(k|m|mil|million)?\b/gi)) {
@@ -105,13 +111,17 @@ export function verifyUnderstood(raw: unknown, text: string): UnderstoodSearch {
   const ai = rawUnderstoodSchema.parse(raw ?? {});
   const numbers = numbersIn(text);
   const said = (n: number | undefined) => (n !== undefined && numbers.has(n) ? n : undefined);
-  const typed = typedIn(text);
+  // A keyword or an ask must be words the rules left over: "double garage" already
+  // became 2 car spaces, and as a keyword too it would demand those exact words.
+  const leftover = typedIn(rules.rest ?? '');
 
   const km = rules.km ?? (said(ai.km) !== undefined ? Math.min(50, Math.max(1, Math.round(ai.km!))) : undefined);
-  let priceFrom = rules.priceFrom ?? said(ai.price_from);
-  let priceTo = rules.priceTo ?? said(ai.price_to);
-  if (priceFrom !== undefined && priceTo !== undefined && priceFrom > priceTo) priceFrom = priceTo = undefined;
   const channel = rules.channel ?? ai.channel;
+  // Typed, but not a price anyone means: a home for under $10,000, or rent over $20,000 a week.
+  const plausible = (n: number | undefined) => plausiblePrice(n, channel === 'rent');
+  let priceFrom = plausible(rules.priceFrom ?? said(ai.price_from));
+  let priceTo = plausible(rules.priceTo ?? said(ai.price_to));
+  if (priceFrom !== undefined && priceTo !== undefined && priceFrom > priceTo) priceFrom = priceTo = undefined;
 
   const out: UnderstoodSearch = {
     // The model's places are cleaner than the rules' leftovers ("pool in berwick" → "Berwick"); the geocoder still checks each.
@@ -125,8 +135,8 @@ export function verifyUnderstood(raw: unknown, text: string): UnderstoodSearch {
     ...((rules.cars ?? said(ai.cars)) !== undefined ? { cars: rules.cars ?? said(ai.cars)! } : {}),
     ...(priceFrom !== undefined ? { priceFrom } : {}),
     ...(priceTo !== undefined ? { priceTo } : {}),
-    keywords: ai.keywords.filter(typed),
-    notSearchable: ai.not_searchable.filter(typed),
+    keywords: ai.keywords.filter(leftover),
+    notSearchable: ai.not_searchable.filter(leftover),
     understood: false,
   };
   out.understood =

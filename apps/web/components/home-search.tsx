@@ -8,6 +8,7 @@ import {
   DISTANCE_STEPS_KM,
   formatLoc,
   MAX_UNDERSTAND_CHARS,
+  plausiblePrice,
   parseSearchText,
   suggestionToPlace,
   type ParsedSearch,
@@ -330,14 +331,17 @@ export function HomeSearch({
       tab === 'sold' ? 'sold' : p.channel === 'rent' ? 'rent' : p.newBuild ? 'build' : p.channel === 'sale' && tab === 'rent' ? 'buy' : tab;
     if (nextTab !== tab) setTab(nextTab);
     if (p.km) setRadius(String(p.km));
+    // The tab decides what a small number means: $600 is rent on Rent, and no price at all for a home to buy.
+    const priceFrom = plausiblePrice(p.priceFrom, nextTab === 'rent');
+    const priceTo = plausiblePrice(p.priceTo, nextTab === 'rent');
     setFilters((f) => ({
       ...f,
       ...(p.types.length ? { types: p.types } : {}),
       ...(p.beds ? { beds: String(p.beds) } : {}),
       ...(p.baths ? { baths: String(p.baths) } : {}),
       ...(p.cars ? { cars: String(p.cars) } : {}),
-      ...(p.priceFrom ? { priceFrom: String(p.priceFrom) } : {}),
-      ...(p.priceTo ? { priceTo: String(p.priceTo) } : {}),
+      ...(priceFrom ? { priceFrom: String(priceFrom) } : {}),
+      ...(priceTo ? { priceTo: String(priceTo) } : {}),
     }));
     if (!p.places.length) {
       if (thenSearch) setSearchNext(true);

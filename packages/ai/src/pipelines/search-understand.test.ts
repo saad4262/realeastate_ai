@@ -3,7 +3,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import type { Db } from '@repo/db';
 import { understandSearch } from '@repo/core/listings/url';
 import { createSearchUnderstander, searchUnderstanderFromEnv, SEARCH_UNDERSTAND_PROMPT_VERSION } from './search-understand';
-import { SEARCH_UNDERSTAND_SYSTEM } from '../prompts/search-understand-v1';
+import { SEARCH_UNDERSTAND_SYSTEM } from '../prompts/search-understand-v2';
 
 /** ADR 0101: smart search's one short call, metered as search:understand, checked by core. Never the network. */
 

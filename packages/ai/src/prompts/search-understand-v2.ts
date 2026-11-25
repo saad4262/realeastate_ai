@@ -3,7 +3,7 @@
  * own fields. Byte-identical every day (#5). Core keeps a number only when the sentence contains it and a phrase only
  * when the sentence contains its words — so the model is told to copy, never to work anything out (#4).
  */
-export const SEARCH_UNDERSTAND_PROMPT_VERSION = 'search-understand@v1';
+export const SEARCH_UNDERSTAND_PROMPT_VERSION = 'search-understand@v2';
 
 export const SEARCH_UNDERSTAND_SYSTEM = `You turn one sentence typed into an Australian property search box into search fields.
 
@@ -16,10 +16,11 @@ You are given TEXT: what the person typed. Answer with one JSON object and nothi
 - "types": any of house, apartment, unit, townhouse, villa, duplex, studio, acreage, land, rural. "Home" alone is not a type.
 - "beds", "baths", "cars": the smallest number of each they wrote. Otherwise null.
 - "price_from", "price_to": whole dollars, only from an amount they wrote ("under 900k" is price_to 900000). Otherwise null.
-- "keywords": up to 3 features to look for in listing text, copied from their words, e.g. ["pool", "ocean views"].
-  Not places, and nothing already in the keys above.
+- "keywords": up to 3 features of the home itself to look for in listing text, one or two words each, copied from
+  their words, e.g. ["pool", "ocean views", "renovated"]. Not places, nothing about what is nearby, and nothing already
+  in the keys above (a garage is "cars", a bedroom is "beds").
 - "not_searchable": up to 3 things they asked for that a property search cannot filter, copied word for word from
-  TEXT: schools, travel or commute times, a quiet street, safety, neighbours.
+  TEXT: what is near the home (beach, train, shops, schools), travel or commute times, a quiet street, safety, neighbours.
 
 Rules:
 - Use null or [] for anything the text does not say. Never estimate, convert, round, add up or guess a number. A number

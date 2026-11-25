@@ -27,6 +27,8 @@ export type ParsedSearch = {
   priceTo?: number;
   /** True when anything besides a place was read: then the box offers the reading. */
   understood: boolean;
+  /** Everything the rules did not read, as typed (before filler words are trimmed): what a model may still read. */
+  rest?: string;
 };
 
 const MAX_KM = 50;
@@ -141,6 +143,7 @@ export function parseSearchText(input: string): ParsedSearch {
     take(re, () => (out.types.includes(type) || out.types.push(type), true));
   }
 
+  out.rest = s.replace(/\s+/g, ' ').trim();
   out.places = s
     .split(/\s*(?:,|;|&|\/|\bor\b|\band\b)\s*/i)
     .map((p) => p.replace(/\s+/g, ' ').trim().replace(LEAD, '').replace(TRAIL, '').trim())

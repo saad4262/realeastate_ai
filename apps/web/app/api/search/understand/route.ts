@@ -1,8 +1,8 @@
 import { unstable_cache } from 'next/cache';
 import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
-import { MAX_UNDERSTAND_CHARS, understandSearch } from '@repo/core/listings/url';
-import { searchUnderstanderFromEnv } from '@repo/ai/search-understand';
+import { MAX_UNDERSTAND_CHARS, understandSearch, type SearchUnderstander } from '@repo/core/listings/url';
+import { SEARCH_UNDERSTAND_PROMPT_VERSION, searchUnderstanderFromEnv } from '@repo/ai/search-understand';
 import { aiBudgetAllows } from '@repo/core/ai-budget';
 import { apiError } from '@repo/core/http/api-error';
 import { getWebDb } from '../../../../lib/db';
@@ -36,9 +36,12 @@ export async function POST(request: NextRequest) {
 
   const sentence = parsed.data.text.replace(/\s+/g, ' ');
   try {
-    const run = unstable_cache(() => understandSearch(sentence, understander), ['search-understand', sentence.toLowerCase()], { revalidate: 86_400 });
+    // The MODEL's answer is cached, keyed on the prompt's version; core's check runs after the cache on every
+    // request, so a tightened rule applies at once and a new prompt never reads the old one's answers.
+    const cached: SearchUnderstander = (input) =>
+      unstable_cache(() => understander(input), ['search-understand-raw', SEARCH_UNDERSTAND_PROMPT_VERSION, input.text.toLowerCase()], { revalidate: 86_400 })();
     const answer = await Promise.race([
-      run(),
+      understandSearch(sentence, cached),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), TIMEOUT_MS)),
     ]);
     return NextResponse.json(answer);

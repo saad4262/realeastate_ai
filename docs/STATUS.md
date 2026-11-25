@@ -93,7 +93,7 @@ On `main` with ADR 0088. Part 2, the office line, is not built. TEST-PLAN CW1–
    - Rules read a sentence in the box. The model (Haiku, faked in every test) reads only the leftovers, checked against the
      user's words.
    - New: `POST /api/search/understand`, and `kw` on /search. No migration.
-   - Not yet done: one live model call, which needs the user's OK to spend.
+   - Live-tested on dev: 5 real sentences on Haiku (prompt v2), all right, about $0.001 each.
 2. Merge `chore/dev-db-and-prod-guard`, then `docs/platform-plan`.
 3. Step 3, backups: a scheduled encrypted off-site `pg_dump` with a missed-dump alert (0.4), then one restore into a scratch project.
 4. Step 4, accounts and alarms (the boss): spend stops, Sentry, Upstash, 2FA; branch protection, gitleaks, Dependabot.

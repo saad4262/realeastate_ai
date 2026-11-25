@@ -11,6 +11,7 @@ import type { PublicSearchQuery } from './search-listings';
 export { parseSearchText, type ParsedSearch } from './search-text';
 export {
   MAX_UNDERSTAND_CHARS,
+  plausiblePrice,
   SEARCH_UNDERSTAND_FEATURE,
   understandSearch,
   verifyUnderstood,

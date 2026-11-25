@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseSearchText } from './search-text';
 
 const read = (text: string) => {
-  const { understood: _u, ...rest } = parseSearchText(text);
+  const { understood: _u, rest: _r, ...rest } = parseSearchText(text);
   // Only the fields that were set, so each case states exactly what it expects.
   return Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined && !(Array.isArray(v) && !v.length && v !== rest.places)));
 };

@@ -3,7 +3,7 @@ import type { Db } from '@repo/db';
 import { SEARCH_UNDERSTAND_FEATURE, type SearchUnderstander } from '@repo/core/listings/url';
 import { getModel, type TokenUsage } from '../models';
 import { trackAiRunQuietly } from '../usage';
-import { SEARCH_UNDERSTAND_PROMPT_VERSION, SEARCH_UNDERSTAND_SYSTEM } from '../prompts/search-understand-v1';
+import { SEARCH_UNDERSTAND_PROMPT_VERSION, SEARCH_UNDERSTAND_SYSTEM } from '../prompts/search-understand-v2';
 
 /**
  * The model call behind smart search (ADR 0101): one short request, no tools, metered to `ai_run` (#3). It returns

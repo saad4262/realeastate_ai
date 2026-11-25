@@ -42,7 +42,20 @@ passes ~10 entries, move the older ones to a new archive file.
   - full `pnpm --filter @repo/web build`;
   - headless Chromium on dev with the model route faked: smart 7/7, AI 10/10 (including AI off → keyword search), and
     refine. No live model call was made.
-- NOT done: a live model call (needs the user's OK), production, saved searches and alerts carrying `kw`.
+- Live model test, on the user's OK: 5 sentences through the dev route on real Haiku.
+  - v1 read places, a misspelt suburb, rent, keywords and the asks correctly, and ignored an injection.
+  - Three weaknesses showed up, all of them would return no results:
+    - "double garage" also became a keyword;
+    - "near the beach" became a keyword;
+    - the injection's "$50" became a price.
+  - Fixed in **prompt v2** plus core:
+    - a keyword or ask must be in the rules' raw leftover (`rest`);
+    - prices must be plausible (a sale at least $10k, rent at most $20k a week);
+    - nearness goes to "not searchable".
+  - The route now caches the RAW model answer, keyed on the prompt version, and core checks it after the cache.
+  - All 5 were right on v2.
+  - Totals: 15 calls, $0.0172, model about 1.4 s. The rate limit (10 a minute) was seen working.
+- NOT done: saved searches and alerts carrying `kw`.
 
 ## 2026-11-25 (later still) — Claude Code (Mac) — the empty search box types out examples
 
