@@ -3,6 +3,34 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-25 (night) — Claude Code (Mac) — Sold tab Filters (REA parity brief), smoke, latency parked
+
+- Brief `docs/briefs/rea-home-search-parity.md`, branch `feat/sold-filters-rea` from `d5e031b`. Not merged: waiting for the user.
+- Sold Filters: `recentSales` takes baths, cars, `propertyTypes[]` and `priceFrom`/`priceTo` on the RECORDED sale price (beds and
+  one type were already there); `/sold` reads `type`/`beds`/`baths`/`cars`/`priceFrom`/`priceTo`, keeps them on the pager and
+  sort, carries type/beds/baths/cars (not the price) to "Homes for sale", shows a "Filters: … Clear" line and a filtered empty
+  state. The Sold tab and the bar above `/sold` show Filters ("Sold price"). The sales cache key is now the whole query, so a
+  filter cannot be left out of it again. Also fixed: a weekly rent price no longer survives a switch to Buy/Build/Sold.
+- Checked: proxy-SQL tests (break-tested: drop the price or types clause → red), `pnpm test` (core 2522), full
+  `pnpm --filter @repo/web build`, headless Chromium on dev: Sold → Toowong → House + 3+ beds → `/sold?loc=…&type=house&beds=3`,
+  25 = SQL; every filter at once 10 = SQL; unfiltered 100 (cache apart); sort and page 2 keep filters; Rent → Buy clears price;
+  Buy unchanged; phone 390 px laid out.
+- Dev data touched and put back: dev's 400 sold listings have no price or date, so for the checks they were given a
+  sold price/date and varied listing-level beds/baths/cars/type (ids and prior values saved: all null), then set back to null.
+- Smoke (`SMOKE_ONLY="Search (live data),Consumer site (HTTP)"`, web on :3007): 27 passed, 2 failed, 7 skipped. New check
+  "the sold index honours its Filters, and caches each filter apart" green (Parramatta 100 / 31). The 2 red are not this change
+  (searchPublicListings and /search are untouched): `paging walks the result set…` (asks `limit: 100` of 3600 live listings) and
+  `the page agrees with the database` (compares a 24-row page with the page's total of 400) — both assume a small database.
+- Latency (item 3) parked, measured on findoraaus.com.au from here: `/api/places?q=` with no lookup at all 0.62–0.70 s; with a
+  Google lookup 0.51–0.73 s. The time is the network to Sydney, not Google or the server, so a server cache would save ~0 ms.
+- NOT done: production; the two smoke checks above.
+
+## 2026-11-25 (evening) — Cursor handoff — USER ORDER: REA parity next (Sold Filters + smoke)
+
+- User: do the leftovers properly so the public search matches realestate.com.au (AU): Sold Filters, smoke, then only a real win on first-suggestion latency.
+- Brief written for Claude Code: `docs/briefs/rea-home-search-parity.md`. STATUS Next #0 points at it.
+- Not started in this chat. Claude Code: new branch from `main` (`d5e031b`), ask before merge/live, full web build before push.
+
 ## 2026-11-25 (later) — Claude Code (Mac) — home search box: no lag on pick, suggestions cached
 
 - The user reported lag when picking a suggestion. Measured on findoraaus.com.au: a suggestion 0.6–1.9 s, then a SECOND

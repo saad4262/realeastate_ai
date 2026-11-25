@@ -420,21 +420,9 @@ export async function cachedListing(id: string): Promise<PublicListing | null> {
  * while still describing the same window.
  */
 function salesKey(query: RecentSalesQuery): string[] {
-  return [
-    query.suburb?.toLowerCase() ?? '',
-    query.state ?? '',
-    query.near
-      ? `${query.near.lat.toFixed(4)},${query.near.lng.toFixed(4)},${query.near.radiusKm}`
-      : '',
-    query.since ? query.since.toISOString().slice(0, 10) : '',
-    // ADR 0099: several suburbs, each with its own centre — part of the answer, so part of the key.
-    JSON.stringify(query.places ?? []),
-    String(query.bedrooms ?? ''),
-    query.propertyType ?? '',
-    query.sort ?? '',
-    String(query.limit ?? ''),
-    String(query.offset ?? ''),
-  ];
+  // The whole query, so a filter added later cannot be left out of the key and
+  // served another filter's answer. Only `since` is cut to its day (above).
+  return [JSON.stringify({ ...query, since: query.since?.toISOString().slice(0, 10) })];
 }
 
 /** A page of sales with its total, for /sold. Same read, same cache rules. */

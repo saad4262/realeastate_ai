@@ -200,6 +200,7 @@ export function HomeSearch({
   }, []);
 
   function switchTab(next: Tab) {
+    if ((next === 'rent') !== (tab === 'rent')) setFilters((f) => ({ ...f, priceFrom: '', priceTo: '' }));
     setTab(next);
     setText('');
     setSuggestions([]);
@@ -486,7 +487,7 @@ export function HomeSearch({
               onKeyDown={onKeyDown}
             />
           </label>
-          {!ai && isPlaceTab && tab !== 'sold' ? (
+          {!ai && isPlaceTab ? (
             <button
               type="button"
               className={filterCount ? `${styles.filters} ${styles.filtersOn}` : styles.filters}
@@ -719,7 +720,7 @@ export function HomeSearch({
             </fieldset>
 
             <fieldset className={styles.group}>
-              <legend>{perWeek ? 'Price per week' : 'Price'}</legend>
+              <legend>{perWeek ? 'Price per week' : tab === 'sold' ? 'Sold price' : 'Price'}</legend>
               <div className={styles.two}>
                 {(['priceFrom', 'priceTo'] as const).map((key) => (
                   <select

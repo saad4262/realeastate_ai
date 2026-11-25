@@ -10,6 +10,7 @@ import { ResultsMap } from '../../components/results-map';
 import { NotConnectedPanel, Panel } from '../search/sidebar';
 import { ResultsSearch } from '../../components/results-search';
 import { formatLoc, normalisePlaces, parseLoc, type PlaceRef } from '@repo/core/listings/url';
+import { PROPERTY_TYPES } from '@repo/core/listings/schema';
 import { SearchBarSkeleton } from '../../components/skeletons';
 import { Refreshing, SortBar, SortingProvider } from '../search/sorting';
 import type { RecentSalesSort } from '@repo/core/listings';
@@ -86,6 +87,33 @@ export default async function SoldPage({
   const months = intParam(params.months, DEFAULT_MONTHS);
   const page = intParam(params.page, 1);
 
+  /*
+   * The Filters panel, read as /search reads it: at least N beds, baths and
+   * cars, any of several types, and a range on the RECORDED sale price.
+   */
+  const positive = (raw: string | string[] | undefined) => {
+    const n = intParam(raw, 0);
+    return n > 0 ? n : undefined;
+  };
+  const beds = positive(params.beds);
+  const baths = positive(params.baths);
+  const cars = positive(params.cars);
+  const priceFrom = positive(params.priceFrom);
+  const priceTo = positive(params.priceTo);
+  const types = [
+    ...new Set((Array.isArray(params.type) ? params.type : params.type ? [params.type] : []).map((t) => t.trim().toLowerCase())),
+  ].filter((t) => (PROPERTY_TYPES as readonly string[]).includes(t));
+  /** The filters on any link that must keep this search; `sold` adds the price, which only a sale has. */
+  const withFilters = (q: URLSearchParams, sold: boolean) => {
+    for (const t of types) q.append('type', t);
+    if (beds) q.set('beds', String(beds));
+    if (baths) q.set('baths', String(baths));
+    if (cars) q.set('cars', String(cars));
+    if (sold && priceFrom) q.set('priceFrom', String(priceFrom));
+    if (sold && priceTo) q.set('priceTo', String(priceTo));
+    return q;
+  };
+
   /**
    * The radius is centred here, from the geocoder, exactly as the chat tool
    * does it — the URL names a place and never carries a coordinate, so a
@@ -132,6 +160,12 @@ export default async function SoldPage({
       ...(near ? { near } : {}),
       ...(places ? { places } : {}),
       since,
+      ...(beds ? { bedrooms: beds } : {}),
+      ...(baths ? { bathrooms: baths } : {}),
+      ...(cars ? { carSpaces: cars } : {}),
+      ...(types.length ? { propertyTypes: types } : {}),
+      ...(priceFrom ? { priceFrom } : {}),
+      ...(priceTo ? { priceTo } : {}),
       // Nearest is the default once there is ONE centre, as on /search; with
       // several, "nearest" would mean nearest to which.
       sort: sort ?? (near && !several ? 'nearest' : 'newest'),
@@ -150,6 +184,7 @@ export default async function SoldPage({
     for (const l of locs) q.append('loc', l);
     if (radiusKm) q.set('radius', String(radiusKm));
     if (months !== DEFAULT_MONTHS) q.set('months', String(months));
+    withFilters(q, true);
     if (sort) q.set('sort', sort);
     if (n > 1) q.set('page', String(n));
     const s = q.toString();
@@ -214,9 +249,37 @@ export default async function SoldPage({
   const count = paged
     ? `${result.total} sales — showing ${from}–${from + sales.length - 1}`
     : `${result.total} ${result.total === 1 ? 'sale' : 'sales'}`;
+  const money = (n: number) => (n >= 1_000_000 ? `$${n / 1_000_000}m` : `$${Math.round(n / 1000)}k`);
+  const filtersText = [
+    types.map((t) => t[0]!.toUpperCase() + t.slice(1)).join(' or '),
+    beds ? `${beds}+ beds` : '',
+    baths ? `${baths}+ baths` : '',
+    cars ? `${cars}+ cars` : '',
+    priceFrom && priceTo
+      ? `sold ${money(priceFrom)}–${money(priceTo)}`
+      : priceFrom
+        ? `sold from ${money(priceFrom)}`
+        : priceTo
+          ? `sold up to ${money(priceTo)}`
+          : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  /** The same search without its filters, for an empty filtered page. */
+  const unfilteredHref = (() => {
+    const q = new URLSearchParams();
+    if (suburb) q.set('suburb', suburb);
+    if (state) q.set('state', state);
+    if (postcode) q.set('postcode', postcode);
+    for (const l of locs) q.append('loc', l);
+    if (radiusKm) q.set('radius', String(radiusKm));
+    if (months !== DEFAULT_MONTHS) q.set('months', String(months));
+    const qs = q.toString();
+    return qs ? `/sold?${qs}` : '/sold';
+  })();
   const summary =
     result.total === 0
-      ? `No sales recorded ${where} in the last ${months} months.`
+      ? `No sales${filtersText ? ' matching these filters' : ''} recorded ${where} in the last ${months} months.`
       : near && suburb && !paged && !several
         ? `${count} — ${inSuburb} in ${place}, ${
             sales.length - inSuburb
@@ -232,6 +295,8 @@ export default async function SoldPage({
     if (state) q.set('state', state);
     for (const l of locs) q.append('loc', l);
     if (radiusKm) q.set('radius', String(radiusKm));
+    // Asking prices are not sale prices, so the price range stays behind.
+    withFilters(q, false);
     return `/search?${q.toString()}`;
   })();
 
@@ -244,6 +309,7 @@ export default async function SoldPage({
     for (const l of locs) q.append('loc', l);
     if (radiusKm) q.set('radius', String(radiusKm));
     if (months !== DEFAULT_MONTHS) q.set('months', String(months));
+    withFilters(q, true);
     if (value) q.set('sort', value);
     const qs = q.toString();
     return qs ? `/sold?${qs}` : '/sold';
@@ -287,7 +353,17 @@ export default async function SoldPage({
           </h1>
 
           <div className="mt-sm flex flex-wrap items-center justify-between gap-sm border-b border-line-subtle pb-md">
-            <p className="text-body-md text-ink-soft">{summary}</p>
+            <div>
+              <p className="text-body-md text-ink-soft">{summary}</p>
+              {filtersText ? (
+                <p className="mt-1 text-body-sm text-ink-soft">
+                  Filters: <span className="text-ink">{filtersText}</span>{' '}
+                  <Link href={unfilteredHref} className="text-brand hover:underline">
+                    Clear
+                  </Link>
+                </p>
+              ) : null}
+            </div>
             <SortBar options={sorts} current={currentSort} />
           </div>
 
@@ -296,9 +372,17 @@ export default async function SoldPage({
               <Refreshing>
               {sales.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-line px-md py-xl text-center">
-                  <p className="text-body-md text-ink">Nothing to show here yet.</p>
+                  <p className="text-body-md text-ink">
+                    {filtersText ? 'No sales match these filters.' : 'Nothing to show here yet.'}
+                  </p>
                   <p className="mt-1 text-body-sm text-ink-soft">
-                    A sale appears once an agency records one against an address.
+                    {filtersText ? (
+                      <Link href={unfilteredHref} className="text-brand hover:underline">
+                        See every sale here without filters
+                      </Link>
+                    ) : (
+                      'A sale appears once an agency records one against an address.'
+                    )}
                   </p>
                   <Link
                     href={forSaleHref}

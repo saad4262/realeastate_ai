@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, isNotNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import { agency, listing, property, type Db } from '@repo/db';
 import { formatAddress, MAX_SEARCH_PLACES } from './listing-schema';
 import type { Near } from '../geo/place-schema';
@@ -90,8 +90,16 @@ export type RecentSalesQuery = {
   places?: { suburb: string; state?: string; postcode?: string; near?: Near }[];
   /** Only sales on or after this date. */
   since?: Date;
+  /** At least this many, as on /search. */
   bedrooms?: number;
+  bathrooms?: number;
+  carSpaces?: number;
   propertyType?: string;
+  /** Any of several types, from the Filters panel (ADR 0099). */
+  propertyTypes?: string[];
+  /** The recorded sale price, inclusive. Unlike an asking range it is one exact figure. */
+  priceFrom?: number;
+  priceTo?: number;
   /**
    * `newest` (the default) is by sale date. `nearest` needs `near` and falls
    * back to `newest` without one — a distance from nowhere orders nothing.
@@ -167,9 +175,15 @@ export async function recentSales(db: Db, query: RecentSalesQuery): Promise<Rece
       : undefined;
   if (query.since) filters.push(gte(listing.soldDate, query.since));
   if (query.bedrooms !== undefined) filters.push(sql`${adFacts.bedrooms} >= ${query.bedrooms}`);
+  if (query.bathrooms !== undefined) filters.push(gte(adFacts.bathrooms, String(query.bathrooms)));
+  if (query.carSpaces !== undefined) filters.push(gte(adFacts.carSpaces, query.carSpaces));
   if (query.propertyType) {
     filters.push(sql`lower(${adFacts.propertyType}) = lower(${query.propertyType})`);
   }
+  const types = (query.propertyTypes ?? []).map((t) => t.trim().toLowerCase()).filter(Boolean);
+  if (types.length) filters.push(inArray(sql`lower(coalesce(${adFacts.propertyType}, ''))`, types));
+  if (query.priceFrom !== undefined) filters.push(gte(listing.soldPrice, String(query.priceFrom)));
+  if (query.priceTo !== undefined) filters.push(lte(listing.soldPrice, String(query.priceTo)));
   // geom is the generated geography column, GiST-indexed (migration 0006).
   // A property with no pin cannot be placed and is near nothing, so it drops
   // out of the circle rather than appearing at distance zero.
