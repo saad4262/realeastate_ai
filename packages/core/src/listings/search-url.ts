@@ -9,6 +9,14 @@ import {
 } from './listing-schema';
 import type { PublicSearchQuery } from './search-listings';
 export { parseSearchText, type ParsedSearch } from './search-text';
+export {
+  MAX_UNDERSTAND_CHARS,
+  SEARCH_UNDERSTAND_FEATURE,
+  understandSearch,
+  verifyUnderstood,
+  type SearchUnderstander,
+  type UnderstoodSearch,
+} from './search-understand';
 
 /**
  * The URL vocabulary of /search, written down in one place.
@@ -41,6 +49,7 @@ export const SEARCH_PARAM_KEYS = [
   'lat',
   'lng',
   'radius',
+  'kw',
 ] as const;
 
 export type SearchParamKey = (typeof SEARCH_PARAM_KEYS)[number];

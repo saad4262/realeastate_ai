@@ -7,10 +7,12 @@ import {
   asksForTravelTime,
   DISTANCE_STEPS_KM,
   formatLoc,
+  MAX_UNDERSTAND_CHARS,
   parseSearchText,
   suggestionToPlace,
   type ParsedSearch,
   type PlaceRef,
+  type UnderstoodSearch,
 } from '@repo/core/listings/url';
 import { MAX_SEARCH_PLACES, PROPERTY_TYPES } from '@repo/core/listings/schema';
 import { Spinner } from './spinner';
@@ -112,6 +114,8 @@ export type SearchStart = {
   filters: Filters;
   /** Carried to the next search, not shown: the results page's own order. */
   sort?: string;
+  /** Smart search's keywords (ADR 0101), from the results page's `kw`. */
+  keywords?: string[];
 };
 
 export function HomeSearch({
@@ -140,6 +144,12 @@ export function HomeSearch({
   const [answered, setAnswered] = useState('');
   /** Set when Search was pressed on a sentence: search once its reading has landed in state. */
   const [searchNext, setSearchNext] = useState(false);
+  /** ADR 0101 part 2: words to find in listing text, and asks we cannot search, both from the model and checked by core. */
+  const [keywords, setKeywords] = useState<string[]>(start?.keywords ?? []);
+  const [gaps, setGaps] = useState<string[]>([]);
+  const [thinking, setThinking] = useState(false);
+  /** The model already had its turn (or failed): the next submit searches with what is in the box. */
+  const noAiOnce = useRef(false);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const [recent, setRecent] = useState<Recent[]>([]);
@@ -304,7 +314,13 @@ export function HomeSearch({
    * the Rent or Build tab when it asked for one. Searching stays a separate
    * step unless `thenSearch` (the Search button was pressed on the sentence).
    */
-  function applySmart(p: ParsedSearch, firstPick?: PlaceSuggestion, thenSearch = false) {
+  function applySmart(
+    p: ParsedSearch,
+    firstPick?: PlaceSuggestion,
+    thenSearch = false,
+    opts: { sentence?: string; fromAi?: boolean } = {},
+  ) {
+    const sentence = opts.sentence ?? text;
     setSuggestions([]);
     setOpen(false);
     setText('');
@@ -348,14 +364,48 @@ export function HomeSearch({
         if (ref) addChip(chipOf(ref));
         else missing.push(words);
       }
-      // Words that are not a place go back in the box, where the list says so.
-      if (missing.length) {
+      // Words that are not a place: the model reads the whole sentence once; if it
+      // cannot, they go back in the box, where the list says so.
+      const putBack = () => {
         setText(missing.join(', '));
         setOpen(true);
+      };
+      if (missing.length && !opts.fromAi) {
+        understandWithAi(sentence, thenSearch, putBack);
+      } else if (missing.length) {
+        putBack();
       } else if (thenSearch) {
         setSearchNext(true);
       }
       inputRef.current?.focus();
+    });
+  }
+
+  /**
+   * The model reads a sentence the rules could not finish (ADR 0101 part 2).
+   * Everything it returns was checked by core against the sentence; on any
+   * failure the box carries on without it.
+   */
+  function understandWithAi(sentence: string, thenSearch: boolean, fallback: () => void) {
+    setThinking(true);
+    startGoing(async () => {
+      try {
+        const res = await fetch('/api/search/understand', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: sentence.slice(0, MAX_UNDERSTAND_CHARS) }),
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        const u = (await res.json()) as UnderstoodSearch;
+        if (!u.places?.length && !u.understood) throw new Error('nothing read');
+        setKeywords(u.keywords ?? []);
+        setGaps(u.notSearchable ?? []);
+        applySmart(u, undefined, thenSearch, { sentence, fromAi: true });
+      } catch {
+        fallback();
+      } finally {
+        setThinking(false);
+      }
     });
   }
 
@@ -444,6 +494,17 @@ export function HomeSearch({
       return;
     }
 
+    // A sentence the box could not place ("family home near good schools in
+    // berwick"): the model reads it before it becomes a keyword search.
+    const skipAi = noAiOnce.current;
+    noAiOnce.current = false;
+    if (!skipAi && !chips.length && !point && typed.split(/\s+/).length >= 3 && !suggestions.length) {
+      return understandWithAi(typed, true, () => {
+        noAiOnce.current = true;
+        setSearchNext(true);
+      });
+    }
+
     const params = new URLSearchParams();
     if (tab === 'buy' || tab === 'build') params.set('channel', 'sale');
     if (tab === 'rent') params.set('channel', 'rent');
@@ -456,6 +517,8 @@ export function HomeSearch({
     }
     if (radius && (chips.length || point)) params.set('radius', radius);
     if (!chips.length && !point && typed) params.set('q', typed);
+    // /sold has no keyword filter; /search matches each in the listing's own words.
+    if (tab !== 'sold') for (const k of keywords) params.append('kw', k);
 
     for (const t of filters.types) params.append('type', t);
     if (filters.beds) params.set('beds', filters.beds);
@@ -668,7 +731,7 @@ export function HomeSearch({
           ) : null}
           <button type="submit" className={styles.go} disabled={going} aria-busy={going}>
             {going ? <Spinner /> : null}
-            {ai ? 'Ask the guide' : 'Search'}
+            {thinking ? 'Understanding…' : ai ? 'Ask the guide' : 'Search'}
           </button>
         </form>
 
@@ -693,6 +756,25 @@ export function HomeSearch({
               ))}
             </select>
             {radius && chips.length > 1 ? <span className={styles.muted}>of each suburb</span> : null}
+            {tab !== 'sold' && (keywords.length || gaps.length) ? (
+              // What the model added, on this one line so nothing below moves.
+              <span className={styles.aiNote}>
+                <span aria-hidden>✦</span>
+                {keywords.map((k) => (
+                  <span key={k} className={styles.kwChip}>
+                    &ldquo;{k}&rdquo;
+                    <button type="button" aria-label={`Remove ${k}`} onClick={() => setKeywords((all) => all.filter((x) => x !== k))}>
+                      ×
+                    </button>
+                  </span>
+                ))}
+                {gaps.length ? (
+                  <span className={styles.gaps} title={`We can't search these yet: ${gaps.join(', ')}`}>
+                    Not searchable yet: {gaps.join(', ')}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
           </div>
         ) : null}
 
@@ -874,7 +956,7 @@ export function HomeSearch({
           onClick={() => setAiMenu((v) => !v)}
         >
           <span className={styles.beta}>Beta</span>
-          AI search: {ai ? 'On' : 'Off'}
+          Guide chat: {ai ? 'On' : 'Off'}
           <span aria-hidden>▾</span>
         </button>
         {aiMenu ? (
@@ -892,11 +974,11 @@ export function HomeSearch({
                   router.prefetch('/chat');
                 }}
               >
-                <b>{on ? 'On: ask the property guide' : 'Off: normal search'}</b>
+                <b>{on ? 'On: ask the property guide' : 'Off: smart search'}</b>
                 <small>
                   {on
                     ? 'Describe it in a sentence. Prices and counts still come from live listings, never from the model.'
-                    : 'Pick suburbs, a distance and filters. Exact and instant.'}
+                    : 'Type it as you would say it, "pakenham 10km 3 bed under 800k", or pick suburbs and filters. Every result is a live listing.'}
                 </small>
               </button>
             ))}
@@ -1015,7 +1097,9 @@ const typeLabel = (t: string) => TYPE_LABELS[t] ?? t;
 /** The sentence's reading as short pills: what Enter will set. */
 function readingPills(p: ParsedSearch, first: PlaceSuggestion | undefined, lookup: string, firstAnswered: boolean): string[] {
   const perWeek = p.channel === 'rent';
-  const place = (words: string) => words.replace(/\b\w/g, (c) => c.toUpperCase());
+  // A short name reads as a place; a long leftover is shown as typed, in quotes, since it may not be one.
+  const place = (words: string) =>
+    words.split(' ').length <= 3 ? words.replace(/\b\w/g, (c) => c.toUpperCase()) : `\u201c${words}\u201d`;
   const firstPlace =
     first && firstAnswered && p.places[0]?.trim().toLowerCase() === lookup.toLowerCase()
       ? [first.label, first.secondary?.split(',')[0]].filter(Boolean).join(', ')

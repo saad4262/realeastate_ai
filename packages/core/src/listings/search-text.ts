@@ -64,7 +64,7 @@ function money(raw: string, unit: string | undefined, dollar: boolean): number |
 }
 
 /** Words that join a place to the rest and never start one. */
-const LEAD = /^(?:(?:show\s+me|find\s+me|find|looking\s+for|i\s+want|search|homes?|propert(?:y|ies)|places?|for|with|within|in|at|near|nearby|close\s+to|around|of|from|radius|surrounding|a|an|and|or|to)\s+)+/i;
+const LEAD = /^(?:(?:show\s+me|find\s+me|find|looking\s+for|i\s+want|search|add|also|plus|only|just|make\s+it|change\s+(?:it\s+)?to|homes?|propert(?:y|ies)|places?|for|with|within|in|at|near|nearby|close\s+to|around|of|from|radius|surrounding|a|an|and|or|to)\s+)+/i;
 const TRAIL = /(?:\s+(?:area|region|surrounds|surrounding(?:\s+suburbs)?|suburbs?|and|or|with|in|near|for|homes?|propert(?:y|ies)))+$/i;
 
 export function parseSearchText(input: string): ParsedSearch {

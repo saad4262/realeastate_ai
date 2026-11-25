@@ -230,6 +230,8 @@ export default async function SearchPage({
 
   const query: PublicSearchQuery = {
     text,
+    // Smart search's keywords (ADR 0101): each must be in the listing's own words.
+    mustMention: allParams.getAll('kw').map((k) => k.trim().slice(0, 40)).filter(Boolean).slice(0, 3),
     channel: channelOf(one('channel')),
     newBuild: one('new') === '1' || undefined,
     bedrooms: num(one('beds')),

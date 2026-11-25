@@ -109,3 +109,16 @@ describe('parseSearchText: what it must leave alone', () => {
     expect(parseSearchText('looking for a 3 bed house near').places).toEqual([]);
   });
 });
+
+/** Refining from the results bar (ADR 0101): the same box, so the same reading. */
+describe('parseSearchText: refining a search', () => {
+  it.each([
+    ['add clyde', { places: ['clyde'] }],
+    ['also officer', { places: ['officer'] }],
+    ['make it 4 bed', { places: [], beds: 4 }],
+    ['change to under 700k', { places: [], priceTo: 700_000 }],
+    ['only townhouses', { places: [], types: ['townhouse'] }],
+  ])('"%s"', (text, want) => {
+    expect(parseSearchText(text)).toMatchObject(want);
+  });
+});
