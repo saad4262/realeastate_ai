@@ -8235,6 +8235,8 @@ async function main() {
     inRollback(async (t) => {
       const f = await contactFixture(t);
       const [l] = await t.execute<{ id: string }>(sql`select id from listing where property_id = ${f.propertyId} limit 1`);
+      // Live as publishing leaves it: every path to live stamps published_at, and Undo (ADR 0100) reads it.
+      await t.execute(sql`update listing set published_at = coalesce(published_at, now()) where id = ${l!.id}`);
       const mk = async (k: string) => (await t.execute<{ id: string }>(sql`insert into "user" (id, email) values (${randomUUID()}, ${`${k}.${f.tag}@smoke.test`}) returning id`))[0]!.id;
       const a = { userId: await mk('sl-a') };
       const b = { userId: await mk('sl-b') };
