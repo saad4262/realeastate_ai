@@ -3,6 +3,19 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-25 (later) — Claude Code (Mac) — home search box: no lag on pick, suggestions cached
+
+- The user reported lag when picking a suggestion. Measured on findoraaus.com.au: a suggestion 0.6–1.9 s, then a SECOND
+  request (resolve, 0.6–0.9 s even when cached) before the chip appeared; the box looked dead in between.
+- Branch `fix/home-search-snappy` (worktree, not pushed): a suburb suggestion becomes a chip with no request
+  (`suggestionToPlace` in core, tested and broken-checked); Agents goes straight to `/agents?loc=`; only address, region and
+  postcode still resolve, with the button spinner and the typed text given back on failure. Suggestions are kept in memory
+  per visit, an overtaken request is aborted, a "Searching places…" row and a "no suburb matches" hint replace the blank box,
+  the list no longer re-opens after a pick (focus kept in the input), and `/api/places` allows 60 a minute per IP, not 30.
+- `loc` now goes out as `Pakenham|VIC` (no postcode) from a pick: same results checked for /search, radius 10 and /sold.
+- Checked in headless Chromium against dev on :3007: chip 2 ms after click, re-typed prefix 2 ms and no request.
+- NOT done: Sold tab filters (/sold's query takes no beds or type), production.
+
 ## 2026-11-24/25 — Claude Code (Mac) — ADR 0099: the home page search, like realestate.com.au
 
 - The user asked for the home page to look and search like realestate.com.au: tabs, several suburbs, a distance, address pin-point.

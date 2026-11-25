@@ -75,6 +75,25 @@ export function parseLoc(raw: string): PlaceRef | null {
   return parsed.success ? parsed.data : null;
 }
 
+/**
+ * A suburb suggestion straight to a `loc`, with no second request: the
+ * provider's `{label: 'Officer', secondary: 'VIC, Australia'}` or our own
+ * `{label: 'Pakenham', secondary: 'VIC 3810'}`. The server finds the centre,
+ * so a chip needs only the name and state. Null when the state cannot be read:
+ * then the caller resolves the place properly.
+ */
+export function suggestionToPlace(s: {
+  label: string;
+  secondary: string | null;
+  kind: string;
+}): PlaceRef | null {
+  if (s.kind !== 'locality') return null;
+  const state = s.secondary?.match(/^\s*(NSW|VIC|QLD|WA|SA|TAS|ACT|NT)\b/i)?.[1];
+  if (!state) return null;
+  const postcode = s.secondary?.match(/\b(\d{4})\b/)?.[1];
+  return parseLoc([s.label, state, postcode ?? ''].join('|'));
+}
+
 const placeKey = (p: { suburb?: string; state?: string; postcode?: string }) =>
   [p.suburb?.toLowerCase(), p.state?.toUpperCase(), p.postcode].join('|');
 

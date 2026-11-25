@@ -13,8 +13,12 @@ export const dynamic = 'force-dynamic';
  * below exists because of that.
  */
 
-/** Requests allowed per IP per window. Generous for typing, useless for scraping. */
-const LIMIT = 30;
+/**
+ * Requests allowed per IP per window. Generous for typing, useless for scraping.
+ * 60, not 30: the home box takes up to ten suburbs, typed letter by letter, and
+ * a refusal there reads as "no such suburb" (ADR 0099).
+ */
+const LIMIT = 60;
 const WINDOW_MS = 60_000;
 
 type Bucket = { count: number; resetAt: number };
