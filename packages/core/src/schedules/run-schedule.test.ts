@@ -53,3 +53,10 @@ describe('toRuntimeQuery with several places', () => {
     expect(q.places).toEqual([{ suburb: 'Berwick' }, { suburb: 'Officer' }]);
   });
 });
+
+describe('toRuntimeQuery keeps smart search keywords', () => {
+  it('passes mustMention through to the search', async () => {
+    const q = await toRuntimeQuery({ suburb: 'Pakenham', state: 'VIC', mustMention: ['pool'] }, resolve);
+    expect(q.mustMention).toEqual(['pool']);
+  });
+});

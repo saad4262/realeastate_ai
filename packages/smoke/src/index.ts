@@ -1765,39 +1765,30 @@ async function main() {
   });
 
   await check('paging walks the result set without repeating or skipping', async () => {
-    const all = await searchPublicListings(db, { limit: 100 });
-    if (all.length < 2) skip('needs at least two live listings');
+    /**
+     * The first rows one page at a time must be exactly the first rows asked
+     * for at once, in the same order: then no page repeats or skips one.
+     *
+     * It used to treat a 100-row page as "every listing" and fail on any
+     * database with more than 100 live, which says nothing about paging. Now
+     * the walk is the first WALK rows of the real total, whatever its size.
+     */
+    const WALK = 40;
+    const { rows: first, total } = await searchPublicListingsPage(db, { limit: WALK });
+    if (first.length < 2) skip('needs at least two live listings');
+    assert(total >= first.length, `count(*) over() said ${total} but the page itself held ${first.length}`);
 
-    // One per page, so the invariant is exercised whatever the database holds.
-    const seen: string[] = [];
-    let total = -1;
-
-    for (let page = 0; page < all.length; page += 1) {
-      const { rows, total: t } = await searchPublicListingsPage(db, {
-        limit: 1,
-        offset: page,
-      });
-      assert(rows.length === 1, `page ${page + 1} of ${all.length} came back empty`);
-
-      // The total is the whole match, not the page, and does not drift as the
-      // offset moves — it is count(*) over() on the same statement.
-      if (total === -1) total = t;
+    for (let page = 0; page < first.length; page += 1) {
+      const { rows, total: t } = await searchPublicListingsPage(db, { limit: 1, offset: page });
+      assert(rows.length === 1, `page ${page + 1} came back empty with ${total} to walk`);
+      // The total is the whole match, not the page, and does not drift as the offset moves.
       assert(t === total, `total changed from ${total} to ${t} at offset ${page}`);
-
-      const id = rows[0]?.id as string;
-      assert(!seen.includes(id), `listing ${id} appeared on two pages`);
-      seen.push(id);
+      assert(
+        rows[0]?.id === first[page]?.id,
+        `offset ${page} gave ${rows[0]?.id}, but row ${page + 1} of the unpaged page is ${first[page]?.id} — a repeat or a skip`,
+      );
     }
-
-    assert(
-      total === all.length,
-      `count(*) over() said ${total} but an unpaged search returned ${all.length}`,
-    );
-    assert(
-      seen.length === all.length,
-      `walked ${seen.length} rows one page at a time but the set holds ${all.length}`,
-    );
-    return `${all.length} listings, ${all.length} pages, none repeated`;
+    return `${first.length} of ${total} listings walked one page at a time, none repeated or skipped`;
   });
 
   await check('every geocoded listing has a real point', async () => {
@@ -2642,7 +2633,9 @@ async function main() {
   await check('the page agrees with the database', async () => {
     if (!webUp) skip('web app is not running');
     if (!sample) skip('no live listings');
-    const fromDb = (await searchPublicListings(db, { suburb: sample })).length;
+    // The page prints the whole match ("400 results — showing 1–24"), so it is
+    // compared with the database's total, not with one page of rows.
+    const { total: fromDb } = await searchPublicListingsPage(db, { suburb: sample });
     const fromPage = await resultCount(`suburb=${encodeURIComponent(sample)}`);
     assert(
       fromDb === fromPage,

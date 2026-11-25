@@ -247,14 +247,12 @@ export function searchQueryToParams(query: PublicSearchQuery): URLSearchParams {
   put(params, 'state', query.state);
   put(params, 'postcode', query.postcode);
   putLists(params, {
-    places: query.places?.map(({ suburb, state, postcode }) => ({ suburb, state, postcode })),
+    // Each place at its own distance (its centre's radius), never one shared radius for all.
+    places: query.places?.map(({ suburb, state, postcode, near }) => ({ suburb, state, postcode, km: near?.radiusKm })),
     propertyTypes: query.propertyTypes,
   });
+  for (const k of query.mustMention ?? []) params.append('kw', k);
 
-  // A multi-suburb search carries its radius on each place's centre; the
-  // radius is the same for all of them (one Distance control).
-  const near = query.near ?? query.places?.find((p) => p.near)?.near;
-  if (near && !query.near) put(params, 'radius', near.radiusKm);
   if (query.near) {
     put(params, 'radius', query.near.radiusKm);
     if (!query.suburb && !query.places?.length) {
@@ -314,6 +312,8 @@ export const savedSearchQuerySchema = z
     landFrom: z.number().nonnegative().optional(),
     /** Widen beyond the suburb. Meaningless without a suburb or a lat/lng. */
     radiusKm: z.number().positive().max(200).optional(),
+    /** Smart search's keywords (ADR 0101, URL `kw`): each must be in the listing's own words. */
+    mustMention: z.array(z.string().trim().min(2).max(40)).min(1).max(3).optional(),
     lat: z.number().min(-90).max(90).optional(),
     lng: z.number().min(-180).max(180).optional(),
     sort: sortSchema.optional(),
@@ -395,7 +395,13 @@ export function parseSearchParams(params: URLSearchParams): SavedSearchQuery {
     out.propertyType = types[0];
   }
 
-  const saved = normalisePlaces(out as SavedSearchQuery);
+  const keywords = [...new Set(params.getAll('kw').map((k) => k.trim()).filter((k) => k.length >= 2 && k.length <= 40))];
+  if (keywords.length) out.mustMention = keywords.slice(0, 3);
+
+  const { km: onlyKm, ...saved } = normalisePlaces(out as SavedSearchQuery);
+  // One place with its own distance: that distance is the search's radius. Saved
+  // as `radiusKm`, because the stored shape is strict and `km` lives on places only.
+  if (onlyKm && saved.radiusKm === undefined) saved.radiusKm = onlyKm;
 
   // A suburb's own name must never also travel as free text — the text filter
   // is ANDed, so it deletes every neighbouring suburb a radius just added.
@@ -432,6 +438,7 @@ export function savedQueryToPath(query: SavedSearchQuery): string {
   put(params, 'state', query.state);
   put(params, 'postcode', query.postcode);
   putLists(params, query);
+  for (const k of query.mustMention ?? []) params.append('kw', k);
 
   if (query.radiusKm !== undefined) {
     put(params, 'radius', query.radiusKm);
@@ -464,12 +471,12 @@ export function describeSavedQuery(query: SavedSearchQuery): string {
   if (query.channel === 'rent') bits.push('to rent');
   else if (query.channel === 'sale') bits.push('for sale');
 
-  const names = [query.suburb, ...(query.places ?? []).map((p) => p.suburb)].filter(
-    (n): n is string => Boolean(n),
-  );
-  if (names.length > 1) {
-    const where = `in ${listOf(names, 'or')}`;
-    bits.push(query.radiusKm ? `${where} and within ${query.radiusKm} km of each` : where);
+  const placeList = [
+    ...(query.suburb ? [{ suburb: query.suburb, km: query.radiusKm }] : []),
+    ...(query.places ?? []).map((p) => ({ suburb: p.suburb, km: p.km ?? query.radiusKm })),
+  ];
+  if (placeList.length > 1) {
+    bits.push(`in ${placesPhrase(placeList)}`);
   } else if (query.suburb) {
     bits.push(query.radiusKm ? `in ${query.suburb} and within ${query.radiusKm} km` : `in ${query.suburb}`);
   } else if (query.radiusKm) {
@@ -483,6 +490,7 @@ export function describeSavedQuery(query: SavedSearchQuery): string {
     const amount = query.priceTo.toLocaleString('en-AU');
     bits.push(query.channel === 'rent' ? `under $${amount} a week` : `under $${amount}`);
   }
+  if (query.mustMention?.length) bits.push(`with ${listOf(query.mustMention.map((k) => `"${k}"`), 'and')}`);
 
   return bits.join(' ');
 }

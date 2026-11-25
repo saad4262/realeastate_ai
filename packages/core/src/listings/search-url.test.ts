@@ -112,7 +112,7 @@ describe('discountPlaceWords', () => {
 });
 
 describe('several places in a deep link (ADR 0099)', () => {
-  it('writes one loc per place and the shared radius, never their coordinates', () => {
+  it('writes one loc per place, each with its own distance, never their coordinates', () => {
     const params = searchQueryToParams({
       places: [
         { suburb: 'Pakenham', state: 'VIC', postcode: '3810', near: { lat: -38.08, lng: 145.48, radiusKm: 10 } },
@@ -120,8 +120,8 @@ describe('several places in a deep link (ADR 0099)', () => {
       ],
       propertyTypes: ['house', 'townhouse'],
     });
-    expect(params.getAll('loc')).toEqual(['Pakenham|VIC|3810', 'Berwick|VIC']);
-    expect(params.get('radius')).toBe('10');
+    expect(params.getAll('loc')).toEqual(['Pakenham|VIC|3810|10', 'Berwick|VIC||10']);
+    expect(params.has('radius')).toBe(false);
     expect(params.getAll('type')).toEqual(['house', 'townhouse']);
     expect(params.has('lat')).toBe(false);
   });
@@ -181,5 +181,51 @@ describe('a distance per place', () => {
     expect(placesPhrase([{ suburb: 'Pakenham' }, { suburb: 'Officer' }], 5)).toBe('Pakenham or Officer and within 5 km of each');
     expect(placesPhrase([{ suburb: 'Pakenham', km: 10 }, { suburb: 'Officer' }])).toBe('Pakenham (+10 km) or Officer');
     expect(placesPhrase([{ suburb: 'Pakenham' }, { suburb: 'Officer' }])).toBe('Pakenham or Officer');
+  });
+});
+
+/** Saved searches and alerts keep what the box searched: one place's own distance, and smart search's keywords. */
+describe('saving a search with distances and keywords', () => {
+  it('a one-suburb search with its own distance can be saved (the stored shape has no `km`)', async () => {
+    const { parseSearchParams, savedSearchQuerySchema } = await import('./search-url');
+    const q = parseSearchParams(new URLSearchParams('channel=sale&loc=Pakenham%7CVIC%7C%7C10'));
+    expect(q).toEqual({ channel: 'sale', suburb: 'Pakenham', state: 'VIC', radiusKm: 10 });
+    expect(savedSearchQuerySchema.safeParse(q).success).toBe(true);
+  });
+
+  it('keeps each place\'s own distance when there are several', async () => {
+    const { parseSearchParams, savedSearchQuerySchema } = await import('./search-url');
+    const q = parseSearchParams(new URLSearchParams('loc=Pakenham%7CVIC%7C%7C10&loc=Perth%7CWA%7C%7C20'));
+    expect(q.places).toEqual([{ suburb: 'Pakenham', state: 'VIC', km: 10 }, { suburb: 'Perth', state: 'WA', km: 20 }]);
+    expect(savedSearchQuerySchema.safeParse(q).success).toBe(true);
+  });
+
+  it('saves kw as mustMention, at most three, and links back with them', async () => {
+    const { parseSearchParams, savedQueryToPath, savedSearchQuerySchema } = await import('./search-url');
+    const q = parseSearchParams(new URLSearchParams('loc=Berwick%7CVIC&kw=pool&kw=ocean%20views&kw=x&kw=pool&kw=shed&kw=deck'));
+    expect(q.mustMention).toEqual(['pool', 'ocean views', 'shed']);
+    expect(savedSearchQuerySchema.safeParse(q).success).toBe(true);
+    const back = new URL(`https://x${savedQueryToPath(q)}`).searchParams;
+    expect(back.getAll('kw')).toEqual(['pool', 'ocean views', 'shed']);
+  });
+
+  it('says the keywords and each distance in the alert\'s words', async () => {
+    const { describeSavedQuery } = await import('./search-url');
+    expect(describeSavedQuery({ channel: 'sale', places: [{ suburb: 'Pakenham', km: 10 }, { suburb: 'Perth', km: 20 }], mustMention: ['pool'] }))
+      .toBe('homes for sale in Pakenham (+10 km) or Perth (+20 km) with "pool"');
+  });
+
+  it('a run query links back with each place at its own distance and the keywords', async () => {
+    const { searchQueryToParams } = await import('./search-url');
+    const p = searchQueryToParams({
+      places: [
+        { suburb: 'Pakenham', state: 'VIC', near: { lat: -38, lng: 145, radiusKm: 10 } },
+        { suburb: 'Perth', state: 'WA', near: { lat: -31, lng: 115, radiusKm: 20 } },
+      ],
+      mustMention: ['pool'],
+    });
+    expect(p.getAll('loc')).toEqual(['Pakenham|VIC||10', 'Perth|WA||20']);
+    expect(p.getAll('kw')).toEqual(['pool']);
+    expect(p.has('radius')).toBe(false);
   });
 });
