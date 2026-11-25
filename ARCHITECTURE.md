@@ -233,6 +233,9 @@ reaching for one, work through this in order:
 4. **Is it genuinely shared, client-only, and not URL-shaped?** Only now
    consider a store — and write an ADR first.
 
+The one store so far: the saved-homes hearts (`apps/web/lib/saved-homes.ts`,
+ADR 0100) — `useSyncExternalStore`, no library.
+
 ### Do not mirror the URL into state
 
 The search bar held eleven `useState` values mirroring the query string, and

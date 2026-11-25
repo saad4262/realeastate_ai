@@ -16,6 +16,7 @@ import { propertyTypeLabel } from '@repo/core/listings/schema';
 import { mediaUrl } from '@repo/core/media/url';
 import { ListingMedia } from './listing-card';
 import { Icon, type IconName } from './icons';
+import { ShortlistHeart } from './shortlist-heart';
 
 /**
  * One result, the way a portal shows it.
@@ -117,6 +118,11 @@ export function ResultRow({
       </div>
 
       <ListingMedia listing={listing} className="aspect-[16/9] w-full sm:aspect-[21/9]">
+        {/* Save, top-right, above the card's link overlay (z-10), as Enquire is. */}
+        <div className="absolute right-md top-md z-10">
+          <ShortlistHeart listingId={listing.id} look="icon" address={street} />
+        </div>
+
         {/* Badges, top-left, in the reference's order: what the listing is,
             then whether it is new. */}
         <div className="absolute left-md top-md flex flex-wrap gap-1.5">

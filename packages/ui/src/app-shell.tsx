@@ -124,6 +124,10 @@ export function AppShell({
             <Link href="/alerts" className={styles.navLink}>
               My alerts
             </Link>
+            {/* The homes saved from any card's heart (ADR 0100); same both-states reasoning as My alerts. */}
+            <Link href="/account/shortlist" className={styles.navLink}>
+              Saved
+            </Link>
             <Link href="/chat" className={styles.navCta}>
               Ask the guide
             </Link>
