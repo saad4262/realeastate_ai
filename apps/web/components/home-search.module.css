@@ -321,12 +321,16 @@
   text-transform: capitalize;
 }
 
-.understood {
+/* The smart option's reading (ADR 0101): what Enter will set, as small pills. */
+.reading {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem;
-  margin: 0.1rem 0.4rem 0.5rem;
+  gap: 0.3rem;
+  margin-bottom: 0.2rem;
+}
+
+.reading .pill {
+  padding: 0.1rem 0.55rem;
   font-size: 0.75rem;
   font-weight: 600;
 }

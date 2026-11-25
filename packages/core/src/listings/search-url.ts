@@ -8,6 +8,7 @@ import {
   sortSchema,
 } from './listing-schema';
 import type { PublicSearchQuery } from './search-listings';
+export { parseSearchText, type ParsedSearch } from './search-text';
 
 /**
  * The URL vocabulary of /search, written down in one place.
@@ -458,24 +459,6 @@ function listOf(items: string[], word: 'or' | 'and'): string {
 
 /** The Distance control's steps, in km. A typed distance snaps to the nearest one. */
 export const DISTANCE_STEPS_KM = [2, 5, 10, 20, 50] as const;
-
-/**
- * "within 10 km of Pakenham", "10km from Berwick", "5 kms around 3810".
- *
- * Read in the box, without the AI, so the commonest sentence a buyer types
- * works as a plain search (ADR 0099). Returns the snapped distance and the
- * place words left to look up; null when the text is not that sentence.
- */
-export function parseDistancePhrase(text: string): { km: number; place: string } | null {
-  const m = text.match(
-    /^\s*(?:within\s+)?(\d{1,3}(?:\.\d+)?)\s*(?:km|kms|kilomet(?:er|re)s?)\s+(?:of|from|around|near)\s+(.+?)\s*$/i,
-  );
-  if (!m?.[1] || !m[2]) return null;
-  const typed = Number(m[1]);
-  if (!(typed > 0)) return null;
-  const km = DISTANCE_STEPS_KM.reduce((a, b) => (Math.abs(b - typed) < Math.abs(a - typed) ? b : a));
-  return { km, place: m[2] };
-}
 
 /**
  * "10 mins walk from …": travel time, which we have no data for (ADR 0099).

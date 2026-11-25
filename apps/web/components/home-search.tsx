@@ -7,8 +7,9 @@ import {
   asksForTravelTime,
   DISTANCE_STEPS_KM,
   formatLoc,
-  parseDistancePhrase,
+  parseSearchText,
   suggestionToPlace,
+  type ParsedSearch,
   type PlaceRef,
 } from '@repo/core/listings/url';
 import { MAX_SEARCH_PLACES, PROPERTY_TYPES } from '@repo/core/listings/schema';
@@ -137,6 +138,8 @@ export function HomeSearch({
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   /** Which lookup the list on screen answers; anything else is still on its way. */
   const [answered, setAnswered] = useState('');
+  /** Set when Search was pressed on a sentence: search once its reading has landed in state. */
+  const [searchNext, setSearchNext] = useState(false);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const [recent, setRecent] = useState<Recent[]>([]);
@@ -148,9 +151,11 @@ export function HomeSearch({
 
   const isPlaceTab = tab === 'buy' || tab === 'rent' || tab === 'build' || tab === 'sold';
   const maxChips = MAX_SEARCH_PLACES;
-  const phrase = parseDistancePhrase(text);
+  // ADR 0101: the sentence read by rules, on every keystroke, with no request.
+  const parsed = !ai && isPlaceTab ? parseSearchText(text) : null;
+  const smart = parsed?.understood ? parsed : null;
   const travelTime = !ai && isPlaceTab && asksForTravelTime(text);
-  const lookup = (phrase ? phrase.place : text).trim();
+  const lookup = (smart ? (smart.places[0] ?? '') : text).trim();
   const wantsSuggestions =
     !ai && !travelTime && lookup.length >= MIN_CHARS && !(isPlaceTab && chips.length >= MAX_SEARCH_PLACES);
   const lookupKey = `${tab === 'address' ? 'address' : 'place'}|${lookup.toLowerCase()}`;
@@ -244,7 +249,8 @@ export function HomeSearch({
   }
 
   function choose(s: PlaceSuggestion) {
-    const typedKm = phrase?.km;
+    if (smart) return applySmart(smart, s);
+    const typedKm = undefined;
     const typed = text;
     setSuggestions([]);
     setOpen(false);
@@ -276,6 +282,90 @@ export function HomeSearch({
       applyPlace(s, place, typedKm);
     });
   }
+
+  /** The first suggestion for some place words, from memory when this visit already asked. */
+  async function suggestFor(words: string): Promise<PlaceSuggestion | undefined> {
+    const key = `place|${words.trim().toLowerCase()}`;
+    const known = SUGGESTED.get(key);
+    if (known) return known[0];
+    try {
+      const res = await fetch(`/api/places?q=${encodeURIComponent(words.trim())}`);
+      if (!res.ok) return undefined;
+      const found = ((await res.json()) as { suggestions?: PlaceSuggestion[] }).suggestions ?? [];
+      SUGGESTED.set(key, found);
+      return found[0];
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Set everything a sentence said: its places as chips, Distance, Filters, and
+   * the Rent or Build tab when it asked for one. Searching stays a separate
+   * step unless `thenSearch` (the Search button was pressed on the sentence).
+   */
+  function applySmart(p: ParsedSearch, firstPick?: PlaceSuggestion, thenSearch = false) {
+    setSuggestions([]);
+    setOpen(false);
+    setText('');
+    // Sold stays Sold; otherwise the sentence's own words choose the tab. Not
+    // switchTab: that clears the price this is about to set.
+    const nextTab: Tab =
+      tab === 'sold' ? 'sold' : p.channel === 'rent' ? 'rent' : p.newBuild ? 'build' : p.channel === 'sale' && tab === 'rent' ? 'buy' : tab;
+    if (nextTab !== tab) setTab(nextTab);
+    if (p.km) setRadius(String(p.km));
+    setFilters((f) => ({
+      ...f,
+      ...(p.types.length ? { types: p.types } : {}),
+      ...(p.beds ? { beds: String(p.beds) } : {}),
+      ...(p.baths ? { baths: String(p.baths) } : {}),
+      ...(p.cars ? { cars: String(p.cars) } : {}),
+      ...(p.priceFrom ? { priceFrom: String(p.priceFrom) } : {}),
+      ...(p.priceTo ? { priceTo: String(p.priceTo) } : {}),
+    }));
+    if (!p.places.length) {
+      if (thenSearch) setSearchNext(true);
+      inputRef.current?.focus();
+      return;
+    }
+    startGoing(async () => {
+      const missing: string[] = [];
+      for (const [i, words] of p.places.entries()) {
+        const s = i === 0 && firstPick ? firstPick : await suggestFor(words);
+        let ref: PlaceRef | null = s ? suggestionToPlace(s) : null;
+        if (s && !ref) {
+          const place = await resolve(s);
+          if (place?.suburb && (place.kind === 'locality' || place.kind === 'postcode')) {
+            ref = { suburb: place.suburb, state: place.state ?? undefined, postcode: place.postcode ?? undefined };
+          } else if (place && p.places.length === 1 && nextTab !== 'sold') {
+            // A region on its own: a point with its own circle, as a picked region is.
+            setChips([]);
+            setPoint({ label: s.label, lat: place.latitude, lng: place.longitude });
+            if (!p.km) setRadius(String(DEFAULT_RADIUS_KM[place.kind]));
+            continue;
+          }
+        }
+        if (ref) addChip(chipOf(ref));
+        else missing.push(words);
+      }
+      // Words that are not a place go back in the box, where the list says so.
+      if (missing.length) {
+        setText(missing.join(', '));
+        setOpen(true);
+      } else if (thenSearch) {
+        setSearchNext(true);
+      }
+      inputRef.current?.focus();
+    });
+  }
+
+  // The Search button on a sentence: search once its reading is in state.
+  useEffect(() => {
+    if (!searchNext || going) return;
+    setSearchNext(false);
+    submit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs on the flag; submit reads the state that just landed
+  }, [searchNext, going]);
 
   function applyPlace(s: PlaceSuggestion, place: ResolvedPlace, typedKm: number | undefined) {
     if (tab === 'agents') {
@@ -346,8 +436,8 @@ export function HomeSearch({
       if (typed) startGoing(() => router.push(`/chat?ask=${encodeURIComponent(typed.slice(0, 1000))}`));
       return;
     }
-    // "within 10 km of Pakenham" + Enter: take the first suggestion for the place.
-    if (phrase && suggestions[0]) return void choose(suggestions[0]);
+    // A sentence ("pakenham 10km 3 bed"): set what it says, then search.
+    if (smart) return applySmart(smart, smart.places.length ? suggestions[0] : undefined, true);
     if (tab === 'address' || tab === 'agents') {
       if (suggestions[0]) return void choose(suggestions[0]);
       if (tab === 'agents' && typed) go(`/agents?q=${encodeURIComponent(typed)}`, { label: `Agents: ${typed}`, detail: '' });
@@ -396,21 +486,27 @@ export function HomeSearch({
       return;
     }
     if (e.key === 'Escape') return setOpen(false);
-    if (!suggestions.length) return;
+    const offset = smart ? 1 : 0;
+    const count = offset + suggestions.length;
+    if (!count) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setOpen(true);
-      setActive((i) => (i + 1) % suggestions.length);
+      setActive((i) => ((i < 0 ? activeIdx : i) + 1) % count);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setActive((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
-    } else if (e.key === 'Enter' && active >= 0 && suggestions[active]) {
+      setActive((i) => ((i < 0 ? activeIdx : i) <= 0 ? count - 1 : (i < 0 ? activeIdx : i) - 1));
+    } else if (e.key === 'Enter' && activeIdx >= 0) {
       e.preventDefault();
-      void choose(suggestions[active]);
+      if (smart && activeIdx === 0) applySmart(smart, suggestions[0]);
+      else if (suggestions[activeIdx - offset]) choose(suggestions[activeIdx - offset]!);
     }
   }
 
   const title = ai ? 'Describe the home you want' : TABS.find((t) => t.id === tab)?.title;
+  /** With a reading on screen, it is the option Enter takes unless the user moved. */
+  const activeIdx = active === -1 && smart && open ? 0 : active;
+  const smartPills = smart ? readingPills(smart, suggestions[0], lookup, answered === lookupKey) : [];
   const placeholder = ai
     ? 'e.g. a 3-bed family home near Berwick under $900k'
     : tab === 'address'
@@ -636,14 +732,64 @@ export function HomeSearch({
                   'Try "within 2 km of" a suburb instead.'
                 )}
               </p>
+            ) : smart ? (
+              <ul role="listbox" className={styles.list}>
+                <li>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={activeIdx === 0}
+                    className={activeIdx === 0 ? `${styles.option} ${styles.optionOn}` : styles.option}
+                    onMouseEnter={() => setActive(0)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applySmart(smart, suggestions[0])}
+                  >
+                    <span className={styles.optionIcon} aria-hidden>
+                      ✦
+                    </span>
+                    <span className={styles.optionMain}>
+                      <span className={styles.reading}>
+                        {smartPills.map((pill) => (
+                          <span key={pill} className={styles.pill}>
+                            {pill}
+                          </span>
+                        ))}
+                      </span>
+                      <span className={styles.optionSub}>Press Enter to set these</span>
+                    </span>
+                    <span className={styles.kind}>Smart</span>
+                  </button>
+                </li>
+                {suggestions.map((s, i) => (
+                  <li key={s.id}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={activeIdx === i + 1}
+                      className={activeIdx === i + 1 ? `${styles.option} ${styles.optionOn}` : styles.option}
+                      onMouseEnter={() => setActive(i + 1)}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => choose(s)}
+                    >
+                      <span className={styles.optionIcon} aria-hidden>
+                        {s.kind === 'postcode' ? '#' : '◉'}
+                      </span>
+                      <span className={styles.optionMain}>
+                        {s.label}
+                        {s.secondary ? <span className={styles.optionSub}>{s.secondary}</span> : null}
+                      </span>
+                      <span className={styles.kind}>{s.kind === 'locality' ? 'Suburb' : s.kind}</span>
+                    </button>
+                  </li>
+                ))}
+                {searching ? (
+                  <li className={styles.hint} role="status">
+                    <Spinner /> Searching places…
+                  </li>
+                ) : null}
+              </ul>
             ) : suggestions.length ? (
               <>
-                {phrase ? (
-                  <p className={styles.understood}>
-                    We&apos;ll search for <span className={styles.pill}>{suggestions[0]?.label}</span>
-                    <span className={styles.pill}>+ within {phrase.km} km</span>
-                  </p>
-                ) : null}
                 <ul role="listbox" className={styles.list}>
                   {suggestions.map((s, i) => (
                     <li key={s.id}>
@@ -712,7 +858,7 @@ export function HomeSearch({
                   ? "Type a street address to see that property: what it sold for, and what's listed."
                   : tab === 'agents'
                     ? 'Search a suburb to see the agents selling there.'
-                    : 'Pick as many suburbs as you like, or type "within 10 km of Pakenham".'}
+                    : 'Pick suburbs, or type it all: "pakenham 10km 3 bed house under 800k".'}
               </p>
             ) : null}
           </div>
@@ -862,4 +1008,36 @@ export function HomeSearch({
       </dialog>
     </div>
   );
+}
+
+const typeLabel = (t: string) => TYPE_LABELS[t] ?? t;
+
+/** The sentence's reading as short pills: what Enter will set. */
+function readingPills(p: ParsedSearch, first: PlaceSuggestion | undefined, lookup: string, firstAnswered: boolean): string[] {
+  const perWeek = p.channel === 'rent';
+  const place = (words: string) => words.replace(/\b\w/g, (c) => c.toUpperCase());
+  const firstPlace =
+    first && firstAnswered && p.places[0]?.trim().toLowerCase() === lookup.toLowerCase()
+      ? [first.label, first.secondary?.split(',')[0]].filter(Boolean).join(', ')
+      : p.places[0] && place(p.places[0]);
+  const price =
+    p.priceFrom && p.priceTo
+      ? `${money(p.priceFrom, perWeek)}–${money(p.priceTo, perWeek)}`
+      : p.priceTo
+        ? `under ${money(p.priceTo, perWeek)}`
+        : p.priceFrom
+          ? `from ${money(p.priceFrom, perWeek)}`
+          : '';
+  return [
+    firstPlace ?? '',
+    ...p.places.slice(1).map(place),
+    p.km ? `within ${p.km} km` : '',
+    p.channel === 'rent' ? 'For rent' : '',
+    p.newBuild ? 'New homes' : '',
+    p.types.map(typeLabel).join(' or '),
+    p.beds ? `${p.beds}+ beds` : '',
+    p.baths ? `${p.baths}+ baths` : '',
+    p.cars ? `${p.cars}+ cars` : '',
+    price,
+  ].filter(Boolean);
 }
