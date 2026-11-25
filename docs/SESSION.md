@@ -12,6 +12,32 @@ passes ~10 entries, move the older ones to a new archive file.
 - Brief for Claude Code: `docs/briefs/agency-data-export.md`. Next: write ADR, then phase 1 Customers +
   Listings quick CSV. Ask before merge / production / live. Privacy policy mention before real customers.
 
+## 2026-11-25 (night, later) — Claude Code (Mac) — smart search live; a distance per suburb
+
+- Smart search went live on the user's go.
+  - Merge `65419ca`; the users build Ready.
+  - One production call answered in 1.86 s, correctly.
+- The user, with screenshots: "10 km pakenham", then "20 km perth" set ONE distance, so both became 20 km. They asked
+  for each suburb's own distance.
+- Branch `feat/per-place-distance` (from `65419ca`):
+  - `loc` takes a fourth part, km;
+  - `placesPhrase` writes "Pakenham (+10 km) or Perth (+20 km)";
+  - /search, /sold and `toRuntimeQuery` (alerts) use each place's km, falling back to the shared radius;
+  - each chip has its own distance select, and the Distance control sets all or says "Different per suburb";
+  - typing a picked suburb with a new distance updates that chip.
+- Two bugs found and fixed on the way:
+  - The field's `<label>` would have taken the first chip's select as its control. It is now tied to the input by id.
+  - The input was read-only during a place lookup, so fast typing lost keys ("20 km perth" became "perth" and then
+    Perthville). Now it is read-only only while navigating.
+- Checked:
+  - unit tests;
+  - break-tests: km dropped from `loc`, and alerts ignoring a place's km. Both went red;
+  - full web build;
+  - headless Chromium: the user's exact case, including typing during the lookup, 13/13; smart 11/11; AI 10/10
+    (model faked); layout shift 0 at 1280 and 390 px.
+- Live model spend: one check script had no fake route and made 1 real call ($0.0011). The script now fakes the
+  route. Total so far: 16 calls, $0.0183.
+
 ## 2026-11-25 (night, late) — Claude Code (Mac) — smart search: rules first, AI for the rest (ADR 0101)
 
 - The user asked for search that reads a sentence the way realestate.com.au's AI search does. Research came from

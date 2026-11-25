@@ -12,3 +12,9 @@
   `toRuntimeQuery` resolves every place's centre in parallel, before any transaction.
 - **Not done.** Results are not sorted by distance when there are several centres: that order would mean "nearest to which one?". The default order is newest.
   Travel time ("10 mins walk") is not offered, because we have no such data; the box suggests "within 2 km" instead.
+- **Amended 2026-11-25: a distance per place.** The user picked "10 km Pakenham" and "20 km Perth" and expected both.
+  - `loc` takes an optional fourth part, the km around that place: `Pakenham|VIC|3810|10`. A place's own km wins over
+    the shared `radius`, so old links still read.
+  - Each chip has its own distance select. The Distance control sets every suburb at once, and says "Different per
+    suburb" when they differ.
+  - /search, /sold, saved searches and alerts honour each place's km.

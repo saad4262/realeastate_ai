@@ -99,13 +99,14 @@ export async function toRuntimeQuery(
   const { radiusKm, lat, lng, ...rest } = stored;
   const query: PublicSearchQuery = { ...rest, limit: SNAPSHOT_LIMIT };
 
-  if (!radiusKm) return query;
-
   // ADR 0099: each extra suburb gets its own centre, looked up the same way and
-  // in parallel. One that cannot be found keeps its name match, not the circle.
+  // in parallel, at its own distance or the shared radius. One that cannot be
+  // found keeps its name match, not the circle.
   if (stored.places?.length) {
     query.places = await Promise.all(
-      stored.places.map(async (p) => {
+      stored.places.map(async ({ km, ...p }) => {
+        const radiusKm = km ?? stored.radiusKm;
+        if (!radiusKm) return p;
         try {
           const centre = await resolvePlace(
             [p.suburb, p.state, p.postcode, 'Australia'].filter(Boolean).join(', '),
@@ -119,6 +120,8 @@ export async function toRuntimeQuery(
       }),
     );
   }
+
+  if (!radiusKm) return query;
 
   if (stored.suburb) {
     try {

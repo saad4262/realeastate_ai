@@ -159,6 +159,21 @@
   display: none;
 }
 
+/* A suburb's own distance, inside its chip. */
+.chipKm {
+  flex: none;
+  max-width: 4.6rem;
+  margin-left: 0.15rem;
+  padding: 0 0.1rem;
+  border: 0;
+  border-left: 1px solid var(--color-line, #e2e8f0);
+  background: transparent;
+  color: var(--color-ink-soft, #475569);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
 .chip button {
   width: 1.2rem;
   height: 1.2rem;

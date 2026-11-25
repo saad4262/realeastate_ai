@@ -7,6 +7,7 @@ import {
   asksForTravelTime,
   DISTANCE_STEPS_KM,
   formatLoc,
+  placeOnly,
   MAX_UNDERSTAND_CHARS,
   plausiblePrice,
   parseSearchText,
@@ -87,6 +88,11 @@ function money(n: number, perWeek: boolean): string {
   return n >= 1_000_000 ? `$${n / 1_000_000}m` : `$${n / 1000}k`;
 }
 
+/** The distance steps, plus one typed that is not a step ("12 km"), in order. */
+function kmSteps(extra?: number): number[] {
+  return [...new Set([...DISTANCE_STEPS_KM, ...(extra && extra > 0 ? [extra] : [])])].sort((a, b) => a - b);
+}
+
 /** Browser storage can throw (private mode, blocked site data): recent searches are a convenience only. */
 function readRecent(): Recent[] {
   try {
@@ -154,7 +160,10 @@ export function HomeSearch({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const [recent, setRecent] = useState<Recent[]>([]);
+  /** Looking a place up or asking the model: the button waits, typing does not. */
   const [going, startGoing] = useTransition();
+  /** Leaving for the results: only then is the text box held still. */
+  const [navigating, startNav] = useTransition();
   const boxRef = useRef<HTMLDivElement>(null);
   const fieldRef = useRef<HTMLLabelElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -254,9 +263,22 @@ export function HomeSearch({
     }
   }
 
+  /** The distance a new chip starts with: the Distance control's, unless the sentence said its own. */
+  const defaultKm = radius ? Number(radius) : undefined;
+
   function addChip(chip: Chip) {
     setPoint(null);
-    setChips((c) => (c.some((x) => formatLoc(x) === formatLoc(chip)) || c.length >= maxChips ? c : [...c, chip]));
+    setChips((c) => {
+      const same = c.findIndex((x) => placeOnly(x) === placeOnly(chip));
+      // Picked again with its own distance ("20 km pakenham"): that suburb takes it, the others keep theirs.
+      if (same >= 0) return chip.km && c[same]!.km !== chip.km ? c.map((x, i) => (i === same ? { ...x, km: chip.km } : x)) : c;
+      return c.length >= maxChips ? c : [...c, chip];
+    });
+  }
+
+  /** One suburb's own distance, from the select on its chip. */
+  function setChipKm(chip: Chip, value: string) {
+    setChips((all) => all.map((x) => (placeOnly(x) === placeOnly(chip) ? { ...x, km: value ? Number(value) : undefined } : x)));
   }
 
   function choose(s: PlaceSuggestion) {
@@ -274,7 +296,7 @@ export function HomeSearch({
     }
     if (instant) {
       setText('');
-      addChip(chipOf(instant));
+      addChip(chipOf({ ...instant, km: typedKm ?? defaultKm }));
       if (typedKm) setRadius(String(typedKm));
       inputRef.current?.focus();
       return;
@@ -365,7 +387,8 @@ export function HomeSearch({
             continue;
           }
         }
-        if (ref) addChip(chipOf(ref));
+        // This sentence's distance goes on this sentence's places; earlier chips keep theirs.
+        if (ref) addChip(chipOf({ ...ref, km: p.km ?? defaultKm }));
         else missing.push(words);
       }
       // Words that are not a place: the model reads the whole sentence once; if it
@@ -456,7 +479,12 @@ export function HomeSearch({
     // suburb is a point with its own sensible circle, and stands alone.
     if (place.suburb && (place.kind === 'locality' || place.kind === 'postcode')) {
       addChip(
-        chipOf({ suburb: place.suburb, state: place.state ?? undefined, postcode: place.postcode ?? undefined }),
+        chipOf({
+          suburb: place.suburb,
+          state: place.state ?? undefined,
+          postcode: place.postcode ?? undefined,
+          km: typedKm ?? defaultKm,
+        }),
       );
     } else if (tab !== 'sold') {
       // /sold names suburbs only: it never takes coordinates from a URL.
@@ -471,7 +499,7 @@ export function HomeSearch({
   function go(href: string, entry: Omit<Recent, 'href'>) {
     saveRecent({ ...entry, href });
     setOpen(false);
-    startGoing(() => router.push(href));
+    startNav(() => router.push(href));
   }
 
   const perWeek = tab === 'rent';
@@ -487,7 +515,7 @@ export function HomeSearch({
     const typed = text.trim();
 
     if (ai) {
-      if (typed) startGoing(() => router.push(`/chat?ask=${encodeURIComponent(typed.slice(0, 1000))}`));
+      if (typed) startNav(() => router.push(`/chat?ask=${encodeURIComponent(typed.slice(0, 1000))}`));
       return;
     }
     // A sentence ("pakenham 10km 3 bed"): set what it says, then search.
@@ -519,7 +547,8 @@ export function HomeSearch({
       params.set('lat', point.lat.toFixed(6));
       params.set('lng', point.lng.toFixed(6));
     }
-    if (radius && (chips.length || point)) params.set('radius', radius);
+    // Each suburb's distance rides in its own `loc`; the shared radius is only for a point.
+    if (radius && point) params.set('radius', radius);
     if (!chips.length && !point && typed) params.set('q', typed);
     // /sold has no keyword filter; /search matches each in the listing's own words.
     if (tab !== 'sold') for (const k of keywords) params.append('kw', k);
@@ -535,7 +564,7 @@ export function HomeSearch({
     const where = point ? [point.label] : chips.map((c) => c.label);
     const detail = [
       TABS.find((t) => t.id === tab)?.label ?? '',
-      radius && where.length ? `+ within ${radius} km` : '',
+      point && radius ? `+ within ${radius} km` : chipKm === 'mixed' ? 'distance per suburb' : chipKm ? `+ within ${chipKm} km` : '',
       filters.beds ? `${filters.beds}+ beds` : '',
     ]
       .filter(Boolean)
@@ -571,6 +600,11 @@ export function HomeSearch({
   }
 
   const title = ai ? 'Describe the home you want' : TABS.find((t) => t.id === tab)?.title;
+  /** The suburbs' shared distance, '' for none, or 'mixed' when each has its own. */
+  const chipKm = (() => {
+    const kms = chips.map((c) => (c.km ? String(c.km) : ''));
+    return kms.every((k) => k === kms[0]) ? (kms[0] ?? '') : 'mixed';
+  })();
   /** With a reading on screen, it is the option Enter takes unless the user moved. */
   const activeIdx = active === -1 && smart && open ? 0 : active;
   const smartPills = smart ? readingPills(smart, suggestions[0], lookup, answered === lookupKey) : [];
@@ -653,8 +687,9 @@ export function HomeSearch({
         ) : null}
 
         <form className={styles.row} onSubmit={submit} role="search">
-          {/* A label, so a click anywhere in the field focuses the input natively. */}
-          <label className={styles.field} ref={fieldRef}>
+          {/* A label, so a click anywhere in the field focuses the input natively. Tied to the input by id:
+              the chips' distance selects come first, and a bare label would take the first of those. */}
+          <label className={styles.field} ref={fieldRef} htmlFor={`${id}-q`}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden className={styles.glass}>
               <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
               <path d="m20 20-4-4" stroke="currentColor" strokeWidth="2" />
@@ -663,12 +698,26 @@ export function HomeSearch({
               ? chips.map((c, i) => (
                   // Past the second (the first on a phone), a chip waits behind "+N more" until the box is in use.
                   <span
-                    key={formatLoc(c)}
+                    key={placeOnly(c)}
                     className={styles.chip}
                     data-extra={i >= SHOWN_CHIPS ? '' : undefined}
                     data-extra-narrow={i >= 1 ? '' : undefined}
                   >
                     {c.label}
+                    {/* This suburb's own distance: changing it moves no other chip. */}
+                    <select
+                      className={styles.chipKm}
+                      aria-label={`Distance around ${c.label}`}
+                      value={c.km ?? ''}
+                      onChange={(e) => setChipKm(c, e.target.value)}
+                    >
+                      <option value="">+0 km</option>
+                      {kmSteps(c.km).map((km) => (
+                        <option key={km} value={km}>
+                          +{km} km
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       aria-label={`Remove ${c.label}`}
@@ -694,6 +743,7 @@ export function HomeSearch({
               </span>
             ) : null}
             <input
+              id={`${id}-q`}
               ref={inputRef}
               className={styles.input}
               value={text}
@@ -705,8 +755,9 @@ export function HomeSearch({
               aria-controls={listId}
               aria-autocomplete="list"
               maxLength={ai ? 1000 : 200}
-              // readOnly, not disabled: a disabled input drops focus mid-lookup.
-              readOnly={going}
+              // Held only while leaving for the results; a place lookup must not eat the next suburb's keys.
+              // readOnly, not disabled: a disabled input drops focus.
+              readOnly={navigating}
               onChange={(e) => {
                 setText(e.target.value);
                 setOpen(true);
@@ -733,8 +784,8 @@ export function HomeSearch({
               {filterCount ? `Filters · ${filterCount}` : 'Filters'}
             </button>
           ) : null}
-          <button type="submit" className={styles.go} disabled={going} aria-busy={going}>
-            {going ? <Spinner /> : null}
+          <button type="submit" className={styles.go} disabled={going || navigating} aria-busy={going || navigating}>
+            {going || navigating ? <Spinner /> : null}
             {thinking ? 'Understanding…' : ai ? 'Ask the guide' : 'Search'}
           </button>
         </form>
@@ -744,22 +795,29 @@ export function HomeSearch({
             <label htmlFor={`${id}-km`}>Distance</label>
             <select
               id={`${id}-km`}
-              value={placed ? radius : ''}
+              value={!placed ? '' : point ? radius : chipKm}
               disabled={!placed}
-              title={placed ? undefined : 'Pick a suburb first'}
-              onChange={(e) => setRadius(e.target.value)}
+              title={placed ? 'Sets every suburb; each chip can have its own' : 'Pick a suburb first'}
+              onChange={(e) => {
+                if (e.target.value === 'mixed') return;
+                setRadius(e.target.value);
+                // Every suburb at once; a chip's own select changes just that one afterwards.
+                setChips((all) => all.map((c) => ({ ...c, km: e.target.value ? Number(e.target.value) : undefined })));
+              }}
             >
               <option value="">{point ? 'Around this place' : placed ? 'Only these suburbs' : 'Pick a suburb first'}</option>
-              {[...new Set([...DISTANCE_STEPS_KM, ...(radius ? [Number(radius)] : [])])]
-                .filter((km) => km > 0)
-                .sort((a, b) => a - b)
-                .map((km) => (
+              {chipKm === 'mixed' ? (
+                <option value="mixed" disabled>
+                  Different per suburb
+                </option>
+              ) : null}
+              {kmSteps(point ? defaultKm : chipKm && chipKm !== 'mixed' ? Number(chipKm) : undefined).map((km) => (
                 <option key={km} value={km}>
                   + within {km} km
                 </option>
               ))}
             </select>
-            {radius && chips.length > 1 ? <span className={styles.muted}>of each suburb</span> : null}
+            {chipKm && chipKm !== 'mixed' && chips.length > 1 ? <span className={styles.muted}>of each suburb</span> : null}
             {tab !== 'sold' && (keywords.length || gaps.length) ? (
               // What the model added, on this one line so nothing below moves.
               <span className={styles.aiNote}>
@@ -794,7 +852,7 @@ export function HomeSearch({
                         key={s}
                         type="button"
                         className={styles.pill}
-                        onClick={() => startGoing(() => router.push(`/chat?ask=${encodeURIComponent(s)}`))}
+                        onClick={() => startNav(() => router.push(`/chat?ask=${encodeURIComponent(s)}`))}
                       >
                         {s}
                       </button>
@@ -911,7 +969,7 @@ export function HomeSearch({
                       <button
                         type="button"
                         className={styles.option}
-                        onClick={() => startGoing(() => router.push(r.href))}
+                        onClick={() => startNav(() => router.push(r.href))}
                       >
                         <span className={styles.optionIcon} aria-hidden>
                           ↺
