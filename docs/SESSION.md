@@ -3,6 +3,15 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-25 (afternoon) — Cursor handoff — USER ORDER: agency data export (decisions locked)
+
+- User answered Claude Code's export questions: agents AND agencies can export; full export includes
+  everything (message bodies too); photos and documents as real files in the zip, done properly.
+- Scope still applies: an agent only their records; owner/admin the whole agency. Hard exclusions stay
+  (tokens, AI internals, platform logs, consumer-only shortlists, ADR 0083 viewer identity until policy).
+- Brief for Claude Code: `docs/briefs/agency-data-export.md`. Next: write ADR, then phase 1 Customers +
+  Listings quick CSV. Ask before merge / production / live. Privacy policy mention before real customers.
+
 ## 2026-11-25 (later still) — Claude Code (Mac) — the empty search box types out examples
 
 - The user asked for a placeholder that types and changes, as on realestate.com.au. Branch `feat/typed-placeholder` (from
@@ -12,6 +21,8 @@ passes ~10 entries, move the older ones to a new archive file.
 - Headless Chromium on dev: 23 distinct placeholders in 7 s, 87 DOM changes in the card and every one the placeholder (0 other);
   typing freezes it, clearing brings it back, Address types an address, a chip shows "Add another suburb", reduced motion is
   static. Layout shift still 0, the box checks still pass; full `pnpm --filter @repo/web build` green.
+- On the user's go: merged onto `86cef72` (another session's ADR 0100, merged cleanly) as `ddd517e`; that merge built and
+  tested locally first (web build green, `pnpm test` green); all 4 Vercel builds Ready; the same 7 checks pass on findoraaus.com.au.
 
 ## 2026-11-25 (late night) — Claude Code (Mac) — Sold Filters live; the search box stops moving the page
 

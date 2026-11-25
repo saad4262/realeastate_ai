@@ -84,14 +84,17 @@ On `main` with ADR 0088. Part 2, the office line, is not built. TEST-PLAN CW1–
 - The client: SMS rules, Control Centre 4.6/4.7, triggers 4.4, Microsoft Entra, brand colours, legal details, real listings.
 
 ## Next
-0. Fix the two smoke checks that assume a small database (`paging walks the result set…`, `the page agrees with the database`).
+0. **USER ORDER 2026-11-25 — agency data export.** Brief: `docs/briefs/agency-data-export.md`.
+   Decisions locked: agents AND agency (owner/admin) can export (scoped); full export = all business data including message bodies; photos + documents as real files in the zip. Exclusions: tokens, AI internals, platform logs, consumer-only shortlists, ADR 0083 viewer identity until policy. Start with ADR, then phase 1 Customers + Listings quick CSV. Ask before merge/live.
+1. Fix the two smoke checks that assume a small database (`paging walks the result set…`, `the page agrees with the database`).
    Search box layout fix LIVE: merge `10b4394` (layout shift 0.18 → 0 on findoraaus.com.au, 1280 and 390 px).
-1. Merge `chore/dev-db-and-prod-guard`, then `docs/platform-plan`.
-2. Step 3, backups: a scheduled encrypted off-site `pg_dump` with a missed-dump alert (0.4), then one restore into a scratch project.
-3. Step 4, accounts and alarms (the boss): spend stops, Sentry, Upstash, 2FA; branch protection, gitleaks, Dependabot.
-4. Dev: sign up an agency, then `pnpm db:seed`. The other laptop's `.env.local` to dev.
-5. The user: set `ASSISTANT_OVERVIEW_READ_ONLY=1` on Vercel when ready; run TEST-PLAN CX, CX40 first.
-6. Limits (the user's numbers, still open): today 50 emails per agent and 200 per agency a day. DNS cutover (`docs/DNS-CUTOVER.md`), Sentry project, real phone tests.
+   Typed placeholder examples LIVE: merge `ddd517e`.
+2. Merge `chore/dev-db-and-prod-guard`, then `docs/platform-plan`.
+3. Step 3, backups: a scheduled encrypted off-site `pg_dump` with a missed-dump alert (0.4), then one restore into a scratch project.
+4. Step 4, accounts and alarms (the boss): spend stops, Sentry, Upstash, 2FA; branch protection, gitleaks, Dependabot.
+5. Dev: sign up an agency, then `pnpm db:seed`. The other laptop's `.env.local` to dev.
+6. The user: set `ASSISTANT_OVERVIEW_READ_ONLY=1` on Vercel when ready; run TEST-PLAN CX, CX40 first.
+7. Limits (the user's numbers, still open): today 50 emails per agent and 200 per agency a day. DNS cutover (`docs/DNS-CUTOVER.md`), Sentry project, real phone tests.
 
 ## Watch
 - Once the guard is merged, a script against production needs `CONFIRM_PRODUCTION=xjklpoyxcvnlhjlxasmv` for that run.
