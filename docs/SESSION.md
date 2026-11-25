@@ -16,6 +16,8 @@ passes ~10 entries, move the older ones to a new archive file.
   Measured on dev at 1280 and 390 px: form height, Search and the next section never move; layout shift 0.0000. The
   earlier box and Sold checks still pass; full `pnpm --filter @repo/web build` green.
 - Note: dev's `/sold` counts in the Sold check came from the 5-minute sales cache after the dev data was set back.
+- Then on the user's go: merged as `10b4394`, all 4 Vercel builds Ready; the same check against findoraaus.com.au at 1280 and
+  390 px: nothing outside the field moves, layout shift 0.0000, "+N more" while the box is not in use.
 
 ## 2026-11-25 (night) — Claude Code (Mac) — Sold tab Filters (REA parity brief), smoke, latency parked
 

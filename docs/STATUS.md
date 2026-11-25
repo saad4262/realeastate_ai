@@ -84,8 +84,8 @@ On `main` with ADR 0088. Part 2, the office line, is not built. TEST-PLAN CW1–
 - The client: SMS rules, Control Centre 4.6/4.7, triggers 4.4, Microsoft Entra, brand colours, legal details, real listings.
 
 ## Next
-0. **Waiting for the user's go:** merge `fix/search-box-stable` (the box no longer moves the page: CLS 0.18 → 0). Then fix the two
-   smoke checks that assume a small database (`paging walks the result set…`, `the page agrees with the database`).
+0. Fix the two smoke checks that assume a small database (`paging walks the result set…`, `the page agrees with the database`).
+   Search box layout fix LIVE: merge `10b4394` (layout shift 0.18 → 0 on findoraaus.com.au, 1280 and 390 px).
 1. Merge `chore/dev-db-and-prod-guard`, then `docs/platform-plan`.
 2. Step 3, backups: a scheduled encrypted off-site `pg_dump` with a missed-dump alert (0.4), then one restore into a scratch project.
 3. Step 4, accounts and alarms (the boss): spend stops, Sentry, Upstash, 2FA; branch protection, gitleaks, Dependabot.
