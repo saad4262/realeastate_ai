@@ -3,6 +3,29 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-25 (evening) — Claude Code (Mac) — listing import: photos from a folder (ADR 0102, core)
+
+- The user: importing 1,000 listings by CSV left every photo to upload by hand. Researched how bulk tools do it (Shopify
+  image apps, Ecwid, WooCommerce, Easy Property Listings REAXML): a data file plus a photo folder matched by name. Decided
+  with the user: drop the agency's existing folders as they are; match the address in a folder name at any depth (the
+  user's addition), never guess; shrink in the browser to 2048 px JPEG; upload straight to Storage. And (the user) every
+  listing must say what photos it got, from links or a folder.
+- Branch `feat/import-photo-folder` (worktree `../realestate_ai-photofolder`, from `origin/main` `bb453af`), NOT merged.
+  `imports/folder-match.ts` (pure, 10 unit tests), `imports/folder-photos.ts` (attach / sign / confirm),
+  `recordListingPhoto` / `recordListingFloorplan` split out of the add functions; the dry run now writes link entries;
+  per-listing `photoSummary`, `photos: 'missing'` filter, new counts and CSV columns. One console line fixed for the type.
+- Checks: `pnpm typecheck` (11/11), `pnpm lint` (0 errors), `pnpm test` (core 2531, AI 462), smoke group "Listing import: photos from a folder"
+  (2/2 on dev, in rollback). Break-tests red: 3 in the matcher (unit), 3 in the flow (smoke).
+- Then (the user): build the screens too, test in a browser, merge and deploy. `folder-photos.tsx` (folder card, upload
+  loop with Pause / Carry on / retry, "Photos by listing"), actions, `waitingFolderPhotos`; sign takes the file type, confirm
+  the size. Playwright on a local console (port 3011) against dev, as the Harbour (TEST) owner (re-seeded on dev with
+  `test-accounts.ts`): Chromium and WebKit pass Y18, Y19, Y21, Y22, Y23, Y24; DB: right counts, one main, 2560 px, folder
+  order. Not run: Firefox (Playwright's build will not start on this macOS), Edge, a real drag, Y25 (local actions cross to
+  Sydney). Test listings on dev: "(TEST) Folder import: …", withdrawn, external ids cleared.
+- Found, not fixed: the dry run accepted Google's nearest match for made-up template addresses ("2/6E Main St, Officer" →
+  "34 Station St, Officer"). ADR 0029 says ✗ "Check the address". Raised with the user.
+  ADR numbered 0102: 0100 and 0101 are taken on other branches.
+
 ## 2026-11-25 (afternoon) — Cursor handoff — USER ORDER: agency data export (decisions locked)
 
 - User answered Claude Code's export questions: agents AND agencies can export; full export includes

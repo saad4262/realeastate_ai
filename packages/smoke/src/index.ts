@@ -362,6 +362,10 @@ import {
   createImportFromSheet,
   pickerSession,
   reimportSheet,
+  attachPhotoFolder,
+  signImportPhotos,
+  confirmImportPhotos,
+  waitingFolderPhotos,
   type ImportDeps,
 } from '@repo/core/imports';
 import { agencyReviews, clearAgencyGooglePlace, publicListingReviews, searchGooglePlaces, setAgencyGooglePlace, type PlaceDetails, type PlacesClient } from '@repo/core/reviews';
@@ -11387,6 +11391,114 @@ async function main() {
       const [gone] = await t.execute<{ file: string | null; raws: number }>(sql`select file_text as file, (select count(*)::int from listing_import_row where import_id = ${id} and raw is not null) as raws from listing_import where id = ${id}`);
       assert(gone?.file === null && gone.raws === 0, `after 30 days: ${JSON.stringify(gone)}`);
       return 'a held lease blocks a second worker, a stale one does not; tick finished the dry run; a suspended uploader’s import failed with the reason; file and cells cleared after 30 days';
+    }),
+  );
+
+  // ----------------------------------------- listing import: folder photos (ADR 0102) --
+  group('Listing import: photos from a folder');
+
+  /** No storage: every sign succeeds; an object "exists" unless its key is in `missing`. */
+  const folderDeps = (missing: Set<string> = new Set()) => ({
+    sign: async () => ({ uploadUrl: 'https://storage.fake/upload', token: 'fake' }),
+    describe: async (key: string) => (missing.has(key) ? null : { contentType: 'image/jpeg', bytes: 1000 }),
+  });
+  const FOLDER = [
+    'Listings/Officer/2-6E Main St/1.jpg',
+    'Listings/Officer/2-6E Main St/2.jpg',
+    'Listings/Officer/2-6E Main St/Floor Plan/plan.png',
+    'Listings/3 Golden Wattle Ct Berwick/Photos/a.jpg',
+    'Listings/3 Golden Wattle Ct Berwick/IMG_1.HEIC',
+    'Listings/14 Henry Street/x.jpg',
+    'Listings/99 Unknown Rd/z.jpg',
+    'Listings/.DS_Store',
+  ].map((path) => ({ path, size: 2000 }));
+
+  await check('a dropped folder is matched by address at any depth; the photos upload and each listing says what it got; the file’s links win; dropping again resumes', async () =>
+    inRollback(async (t) => {
+      const x = await importFixture(t);
+      const owner = x.f.actor('owner');
+      const deps = importDeps();
+      const { id } = await createImport(t, owner, { fileName: 'listings.csv', text: x.text, mode: 'live' });
+      await startDryRun(t, owner, id);
+      await driveImport(t, owner, id, deps, ['validated']);
+
+      const rep = await attachPhotoFolder(t, owner, id, FOLDER);
+      // Rows: 2 = AG-1 14 Henry St (has links), 3 = AG-2 unit 2/6E Main St, 4 = AG-3 Golden Wattle, 11 = AG-4 Stranger St.
+      assert(rep.listings === 2 && rep.photos === 4, `matched: ${JSON.stringify(rep)}`);
+      assert(JSON.stringify(rep.linksWin) === '[2]' && JSON.stringify(rep.withoutPhotos) === '[11]', `links win / none: ${JSON.stringify(rep)}`);
+      assert(JSON.stringify(rep.unmatchedFolders) === '["Listings/99 Unknown Rd"]' && rep.skipped.length === 1 && /HEIC/.test(rep.skipped[0]!.reason), `unmatched / skipped: ${JSON.stringify(rep)}`);
+      let v = await getImport(t, owner, id);
+      assert(v.counts.photosLocal === 4 && v.counts.listingsWithPhotos === 3 && v.counts.listingsWithoutPhotos === 1, `counts after drop: ${JSON.stringify(v.counts)}`);
+      const early = await signImportPhotos(t, owner, id, [{ rowId: randomUUID(), path: 'x' }], folderDeps()).then(() => 'signed', (e: unknown) => (e as { code: string }).code);
+      assert(early === 'conflict', `signed before the listings exist: ${early}`);
+
+      await startImport(t, owner, id);
+      await driveImport(t, owner, id, deps, ['done']);
+      v = await getImport(t, owner, id);
+      assert(v.counts.photosLocal === 4 && v.counts.photosDone === 1 && v.counts.photosFailed === 1, `the import touched the folder plan: ${JSON.stringify(v.counts)}`);
+
+      const rows = await t.execute<{ id: string; row_number: number; listing_id: string; photos: { path?: string; status: string }[] }>(sql`select id, row_number, listing_id, photos from listing_import_row where import_id = ${id} and row_number in (3, 4) order by row_number`);
+      const waiting = await waitingFolderPhotos(t, owner, id);
+      assert(JSON.stringify(waiting.map((w) => [w.path.split('/').pop(), w.kind, w.status])) === '[["1.jpg",null,"local"],["2.jpg",null,"local"],["plan.png","floorplan","local"],["a.jpg",null,"local"]]', `waiting: ${JSON.stringify(waiting)}`);
+      const refs = waiting.map((w) => ({ rowId: w.rowId, path: w.path, type: w.kind ? 'image/png' : 'image/jpeg' }));
+      const signed = await signImportPhotos(t, owner, id, refs, folderDeps());
+      assert(signed.length === 4 && signed.every((s) => 'key' in s), `sign: ${JSON.stringify(signed)}`);
+      const keyOf = (path: string) => (signed.find((s) => s.path === path) as { key: string }).key;
+      const missing = new Set([keyOf('Listings/3 Golden Wattle Ct Berwick/Photos/a.jpg')]);
+      assert(/\.png$/.test(keyOf('Listings/Officer/2-6E Main St/Floor Plan/plan.png')), 'a PNG floorplan was keyed as JPEG');
+      const uploaded = signed.map((s) => ({ rowId: s.rowId, path: s.path, key: (s as { key: string }).key, width: 1600, height: 1200 }));
+      const res = await confirmImportPhotos(t, owner, id, { uploaded, failed: [] }, folderDeps(missing));
+      assert(res.done === 3 && res.failed === 1, `confirm: ${JSON.stringify(res)}`);
+      const unitListing = rows[0]!.listing_id;
+      const media = await t.execute<{ kind: string; is_main: boolean; sort_order: number }>(sql`select kind::text as kind, is_main, sort_order from media where listing_id = ${unitListing} order by kind::text, sort_order`);
+      assert(JSON.stringify(media.map((m) => [m.kind, m.is_main, m.sort_order])) === '[["floorplan",false,0],["photo",true,0],["photo",false,1]]', `unit's media: ${JSON.stringify(media)}`);
+      // The same photo confirmed twice (a double click, a second tab) is recorded once.
+      await confirmImportPhotos(t, owner, id, { uploaded: uploaded.slice(0, 1), failed: [] }, folderDeps());
+      const [again] = await t.execute<{ n: number }>(sql`select count(*)::int as n from media where listing_id = ${unitListing}`);
+      assert(again?.n === 3, `a second confirm added a photo: ${again?.n}`);
+
+      // Each listing says what it got; "missing" is the ones with no photo or a failed one.
+      const report = await importReport(t, owner, id);
+      const sum = (n: number) => JSON.stringify(report.find((r) => r.rowNumber === n)?.photoSummary);
+      assert(sum(3) === JSON.stringify({ source: 'folder', total: 3, done: 3, waiting: 0, failed: 0 }), `row 3: ${sum(3)}`);
+      assert(sum(2) === JSON.stringify({ source: 'links', total: 2, done: 1, waiting: 0, failed: 1 }) && sum(11) === JSON.stringify({ source: 'none', total: 0, done: 0, waiting: 0, failed: 0 }), `rows 2 / 11: ${sum(2)} ${sum(11)}`);
+      const missingRows = (await importReport(t, owner, id, { photos: 'missing' })).map((r) => r.rowNumber);
+      assert(JSON.stringify(missingRows) === '[2,4,11]', `missing: ${JSON.stringify(missingRows)}`);
+      assert(/row,status,address,photos_from,photos_in/.test(await importReportCsv(t, owner, id)), 'the CSV report has no photo columns');
+
+      // Dropping the same folder again: what is in stays in, the failed one waits again.
+      const resume = await attachPhotoFolder(t, owner, id, FOLDER);
+      v = await getImport(t, owner, id);
+      assert(resume.photos === 1 && v.counts.photosLocal === 1 && v.counts.listingsWithFailedPhotos === 1, `resume: ${JSON.stringify(resume)} ${JSON.stringify(v.counts)}`);
+      return 'nested folders matched (unit 2-6E, Golden Wattle Ct), links kept for 14 Henry St, HEIC and an unknown folder reported; 3 in (2 photos + floorplan, first is main), 1 missing object failed; double confirm adds nothing; per-listing summary and missing filter right; re-drop waits only the failed one';
+    }),
+  );
+
+  await check('folder photos: only the person running the import; a row or key from elsewhere is refused', async () =>
+    inRollback(async (t) => {
+      const x = await importFixture(t);
+      const a1 = x.f.actor('a1');
+      const deps = importDeps();
+      const { id } = await createImport(t, a1, { fileName: 'mine.csv', text: x.text });
+      await startDryRun(t, a1, id);
+      await driveImport(t, a1, id, deps, ['validated']);
+      const code = (p: Promise<unknown>) => p.then(() => 'ok', (e: unknown) => (e as { code: string }).code);
+      assert((await code(attachPhotoFolder(t, x.f.actor('a2'), id, FOLDER))) === 'not_found', 'another agent attached photos');
+      assert((await code(attachPhotoFolder(t, x.f.actor('viewer'), id, FOLDER))) === 'not_found', 'a read-only member attached photos');
+      assert((await code(attachPhotoFolder(t, x.f.actor('owner'), id, FOLDER))) === 'forbidden', 'the owner ran an agent’s import');
+      assert((await code(attachPhotoFolder(t, a1, id, [{ path: 'a\0b', size: 1 }]))) === 'invalid', 'a bad path was taken');
+      await attachPhotoFolder(t, a1, id, FOLDER);
+      await startImport(t, a1, id);
+      await driveImport(t, a1, id, deps, ['done']);
+      assert((await code(signImportPhotos(t, x.f.actor('owner'), id, [{ rowId: randomUUID(), path: 'x' }], folderDeps()))) === 'forbidden', 'the owner signed for an agent’s import');
+      const [row] = await t.execute<{ id: string }>(sql`select id from listing_import_row where import_id = ${id} and row_number = 3`);
+      const stranger = await signImportPhotos(t, a1, id, [{ rowId: randomUUID(), path: 'Listings/Officer/2-6E Main St/1.jpg' }, { rowId: row!.id, path: 'not/in/the/plan.jpg' }], folderDeps());
+      assert(stranger.every((s) => 'error' in s), `signed something outside the plan: ${JSON.stringify(stranger)}`);
+      const foreignKey = `listings/${randomUUID()}/${randomUUID()}.jpg`;
+      const res = await confirmImportPhotos(t, a1, id, { uploaded: [{ rowId: row!.id, path: 'Listings/Officer/2-6E Main St/1.jpg', key: foreignKey }], failed: [] }, folderDeps());
+      const [m] = await t.execute<{ n: number }>(sql`select count(*)::int as n from media where storage_key = ${foreignKey}`);
+      assert(res.failed === 1 && res.done === 0 && m?.n === 0, `another listing's key was recorded: ${JSON.stringify(res)}`);
+      return 'another agent and read-only: not found; owner: forbidden on an agent’s import (attach and sign); bad path refused; a row of another import and a path outside the plan not signed; a key for another listing failed, nothing recorded';
     }),
   );
 

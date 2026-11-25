@@ -80,43 +80,57 @@ export async function addListingPhoto(
     throw new MediaError('That image was not uploaded — try again');
   }
 
-  return db.transaction(async (tx) => {
-    const [target] = await tx
-      .select({ id: listing.id })
-      .from(listing)
-      .where(eq(listing.id, listingId))
-      .limit(1);
-    if (!target) throw new MediaError('That listing no longer exists');
+  return db.transaction((tx) => recordListingPhoto(tx, listingId, storageKey, meta));
+}
 
-    const [{ count } = { count: 0 }] = await tx
-      .select({ count: sql<number>`count(*)::int` })
-      .from(media)
-      .where(and(eq(media.listingId, listingId), eq(media.kind, 'photo')));
+/**
+ * The row half of `addListingPhoto`, for a caller that has already checked the object exists (outside
+ * any transaction) and is inside its own: the folder import records a batch in one (ADR 0102).
+ */
+export async function recordListingPhoto(
+  tx: DbOrTx,
+  listingId: string,
+  storageKey: string,
+  meta: { width?: number | null; height?: number | null; caption?: string | null } = {},
+): Promise<{ mediaId: string }> {
+  if (!keyBelongsTo(storageKey, { kind: 'listing', id: listingId })) {
+    throw new MediaError('That image does not belong to this listing');
+  }
+  const [target] = await tx
+    .select({ id: listing.id })
+    .from(listing)
+    .where(eq(listing.id, listingId))
+    .limit(1);
+  if (!target) throw new MediaError('That listing no longer exists');
 
-    if (count >= MAX_LISTING_PHOTOS) {
-      throw new MediaError(`A listing can carry ${MAX_LISTING_PHOTOS} photos`);
-    }
+  const [{ count } = { count: 0 }] = await tx
+    .select({ count: sql<number>`count(*)::int` })
+    .from(media)
+    .where(and(eq(media.listingId, listingId), eq(media.kind, 'photo')));
 
-    const [row] = await tx
-      .insert(media)
-      .values({
-        listingId,
-        kind: 'photo',
-        storageKey,
-        width: meta.width ?? null,
-        height: meta.height ?? null,
-        caption: meta.caption ?? null,
-        // The first photo on a listing is its main one. Nobody sets a cover
-        // image before they have uploaded anything, and a gallery whose first
-        // upload is not the cover reads as a bug.
-        isMain: count === 0,
-        sortOrder: count,
-      })
-      .returning({ id: media.id });
+  if (count >= MAX_LISTING_PHOTOS) {
+    throw new MediaError(`A listing can carry ${MAX_LISTING_PHOTOS} photos`);
+  }
 
-    if (!row) throw new MediaError('Could not record that image');
-    return { mediaId: row.id };
-  });
+  const [row] = await tx
+    .insert(media)
+    .values({
+      listingId,
+      kind: 'photo',
+      storageKey,
+      width: meta.width ?? null,
+      height: meta.height ?? null,
+      caption: meta.caption ?? null,
+      // The first photo on a listing is its main one. Nobody sets a cover
+      // image before they have uploaded anything, and a gallery whose first
+      // upload is not the cover reads as a bug.
+      isMain: count === 0,
+      sortOrder: count,
+    })
+    .returning({ id: media.id });
+
+  if (!row) throw new MediaError('Could not record that image');
+  return { mediaId: row.id };
 }
 
 /**
