@@ -15,7 +15,11 @@ passes ~10 entries, move the older ones to a new archive file.
   `/search` dropped extra suburbs on the next search; the field overlapped Filters on a phone; a weak test passed with OR
   turned into AND (tightened, then red when broken). An address that Google does not know returns no suggestion, by design.
 - Dev data touched: migration 0108 applied; one listing's `is_new_build` set for the Build check, then set back.
-- NOT done: smoke, a sold page with real sale rows, production (waits for the user's go), merge.
+- Then, on the user's go (2026-11-25): backup `prod-20261125T065102Z.dump.enc`, migration 0108 on production (read-only check
+  before and after: 108 → 109, column present, no row changed), merge `--no-ff` as `ba6ba16`, pushed; all 4 Vercel builds.
+- Live check on findoraaus.com.au: /, /search (2 `loc` chips shown), /search?new=1, /sold (2 places), /agents all 200;
+  /address with a full address → 303 to a 2 km search; agents/agency/admin hosts → login; /api/health/alerts 200.
+- NOT done: smoke, a sold page with real sale rows.
 
 ## 2026-11-17 — Claude Code (Mac) — V1 production plan; dev database; production guard; docs cleaned
 
