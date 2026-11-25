@@ -523,9 +523,7 @@ export function HomeSearch({
         ) : null}
 
         {open ? (
-          // mousedown kept off the list: focus stays in the input, so a pick
-          // does not blur and re-open the box.
-          <div className={styles.drop} id={listId} onMouseDown={(e) => e.preventDefault()}>
+          <div className={styles.drop} id={listId}>
             {ai ? (
               text.trim() ? null : (
                 <>
@@ -577,6 +575,8 @@ export function HomeSearch({
                         aria-selected={i === active}
                         className={i === active ? `${styles.option} ${styles.optionOn}` : styles.option}
                         onMouseEnter={() => setActive(i)}
+                        // Focus stays in the input, so a pick does not blur and re-open the box.
+                        onMouseDown={(e) => e.preventDefault()}
                         onClick={() => void choose(s)}
                       >
                         <span className={styles.optionIcon} aria-hidden>
