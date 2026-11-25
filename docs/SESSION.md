@@ -35,6 +35,26 @@ passes ~10 entries, move the older ones to a new archive file.
 - Brief for Claude Code: `docs/briefs/agency-data-export.md`. Next: write ADR, then phase 1 Customers +
   Listings quick CSV. Ask before merge / production / live. Privacy policy mention before real customers.
 
+## 2026-11-25 (night, last) — Claude Code (Mac) — saved searches and alerts keep keywords; two smoke checks fixed
+
+- Branch `feat/saved-search-kw` (from `8c8a17b`, which includes another session's ADR 0102).
+- **Found and fixed: a live bug from `a18b1de`.** A one-suburb search with its own distance (`loc=Pakenham|VIC||10`)
+  could not be saved as an alert: `normalisePlaces` left `km` on the query, and the strict saved shape refused it.
+  The one place's km now becomes the saved `radiusKm`. Several places keep their own `km`.
+- `kw` in saved searches and alerts, as `mustMention`, at most 3:
+  - read from the URL and written back by `savedQueryToPath`;
+  - shown in the alert's words ('... with "pool"');
+  - passed to the search by `toRuntimeQuery`.
+- `searchQueryToParams` (chat links, run queries) now writes each place's own km from its centre, not one shared
+  radius, and writes the keywords.
+- Smoke, both rewritten to check what they claim on any size of database:
+  - "paging walks the result set" walks the first 40 of the real total and compares each row with the unpaged page;
+  - "the page agrees with the database" compares the page's total with the database's total, not with one page of rows.
+  - Search + Consumer site: 32 passed, 0 failed.
+  - Break-tests: offset ignored → paging red; the page's total off by one → "page agrees" red.
+- Checked: `pnpm test` (core 2580, ai 466, web 7) and the full web build. The build needed a `pnpm install` for the
+  new web vitest config that came in from main.
+
 ## 2026-11-25 (night, later) — Claude Code (Mac) — smart search live; a distance per suburb
 
 - Smart search went live on the user's go.

@@ -97,6 +97,9 @@ On `main` with ADR 0088. Part 2, the office line, is not built. TEST-PLAN CW1–
    Search box layout fix LIVE: merge `10b4394` (layout shift 0.18 → 0 on findoraaus.com.au, 1280 and 390 px).
    Typed placeholder examples LIVE: merge `ddd517e`. Smart search LIVE: merge `65419ca`.
    Distance per suburb (ADR 0099 amended) LIVE: merge `a18b1de`, the user's case checked on findoraaus.com.au (13/13).
+   **Branch `feat/saved-search-kw`: NOT merged, waiting for the user's go.** It carries keywords in saved searches and
+   alerts, the fix for saving a one-suburb search with its own distance (broken on live since `a18b1de`), and the two
+   smoke checks fixed.
    **Smart search (ADR 0101) — branch `feat/smart-search-rules`, NOT merged, waiting for the user's go.**
    - Rules read a sentence in the box. The model (Haiku, faked in every test) reads only the leftovers, checked against the
      user's words.
