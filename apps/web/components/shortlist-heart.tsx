@@ -14,7 +14,15 @@ import styles from './shortlist-heart.module.css';
  * page's labelled button; `icon` is the round one on a card's photo, named by the address so a page of twenty
  * is not twenty buttons called "Save".
  */
-export function ShortlistHeart({ listingId, look = 'pill', address }: { listingId: string; look?: 'pill' | 'icon'; address?: string }) {
+export function ShortlistHeart({
+  listingId,
+  look = 'pill',
+  address,
+}: {
+  listingId: string;
+  look?: 'pill' | 'icon';
+  address?: string;
+}) {
   const { loaded, signedIn, ids, busy } = useSavedHomes();
   const router = useRouter();
   const [pop, setPop] = useState(0);
@@ -33,9 +41,10 @@ export function ShortlistHeart({ listingId, look = 'pill', address }: { listingI
     <svg
       key={pop}
       viewBox="0 0 24 24"
-      className={`${look === 'icon' ? 'size-5' : 'size-4'} ${pop ? styles.pop : ''}`}
+      className={`${look === 'icon' ? 'size-5' : 'size-4'} ${styles.heart} ${pop ? styles.pop : ''}`}
       aria-hidden
-      fill={saved ? 'currentColor' : 'none'}
+      fill="currentColor"
+      style={{ fillOpacity: saved ? 1 : 0 }}
       stroke="currentColor"
       strokeWidth={2}
       strokeLinejoin="round"
@@ -55,15 +64,20 @@ export function ShortlistHeart({ listingId, look = 'pill', address }: { listingI
     return (
       <button
         {...common}
-        aria-label={loaded && !signedIn ? `Sign in to save ${home}` : `${saved ? 'Saved' : 'Save'} ${home}`}
+        aria-label={
+          loaded && !signedIn ? `Sign in to save ${home}` : `${saved ? 'Saved' : 'Save'} ${home}`
+        }
         title={loaded && !signedIn ? 'Sign in to save' : saved ? 'Remove from saved' : 'Save'}
         className={[
-          'grid size-10 place-items-center rounded-full bg-card/95 shadow-card backdrop-blur-sm transition',
-          'hover:scale-110 hover:bg-card active:scale-95 motion-reduce:transition-none motion-reduce:hover:scale-100',
+          // No preflight on this site: a <button> keeps the browser's border unless told.
+          'relative grid size-10 cursor-pointer place-items-center rounded-full border-0 bg-card/95 shadow-card backdrop-blur-sm',
+          'transition duration-200 ease-out hover:scale-110 hover:bg-card hover:text-brand active:scale-90',
+          'motion-reduce:transition-none motion-reduce:hover:scale-100',
           'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand',
-          saved ? 'text-alert' : 'text-ink',
+          saved ? 'text-brand' : 'text-ink',
         ].join(' ')}
       >
+        {pop ? <span key={pop} className={styles.burst} aria-hidden /> : null}
         {heart}
       </button>
     );
@@ -73,9 +87,11 @@ export function ShortlistHeart({ listingId, look = 'pill', address }: { listingI
     <button
       {...common}
       className={[
-        'inline-flex items-center gap-1.5 rounded-full border bg-card px-3 py-1.5 text-body-sm font-semibold transition motion-reduce:transition-none',
+        'inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3 font-[inherit] py-1.5 text-body-sm font-semibold transition duration-200 ease-out active:scale-95 motion-reduce:transition-none',
         'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand',
-        saved ? 'border-alert text-alert' : 'border-line text-ink hover:border-ink',
+        saved
+          ? 'border-brand bg-brand-soft text-brand'
+          : 'border-line bg-card text-ink hover:border-brand hover:text-brand',
       ].join(' ')}
     >
       {heart} {loaded && !signedIn ? 'Sign in to save' : saved ? 'Saved' : 'Save'}

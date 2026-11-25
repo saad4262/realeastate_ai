@@ -21,3 +21,8 @@
   `restoreToShortlist`: the note and date come back, and only for a listing that was ever published. The Saved page
   is one `useOptimistic` list: the action's re-render is the rollback. The store's tests are apps/web's first
   (`pnpm --filter @repo/web test`, offline like every package).
+
+**Addendum (2026-11-26).** The web app has no Tailwind preflight (tailwind.css), so every `<button>`, `<p>` and heading
+here carries its own reset (`border-0`, `m-0`), and widths use rem, never `max-w-sm|md` — those resolve to the spacing
+tokens (0.5rem, 0.875rem) and drew the toast and the empty state one word per line in production. The heart is the
+brand red. `packages/e2e/tests/saved-homes.spec.ts` drives the whole flow in a browser and guards all three.
