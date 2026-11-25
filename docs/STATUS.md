@@ -13,7 +13,8 @@ Brief `docs/briefs/agency-data-export.md` (the user's decisions locked). "Export
 Calendar and Pipeline, both consoles → `/api/exports/[dataset]`; `packages/core/src/exports/quick.ts` (one entry per dataset). Any
 member (`data:export`, never a platform view); rows = their screens' scope; customers and listings in the import's headers; BOM,
 `csvCell`; streamed 1,000 a page; `data_exported` in `audit_log` before the first byte, count added at the end. **No migration.**
-Checked: `pnpm test` (core 2538), typecheck, lint, console build, 18 guards broken and red. Smoke: see SESSION. NOT run: a browser
+Checked: `pnpm test` (core 2538), typecheck, lint, console build, 18 guards broken and red; smoke "Tenant isolation" on dev 6/6 green
+(the export check: every dataset equal to each role's screens, 24 audit rows counted; 184 isolation reads, no B id). NOT run: a browser
 (TEST-PLAN DA1–DA12). Next: phase 3 (`export_job` migration, full zip with files). Privacy policy must mention export before real customers.
 
 ## Home page search like realestate.com.au (ADR 0099) — LIVE: `main` = `1d3ad71` (ADR 0099 merge `ba6ba16`, then the no-lag fix `501eb4b` + `1d3ad71`), 2026-11-25

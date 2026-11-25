@@ -15,7 +15,12 @@ passes ~10 entries, move the older ones to a new archive file.
   the export inserts its own row.
 - Verified: core 2532 / AI 462 / rest green, typecheck, lint, full console build; 10 guards broken on purpose, each red, restored.
   NOT run: smoke (new checks: export = screens per role, audit counted; and both exports in the isolation reads), browser, dev SQL.
-- Not merged. Asked the user before merge / smoke.
+- Then, on the user's "continue": phase 2 (Leads, Appointments, Deals, Notes), one entry per dataset in `exports/quick.ts`.
+  Deals export every status (the board shows open ones); notes have no page, so "Export notes" sits on Customers.
+- Smoke "Tenant isolation" on dev (`.env.local` checked: DB URLs are `jhiale…`; the group makes no HTTP calls, though the
+  HTTP targets point at the Vercel sites): first run 5/6, my helper choked on a header-only file (A2 has no listings);
+  fixed, second run 6/6. 8 more guards broken in unit tests, each red. The smoke check itself was not broken on purpose.
+- Not merged. Phase 3 needs a migration: asked the user.
 
 ## 2026-11-25 (later still) — Claude Code (Mac) — the empty search box types out examples
 
