@@ -14,6 +14,7 @@ import {
   reimportSheetAction,
 } from '@/lib/import-actions';
 import { useRouter } from 'next/navigation';
+import { FolderPhotos, PhotoReport } from './folder-photos';
 
 const STATUS: Record<string, string> = {
   mapped: 'Match the columns, then check the file',
@@ -281,7 +282,9 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
               {c.imported} imported · {c.updated} updated · {c.failed} failed
             </>
           )}
-          {c.photosDone + c.photosFailed + c.photosPending ? ` · photos: ${c.photosDone} in, ${c.photosFailed} failed, ${c.photosPending} to go` : ''}
+          {c.photosDone + c.photosFailed + c.photosPending + c.photosLocal
+            ? ` · photos: ${c.photosDone} in, ${c.photosFailed} failed, ${c.photosPending} to go${c.photosLocal ? `, ${c.photosLocal} on your computer` : ''}`
+            : ''}
         </p>
         <RunProgress view={view} />
         {view.aiClean && ['validated', 'importing', 'done'].includes(view.status) ? (
@@ -332,6 +335,13 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
           ) : null}
         </p>
       </section>
+
+      {view.kind === 'listings' && ['validated', 'importing', 'done'].includes(view.status) ? (
+        <>
+          {view.mayRun ? <FolderPhotos id={id} view={view} onChanged={load} /> : null}
+          <PhotoReport id={id} view={view} />
+        </>
+      ) : null}
 
       {problems.length ? (
         <section style={box}>

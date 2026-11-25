@@ -1,6 +1,6 @@
 # 0102 — Listing import: photos from a folder on the agent's computer
 
-**Status:** ACCEPTED, 2026-11-25 (the user). **Core built** 2026-11-25, branch `feat/import-photo-folder`; screens not built (Cursor), see "As built". Amends ADR 0029 §8 (the zip option is replaced by this).
+**Status:** ACCEPTED, 2026-11-25 (the user). **Built** 2026-11-25 (core and screens, Claude Code on the user's instruction), branch `feat/import-photo-folder`; see "As built". Amends ADR 0029 §8 (the zip option is replaced by this).
 
 **Context.** The CSV import (ADR 0029) takes photos only as links (`photo_urls`). That covers an
 agency whose photos already sit online (an old CRM, portal or website export). It does not cover
@@ -60,11 +60,10 @@ serverless function. Uploading from the browser straight to Storage avoids both 
 
 5. **Upload happens from the browser, after Import has created the listings** (a storage key is
    `listings/<listingId>/<uuid>.<ext>`, so the listing must exist first):
-   - **Resize first, in the browser:** longest side 2,048 px, JPEG quality 0.85, with
-     `createImageBitmap` and `OffscreenCanvas` (native, no library). This turns ~3 MB into
-     ~400 KB, so 20,000 photos are ~8 GB instead of ~60 GB, which is about an hour on a typical
-     Australian upload link instead of most of a day. It also drops EXIF, including GPS, from
-     a photo before it becomes public.
+   - **Resize first, in the browser,** with the listing page's own `prepareImage` (PLATFORM-PLAN
+     5.8): longest side 2,560 px for a photo and 3,000 for a floorplan, JPEG 0.85 (a PNG stays
+     PNG). This turns a ~3 MB original into a few hundred KB, so 20,000 photos are a few GB, not
+     ~60 GB. It also drops EXIF, including GPS, before a photo becomes public.
    - **Signed URLs in batches:** `signImportPhotos(db, actor, importId, rowPhotoRefs[])` takes at
      most 50 photos at a time. It checks `listing_import:run` on the import once, checks that
      every row belongs to that import and has a `listingId`, and returns one `signUpload` per
@@ -126,9 +125,7 @@ serverless function. Uploading from the browser straight to Storage avoids both 
 
 ## Open questions (recommended answer first)
 
-1. **Resize to 2,048 px** — *yes*. The public site shows nothing larger, and it is what makes
-   1,000 listings practical. The alternative is to keep originals up to 10 MB, which is ~7x the
-   upload time and storage.
+1. **Resize** — *yes*, decided: the same sizes as the listing page's uploader (2,560 / 3,000 px).
 2. **A folder that matches a listing already imported earlier** (a second import, the same
    addresses) — *only rows of this import*, so a re-drop can never add photos to a listing that
    already has them.
@@ -165,7 +162,27 @@ Links or folder, the person must see per property: "14 Henry St: 18 in", "9 Stra
   trailing words accepted (unit); the import overwriting the folder plan, confirm without the storage check, signing
   a path outside the plan (smoke).
 
-### For the screens (Cursor, `apps/console/components/imports/`)
+### Screens as built (2026-11-25)
+
+`components/imports/folder-photos.tsx` (`FolderPhotos`, `PhotoReport`), shown on the import page after the dry run;
+actions in `lib/import-actions.ts`. The upload starts by itself once every listing of the file is in; Pause, "Carry on",
+"Try the failed photos again", and after a reload "N photos are still on your computer: drop or choose the same folder".
+`waitingFolderPhotos` (core) lists what is left. The sign call carries each prepared file's type (a PNG floorplan keeps
+a `.png` key); confirm carries its width and height.
+
+**Browser run (Playwright, local console on dev, 2026-11-25):** Chromium and WebKit, the folder button: Y18, Y19, Y21,
+Y22 (reload mid-upload, re-drop: 24 of 24, nothing doubled), Y23 and Y24 all pass; in the database 1 + 3 photos and a
+floorplan + 20, one main each, 2560 px, in folder order (1, 10, 20 checked by eye). **Not run:** Firefox (Playwright's
+Firefox will not start on this macOS), Edge (not installed; same engine as Chromium), dragging a folder (a real drag cannot
+be scripted; the button path is the same after the file list), Y25 timing (locally every action crosses to Sydney: 2–4 s,
+and a confirm of 24 photos 40–50 s; on Vercel `syd1` beside the database those round trips are ~1 ms, so time it live).
+
+**Found, not this ADR's:** the dry run accepted Google's nearest match for made-up addresses (the template's
+"2/6E Main Street, Officer" became "34 Station St, Officer"; "3 Golden Wattle Court, Berwick" became "43 Golden Wattle Ct,
+Cranbourne"). The folder matching uses the file's own address, so photos still went to the right rows, but the pin and
+formatted address are Google's. ADR 0029 says such an address should be ✗ "Check the address".
+
+### For the screens (written before they were built; kept for the record)
 
 1. Server actions in the import route that call `attachPhotoFolder(db, actor, id, files)`,
    `signImportPhotos(db, actor, id, refs)` and `confirmImportPhotos(db, actor, id, { uploaded, failed })`,

@@ -365,6 +365,7 @@ import {
   attachPhotoFolder,
   signImportPhotos,
   confirmImportPhotos,
+  waitingFolderPhotos,
   type ImportDeps,
 } from '@repo/core/imports';
 import { agencyReviews, clearAgencyGooglePlace, publicListingReviews, searchGooglePlaces, setAgencyGooglePlace, type PlaceDetails, type PlacesClient } from '@repo/core/reviews';
@@ -11428,12 +11429,15 @@ async function main() {
       assert(v.counts.photosLocal === 4 && v.counts.photosDone === 1 && v.counts.photosFailed === 1, `the import touched the folder plan: ${JSON.stringify(v.counts)}`);
 
       const rows = await t.execute<{ id: string; row_number: number; listing_id: string; photos: { path?: string; status: string }[] }>(sql`select id, row_number, listing_id, photos from listing_import_row where import_id = ${id} and row_number in (3, 4) order by row_number`);
-      const refs = rows.flatMap((r) => r.photos.filter((p) => p.status === 'local').map((p) => ({ rowId: r.id, path: p.path! })));
+      const waiting = await waitingFolderPhotos(t, owner, id);
+      assert(JSON.stringify(waiting.map((w) => [w.path.split('/').pop(), w.kind, w.status])) === '[["1.jpg",null,"local"],["2.jpg",null,"local"],["plan.png","floorplan","local"],["a.jpg",null,"local"]]', `waiting: ${JSON.stringify(waiting)}`);
+      const refs = waiting.map((w) => ({ rowId: w.rowId, path: w.path, type: w.kind ? 'image/png' : 'image/jpeg' }));
       const signed = await signImportPhotos(t, owner, id, refs, folderDeps());
       assert(signed.length === 4 && signed.every((s) => 'key' in s), `sign: ${JSON.stringify(signed)}`);
       const keyOf = (path: string) => (signed.find((s) => s.path === path) as { key: string }).key;
       const missing = new Set([keyOf('Listings/3 Golden Wattle Ct Berwick/Photos/a.jpg')]);
-      const uploaded = signed.map((s) => ({ rowId: s.rowId, path: s.path, key: (s as { key: string }).key }));
+      assert(/\.png$/.test(keyOf('Listings/Officer/2-6E Main St/Floor Plan/plan.png')), 'a PNG floorplan was keyed as JPEG');
+      const uploaded = signed.map((s) => ({ rowId: s.rowId, path: s.path, key: (s as { key: string }).key, width: 1600, height: 1200 }));
       const res = await confirmImportPhotos(t, owner, id, { uploaded, failed: [] }, folderDeps(missing));
       assert(res.done === 3 && res.failed === 1, `confirm: ${JSON.stringify(res)}`);
       const unitListing = rows[0]!.listing_id;

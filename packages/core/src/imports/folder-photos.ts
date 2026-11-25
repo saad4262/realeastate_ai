@@ -29,9 +29,11 @@ const filesSchema = z
   .min(1)
   .max(MAX_FOLDER_FILES);
 const refSchema = z.object({ rowId: z.string().uuid(), path: z.string().min(1).max(500) });
-const signSchema = z.array(refSchema).min(1).max(PHOTO_BATCH);
+/** `type`: what the browser made of the file (a photo becomes JPEG, a PNG floorplan stays PNG); the key's extension. */
+const signSchema = z.array(refSchema.extend({ type: z.string().max(40).optional() })).min(1).max(PHOTO_BATCH);
+const dim = z.number().int().positive().max(100_000).optional();
 const confirmSchema = z.object({
-  uploaded: z.array(refSchema.extend({ key: z.string().max(200) })).max(PHOTO_BATCH),
+  uploaded: z.array(refSchema.extend({ key: z.string().max(200), width: dim, height: dim })).max(PHOTO_BATCH),
   failed: z.array(refSchema.extend({ error: z.string().max(200) })).max(PHOTO_BATCH),
 });
 
@@ -125,7 +127,21 @@ export async function attachPhotoFolder(db: Db, actor: Actor, id: string, input:
 export type SignedPhoto = { rowId: string; path: string; key: string; uploadUrl: string; token: string } | { rowId: string; path: string; error: string };
 export type FolderPhotoDeps = { sign?: typeof signUpload; describe?: typeof describeObject };
 
-/** Signed uploads for up to PHOTO_BATCH waiting photos of imported listings. The browser shrinks each to a JPEG first. */
+/**
+ * The folder photos still to send, in each listing's order: `local` (not yet sent) and `failed` (sent, refused).
+ * Only of rows already imported, so every one has a listing to go to. One statement.
+ */
+export async function waitingFolderPhotos(db: Db, actor: Actor, id: string): Promise<{ rowId: string; path: string; size: number; kind: 'floorplan' | null; status: 'local' | 'failed' }[]> {
+  const imp = await runnableListingsImport(db, actor, id, ['validated', 'importing', 'done']);
+  const rows = await db.execute<{ row_id: string; path: string; size: string; kind: 'floorplan' | null; status: 'local' | 'failed' }>(sql`
+    select r.id as row_id, e.p->>'path' as path, e.p->>'size' as size, e.p->>'kind' as kind, e.p->>'status' as status
+    from listing_import_row r, jsonb_array_elements(r.photos) with ordinality as e(p, i)
+    where r.import_id = ${imp.id} and r.status in ('imported', 'updated') and e.p ? 'path' and e.p->>'status' in ('local', 'failed')
+    order by r.row_number, e.i`);
+  return rows.map((r) => ({ rowId: r.row_id, path: r.path, size: Number(r.size), kind: r.kind, status: r.status }));
+}
+
+/** Signed uploads for up to PHOTO_BATCH waiting photos of imported listings. The browser shrinks each one first. */
 export async function signImportPhotos(db: Db, actor: Actor, id: string, input: unknown, deps: FolderPhotoDeps = {}): Promise<SignedPhoto[]> {
   const parsed = signSchema.safeParse(input);
   if (!parsed.success) throw new ImportError('invalid', `Sign 1 to ${PHOTO_BATCH} photos at a time`);
@@ -138,12 +154,17 @@ export async function signImportPhotos(db: Db, actor: Actor, id: string, input: 
   const sign = deps.sign ?? signUpload;
   // Network, no transaction open.
   return Promise.all(
-    parsed.data.map(async ({ rowId, path }): Promise<SignedPhoto> => {
+    parsed.data.map(async ({ rowId, path, type }): Promise<SignedPhoto> => {
       const row = byId.get(rowId);
       const entry = (row?.photos as PhotoEntry[] | undefined)?.find((p) => p.path === path);
       if (!row?.listingId || !entry) return { rowId, path, error: 'Not a photo of this import' };
       if (entry.status === 'done') return { rowId, path, error: 'Already uploaded' };
-      const key = newStorageKey({ kind: 'listing', id: row.listingId }, 'image/jpeg');
+      let key: string;
+      try {
+        key = newStorageKey({ kind: 'listing', id: row.listingId }, type ?? 'image/jpeg');
+      } catch {
+        return { rowId, path, error: 'Not a JPEG, PNG, WebP or AVIF image' };
+      }
       try {
         return { rowId, path, key, ...(await sign(key)) };
       } catch (err) {
@@ -180,7 +201,7 @@ export async function confirmImportPhotos(db: Db, actor: Actor, id: string, inpu
       return (await describe(u.key)) ? { ...u } : { ...u, error: 'That image was not uploaded — try again' };
     }),
   );
-  const outcome = new Map<string, { key?: string; error?: string }>();
+  const outcome = new Map<string, { key?: string; error?: string; width?: number; height?: number }>();
   for (const c of checked) outcome.set(`${c.rowId}|${c.path}`, c);
   for (const f of failed) outcome.set(`${f.rowId}|${f.path}`, { error: f.error || 'Could not upload this photo' });
 
@@ -208,7 +229,7 @@ export async function confirmImportPhotos(db: Db, actor: Actor, id: string, inpu
           continue;
         }
         try {
-          await (p.kind === 'floorplan' ? recordListingFloorplan : recordListingPhoto)(tx, r.listingId!, o.key);
+          await (p.kind === 'floorplan' ? recordListingFloorplan : recordListingPhoto)(tx, r.listingId!, o.key, { width: o.width ?? null, height: o.height ?? null });
           p.status = 'done';
           delete p.error;
           done += 1;

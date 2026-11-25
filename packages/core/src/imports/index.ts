@@ -6,5 +6,5 @@ export { createImportFromXlsx, tableFromXlsx } from './xlsx';
 export { assertPublicUrl, fetchPublicImage, isPrivateAddress, PhotoError, type PhotoDeps } from './photos';
 export { CONTACT_FIELD_LABELS, CONTACT_IMPORT_FIELDS, contactAutoMap, contactMappingProblem, normalizeContactRow, type ContactImportField, type NormalizedContact } from './contact-columns';
 export * from './contact-ai';
-export { attachPhotoFolder, confirmImportPhotos, PHOTO_BATCH, signImportPhotos, type FolderPhotoDeps, type FolderReport, type SignedPhoto } from './folder-photos';
+export { attachPhotoFolder, confirmImportPhotos, PHOTO_BATCH, signImportPhotos, waitingFolderPhotos, type FolderPhotoDeps, type FolderReport, type SignedPhoto } from './folder-photos';
 export { matchFolder, MAX_FOLDER_FILES, MAX_ORIGINAL_BYTES, type FolderFile, type FolderMatch, type MatchRow } from './folder-match';
