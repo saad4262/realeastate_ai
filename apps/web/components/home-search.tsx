@@ -8,6 +8,7 @@ import {
   DISTANCE_STEPS_KM,
   formatLoc,
   parseDistancePhrase,
+  suggestionToPlace,
   type PlaceRef,
 } from '@repo/core/listings/url';
 import { MAX_SEARCH_PLACES, PROPERTY_TYPES } from '@repo/core/listings/schema';
@@ -59,7 +60,14 @@ const TYPE_LABELS: Record<string, string> = {
 };
 const RECENT_KEY = 'lah:recent-searches';
 const MIN_CHARS = 2;
-const DEBOUNCE_MS = 250;
+const DEBOUNCE_MS = 200;
+/** Answers already fetched this visit: Backspace, re-typing and tab switches cost no request. */
+const SUGGESTED = new Map<string, PlaceSuggestion[]>();
+
+const chipOf = (p: PlaceRef): Chip => ({
+  ...p,
+  label: [p.suburb, [p.state, p.postcode].filter(Boolean).join(' ')].filter(Boolean).join(', '),
+});
 
 function money(n: number, perWeek: boolean): string {
   if (perWeek) return `$${n.toLocaleString('en-AU')} pw`;
@@ -118,6 +126,8 @@ export function HomeSearch({
   const [radius, setRadius] = useState(start?.radius ?? '');
   const [filters, setFilters] = useState<Filters>(start?.filters ?? NO_FILTERS);
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
+  /** Which lookup the list on screen answers; anything else is still on its way. */
+  const [answered, setAnswered] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const [recent, setRecent] = useState<Recent[]>([]);
@@ -131,34 +141,52 @@ export function HomeSearch({
   const phrase = parseDistancePhrase(text);
   const travelTime = !ai && isPlaceTab && asksForTravelTime(text);
   const lookup = (phrase ? phrase.place : text).trim();
+  const wantsSuggestions =
+    !ai && !travelTime && lookup.length >= MIN_CHARS && !(isPlaceTab && chips.length >= MAX_SEARCH_PLACES);
+  const lookupKey = `${tab === 'address' ? 'address' : 'place'}|${lookup.toLowerCase()}`;
+  const searching = wantsSuggestions && answered !== lookupKey;
 
   useEffect(() => setRecent(readRecent()), []);
 
-  // Suggestions, debounced. A failure is silent: the box still searches by keyword.
+  // Suggestions: from memory at once, otherwise debounced, and a request
+  // overtaken by more typing is aborted. A failure is silent: the box still
+  // searches by keyword.
   useEffect(() => {
-    if (ai || travelTime || lookup.length < MIN_CHARS || (isPlaceTab && chips.length >= maxChips)) {
+    if (!wantsSuggestions) {
       setSuggestions([]);
       return;
     }
-    let cancelled = false;
+    const key = lookupKey;
+    const show = (found: PlaceSuggestion[]) => {
+      setSuggestions(found);
+      setActive(-1);
+      setAnswered(key);
+    };
+    const known = SUGGESTED.get(key);
+    if (known) return show(known);
+    const abort = new AbortController();
     const timer = setTimeout(async () => {
       try {
-        const kind = tab === 'address' ? '&kind=address' : '';
-        const res = await fetch(`/api/places?q=${encodeURIComponent(lookup)}${kind}`);
-        if (!res.ok) return;
-        const data = (await res.json()) as { suggestions?: PlaceSuggestion[] };
-        if (cancelled) return;
-        setSuggestions(data.suggestions ?? []);
-        setActive(-1);
+        const res = await fetch(
+          `/api/places?q=${encodeURIComponent(lookup)}${tab === 'address' ? '&kind=address' : ''}`,
+          { signal: abort.signal },
+        );
+        // A refusal (rate limit) is not remembered: the next keystroke may get through.
+        if (!res.ok) return show([]);
+        const found = ((await res.json()) as { suggestions?: PlaceSuggestion[] }).suggestions ?? [];
+        if (SUGGESTED.size > 200) SUGGESTED.clear();
+        SUGGESTED.set(key, found);
+        show(found);
       } catch {
-        /* offline: keyword search still works */
+        /* aborted by more typing, or offline: keyword search still works */
+        if (!abort.signal.aborted) show([]);
       }
     }, DEBOUNCE_MS);
     return () => {
-      cancelled = true;
+      abort.abort();
       clearTimeout(timer);
     };
-  }, [lookup, tab, ai, travelTime, isPlaceTab, chips.length, maxChips]);
+  }, [wantsSuggestions, lookupKey, lookup, tab]);
 
   useEffect(() => {
     function onDown(e: MouseEvent) {
@@ -193,12 +221,46 @@ export function HomeSearch({
     }
   }
 
-  async function choose(s: PlaceSuggestion) {
-    const typedKm = phrase?.km;
-    setText('');
-    setSuggestions([]);
-    const place = await resolve(s);
+  function addChip(chip: Chip) {
+    setPoint(null);
+    setChips((c) => (c.some((x) => formatLoc(x) === formatLoc(chip)) || c.length >= maxChips ? c : [...c, chip]));
+  }
 
+  function choose(s: PlaceSuggestion) {
+    const typedKm = phrase?.km;
+    const typed = text;
+    setSuggestions([]);
+    setOpen(false);
+
+    // A suburb is a chip at once: the server finds its centre on search.
+    const instant = tab === 'address' ? null : suggestionToPlace(s);
+    if (instant && tab === 'agents') {
+      go(`/agents?loc=${encodeURIComponent(formatLoc(instant))}`, { label: `Agents in ${s.label}`, detail: '' });
+      return;
+    }
+    if (instant) {
+      setText('');
+      addChip(chipOf(instant));
+      if (typedKm) setRadius(String(typedKm));
+      inputRef.current?.focus();
+      return;
+    }
+
+    // Anything else needs its coordinates first; the button shows the wait,
+    // and a failed lookup gives back what was typed.
+    setText('');
+    startGoing(async () => {
+      const place = await resolve(s);
+      if (!place) {
+        setText(typed);
+        inputRef.current?.focus();
+        return;
+      }
+      applyPlace(s, place, typedKm);
+    });
+  }
+
+  function applyPlace(s: PlaceSuggestion, place: ResolvedPlace, typedKm: number | undefined) {
     if (tab === 'agents') {
       const ref = place?.suburb
         ? { suburb: place.suburb, state: place.state ?? undefined, postcode: place.postcode ?? undefined }
@@ -211,7 +273,6 @@ export function HomeSearch({
     }
 
     if (tab === 'address') {
-      if (!place) return;
       const params = new URLSearchParams({
         lat: place.latitude.toFixed(6),
         lng: place.longitude.toFixed(6),
@@ -232,18 +293,11 @@ export function HomeSearch({
 
     // A suburb or postcode becomes a chip; a region or anything without a
     // suburb is a point with its own sensible circle, and stands alone.
-    if (place?.suburb && (place.kind === 'locality' || place.kind === 'postcode')) {
-      const chip: Chip = {
-        suburb: place.suburb,
-        state: place.state ?? undefined,
-        postcode: place.postcode ?? undefined,
-        label: [place.suburb, [place.state, place.postcode].filter(Boolean).join(' ')].filter(Boolean).join(', '),
-      };
-      setPoint(null);
-      setChips((c) =>
-        c.some((x) => formatLoc(x) === formatLoc(chip)) || c.length >= maxChips ? c : [...c, chip],
+    if (place.suburb && (place.kind === 'locality' || place.kind === 'postcode')) {
+      addChip(
+        chipOf({ suburb: place.suburb, state: place.state ?? undefined, postcode: place.postcode ?? undefined }),
       );
-    } else if (place && tab !== 'sold') {
+    } else if (tab !== 'sold') {
       // /sold names suburbs only: it never takes coordinates from a URL.
       setChips([]);
       setPoint({ label: s.label, lat: place.latitude, lng: place.longitude });
@@ -418,11 +472,13 @@ export function HomeSearch({
               aria-controls={listId}
               aria-autocomplete="list"
               maxLength={ai ? 1000 : 200}
-              disabled={going}
+              // readOnly, not disabled: a disabled input drops focus mid-lookup.
+              readOnly={going}
               onChange={(e) => {
                 setText(e.target.value);
                 setOpen(true);
               }}
+              onClick={() => setOpen(true)}
               onFocus={() => {
                 setOpen(true);
                 setRecent(readRecent());
@@ -467,7 +523,9 @@ export function HomeSearch({
         ) : null}
 
         {open ? (
-          <div className={styles.drop} id={listId}>
+          // mousedown kept off the list: focus stays in the input, so a pick
+          // does not blur and re-open the box.
+          <div className={styles.drop} id={listId} onMouseDown={(e) => e.preventDefault()}>
             {ai ? (
               text.trim() ? null : (
                 <>
@@ -558,6 +616,18 @@ export function HomeSearch({
                   ))}
                 </ul>
               </>
+            ) : searching ? (
+              <p className={styles.hint} role="status">
+                <Spinner /> Searching places…
+              </p>
+            ) : wantsSuggestions ? (
+              <p className={styles.hint}>
+                {tab === 'address'
+                  ? `No address matches "${lookup}". Check the street and suburb.`
+                  : tab === 'agents'
+                    ? `No suburb matches "${lookup}". Press Search to look for an agent or agency by that name.`
+                    : `No suburb matches "${lookup}". Press Search to look for it in listings instead.`}
+              </p>
             ) : !text.trim() ? (
               <p className={styles.hint}>
                 {tab === 'address'

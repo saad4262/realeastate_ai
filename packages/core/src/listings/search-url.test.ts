@@ -7,6 +7,7 @@ import {
   searchQueryToParams,
   searchQueryToPath,
   SEARCH_PARAM_KEYS,
+  suggestionToPlace,
 } from './search-url';
 
 const PAKENHAM = { lat: -38.0709, lng: 145.4844 };
@@ -150,5 +151,25 @@ describe('parseDistancePhrase (ADR 0099)', () => {
     expect(asksForTravelTime('walk to the beach')).toBe(true);
     expect(asksForTravelTime('within 2 km of Pakenham')).toBe(false);
     expect(asksForTravelTime('Walker Street, Berwick')).toBe(false);
+  });
+});
+
+describe('suggestionToPlace: a chip without a second request', () => {
+  it("reads the provider's and our own suburb suggestions", () => {
+    expect(suggestionToPlace({ label: 'Officer', secondary: 'VIC, Australia', kind: 'locality' })).toEqual({
+      suburb: 'Officer',
+      state: 'VIC',
+    });
+    expect(suggestionToPlace({ label: 'Pakenham', secondary: 'VIC 3810', kind: 'locality' })).toEqual({
+      suburb: 'Pakenham',
+      state: 'VIC',
+      postcode: '3810',
+    });
+  });
+  it('leaves anything it cannot be sure of to the resolver', () => {
+    expect(suggestionToPlace({ label: 'Sydney', secondary: 'NSW, Australia', kind: 'region' })).toBeNull();
+    expect(suggestionToPlace({ label: 'Officer', secondary: 'Australia', kind: 'locality' })).toBeNull();
+    expect(suggestionToPlace({ label: 'Officer', secondary: null, kind: 'locality' })).toBeNull();
+    expect(suggestionToPlace({ label: 'Wal|lan', secondary: 'VIC', kind: 'locality' })).toBeNull();
   });
 });
