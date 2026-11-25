@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { listing, property, shortlist, type DbOrTx } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { publicListing } from '../listings/search-listings';
@@ -58,15 +58,11 @@ export async function setShortlistNote(db: DbOrTx, actor: Actor, listingId: stri
   if (!done.length) throw new ShortlistError('not_found', 'That home is not on your shortlist.');
 }
 
-/** Which of these listings this buyer saved — for the hearts. One read, never more than it is asked about. */
-export async function shortlistedAmong(db: DbOrTx, actor: Actor, listingIds: readonly string[]): Promise<Set<string>> {
+/** Every listing id this buyer saved — the hearts' one read per page (ADR 0100). Index-only on the primary key. */
+export async function shortlistIds(db: DbOrTx, actor: Actor): Promise<string[]> {
   require(actor, 'shortlist:read');
-  if (!listingIds.length) return new Set();
-  const rows = await db
-    .select({ id: shortlist.listingId })
-    .from(shortlist)
-    .where(and(eq(shortlist.userId, actor.userId), inArray(shortlist.listingId, [...new Set(listingIds)].slice(0, MAX_SHORTLIST))));
-  return new Set(rows.map((r) => r.id));
+  const rows = await db.select({ id: shortlist.listingId }).from(shortlist).where(eq(shortlist.userId, actor.userId)).limit(MAX_SHORTLIST);
+  return rows.map((r) => r.id);
 }
 
 /** What a saved home is now, in the buyer's terms (decision 3: never "withdrawn", never why). */

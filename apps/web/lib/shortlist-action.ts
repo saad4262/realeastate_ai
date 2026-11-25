@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { addToShortlist, removeFromShortlist, setShortlistNote, shortlistedAmong, ShortlistError } from '@repo/core/shortlist';
+import { addToShortlist, removeFromShortlist, setShortlistNote, ShortlistError } from '@repo/core/shortlist';
 import { ensureAppUser } from '@repo/core/identity';
 import { getWebDb } from './db';
 import { looksSignedIn, verifiedWebUserForAction } from './session';
@@ -12,7 +12,6 @@ import { looksSignedIn, verifiedWebUserForAction } from './session';
  * costs no check. The browser chooses a listing id and nothing else; core decides the rest under `can()`.
  */
 
-export type HeartState = { signedIn: false } | { signedIn: true; saved: boolean };
 export type ShortlistResult = { ok: true } | { ok: false; error: string };
 
 async function buyer() {
@@ -22,12 +21,6 @@ async function buyer() {
   // The `public.user` row the shortlist's foreign key needs (a magic-link account may not have one yet).
   await ensureAppUser(getWebDb(), { id: user.id, email: user.email ?? '', ...(user.label ? { name: user.label } : {}) });
   return { userId: user.id };
-}
-
-export async function heartState(listingId: string): Promise<HeartState> {
-  const actor = await buyer();
-  if (!actor) return { signedIn: false };
-  return { signedIn: true, saved: (await shortlistedAmong(getWebDb(), actor, [listingId])).has(listingId) };
 }
 
 async function run(fn: (actor: { userId: string }) => Promise<void>): Promise<ShortlistResult> {

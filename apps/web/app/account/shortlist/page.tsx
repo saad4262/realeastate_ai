@@ -49,7 +49,7 @@ export default async function ShortlistPage() {
         </p>
         <h1 className={styles.title}>Your shortlist</h1>
         <p className={`${styles.body} mt-1`}>
-          {items.length ? `${items.length} ${items.length === 1 ? 'home' : 'homes'} · only you can see this` : 'Homes you save appear here — press Save on any listing.'}
+          {items.length ? `${items.length} ${items.length === 1 ? 'home' : 'homes'} · only you can see this` : 'Homes you save appear here — press the ♡ on any home.'}
         </p>
         <CompareChooser homes={items.filter((i) => i.standing === 'for_sale' || i.standing === 'for_rent').map((i) => ({ id: i.listingId, title: `${i.address}, ${i.suburb}` }))} />
         {/* ADR 0080 C6: the planner picks each home's open time and the day most of them are open. Up to eight. */}

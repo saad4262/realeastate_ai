@@ -19,6 +19,7 @@ import { channelLabel, landLabel, priceLabel, specLine } from '@repo/core/listin
  * from anything that ships to a client.
  */
 import { mediaUrl } from '@repo/core/media/url';
+import { ShortlistHeart } from './shortlist-heart';
 
 /**
  * Re-exported because a card is still where most of the app reaches for these,
@@ -206,12 +207,14 @@ export function ListingCard({
   const row = variant === 'row';
   const land = landLabel(listing.landAreaSqm);
 
+  // The heart is a sibling of the Link, not inside it: a button inside an anchor is invalid HTML.
   return (
+    <div className="relative h-full">
     <Link
       href={`/listing/${listing.id}`}
       prefetch={false}
       className={[
-        'group grid overflow-hidden rounded-lg border border-line-subtle bg-card',
+        'group grid h-full overflow-hidden rounded-lg border border-line-subtle bg-card',
         'shadow-card transition hover:border-line-strong hover:shadow-raised',
         'motion-reduce:transition-none',
         row ? 'grid-cols-[minmax(0,12rem)_1fr]' : 'grid-rows-[auto_1fr]',
@@ -261,5 +264,9 @@ export function ListingCard({
         <div className="mt-0.5 text-label-sm uppercase text-ink-faint">{listing.agencyName}</div>
       </div>
     </Link>
+    <div className="absolute right-2 top-2">
+      <ShortlistHeart listingId={listing.id} look="icon" address={listing.address} />
+    </div>
+    </div>
   );
 }

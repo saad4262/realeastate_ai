@@ -277,7 +277,7 @@ import { isSkillOn, setSkillSwitch, skillsOffForActor } from '@repo/core/skill-s
 import { consumerSkillBlocks, listConsumerSkills, setConsumerSkill, usersWithConsumerSkillOff } from '@repo/core/consumer-skills';
 import { dutyRatesDue } from '@repo/core/affordability';
 import { buildRenovationPlan, listingRooms, renovationListing, renovationRulesDue } from '@repo/core/renovation';
-import { addToShortlist, listShortlist, removeFromShortlist, setShortlistNote } from '@repo/core/shortlist';
+import { addToShortlist, listShortlist, removeFromShortlist, setShortlistNote, shortlistIds } from '@repo/core/shortlist';
 import { listWatches, localClock, runWatchTick, watchProperty } from '@repo/core/watch';
 import { editProfile, forgetProfile, loadProfile } from '@repo/core/profile';
 import { comparables, homeRows, passesVerdictRule, researchData, runResearch, suburbProfile } from '@repo/core/research';
@@ -8247,6 +8247,9 @@ async function main() {
       const mine = await listShortlist(t, a);
       assert(mine.length === 1 && mine[0]!.standing === 'for_sale' && mine[0]!.note === 'Big yard, check the train noise.', `a: ${JSON.stringify(mine)}`);
       assert((await listShortlist(t, b)).length === 0, 'another buyer saw it');
+      // ADR 0100: the hearts' read is the owner's ids only.
+      assert(JSON.stringify(await shortlistIds(t, a)) === JSON.stringify([l!.id]), 'a\'s hearts did not see the saved home');
+      assert((await shortlistIds(t, b)).length === 0, 'another buyer\'s hearts saw it');
       const theirs = await setShortlistNote(t, b, l!.id, 'x').catch((e: unknown) => e as Error);
       assert(theirs instanceof Error && /not on your shortlist/.test(theirs.message), `b's note: ${String(theirs)}`);
       await t.execute(sql`update listing set status = 'withdrawn' where id = ${l!.id}`);
@@ -12748,6 +12751,15 @@ async function main() {
     assert(/>Chats</.test(html), '/chat has no Chats handle to open the rail on a phone');
 
     return 'New chat, the conversations rail and its phone handle all render';
+  });
+
+  await check('ADR 0100: /api/shortlist answers a visitor with no session "signed out, nothing saved", never cached', async () => {
+    if (!webUp) skip('web app is not running');
+    const res = await http(`${WEB}/api/shortlist`);
+    const body = (await res.json()) as { signedIn?: unknown; ids?: unknown };
+    assert(res.status === 200 && body.signedIn === false && Array.isArray(body.ids) && body.ids.length === 0, `anon: ${res.status} ${JSON.stringify(body)}`);
+    assert(/no-store/.test(res.headers.get('cache-control') ?? ''), `cache-control: ${res.headers.get('cache-control')}`);
+    return 'anon → { signedIn: false, ids: [] }, no-store';
   });
 
   await check('every page offers a way into an account', async () => {

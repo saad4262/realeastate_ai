@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addToShortlist, listShortlist, removeFromShortlist, setShortlistNote, shortlistedAmong, shortlistState, ShortlistError } from './shortlist';
+import { addToShortlist, listShortlist, removeFromShortlist, setShortlistNote, shortlistIds, shortlistState, ShortlistError } from './shortlist';
 
 describe('the shortlist (ADR 0080, C4 decision 1)', () => {
   it('says what a saved home is now, in the buyer’s terms — never "withdrawn" (decision 3)', () => {
@@ -18,8 +18,8 @@ describe('the shortlist (ADR 0080, C4 decision 1)', () => {
       () => addToShortlist(nothing, { userId: '' }, 'x'),
       () => removeFromShortlist(nothing, { userId: '' }, 'x'),
       () => setShortlistNote(nothing, { userId: '' }, 'x', 'n'),
-      () => shortlistedAmong(nothing, { userId: '' }, ['x']),
       () => listShortlist(nothing, { userId: '' }),
+      () => shortlistIds(nothing, { userId: '' }),
     ]) {
       await expect(call()).rejects.toBeInstanceOf(ShortlistError);
     }
@@ -27,9 +27,5 @@ describe('the shortlist (ADR 0080, C4 decision 1)', () => {
 
   it('a note that is too long is refused before it is written', async () => {
     await expect(setShortlistNote({} as never, { userId: 'b' }, 'x', 'a'.repeat(501))).rejects.toMatchObject({ code: 'invalid' });
-  });
-
-  it('asking about no listings is no read at all', async () => {
-    expect(await shortlistedAmong({} as never, { userId: 'b' }, [])).toEqual(new Set());
   });
 });
