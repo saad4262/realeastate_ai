@@ -61,6 +61,13 @@ const TYPE_LABELS: Record<string, string> = {
 const RECENT_KEY = 'lah:recent-searches';
 const MIN_CHARS = 2;
 const DEBOUNCE_MS = 200;
+/** What the empty box types out as examples, per kind of search. */
+const TYPED = {
+  place: ['Pakenham, VIC 3810', 'Richmond, VIC', 'within 10 km of Berwick', 'Bondi Beach, NSW', 'postcode 3806'],
+  address: ['14 Rogers Street, Pakenham', '5 Station Street, Officer', 'Unit 2, 30 High Street, Berwick'],
+  agents: ['Berwick', '3806', 'an agency name'],
+  ai: ['a 3-bed family home near Berwick under $900k', 'a townhouse near a train station', 'land in Officer under $400k'],
+};
 /** Chips shown while the box is not in use; the rest are "+N more". */
 const SHOWN_CHIPS = 2;
 /** Answers already fetched this visit: Backspace, re-typing and tab switches cost no request. */
@@ -415,6 +422,46 @@ export function HomeSearch({
             ? ''
             : 'Add another suburb'
           : 'Search suburb, postcode or region';
+  const typing = !text && !chips.length && !point;
+  const examples = ai ? TYPED.ai : tab === 'address' ? TYPED.address : tab === 'agents' ? TYPED.agents : TYPED.place;
+
+  // The empty box types out examples. Written straight to the input's
+  // placeholder, not through state: a re-render of the whole box every 60 ms
+  // is the cost the user asked us to remove. React only writes the attribute
+  // when `placeholder` itself changes, and this effect restarts from it then.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.placeholder = placeholder;
+    if (!typing || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+
+    let shown = placeholder;
+    let target = '';
+    let item = 0;
+    let deleting = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const step = () => {
+      if (deleting) {
+        shown = shown.slice(0, -1);
+        if (!shown) {
+          deleting = false;
+          target = `Try ${examples[item]}`;
+          item = (item + 1) % examples.length;
+        }
+        el.placeholder = shown;
+        timer = setTimeout(step, shown ? 25 : 300);
+        return;
+      }
+      shown = target.slice(0, shown.length + 1);
+      el.placeholder = shown;
+      if (shown === target) deleting = true;
+      timer = setTimeout(step, deleting ? 1800 : 60);
+    };
+    // The plain hint first, so the box says what it is before it shows examples.
+    timer = setTimeout(step, 2000);
+    return () => clearTimeout(timer);
+  }, [typing, examples, placeholder]);
+
   const listId = `${id}-list`;
   const showDistance = !ai && isPlaceTab;
   const placed = chips.length > 0 || point !== null;

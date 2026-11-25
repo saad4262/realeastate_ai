@@ -3,6 +3,16 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-25 (later still) — Claude Code (Mac) — the empty search box types out examples
+
+- The user asked for a placeholder that types and changes, as on realestate.com.au. Branch `feat/typed-placeholder` (from
+  `daf8b15`): the empty box (no text, no chip) shows its plain hint for 2 s, then deletes it and types "Try …" examples per tab
+  (suburbs, an address, an agency, an AI sentence), holds, and moves on. Written straight to the input's placeholder from an
+  effect, never through state, so the box does not re-render 16 times a second; reduced motion keeps the plain hint.
+- Headless Chromium on dev: 23 distinct placeholders in 7 s, 87 DOM changes in the card and every one the placeholder (0 other);
+  typing freezes it, clearing brings it back, Address types an address, a chip shows "Add another suburb", reduced motion is
+  static. Layout shift still 0, the box checks still pass; full `pnpm --filter @repo/web build` green.
+
 ## 2026-11-25 (late night) — Claude Code (Mac) — Sold Filters live; the search box stops moving the page
 
 - On the user's go: `feat/sold-filters-rea` merged as `d61dd3c`; all 4 Vercel builds Ready; on findoraaus.com.au
