@@ -42,6 +42,10 @@ export async function PipelineBoard({ surface, mine }: { surface: 'agency' | 'ag
           <h1 className={contactStyles.title}>{seesAll && !mine ? 'Pipeline' : 'My pipeline'}</h1>
           <p className={contactStyles.sub}>Every sale from appraisal to settlement. Click a card for its Deal tab.</p>
         </div>
+        {/* ADR 0101: every deal in this view, settled and withdrawn too. */}
+        <a href={mine ? '/api/exports/deals?mine=1' : '/api/exports/deals'} className={contactStyles.btn} download>
+          Export CSV
+        </a>
         {seesAll ? (
           <div className={styles.filters}>
             <Link href={base} className={`${styles.chip} ${mine ? '' : styles.chipOn}`} aria-current={mine ? undefined : 'page'}>Whole agency</Link>

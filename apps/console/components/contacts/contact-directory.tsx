@@ -73,6 +73,9 @@ export function ContactDirectory({
           <a href={hrefFor('/api/exports/contacts', query, 1)} className={styles.btn} download>
             Export CSV
           </a>
+          <a href="/api/exports/notes" className={styles.btn} download>
+            Export notes
+          </a>
           {page.mayCreate ? (
             <>
               {/* Whoever may add a contact may import them (contact_import:create, the same rule). */}

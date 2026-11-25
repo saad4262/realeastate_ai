@@ -1,6 +1,6 @@
 # 0101 — Agency data export: quick CSV, then a full zip
 
-**Status:** accepted 2026-11-25 (the user's decisions in `docs/briefs/agency-data-export.md`). Phase 1 built; phases 2–3 to come.
+**Status:** accepted 2026-11-25 (the user's decisions in `docs/briefs/agency-data-export.md`). Phases 1 and 2 built; phase 3 to come.
 
 **Why.** An agency must be able to take its data away, any day, without asking us. ADR 0030 §5 and ADR 0093
 cover the agency that leaves (a platform operator runs a JSON-lines export). This ADR covers the agency that stays:
@@ -14,7 +14,11 @@ agency. It is not in `PLATFORM_READ`, so a platform admin's read-only view canno
 **Two ways.**
 1. *Quick export* (phase 1: Customers, Listings; phase 2: Leads, Appointments, Deals, Notes). A button on the list
    page; the rows the page's filters select, every page of them. Streamed in pages of 1,000 (keyset on `id`), one
-   query per page, so neither memory nor Vercel's response-size limit grows with the book.
+   query per page, so neither memory nor Vercel's response-size limit grows with the book. Each dataset is scoped by
+   its own screen's rule: `leadScopeFilters` (offers only for `lead:read_offer`), `appointmentScopeFilters` (past
+   and upcoming together), `visibleDealsSql` (every deal, settled and withdrawn too, though the board shows the open
+   ones; `?mine=1` as the board's "Only mine"), and notes on the customers the member sees, private ones only for
+   their author or an admin (`noteVisibleSql`). Notes have no list page: their button is on Customers.
 2. *Full export* (phase 3). "Download all my data" in Settings → Data, for every member, same scope: one CSV per
    dataset (full SMS, email and call bodies included), the real photo and document files in `photos/` and
    `documents/`, and a README. Built by the minute cron into a private Storage bucket; the member gets an email and

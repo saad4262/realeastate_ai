@@ -371,7 +371,7 @@ import { DATASET_IDS, DATASETS, runTile, tileSpecSchema, type TileSpec } from '@
 import { agentsNamedTwice, dataDictionary, missingAgents, runAsReader, runOpenQuery, runOpenTile, OPEN_QUERY_LIMITS, HIDDEN_TEXT, type OpenCell } from '@repo/core/open-query';
 import { leadScopeFilters as openLeadScope } from '@repo/core/leads';
 import { contactScopeFilters as openContactScope } from '@repo/core/contacts';
-import { startQuickExport } from '@repo/core/exports';
+import { startQuickExport, type QuickDataset } from '@repo/core/exports';
 import { parseCsv as parseExportCsv } from '@repo/core/imports';
 import { activeMemberActor, assignNeedsOwner, claimAgentInvite, listNeedsOwner, offboardingPreview, removedFromAgency, removeMember, restoreMember } from '@repo/core/team';
 import { runEmbeddingTick, type Embedder } from '@repo/core/assistant-search';
@@ -5656,38 +5656,6 @@ async function main() {
     return summary;
   });
 
-  /** ADR 0101: the ids in a quick-export file, read back with the import's own CSV reader. */
-  const exportedIds = async (t: Db, actor: Actor, dataset: 'contacts' | 'listings') => {
-    const { chunks } = await startQuickExport(t, actor, dataset, { archived: 'all' });
-    let csv = '';
-    for await (const c of chunks) csv += c;
-    const { headers, rows } = parseExportCsv(csv.slice(1));
-    return rows.map((r) => r[headers.indexOf('id')]!).sort();
-  };
-
-  await check('a quick export holds exactly what each person’s own screens list, and is in the audit log with its count (ADR 0101)', () =>
-    inRollback(async (t) => {
-      const f = await contactFixture(t);
-      const counts: string[] = [];
-      for (const who of ['a1', 'a2', 'owner', 'viewer'] as const) {
-        const actor = f.actor(who);
-        const screen = (await listContacts(t, actor, { archived: 'all' })).rows.map((r) => r.id).sort();
-        const file = await exportedIds(t, actor, 'contacts');
-        assert(JSON.stringify(file) === JSON.stringify(screen), `${who}: customers file ${file.length} vs directory ${screen.length}`);
-        const all = can(actor, 'listing:read_all', { type: 'listing', agencyId: f.agencyId });
-        const book = (await listAgencyListings(t, actor, { mine: !all })).map((r) => r.id).sort();
-        const lfile = await exportedIds(t, actor, 'listings');
-        assert(JSON.stringify(lfile) === JSON.stringify(book), `${who}: listings file ${lfile.length} vs book ${book.length}`);
-        counts.push(`${who} ${file.length}/${lfile.length}`);
-      }
-      const [log] = await t.execute<{ n: number; counted: number }>(sql`
-        select count(*)::int as n, count(*) filter (where (detail->>'complete')::boolean and detail ? 'rows')::int as counted
-        from audit_log where agency_id = ${f.agencyId} and action = 'data_exported'`);
-      assert(log?.n === 8 && log.counted === 8, `audit rows: ${JSON.stringify(log)}`);
-      return `customers/listings per person equal to their screens: ${counts.join(', ')}; 8 audit rows, each counted`;
-    }),
-  );
-
   await check('references belong to one conversation, are re-checked as the person on every use, and a conversation is its author’s alone', async () => {
     const ROLLBACK = new Error('smoke rollback');
     let summary = '';
@@ -10022,6 +9990,54 @@ async function main() {
     return { g, A, B, bIds };
   }
 
+  /** ADR 0101: the ids in a quick-export file, read back with the import's own CSV reader. */
+  const exportedIds = async (t: Db, actor: Actor, dataset: QuickDataset) => {
+    const { chunks } = await startQuickExport(t, actor, dataset, { archived: 'all' });
+    let csv = '';
+    for await (const c of chunks) csv += c;
+    // A header and nothing else is an empty book; the import's reader refuses that, so it is answered here.
+    if (csv.split('\r\n').filter(Boolean).length === 1) return [];
+    const { headers, rows } = parseExportCsv(csv.slice(1));
+    return rows.map((r) => r[headers.indexOf('id')]!).sort();
+  };
+
+  await check('a quick export holds exactly what each person’s own screens list, and is in the audit log with its count (ADR 0101)', () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      await scheduleAppointment(t, f.actor('a1'), f.contacts.p1, { title: 'A1 appraisal', type: 'appraisal', ...slot(2) });
+      await scheduleAppointment(t, f.actor('a2'), f.contacts.p2, { title: 'A2 meeting', type: 'meeting', ...slot(3) });
+      const shared = await createNote(t, f.actor('a1'), f.contacts.p1, `shared ${f.tag}`);
+      const secret = await createNote(t, f.actor('owner'), f.contacts.p1, `private ${f.tag}`, { isPrivate: true });
+      const same = (who: string, what: string, file: string[], screen: string[]) =>
+        assert(JSON.stringify(file) === JSON.stringify([...screen].sort()), `${who}: ${what} file ${file.length} vs screen ${screen.length}`);
+      const counts: string[] = [];
+      for (const who of ['a1', 'a2', 'owner', 'viewer'] as const) {
+        const actor = f.actor(who);
+        const contacts = await exportedIds(t, actor, 'contacts');
+        same(who, 'customers', contacts, (await listContacts(t, actor, { archived: 'all' })).rows.map((r) => r.id));
+        const all = can(actor, 'listing:read_all', { type: 'listing', agencyId: f.agencyId });
+        const listings = await exportedIds(t, actor, 'listings');
+        same(who, 'listings', listings, (await listAgencyListings(t, actor, { mine: !all })).map((r) => r.id));
+        const leads = await exportedIds(t, actor, 'leads');
+        same(who, 'leads', leads, (await listAgencyLeads(t, actor, { limit: 1000 })).rows.map((r) => r.id));
+        const appts = await exportedIds(t, actor, 'appointments');
+        const calendar = [...(await listAppointments(t, actor, { when: 'upcoming' })).rows, ...(await listAppointments(t, actor, { when: 'past' })).rows];
+        same(who, 'appointments', appts, calendar.map((r) => r.id));
+        const notes = await exportedIds(t, actor, 'notes');
+        const seesP1 = contacts.includes(f.contacts.p1);
+        assert(notes.includes(shared.id) === seesP1, `${who}: the shared note ${notes.includes(shared.id) ? 'is' : 'is not'} in the file`);
+        assert(notes.includes(secret.id) === (who === 'owner'), `${who}: the owner's private note ${notes.includes(secret.id) ? 'leaked into' : 'is missing from'} the file`);
+        await exportedIds(t, actor, 'deals');
+        counts.push(`${who} ${contacts.length}/${listings.length}/${leads.length}/${appts.length}/${notes.length}`);
+      }
+      const [log] = await t.execute<{ n: number; counted: number }>(sql`
+        select count(*)::int as n, count(*) filter (where (detail->>'complete')::boolean and detail ? 'rows')::int as counted
+        from audit_log where agency_id = ${f.agencyId} and action = 'data_exported'`);
+      assert(log?.n === 24 && log.counted === 24, `audit rows: ${JSON.stringify(log)}`);
+      return `customers/listings/leads/appointments/notes per person, equal to their screens: ${counts.join(', ')}; 24 audit rows, each counted`;
+    }),
+  );
+
   const A_ROLES = ['owner', 'a1', 'a2', 'viewer'] as const;
   const tolerate = <T,>(p: Promise<T>) => p.catch((e: unknown) => ({ refused: (e as { code?: string }).code ?? 'error' }));
 
@@ -10077,6 +10093,10 @@ async function main() {
           ['offboardingPreview(B)', offboardingPreview(t, actor, B.f.people.a1)],
           ['quick export contacts', exportedIds(t, actor, 'contacts')],
           ['quick export listings', exportedIds(t, actor, 'listings')],
+          ['quick export leads', exportedIds(t, actor, 'leads')],
+          ['quick export appointments', exportedIds(t, actor, 'appointments')],
+          ['quick export deals', exportedIds(t, actor, 'deals')],
+          ['quick export notes', exportedIds(t, actor, 'notes')],
         ];
         // Handlers attached the moment each read starts: a refusal must never be an unhandled rejection.
         const settled = lists.map(([name, p]) => [name, tolerate(p)] as const);

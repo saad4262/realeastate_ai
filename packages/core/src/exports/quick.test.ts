@@ -6,7 +6,7 @@ import type { Actor } from '../permissions';
 import { parseCsv } from '../imports/csv';
 import { autoMap, normalizeRow, IMPORT_FIELDS } from '../imports/columns';
 import { contactAutoMap, normalizeContactRow, CONTACT_IMPORT_FIELDS } from '../imports/contact-columns';
-import { CONTACT_EXPORT_HEADERS, EXPORT_PAGE, ExportError, LISTING_EXPORT_HEADERS, startQuickExport } from './quick';
+import { CONTACT_EXPORT_HEADERS, EXPORT_PAGE, ExportError, LISTING_EXPORT_HEADERS, QUICK_DATASETS, startQuickExport, type QuickDataset } from './quick';
 
 const A = '11111111-1111-1111-1111-111111111111';
 const B = '22222222-2222-2222-2222-222222222222';
@@ -29,12 +29,14 @@ function fakeDb(results: unknown[][]) {
     chain.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => Promise.resolve(results.shift() ?? []).then(res, rej);
     return chain;
   };
+  const executes: { sql: string; params: unknown[] }[] = [];
   const db = {
     select,
+    execute: async (q: SQL) => (executes.push(dialect.sqlToQuery(q)), results.shift() ?? []),
     insert: () => ({ values: (v: Record<string, unknown>) => (audits.push(v), { returning: async () => [{ id: 'audit-1' }] }) }),
     update: () => ({ set: (v: { detail: SQL }) => ({ where: async () => void updates.push(dialect.sqlToQuery(v.detail)) }) }),
   };
-  return { db: db as unknown as Db, wheres, audits, updates };
+  return { db: db as unknown as Db, wheres, audits, updates, executes };
 }
 
 async function drain(gen: AsyncGenerator<string>): Promise<string> {
@@ -210,5 +212,58 @@ describe('quick export (ADR 0101)', () => {
     });
     expect(row!.property).toMatchObject({ streetNumber: '14', bedrooms: 4, bathrooms: 2, landAreaSqm: 612 });
     expect(row!.listing).toMatchObject({ priceFrom: 780000, priceTo: 820000, auctionDate: '2027-02-13T00:00:00.000Z', description: 'Four bedrooms, "two" living areas,\nand a yard.' });
+  });
+
+  // Phase 2: each dataset's own screen rule, asked of the same agent and owner. The SQL text is the helper's.
+  const sqlOf = async (actor: Actor, dataset: QuickDataset, query = {}) => {
+    const f = fakeDb([TZ, []]);
+    const { filename, chunks } = await startQuickExport(f.db, actor, dataset, query);
+    await drain(chunks);
+    // The page is the last WHERE built (the lead rule's listing sub-select is built first); deals are raw SQL.
+    const q = dataset === 'deals' ? f.executes[0]! : f.wheres[f.wheres.length - 1]!;
+    return { ...q, filename, audit: f.audits[0]!.detail as Record<string, unknown> };
+  };
+
+  it('refuses a dataset it does not know', async () => {
+    await expect(startQuickExport(fakeDb([]).db, owner, 'payments' as QuickDataset)).rejects.toBeInstanceOf(ExportError);
+  });
+
+  it('names every file after its dataset and the day', async () => {
+    for (const d of QUICK_DATASETS) expect((await sqlOf(owner, d)).filename).toMatch(new RegExp(`^${d === 'contacts' ? 'customers' : d}-\\d{4}-\\d{2}-\\d{2}\\.csv$`));
+  });
+
+  it("leads: an agent's are theirs, never an offer; an owner's are the agency's, offers included", async () => {
+    const a = await sqlOf(agent, 'leads');
+    expect(a.params).toContain('u-agent');
+    expect(a.params).toContain('offer');
+    const o = await sqlOf(owner, 'leads');
+    expect(o.params).not.toContain('u-agent');
+    expect(o.params).not.toContain('offer');
+    const tab = await sqlOf(owner, 'leads', { kind: 'inspection', ai: 'urgent', junk: 'x' });
+    expect(tab.params).toEqual(expect.arrayContaining(['inspection', 'high']));
+    expect(tab.audit).toMatchObject({ dataset: 'leads', filters: ['kind', 'ai'] });
+  });
+
+  it("appointments: an agent's are the ones they own, booked or are on; an owner's are the agency's", async () => {
+    expect((await sqlOf(agent, 'appointments')).sql).toContain('appointment_participant');
+    expect((await sqlOf(owner, 'appointments')).sql).not.toContain('appointment_participant');
+  });
+
+  it("deals: an agent's are theirs or on their listings; an owner's are the agency's; mine narrows the owner", async () => {
+    const a = await sqlOf(agent, 'deals');
+    expect(a.sql).toContain('d.agent_id = ');
+    expect(a.params).toContain('u-agent');
+    const o = await sqlOf(owner, 'deals');
+    expect(o.sql).not.toContain('d.agent_id = ');
+    expect((await sqlOf(owner, 'deals', { mine: '1' })).sql).toContain('d.agent_id = ');
+  });
+
+  it("notes: only on customers the actor sees, and someone else's private note only for an admin", async () => {
+    const a = await sqlOf(agent, 'notes');
+    expect(a.sql).toContain('c.assigned_to = ');
+    expect(a.sql).toContain('"is_private"');
+    const o = await sqlOf(owner, 'notes');
+    expect(o.sql).not.toContain('c.assigned_to = ');
+    expect(o.sql).not.toContain('"is_private"');
   });
 });

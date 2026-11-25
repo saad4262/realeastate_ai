@@ -2486,3 +2486,7 @@ Mock: `docs/mocks/home-search.html`. Public site, signed out unless said.
 | DA6 | A customer named `=1+1` | The cell reads `'=1+1` in Excel, never `2` |
 | DA7 | As owner, Settings → Audit log after DA1–DA4 | One "Downloaded … as CSV (N rows)" line per download, with who and when |
 | DA8 | Platform admin → an agency's customers | No Export button; `/api/exports/contacts` from the admin session answers 401 |
+| DA9 | Leads → Offers tab → Export CSV (owner), then as an agent | Owner: the offers with amounts. Agent: no Offers tab, and no offer in any export |
+| DA10 | Calendar → Export CSV | Past and upcoming; times on the appointment's own clock |
+| DA11 | Pipeline → Export CSV, then "Only mine" → Export CSV | Every deal incl. settled; the second only the owner's own |
+| DA12 | As an agent, Customers → Export notes | Their visible customers' notes; another member's private note never appears |

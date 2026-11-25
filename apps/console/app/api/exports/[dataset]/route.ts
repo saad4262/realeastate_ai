@@ -1,5 +1,4 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { contactListQuerySchema } from '@repo/core/contacts';
 import { ExportError, QUICK_DATASETS, startQuickExport, type QuickDataset } from '@repo/core/exports';
 import { getConsoleDb } from '../../../../lib/db';
 import { loadActor } from '../../../../lib/load-actor';
@@ -16,15 +15,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!actor?.agencyId) return apiError(401, 'Not signed in');
   const { dataset } = await params;
   if (!(QUICK_DATASETS as readonly string[]).includes(dataset)) return apiError(404, 'Not found');
-  const sp = request.nextUrl.searchParams;
-  // The directory's own filters, parsed by its own schema; anything unrecognised is dropped.
-  const query = contactListQuerySchema.parse({
-    q: sp.get('q') ?? undefined,
-    role: sp.get('role') || undefined,
-    source: sp.get('source') || undefined,
-    assigned: sp.get('assigned') || undefined,
-    archived: sp.get('archived') || undefined,
-  });
+  // The list page's own URL filters; core parses each dataset's with that screen's schema and drops the rest.
+  const query = Object.fromEntries(request.nextUrl.searchParams);
   try {
     const { filename, chunks } = await startQuickExport(getConsoleDb(), actor, dataset as QuickDataset, query);
     const enc = new TextEncoder();
