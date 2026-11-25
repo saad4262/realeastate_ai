@@ -3,6 +3,20 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-25 (evening) — Claude Code (Mac) — ADR 0101 agency data export, phase 1
+
+- The user asked whether agencies and agents can download their data as CSV; I proposed quick + full export and three questions.
+  Answers (via Cursor brief `docs/briefs/agency-data-export.md`): agents and admins both, scoped; full bodies; real files in the zip.
+- Built phase 1 on `feat/agency-data-export` from `origin/main` (`ddd517e`), in worktree `../realestate_ai-export` (parallel sessions).
+  Found on the way: `audit_log` (0098) already exists, so no migration; ADR 0093's closure export is the operator's, kept separate.
+- Decision of mine, in the ADR: `data:export` is any member including read-only (they already see those rows); a platform view
+  is refused. Listings for an admin are the whole book on either surface (by `listing:read_all`, not by which console).
+- First try changed `recordAudit` to return the id: six tests of other callers broke (their fakes have no `.returning`). Reverted;
+  the export inserts its own row.
+- Verified: core 2532 / AI 462 / rest green, typecheck, lint, full console build; 10 guards broken on purpose, each red, restored.
+  NOT run: smoke (new checks: export = screens per role, audit counted; and both exports in the isolation reads), browser, dev SQL.
+- Not merged. Asked the user before merge / smoke.
+
 ## 2026-11-25 (later still) — Claude Code (Mac) — the empty search box types out examples
 
 - The user asked for a placeholder that types and changes, as on realestate.com.au. Branch `feat/typed-placeholder` (from

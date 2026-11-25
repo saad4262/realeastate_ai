@@ -2473,3 +2473,16 @@ Mock: `docs/mocks/home-search.html`. Public site, signed out unless said.
 | CZ17 | AI search: On, type a sentence, Enter | Opens `/chat` with it; the starters show when the box is empty |
 | CZ18 | Phone width (375 px) | Tabs scroll sideways; Filters and Search share a row under the box; no page scroll sideways |
 | CZ19 | An old link `/search?suburb=Pakenham&radius=10` and an old alert | Same results as before this change |
+
+## DA — Agency data export, quick CSV (ADR 0101, phase 1)
+
+| # | Do | Expect |
+|---|---|---|
+| DA1 | Agency console → Customers → Export CSV | `customers-YYYY-MM-DD.csv` downloads; opened in Excel, names with accents read right; row count = the directory's total |
+| DA2 | Filter Customers (role Buyer, "Current and archived"), then Export CSV | Only those rows; archived ones show `yes` in `archived` |
+| DA3 | Agent console → My contacts → Export CSV | Only the agent's own contacts (the same as the screen), never another agent's or an offer-only person |
+| DA4 | Agency console → Listings → Export CSV; agent console → My Listings → Export CSV | Owner: every listing, drafts included. Agent: only listings they are named on |
+| DA5 | Import the listings file back (Listings → Import from CSV, as draft) into a test agency | Mapping fills itself; dry run has no errors; photos, video link and open homes come across |
+| DA6 | A customer named `=1+1` | The cell reads `'=1+1` in Excel, never `2` |
+| DA7 | As owner, Settings → Audit log after DA1–DA4 | One "Downloaded … as CSV (N rows)" line per download, with who and when |
+| DA8 | Platform admin → an agency's customers | No Export button; `/api/exports/contacts` from the admin session answers 401 |

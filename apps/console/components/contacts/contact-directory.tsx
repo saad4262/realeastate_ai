@@ -68,17 +68,23 @@ export function ContactDirectory({
           <h1 className={styles.title}>{title}</h1>
           <p className={styles.sub}>{subtitle}</p>
         </div>
-        {page.mayCreate ? (
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            {/* Whoever may add a contact may import them (contact_import:create, the same rule). */}
-            <Link href={`${basePath}/import`} className={styles.btn}>
-              Import
-            </Link>
-            <Link href={`${basePath}/new`} className={styles.btn}>
-              <span aria-hidden>+</span> New contact
-            </Link>
-          </div>
-        ) : null}
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {/* ADR 0101: the rows these filters select, every page; the server scopes it, as it scopes this list. */}
+          <a href={hrefFor('/api/exports/contacts', query, 1)} className={styles.btn} download>
+            Export CSV
+          </a>
+          {page.mayCreate ? (
+            <>
+              {/* Whoever may add a contact may import them (contact_import:create, the same rule). */}
+              <Link href={`${basePath}/import`} className={styles.btn}>
+                Import
+              </Link>
+              <Link href={`${basePath}/new`} className={styles.btn}>
+                <span aria-hidden>+</span> New contact
+              </Link>
+            </>
+          ) : null}
+        </div>
       </div>
 
       <form className={styles.filters} method="get" action={basePath} role="search">

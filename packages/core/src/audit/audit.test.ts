@@ -82,6 +82,10 @@ describe('auditSentence', () => {
     expect(auditSentence(row('member_removed', { role: 'agent', workTo: 'x' }))).toBe('Removed Sam Lee (agent) from the agency');
     expect(auditSentence(row('member_edited', { fields: ['phone', 'operationalRole'], roleTo: 'admin' }))).toBe('Edited Sam Lee (phone, operationalRole); role now admin');
     expect(auditSentence(row('sends_paused', { reason: 'Far above usual.', figures: {} }, null))).toBe('Sends paused automatically: Far above usual.');
+    // ADR 0101: what was downloaded and how much, never which people.
+    expect(auditSentence(row('data_exported', { dataset: 'contacts', scope: 'own', rows: 1, complete: true }))).toBe('Downloaded contacts as CSV (1 row)');
+    expect(auditSentence(row('data_exported', { dataset: 'listings', rows: 40, complete: false }))).toBe('Downloaded listings as CSV (40 rows, stopped before the end)');
+    expect(auditSentence(row('data_exported', { dataset: 'contacts', rows: null }))).toBe('Downloaded contacts as CSV (rows not counted)');
     expect(auditSentence(row('listing_deleted', { status: 'draft' }, null))).toBe('Deleted a listing (it was draft)');
   });
   it('a deleted person is "a former member"; an unknown action is shown as stored', () => {
